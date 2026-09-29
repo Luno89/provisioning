@@ -2,11 +2,12 @@ import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import { awaitingReview, settleClaim, type Branch, type Leaf } from '../../lib/leaves.js';
 import type { Tree } from '../../lib/trees.js';
-import { SETTLED, type Task, type TaskStatus } from '../../lib/tasks.js';
+import { SETTLED, type Task, type TaskStatus } from './tasks.js';
 import { parseLeafPlan, parsePlan, planSummary, type PlanProposal } from '../../lib/plan-proposals.js';
 import { worktreeHead } from '../grove-worktrees.js';
 import { treeOutline } from '../../lib/tree-outline.js';
 import { nextLeafStep } from '../../lib/grove-leaf.js';
+import type { TreeStages } from '../../lib/tree-types.js';
 import { leafContext } from '../../lib/plan-documents.js';
 
 export interface GroveStores {
@@ -27,6 +28,8 @@ export interface TreeTypeChoice {
   id: string;
   label: string;
   summary: string;
+  /** the agents this type names for its stages, where it names any — a grove run resolves them against the defaults */
+  stages?: TreeStages | undefined;
 }
 
 export interface GroveToolOptions {
@@ -332,8 +335,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       if (!leaf) return refuse(`no such leaf: ${leafId}`);
 
       const tasks = (await options.stores.tasks?.list() ?? []).filter((task) => task.leafId === leafId && task.ownerId === caller.ownerId);
-      const attempts = Object.fromEntries(tasks.map((task) => [task.id, task.runs.length]));
-      const step = nextLeafStep(tasks, attempts);
+      const step = nextLeafStep(tasks);
 
       if (step.kind === 'claim') return { ok: true, digest: `every task of ${leaf.title} is finished — claim it`, content: JSON.stringify({ step: 'claim' }) };
       if (step.kind === 'unbroken') return { ok: true, digest: `${leaf.title} has no tasks yet`, content: JSON.stringify({ step: 'unbroken' }) };

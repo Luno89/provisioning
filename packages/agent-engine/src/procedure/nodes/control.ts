@@ -178,12 +178,12 @@ export const delegate: BuiltInNode = {
     kind: 'delegate',
     title: 'Delegate',
     category: 'control',
-    describe: `Starts another persona as a child run with the inputs you write, waits for it to finish, and leaves by how it ended. The child gets nothing except those inputs, unless you wire it an environment — then it works in that same workspace instead of one of its own, so it can see what was done there. ${INPUTS_HELP}`,
+    describe: `Starts another persona as a child run with the inputs you write, waits for it to finish, and leaves by how it ended. The child gets nothing except those inputs. It works in the workspace you wire it, so it can see what was done there; wire nothing and it works in the one this run was given, or finds one of its own when this run has none. ${INPUTS_HELP}`,
     role: 'step',
     inputs: [
       { name: 'values', type: 'json', describe: 'Values the inputs can refer to as {{values.…}}.' },
       { name: 'text', type: 'text', describe: 'Text the inputs can refer to as {{text}}.' },
-      { name: 'environment', type: 'environment', describe: 'A workspace to hand the child, so it works where the work was done rather than somewhere of its own. Nothing wired means it gets its own.' },
+      { name: 'environment', type: 'environment', describe: 'A workspace to hand the child, so it works where the work was done rather than somewhere of its own. Nothing wired means it gets the workspace this run was given, and finds its own when this run has none.' },
     ],
     outputs: [
       { name: 'outputs', type: 'json', describe: 'What the child run handed back.' },

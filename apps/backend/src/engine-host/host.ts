@@ -39,7 +39,7 @@ export interface EngineHostStores {
     branches: { list(): Promise<import('../lib/leaves.js').Branch[]>; save(branch: import('../lib/leaves.js').Branch): Promise<void> };
     leaves: { list(): Promise<import('../lib/leaves.js').Leaf[]>; save(leaf: import('../lib/leaves.js').Leaf): Promise<void> };
     /** optional: when absent, no leaf has tasks (P0 planner world) */
-    tasks?: { list(): Promise<import('../lib/tasks.js').Task[]> };
+    tasks?: { list(): Promise<import('./tools/tasks.js').Task[]> };
     plans?: {
       save(proposal: import('../lib/plan-proposals.js').PlanProposal): Promise<void>;
       list(ownerId: string, conversationId?: string): Promise<import('../lib/plan-proposals.js').PlanProposal[]>;
@@ -253,7 +253,7 @@ export function storesFromDatabase(db: Database): EngineHostStores {
         const mine = new Set(visible.filter((type) => type.ownerId === ownerId).map((type) => type.id));
         return visible
           .filter((type) => type.ownerId === ownerId || !mine.has(type.id))
-          .map((type) => ({ id: type.id, label: type.label, summary: type.summary }));
+          .map((type) => ({ id: type.id, label: type.label, summary: type.summary, ...(type.stages ? { stages: type.stages } : {}) }));
       },
       binding: async (ownerId: string, conversationId: string) => {
         const conversation = await db.getConversation(ownerId, conversationId);

@@ -1,7 +1,7 @@
 import type { Branch, Leaf } from '../lib/leaves.js';
 import type { Tree } from '../lib/trees.js';
 import { primaryProjectId } from '../lib/trees.js';
-import { newTask, type Task } from '../lib/tasks.js';
+import { newTask, type Task } from './tools/tasks.js';
 import type { AdoptedPlan, PlanProposal, PlanStatus } from '../lib/plan-proposals.js';
 import { leafBriefPath, leafWorktree, PLAN_DOC_PATH, planDocuments, renderLeafBrief, TREE_REPO } from '../lib/plan-documents.js';
 import { resetForRetry } from '../lib/leaves.js';

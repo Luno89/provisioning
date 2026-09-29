@@ -14,6 +14,7 @@ import {
   type NodeTrace,
 } from '@koala/agent-engine/procedure';
 import { createEnvironmentNodes } from './environment-nodes.js';
+import { childInputs } from './child-inputs.js';
 import { createMemoryNodes } from './memory-nodes.js';
 import { createModelNodes } from './model-nodes.js';
 import { createToolNodes } from './tool-nodes.js';
@@ -117,7 +118,7 @@ export function createProcedureExecutor(
           trigger: 'agent',
         },
         launch: { ...launchFor(ticketFor(run), run.launch.projectId), ...(environment ? { environment } : {}) },
-        inputs: { ...inputs, message: typeof inputs.message === 'string' ? inputs.message : '' },
+        inputs: childInputs(inputs),
         budget: runnable.procedure.budget,
         ...(options.signal ? { signal: options.signal } : {}),
         ...(options.onTrace ? { onTrace: (trace) => options.onTrace!(trace, { runId, agentSlug: agent, procedureId: runnable.procedure.id, procedureVersion: runnable.procedure.version }) } : {}),

@@ -1,4 +1,4 @@
-import { describeProblem, MAX_TASK_DESCRIPTION, MAX_TASK_ROLE } from './tasks.js';
+import { describeProblem, MAX_TASK_DESCRIPTION, MAX_TASK_ROLE } from '../engine-host/tools/tasks.js';
 import { usableServiceName } from './service-name.js';
 import { claimService } from './service-claim.js';
 import type { LeafPlan, LeafPlanMode, NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanTask } from '@koala/harness-types';

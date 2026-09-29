@@ -214,7 +214,7 @@ const WAITING: Procedure = {
   groups: [],
 };
 
-const delegating = (agent: string): Procedure => ({
+const delegating = (agent: string, inputs = '{"question":"why"}'): Procedure => ({
   schema: PROCEDURE_SCHEMA,
   id: 'hands-off',
   version: '1',
@@ -223,7 +223,7 @@ const delegating = (agent: string): Procedure => ({
   budget: { maxRounds: 2 },
   start: 'handOff',
   nodes: [
-    place('handOff', 'delegate', { agent, inputs: '{"question":"why"}' }),
+    place('handOff', 'delegate', { agent, inputs }),
     place('done', 'finish', { outcome: 'ok' }),
     place('failed', 'finish', { outcome: 'failed' }),
   ],
@@ -390,7 +390,19 @@ describe('AgentRunWorkflow', () => {
 
     expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'because it was' } });
     expect(acts.engine.EngineResolveAgentActivity).toHaveBeenCalledWith(expect.objectContaining({ agentSlug: 'research' }));
-    expect(acts.seen[0]![0]).toEqual({ role: 'user', content: '{"question":"why"}' });
+    expect(acts.seen[0]![0]).toEqual({ role: 'user', content: 'question: why' });
+  }, 60_000);
+
+  it('hands a delegated persona the opening line its parent wrote, and still labels the rest of what it was given', async () => {
+    const acts = activities({ script: [{ content: 'because it was' }] });
+
+    const result = await runWorkflow(
+      input('koala', delegating('research', '{"question":"why","message":"Answer this one question."}')),
+      acts,
+    );
+
+    expect(result).toMatchObject({ outcome: 'ok' });
+    expect(acts.seen[0]![0]).toEqual({ role: 'user', content: 'Answer this one question.\n\nquestion: why' });
   }, 60_000);
 
   it('hands a delegated persona the sandbox its caller works in, across the child workflow, and only the caller releases it', async () => {

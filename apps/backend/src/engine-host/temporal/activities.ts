@@ -21,12 +21,11 @@ import type {
   AdoptPlanArgs,
   GrovePrepareWorkArgs,
   GrovePreparedWork,
-  GroveLeafTasksArgs,
   GroveLeafStatusArgs,
-  GroveLeafTaskView,
   GroveClaimArgs,
   GroveClaimOutcome,
   GroveTreeArgs,
+  GroveStages,
   GroveLeafNeedingPlan,
   GroveJudgeCheckoutArgs,
   GroveJudgeCheckouts,
@@ -46,11 +45,12 @@ import type {
   ToolRuntime,
   SettleClaimsArgs,
 } from './contracts.js';
-import { createGroveTools } from '../tools/grove-tools.js';
+import { createGroveTools, type TreeTypeChoice } from '../tools/grove-tools.js';
 import type { TreeSandbox, TreeWorkspaces } from '../sandboxes/tree-workspaces.js';
 import type { AdoptedRecords, PlanAdoption } from '../plan-adoption.js';
 import { prepareJudgeCheckout, prepareLeafWorktree, pruneLeafWorktrees, WorktreeConflictError } from '../grove-worktrees.js';
 import { claimEvidence, leavesNeedingPlan } from '../../lib/grove-leaf.js';
+import { stagesOf } from '../../lib/grove-stages.js';
 import { leafWorktree } from '../../lib/plan-documents.js';
 import type { AdoptedPlan } from '../../lib/plan-proposals.js';
 import type { Tree } from '../../lib/trees.js';
@@ -100,6 +100,8 @@ export interface GroveStores {
   branches: { list(): Promise<Branch[]> };
   leaves: { list(): Promise<Leaf[]>; save?(leaf: Leaf): Promise<void> };
   tasks: { list(): Promise<Task[]> };
+  /** the tree types this owner can see, each with the agents it names for its stages */
+  treeTypes?: ((ownerId: string) => Promise<TreeTypeChoice[]>) | undefined;
 }
 
 export interface StreamActivities {
@@ -177,7 +179,7 @@ export interface EngineActivities extends StreamActivities {
   GroveWorkspaceActivity(args: GroveWorkspaceArgs): Promise<TreeSandbox>;
   GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void>;
   GrovePrepareWorkActivity(args: GrovePrepareWorkArgs): Promise<GrovePreparedWork>;
-  GroveLeafTasksActivity(args: GroveLeafTasksArgs): Promise<GroveLeafTaskView[]>;
+  GroveStagesActivity(args: GroveTreeArgs): Promise<GroveStages>;
   GroveLeafStatusActivity(args: GroveLeafStatusArgs): Promise<boolean>;
   GroveResetInFlightActivity(args: GroveTreeArgs): Promise<string[]>;
   GroveClaimActivity(args: GroveClaimArgs): Promise<GroveClaimOutcome>;
@@ -307,30 +309,18 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       return true;
     },
 
+    async GroveStagesActivity(args) {
+      const tree = (await services.grove?.trees.list() ?? []).find((entry) => entry.id === args.treeId && entry.ownerId === args.ownerId);
+      const types = services.grove?.treeTypes ? await services.grove.treeTypes(args.ownerId) : [];
+      return stagesOf(types.find((entry) => entry.id === tree?.type));
+    },
+
     async GroveResetInFlightActivity(args) {
       const save = services.grove?.leaves.save;
       if (!save) throw new Error('grove stores are not wired for writing, so stranded leaves cannot be reset');
       const stranded = (await treeLeaves(args.treeId, args.ownerId)).filter((leaf) => leaf.status === 'running');
       for (const leaf of stranded) await save({ ...leaf, status: 'pending', updatedAt: new Date().toISOString() });
       return stranded.map((leaf) => leaf.id);
-    },
-
-    async GroveLeafTasksActivity(args) {
-      if (!services.tasks) throw new Error('the task store is not wired, so a leaf\'s tasks cannot be read');
-      return (await services.tasks.list(args.ownerId))
-        .filter((task) => task.leafId === args.leafId)
-        .map((task) => ({
-          id: task.id,
-          title: task.title,
-          status: task.status,
-          dependsOn: task.dependsOn,
-          doneMeans: task.doneMeans,
-          ...(task.description ? { description: task.description } : {}),
-          ...(task.role ? { role: task.role } : {}),
-          ...(task.checks ? { checks: task.checks } : {}),
-          ...(task.evidence ? { evidence: task.evidence } : {}),
-          ...(task.runs.length > 0 ? { runs: task.runs } : {}),
-        }));
     },
 
     async GroveClaimActivity(args) {

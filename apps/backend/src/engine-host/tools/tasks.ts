@@ -20,7 +20,9 @@ export interface Task {
   leafId?: string | undefined;
   title: string;
   intent?: string | undefined;
+  /** the full description of the task: what will actually be done, end to end */
   description?: string | undefined;
+  /** the part the task plays in the overall project */
   role?: string | undefined;
   doneMeans: string;
   checks?: TaskChecks | undefined;
@@ -38,6 +40,8 @@ export const SETTLED: TaskStatus[] = ['done', 'dropped'];
 
 export const MAX_TITLE = 200;
 export const MAX_DONE_MEANS = 2_000;
+export const MAX_TASK_DESCRIPTION = 8_000;
+export const MAX_TASK_ROLE = 2_000;
 
 export interface ProposedTask {
   title: string;

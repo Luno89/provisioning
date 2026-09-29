@@ -730,7 +730,7 @@ design conversation first).
 | 3.26 | Judge calibration | `judge-calibration.ts` | discuss |
 | 3.27 | Rate-limit visibility (F13) | `routes/harness/rate-limits.ts` | discuss |
 | 3.28 | Tunables/profile UI, config export/import | `harness-profile.ts`, `config-export.ts` | discuss |
-| 4.29 | Tree type → agents/procedures, roles, verdict policy | `TreeTypes/*`, `leaf-workflow-types.ts` | agreed 2026-09-27: a type names an agent per stage (plan, work, judge, deliver) whose procedure defines the stage; the tree loop stays in code; step 1 (no behaviour change: `stages` on the type, a `leaf-worker` persona with `grove-work-leaf`, `next_leaf_task`) is next |
+| 4.29 | Tree type → agents/procedures, roles, verdict policy | `TreeTypes/*`, `leaf-workflow-types.ts` | agreed 2026-09-27: a type names an agent per stage (plan, work, judge, deliver) whose procedure defines the stage; the tree loop stays in code. **Step 1 landed on the backend 2026-09-29**: `stages` on the type, `leaf-worker` with `grove-work-leaf`, `next_leaf_task`, and both workflows resolving plan/work/judge from the tree's type with the defaults as fallback — `GroveLeafWorkflow` is now one child run of the work agent, so the hand-built task item, the JSON opening and `MAX_ROUNDS` are gone. Left: the Tree Types editor's stage pickers, and `test:grove-live` on the defaults and again with the work stage pointed at a copied worker |
 | 4.30 | Project template starter files at adoption | `renderStarterFiles` (kept, uncalled) | discuss |
 | 4.31 | Persona inheritance; Merger/Ingestor/Synthesist/Reviewer | `persona-*.ts` | discuss |
 | 4.32 | Cross-tree Home | `Home.tsx` (pre-`dfe36114`) | discuss |
@@ -751,6 +751,30 @@ strategy, run provenance beyond traces.
   channel.
 
 ## Decision log
+
+- 2026-09-29 (owner) — *One rule for what a child run is handed.* Both hosts — durable
+  `AgentRunWorkflow.runChild` and in-process `engine-host/nodes` — pass a delegate's inputs
+  through `childInputs` untouched, and the engine's conversation node labels and renders them
+  (`openingWith`). The durable host's `message: JSON.stringify(inputs)` is gone: it repeated what
+  the engine already says and overwrote a procedure-authored opening. An empty `message` is valid —
+  the child still sees every declared input, labelled. Mirrored tests pin both paths, so the two
+  hosts cannot drift apart again. **Live prompt change**: children that write no message
+  (`do-one-task`'s judge, `delivery`'s planner, `grove-judge-pass`'s leaf-judges) now open with
+  labelled inputs rather than a JSON blob.
+
+- 2026-09-29 — *The work stage owns its limits; the loop stopped hand-assembling.*
+  `GroveLeafWorkflow` runs the tree type's work agent as one child and files the claim from that
+  child's outcome: `ok` → claimed, `refused` → back to the planner, anything else → failed with the
+  reason. It keeps only what code must keep — status transitions, the claim, cancellation. The
+  hand-built task item, the `JSON.stringify(item)` opening and `MAX_ROUNDS` are gone:
+  `grove-work-leaf` loops on `next_leaf_task`, which counts attempts durably from `task.runs`, so a
+  workflow retry cannot launder the limit, and a leaf whose tasks were never adopted goes back for a
+  breakdown instead of spending a round on it.
+
+- 2026-09-29 — *A tree whose type cannot be resolved fails once, readably, not forever.* An
+  unresolvable judge stage, or a judge pass that comes back not-ok, now fails the run with a
+  non-retryable `ApplicationFailure`. Thrown as a plain `Error`, Temporal treated the failure as
+  retryable and re-ran the whole workflow — re-working the tree's leaves — attempt after attempt.
 
 - 2026-09-24 (owner, from the live runs) — *Split the judges*: `judge` weighs a task's work
   against its done-means; `leaf-judge` settles leaf claims and is the only holder of

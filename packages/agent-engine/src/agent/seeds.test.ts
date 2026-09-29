@@ -51,7 +51,7 @@ describe('seeded agents', () => {
 
   it('replaces the four old engines, plus interactive chat and a delivery loop', () => {
     expect(ALL_SEEDED_AGENTS().map((agent) => agent.slug).sort())
-      .toEqual(['agent-builder', 'delivery', 'executor', 'grove-runner', 'judge', 'koala', 'leaf-judge', 'planner', 'research']);
+      .toEqual(['agent-builder', 'delivery', 'executor', 'grove-runner', 'judge', 'koala', 'leaf-judge', 'leaf-worker', 'planner', 'research']);
   });
 
   it('resolves by slug for any user with no forks present', () => {

@@ -18,6 +18,7 @@ import type {
   ValueResult,
 } from '@koala/agent-engine/procedure';
 import type { SamplingConfig } from '@koala/harness-types';
+import type { TreeStage } from '../../lib/grove-stages.js';
 
 export interface RunTicket {
   runId: string;
@@ -198,6 +199,9 @@ export interface GroveJudgeCheckoutArgs {
 
 export type GroveJudgeCheckouts = Record<string, string | undefined>;
 
+/** The agent that runs each stage of a tree, resolved: what its type names, and the default where it names none. */
+export type GroveStages = Record<TreeStage, string>;
+
 export interface GroveLeafArgs {
   treeId: string;
   ownerId: string;
@@ -205,6 +209,8 @@ export interface GroveLeafArgs {
   leafTitle: string;
   runId: string;
   environment: EnvironmentValue;
+  /** the agent this tree's type names to work its leaves — it runs the whole leaf as one engine run */
+  workAgent?: string | undefined;
   siblings?: string | undefined;
 }
 
@@ -219,24 +225,6 @@ export interface GroveLeafStatusArgs {
   leafId: string;
   from: Array<'pending' | 'running'>;
   to: 'pending' | 'running';
-}
-
-export interface GroveLeafTasksArgs {
-  ownerId: string;
-  leafId: string;
-}
-
-export interface GroveLeafTaskView {
-  id: string;
-  title: string;
-  status: import('../../lib/tasks.js').TaskStatus;
-  dependsOn: string[];
-  doneMeans: string;
-  description?: string | undefined;
-  role?: string | undefined;
-  checks?: import('../../lib/tasks.js').TaskChecks | undefined;
-  evidence?: string | undefined;
-  runs?: string[] | undefined;
 }
 
 export interface GroveClaimArgs {

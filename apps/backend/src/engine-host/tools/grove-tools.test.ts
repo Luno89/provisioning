@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createGroveTools } from './grove-tools.js';
 import type { Branch, Leaf, LeafStatus } from '../../lib/leaves.js';
 import type { Tree } from '../../lib/trees.js';
-import { type Task, type TaskStatus } from '../../lib/tasks.js';
+import { type Task, type TaskStatus } from './tasks.js';
 import type { PlanProposal } from '../../lib/plan-proposals.js';
 
 let trees: Tree[] = [];
@@ -153,6 +153,98 @@ describe('ready_leaves', () => {
     expect(unknown.digest).toContain('no such tree');
   });
 });
+
+describe('next_leaf_task', () => {
+  const leaf = (id: string, extra: Partial<Leaf> = {}): Leaf => ({
+    id,
+    ownerId: 'user-1',
+    branchId: 'branch-1',
+    title: `leaf ${id}`,
+    body: 'a checkable goal',
+    status: 'running',
+    createdAt: 'now',
+    updatedAt: 'now',
+    ...extra,
+  });
+
+  const task = (id: string, status: TaskStatus, extra: Partial<Task> = {}): Task => ({
+    id,
+    ownerId: 'user-1',
+    leafId: 'leaf-1',
+    title: `task ${id}`,
+    doneMeans: 'it is done',
+    dependsOn: [],
+    status,
+    runs: [],
+    createdAt: 'now',
+    updatedAt: 'now',
+    ...extra,
+  });
+
+  const next = (parsed: Record<string, unknown>) => run('next_leaf_task', parsed);
+  const step = async (parsed: Record<string, unknown>) => JSON.parse((await next(parsed)).content ?? '{}') as { step: string; reason?: string; item?: Record<string, unknown> };
+
+  it('hands over the next task: what it is, what it is for, where the leaf\'s context lives, and who else is in flight', async () => {
+    leaves = [leaf('leaf-1')];
+    tasks = [task('a', 'accepted', { description: 'write greet.js', role: 'the greeting' }), task('b', 'accepted', { dependsOn: ['a'] })];
+
+    const outcome = await next({ leafId: 'leaf-1', siblings: 'leaf-2 is being worked next door' });
+
+    expect(outcome.ok, outcome.digest).toBe(true);
+    expect(outcome.digest).toBe('next: task a');
+    expect(JSON.parse(outcome.content ?? '{}')).toEqual({
+      step: 'run',
+      item: {
+        id: 'a',
+        title: 'task a',
+        doneMeans: 'it is done',
+        leafId: 'leaf-1',
+        description: 'write greet.js',
+        role: 'the greeting',
+        siblings: 'leaf-2 is being worked next door',
+        context: {
+          planDoc: expect.any(String),
+          leafBrief: expect.stringContaining('leaf-1'),
+          worktree: expect.stringContaining('leaf-1'),
+          branch: expect.stringContaining('leaf-1'),
+        },
+      },
+    });
+  });
+
+  it('tells the next attempt which one it is and what the last attempt found — counted from the runs on the task, not from a variable', async () => {
+    leaves = [leaf('leaf-1')];
+    tasks = [task('a', 'failed', { runs: ['run-0'], evidence: 'the test did not pass' })];
+
+    const outcome = await next({ leafId: 'leaf-1' });
+
+    expect(outcome.digest).toBe('next: task a (attempt 2)');
+    expect(JSON.parse(outcome.content ?? '{}').item).toMatchObject({ id: 'a', previousAttempt: 'the test did not pass' });
+  });
+
+  it('says when the leaf is ready to claim, when it was never broken down, and when it cannot be finished', async () => {
+    leaves = [leaf('leaf-1'), leaf('leaf-2'), leaf('leaf-3')];
+    tasks = [
+      task('a', 'done', { leafId: 'leaf-1' }),
+      task('b', 'proposed', { leafId: 'leaf-2' }),
+      task('c', 'failed', { leafId: 'leaf-3', runs: ['run-0', 'run-1'], evidence: 'the build is broken' }),
+    ];
+
+    expect(await step({ leafId: 'leaf-1' })).toEqual({ step: 'claim' });
+    expect(await step({ leafId: 'leaf-2' })).toEqual({ step: 'unbroken' });
+    const cannot = await step({ leafId: 'leaf-3' });
+    expect(cannot.step).toBe('fail');
+    expect(cannot.reason).toContain('"task c" failed 2 times: the build is broken');
+  });
+
+  it('refuses without a leaf, and for a leaf that is not the caller\'s', async () => {
+    leaves = [leaf('leaf-1', { ownerId: 'someone-else' })];
+
+    expect((await next({})).digest).toContain('needs a leafId');
+    expect((await next({ leafId: 'leaf-1' })).digest).toContain('no such leaf');
+  });
+});
+
 describe('claim_leaf', () => {
   const claim = (parsed: Record<string, unknown>) => run('claim_leaf', parsed);
 

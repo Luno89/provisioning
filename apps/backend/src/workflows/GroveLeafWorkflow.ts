@@ -1,7 +1,7 @@
 import { defineSignal, getExternalWorkflowHandle, proxyActivities, setHandler, startChild } from '@temporalio/workflow';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
-import { nextLeafStep } from '../lib/grove-leaf.js';
-import { leafContext, leafWorktree } from '../lib/plan-documents.js';
+import { DEFAULT_STAGES } from '../lib/grove-stages.js';
+import { leafWorktree } from '../lib/plan-documents.js';
 import { AgentRunWorkflow, cancelSignal } from './AgentRunWorkflow.js';
 import { GROVE_CANCEL_LEAF } from '../engine-host/temporal/contracts.js';
 import type {
@@ -9,18 +9,13 @@ import type {
   GroveClaimOutcome,
   GroveLeafArgs,
   GroveLeafResult,
-  GroveLeafTasksArgs,
   GroveLeafStatusArgs,
-  GroveLeafTaskView,
   ProcedureRunInput,
   ResolveAgentArgs,
   ResolvedAgentInfo,
 } from '../engine-host/temporal/contracts.js';
 
-const MAX_ROUNDS = 24;
-
-const { GroveLeafTasksActivity, GroveLeafStatusActivity, GroveClaimActivity, EngineResolveAgentActivity } = proxyActivities<{
-  GroveLeafTasksActivity(args: GroveLeafTasksArgs): Promise<GroveLeafTaskView[]>;
+const { GroveLeafStatusActivity, GroveClaimActivity, EngineResolveAgentActivity } = proxyActivities<{
   GroveLeafStatusActivity(args: GroveLeafStatusArgs): Promise<boolean>;
   GroveClaimActivity(args: GroveClaimArgs): Promise<GroveClaimOutcome>;
   EngineResolveAgentActivity(args: ResolveAgentArgs): Promise<ResolvedAgentInfo>;
@@ -31,6 +26,15 @@ const { GroveLeafTasksActivity, GroveLeafStatusActivity, GroveClaimActivity, Eng
 
 export const cancelLeafSignal = defineSignal<[]>(GROVE_CANCEL_LEAF);
 
+/**
+ * One leaf, worked end to end by the agent its tree's type names for the work stage.
+ *
+ * What is left here is what is not the work: the leaf's status, the claim, and stopping. The agent runs its own
+ * procedure — `grove-work-leaf` by default — which asks `next_leaf_task` what the leaf needs, hands each task to an
+ * executor of its own, and asks again, so the leaf stops when the run does. The run's three endings are the leaf's
+ * three: `ok` claims it, `failed` claims against it with the reason the run gave, and `refused` (no tasks yet) puts it
+ * back for the planner. There is no round cap here — the limit on the loop is whatever budget the procedure carries.
+ */
 export async function GroveLeafWorkflow(args: GroveLeafArgs): Promise<GroveLeafResult> {
   let cancelled = false;
   let working: string | undefined;
@@ -50,55 +54,39 @@ export async function GroveLeafWorkflow(args: GroveLeafArgs): Promise<GroveLeafR
     if (!filed.ok) return { leafId: args.leafId, outcome: 'failed', reason: `the claim was refused: ${filed.digest}` };
     return { leafId: args.leafId, outcome: result, ...(reason ? { reason } : {}) };
   };
+  const backToThePlanner = async (): Promise<GroveLeafResult> => {
+    await GroveLeafStatusActivity({ ownerId: args.ownerId, leafId: args.leafId, from: ['running'], to: 'pending' });
+    return { leafId: args.leafId, outcome: 'unbroken' };
+  };
 
-  const executor = await EngineResolveAgentActivity({ ownerId: args.ownerId, agentSlug: 'executor' });
-  if (!executor.found || !executor.procedure) return claim('failed', 'there is no executor to work the leaf\'s tasks');
+  const agentSlug = args.workAgent || DEFAULT_STAGES.work;
+  const worker = await EngineResolveAgentActivity({ ownerId: args.ownerId, agentSlug });
+  if (!worker.found || !worker.procedure) {
+    return claim('failed', `there is no agent called "${agentSlug}" with a procedure to work this leaf`);
+  }
 
   const worktree = leafWorktree(args.leafId);
   const environment = args.environment.kind === 'sandbox' ? { ...args.environment, worktree } : args.environment;
-  const attempts: Record<string, number> = {};
-
-  for (let round = 0; round < MAX_ROUNDS; round += 1) {
-    if (cancelled) return stopped();
-    const tasks = await GroveLeafTasksActivity({ ownerId: args.ownerId, leafId: args.leafId });
-    const step = nextLeafStep(tasks, attempts);
-
-    if (step.kind === 'unbroken') {
-      await GroveLeafStatusActivity({ ownerId: args.ownerId, leafId: args.leafId, from: ['running'], to: 'pending' });
-      return { leafId: args.leafId, outcome: 'unbroken' };
-    }
-    if (step.kind === 'claim') return claim('claimed');
-    if (step.kind === 'fail') return claim('failed', step.reason);
-
-    const taskId = step.taskIds[0]!;
-    const task = tasks.find((entry) => entry.id === taskId)!;
-    attempts[taskId] = (attempts[taskId] ?? 0) + 1;
-    const runId = `${args.runId}-${taskId}-${attempts[taskId]}`;
-    const item = {
-      id: task.id,
-      title: task.title,
-      doneMeans: task.doneMeans,
+  const runId = `${args.runId}-work`;
+  const input: ProcedureRunInput = {
+    ticket: { runId, parentRunId: args.runId, depth: 1, ownerId: args.ownerId, agentSlug, trigger: 'agent' },
+    procedure: worker.procedure,
+    inputs: {
       leafId: args.leafId,
-      context: leafContext(args.leafId),
-      ...(task.description ? { description: task.description } : {}),
-      ...(task.role ? { role: task.role } : {}),
-      ...(task.checks ? { checks: task.checks } : {}),
-      ...(args.siblings ? { siblings: args.siblings } : {}),
-      ...(attempts[taskId]! > 1 && task.evidence ? { previousAttempt: task.evidence } : {}),
-    };
-    const input: ProcedureRunInput = {
-      ticket: { runId, parentRunId: args.runId, depth: 1, ownerId: args.ownerId, agentSlug: 'executor', trigger: 'agent' },
-      procedure: executor.procedure,
-      inputs: { item, message: JSON.stringify(item) },
-      environment,
-    };
-    if (cancelled) return stopped();
-    const child = await startChild(AgentRunWorkflow, { workflowId: runId, args: [input] });
-    working = runId;
-    if (cancelled) await child.signal(cancelSignal);
-    await child.result().finally(() => { working = undefined; });
-    if (cancelled) return stopped();
-  }
+      siblings: args.siblings ?? '',
+      message: `Work every task of the leaf "${args.leafTitle}".`,
+    },
+    environment,
+  };
 
-  return claim('failed', `the leaf was still working its tasks after ${MAX_ROUNDS} runs`);
+  if (cancelled) return stopped();
+  const child = await startChild(AgentRunWorkflow, { workflowId: runId, args: [input] });
+  working = runId;
+  if (cancelled) await child.signal(cancelSignal);
+  const result = await child.result().finally(() => { working = undefined; });
+  if (cancelled) return stopped();
+
+  if (result.outcome === 'ok') return claim('claimed');
+  if (result.outcome === 'refused') return backToThePlanner();
+  return claim('failed', result.reason ?? `the ${agentSlug} run did not finish this leaf`);
 }

@@ -39,6 +39,7 @@ import { GROVE_TOOLS } from '../engine-host/tools/grove-tools-catalogue.js';
 import { TASK_TOOLS } from '../engine-host/tools/task-tools-catalogue.js';
 import type { Task } from '../engine-host/tools/tasks.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
+import type { TreeStages } from '../lib/grove-stages.js';
 import type { Tree } from '../lib/trees.js';
 import type { PlanProposal } from '../lib/plan-proposals.js';
 
@@ -135,7 +136,8 @@ const worldStores = () => {
 
 const classify = (seen: string, system: string): string => {
   if (system.startsWith('You break an agreed goal into work')) {
-    const leaf = /"leafId":\s*"(leaf[ABC])"/.exec(seen)?.[1];
+    // The planner is handed its inputs labelled, one per line (`leafId: leafA`) — not as a JSON blob it has to unpick.
+    const leaf = /^leafId: (leaf[ABC])$/m.exec(seen)?.[1];
     return leaf ? `planner-${leaf}` : 'planner-none';
   }
   if (system.startsWith('You carry out one unit of work on a real machine')) {
@@ -259,12 +261,22 @@ beforeEach(() => {
 async function runGroveWorld(options: {
   hang?: string;
   drive?: (handle: { signal: (...args: never[]) => Promise<void> }, rounds: Map<string, number>) => Promise<void>;
+  /** the agents the world's tree type names for its stages — left out, the defaults run */
+  stages?: TreeStages;
+  /** register a copy of the default worker under this name, so a type can name an agent of its own */
+  aliasWorker?: string;
+  /** take this leaf's tasks away once the first partition has read them — the race the work stage must survive */
+  vanishTasksOf?: string;
 } = {}) {
   const client = options.drive ? new WorkflowClient({ connection: env.connection }) : env.client.workflow;
     const stores = worldStores();
     const rounds = new Map<string, number>();
+    const seeded = ALL_SEEDED_AGENTS();
+    const named = options.aliasWorker
+      ? [{ ...seeded.find((agent) => agent.slug === 'leaf-worker')!, slug: options.aliasWorker, name: options.aliasWorker }]
+      : [];
     const registry = createAgentRegistry({
-      agentStore: { list: async () => ALL_SEEDED_AGENTS() },
+      agentStore: { list: async () => [...seeded, ...named] },
       toolCatalogue: { list: async () => [...GROVE_TOOLS, ...TASK_TOOLS] as unknown as ToolContract[] },
     });
 
@@ -328,11 +340,18 @@ async function runGroveWorld(options: {
     const realGrove = createEngineActivities({
       environments: resolver,
       treeWorkspaces,
-      grove: { trees: { list: stores.trees.list }, branches: { list: stores.branches.list }, leaves: { list: stores.leaves.list, save: stores.leaves.save }, tasks: { list: stores.tasks.list } },
+      grove: {
+        trees: { list: stores.trees.list },
+        branches: { list: stores.branches.list },
+        leaves: { list: stores.leaves.list, save: stores.leaves.save },
+        tasks: { list: stores.tasks.list },
+        // The world's tree is of type "application", so this is the type its stages are read from.
+        ...(options.stages ? { treeTypes: async () => [{ id: 'application', label: 'Application', summary: 'A small service.', stages: options.stages }] } : {}),
+      },
       tasks: { list: async (ownerId: string) => tasks.filter((task) => task.ownerId === ownerId), save: stores.tasks.save },
       plans: { list: async (ownerId: string) => plans.filter((entry) => entry.ownerId === ownerId) },
     } as never);
-    const sandboxOfCall: (string | undefined)[] = [];
+    const sandboxOfCall: string[] = [];
     const worktreeOfCall: string[] = [];
 
     const conversations = inMemoryConversations();
@@ -395,6 +414,7 @@ async function runGroveWorld(options: {
       if (!outcome.ok) throw new Error(outcome.digest);
       const parsed = JSON.parse(outcome.content ?? '{}') as { ready?: unknown[]; claimed?: unknown[]; awaitingReview?: unknown[]; settled?: unknown[] };
       const partition: GrovePartition = { ready: (parsed.ready ?? []) as GrovePartition['ready'], claimed: (parsed.claimed ?? []) as GrovePartition['claimed'], awaitingReview: (parsed.awaitingReview ?? []) as GrovePartition['awaitingReview'], settledCount: (parsed.settled ?? []).length };
+      if (options.vanishTasksOf) tasks = tasks.filter((task) => task.leafId !== options.vanishTasksOf);
       return partition;
     });
 
@@ -407,7 +427,7 @@ async function runGroveWorld(options: {
         GrovePartitionActivity: partitionCalls,
         GrovePrepareWorkActivity: realGrove.GrovePrepareWorkActivity,
         GroveJudgeCheckoutActivity: realGrove.GroveJudgeCheckoutActivity,
-        GroveLeafTasksActivity: realGrove.GroveLeafTasksActivity,
+        GroveStagesActivity: realGrove.GroveStagesActivity,
         GroveLeafStatusActivity: realGrove.GroveLeafStatusActivity,
         GroveResetInFlightActivity: realGrove.GroveResetInFlightActivity,
         GroveClaimActivity: realGrove.GroveClaimActivity,
@@ -431,7 +451,7 @@ async function runGroveWorld(options: {
           };
         }),
         EngineToolActivity: vi.fn(async (args: { name: string; arguments: string; ticket: Record<string, unknown>; environment?: { id: string } }) => {
-          if (args.ticket.agentSlug !== 'grove-runner') sandboxOfCall.push(args.environment?.id);
+          if (args.ticket.agentSlug !== 'grove-runner' && args.environment) sandboxOfCall.push(args.environment.id);
           if (args.ticket.agentSlug !== 'grove-runner') {
             const where = (args.environment as { scope?: { worktree?: string } } | undefined)?.scope?.worktree ?? 'none';
             worktreeOfCall.push(`${args.ticket.agentSlug} ${args.name} ${where}`);
@@ -560,6 +580,8 @@ describe('GroveRunWorkflow', () => {
 
     expect(sandboxOfCall.length).toBeGreaterThan(0);
     expect(new Set(sandboxOfCall)).toEqual(new Set([environmentIdFor('tree-tree-1')]));
+    // The one call with no machine behind it is the leaf worker reading the store; anything that works does so in the tree.
+    expect(new Set(worktreeOfCall.filter((line) => line.endsWith(' none')))).toEqual(new Set(['leaf-worker next_leaf_task none']));
 
     expect(worktreeOfCall.filter((line) => line.startsWith('leaf-judge settle_leaf')).sort())
       .toEqual(['leaf-judge settle_leaf judge/leafA', 'leaf-judge settle_leaf judge/leafB', 'leaf-judge settle_leaf judge/leafC']);
@@ -605,6 +627,48 @@ describe('GroveRunWorkflow', () => {
     });
     expect(result).toEqual({ treeId: 'tree-1', outcome: 'quiet', passes: 1, awaitingReview: [], awaitingApproval: [plans[0]!.id] });
     expect(leaves.find((entry) => entry.id === 'leafC')?.status).toBe('pending');
+  }, 60_000);
+
+  it('works a tree with the agent its type names for the work stage, rather than the default one', async () => {
+    const { result, worktreeOfCall } = await runGroveWorld({ stages: { work: 'type-worker' }, aliasWorker: 'type-worker' });
+
+    expect(result).toMatchObject({ treeId: 'tree-1', outcome: 'quiet', passes: 2 });
+    expect(leaves.every((leaf) => leaf.status === 'succeeded'), 'a leaf was not worked to a claim').toBe(true);
+    expect(new Set(worktreeOfCall.filter((line) => line.includes('next_leaf_task')))).toEqual(new Set(['type-worker next_leaf_task none']));
+  }, 60_000);
+
+  it('fails the leaves it can reach, having done no work, when the type names an agent that cannot work them', async () => {
+    const { result, efforts } = await runGroveWorld({ stages: { work: 'ghost' } });
+
+    expect(result).toMatchObject({ treeId: 'tree-1', outcome: 'quiet' });
+    expect(efforts, 'a model was asked to work a leaf').toHaveLength(0);
+    // The two independent leaves are claimed against; the one behind them never became ready, so it was never worked.
+    for (const id of ['leafA', 'leafB']) {
+      const leaf = leaves.find((entry) => entry.id === id)!;
+      expect(leaf.status, `${id} status`).toBe('failed');
+      expect(leaf.findings ?? '', `${id} reason`).toMatch(/there is no agent called "ghost"/);
+    }
+    expect(leaves.find((entry) => entry.id === 'leafC')).toMatchObject({ status: 'pending' });
+  }, 60_000);
+
+  it('puts a leaf back for the planner when the work agent finds it has no tasks after all', async () => {
+    leaves = leaves.map((entry) => ({ ...entry, runner: 'engine' as const }));
+
+    const { result } = await runGroveWorld({ vanishTasksOf: 'leafA' });
+
+    const leafA = leaves.find((leaf) => leaf.id === 'leafA')!;
+    expect(leafA.status, 'the leaf was not put back').toBe('pending');
+    expect(leafA.claim).toBeUndefined();
+    expect(plans.map((plan) => plan.leafPlan?.leafId)).toEqual(['leafA']);
+    expect(result).toMatchObject({ treeId: 'tree-1', outcome: 'quiet' });
+    expect(leaves.find((leaf) => leaf.id === 'leafB')).toMatchObject({ status: 'succeeded', verified: true });
+  }, 60_000);
+
+  it('fails the run readably when the type names an agent that cannot judge its leaves', async () => {
+    const failure = await runGroveWorld({ stages: { judge: 'ghost' } }).catch((error: unknown) => error);
+    const said = String((failure as { cause?: Error | undefined }).cause?.message ?? failure);
+
+    expect(said).toMatch(/there is no agent called "ghost" with a procedure to judge this tree's leaves/);
   }, 60_000);
 });
 

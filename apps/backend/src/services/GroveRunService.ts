@@ -1,6 +1,6 @@
 import { resetForRetry, settleClaim, type Leaf, type Branch } from '../lib/leaves.js';
 import type { Tree } from '../lib/trees.js';
-import type { Task } from '../lib/tasks.js';
+import type { Task } from '../engine-host/tools/tasks.js';
 import type { GroveRunStatus } from './TemporalBridge.js';
 
 export interface GroveRunStore {

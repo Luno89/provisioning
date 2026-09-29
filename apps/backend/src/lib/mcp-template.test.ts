@@ -3,6 +3,7 @@ import { writeFileSync, mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
+import net from 'node:net';
 import { NODE_SERVICE_FILES, MCP_SERVER_FILES, LIBRARY_FILES } from './project-templates.js';
 import { renderStarterFiles } from './tree-types.js';
 import { TREE_TYPE_SEEDS } from './tree-type-seeds.js';
@@ -11,6 +12,17 @@ import { McpClient } from './mcp-client.js';
 let child: ChildProcess | undefined;
 afterEach(() => { child?.kill(); child = undefined; });
 
+/** A port nothing is listening on. The old `8000 + random(900)` pick collided under the full suite,
+ * and the failure said only "never started listening" because the child's stderr was thrown away. */
+const freePort = async (): Promise<number> => new Promise((resolve, reject) => {
+  const probe = net.createServer();
+  probe.once('error', reject);
+  probe.listen(0, '127.0.0.1', () => {
+    const { port } = probe.address() as net.AddressInfo;
+    probe.close(() => resolve(port));
+  });
+});
+
 const startScaffold = async (): Promise<string> => {
   const dir = mkdtempSync(join(tmpdir(), 'mcp-template-'));
   for (const file of renderStarterFiles(MCP_SERVER_FILES, { projectName: 'test-server', registryHost: '' })) {
@@ -18,19 +30,24 @@ const startScaffold = async (): Promise<string> => {
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, file.content);
   }
-  const port = 8000 + Math.floor(Math.random() * 900);
+  const port = await freePort();
+  let said = '';
+  let ended: string | undefined;
   child = spawn('node', [join(dir, 'src/server.js')], {
     env: { ...process.env, PORT: String(port) },
-    stdio: 'ignore',
+    stdio: ['ignore', 'ignore', 'pipe'],
   });
+  child.stderr?.on('data', (chunk: Buffer) => { said += chunk.toString(); });
+  child.once('exit', (code, signal) => { ended = `it exited with ${signal ?? code}`; });
   const url = `http://127.0.0.1:${port}/mcp`;
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 60 && ended === undefined; i++) {
     try {
       await fetch(`http://127.0.0.1:${port}/health`);
       return url;
     } catch { await new Promise((r) => setTimeout(r, 100)); }
   }
-  throw new Error('the scaffold never started listening');
+  const why = said.trim().split('\n').filter((line) => line.length > 0).slice(-3).join(' | ');
+  throw new Error(`the scaffold never started listening on port ${port}${ended ? ` — ${ended}` : ''}${why ? `: ${why}` : ''}`);
 };
 
 describe('a project started from the mcp-server template', () => {

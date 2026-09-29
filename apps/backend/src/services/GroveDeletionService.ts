@@ -1,6 +1,6 @@
 import { deletionScope, type DeletionScope, type DeletionTarget } from '../lib/grove-deletion.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
-import type { Task } from '../lib/tasks.js';
+import type { Task } from '../engine-host/tools/tasks.js';
 import type { Tree } from '../lib/trees.js';
 import type { PlanProposal } from '../lib/plan-proposals.js';
 import type { Conversation } from '../lib/conversations.js';

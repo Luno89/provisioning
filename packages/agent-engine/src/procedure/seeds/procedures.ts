@@ -468,6 +468,62 @@ export const DELIVERY_V2 = defineProcedure(BUILT_IN_GROUPS, {
   });
 });
 
+export const GROVE_WORK_LEAF = defineProcedure(BUILT_IN_GROUPS, {
+  id: 'grove-work-leaf',
+  version: '1',
+  name: 'Grove work leaf',
+  describe: 'The working half of a grove leaf, with no thinking in it: ask what the leaf needs next, hand that task to an executor in the worktree the run was given, and ask again — until the tool says the leaf is ready to claim, has a task that failed twice, or has no tasks yet. Those three endings are the run\'s three outcomes, ok, failed and refused, so the workflow that started the run can file the claim from the outcome alone; settling a leaf is the plan\'s business and not the worker\'s.',
+  budget: {},
+}, (p) => {
+  const input = p.runInput('input');
+  const persona = p.persona('persona');
+
+  const ask = p.callTool('ask', { values: input.inputs, persona: persona.persona }, {
+    tool: 'next_leaf_task',
+    args: '{"leafId":"{{values.leafId}}","siblings":"{{values.siblings}}"}',
+  });
+
+  const isRun = p.condition('isRun', { value: ask.result }, { expression: 'value.step == "run"' });
+  const isClaim = p.condition('isClaim', { value: ask.result }, { expression: 'value.step == "claim"' });
+  const isFail = p.condition('isFail', { value: ask.result }, { expression: 'value.step == "fail"' });
+
+  const work = p.delegate('work', { values: ask.result }, {
+    agent: 'executor',
+    inputs: '{"item":"{{values.item}}","message":"Work the task {{values.item.title}}."}',
+  });
+
+  const claimed = p.finish('claimed', { result: ask.result }, { outcome: 'ok', reason: 'every task of the leaf is finished, so it is ready to claim' });
+  const failed = p.finish('failed', { result: ask.result }, { outcome: 'failed', reason: 'a task of the leaf failed twice — the result carries the reason' });
+  const unbroken = p.finish('unbroken', { result: ask.result }, { outcome: 'refused', reason: 'the leaf had no tasks yet, so there was nothing to work' });
+  const couldNotAsk = p.finish('couldNotAsk', { reason: ask.text }, { outcome: 'failed', reason: 'next_leaf_task could not say what to work next' });
+
+  p.start(ask);
+  ask.on('ok', isRun);
+  ask.on('failed', couldNotAsk);
+  isRun.on('true', work);
+  isRun.on('false', isClaim);
+  isClaim.on('true', claimed);
+  isClaim.on('false', isFail);
+  isFail.on('true', failed);
+  isFail.on('false', unbroken);
+  work.on('ok', ask);
+  work.on('failed', ask);
+
+  p.layout({
+    input: [0, 0],
+    persona: [0, 8],
+    ask: [8, 4],
+    isRun: [16, 4],
+    work: [24, 4],
+    isClaim: [16, 12],
+    isFail: [24, 12],
+    claimed: [24, 20],
+    failed: [32, 20],
+    unbroken: [40, 20],
+    couldNotAsk: [8, 12],
+  });
+});
+
 export const BUILT_IN_PROCEDURES: readonly Procedure[] = [
   TOOL_ROUNDS_V2,
   INTERACTIVE_CHAT_V4,
@@ -477,4 +533,5 @@ export const BUILT_IN_PROCEDURES: readonly Procedure[] = [
   DO_ONE_TASK_V2,
   DELIVERY_V2,
   GROVE_JUDGE_PASS,
+  GROVE_WORK_LEAF,
 ];

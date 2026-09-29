@@ -4,11 +4,24 @@ import { BUILT_IN_GROUPS, BUILT_IN_PROCEDURES, type Procedure } from '@koala/age
 
 const TEMPLATE = /\{\{\s*([\w.]+)\s*\}\}/g;
 
+/** The nodes whose {{values.…}} really do mean the run's inputs: their values socket is fed by the run-input node.
+ *  A node fed from somewhere else — a tool's result, a child's outcome — is naming that value's shape, not asking the
+ *  caller for one, so what it reads is not an input the persona owes. Group instances keep their inner references: a
+ *  group's values arrive through the group's own socket, which the caller feeds. */
+const fedByRunInputs = (procedure: Procedure): Set<string> => {
+  const runInputs = new Set(procedure.nodes.filter((node) => node.kind === 'run-input').map((node) => node.id));
+  return new Set(procedure.wires
+    .filter((wire) => wire.to.socket === 'values' && runInputs.has(wire.from.node))
+    .map((wire) => wire.to.node));
+};
+
 export function valuePathsIn(procedure: Procedure): string[] {
   const groups = new Map(BUILT_IN_GROUPS.map((group) => [group.id, group]));
-  const nodes = procedure.nodes.flatMap((node) => (node.kind === 'group' && groups.has(String(node.settings.group))
-    ? [node, ...groups.get(String(node.settings.group))!.nodes]
-    : [node]));
+  const fed = fedByRunInputs(procedure);
+  const nodes = procedure.nodes.flatMap((node) => {
+    if (node.kind === 'group' && groups.has(String(node.settings.group))) return [node, ...groups.get(String(node.settings.group))!.nodes];
+    return fed.has(node.id) ? [node] : [];
+  });
 
   const paths = new Set<string>();
   for (const node of nodes) {

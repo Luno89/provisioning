@@ -15,7 +15,7 @@ import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import type { PlanProposal } from '../lib/plan-proposals.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
 import type { Tree } from '../lib/trees.js';
-import type { Task } from '../lib/tasks.js';
+import type { Task } from '../engine-host/tools/tasks.js';
 import type { AdoptPlanResult } from '../engine-host/temporal/contracts.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

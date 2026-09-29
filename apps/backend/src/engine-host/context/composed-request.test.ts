@@ -26,7 +26,30 @@ interface Carries {
   procedureId?: string;
   /** The run is structure: no model rounds of its own, but the child it fans out makes one — checked for shape instead of count. */
   passRun?: true;
+  /** The run is a leaf's work: no model rounds of its own, but each task it asks for goes to an executor child that makes them. */
+  workRun?: true;
 }
+
+// What the leaf's worker asks for, and what it is told: one task, then the ending. The asks are kept so the test can
+// prove the loop came back for more and that what the worker was given reached the tool.
+const LEAF_TASK = {
+  id: 'write-greeting',
+  title: 'Write hello.txt',
+  doneMeans: 'A file called hello.txt exists in the workspace and contains exactly the word hello, with no trailing newline.',
+  leafId: 'leaf-w1',
+  context: { planDoc: 'PLAN.md', leafBrief: 'leaves/leaf-w1.md', worktree: 'trees/leaf-w1', branch: 'leaf/leaf-w1' },
+  siblings: '2 other leaves',
+};
+
+const askedFor: Record<string, unknown>[] = [];
+
+const leafTools: NonNullable<ComposeOptions['tools']> = async (args) => {
+  if (args.name !== 'next_leaf_task') return { ok: true, digest: 'done', content: 'done' };
+
+  askedFor.push(JSON.parse(args.arguments || '{}') as Record<string, unknown>);
+  const step = askedFor.length === 1 ? { step: 'run', item: LEAF_TASK } : { step: 'claim' };
+  return { ok: true, digest: `${step.step} for leaf-w1`, content: JSON.stringify(step) };
+};
 
 const MUST_CARRY: Record<string, Carries> = {
   'do-one-task': {
@@ -102,6 +125,23 @@ const MUST_CARRY: Record<string, Carries> = {
     mustSay: ['leaf-j1', 'committed at abc1233', 'leaves/leaf-j1.md', 'judge/leaf-j1'],
     mustOffer: ['settle_leaf', 'read_file'],
   },
+  'grove-work-leaf': {
+    agent: 'leaf-worker',
+    workRun: true,
+    run: {
+      message: 'Work leaf leaf-w1 of tree t-1.',
+      inputs: { leafId: 'leaf-w1', siblings: '2 other leaves' },
+      tools: leafTools,
+      replies: [
+        { content: 'hello.txt now contains exactly the word hello.' },
+        { content: 'The work meets what was expected.' },
+        { content: 'yes' },
+      ],
+    },
+    mustSay: [LEAF_TASK.title, 'contains exactly the word hello', 'trees/leaf-w1', 'leaves/leaf-w1.md', 'The task has already been claimed for you.'],
+    mustOffer: ['run_command', 'write_file'],
+    mustNotOffer: ['next_leaf_task', 'start_task', 'mark_done'],
+  },
 }
 
 describe('what each built-in procedure actually puts in front of the model', () => {
@@ -119,6 +159,15 @@ describe('what each built-in procedure actually puts in front of the model', () 
           ?? (carries.run.inputs as { claimed?: unknown[] }).claimed!;
         const kept = (result.outputs as Record<string, Record<string, { agentId: string }[]>>).done?.result;
         expect(kept?.length, 'each item of the pass fanned out into exactly one child run').toBe(items.length);
+      }
+
+      if (carries.workRun) {
+        // The worker makes no model rounds; its executor children do. It asks again after each task and ends on the
+        // tool's claim, and what it was given reaches the tool it asks.
+        expect(result.outcome, 'the leaf never reached its claim').toBe('ok');
+        expect(result.finishedBy, 'the leaf ended somewhere other than the claim').toBe('claimed');
+        expect(askedFor, 'the worker asked once per task and once more for the ending, with the leaf it was given')
+          .toEqual([{ leafId: 'leaf-w1', siblings: '2 other leaves' }, { leafId: 'leaf-w1', siblings: '2 other leaves' }]);
       }
 
       for (const text of carries.mustSay) {

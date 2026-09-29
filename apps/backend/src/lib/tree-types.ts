@@ -3,6 +3,9 @@ import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { PersonaEgressRule } from '@koala/harness-types';
 import { TREE_TYPE_SEEDS as TREE_TYPE_SEEDS_VALUE } from './tree-type-seeds.js';
 import { validateEgressRules } from './egress-rules.js';
+import { TREE_STAGES, type TreeStages } from './grove-stages.js';
+
+export { DEFAULT_STAGES, TREE_STAGES, stagesOf, type TreeStage, type TreeStages } from './grove-stages.js';
 
 export interface TreeTypeFile {
   path: string;
@@ -26,16 +29,6 @@ export interface TreeTypeSpec {
   stages?: TreeStages | undefined;
 }
 
-export const TREE_STAGES = ['plan', 'work', 'judge'] as const;
-export type TreeStage = typeof TREE_STAGES[number];
-export type TreeStages = Partial<Record<TreeStage, string>>;
-
-export const DEFAULT_STAGES: Readonly<Record<TreeStage, string>> = {
-  plan: 'planner',
-  work: 'leaf-worker',
-  judge: 'grove-runner',
-};
-
 export function stagesProblem(stages: unknown, agents: readonly string[]): string | null {
   if (stages === undefined) return null;
   if (!stages || typeof stages !== 'object' || Array.isArray(stages)) return 'stages must be an object naming an agent per stage.';
@@ -46,15 +39,6 @@ export function stagesProblem(stages: unknown, agents: readonly string[]): strin
     if (!agents.includes(agent)) return `the ${stage} stage names "${agent}", which is not one of your agents.`;
   }
   return null;
-}
-
-export function stagesOf(type: Pick<TreeTypeSpec, 'stages'> | undefined): Record<TreeStage, string> {
-  const chosen = type?.stages ?? {};
-  return {
-    plan: chosen.plan || DEFAULT_STAGES.plan,
-    work: chosen.work || DEFAULT_STAGES.work,
-    judge: chosen.judge || DEFAULT_STAGES.judge,
-  };
 }
 
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;

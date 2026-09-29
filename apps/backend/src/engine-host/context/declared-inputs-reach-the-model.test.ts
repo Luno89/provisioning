@@ -15,6 +15,11 @@ const NOT_SHOWN: Record<string, string[]> = {
   koala: ['conversationId'],
 };
 
+// The structural personas make no model rounds of their own, so what they are given reaches the model somewhere
+// else: on a child's prompt (grove-runner fans each claim out to a leaf-judge) or in a tool's arguments
+// (leaf-worker asks next_leaf_task with the leaf it was given). Each is pinned per procedure by composed-request.test.
+const STRUCTURAL = ['grove-runner', 'leaf-worker'];
+
 function sentinelsFor(persona: Persona, procedure: Procedure): Sentinelled {
   const skip = new Set(NOT_SHOWN[persona.slug] ?? []);
   const expected: string[] = [];
@@ -40,9 +45,7 @@ function sentinelsFor(persona: Persona, procedure: Procedure): Sentinelled {
 const pairs = ALL_SEEDED_AGENTS().flatMap((persona) => {
   const procedure = BUILT_IN_PROCEDURES.find((entry) => entry.id === persona.procedure);
   if (!procedure || !persona.interface?.inputs) return [];
-  // The pass procedures are structure: their owner makes no model rounds, so its declared
-  // inputs reach the model on the child's prompt instead — pinned by composed-request.test.
-  if (persona.slug === 'grove-runner') return [];
+  if (STRUCTURAL.includes(persona.slug)) return [];
   return [{ persona, procedure }];
 });
 

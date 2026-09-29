@@ -1,5 +1,5 @@
-import { defineSignal, getExternalWorkflowHandle, proxyActivities, setHandler, startChild, workflowInfo } from '@temporalio/workflow';
-import { GROVE_JUDGE_PASS, type Procedure } from '@koala/agent-engine/procedure';
+import { ApplicationFailure, defineSignal, getExternalWorkflowHandle, proxyActivities, setHandler, startChild, workflowInfo } from '@temporalio/workflow';
+import type { Procedure } from '@koala/agent-engine/procedure';
 import { AgentRunWorkflow, cancelSignal } from './AgentRunWorkflow.js';
 import { GroveLeafWorkflow, cancelLeafSignal } from './GroveLeafWorkflow.js';
 import { GROVE_CANCEL_LEAF, GROVE_STOP_RUN } from '../engine-host/temporal/contracts.js';
@@ -17,6 +17,7 @@ import type {
   GrovePartition,
   GrovePartitionArgs,
   GrovePartitionLeaf,
+  GroveStages,
   GroveWorkspaceArgs,
   GroveTreeArgs,
   GroveLeafNeedingPlan,
@@ -65,9 +66,11 @@ const { GrovePartitionActivity } = proxyActivities<{
 
 const {
   GroveWorkspaceActivity, GroveParkWorkspaceActivity, GrovePrepareWorkActivity, GroveJudgeCheckoutActivity,
-  GroveNeedsPlanActivity, GroveOpenProposalsActivity, GroveResetInFlightActivity, EngineResolveAgentActivity,
+  GroveNeedsPlanActivity, GroveOpenProposalsActivity, GroveResetInFlightActivity, GroveStagesActivity,
+  EngineResolveAgentActivity,
 } = proxyActivities<{
   GroveResetInFlightActivity(args: GroveTreeArgs): Promise<string[]>;
+  GroveStagesActivity(args: GroveTreeArgs): Promise<GroveStages>;
   GroveWorkspaceActivity(args: GroveWorkspaceArgs): Promise<TreeSandbox>;
   GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void>;
   GrovePrepareWorkActivity(args: GrovePrepareWorkArgs): Promise<GrovePreparedWork>;
@@ -84,10 +87,11 @@ const {
  * The grove run — the tree-level loop that the pass procedures were built for.
  *
  * It IS the activity loop (the pass loop, host-side, deterministic): partition
- * the tree; work every ready leaf as its own GroveLeafWorkflow (its tasks
- * through the executor, then the claim, all by code); judge every fresh claim
- * in its own run (grove-judge-pass);
- * re-partition; until the tree is quiet or the pass cap is reached.
+ * the tree; work every ready leaf as its own GroveLeafWorkflow (one run of the
+ * agent the tree's type names for the work stage, then the claim);
+ * judge every fresh claim in its own run of the agent it names for the judge
+ * stage; re-partition; until the tree is quiet or the pass cap is reached.
+ * A type that names no agents gets the defaults.
  *
  * Reading the partition as an activity and the passes as child workflows keeps
  * each segment small and durable: a crash between passes redoes scheduling and
@@ -120,6 +124,7 @@ export async function GroveRunWorkflow(args: GroveRunArgs): Promise<GroveRunResu
 
 async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox, control: RunControl): Promise<GroveRunResult> {
   const maxPasses = args.maxPasses ?? MAX_PASSES_DEFAULT;
+  const stages = await GroveStagesActivity({ treeId: args.treeId, ownerId: args.ownerId });
   let passes = 0;
   const stopped = async (awaitingReview: string[]): Promise<GroveRunResult> => ({
     treeId: args.treeId, outcome: 'stopped', passes, awaitingReview,
@@ -132,7 +137,7 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox, cont
     const awaitingReview = partition.awaitingReview.map((leaf) => leaf.id);
     if (control.stopping) return stopped(awaitingReview);
     if (partition.ready.length === 0 && partition.claimed.length === 0) {
-      await proposeLeafPlans(args, environment, control);
+      await proposeLeafPlans(args, environment, control, stages.plan);
       if (control.stopping) return stopped(awaitingReview);
       const awaitingApproval = await GroveOpenProposalsActivity({ treeId: args.treeId, ownerId: args.ownerId });
       return { treeId: args.treeId, outcome: 'quiet', passes, awaitingReview, awaitingApproval };
@@ -150,19 +155,28 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox, cont
     const workable = partition.ready.filter((leaf) => prepared.ready.includes(leaf.id));
 
     if (partition.ready.length > 0) {
-      await workLeaves(args, environment, passes, workable, control);
+      await workLeaves(args, environment, passes, workable, control, stages.work);
       if (control.stopping) return stopped(awaitingReview);
       // The work pass files fresh claims; the judge pass must see them, so read the tree again.
       partition = await GrovePartitionActivity({ treeId: args.treeId, ownerId: args.ownerId });
     }
     if (partition.claimed.length > 0) {
       const checkouts = await GroveJudgeCheckoutActivity({ treeId: args.treeId, ownerId: args.ownerId, leafIds: partition.claimed.map((leaf) => leaf.id) });
+      const judge = await EngineResolveAgentActivity({ ownerId: args.ownerId, agentSlug: stages.judge });
+      if (!judge.found || !judge.procedure) {
+        // Non-retryable: a retry would re-work the tree's leaves and fail here again, forever.
+        throw ApplicationFailure.nonRetryable(
+          `there is no agent called "${stages.judge}" with a procedure to judge this tree's leaves`,
+          'GroveJudgeMissing',
+        );
+      }
       await runGrovePass({
         args,
         environment,
         control,
         pass: passes,
-        procedure: GROVE_JUDGE_PASS,
+        procedure: judge.procedure,
+        agentSlug: stages.judge,
         role: 'judge',
         inputs: { claimed: claimItems(partition.claimed, args.treeId, checkouts) },
       });
@@ -170,11 +184,17 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox, cont
   }
 }
 
-async function proposeLeafPlans(args: GroveRunArgs, environment: TreeSandbox, control: RunControl): Promise<void> {
+async function proposeLeafPlans(args: GroveRunArgs, environment: TreeSandbox, control: RunControl, planner: string): Promise<void> {
   const needs = await GroveNeedsPlanActivity({ treeId: args.treeId, ownerId: args.ownerId });
   if (needs.length === 0) return;
-  const planner = await EngineResolveAgentActivity({ ownerId: args.ownerId, agentSlug: 'planner' });
-  if (!planner.found || !planner.procedure) return;
+  const resolved = await EngineResolveAgentActivity({ ownerId: args.ownerId, agentSlug: planner });
+  if (!resolved.found || !resolved.procedure) {
+    // Non-retryable, and not silent either: leaves are waiting to be planned, so a "quiet" run would hide a broken type.
+    throw ApplicationFailure.nonRetryable(
+      `there is no agent called "${planner}" with a procedure to plan this tree's leaves`,
+      'GrovePlannerMissing',
+    );
+  }
   await GrovePrepareWorkActivity({ treeId: args.treeId, ownerId: args.ownerId, leafIds: needs.map((need) => need.leafId) });
 
   const run = runPrefix();
@@ -190,10 +210,12 @@ async function proposeLeafPlans(args: GroveRunArgs, environment: TreeSandbox, co
         mode: need.mode,
         ...(need.failure ? { failure: need.failure } : {}),
       };
+      const goal = `${need.mode === 'replan' ? 'Replan' : 'Break down'} the leaf "${need.leafTitle}".`;
       const input: ProcedureRunInput = {
-        ticket: { runId, depth: 0, ownerId: args.ownerId, agentSlug: 'planner', trigger: 'user' },
-        procedure: planner.procedure!,
-        inputs: { ...inputs, goal: `${need.mode === 'replan' ? 'Replan' : 'Break down'} the leaf "${need.leafTitle}".`, message: JSON.stringify(inputs) },
+        ticket: { runId, depth: 0, ownerId: args.ownerId, agentSlug: planner, trigger: 'user' },
+        procedure: resolved.procedure!,
+        // The goal is the opening line; the engine labels the rest of what the planner is given.
+        inputs: { ...inputs, goal, message: goal },
         environment: { ...environment, worktree: leafWorktree(need.leafId) },
       };
       return control.stopping ? undefined : runAgent(control, runId, input);
@@ -201,7 +223,7 @@ async function proposeLeafPlans(args: GroveRunArgs, environment: TreeSandbox, co
   }
 }
 
-async function workLeaves(args: GroveRunArgs, environment: TreeSandbox, pass: number, leaves: GrovePartitionLeaf[], control: RunControl): Promise<void> {
+async function workLeaves(args: GroveRunArgs, environment: TreeSandbox, pass: number, leaves: GrovePartitionLeaf[], control: RunControl, workAgent: string): Promise<void> {
   const run = runPrefix();
   for (let offset = 0; offset < leaves.length; offset += LEAVES_AT_ONCE) {
     if (control.stopping) return;
@@ -217,6 +239,7 @@ async function workLeaves(args: GroveRunArgs, environment: TreeSandbox, pass: nu
           leafTitle: leaf.title,
           runId,
           environment,
+          workAgent,
           ...(leaves.length > 1
             ? { siblings: `${leaves.length - 1} other leaves of this tree are being worked at the same time, each in its own worktree — keep to ${leaf.title}.` }
             : {}),
@@ -247,13 +270,15 @@ function claimItems(claimed: GrovePartition['claimed'], treeId: string, checkout
   });
 }
 
-/** One pass: one child engine run of the pass procedure; a failed pass fails the run (the loop resumes at the next partition). */
+/** One pass: one child engine run of the agent the tree names for it. A failed pass fails the run, rather than being retried into more work. */
 async function runGrovePass(options: {
   args: GroveRunArgs;
   environment: TreeSandbox;
   control: RunControl;
   pass: number;
   procedure: Procedure;
+  /** the agent whose procedure this pass runs — the tree's type may name its own */
+  agentSlug: string;
   role: 'judge';
   inputs: Record<string, unknown>;
 }): Promise<void> {
@@ -262,7 +287,7 @@ async function runGrovePass(options: {
     runId,
     depth: 0,
     ownerId: options.args.ownerId,
-    agentSlug: 'grove-runner',
+    agentSlug: options.agentSlug,
     trigger: 'user',
   };
   const input: ProcedureRunInput = { ticket, procedure: options.procedure, inputs: options.inputs, environment: options.environment };
@@ -271,6 +296,10 @@ async function runGrovePass(options: {
   const child = await runAgent(options.control, runId, input);
   if (options.control.stopping) return;
   if (child.outcome !== 'ok') {
-    throw new Error(`grove ${options.role} pass failed: ${child.reason ?? 'no reason given'}`);
+    // Non-retryable: a retry would re-work the tree's leaves and meet the same failed pass again.
+    throw ApplicationFailure.nonRetryable(
+      `grove ${options.role} pass failed: ${child.reason ?? 'no reason given'}`,
+      'GrovePassFailed',
+    );
   }
 }

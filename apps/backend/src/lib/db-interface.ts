@@ -9,7 +9,7 @@ import type { FrontierUrl, FrontierClaim } from './frontier.js';
 import type { AgentStep } from '@koala/harness-types';
 import type { GiteaAccount } from './projects.js';
 import type { MemoryItem } from './memory-store.js';
-import type { Task } from './tasks.js';
+import type { Task } from '../engine-host/tools/tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 import type { SecretRequest } from './secret-requests.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';

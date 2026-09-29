@@ -447,7 +447,7 @@ export interface DelegateWires {
   values?: In<'json'>
   /** Text the inputs can refer to as {{text}}. */
   text?: In<'text'>
-  /** A workspace to hand the child, so it works where the work was done rather than somewhere of its own. Nothing wired means it gets its own. */
+  /** A workspace to hand the child, so it works where the work was done rather than somewhere of its own. Nothing wired means it gets the workspace this run was given, and finds its own when this run has none. */
   environment?: In<'environment'>
 }
 
@@ -1008,7 +1008,7 @@ export interface Nodes {
    */
   condition(id: string, wires: ConditionWires, settings: ConditionSettings, meta?: NodeMeta): ConditionNode
   /**
-   * Delegate: Starts another persona as a child run with the inputs you write, waits for it to finish, and leaves by how it ended. The child gets nothing except those inputs, unless you wire it an environment — then it works in that same workspace instead of one of its own, so it can see what was done there. Inputs are JSON. {{values.name}} is replaced with that part of the wired values, and {{text}} with the wired text.
+   * Delegate: Starts another persona as a child run with the inputs you write, waits for it to finish, and leaves by how it ended. The child gets nothing except those inputs. It works in the workspace you wire it, so it can see what was done there; wire nothing and it works in the one this run was given, or finds one of its own when this run has none. Inputs are JSON. {{values.name}} is replaced with that part of the wired values, and {{text}} with the wired text.
    * Leaves through ok: The child finished ok.
    * Leaves through failed: The child failed, ran out of budget or was stopped.
    */

@@ -545,6 +545,39 @@ describe('handing a workspace to a delegated run', () => {
   });
 });
 
+describe('what a delegated run opens with', () => {
+  const handing = (inputs: string) => procedureBuilder({ catalogue: builtInCatalogue(), groups: BUILT_IN_GROUPS })({
+    id: 'hands-over', version: '1', name: 'Hands over', describe: 'Gives a child what it was handed.', budget: {},
+  }, (p) => {
+    const look = p.delegate('look', {}, { agent: 'research', inputs });
+    const done = p.finish('done', {}, { outcome: 'ok' });
+
+    p.start(look);
+    look.on('ok', done);
+    look.on('failed', done);
+    p.layout({ look: [0, 0], done: [260, 0] });
+  }).procedure;
+
+  const opening = async (inputs: string): Promise<string | undefined> => {
+    const { services } = world();
+    const model = stubModel(answer('ok'));
+
+    await runV2(services, 'sandboxed', handing(inputs));
+
+    const [childCall] = model.bodies();
+    return childCall!.messages.find((message) => message.role === 'user')?.content;
+  };
+
+  it('labels what the parent handed it, when the parent wrote no opening line', async () => {
+    expect(await opening('{"question":"what is here"}')).toBe('question: what is here');
+  });
+
+  it('keeps the opening line the parent wrote, and labels the rest alongside it', async () => {
+    expect(await opening('{"question":"what is here","message":"Answer this one question."}'))
+      .toBe('Answer this one question.\n\nquestion: what is here');
+  });
+});
+
 describe('doing one task', () => {
   const task = { id: 'task-1', title: 'Write hello.txt', doneMeans: 'hello.txt contains the word hello' };
 

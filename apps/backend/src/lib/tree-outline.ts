@@ -1,5 +1,5 @@
 import type { Branch, Leaf } from './leaves.js';
-import type { Task } from './tasks.js';
+import type { Task } from '../engine-host/tools/tasks.js';
 import type { Tree } from './trees.js';
 
 export type OutlineTree = Pick<Tree, 'id' | 'name' | 'type' | 'goal'>;

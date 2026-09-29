@@ -1,5 +1,5 @@
 import type { Branch, Leaf } from './leaves.js';
-import type { Task } from './tasks.js';
+import type { Task } from '../engine-host/tools/tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 
 export type DeletionTarget = { kind: 'tree' | 'branch' | 'leaf'; id: string };

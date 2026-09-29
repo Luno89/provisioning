@@ -10,6 +10,7 @@ import {
   ActivityCancellationType,
 } from '@temporalio/workflow';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
+import { childInputs } from '../engine-host/nodes/child-inputs.js';
 import {
   BUILT_IN_GROUPS,
   WORKFLOW_IMPLEMENTATIONS,
@@ -231,7 +232,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
             trigger: 'agent',
           },
           procedure: resolved.procedure,
-          inputs: { ...inputs, message: JSON.stringify(inputs) },
+          inputs: childInputs(inputs),
           ...(input.projectId ? { projectId: input.projectId } : {}),
           ...(environment ? { environment } : {}),
         }],
