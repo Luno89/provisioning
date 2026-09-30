@@ -11,7 +11,6 @@ export const KUBE_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     returns: 'one line per cluster, then its deployments as `- <name>: <app type>, <state> — <why it is unhealthy>`',
     failures: [{ when: 'there are no clusters', says: 'so' }],
     parameters: { type: 'object', properties: {} },
@@ -24,7 +23,6 @@ export const KUBE_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: true,
-    status: 'draft',
     returns: 'the log lines, each prefixed with its pod and container, or that there were none',
     failures: [NO_DEPLOYMENT, { when: 'the cluster cannot be reached', says: 'could not read, and why' }],
     parameters: {
@@ -44,7 +42,6 @@ export const KUBE_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: true,
-    status: 'draft',
     returns: 'the events, oldest first, or that there were none',
     failures: [NO_DEPLOYMENT, { when: 'the cluster cannot be reached', says: 'could not read, and why' }],
     parameters: {
@@ -64,7 +61,6 @@ export const KUBE_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: true,
-    status: 'draft',
     returns: 'the kubectl output for that read',
     failures: [
       NO_DEPLOYMENT,
@@ -93,7 +89,6 @@ export const KUBE_TOOLS: ToolDefinition[] = [
     effect: 'propose',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     returns: 'that it was asked, already asked, or already open',
     failures: [
       { when: 'the person is not an administrator', says: 'that only an administrator can open them' },
@@ -116,7 +111,6 @@ export const KUBE_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: true,
-    status: 'draft',
     returns: 'node usage and the node list, or the deployment\'s pod usage',
     failures: [NO_DEPLOYMENT, { when: 'the metrics server is not running', says: 'that no usage was reported' }],
     parameters: {

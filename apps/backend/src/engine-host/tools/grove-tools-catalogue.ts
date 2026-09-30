@@ -9,6 +9,7 @@ const PLAN_TASK = {
     role: { type: 'string', description: 'The part it plays in the project: which goal it serves and what it makes possible.' },
     doneMeans: { type: 'string', description: 'How anyone can tell it worked, without reading your mind.' },
     dependsOn: { type: 'array', items: { type: 'string' }, description: 'Keys of tasks in the same leaf that must finish first.' },
+    checks: { type: 'object', description: 'What code can check when the task is done, run before any judge is asked — so only add what a command can settle, not what needs reading. fileExists: a path that must exist and not be empty. contentPath + contentPattern: a regular expression that file must match. command + expects: a command that must exit clean and whose output must contain each of these strings. httpUrl + httpStatus: an endpoint that must answer, with that status (default 200).' },
   },
   required: ['key', 'title', 'description', 'role', 'doneMeans'],
 };
@@ -39,7 +40,6 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: false,
     openWorld: false,
-    status: 'draft',
     returns: 'text in the form `proposed leaf plan <id> — <mode> of "<leaf>": <n> tasks`',
     failures: [
       { when: 'the plan is incomplete', says: 'the first thing to fix, and that nothing was saved' },
@@ -66,7 +66,6 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     returns: 'the tree\'s name, id, type and goal, then each branch with its leaves as `<title> (<id>) [<status>, <done>/<n> tasks done, waits on …] — <goal>`',
     failures: [
       { when: 'the tree is not yours or does not exist', says: 'no such tree' },
@@ -87,7 +86,6 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     returns: 'one line per type: `<id> — <label>: <summary>`',
     failures: [{ when: 'no tree types are set up', says: 'that no new tree can be proposed' }],
     parameters: { type: 'object', properties: {} },
@@ -100,7 +98,6 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: false,
     openWorld: false,
-    status: 'draft',
     returns: 'text in the form `proposed plan <id> — <n> branches, <n> leaves, <n> tasks for <tree>`',
     failures: [
       { when: 'the plan is incomplete or inconsistent', says: 'the first thing to fix, and that nothing was saved' },
@@ -139,7 +136,6 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: false,
     openWorld: false,
-    status: 'draft',
     returns: 'text in the form `claimed <leafId>` / `failed <leafId> — <reason>`; the leaf carries the claim record (evidence, findings, runs, at) for the judge',
     failures: [
       { when: 'result is missing, or a success word', says: 'what the result may be, and that the work does not grade itself' },
@@ -168,7 +164,6 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: false,
     openWorld: false,
-    status: 'draft',
     returns: 'text in the form `settled <leafId> — verified` / `settled <leafId> — failed` / `kept <leafId> claimed — <note>`; the leaf carries the rewrite (status / verified / findings / review note)',
     failures: [
       { when: 'the verdict is missing or out of the three', says: 'what each of the three means, in the leaf’s life' },
@@ -193,7 +188,6 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     returns: 'A JSON partition { treeId, ready, unbroken, blocked, claimed, awaitingReview, inFlight, settled } and a digest of the form `n ready, n blocked, n without tasks, n in flight, n settled — tree <treeId>`',
     failures: [
       { when: 'treeId is missing or does not exist', says: 'what is required / no such tree' },
@@ -214,7 +208,6 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     returns: 'JSON with a step: { step: "run", item } where item is the task to hand to the executor (id, title, doneMeans, leafId, context, and description, role, checks, siblings, previousAttempt when there are any); { step: "claim" } when every task is finished; { step: "fail", reason } when a task failed twice or a task can never start; { step: "unbroken" } when the leaf has no tasks yet',
     failures: [
       { when: 'leafId is missing or is not one of your leaves', says: 'what is required / no such leaf' },

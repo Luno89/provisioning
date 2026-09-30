@@ -174,8 +174,6 @@ describe('describing a run environment', () => {
         effect: 'read' as const,
         idempotent: false,
         openWorld: false,
-        status: 'approved' as const,
-        approvedBy: 'luno',
         returns: 'rows',
         failures: [{ when: 'a bad query', says: 'the query failed' }],
         parameters: { type: 'object' as const, properties: { sql: { type: 'string', description: 'the query' } } },

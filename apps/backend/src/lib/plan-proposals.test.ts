@@ -46,6 +46,26 @@ describe('parsePlan', () => {
     expect('plan' in parsed && planSummary(parsed.plan)).toBe('1 branch, 1 leaf, 1 task for a new api-service tree "Widget API"');
   });
 
+  it('keeps the checks a task carries, and drops one that is not shaped like a check', () => {
+    const withChecks = parsePlan(plan({
+      branches: [{
+        title: 'Operability',
+        leaves: [leaf({ tasks: [task({ checks: { command: 'sh test.sh', expects: ['ok'], fileExists: 'dist/index.js' } })] })],
+      }],
+    }), world);
+
+    expect(withChecks).toMatchObject({
+      plan: { branches: [{ leaves: [{ tasks: [{ key: 't1', checks: { command: 'sh test.sh', expects: ['ok'], fileExists: 'dist/index.js' } }] }] }] },
+    });
+
+    // A pattern with no file to match checks nothing, so it is dropped rather than failing a claim later.
+    const half = parsePlan(plan({
+      branches: [{ title: 'Operability', leaves: [leaf({ tasks: [task({ checks: { contentPattern: '^ok$' } })] })] }],
+    }), world);
+
+    expect('plan' in half && half.plan.branches[0]!.leaves[0]!.tasks[0]!.checks).toBeUndefined();
+  });
+
   it('extends an existing tree by id', () => {
     const parsed = parsePlan(plan({ tree: undefined, treeId: 'tree-1' }), world);
     expect(parsed).toMatchObject({ plan: { treeId: 'tree-1' } });

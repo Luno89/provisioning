@@ -9,9 +9,9 @@
     "start": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev:worker": "tsx src/worker-host.ts",
-    "dev:worker:cluster": "tsx src/worker-cluster.ts",
-    "dev:worker:engine": "tsx src/worker-engine.ts",
+    "dev:worker": "tsx watch --exclude data src/worker-host.ts",
+    "dev:worker:cluster": "tsx watch --exclude data src/worker-cluster.ts",
+    "dev:worker:engine": "tsx watch --exclude data src/worker-engine.ts",
     "start:worker": "tsx src/worker-host.ts",
     "start:worker:cluster": "tsx src/worker-cluster.ts"
   },

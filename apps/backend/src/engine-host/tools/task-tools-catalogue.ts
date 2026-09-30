@@ -16,7 +16,6 @@ export const TASK_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: false,
     openWorld: false,
-    status: 'draft',
     returns: 'The new task\'s id and status, so later proposals can depend on it.',
     failures: [
       { when: 'the title or doneMeans is missing', says: 'a task needs a title / a task needs to say what "done" means' },
@@ -56,7 +55,6 @@ export const TASK_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     replaces: ['list_leaves', 'get_leaf'],
     returns: 'One line per task — its id, title and state — and the same set as JSON carrying id, '
       + 'title, status, what done means, what it depends on and which persona it is for. An empty '
@@ -95,7 +93,6 @@ export const TASK_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: false,
     openWorld: false,
-    status: 'draft',
     returns: 'Confirmation naming the task, and the list of runs that have claimed it, so a second '
       + 'claim is visible rather than silent.',
     failures: [
@@ -124,7 +121,6 @@ export const TASK_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     returns: 'Confirmation naming the task, then what it unblocked — tasks that depended on it and '
       + 'now have nothing else outstanding — or that nothing was waiting on it.',
     failures: [
@@ -156,7 +152,6 @@ export const TASK_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     returns: 'Confirmation naming the task and its new status.',
     failures: [
       { when: 'no task has that id', says: 'there is no task called "<taskId>"' },

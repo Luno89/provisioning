@@ -7,6 +7,31 @@ export const BUILD_SERVICE_ACCOUNT = 'pipeline-build-sa';
 
 export const BUILD_TIMEOUT_MS = 20 * 60_000;
 
+/** How often a run waiting for its image asks the cluster what the build is doing. */
+export const BUILD_POLL_MS = 5_000;
+
+/** How many times a build job that vanished is started again before that is taken as an answer. */
+export const BUILD_RESTARTS = 2;
+
+/**
+ * Pinned. `latest` would tie every workspace image to whatever gcr.io serves that day — the one
+ * part of an otherwise fingerprinted build that could change underneath a fingerprint that had not.
+ */
+export const KANIKO_IMAGE = 'gcr.io/kaniko-project/executor:v1.24.0';
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+/** How long a build was given, said the way a person would say it. */
+export function sayDuration(ms: number): string {
+  if (ms >= 60_000) {
+    const minutes = Math.round(ms / 60_000);
+    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  }
+
+  const seconds = Math.max(1, Math.round(ms / 1000));
+  return `${seconds} second${seconds === 1 ? '' : 's'}`;
+}
+
 export class ImageBuildError extends Error {
   constructor(detail: string) {
     super(detail);
@@ -58,6 +83,7 @@ export interface ImageBuilderOptions {
   registry?: string | undefined;
   namespace?: string | undefined;
   timeoutMs?: number | undefined;
+  pollMs?: number | undefined;
   published?: ((reference: string) => Promise<boolean>) | undefined;
   account?: (() => Promise<RegistryAccount>) | undefined;
   pushToken?: (() => Promise<{ username: string; password: string }>) | undefined;
@@ -143,7 +169,7 @@ function buildManifests(input: {
             containers: [
               {
                 name: 'kaniko',
-                image: 'gcr.io/kaniko-project/executor:latest',
+                image: process.env.KOALA_KANIKO_IMAGE ?? KANIKO_IMAGE,
                 args: [
                   '--context=dir:///workspace',
                   '--dockerfile=/workspace/Dockerfile',
@@ -182,6 +208,7 @@ function buildManifests(input: {
 export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
   const namespace = options.namespace ?? BUILD_NAMESPACE;
   const timeoutMs = options.timeoutMs ?? BUILD_TIMEOUT_MS;
+  const pollMs = options.pollMs ?? BUILD_POLL_MS;
   const { run } = options;
 
   let found: string | undefined = options.registry;
@@ -286,26 +313,38 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
 
       await apply(plan, reference);
 
-      const waited = await run(
-        ['wait', '--for=condition=complete', `job/${jobName(plan)}`, '-n', namespace,
-          `--timeout=${Math.ceil(timeoutMs / 1000)}s`],
-        undefined,
-        timeoutMs + 10_000,
-      );
+      /**
+       * Ask what the build is doing, rather than `kubectl wait --for=condition=complete`. A build
+       * that fails never becomes complete, so waiting out the timeout would leave the run hanging
+       * for twenty minutes over something as small as a package name that does not exist.
+       */
+      const deadline = Date.now() + timeoutMs;
+      let restarted = 0;
 
-      if (waited.exitCode !== 0) {
-        const logs = await run(
-          ['logs', `job/${jobName(plan)}`, '-n', namespace, '--tail=40'],
-          undefined,
-          30_000,
-        ).catch(() => ({ stdout: '', stderr: '', exitCode: 1 }));
+      for (;;) {
+        const state = await standing(plan);
 
-        throw new ImageBuildError(
-          `The workspace image did not build: ${logs.stdout.trim() || waited.stderr || 'no output'}`,
-        );
+        if (state.state === 'ready') return reference;
+        if (state.state === 'failed') {
+          throw new ImageBuildError(`The workspace image did not build: ${state.detail ?? 'no reason given'}`);
+        }
+        if (state.state === 'unbuilt') {
+          // The job is not there: deleted from under us, or a `get` that failed. Start it again,
+          // but not forever — a namespace that refuses jobs should say so, not spin to the deadline.
+          if (restarted >= BUILD_RESTARTS) {
+            throw new ImageBuildError('The workspace image build job disappeared, and starting it again did not stick');
+          }
+          restarted += 1;
+          await apply(plan, reference);
+        }
+        if (Date.now() >= deadline) {
+          throw new ImageBuildError(
+            `The workspace image did not build within ${sayDuration(timeoutMs)}: ${state.detail ?? state.state}`,
+          );
+        }
+
+        await sleep(pollMs);
       }
-
-      return reference;
     },
   };
 }

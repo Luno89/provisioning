@@ -49,9 +49,9 @@ describe('seeded agents', () => {
     }
   });
 
-  it('replaces the four old engines, plus interactive chat and a delivery loop', () => {
+  it('replaces the four old engines, plus interactive chat, a delivery loop and a paper writer', () => {
     expect(ALL_SEEDED_AGENTS().map((agent) => agent.slug).sort())
-      .toEqual(['agent-builder', 'delivery', 'executor', 'grove-runner', 'judge', 'koala', 'leaf-judge', 'leaf-worker', 'planner', 'research']);
+      .toEqual(['agent-builder', 'delivery', 'executor', 'grove-runner', 'judge', 'koala', 'leaf-judge', 'leaf-worker', 'paper-writer', 'planner', 'research']);
   });
 
   it('resolves by slug for any user with no forks present', () => {
@@ -65,6 +65,13 @@ describe('seeded agents get environments that match what they do', () => {
   it('gives research the network and nothing else', () => {
     const caps = capabilitiesFor(agentBySlug('research'));
     expect(caps).toMatchObject({ egress: true, terminal: false, filesystem: false });
+  });
+
+  it('gives the paper writer the network and a workspace, because it writes down what it found', () => {
+    const writer = agentBySlug('paper-writer');
+    expect(capabilitiesFor(writer)).toMatchObject({ egress: true, filesystem: true });
+    expect(environmentFor(writer).kind).toBe('sandbox');
+    expect(writer.interface?.workspace).toBe(true);
   });
 
   it('gives the executor a machine and pins it to a workspace', () => {
@@ -97,11 +104,10 @@ describe('seeded agents compose usable prompts', () => {
     parameters: { type: 'object', properties: {} },
     returns: 'string',
     failures: [],
-    status: 'approved',
     ...(name === 'run_command' ? { requires: { terminal: true } } : {}),
     ...(name === 'read_file' || name === 'write_file' || name === 'list_dir' ? { requires: { filesystem: true } } : {}),
   }));
-  const catalogue = contractsFor([...BUILDER_TOOLS, ...standardTools], ['draft', 'approved']);
+  const catalogue = contractsFor([...BUILDER_TOOLS, ...standardTools]);
 
   const offered = (slug: string, over: { tools?: string[]; agents?: string[] } = {}) => {
     const agent = { ...agentBySlug(slug), ...over };

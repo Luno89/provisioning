@@ -1,6 +1,7 @@
 import { defineSignal, getExternalWorkflowHandle, proxyActivities, setHandler, startChild } from '@temporalio/workflow';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 import { DEFAULT_STAGES } from '../lib/grove-stages.js';
+import { runEvidence } from '../lib/grove-leaf.js';
 import { leafWorktree } from '../lib/plan-documents.js';
 import { AgentRunWorkflow, cancelSignal } from './AgentRunWorkflow.js';
 import { GROVE_CANCEL_LEAF } from '../engine-host/temporal/contracts.js';
@@ -31,7 +32,9 @@ export const cancelLeafSignal = defineSignal<[]>(GROVE_CANCEL_LEAF);
  *
  * What is left here is what is not the work: the leaf's status, the claim, and stopping. The agent runs its own
  * procedure — `grove-work-leaf` by default — which asks `next_leaf_task` what the leaf needs, hands each task to an
- * executor of its own, and asks again, so the leaf stops when the run does. The run's three endings are the leaf's
+ * executor of its own, and asks again, so the leaf stops when the run does. A type may instead name an agent that
+ * does the whole leaf in one run, which is why the child is handed the leaf's goal as well as its id: a worker that
+ * loops asks for its work, and a worker that writes is told what to write. The run's three endings are the leaf's
  * three: `ok` claims it, `failed` claims against it with the reason the run gave, and `refused` (no tasks yet) puts it
  * back for the planner. There is no round cap here — the limit on the loop is whatever budget the procedure carries.
  */
@@ -49,8 +52,15 @@ export async function GroveLeafWorkflow(args: GroveLeafArgs): Promise<GroveLeafR
   const started = await GroveLeafStatusActivity({ ownerId: args.ownerId, leafId: args.leafId, from: ['pending'], to: 'running' });
   if (!started) return { leafId: args.leafId, outcome: 'cancelled', reason: 'the leaf was no longer waiting to be worked' };
 
-  const claim = async (result: 'claimed' | 'failed', reason?: string): Promise<GroveLeafResult> => {
-    const filed = await GroveClaimActivity({ treeId: args.treeId, ownerId: args.ownerId, leafId: args.leafId, result, ...(reason ? { reason } : {}) });
+  const claim = async (result: 'claimed' | 'failed', reason?: string, evidence?: string): Promise<GroveLeafResult> => {
+    const filed = await GroveClaimActivity({
+      treeId: args.treeId,
+      ownerId: args.ownerId,
+      leafId: args.leafId,
+      result,
+      ...(reason ? { reason } : {}),
+      ...(evidence ? { evidence } : {}),
+    });
     if (!filed.ok) return { leafId: args.leafId, outcome: 'failed', reason: `the claim was refused: ${filed.digest}` };
     return { leafId: args.leafId, outcome: result, ...(reason ? { reason } : {}) };
   };
@@ -73,8 +83,10 @@ export async function GroveLeafWorkflow(args: GroveLeafArgs): Promise<GroveLeafR
     procedure: worker.procedure,
     inputs: {
       leafId: args.leafId,
+      leafTitle: args.leafTitle,
+      ...(args.leafBody ? { leafBody: args.leafBody } : {}),
       siblings: args.siblings ?? '',
-      message: `Work every task of the leaf "${args.leafTitle}".`,
+      message: `Work the leaf "${args.leafTitle}".`,
     },
     environment,
   };
@@ -86,7 +98,8 @@ export async function GroveLeafWorkflow(args: GroveLeafArgs): Promise<GroveLeafR
   const result = await child.result().finally(() => { working = undefined; });
   if (cancelled) return stopped();
 
-  if (result.outcome === 'ok') return claim('claimed');
+  // A leaf worked in one run has no task evidence, so the claim carries what the run said for itself.
+  if (result.outcome === 'ok') return claim('claimed', undefined, runEvidence(result.outputs));
   if (result.outcome === 'refused') return backToThePlanner();
   return claim('failed', result.reason ?? `the ${agentSlug} run did not finish this leaf`);
 }

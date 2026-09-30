@@ -28,7 +28,7 @@ export function engineToolsRouter(deps: EngineToolsRouterDeps): Router {
 
     const outcome = await deps.tools.save(userOf(req).id, req.body);
     if (!outcome.saved) return res.status(400).json({ error: 'The tool does not hold together', problems: outcome.problems });
-    return res.json({ tool: outcome.tool, rebuilding: outcome.rebuilding });
+    return res.json({ tool: outcome.tool, rebuilding: outcome.rebuilding, failed: outcome.failed });
   }));
 
   router.delete('/:name', asyncRoute(async (req: Request, res: Response) => {

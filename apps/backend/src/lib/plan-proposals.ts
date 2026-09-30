@@ -1,7 +1,7 @@
 import { describeProblem, MAX_TASK_DESCRIPTION, MAX_TASK_ROLE } from '../engine-host/tools/tasks.js';
 import { usableServiceName } from './service-name.js';
 import { claimService } from './service-claim.js';
-import type { LeafPlan, LeafPlanMode, NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanTask } from '@koala/harness-types';
+import type { LeafPlan, LeafPlanMode, NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanTask, TaskChecks } from '@koala/harness-types';
 
 export type { AdoptedPlan, LeafPlan, LeafPlanMode, NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanProposal, PlanStatus, PlanTask } from '@koala/harness-types';
 
@@ -98,6 +98,35 @@ function cycleIn(edges: ReadonlyMap<string, readonly string[]>): string[] | unde
   return undefined;
 }
 
+/**
+ * The checks a task carries, kept only when they are shaped like checks.
+ *
+ * A plan's typo must not become a claim's failure: a half-formed check is dropped, and the judge is
+ * left with the prose, rather than a check that fails for a reason nobody wrote down.
+ */
+function parseChecks(raw: unknown): TaskChecks | undefined {
+  const checks = record(raw);
+  if (!checks) return undefined;
+
+  const command = text(checks, 'command');
+  const expects = names(checks, 'expects');
+  const fileExists = text(checks, 'fileExists') || text(checks, 'file_exists');
+  const contentPath = text(checks, 'contentPath') || text(checks, 'content_path');
+  const contentPattern = text(checks, 'contentPattern') || text(checks, 'content_pattern');
+  const httpUrl = text(checks, 'httpUrl') || text(checks, 'http_url');
+  const httpStatus = Number(checks.httpStatus ?? checks.http_status ?? 0) || undefined;
+
+  const parsed: TaskChecks = {
+    ...(command ? { command, ...(expects.length > 0 ? { expects } : {}) } : {}),
+    ...(fileExists ? { fileExists } : {}),
+    // A pattern with no file to match against, or a file with no pattern, checks nothing.
+    ...(contentPath && contentPattern ? { contentPath, contentPattern } : {}),
+    ...(httpUrl ? { httpUrl, ...(httpStatus ? { httpStatus } : {}) } : {}),
+  };
+
+  return Object.keys(parsed).length > 0 ? parsed : undefined;
+}
+
 function parseTask(raw: unknown, leafKey: string, index: number): { task: PlanTask } | { problem: string } {
   const task = record(raw);
   if (!task) return { problem: `task ${index + 1} of leaf "${leafKey}" is not an object` };
@@ -112,6 +141,8 @@ function parseTask(raw: unknown, leafKey: string, index: number): { task: PlanTa
   if (description.length > MAX_TASK_DESCRIPTION) return { problem: `leaf "${leafKey}", task "${title}": the description has to be under ${MAX_TASK_DESCRIPTION} characters` };
   if (role.length > MAX_TASK_ROLE) return { problem: `leaf "${leafKey}", task "${title}": the role has to be under ${MAX_TASK_ROLE} characters` };
 
+  const checks = parseChecks(task.checks);
+
   return {
     task: {
       key,
@@ -120,6 +151,7 @@ function parseTask(raw: unknown, leafKey: string, index: number): { task: PlanTa
       role,
       doneMeans,
       dependsOn: names(task, 'dependsOn').concat(names(task, 'depends_on')),
+      ...(checks ? { checks } : {}),
     },
   };
 }

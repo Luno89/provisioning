@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MemoryDB } from './memory-db.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
-import { TREE_TYPE_SEEDS, validateTreeType, resolveTreeType, renderStarterFiles, type TreeTypeSpec } from './tree-types.js';
+import { TREE_TYPE_SEEDS, validateTreeType, resolveTreeType, renderStarterFiles, seedTreeTypes, treeTypeChoices, treeTypesFor, type TreeTypeSpec } from './tree-types.js';
 
 const spec = (over: Partial<TreeTypeSpec> = {}): TreeTypeSpec => ({
   id: 'custom-thing',
@@ -67,6 +67,33 @@ describe('resolving a type for a tree', () => {
   });
 });
 
+describe('the types a person chooses from', () => {
+  // A shipped type has no owner, which TreeTypeSpec cannot say — the seeds are Omit<..., 'ownerId'>.
+  const shipped = { id: 'freeform', label: 'Freeform project', summary: "Doesn't fit the other types." } as TreeTypeSpec;
+  const mine = { ...shipped, ownerId: 'u1', label: 'Mine', stages: { work: 'type-worker' } };
+  const theirs = { ...shipped, ownerId: 'u2', label: 'Theirs', stages: { work: 'their-worker' } };
+
+  it('lets a person\'s own row shadow the shipped one at the same id, stages and all', () => {
+    expect(treeTypeChoices([shipped, mine], 'u1')).toEqual([
+      { id: 'freeform', label: 'Mine', summary: "Doesn't fit the other types.", stages: { work: 'type-worker' } },
+    ]);
+  });
+
+  it('keeps a shipped type nobody has edited', () => {
+    expect(treeTypeChoices([shipped], 'u1')).toEqual([
+      { id: 'freeform', label: 'Freeform project', summary: "Doesn't fit the other types." },
+    ]);
+  });
+
+  it('does not hand one owner\'s edit to another', () => {
+    expect(treeTypeChoices([shipped, theirs], 'u1').map((type) => type.label)).toEqual(['Freeform project']);
+  });
+
+  it('drops the shipped row from the rows themselves, not only from the choices', () => {
+    expect(treeTypesFor([shipped, mine], 'u1')).toEqual([mine]);
+  });
+});
+
 describe('the seeds', () => {
   it('are all valid records', () => {
     for (const seed of TREE_TYPE_SEEDS) {
@@ -111,5 +138,65 @@ describe('rendering the starter files', () => {
       { projectName: 'thing', registryHost: '' },
     );
     expect(file!.path).toBe('docs/thing.md');
+  });
+
+  it('keeps a starter script runnable, and does not make everything else so', () => {
+    const rendered = renderStarterFiles(
+      [{ path: 'build.sh', content: 'echo {{projectName}}', executable: true }, { path: 'README.md', content: '# {{projectName}}' }],
+      { projectName: 'thing', registryHost: '' },
+    );
+
+    expect(rendered.map((file) => file.executable)).toEqual([true, undefined]);
+  });
+});
+
+describe('seeding the shipped types', () => {
+  const paper = () => TREE_TYPE_SEEDS.find((type) => type.id === 'research-paper')!;
+  const shippedPaper = async (db: MemoryDB) =>
+    (await db.getTreeTypes()).find((type) => type.id === 'research-paper' && type.ownerId === undefined);
+
+  it('writes them all into an empty store', async () => {
+    const db = new MemoryDB();
+    await db.init();
+
+    expect(await seedTreeTypes(db)).toBe(TREE_TYPE_SEEDS.length);
+    expect((await shippedPaper(db))?.stages).toEqual({ work: 'paper-writer' });
+  });
+
+  it('brings a stored type up to date with its seed, so a new stage reaches installs that already have it', async () => {
+    const db = new MemoryDB();
+    await db.init();
+    await seedTreeTypes(db);
+
+    // An install from before the type named a work agent.
+    const { stages: _stages, ...stale } = paper();
+    await db.saveTreeType(stale as TreeTypeSpec);
+    expect(await shippedPaper(db)).not.toHaveProperty('stages');
+
+    expect(await seedTreeTypes(db)).toBe(1);
+    expect((await shippedPaper(db))?.stages).toEqual({ work: 'paper-writer' });
+  });
+
+  it('writes nothing on a second run, so provenance does not move', async () => {
+    const db = new MemoryDB();
+    await db.init();
+    await seedTreeTypes(db);
+
+    expect(await seedTreeTypes(db)).toBe(0);
+  });
+
+  it("never writes over a person's own edit of a shipped type", async () => {
+    const db = new MemoryDB();
+    await db.init();
+    await seedTreeTypes(db);
+    await db.saveTreeType({ ...paper(), ownerId: 'u1', label: 'Mine', stages: { work: 'type-worker' } });
+
+    expect(await seedTreeTypes(db)).toBe(0);
+
+    const rows = (await db.getTreeTypes('u1')).filter((type) => type.id === 'research-paper');
+    expect(rows.map((type) => `${type.label}:${JSON.stringify(type.stages)}`).sort()).toEqual([
+      'Mine:{"work":"type-worker"}',
+      'Research paper:{"work":"paper-writer"}',
+    ]);
   });
 });

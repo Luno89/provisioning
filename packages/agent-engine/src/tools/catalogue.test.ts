@@ -9,7 +9,6 @@ const tool = (over: Partial<ToolDefinition> = {}): ToolDefinition => ({
   effect: 'write',
   idempotent: false,
   openWorld: false,
-  status: 'draft',
   returns: 'Confirmation that the thing was done',
   failures: [{ when: 'the target does not exist', says: 'there is no such target' }],
   parameters: {
@@ -83,25 +82,14 @@ describe('what a tool definition must carry', () => {
     expect(complaints(tool({ failures: [] })).join(' ')).toContain('lists no failures');
   });
 
-  it('refuses an approval with nobody behind it', () => {
-    expect(complaints(tool({ status: 'approved' })))
-      .toContain('is marked approved but nobody is recorded as approving it');
-
-    expect(complaints(tool({ status: 'approved', approvedBy: 'luno' }))).toEqual([]);
-  });
-
   it('catches the same tool defined twice', () => {
     expect(checkCatalogue([tool(), tool()]).map((p) => p.message)).toContain('is defined twice');
   });
 });
 
 describe('what reaches an agent', () => {
-  it('offers nothing that has not been approved', () => {
-    expect(contractsFor([tool({ status: 'draft' })])).toEqual([]);
-  });
-
-  it('offers a draft only when asked for explicitly, which is what the harness does', () => {
-    expect(contractsFor([tool()], ['draft', 'approved']).map((c) => c.name)).toEqual(['do_thing']);
+  it('offers every tool in the catalogue, because a persona granting it is the only gate', () => {
+    expect(contractsFor([tool()]).map((c) => c.name)).toEqual(['do_thing']);
   });
 
   it('carries the schema through, because that is the part that kept going missing', () => {
@@ -117,10 +105,6 @@ describe('what reaches an agent', () => {
 describe('the catalogue as it stands', () => {
   it('is internally consistent', () => {
     expect(checkCatalogue(BUILDER_TOOLS)).toEqual([]);
-  });
-
-  it('has nothing approved yet, because nothing has been reviewed', () => {
-    expect(BUILDER_TOOLS.filter((entry) => entry.status === 'approved')).toEqual([]);
   });
 
   it('gives every tool a parameter schema, with no way to define one without', () => {

@@ -4,6 +4,7 @@ import { primaryProjectId } from '../lib/trees.js';
 import { newTask, type Task } from './tools/tasks.js';
 import type { AdoptedPlan, PlanProposal, PlanStatus } from '../lib/plan-proposals.js';
 import { leafBriefPath, leafWorktree, PLAN_DOC_PATH, planDocuments, renderLeafBrief, TREE_REPO } from '../lib/plan-documents.js';
+import { renderStarterFiles, resolveTreeType, type TreeTypeSpec } from '../lib/tree-types.js';
 import { resetForRetry } from '../lib/leaves.js';
 import type { EnvironmentResolver } from './sandboxes/environments.js';
 import type { TreeWorkspaces } from './sandboxes/tree-workspaces.js';
@@ -23,6 +24,10 @@ export interface PlanAdoptionOptions {
   stores: PlanAdoptionStores;
   treeWorkspaces: TreeWorkspaces;
   environments: Pick<EnvironmentResolver, 'forRun'>;
+  /** The types this owner can see, so a tree they create starts from its type's scaffold. */
+  treeTypes?: ((ownerId: string) => Promise<TreeTypeSpec[]>) | undefined;
+  /** Where the project's registry is reached, which a scaffold file may name. */
+  registryHost?: string | undefined;
   now?: (() => string) | undefined;
 }
 
@@ -42,6 +47,25 @@ const shell = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
 
 export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
   const now = options.now ?? (() => new Date().toISOString());
+
+  /**
+   * The files a type ships, rendered for this project: what a new tree starts from, so whoever works
+   * a leaf fills in a structure instead of inventing one and a judge has something to check against.
+   */
+  const scaffoldFor = async (ownerId: string, treeId: string, projectName: string): Promise<{ path: string; content: string; executable?: boolean | undefined }[]> => {
+    const treeTypes = options.treeTypes;
+    if (!treeTypes) return [];
+
+    const tree = (await options.stores.trees.list()).find((entry) => entry.id === treeId);
+    const type = await resolveTreeType(
+      { getTreeTypes: async (who?: string) => treeTypes(who ?? ownerId) },
+      ownerId,
+      tree?.type,
+    );
+    if (!type?.files?.length) return [];
+
+    return renderStarterFiles(type.files, { projectName, registryHost: options.registryHost ?? '' });
+  };
 
   const proposalOf = async (ownerId: string, id: string): Promise<PlanProposal> => {
     const proposal = await options.stores.proposals.get(ownerId, id);
@@ -197,6 +221,11 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
         return outcome.stdout.trim();
       };
 
+      // A repository this adoption is creating starts from its type's scaffold. One that already
+      // exists has its own files by now — a tree made in the UI and planned afterwards, or a second
+      // plan adopted into a tree whose leaves have worked — and writing over them would undo work.
+      const fresh = (await driver.exec({ command: `test -d ${TREE_REPO}/.git`, timeoutMs: 30_000 })).exitCode !== 0;
+
       await run(`mkdir -p ${TREE_REPO} && cd ${TREE_REPO} && (git rev-parse --git-dir >/dev/null 2>&1 || git init -q -b main)`);
 
       if (proposal.leafPlan) {
@@ -226,8 +255,12 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
         ? (await driver.exec({ command: `cat ${TREE_REPO}/${PLAN_DOC_PATH} 2>/dev/null || true`, timeoutMs: 30_000 })).stdout
         : '';
       const documents = planDocuments(proposal.plan, adopted, treeName, { earlier, proposalId });
-      for (const document of documents) await driver.writeFile(`${TREE_REPO}/${document.path}`, document.content);
-      const paths = documents.map((document) => shell(document.path)).join(' ');
+      const scaffold = fresh ? await scaffoldFor(ownerId, adopted.treeId, treeName) : [];
+      const written = [...scaffold, ...documents];
+      for (const document of written) await driver.writeFile(`${TREE_REPO}/${document.path}`, document.content);
+      const executable = scaffold.filter((file) => file.executable).map((file) => shell(`${TREE_REPO}/${file.path}`));
+      if (executable.length > 0) await run(`chmod +x ${executable.join(' ')}`);
+      const paths = written.map((document) => shell(document.path)).join(' ');
       await run(`cd ${TREE_REPO} && git add ${paths} && (git diff --cached --quiet || git -c user.name=koala -c user.email=koala@grove.local commit -q -m ${shell(`plan: ${proposalId}`)})`);
       const commit = await run(`cd ${TREE_REPO} && git rev-parse HEAD`);
 

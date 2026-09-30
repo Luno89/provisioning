@@ -2,6 +2,7 @@ import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { PersonaEgressRule } from '@koala/harness-types';
 import { TREE_TYPE_SEEDS as TREE_TYPE_SEEDS_VALUE } from './tree-type-seeds.js';
+import { sameSeededRow } from './seed-diff.js';
 import { validateEgressRules } from './egress-rules.js';
 import { TREE_STAGES, type TreeStages } from './grove-stages.js';
 
@@ -95,24 +96,64 @@ export function renderStarterFiles(files: readonly TreeTypeFile[], vars: Starter
     /\{\{(\w+)\}\}/g,
     (whole, key: string) => (key in vars ? String(vars[key as keyof StarterVars]) : whole),
   );
-  return files.map((f) => ({ path: fill(f.path), content: fill(f.content) }));
+  return files.map((f) => ({
+    path: fill(f.path),
+    content: fill(f.content),
+    // A starter script is no use to anybody if it arrives unrunnable.
+    ...(f.executable ? { executable: true } : {}),
+  }));
 }
 
 export interface TreeTypeStore {
   getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
 }
 
-export async function resolveTreeType(
-  store: TreeTypeStore,
+/**
+ * The types a person can choose from: their own row shadows the shipped one at the same id.
+ *
+ * `getTreeTypes(ownerId)` is an owner-scoped filter, not a merge, so it hands back both rows for a
+ * type somebody has edited — and a caller that takes the first match reads the shipped defaults
+ * instead of what the person chose.
+ */
+export function treeTypesFor<T extends { id: string; ownerId?: string | undefined }>(
+  rows: readonly T[],
+  ownerId: string,
+): T[] {
+  // Somebody else's row is not a choice this person has, whatever the caller handed over — and an
+  // unfiltered list would let their edit shadow the shipped type for everyone.
+  const visible = rows.filter((row) => row.ownerId === undefined || row.ownerId === ownerId);
+  const mine = new Set(visible.filter((row) => row.ownerId === ownerId).map((row) => row.id));
+  return visible.filter((row) => row.ownerId === ownerId || !mine.has(row.id));
+}
+
+export async function resolveTreeType<T extends { id: string; ownerId?: string | undefined }>(
+  store: { getTreeTypes(ownerId?: string): Promise<T[]> },
   ownerId: string,
   id: string | undefined,
-): Promise<TreeTypeSpec | undefined> {
+): Promise<T | undefined> {
   if (!id) return undefined;
-  const all = await store.getTreeTypes(ownerId).catch(() => [] as TreeTypeSpec[]);
+  const all = await store.getTreeTypes(ownerId).catch(() => [] as T[]);
   return all.find((t) => t.id === id && t.ownerId === ownerId) ?? all.find((t) => t.id === id && t.ownerId === undefined);
 }
 
 export type TreeTypeSeed = Omit<TreeTypeSpec, 'ownerId'>;
+
+/**
+ * The narrow view of the types a person can choose from — what the planner's `list_tree_types` shows
+ * and what a grove run reads its stages from. One rule, so the two cannot disagree about which row
+ * wins.
+ */
+export function treeTypeChoices(
+  rows: readonly TreeTypeSpec[],
+  ownerId: string,
+): { id: string; label: string; summary: string; stages?: TreeStages | undefined }[] {
+  return treeTypesFor(rows, ownerId).map((type) => ({
+    id: type.id,
+    label: type.label,
+    summary: type.summary,
+    ...(type.stages ? { stages: type.stages } : {}),
+  }));
+}
 
 export { TREE_TYPE_SEEDS } from './tree-type-seeds.js';
 
@@ -122,13 +163,18 @@ export interface TreeTypeSeedStore extends TreeTypeStore {
 
 export async function seedTreeTypes(store: TreeTypeSeedStore): Promise<number> {
   const stored = await store.getTreeTypes().catch(() => [] as TreeTypeSpec[]);
-  const have = new Set(stored.filter((t) => t.ownerId === undefined).map((t) => t.id));
+  const shipped = new Map(stored.filter((t) => t.ownerId === undefined).map((t) => [t.id, t]));
 
-  let added = 0;
+  let seeded = 0;
   for (const seed of TREE_TYPE_SEEDS_VALUE) {
-    if (have.has(seed.id)) continue;
+    const existing = shipped.get(seed.id);
+    // A shipped type keeps up with its seed: a type that gains a stage has to reach the installs that
+    // already hold it, or they silently run the defaults. A person's own edit shadows the shipped row
+    // by id and is never written over. Types the code stops shipping are left alone — a tree may
+    // still be of that type, and deleting it would orphan the tree rather than help anybody.
+    if (existing && sameSeededRow(existing, seed)) continue;
     await store.saveTreeType({ ...seed } as TreeTypeSpec);
-    added++;
+    seeded++;
   }
-  return added;
+  return seeded;
 }

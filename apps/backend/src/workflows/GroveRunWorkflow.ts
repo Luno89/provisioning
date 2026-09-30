@@ -25,6 +25,8 @@ import type {
   ResolvedAgentInfo,
   GroveJudgeCheckoutArgs,
   GroveJudgeCheckouts,
+  GroveCheckClaimsArgs,
+  GroveCheckedClaims,
   GrovePrepareWorkArgs,
   GrovePreparedWork,
   GroveRunArgs,
@@ -66,8 +68,8 @@ const { GrovePartitionActivity } = proxyActivities<{
 
 const {
   GroveWorkspaceActivity, GroveParkWorkspaceActivity, GrovePrepareWorkActivity, GroveJudgeCheckoutActivity,
-  GroveNeedsPlanActivity, GroveOpenProposalsActivity, GroveResetInFlightActivity, GroveStagesActivity,
-  EngineResolveAgentActivity,
+  GroveCheckClaimsActivity, GroveNeedsPlanActivity, GroveOpenProposalsActivity, GroveResetInFlightActivity,
+  GroveStagesActivity, EngineResolveAgentActivity,
 } = proxyActivities<{
   GroveResetInFlightActivity(args: GroveTreeArgs): Promise<string[]>;
   GroveStagesActivity(args: GroveTreeArgs): Promise<GroveStages>;
@@ -75,6 +77,7 @@ const {
   GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void>;
   GrovePrepareWorkActivity(args: GrovePrepareWorkArgs): Promise<GrovePreparedWork>;
   GroveJudgeCheckoutActivity(args: GroveJudgeCheckoutArgs): Promise<GroveJudgeCheckouts>;
+  GroveCheckClaimsActivity(args: GroveCheckClaimsArgs): Promise<GroveCheckedClaims>;
   GroveNeedsPlanActivity(args: GroveTreeArgs): Promise<GroveLeafNeedingPlan[]>;
   GroveOpenProposalsActivity(args: GroveTreeArgs): Promise<string[]>;
   EngineResolveAgentActivity(args: ResolveAgentArgs): Promise<ResolvedAgentInfo>;
@@ -90,7 +93,9 @@ const {
  * the tree; work every ready leaf as its own GroveLeafWorkflow (one run of the
  * agent the tree's type names for the work stage, then the claim);
  * judge every fresh claim in its own run of the agent it names for the judge
- * stage; re-partition; until the tree is quiet or the pass cap is reached.
+ * stage — once the checks its tasks carry have been run, because what code can
+ * settle, code settles; re-partition; until the tree is quiet or the pass cap is
+ * reached.
  * A type that names no agents gets the defaults.
  *
  * Reading the partition as an activity and the passes as child workflows keeps
@@ -161,25 +166,33 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox, cont
       partition = await GrovePartitionActivity({ treeId: args.treeId, ownerId: args.ownerId });
     }
     if (partition.claimed.length > 0) {
-      const checkouts = await GroveJudgeCheckoutActivity({ treeId: args.treeId, ownerId: args.ownerId, leafIds: partition.claimed.map((leaf) => leaf.id) });
-      const judge = await EngineResolveAgentActivity({ ownerId: args.ownerId, agentSlug: stages.judge });
-      if (!judge.found || !judge.procedure) {
-        // Non-retryable: a retry would re-work the tree's leaves and fail here again, forever.
-        throw ApplicationFailure.nonRetryable(
-          `there is no agent called "${stages.judge}" with a procedure to judge this tree's leaves`,
-          'GroveJudgeMissing',
-        );
+      const leafIds = partition.claimed.map((leaf) => leaf.id);
+      const checkouts = await GroveJudgeCheckoutActivity({ treeId: args.treeId, ownerId: args.ownerId, leafIds });
+      // What code can settle, code settles: a claim whose checks fail is failed here, with the report
+      // as its reason, and its leaf goes back to be replanned. Only the rest reach the judge.
+      const checked = await GroveCheckClaimsActivity({ treeId: args.treeId, ownerId: args.ownerId, leafIds, checkouts });
+      const claims = partition.claimed.filter((leaf) => !(leaf.id in checked.settled));
+
+      if (claims.length > 0) {
+        const judge = await EngineResolveAgentActivity({ ownerId: args.ownerId, agentSlug: stages.judge });
+        if (!judge.found || !judge.procedure) {
+          // Non-retryable: a retry would re-work the tree's leaves and fail here again, forever.
+          throw ApplicationFailure.nonRetryable(
+            `there is no agent called "${stages.judge}" with a procedure to judge this tree's leaves`,
+            'GroveJudgeMissing',
+          );
+        }
+        await runGrovePass({
+          args,
+          environment,
+          control,
+          pass: passes,
+          procedure: judge.procedure,
+          agentSlug: stages.judge,
+          role: 'judge',
+          inputs: { claimed: claimItems(claims, args.treeId, checkouts) },
+        });
       }
-      await runGrovePass({
-        args,
-        environment,
-        control,
-        pass: passes,
-        procedure: judge.procedure,
-        agentSlug: stages.judge,
-        role: 'judge',
-        inputs: { claimed: claimItems(partition.claimed, args.treeId, checkouts) },
-      });
     }
   }
 }
@@ -237,6 +250,7 @@ async function workLeaves(args: GroveRunArgs, environment: TreeSandbox, pass: nu
           ownerId: args.ownerId,
           leafId: leaf.id,
           leafTitle: leaf.title,
+          leafBody: leaf.body,
           runId,
           environment,
           workAgent,

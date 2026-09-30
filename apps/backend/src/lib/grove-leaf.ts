@@ -46,6 +46,38 @@ export function claimEvidence(tasks: readonly LeafTask[]): string {
     .join('\n');
 }
 
+/**
+ * What a work run said for itself, as a claim can carry it.
+ *
+ * A leaf worked in one run — a paper written rather than a task list finished — has no task evidence,
+ * so the run's own outputs are what the judge gets to weigh.
+ */
+export function runEvidence(outputs: Readonly<Record<string, unknown>>, limit = 2000): string {
+  const said = Object.entries(outputs)
+    .filter(([name, value]) => name !== 'message' && typeof value === 'string' && value.trim())
+    .map(([name, value]) => `${name}: ${String(value).trim()}`)
+    .join('\n');
+
+  return said.length > limit ? `${said.slice(0, limit)}…` : said;
+}
+
+/**
+ * What a claim says for itself.
+ *
+ * The tasks' evidence, where a task actually reported something. Otherwise the run's own account: a
+ * leaf worked in one run — a paper written rather than a task list finished — leaves its tasks
+ * sitting at `accepted` with nothing to say, and a judge handed only that has nothing to weigh.
+ */
+export function claimEvidenceFor(tasks: readonly LeafTask[], runSaid?: string | undefined): string {
+  const fromTasks = claimEvidence(tasks);
+  const reported = tasks.some((task) => task.status !== 'proposed' && Boolean(task.evidence?.trim()));
+  if (reported) return fromTasks;
+
+  const said = runSaid?.trim();
+  if (!said) return fromTasks || 'no task reported anything';
+  return fromTasks ? `${fromTasks}\n${said}` : said;
+}
+
 export const MAX_REPLANS = 2;
 
 export interface LeafNeedingPlan {
@@ -56,7 +88,7 @@ export interface LeafNeedingPlan {
   failure?: string | undefined;
 }
 
-type PlannableLeaf = { id: string; title: string; body?: string | undefined; status: string; runner?: 'engine' | undefined; replans?: number | undefined; findings?: string | undefined; review?: { reason?: string | undefined } | undefined; claim?: { evidence: string } | undefined };
+type PlannableLeaf = { id: string; title: string; body?: string | undefined; status: string; replans?: number | undefined; findings?: string | undefined; review?: { reason?: string | undefined } | undefined; claim?: { evidence: string } | undefined };
 type PlannableTask = LeafTask & { leafId?: string | undefined };
 
 export function leavesNeedingPlan(
@@ -66,7 +98,10 @@ export function leavesNeedingPlan(
 ): LeafNeedingPlan[] {
   const needs: LeafNeedingPlan[] = [];
   for (const leaf of leaves) {
-    if (leaf.runner !== 'engine' || openProposalLeafIds.has(leaf.id)) continue;
+    // Every leaf is engine-run; the `runner` field that used to gate this outlived the split it named,
+    // and nothing wrote it, so a failed leaf was never replanned and a leaf with no tasks never
+    // broken down. A leaf that already has a proposal waiting is the only one left out.
+    if (openProposalLeafIds.has(leaf.id)) continue;
     const own = tasks.filter((task) => task.leafId === leaf.id);
 
     if (leaf.status === 'failed' && (leaf.replans ?? 0) < MAX_REPLANS) {

@@ -102,6 +102,32 @@ export async function workspaceFor(input: {
   };
 }
 
+/**
+ * The one workspace a grove tree works in: the union of what its agents need. Shared with the image
+ * pruner, which has to know this fingerprint is wanted or it would delete the image every tree runs
+ * in, and each run would rebuild it.
+ */
+export function mergeWorkspaceAgents(
+  agents: readonly (AgentDefinition | undefined)[],
+  slug: string,
+): AgentDefinition | undefined {
+  const working = agents.filter((agent): agent is AgentDefinition => agent !== undefined && environmentFor(agent).kind === 'sandbox');
+  const [first] = working;
+  if (!first) return undefined;
+
+  const unique = (values: string[]): string[] => [...new Set(values)];
+
+  return {
+    ...first,
+    slug,
+    tools: unique(working.flatMap((agent) => agent.tools)),
+    environment: {
+      ...Object.assign({}, ...working.map((agent) => agent.environment)),
+      languages: unique(working.flatMap((agent) => agent.environmentSpec?.languages ?? agent.environment.languages ?? [])),
+    },
+  };
+}
+
 export function createEnvironmentResolver(options: EnvironmentResolverOptions): EnvironmentResolver {
   const approval = options.approval ?? allowAll();
   const egressFor_ = async (ownerId: string, agentSlug: string) => (options.egress
@@ -119,20 +145,8 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
   return {
     async describeShared({ ticket, agents }) {
       const found = await Promise.all(agents.map((slug) => options.registry.agent(ticket.ownerId, slug)));
-      const working = found.filter((agent): agent is AgentDefinition => agent !== undefined && environmentFor(agent).kind === 'sandbox');
-      const [first] = working;
-      if (!first) throw new Error(`none of ${agents.join(', ')} works in a sandbox, so there is nothing to share`);
-
-      const unique = (values: string[]): string[] => [...new Set(values)];
-      const merged: AgentDefinition = {
-        ...first,
-        slug: ticket.agentSlug,
-        tools: unique(working.flatMap((agent) => agent.tools)),
-        environment: {
-          ...Object.assign({}, ...working.map((agent) => agent.environment)),
-          languages: unique(working.flatMap((agent) => agent.environmentSpec?.languages ?? agent.environment.languages ?? [])),
-        },
-      };
+      const merged = mergeWorkspaceAgents(found, ticket.agentSlug);
+      if (!merged) throw new Error(`none of ${agents.join(', ')} works in a sandbox, so there is nothing to share`);
 
       const workspace = await workspaceFor({
         runId: ticket.runId,

@@ -9,7 +9,6 @@ const tool = (over: Partial<ToolDefinition> = {}): ToolDefinition => ({
   effect: 'read',
   idempotent: false,
   openWorld: false,
-  status: 'draft',
   returns: 'the number of matching lines',
   failures: [{ when: 'the path does not exist', says: 'no such file' }],
   parameters: {
@@ -42,9 +41,13 @@ const persona = (over: Partial<Persona> = {}): Persona => ({
 
 const IMPLEMENTED = new Set(['run_command', 'read_file']);
 
-function setup(over: { stored?: ToolDefinition[]; personas?: Persona[] } = {}) {
+function setup(over: { stored?: ToolDefinition[]; personas?: Persona[]; images?: 'building' | 'unreachable' | 'reported' } = {}) {
   const stored = [...(over.stored ?? [])];
-  const start = vi.fn(async () => ({ state: 'building' as const, reference: 'registry/koala:abc' }));
+  const start = vi.fn(async () => {
+    if (over.images === 'unreachable') throw new Error('Could not find the image registry (gitea-http in gitea)');
+    if (over.images === 'reported') return { state: 'failed' as const, reference: '', detail: 'no such package' };
+    return { state: 'building' as const, reference: 'registry/koala:abc' };
+  });
 
   return {
     stored,
@@ -159,6 +162,37 @@ describe('the tools a person can edit', () => {
 
     expect(start).toHaveBeenCalledTimes(1);
     expect(outcome).toMatchObject({ saved: true, rebuilding: ['executor'] });
+  });
+
+  it('says which workspaces could not start building, rather than only which did', async () => {
+    const { tools } = setup({
+      stored: [tool({ ownerId: undefined })],
+      personas: [persona(), persona({ slug: 'judge' })],
+      images: 'unreachable',
+    });
+
+    const outcome = await tools.save('user-1', tool({ install: { via: 'dnf', packages: ['ripgrep'] } }));
+
+    expect(outcome).toMatchObject({
+      saved: true,
+      rebuilding: [],
+      failed: [
+        { agent: 'executor', detail: 'Could not find the image registry (gitea-http in gitea)' },
+        { agent: 'judge', detail: 'Could not find the image registry (gitea-http in gitea)' },
+      ],
+    });
+  });
+
+  it('passes on a build that reported itself failed, so the person hears it at the save', async () => {
+    const { tools } = setup({ stored: [tool({ ownerId: undefined })], personas: [persona()], images: 'reported' });
+
+    const outcome = await tools.save('user-1', tool({ install: { via: 'dnf', packages: ['ripgrep'] } }));
+
+    expect(outcome).toMatchObject({
+      saved: true,
+      rebuilding: [],
+      failed: [{ agent: 'executor', detail: 'no such package' }],
+    });
   });
 
   it('only deletes a tool of your own', async () => {

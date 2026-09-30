@@ -10,7 +10,12 @@ export type TreeSandbox = Extract<RunEnvironment, { kind: 'sandbox' }>;
 export type TreeWorkspaceState = 'none' | 'parked' | 'running';
 
 export interface TreeWorkspaces {
-  describe(request: { treeId: string; ownerId: string }): Promise<TreeSandbox>;
+  /**
+   * The workspace every leaf of a tree works in. `agents` adds to the defaults: a tree type may name
+   * its own agent for a stage, and that agent's binaries have to be in this image too, or the type
+   * asks for a tool its own workspace does not have.
+   */
+  describe(request: { treeId: string; ownerId: string; agents?: readonly string[] | undefined }): Promise<TreeSandbox>;
   state(treeId: string): Promise<TreeWorkspaceState>;
   park(treeId: string): Promise<void>;
   release(treeId: string): Promise<void>;
@@ -22,9 +27,9 @@ export function createTreeWorkspaces(options: { resolver: EnvironmentResolver; k
   const namespaceOf = (treeId: string): string => workspaceName(treeWorkspaceRunId(treeId));
 
   return {
-    describe: ({ treeId, ownerId }) => options.resolver.describeShared({
+    describe: ({ treeId, ownerId, agents }) => options.resolver.describeShared({
       ticket: { runId: treeWorkspaceRunId(treeId), depth: 0, ownerId, agentSlug: 'grove-runner', trigger: 'user' },
-      agents: GROVE_WORKSPACE_AGENTS,
+      agents: [...new Set([...GROVE_WORKSPACE_AGENTS, ...(agents ?? [])])],
     }),
 
     async state(treeId) {

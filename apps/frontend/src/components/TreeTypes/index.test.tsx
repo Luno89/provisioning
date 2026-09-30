@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TreeTypes } from './index.js';
 import * as groveApi from '../../api/grove.js';
+import * as agentsApi from '../../api/agents.js';
 import type { TreeType } from '../../types/grove.js';
 
 vi.mock('../../api/grove.js', async (orig) => ({
@@ -10,6 +11,34 @@ vi.mock('../../api/grove.js', async (orig) => ({
   listTreeTypes: vi.fn(),
   updateTreeType: vi.fn(),
 }));
+
+vi.mock('../../api/agents.js', async (orig) => ({
+  ...(await orig<typeof agentsApi>()),
+  listAgents: vi.fn(),
+}));
+
+const agent = (over: Partial<agentsApi.Agent> = {}): agentsApi.Agent => ({
+  slug: 'leaf-worker',
+  name: 'Leaf Worker',
+  description: 'Carries a grove leaf\'s work.',
+  version: '1',
+  prompt: 'You are the structure of a grove leaf\'s work.',
+  guidance: '',
+  returns: '',
+  failures: [],
+  procedure: 'grove-work-leaf',
+  tools: ['next_leaf_task'],
+  environment: {},
+  mine: false,
+  ...over,
+});
+
+const AGENTS = [
+  agent({ slug: 'planner', name: 'Planner', procedure: 'planning', tools: ['propose_plan'] }),
+  agent(),
+  agent({ slug: 'type-worker', name: 'Type Worker', mine: true }),
+  agent({ slug: 'grove-runner', name: 'Grove Runner', procedure: 'grove-judge-pass', tools: ['ready_leaves'] }),
+];
 
 const treeType = (over: Partial<TreeType> = {}): TreeType => ({
   id: 'mcp-server',
@@ -24,6 +53,7 @@ const treeType = (over: Partial<TreeType> = {}): TreeType => ({
 
 function renderPanel(types: TreeType[]) {
   vi.mocked(groveApi.listTreeTypes).mockResolvedValue(types);
+  vi.mocked(agentsApi.listAgents).mockResolvedValue(AGENTS);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -112,5 +142,60 @@ describe('TreeTypes editor', () => {
 
     const createButton = screen.getByRole('button', { name: /create/i });
     expect(createButton).toBeDisabled();
+  });
+
+  it('shows each stage with the agent it falls back to', async () => {
+    renderPanel([treeType()]);
+    await waitFor(() => expect(screen.getByText('MCP server')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('MCP server'));
+
+    expect(await screen.findByLabelText('Agent for the plan stage')).toHaveValue('');
+    expect(screen.getByText('plan — default, planner')).toBeInTheDocument();
+    expect(screen.getByText('work — default, leaf-worker')).toBeInTheDocument();
+    expect(screen.getByText('judge — default, grove-runner')).toBeInTheDocument();
+  });
+
+  it('names an agent for a stage, and saves that in stages', async () => {
+    vi.mocked(groveApi.updateTreeType).mockResolvedValue(treeType({ stages: { work: 'type-worker' } }));
+    renderPanel([treeType()]);
+    await waitFor(() => expect(screen.getByText('MCP server')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('MCP server'));
+
+    // The options come with the agents query; changing the select before they land would not stick.
+    const work = await screen.findByLabelText('Agent for the work stage');
+    await waitFor(() => expect(work.querySelectorAll('option')).toHaveLength(AGENTS.length + 1));
+    fireEvent.change(work, { target: { value: 'type-worker' } });
+    expect(screen.getByText('work — type-worker')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(groveApi.updateTreeType).toHaveBeenCalledWith(
+      'mcp-server',
+      expect.objectContaining({ stages: { work: 'type-worker' } }),
+    ));
+  });
+
+  it('links the agent a stage runs to its procedure in the Studio', async () => {
+    renderPanel([treeType({ stages: { work: 'type-worker' } })]);
+    await waitFor(() => expect(screen.getByText('MCP server')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('MCP server'));
+
+    const link = await screen.findByRole('link', { name: /open grove-work-leaf/i });
+    expect(link).toHaveAttribute('href', '#/studio/grove-work-leaf');
+  });
+
+  it('leaves a stage out of the record when it is put back to its default', async () => {
+    vi.mocked(groveApi.updateTreeType).mockResolvedValue(treeType());
+    renderPanel([treeType({ stages: { work: 'type-worker' } })]);
+    await waitFor(() => expect(screen.getByText('MCP server')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('MCP server'));
+
+    fireEvent.change(await screen.findByLabelText('Agent for the work stage'), { target: { value: '' } });
+    expect(screen.getByText('work — default, leaf-worker')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(groveApi.updateTreeType).toHaveBeenCalledWith(
+      'mcp-server',
+      expect.objectContaining({ stages: undefined }),
+    ));
   });
 });

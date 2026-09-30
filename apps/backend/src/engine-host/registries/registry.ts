@@ -5,7 +5,6 @@ import {
   type Persona,
   ALL_SEEDED_AGENTS,
   contractsFor,
-  type ToolStatus,
   BUILDER_TOOLS,
 } from '@koala/agent-engine';
 import type { Procedure } from '@koala/agent-engine/procedure';
@@ -46,7 +45,6 @@ export function createStoredAgentRegistry(options: {
   personas: { list(ownerId?: string): Promise<Persona[]> };
   procedures: ProcedureReader;
   tools?: ToolReader | undefined;
-  include?: ToolStatus[] | undefined;
   toolCatalogue?: ToolCatalogue | undefined;
 }): AgentRegistry {
   return createAgentRegistry({
@@ -63,22 +61,18 @@ export function createStoredAgentRegistry(options: {
 
 function catalogueFor(options: {
   tools?: ToolReader | undefined;
-  include?: ToolStatus[] | undefined;
   toolCatalogue?: ToolCatalogue | undefined;
 }): ToolCatalogue | undefined {
   if (options.toolCatalogue) return options.toolCatalogue;
   if (!options.tools) return undefined;
 
-  const stored = createStoredToolCatalogue({
-    tools: options.tools,
-    ...(options.include ? { include: options.include } : {}),
-  });
+  const stored = createStoredToolCatalogue({ tools: options.tools });
 
-  return { list: async (ownerId: string) => contractsFor(await stored.list(ownerId), ['draft', 'approved']) };
+  return { list: async (ownerId: string) => contractsFor(await stored.list(ownerId)) };
 }
 
 const seededAgentStore: AgentStore = { list: async () => ALL_SEEDED_AGENTS() };
-const seededToolCatalogue: ToolCatalogue = { list: async () => contractsFor(BUILDER_TOOLS, ['draft', 'approved']) };
+const seededToolCatalogue: ToolCatalogue = { list: async () => contractsFor(BUILDER_TOOLS) };
 
 export function createAgentRegistry(options: RegistryOptions = {}): AgentRegistry {
   const agentStore = options.agentStore ?? seededAgentStore;

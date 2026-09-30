@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { claimEvidence, leavesNeedingPlan, MAX_REPLANS, nextLeafStep, type LeafTask } from './grove-leaf.js';
+import { claimEvidence, claimEvidenceFor, leavesNeedingPlan, MAX_REPLANS, nextLeafStep, runEvidence, type LeafTask } from './grove-leaf.js';
 
 const task = (id: string, over: Partial<LeafTask> = {}): LeafTask => ({ id, title: `task ${id}`, status: 'accepted', dependsOn: [], runs: [], ...over });
 
@@ -37,10 +37,40 @@ describe('claimEvidence', () => {
   });
 });
 
-describe('leavesNeedingPlan', () => {
-  const leaf = (id: string, over: Record<string, unknown> = {}) => ({ id, title: `leaf ${id}`, status: 'pending', runner: 'engine' as const, ...over });
+describe('what a claim carries when no task spoke for the leaf', () => {
+  it('takes the run\'s own words, named', () => {
+    expect(runEvidence({ result: 'Wrote paper.md, with a source for each claim.', message: 'not this' }))
+      .toBe('result: Wrote paper.md, with a source for each claim.');
+  });
 
-  it('replans a failed engine leaf with everything that failed, and breaks down a pending one with no work', () => {
+  it('says nothing about outputs that are not words', () => {
+    expect(runEvidence({ count: 3, blank: '', missing: undefined })).toBe('');
+  });
+
+  it('cuts a long answer down to what a claim can carry', () => {
+    expect(runEvidence({ result: 'x'.repeat(5000) }, 100)).toHaveLength(101);
+  });
+
+  it('takes the tasks\' evidence when a task reported something, and leaves the run out of it', () => {
+    expect(claimEvidenceFor([task('a', { status: 'done', evidence: 'wrote greet.js' })], 'the run said this'))
+      .toBe('- task a [done]\n  wrote greet.js');
+  });
+
+  it('adds the run\'s account when a task was taken but reported nothing', () => {
+    expect(claimEvidenceFor([task('a', { status: 'accepted' })], 'Wrote paper.md, with a source for each claim.'))
+      .toBe('- task a [accepted]\nWrote paper.md, with a source for each claim.');
+  });
+
+  it('falls back to the run alone with no tasks, and to saying nothing with neither', () => {
+    expect(claimEvidenceFor([task('a', { status: 'proposed' })], 'the run said this')).toBe('the run said this');
+    expect(claimEvidenceFor([], undefined)).toBe('no task reported anything');
+  });
+});
+
+describe('leavesNeedingPlan', () => {
+  const leaf = (id: string, over: Record<string, unknown> = {}) => ({ id, title: `leaf ${id}`, status: 'pending', ...over });
+
+  it('replans a failed leaf with everything that failed, and breaks down a pending one with no work', () => {
     const needs = leavesNeedingPlan(
       [leaf('f', { status: 'failed', findings: 'nginx is not installed', review: { reason: 'nothing served :8080' } }), leaf('e'), leaf('w')],
       [{ ...task('t1', { status: 'failed', evidence: 'apt-get: permission denied' }), leafId: 'f' }, { ...task('t2', { status: 'accepted' }), leafId: 'w' }],
@@ -53,9 +83,22 @@ describe('leavesNeedingPlan', () => {
     ]);
   });
 
-  it('leaves alone legacy leaves, leaves with an open proposal, and failed leaves past the replan cap', () => {
+  it('replans a failed leaf that carries no runner field, because nothing ever wrote one', () => {
+    // The guard this replaced asked for `runner === 'engine'`, and no code set it — so in the live
+    // grove a failed leaf was never replanned and a leaf with no tasks was never broken down.
+    const needs = leavesNeedingPlan(
+      [{ id: 'l1', title: 'leaf l1', status: 'failed', review: { reason: 'its own checks failed' } }],
+      [],
+      new Set(),
+    );
+
+    expect(needs).toEqual([
+      { leafId: 'l1', leafTitle: 'leaf l1', leafBody: '', mode: 'replan', failure: 'The judge said: its own checks failed' },
+    ]);
+  });
+
+  it('leaves alone a leaf with an open proposal, and a failed leaf past the replan cap', () => {
     expect(leavesNeedingPlan([
-      leaf('legacy', { runner: undefined }),
       leaf('proposed', { status: 'failed' }),
       leaf('capped', { status: 'failed', replans: MAX_REPLANS }),
     ], [], new Set(['proposed']))).toEqual([]);

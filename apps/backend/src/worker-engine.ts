@@ -20,6 +20,7 @@ import { McpRegistryService } from './services/McpRegistryService.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
 import { ClusterService } from './services/ClusterService.js';
 import { visibleAppSpecs } from './lib/app-spec.js';
+import { treeTypeChoices } from './lib/tree-types.js';
 import { resolveBindings } from './lib/binding-resolve.js';
 import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
 import { getTemporalClient } from './lib/temporal-client.js';
@@ -198,12 +199,18 @@ async function buildActivities() {
       },
       treeWorkspaces: host.treeWorkspaces,
       environments: host.environments,
+      // So a tree this adoption creates starts from its type's scaffold rather than an empty repo.
+      treeTypes: (ownerId: string) => db.getTreeTypes(ownerId),
+      registryHost: process.env.KOALA_REGISTRY,
     }),
     grove: {
       trees: { list: () => db.getTrees() },
       branches: { list: () => db.getBranches() },
       leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
       tasks: { list: () => db.getTasks() },
+      // Where a run reads the stages its tree type names. Without this the worker sees no types at
+      // all, and every stage quietly falls back to its default whatever the person chose.
+      treeTypes: async (ownerId: string) => treeTypeChoices(await db.getTreeTypes(ownerId), ownerId),
     },
     effort: createEffortTracker({
       models,

@@ -30,7 +30,6 @@ export function blankTool(name: string): EngineTool {
     command: '',
     needsBinaries: [],
     install: { via: 'base' },
-    status: 'draft',
     mine: true,
     grantedTo: [],
   }

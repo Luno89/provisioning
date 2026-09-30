@@ -9,7 +9,6 @@ export const CORPUS_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: false,
     openWorld: true,
-    status: 'draft',
     returns: 'the id of the crawl, to check with ingest_status',
     failures: [{ when: 'the url is not an http(s) address', says: 'so' }, { when: 'a limit is out of range', says: 'the allowed range' }],
     parameters: {
@@ -32,7 +31,6 @@ export const CORPUS_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     returns: 'running, or the page count, size, hosts and failures and the ingestId to search',
     failures: [{ when: 'the id is not one of the person\'s crawls', says: 'so' }],
     parameters: {
@@ -49,7 +47,6 @@ export const CORPUS_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     returns: 'numbered hits, each a URL and a snippet, or that nothing matched',
     failures: [{ when: 'no query is given', says: 'to give one' }],
     parameters: {

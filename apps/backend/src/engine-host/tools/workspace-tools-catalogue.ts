@@ -14,7 +14,6 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: false,
     openWorld: false,
-    status: 'draft',
     requires: { terminal: true },
     returns: 'stdout and stderr together, or "exited <code>" when the command printed nothing. The '
       + 'call is marked failed when the exit code is not zero.',
@@ -41,7 +40,6 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     requires: { filesystem: true },
     returns: 'The contents of the file as text.',
     failures: [
@@ -66,7 +64,6 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     requires: { filesystem: true },
     returns: 'Confirmation of how many bytes went to which path.',
     failures: [
@@ -92,7 +89,6 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     requires: { filesystem: true },
     returns: 'One entry per line, each marked d for a directory or - for a file.',
     failures: [
@@ -115,7 +111,6 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     requires: { filesystem: true },
     returns: 'Confirmation naming what was deleted.',
     failures: [
@@ -141,7 +136,6 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: true,
-    status: 'draft',
     replaces: ['web_search'],
     returns: 'Numbered results, each with a title, a URL and a snippet.',
     failures: [
@@ -166,7 +160,6 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: true,
-    status: 'draft',
     returns: 'The page as clean text, with navigation and markup stripped.',
     failures: [
       { when: 'the url argument is missing', says: 'this call needs a "url"' },

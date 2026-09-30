@@ -1,17 +1,9 @@
+import type { TaskChecks } from '@koala/harness-types';
+
 export type TaskStatus = 'proposed' | 'accepted' | 'running' | 'done' | 'failed' | 'dropped';
 
-export interface TaskChecks {
-  command?: string | undefined;
-  expects?: string[] | undefined;
-  /** file-exists: the path that must exist when the task is done */
-  fileExists?: string | undefined;
-  /** content-matches: the path whose contents must hold the pattern */
-  contentPath?: string | undefined;
-  contentPattern?: string | undefined;
-  /** http-probe: the endpoint that must answer, and with which status (default 200) */
-  httpUrl?: string | undefined;
-  httpStatus?: number | undefined;
-}
+/** The shape lives with the other shared records, so a plan can carry the same checks a task does. */
+export type { TaskChecks };
 
 export interface Task {
   id: string;

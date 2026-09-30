@@ -577,6 +577,20 @@ export interface OutcomeCounts {
 
 export type PlanStatus = 'proposed' | 'superseded' | 'adopting' | 'adopted' | 'rejected' | 'failed';
 
+export interface TaskChecks {
+  /** run-command: a command that must exit clean, and what its output must contain */
+  command?: string | undefined;
+  expects?: string[] | undefined;
+  /** file-exists: the path that must exist when the task is done */
+  fileExists?: string | undefined;
+  /** content-matches: the path whose contents must hold the pattern */
+  contentPath?: string | undefined;
+  contentPattern?: string | undefined;
+  /** http-probe: the endpoint that must answer, and with which status (default 200) */
+  httpUrl?: string | undefined;
+  httpStatus?: number | undefined;
+}
+
 export interface PlanTask {
   key: string;
   title: string;
@@ -584,6 +598,8 @@ export interface PlanTask {
   role: string;
   doneMeans: string;
   dependsOn: string[];
+  /** What code can check when the task is done — run before any judge is asked, and not a matter of opinion. */
+  checks?: TaskChecks | undefined;
 }
 
 export interface PlanLeaf {

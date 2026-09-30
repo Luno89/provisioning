@@ -20,6 +20,7 @@ import {
   listEngineTools,
   saveEngineTool,
   type EngineTool,
+  type WorkspaceBuildFailure,
 } from '../../api/engineTools'
 
 export { errorMessage } from '../../api/client'
@@ -82,15 +83,15 @@ export function useEngineTools() {
   return useQuery({ queryKey: engineToolKeys.all, queryFn: listEngineTools })
 }
 
-export function useSaveEngineTool(onSaved?: (rebuilding: string[]) => void) {
+export function useSaveEngineTool(onSaved?: (outcome: { rebuilding: string[]; failed: WorkspaceBuildFailure[] }) => void) {
   const client = useQueryClient()
 
   return useMutation({
     mutationFn: (tool: EngineTool) => saveEngineTool(tool),
-    onSuccess: ({ rebuilding }) => {
+    onSuccess: ({ rebuilding, failed }) => {
       void client.invalidateQueries({ queryKey: engineToolKeys.all })
       void client.invalidateQueries({ queryKey: agentKeys.all })
-      onSaved?.(rebuilding)
+      onSaved?.({ rebuilding, failed })
     },
   })
 }

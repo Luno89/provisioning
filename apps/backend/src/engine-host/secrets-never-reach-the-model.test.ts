@@ -82,7 +82,7 @@ describe('a secret never reaches the model, a trace, an event or a conversation'
 
     const registry = createAgentRegistry({
       agentStore: { list: async () => [koala] },
-      toolCatalogue: { list: async () => contractsFor(SECRET_TOOLS, ['draft', 'approved']) },
+      toolCatalogue: { list: async () => contractsFor(SECRET_TOOLS) },
     });
     const environments = createEnvironmentResolver({
       registry,

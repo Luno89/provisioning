@@ -199,6 +199,22 @@ export interface GroveJudgeCheckoutArgs {
 
 export type GroveJudgeCheckouts = Record<string, string | undefined>;
 
+export interface GroveCheckClaimsArgs {
+  treeId: string;
+  ownerId: string;
+  leafIds: string[];
+  /** which leaves have a judge checkout of the claimed commit, from GroveJudgeCheckoutActivity */
+  checkouts: GroveJudgeCheckouts;
+}
+
+export interface GroveCheckedClaims {
+  /**
+   * The leaves their own checks settled against, each with the report saying which check failed.
+   * These never reach the judge: a command that exits non-zero is not a matter of opinion.
+   */
+  settled: Record<string, string>;
+}
+
 /** The agent that runs each stage of a tree, resolved: what its type names, and the default where it names none. */
 export type GroveStages = Record<TreeStage, string>;
 
@@ -207,6 +223,8 @@ export interface GroveLeafArgs {
   ownerId: string;
   leafId: string;
   leafTitle: string;
+  /** The goal the leaf must reach. A worker that loops over tasks asks for its work; one that does the leaf in a single run is handed the goal. */
+  leafBody?: string | undefined;
   runId: string;
   environment: EnvironmentValue;
   /** the agent this tree's type names to work its leaves — it runs the whole leaf as one engine run */
@@ -233,6 +251,8 @@ export interface GroveClaimArgs {
   leafId: string;
   result: 'claimed' | 'failed';
   reason?: string | undefined;
+  /** What the work run said for itself, for a leaf whose tasks reported nothing — one run, no task list. */
+  evidence?: string | undefined;
 }
 
 export interface GroveClaimOutcome {

@@ -48,6 +48,9 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     summary: 'A written answer with sources — a comparison, a survey, a recommendation.',
     doneMeans: 'Every question is answered, every claim carries a source, and the write-up reads as one piece.',
     files: RESEARCH_PAPER_FILES,
+    // A paper leaf is one piece of writing, not a list of tasks: the work stage is a single run that
+    // researches the goal and writes the artefact, rather than the default's task loop.
+    stages: { work: 'paper-writer' },
   },
   {
     id: 'decision-brief',

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Loader2, Plus, X } from 'lucide-react'
-import type { EngineTool, InstallVia, ToolArgument } from '../../api/engineTools'
+import type { EngineTool, InstallVia, ToolArgument, WorkspaceBuildFailure } from '../../api/engineTools'
 import { errorMessage, useDeleteEngineTool, useSaveEngineTool } from './shared'
 import { commandProblems, packagesOf } from './tool-forms'
 
@@ -20,10 +20,23 @@ const VIA_SAYS: Record<InstallVia, string> = {
 }
 
 export default function ToolEditor({ tool, onClose }: { tool: EngineTool; onClose: () => void }) {
-  const [draft, setDraft] = useState<EngineTool>(tool)
+  // A tool stored before these two were required carries neither, and an unticked box sends nothing
+  // at all — so without this the tool could never be saved again except by ticking a box that lies.
+  const [draft, setDraft] = useState<EngineTool>({
+    ...tool,
+    idempotent: tool.idempotent ?? false,
+    openWorld: tool.openWorld ?? false,
+  })
   const [problems, setProblems] = useState<string[]>([])
   const [rebuilding, setRebuilding] = useState<string[]>([])
-  const save = useSaveEngineTool((started) => (started.length > 0 ? setRebuilding(started) : onClose()))
+  const [failed, setFailed] = useState<WorkspaceBuildFailure[]>([])
+  // A workspace that could not start building keeps the editor open: the tool is saved, and every
+  // agent granted it now waits on an image that is not coming.
+  const save = useSaveEngineTool((outcome) => {
+    setRebuilding(outcome.rebuilding)
+    setFailed(outcome.failed)
+    if (outcome.rebuilding.length === 0 && outcome.failed.length === 0) onClose()
+  })
   const remove = useDeleteEngineTool(() => onClose())
 
   const set = <K extends keyof EngineTool>(key: K, value: EngineTool[K]) =>
@@ -69,6 +82,7 @@ export default function ToolEditor({ tool, onClose }: { tool: EngineTool; onClos
   const submit = () => {
     setProblems([])
     setRebuilding([])
+    setFailed([])
     save.mutate(draft, {
       onError: (err) => setProblems([
         errorMessage(err),
@@ -274,6 +288,16 @@ export default function ToolEditor({ tool, onClose }: { tool: EngineTool; onClos
         <p className="rounded-md border border-amber-900 bg-amber-950/20 p-2 text-[11px] text-amber-300">
           Saved. {rebuilding.join(', ')} {rebuilding.length === 1 ? 'is' : 'are'} rebuilding a workspace to get it.
         </p>
+      )}
+
+      {failed.length > 0 && (
+        <ul className="space-y-1 rounded-md border border-red-900 bg-red-950/30 p-2">
+          {failed.map((one) => (
+            <li key={one.agent} className="text-[11px] text-red-300">
+              Saved, but {one.agent}'s workspace could not start building: {one.detail}
+            </li>
+          ))}
+        </ul>
       )}
 
       <div className="flex flex-wrap gap-2">

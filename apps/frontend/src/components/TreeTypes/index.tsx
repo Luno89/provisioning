@@ -5,6 +5,7 @@ import { listTreeTypes, updateTreeType, groveKeys } from '../../api/grove.js';
 import { errorMessage } from '../../api/client.js';
 import { card, blankTreeType, slugify, SLUG_PATTERN, type TreeType } from './shared.js';
 import { Overview } from './Overview.js';
+import { Stages } from './Stages.js';
 import { Scaffold } from './Scaffold.js';
 import { Bindings } from './Bindings.js';
 
@@ -162,6 +163,10 @@ export function TreeTypes() {
                     idEditable={isNew}
                     idError={idTaken ? 'Another type already uses this id.' : undefined}
                   />
+                </Section>
+
+                <Section title="Stages" hint="Which agent runs each stage of a tree of this type. A stage left to its default is resolved when the tree runs.">
+                  <Stages value={draft} onChange={patch} />
                 </Section>
 
                 <Section title="Scaffold" hint="Starter files rendered into a fresh repository when a tree of this type is created.">

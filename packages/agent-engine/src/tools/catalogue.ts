@@ -5,8 +5,6 @@ import type { ToolEffect } from '@koala/engine-core/contracts';
 
 export type { ToolEffect } from '@koala/engine-core/contracts';
 
-export type ToolStatus = 'draft' | 'approved';
-
 export interface JsonSchema {
   type: 'object';
   properties: Record<string, { type: string; description: string; enum?: string[]; items?: unknown }>;
@@ -50,9 +48,6 @@ export interface ToolDefinition {
   reaches?: Reachability | undefined;
   secrets?: string[] | undefined;
 
-  status: ToolStatus;
-  approvedBy?: string | undefined;
-  approvedAt?: string | undefined;
   replaces?: string[] | undefined;
 }
 
@@ -111,10 +106,6 @@ export function checkDefinition(tool: ToolDefinition): CatalogueProblem[] {
     if (!failure.when.trim() || !failure.says.trim()) say('has a failure with no condition or no message');
   }
 
-  if (tool.status === 'approved' && !tool.approvedBy) {
-    say('is marked approved but nobody is recorded as approving it');
-  }
-
   return problems;
 }
 
@@ -146,13 +137,12 @@ export function asContract(tool: ToolDefinition): ToolContract {
   };
 }
 
-export function approved(tools: readonly ToolDefinition[]): ToolDefinition[] {
-  return tools.filter((tool) => tool.status === 'approved');
-}
-
-export function contractsFor(
-  tools: readonly ToolDefinition[],
-  include: ToolStatus[] = ['approved'],
-): ToolContract[] {
-  return tools.filter((tool) => include.includes(tool.status)).map(asContract);
+/**
+ * One catalogue. A tool runs when a persona is granted it, and that grant is the whole gate: there
+ * is no second, quieter one behind an approval flag. Nothing ever enforced the flag — every seeded
+ * tool shipped `draft` and every host asked for drafts and approvals alike — so a gate only a
+ * reader believed in was worse than none.
+ */
+export function contractsFor(tools: readonly ToolDefinition[]): ToolContract[] {
+  return tools.map(asContract);
 }

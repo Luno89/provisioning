@@ -31,7 +31,6 @@ const tool = (over: Partial<EngineTool> = {}): EngineTool => ({
   command: 'rg --count {pattern}',
   needsBinaries: ['rg'],
   install: { via: 'dnf', packages: ['ripgrep'] },
-  status: 'draft',
   mine: false,
   grantedTo: ['executor'],
   ...over,
@@ -68,7 +67,7 @@ describe('the tools a person can edit', () => {
   })
 
   it('saves the command and the install recipe', async () => {
-    vi.mocked(saveEngineTool).mockResolvedValue({ tool: tool({ mine: true }), rebuilding: [] })
+    vi.mocked(saveEngineTool).mockResolvedValue({ tool: tool({ mine: true }), rebuilding: [], failed: [] })
     show()
 
     await userEvent.click(await screen.findByText('jq_query'))
@@ -81,14 +80,46 @@ describe('the tools a person can edit', () => {
     })))
   })
 
+  it('saves a tool stored before the two flags were required, saying false rather than nothing', async () => {
+    const stored = { ...tool({ name: 'json_query', mine: true, grantedTo: ['executor'] }) } as Partial<EngineTool>
+    delete stored.idempotent
+    delete stored.openWorld
+    vi.mocked(listEngineTools).mockResolvedValue([stored as EngineTool])
+    vi.mocked(saveEngineTool).mockResolvedValue({ tool: stored as EngineTool, rebuilding: ['executor'], failed: [] })
+    show()
+
+    await userEvent.click(await screen.findByText('json_query'))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(saveEngineTool).toHaveBeenCalledWith(expect.objectContaining({
+      idempotent: false,
+      openWorld: false,
+    })))
+  })
+
   it('says which agents are rebuilding a workspace to get it', async () => {
-    vi.mocked(saveEngineTool).mockResolvedValue({ tool: tool({ mine: true }), rebuilding: ['executor', 'judge'] })
+    vi.mocked(saveEngineTool).mockResolvedValue({ tool: tool({ mine: true }), rebuilding: ['executor', 'judge'], failed: [] })
     show()
 
     await userEvent.click(await screen.findByText('jq_query'))
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(await screen.findByText(/executor, judge are rebuilding a workspace/)).toBeInTheDocument()
+  })
+
+  it('says when a workspace could not start building, and keeps the editor open on it', async () => {
+    vi.mocked(saveEngineTool).mockResolvedValue({
+      tool: tool({ mine: true }),
+      rebuilding: [],
+      failed: [{ agent: 'executor', detail: 'Could not find the image registry (gitea-http in gitea)' }],
+    })
+    show()
+
+    await userEvent.click(await screen.findByText('jq_query'))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText(/executor's workspace could not start building/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
   })
 
   it('asks for an install script only when the recipe is a script', async () => {

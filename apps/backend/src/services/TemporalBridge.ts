@@ -19,6 +19,7 @@ export type GroveRunStatus =
   | { state: 'finished'; startedAt: string; closedAt?: string; result: GroveRunResult }
   | { state: 'failed'; startedAt: string; closedAt?: string; reason: string }
 import { reconcileRun, reconcileMissingWorkflow, LIVE_RUN_STATUSES, type RunStatus } from '../lib/run-reconcile.js'
+import { failureReason } from '../lib/temporal-failure.js'
 import { deploymentIdFor } from '../lib/deployment-id.js'
 import { resolveCloudCredentials } from '../lib/credential-resolver.js'
 import { decryptValue, encryptValue } from '../lib/crypto.js'
@@ -474,7 +475,10 @@ export class TemporalBridge {
       const result = await handle.result() as GroveRunResult
       return { state: 'finished', startedAt, ...(closedAt ? { closedAt } : {}), result }
     }
-    return { state: 'failed', startedAt, ...(closedAt ? { closedAt } : {}), reason: status.toLowerCase().replace(/_/g, ' ') }
+    // The status word is not a reason. Ask the workflow what it died of, so the tree says
+    // "the workspace image did not build: no match for jq-nonexistent" rather than "failed".
+    const said = await handle.result().then(() => undefined, (err: unknown) => err)
+    return { state: 'failed', startedAt, ...(closedAt ? { closedAt } : {}), reason: failureReason(status, said) }
   }
 
   async startActiveWorkflowRecovery(): Promise<void> {

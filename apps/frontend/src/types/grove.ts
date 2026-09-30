@@ -35,6 +35,17 @@ export interface PersonaEgressRule {
 }
 
 /**
+ * Which agent runs each stage of a tree of this type. A stage left unnamed falls back to the default
+ * in `apps/backend/src/lib/grove-stages.ts` — the type is as specific or as flexible as its author
+ * wants. (`deliver` joins these when landing does.)
+ */
+export interface TreeStages {
+  plan?: string | undefined
+  work?: string | undefined
+  judge?: string | undefined
+}
+
+/**
  * ── DUPLICATED, KNOWINGLY ──
  * Mirrors `TreeTypeSpec` in `apps/backend/src/lib/tree-types.ts`, which is the authority. Kept in
  * sync by hand — there is no shared package between the two halves for this shape.
@@ -52,4 +63,5 @@ export interface TreeType {
   defaultBindings?: string[] | undefined
   egress?: PersonaEgressRule[] | undefined
   env?: { name: string; value: string }[] | undefined
+  stages?: TreeStages | undefined
 }

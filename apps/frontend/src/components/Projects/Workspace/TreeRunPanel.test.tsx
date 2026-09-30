@@ -40,6 +40,19 @@ describe('TreeRunPanel', () => {
     expect(screen.getByText('Run it again')).toBeTruthy()
   })
 
+  it('says what a failed run died of, rather than only that it failed', async () => {
+    vi.mocked(groveApi.getTreeRun).mockResolvedValue({
+      state: 'failed', startedAt: 'then', closedAt: 'later',
+      reason: 'The workspace image did not build: No match for argument: jq-nonexistent',
+    })
+    renderPanel()
+
+    expect(await screen.findByText(
+      'The last run stopped: The workspace image did not build: No match for argument: jq-nonexistent.',
+    )).toBeTruthy()
+    expect(screen.getByText('Run it again')).toBeTruthy()
+  })
+
   it('stops a running tree, and says the stopped leaves are back to waiting', async () => {
     vi.mocked(groveApi.getTreeRun).mockResolvedValueOnce({ state: 'running', startedAt: '2026-09-25T10:00:00.000Z' })
     vi.mocked(groveApi.stopTreeRun).mockResolvedValue({ state: 'running', startedAt: '2026-09-25T10:00:00.000Z' })

@@ -1,13 +1,14 @@
 import { BUILDER_TOOLS, type Persona, type ProcedureSource, type ToolDefinition } from '@koala/agent-engine';
 import { environmentHandlers, type EnvironmentDriver } from '@koala/engine-core';
 import { createStoredAgentRegistry, type AgentRegistry } from './registries/registry.js';
+import { treeTypeChoices } from '../lib/tree-types.js';
 import { createStoredToolCatalogue, type StoredToolCatalogue } from './registries/tool-catalogue-store.js';
 import { createEndpointResolver, type ModelServiceLike } from './registries/endpoints.js';
 import { createRunEnvironments, type RunEnvironments } from './sandboxes/run-environments.js';
 import { createSandboxDriver } from './drivers/sandbox.js';
 import { createClusterBackend } from './sandboxes/cluster-backend.js';
 import { createKubeRunner } from './sandboxes/kube.js';
-import { createImageBuilder, type ImageBuilder, type RegistryAccount } from './sandboxes/image-builder.js';
+import { createImageBuilder, discoverRegistry, type ImageBuilder, type RegistryAccount } from './sandboxes/image-builder.js';
 import { createEnvironmentResolver, type EnvironmentResolver } from './sandboxes/environments.js';
 import { createTreeWorkspaces, type TreeWorkspaces } from './sandboxes/tree-workspaces.js';
 import { createMachineBackend } from './drivers/machine-backend.js';
@@ -22,6 +23,8 @@ import type { Database } from '../lib/db-interface.js';
 import { createEffortTracker, type EffortTracker, type EffortTrackerOptions } from './registries/effort.js';
 import { createCodeRunner } from './nodes/code-runner.js';
 import { createWorkspaceImages, type WorkspaceImages } from './sandboxes/warm-images.js';
+import { createImagePruner, type ImagePruner } from './sandboxes/prune-images.js';
+import { createRegistryPackages } from './sandboxes/registry-packages.js';
 import { createMcpToolSource } from './tools/mcp-tools.js';
 import { proxyUrlFor } from '../lib/egress-proxy.js';
 
@@ -74,6 +77,8 @@ export interface EngineHostOptions {
   projects?: import('./tools/project-tools.js').ProjectToolStores | undefined;
   egressSecret?: string | undefined;
   corpus?: import('./tools/corpus-tools.js').CorpusAccess | undefined;
+  /** Everyone whose agents could run, so the image sweep asks what each of them wants. */
+  owners?: (() => Promise<string[]>) | undefined;
 }
 
 export interface EngineHost {
@@ -86,6 +91,8 @@ export interface EngineHost {
   runEnvironments: RunEnvironments;
   treeWorkspaces: TreeWorkspaces;
   images: ImageBuilder;
+  /** Lets go of the workspace images nothing would run; absent where there is no registry account. */
+  imagePruner: ImagePruner | undefined;
   tools: ToolRuntime;
   services: HostNodeServices;
   implemented: ReadonlySet<string>;
@@ -94,12 +101,11 @@ export interface EngineHost {
 export function createEngineHost(options: EngineHostOptions): EngineHost {
   const { stores } = options;
 
-  const catalogue = createStoredToolCatalogue({ tools: stores.tools, include: ['draft', 'approved'] });
+  const catalogue = createStoredToolCatalogue({ tools: stores.tools });
   const registry = createStoredAgentRegistry({
     personas: stores.personas,
     procedures: stores.procedures,
     tools: stores.tools,
-    include: ['draft', 'approved'],
   });
   const endpoints = createEndpointResolver({ models: options.models, registry });
   const kube = createKubeRunner({ kubeconfig: options.kubeconfig });
@@ -215,13 +221,31 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     images,
     personas: (ownerId?: string) => registry.agents(ownerId ?? ''),
     tools: (ownerId?: string) => stores.tools.list(ownerId),
+    ...(options.owners ? { owners: options.owners } : {}),
   });
+
+  const registryAccount = options.registryAccount;
+  // The registry's package API is served at the same address the builds push to, so the sweep asks there.
+  let registryAddress: string | undefined;
+  const registryPackages = registryAccount
+    ? createRegistryPackages({
+      registry: async () => (registryAddress ??= options.registryHost ?? await discoverRegistry(kube)),
+      account: registryAccount,
+    })
+    : undefined;
+  const imagePruner = registryPackages
+    ? createImagePruner({
+      tags: () => registryPackages.list(),
+      wanted: () => workspaceImages.wanted(),
+      remove: (fingerprint: string) => registryPackages.remove(fingerprint),
+    })
+    : undefined;
 
   const implemented = new Set([...Object.keys(environmentHandlers), ...Object.keys(handlers)]);
 
   return {
     efforts, workspaceImages, registry, catalogue, endpoints, environments,
-    runEnvironments, treeWorkspaces, images, tools, services, implemented,
+    runEnvironments, treeWorkspaces, images, imagePruner, tools, services, implemented,
   };
 }
 
@@ -248,13 +272,7 @@ export function storesFromDatabase(db: Database): EngineHostStores {
         save: (proposal) => db.savePlanProposal(proposal),
         list: (ownerId, conversationId) => db.getPlanProposals(ownerId, conversationId),
       },
-      treeTypes: async (ownerId: string) => {
-        const visible = (await db.getTreeTypes(ownerId)).filter((type) => type.ownerId === undefined || type.ownerId === ownerId);
-        const mine = new Set(visible.filter((type) => type.ownerId === ownerId).map((type) => type.id));
-        return visible
-          .filter((type) => type.ownerId === ownerId || !mine.has(type.id))
-          .map((type) => ({ id: type.id, label: type.label, summary: type.summary, ...(type.stages ? { stages: type.stages } : {}) }));
-      },
+      treeTypes: async (ownerId: string) => treeTypeChoices(await db.getTreeTypes(ownerId), ownerId),
       binding: async (ownerId: string, conversationId: string) => {
         const conversation = await db.getConversation(ownerId, conversationId);
         return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId } : undefined;

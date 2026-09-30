@@ -20,7 +20,6 @@ export const BUILDER_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     replaces: ['list_tree_types'],
     returns: 'Every tool name, every persona with what it is for, and every node kind and group a procedure '
       + 'can use, so each node can be pointed at the right one.',
@@ -42,7 +41,6 @@ export const BUILDER_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     replaces: ['get_tree_type'],
     returns: 'The full JSON definition of the procedure (schema, id, version, name, budget, start, nodes, wires, flow), in the same format save_procedure takes.',
     failures: [
@@ -69,7 +67,6 @@ export const BUILDER_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     replaces: [...LOOP_EDITING, 'compile_procedure'],
     returns: 'Either a confirmation naming what the procedure defines, or the problems, in the '
       + 'form "node \\"step1\\": calls tool \\"ghost_tool\\", which is not available here". Nothing is saved either way.',
@@ -99,7 +96,6 @@ export const BUILDER_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     replaces: ['create_tree_type', 'set_tree_type_overview', 'delete_tree_type', 'write_procedure'],
     returns: 'Confirmation naming what was saved, as your own copy. A built-in is never changed; '
       + 'your copy shadows it by id wherever it is referenced.',

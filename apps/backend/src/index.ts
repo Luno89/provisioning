@@ -56,6 +56,7 @@ import { buildWebTools } from './lib/web-tools-wiring.js';
 import { Level1Service } from './services/Level1Service.js';
 import { Level2Service } from './services/Level2Service.js';
 import { createStoredToolCatalogue, createEngineHost, storesFromDatabase, createStoredAgentRegistry, createEndpointResolver, createRunStarter, startStreamWorker } from './engine-host/index.js';
+import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
 import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
 import { getTemporalClient } from './lib/temporal-client.js';
@@ -552,18 +553,17 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     personas: { list: (ownerId?: string) => db.getEnginePersonas(ownerId) },
     procedures: { list: (ownerId?: string) => db.getProcedures(ownerId) },
     tools: { list: (ownerId?: string) => db.getEngineTools(ownerId) },
-    include: ['draft', 'approved'],
   });
 
   const draftCatalogue = createStoredToolCatalogue({
     tools: { list: (ownerId?: string) => db.getEngineTools(ownerId) },
-    include: ['draft', 'approved'],
   });
 
   const evalWeb = await buildWebTools(db).catch(() => undefined);
   const evalHost = createEngineHost({
     models: modelService,
     stores: storesFromDatabase(db),
+    owners: async () => (await db.getUsers()).map((user) => user.id),
     ...(evalWeb ? { web: evalWeb } : {}),
     kubeconfig: process.env.KUBECONFIG_PATH,
     registryHost: process.env.KOALA_REGISTRY,
@@ -614,6 +614,29 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     for (const image of failed) console.warn(`[images] ${image.agent}: ${image.detail ?? 'the image could not be built'}`);
   }).catch((err: Error) => console.warn(`[images] could not warm workspace images: ${err.message}`));
 
+  /**
+   * Let go of the workspace images nothing would run. What it takes is not lost: a fingerprint is
+   * derived from what the agents need, so the next run that wants an image names it and builds it
+   * again — which is why this can be a sweep rather than an accounting.
+   */
+  const sweepImages = async (why: string): Promise<void> => {
+    if (!evalHost.imagePruner) return;
+
+    try {
+      const report = await evalHost.imagePruner.prune();
+      if (report.removed.length === 0 && report.failed.length === 0) return;
+      console.log(`[images] ${why}: let go of ${report.removed.length}, kept ${report.kept.length}, left ${report.tooNew.length} too new`);
+      for (const failure of report.failed) {
+        console.warn(`[images] ${why}: could not delete ${failure.fingerprint.slice(0, 12)}: ${failure.detail}`);
+      }
+    } catch (err) {
+      console.warn(`[images] ${why}: could not sweep the workspace images: ${(err as Error).message}`);
+    }
+  };
+
+  setTimeout(() => { void sweepImages('after the warm'); }, PRUNE_FIRST_DELAY_MS).unref();
+  setInterval(() => { void sweepImages('daily'); }, PRUNE_INTERVAL_MS).unref();
+
   app.use('/api/procedures', proceduresRouter({
     procedures: new ProcedureService({
       procedures: createProcedureStore({ sources: { list: (ownerId?: string) => db.getProcedures(ownerId) } }),
@@ -633,6 +656,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.use('/api/engine', engineRouter({
     runs: engineRuns,
     registry: engineRegistry,
+    admin: requireAdmin,
+    images: {
+      standing: (ownerId?: string) => evalHost.workspaceImages.standing(ownerId),
+      prune: async () => evalHost.imagePruner?.prune(),
+    },
     traces: { list: (ownerId: string, runId: string) => db.getRunTraces(ownerId, runId) },
     tasks: {
       list: (ownerId: string) => db.getTasks(ownerId),

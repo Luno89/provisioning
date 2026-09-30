@@ -1,4 +1,4 @@
-import { countsIn, lastComplaint, pickAddress } from './image-builder.js';
+import { BUILD_TIMEOUT_MS, countsIn, lastComplaint, pickAddress } from './image-builder.js';
 import { describe, it, expect, vi } from 'vitest';
 import { createImageBuilder, discoverRegistry, ImageBuildError } from './image-builder.js';
 import { imageReference, planImage, type ToolDefinition } from '@koala/agent-engine';
@@ -13,8 +13,6 @@ const needsPsql: ToolDefinition = {
   effect: 'read',
   idempotent: false,
   openWorld: false,
-  status: 'approved',
-  approvedBy: 'luno',
   returns: 'rows',
   failures: [{ when: 'the query is bad', says: 'the query failed' }],
   parameters: { type: 'object', properties: { sql: { type: 'string', description: 'the query' } } },
@@ -67,23 +65,27 @@ describe('not building what does not need building', () => {
 });
 
 describe('building what does', () => {
+  /** The registry starts empty and serves the image once the build has been applied. */
+  const servedAfterApply = (calls: { args: string[] }[]) => async () => calls.some((call) => call.args[0] === 'apply');
+
   it('applies a kaniko job that pushes to the fingerprinted tag', async () => {
     const { run, calls } = kube();
-    const build = createImageBuilder({ run, registry: REGISTRY, published: async () => false });
+    const build = createImageBuilder({ run, registry: REGISTRY, pollMs: 1, published: servedAfterApply(calls) });
 
     const reference = await build.ensure(CUSTOM);
 
     expect(reference).toBe(imageReference(REGISTRY, CUSTOM));
 
     const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
-    expect(applied).toContain('kaniko-project/executor');
+    expect(applied).toContain('kaniko-project/executor:v1.24.0');
+    expect(applied).not.toContain('executor:latest');
     expect(applied).toContain(`--destination=${reference}`);
     expect(applied).toContain('pipeline-build-sa');
   });
 
   it('ships the Dockerfile with the job rather than needing a checkout', async () => {
     const { run, calls } = kube();
-    await createImageBuilder({ run, registry: REGISTRY, published: async () => false }).ensure(CUSTOM);
+    await createImageBuilder({ run, registry: REGISTRY, pollMs: 1, published: servedAfterApply(calls) }).ensure(CUSTOM);
 
     const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
     expect(applied).toContain('ConfigMap');
@@ -92,33 +94,58 @@ describe('building what does', () => {
     expect(applied).toContain('--context=dir:///workspace');
   });
 
-  it('waits for the job and reports the build log when it fails', async () => {
+  it('reports the build log when the job fails', async () => {
     const { run } = kube({
-      wait: { stdout: '', stderr: 'timed out', exitCode: 1 },
+      get: { stdout: '||1', stderr: '', exitCode: 0 },
       logs: { stdout: 'error building image: no such package', stderr: '', exitCode: 0 },
     });
 
-    const build = createImageBuilder({ run, registry: REGISTRY, published: async () => false });
+    const build = createImageBuilder({ run, registry: REGISTRY, published: async () => false, pollMs: 1 });
 
     await expect(build.ensure(CUSTOM)).rejects.toThrow(ImageBuildError);
     await expect(build.ensure(CUSTOM)).rejects.toThrow(/no such package/);
   });
 
+  it('says a build failed when it fails, rather than waiting out the build timeout', async () => {
+    const { run } = kube({
+      get: { stdout: '||1', stderr: '', exitCode: 0 },
+      logs: { stdout: 'No match for argument: ripgrep', stderr: '', exitCode: 0 },
+    });
+
+    // Twenty minutes is what a run would otherwise sit through over a package name that does not exist.
+    const build = createImageBuilder({
+      run, registry: REGISTRY, published: async () => false, pollMs: 1, timeoutMs: BUILD_TIMEOUT_MS,
+    });
+
+    const started = Date.now();
+    await expect(build.ensure(CUSTOM)).rejects.toThrow(/did not build: No match for argument: ripgrep/);
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it('gives up on a job that never finishes, saying what it was still doing', async () => {
+    const { run } = kube({ get: { stdout: '1||', stderr: '', exitCode: 0 } });
+    const build = createImageBuilder({
+      run, registry: REGISTRY, published: async () => false, pollMs: 20, timeoutMs: 1_200,
+    });
+
+    await expect(build.ensure(CUSTOM)).rejects.toThrow(/did not build within 1 second: building/);
+  });
+
   it('says so when the job cannot even be created', async () => {
     const { run } = kube({ apply: { stdout: '', stderr: 'forbidden', exitCode: 1 } });
-    const build = createImageBuilder({ run, registry: REGISTRY, published: async () => false });
+    const build = createImageBuilder({ run, registry: REGISTRY, published: async () => false, pollMs: 1 });
 
     await expect(build.ensure(CUSTOM)).rejects.toThrow(/Could not start the image build: forbidden/);
   });
 
   it('names the job after the fingerprint, so two runs wanting the same image share one build', async () => {
     const { run, calls } = kube();
-    const build = createImageBuilder({ run, registry: REGISTRY, published: async () => false });
+    const build = createImageBuilder({ run, registry: REGISTRY, pollMs: 1, published: servedAfterApply(calls) });
 
     await build.ensure(CUSTOM);
-    const first = calls.find((call) => call.args[0] === 'wait')?.args.join(' ') ?? '';
 
-    expect(first).toContain(CUSTOM.fingerprint.slice(0, 16));
+    const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
+    expect(applied).toContain(`ws-build-${CUSTOM.fingerprint.slice(0, 16)}`);
   });
 });
 
@@ -149,17 +176,23 @@ describe('finding the registry rather than being told', () => {
 
   it('discovers once and reuses it, rather than asking per build', async () => {
     let lookups = 0;
+    let applied = 0;
     const run: KubeRunner = vi.fn(async (args) => {
-      if (args[0] === 'get') {
+      if (args[0] === 'apply') {
+        applied += 1;
+        return { stdout: '', stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'get' && (args[1] === 'svc' || args[1] === 'nodes')) {
         lookups += 1;
         return args[1] === 'svc'
           ? { stdout: '31737', stderr: '', exitCode: 0 }
           : { stdout: '10.0.0.130', stderr: '', exitCode: 0 };
       }
+      if (args[0] === 'get') return { stdout: '|1|', stderr: '', exitCode: 0 };
       return { stdout: '', stderr: '', exitCode: 0 };
     });
 
-    const build = createImageBuilder({ run, published: async () => false });
+    const build = createImageBuilder({ run, pollMs: 1, published: async () => applied > 0 });
     const reference = await build.ensure(CUSTOM);
     await build.ensure(CUSTOM);
 

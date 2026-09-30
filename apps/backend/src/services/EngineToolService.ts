@@ -26,8 +26,13 @@ export interface EngineToolServiceOptions {
   } | undefined;
 }
 
+export interface WorkspaceBuildFailure {
+  agent: string;
+  detail: string;
+}
+
 export type SaveToolOutcome =
-  | { saved: true; tool: EditableTool; rebuilding: string[] }
+  | { saved: true; tool: EditableTool; rebuilding: string[]; failed: WorkspaceBuildFailure[] }
   | { saved: false; problems: string[] };
 
 const VIA = ['dnf', 'apt', 'pip', 'npm', 'script', 'base'];
@@ -45,7 +50,7 @@ export function toolProblems(
     return ['the tool has to say what arguments it takes, even if it takes none'];
   }
 
-  const whole = { failures: [], status: 'draft', ...tool } as ToolDefinition;
+  const whole = { failures: [], ...tool } as ToolDefinition;
   const problems = checkDefinition(whole).map((problem) => problem.message);
 
   if (!whole.command?.trim() && !known.implemented.has(whole.name)) {
@@ -107,7 +112,11 @@ export class EngineToolService {
     const tool: ToolDefinition = { ...(input as ToolDefinition), ownerId };
     await this.options.tools.save(tool);
 
-    return { saved: true, tool: { ...tool, mine: true, grantedTo: [] }, rebuilding: await this.rebuild(ownerId, tool.name) };
+    return {
+      saved: true,
+      tool: { ...tool, mine: true, grantedTo: [] },
+      ...(await this.rebuild(ownerId, tool.name)),
+    };
   }
 
   async remove(ownerId: string, name: string): Promise<boolean> {
@@ -119,21 +128,27 @@ export class EngineToolService {
     return true;
   }
 
-  private async rebuild(ownerId: string, name: string): Promise<string[]> {
-    if (!this.options.images) return [];
+  private async rebuild(ownerId: string, name: string): Promise<{ rebuilding: string[]; failed: WorkspaceBuildFailure[] }> {
+    if (!this.options.images) return { rebuilding: [], failed: [] };
 
     const [tools, personas] = await Promise.all([this.visible(ownerId), this.options.personas.list(ownerId)]);
     const affected = personas.filter((persona) => persona.tools?.includes(name));
-    const started: string[] = [];
+    const rebuilding: string[] = [];
+    const failed: WorkspaceBuildFailure[] = [];
 
     for (const persona of affected) {
       const plan = planFor(persona, tools);
       if (!plan) continue;
 
-      const standing = await this.options.images.start(plan).catch(() => undefined);
-      if (standing?.state === 'building') started.push(persona.slug);
+      // Taken the same way AgentService.save takes it: a workspace that cannot start building is
+      // the person's business. Shrugging here leaves them to find out at the next run instead.
+      const standing = await this.options.images.start(plan)
+        .catch((err: Error) => ({ state: 'failed' as const, reference: '', detail: err.message }));
+
+      if (standing.state === 'building') rebuilding.push(persona.slug);
+      if (standing.state === 'failed') failed.push({ agent: persona.slug, detail: standing.detail ?? 'no reason given' });
     }
 
-    return started;
+    return { rebuilding, failed };
   }
 }

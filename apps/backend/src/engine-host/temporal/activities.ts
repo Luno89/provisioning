@@ -29,6 +29,8 @@ import type {
   GroveLeafNeedingPlan,
   GroveJudgeCheckoutArgs,
   GroveJudgeCheckouts,
+  GroveCheckClaimsArgs,
+  GroveCheckedClaims,
   MergeArgs,
   MergeRuntime,
   PublishArgs,
@@ -49,9 +51,11 @@ import { createGroveTools, type TreeTypeChoice } from '../tools/grove-tools.js';
 import type { TreeSandbox, TreeWorkspaces } from '../sandboxes/tree-workspaces.js';
 import type { AdoptedRecords, PlanAdoption } from '../plan-adoption.js';
 import { prepareJudgeCheckout, prepareLeafWorktree, pruneLeafWorktrees, WorktreeConflictError } from '../grove-worktrees.js';
-import { claimEvidence, leavesNeedingPlan } from '../../lib/grove-leaf.js';
+import { claimEvidenceFor, leavesNeedingPlan } from '../../lib/grove-leaf.js';
+import { checkReport, checksFailed, runTaskChecks, type CheckOutcome } from '../../lib/task-checks.js';
 import { stagesOf } from '../../lib/grove-stages.js';
-import { leafWorktree } from '../../lib/plan-documents.js';
+import { resolveTreeType } from '../../lib/tree-types.js';
+import { leafWorktree, judgeCheckout } from '../../lib/plan-documents.js';
 import type { AdoptedPlan } from '../../lib/plan-proposals.js';
 import type { Tree } from '../../lib/trees.js';
 import type { Branch, Leaf } from '../../lib/leaves.js';
@@ -186,6 +190,7 @@ export interface EngineActivities extends StreamActivities {
   GroveNeedsPlanActivity(args: GroveTreeArgs): Promise<GroveLeafNeedingPlan[]>;
   GroveOpenProposalsActivity(args: GroveTreeArgs): Promise<string[]>;
   GroveJudgeCheckoutActivity(args: GroveJudgeCheckoutArgs): Promise<GroveJudgeCheckouts>;
+  GroveCheckClaimsActivity(args: GroveCheckClaimsArgs): Promise<GroveCheckedClaims>;
   PlanAdoptRecordsActivity(args: AdoptPlanArgs): Promise<AdoptedRecords>;
   PlanAdoptDocumentsActivity(args: AdoptPlanArgs & { records: AdoptedRecords }): Promise<string>;
   PlanAdoptSettleActivity(args: AdoptPlanArgs & { status: 'adopted' | 'failed'; adopted?: AdoptedPlan | undefined; reason?: string | undefined }): Promise<void>;
@@ -197,10 +202,31 @@ export interface EngineActivities extends StreamActivities {
 }
 
 export function createEngineActivities(services: EngineServices): EngineActivities {
+  /**
+   * The agent each stage of this tree runs, resolved against the defaults.
+   *
+   * Read in one place because two things depend on it agreeing: the stages a run starts, and the
+   * agents the shared workspace image is built for.
+   */
+  const stagesFor = async (args: { treeId: string; ownerId: string }): Promise<GroveStages> => {
+    const tree = (await services.grove?.trees.list() ?? []).find((entry) => entry.id === args.treeId && entry.ownerId === args.ownerId);
+    const treeTypes = services.grove?.treeTypes;
+    // A type somebody edited is a row of their own beside the shipped one, and theirs is the row that
+    // names the stages. Taking the first match walks straight past it into the defaults.
+    const type = treeTypes
+      ? await resolveTreeType({ getTreeTypes: async () => treeTypes(args.ownerId) }, args.ownerId, tree?.type)
+      : undefined;
+    return stagesOf(type);
+  };
+
   const treeAccess = async (treeId: string, ownerId: string) => {
     if (!services.treeWorkspaces) throw new Error('tree workspaces are not wired, so there is no worktree to prepare');
     if (!services.grove) throw new Error('grove stores are not wired, so the tree\'s leaves cannot be read');
-    const shared = await services.treeWorkspaces.describe({ treeId, ownerId });
+    const shared = await services.treeWorkspaces.describe({
+      treeId,
+      ownerId,
+      agents: Object.values(await stagesFor({ treeId, ownerId })),
+    });
     const driver = await services.environments.forRun({
       ticket: { runId: `grove-${treeId}-prepare`, depth: 0, ownerId, agentSlug: 'grove-runner', trigger: 'user' },
       environment: { id: shared.id, spec: shared.capabilities, workspace: shared.workspace },
@@ -268,7 +294,8 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
 
     async GroveWorkspaceActivity(args: GroveWorkspaceArgs): Promise<TreeSandbox> {
       if (!services.treeWorkspaces) throw new Error('tree workspaces are not wired, so a grove run has nowhere to work');
-      return services.treeWorkspaces.describe(args);
+      // The image has to hold what the type's own stage agents need, not only what the defaults do.
+      return services.treeWorkspaces.describe({ ...args, agents: Object.values(await stagesFor(args)) });
     },
 
     async GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void> {
@@ -310,9 +337,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
     },
 
     async GroveStagesActivity(args) {
-      const tree = (await services.grove?.trees.list() ?? []).find((entry) => entry.id === args.treeId && entry.ownerId === args.ownerId);
-      const types = services.grove?.treeTypes ? await services.grove.treeTypes(args.ownerId) : [];
-      return stagesOf(types.find((entry) => entry.id === tree?.type));
+      return stagesFor(args);
     },
 
     async GroveResetInFlightActivity(args) {
@@ -354,7 +379,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
         parsed: {
           leafId: args.leafId,
           result: args.result,
-          evidence: claimEvidence(tasks) || 'no task reported anything',
+          evidence: claimEvidenceFor(tasks, args.evidence),
           ...(args.reason ? { reason: args.reason } : {}),
         },
         driver,
@@ -384,6 +409,58 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
         checkouts[leafId] = await prepareJudgeCheckout(driver, leafId, commit);
       }
       return checkouts;
+    },
+
+    /**
+     * The checks a leaf's tasks carry, run in the checkout its claim points at.
+     *
+     * A check is code — a file, a pattern, a command, an endpoint — so a claim that fails one is
+     * settled against here, with the report as its reason, and never reaches the judge. Settling it
+     * failed is what already sends a leaf back to be replanned with the failure in hand.
+     */
+    async GroveCheckClaimsActivity(args) {
+      const saveLeaf = services.grove?.leaves.save;
+      if (!services.tasks || !services.grove || !saveLeaf) return { settled: {} };
+
+      const { worktreeDriver } = await treeAccess(args.treeId, args.ownerId);
+      const tasks = await services.tasks.list(args.ownerId);
+      const settled: Record<string, string> = {};
+
+      for (const leafId of args.leafIds) {
+        const withChecks = tasks.filter((task) => task.leafId === leafId && task.checks);
+        if (withChecks.length === 0) continue;
+
+        const worktree = args.checkouts[leafId] ? judgeCheckout(leafId) : leafWorktree(leafId);
+        const driver = await worktreeDriver(worktree);
+        const environment = {
+          exec: async (command: string) => driver.exec({ command, timeoutMs: 60_000 }),
+          readFile: (path: string) => driver.readFile(path).catch(() => undefined),
+        };
+
+        const outcomes: CheckOutcome[] = [];
+        for (const task of withChecks) outcomes.push(...await runTaskChecks(environment, task.checks));
+        if (!checksFailed(outcomes)) continue;
+
+        const report = checkReport(outcomes);
+        const refuse = async (): Promise<void> => { throw new Error('checking a claim only writes the leaf'); };
+        const tools = createGroveTools({
+          stores: {
+            trees: { list: services.grove.trees.list, save: refuse },
+            branches: { list: services.grove.branches.list, save: refuse },
+            leaves: { list: services.grove.leaves.list, save: saveLeaf },
+            tasks: { list: services.grove.tasks.list },
+          },
+        });
+        await tools['settle_leaf']!({
+          name: 'settle_leaf',
+          parsed: { leafId, verdict: 'failed', note: `its own checks failed:\n${report}` },
+          driver,
+          caller: { ownerId: args.ownerId, runId: `grove-${args.treeId}-checks-${leafId}`, agentSlug: 'grove-check-runner' },
+        });
+        settled[leafId] = report;
+      }
+
+      return { settled };
     },
 
     async PlanAdoptRecordsActivity(args) {

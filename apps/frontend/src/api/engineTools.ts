@@ -27,8 +27,6 @@ export interface EngineTool {
   command?: string
   needsBinaries?: string[]
   install?: Install
-  status: 'draft' | 'approved'
-  approvedBy?: string
   mine: boolean
   grantedTo: string[]
 }
@@ -43,9 +41,20 @@ export async function listEngineTools(): Promise<EngineTool[]> {
   return data.tools
 }
 
-export async function saveEngineTool(tool: EngineTool): Promise<{ tool: EngineTool; rebuilding: string[] }> {
+export interface WorkspaceBuildFailure {
+  agent: string
+  detail: string
+}
+
+export interface SavedTool {
+  tool: EngineTool
+  rebuilding: string[]
+  failed: WorkspaceBuildFailure[]
+}
+
+export async function saveEngineTool(tool: EngineTool): Promise<SavedTool> {
   const { mine: _mine, grantedTo: _granted, ...body } = tool
-  const { data } = await api.put<{ tool: EngineTool; rebuilding: string[] }>(
+  const { data } = await api.put<SavedTool>(
     `/engine-tools/${encodeURIComponent(tool.name)}`,
     body,
   )

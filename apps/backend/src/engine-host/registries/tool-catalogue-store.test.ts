@@ -10,11 +10,8 @@ const store = (rows: ToolDefinition[] = []) => ({
   deleteEngineTool: async (ownerId: string | undefined, name: string) => { rows.splice(0, rows.length, ...rows.filter((row) => !(row.name === name && row.ownerId === ownerId))); },
 });
 
-const catalogue = (rows: ToolDefinition[], include?: ('draft' | 'approved')[]) =>
-  createStoredToolCatalogue({
-    tools: { list: async () => rows },
-    ...(include ? { include } : {}),
-  });
+const catalogue = (rows: ToolDefinition[]) =>
+  createStoredToolCatalogue({ tools: { list: async () => rows } });
 
 describe('the catalogue the engine serves', () => {
   it('always carries the bootstrap four, with nothing in the database', async () => {
@@ -22,13 +19,10 @@ describe('the catalogue the engine serves', () => {
       .toEqual(BUILDER_TOOLS.map((tool) => tool.name).sort());
   });
 
-  it('withholds a draft from production, and offers it to the harness', async () => {
+  it('serves every stored tool, because a persona granting it is the only gate', async () => {
     const rows = [...ENGINE_TOOL_SEEDS];
 
-    expect(await catalogue(rows).names('user-1'))
-      .not.toContain('list_tasks');
-    expect(await catalogue(rows, ['draft', 'approved']).names('user-1'))
-      .toContain('list_tasks');
+    expect(await catalogue(rows).names('user-1')).toContain('list_tasks');
   });
 
   it("lets a user's own row shadow the built-in of the same name", async () => {
@@ -39,7 +33,7 @@ describe('the catalogue the engine serves', () => {
     };
     const rows = [...ENGINE_TOOL_SEEDS, mine];
 
-    const served = await catalogue(rows, ['draft', 'approved']).list('user-1');
+    const served = await catalogue(rows).list('user-1');
     const listed = served.filter((tool) => tool.name === 'list_tasks');
 
     expect(listed).toHaveLength(1);
@@ -53,7 +47,7 @@ describe('the catalogue the engine serves', () => {
       ownerId: 'user-1',
     };
 
-    expect(await catalogue([mine], ['draft', 'approved']).names('user-2'))
+    expect(await catalogue([mine]).names('user-2'))
       .not.toContain('private_thing');
   });
 });

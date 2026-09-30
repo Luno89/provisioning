@@ -9,7 +9,6 @@ export const EGRESS_TOOLS: ToolDefinition[] = [
     effect: 'propose',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     returns: 'that the person was asked, that it was already asked, or that the host is already granted',
     failures: [
       { when: 'the host is not a host name', says: 'so' },

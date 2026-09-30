@@ -9,7 +9,6 @@ export const SECRET_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     returns: 'one line per secret: `- KEY (secret://<project>/KEY): in the vault | waiting for the person to enter it | needed, but not in the vault`',
     failures: [
       { when: 'the run is about no project', says: 'that a secret belongs to a project, and to name the projectId' },
@@ -31,7 +30,6 @@ export const SECRET_TOOLS: ToolDefinition[] = [
     effect: 'propose',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     returns: 'the key, its reference `secret://<project>/<KEY>`, and a status: requested (waiting for the person), provided (already in the vault) or provisioned (created automatically)',
     failures: [
       { when: 'the key is not an environment variable name', says: 'how to name it, like DATABASE_URL' },

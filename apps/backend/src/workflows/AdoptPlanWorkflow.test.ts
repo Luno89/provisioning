@@ -10,6 +10,7 @@ import { createRunEnvironments, environmentIdFor } from '../engine-host/sandboxe
 import { createTreeWorkspaces } from '../engine-host/sandboxes/tree-workspaces.js';
 import { createSandboxDriver } from '../engine-host/drivers/sandbox.js';
 import { createPlanAdoption } from '../engine-host/plan-adoption.js';
+import type { TreeTypeSpec } from '../lib/tree-types.js';
 import { createEngineActivities } from '../engine-host/temporal/activities.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import type { PlanProposal } from '../lib/plan-proposals.js';
@@ -65,6 +66,7 @@ function world(start: PlanProposal[]) {
   const tasks = new Map<string, Task>();
   const files = new Map<string, string>();
   const commands: string[] = [];
+  let repoExists = false;
   const provisioned: string[] = [];
   const kubeCalls: string[][] = [];
 
@@ -80,6 +82,11 @@ function world(start: PlanProposal[]) {
           backend: {
             exec: async ({ command }) => {
               commands.push(command);
+              // `test -d <repo>/.git` is how the adoption asks whether it is the one creating the repo.
+              if (command.includes('test -d') && command.includes('/.git')) {
+                return { stdout: '', stderr: '', exitCode: repoExists ? 0 : 1 };
+              }
+              if (command.includes('git init')) repoExists = true;
               return { stdout: command.includes('rev-parse HEAD') ? 'c0ffee\n' : '', stderr: '', exitCode: 0 };
             },
             readFile: async ({ path }) => files.get(path) ?? '',
@@ -102,6 +109,20 @@ function world(start: PlanProposal[]) {
     kubeCalls.push(args);
     return { stdout: '', stderr: '', exitCode: 0 };
   };
+
+  // The type the proposal's tree is of, with the scaffold it ships.
+  const treeTypes = [{
+    id: 'api-service',
+    label: 'API / service',
+    summary: 'Something that runs and answers requests.',
+    language: 'node',
+    produces: 'service',
+    doneMeans: 'It answers.',
+    files: [
+      { path: 'README.md', content: '# {{projectName}}\n\nPush to {{registryHost}}.' },
+      { path: 'scripts/build.sh', content: '#!/bin/sh\necho {{projectName}}', executable: true },
+    ],
+  }] as TreeTypeSpec[];
 
   const planAdoption = createPlanAdoption({
     stores: {
@@ -126,12 +147,14 @@ function world(start: PlanProposal[]) {
     },
     treeWorkspaces: createTreeWorkspaces({ resolver, kube }),
     environments: resolver,
+    treeTypes: async () => treeTypes,
+    registryHost: 'registry.test',
     now: () => 'now',
   });
 
   const activities = createEngineActivities({ planAdoption } as never);
 
-  return { proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities };
+  return { proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, markRepoExists: () => { repoExists = true; } };
 }
 
 async function adopt(w: ReturnType<typeof world>, proposalId = 'p1'): Promise<AdoptPlanResult> {
@@ -168,7 +191,14 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.leaves.get('plan-p1-b0-l1')).toMatchObject({ status: 'pending', dependsOn: ['plan-p1-b0-l0'], tasks: [] });
     expect(w.tasks.get('plan-p1-b0-l0-t1')).toMatchObject({ status: 'accepted', leafId: 'plan-p1-b0-l0', dependsOn: ['plan-p1-b0-l0-t0'], role: 'Keeps it honest' });
 
-    expect([...w.files.keys()]).toEqual(['repo/PLAN.md', 'repo/leaves/plan-p1-b0-l0.md', 'repo/leaves/plan-p1-b0-l1.md']);
+    expect([...w.files.keys()]).toEqual([
+      'repo/README.md', 'repo/scripts/build.sh',
+      'repo/PLAN.md', 'repo/leaves/plan-p1-b0-l0.md', 'repo/leaves/plan-p1-b0-l1.md',
+    ]);
+    // The scaffold is rendered for this project, and a script ships runnable.
+    expect(w.files.get('repo/README.md')).toBe('# Widget API\n\nPush to registry.test.');
+    expect(w.files.get('repo/scripts/build.sh')).toContain('echo Widget API');
+    expect(w.commands.some((command) => command.startsWith('chmod +x') && command.includes('repo/scripts/build.sh'))).toBe(true);
     expect(w.files.get('repo/PLAN.md')).toContain('## The grove: Widget API (`plan-p1-tree`)');
     expect(w.commands.some((command) => command.includes('git init'))).toBe(true);
     expect(w.commands.some((command) => command.includes("commit -q -m 'plan: p1'"))).toBe(true);
@@ -179,6 +209,18 @@ describe('AdoptPlanWorkflow', () => {
       status: 'adopted',
       adopted: { treeId: 'plan-p1-tree', branchIds: ['plan-p1-b0'], leafIds: { health: 'plan-p1-b0-l0', deploy: 'plan-p1-b0-l1' }, commit: 'c0ffee' },
     });
+  }, 60_000);
+
+  it("leaves an existing repository's own files alone when a plan grows the tree", async () => {
+    const w = world([proposal()]);
+    // The repository is already there: a tree made in the UI and planned afterwards, or a second plan
+    // adopted into a tree whose leaves have worked.
+    w.markRepoExists();
+
+    await adopt(w);
+
+    expect(w.files.has('repo/README.md')).toBe(false);
+    expect(w.files.get('repo/PLAN.md')).toContain('Widget API');
   }, 60_000);
 
   it('links a new tree planned in a conversation about a project to that project', async () => {

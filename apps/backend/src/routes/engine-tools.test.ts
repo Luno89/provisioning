@@ -15,7 +15,6 @@ const counter = (over: Partial<ToolDefinition> = {}): ToolDefinition => ({
   effect: 'read',
   idempotent: false,
   openWorld: false,
-  status: 'draft',
   returns: 'the number of matching lines',
   failures: [{ when: 'the path does not exist', says: 'no such file' }],
   parameters: {

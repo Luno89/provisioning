@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import {
   EngineUnavailableError,
@@ -13,6 +13,8 @@ import {
   type TaskStatus,
 } from '../engine-host/index.js';
 import type { StoredNodeTrace } from '../lib/run-traces.js';
+import type { WorkspaceImage } from '../engine-host/sandboxes/warm-images.js';
+import type { PruneReport } from '../engine-host/sandboxes/prune-images.js';
 import { replyTokensProblem, samplingAt, temperatureProblem } from '../lib/run-knobs.js';
 
 export interface TaskAccess {
@@ -25,11 +27,21 @@ export interface TraceAccess {
   list(ownerId: string, runId: string): Promise<StoredNodeTrace[]>;
 }
 
+/** What the workspace images are, and the sweep that lets go of the ones nothing would run. */
+export interface WorkspaceImageAccess {
+  standing(ownerId?: string): Promise<WorkspaceImage[]>;
+  /** Nothing to sweep with, where there is no registry account to delete through. */
+  prune(): Promise<PruneReport | undefined>;
+}
+
 export interface EngineRouterDeps {
   runs: RunStarter;
   registry: AgentRegistry;
   traces?: TraceAccess | undefined;
   tasks?: TaskAccess | undefined;
+  images?: WorkspaceImageAccess | undefined;
+  /** Deleting images is everybody's business, so only an administrator starts a sweep by hand. */
+  admin?: RequestHandler | undefined;
 }
 
 const userOf = (req: Request): { id: string } =>
@@ -159,6 +171,20 @@ export function engineRouter(deps: EngineRouterDeps): Router {
       return fail(res, err);
     }
   }));
+
+  router.get('/images', asyncRoute(async (req: Request, res: Response) => {
+    if (!deps.images) return res.status(404).json({ error: 'Workspace images are not wired here' });
+    return res.json({ images: await deps.images.standing(userOf(req).id) });
+  }));
+
+  if (deps.images && deps.admin) {
+    const images = deps.images;
+    router.post('/images/prune', deps.admin, asyncRoute(async (_req: Request, res: Response) => {
+      const report = await images.prune();
+      if (!report) return res.status(501).json({ error: 'There is no registry account, so there is nothing to sweep' });
+      return res.json({ report });
+    }));
+  }
 
   return router;
 }

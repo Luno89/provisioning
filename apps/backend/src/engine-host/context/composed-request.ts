@@ -60,8 +60,8 @@ const PROVIDER = {
 } as ModelProvider;
 
 export const CATALOGUE: ToolContract[] = [
-  ...contractsFor(ENGINE_TOOL_SEEDS, ['draft', 'approved']),
-  ...contractsFor(BUILDER_TOOLS, ['draft', 'approved']),
+  ...contractsFor(ENGINE_TOOL_SEEDS),
+  ...contractsFor(BUILDER_TOOLS),
 ];
 
 const framesFor = (reply: ScriptedReply): string[] => {

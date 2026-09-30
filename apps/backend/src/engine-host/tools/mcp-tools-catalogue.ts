@@ -9,7 +9,6 @@ export const MCP_TOOLS: ToolDefinition[] = [
     effect: 'propose',
     idempotent: true,
     openWorld: false,
-    status: 'draft',
     returns: 'that the person was asked, that it was already asked, or that the server is already on',
     failures: [
       { when: 'no server by that name is running', says: 'the names of the servers that are' },

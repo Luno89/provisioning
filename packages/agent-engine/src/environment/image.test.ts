@@ -11,8 +11,6 @@ const tool = (over: Partial<ToolDefinition> & Pick<ToolDefinition, 'name'>): Too
   effect: 'write',
   idempotent: false,
   openWorld: false,
-  status: 'approved',
-  approvedBy: 'luno',
   returns: 'output',
   failures: [{ when: 'it breaks', says: 'it broke' }],
   parameters: { type: 'object', properties: { x: { type: 'string', description: 'x' } } },
