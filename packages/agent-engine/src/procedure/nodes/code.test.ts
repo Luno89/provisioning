@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { code, codeProblems, declaredSockets } from './code.js';
+import { code, codeProblems, declaredSockets, RUN_CODE_KIND } from './code.js';
 import { builtInCatalogue } from './index.js';
 import { definitionFor } from '../definition.js';
 import { checkProcedure } from '../validate.js';
@@ -218,5 +218,45 @@ describe('the workspace a code node runs in', () => {
   it('cannot be declared a second time under another kind', () => {
     expect(codeProblems(settings({ inputs: [{ name: 'environment', type: 'text' }] })).join(' '))
       .toContain('cannot be declared again');
+  });
+});
+
+describe('Run Code, the step that runs once', () => {
+  it('is a step that leaves through ok or failed, with an error socket beside what its author declared', () => {
+    const shaped = definitionFor(catalogue, { kind: RUN_CODE_KIND, settings: settings() });
+
+    expect(shaped).toMatchObject({ role: 'step', idempotent: false, runs: 'sandbox' });
+    expect(shaped?.exits.map((exit) => exit.name)).toEqual(['ok', 'failed']);
+    expect(shaped?.inputs.map((socket) => socket.name)).toEqual(['environment', 'a', 'b']);
+    expect(shaped?.outputs.map((socket) => socket.name)).toEqual(['total', 'error']);
+  });
+
+  it('may hand back nothing, since it can be run only for what it changes, but cannot claim "error" for itself', () => {
+    expect(codeProblems(settings({ outputs: [] }), RUN_CODE_KIND)).toEqual([]);
+    expect(codeProblems(settings({ outputs: [] }))).toContain('a code node has to hand something back, so it needs at least one output');
+    expect(codeProblems(settings({ outputs: [{ name: 'error', type: 'text' }] }), RUN_CODE_KIND).join(' ')).toContain('"error" is where a failed run says');
+  });
+
+  it('survives being written as builder code and read back', () => {
+    const once = procedureBuilder({ catalogue, groups: BUILT_IN_GROUPS })({
+      id: 'once', version: '1', name: 'Once', describe: 'Runs code once.', budget: {},
+    }, (p) => {
+      const provision = p.provisionSandbox('provision');
+      const write = p.runCode('write', { environment: provision.environment }, { body: 'return {}', inputs: [], outputs: [] });
+      const done = p.finish('done', {}, { outcome: 'ok' });
+      const broke = p.finish('broke', { reason: write.error }, { outcome: 'failed' });
+      const nowhere = p.finish('nowhere', { reason: provision.reason }, { outcome: 'failed' });
+      p.start(provision);
+      provision.on('ready', write);
+      provision.on('unavailable', nowhere);
+      write.on('ok', done);
+      write.on('failed', broke);
+      p.layout({ provision: [0, 0], write: [260, 0], done: [520, 0], broke: [520, 140], nowhere: [260, 140] });
+    }).procedure;
+
+    expect(checkProcedure(once, { catalogue, groups: BUILT_IN_GROUPS }).filter((problem) => problem.severity === 'error')).toEqual([]);
+    const read = builderCodeToProcedure(procedureToBuilderCode(once, { catalogue, groups: BUILT_IN_GROUPS }), { catalogue, groups: BUILT_IN_GROUPS });
+    expect(read.ok && read.procedure.nodes.find((node) => node.id === 'write')).toMatchObject({ kind: RUN_CODE_KIND });
+    expect(read.ok && read.procedure.flow).toEqual(expect.arrayContaining([{ from: 'write', exit: 'failed', to: 'broke' }]));
   });
 });

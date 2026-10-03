@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { RESEARCH_V2, type ProcedureProblem, type StringSetting } from '@koala/agent-engine/procedure'
-import { blankProcedure, copyOf, starterProcedure, defaultFor, groupPathIn, localProblems, mergeProblems, procedureIdFrom, withBudget } from './procedure-drafts'
+import { blankProcedure, canvasContextFor, copyOf, starterProcedure, defaultFor, groupPathIn, localProblems, mergeProblems, procedureIdFrom, withBudget } from './procedure-drafts'
+
+const context = canvasContextFor([])
 
 describe('starting values for settings', () => {
   it('uses a setting\'s own default, else the first choice, else an empty value of the right kind', () => {
@@ -19,12 +21,12 @@ describe('new procedures', () => {
   })
 
   it('starts empty, and says it has no start', () => {
-    expect(localProblems(blankProcedure('fresh', 'Fresh')).map((problem) => problem.message)).toContain('the start node "" does not exist')
+    expect(localProblems(blankProcedure('fresh', 'Fresh'), context).map((problem) => problem.message)).toContain('the start node "" does not exist')
   })
 
   it('can start from a procedure that already checks clean, so it can be saved straight away', () => {
     const starter = starterProcedure('fresh', 'Fresh')
-    expect(localProblems(starter)).toEqual([])
+    expect(localProblems(starter, context)).toEqual([])
     expect(starter.start).toBe('finish')
   })
 
@@ -55,7 +57,7 @@ describe('problems', () => {
 
 describe('finding a node inside groups', () => {
   it('names the groups to open to reach a node the run reported', () => {
-    expect(groupPathIn(RESEARCH_V2, 'turn.call')).toEqual(['model-turn'])
-    expect(groupPathIn(RESEARCH_V2, 'provision')).toEqual([])
+    expect(groupPathIn(RESEARCH_V2, 'turn.call', context)).toEqual(['model-turn'])
+    expect(groupPathIn(RESEARCH_V2, 'provision', context)).toEqual([])
   })
 })

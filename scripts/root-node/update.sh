@@ -132,6 +132,20 @@ ok "Build, typecheck and lint clean"
 # A release that adds a tool, persona or pack has to put it in the database, and nothing does that
 # at server start any more. Before the restart, so the new version never comes up against a
 # catalogue missing what it expects. Idempotent — writes nothing when the release changed none.
+step "Publishing the instance image"
+RELEASE_TAG="$(git rev-parse --short=12 HEAD)"
+BACKEND_ENV="apps/backend/.env"
+if docker build -q -t "127.0.0.1:5000/nowrinkles/app:${RELEASE_TAG}" . >/dev/null && docker push -q "127.0.0.1:5000/nowrinkles/app:${RELEASE_TAG}" >/dev/null; then
+  if grep -q '^INSTANCE_IMAGE_TAG=' "$BACKEND_ENV"; then
+    sed -i "s|^INSTANCE_IMAGE_TAG=.*|INSTANCE_IMAGE_TAG=${RELEASE_TAG}|" "$BACKEND_ENV"
+  else
+    echo "INSTANCE_IMAGE_TAG=${RELEASE_TAG}" >> "$BACKEND_ENV"
+  fi
+  ok "instances move to ${RELEASE_TAG} the next time they check in (hourly)"
+else
+  warn "could not build or push the instance image — instances stay on the version they run"
+fi
+
 step "Seeding catalogues"
 npx tsx apps/backend/src/scripts/seed-all.ts || warn "seed failed — the new version may be missing catalogue entries"
 

@@ -5,7 +5,7 @@ import {
   builtInCatalogue,
   runProcedure,
 } from '@koala/agent-engine/procedure';
-import { ALL_SEEDED_AGENTS } from '@koala/agent-engine';
+
 import type { ToolContract } from '@koala/engine-core';
 import { createAgentRegistry } from './registries/registry.js';
 import { createEnvironmentResolver } from './sandboxes/environments.js';
@@ -13,8 +13,8 @@ import { createRunEnvironments } from './sandboxes/run-environments.js';
 import { createProcedureExecutor, type HostNodeServices } from './nodes/index.js';
 import { inMemoryConversations } from './nodes/conversation-nodes.js';
 import { createTaskTools } from './tools/task-tools.js';
-import { createGroveTools } from './tools/grove-tools.js';
-import { GROVE_TOOLS } from './tools/grove-tools-catalogue.js';
+import { createGroveTools } from '../extensions/grove/tools/grove-tools.js';
+import { GROVE_TOOLS } from '../extensions/grove/tools/grove-tools-catalogue.js';
 import { TASK_TOOLS } from './tools/task-tools-catalogue.js';
 import type { Task } from './tools/tasks.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
@@ -22,8 +22,9 @@ import type { Tree } from '../lib/trees.js';
 import type { PlanProposal } from '../lib/plan-proposals.js';
 import { createToolRuntime } from './tools/tool-runtime.js';
 import type { RunTicket } from './temporal/contracts.js';
+import { seededPersonas } from '../extensions/seeds.js';
 
-const planner = ALL_SEEDED_AGENTS().find((agent) => agent.slug === 'planner')!;
+const planner = seededPersonas().find((agent) => agent.slug === 'planner')!;
 
 let trees: Tree[];
 let branches: Branch[];

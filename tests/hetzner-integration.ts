@@ -21,6 +21,7 @@ import { dirname, resolve } from 'path';
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
 import { decryptValue } from '../apps/backend/src/lib/crypto.js';
 import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
+import { loadKeys } from '../apps/backend/src/lib/keys.js';
 
 // Explicit path, not `dotenv/config`: this test runs from the repo root but the only .env lives in
 // apps/backend, so the bare import silently leaves JWT_SECRET undefined and the credential decrypt
@@ -84,10 +85,7 @@ async function resolveHetznerToken(): Promise<string> {
         : 'No user has a Hetzner token stored — add one under Cloud Accounts first.',
     );
   }
-  if (!process.env.JWT_SECRET) {
-    throw new Error('JWT_SECRET is not set — apps/backend/.env did not load, so the stored credential cannot be decrypted.');
-  }
-  return decryptValue(owner.credentials.hetzner.token, process.env.JWT_SECRET);
+  return decryptValue(owner.credentials.hetzner.token, loadKeys(process.env).data);
 }
 
 async function pollUntil<T>(label: string, timeoutMs: number, fn: () => Promise<T | undefined>): Promise<T> {

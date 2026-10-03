@@ -1,0 +1,6 @@
+apiVersion: v2
+name: instance
+description: One user's No Wrinkles instance — backend, workers, Mongo, Temporal and the services they use, in a cluster the instance owns.
+type: application
+version: 0.1.0
+appVersion: "dev"

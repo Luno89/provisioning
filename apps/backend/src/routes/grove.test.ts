@@ -69,7 +69,7 @@ describe('the tree-type catalogue', () => {
     expect(matches[0]?.ownerId).toBe(TEST_USER.id);
   });
 
-  it('keeps the agent a type names for a stage, and refuses one that is not an agent', async () => {
+  it('keeps the agent a type names to grow its trees, and refuses one that is not an agent', async () => {
     h = await mountRouter({
       prefix: '/api/tree-types',
       router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
@@ -78,16 +78,12 @@ describe('the tree-type catalogue', () => {
     await seedWorkspaceImages(h.db);
     const paper = ((await axios.get(h.url('/api/tree-types'))).data as { id: string }[]).find((t) => t.id === 'research-paper')!;
 
-    const saved = await axios.put(h.url('/api/tree-types/research-paper'), { ...paper, stages: { work: 'research' } });
-    expect(saved.data.stages).toEqual({ work: 'research' });
+    const saved = await axios.put(h.url('/api/tree-types/research-paper'), { ...paper, agent: 'research' });
+    expect(saved.data.agent).toBe('research');
 
-    const unknown = await axios.put(h.url('/api/tree-types/research-paper'), { ...paper, stages: { work: 'nobody' } }, { validateStatus: () => true });
+    const unknown = await axios.put(h.url('/api/tree-types/research-paper'), { ...paper, agent: 'nobody' }, { validateStatus: () => true });
     expect(unknown.status).toBe(400);
     expect(unknown.data.error).toContain('"nobody"');
-
-    const badStage = await axios.put(h.url('/api/tree-types/research-paper'), { ...paper, stages: { land: 'research' } }, { validateStatus: () => true });
-    expect(badStage.status).toBe(400);
-    expect(badStage.data.error).toContain('"land" is not a stage');
   });
 });
 

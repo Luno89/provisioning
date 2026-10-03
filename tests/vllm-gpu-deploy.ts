@@ -25,6 +25,7 @@ import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
 import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
 import { ClusterService } from '../apps/backend/src/services/ClusterService.js';
 import { TemporalBridge } from '../apps/backend/src/services/TemporalBridge.js';
+import { loadKeys } from '../apps/backend/src/lib/keys.js';
 
 const DEPLOYMENT_NAME = process.argv[2] || 'Vllm-Production';
 const SYSTEM_CLUSTER_ID = 'provisioning-lunorica';
@@ -68,7 +69,7 @@ async function run() {
   }
   log(`System cluster resolved OK (gpuEnabled=${systemCluster.gpuEnabled}).`);
 
-  const temporalBridge = new TemporalBridge(db, undefined, process.env.JWT_SECRET, clusterService);
+  const temporalBridge = new TemporalBridge(db, undefined, loadKeys(process.env).data, clusterService);
   await temporalBridge.start();
   log('Connected to Temporal.');
 

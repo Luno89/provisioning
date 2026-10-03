@@ -1,3 +1,4 @@
+import type { SecretKey } from './crypto.js';
 import type { Database } from './db-interface.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { BuilderService } from '../services/BuilderService.js';
@@ -7,7 +8,7 @@ import { ClusterProxyService } from '../services/ClusterProxyService.js';
 import { HeadscaleService } from '../services/HeadscaleService.js';
 import { ModelService } from '../services/ModelService.js';
 
-export function createModelService(db: Database, jwtSecret: string): ModelService {
+export function createModelService(db: Database, jwtSecret: SecretKey): ModelService {
   const infra = new InfrastructureService();
   const builder = new BuilderService(db, infra);
   const clusters = new ClusterService(db, infra, jwtSecret);

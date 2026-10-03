@@ -112,6 +112,17 @@ import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
 import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { seedAll } from './scripts/seed-all.js';
 import type { SearchOutcome } from './lib/web-tools.js';
+import { createGroveLauncher } from './engine-host/grove-launcher.js';
+import { groveAgentOf, resolveTreeType } from './lib/tree-types.js';
+import { extensionServiceFor } from './services/ExtensionService.js';
+import { loadKeys } from './lib/keys.js';
+import { roleFromEnv, servesTenants, holdsAccounts } from './lib/platform-role.js';
+import { IdentityService } from './services/IdentityService.js';
+import { identityRouter } from './routes/identity.js';
+import { handoffRouter } from './routes/handoff.js';
+import { InstanceService } from './services/InstanceService.js';
+import { InstanceChart } from './services/InstanceChart.js';
+import { instancesRouter } from './routes/instances.js';
 
 dotenv.config();
 
@@ -168,36 +179,40 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   await migrateLegacyOwnership(db);
   await seedAll(db as never);
 
-  const JWT_SECRET = process.env.JWT_SECRET || 'provisioning-platform-secret-12345';
+  const keys = loadKeys(process.env);
+  const role = roleFromEnv(process.env);
+  const tenant: express.Router = servesTenants(role) ? (app as unknown as express.Router) : express.Router();
+  const identity = new IdentityService(role, db);
+  console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);
   const infraService = new InfrastructureService();
   const builderService = new BuilderService(db, infraService);
-  const clusterService = new ClusterService(db, infraService, JWT_SECRET);
+  const clusterService = new ClusterService(db, infraService, keys.data);
   const appService = new AppService(db, infraService, clusterService, builderService);
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
   const appExposureService = new AppExposureService(db, infraService, clusterService, io);
   const clusterProxyService = new ClusterProxyService();
-  const giteaService = new GiteaService(infraService, JWT_SECRET, '/tmp/kubeconfig-provisioning-lunorica');
+  const giteaService = new GiteaService(infraService, keys.data, '/tmp/kubeconfig-provisioning-lunorica');
   await giteaService.ensureClusterSecret().catch((err: Error) =>
     console.warn(`[gitea] could not ensure cluster secret: ${err.message}`),
   );
   const infisicalService = new InfisicalService(
     infraService,
-    JWT_SECRET,
+    keys.data,
     '/tmp/kubeconfig-provisioning-lunorica',
     undefined,
     clusterProxyService,
   );
-  const projectRepoService = new ProjectRepoService(db, giteaService, JWT_SECRET);
-  const headscaleService = new HeadscaleService(JWT_SECRET, process.env.HEADSCALE_URL || 'http://localhost:8080');
-  const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, JWT_SECRET);
+  const projectRepoService = new ProjectRepoService(db, giteaService, keys.data);
+  const headscaleService = new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080');
+  const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data);
 
 
   clusterService.ensureSystemClusterGpuReady().catch((err: any) =>
     console.warn(`[bootstrap] System cluster GPU readiness check failed: ${err.message}`)
   );
 
-  const temporalBridge = new TemporalBridge(db, io, JWT_SECRET, clusterService, headscaleService);
+  const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, headscaleService);
   clusterService.setTemporalBridge(temporalBridge);
   appService.setTemporalBridge(temporalBridge);
   try {
@@ -207,12 +222,16 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     console.warn(`⚠️ Temporal TS bridge not available. Routes will fall back to Local DB.`, e.message);
   }
 
+  const extensions = extensionServiceFor(db);
   const engineRegistry = createStoredAgentRegistry({
     personas: { list: (ownerId?: string) => db.getEnginePersonas(ownerId) },
     procedures: { list: (ownerId?: string) => db.getProcedures(ownerId) },
+    hidden: (ownerId: string) => extensions.hidden(ownerId),
+    published: (ownerId: string) => extensions.groups(ownerId),
   });
   const engineRuns = createRunStarter({
     registry: engineRegistry,
+    ...(Number(process.env.ENGINE_CONTINUE_AFTER_EVENTS) > 0 ? { continueAfterEvents: Number(process.env.ENGINE_CONTINUE_AFTER_EVENTS) } : {}),
     workflows: () => (temporalBridge.isReady()
       ? {
         start: async (type, options) => {
@@ -238,7 +257,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    */
   startStreamWorker({
     io,
-    encryptionKey: JWT_SECRET,
+    encryptionKey: keys.payload,
     services: {
       registry: engineRegistry,
       endpoints: createEndpointResolver({ models: modelService, registry: engineRegistry }),
@@ -260,14 +279,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     credentials: true,
   }));
 
-  app.post('/webhooks/gitea/:projectId', express.raw({ type: 'application/json' }), async (req, res) => {
+  tenant.post('/webhooks/gitea/:projectId', express.raw({ type: 'application/json' }), async (req, res) => {
     try {
       const projects = await db.getProjects();
       const project = projects.find((p: any) => p.id === req.params.projectId);
       if (!project) return res.status(404).json({ error: 'Unknown project' });
       if (!project.webhookSecretEnc) return res.status(500).json({ error: 'Project has no webhook secret configured' });
 
-      const secret = decryptValue(project.webhookSecretEnc, JWT_SECRET);
+      const secret = decryptValue(project.webhookSecretEnc, keys.data);
       const rawBody = req.body as Buffer;
       if (!giteaService.verifyWebhookSignature(rawBody, req.header('X-Gitea-Signature'), secret)) {
         return res.status(401).json({ error: 'Invalid webhook signature' });
@@ -294,10 +313,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   app.use(express.json({ limit: '20mb' }));
-  const credentialService = new CredentialService(db, JWT_SECRET);
-  const vpsCatalogService = new VpsCatalogService(db, JWT_SECRET);
+  const credentialService = new CredentialService(db, keys.data);
+  const vpsCatalogService = new VpsCatalogService(db, keys.data);
 
-  const auth = createAuth({ db, jwtSecret: JWT_SECRET, publicUrl: PUBLIC_URL });
+  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role });
   const { requireAdmin, userFromSessionCookie } = auth;
 
   app.use('/api', auth.requireAuth);
@@ -322,7 +341,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   agentNamespace.use(async (socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) return next(new Error('Missing device token'));
-    const device = findDeviceByToken(await db.getLocalAgentDevices(), token, JWT_SECRET);
+    const device = findDeviceByToken(await db.getLocalAgentDevices(), token, keys.data);
     if (!device) return next(new Error('Unauthorized'));
     socket.data.device = device;
     next();
@@ -452,10 +471,28 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   app.use('/api/auth', authRouter({
-    db, authService, auth, jwtSecret: JWT_SECRET, publicUrl: PUBLIC_URL, appUrl: APP_URL,
+    db, authService, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, accounts: holdsAccounts(role),
   }));
+  if (holdsAccounts(role)) app.use('/api/identity', identityRouter({ identity, servesTenants: servesTenants(role), signedIn: (req) => auth.userFromSessionCookie(req.headers.cookie) }));
+  if (holdsAccounts(role)) {
+    const repoRoot = path.join(__dirname, '../../..');
+    const instanceChart = new InstanceChart(repoRoot);
+    const instanceService = new InstanceService(db, {
+      rootUrl: PUBLIC_URL,
+      rootPublicKeys: () => identity.publicKeys().map((key) => key.publicKey),
+      meshLoginServer: process.env.MESH_LOGIN_SERVER,
+      registry: process.env.INSTANCE_REGISTRY ?? '',
+      imageTag: process.env.INSTANCE_IMAGE_TAG || 'dev',
+      chartVersion: await instanceChart.version(),
+    }, headscaleService);
+    app.use('/api/instances', instancesRouter({ instances: instanceService, chart: () => instanceChart.path() }));
+    const installer = (await fs.readFile(path.join(repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', PUBLIC_URL);
+    app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
+    app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(repoRoot, 'scripts/setup-gpu.sh')));
+  }
+  if (role.role === 'instance') app.use('/api/auth', handoffRouter({ identity, auth, sessionKey: keys.session }));
 
-  app.get('/ingress/verify', async (req, res) => {
+  tenant.get('/ingress/verify', async (req, res) => {
     const domain = String(req.query.domain ?? '');
     if (!domain) return res.status(400).send('domain required');
     const deployments = await db.getDeployments();
@@ -463,19 +500,19 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     return owned ? res.status(200).send('ok') : res.status(404).send('unknown host');
   });
 
-  app.use('/api/credentials', llmCredentialsRouter({ db, jwtSecret: JWT_SECRET, credentialService }));
-  app.use('/api/credentials', credentialsRouter({
+  tenant.use('/api/credentials', llmCredentialsRouter({ db, dataKey: keys.data, credentialService }));
+  tenant.use('/api/credentials', credentialsRouter({
     credentialService,
     publicUrl: PUBLIC_URL,
     appUrl: APP_URL,
   }));
-  app.use('/api/backup', backupRouter({ repoRoot: path.join(__dirname, '../../..') }));
+  tenant.use('/api/backup', backupRouter({ repoRoot: path.join(__dirname, '../../..') }));
 
-  app.use('/api/clusters', clustersRouter({
+  tenant.use('/api/clusters', clustersRouter({
     clusterService, appService, clusterProxyService, infraService,
-    temporalBridge, db, io, giteaService, infisicalService, jwtSecret: JWT_SECRET,
+    temporalBridge, db, io, giteaService, infisicalService, dataKey: keys.data,
   }));
-  app.use('/api/deployments', deploymentsRouter({
+  tenant.use('/api/deployments', deploymentsRouter({
     appService, clusterService, appExposureService, infraService, temporalBridge, db, io,
   }));
 
@@ -522,25 +559,25 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const workerService = new WorkerService();
 
-  app.use('/api/projects', projectsRouter({
+  tenant.use('/api/projects', projectsRouter({
     db, projectRepoService, appService, temporalBridge, getOwnedProject,
-    giteaService, clusterService, infraService, jwtSecret: JWT_SECRET,
+    giteaService, clusterService, infraService, dataKey: keys.data,
   }));
-  app.use('/api/projects', projectFilesRouter({ projectRepoService, giteaService, getOwnedProject }));
-  app.use('/api/mesh', meshRouter({ headscaleService, db, jwtSecret: JWT_SECRET }));
-  app.use('/api/mesh/local-agents', localAgentsRouter({ db, jwtSecret: JWT_SECRET, projects: projectRepoService }));
-  app.use('/api/pending-approvals', pendingApprovalsRouter({ db }));
-  app.use('/api/cluster-providers', clusterProvidersRouter({ db }));
-  app.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService }));
+  tenant.use('/api/projects', projectFilesRouter({ projectRepoService, giteaService, getOwnedProject }));
+  tenant.use('/api/mesh', meshRouter({ headscaleService, db }));
+  tenant.use('/api/mesh/local-agents', localAgentsRouter({ db, dataKey: keys.data, projects: projectRepoService }));
+  tenant.use('/api/pending-approvals', pendingApprovalsRouter({ db }));
+  tenant.use('/api/cluster-providers', clusterProvidersRouter({ db }));
+  tenant.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService }));
   app.use('/api/admin', adminRouter({ db, requireAdmin }));
-  app.use('/api/models', modelsRouter({ modelService, db, credentialService }));
-  app.use('/api/temporal', temporalRouter({ temporalBridge }));
-  app.use('/api/worker', workerRouter({ workerService }));
-  app.use('/api/nginx', nginxRouter({ infraService, nginxConfPath: NGINX_CONF_PATH }));
-  app.use('/api/logs', logsRouter({ db, clusterService, appService }));
-  app.use('/api/registry', registryRouter({ registryService }));
-  app.use('/api/modules', modulesRouter({ gitModuleService }));
-  app.use('/api/app-schemas', appSchemasRouter({}));
+  tenant.use('/api/models', modelsRouter({ modelService, db, credentialService }));
+  tenant.use('/api/temporal', temporalRouter({ temporalBridge }));
+  tenant.use('/api/worker', workerRouter({ workerService }));
+  tenant.use('/api/nginx', nginxRouter({ infraService, nginxConfPath: NGINX_CONF_PATH }));
+  tenant.use('/api/logs', logsRouter({ db, clusterService, appService }));
+  tenant.use('/api/registry', registryRouter({ registryService }));
+  tenant.use('/api/modules', modulesRouter({ gitModuleService }));
+  tenant.use('/api/app-schemas', appSchemasRouter({}));
 
   const ownedConversations = async (userId: string) =>
     (await db.getConversations()).filter((c) => c.ownerId === userId);
@@ -553,6 +590,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     personas: { list: (ownerId?: string) => db.getEnginePersonas(ownerId) },
     procedures: { list: (ownerId?: string) => db.getProcedures(ownerId) },
     tools: { list: (ownerId?: string) => db.getEngineTools(ownerId) },
+    hidden: (ownerId: string) => extensions.hidden(ownerId),
+    published: (ownerId: string) => extensions.groups(ownerId),
   });
 
   const draftCatalogue = createStoredToolCatalogue({
@@ -561,6 +600,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const evalWeb = await buildWebTools(db).catch(() => undefined);
   const evalHost = createEngineHost({
+    hidden: (ownerId: string) => extensions.hidden(ownerId),
+    published: (ownerId: string) => extensions.groups(ownerId),
     models: modelService,
     stores: storesFromDatabase(db),
     owners: async () => (await db.getUsers()).map((user) => user.id),
@@ -637,9 +678,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   setTimeout(() => { void sweepImages('after the warm'); }, PRUNE_FIRST_DELAY_MS).unref();
   setInterval(() => { void sweepImages('daily'); }, PRUNE_INTERVAL_MS).unref();
 
-  app.use('/api/procedures', proceduresRouter({
+  tenant.use('/api/procedures', proceduresRouter({
     procedures: new ProcedureService({
-      procedures: createProcedureStore({ sources: { list: (ownerId?: string) => db.getProcedures(ownerId) } }),
+      hidden: (ownerId: string) => extensions.hidden(ownerId),
+      published: (ownerId: string) => extensions.groups(ownerId),
+      procedures: createProcedureStore({ sources: { list: (ownerId?: string) => db.getProcedures(ownerId) }, published: (ownerId: string) => extensions.groups(ownerId) }),
       sources: {
         get: (ownerId, id) => db.getProcedure(ownerId, id),
         save: (source) => db.saveProcedure(source),
@@ -653,10 +696,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }),
   }));
 
-  app.use('/api/engine', engineRouter({
+  tenant.use('/api/engine', engineRouter({
     runs: engineRuns,
     registry: engineRegistry,
     admin: requireAdmin,
+    extensions,
     images: {
       standing: (ownerId?: string) => evalHost.workspaceImages.standing(ownerId),
       prune: async () => evalHost.imagePruner?.prune(),
@@ -668,7 +712,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     },
   }));
 
-  app.use('/api/engine-tools', engineToolsRouter({
+  tenant.use('/api/engine-tools', engineToolsRouter({
     tools: new EngineToolService({
       tools: {
         list: (ownerId?: string) => db.getEngineTools(ownerId),
@@ -681,7 +725,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }),
   }));
 
-  app.use('/api/agents', agentsRouter({
+  tenant.use('/api/agents', agentsRouter({
     agents: new AgentService({
       personas: {
         list: (ownerId?: string) => db.getEnginePersonas(ownerId),
@@ -695,30 +739,42 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }),
   }));
 
-  app.use('/api/evals/level1', evalsLevel1Router({ level1: level1Service }));
-  app.use('/api/evals/level2', evalsLevel2Router({ level2: level2Service }));
+  tenant.use('/api/evals/level1', evalsLevel1Router({ level1: level1Service }));
+  tenant.use('/api/evals/level2', evalsLevel2Router({ level2: level2Service }));
 
-  app.use('/api/conversations', conversationsRouter({
+  tenant.use('/api/conversations', conversationsRouter({
     db,
     ownedConversations,
     ownedTrees,
     ownedProjects: async (userId: string) => (await db.getProjects()).filter((project) => project.ownerId === userId),
   }));
 
-  app.use('/api/memories', memoriesRouter({ db, temporalBridge }));
+  tenant.use('/api/memories', memoriesRouter({ db, temporalBridge }));
 
-  app.use('/api/tree-types', treeTypesRouter({ db, agents: async (ownerId: string) => (await engineRegistry.agents(ownerId)).map((agent) => agent.slug) }));
-  app.use('/api/binding-types', bindingTypesRouter({ db }));
-  const groveRuns = new GroveRunService({ store: db, launcher: temporalBridge });
+  tenant.use('/api/tree-types', treeTypesRouter({ db, agents: async (ownerId: string) => (await engineRegistry.agents(ownerId)).map((agent) => agent.slug) }));
+  tenant.use('/api/binding-types', bindingTypesRouter({ db }));
+  const groveRuns = new GroveRunService({
+    store: db,
+    launcher: createGroveLauncher({
+      hidden: (ownerId: string) => extensions.hidden(ownerId),
+      runs: engineRuns,
+      client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined),
+      agentFor: async (ownerId: string, treeId: string) => {
+        const tree = (await db.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
+        return groveAgentOf(await resolveTreeType(db, ownerId, tree?.type));
+      },
+      leafRun: async (leafId: string) => (await db.getLeaves()).find((leaf) => leaf.id === leafId)?.runId,
+    }),
+  });
   const groveDeletion = new GroveDeletionService({
     store: db,
     workflows: { terminate: (workflowId, reason) => temporalBridge.terminateIfRunning(workflowId, reason) },
     workspaces: evalHost.treeWorkspaces,
   });
-  app.use('/api/trees', treesRouter({ db, workspaces: evalHost.treeWorkspaces, runs: groveRuns, deletion: groveDeletion }));
-  app.use('/api/plans', plansRouter({ plans: new PlanService({ store: db, adopter: temporalBridge }) }));
-  app.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault: infisicalService }) }));
-  app.use('/api/branches', branchesRouter({ db, deletion: groveDeletion }));
+  tenant.use('/api/trees', treesRouter({ db, workspaces: evalHost.treeWorkspaces, runs: groveRuns, deletion: groveDeletion }));
+  tenant.use('/api/plans', plansRouter({ plans: new PlanService({ store: db, adopter: temporalBridge }) }));
+  tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault: infisicalService }) }));
+  tenant.use('/api/branches', branchesRouter({ db, deletion: groveDeletion }));
 
   const mcpRegistries = new Map<string, McpRegistryService>();
   const mcpServersOf = (ownerId: string) => {
@@ -726,19 +782,19 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     mcpRegistries.set(ownerId, known);
     return known.listWithTools();
   };
-  app.use('/api/mcp', mcpRouter({ mcp: new McpService({ store: db, servers: mcpServersOf }) }));
-  app.use('/api/actions', actionsRouter({ actions: new ActionService({ store: db, deployer: temporalBridge }) }));
+  tenant.use('/api/mcp', mcpRouter({ mcp: new McpService({ store: db, servers: mcpServersOf }) }));
+  tenant.use('/api/actions', actionsRouter({ actions: new ActionService({ store: db, deployer: temporalBridge }) }));
   const egressService = new EgressService({
     store: db,
-    proxy: new EgressProxyService({ kube: infraService, secret: JWT_SECRET, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica' }),
+    proxy: new EgressProxyService({ kube: infraService, secret: keys.egress, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica' }),
   });
-  app.use('/api/egress', egressRouter({ egress: egressService }));
-  app.use('/api/cluster-access', clusterAccessRouter({ access: new AccessService({ store: db }) }));
+  tenant.use('/api/egress', egressRouter({ egress: egressService }));
+  tenant.use('/api/cluster-access', clusterAccessRouter({ access: new AccessService({ store: db }) }));
   if (process.env.NODE_ENV !== 'test') {
     egressService.syncProxy().catch((err: Error) => console.warn(`[egress] could not sync the proxy's grants: ${err.message}`));
   }
 
-  app.use('/api/leaves', leavesRouter({ db, runs: groveRuns, deletion: groveDeletion }));
+  tenant.use('/api/leaves', leavesRouter({ db, runs: groveRuns, deletion: groveDeletion }));
 
   if (process.env.NODE_ENV !== 'test') {
     appExposureService.syncExposedApps().catch((e) => {

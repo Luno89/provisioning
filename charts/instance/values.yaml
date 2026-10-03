@@ -1,0 +1,33 @@
+image:
+  repository: nowrinkles/app
+  tag: dev
+  pullPolicy: IfNotPresent
+
+instance:
+  id: ""
+  ownerId: ""
+  rootUrl: ""
+  rootPublicKeys: ""
+  credential: ""
+
+selfUpgrade:
+  schedule: "17 * * * *"
+
+publicUrl: ""
+
+backend:
+  nodePort: null
+
+storage:
+  data: 2Gi
+  mongo: 5Gi
+  temporalDb: 5Gi
+
+mongo:
+  image: mongo:7
+
+temporal:
+  image: temporalio/auto-setup:1.24.2
+  postgresImage: postgres:12-alpine
+
+hostDocker: true

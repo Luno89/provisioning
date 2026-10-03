@@ -10,7 +10,7 @@ import { AuthService } from '../services/AuthService.js';
 const JWT_SECRET = 'test-secret';
 
 async function serve(db: Database) {
-  const auth = createAuth({ db, jwtSecret: JWT_SECRET, publicUrl: 'http://localhost:3001' });
+  const auth = createAuth({ db, sessionKey: JWT_SECRET, publicUrl: 'http://localhost:3001' });
   const app = express();
   app.use(express.json());
   app.use('/api', auth.requireAuth);
@@ -18,7 +18,7 @@ async function serve(db: Database) {
     db,
     authService: new AuthService(db),
     auth,
-    jwtSecret: JWT_SECRET,
+    sessionKey: JWT_SECRET,
     publicUrl: 'http://localhost:3001',
     appUrl: 'http://localhost:5173',
   }));

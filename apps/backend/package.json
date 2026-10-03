@@ -13,7 +13,10 @@
     "dev:worker:cluster": "tsx watch --exclude data src/worker-cluster.ts",
     "dev:worker:engine": "tsx watch --exclude data src/worker-engine.ts",
     "start:worker": "tsx src/worker-host.ts",
-    "start:worker:cluster": "tsx src/worker-cluster.ts"
+    "start:worker:cluster": "tsx src/worker-cluster.ts",
+    "start:worker:engine": "tsx src/worker-engine.ts",
+    "keys": "tsx src/scripts/rotate-keys.ts",
+    "instances": "tsx src/scripts/instances.ts"
   },
   "keywords": [],
   "author": "",

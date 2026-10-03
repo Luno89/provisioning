@@ -8,7 +8,7 @@ import {
   listLocalAgentDevices, createLocalAgentDevice, deleteLocalAgentDevice, localAgentKeys,
   type LocalAgentDevice,
 } from '../api/local-agents';
-import { errorMessage, API_BASE } from '../api/client';
+import { errorMessage, BACKEND_ORIGIN } from '../api/client';
 import { formatHash } from '../lib/route.js';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -41,7 +41,7 @@ export default function MeshDevices() {
   const createAgent = useMutation({
     mutationFn: () => createLocalAgentDevice({ name: agentName.trim(), rootDir: agentRootDir.trim() }),
     onSuccess: (data) => {
-      const backendUrl = API_BASE.replace(/\/api\/?$/, '');
+      const backendUrl = BACKEND_ORIGIN;
       setIssuedAgentCommand(
         `KOALA_BACKEND_URL=${backendUrl} KOALA_DEVICE_TOKEN=${data.token} KOALA_ROOT_DIR=${data.rootDir} npm run start -w apps/local-agent`,
       );

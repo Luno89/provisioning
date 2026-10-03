@@ -6,7 +6,7 @@ export interface ChatMessageRecord extends ChatMessageData {
 }
 
 /** One `data:` SSE frame at a time, shared by both scopes — they emit the exact same UnifiedFrame wire format. */
-export async function readSseFrames(body: ReadableStream<Uint8Array>, onFrame: (frame: any) => void): Promise<void> {
+export async function readSseFrames(body: ReadableStream<Uint8Array>, onFrame: (frame: unknown) => void): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';

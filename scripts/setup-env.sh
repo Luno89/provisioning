@@ -26,21 +26,18 @@ cp "$EXAMPLE_FILE" "$ENV_FILE"
 # directory as root — keep the file owned by the current user.
 chown "$(id -u):$(id -g)" "$ENV_FILE"
 
-# Auto-generate a secure random 256-bit JWT secret
-echo "▶ Generating secure random JWT_SECRET..."
-JWT_RANDOM_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
-
-# Replace template secret with the generated key
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS sed syntax
-    sed -i '' "s/JWT_SECRET=your_jwt_secret_here/JWT_SECRET=$JWT_RANDOM_SECRET/g" "$ENV_FILE"
-else
-    # Linux sed syntax
-    sed -i "s/JWT_SECRET=your_jwt_secret_here/JWT_SECRET=$JWT_RANDOM_SECRET/g" "$ENV_FILE"
-fi
+echo "▶ Generating the four platform keys..."
+for NAME in SESSION_KEY DATA_KEY PAYLOAD_KEY EGRESS_KEY; do
+    VALUE=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "s/^${NAME}=generate$/${NAME}=${VALUE}/" "$ENV_FILE"
+    else
+        sed -i "s/^${NAME}=generate$/${NAME}=${VALUE}/" "$ENV_FILE"
+    fi
+done
 
 echo "✔ Environment file successfully created at: apps/backend/.env"
-echo "✔ Secure JWT_SECRET automatically generated."
+echo "✔ SESSION_KEY, DATA_KEY, PAYLOAD_KEY and EGRESS_KEY generated."
 echo ""
 echo "Note: The platform is fully operational in mock/warning modes for
 Twilio 2FA, Google/GitHub Social Logins, and all cloud providers.

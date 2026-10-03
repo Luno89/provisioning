@@ -1,13 +1,11 @@
 import { useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { AlertTriangle, Loader2, Network, Plus } from 'lucide-react'
-import { BUILT_IN_PROCEDURES } from '@koala/agent-engine/procedure'
 import { procedureIdFrom, starterProcedure } from '../../lib/procedure-drafts'
 import { errorMessage, useDeleteProcedure, useProcedureList, useSaveProcedure } from './shared'
 import AgentsView from './AgentsView'
 import ToolsView from './ToolsView'
-
-const BUILT_IN_IDS = new Set(BUILT_IN_PROCEDURES.map((procedure) => procedure.id))
+import ExtensionsView from './ExtensionsView'
 
 export default function StudioView() {
   const navigate = useNavigate()
@@ -16,7 +14,7 @@ export default function StudioView() {
   const save = useSaveProcedure()
   const [name, setName] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
-  const [showing, setShowing] = useState<'procedures' | 'agents' | 'tools'>('procedures')
+  const [showing, setShowing] = useState<'procedures' | 'agents' | 'tools' | 'extensions'>('procedures')
 
   const id = name ? procedureIdFrom(name) : ''
   const taken = new Set(list.data?.procedures.map((procedure) => procedure.id) ?? [])
@@ -85,7 +83,7 @@ export default function StudioView() {
       </header>
 
       <nav className="flex items-center gap-2 border-b border-[var(--bark-800)] pb-px">
-        {(['procedures', 'agents', 'tools'] as const).map((tab) => (
+        {(['procedures', 'agents', 'tools', 'extensions'] as const).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -104,6 +102,7 @@ export default function StudioView() {
       {showing === 'agents' && <AgentsView />}
 
       {showing === 'tools' && <ToolsView />}
+      {showing === 'extensions' && <ExtensionsView />}
 
       {showing === 'procedures' && failure && <p className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">{failure}</p>}
 
@@ -122,7 +121,7 @@ export default function StudioView() {
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-slate-100">{procedure.name}</span>
                   <span className={`rounded px-1.5 py-0.5 text-[10px] ${procedure.mine ? 'bg-[var(--leaf-stem)]/25 text-[var(--leaf-light)]' : 'bg-sky-500/10 text-sky-300'}`}>
-                    {procedure.mine ? (BUILT_IN_IDS.has(procedure.id) ? 'your copy of a built-in' : 'yours') : 'built-in'}
+                    {procedure.mine ? (procedure.ofBuiltIn ? 'your copy of a built-in' : 'yours') : 'built-in'}
                   </span>
                 </div>
                 <p className="mt-0.5 font-mono text-[10px] text-slate-500">{procedure.id} · v{procedure.version}</p>

@@ -5,7 +5,7 @@ import type { Database } from '../lib/db-interface.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider } from '../lib/cluster-topology.js';
 import { v4 as uuidv4 } from 'uuid';
-import { encryptValue } from '../lib/crypto.js';
+import { encryptValue, type SecretKey } from '../lib/crypto.js';
 import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
 import { parseNvidiaSmiVram } from '../lib/gpu-vram.js';
 import { exec } from 'child_process';
@@ -23,10 +23,10 @@ const SYSTEM_CLUSTER_ID = 'provisioning-lunorica';
 
 export class ClusterService extends BaseService {
   private infra: InfrastructureService;
-  private masterKey: string;
+  private masterKey: SecretKey;
   private temporalBridge?: any;
 
-  constructor(db: Database, infra: InfrastructureService, masterKey?: string) {
+  constructor(db: Database, infra: InfrastructureService, masterKey?: SecretKey) {
     super(db);
     this.infra = infra;
     this.masterKey = masterKey || '';

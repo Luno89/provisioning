@@ -12,13 +12,13 @@ import type {
   NodeTrace,
   PlacedNode,
   Procedure,
+  RunCheckpoint,
   RunContext,
   RunLaunch,
   StepResult,
   ValueResult,
 } from '@koala/agent-engine/procedure';
 import type { SamplingConfig } from '@koala/harness-types';
-import type { TreeStage } from '../../lib/grove-stages.js';
 
 export interface RunTicket {
   runId: string;
@@ -139,8 +139,6 @@ export const DEFAULT_ENGINE_TASK_QUEUE = 'engine-queue';
 
 export const groveRunWorkflowId = (treeId: string): string => `grove-run-${treeId}`;
 
-export const GROVE_STOP_RUN = 'stopRun';
-export const GROVE_CANCEL_LEAF = 'cancelLeaf';
 
 export const DEFAULT_STREAM_TASK_QUEUE = 'engine-stream-queue';
 
@@ -152,21 +150,21 @@ export interface ProcedureRunInput {
   inputs: Record<string, unknown>;
   projectId?: string | undefined;
   environment?: EnvironmentValue | undefined;
+  continueAfterEvents?: number | undefined;
+  continued?: RunContinuation | undefined;
+}
+
+export interface RunContinuation {
+  checkpoint: RunCheckpoint;
+  limits: { modelKey: string; modelLabel: string; limits: RunBudget };
+  children: number;
+  approvedForRun: boolean;
+  approvals: [string, boolean][];
+  answers: [string, unknown][];
+  segment: number;
 }
 
 /** The grove run: the tree-level loop that alternates work and judge passes until the tree is quiet. */
-export interface GroveRunArgs {
-  treeId: string;
-  ownerId: string;
-  /** hard cap on passes; when the tree is still moving at the cap, the run reports capped instead of crashing */
-  maxPasses?: number | undefined;
-}
-
-export interface GrovePartitionArgs {
-  treeId: string;
-  ownerId: string;
-}
-
 export interface AdoptPlanArgs {
   ownerId: string;
   proposalId: string;
@@ -180,130 +178,10 @@ export interface AdoptPlanResult {
   reason?: string | undefined;
 }
 
-export interface GrovePrepareWorkArgs {
-  treeId: string;
-  ownerId: string;
-  leafIds: string[];
-}
-
-export interface GrovePreparedWork {
-  ready: string[];
-  failed: { leafId: string; reason: string }[];
-}
-
-export interface GroveJudgeCheckoutArgs {
-  treeId: string;
-  ownerId: string;
-  leafIds: string[];
-}
-
-export type GroveJudgeCheckouts = Record<string, string | undefined>;
-
-export interface GroveCheckClaimsArgs {
-  treeId: string;
-  ownerId: string;
-  leafIds: string[];
-  /** which leaves have a judge checkout of the claimed commit, from GroveJudgeCheckoutActivity */
-  checkouts: GroveJudgeCheckouts;
-}
-
-export interface GroveCheckedClaims {
-  /**
-   * The leaves their own checks settled against, each with the report saying which check failed.
-   * These never reach the judge: a command that exits non-zero is not a matter of opinion.
-   */
-  settled: Record<string, string>;
-}
-
 /** The agent that runs each stage of a tree, resolved: what its type names, and the default where it names none. */
-export type GroveStages = Record<TreeStage, string>;
-
-export interface GroveLeafArgs {
-  treeId: string;
-  ownerId: string;
-  leafId: string;
-  leafTitle: string;
-  /** The goal the leaf must reach. A worker that loops over tasks asks for its work; one that does the leaf in a single run is handed the goal. */
-  leafBody?: string | undefined;
-  runId: string;
-  environment: EnvironmentValue;
-  /** the agent this tree's type names to work its leaves — it runs the whole leaf as one engine run */
-  workAgent?: string | undefined;
-  siblings?: string | undefined;
-}
-
-export interface GroveLeafResult {
-  leafId: string;
-  outcome: 'claimed' | 'failed' | 'unbroken' | 'cancelled';
-  reason?: string | undefined;
-}
-
-export interface GroveLeafStatusArgs {
-  ownerId: string;
-  leafId: string;
-  from: Array<'pending' | 'running'>;
-  to: 'pending' | 'running';
-}
-
-export interface GroveClaimArgs {
-  treeId: string;
-  ownerId: string;
-  leafId: string;
-  result: 'claimed' | 'failed';
-  reason?: string | undefined;
-  /** What the work run said for itself, for a leaf whose tasks reported nothing — one run, no task list. */
-  evidence?: string | undefined;
-}
-
-export interface GroveClaimOutcome {
-  ok: boolean;
-  digest: string;
-}
-
-export interface GroveTreeArgs {
-  treeId: string;
-  ownerId: string;
-}
-
-export interface GroveLeafNeedingPlan {
-  leafId: string;
-  leafTitle: string;
-  leafBody: string;
-  mode: 'replan' | 'breakdown';
-  failure?: string | undefined;
-}
-
-export interface GroveWorkspaceArgs {
-  treeId: string;
-  ownerId: string;
-}
-
-export interface GrovePartitionLeaf {
-  id: string;
-  title: string;
-  body: string;
-  branchId: string;
-}
-
-export interface GroveClaim {
-  evidence: string;
-  commit?: string | undefined;
-  findings?: string | undefined;
-  runs?: string[] | undefined;
-  at: string;
-}
-
-export interface GrovePartition {
-  ready: GrovePartitionLeaf[];
-  claimed: (GrovePartitionLeaf & { claim?: GroveClaim | undefined })[];
-  awaitingReview: { id: string; title: string; review?: string | undefined }[];
-  settledCount: number;
-}
-
 export interface GroveRunResult {
   treeId: string;
-  outcome: 'quiet' | 'capped' | 'stopped';
-  passes: number;
+  outcome: 'quiet' | 'stopped';
   awaitingReview: string[];
   awaitingApproval?: string[] | undefined;
 }

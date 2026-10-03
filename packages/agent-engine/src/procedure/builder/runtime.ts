@@ -1,4 +1,4 @@
-import { GROUP_KIND, type NodeCatalogue, type NodeDefinition } from '../definition.js';
+import { GROUP_KIND, definitionFor, type NodeCatalogue, type NodeDefinition } from '../definition.js';
 import { groupAsNode } from '../groups.js';
 import {
   PROCEDURE_SCHEMA,
@@ -25,6 +25,8 @@ export class BuilderError extends Error {
 export const HANDLE_MEMBERS = ['id', 'on', 'wire'] as const;
 
 export const camelKind = (kind: string): string => kind.replace(/-([a-z0-9])/g, (_match, letter: string) => letter.toUpperCase());
+
+export const groupKey = (id: string): string => (/^[a-z0-9-]+$/.test(id) ? camelKind(id) : id);
 
 export interface NodeMeta {
   label?: string | undefined;
@@ -156,7 +158,7 @@ class BodyBuilder {
       if (!['label', 'notes'].includes(key)) throw new BuilderError(`"${id}" has "${key}" beside its settings, but only label and notes can go there`);
     }
 
-    const shaped = definition.sockets ? { ...definition, ...definition.sockets(settings ?? {}) } : definition;
+    const shaped = definitionFor({ get: () => definition }, { kind, settings: settings ?? {} }) ?? definition;
     this.definitions.set(id, shaped);
     this.nodes.push({
       id,
@@ -294,7 +296,7 @@ function builderParts(options: BuilderOptions) {
       callable((id: unknown, wires?: unknown, meta?: unknown) => body.addNode(groupAsNode(group), GROUP_KIND, id, wires, undefined, meta, group.id));
 
     const groups: Record<string, unknown> = {};
-    for (const group of shared) groups[camelKind(group.id)] = instanceOf(group);
+    for (const group of shared) groups[groupKey(group.id)] = instanceOf(group);
     api.groups = tagged(groups);
 
     api.group = callable((id: unknown, info: unknown, build: unknown) => {

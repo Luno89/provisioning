@@ -1,4 +1,4 @@
-import type { NodeTrace } from '@koala/agent-engine/procedure'
+import type { GroupDefinition, HostOperation, NodeTrace } from '@koala/agent-engine/procedure'
 import { api } from './client'
 
 export interface AgentInputSchema {
@@ -74,6 +74,7 @@ export const engineKeys = {
   agents: () => ['engine', 'agents'] as const,
   traces: (runId: string) => ['engine', 'traces', runId] as const,
   tasks: () => ['engine', 'tasks'] as const,
+  extensions: () => ['engine', 'extensions'] as const,
 }
 
 export async function listTasks(): Promise<EngineTask[]> {
@@ -87,6 +88,82 @@ export async function acceptTask(taskId: string): Promise<void> {
 
 export async function dropTask(taskId: string): Promise<void> {
   await api.post(`/engine/tasks/${taskId}/drop`, {})
+}
+
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Mirrors the summary `routes/engine.ts` serves at GET /engine/extensions, which is the authority.
+ */
+export interface ExtensionSummary {
+  id: string
+  title: string
+  describe: string
+  version: string
+  enabled: boolean
+  alwaysOn: boolean
+  authored: boolean
+  latest?: string[]
+  requires: string[]
+  operations: HostOperation[]
+  groups: GroupDefinition[]
+  tools: string[]
+  personas: string[]
+  procedures: string[]
+}
+
+export async function listExtensions(): Promise<ExtensionSummary[]> {
+  const { data } = await api.get<ExtensionSummary[]>('/engine/extensions')
+  return data
+}
+
+export async function setExtensionEnabled(id: string, enabled: boolean): Promise<ExtensionSummary[]> {
+  const { data } = await api.put<ExtensionSummary[]>(`/engine/extensions/${encodeURIComponent(id)}/enabled`, { enabled })
+  return data
+}
+
+export interface ExtensionDraft {
+  id: string
+  title: string
+  describe?: string
+}
+
+export interface ExtensionBundle {
+  title?: string
+  describe?: string
+  tools?: string[]
+  personas?: string[]
+  procedures?: string[]
+}
+
+export interface PublishedOperation {
+  id: string
+  version: number
+  moved: string[]
+}
+
+export async function createExtension(draft: ExtensionDraft): Promise<ExtensionSummary[]> {
+  const { data } = await api.post<ExtensionSummary[]>('/engine/extensions', draft)
+  return data
+}
+
+export async function updateExtension(id: string, bundle: ExtensionBundle): Promise<ExtensionSummary[]> {
+  const { data } = await api.put<ExtensionSummary[]>(`/engine/extensions/${encodeURIComponent(id)}`, bundle)
+  return data
+}
+
+export async function deleteExtension(id: string): Promise<ExtensionSummary[]> {
+  const { data } = await api.delete<ExtensionSummary[]>(`/engine/extensions/${encodeURIComponent(id)}`)
+  return data
+}
+
+export async function publishOperation(extension: string, name: string, group: GroupDefinition): Promise<PublishedOperation> {
+  const { data } = await api.post<PublishedOperation>(`/engine/extensions/${encodeURIComponent(extension)}/operations`, { name, group })
+  return data
+}
+
+export async function removeOperation(extension: string, name: string): Promise<ExtensionSummary[]> {
+  const { data } = await api.delete<ExtensionSummary[]>(`/engine/extensions/${encodeURIComponent(extension)}/operations/${encodeURIComponent(name)}`)
+  return data
 }
 
 export async function listEngineAgents(): Promise<EngineAgent[]> {

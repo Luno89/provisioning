@@ -6,9 +6,10 @@ import {
 import { createAgentRegistry } from '../registries/registry.js';
 import { createRunEnvironments, environmentIdFor, type ProvisionForRun } from './run-environments.js';
 import { createSandboxDriver } from '../drivers/sandbox.js';
-import { denyAll, ALL_SEEDED_AGENTS } from '@koala/agent-engine';
+import { denyAll } from '@koala/agent-engine';
 import type { MachineBackend } from '../drivers/machine.js';
 import type { EnvironmentHandleRef, RunTicket } from '../temporal/contracts.js';
+import { seededPersonas } from '../../extensions/seeds.js';
 
 const ticket = (agentSlug: string, runId = 'run-1'): RunTicket => ({
   runId,
@@ -58,7 +59,7 @@ function setup(over: Partial<Parameters<typeof createEnvironmentResolver>[0]> = 
 }
 
 const scratchAgent = () => ({
-  ...ALL_SEEDED_AGENTS().find((agent) => agent.slug === 'executor')!,
+  ...seededPersonas().find((agent) => agent.slug === 'executor')!,
   slug: 'scratch',
   interface: {},
 });

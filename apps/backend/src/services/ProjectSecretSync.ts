@@ -1,4 +1,4 @@
-import { decryptValue, encryptValue } from '../lib/crypto.js';
+import { decryptValue, encryptValue, type SecretKey } from '../lib/crypto.js';
 import {
   OPERATOR_NAMESPACE, OPERATOR_RELEASE, OPERATOR_REPO,
   infisicalHostFor, infisicalSecretManifest, readerSecretManifest,
@@ -37,7 +37,7 @@ export async function ensureInfisicalOperator(infra: SecretSyncInfra, kubeconfig
 }
 
 export async function syncProjectSecrets(
-  deps: { infra: SecretSyncInfra; vault: SecretSyncVault; projects: SecretSyncProjects; masterKey: string },
+  deps: { infra: SecretSyncInfra; vault: SecretSyncVault; projects: SecretSyncProjects; masterKey: SecretKey },
   args: { project: ProjectMetadata; namespace: string; kubeconfig: string; target: SecretTarget },
 ): Promise<{ hostAPI: string; operator: 'present' | 'installed' }> {
   const host = infisicalHostFor(args.target);

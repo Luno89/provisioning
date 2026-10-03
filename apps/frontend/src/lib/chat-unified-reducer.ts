@@ -58,6 +58,6 @@ export type UnifiedFrame =
   | { type: 'thinking'; delta: string }
   | { type: 'toolAnnounce'; payload: { id: string; name: string; args: string } }
   | { type: 'toolResult'; payload: { id: string; ok: boolean; digest?: string } }
-  | { type: 'usage'; payload: any }
-  | { type: 'interrupted'; payload: any }
-  | { type: string; payload?: any };
+  | { type: 'usage'; payload: unknown }
+  | { type: 'interrupted'; payload: unknown }
+  | { type: string; payload?: unknown };

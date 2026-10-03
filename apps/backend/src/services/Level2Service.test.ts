@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ALL_SEEDED_AGENTS, BUILDER_TOOLS, type ModelProvider } from '@koala/agent-engine';
+import { BUILDER_TOOLS, type ModelProvider } from '@koala/agent-engine';
 import { ENGINE_TOOL_SEEDS } from '../engine-host/tools/engine-tool-seeds.js';
 import { EXAMPLE_PROCEDURE } from '@koala/agent-engine/procedure';
 import { MemoryDB } from '../lib/memory-db.js';
 import type { StoredNodeTrace } from '../lib/run-traces.js';
 import type { Scenario } from '../eval/level2/scenario.js';
 import { Level2Service, type Level2Run } from './Level2Service.js';
+import { seededPersonas } from '../extensions/seeds.js';
 
 const PROVIDER = { id: 'tabby', name: 'Tabby', source: 'deployment', model: 'test-model', contextTokens: 32_000 } as ModelProvider;
 
@@ -52,12 +53,12 @@ function world(over: { builtIn?: Scenario[] } = {}) {
   const service = new Level2Service({
     world: {
       models: { resolveBaseUrl: async () => ({ provider: PROVIDER, baseUrl: 'https://models.test/v1', apiKey: 'k' }) },
-      personas: async () => [...ALL_SEEDED_AGENTS()],
+      personas: async () => [...seededPersonas()],
       tools: async () => [],
       procedures: async () => [],
     },
     tools: async () => [...BUILDER_TOOLS, ...ENGINE_TOOL_SEEDS],
-    agents: async () => ALL_SEEDED_AGENTS().map((agent) => agent.slug),
+    agents: async () => seededPersonas().map((agent) => agent.slug),
     procedures: async () => ['tool-rounds', 'research'],
     store: db,
     traces: async (batch) => { traces.push(...batch); },

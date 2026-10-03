@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import axios from 'axios';
-import { BUILT_IN_GROUPS, EXAMPLE_PROCEDURE, RESEARCH_V2, builtInCatalogue } from '@koala/agent-engine/procedure';
+import { BUILT_IN_GROUPS, EXAMPLE_PROCEDURE, PROCEDURE_SCHEMA, RESEARCH_V2, builtInCatalogue, defineGroup } from '@koala/agent-engine/procedure';
+import { ExtensionService } from '../services/ExtensionService.js';
+import { INSTALLED_EXTENSIONS, platformCatalogue, platformGroups } from '../extensions/installed.js';
 import { procedureToBuilderCode } from '@koala/agent-engine/procedure-builder';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { proceduresRouter } from './procedures.js';
@@ -150,6 +152,64 @@ describe('procedures routes', () => {
     expect(res.data.records).toEqual([expect.objectContaining({
       modelKey: 'tabby', runs: 5, successes: 5, typical: expect.objectContaining({ rounds: 6 }), limits: expect.objectContaining({ maxRounds: 9 }),
     })]);
+    await h.close();
+  });
+
+  it('saves a procedure that uses a published operation of the caller\'s, serves it back readable, and refuses it once that extension is off', async () => {
+    let extensions: ExtensionService | undefined;
+    const h = await mountRouter({
+      prefix: '/api/procedures',
+      router: (database) => {
+        extensions = new ExtensionService({ store: database, installed: INSTALLED_EXTENSIONS, catalogue: platformCatalogue, sharedGroups: platformGroups });
+        const published = (ownerId: string) => extensions!.groups(ownerId);
+        return proceduresRouter({
+          procedures: new ProcedureService({
+            procedures: createProcedureStore({ sources: { list: (ownerId) => database.getProcedures(ownerId) }, published }),
+            sources: { get: (ownerId, id) => database.getProcedure(ownerId, id), save: (source) => database.saveProcedure(source), delete: (ownerId, id) => database.deleteProcedure(ownerId, id) },
+            known: async () => ({ tools: new Set(), agents: new Set() }),
+            hidden: (ownerId) => extensions!.hidden(ownerId),
+            published,
+            effort: { list: (ownerId, procedureId) => database.getRunEffort(ownerId, procedureId) },
+          }),
+        });
+      },
+    });
+    const shout = defineGroup('shout', {
+      title: 'Shout', describe: 'Passes it on.',
+      inputs: { text: { type: 'text', describe: 'What to say.', required: true } },
+      outputs: {},
+      exits: { done: { describe: 'Said.' }, quiet: { describe: 'Nothing said.' } },
+    }, (g) => {
+      const said = g.condition('said', { value: g.inputs.text }, { expression: 'not empty(value)' });
+      g.start(said);
+      said.on('true', g.exits.done);
+      said.on('false', g.exits.quiet);
+      g.layout({ said: [0, 0] });
+    });
+    await extensions!.create(TEST_USER.id, { id: 'loud', title: 'Loud' });
+    await extensions!.publish(TEST_USER.id, 'loud', 'shout', shout);
+    const greeter = {
+      schema: PROCEDURE_SCHEMA, id: 'greeter', version: '1', name: 'Greeter', describe: 'greets', budget: {}, start: 'shout',
+      nodes: [
+        { id: 'hello', kind: 'text', settings: { text: 'hi' }, position: { x: 0, y: 0 } },
+        { id: 'shout', kind: 'group', group: 'loud.shout@1', settings: {}, position: { x: 260, y: 0 } },
+        { id: 'done', kind: 'finish', settings: { outcome: 'ok' }, position: { x: 520, y: 0 } },
+      ],
+      wires: [{ from: { node: 'hello', socket: 'text' }, to: { node: 'shout', socket: 'text' } }],
+      flow: [{ from: 'shout', exit: 'done', to: 'done' }, { from: 'shout', exit: 'quiet', to: 'done' }],
+      groups: [],
+    };
+
+    const saved = await axios.put(h.url('/api/procedures/greeter'), greeter, quiet);
+    expect(saved.status, JSON.stringify(saved.data)).toBe(200);
+    const listed = await axios.get(h.url('/api/procedures'));
+    expect(listed.data.procedures.map((procedure: { id: string }) => procedure.id)).toContain('greeter');
+    expect(listed.data.unreadable).toEqual([]);
+
+    await extensions!.setEnabled(TEST_USER.id, 'loud', false);
+    const refused = await axios.put(h.url('/api/procedures/greeter'), greeter, quiet);
+    expect(refused.status).toBe(400);
+    expect(JSON.stringify(refused.data)).toMatch(/loud.shout@1, from an extension that is switched off/);
     await h.close();
   });
 });

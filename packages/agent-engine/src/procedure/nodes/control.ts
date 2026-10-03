@@ -231,12 +231,13 @@ export const fanOut: BuiltInNode = {
     kind: 'fan-out',
     title: 'Fan Out',
     category: 'control',
-    describe: 'Starts one child run of a persona per item in a list, a few at a time, and waits for all of them. Each child gets { item, index }. Every outcome is handed on, successes and failures alike — use Merge to keep the ones you want.',
+    describe: 'Starts one child run of a persona per item in a list, a few at a time, and waits for all of them. Each child gets { item, index }, and works in the workspace wired in (or this run\'s) — narrowed to item.worktree when the item names one. Every outcome is handed on, successes and failures alike — use Merge to keep the ones you want.',
     role: 'step',
     inputs: [
       { name: 'items', type: 'json', describe: 'The list to fan out over. Superseded when the settings carry an items reference.', required: false },
       { name: 'values', type: 'json', describe: 'Values the items reference can read as {{values.\u2026}}.' },
       { name: 'text', type: 'text', describe: 'Text the items reference can read as {{text}}.' },
+      { name: 'environment', type: 'environment', describe: 'A workspace to hand every child. An item carrying a worktree narrows its child to that worktree of it. Nothing wired means the workspace this run was given.' },
     ],
     outputs: [{ name: 'children', type: 'json', describe: 'Every child\'s outcome, in list order.' }],
     exits: [{ name: 'done', describe: 'Every child has finished.' }],
@@ -246,6 +247,12 @@ export const fanOut: BuiltInNode = {
       properties: {
         agent: { type: 'string', title: 'Persona', minLength: 1 },
         maxParallel: { type: 'integer', title: 'At a time', minimum: 1, maximum: 50, default: 3 },
+        itemAsInputs: {
+          type: 'boolean',
+          title: 'Item as inputs',
+          describe: 'Hand each child the item\'s own fields as its inputs, rather than { item, index } — for a persona that expects its inputs at the top level.',
+          default: false,
+        },
         items: {
           type: 'string',
           title: 'The list, elsewhere',

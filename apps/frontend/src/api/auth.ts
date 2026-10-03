@@ -39,3 +39,9 @@ export const login = (
 
 export const verifyTwoFactor = (body: { userId: string; code: string }): Promise<LoginResult> =>
   api.post<LoginResult>('/auth/2fa/verify', body).then((r) => r.data)
+
+export const signInElsewhere = (): Promise<string | null> =>
+  api.get<{ url: string | null }>('/auth/sign-in').then((r) => r.data.url).catch(() => null)
+
+export const exchangeHandoff = (token: string): Promise<SessionUser> =>
+  api.post<{ user: SessionUser }>('/auth/handoff', { token }).then((r) => r.data.user)

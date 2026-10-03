@@ -38,10 +38,14 @@ import {
 } from './engine-host/index.js';
 import { createHostNodes, hostNodesFor } from './engine-host/nodes/index.js';
 import { buildWebTools } from './lib/web-tools-wiring.js';
+import { extensionServiceFor } from './services/ExtensionService.js';
+import { loadKeys } from './lib/keys.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 dotenv.config({ path: resolve(__dirname, '../.env') });
+
+const keys = loadKeys(process.env);
 
 const logger = createWorkerLogger('engine-worker');
 
@@ -60,20 +64,20 @@ async function buildActivities() {
   const db = createDatabase();
   await db.init();
 
-  const models = createModelService(db, process.env.JWT_SECRET ?? '');
+  const models = createModelService(db, keys.data);
   const web = await buildWebTools(db).catch(() => undefined);
 
-  const gitea = new GiteaService(new InfrastructureService(), process.env.JWT_SECRET || 'provisioning-platform-secret-12345', '/tmp/kubeconfig-provisioning-lunorica');
+  const gitea = new GiteaService(new InfrastructureService(), keys.data, '/tmp/kubeconfig-provisioning-lunorica');
   const infisical = new InfisicalService(
     new InfrastructureService(),
-    process.env.JWT_SECRET ?? '',
+    keys.data,
     '/tmp/kubeconfig-provisioning-lunorica',
     undefined,
     new ClusterProxyService(),
   );
-  const projectRepos = new ProjectRepoService(db, gitea, process.env.JWT_SECRET ?? '');
+  const projectRepos = new ProjectRepoService(db, gitea, keys.data);
   const kubeInfra = new InfrastructureService();
-  const clusterService = new ClusterService(db, kubeInfra, process.env.JWT_SECRET ?? '');
+  const clusterService = new ClusterService(db, kubeInfra, keys.data);
   const mcpRegistries = new Map<string, McpRegistryService>();
   const registryFor = (ownerId: string): McpRegistryService => {
     const known = mcpRegistries.get(ownerId);
@@ -86,11 +90,14 @@ async function buildActivities() {
     backend: infisical,
     minters: { readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token },
   });
+  const extensions = extensionServiceFor(db);
   const host = createEngineHost({
+    hidden: (ownerId: string) => extensions.hidden(ownerId),
+    published: (ownerId: string) => extensions.groups(ownerId),
     models,
     stores: storesFromDatabase(db),
     vault,
-    egressSecret: process.env.JWT_SECRET,
+    egressSecret: keys.egress,
     corpus: {
       crawlerReady: async (ownerId) => (await db.getDeployments()).some((dep) => dep.appType === 'crawl4ai' && dep.status === 'running' && dep.ownerId === ownerId),
       start: async (workflowId, args) => {
@@ -243,7 +250,7 @@ async function main() {
   for (;;) {
     try {
       const connection = await NativeConnection.connect({ address });
-      const dataConverter = buildDataConverter(process.env.JWT_SECRET);
+      const dataConverter = buildDataConverter(keys.payload);
 
       const worker = await Worker.create({
         connection,

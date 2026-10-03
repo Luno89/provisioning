@@ -1,3 +1,4 @@
+import { serverError } from '../../../api/client'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Box, ExternalLink, ShieldCheck, AlertTriangle, History, Terminal } from 'lucide-react'
@@ -122,7 +123,7 @@ export function BuildsDeploysPanel({ project }: { project: LinkedProject }) {
           </select>
           {setDevice.isError && (
             <p className="text-[11px] text-rose-400">
-              {(setDevice.error as any)?.response?.data?.error || 'Could not update the execution target.'}
+              {serverError(setDevice.error) || 'Could not update the execution target.'}
             </p>
           )}
         </div>

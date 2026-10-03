@@ -38,12 +38,12 @@ function fakeCall(headers: Record<string, string> = {}) {
 }
 
 describe('requireAuth', () => {
-  const jwtSecret = 'test-secret';
+  const sessionKey = 'test-secret';
 
   async function build() {
     const db = createDatabase();
     await db.init();
-    return { db, auth: createAuth({ db, jwtSecret, publicUrl: 'http://localhost:3001' }) };
+    return { db, auth: createAuth({ db, sessionKey, publicUrl: 'http://localhost:3001' }) };
   }
 
   it('refuses a request with no session cookie', async () => {
@@ -56,7 +56,7 @@ describe('requireAuth', () => {
 
   it('refuses a validly-signed token for a user who no longer exists', async () => {
     const { auth } = await build();
-    const token = signJWT({ userId: 'deleted-user' }, jwtSecret, 3600);
+    const token = signJWT({ userId: 'deleted-user' }, sessionKey, 3600);
     const c = fakeCall({ cookie: `session=${token}` });
     await auth.requireAuth(c.req, c.res, c.next);
     expect(c.result().statusCode).toBe(401);
@@ -74,7 +74,7 @@ describe('requireAuth', () => {
   it('puts the resolved user on the request and continues', async () => {
     const { db, auth } = await build();
     await db.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
-    const token = signJWT({ userId: 'u1' }, jwtSecret, 3600);
+    const token = signJWT({ userId: 'u1' }, sessionKey, 3600);
     const c = fakeCall({ cookie: `session=${token}` });
     await auth.requireAuth(c.req, c.res, c.next);
     expect(c.result().nexted).toBe(true);
@@ -84,7 +84,7 @@ describe('requireAuth', () => {
   it('resolves the same user the socket handshake would', async () => {
     const { db, auth } = await build();
     await db.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
-    const token = signJWT({ userId: 'u1' }, jwtSecret, 3600);
+    const token = signJWT({ userId: 'u1' }, sessionKey, 3600);
 
     const c = fakeCall({ cookie: `session=${token}` });
     await auth.requireAuth(c.req, c.res, c.next);
@@ -97,7 +97,7 @@ describe('requireAuth', () => {
 
 describe('requireAdmin', () => {
   const auth = createAuth({
-    db: null as never, jwtSecret: 'x', publicUrl: 'http://localhost:3001',
+    db: null as never, sessionKey: 'x', publicUrl: 'http://localhost:3001',
   });
 
   it('refuses a signed-in non-admin with 403, not 401', async () => {
@@ -124,17 +124,63 @@ describe('requireAdmin', () => {
 describe('session cookie flags', () => {
   it('marks the cookie secure only when the public origin is https', () => {
     const db = null as never;
-    expect(createAuth({ db, jwtSecret: 'x', publicUrl: 'https://app.example.com' })
+    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'https://app.example.com' })
       .sessionCookieOptions.secure).toBe(true);
-    expect(createAuth({ db, jwtSecret: 'x', publicUrl: 'http://localhost:3001' })
+    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'http://localhost:3001' })
       .sessionCookieOptions.secure).toBe(false);
   });
 
   it('is httpOnly and lax in both cases', () => {
     for (const url of ['https://app.example.com', 'http://localhost:3001']) {
-      const opts = createAuth({ db: null as never, jwtSecret: 'x', publicUrl: url }).sessionCookieOptions;
+      const opts = createAuth({ db: null as never, sessionKey: 'x', publicUrl: url }).sessionCookieOptions;
       expect(opts.httpOnly).toBe(true);
       expect(opts.sameSite).toBe('lax');
     }
+  });
+});
+
+describe('what is open without a session, by role', () => {
+  const at = (path: string) => {
+    const call = fakeCall();
+    (call.req as unknown as { path: string }).path = path;
+    return call;
+  };
+  const opens = async (role: 'root' | 'instance' | 'combined', path: string): Promise<boolean> => {
+    const db = createDatabase();
+    await db.init();
+    const call = at(path);
+    await createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role }).requireAuth(call.req, call.res, call.next);
+    return call.result().nexted;
+  };
+
+  it('lets anyone reach an instance\'s sign-in exchange, and nothing of root\'s sign-in', async () => {
+    expect(await opens('instance', '/auth/handoff')).toBe(true);
+    expect(await opens('instance', '/auth/sign-in')).toBe(true);
+    expect(await opens('instance', '/auth/login')).toBe(false);
+    expect(await opens('instance', '/auth/github/callback')).toBe(false);
+    expect(await opens('instance', '/identity/keys')).toBe(false);
+  });
+
+  it('keeps root\'s sign-in and public keys open, and an instance\'s exchange closed', async () => {
+    expect(await opens('root', '/auth/login')).toBe(true);
+    expect(await opens('root', '/identity/keys')).toBe(true);
+    expect(await opens('root', '/identity/go')).toBe(true);
+    expect(await opens('instance', '/identity/go')).toBe(false);
+    expect(await opens('root', '/auth/handoff')).toBe(false);
+    expect(await opens('combined', '/auth/login')).toBe(true);
+    expect(await opens('combined', '/auth/handoff')).toBe(false);
+  });
+
+  it('marks an instance\'s session cookie Secure only when the request really came over https', async () => {
+    const db = createDatabase();
+    await db.init();
+    const auth = createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role: 'instance' });
+    const cookies: Array<{ secure: boolean }> = [];
+    const res = { cookie: (_name: string, _value: string, options: { secure: boolean }) => { cookies.push(options); } } as unknown as Response;
+
+    auth.setSessionCookie(res, 't', { secure: false, headers: { 'x-forwarded-proto': 'https' } } as unknown as Request);
+    auth.setSessionCookie(res, 't', { secure: false, headers: {} } as unknown as Request);
+
+    expect(cookies.map((cookie) => cookie.secure)).toEqual([true, false]);
   });
 });

@@ -2,6 +2,8 @@ import express from 'express';
 import { verifyJWT } from '../lib/auth.js';
 import type { Database } from '../lib/db-interface.js';
 import type { UserMetadata } from '../lib/types.js';
+import type { SecretKey } from '../lib/crypto.js';
+import type { PlatformRole } from '../lib/platform-role.js';
 
 export function parseCookie(cookieHeader: string | undefined, name: string): string | undefined {
   if (!cookieHeader) return undefined;
@@ -15,8 +17,9 @@ export function parseCookie(cookieHeader: string | undefined, name: string): str
 
 export interface AuthDeps {
   db: Database;
-  jwtSecret: string;
+  sessionKey: SecretKey;
   publicUrl: string;
+  role?: PlatformRole | undefined;
 }
 
 export interface Auth {
@@ -24,7 +27,7 @@ export interface Auth {
   userFromSessionCookie: (cookieHeader: string | undefined) => Promise<UserMetadata | undefined>;
   requireAuth: express.RequestHandler;
   requireAdmin: express.RequestHandler;
-  setSessionCookie: (res: express.Response, token: string) => void;
+  setSessionCookie: (res: express.Response, token: string, req?: express.Request) => void;
   sessionCookieOptions: { httpOnly: boolean; secure: boolean; sameSite: 'lax' };
   checkAndConsumeInvite: (
     code: string | undefined,
@@ -33,26 +36,35 @@ export interface Auth {
   ) => Promise<string | null>;
 }
 
-export function createAuth({ db, jwtSecret, publicUrl }: AuthDeps): Auth {
+export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: AuthDeps): Auth {
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
 
   async function userFromSessionCookie(cookieHeader: string | undefined): Promise<UserMetadata | undefined> {
     const token = parseCookie(cookieHeader, 'session');
     if (!token) return undefined;
-    const decoded = verifyJWT(token, jwtSecret);
+    const decoded = verifyJWT(token, sessionKey);
     if (!decoded || !decoded.userId) return undefined;
     return await db.getUserById(decoded.userId);
   }
 
   const requireAuth: express.RequestHandler = async (req, res, next) => {
     const publicPaths = [
-      '/auth/login',
-      '/auth/register',
-      '/auth/2fa/verify',
-      '/auth/github',
-      '/auth/google',
-      '/auth/github/callback',
-      '/auth/google/callback',
+      ...(role === 'instance' ? [] : [
+        '/auth/login',
+        '/auth/register',
+        '/auth/2fa/verify',
+        '/auth/github',
+        '/auth/google',
+        '/auth/github/callback',
+        '/auth/google/callback',
+        '/identity/keys',
+        '/identity/go',
+        '/instances/join',
+        '/instances/chart.tgz',
+        '/instances/release',
+        '/instances/status',
+      ]),
+      ...(role === 'instance' ? ['/auth/handoff', '/auth/sign-in'] : []),
     ];
     if (publicPaths.includes(req.path)) {
       return next();
@@ -93,8 +105,11 @@ export function createAuth({ db, jwtSecret, publicUrl }: AuthDeps): Auth {
     secure: publicUrl.startsWith('https://'),
     sameSite: 'lax' as const,
   };
-  const setSessionCookie = (res: express.Response, token: string) => {
-    res.cookie('session', token, { ...sessionCookieOptions, maxAge: 24 * 60 * 60 * 1000 });
+  const arrivedOverHttps = (req: express.Request): boolean =>
+    req.secure || String(req.headers['x-forwarded-proto'] ?? '').split(',')[0]?.trim() === 'https';
+  const setSessionCookie = (res: express.Response, token: string, req?: express.Request) => {
+    const secure = role === 'instance' && req ? arrivedOverHttps(req) : sessionCookieOptions.secure;
+    res.cookie('session', token, { ...sessionCookieOptions, secure, maxAge: 24 * 60 * 60 * 1000 });
   };
 
   async function checkAndConsumeInvite(code: string | undefined, newUserId: string, isFirstUser: boolean): Promise<string | null> {

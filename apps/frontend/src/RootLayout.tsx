@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Activity, AlertTriangle, BellRing, Cloud, Key, Loader2, Network, Package, Puzzle, Server, Shield, Timer
-} from 'lucide-react';
+import { AlertTriangle, BellRing, Loader2 } from 'lucide-react';
 import Sidebar from './components/Sidebar';
+import { FOREST_TABS, ShellContextInstance, type ShellContext, type WizardPreset } from './components/shell-context';
 import PendingApprovals from './components/PendingApprovals';
 import Login from './components/Login.js';
 import ClusterWizard from './components/ClusterWizard.js';
@@ -14,8 +13,11 @@ import PendingKeyModal from './components/PendingKeyModal';
 import NginxWizard from './components/NginxWizard';
 import { errorMessage } from './api/client';
 import { useShellStore, startHistorySync } from './stores/shell';
-import { useSocketEvent } from './stores/socket';
-import { getMe, logout } from './api/auth';
+import { reconnectSocket, useSocketEvent } from './stores/socket';
+import { getMe, logout, signInElsewhere } from './api/auth';
+import { getMyInstance, identityKeys, INSTANCE_GO_URL } from './api/identity';
+import HandoffPage from './components/HandoffPage';
+import NoInstance from './components/NoInstance';
 import {
   listClusters, clusterKeys, type ClusterCreated,
   provisionCluster as provisionClusterApi,
@@ -28,39 +30,6 @@ import {
 } from './api/deployments';
 import { listProviders, credentialKeys } from './api/credentials';
 import { getNginxConfig, saveNginxConfig, nginxKeys } from './api/nginx';
-
-export const FOREST_TABS = [
-  { id: 'clusters' as const, label: 'Clusters', icon: Cloud },
-  { id: 'apps' as const, label: 'Applications', icon: Server },
-  { id: 'vps-catalog' as const, label: 'VPS Catalog', icon: Package },
-  { id: 'mesh' as const, label: 'My Machines', icon: Network },
-  { id: 'accounts' as const, label: 'Cloud Accounts', icon: Key },
-  { id: 'services' as const, label: 'Services', icon: Activity },
-  { id: 'nginx' as const, label: 'Nginx Router', icon: Puzzle },
-  { id: 'temporal' as const, label: 'Temporal', icon: Timer },
-  { id: 'settings' as const, label: 'Security', icon: Shield },
-];
-
-export interface ShellContext {
-  clusters: any[];
-  deployments: any[];
-  providers: any[];
-  setShowClusterModal: (show: boolean) => void;
-  setShowAppModal: (show: boolean) => void;
-  setWizardPreset: (preset: any) => void;
-  openDashboard: (type: 'cluster' | 'app', id: string) => void;
-  editorContent: string;
-  setEditorContent: React.Dispatch<React.SetStateAction<string>>;
-  loadingNginxConfig: boolean;
-  updateNginxConfig: any;
-  vpnDomains: Record<string, string>;
-  setVpnDomains: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  setShowNginxWizard: (show: boolean) => void;
-  deployApp: any;
-}
-
-export const ShellContextInstance = React.createContext<ShellContext | null>(null);
-export const useShellContext = () => React.useContext(ShellContextInstance);
 
 export function RootLayout() {
   const queryClient = useQueryClient();
@@ -77,7 +46,7 @@ export function RootLayout() {
   const [editorContent, setEditorContent] = useState('');
   const [showClusterModal, setShowClusterModal] = useState(false);
   const [pendingKey, setPendingKey] = useState<{ id: string; publicKey: string } | null>(null);
-  const [wizardPreset, setWizardPreset] = useState<{ provider: string; serverType?: string; location?: string } | undefined>(undefined);
+  const [wizardPreset, setWizardPreset] = useState<WizardPreset | undefined>(undefined);
   const [showAppModal, setShowAppModal] = useState(false);
   const [showLogModal, setShowLogModal] = useState<{ type: 'cluster' | 'app', id: string } | null>(null);
   const confirmDestroy = useShellStore((s) => s.confirmDestroy);
@@ -90,6 +59,10 @@ export function RootLayout() {
   const [logTab, setLogTab] = useState<'general' | 'provision' | 'helm' | 'app' | 'diagnostics' | 'modules' | 'storage'>('general');
   const [vpnDomains, setVpnDomains] = useState<Record<string, string>>({});
   const [showNginxWizard, setShowNginxWizard] = useState(false);
+
+  useEffect(() => {
+    if (user) reconnectSocket();
+  }, [user]);
 
   useEffect(() => {
     getMe()
@@ -107,12 +80,22 @@ export function RootLayout() {
     }
   };
 
+  const handoffToken = new URLSearchParams(location.searchStr ?? '').get('token');
+  const signInUrl = useQuery({ queryKey: ['auth', 'sign-in'], queryFn: signInElsewhere, enabled: !authLoading && !user, staleTime: Infinity });
+  const placement = useQuery({ queryKey: identityKeys.mine(), queryFn: getMyInstance, enabled: Boolean(user), staleTime: Infinity });
+  useEffect(() => {
+    if (!user && signInUrl.data) window.location.assign(signInUrl.data);
+  }, [user, signInUrl.data]);
+  useEffect(() => {
+    if (placement.data && !placement.data.servesTenants && placement.data.instance) window.location.assign(INSTANCE_GO_URL);
+  }, [placement.data]);
+
   const { data: clusters = [] } = useQuery({ queryKey: clusterKeys.list(), queryFn: listClusters, refetchInterval: 3000 });
   const { data: deployments = [] } = useQuery({ queryKey: deploymentKeys.list(), queryFn: listDeployments, refetchInterval: 3000 });
   const { data: providers = [] } = useQuery({ queryKey: credentialKeys.list(), queryFn: listProviders });
 
-  const currentDeployment = showLogModal?.type === 'app' ? deployments.find((d: any) => d.id === showLogModal.id) : null;
-  const currentCluster = showLogModal?.type === 'cluster' ? clusters.find((c: any) => c.id === showLogModal.id) : null;
+  const currentDeployment = showLogModal?.type === 'app' ? deployments.find((d) => d.id === showLogModal.id) : null;
+  const currentCluster = showLogModal?.type === 'cluster' ? clusters.find((c) => c.id === showLogModal.id) : null;
 
   useSocketEvent<{ id: string }>('resource-destroyed', (data) => {
     pushNotification(data);
@@ -197,18 +180,22 @@ export function RootLayout() {
     onError: reportFailure('Could not save the nginx config'),
   });
 
-  useEffect(() => {
-    if (nginxConfig?.content !== undefined) {
-      setEditorContent(nginxConfig.content);
-    }
-  }, [nginxConfig]);
+  const [syncedNginx, setSyncedNginx] = useState<string>();
+  if (nginxConfig?.content !== undefined && nginxConfig.content !== syncedNginx) {
+    setSyncedNginx(nginxConfig.content);
+    setEditorContent(nginxConfig.content);
+  }
 
   const openDashboard = (type: 'cluster' | 'app', id: string) => {
     setShowLogModal({ type, id });
     setLogTab(type === 'app' ? 'general' : 'provision');
   };
 
-  if (authLoading) {
+  if (location.pathname === '/handoff') {
+    return <HandoffPage token={handoffToken} onSignedIn={setUser} />;
+  }
+
+  if (authLoading || (!user && signInUrl.isPending) || (signInUrl.data && !user) || (user && placement.isPending)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0d0f14] text-slate-100 font-sans">
         <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
@@ -218,6 +205,10 @@ export function RootLayout() {
 
   if (!user) {
     return <Login onSuccess={setUser} />;
+  }
+
+  if (placement.data && !placement.data.servesTenants) {
+    return <NoInstance hasInstance={Boolean(placement.data.instance)} onLogout={handleLogout} />;
   }
 
   const isFullBleed = ['/chat', '/projects', '/studio/'].some((prefix) => location.pathname.startsWith(prefix));
@@ -237,7 +228,6 @@ export function RootLayout() {
     vpnDomains,
     setVpnDomains,
     setShowNginxWizard,
-    deployApp,
   };
 
   return (

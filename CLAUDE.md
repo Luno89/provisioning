@@ -44,6 +44,8 @@ npm run test:alive   # scripts/alive.sh — Docker/k3d/K8s API/Temporal/worker p
 npm run test:worker  # tsx tests/worker-isolated.ts — runs real Temporal workflows without browser/webserver
 npm run test:e2e     # test:alive → Playwright (skips the unit preflight `npm test` does)
 npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
+npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
+npm run test:instance-live        # k3d cluster + root container + charts/instance → sign in through root → sandboxed run, ~10 min, cleans up
 npm run test:remote-integration   # boots a disposable QEMU VM, provisions it as a provider:'remote' cluster over
                                    # real SSH, verifies kubectl + deploys a real app, tears down VM+cluster — proves
                                    # the distributed-systems plan's Phase 2 (SSH k3s bootstrap) end-to-end, ~10-15 min.
@@ -60,23 +62,23 @@ way: `npm run <script> -w apps/backend`. See each workspace's `package.json` for
 
 Run a single test file: `npx vitest run <path>` from the relevant workspace dir, or `npx playwright test <file>` from repo root.
 
-### The workers do NOT hot-reload
+### In dev, everything hot-reloads — and a reload kills what is running
 
-The backend runs under `tsx watch`, but both workers run plain `tsx` — so **any change to an
-activity, workflow, or anything else they import requires restarting `npm run dev`.** Nothing warns
-you; the worker just keeps executing the code it started with.
+`npm run dev` runs the backend and all three workers (host, cluster, engine) under `tsx watch`, so
+an edit to anything they import restarts them within a few seconds. You no longer restart by hand.
 
-This is easy to misdiagnose because it is asymmetric. CDKTF constructs *do* pick up edits without a
-restart — `cdktf` is a subprocess that reads files fresh — so a change touching both a construct and
-an activity appears to half-work: the Kubernetes resources reflect your edit while the activity's
-own logic (image imports, post-apply Secret creation, `displayUrl`) silently doesn't.
+The cost is that **a restart kills every activity that worker is running.** Temporal retries an
+idempotent node on the new worker once its heartbeat lapses, so a model turn or a sandbox
+provision just resumes. A node that is *not* idempotent — Code, Start Leaf, File Claim, anything
+whose definition says `idempotent: false` — gets exactly one attempt (`engineNodesOnce` in
+`AgentRunWorkflow.ts`), so the run fails at that node. **Saving a file during a live grove or
+agent run can fail the run.** Wait for it to finish, or expect to start it again.
 
-Confirmed live: a Palworld deploy produced a correct pod, PVC and Service from an edited construct
-while the same commit's `DeployAppActivity` changes never ran, because the worker had been started
-28 minutes earlier.
+Production does not watch: `npm run start` (what the root node's systemd unit runs) uses plain
+`tsx`, which is why `update.sh` restarts through the unit.
 
-Note `npm run dev` uses `concurrently --kill-others`, so restarting one worker restarts the
-whole stack.
+Note `npm run dev` uses `concurrently --kill-others`, so a worker that crashes rather than reloads
+takes the whole stack down with it.
 
 ### E2E Monitor
 
@@ -140,6 +142,41 @@ must work signed-out means editing the guard too. `requireAuth` and the Socket.I
 `userFromSessionCookie` for the same reason: a socket must never be able to resolve a user the HTTP
 API would reject.
 
+## Roles: root, instance, combined
+
+`ROLE` (read by `lib/platform-role.ts`) decides what a backend is:
+- **`combined`** (the default, and every dev box) is everything at once, as before;
+- **`root`** holds accounts and the Ed25519 signing key (`ROOT_IDENTITY_KEY`), and mounts no tenant
+  route — every tenant router is mounted on `tenant` in `bootstrap()`, which is the app except on root;
+- **`instance`** serves one owner (`INSTANCE_ID`, `INSTANCE_OWNER_ID`, `ROOT_URL`, `ROOT_PUBLIC_KEYS`),
+  has no account routes, and signs people in only through root.
+
+Sign-in on an instance: the instance sends you to root's `/api/identity/go`, which issues a 60-second,
+single-use token for your instance and redirects to `<instance>/#/handoff?token=…`. The instance
+checks the signature, audience, expiry and owner, records the token id so it cannot be reused, and
+sets its own session. Register an instance with `npm run instances -w apps/backend -- add <id> <owner> <url>`.
+
+## Platform keys
+
+Four keys, one per purpose, loaded once by `lib/keys.ts`'s `loadKeys(process.env)`:
+- `SESSION_KEY` signs session cookies;
+- `DATA_KEY` encrypts every stored secret (`crypto.ts`);
+- `PAYLOAD_KEY` encrypts Temporal payloads;
+- `EGRESS_KEY` derives the egress proxy's passwords.
+
+Production refuses to start without all four. Dev derives any missing one from `JWT_SECRET`, so
+nothing needs setting up. Never pass a raw env var where a key is wanted: take it from `loadKeys`.
+
+Ciphertext carries the id of the key that wrote it (`v2:<keyId>:…`). Each keyring holds the current
+key and any previous ones; previous keys only decrypt, and anything new is written with the
+current key. `JWT_SECRET`, the old single key, stays on the ring as a previous key until it is
+removed from `.env`.
+
+Rotate with `npm run keys -w apps/backend`: a dry run that reports what would move. Add `--write-env`
+to generate missing keys and `--apply` to re-encrypt Mongo and the key files in `data/`. Remove
+`JWT_SECRET` only after `--apply` reports nothing unreadable and no workflow started before the
+rotation is still running.
+
 ## Root node (hosted deployment)
 
 `scripts/root-node/bootstrap.sh` stands up a fresh VPS; `scripts/root-node/update.sh` deploys a new
@@ -188,7 +225,7 @@ Two Temporal task queues partition operations:
 - `host-ops-queue` → **host worker** (`worker-host.ts`, `npm run dev:worker`). Has Docker/k3d/kubectl/CDKTF access on the host. Handles `ProvisionClusterActivity`, `DestroyClusterActivity`.
 - `cluster-ops-queue` → **in-cluster worker** (`worker-cluster.ts`, runs as a pod in the k3d management cluster, or locally via `npm run dev:worker:cluster`). Has the Docker socket mounted, and K8s service-account (in-cluster) or kubeconfig (on host) auth. Handles `DeployAppActivity`, `DestroyAppActivity`, `ResizeDiskActivity`.
 
-In-cluster worker lifecycle: `ensure-cluster.sh` creates the k3d management cluster (`provisioning-lunorica`) → `Dockerfile.worker` builds an image with backend code + CDKTF infra + kubectl/helm → `kubectl apply -f k8s/` creates ServiceAccount/ClusterRoleBinding/Deployment → the pod reads its service account and sets `K8S_HOST`/`K8S_TOKEN`/`K8S_CA_CERT` for CDKTF → mounts `/var/run/docker.sock` for docker-exec-based kubectl/helm into k3d server containers.
+In-cluster worker lifecycle: `ensure-cluster.sh` creates the k3d management cluster (`provisioning-lunorica`) → the root `Dockerfile` builds the one app image (`nowrinkles/app`; `docker/entrypoint.sh` picks `backend`, `worker-engine`, `worker-cluster` or `worker-host`) with every workspace, kubectl, helm, k3d and terraform → `kubectl apply -f k8s/` creates ServiceAccount/ClusterRoleBinding/Deployment → the pod reads its service account and sets `K8S_HOST`/`K8S_TOKEN`/`K8S_CA_CERT` for CDKTF → mounts `/var/run/docker.sock` for docker-exec-based kubectl/helm into k3d server containers.
 
 `AppStack.fromEnv()` (CDKTF) reads `KUBECONFIG` or `K8S_HOST`/`K8S_TOKEN`/`K8S_CA_CERT` for cluster auth.
 
@@ -305,9 +342,6 @@ git config core.hooksPath .githooks   # pre-push typecheck
    - Cluster existence is decided by whether the K8s API answers on context `k3d-<name>`, **not**
      by `k3d cluster list` — that returns nothing on a native-k3s host and used to report a
      healthy machine as broken, which then suppressed every later check.
-   - Also flags **stale workers**: any `apps/backend/src` file (excluding `index.ts` and tests)
-     modified after the worker process started. Workers don't hot-reload, so this is otherwise
-     silent — it has caused two multi-hour misdiagnoses.
 2. **Unit** (`npm run test:unit`) — typecheck + Vitest, frontend + backend. ~80s (20s typecheck, 29s frontend, 29s backend). The `<5s` this used to claim has not been true for a long time.
 3. **Worker isolation** (`npm run test:worker`, `tests/worker-isolated.ts` via `npx tsx`) — runs real Temporal workflows (`ClusterProvisionWorkflow`, `AppDeployWorkflow`, etc.) end-to-end (k3d, CDKTF, Helm, kubectl) without a browser or webserver.
 4. **Full E2E** (`npm run test:e2e`) — Playwright driving the React UI; starts host and cluster workers on the host network to support all deployment types.

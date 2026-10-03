@@ -488,6 +488,8 @@ export interface FanOutWires {
   values?: In<'json'>
   /** Text the items reference can read as {{text}}. */
   text?: In<'text'>
+  /** A workspace to hand every child. An item carrying a worktree narrows its child to that worktree of it. Nothing wired means the workspace this run was given. */
+  environment?: In<'environment'>
 }
 
 export type FanOutSettings = {
@@ -495,6 +497,11 @@ export type FanOutSettings = {
   agent: string
   /** At a time */
   maxParallel?: number
+  /**
+   * Item as inputs
+   * Hand each child the item's own fields as its inputs, rather than { item, index } — for a persona that expects its inputs at the top level.
+   */
+  itemAsInputs?: boolean
   /**
    * The list, elsewhere
    * A single value reference like {{values.ready}} — the whole list, not one item of it. Supersedes the wired list when set; it must come back as a list, or the fan-out runs over nothing.
@@ -586,6 +593,53 @@ export type ReleaseSandboxSettings = Record<string, never>
 export interface ReleaseSandboxNode extends Step<'done'> {
   wire(wires: ReleaseSandboxWires): void
 }
+
+export type RunCodeWires = Record<string, In<SocketType> | readonly In<SocketType>[]>
+
+export type RunCodeSettings = {
+  /**
+   * Body
+   * JavaScript. It is given "inputs" and returns an object with the values it declares. Top-level await works.
+   */
+  body: string
+  /**
+   * Values it takes
+   * Each one becomes a socket you can wire into, and a key on "inputs".
+   */
+  inputs?: readonly ({
+    /** Name */
+    name?: string
+    /** Kind */
+    type?: 'text' | 'messages' | 'reply' | 'toolCalls' | 'toolResults' | 'toolSet' | 'environment' | 'memory' | 'persona' | 'modelBinding' | 'json' | 'any'
+    /** What it is */
+    describe?: string
+  })[]
+  /**
+   * Values it hands back
+   * Each one becomes a socket you can wire out of, and a key on what the body returns.
+   */
+  outputs?: readonly ({
+    /** Name */
+    name?: string
+    /** Kind */
+    type?: 'text' | 'messages' | 'reply' | 'toolCalls' | 'toolResults' | 'toolSet' | 'environment' | 'memory' | 'persona' | 'modelBinding' | 'json' | 'any'
+    /** What it is */
+    describe?: string
+  })[]
+  /**
+   * Give up after
+   * Milliseconds before the body is stopped.
+   */
+  timeoutMs?: number
+}
+
+export type RunCodeNode = Step<'ok' | 'failed'> & Record<string, Out<SocketType>> & { readonly error: Out<'text'> } & { wire(wires: RunCodeWires): void }
+
+export type HostOpWires = Record<string, In<SocketType> | readonly In<SocketType>[]>
+
+export type HostOpSettings = { operation: string; [setting: string]: unknown }
+
+export type HostOpNode = Step<string> & Record<string, Out<'any'>> & { wire(wires: HostOpWires): void }
 
 export type PersonaWires = Record<string, never>
 
@@ -817,7 +871,10 @@ export interface CheckToolFailuresWires {
 }
 
 export type CheckToolFailuresSettings = {
-  /** Failures in a row allowed */
+  /**
+   * Failures in a row allowed
+   * Leave empty to never stop on failures.
+   */
   maxConsecutiveFailures?: number
 }
 
@@ -1014,7 +1071,7 @@ export interface Nodes {
    */
   delegate(id: string, wires: DelegateWires, settings: DelegateSettings, meta?: NodeMeta): DelegateNode
   /**
-   * Fan Out: Starts one child run of a persona per item in a list, a few at a time, and waits for all of them. Each child gets { item, index }. Every outcome is handed on, successes and failures alike — use Merge to keep the ones you want.
+   * Fan Out: Starts one child run of a persona per item in a list, a few at a time, and waits for all of them. Each child gets { item, index }, and works in the workspace wired in (or this run's) — narrowed to item.worktree when the item names one. Every outcome is handed on, successes and failures alike — use Merge to keep the ones you want.
    * Leaves through done: Every child has finished.
    */
   fanOut(id: string, wires: FanOutWires, settings: FanOutSettings, meta?: NodeMeta): FanOutNode
@@ -1042,6 +1099,17 @@ export interface Nodes {
    * Leaves through done: Released, or there was nothing to release.
    */
   releaseSandbox(id: string, wires?: ReleaseSandboxWires, settings?: ReleaseSandboxSettings, meta?: NodeMeta): ReleaseSandboxNode
+  /**
+   * Run Code: Runs a piece of JavaScript you wrote, once, at this point in the flow, in this run's own sandbox. Use it for code that changes something — writes a file, calls a service — or that is too slow to run again: unlike Code, which is worked out afresh by every step that reads it, this runs exactly when the flow reaches it, and what it hands back is kept.
+   * Leaves through ok: The code ran and handed back what it declares.
+   * Leaves through failed: The code threw or ran out of time, and "error" says why.
+   */
+  runCode(id: string, wires: RunCodeWires, settings: RunCodeSettings, meta?: NodeMeta): RunCodeNode
+  /**
+   * Platform Operation: Runs one operation the platform provides — real code on the engine worker, with no model involved. Which operation decides its sockets, exits and settings.
+   * Leaves through done: The operation finished.
+   */
+  hostOp(id: string, wires: HostOpWires, settings: HostOpSettings, meta?: NodeMeta): HostOpNode
   /** Persona: The persona this run is bound to: its prompt, granted tools, delegates, sampling and model. */
   persona(id: string, wires?: PersonaWires, settings?: PersonaSettings, meta?: NodeMeta): PersonaNode
   /** Run Input: What this run was started with: the message, and any named inputs. */
@@ -1086,7 +1154,7 @@ export interface Nodes {
    */
   checkStall(id: string, wires?: CheckStallWires, settings?: CheckStallSettings, meta?: NodeMeta): CheckStallNode
   /**
-   * Check Tool Failures: Trips when tool calls keep failing one after another, across replies. A call the peer refused — a site that blocks fetches replying 403 or 401 — is not a failure and does not count.
+   * Check Tool Failures: Counts tool calls that fail one after another, across replies, and trips only once a limit you set is reached — with none set it never trips, and the model keeps working through failures. A call the peer refused — a site that blocks fetches replying 403 or 401 — is not a failure and does not count.
    * Leaves through ok: Nothing wrong yet.
    * Leaves through tripped: The check tripped; "reason" says what it saw.
    */
@@ -1128,9 +1196,12 @@ export interface BuiltInGroups {
   toolLoop(id: string, wires?: ToolLoopGroupWires, meta?: NodeMeta): ToolLoopGroupNode
 }
 
+/** A group an extension publishes, used by its id — typed loosely, since only the running catalogue knows its sockets. */
+export type PublishedGroup = (id: string, wires?: Record<string, In<SocketType> | readonly In<SocketType>[]>, meta?: NodeMeta) => Step<string> & Record<string, Out<'any'>>
+
 export interface Body extends Nodes {
-  /** The built-in groups, each used as one node. */
-  readonly groups: BuiltInGroups
+  /** The built-in groups, each used as one node — and any group an extension publishes, by its id. */
+  readonly groups: BuiltInGroups & { readonly [group: string]: PublishedGroup }
   /** Defines a group of nodes that can be used as one node, then returns it for use(…). */
   group<const I extends Sockets = {}, const O extends Sockets = {}, const E extends Exits = {}>(id: string, info: GroupInfo<I, O, E>, build: (g: GroupBody<I, O, E>) => void): GroupRef<I, O, E>
   /** Places one of this procedure's own groups as a node. */

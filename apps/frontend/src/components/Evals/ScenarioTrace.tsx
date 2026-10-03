@@ -3,7 +3,7 @@ import { ReactFlowProvider } from '@xyflow/react'
 import { CircleAlert, Loader2 } from 'lucide-react'
 import type { NodeTrace } from '@koala/agent-engine/procedure'
 import ProcedureCanvas from '../Studio/ProcedureCanvas'
-import { useProcedure, useRunTraces } from '../Studio/shared'
+import { useProcedure, useRunTraces, useStudioContextQuery } from '../Studio/shared'
 import { nodeAtDepth, statesFromTraces } from '../../lib/procedure-run'
 import { groupPathIn } from '../../lib/procedure-drafts'
 import type { ScenarioResult } from '../../api/evals'
@@ -19,6 +19,7 @@ function Json({ value }: { value: unknown }) {
 
 export default function ScenarioTrace({ result }: { result: ScenarioResult }) {
   const loaded = useProcedure(result.procedure.id)
+  const context = useStudioContextQuery()
   const traces = useRunTraces(result.runId, true)
   const [focusedAt, setFocusedAt] = useState<number>()
   const [path, setPath] = useState<string[]>([])
@@ -31,8 +32,8 @@ export default function ScenarioTrace({ result }: { result: ScenarioResult }) {
   )
 
   const focus = (trace: NodeTrace | undefined) => {
-    if (!trace || !loaded.data) return setFocusedAt(undefined)
-    const at = groupPathIn(loaded.data.procedure, trace.node)
+    if (!trace || !loaded.data || !context.data) return setFocusedAt(undefined)
+    const at = groupPathIn(loaded.data.procedure, trace.node, context.data)
     if (at && nodeAtDepth(trace.node, at)) setPath(at)
     setFocusedAt(trace.sequence)
   }
@@ -40,9 +41,14 @@ export default function ScenarioTrace({ result }: { result: ScenarioResult }) {
   return (
     <div className="flex min-h-[26rem] min-w-0 flex-col gap-2 lg:flex-row">
       <div className="h-[26rem] min-w-0 flex-1 overflow-hidden rounded border border-slate-800">
-        {loaded.isPending && (
+        {(loaded.isPending || context.isPending) && (
           <p className="flex h-full items-center justify-center gap-2 text-xs text-slate-500">
             <Loader2 size={14} className="animate-spin" /> Opening {result.procedure.id}…
+          </p>
+        )}
+        {context.isError && (
+          <p className="flex h-full items-center justify-center text-xs text-rose-400">
+            The platform's operations could not be loaded, so the canvas cannot be drawn.
           </p>
         )}
         {loaded.isError && (
@@ -50,7 +56,7 @@ export default function ScenarioTrace({ result }: { result: ScenarioResult }) {
             The procedure "{result.procedure.id}" is not here any more, so its canvas cannot be shown.
           </p>
         )}
-        {loaded.data && (
+        {loaded.data && context.data && (
           <ReactFlowProvider>
             <ProcedureCanvas
               procedure={loaded.data.procedure}

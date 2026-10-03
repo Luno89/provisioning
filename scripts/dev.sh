@@ -23,12 +23,10 @@ echo "════════════════════════�
 # ── 1. INFRASTRUCTURE ENSURE ─────────────────────────────────────────
 echo "▶ [1/3] Ensuring platform infrastructure services..."
 bash "${ROOT}/scripts/ensure-cluster.sh"
-bash "${ROOT}/scripts/ensure-gitea.sh"
-bash "${ROOT}/scripts/ensure-verdaccio.sh"
 bash "${ROOT}/scripts/ensure-temporal.sh"
 bash "${ROOT}/scripts/ensure-mongo.sh"
 bash "${ROOT}/scripts/ensure-headscale.sh"
-bash "${ROOT}/scripts/ensure-infisical.sh"
+bash "${ROOT}/scripts/instance/platform-services.sh"
 
 # ── 2. PORT & PROCESS RECLAIM ────────────────────────────────────────
 echo "▶ [2/3] Checking ports and resolving stale processes..."

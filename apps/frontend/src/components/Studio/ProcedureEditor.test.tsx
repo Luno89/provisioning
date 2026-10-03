@@ -6,6 +6,21 @@ import { RESEARCH_V2, type Procedure } from '@koala/agent-engine/procedure'
 import { starterProcedure } from '../../lib/procedure-drafts'
 import ProcedureEditor from './ProcedureEditor'
 
+const { PREPARE } = vi.hoisted(() => ({
+  PREPARE: {
+    name: 'grove.prepare-worktrees',
+    title: 'Prepare Worktrees',
+    group: 'Grove',
+    describe: 'Gives each leaf its own worktree of the shared workspace.',
+    inputs: [{ name: 'leaves', type: 'json', describe: 'The leaves.', required: true }],
+    outputs: [{ name: 'items', type: 'json', describe: 'One item per leaf.' }],
+    exits: [{ name: 'ready', describe: 'Some leaf has a worktree.' }, { name: 'none', describe: 'No leaf could be prepared.' }],
+    settings: { type: 'object', properties: {} },
+    summary: 'gives each leaf its own worktree',
+    idempotent: true,
+  } as const,
+}))
+
 const navigate = vi.fn(async () => undefined)
 
 vi.mock('@tanstack/react-router', () => ({
@@ -43,6 +58,7 @@ vi.mock('../../api/engine', async () => {
     ...actual,
     listEngineAgents: vi.fn(async () => [{ slug: 'research', name: 'Research', description: '', loop: 'research', tools: [], canDelegateTo: [], inputs: null, mine: false }]),
     startRun: vi.fn(async () => ({ runId: 'run-1', agentSlug: 'research', loopId: 'research' })),
+    listExtensions: vi.fn(async () => [{ id: 'grove', title: 'Grove', describe: 'Trees of work.', version: '1', requires: [], operations: [PREPARE], groups: [], tools: [], personas: [], procedures: [] }]),
   }
 })
 
@@ -75,6 +91,15 @@ describe('the procedure editor', () => {
 
     expect(await screen.findByRole('heading', { name: 'Text' })).toBeInTheDocument()
     expect(screen.getByText(/unsaved changes/)).toBeInTheDocument()
+  })
+
+  it('lists the platform\'s operations under their group, and places one already set to that operation', async () => {
+    open(starterProcedure('fresh', 'Fresh'))
+    expect(await screen.findByText('Grove')).toBeInTheDocument()
+    await userEvent.click(screen.getByTitle(/^Gives each leaf its own worktree/))
+
+    expect(await screen.findByRole('heading', { name: 'Prepare Worktrees' })).toBeInTheDocument()
+    expect((await screen.findAllByText(/needs "leaves", and nothing is wired into it/)).length).toBeGreaterThan(0)
   })
 
   it('saves the draft, shows the new version, and no longer counts it as changed', async () => {

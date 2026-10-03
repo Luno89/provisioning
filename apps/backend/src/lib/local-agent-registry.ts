@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import type { Socket } from 'socket.io';
-import { decryptValue } from './crypto.js';
+import { decryptValue, type SecretKey } from './crypto.js';
 import type { LocalAgentDeviceMetadata, LocalEgressRule } from './types.js';
 
 interface DeviceConnection {
@@ -24,7 +24,7 @@ function tokensEqual(a: string, b: string): boolean {
 export function findDeviceByToken(
   candidates: readonly LocalAgentDeviceMetadata[],
   presentedToken: string,
-  masterKey: string,
+  masterKey: SecretKey,
 ): LocalAgentDeviceMetadata | undefined {
   return candidates.find((d) => {
     try {

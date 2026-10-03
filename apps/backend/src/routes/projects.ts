@@ -26,7 +26,7 @@ const claimedByAnotherProject = (
 export function projectsRouter(deps: Record<string, any>): Router {
   const {
     db, projectRepoService, appService, temporalBridge, getOwnedProject,
-    giteaService, clusterService, infraService, jwtSecret,
+    giteaService, clusterService, infraService, dataKey,
   } = deps;
   const router = Router();
 
@@ -124,7 +124,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
         )).trim();
         await giteaService.createWebhook(owner, giteaRepo, webhookUrlFor(nodeIpRaw, process.env.PORT || 3001, id), webhookSecret);
 
-        repoFields = { giteaOwner: owner, giteaRepo, webhookSecretEnc: encryptValue(webhookSecret, jwtSecret) };
+        repoFields = { giteaOwner: owner, giteaRepo, webhookSecretEnc: encryptValue(webhookSecret, dataKey) };
       }
 
       const project = await db.saveProjectInfo({

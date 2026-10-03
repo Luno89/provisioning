@@ -2,7 +2,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
-import { encryptValue, decryptValue } from '../lib/crypto.js';
+import { encryptValue, decryptValue, type SecretKey } from '../lib/crypto.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -23,7 +23,7 @@ export class HeadscaleService {
   private userIdCache = new Map<string, string>();
 
   constructor(
-    private readonly masterKey: string,
+    private readonly masterKey: SecretKey,
     private readonly baseUrl: string = 'http://localhost:8080',
   ) {}
 

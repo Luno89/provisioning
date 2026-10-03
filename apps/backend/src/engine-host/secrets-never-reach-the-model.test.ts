@@ -5,7 +5,7 @@ import {
   builtInCatalogue,
   runProcedure,
 } from '@koala/agent-engine/procedure';
-import { ALL_SEEDED_AGENTS, contractsFor, createEventBus } from '@koala/agent-engine';
+import { contractsFor, createEventBus } from '@koala/agent-engine';
 import type { ToolContract } from '@koala/engine-core';
 import { createAgentRegistry } from './registries/registry.js';
 import { createEnvironmentResolver } from './sandboxes/environments.js';
@@ -18,11 +18,12 @@ import { createToolRuntime } from './tools/tool-runtime.js';
 import { MemoryDB } from '../lib/memory-db.js';
 import { SecretRequestService, createSecretVault } from '../services/SecretRequestService.js';
 import type { Tree } from '../lib/trees.js';
+import { seededPersonas } from '../extensions/seeds.js';
 
 const TYPED = 'sk_live_TYPED_SENTINEL_4b1f9c';
 const MINTED = 'gitea_MINTED_SENTINEL_77ad02';
 
-const koala = ALL_SEEDED_AGENTS().find((agent) => agent.slug === 'koala')!;
+const koala = seededPersonas().find((agent) => agent.slug === 'koala')!;
 
 function vaultBackend() {
   const held = new Map<string, string>();

@@ -1,4 +1,5 @@
-import { createNodeCatalogue, type NodeCatalogue, type NodeDefinition } from '../definition.js';
+import { NodeCatalogueError, createNodeCatalogue, type NodeCatalogue, type NodeDefinition } from '../definition.js';
+import { HOST_OP_KIND, hostOpNode, operationProblems, type HostOperation } from '../host-operations.js';
 import type { BuiltInNode, NodeImplementation } from '../implementation.js';
 import { CONTEXT_NODES } from './context.js';
 import { CONTROL_NODES } from './control.js';
@@ -36,9 +37,14 @@ export const ORCHESTRATION_KINDS: readonly string[] = BUILT_IN_NODES
 
 export const HOST_KINDS: readonly string[] = BUILT_IN_NODES
   .filter((node) => node.implementation === undefined && node.definition.runs !== 'orchestration')
-  .map((node) => node.definition.kind);
+  .map((node) => node.definition.kind)
+  .concat(HOST_OP_KIND);
 
-export const builtInCatalogue = (): NodeCatalogue => createNodeCatalogue(BUILT_IN_DEFINITIONS);
+export function builtInCatalogue(operations: readonly HostOperation[] = []): NodeCatalogue {
+  const problems = operations.flatMap(operationProblems);
+  if (problems.length > 0) throw new NodeCatalogueError(problems);
+  return createNodeCatalogue([...BUILT_IN_DEFINITIONS, hostOpNode(operations)]);
+}
 
 export { loadConversation, saveConversation, CONVERSATION_STORE_NODES } from './conversation-store.js';
 export { resolveTools, withdrawTools, describeEnvironmentNode, describeProcedure, describeTools, describeOutputsNode, warnRunningOut, text, buildContext, conversation, trimToolResults, truncateText, cappedText, handOffConversation, resolvedEnvironment, extendConversation, clampToolResult, handOff, pacingText, NO_ENVIRONMENT, type PacingNote, type HandOffSettings } from './context.js';
@@ -48,6 +54,6 @@ export { runInput, persona } from './input.js';
 export { recallMemory, saveMemory, MEMORY_CATEGORIES } from './memory.js';
 export { chooseModel, fitReplyBudget, callModel, decide, readDecision, DECIDE_INSTRUCTIONS, DECISIONS, type Decision, DEFAULT_CONTEXT_MARGIN, DEFAULT_MIN_REPLY_TOKENS } from './model.js';
 export { checkRepetition, checkStall, checkToolFailures } from './safety.js';
-export { code, codeProblems, declaredSockets, codeTimeout, CODE_KIND, DEFAULT_CODE_TIMEOUT_MS, type DeclaredSocket } from './code.js';
+export { code, runCode, codeProblems, declaredSockets, codeTimeout, CODE_KIND, RUN_CODE_KIND, CODE_KINDS, DEFAULT_CODE_TIMEOUT_MS, type DeclaredSocket } from './code.js';
 export { approveToolCalls, runToolCalls, callTool, APPROVAL_POLICIES } from './tools.js';
 export { createOrchestrationNodes, REFUSED_CALL, NOT_RUN_CALL, type OrchestrationPorts, type ToolRunRequest, type ToolRunOutcome, type ChildRunRequest, type ApprovalRequest, type QuestionRequest, type QuestionAnswer } from './orchestration.js';

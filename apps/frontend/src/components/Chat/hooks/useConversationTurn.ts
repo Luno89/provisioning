@@ -72,7 +72,21 @@ export function useConversationTurn({
   binding,
 }: UseConversationTurnOptions) {
   const qc = useQueryClient();
-  const [selectedConvId, setSelectedConvId] = useState<string | null>(externalConvId ?? null);
+  const [pickedConvId, setSelectedConvId] = useState<string | null>(externalConvId ?? null);
+  const [seenExternalConvId, setSeenExternalConvId] = useState(externalConvId);
+  if (externalConvId !== seenExternalConvId) {
+    setSeenExternalConvId(externalConvId);
+    if (externalConvId !== undefined) setSelectedConvId(externalConvId);
+  }
+
+  const { data: conversations = [] } = useQuery<ChatConversation[]>({
+    queryKey: chatPackKeys.conversations(),
+    queryFn: listChatConversations,
+    enabled,
+  });
+
+  const autoConvId = enabled && !pickedConvId && !externalConvId ? conversations[0]?.id ?? null : null;
+  const selectedConvId = pickedConvId ?? autoConvId;
   const [creatingConversation, setCreatingConversation] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -112,18 +126,6 @@ export function useConversationTurn({
   const streaming = currentTurn?.status === 'streaming' || creatingConversation;
   const liveState: ChatRenderState = currentTurn?.renderState ?? emptyChatRenderState;
 
-  useEffect(() => {
-    if (externalConvId !== undefined) {
-      setSelectedConvId(externalConvId);
-    }
-  }, [externalConvId]);
-
-  const { data: conversations = [] } = useQuery<ChatConversation[]>({
-    queryKey: chatPackKeys.conversations(),
-    queryFn: listChatConversations,
-    enabled,
-  });
-
   const { data: activeConversation, isFetching: loadingConversation } = useQuery<ChatConversation | null>({
     queryKey: chatPackKeys.conversation(selectedConvId ?? ''),
     queryFn: () => (selectedConvId ? getChatConversation(selectedConvId) : null),
@@ -151,15 +153,8 @@ export function useConversationTurn({
   }, [activeConversation]);
 
   useEffect(() => {
-    if (!enabled) return;
-    if (!selectedConvId && conversations.length > 0 && !externalConvId) {
-      const first = conversations[0];
-      if (first) {
-        setSelectedConvId(first.id);
-        onConversationChange?.(first.id);
-      }
-    }
-  }, [enabled, conversations, selectedConvId, externalConvId, onConversationChange]);
+    if (autoConvId) onConversationChange?.(autoConvId);
+  }, [autoConvId, onConversationChange]);
 
   const createMutation = useMutation({
     mutationFn: () => createChatConversation('New conversation', binding),

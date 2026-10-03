@@ -1,7 +1,5 @@
 import { createHash } from 'node:crypto';
 import {
-  BUILT_IN_GROUPS,
-  builtInCatalogue,
   runProcedure,
   type ModelBinding,
   type ModelReply,
@@ -13,6 +11,7 @@ import type { ToolDefinition } from '@koala/agent-engine';
 import type { SamplingConfig } from '@koala/harness-types';
 import type { EvalCase } from '../cases.js';
 import { scoreAttempt } from '../score.js';
+import { platformCatalogue, platformGroups } from '../../extensions/installed.js';
 
 export interface AttemptRecord {
   attempt: number;
@@ -49,9 +48,9 @@ export interface AttemptOptions {
   signal?: AbortSignal | undefined;
 }
 
-const catalogue = builtInCatalogue();
+const catalogue = platformCatalogue();
 
-export const LEVEL1_PROCEDURE = procedureBuilder({ catalogue, groups: BUILT_IN_GROUPS })({
+export const LEVEL1_PROCEDURE = procedureBuilder({ catalogue, groups: platformGroups() })({
   id: 'level-1-attempt',
   version: '1',
   name: 'Level 1 attempt',
@@ -125,7 +124,7 @@ export async function runAttempt(entry: EvalCase, options: AttemptOptions): Prom
   const result = await runProcedure({
     procedure: LEVEL1_PROCEDURE,
     catalogue,
-    groups: BUILT_IN_GROUPS,
+    groups: platformGroups(),
     executor,
     identity: {
       runId: `${options.runId}-${entry.name.replace(/[^a-z0-9]+/gi, '-')}-${options.attempt}`,

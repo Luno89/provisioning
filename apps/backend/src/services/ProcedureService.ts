@@ -1,17 +1,19 @@
 import {
-  BUILT_IN_GROUPS,
-  builtInCatalogue,
   checkProcedure,
   procedureErrors,
   readProcedure,
   type Procedure,
   type ProcedureProblem,
+  type GroupDefinition,
 } from '@koala/agent-engine/procedure';
 import type { ProcedureSource } from '@koala/agent-engine';
 import { builderCodeToProcedure, placeUnplaced } from '@koala/agent-engine/procedure-builder';
 import type { OwnedProcedure, UnreadableProcedure } from '../engine-host/registries/procedure-store.js';
 import { trackRecordsByModel, type RunEffort, type TrackRecord } from '@koala/agent-engine/procedure';
 import { requiredGrants, type RequiredGrant } from '@koala/agent-engine/procedure';
+import { platformCatalogue, platformGroups } from '../extensions/installed.js';
+import { seededProcedures } from '../extensions/seeds.js';
+import { switchedOffProblems, type HiddenVocabulary } from '../lib/extension-settings.js';
 
 export interface ProcedureServiceOptions {
   procedures: {
@@ -24,6 +26,9 @@ export interface ProcedureServiceOptions {
     delete(ownerId: string, id: string): Promise<void>;
   };
   known(ownerId: string): Promise<{ tools: ReadonlySet<string>; agents: ReadonlySet<string> }>;
+  builtIns?: ReadonlySet<string> | undefined;
+  hidden?: ((ownerId: string) => Promise<HiddenVocabulary>) | undefined;
+  published?: ((ownerId: string) => Promise<GroupDefinition[]>) | undefined;
   effort: { list(ownerId: string, procedureId: string): Promise<RunEffort[]> };
   now?: (() => string) | undefined;
 }
@@ -34,6 +39,7 @@ export interface ProcedureSummary {
   name: string;
   describe: string;
   mine: boolean;
+  ofBuiltIn: boolean;
   requires: RequiredGrant[];
 }
 
@@ -44,9 +50,13 @@ export type SaveOutcome =
 const withoutOwner = ({ ownerId: _ownerId, ...procedure }: OwnedProcedure): Procedure => procedure;
 
 export class ProcedureService {
-  private readonly catalogue = builtInCatalogue();
+  private readonly catalogue = platformCatalogue();
 
-  constructor(private readonly options: ProcedureServiceOptions) {}
+  private readonly builtIns: ReadonlySet<string>;
+
+  constructor(private readonly options: ProcedureServiceOptions) {
+    this.builtIns = options.builtIns ?? new Set(seededProcedures().map((procedure) => procedure.id));
+  }
 
   async list(ownerId: string): Promise<{ procedures: ProcedureSummary[]; unreadable: UnreadableProcedure[] }> {
     const [procedures, unreadable] = await Promise.all([
@@ -62,7 +72,8 @@ export class ProcedureService {
           name: procedure.name,
           describe: procedure.describe,
           mine: procedure.ownerId === ownerId,
-          requires: requiredGrants(procedure, BUILT_IN_GROUPS),
+          ofBuiltIn: this.builtIns.has(procedure.id),
+          requires: requiredGrants(procedure, platformGroups()),
         }))
         .sort((a, b) => a.name.localeCompare(b.name)),
       unreadable,
@@ -81,7 +92,18 @@ export class ProcedureService {
   async check(ownerId: string, source: unknown): Promise<ProcedureProblem[]> {
     const read = readProcedure(source as Record<string, unknown>);
     if (!read.ok) return read.problems;
-    return checkProcedure(read.procedure, { catalogue: this.catalogue, groups: BUILT_IN_GROUPS, known: await this.options.known(ownerId) });
+    return [
+      ...checkProcedure(read.procedure, { catalogue: this.catalogue, groups: await this.groupsFor(ownerId), known: await this.options.known(ownerId) }),
+      ...await this.switchedOff(ownerId, read.procedure),
+    ];
+  }
+
+  private async groupsFor(ownerId: string): Promise<GroupDefinition[]> {
+    return [...platformGroups(), ...(await this.options.published?.(ownerId) ?? [])];
+  }
+
+  private async switchedOff(ownerId: string, procedure: Procedure): Promise<ProcedureProblem[]> {
+    return this.options.hidden ? switchedOffProblems(procedure, await this.options.hidden(ownerId)) : [];
   }
 
   async save(ownerId: string, id: string, source: unknown): Promise<SaveOutcome> {
@@ -91,7 +113,10 @@ export class ProcedureService {
       return { saved: false, problems: [{ severity: 'error', message: `this procedure is "${read.procedure.id}", not "${id}"` }] };
     }
 
-    const problems = checkProcedure(read.procedure, { catalogue: this.catalogue, groups: BUILT_IN_GROUPS, known: await this.options.known(ownerId) });
+    const problems = [
+      ...checkProcedure(read.procedure, { catalogue: this.catalogue, groups: await this.groupsFor(ownerId), known: await this.options.known(ownerId) }),
+      ...await this.switchedOff(ownerId, read.procedure),
+    ];
     if (procedureErrors(problems).length > 0) return { saved: false, problems };
 
     const existing = await this.options.sources.get(ownerId, id);
@@ -111,7 +136,7 @@ export class ProcedureService {
 
   async saveBuilderCode(ownerId: string, id: string, code: unknown): Promise<SaveOutcome> {
     if (typeof code !== 'string') return { saved: false, problems: [{ severity: 'error', message: 'send the builder code as "code"' }] };
-    const parsed = builderCodeToProcedure(code, { catalogue: this.catalogue, groups: BUILT_IN_GROUPS });
+    const parsed = builderCodeToProcedure(code, { catalogue: this.catalogue, groups: await this.groupsFor(ownerId) });
     if (!parsed.ok) {
       return { saved: false, problems: parsed.problems.map((problem) => ({ severity: 'error', message: `line ${problem.line}, column ${problem.column}: ${problem.message}` })) };
     }

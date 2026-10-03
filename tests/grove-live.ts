@@ -6,7 +6,8 @@ import { liveEngineHost } from './lib/live-engine-host.js';
 import { createProcedureExecutor } from '../apps/backend/src/engine-host/nodes/index.js';
 import { getTemporalClient } from '../apps/backend/src/lib/temporal-client.js';
 import { PlanService } from '../apps/backend/src/services/PlanService.js';
-import { DEFAULT_ENGINE_TASK_QUEUE, type GroveRunResult } from '../apps/backend/src/engine-host/temporal/contracts.js';
+import { DEFAULT_ENGINE_TASK_QUEUE, groveRunWorkflowId, type AgentRunOutcome, type GroveRunResult } from '../apps/backend/src/engine-host/temporal/contracts.js';
+import { groveAgentOf, resolveTreeType } from '../apps/backend/src/lib/tree-types.js';
 
 dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname });
 
@@ -66,7 +67,16 @@ async function main(): Promise<void> {
   console.log(`      tree ${treeId}, plan commit ${adopted!.adopted!.commit?.slice(0, 12)}`);
 
   console.log(`[3/4] the grove run works the tree (${elapsed(started)})`);
-  const run = await client.workflow.start('GroveRunWorkflow', { workflowId: `grove-live-${treeId}`, taskQueue: queue, args: [{ treeId, ownerId: OWNER }] });
+  const tree = (await db.getTrees()).find((entry) => entry.id === treeId);
+  const groveAgent = groveAgentOf(await resolveTreeType(db, OWNER, tree?.type));
+  const grower = await host.registry.runnable(OWNER, groveAgent);
+  assert.ok(grower, `there is no agent called ${groveAgent} to grow the tree`);
+  console.log(`      grown by ${groveAgent} on ${grower.procedure.id}`);
+  const run = await client.workflow.start('AgentRunWorkflow', {
+    workflowId: groveRunWorkflowId(treeId),
+    taskQueue: queue,
+    args: [{ ticket: { runId: groveRunWorkflowId(treeId), depth: 0, ownerId: OWNER, agentSlug: groveAgent, trigger: 'user' }, procedure: grower.procedure, inputs: { treeId, message: 'Grow the tree.' } }],
+  });
   const seen = new Map<string, string>();
   const watch = setInterval(() => {
     void db.getLeaves().then((leaves) => {
@@ -84,7 +94,10 @@ async function main(): Promise<void> {
   let failure: string | undefined;
   try {
     result = await Promise.race([
-      run.result() as Promise<GroveRunResult>,
+      (run.result() as Promise<AgentRunOutcome>).then((outcome) => {
+        if (outcome.outcome !== 'ok') throw new Error(`the run ended ${outcome.outcome}: ${outcome.reason ?? ''}`);
+        return outcome.outputs as unknown as GroveRunResult;
+      }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`still running after ${DEADLINE_MS / 60_000} minutes`)), DEADLINE_MS)),
     ]);
   } catch (err) {

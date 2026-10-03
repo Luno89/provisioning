@@ -1,6 +1,5 @@
 import { capabilitiesOf, effectiveTools, type ToolContract } from '@koala/engine-core';
 import {
-  ALL_SEEDED_AGENTS,
   environmentFor,
   isFork,
   LANGUAGE_IDS,
@@ -9,8 +8,10 @@ import {
   type Persona,
   type ToolDefinition,
 } from '@koala/agent-engine';
-import { BUILT_IN_GROUPS, missingGrants, type Procedure } from '@koala/agent-engine/procedure';
+import { missingGrants, type Procedure } from '@koala/agent-engine/procedure';
 import type { ImageStanding } from '../engine-host/sandboxes/image-builder.js';
+import { seededPersonas } from '../extensions/seeds.js';
+import { platformGroups } from '../extensions/installed.js';
 
 export interface EditableAgent extends Persona {
   mine: boolean;
@@ -62,7 +63,7 @@ export function agentProblems(
   if (typeof agent.procedure !== 'string' || !agent.procedure.trim()) problems.push('the agent has to name the procedure it runs');
   else if (!runs) problems.push(`there is no procedure called "${agent.procedure}"`);
 
-  for (const missing of missingGrants(runs, { tools: agent.tools, agents: agent.agents }, BUILT_IN_GROUPS)) {
+  for (const missing of missingGrants(runs, { tools: agent.tools, agents: agent.agents }, platformGroups())) {
     problems.push(
       `${agent.procedure} needs it to have ${missing.kind === 'agent' ? 'the agent' : 'the tool'} `
       + `"${missing.name}" — ${missing.why}`,
@@ -128,7 +129,7 @@ export class AgentService {
   }
 
   private get builtIn(): readonly Persona[] {
-    return this.options.builtIn ?? ALL_SEEDED_AGENTS();
+    return this.options.builtIn ?? seededPersonas();
   }
 
   private async all(ownerId: string): Promise<Persona[]> {

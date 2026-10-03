@@ -4,9 +4,10 @@ import type { PersonaEgressRule } from '@koala/harness-types';
 import { TREE_TYPE_SEEDS as TREE_TYPE_SEEDS_VALUE } from './tree-type-seeds.js';
 import { sameSeededRow } from './seed-diff.js';
 import { validateEgressRules } from './egress-rules.js';
-import { TREE_STAGES, type TreeStages } from './grove-stages.js';
 
-export { DEFAULT_STAGES, TREE_STAGES, stagesOf, type TreeStage, type TreeStages } from './grove-stages.js';
+export const DEFAULT_GROVE_AGENT = 'grove';
+
+export const groveAgentOf = (type: { agent?: string | undefined } | undefined): string => type?.agent || DEFAULT_GROVE_AGENT;
 
 export interface TreeTypeFile {
   path: string;
@@ -27,18 +28,13 @@ export interface TreeTypeSpec {
   defaultBindings?: string[] | undefined;
   egress?: PersonaEgressRule[] | undefined;
   env?: { name: string; value: string }[] | undefined;
-  stages?: TreeStages | undefined;
+  agent?: string | undefined;
 }
 
-export function stagesProblem(stages: unknown, agents: readonly string[]): string | null {
-  if (stages === undefined) return null;
-  if (!stages || typeof stages !== 'object' || Array.isArray(stages)) return 'stages must be an object naming an agent per stage.';
-  for (const [stage, agent] of Object.entries(stages as Record<string, unknown>)) {
-    if (!(TREE_STAGES as readonly string[]).includes(stage)) return `"${stage}" is not a stage — the stages are ${TREE_STAGES.join(', ')}.`;
-    if (agent === undefined) continue;
-    if (typeof agent !== 'string' || !agent.trim()) return `the ${stage} stage must name an agent.`;
-    if (!agents.includes(agent)) return `the ${stage} stage names "${agent}", which is not one of your agents.`;
-  }
+export function agentProblem(agent: unknown, agents: readonly string[]): string | null {
+  if (agent === undefined) return null;
+  if (typeof agent !== 'string' || !agent.trim()) return 'agent must name the agent that grows trees of this type.';
+  if (!agents.includes(agent)) return `the type names "${agent}" to grow its trees, which is not one of your agents.`;
   return null;
 }
 
@@ -140,18 +136,18 @@ export type TreeTypeSeed = Omit<TreeTypeSpec, 'ownerId'>;
 
 /**
  * The narrow view of the types a person can choose from — what the planner's `list_tree_types` shows
- * and what a grove run reads its stages from. One rule, so the two cannot disagree about which row
+ * and what a grove run reads its agent from. One rule, so the two cannot disagree about which row
  * wins.
  */
 export function treeTypeChoices(
   rows: readonly TreeTypeSpec[],
   ownerId: string,
-): { id: string; label: string; summary: string; stages?: TreeStages | undefined }[] {
+): { id: string; label: string; summary: string; agent?: string | undefined }[] {
   return treeTypesFor(rows, ownerId).map((type) => ({
     id: type.id,
     label: type.label,
     summary: type.summary,
-    ...(type.stages ? { stages: type.stages } : {}),
+    ...(type.agent ? { agent: type.agent } : {}),
   }));
 }
 

@@ -8,6 +8,7 @@ import axios, { type AxiosInstance } from 'axios';
 import { signJWT } from '../apps/backend/src/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
 import type { AccessRequest } from '@koala/harness-types';
+import { loadKeys } from '../apps/backend/src/lib/keys.js';
 
 const BASE = process.env.ACCESS_LIVE_URL ?? 'http://localhost:3001/api';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -37,7 +38,7 @@ async function main(): Promise<void> {
   const admin = (await db.getUsers()).find((user) => user.isAdmin);
   await db.close();
   assert.ok(admin, 'there is no administrator to test with');
-  const secret = process.env.JWT_SECRET;
+  const secret = loadKeys(process.env).session;
   assert.ok(secret);
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: admin.id, email: admin.email }, secret, 3600)}` } });
 

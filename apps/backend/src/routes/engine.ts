@@ -1,3 +1,4 @@
+import type { ExtensionService, ExtensionState } from '../services/ExtensionService.js';
 import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import {
@@ -15,6 +16,7 @@ import {
 import type { StoredNodeTrace } from '../lib/run-traces.js';
 import type { WorkspaceImage } from '../engine-host/sandboxes/warm-images.js';
 import type { PruneReport } from '../engine-host/sandboxes/prune-images.js';
+import { SwitchedOffError } from '../lib/extension-settings.js';
 import { replyTokensProblem, samplingAt, temperatureProblem } from '../lib/run-knobs.js';
 
 export interface TaskAccess {
@@ -42,6 +44,7 @@ export interface EngineRouterDeps {
   images?: WorkspaceImageAccess | undefined;
   /** Deleting images is everybody's business, so only an administrator starts a sweep by hand. */
   admin?: RequestHandler | undefined;
+  extensions?: Pick<ExtensionService, 'list' | 'setEnabled' | 'create' | 'update' | 'remove' | 'publish' | 'removeOperation'> | undefined;
 }
 
 const userOf = (req: Request): { id: string } =>
@@ -51,11 +54,85 @@ const fail = (res: Response, err: unknown): Response => {
   if (err instanceof EngineUnavailableError) return res.status(503).json({ error: err.message });
   if (err instanceof UnknownAgentError) return res.status(404).json({ error: err.message });
   if (err instanceof UnknownProcedureError) return res.status(404).json({ error: err.message });
+  if (err instanceof SwitchedOffError) return res.status(409).json({ error: err.message, code: 'SWITCHED_OFF' });
   throw err;
 };
 
 export function engineRouter(deps: EngineRouterDeps): Router {
   const router = Router();
+
+  const summary = ({ extension, enabled, alwaysOn, authored, latest }: ExtensionState) => ({
+    id: extension.id,
+    title: extension.title,
+    describe: extension.describe,
+    version: extension.version,
+    enabled,
+    alwaysOn,
+    authored,
+    ...(latest ? { latest } : {}),
+    requires: extension.requires ?? [],
+    operations: extension.operations ?? [],
+    groups: extension.groups ?? [],
+    tools: (extension.tools ?? []).map((tool) => tool.name),
+    personas: (extension.personas ?? []).map((persona) => persona.slug),
+    procedures: (extension.procedures ?? []).map((procedure) => procedure.id),
+  });
+
+  router.get('/extensions', asyncRoute(async (req: Request, res: Response) => {
+    res.json(deps.extensions ? (await deps.extensions.list(userOf(req).id)).map(summary) : []);
+  }));
+
+  type Outcome<T> = { ok: true; value: T } | { ok: false; status: number; error: string };
+  const answer = <T>(res: Response, outcome: Outcome<T>, shape: (value: T) => unknown = (value) => value) =>
+    (outcome.ok ? res.json(shape(outcome.value)) : res.status(outcome.status).json({ error: outcome.error }));
+  const listed = (states: ExtensionState[]) => states.map(summary);
+  const own = (res: Response) => {
+    if (deps.extensions) return deps.extensions;
+    res.status(503).json({ error: 'extensions are not available here' });
+    return undefined;
+  };
+
+  router.post('/extensions', asyncRoute(async (req: Request, res: Response) => {
+    const extensions = own(res);
+    if (!extensions) return;
+    const body = (req.body ?? {}) as { id?: unknown; title?: unknown; describe?: unknown };
+    answer(res, await extensions.create(userOf(req).id, { id: String(body.id ?? ''), title: String(body.title ?? ''), describe: typeof body.describe === 'string' ? body.describe : undefined }), listed);
+  }));
+
+  router.put('/extensions/:id', asyncRoute(async (req: Request, res: Response) => {
+    const extensions = own(res);
+    if (!extensions) return;
+    answer(res, await extensions.update(userOf(req).id, String(req.params.id), (req.body ?? {}) as never), listed);
+  }));
+
+  router.delete('/extensions/:id', asyncRoute(async (req: Request, res: Response) => {
+    const extensions = own(res);
+    if (!extensions) return;
+    answer(res, await extensions.remove(userOf(req).id, String(req.params.id)), listed);
+  }));
+
+  router.post('/extensions/:id/operations', asyncRoute(async (req: Request, res: Response) => {
+    const extensions = own(res);
+    if (!extensions) return;
+    const body = (req.body ?? {}) as { name?: unknown; group?: unknown };
+    if (!body.group || typeof body.group !== 'object') return res.status(400).json({ error: 'send the group to publish as "group"' });
+    return answer(res, await extensions.publish(userOf(req).id, String(req.params.id), String(body.name ?? ''), body.group as never));
+  }));
+
+  router.delete('/extensions/:id/operations/:name', asyncRoute(async (req: Request, res: Response) => {
+    const extensions = own(res);
+    if (!extensions) return;
+    answer(res, await extensions.removeOperation(userOf(req).id, String(req.params.id), String(req.params.name)), listed);
+  }));
+
+  router.put('/extensions/:id/enabled', asyncRoute(async (req: Request, res: Response) => {
+    if (!deps.extensions) return res.status(503).json({ error: 'extensions are not available here' });
+    const enabled = (req.body as { enabled?: unknown } | undefined)?.enabled;
+    if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'say whether the extension is enabled, as true or false' });
+    const outcome = await deps.extensions.setEnabled(userOf(req).id, String(req.params.id), enabled);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value.map(summary));
+  }));
 
   router.get('/agents', asyncRoute(async (req: Request, res: Response) => {
     const agents = await deps.registry.agents(userOf(req).id);

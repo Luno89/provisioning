@@ -14,6 +14,7 @@ export interface ProcedureSummary {
   name: string
   describe: string
   mine: boolean
+  ofBuiltIn: boolean
   requires: RequiredGrant[]
 }
 

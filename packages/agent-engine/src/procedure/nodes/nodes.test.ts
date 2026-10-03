@@ -451,6 +451,7 @@ describe('safety nodes', () => {
   it('counts failed tool calls across replies, resets on success, and counts each batch once', async () => {
     const batch = async (forReply: string, oks: boolean[], previous?: Record<string, unknown>) =>
       invoke(checkToolFailures, {
+        settings: { maxConsecutiveFailures: 3 },
         inputs: { results: oks.map((ok, index) => result(forReply, `${forReply}-${index}`, { ok })) },
         ...(previous ? { previous } : {}),
       });
@@ -465,9 +466,23 @@ describe('safety nodes', () => {
     expect(tripped.outputs.reason).toBe('3 tool calls failed in a row');
   });
 
+  it('never trips when no limit is set, however many calls fail', async () => {
+    let previous: Record<string, unknown> | undefined;
+    for (let round = 0; round < 25; round += 1) {
+      const outcome = await invoke(checkToolFailures, {
+        inputs: { results: [result(`r${round}`, `r${round}-0`, { ok: false })] },
+        ...(previous ? { previous } : {}),
+      });
+      expect(outcome.exit).toBe('ok');
+      previous = outcome.outputs;
+    }
+    expect(previous?.consecutive).toBe(25);
+  });
+
   it('treats a call the peer refused as neither a failure nor a recovery', async () => {
     const batch = async (forReply: string, outcomes: Array<Partial<ToolResult>>, previous?: Record<string, unknown>) =>
       invoke(checkToolFailures, {
+        settings: { maxConsecutiveFailures: 3 },
         inputs: { results: outcomes.map((over, index) => result(forReply, `${forReply}-${index}`, over)) },
         ...(previous ? { previous } : {}),
       });

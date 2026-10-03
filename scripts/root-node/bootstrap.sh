@@ -102,26 +102,43 @@ npm run build
 ok "Frontend built"
 
 # ── 4. Secrets ─────────────────────────────────────────────────────────────────────────────────
-# JWT_SECRET is generated ONCE. crypto.ts derives the AES-256-GCM master key from it, so if it ever
-# changes, every credential a tenant has stored becomes permanently undecryptable. Never
-# regenerate it on a host that already has data — copy it from the old one when migrating.
+# The four platform keys are generated ONCE. DATA_KEY encrypts every stored credential, so losing or
+# regenerating it on a host that already has data makes them permanently undecryptable — copy the
+# keys from the old host when migrating. A key that is already set is never touched.
 step "Configuring environment"
 ENV_FILE="$REPO_DIR/apps/backend/.env"
-if [ ! -f "$ENV_FILE" ]; then
-  install -m 600 /dev/null "$ENV_FILE"
-  {
-    echo "JWT_SECRET=$(openssl rand -hex 32)"
-    echo "NODE_ENV=production"
-  } >> "$ENV_FILE"
-  ok "Generated a new .env (JWT_SECRET created)"
+[ -f "$ENV_FILE" ] || install -m 600 /dev/null "$ENV_FILE"
+grep -q '^NODE_ENV=' "$ENV_FILE" || echo "NODE_ENV=production" >> "$ENV_FILE"
+for KEY_NAME in SESSION_KEY DATA_KEY PAYLOAD_KEY EGRESS_KEY; do
+  if grep -qE "^${KEY_NAME}=.{32,}$" "$ENV_FILE"; then
+    ok "${KEY_NAME} kept"
+  else
+    echo "${KEY_NAME}=$(openssl rand -hex 32)" >> "$ENV_FILE"
+    ok "${KEY_NAME} generated"
+  fi
+done
+if grep -qE '^ROOT_IDENTITY_KEY=.+$' "$ENV_FILE"; then
+  ok "ROOT_IDENTITY_KEY kept"
 else
-  ok "Existing .env kept — JWT_SECRET left untouched"
+  echo "ROOT_IDENTITY_KEY=$(openssl genpkey -algorithm ed25519 | base64 -w0)" >> "$ENV_FILE"
+  ok "ROOT_IDENTITY_KEY generated"
 fi
+grep -q '^ROLE=' "$ENV_FILE" || echo "ROLE=root" >> "$ENV_FILE"
 
 # Idempotent upsert, so re-running does not append duplicates.
 set_env() {
   grep -q "^$1=" "$ENV_FILE" && sed -i "s|^$1=.*|$1=$2|" "$ENV_FILE" || echo "$1=$2" >> "$ENV_FILE"
 }
+COMPOSE_ENV="$REPO_DIR/.env"
+[ -f "$COMPOSE_ENV" ] || install -m 600 /dev/null "$COMPOSE_ENV"
+if ! grep -q '^MONGO_ROOT_PASSWORD=' "$COMPOSE_ENV"; then
+  echo "MONGO_ROOT_PASSWORD=$(openssl rand -hex 24)" >> "$COMPOSE_ENV"
+  ok "Generated a Mongo root password"
+fi
+MONGO_ROOT_PASSWORD="$(grep '^MONGO_ROOT_PASSWORD=' "$COMPOSE_ENV" | cut -d= -f2-)"
+grep -q '^PLATFORM_BIND=' "$COMPOSE_ENV" || echo "PLATFORM_BIND=127.0.0.1" >> "$COMPOSE_ENV"
+
+set_env MONGO_URI "mongodb://admin:${MONGO_ROOT_PASSWORD}@127.0.0.1:27017/provisioning?authSource=admin"
 set_env MESH_LOGIN_SERVER "https://${MESH_DOMAIN}"
 set_env APP_DOMAIN "$APP_DOMAIN"
 set_env MESH_DOMAIN "$MESH_DOMAIN"
@@ -148,13 +165,52 @@ ok "server_url: https://${MESH_DOMAIN}"
 grep -q "acl.hujson" "$HS_CONFIG" || die "Headscale policy path is unset — tenants would not be isolated. See headscale/config/acl.hujson."
 ok "ACL policy is wired up"
 
-# ── 6. Services ────────────────────────────────────────────────────────────────────────────────
+# ── 6. Firewall ────────────────────────────────────────────────────────────────────────────────
+step "Closing every port but SSH, HTTP and HTTPS"
+command -v ufw &>/dev/null || apt-get install -y ufw >/dev/null
+ufw default deny incoming >/dev/null
+ufw default allow outgoing >/dev/null
+ufw allow OpenSSH >/dev/null
+ufw allow 80/tcp >/dev/null
+ufw allow 443/tcp >/dev/null
+ufw --force enable >/dev/null
+ok "ufw: only 22, 80 and 443 are reachable"
+
+# ── 7. Services ────────────────────────────────────────────────────────────────────────────────
 step "Starting services"
 docker compose -f docker-compose.mongo.yml up -d
 docker compose -f docker-compose.temporal.yml up -d
 docker compose -f docker-compose.headscale.yml up -d
 docker compose -f docker-compose.caddy.yml up -d
 ok "Mongo, Temporal, Headscale and Caddy running"
+
+for port in 27017 7233 8233 8080 9090 50443; do
+  if ss -ltnH "( sport = :$port )" | awk '{print $4}' | grep -qv '^127\.0\.0\.1:'; then
+    die "port $port is listening beyond 127.0.0.1 — check PLATFORM_BIND in $COMPOSE_ENV before going further"
+  fi
+done
+ok "Mongo, Temporal and Headscale listen on 127.0.0.1 only"
+
+step "Joining this node to its own mesh"
+command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh
+if ! tailscale ip -4 >/dev/null 2>&1; then
+  for _ in $(seq 1 36); do curl -sf -m 5 "https://${MESH_DOMAIN}/health" >/dev/null 2>&1 && break; sleep 5; done
+  curl -sf -m 5 "https://${MESH_DOMAIN}/health" >/dev/null 2>&1 || die "https://${MESH_DOMAIN} is not serving yet — Caddy may still be issuing its certificate; re-run bootstrap.sh in a minute"
+  docker exec provisioning-headscale headscale users create platform-root >/dev/null 2>&1 || true
+  ROOT_USER_ID="$(docker exec provisioning-headscale headscale users list -o json | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{const u=JSON.parse(s).find((x)=>x.name==="platform-root");if(!u)process.exit(1);console.log(u.id)})')"
+  ROOT_KEY="$(docker exec provisioning-headscale headscale preauthkeys create --user "$ROOT_USER_ID" --tags tag:platform --expiration 10m -o json | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>console.log(JSON.parse(s).key))')"
+  tailscale up --login-server="https://${MESH_DOMAIN}" --authkey="$ROOT_KEY" --advertise-tags=tag:platform --hostname=nowrinkles-root
+fi
+ROOT_MESH_IP="$(tailscale ip -4 | head -n1)"
+[ -n "$ROOT_MESH_IP" ] || die "this node did not get a mesh address"
+ok "on the mesh as ${ROOT_MESH_IP} (tag:platform)"
+
+step "Starting the image registry for instances"
+grep -q '^REGISTRY_MESH_BIND=' "$COMPOSE_ENV" && sed -i "s|^REGISTRY_MESH_BIND=.*|REGISTRY_MESH_BIND=${ROOT_MESH_IP}|" "$COMPOSE_ENV" || echo "REGISTRY_MESH_BIND=${ROOT_MESH_IP}" >> "$COMPOSE_ENV"
+set_env INSTANCE_REGISTRY "${ROOT_MESH_IP}:5001"
+ufw allow in on tailscale0 to any port 5001 proto tcp >/dev/null
+docker compose -f docker-compose.registry.yml up -d
+ok "machines pull from ${ROOT_MESH_IP}:5001 over the mesh; root pushes to 127.0.0.1:5000"
 
 # Nothing seeds the catalogues at server start any more, and this host never runs setup.sh — so
 # without this a fresh VPS comes up with no tools, personas, packs or tree types. Idempotent: a
@@ -166,7 +222,7 @@ ok "Catalogues seeded"
 step "Creating the management cluster"
 bash scripts/ensure-cluster.sh || warn "ensure-cluster.sh reported a problem — check before provisioning"
 
-# ── 7. systemd ─────────────────────────────────────────────────────────────────────────────────
+# ── 8. systemd ─────────────────────────────────────────────────────────────────────────────────
 # Without this the platform dies on reboot and every tenant loses the ability to provision.
 step "Installing the systemd unit"
 cat > /etc/systemd/system/nowrinkles.service <<UNIT
@@ -190,7 +246,7 @@ systemctl daemon-reload
 systemctl enable nowrinkles.service
 ok "nowrinkles.service enabled (start it once you have verified the build)"
 
-# ── 8. Verify ──────────────────────────────────────────────────────────────────────────────────
+# ── 9. Verify ──────────────────────────────────────────────────────────────────────────────────
 step "Verifying"
 sleep 5
 if curl -sf -m 15 "https://${MESH_DOMAIN}/health" >/dev/null 2>&1; then
@@ -202,11 +258,8 @@ fi
 echo
 echo "Next:"
 echo "  1. systemctl start nowrinkles"
-echo "  2. Join this node to its own mesh so it can reach tenant machines:"
-echo "       docker exec provisioning-headscale headscale users create platform-root"
-echo "       tailscale up --login-server=https://${MESH_DOMAIN} --advertise-tags=tag:platform"
-echo "  3. Confirm it appears:  docker exec provisioning-headscale headscale nodes list"
-echo "  4. Register the first account at https://${APP_DOMAIN} — the FIRST account ever created"
+echo "  2. Publish the first instance image:  bash scripts/root-node/update.sh"
+echo "  3. Register the first account at https://${APP_DOMAIN} — the FIRST account ever created"
 echo "     becomes admin and is the only one that can mint invite codes. Do this before sharing"
 echo "     the URL with anyone."
 echo

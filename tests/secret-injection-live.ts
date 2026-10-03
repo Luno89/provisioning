@@ -14,6 +14,7 @@ import { InfisicalService } from '../apps/backend/src/services/InfisicalService.
 import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
 import { ClusterProxyService } from '../apps/backend/src/services/ClusterProxyService.js';
 import type { SecretRequest } from '../apps/backend/src/lib/secret-requests.js';
+import { loadKeys } from '../apps/backend/src/lib/keys.js';
 
 const BASE = process.env.SECRETS_LIVE_URL ?? 'http://localhost:3001/api';
 const MANAGEMENT = 'provisioning-lunorica';
@@ -138,8 +139,7 @@ async function main(): Promise<void> {
   assert.ok(owner, 'no owner with a gitapp project');
   const user = await db.getUserById(owner);
   assert.ok(user);
-  const secret = process.env.JWT_SECRET;
-  assert.ok(secret, 'JWT_SECRET is not set');
+  const secret = loadKeys(process.env).session;
 
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, secret, 4 * 3600)}` } });
   const infra = new InfrastructureService();

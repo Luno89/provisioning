@@ -8,7 +8,7 @@ const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } 
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
 export function meshRouter(deps: Record<string, any>): Router {
-  const { headscaleService, db, jwtSecret } = deps;
+  const { headscaleService, db } = deps;
   const router = Router();
 
   router.get('/config', async (_req, res) => {

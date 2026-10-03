@@ -25,7 +25,7 @@ const property = (name: string): string => (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(na
 function settingType(schema: SettingSchema, indent: string): string {
   switch (schema.type) {
     case 'string':
-      return schema.enum ? schema.enum.map(quoted).join(' | ') : 'string';
+      return schema.enum && schema.enum.length > 0 ? schema.enum.map(quoted).join(' | ') : 'string';
     case 'number':
     case 'integer':
       return 'number';
@@ -48,13 +48,24 @@ function objectType(schema: GroupSetting, indent: string): string {
 }
 
 function nodeTypes(name: string, definition: NodeDefinition, withSettings: boolean): string {
+  if (definition.resolve) {
+    return [
+      `export type ${name}Wires = Record<string, In<SocketType> | readonly In<SocketType>[]>`,
+      withSettings ? `export type ${name}Settings = { operation: ${settingType(definition.settings.properties.operation ?? { type: 'string' }, '')}; [setting: string]: unknown }` : '',
+      `export type ${name}Node = Step<string> & Record<string, Out<'any'>> & { wire(wires: ${name}Wires): void }`,
+    ].filter(Boolean).join('\n\n');
+  }
+
   if (definition.sockets) {
+    const exitNames = definition.exits.map((exit) => quoted(exit.name)).join(' | ');
+    const base = definition.role === 'step' ? `Step<${exitNames || 'never'}>` : 'Value';
+    const always = definition.sockets({}).outputs?.map((output) => `readonly ${output.name}: Out<'${output.type}'>`).join('; ') ?? '';
     const settingsType = withSettings ? `export type ${name}Settings = ${objectType(definition.settings, '')}` : '';
 
     return [
       `export type ${name}Wires = Record<string, In<SocketType> | readonly In<SocketType>[]>`,
       settingsType,
-      `export type ${name}Node = Value & Record<string, Out<SocketType>> & { wire(wires: ${name}Wires): void }`,
+      `export type ${name}Node = ${base} & Record<string, Out<SocketType>>${always ? ` & { ${always} }` : ''} & { wire(wires: ${name}Wires): void }`,
     ].filter(Boolean).join('\n\n');
   }
 
@@ -110,11 +121,12 @@ export function builderTypes(catalogue: NodeCatalogue, groups: readonly GroupDef
   const groupMethods = groups.map((group) =>
     `${doc('  ', `${group.title}: ${group.describe}`, ...group.exits.map((exit) => `Leaves through ${exit.name}: ${exit.describe}`))}  ${camelKind(group.id)}(id: string, wires?: ${pascal(group.id)}GroupWires, meta?: NodeMeta): ${pascal(group.id)}GroupNode`);
   parts.push(`export interface BuiltInGroups {\n${groupMethods.join('\n')}\n}`);
+  parts.push(`${doc('', 'A group an extension publishes, used by its id — typed loosely, since only the running catalogue knows its sockets.')}export type PublishedGroup = (id: string, wires?: Record<string, In<SocketType> | readonly In<SocketType>[]>, meta?: NodeMeta) => Step<string> & Record<string, Out<'any'>>`);
 
   parts.push(
     [
       'export interface Body extends Nodes {',
-      `${doc('  ', 'The built-in groups, each used as one node.')}  readonly groups: BuiltInGroups`,
+      `${doc('  ', 'The built-in groups, each used as one node — and any group an extension publishes, by its id.')}  readonly groups: BuiltInGroups & { readonly [group: string]: PublishedGroup }`,
       `${doc('  ', 'Defines a group of nodes that can be used as one node, then returns it for use(…).')}  group<const I extends Sockets = {}, const O extends Sockets = {}, const E extends Exits = {}>(id: string, info: GroupInfo<I, O, E>, build: (g: GroupBody<I, O, E>) => void): GroupRef<I, O, E>`,
       `${doc('  ', 'Places one of this procedure\'s own groups as a node.')}  use<I extends Sockets, O extends Sockets, E extends Exits>(group: GroupRef<I, O, E>, id: string, wires?: GroupWires<I>, meta?: NodeMeta): GroupNode<I, O, E>`,
       `${doc('  ', 'Where each node sits on the canvas.')}  layout(positions: Layout): void`,

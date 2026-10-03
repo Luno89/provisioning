@@ -9,7 +9,6 @@ import {
   type ContextRequest,
   type ResolvedEnvironment,
 } from './context.js';
-import { ALL_SEEDED_AGENTS } from '../agent/seeds.js';
 import type { AgentDefinition } from '../agent/agent.js';
 import type { EnvironmentCapabilities, ToolContract } from '@koala/engine-core';
 import type { RunWorkspace } from '../environment/workspace.js';
@@ -23,7 +22,15 @@ const NOTHING: EnvironmentCapabilities = {
 };
 
 const agent = (over: Partial<AgentDefinition> = {}): AgentDefinition => ({
-  ...ALL_SEEDED_AGENTS().find((a) => a.slug === 'executor')!,
+  slug: 'fixer',
+  name: 'Fixer',
+  description: 'Fixes things in a workspace.',
+  version: '1',
+  guidance: 'Hand it a broken thing.',
+  returns: 'What it changed.',
+  failures: [],
+  procedure: 'do-one-task',
+  environment: { terminal: true, filesystem: true, workspace: true },
   prompt: 'You fix things.',
   tools: ['run_command', 'read_file'],
   ...over,
@@ -183,14 +190,14 @@ describe('the tools the model is told about', () => {
   });
 
   it('offers a delegate agent as a tool the model can call', () => {
-    const research = ALL_SEEDED_AGENTS().find((a) => a.slug === 'research')!;
+    const lookup = agent({ slug: 'lookup', name: 'Lookup', guidance: 'Ask it to find something out.', tools: ['search_web'], environment: {} });
     const { text, tools } = compose({
-      agent: agent({ tools: [], agents: ['research'] }),
-      callable: [research],
+      agent: agent({ tools: [], agents: ['lookup'] }),
+      callable: [lookup],
     });
 
-    expect(tools.map((tool) => tool.name)).toContain('research');
-    expect(text).toContain('research:');
+    expect(tools.map((tool) => tool.name)).toContain('lookup');
+    expect(text).toContain('lookup:');
   });
 });
 

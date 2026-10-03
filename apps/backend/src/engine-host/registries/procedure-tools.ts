@@ -1,13 +1,12 @@
 import type { Persona, ProcedureSource } from '@koala/agent-engine';
-import { CODE_KIND } from '@koala/agent-engine/procedure';
+import { CODE_KINDS } from '@koala/agent-engine/procedure';
 import {
-  BUILT_IN_GROUPS,
-  builtInCatalogue,
   formatProcedureProblems,
   readAndCheckProcedure,
   type Procedure,
 } from '@koala/agent-engine/procedure';
 import { refuse, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
+import { platformCatalogue, platformGroups } from '../../extensions/installed.js';
 
 export interface ProcedureSourceStore {
   get(ownerId: string, id: string): Promise<ProcedureSource | undefined>;
@@ -44,25 +43,28 @@ const withoutOwner = ({ ownerId: _ownerId, ...procedure }: Procedure & { ownerId
 
 export function createProcedureTools(options: ProcedureToolOptions): Record<string, ToolHandler> {
   const now = options.now ?? (() => new Date().toISOString());
-  const catalogue = builtInCatalogue();
+  const catalogue = platformCatalogue();
 
   const check = async (ownerId: string, source: string | Record<string, unknown>) => {
     const [personas, tools] = await Promise.all([options.scope.personas(ownerId), options.scope.toolNames(ownerId)]);
     const read = readAndCheckProcedure(source, {
       catalogue,
-      groups: BUILT_IN_GROUPS,
+      groups: platformGroups(),
       known: { agents: new Set(personas.map((persona) => persona.slug)), tools: new Set(tools) },
     });
 
     if (!read.ok) return read;
-    const written = read.procedure.nodes.filter((node) => node.kind === CODE_KIND).map((node) => node.id);
+    const written = [
+      ...read.procedure.nodes.filter((node) => CODE_KINDS.includes(node.kind)).map((node) => ({ node: node.id })),
+      ...read.procedure.groups.flatMap((group) => group.nodes.filter((node) => CODE_KINDS.includes(node.kind)).map((node) => ({ node: node.id, group: group.id }))),
+    ];
     if (written.length === 0) return read;
 
     return {
       ok: false as const,
-      problems: written.map((node) => ({
+      problems: written.map((where) => ({
         severity: 'error' as const,
-        node,
+        ...where,
         message: 'is a code node, and a procedure written from here may not run code a person has not read',
       })),
     };
@@ -84,7 +86,7 @@ export function createProcedureTools(options: ProcedureToolOptions): Record<stri
         ...catalogue.list().map((definition) => `- ${definition.kind}: ${definition.title}`),
         '',
         'GROUPS',
-        ...BUILT_IN_GROUPS.map((group) => `- ${group.id}: ${group.title}`),
+        ...platformGroups().map((group) => `- ${group.id}: ${group.title}`),
       ].join('\n');
 
       return { ok: true, digest: text, content: text };

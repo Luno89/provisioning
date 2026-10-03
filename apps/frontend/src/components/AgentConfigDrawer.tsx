@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Sliders, X, Loader2, ExternalLink, Check } from 'lucide-react';
 import { agentKeys, listAgents, type Agent } from '../api/agents';
@@ -28,9 +28,11 @@ export function AgentConfigDrawer({
   const setShellView = useShellStore((s) => s.setView);
   const [draftSlug, setDraftSlug] = useState<string>(selectedAgentSlug);
 
-  useEffect(() => {
+  const [seen, setSeen] = useState({ isOpen, selectedAgentSlug });
+  if (seen.isOpen !== isOpen || seen.selectedAgentSlug !== selectedAgentSlug) {
+    setSeen({ isOpen, selectedAgentSlug });
     if (isOpen) setDraftSlug(selectedAgentSlug);
-  }, [isOpen, selectedAgentSlug]);
+  }
 
   const { data: agents = [], isPending, isError, refetch } = useQuery<Agent[]>({
     queryKey: agentKeys.all,

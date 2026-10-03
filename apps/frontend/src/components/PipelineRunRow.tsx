@@ -1,4 +1,4 @@
-import { Clock, Loader2, CheckCircle2, XCircle, Terminal, Rocket } from 'lucide-react';
+import { Clock, Loader2, CheckCircle2, XCircle, Terminal, Rocket, type LucideIcon } from 'lucide-react';
 
 export interface PipelineRun {
   id: string;
@@ -16,7 +16,7 @@ export interface PipelineRun {
   deploymentId?: string;
 }
 
-const STATUS_STYLE: Record<string, { icon: any; className: string; label: string }> = {
+const STATUS_STYLE: Record<string, { icon: LucideIcon; className: string; label: string }> = {
   queued: { icon: Clock, className: 'text-slate-400 bg-slate-500/10 border-slate-500/20', label: 'Queued' },
   running: { icon: Loader2, className: 'text-blue-400 bg-blue-500/10 border-blue-500/30', label: 'Building' },
   succeeded: { icon: CheckCircle2, className: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20', label: 'Succeeded' },

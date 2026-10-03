@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
 import type { Server as SocketServer } from 'socket.io';
 import { asyncRoute } from '../middleware/async-route.js';
 import { validateClusterName } from '../lib/cluster-name.js';
-import { decryptValue } from '../lib/crypto.js';
+import { decryptValue, type SecretKey } from '../lib/crypto.js';
 import { generateSshKeypair } from '../lib/ssh-keypair.js';
 import type { Database } from '../lib/db-interface.js';
 import type { ClusterService } from '../services/ClusterService.js';
@@ -23,7 +23,7 @@ export interface ClustersRouterDeps {
   temporalBridge: TemporalBridge;
   db: Pick<Database, 'getClusters' | 'saveClusterList'>;
   io: SocketServer;
-  jwtSecret: string;
+  dataKey: SecretKey;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -36,7 +36,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
     clusterService, appService, clusterProxyService, infraService,
     temporalBridge, db, io, giteaService, infisicalService,
   } = deps;
-  const JWT_SECRET = deps.jwtSecret;
+  const DATA_KEY = deps.dataKey;
   const router = Router();
 
   const PROXY_SERVICES = ['prometheus', 'grafana', 'traefik', 'gitea', 'alertmanager', 'infisical'] as const;
@@ -160,7 +160,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
       const info = await temporalBridge.provision(cluster.name, 'remote', userId, {
         host: cluster.remoteHost,
         username: cluster.remoteUsername,
-        privateKey: decryptValue(cluster.remoteSshPrivateKeyEnc, JWT_SECRET),
+        privateKey: decryptValue(cluster.remoteSshPrivateKeyEnc, DATA_KEY),
         ...(cluster.remoteSshPort !== undefined ? { port: cluster.remoteSshPort } : {}),
       });
 

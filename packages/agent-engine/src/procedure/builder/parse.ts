@@ -111,10 +111,10 @@ function evaluate(node: t.Node, scope: Scope): unknown {
       return scope.get(node.name);
     }
     case 'MemberExpression': {
-      if (node.computed) refuse(node, 'reading with [ ]');
-      if (node.property.type !== 'Identifier') refuse(node.property);
+      if (node.computed && node.property.type !== 'StringLiteral') refuse(node, 'reading with [ ] anything but a quoted name');
+      if (!node.computed && node.property.type !== 'Identifier') refuse(node.property);
       const target = evaluate(node.object, scope);
-      const name = node.property.name;
+      const name = node.property.type === 'StringLiteral' ? node.property.value : (node.property as t.Identifier).name;
       if (!isBuilderValue(target) || SOURCE_KINDS.has(String((target as { kind?: unknown }).kind))) {
         throw new Refusal(`there is nothing called "${name}" here`, node.property);
       }

@@ -1,4 +1,7 @@
 import type { Conversation } from './conversations.js';
+import type { ExtensionSettings } from './extension-settings.js';
+import type { AuthoredExtension } from './authored-extensions.js';
+import type { InstanceRecord, JoinToken } from './instances.js';
 import type { StoredAppSpec } from './app-spec.js';
 import type { ClusterProviderSpec } from './cluster-providers.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -54,6 +57,11 @@ export class MemoryDB implements Database {
   private mcpRequests: McpRequest[] = [];
   private actionProposals: ActionProposal[] = [];
   private egressGrants: EgressGrantRecord[] = [];
+  private extensionSettings = new Map<string, ExtensionSettings>();
+  private authoredExtensions = new Map<string, AuthoredExtension>();
+  private handoffs = new Map<string, string>();
+  private instances = new Map<string, InstanceRecord>();
+  private joinTokens = new Map<string, JoinToken>();
   private egressRequests: EgressRequest[] = [];
   private accessRequests: AccessRequest[] = [];
   private procedures: ProcedureSource[] = [];
@@ -578,6 +586,57 @@ export class MemoryDB implements Database {
     const idx = this.actionProposals.findIndex((p) => p.id === proposal.id);
     if (idx >= 0) this.actionProposals[idx] = proposal;
     else this.actionProposals.push(proposal);
+  }
+
+  async getExtensionSettings(ownerId: string): Promise<ExtensionSettings | undefined> {
+    const found = this.extensionSettings.get(ownerId);
+    return found ? { ...found, disabled: [...found.disabled] } : undefined;
+  }
+
+  async claimHandoff(jti: string, expiresAt: string): Promise<boolean> {
+    const now = new Date().toISOString();
+    for (const [id, until] of this.handoffs) if (until <= now) this.handoffs.delete(id);
+    if (this.handoffs.has(jti)) return false;
+    this.handoffs.set(jti, expiresAt);
+    return true;
+  }
+
+  async saveJoinToken(token: JoinToken): Promise<void> {
+    this.joinTokens.set(token.hash, { ...token });
+  }
+
+  async takeJoinToken(hash: string): Promise<JoinToken | undefined> {
+    const token = this.joinTokens.get(hash);
+    this.joinTokens.delete(hash);
+    return token;
+  }
+
+  async getInstances(ownerId?: string): Promise<InstanceRecord[]> {
+    return [...this.instances.values()].filter((instance) => !ownerId || instance.ownerId === ownerId).map((instance) => ({ ...instance }));
+  }
+
+  async saveInstance(instance: InstanceRecord): Promise<void> {
+    this.instances.set(instance.id, { ...instance });
+  }
+
+  async deleteInstance(id: string): Promise<void> {
+    this.instances.delete(id);
+  }
+
+  async getAuthoredExtensions(ownerId: string): Promise<AuthoredExtension[]> {
+    return [...this.authoredExtensions.values()].filter((extension) => extension.ownerId === ownerId).map((extension) => structuredClone(extension));
+  }
+
+  async saveAuthoredExtension(extension: AuthoredExtension): Promise<void> {
+    this.authoredExtensions.set(`${extension.ownerId}:${extension.id}`, structuredClone(extension));
+  }
+
+  async deleteAuthoredExtension(ownerId: string, id: string): Promise<void> {
+    this.authoredExtensions.delete(`${ownerId}:${id}`);
+  }
+
+  async saveExtensionSettings(settings: ExtensionSettings): Promise<void> {
+    this.extensionSettings.set(settings.ownerId, { ...settings, disabled: [...settings.disabled] });
   }
 
   async getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]> {

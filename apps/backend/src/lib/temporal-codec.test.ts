@@ -52,7 +52,17 @@ describe('EncryptionCodec', () => {
   it('fails loudly on a wrong key rather than returning garbage', async () => {
     const [encoded] = await codec.encode([plainPayload({ a: 1 })]);
     const other = new EncryptionCodec('a-different-key');
-    await expect(other.decode([encoded])).rejects.toThrow(/JWT_SECRET may have changed/);
+    await expect(other.decode([encoded])).rejects.toThrow(/written with a key this worker does not hold/);
+  });
+
+  it('reads history written under the old key while writing everything new under the current one', async () => {
+    const [old] = await new EncryptionCodec('the-old-jwt-secret').encode([plainPayload({ a: 1 })]);
+    const rotated = new EncryptionCodec({ current: 'the-new-payload-key', previous: ['the-old-jwt-secret'] });
+
+    const [decoded] = await rotated.decode([old]);
+    expect(JSON.parse(td.decode(decoded.data))).toEqual({ a: 1 });
+    const [fresh] = await rotated.encode([plainPayload({ b: 2 })]);
+    await expect(new EncryptionCodec('the-old-jwt-secret').decode([fresh])).rejects.toThrow();
   });
 
   it('refuses to construct without a key', () => {

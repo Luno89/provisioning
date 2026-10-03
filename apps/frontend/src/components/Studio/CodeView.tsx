@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Editor, { type Monaco } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
 import type { Procedure } from '@koala/agent-engine/procedure'
@@ -11,15 +11,15 @@ import {
   type BuilderProblem,
 } from '@koala/agent-engine/procedure-builder'
 import '../ProjectEditor/monaco-setup'
-import { STUDIO_CONTEXT } from './shared'
+import { useStudioContext } from './shared'
 
 const DECLARATIONS_PATH = `file:///node_modules/${BUILDER_MODULE}/index.d.ts`
 const MARKER_OWNER = 'procedure-builder'
 
-const options = { catalogue: STUDIO_CONTEXT.catalogue, groups: STUDIO_CONTEXT.shared }
+type BuilderOptions = Parameters<typeof procedureToBuilderCode>[1]
 const same = (a: Procedure, b: Procedure) => JSON.stringify(a) === JSON.stringify(b)
 
-function read(code: string, current: Procedure): { procedure: Procedure } | { problems: BuilderProblem[] } {
+function read(code: string, current: Procedure, options: BuilderOptions): { procedure: Procedure } | { problems: BuilderProblem[] } {
   const parsed = builderCodeToProcedure(code, options)
   if (!parsed.ok) return { problems: parsed.problems }
   if (parsed.procedure.id !== current.id) {
@@ -50,6 +50,8 @@ export interface CodeViewProps {
 }
 
 export default function CodeView({ procedure, onChange }: CodeViewProps) {
+  const context = useStudioContext()
+  const options = useMemo(() => ({ catalogue: context.catalogue, groups: context.shared }), [context])
   const [text, setText] = useState(() => procedureToBuilderCode(procedure, options))
   const [problems, setProblems] = useState<BuilderProblem[]>([])
   const typed = useRef(text)
@@ -57,12 +59,12 @@ export default function CodeView({ procedure, onChange }: CodeViewProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
 
   useEffect(() => {
-    const current = read(typed.current, procedure)
+    const current = read(typed.current, procedure, options)
     if ('procedure' in current && same(current.procedure, procedure)) return
     typed.current = procedureToBuilderCode(procedure, options)
     setText(typed.current)
     setProblems([])
-  }, [procedure])
+  }, [procedure, options])
 
   useEffect(() => {
     const monaco = monacoRef.current
@@ -81,7 +83,7 @@ export default function CodeView({ procedure, onChange }: CodeViewProps) {
   const edit = (next: string) => {
     typed.current = next
     setText(next)
-    const result = read(next, procedure)
+    const result = read(next, procedure, options)
     if ('problems' in result) {
       setProblems(result.problems)
       return

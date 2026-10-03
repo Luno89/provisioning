@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { ALL_SEEDED_AGENTS, type Persona } from '@koala/agent-engine';
-import { BUILT_IN_PROCEDURES, type Procedure } from '@koala/agent-engine/procedure';
+import { type Persona } from '@koala/agent-engine';
+import { type Procedure } from '@koala/agent-engine/procedure';
 import { composedRequests, said } from './composed-request.js';
+import { seededPersonas, seededProcedures } from '../../extensions/seeds.js';
 
 interface Sentinelled {
   inputs: Record<string, unknown>;
@@ -16,9 +17,9 @@ const NOT_SHOWN: Record<string, string[]> = {
 };
 
 // The structural personas make no model rounds of their own, so what they are given reaches the model somewhere
-// else: on a child's prompt (grove-runner fans each claim out to a leaf-judge) or in a tool's arguments
-// (leaf-worker asks next_leaf_task with the leaf it was given). Each is pinned per procedure by composed-request.test.
-const STRUCTURAL = ['grove-runner', 'leaf-worker'];
+// else: on a child's prompt or in an operation's inputs (the grove agents run no model; their leaves, judges and
+// planners do). They are pinned end to end by extensions/grove/grove-run.test.ts.
+const STRUCTURAL = ['grove', 'grove-paper', 'grove-leaf', 'grove-paper-leaf'];
 
 function sentinelsFor(persona: Persona, procedure: Procedure): Sentinelled {
   const skip = new Set(NOT_SHOWN[persona.slug] ?? []);
@@ -42,8 +43,8 @@ function sentinelsFor(persona: Persona, procedure: Procedure): Sentinelled {
   return { inputs, expected };
 }
 
-const pairs = ALL_SEEDED_AGENTS().flatMap((persona) => {
-  const procedure = BUILT_IN_PROCEDURES.find((entry) => entry.id === persona.procedure);
+const pairs = seededPersonas().flatMap((persona) => {
+  const procedure = seededProcedures().find((entry) => entry.id === persona.procedure);
   if (!procedure || !persona.interface?.inputs) return [];
   if (STRUCTURAL.includes(persona.slug)) return [];
   return [{ persona, procedure }];

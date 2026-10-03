@@ -1,7 +1,8 @@
 import type { ToolDefinition } from '@koala/agent-engine';
 import type { Task } from '../../engine-host/tools/tasks.js';
-import { BUILT_IN_GROUPS, builtInCatalogue, formatProcedureProblems, readAndCheckProcedure } from '@koala/agent-engine/procedure';
+import { formatProcedureProblems, readAndCheckProcedure } from '@koala/agent-engine/procedure';
 import type { ProvokedFailure, ScenarioExpectations } from './scenario.js';
+import { platformCatalogue, platformGroups } from '../../extensions/installed.js';
 
 export interface ToolCallLog {
   runId: string;
@@ -94,7 +95,7 @@ export async function scoreScenario(expect: ScenarioExpectations, observed: Obse
       add(`saves ${expect.saved.procedure}`, false,
         observed.saved.length > 0 ? `it saved ${list(observed.saved.map((entry) => entry.id))}` : 'it saved nothing');
     } else {
-      const checked = readAndCheckProcedure(found.source, { catalogue: builtInCatalogue(), groups: BUILT_IN_GROUPS });
+      const checked = readAndCheckProcedure(found.source, { catalogue: platformCatalogue(), groups: platformGroups() });
       add(`saves ${expect.saved.procedure}, and what is stored checks clean`, checked.ok,
         checked.ok ? `${found.id} is stored and checks clean` : `${found.id} is stored but does not check clean:\n${formatProcedureProblems(checked.problems)}`);
     }

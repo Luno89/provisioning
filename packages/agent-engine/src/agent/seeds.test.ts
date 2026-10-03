@@ -3,14 +3,12 @@ import {
   ALL_SEEDED_AGENTS,
   seededAgentSlugs,
   definedToolNames,
-  STANDARD_HOST_TOOL_NAMES,
 } from './seeds.js';
 import { BUILDER_TOOLS } from '../tools/builder-tools-catalogue.js';
 import { BUILT_IN_PROCEDURES } from '../procedure/seeds/procedures.js';
-import { contractsFor, type ToolDefinition } from '../tools/catalogue.js';
-import { capabilitiesFor, environmentFor, resolveAgent } from './agent.js';
+import { contractsFor } from '../tools/catalogue.js';
+import { capabilitiesFor, resolveAgent } from './agent.js';
 import { resolveToolSet } from '../runtime/context.js';
-import { effectiveTools } from '@koala/engine-core';
 
 describe('seeded agents', () => {
   it('are all seeded rather than owned by anyone', () => {
@@ -49,74 +47,27 @@ describe('seeded agents', () => {
     }
   });
 
-  it('replaces the four old engines, plus interactive chat, a delivery loop and a paper writer', () => {
-    expect(ALL_SEEDED_AGENTS().map((agent) => agent.slug).sort())
-      .toEqual(['agent-builder', 'delivery', 'executor', 'grove-runner', 'judge', 'koala', 'leaf-judge', 'leaf-worker', 'paper-writer', 'planner', 'research']);
+  it('are the engine\'s own builder and nothing of any product built on it', () => {
+    expect(ALL_SEEDED_AGENTS().map((agent) => agent.slug)).toEqual(['agent-builder']);
   });
 
   it('resolves by slug for any user with no forks present', () => {
-    expect(resolveAgent(ALL_SEEDED_AGENTS(), 'user-1', 'research')?.name).toBe('Research');
+    expect(resolveAgent(ALL_SEEDED_AGENTS(), 'user-1', 'agent-builder')?.name).toBe('Agent builder');
+  });
+
+  it('name no product: the engine\'s seeds carry no grove, leaf, tree or koala', () => {
+    const seeded = JSON.stringify({ agents: ALL_SEEDED_AGENTS(), procedures: BUILT_IN_PROCEDURES });
+    expect(seeded).not.toMatch(/grove|\bleaf|koala|propose_plan|read_tree/i);
   });
 });
 
-describe('seeded agents get environments that match what they do', () => {
-  const agentBySlug = (slug: string) => ALL_SEEDED_AGENTS().find((agent) => agent.slug === slug)!;
-
-  it('gives research the network and nothing else', () => {
-    const caps = capabilitiesFor(agentBySlug('research'));
-    expect(caps).toMatchObject({ egress: true, terminal: false, filesystem: false });
-  });
-
-  it('gives the paper writer the network and a workspace, because it writes down what it found', () => {
-    const writer = agentBySlug('paper-writer');
-    expect(capabilitiesFor(writer)).toMatchObject({ egress: true, filesystem: true });
-    expect(environmentFor(writer).kind).toBe('sandbox');
-    expect(writer.interface?.workspace).toBe(true);
-  });
-
-  it('gives the executor a machine and pins it to a workspace', () => {
-    const executor = agentBySlug('executor');
-    expect(capabilitiesFor(executor)).toMatchObject({ terminal: true, filesystem: true });
-    expect(executor.interface?.workspace).toBe(true);
-    expect(environmentFor(executor).kind).toBe('sandbox');
-  });
-
-  it('gives koala and the planner no machine at all', () => {
-    for (const slug of ['koala', 'planner']) {
-      expect(capabilitiesFor(agentBySlug(slug))).toMatchObject({ terminal: false, filesystem: false });
-    }
-  });
-
-  it('gives the judge a machine, because it checks the work where the work was done', () => {
-    expect(capabilitiesFor(agentBySlug('judge'))).toMatchObject({ terminal: true, filesystem: true });
-  });
-});
-
-describe('seeded agents compose usable prompts', () => {
-  const agentBySlug = (slug: string) => ALL_SEEDED_AGENTS().find((agent) => agent.slug === slug)!;
-  const standardTools: ToolDefinition[] = STANDARD_HOST_TOOL_NAMES.map((name) => ({
-    name,
-    summary: name,
-    binding: (name.includes('web') ? 'network' : name.includes('task') || name.includes('corpus') ? 'platform' : 'environment') as ToolDefinition['binding'],
-    effect: 'read',
-    idempotent: false,
-    openWorld: false,
-    parameters: { type: 'object', properties: {} },
-    returns: 'string',
-    failures: [],
-    ...(name === 'run_command' ? { requires: { terminal: true } } : {}),
-    ...(name === 'read_file' || name === 'write_file' || name === 'list_dir' ? { requires: { filesystem: true } } : {}),
-  }));
-  const catalogue = contractsFor([...BUILDER_TOOLS, ...standardTools]);
-
-  const offered = (slug: string, over: { tools?: string[]; agents?: string[] } = {}) => {
-    const agent = { ...agentBySlug(slug), ...over };
-    return resolveToolSet({
-      agent,
-      catalogue,
-      capabilities: capabilitiesFor(agent),
-      callable: ALL_SEEDED_AGENTS().filter((candidate) => (agent.agents ?? []).includes(candidate.slug)),
-    });
+describe('the builder composes a usable prompt', () => {
+  const builder = ALL_SEEDED_AGENTS().find((agent) => agent.slug === 'agent-builder')!;
+  const agentBySlug = (_slug: string) => builder;
+  const catalogue = contractsFor([...BUILDER_TOOLS]);
+  const offered = (slug: string) => {
+    const agent = agentBySlug(slug);
+    return resolveToolSet({ agent, catalogue, capabilities: capabilitiesFor(agent), callable: [] });
   };
 
   it('offers the builder its four tools and withholds nothing', () => {
@@ -136,40 +87,4 @@ describe('seeded agents compose usable prompts', () => {
     expect(prompt).not.toContain('"initialStep"');
   });
 
-  it('offers research the web and corpus tools it is granted, and withholds nothing', () => {
-    const { tools, withheld } = offered('research');
-
-    expect(tools.map((tool) => tool.name)).toEqual(['search_web', 'fetch_web_page', 'search_corpus']);
-    expect(withheld).toEqual([]);
-  });
-
-  it('offers a persona with nothing granted nothing at all', () => {
-    const { tools } = offered('planner', { tools: [], agents: [] });
-
-    expect(tools).toEqual([]);
-  });
-
-  it('offers the judge what it needs to check work for itself, and not the hand that settles a leaf', () => {
-    const { tools } = offered('judge');
-
-    expect(tools.map((tool) => tool.name).sort()).toEqual(['list_dir', 'read_file', 'run_command']);
-  });
-
-  it('gives the settling hand to the leaf-judge alone, alongside what it needs to check the claimed commit', () => {
-    const { tools } = offered('leaf-judge');
-
-    expect(tools.map((tool) => tool.name).sort()).toEqual(['list_dir', 'read_file', 'run_command', 'settle_leaf']);
-    expect(ALL_SEEDED_AGENTS().filter((agent) => agent.tools.includes('settle_leaf')).map((agent) => agent.slug)).toEqual(['leaf-judge']);
-  });
-
-  it('still offers koala its delegates, which come from agents rather than tools', () => {
-    const { tools } = offered('koala');
-
-    expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['planner', 'research']));
-  });
-
-  it('has no model at the leaf level: nothing seeded claims a leaf, and the grove runner only hands claims to the leaf-judge', () => {
-    expect(ALL_SEEDED_AGENTS().filter((agent) => agent.tools.includes('claim_leaf')).map((agent) => agent.slug)).toEqual([]);
-    expect(agentBySlug('grove-runner').agents).toEqual(['leaf-judge']);
-  });
 });

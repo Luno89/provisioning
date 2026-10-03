@@ -52,7 +52,7 @@ async function mountForCreate(): Promise<Harness> {
         const p = (await db.getProjects()).find((x: any) => x.id === id);
         return p && ownsProject(p, user) ? p : undefined;
       },
-      jwtSecret: 'test-secret',
+      dataKey: 'test-secret',
     }),
   });
 }

@@ -1,3 +1,4 @@
+import { ApplicationFailure } from '@temporalio/common';
 import { Context } from '@temporalio/activity';
 import { abandonedBy, type Task } from '../tools/tasks.js';
 import {
@@ -9,28 +10,12 @@ import {
 import { UNRESOLVED_MODEL, type EffortTracker, type RunLimits, type RunLimitsArgs } from '../registries/effort.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import {
-  builtInCatalogue,
   type NodeCatalogue,
   type NodeImplementation,
   type NodeRequest,
 } from '@koala/agent-engine/procedure';
 import type {
-  GrovePartition,
-  GrovePartitionArgs,
-  GroveWorkspaceArgs,
   AdoptPlanArgs,
-  GrovePrepareWorkArgs,
-  GrovePreparedWork,
-  GroveLeafStatusArgs,
-  GroveClaimArgs,
-  GroveClaimOutcome,
-  GroveTreeArgs,
-  GroveStages,
-  GroveLeafNeedingPlan,
-  GroveJudgeCheckoutArgs,
-  GroveJudgeCheckouts,
-  GroveCheckClaimsArgs,
-  GroveCheckedClaims,
   MergeArgs,
   MergeRuntime,
   PublishArgs,
@@ -46,21 +31,20 @@ import type {
   ToolCallOutcome,
   ToolRuntime,
   SettleClaimsArgs,
+  ProcedureRunInput,
 } from './contracts.js';
-import { createGroveTools, type TreeTypeChoice } from '../tools/grove-tools.js';
-import type { TreeSandbox, TreeWorkspaces } from '../sandboxes/tree-workspaces.js';
+import { groveRunWorkflowId } from './contracts.js';
+import { type TreeTypeChoice } from '../../extensions/grove/tools/grove-tools.js';
+import type { TreeWorkspaces } from '../sandboxes/tree-workspaces.js';
 import type { AdoptedRecords, PlanAdoption } from '../plan-adoption.js';
-import { prepareJudgeCheckout, prepareLeafWorktree, pruneLeafWorktrees, WorktreeConflictError } from '../grove-worktrees.js';
-import { claimEvidenceFor, leavesNeedingPlan } from '../../lib/grove-leaf.js';
-import { checkReport, checksFailed, runTaskChecks, type CheckOutcome } from '../../lib/task-checks.js';
-import { stagesOf } from '../../lib/grove-stages.js';
-import { resolveTreeType } from '../../lib/tree-types.js';
-import { leafWorktree, judgeCheckout } from '../../lib/plan-documents.js';
+import { groveAgentOf, resolveTreeType } from '../../lib/tree-types.js';
+
 import type { AdoptedPlan } from '../../lib/plan-proposals.js';
 import type { Tree } from '../../lib/trees.js';
 import type { Branch, Leaf } from '../../lib/leaves.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { EnvironmentResolver } from '../sandboxes/environments.js';
+import { platformCatalogue } from '../../extensions/installed.js';
 
 export interface EndpointResolver {
   forAgent(input: { ownerId: string; agentSlug: string }): Promise<{
@@ -130,7 +114,7 @@ export function createNodeRunner(
   bus: EventBus | undefined,
   options: { catalogue?: NodeCatalogue | undefined; runCancelled?: ((runId: string) => Promise<boolean>) | undefined } = {},
 ): (request: RemoteNodeRequest) => Promise<RemoteNodeResult> {
-  const catalogue = options.catalogue ?? builtInCatalogue();
+  const catalogue = options.catalogue ?? platformCatalogue();
   const byKind = new Map(implementations.map((implementation) => [implementation.kind, implementation]));
 
   return async (request) => {
@@ -179,18 +163,7 @@ export interface EngineActivities extends StreamActivities {
   EngineResolveAgentActivity(args: ResolveAgentArgs): Promise<ResolvedAgentInfo>;
   EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome>;
   EngineMergeActivity(args: MergeArgs): Promise<Record<string, unknown>>;
-  GrovePartitionActivity(args: GrovePartitionArgs): Promise<GrovePartition>;
-  GroveWorkspaceActivity(args: GroveWorkspaceArgs): Promise<TreeSandbox>;
-  GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void>;
-  GrovePrepareWorkActivity(args: GrovePrepareWorkArgs): Promise<GrovePreparedWork>;
-  GroveStagesActivity(args: GroveTreeArgs): Promise<GroveStages>;
-  GroveLeafStatusActivity(args: GroveLeafStatusArgs): Promise<boolean>;
-  GroveResetInFlightActivity(args: GroveTreeArgs): Promise<string[]>;
-  GroveClaimActivity(args: GroveClaimArgs): Promise<GroveClaimOutcome>;
-  GroveNeedsPlanActivity(args: GroveTreeArgs): Promise<GroveLeafNeedingPlan[]>;
-  GroveOpenProposalsActivity(args: GroveTreeArgs): Promise<string[]>;
-  GroveJudgeCheckoutActivity(args: GroveJudgeCheckoutArgs): Promise<GroveJudgeCheckouts>;
-  GroveCheckClaimsActivity(args: GroveCheckClaimsArgs): Promise<GroveCheckedClaims>;
+  GroveRunInputActivity(args: { treeId: string; ownerId: string }): Promise<ProcedureRunInput>;
   PlanAdoptRecordsActivity(args: AdoptPlanArgs): Promise<AdoptedRecords>;
   PlanAdoptDocumentsActivity(args: AdoptPlanArgs & { records: AdoptedRecords }): Promise<string>;
   PlanAdoptSettleActivity(args: AdoptPlanArgs & { status: 'adopted' | 'failed'; adopted?: AdoptedPlan | undefined; reason?: string | undefined }): Promise<void>;
@@ -202,58 +175,6 @@ export interface EngineActivities extends StreamActivities {
 }
 
 export function createEngineActivities(services: EngineServices): EngineActivities {
-  /**
-   * The agent each stage of this tree runs, resolved against the defaults.
-   *
-   * Read in one place because two things depend on it agreeing: the stages a run starts, and the
-   * agents the shared workspace image is built for.
-   */
-  const stagesFor = async (args: { treeId: string; ownerId: string }): Promise<GroveStages> => {
-    const tree = (await services.grove?.trees.list() ?? []).find((entry) => entry.id === args.treeId && entry.ownerId === args.ownerId);
-    const treeTypes = services.grove?.treeTypes;
-    // A type somebody edited is a row of their own beside the shipped one, and theirs is the row that
-    // names the stages. Taking the first match walks straight past it into the defaults.
-    const type = treeTypes
-      ? await resolveTreeType({ getTreeTypes: async () => treeTypes(args.ownerId) }, args.ownerId, tree?.type)
-      : undefined;
-    return stagesOf(type);
-  };
-
-  const treeAccess = async (treeId: string, ownerId: string) => {
-    if (!services.treeWorkspaces) throw new Error('tree workspaces are not wired, so there is no worktree to prepare');
-    if (!services.grove) throw new Error('grove stores are not wired, so the tree\'s leaves cannot be read');
-    const shared = await services.treeWorkspaces.describe({
-      treeId,
-      ownerId,
-      agents: Object.values(await stagesFor({ treeId, ownerId })),
-    });
-    const driver = await services.environments.forRun({
-      ticket: { runId: `grove-${treeId}-prepare`, depth: 0, ownerId, agentSlug: 'grove-runner', trigger: 'user' },
-      environment: { id: shared.id, spec: shared.capabilities, workspace: shared.workspace },
-    });
-    if (!driver) throw new Error('the tree sandbox could not be reached to prepare worktrees');
-    const worktreeDriver = async (worktree: string) => {
-      const narrowed = await services.environments.forRun({
-        ticket: { runId: `grove-${treeId}-prepare`, depth: 0, ownerId, agentSlug: 'grove-runner', trigger: 'user' },
-        environment: { id: shared.id, spec: shared.capabilities, workspace: shared.workspace, scope: { worktree } },
-      });
-      if (!narrowed) throw new Error(`the tree sandbox could not be reached in ${worktree}`);
-      return narrowed;
-    };
-    return { driver, worktreeDriver, leaves: (await services.grove.leaves.list()).filter((leaf) => leaf.ownerId === ownerId) };
-  };
-
-  const treeLeaves = async (treeId: string, ownerId: string) => {
-    const branchIds = new Set((await services.grove!.branches.list()).filter((branch) => branch.treeId === treeId).map((branch) => branch.id));
-    return (await services.grove!.leaves.list()).filter((leaf) => leaf.ownerId === ownerId && branchIds.has(leaf.branchId));
-  };
-
-  const openLeafProposals = async (ownerId: string, leafIds: string[]) => {
-    const inTree = new Set(leafIds);
-    return (await services.plans!.list(ownerId)).filter((proposal) =>
-      proposal.leafPlan && inTree.has(proposal.leafPlan.leafId) && (proposal.status === 'proposed' || proposal.status === 'adopting'));
-  };
-
   const adoption = (): PlanAdoption => {
     if (!services.planAdoption) throw new Error('plan adoption is not wired, so an approved plan cannot be built');
     return services.planAdoption;
@@ -292,175 +213,19 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       return services.merges.run(args);
     },
 
-    async GroveWorkspaceActivity(args: GroveWorkspaceArgs): Promise<TreeSandbox> {
-      if (!services.treeWorkspaces) throw new Error('tree workspaces are not wired, so a grove run has nowhere to work');
-      // The image has to hold what the type's own stage agents need, not only what the defaults do.
-      return services.treeWorkspaces.describe({ ...args, agents: Object.values(await stagesFor(args)) });
-    },
-
-    async GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void> {
-      if (!services.treeWorkspaces) throw new Error('tree workspaces are not wired, so there is no pod to park');
-      await services.treeWorkspaces.park(args.treeId);
-    },
-
-    async GrovePrepareWorkActivity(args) {
-      const { driver, leaves } = await treeAccess(args.treeId, args.ownerId);
-      await pruneLeafWorktrees(driver, (await treeLeaves(args.treeId, args.ownerId)).map((leaf) => leaf.id));
-      const prepared: GrovePreparedWork = { ready: [], failed: [] };
-      for (const leafId of args.leafIds) {
-        const leaf = leaves.find((entry) => entry.id === leafId);
-        if (!leaf) continue;
-        const dependencies = (leaf.dependsOn ?? []).map((id) => {
-          const commit = leaves.find((entry) => entry.id === id)?.claim?.commit;
-          return { leafId: id, ...(commit ? { commit } : {}) };
-        });
-        try {
-          await prepareLeafWorktree(driver, leafId, dependencies);
-          prepared.ready.push(leafId);
-        } catch (err) {
-          if (!(err instanceof WorktreeConflictError)) throw err;
-          const reason = `could not prepare its worktree: ${err.message}`;
-          await services.grove?.leaves.save?.({ ...leaf, status: 'failed', findings: reason, updatedAt: new Date().toISOString() });
-          prepared.failed.push({ leafId, reason });
-        }
-      }
-      return prepared;
-    },
-
-    async GroveLeafStatusActivity(args) {
-      const save = services.grove?.leaves.save;
-      if (!services.grove || !save) throw new Error('grove stores are not wired for writing, so a leaf\'s status cannot change');
-      const leaf = (await services.grove.leaves.list()).find((entry) => entry.id === args.leafId && entry.ownerId === args.ownerId);
-      if (!leaf || !(args.from as string[]).includes(leaf.status)) return false;
-      await save({ ...leaf, status: args.to, updatedAt: new Date().toISOString() });
-      return true;
-    },
-
-    async GroveStagesActivity(args) {
-      return stagesFor(args);
-    },
-
-    async GroveResetInFlightActivity(args) {
-      const save = services.grove?.leaves.save;
-      if (!save) throw new Error('grove stores are not wired for writing, so stranded leaves cannot be reset');
-      const stranded = (await treeLeaves(args.treeId, args.ownerId)).filter((leaf) => leaf.status === 'running');
-      for (const leaf of stranded) await save({ ...leaf, status: 'pending', updatedAt: new Date().toISOString() });
-      return stranded.map((leaf) => leaf.id);
-    },
-
-    async GroveClaimActivity(args) {
-      const saveLeaf = services.grove?.leaves.save;
-      if (!services.tasks || !services.grove || !saveLeaf) throw new Error('the grove stores are not wired for claiming');
-      const { worktreeDriver } = await treeAccess(args.treeId, args.ownerId);
-      const driver = await worktreeDriver(leafWorktree(args.leafId));
-      const leaves = services.grove.leaves;
-      const tasks = (await services.tasks.list(args.ownerId)).filter((task) => task.leafId === args.leafId);
-
-      if (args.result === 'claimed') {
-        const leaf = (await leaves.list()).find((entry) => entry.id === args.leafId);
-        const left = await driver.exec({ command: 'git status --porcelain', timeoutMs: 60_000 });
-        if (left.exitCode === 0 && left.stdout.trim()) {
-          const message = `leaf ${leaf?.title ?? args.leafId}: work its tasks left uncommitted`;
-          await driver.exec({ command: `git add -A && git commit -q -m '${message.replace(/'/g, `'\\''`)}'`, timeoutMs: 60_000 });
-        }
-      }
-
-      const refuse = async (): Promise<void> => { throw new Error('claiming only writes the leaf'); };
-      const tools = createGroveTools({
-        stores: {
-          trees: { list: services.grove.trees.list, save: refuse },
-          branches: { list: services.grove.branches.list, save: refuse },
-          leaves: { list: leaves.list, save: saveLeaf },
-          tasks: { list: services.grove.tasks.list },
-        },
-      });
-      const outcome = await tools['claim_leaf']!({
-        name: 'claim_leaf',
-        parsed: {
-          leafId: args.leafId,
-          result: args.result,
-          evidence: claimEvidenceFor(tasks, args.evidence),
-          ...(args.reason ? { reason: args.reason } : {}),
-        },
-        driver,
-        caller: { ownerId: args.ownerId, runId: `grove-${args.treeId}-claim-${args.leafId}`, agentSlug: 'grove-leaf-runner' },
-      });
-      return { ok: outcome.ok, digest: outcome.digest };
-    },
-
-    async GroveNeedsPlanActivity(args) {
-      if (!services.grove || !services.tasks || !services.plans) throw new Error('the grove, task and plan stores are not wired for replanning');
-      const leaves = await treeLeaves(args.treeId, args.ownerId);
-      const open = await openLeafProposals(args.ownerId, leaves.map((leaf) => leaf.id));
-      return leavesNeedingPlan(leaves, await services.tasks.list(args.ownerId), new Set(open.map((proposal) => proposal.leafPlan!.leafId)));
-    },
-
-    async GroveOpenProposalsActivity(args) {
-      if (!services.plans) return [];
-      const leaves = await treeLeaves(args.treeId, args.ownerId);
-      return (await openLeafProposals(args.ownerId, leaves.map((leaf) => leaf.id))).map((proposal) => proposal.id);
-    },
-
-    async GroveJudgeCheckoutActivity(args) {
-      const { driver, leaves } = await treeAccess(args.treeId, args.ownerId);
-      const checkouts: GroveJudgeCheckouts = {};
-      for (const leafId of args.leafIds) {
-        const commit = leaves.find((entry) => entry.id === leafId)?.claim?.commit;
-        checkouts[leafId] = await prepareJudgeCheckout(driver, leafId, commit);
-      }
-      return checkouts;
-    },
-
-    /**
-     * The checks a leaf's tasks carry, run in the checkout its claim points at.
-     *
-     * A check is code — a file, a pattern, a command, an endpoint — so a claim that fails one is
-     * settled against here, with the report as its reason, and never reaches the judge. Settling it
-     * failed is what already sends a leaf back to be replanned with the failure in hand.
-     */
-    async GroveCheckClaimsActivity(args) {
-      const saveLeaf = services.grove?.leaves.save;
-      if (!services.tasks || !services.grove || !saveLeaf) return { settled: {} };
-
-      const { worktreeDriver } = await treeAccess(args.treeId, args.ownerId);
-      const tasks = await services.tasks.list(args.ownerId);
-      const settled: Record<string, string> = {};
-
-      for (const leafId of args.leafIds) {
-        const withChecks = tasks.filter((task) => task.leafId === leafId && task.checks);
-        if (withChecks.length === 0) continue;
-
-        const worktree = args.checkouts[leafId] ? judgeCheckout(leafId) : leafWorktree(leafId);
-        const driver = await worktreeDriver(worktree);
-        const environment = {
-          exec: async (command: string) => driver.exec({ command, timeoutMs: 60_000 }),
-          readFile: (path: string) => driver.readFile(path).catch(() => undefined),
-        };
-
-        const outcomes: CheckOutcome[] = [];
-        for (const task of withChecks) outcomes.push(...await runTaskChecks(environment, task.checks));
-        if (!checksFailed(outcomes)) continue;
-
-        const report = checkReport(outcomes);
-        const refuse = async (): Promise<void> => { throw new Error('checking a claim only writes the leaf'); };
-        const tools = createGroveTools({
-          stores: {
-            trees: { list: services.grove.trees.list, save: refuse },
-            branches: { list: services.grove.branches.list, save: refuse },
-            leaves: { list: services.grove.leaves.list, save: saveLeaf },
-            tasks: { list: services.grove.tasks.list },
-          },
-        });
-        await tools['settle_leaf']!({
-          name: 'settle_leaf',
-          parsed: { leafId, verdict: 'failed', note: `its own checks failed:\n${report}` },
-          driver,
-          caller: { ownerId: args.ownerId, runId: `grove-${args.treeId}-checks-${leafId}`, agentSlug: 'grove-check-runner' },
-        });
-        settled[leafId] = report;
-      }
-
-      return { settled };
+    async GroveRunInputActivity(args) {
+      const tree = (await services.grove?.trees.list() ?? []).find((entry) => entry.id === args.treeId && entry.ownerId === args.ownerId);
+      if (!tree) throw ApplicationFailure.nonRetryable(`there is no tree "${args.treeId}" to run`, 'GroveTreeMissing');
+      const treeTypes = services.grove?.treeTypes;
+      const type = treeTypes ? await resolveTreeType({ getTreeTypes: async () => treeTypes(args.ownerId) }, args.ownerId, tree.type) : undefined;
+      const agentSlug = groveAgentOf(type);
+      const runnable = await services.registry.runnable(args.ownerId, agentSlug);
+      if (!runnable) throw ApplicationFailure.nonRetryable(`there is no agent called "${agentSlug}" to grow this tree`, 'GroveAgentMissing');
+      return {
+        ticket: { runId: groveRunWorkflowId(args.treeId), depth: 0, ownerId: args.ownerId, agentSlug, trigger: 'user' },
+        procedure: runnable.procedure,
+        inputs: { treeId: args.treeId, message: 'Grow the tree.' },
+      };
     },
 
     async PlanAdoptRecordsActivity(args) {
@@ -477,42 +242,6 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
         ...(args.adopted ? { adopted: args.adopted } : {}),
         ...(args.reason ? { reason: args.reason } : {}),
       });
-    },
-
-    async GrovePartitionActivity(args: GrovePartitionArgs): Promise<GrovePartition> {
-      if (!services.grove) throw new Error('grove stores are not wired, so the grove partition cannot run');
-
-      const readOnlySave = async (): Promise<void> => {
-        throw new Error('the grove partition is read-only');
-      };
-      const tools = createGroveTools({
-        stores: {
-          trees: { list: services.grove.trees.list, save: readOnlySave },
-          branches: { list: services.grove.branches.list, save: readOnlySave },
-          leaves: { list: services.grove.leaves.list, save: readOnlySave },
-          tasks: { list: services.grove.tasks.list },
-        },
-      });
-      const outcome = await tools['ready_leaves']!({
-        name: 'ready_leaves',
-        parsed: { treeId: args.treeId },
-        driver: undefined,
-        caller: { ownerId: args.ownerId, runId: 'partition', agentSlug: 'grove-runner' },
-      });
-      if (!outcome.ok) throw new Error(`grove partition failed: ${outcome.digest}`);
-
-      const parsed = JSON.parse(outcome.content ?? '{}') as {
-        ready?: unknown[];
-        claimed?: unknown[];
-        awaitingReview?: unknown[];
-        settled?: unknown[];
-      };
-      return {
-        ready: (parsed.ready ?? []) as GrovePartition['ready'],
-        claimed: (parsed.claimed ?? []) as GrovePartition['claimed'],
-        awaitingReview: (parsed.awaitingReview ?? []) as GrovePartition['awaitingReview'],
-        settledCount: (parsed.settled ?? []).length,
-      };
     },
 
     EngineNodeActivity: createNodeRunner(services.hostNodes ?? [], services.bus, { runCancelled: services.runCancelled }),

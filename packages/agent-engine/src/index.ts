@@ -144,5 +144,4 @@ export {
   ALL_SEEDED_AGENTS,
   seededAgentSlugs,
   definedToolNames,
-  STANDARD_HOST_TOOL_NAMES,
 } from './agent/seeds.js';

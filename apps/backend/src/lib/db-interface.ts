@@ -13,6 +13,9 @@ import type { Task } from '../engine-host/tools/tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 import type { SecretRequest } from './secret-requests.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
+import type { ExtensionSettings } from './extension-settings.js';
+import type { AuthoredExtension } from './authored-extensions.js';
+import type { InstanceRecord, JoinToken } from './instances.js';
 import type { ProcedureSource } from './procedure-source.js';
 import type { StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -156,6 +159,17 @@ export interface Database {
   getActionProposal(ownerId: string, id: string): Promise<ActionProposal | undefined>;
   saveActionProposal(proposal: ActionProposal): Promise<void>;
 
+  getExtensionSettings(ownerId: string): Promise<ExtensionSettings | undefined>;
+  getAuthoredExtensions(ownerId: string): Promise<AuthoredExtension[]>;
+  claimHandoff(jti: string, expiresAt: string): Promise<boolean>;
+  saveJoinToken(token: JoinToken): Promise<void>;
+  takeJoinToken(hash: string): Promise<JoinToken | undefined>;
+  getInstances(ownerId?: string): Promise<InstanceRecord[]>;
+  saveInstance(instance: InstanceRecord): Promise<void>;
+  deleteInstance(id: string): Promise<void>;
+  saveAuthoredExtension(extension: AuthoredExtension): Promise<void>;
+  deleteAuthoredExtension(ownerId: string, id: string): Promise<void>;
+  saveExtensionSettings(settings: ExtensionSettings): Promise<void>;
   getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]>;
   saveEgressGrant(grant: EgressGrantRecord): Promise<void>;
   getEgressRequests(ownerId: string, filter?: { conversationId?: string | undefined; treeId?: string | undefined }): Promise<EgressRequest[]>;

@@ -1,11 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { GitBranch, Save, Check, AlertTriangle, Plus } from 'lucide-react';
 import { listTreeTypes, updateTreeType, groveKeys } from '../../api/grove.js';
 import { errorMessage } from '../../api/client.js';
 import { card, blankTreeType, slugify, SLUG_PATTERN, type TreeType } from './shared.js';
 import { Overview } from './Overview.js';
-import { Stages } from './Stages.js';
+import { GroveAgent } from './GroveAgent.js';
 import { Scaffold } from './Scaffold.js';
 import { Bindings } from './Bindings.js';
 
@@ -37,10 +37,12 @@ export function TreeTypes() {
   // Reset the draft whenever a different tree type is selected, or the underlying record changes
   // out from under an unmodified draft (e.g. after this component's own save). Not while creating a
   // new one — there's no persisted record for that draft to resync against yet.
-  useEffect(() => {
+  const selectionKey = `${selected?.id ?? ''}|${isNew}`;
+  const [seenSelection, setSeenSelection] = useState<string>();
+  if (selectionKey !== seenSelection) {
+    setSeenSelection(selectionKey);
     if (!isNew && selected && (!draft || draft.id !== selected.id)) setDraft(selected);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id, isNew]);
+  }
 
   const idTaken = isNew && draft ? types.some((t) => t.id === draft.id) : false;
   const idValid = draft ? SLUG_PATTERN.test(draft.id) : false;
@@ -165,8 +167,8 @@ export function TreeTypes() {
                   />
                 </Section>
 
-                <Section title="Stages" hint="Which agent runs each stage of a tree of this type. A stage left to its default is resolved when the tree runs.">
-                  <Stages value={draft} onChange={patch} />
+                <Section title="Grown by" hint="The agent whose procedure grows a tree of this type, start to finish.">
+                  <GroveAgent value={draft} onChange={patch} />
                 </Section>
 
                 <Section title="Scaffold" hint="Starter files rendered into a fresh repository when a tree of this type is created.">

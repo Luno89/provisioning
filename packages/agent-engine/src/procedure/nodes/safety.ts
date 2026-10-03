@@ -95,18 +95,18 @@ export const checkToolFailures: BuiltInNode = {
     kind: 'check-tool-failures',
     title: 'Check Tool Failures',
     category: 'safety',
-    describe: 'Trips when tool calls keep failing one after another, across replies. A call the peer refused — a site that blocks fetches replying 403 or 401 — is not a failure and does not count.',
+    describe: 'Counts tool calls that fail one after another, across replies, and trips only once a limit you set is reached — with none set it never trips, and the model keeps working through failures. A call the peer refused — a site that blocks fetches replying 403 or 401 — is not a failure and does not count.',
     role: 'step',
     inputs: [{ name: 'results', type: 'toolResults', describe: 'The latest tool results.', required: true }],
     outputs: [REASON],
     exits: EXITS,
     settings: {
       type: 'object',
-      properties: { maxConsecutiveFailures: { type: 'integer', title: 'Failures in a row allowed', minimum: 1, default: 3 } },
+      properties: { maxConsecutiveFailures: { type: 'integer', title: 'Failures in a row allowed', describe: 'Leave empty to never stop on failures.', minimum: 1 } },
     },
     runs: 'workflow',
     idempotent: true,
-    summarize: (settings) => `stops after ${numberOf(settings, 'maxConsecutiveFailures', 3)} failed tool calls in a row`,
+    summarize: (settings) => (typeof settings.maxConsecutiveFailures === 'number' ? `stops after ${settings.maxConsecutiveFailures} failed tool calls in a row` : 'counts failed tool calls, and never stops on them'),
   }),
   implementation: stepImplementation('check-tool-failures', ({ node, inputs, previous }) => {
     const results = inputs.results as ToolResult[];
@@ -122,9 +122,9 @@ export const checkToolFailures: BuiltInNode = {
     }
 
     const state = { consecutive, counted: batch === undefined ? counted : [...counted, batch] };
-    const limit = numberOf(node.settings, 'maxConsecutiveFailures', 3);
+    const limit = typeof node.settings.maxConsecutiveFailures === 'number' ? node.settings.maxConsecutiveFailures : undefined;
 
-    return consecutive >= limit
+    return limit !== undefined && consecutive >= limit
       ? { exit: 'tripped', outputs: { ...state, reason: `${consecutive} tool calls failed in a row` } }
       : { exit: 'ok', outputs: state };
   }),

@@ -2,12 +2,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { createAgentRegistry, createStoredAgentRegistry } from './registry.js';
 import { createEndpointResolver, UnknownAgentError } from './endpoints.js';
 import {
-  ALL_SEEDED_AGENTS,
   type AgentDefinition,
   type ModelProvider,
   type ProcedureSource,
 } from '@koala/agent-engine';
-import { RESEARCH_V2 } from '@koala/agent-engine/procedure';
+import { RESEARCH_V2, defineGroup, type Procedure } from '@koala/agent-engine/procedure';
+import { seededPersonas } from '../../extensions/seeds.js';
+import { ENGINE_TOOL_SEEDS } from '../../lib/engine-tool-seeds.js';
 
 const provider = (over: Partial<ModelProvider> = {}): ModelProvider => ({
   id: 'endpoint-1',
@@ -36,7 +37,7 @@ describe('agent registry', () => {
 
   it('resolves every seeded agent to a procedure it can run', async () => {
     const registry = createAgentRegistry();
-    for (const agent of ALL_SEEDED_AGENTS()) {
+    for (const agent of seededPersonas()) {
       expect((await registry.runnable('user-1', agent.slug))?.procedure.id, agent.slug).toBe(agent.procedure);
     }
   });
@@ -46,10 +47,10 @@ describe('agent registry', () => {
   });
 
   it("prefers a user's own fork of an agent", async () => {
-    const koala = ALL_SEEDED_AGENTS().find((a) => a.slug === 'koala')!;
+    const koala = seededPersonas().find((a) => a.slug === 'koala')!;
     const fork: AgentDefinition = { ...koala, ownerId: 'user-1', name: 'My Koala' };
     const registry = createAgentRegistry({
-      agentStore: { list: async () => [...ALL_SEEDED_AGENTS(), fork] },
+      agentStore: { list: async () => [...seededPersonas(), fork] },
     });
 
     expect((await registry.agent('user-1', 'koala'))?.name).toBe('My Koala');
@@ -57,7 +58,7 @@ describe('agent registry', () => {
   });
 
   it('lists each built-in agent once, even when an old copy of it is still stored without an owner', async () => {
-    const leftover = { ...ALL_SEEDED_AGENTS().find((agent) => agent.slug === 'koala')!, name: 'Stale Koala' };
+    const leftover = { ...seededPersonas().find((agent) => agent.slug === 'koala')!, name: 'Stale Koala' };
     const mine = { ...leftover, ownerId: 'user-1', name: 'My Koala' };
     const registry = createStoredAgentRegistry({
       personas: { list: async () => [leftover, mine] },
@@ -69,6 +70,65 @@ describe('agent registry', () => {
     expect(slugs).toHaveLength(new Set(slugs).size);
     expect((await registry.agent('user-1', 'koala'))?.name).toBe('My Koala');
     expect((await registry.agent('user-2', 'koala'))?.name).toBe('Koala');
+  });
+
+  it('hides the agents and tools of an extension an owner switched off, from that owner alone', async () => {
+    const hidden = { extensions: new Set(['grove']), operations: new Set<string>(), groups: new Set<string>(), tools: new Set(['claim_leaf']), agents: new Set(['grove', 'grove-leaf']) };
+    const registry = createStoredAgentRegistry({
+      personas: { list: async () => [] },
+      procedures: { list: async () => [] },
+      tools: { list: async () => [...ENGINE_TOOL_SEEDS] },
+      hidden: async (ownerId) => (ownerId === 'user-1' ? hidden : { ...hidden, extensions: new Set(), tools: new Set(), agents: new Set() }),
+    });
+
+    const mine = (await registry.agents('user-1')).map((agent) => agent.slug);
+    expect(mine).not.toContain('grove');
+    expect(mine).toContain('koala');
+    expect((await registry.agents('user-2')).map((agent) => agent.slug)).toContain('grove');
+    expect((await registry.tools('user-1')).map((tool) => tool.name)).not.toContain('claim_leaf');
+    expect((await registry.tools('user-2')).map((tool) => tool.name)).toContain('claim_leaf');
+  });
+
+  it('hands a run the published groups its procedure uses, copied in so the workflow never has to look them up', async () => {
+    const shout = (id: string) => defineGroup(id, {
+      title: 'Shout', describe: 'Passes the text on.',
+      inputs: { text: { type: 'text', describe: 'What to say.', required: true } },
+      outputs: {},
+      exits: { done: { describe: 'It was said.' }, quiet: { describe: 'Nothing was said.' } },
+    }, (g) => {
+      const echo = g.condition('echo', { value: g.inputs.text }, { expression: 'true' });
+      g.start(echo);
+      echo.on('true', g.exits.done);
+      echo.on('false', g.exits.quiet);
+      g.layout({ echo: [0, 0] });
+    });
+    const published = shout('loud.shout@2');
+    const other = shout('loud.whisper@1');
+    const procedure: Procedure = {
+      ...RESEARCH_V2,
+      nodes: [...RESEARCH_V2.nodes, { id: 'hello', kind: 'text', settings: { text: 'hi' }, position: { x: 0, y: 0 } }, { id: 'shout', kind: 'group', group: 'loud.shout@2', settings: {}, position: { x: 0, y: 0 } }],
+      wires: [...RESEARCH_V2.wires, { from: { node: 'hello', socket: 'text' }, to: { node: 'shout', socket: 'text' } }],
+      flow: [...RESEARCH_V2.flow, { from: 'shout', exit: 'done', to: RESEARCH_V2.start }, { from: 'shout', exit: 'quiet', to: RESEARCH_V2.start }],
+      start: 'shout',
+    };
+    const usesIt = stored({ ownerId: 'user-1', procedure });
+    const registry = createStoredAgentRegistry({
+      personas: { list: async () => [] },
+      procedures: { list: async () => [usesIt] },
+      published: async (ownerId) => (ownerId === 'user-1' ? [published, other] : []),
+    });
+
+    const runnable = await registry.runnable('user-1', 'research');
+    expect(runnable?.procedure.groups.map((group) => group.id)).toEqual(['loud.shout@2']);
+
+    const off = { extensions: new Set(['loud']), operations: new Set<string>(), groups: new Set(['loud.shout@2', 'loud.whisper@1']), tools: new Set<string>(), agents: new Set<string>() };
+    const switchedOff = createStoredAgentRegistry({
+      personas: { list: async () => [] },
+      procedures: { list: async () => [usesIt] },
+      published: async () => [published, other],
+      hidden: async (ownerId) => (ownerId === 'user-1' ? off : { ...off, groups: new Set<string>() }),
+    });
+    await expect(switchedOff.runnable('user-1', 'research')).rejects.toThrow(/research cannot run: "shout" uses the group loud.shout@2, from an extension that is switched off/);
   });
 
   it("serves a user's own copy of a procedure to that user only", async () => {
@@ -159,7 +219,7 @@ describe('endpoint resolver', () => {
   });
 
   it("routes through the agent's own endpoint binding when it has one", async () => {
-    const koala = ALL_SEEDED_AGENTS().find((a) => a.slug === 'koala')!;
+    const koala = seededPersonas().find((a) => a.slug === 'koala')!;
     const pinned: AgentDefinition = { ...koala, model: { endpointId: 'endpoint-9' } };
     const service = models();
     const resolver = createEndpointResolver({

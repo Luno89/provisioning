@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { encryptValue, decryptValue, maskSecret } from './crypto.js';
+import crypto from 'crypto';
+import { encryptValue, decryptValue, maskSecret, keyId, needsReencryption, looksEncrypted } from './crypto.js';
 
 const TEST_KEY = 'test-master-key-for-unit-tests-only';
 
@@ -74,6 +75,39 @@ describe('crypto', () => {
 
     it('handles exact boundary length', () => {
       expect(maskSecret('12345678', 4, 4)).toBe('****');
+    });
+  });
+
+  describe('keys that change', () => {
+    const legacy = (plaintext: string, secret: string): string => {
+      const key = crypto.scryptSync(secret, 'ianthe-credential-encryption-v1', 32);
+      const iv = crypto.randomBytes(16);
+      const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+      const body = cipher.update(plaintext, 'utf8', 'hex') + cipher.final('hex');
+      return `${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${body}`;
+    };
+
+    it('says which key it used, so a rotated key is told apart from a wrong one', () => {
+      const encrypted = encryptValue('hello', 'key-one');
+      expect(encrypted).toMatch(new RegExp(`^v2:${keyId('key-one')}:`));
+      expect(() => decryptValue(encrypted, 'key-two')).toThrow(`encrypted with key ${keyId('key-one')}, which this platform no longer holds`);
+    });
+
+    it('opens what an older key wrote, and anything written before keys had ids', () => {
+      const ring = { current: 'new-key', previous: ['old-key'] };
+      expect(decryptValue(encryptValue('rotated', 'old-key'), ring)).toBe('rotated');
+      expect(decryptValue(legacy('before ids', 'old-key'), ring)).toBe('before ids');
+      expect(() => decryptValue(legacy('nobody', 'stranger'), ring)).toThrow();
+    });
+
+    it('writes only with the current key, and says what still needs moving onto it', () => {
+      const ring = { current: 'new-key', previous: ['old-key'] };
+      const fresh = encryptValue('x', ring);
+      expect(decryptValue(fresh, 'new-key')).toBe('x');
+      expect(needsReencryption(fresh, ring)).toBe(false);
+      expect(needsReencryption(encryptValue('x', 'old-key'), ring)).toBe(true);
+      expect(needsReencryption(legacy('x', 'new-key'), ring)).toBe(true);
+      expect(looksEncrypted('not:a:secret')).toBe(false);
     });
   });
 });

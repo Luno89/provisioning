@@ -1,12 +1,13 @@
 import { ApplicationFailure, ParentClosePolicy, proxyActivities, startChild } from '@temporalio/workflow';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
-import { GroveRunWorkflow } from './GroveRunWorkflow.js';
+import { AgentRunWorkflow } from './AgentRunWorkflow.js';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 import type { AdoptedRecords } from '../engine-host/plan-adoption.js';
 import type { AdoptedPlan } from '../lib/plan-proposals.js';
-import { groveRunWorkflowId, type AdoptPlanArgs, type AdoptPlanResult } from '../engine-host/temporal/contracts.js';
+import { groveRunWorkflowId, type AdoptPlanArgs, type AdoptPlanResult, type ProcedureRunInput } from '../engine-host/temporal/contracts.js';
 
-const { PlanAdoptRecordsActivity, PlanAdoptDocumentsActivity, PlanAdoptSettleActivity } = proxyActivities<{
+const { PlanAdoptRecordsActivity, PlanAdoptDocumentsActivity, PlanAdoptSettleActivity, GroveRunInputActivity } = proxyActivities<{
+  GroveRunInputActivity(args: { treeId: string; ownerId: string }): Promise<ProcedureRunInput>;
   PlanAdoptRecordsActivity(args: AdoptPlanArgs): Promise<AdoptedRecords>;
   PlanAdoptDocumentsActivity(args: AdoptPlanArgs & { records: AdoptedRecords }): Promise<string>;
   PlanAdoptSettleActivity(args: AdoptPlanArgs & { status: 'adopted' | 'failed'; adopted?: AdoptedPlan | undefined; reason?: string | undefined }): Promise<void>;
@@ -37,9 +38,10 @@ export async function AdoptPlanWorkflow(args: AdoptPlanArgs): Promise<AdoptPlanR
 
 async function runTreeAgain(treeId: string, ownerId: string): Promise<void> {
   try {
-    await startChild(GroveRunWorkflow, {
+    const input = await GroveRunInputActivity({ treeId, ownerId });
+    await startChild(AgentRunWorkflow, {
       workflowId: groveRunWorkflowId(treeId),
-      args: [{ treeId, ownerId }],
+      args: [input],
       parentClosePolicy: ParentClosePolicy.ABANDON,
     });
   } catch (err) {

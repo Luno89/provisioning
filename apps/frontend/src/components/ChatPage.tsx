@@ -1,4 +1,4 @@
-import { useRouter } from '@tanstack/react-router';
+import { useRouter, type NavigateOptions } from '@tanstack/react-router';
 import { useState, useEffect } from 'react';
 import { parseHash } from '../lib/route.js';
 import { useShellStore } from '../stores/shell.js';
@@ -19,14 +19,14 @@ function useSafeChatParams() {
 
   useEffect(() => {
     if (!router?.subscribe) return;
-    return router.subscribe('onResolved', (evt: any) => {
-      setParams(getParams(evt?.toLocation?.pathname));
+    return router.subscribe('onResolved', (evt) => {
+      setParams(getParams(evt.toLocation.pathname));
     });
   }, [router]);
 
   return {
     conversationId: params.conversationId,
-    navigate: router ? (opts: any) => router.navigate(opts) : null,
+    navigate: router ? (opts: NavigateOptions) => router.navigate(opts) : null,
   };
 }
 

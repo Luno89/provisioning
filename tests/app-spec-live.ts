@@ -8,6 +8,7 @@ import axios, { type AxiosInstance } from 'axios';
 import { signJWT } from '../apps/backend/src/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
 import type { ActionProposal } from '../apps/backend/src/lib/action-proposals.js';
+import { loadKeys } from '../apps/backend/src/lib/keys.js';
 
 const BASE = process.env.APP_SPEC_LIVE_URL ?? 'http://localhost:3001/api';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -42,7 +43,7 @@ async function main(): Promise<void> {
   assert.ok(ownerId);
   const user = await db.getUserById(ownerId);
   assert.ok(user);
-  const secret = process.env.JWT_SECRET;
+  const secret = loadKeys(process.env).session;
   assert.ok(secret);
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, secret, 3600)}` } });
 

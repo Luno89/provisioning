@@ -1,9 +1,14 @@
 import { defineNode, type SocketSpec } from '../definition.js';
+import type { GroupSetting } from '../settings-schema.js';
 import type { BuiltInNode } from '../implementation.js';
 import { SOCKET_TYPES, isSocketType, type SocketType } from '../sockets.js';
 import { numberOf, textOf } from './read.js';
 
 export const CODE_KIND = 'code';
+
+export const RUN_CODE_KIND = 'run-code';
+
+export const CODE_KINDS: readonly string[] = [CODE_KIND, RUN_CODE_KIND];
 
 export const DEFAULT_CODE_TIMEOUT_MS = 30_000;
 
@@ -31,7 +36,7 @@ export function declaredSockets(settings: Readonly<Record<string, unknown>>, key
   });
 }
 
-export function codeProblems(settings: Readonly<Record<string, unknown>>): string[] {
+export function codeProblems(settings: Readonly<Record<string, unknown>>, kind: string = CODE_KIND): string[] {
   const problems: string[] = [];
   if (!textOf(settings, 'body').trim()) problems.push('a code node needs a body to run');
 
@@ -54,7 +59,10 @@ export function codeProblems(settings: Readonly<Record<string, unknown>>): strin
   if (declaredSockets(settings, 'inputs').some((socket) => socket.name === ENVIRONMENT.name)) {
     problems.push('"environment" is the workspace socket every code node already has, so it cannot be declared again');
   }
-  if (declaredSockets(settings, 'outputs').length === 0) problems.push('a code node has to hand something back, so it needs at least one output');
+  if (kind === CODE_KIND && declaredSockets(settings, 'outputs').length === 0) problems.push('a code node has to hand something back, so it needs at least one output');
+  if (kind === RUN_CODE_KIND && declaredSockets(settings, 'outputs').some((socket) => socket.name === RUN_CODE_ERROR.name)) {
+    problems.push('"error" is where a failed run says what went wrong, so it cannot be declared as an output');
+  }
   return problems;
 }
 
@@ -81,6 +89,30 @@ const ENVIRONMENT: SocketSpec = {
   required: true,
 };
 
+const CODE_SETTINGS: GroupSetting = {
+  type: 'object',
+  required: ['body'],
+  properties: {
+    body: {
+      type: 'string',
+      title: 'Body',
+      describe: 'JavaScript. It is given "inputs" and returns an object with the values it declares. Top-level await works.',
+      multiline: true,
+      default: 'return { result: inputs }',
+    },
+    inputs: SOCKET_LIST('Values it takes', 'Each one becomes a socket you can wire into, and a key on "inputs".'),
+    outputs: SOCKET_LIST('Values it hands back', 'Each one becomes a socket you can wire out of, and a key on what the body returns.'),
+    timeoutMs: {
+      type: 'integer',
+      title: 'Give up after',
+      describe: 'Milliseconds before the body is stopped.',
+      minimum: 100,
+      maximum: 600_000,
+      default: DEFAULT_CODE_TIMEOUT_MS,
+    },
+  },
+};
+
 export const code: BuiltInNode = {
   definition: defineNode({
     kind: CODE_KIND,
@@ -91,29 +123,7 @@ export const code: BuiltInNode = {
     inputs: [],
     outputs: [],
     exits: [],
-    settings: {
-      type: 'object',
-      required: ['body'],
-      properties: {
-        body: {
-          type: 'string',
-          title: 'Body',
-          describe: 'JavaScript. It is given "inputs" and returns an object with the values it declares. Top-level await works.',
-          multiline: true,
-          default: 'return { result: inputs }',
-        },
-        inputs: SOCKET_LIST('Values it takes', 'Each one becomes a socket you can wire into, and a key on "inputs".'),
-        outputs: SOCKET_LIST('Values it hands back', 'Each one becomes a socket you can wire out of, and a key on what the body returns.'),
-        timeoutMs: {
-          type: 'integer',
-          title: 'Give up after',
-          describe: 'Milliseconds before the body is stopped.',
-          minimum: 100,
-          maximum: 600_000,
-          default: DEFAULT_CODE_TIMEOUT_MS,
-        },
-      },
-    },
+    settings: CODE_SETTINGS,
     runs: 'sandbox',
     idempotent: false,
     summarize: (settings) => {
@@ -131,4 +141,34 @@ export const code: BuiltInNode = {
 export const codeTimeout = (settings: Readonly<Record<string, unknown>>): number =>
   numberOf(settings, 'timeoutMs', DEFAULT_CODE_TIMEOUT_MS);
 
-export const CODE_NODES = [code];
+const RUN_CODE_ERROR: SocketSpec = { name: 'error', type: 'text', describe: 'What went wrong, when the code threw or ran out of time.' };
+
+export const runCode: BuiltInNode = {
+  definition: defineNode({
+    kind: RUN_CODE_KIND,
+    title: 'Run Code',
+    category: 'environment',
+    describe: 'Runs a piece of JavaScript you wrote, once, at this point in the flow, in this run\'s own sandbox. Use it for code that changes something — writes a file, calls a service — or that is too slow to run again: unlike Code, which is worked out afresh by every step that reads it, this runs exactly when the flow reaches it, and what it hands back is kept.',
+    role: 'step',
+    inputs: [],
+    outputs: [],
+    exits: [
+      { name: 'ok', describe: 'The code ran and handed back what it declares.' },
+      { name: 'failed', describe: 'The code threw or ran out of time, and "error" says why.' },
+    ],
+    settings: CODE_SETTINGS,
+    runs: 'sandbox',
+    idempotent: false,
+    summarize: (settings) => {
+      const outputs = declaredSockets(settings, 'outputs').map((socket) => socket.name);
+      return outputs.length > 0 ? `runs your code once for ${outputs.join(', ')}` : 'runs your code once';
+    },
+    check: (settings) => codeProblems(settings, RUN_CODE_KIND),
+    sockets: (settings) => ({
+      inputs: [ENVIRONMENT, ...declaredSockets(settings, 'inputs')],
+      outputs: [...declaredSockets(settings, 'outputs'), RUN_CODE_ERROR],
+    }),
+  }),
+};
+
+export const CODE_NODES = [code, runCode];

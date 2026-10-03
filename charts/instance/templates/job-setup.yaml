@@ -1,0 +1,45 @@
+{{- range $step := list "platform-services" "seed" }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "instance.name" $ }}-{{ $step }}
+  labels: {{- include "instance.labels" $ | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: {{ if eq $step "platform-services" }}"0"{{ else }}"1"{{ end }}
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels: {{- include "instance.labels" $ | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "instance.name" $ }}
+      restartPolicy: Never
+      containers:
+        - name: {{ $step }}
+          image: {{ include "instance.image" $ }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          args: [{{ $step | quote }}]
+          envFrom:
+            - configMapRef:
+                name: {{ include "instance.name" $ }}-env
+            - secretRef:
+                name: {{ include "instance.name" $ }}-keys
+          env:
+            - name: MONGO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "instance.name" $ }}-keys
+                  key: MONGO_ROOT_PASSWORD
+            - name: MONGO_URI
+              value: mongodb://admin:$(MONGO_ROOT_PASSWORD)@{{ include "instance.name" $ }}-mongo:27017/provisioning?authSource=admin
+          volumeMounts:
+            - name: data
+              mountPath: /app/apps/backend/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "instance.name" $ }}-data
+{{- end }}

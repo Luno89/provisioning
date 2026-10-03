@@ -47,12 +47,12 @@ describe('seeding an owner\'s tree types', () => {
     await db.init();
     await seedTreeTypes(db);
 
-    // An install from before the type named a work agent.
+    // An install from before the type named its grove agent.
     const shipped = (await db.getTreeTypes()).find((t) => t.id === 'research-paper')!;
-    await db.saveTreeType({ ...shipped, stages: undefined });
+    await db.saveTreeType({ ...shipped, agent: undefined });
 
     expect(await seedTreeTypes(db)).toBe(1);
-    expect((await db.getTreeTypes()).find((t) => t.id === 'research-paper')?.stages).toEqual({ work: 'paper-writer' });
+    expect((await db.getTreeTypes()).find((t) => t.id === 'research-paper')?.agent).toBe('grove-paper');
   });
 
   it('adds a type shipped later without touching the rest', async () => {

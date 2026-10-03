@@ -1,9 +1,11 @@
+import { SwitchedOffError, switchedOffProblems, type HiddenVocabulary } from '../../lib/extension-settings.js';
+import { referencedPublished } from '../../lib/authored-extensions.js';
+import type { GroupDefinition } from '@koala/agent-engine/procedure';
 import {
   resolveAgent,
   visibleAgents,
   type AgentDefinition,
   type Persona,
-  ALL_SEEDED_AGENTS,
   contractsFor,
   BUILDER_TOOLS,
 } from '@koala/agent-engine';
@@ -11,6 +13,7 @@ import type { Procedure } from '@koala/agent-engine/procedure';
 import { createStoredToolCatalogue, type ToolReader } from './tool-catalogue-store.js';
 import { createProcedureStore, type OwnedProcedure, type ProcedureReader, type ProcedureStore } from './procedure-store.js';
 import type { ToolContract } from '@koala/engine-core';
+import { seededPersonas } from '../../extensions/seeds.js';
 
 export interface AgentStore {
   list(ownerId: string): Promise<AgentDefinition[]>;
@@ -41,22 +44,56 @@ export interface RegistryOptions {
   toolCatalogue?: ToolCatalogue | undefined;
 }
 
+export async function withPublished(procedure: Procedure, published: readonly GroupDefinition[]): Promise<Procedure> {
+  const own = new Set(procedure.groups.map((group) => group.id));
+  const wanted = referencedPublished(procedure).filter((id) => !own.has(id));
+  if (wanted.length === 0) return procedure;
+  const byId = new Map(published.map((group) => [group.id, group]));
+  return { ...procedure, groups: [...procedure.groups, ...wanted.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []))] };
+}
+
 export function createStoredAgentRegistry(options: {
   personas: { list(ownerId?: string): Promise<Persona[]> };
   procedures: ProcedureReader;
   tools?: ToolReader | undefined;
   toolCatalogue?: ToolCatalogue | undefined;
+  hidden?: ((ownerId: string) => Promise<HiddenVocabulary>) | undefined;
+  published?: ((ownerId: string) => Promise<GroupDefinition[]>) | undefined;
 }): AgentRegistry {
-  return createAgentRegistry({
+  const hiddenFor = async (ownerId: string | undefined) => (ownerId && options.hidden ? options.hidden(ownerId) : undefined);
+  const tools = catalogueFor(options);
+  const registry = createAgentRegistry({
     agentStore: {
-      list: async (ownerId) => [
-        ...ALL_SEEDED_AGENTS(),
-        ...(await options.personas.list(ownerId)).filter((row) => row.ownerId !== undefined),
-      ],
+      list: async (ownerId) => {
+        const hidden = await hiddenFor(ownerId);
+        return [
+          ...seededPersonas().filter((persona) => !hidden?.agents.has(persona.slug)),
+          ...(await options.personas.list(ownerId)).filter((row) => row.ownerId !== undefined && !hidden?.agents.has(row.slug)),
+        ];
+      },
     },
-    procedureStore: createProcedureStore({ sources: options.procedures }),
-    ...(catalogueFor(options) ? { toolCatalogue: catalogueFor(options)! } : {}),
+    procedureStore: createProcedureStore({ sources: options.procedures, ...(options.published ? { published: options.published } : {}) }),
+    ...(tools ? {
+      toolCatalogue: {
+        list: async (ownerId: string) => {
+          const hidden = await hiddenFor(ownerId);
+          return (await tools.list(ownerId)).filter((tool) => !hidden?.tools.has(tool.name));
+        },
+      },
+    } : {}),
   });
+  if (!options.published && !options.hidden) return registry;
+  return {
+    ...registry,
+    async runnable(ownerId: string, slug: string, procedureId?: string) {
+      const found = await registry.runnable(ownerId, slug, procedureId);
+      if (!found) return found;
+      const hidden = await hiddenFor(ownerId);
+      const refused = hidden ? switchedOffProblems(found.procedure, hidden) : [];
+      if (refused.length > 0) throw new SwitchedOffError(found.procedure.id, refused);
+      return options.published ? { ...found, procedure: await withPublished(found.procedure, await options.published(ownerId)) } : found;
+    },
+  };
 }
 
 function catalogueFor(options: {
@@ -71,7 +108,7 @@ function catalogueFor(options: {
   return { list: async (ownerId: string) => contractsFor(await stored.list(ownerId)) };
 }
 
-const seededAgentStore: AgentStore = { list: async () => ALL_SEEDED_AGENTS() };
+const seededAgentStore: AgentStore = { list: async () => seededPersonas() };
 const seededToolCatalogue: ToolCatalogue = { list: async () => contractsFor(BUILDER_TOOLS) };
 
 export function createAgentRegistry(options: RegistryOptions = {}): AgentRegistry {

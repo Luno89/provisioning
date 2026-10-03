@@ -7,25 +7,27 @@ import { asyncRoute } from '../middleware/async-route.js';
 import type { Auth } from '../middleware/auth.js';
 import type { Database } from '../lib/db-interface.js';
 import type { AuthService } from '../services/AuthService.js';
+import type { SecretKey } from '../lib/crypto.js';
 
 export interface AuthRouterDeps {
   db: Database;
   authService: AuthService;
   auth: Auth;
-  jwtSecret: string;
+  sessionKey: SecretKey;
   publicUrl: string;
   appUrl: string;
+  accounts?: boolean | undefined;
 }
 
 export function authRouter(deps: AuthRouterDeps): Router {
   const router = Router();
-  const { db, authService, jwtSecret, publicUrl, appUrl } = deps;
+  const accountRoutes = deps.accounts === false ? Router() : router;
+  const { db, authService, sessionKey, publicUrl, appUrl } = deps;
   const { setSessionCookie, checkAndConsumeInvite, sessionCookieOptions } = deps.auth;
-  const JWT_SECRET = jwtSecret;
   const PUBLIC_URL = publicUrl;
   const APP_URL = appUrl;
 
-  router.post('/register', async (req, res) => {
+  accountRoutes.post('/register', async (req, res) => {
     try {
       let { email, password, inviteCode } = req.body;
       if (!email || !password) {
@@ -61,7 +63,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     }
   });
 
-  router.post('/login', async (req, res) => {
+  accountRoutes.post('/login', async (req, res) => {
     try {
       const { email, password } = req.body;
       if (!email || !password) {
@@ -82,7 +84,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
         return res.json({ twoFactorRequired: true, userId: user.id });
       }
 
-      const token = signJWT({ userId: user.id, email: user.email }, JWT_SECRET, 24 * 60 * 60);
+      const token = signJWT({ userId: user.id, email: user.email }, sessionKey, 24 * 60 * 60);
       setSessionCookie(res, token);
       res.json({
         success: true,
@@ -98,7 +100,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     }
   });
 
-  router.post('/2fa/verify', async (req, res) => {
+  accountRoutes.post('/2fa/verify', async (req, res) => {
     try {
       const { userId, code } = req.body;
       if (!userId || !code) {
@@ -114,7 +116,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
         return res.status(400).json({ error: 'Invalid or expired 2FA code' });
       }
 
-      const token = signJWT({ userId: user.id, email: user.email }, JWT_SECRET, 24 * 60 * 60);
+      const token = signJWT({ userId: user.id, email: user.email }, sessionKey, 24 * 60 * 60);
       setSessionCookie(res, token);
       res.json({
         success: true,
@@ -152,7 +154,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     });
   });
 
-  router.post('/2fa/settings', async (req, res) => {
+  accountRoutes.post('/2fa/settings', async (req, res) => {
     try {
       const { enabled, phone, preferredMethod } = req.body;
       const user = (req as any).user;
@@ -177,7 +179,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     }
   });
 
-  router.get('/github', (req, res) => {
+  accountRoutes.get('/github', (req, res) => {
     const invite = typeof req.query.invite === 'string' ? req.query.invite : '';
     const githubId = process.env.GITHUB_CLIENT_ID;
     if (!githubId) {
@@ -190,7 +192,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     res.redirect(`https://github.com/login/oauth/authorize?client_id=${githubId}&redirect_uri=${redirectUri}&scope=user:email&state=${encodeURIComponent(invite)}`);
   });
 
-  router.get('/github/callback', async (req, res) => {
+  accountRoutes.get('/github/callback', async (req, res) => {
     try {
       const { code, state } = req.query;
       let email = 'mock-github-user@example.com';
@@ -253,7 +255,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
         await db.saveUser(user);
       }
 
-      const token = signJWT({ userId: user.id, email: user.email }, JWT_SECRET, 24 * 60 * 60);
+      const token = signJWT({ userId: user.id, email: user.email }, sessionKey, 24 * 60 * 60);
       setSessionCookie(res, token);
       res.redirect(`${APP_URL}/`);
     } catch (err: any) {
@@ -261,7 +263,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     }
   });
 
-  router.get('/google', (req, res) => {
+  accountRoutes.get('/google', (req, res) => {
     const invite = typeof req.query.invite === 'string' ? req.query.invite : '';
     const googleId = process.env.GOOGLE_CLIENT_ID;
     if (!googleId) {
@@ -274,7 +276,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleId}&redirect_uri=${redirectUri}&response_type=code&scope=email%20profile&state=${encodeURIComponent(invite)}`);
   });
 
-  router.get('/google/callback', async (req, res) => {
+  accountRoutes.get('/google/callback', async (req, res) => {
     try {
       const { code, state } = req.query;
       let email = 'mock-google-user@example.com';
@@ -334,7 +336,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
         await db.saveUser(user);
       }
 
-      const token = signJWT({ userId: user.id, email: user.email }, JWT_SECRET, 24 * 60 * 60);
+      const token = signJWT({ userId: user.id, email: user.email }, sessionKey, 24 * 60 * 60);
       setSessionCookie(res, token);
       res.redirect(`${APP_URL}/`);
     } catch (err: any) {

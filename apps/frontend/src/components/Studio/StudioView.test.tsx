@@ -17,9 +17,9 @@ vi.mock('../../api/procedures', async () => {
     ...actual,
     listProcedures: vi.fn(async () => ({
       procedures: [
-        { id: 'research', version: '3', name: 'Research', describe: 'Looks things up', mine: true },
-        { id: 'tool-rounds', version: '2', name: 'Tool rounds', describe: '', mine: false },
-        { id: 'triage', version: '1', name: 'Triage', describe: 'Sorts issues', mine: true },
+        { id: 'research', version: '3', name: 'Research', describe: 'Looks things up', mine: true, ofBuiltIn: true },
+        { id: 'tool-rounds', version: '2', name: 'Tool rounds', describe: '', mine: false, ofBuiltIn: true },
+        { id: 'triage', version: '1', name: 'Triage', describe: 'Sorts issues', mine: true, ofBuiltIn: false },
       ],
       unreadable: [{ id: 'broken', report: 'node "x" is not a kind of node' }],
     })),

@@ -1,7 +1,5 @@
 import {
-  BUILT_IN_GROUPS,
   WORKFLOW_IMPLEMENTATIONS,
-  builtInCatalogue,
   createNodeExecutor,
   createOrchestrationNodes,
   runProcedure,
@@ -20,9 +18,11 @@ import { createModelNodes } from './model-nodes.js';
 import { createToolNodes } from './tool-nodes.js';
 import { createCodeNodes } from './code-nodes.js';
 import { createConversationNodes } from './conversation-nodes.js';
+import { createHostOpNodes } from './host-op-nodes.js';
 import { handleFor, launchFor, ticketFor } from '../temporal/contracts.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { HostNodeServices } from './services.js';
+import { platformCatalogue, platformGroups } from '../../extensions/installed.js';
 
 export function createHostNodes(services: HostNodeServices): NodeImplementation[] {
   return [
@@ -32,13 +32,14 @@ export function createHostNodes(services: HostNodeServices): NodeImplementation[
     ...createEnvironmentNodes(services),
     ...createCodeNodes(services),
     ...createConversationNodes(services.conversations),
+    ...createHostOpNodes(services),
   ];
 }
 
 export function hostNodesFor(
   implementations: readonly NodeImplementation[],
   runs: readonly ('activity' | 'stream' | 'sandbox')[],
-  catalogue: NodeCatalogue = builtInCatalogue(),
+  catalogue: NodeCatalogue = platformCatalogue(),
 ): NodeImplementation[] {
   return implementations.filter((implementation) => {
     const placement = catalogue.get(implementation.kind)?.runs;
@@ -66,7 +67,7 @@ const NOBODY_TO_ASK: QuestionAnswer = { answered: false, reason: 'nobody can ans
 export function createProcedureExecutor(
   services: HostNodeServices,
   options: InProcessOptions,
-  catalogue: NodeCatalogue = builtInCatalogue(),
+  catalogue: NodeCatalogue = platformCatalogue(),
 ): NodeExecutor {
   let children = 0;
 
@@ -106,7 +107,7 @@ export function createProcedureExecutor(
       const result = await runProcedure({
         procedure: runnable.procedure,
         catalogue,
-        groups: BUILT_IN_GROUPS,
+        groups: platformGroups(),
         executor,
         identity: {
           runId,

@@ -26,6 +26,8 @@ export interface StartRunRequest {
   modelId?: string | undefined;
   sampling?: SamplingConfig | undefined;
   procedureId?: string | undefined;
+  runId?: string | undefined;
+  bound?: Record<string, string> | undefined;
 }
 
 export interface StartedRun {
@@ -57,6 +59,7 @@ export interface RunStarterOptions {
   taskQueue?: string | undefined;
   newRunId?: (() => string) | undefined;
   binding?: ((ownerId: string, conversationId: string) => Promise<Record<string, string> | undefined>) | undefined;
+  continueAfterEvents?: number | undefined;
 }
 
 export const BINDING_INPUTS = ['treeId', 'tree', 'projectId', 'project'] as const;
@@ -76,7 +79,7 @@ export function createRunStarter(options: RunStarterOptions) {
       const runnable = await options.registry.runnable(request.ownerId, request.agentSlug, request.procedureId);
       if (!runnable) throw new UnknownProcedureError(request.procedureId ?? agent.procedure);
 
-      const runId = newRunId();
+      const runId = request.runId ?? newRunId();
 
       const ticket: RunTicket = {
         runId,
@@ -101,8 +104,10 @@ export function createRunStarter(options: RunStarterOptions) {
         inputs: {
           ...asked,
           ...(bound ?? {}),
+          ...(request.bound ?? {}),
           message: request.message,
         },
+        ...(options.continueAfterEvents ? { continueAfterEvents: options.continueAfterEvents } : {}),
       };
 
       await workflows.start('AgentRunWorkflow', {

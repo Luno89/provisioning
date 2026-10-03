@@ -1,6 +1,6 @@
 import type { Database } from '../lib/db-interface.js';
 import type { CloudCredentials, CloudProvider, UserMetadata } from '../lib/types.js';
-import { encryptValue, decryptValue, maskSecret } from '../lib/crypto.js';
+import { encryptValue, decryptValue, maskSecret, type SecretKey } from '../lib/crypto.js';
 import { resolveCloudCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
 
 async function readJson(res: Response): Promise<Record<string, any>> {
@@ -54,7 +54,7 @@ export interface ProviderStatus {
 export class CredentialService {
   constructor(
     private readonly db: Database,
-    private readonly masterKey: string,
+    private readonly masterKey: SecretKey,
   ) {}
 
   async validateCredentials(

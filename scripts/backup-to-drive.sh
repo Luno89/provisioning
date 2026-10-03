@@ -21,6 +21,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+MONGO_ROOT_PASSWORD="${MONGO_ROOT_PASSWORD:-$(grep -s '^MONGO_ROOT_PASSWORD=' "$ROOT/.env" | cut -d= -f2- || true)}"
 RCLONE="$ROOT/bin/rclone"
 [ -f "$RCLONE" ] || RCLONE="rclone"
 
@@ -71,10 +72,10 @@ fi
 # ── 1. MongoDB dump ──
 echo "▶ Dumping MongoDB..."
 MONGO_DUMP="$TMP_DIR/mongo-$TIMESTAMP.gz"
-# Credentials match docker-compose.mongo.yml's MONGO_INITDB_ROOT_USERNAME/PASSWORD (dev-default
-# admin/admin — this compose file is local-only and never exposed beyond localhost:27017).
+# Credentials match docker-compose.mongo.yml's MONGO_INITDB_ROOT_USERNAME/PASSWORD: admin/admin in
+# dev, the generated MONGO_ROOT_PASSWORD from the repo-root .env on a root node.
 if ! $DOCKER_COMPOSE -f "$ROOT/docker-compose.mongo.yml" exec -T mongodb \
-    mongodump --archive --gzip -u admin -p admin --authenticationDatabase admin > "$MONGO_DUMP"; then
+    mongodump --archive --gzip -u admin -p "${MONGO_ROOT_PASSWORD:-admin}" --authenticationDatabase admin > "$MONGO_DUMP"; then
   echo "❌ mongodump failed — is the mongodb container running? (npm run dev / docker compose -f docker-compose.mongo.yml up -d)"
   exit 1
 fi

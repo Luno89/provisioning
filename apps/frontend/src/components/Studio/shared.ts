@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import type { NodeCategory, Procedure } from '@koala/agent-engine/procedure'
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery, keepPreviousData } from '@tanstack/react-query'
+import type { GroupDefinition, NodeCategory, Procedure } from '@koala/agent-engine/procedure'
 import {
   checkProcedureOnServer,
   deleteProcedure,
@@ -10,7 +10,23 @@ import {
   procedureKeys,
   saveProcedure,
 } from '../../api/procedures'
-import { engineKeys, listEngineAgents, listRunTraces } from '../../api/engine'
+import {
+  createExtension,
+  deleteExtension,
+  engineKeys,
+  listEngineAgents,
+  listExtensions,
+  listRunTraces,
+  publishOperation,
+  removeOperation,
+  setExtensionEnabled,
+  updateExtension,
+  type ExtensionBundle,
+  type ExtensionDraft,
+  type ExtensionSummary,
+} from '../../api/engine'
+import { canvasContextFor } from '../../lib/procedure-drafts'
+import type { CanvasContext } from '../../lib/procedure-canvas'
 import { agentKeys, deleteAgent, listAgents, listGrantableTools, saveAgent, type Agent } from '../../api/agents'
 import { listMcpServers, mcpKeys } from '../../api/mcp'
 import { egressKeys, listEgressGrants, revokeEgress } from '../../api/egress'
@@ -23,8 +39,76 @@ import {
   type WorkspaceBuildFailure,
 } from '../../api/engineTools'
 
-export { errorMessage } from '../../api/client'
-export { STUDIO_CONTEXT } from '../../lib/procedure-drafts'
+import { errorMessage } from '../../api/client'
+
+export { errorMessage }
+
+const studioContextQuery = {
+  queryKey: engineKeys.extensions(),
+  queryFn: async (): Promise<CanvasContext> => canvasContextFor(await listExtensions()),
+  staleTime: Infinity,
+}
+
+export function useStudioContextQuery() {
+  return useQuery(studioContextQuery)
+}
+
+export function useExtensions() {
+  return useQuery({ queryKey: [...engineKeys.extensions(), 'list'], queryFn: listExtensions })
+}
+
+export function useSwitchExtension(onRefused?: (message: string) => void) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => setExtensionEnabled(id, enabled),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: engineKeys.extensions() })
+      void client.invalidateQueries({ queryKey: agentKeys.all })
+      void client.invalidateQueries({ queryKey: engineKeys.agents() })
+    },
+    onError: (err) => onRefused?.(errorMessage(err)),
+  })
+}
+
+function useExtensionChange<A>(change: (args: A) => Promise<ExtensionSummary[]>, onRefused?: (message: string) => void) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: change,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: engineKeys.extensions() })
+      void client.invalidateQueries({ queryKey: agentKeys.all })
+      void client.invalidateQueries({ queryKey: engineKeys.agents() })
+    },
+    onError: (err) => onRefused?.(errorMessage(err)),
+  })
+}
+
+export const useCreateExtension = (onRefused?: (message: string) => void) =>
+  useExtensionChange((draft: ExtensionDraft) => createExtension(draft), onRefused)
+
+export const useUpdateExtension = (onRefused?: (message: string) => void) =>
+  useExtensionChange(({ id, bundle }: { id: string; bundle: ExtensionBundle }) => updateExtension(id, bundle), onRefused)
+
+export const useDeleteExtension = (onRefused?: (message: string) => void) =>
+  useExtensionChange((id: string) => deleteExtension(id), onRefused)
+
+export const useRemoveOperation = (onRefused?: (message: string) => void) =>
+  useExtensionChange(({ extension, name }: { extension: string; name: string }) => removeOperation(extension, name), onRefused)
+
+export function usePublishOperation() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ extension, name, group }: { extension: string; name: string; group: GroupDefinition }) => publishOperation(extension, name, group),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: engineKeys.extensions() })
+      void client.invalidateQueries({ queryKey: procedureKeys.all() })
+    },
+  })
+}
+
+export function useStudioContext(): CanvasContext {
+  return useSuspenseQuery(studioContextQuery).data
+}
 
 export const CATEGORY_COLOURS: Record<NodeCategory, string> = {
   input: '#94a3b8',
@@ -35,6 +119,7 @@ export const CATEGORY_COLOURS: Record<NodeCategory, string> = {
   memory: '#5eead4',
   control: '#fcd34d',
   safety: '#fb923c',
+  host: '#a3e635',
   custom: '#f0abfc',
 }
 
@@ -47,6 +132,7 @@ export const CATEGORY_TITLES: Record<NodeCategory, string> = {
   memory: 'Memory',
   control: 'Control',
   safety: 'Safety',
+  host: 'Platform',
   custom: 'Groups',
 }
 

@@ -95,6 +95,18 @@ export interface RunProcedureOptions {
   now?: (() => number) | undefined;
   maxSteps?: number | undefined;
   onTrace?: ((trace: NodeTrace) => void) | undefined;
+  resume?: RunCheckpoint | undefined;
+  pauseWhen?: ((checkpoint: () => RunCheckpoint) => boolean) | undefined;
+}
+
+export interface RunCheckpoint {
+  current: NodeId;
+  latest: Record<NodeId, Record<string, unknown>>;
+  counters: RunCounters;
+  steps: number;
+  stepNumber: number;
+  executions: number;
+  sequence: number;
 }
 
 export interface ProcedureResult {
@@ -105,6 +117,7 @@ export interface ProcedureResult {
   outputs: Record<NodeId, Record<string, unknown>>;
   finishedBy?: NodeId | undefined;
   steps: number;
+  paused?: RunCheckpoint | undefined;
 }
 
 export const PROCEDURE_STEP_CAP = 10_000;
@@ -152,6 +165,7 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
   const { body, origin } = expandGroups(options.procedure, groupLibrary(options.procedure, options.groups));
   const nodes = new Map(body.nodes.map((node) => [node.id, node]));
   const state = createRunState(now(), options.inputs ?? {});
+  if (options.resume) Object.assign(state.counters, options.resume.counters);
   const counters = state.counters;
 
   const wiresInto = new Map<NodeId, typeof body.wires>();
@@ -160,10 +174,10 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
   const routes = new Map<string, NodeId>();
   for (const flow of body.flow) routes.set(routeKey(flow.from, flow.exit), flow.to);
 
-  const latest = new Map<NodeId, Record<string, unknown>>();
-  let sequence = 0;
-  let stepNumber = 0;
-  let executions = 0;
+  const latest = new Map<NodeId, Record<string, unknown>>(Object.entries(options.resume?.latest ?? {}));
+  let sequence = options.resume?.sequence ?? 0;
+  let stepNumber = options.resume?.stepNumber ?? 0;
+  let executions = options.resume?.executions ?? 0;
 
   const emit = (event: Omit<EngineEvent, 'runId' | 'at'>) =>
     options.bus?.emit({ ...event, runId: identity.runId, at: new Date(now()).toISOString() } as EngineEvent);
@@ -375,20 +389,32 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
     return { next };
   };
 
-  emit({ type: 'run.started', agentId: identity.agentId, loopId: identity.loopId, ...(identity.parentRunId ? { parentRunId: identity.parentRunId } : {}) } as never);
+  if (!options.resume) {
+    emit({ type: 'run.started', agentId: identity.agentId, loopId: identity.loopId, ...(identity.parentRunId ? { parentRunId: identity.parentRunId } : {}) } as never);
+  }
 
   let outcome: RunOutcome = 'failed';
   let reason: string | undefined;
   let finishedBy: NodeId | undefined;
-  let steps = 0;
+  let steps = options.resume?.steps ?? 0;
+  const resumedAt = steps;
 
   try {
-    let current: NodeId | undefined = body.start;
+    let current: NodeId | undefined = options.resume?.current ?? body.start;
     const run = context(false, options.signal);
 
     while (current !== undefined) {
       if (options.signal?.aborted) {
         throw new RunStop('interrupted', typeof options.signal.reason === 'string' ? options.signal.reason : 'Stopped');
+      }
+      const at: NodeId = current;
+      const checkpoint = (): RunCheckpoint => {
+        counters.elapsedMs = now() - counters.startedAt;
+        return { current: at, latest: Object.fromEntries(latest), counters: { ...counters }, steps, stepNumber, executions, sequence };
+      };
+      if (steps > resumedAt && options.pauseWhen?.(checkpoint)) {
+        const paused = checkpoint();
+        return { runId: identity.runId, outcome: 'interrupted', reason: 'paused to continue as a new run', counters, outputs: paused.latest, steps, paused };
       }
       if (steps >= maxSteps) throw new RunStop('exhausted', `stopped after ${maxSteps} steps without finishing`);
 

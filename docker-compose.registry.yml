@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+  registry-writer:
+    image: registry:2
+    container_name: nowrinkles-registry-writer
+    restart: unless-stopped
+    ports:
+      - "${PLATFORM_BIND:-127.0.0.1}:5000:5000"
+    volumes:
+      - registry-data:/var/lib/registry
+
+  registry-reader:
+    image: registry:2
+    container_name: nowrinkles-registry-reader
+    restart: unless-stopped
+    environment:
+      REGISTRY_STORAGE_MAINTENANCE_READONLY: '{"enabled": true}'
+    ports:
+      - "${REGISTRY_MESH_BIND:-127.0.0.1}:5001:5000"
+    volumes:
+      - registry-data:/var/lib/registry
+
+volumes:
+  registry-data:

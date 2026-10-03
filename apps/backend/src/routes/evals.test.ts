@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import axios from 'axios';
-import { ALL_SEEDED_AGENTS, BUILDER_TOOLS, type ModelProvider } from '@koala/agent-engine';
+import { BUILDER_TOOLS, type ModelProvider } from '@koala/agent-engine';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { evalsLevel1Router } from './evals-level1.js';
 import { evalsLevel2Router } from './evals-level2.js';
@@ -12,6 +12,7 @@ import { ENGINE_TOOL_SEEDS } from '../engine-host/tools/engine-tool-seeds.js';
 import type { EvalCase } from '../eval/cases.js';
 import type { Scenario } from '../eval/level2/scenario.js';
 import { inMemoryConversations } from '../engine-host/nodes/conversation-nodes.js';
+import { seededPersonas } from '../extensions/seeds.js';
 
 const PROVIDER = { id: 'tabby', name: 'Tabby', source: 'deployment', model: 'test-model', contextTokens: 32_000 } as ModelProvider;
 const quiet = { validateStatus: () => true };
@@ -48,7 +49,7 @@ const level1Harness = (): Promise<Harness> => mountRouter({
       level1: new Level1Service({
         executor: createProcedureExecutor(services, { registry }),
         tools: async () => [...BUILDER_TOOLS, ...ENGINE_TOOL_SEEDS],
-        agents: async () => ALL_SEEDED_AGENTS().map((agent) => agent.slug),
+        agents: async () => seededPersonas().map((agent) => agent.slug),
         store: db,
         builtIn: [CASE],
         newId: () => 'run-1',
@@ -63,12 +64,12 @@ const level2Harness = (): Promise<Harness> => mountRouter({
     level2: new Level2Service({
       world: {
         models: { resolveBaseUrl: async () => ({ provider: PROVIDER, baseUrl: 'https://models.test/v1', apiKey: 'k' }) },
-        personas: async () => [...ALL_SEEDED_AGENTS()],
+        personas: async () => [...seededPersonas()],
         tools: async () => [],
         procedures: async () => [],
       },
       tools: async () => [...BUILDER_TOOLS, ...ENGINE_TOOL_SEEDS],
-      agents: async () => ALL_SEEDED_AGENTS().map((agent) => agent.slug),
+      agents: async () => seededPersonas().map((agent) => agent.slug),
       procedures: async () => ['tool-rounds'],
       store: db,
       builtIn: [SCENARIO],

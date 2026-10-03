@@ -37,7 +37,7 @@ const mount = async (svc = services(), user: typeof TEST_USER | null = TEST_USER
   h = await mountRouter({
     prefix: '/api/clusters',
     user,
-    router: () => clustersRouter({ ...svc, jwtSecret: 'test-secret' } as never),
+    router: () => clustersRouter({ ...svc, dataKey: 'test-secret' } as never),
   });
   return { h: h!, svc };
 };

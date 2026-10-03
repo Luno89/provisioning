@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { ALL_SEEDED_AGENTS, STANDARD_HOST_TOOL_NAMES } from '@koala/agent-engine';
 import { retireStoredBuiltInPersonas } from './built-in-personas.js';
 import { retireStoredBuiltInProcedures } from './built-in-procedures.js';
 import { ENGINE_TOOL_SEEDS, seedEngineTools } from './engine-tool-seeds.js';
 import type { Persona, ToolDefinition } from '@koala/agent-engine';
 import type { ProcedureSource } from './procedure-source.js';
+import { seededPersonas } from '../extensions/seeds.js';
+import { INSTALLED_EXTENSIONS } from '../extensions/installed.js';
 
 function personaStore(rows: Persona[] = []) {
   return {
@@ -45,7 +46,7 @@ function toolStore(rows: ToolDefinition[] = []) {
 
 describe('a built-in that changed in code reaches the database', () => {
   it('removes built-in personas from the database, because they ship in code, and keeps every user copy', async () => {
-    const builtIns = ALL_SEEDED_AGENTS();
+    const builtIns = seededPersonas();
     const mine: Persona = { ...builtIns[0]!, ownerId: 'user-1', prompt: 'mine' };
     const db = personaStore([...builtIns.map((seed) => ({ ...seed })), mine]);
 
@@ -93,8 +94,10 @@ describe('a built-in that did not change is left alone', () => {
 
 });
 
-describe('the host tool names the engine package assumes', () => {
-  it('are exactly the tools the backend seeds', () => {
-    expect([...STANDARD_HOST_TOOL_NAMES].sort()).toEqual(ENGINE_TOOL_SEEDS.map((tool) => tool.name).sort());
+describe('the tools the backend seeds', () => {
+  it('are exactly what the installed extensions offer, each once', () => {
+    const offered = INSTALLED_EXTENSIONS.flatMap((extension) => (extension.tools ?? []).map((tool) => tool.name));
+    expect(ENGINE_TOOL_SEEDS.map((tool) => tool.name).sort()).toEqual([...offered].sort());
+    expect(new Set(offered).size).toBe(offered.length);
   });
 });

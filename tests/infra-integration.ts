@@ -8,6 +8,7 @@ import axios from 'axios';
 import { signJWT } from '../apps/backend/src/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
 import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
+import { loadKeys } from '../apps/backend/src/lib/keys.js';
 
 const BASE = process.env.INFRA_LIVE_URL ?? 'http://localhost:3001/api';
 
@@ -30,8 +31,7 @@ async function main(): Promise<void> {
   const owner = ownerId ? await db.getUserById(ownerId) : (await db.getUsers())[0];
   await db.close();
   assert.ok(owner, 'there is no user to provision as');
-  const secret = process.env.JWT_SECRET;
-  assert.ok(secret, 'JWT_SECRET is not set');
+  const secret = loadKeys(process.env).session;
 
   const http = axios.create({
     baseURL: BASE,

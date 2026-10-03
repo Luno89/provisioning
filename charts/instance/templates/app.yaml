@@ -1,0 +1,97 @@
+{{- $processes := list "backend" "worker-engine" "worker-cluster" "worker-host" -}}
+{{- range $process := $processes }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "instance.name" $ }}-{{ $process }}
+  labels: {{- include "instance.labels" $ | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {{- include "instance.selector" (dict "root" $ "component" $process) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "instance.labels" $ | nindent 8 }}
+        {{- include "instance.selector" (dict "root" $ "component" $process) | nindent 8 }}
+      annotations:
+        checksum/env: {{ include (print $.Template.BasePath "/configmap-env.yaml") $ | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "instance.name" $ }}
+      initContainers:
+        - name: wait-for-mongo
+          image: {{ include "instance.image" $ }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          command: [sh, -c, "until node -e \"require('net').connect(27017, '{{ include "instance.name" $ }}-mongo').on('connect', () => process.exit(0)).on('error', () => process.exit(1))\"; do sleep 2; done"]
+      containers:
+        - name: {{ $process }}
+          image: {{ include "instance.image" $ }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          args: [{{ $process | quote }}]
+          envFrom:
+            - configMapRef:
+                name: {{ include "instance.name" $ }}-env
+            - secretRef:
+                name: {{ include "instance.name" $ }}-keys
+            {{- if $.Values.instance.credential }}
+            - secretRef:
+                name: {{ include "instance.name" $ }}-instance
+            {{- end }}
+          env:
+            - name: MONGO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "instance.name" $ }}-keys
+                  key: MONGO_ROOT_PASSWORD
+            - name: MONGO_URI
+              value: mongodb://admin:$(MONGO_ROOT_PASSWORD)@{{ include "instance.name" $ }}-mongo:27017/provisioning?authSource=admin
+            {{- if eq $process "backend" }}
+            - name: PORT
+              value: "3001"
+          ports:
+            - name: http
+              containerPort: 3001
+          readinessProbe:
+            httpGet:
+              path: /api/auth/sign-in
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /app/apps/backend/data
+            {{- if and (eq $process "worker-host") $.Values.hostDocker }}
+            - name: docker-socket
+              mountPath: /var/run/docker.sock
+            {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "instance.name" $ }}-data
+        {{- if and (eq $process "worker-host") $.Values.hostDocker }}
+        - name: docker-socket
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+        {{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "instance.name" . }}
+  labels: {{- include "instance.labels" . | nindent 4 }}
+spec:
+  type: {{ if .Values.backend.nodePort }}NodePort{{ else }}ClusterIP{{ end }}
+  selector: {{- include "instance.selector" (dict "root" . "component" "backend") | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      {{- if .Values.backend.nodePort }}
+      nodePort: {{ .Values.backend.nodePort }}
+      {{- end }}

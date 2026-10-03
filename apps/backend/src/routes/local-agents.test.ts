@@ -13,7 +13,7 @@ const JWT_SECRET = 'test-secret';
 const harness: Harness = await mountRouter({
   prefix: '/api/mesh/local-agents',
   router: (db: Database) => localAgentsRouter({
-    db, jwtSecret: JWT_SECRET,
+    db, dataKey: JWT_SECRET,
     projects: new ProjectRepoService(db, {} as GiteaService, JWT_SECRET),
   }),
 });

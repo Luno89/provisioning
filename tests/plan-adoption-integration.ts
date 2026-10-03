@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
 import { storesFromDatabase } from '../apps/backend/src/engine-host/host.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
-import { createGroveTools } from '../apps/backend/src/engine-host/tools/grove-tools.js';
+import { createGroveTools } from '../apps/backend/src/extensions/grove/tools/grove-tools.js';
 import { createPlanAdoption } from '../apps/backend/src/engine-host/plan-adoption.js';
 import type { PlanProposal } from '../apps/backend/src/lib/plan-proposals.js';
 

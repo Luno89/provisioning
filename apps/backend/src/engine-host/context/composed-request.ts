@@ -1,12 +1,9 @@
 import {
-  ALL_SEEDED_AGENTS,
   contractsFor,
   BUILDER_TOOLS,
   type ModelProvider,
 } from '@koala/agent-engine';
 import {
-  BUILT_IN_GROUPS,
-  builtInCatalogue,
   runProcedure,
   type Procedure,
   type ProcedureResult,
@@ -20,6 +17,8 @@ import { createSandboxDriver } from '../drivers/sandbox.js';
 import { createProcedureExecutor, type HostNodeServices } from '../nodes/index.js';
 import type { ToolCallArgs, ToolCallOutcome } from '../temporal/contracts.js';
 import { inMemoryConversations } from '../nodes/conversation-nodes.js';
+import { platformCatalogue, platformGroups } from '../../extensions/installed.js';
+import { seededPersonas } from '../../extensions/seeds.js';
 
 export interface ComposedRequest {
   system: string;
@@ -112,7 +111,7 @@ export async function composedRequests(options: ComposeOptions): Promise<Compose
   };
 
   const registry = createAgentRegistry({
-    agentStore: { list: async () => ALL_SEEDED_AGENTS() },
+    agentStore: { list: async () => seededPersonas() },
     toolCatalogue: { list: async () => CATALOGUE },
   });
 
@@ -151,8 +150,8 @@ export async function composedRequests(options: ComposeOptions): Promise<Compose
   const ownerId = options.ownerId ?? 'user-1';
   const result = await runProcedure({
     procedure: options.procedure,
-    catalogue: builtInCatalogue(),
-    groups: BUILT_IN_GROUPS,
+    catalogue: platformCatalogue(),
+    groups: platformGroups(),
     executor: createProcedureExecutor(services, {
       registry,
       approve: async () => true,

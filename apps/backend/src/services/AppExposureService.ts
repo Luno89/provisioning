@@ -5,6 +5,7 @@ import type { Database } from '../lib/db-interface.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../lib/types.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topology.js';
+import { assertUpstreamTarget } from '../lib/upstream-target.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
@@ -106,7 +107,7 @@ export class AppExposureService extends BaseService {
       backendTarget = `${targetIpOrHost}:${targetPort}`;
     }
 
-    return { namespace, backendTarget, appHostname };
+    return { namespace, backendTarget: assertUpstreamTarget(backendTarget, namespace), appHostname };
   }
 
   private buildConfContent(namespace: string, backendTarget: string, appHostname: string, tunnelHost?: string): string {

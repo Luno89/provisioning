@@ -1,5 +1,5 @@
 import { useState, useEffect, lazy, Suspense, Component, type ReactNode } from 'react'
-import { useRouter } from '@tanstack/react-router'
+import { useRouter, type NavigateOptions } from '@tanstack/react-router'
 import { ChevronLeft } from 'lucide-react'
 import NewTreeDialog from '../NewTreeDialog.js'
 import { NewProjectDialog } from './NewProjectDialog.js'
@@ -37,7 +37,7 @@ class WorkspaceErrorBoundary extends Component<{ onBack: () => void; children: R
 
 export type Open = { kind: 'tree'; id: string; branchId?: string; leafId?: string } | { kind: 'project'; id: string }
 
-export function parseOpenFromHash(): Open | null {
+function parseOpenFromHash(): Open | null {
   if (typeof window === 'undefined') return null
   const route = parseHash(window.location.hash)
   if (route?.view !== 'projects') return null
@@ -83,14 +83,14 @@ function useSafeProjectsRoute() {
 
   useEffect(() => {
     if (!router?.subscribe) return;
-    return router.subscribe('onResolved', (evt: any) => {
-      setParams(getParams(evt?.toLocation?.pathname));
+    return router.subscribe('onResolved', (evt) => {
+      setParams(getParams(evt.toLocation.pathname));
     });
   }, [router]);
 
   return {
     params,
-    navigate: router ? (opts: any) => router.navigate(opts) : null,
+    navigate: router ? (opts: NavigateOptions) => router.navigate(opts) : null,
   };
 }
 
@@ -121,10 +121,12 @@ export function Projects({ clusters }: {
   const [showNewTree, setShowNewTree] = useState(false)
   const [showNewProject, setShowNewProject] = useState(false)
 
-  useEffect(() => {
-    const next = getActiveOpen()
-    setOpen(next)
-  }, [routerParams?.treeId, routerParams?.branchId, routerParams?.leafId, routerParams?.projectId])
+  const routeKey = [routerParams?.treeId, routerParams?.branchId, routerParams?.leafId, routerParams?.projectId].join('|')
+  const [seenRouteKey, setSeenRouteKey] = useState(routeKey)
+  if (routeKey !== seenRouteKey) {
+    setSeenRouteKey(routeKey)
+    setOpen(getActiveOpen())
+  }
 
   useEffect(() => {
     const onHashChange = () => {

@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { ringOf, type SecretKey } from './crypto.js';
 
 export async function hashPassword(password: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -32,7 +33,8 @@ function base64urlDecode(str: string): any {
   return JSON.parse(json);
 }
 
-export function signJWT(payload: Record<string, any>, secret: string, expiresInSeconds: number): string {
+export function signJWT(payload: Record<string, any>, key: SecretKey, expiresInSeconds: number): string {
+  const secret = ringOf(key).current;
   const header = { alg: 'HS256', typ: 'JWT' };
   const exp = Math.floor(Date.now() / 1000) + expiresInSeconds;
   const fullPayload = { ...payload, exp };
@@ -47,7 +49,13 @@ export function signJWT(payload: Record<string, any>, secret: string, expiresInS
   return `${encodedHeader}.${encodedPayload}.${signature}`;
 }
 
-export function verifyJWT(token: string, secret: string): Record<string, any> | null {
+const signatureMatches = (secret: string, signed: string, signature: string): boolean => {
+  const expected = Buffer.from(crypto.createHmac('sha256', secret).update(signed).digest('base64url'));
+  const given = Buffer.from(signature);
+  return expected.length === given.length && crypto.timingSafeEqual(expected, given);
+};
+
+export function verifyJWT(token: string, key: SecretKey): Record<string, any> | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
@@ -55,11 +63,9 @@ export function verifyJWT(token: string, secret: string): Record<string, any> | 
     const [encodedHeader, encodedPayload, signature] = parts;
     if (!encodedHeader || !encodedPayload || !signature) return null;
 
-    const hmac = crypto.createHmac('sha256', secret);
-    hmac.update(`${encodedHeader}.${encodedPayload}`);
-    const expectedSignature = hmac.digest('base64url');
-
-    if (signature !== expectedSignature) return null;
+    const ring = ringOf(key);
+    const signed = `${encodedHeader}.${encodedPayload}`;
+    if (![ring.current, ...(ring.previous ?? [])].some((secret) => signatureMatches(secret, signed, signature))) return null;
 
     const payload = base64urlDecode(encodedPayload);
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {

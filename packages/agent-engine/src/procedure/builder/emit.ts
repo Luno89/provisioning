@@ -1,7 +1,9 @@
 import { GROUP_KIND, type NodeCatalogue, type NodeDefinition } from '../definition.js';
 import { groupAsNode } from '../groups.js';
 import type { Body, GroupDefinition, PlacedNode, Procedure, SocketRef } from '../schema.js';
-import { camelKind } from './runtime.js';
+
+const groupAccess = (name: string): string => (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) ? `.${name}` : `[${JSON.stringify(name)}]`);
+import { camelKind, groupKey } from './runtime.js';
 
 export const BUILDER_MODULE = '@koala/procedure-builder';
 
@@ -147,7 +149,7 @@ function emitBody(
       const args = trimmed([quote(node.id), wires, metaText]);
       lines.push(ownedVariable
         ? `${indent}const ${variable} = ${api}.use(${ownedVariable}, ${args})`
-        : `${indent}const ${variable} = ${api}.groups.${camelKind(node.group ?? '')}(${args})`);
+        : `${indent}const ${variable} = ${api}.groups${groupAccess(groupKey(node.group ?? ''))}(${args})`);
     } else {
       lines.push(`${indent}const ${variable} = ${api}.${camelKind(node.kind)}(${trimmed([quote(node.id), wires, literal(node.settings ?? {}, indent), metaText])})`);
     }

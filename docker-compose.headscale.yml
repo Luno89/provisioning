@@ -8,9 +8,9 @@ services:
     container_name: provisioning-headscale
     restart: unless-stopped
     ports:
-      - "8080:8080"     # REST API + client (tailscale up) traffic
-      - "9090:9090"     # metrics
-      - "50443:50443"   # gRPC — only used by the `headscale` CLI for local debugging
+      - "${PLATFORM_BIND:-127.0.0.1}:8080:8080"     # REST API + client (tailscale up) traffic
+      - "${PLATFORM_BIND:-127.0.0.1}:9090:9090"     # metrics
+      - "${PLATFORM_BIND:-127.0.0.1}:50443:50443"   # gRPC — only used by the `headscale` CLI for local debugging
     volumes:
       - ./headscale/config:/etc/headscale:ro
       - headscale-data:/var/lib/headscale

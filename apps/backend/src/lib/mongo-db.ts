@@ -1,4 +1,7 @@
 import type { Conversation } from './conversations.js';
+import type { ExtensionSettings } from './extension-settings.js';
+import type { AuthoredExtension } from './authored-extensions.js';
+import type { InstanceRecord, JoinToken } from './instances.js';
 import type { StoredAppSpec } from './app-spec.js';
 import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
@@ -27,6 +30,11 @@ import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { ClusterProviderSpec } from './cluster-providers.js';
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
+
+export const databaseOf = (uri: string): string => {
+  const name = uri.replace(/^mongodb(\+srv)?:\/\/[^/]+\/?/, '').split('?')[0]?.trim();
+  return name || 'provisioning';
+};
 
 function toBsonId(id: string): ObjectId | string {
   if (ObjectId.isValid(id)) return new ObjectId(id);
@@ -179,6 +187,26 @@ export class MongoDB implements Database {
     return this.db!.collection('actionProposals');
   }
 
+  private get handoffs(): Collection {
+    return this.db!.collection('identityHandoffs');
+  }
+
+  private get joinTokens(): Collection {
+    return this.db!.collection('instanceJoinTokens');
+  }
+
+  private get instanceRegistry(): Collection {
+    return this.db!.collection('instances');
+  }
+
+  private get authoredExtensions(): Collection {
+    return this.db!.collection('authoredExtensions');
+  }
+
+  private get extensionSettings(): Collection {
+    return this.db!.collection('extensionSettings');
+  }
+
   private get egressGrants(): Collection {
     return this.db!.collection('egressGrants');
   }
@@ -211,7 +239,7 @@ export class MongoDB implements Database {
 
     this.client = new MongoClient(uri);
     await this.client.connect();
-    this.db = this.client.db(isE2E ? 'provisioning_test' : 'provisioning');
+    this.db = this.client.db(isE2E ? 'provisioning_test' : databaseOf(uri));
 
     if (isE2E) {
       await this.db.dropDatabase();
@@ -222,6 +250,9 @@ export class MongoDB implements Database {
     await this.deployments.createIndex({ name: 1 }, { unique: true });
     await this.users.createIndex({ email: 1 }, { unique: true });
     await this.runTraces.createIndex({ ownerId: 1, runId: 1, sequence: 1 });
+    await this.handoffs.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await this.instanceRegistry.createIndex({ ownerId: 1 });
+    await this.joinTokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.planProposals.createIndex({ ownerId: 1, conversationId: 1, createdAt: 1 });
     await this.secretRequests.createIndex({ ownerId: 1, projectId: 1, key: 1 });
     await this.runEffort.createIndex({ ownerId: 1, procedureId: 1, modelKey: 1, finishedAt: -1 });
@@ -782,6 +813,67 @@ export class MongoDB implements Database {
     const id = doc._id;
     const { _id, ...rest } = doc;
     await this.actionProposals.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async getExtensionSettings(ownerId: string): Promise<ExtensionSettings | undefined> {
+    const doc = await this.extensionSettings.findOne({ _id: ownerId as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc as Record<string, unknown>;
+    return { ...(rest as Omit<ExtensionSettings, 'ownerId'>), ownerId: String(_id) };
+  }
+
+  async claimHandoff(jti: string, expiresAt: string): Promise<boolean> {
+    try {
+      await this.handoffs.insertOne({ _id: jti as never, expiresAt: new Date(expiresAt) });
+      return true;
+    } catch (err) {
+      if ((err as { code?: number }).code === 11000) return false;
+      throw err;
+    }
+  }
+
+  async saveJoinToken(token: JoinToken): Promise<void> {
+    await this.joinTokens.replaceOne({ _id: token.hash as never }, { ...token, expiresAt: new Date(token.expiresAt) }, { upsert: true });
+  }
+
+  async takeJoinToken(hash: string): Promise<JoinToken | undefined> {
+    const doc = await this.joinTokens.findOneAndDelete({ _id: hash as never });
+    if (!doc) return undefined;
+    return { hash, ownerId: doc.ownerId as string, instanceId: doc.instanceId as string, expiresAt: (doc.expiresAt as Date).toISOString() };
+  }
+
+  async getInstances(ownerId?: string): Promise<InstanceRecord[]> {
+    const docs = await this.instanceRegistry.find(ownerId ? { ownerId } : {}).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as InstanceRecord);
+  }
+
+  async saveInstance(instance: InstanceRecord): Promise<void> {
+    await this.instanceRegistry.replaceOne({ _id: instance.id as never }, instance, { upsert: true });
+  }
+
+  async deleteInstance(id: string): Promise<void> {
+    await this.instanceRegistry.deleteOne({ _id: id as never });
+  }
+
+  async getAuthoredExtensions(ownerId: string): Promise<AuthoredExtension[]> {
+    const docs = await this.authoredExtensions.find({ ownerId }).toArray();
+    return docs.map((doc) => {
+      const { _id, ...rest } = doc as Record<string, unknown>;
+      return rest as unknown as AuthoredExtension;
+    });
+  }
+
+  async saveAuthoredExtension(extension: AuthoredExtension): Promise<void> {
+    await this.authoredExtensions.replaceOne({ _id: `${extension.ownerId}:${extension.id}` as never }, extension, { upsert: true });
+  }
+
+  async deleteAuthoredExtension(ownerId: string, id: string): Promise<void> {
+    await this.authoredExtensions.deleteOne({ _id: `${ownerId}:${id}` as never });
+  }
+
+  async saveExtensionSettings(settings: ExtensionSettings): Promise<void> {
+    const { ownerId, ...rest } = settings;
+    await this.extensionSettings.replaceOne({ _id: ownerId as never }, rest, { upsert: true });
   }
 
   async getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]> {

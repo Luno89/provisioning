@@ -1,5 +1,5 @@
 import type { Database } from '../lib/db-interface.js';
-import { decryptValue } from '../lib/crypto.js';
+import { decryptValue, type SecretKey } from '../lib/crypto.js';
 import { resolveCloudCredentials } from '../lib/credential-resolver.js';
 import { ADAPTERS } from '../lib/vps-catalog/adapters.js';
 import { NATURAL_SORT_DIR, offerHasGpu } from '../lib/vps-catalog/types.js';
@@ -25,7 +25,7 @@ export class VpsCatalogService {
 
   constructor(
     private readonly db: Database,
-    private readonly masterKey: string,
+    private readonly masterKey: SecretKey,
     private readonly adapters: readonly VpsCatalogAdapter[] = ADAPTERS,
   ) {}
 

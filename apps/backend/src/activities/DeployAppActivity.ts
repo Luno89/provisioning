@@ -25,6 +25,7 @@ import { infisicalHostFor } from '../lib/infisical-sync.js';
 import { syncProjectSecrets } from '../services/ProjectSecretSync.js';
 import { InfisicalService } from '../services/InfisicalService.js';
 import { ClusterProxyService } from '../services/ClusterProxyService.js';
+import { loadKeys } from '../lib/keys.js';
 
 async function nodeAllocatableBytes(
   infra: InfrastructureService,
@@ -484,7 +485,7 @@ export async function DeployAppActivity(
   );
 
   if (args.appType === 'gitapp') {
-    const gitea = new GiteaService(infra, process.env.JWT_SECRET || 'provisioning-platform-secret-12345', '/tmp/kubeconfig-provisioning-lunorica');
+    const gitea = new GiteaService(infra, loadKeys(process.env).data, '/tmp/kubeconfig-provisioning-lunorica');
     const registryHost = await gitea.getRegistryHost();
     const deployToken = await gitea.createDeployToken();
     const secretYaml = await infra.runKubectl(
@@ -509,7 +510,7 @@ export async function DeployAppActivity(
           if (project.requiredSecrets?.length) throw new Error(reachable.problem);
           console.warn(`[DeployAppActivity] ${project.name} declares no secrets; ${reachable.problem}`);
         } else {
-          const masterKey = process.env.JWT_SECRET || '';
+          const masterKey = loadKeys(process.env).data;
           const infisical = new InfisicalService(infra, masterKey, '/tmp/kubeconfig-provisioning-lunorica', undefined, new ClusterProxyService());
           const synced = await syncProjectSecrets(
             { infra, vault: infisical, projects: secretDb, masterKey },

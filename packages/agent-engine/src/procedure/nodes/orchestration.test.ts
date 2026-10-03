@@ -281,6 +281,30 @@ describe('children work where their parent works', () => {
     expect(handedTo(p).every((environment) => (environment as { id: string }).id === 'engine-tree-t1')).toBe(true);
   });
 
+  it('hands every child the workspace wired in rather than its own, narrowed to each item\'s worktree', async () => {
+    const tree = { kind: 'sandbox', id: 'engine-shared-wired', workspace: { runId: 'tree-t1' }, capabilities: { kind: 'sandbox', lifecycle: 'invocation' } } as never;
+    const p = ports();
+    await invoke(createOrchestrationNodes(p), fanOut, {
+      settings: { agent: 'worker' },
+      inputs: { items: [{ leafId: 'a', worktree: 'trees/a' }, { leafId: 'b' }], environment: tree },
+    });
+
+    expect(handedTo(p).map((environment) => [(environment as { id: string }).id, (environment as { worktree?: string }).worktree])).toEqual([
+      ['engine-shared-wired', 'trees/a'],
+      ['engine-shared-wired', undefined],
+    ]);
+  });
+
+  it('hands each child the item\'s own fields as its inputs when told to, and { item, index } otherwise', async () => {
+    const spread = ports();
+    await invoke(createOrchestrationNodes(spread), fanOut, { settings: { agent: 'planner', itemAsInputs: true }, inputs: { items: [{ leafId: 'a', mode: 'replan' }] } });
+    const wrapped = ports();
+    await invoke(createOrchestrationNodes(wrapped), fanOut, { settings: { agent: 'planner' }, inputs: { items: [{ leafId: 'a' }] } });
+
+    expect(vi.mocked(spread.runChild).mock.calls[0]![0].inputs).toEqual({ leafId: 'a', mode: 'replan' });
+    expect(vi.mocked(wrapped.runChild).mock.calls[0]![0].inputs).toEqual({ item: { leafId: 'a' }, index: 0 });
+  });
+
   it('fans out without an environment when the run was not handed one', async () => {
     const p = ports();
     await invoke(createOrchestrationNodes(p), fanOut, { settings: { agent: 'leaf-judge' }, inputs: { items: ['l1'] } });

@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { encryptValue } from '../lib/crypto.js';
+import { encryptValue, type SecretKey } from '../lib/crypto.js';
 import { localAgentStatus } from '../lib/local-agent-registry.js';
 import type { Database } from '../lib/db-interface.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
@@ -10,8 +10,8 @@ import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
-export function localAgentsRouter(deps: { db: Database; jwtSecret: string; projects: ProjectRepoService }): Router {
-  const { db, jwtSecret, projects } = deps;
+export function localAgentsRouter(deps: { db: Database; dataKey: SecretKey; projects: ProjectRepoService }): Router {
+  const { db, dataKey, projects } = deps;
   const router = Router();
 
   router.get('/', async (req, res) => {
@@ -38,7 +38,7 @@ export function localAgentsRouter(deps: { db: Database; jwtSecret: string; proje
       ownerId: userOf(req).id,
       name,
       rootDir,
-      tokenEnc: encryptValue(token, jwtSecret),
+      tokenEnc: encryptValue(token, dataKey),
       createdAt: new Date().toISOString(),
     });
 

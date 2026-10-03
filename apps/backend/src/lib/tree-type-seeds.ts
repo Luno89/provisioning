@@ -50,7 +50,7 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     files: RESEARCH_PAPER_FILES,
     // A paper leaf is one piece of writing, not a list of tasks: the work stage is a single run that
     // researches the goal and writes the artefact, rather than the default's task loop.
-    stages: { work: 'paper-writer' },
+    agent: 'grove-paper',
   },
   {
     id: 'decision-brief',

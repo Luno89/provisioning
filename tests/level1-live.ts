@@ -7,6 +7,7 @@ import axios from 'axios';
 import { signJWT } from '../apps/backend/src/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
 import type { Level1Run } from '../apps/backend/src/services/Level1Service.js';
+import { loadKeys } from '../apps/backend/src/lib/keys.js';
 
 const BASE = process.env.LEVEL1_LIVE_URL ?? 'http://localhost:3001/api';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -28,8 +29,7 @@ async function main(): Promise<void> {
   const user = ownerId ? await db.getUserById(ownerId) : undefined;
   await db.close();
   if (!user) throw new Error('no project owner to run as');
-  const secret = process.env.JWT_SECRET;
-  if (!secret) throw new Error('JWT_SECRET is not set');
+  const secret = loadKeys(process.env).session;
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, secret, 3600)}` } });
 
   const started = existing

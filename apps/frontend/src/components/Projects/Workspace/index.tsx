@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react'
+import { useState, useMemo, useEffect, type ReactNode } from 'react'
 import { useRouter } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -25,7 +25,7 @@ import { EditorPane } from '../../ProjectEditor/EditorPane.js'
 import { TabBar } from '../../ProjectEditor/TabBar.js'
 import { useOpenFiles } from '../../ProjectEditor/useOpenFiles.js'
 import { isDirty } from '../../ProjectEditor/shared.js'
-import { BuildsDeploysPanel } from './BuildsDeploysPanel.js'
+import { BuildsDeploysPanel, type LinkedProject } from './BuildsDeploysPanel.js'
 import { BranchesPanel } from './BranchesPanel.js'
 import { TreeSandboxPanel } from './TreeSandboxPanel.js'
 import { TreeRunPanel } from './TreeRunPanel.js'
@@ -84,9 +84,11 @@ export function Workspace({
   const [selected, setSelected] = useState<SelectedEntity>(() =>
     initialLeafId ? { kind: 'leaf', id: initialLeafId } : { kind: 'tree', id: treeId ?? '' })
   const [branchesOpen, setBranchesOpen] = useState(true)
-  useEffect(() => {
+  const [seenInitialLeaf, setSeenInitialLeaf] = useState(initialLeafId)
+  if (initialLeafId !== seenInitialLeaf) {
+    setSeenInitialLeaf(initialLeafId)
     if (initialLeafId) setSelected({ kind: 'leaf', id: initialLeafId })
-  }, [initialLeafId])
+  }
   const [openingChat, setOpeningChat] = useState<{ conversationId: string; prompt: string } | undefined>()
   const [conversationsOpen, setConversationsOpen] = useState(true)
   const [sandboxOpen, setSandboxOpen] = useState(false)
@@ -94,7 +96,7 @@ export function Workspace({
   const [runOpen, setRunOpen] = useState(true)
   const [proposalsOpen, setProposalsOpen] = useState(true)
 
-  const seenAt = useRef<string | undefined>(lastSeen('grove-seen'))
+  const [seenAt] = useState<string | undefined>(() => lastSeen('grove-seen'))
   useEffect(() => markSeenAfterDwell('grove-seen'), [])
 
   const { data: trees = [] } = useQuery<WorkspaceTree[]>({
@@ -111,9 +113,9 @@ export function Workspace({
     queryFn: listLeaves,
     refetchInterval: 5000,
   })
-  const { data: projects = [] } = useQuery<any[]>({
+  const { data: projects = [] } = useQuery<LinkedProject[]>({
     queryKey: projectKeys.list(),
-    queryFn: () => listProjects<any>(),
+    queryFn: () => listProjects<LinkedProject>(),
     staleTime: 10_000,
   })
 
@@ -196,7 +198,7 @@ export function Workspace({
 
   return (
     <div className="flex-1 min-h-0 flex gap-0 relative">
-      {hasProject && (
+      {project && (
         leftPanel.isCollapsed ? (
           <div
             className="shrink-0 flex flex-col items-center py-2 px-1 bg-[var(--bark-800)] border border-[var(--bark-700)] rounded-xl select-none"
@@ -417,7 +419,7 @@ export function Workspace({
               leaves={leaves}
               branches={treeBranches}
               tree={tree}
-              lastSeen={seenAt.current}
+              lastSeen={seenAt}
               starting={openChat.isPending}
               onStart={(prompt) => openChat.mutate({ prompt })}
               onOpenLeaf={(leaf) => setSelected({ kind: 'leaf', id: leaf.id })}

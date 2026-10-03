@@ -1,6 +1,6 @@
-import { Clock, Loader2, XCircle, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { Clock, Loader2, XCircle, CheckCircle2, AlertTriangle, type LucideIcon } from 'lucide-react'
 
-export const PROJECT_STATUS: Record<string, { icon: any; className: string; label: string }> = {
+const PROJECT_STATUS: Record<string, { icon: LucideIcon; className: string; label: string }> = {
   'no-build': { icon: Clock, className: 'text-slate-400 bg-slate-500/10 border-slate-700/50', label: 'No build yet' },
   building: { icon: Loader2, className: 'text-blue-400 bg-blue-500/10 border-blue-500/30', label: 'Building' },
   'build-failed': { icon: XCircle, className: 'text-rose-400 bg-rose-500/10 border-rose-500/20', label: 'Build Failed' },

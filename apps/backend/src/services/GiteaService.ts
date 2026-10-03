@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs/promises';
-import { encryptValue, decryptValue } from '../lib/crypto.js';
+import { encryptValue, decryptValue, type SecretKey } from '../lib/crypto.js';
 import type { InfrastructureService } from './InfrastructureService.js';
 
 const NAMESPACE = 'gitea';
@@ -31,7 +31,7 @@ export class GiteaService {
 
   constructor(
     private readonly infra: InfrastructureService,
-    private readonly masterKey: string,
+    private readonly masterKey: SecretKey,
     private readonly kubeconfigPath: string,
   ) {}
 

@@ -26,6 +26,8 @@ export interface HostNodeServices {
     replyCeiling(args: { ownerId: string; procedureId: string; modelKey: string; agentSlug: string }): Promise<number | undefined>;
   } | undefined;
   streamMonitors?: ((request: NodeRequest) => Monitor[]) | undefined;
+  operations?: Readonly<Record<string, import('../../extensions/types.js').HostOperationRun>> | undefined;
+  hidden?: ((ownerId: string) => Promise<import('../../lib/extension-settings.js').HiddenVocabulary>) | undefined;
   fetchImpl?: typeof fetch | undefined;
   now?: (() => string) | undefined;
   newId?: (() => string) | undefined;

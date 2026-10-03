@@ -36,8 +36,8 @@ const agent = (over: Partial<agentsApi.Agent> = {}): agentsApi.Agent => ({
 const AGENTS = [
   agent({ slug: 'planner', name: 'Planner', procedure: 'planning', tools: ['propose_plan'] }),
   agent(),
-  agent({ slug: 'type-worker', name: 'Type Worker', mine: true }),
-  agent({ slug: 'grove-runner', name: 'Grove Runner', procedure: 'grove-judge-pass', tools: ['ready_leaves'] }),
+  agent({ slug: 'grove', name: 'Grove', procedure: 'grove-run', tools: [] }),
+  agent({ slug: 'grove-paper', name: 'Grove Paper', procedure: 'grove-paper-run', tools: [] }),
 ];
 
 const treeType = (over: Partial<TreeType> = {}): TreeType => ({
@@ -144,58 +144,46 @@ describe('TreeTypes editor', () => {
     expect(createButton).toBeDisabled();
   });
 
-  it('shows each stage with the agent it falls back to', async () => {
+  it('says the grove agent grows a type that names none', async () => {
     renderPanel([treeType()]);
     await waitFor(() => expect(screen.getByText('MCP server')).toBeInTheDocument());
     fireEvent.click(screen.getByText('MCP server'));
 
-    expect(await screen.findByLabelText('Agent for the plan stage')).toHaveValue('');
-    expect(screen.getByText('plan — default, planner')).toBeInTheDocument();
-    expect(screen.getByText('work — default, leaf-worker')).toBeInTheDocument();
-    expect(screen.getByText('judge — default, grove-runner')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Agent that grows trees of this type')).toHaveValue('');
+    expect(screen.getByText('grove, the default')).toBeInTheDocument();
   });
 
-  it('names an agent for a stage, and saves that in stages', async () => {
-    vi.mocked(groveApi.updateTreeType).mockResolvedValue(treeType({ stages: { work: 'type-worker' } }));
+  it('names the agent that grows its trees, and saves it', async () => {
+    vi.mocked(groveApi.updateTreeType).mockResolvedValue(treeType({ agent: 'grove-paper' }));
     renderPanel([treeType()]);
     await waitFor(() => expect(screen.getByText('MCP server')).toBeInTheDocument());
     fireEvent.click(screen.getByText('MCP server'));
 
-    // The options come with the agents query; changing the select before they land would not stick.
-    const work = await screen.findByLabelText('Agent for the work stage');
-    await waitFor(() => expect(work.querySelectorAll('option')).toHaveLength(AGENTS.length + 1));
-    fireEvent.change(work, { target: { value: 'type-worker' } });
-    expect(screen.getByText('work — type-worker')).toBeInTheDocument();
-
+    const agent = await screen.findByLabelText('Agent that grows trees of this type');
+    await waitFor(() => expect(agent.querySelectorAll('option')).toHaveLength(AGENTS.length + 1));
+    fireEvent.change(agent, { target: { value: 'grove-paper' } });
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
-    await waitFor(() => expect(groveApi.updateTreeType).toHaveBeenCalledWith(
-      'mcp-server',
-      expect.objectContaining({ stages: { work: 'type-worker' } }),
-    ));
+
+    await waitFor(() => expect(groveApi.updateTreeType).toHaveBeenCalledWith('mcp-server', expect.objectContaining({ agent: 'grove-paper' })));
   });
 
-  it('links the agent a stage runs to its procedure in the Studio', async () => {
-    renderPanel([treeType({ stages: { work: 'type-worker' } })]);
+  it('links the agent to its procedure in the Studio, where its stages and limits are', async () => {
+    renderPanel([treeType({ agent: 'grove-paper' })]);
     await waitFor(() => expect(screen.getByText('MCP server')).toBeInTheDocument());
     fireEvent.click(screen.getByText('MCP server'));
 
-    const link = await screen.findByRole('link', { name: /open grove-work-leaf/i });
-    expect(link).toHaveAttribute('href', '#/studio/grove-work-leaf');
+    const link = await screen.findByRole('link', { name: /open grove-paper-run/i });
+    expect(link).toHaveAttribute('href', '#/studio/grove-paper-run');
   });
 
-  it('leaves a stage out of the record when it is put back to its default', async () => {
+  it('leaves the agent out of the record when it is put back to the default', async () => {
     vi.mocked(groveApi.updateTreeType).mockResolvedValue(treeType());
-    renderPanel([treeType({ stages: { work: 'type-worker' } })]);
+    renderPanel([treeType({ agent: 'grove-paper' })]);
     await waitFor(() => expect(screen.getByText('MCP server')).toBeInTheDocument());
     fireEvent.click(screen.getByText('MCP server'));
 
-    fireEvent.change(await screen.findByLabelText('Agent for the work stage'), { target: { value: '' } });
-    expect(screen.getByText('work — default, leaf-worker')).toBeInTheDocument();
-
+    fireEvent.change(await screen.findByLabelText('Agent that grows trees of this type'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
-    await waitFor(() => expect(groveApi.updateTreeType).toHaveBeenCalledWith(
-      'mcp-server',
-      expect.objectContaining({ stages: undefined }),
-    ));
+    await waitFor(() => expect(groveApi.updateTreeType).toHaveBeenCalledWith('mcp-server', expect.objectContaining({ agent: undefined })));
   });
 });

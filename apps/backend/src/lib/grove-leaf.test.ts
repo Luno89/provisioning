@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { claimEvidence, claimEvidenceFor, leavesNeedingPlan, MAX_REPLANS, nextLeafStep, runEvidence, type LeafTask } from './grove-leaf.js';
+import { claimEvidence, claimEvidenceFor, nextLeafStep, leavesNeedingPlan, runEvidence, workEnding, type LeafTask } from './grove-leaf.js';
 
 const task = (id: string, over: Partial<LeafTask> = {}): LeafTask => ({ id, title: `task ${id}`, status: 'accepted', dependsOn: [], runs: [], ...over });
 
@@ -14,10 +14,15 @@ describe('nextLeafStep', () => {
     expect(nextLeafStep([task('a', { status: 'done' }), task('b')]).kind).toBe('run');
   });
 
-  it('gives a failed task another go, then fails the leaf with its reason — counting the runs recorded against it, so a restarted worker does not lose the count', () => {
+  it('works a failed task again however often it has failed, unless a limit is set', () => {
     const failed = (runs: string[]) => task('a', { status: 'failed', runs, evidence: 'the judge did not accept the work' });
-    expect(nextLeafStep([failed(['run-1'])])).toEqual({ kind: 'run', taskIds: ['a'] });
-    expect(nextLeafStep([failed(['run-1', 'run-2'])])).toEqual({ kind: 'fail', reason: '"task a" failed 2 times: the judge did not accept the work' });
+    expect(nextLeafStep([failed(['run-1', 'run-2', 'run-3', 'run-4', 'run-5'])])).toEqual({ kind: 'run', taskIds: ['a'] });
+  });
+
+  it('fails the leaf with the task\'s reason once it has used the attempts a limit allows — counting the runs recorded against it, so a restarted worker does not lose the count', () => {
+    const failed = (runs: string[]) => task('a', { status: 'failed', runs, evidence: 'the judge did not accept the work' });
+    expect(nextLeafStep([failed(['run-1'])], { taskAttempts: 2 })).toEqual({ kind: 'run', taskIds: ['a'] });
+    expect(nextLeafStep([failed(['run-1', 'run-2'])], { taskAttempts: 2 })).toEqual({ kind: 'fail', reason: '"task a" failed 2 times: the judge did not accept the work' });
   });
 
   it('re-runs a task left running by a crash', () => {
@@ -27,6 +32,33 @@ describe('nextLeafStep', () => {
   it('says a leaf with no accepted tasks is not broken down, rather than claiming it', () => {
     expect(nextLeafStep([])).toEqual({ kind: 'unbroken' });
     expect(nextLeafStep([task('a', { status: 'proposed' })])).toEqual({ kind: 'unbroken' });
+  });
+});
+
+describe('workEnding', () => {
+  const run = (outcome: string, outputs: Record<string, unknown> = {}, reason?: string) => ({ outcome, ...(reason ? { reason } : {}), outputs });
+
+  it('claims on ok', () => {
+    expect(workEnding(run('ok', { step: 'claim' }), 'leaf-worker')).toEqual({ kind: 'claimed' });
+  });
+
+  it('sends the leaf back to the planner only when next_leaf_task said it has no tasks', () => {
+    expect(workEnding(run('refused', { step: 'unbroken' }, 'the leaf had no tasks yet'), 'leaf-worker')).toEqual({ kind: 'unbroken' });
+  });
+
+  it('fails a leaf whose run was refused for any other reason, saying so', () => {
+    expect(workEnding(run('refused', undefined, 'the persona may not use write_file'), 'paper-writer'))
+      .toEqual({ kind: 'failed', reason: 'the paper-writer run was refused: the persona may not use write_file' });
+  });
+
+  it('carries the tool\'s own reason for a failure rather than the procedure\'s fixed words', () => {
+    expect(workEnding(run('failed', { step: 'fail', reason: '"task a" failed 2 times: the build is broken' }, 'a task of the leaf failed twice — the result carries the reason'), 'leaf-worker'))
+      .toEqual({ kind: 'failed', reason: '"task a" failed 2 times: the build is broken' });
+  });
+
+  it('falls back to the run\'s reason, then to naming the agent', () => {
+    expect(workEnding(run('exhausted', undefined, 'stopped after 10000 steps'), 'leaf-worker')).toEqual({ kind: 'failed', reason: 'stopped after 10000 steps' });
+    expect(workEnding(run('failed'), 'leaf-worker')).toEqual({ kind: 'failed', reason: 'the leaf-worker run did not finish this leaf' });
   });
 });
 
@@ -97,11 +129,21 @@ describe('leavesNeedingPlan', () => {
     ]);
   });
 
-  it('leaves alone a leaf with an open proposal, and a failed leaf past the replan cap', () => {
-    expect(leavesNeedingPlan([
-      leaf('proposed', { status: 'failed' }),
-      leaf('capped', { status: 'failed', replans: MAX_REPLANS }),
-    ], [], new Set(['proposed']))).toEqual([]);
+  it('leaves alone a leaf that already has a proposal waiting', () => {
+    expect(leavesNeedingPlan([leaf('proposed', { status: 'failed' })], [], new Set(['proposed']))).toEqual([]);
+  });
+
+  it('replans a failed leaf however many times it has been replanned, unless the type says otherwise', () => {
+    const worn = [leaf('worn', { status: 'failed', replans: 7 })];
+
+    // No bound by default: every replan is a proposal a person approves, and a run has its own pass cap.
+    expect(leavesNeedingPlan(worn, [], new Set()).map((need) => need.leafId)).toEqual(['worn']);
+    expect(leavesNeedingPlan(worn, [], new Set(), { attempts: 2 })).toEqual([]);
+    expect(leavesNeedingPlan(worn, [], new Set(), { attempts: 8 }).map((need) => need.leafId)).toEqual(['worn']);
+  });
+
+  it('takes 0 as never, so a failed leaf is left for the person', () => {
+    expect(leavesNeedingPlan([leaf('f', { status: 'failed' })], [], new Set(), { attempts: 0 })).toEqual([]);
   });
 });
 

@@ -5,8 +5,6 @@ export { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
 export { executeResizeDiskWorkflow } from './ResizeDiskWorkflow.js';
 export { executeSyncConfigWorkflow } from './SyncConfigWorkflow.js';
 export { executePipelineRunWorkflow } from './PipelineRunWorkflow.js';
-export { GroveRunWorkflow } from './GroveRunWorkflow.js';
-export { GroveLeafWorkflow } from './GroveLeafWorkflow.js';
 export { AdoptPlanWorkflow } from './AdoptPlanWorkflow.js';
 export { executeIngestWorkflow } from './IngestWorkflow.js';
 export { AgentRunWorkflow } from './AgentRunWorkflow.js';

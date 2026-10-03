@@ -8,15 +8,16 @@ import {
   getExternalWorkflowHandle,
   CancellationScope,
   ActivityCancellationType,
+  continueAsNew,
+  workflowInfo,
 } from '@temporalio/workflow';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 import { childInputs } from '../engine-host/nodes/child-inputs.js';
 import {
-  BUILT_IN_GROUPS,
   WORKFLOW_IMPLEMENTATIONS,
-  builtInCatalogue,
   createNodeExecutor,
   createOrchestrationNodes,
+  definitionFor,
   runProcedure,
   stepImplementation,
   valueImplementation,
@@ -38,6 +39,7 @@ import {
   ticketFor,
   type AgentRunOutcome,
   type ProcedureRunInput,
+  type RunContinuation,
   type PublishArgs,
   type RecordTracesArgs,
   type SettleClaimsArgs,
@@ -51,8 +53,11 @@ import {
 import type { RunLimits, RunLimitsArgs } from '../engine-host/registries/effort.js';
 import { RUN_STATE_QUERY, type RunState } from '../engine-host/temporal/run-cancellation.js';
 import { ASK_CHARS, type RunEffort } from '@koala/agent-engine/procedure';
+import { platformCatalogue, platformGroups } from '../extensions/installed.js';
 
 const NODE_HEARTBEAT_TIMEOUT = '1 minute';
+export const CONTINUE_AFTER_EVENTS = 10_000;
+export const MAX_CHECKPOINT_BYTES = 1_500_000;
 
 interface EngineRemote {
   EngineNodeActivity(request: RemoteNodeRequest): Promise<RemoteNodeResult>;
@@ -114,15 +119,17 @@ const toRemote = (request: NodeRequest): RemoteNodeRequest => ({
 
 export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentRunOutcome> {
   const { ticket, procedure } = input;
-  const catalogue = builtInCatalogue();
+  const catalogue = platformCatalogue();
 
-  const approvals = new Map<string, boolean>();
-  const answers = new Map<string, unknown>();
-  let approvedForRun = false;
+  const { continued } = input;
+  const approvals = new Map<string, boolean>(continued?.approvals ?? []);
+  const answers = new Map<string, unknown>(continued?.answers ?? []);
+  let approvedForRun = continued?.approvedForRun ?? false;
   let cancelled = false;
   let currentNode: string | undefined;
-  let rounds = 0;
-  let children = 0;
+  let rounds = continued?.checkpoint.counters.rounds ?? 0;
+  let children = continued?.children ?? 0;
+  let tooBigToContinue = false;
 
   setHandler(approveSignal, ({ callId, allowed, forRun }) => {
     approvals.set(callId, allowed);
@@ -235,6 +242,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
           inputs: childInputs(inputs),
           ...(input.projectId ? { projectId: input.projectId } : {}),
           ...(environment ? { environment } : {}),
+          ...(input.continueAfterEvents ? { continueAfterEvents: input.continueAfterEvents } : {}),
         }],
       });
       runningChildren.add(childRunId);
@@ -279,10 +287,11 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
     .filter((definition) => definition.runs === 'activity' || definition.runs === 'stream' || definition.runs === 'sandbox')
     .map((definition) => {
       const call = (request: NodeRequest): Promise<RemoteNodeResult> => {
+        const retryable = (definitionFor(catalogue, request.node) ?? definition).idempotent;
         if (definition.runs === 'stream') {
-          return cancellable(() => (definition.idempotent ? stream : streamOnce).EngineStreamNodeActivity(toRemote(request)));
+          return cancellable(() => (retryable ? stream : streamOnce).EngineStreamNodeActivity(toRemote(request)));
         }
-        return cancellable(() => (definition.idempotent ? engineNodes : engineNodesOnce).EngineNodeActivity(toRemote(request)));
+        return cancellable(() => (retryable ? engineNodes : engineNodesOnce).EngineNodeActivity(toRemote(request)));
       };
       return definition.role === 'step'
         ? stepImplementation(definition.kind, async (request) => (await call(request)) as StepResult)
@@ -308,17 +317,35 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   const signal = { get aborted() { return cancelled; }, reason: 'the run was cancelled' } as AbortSignal;
 
   return CancellationScope.nonCancellable(async () => {
-    const { modelKey, modelLabel, limits } = await EngineRunLimitsActivity({
+    const resolvedLimits = continued?.limits ?? await EngineRunLimitsActivity({
       ownerId: ticket.ownerId,
       agentSlug: ticket.agentSlug,
       procedure,
       ...(ticket.modelId ? { modelId: ticket.modelId } : {}),
     });
+    const { modelKey, modelLabel, limits } = resolvedLimits;
+    const continueAfter = input.continueAfterEvents ?? CONTINUE_AFTER_EVENTS;
+
+    const pauseWhen = (checkpoint: () => import('@koala/agent-engine/procedure').RunCheckpoint): boolean => {
+      if (cancelled || tooBigToContinue) return false;
+      const info = workflowInfo();
+      if (!info.continueAsNewSuggested && info.historyLength < continueAfter) return false;
+      if (JSON.stringify(checkpoint()).length <= MAX_CHECKPOINT_BYTES) return true;
+      tooBigToContinue = true;
+      bus.emit({
+        type: 'notice',
+        level: 'warn',
+        runId: ticket.runId,
+        at: new Date(Date.now()).toISOString(),
+        message: `this run's state is over ${MAX_CHECKPOINT_BYTES} bytes, so it cannot continue as a new run and will run on in this one`,
+      } as EngineEvent);
+      return false;
+    };
 
     const result = await runProcedure({
       procedure,
       catalogue,
-      groups: BUILT_IN_GROUPS,
+      groups: platformGroups(),
       executor,
       identity: {
         runId: ticket.runId,
@@ -334,6 +361,8 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       budget: limits,
       bus,
       signal,
+      ...(continued ? { resume: continued.checkpoint } : {}),
+      pauseWhen,
       now: () => Date.now(),
       onTrace: (trace) => {
         traces.push(trace);
@@ -342,6 +371,19 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
     });
 
     await flush();
+
+    if (result.paused) {
+      const next: RunContinuation = {
+        checkpoint: result.paused,
+        limits: resolvedLimits,
+        children,
+        approvedForRun,
+        approvals: [...approvals],
+        answers: [...answers],
+        segment: (continued?.segment ?? 0) + 1,
+      };
+      return continueAsNew<typeof AgentRunWorkflow>({ ...input, continued: next });
+    }
 
     await EngineSettleClaimsActivity({
       ownerId: ticket.ownerId,

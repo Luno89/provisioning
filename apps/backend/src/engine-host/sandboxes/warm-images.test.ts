@@ -1,12 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ALL_SEEDED_AGENTS, type Persona, type ToolDefinition } from '@koala/agent-engine';
+import { type Persona, type ToolDefinition } from '@koala/agent-engine';
 import { ENGINE_TOOL_SEEDS } from '../tools/engine-tool-seeds.js';
 import { createWorkspaceImages, sayWaiting } from './warm-images.js';
 import type { ImageStanding } from './image-builder.js';
+import { seededPersonas } from '../../extensions/seeds.js';
 
 const tools = (): ToolDefinition[] => [...ENGINE_TOOL_SEEDS];
 
-const personas = (): Persona[] => ALL_SEEDED_AGENTS();
+const personas = (): Persona[] => seededPersonas();
 
 function builder(over: { standing?: ImageStanding } = {}) {
   const started: string[] = [];

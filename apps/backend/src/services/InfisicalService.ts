@@ -1,3 +1,4 @@
+import type { SecretKey } from '../lib/crypto.js';
 import path from 'path';
 import fs from 'fs/promises';
 import axios from 'axios';
@@ -24,7 +25,7 @@ export class InfisicalService {
 
   constructor(
     private readonly infra: Pick<InfrastructureService, 'runKubectl'>,
-    private readonly masterKey: string,
+    private readonly masterKey: SecretKey,
     private readonly kubeconfigPath: string,
     private readonly customBaseUrl?: string,
     private readonly clusterProxy?: Pick<ClusterProxyService, 'ensurePortForward'>,

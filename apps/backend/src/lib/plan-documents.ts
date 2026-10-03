@@ -5,6 +5,19 @@ export const PLAN_DOC_PATH = 'PLAN.md';
 
 export const leafBriefPath = (leafId: string): string => `leaves/${leafId}.md`;
 
+/** Where what went wrong is written for a replan: the planner reads it, rather than being handed it inline. */
+export const leafFailurePath = (leafId: string): string => `leaves/${leafId}.failed.md`;
+
+/**
+ * The failure as a document in the leaf's worktree.
+ *
+ * It used to ride along as an input, which made the planner's `propose_leaf_plan` argument the biggest
+ * JSON it ever had to emit — and a big JSON argument is what a small model breaks.
+ */
+export function renderLeafFailure(input: { leafId: string; leafTitle: string; failure: string }): string {
+  return `# Why "${input.leafTitle}" failed\n\n_leaf ${input.leafId}_\n\n${input.failure.trim()}\n`;
+}
+
 export const leafWorktree = (leafId: string): string => `trees/${leafId}`;
 export const judgeCheckout = (leafId: string): string => `judge/${leafId}`;
 export const leafBranch = (leafId: string): string => `leaf/${leafId}`;

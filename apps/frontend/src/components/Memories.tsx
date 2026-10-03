@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Brain, Plus, Trash2, Edit3, Save, X, Lightbulb, Pin, ScrollText, Check, Globe, Folder, AlertCircle, ArrowUpRight } from 'lucide-react';
+
+type MemoryCategory = 'lessons_learned' | 'environment_facts' | 'prompt_guidance';
+type MemoryScope = 'project' | 'global';
 import {
   listMemories, getConsolidation, createMemory, updateMemory,
   approveMemory, promoteMemory, deleteMemory, memoryKeys,
@@ -53,8 +56,8 @@ export default function Memories() {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const [cat, setCat] = useState<'lessons_learned' | 'environment_facts' | 'prompt_guidance'>('lessons_learned');
-  const [scope, setScope] = useState<'project' | 'global'>('project');
+  const [cat, setCat] = useState<MemoryCategory>('lessons_learned');
+  const [scope, setScope] = useState<MemoryScope>('project');
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
 
@@ -214,7 +217,7 @@ export default function Memories() {
               <label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Category</label>
               <select
                 value={cat}
-                onChange={(e) => setCat(e.target.value as any)}
+                onChange={(e) => setCat(e.target.value as MemoryCategory)}
                 className="w-full bg-[var(--bark-900)] border border-[var(--bark-600)] rounded px-2.5 py-1.5 text-xs text-slate-200"
               >
                 <option value="lessons_learned">Lessons Learned</option>
@@ -226,7 +229,7 @@ export default function Memories() {
               <label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Scope</label>
               <select
                 value={scope}
-                onChange={(e) => setScope(e.target.value as any)}
+                onChange={(e) => setScope(e.target.value as MemoryScope)}
                 className="w-full bg-[var(--bark-900)] border border-[var(--bark-600)] rounded px-2.5 py-1.5 text-xs text-slate-200"
               >
                 <option value="project">Project Scope</option>
@@ -298,7 +301,7 @@ export default function Memories() {
                       <label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Category</label>
                       <select
                         value={cat}
-                        onChange={(e) => setCat(e.target.value as any)}
+                        onChange={(e) => setCat(e.target.value as MemoryCategory)}
                         className="w-full bg-[var(--bark-900)] border border-[var(--bark-600)] rounded px-2.5 py-1.5 text-xs text-slate-200"
                       >
                         <option value="lessons_learned">Lessons Learned</option>
@@ -310,7 +313,7 @@ export default function Memories() {
                       <label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Scope</label>
                       <select
                         value={scope}
-                        onChange={(e) => setScope(e.target.value as any)}
+                        onChange={(e) => setScope(e.target.value as MemoryScope)}
                         className="w-full bg-[var(--bark-900)] border border-[var(--bark-600)] rounded px-2.5 py-1.5 text-xs text-slate-200"
                       >
                         <option value="project">Project Scope</option>

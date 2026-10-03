@@ -188,3 +188,37 @@ describe('settling the tasks a run claimed', () => {
   });
 });
 
+
+describe('the run a tree is grown by', () => {
+  const tree = { id: 'tree-1', ownerId: 'user-1', name: 'Paper', type: 'research-paper', projectIds: [], createdAt: 'then', updatedAt: 'then' };
+  const grove = (types: { id: string; label: string; summary: string; agent?: string; ownerId?: string }[]) => services({
+    grove: {
+      trees: { list: async () => [tree] as never },
+      branches: { list: async () => [] },
+      leaves: { list: async () => [] },
+      tasks: { list: async () => [] },
+      treeTypes: async () => types,
+    },
+  }).services;
+
+  it('starts the agent the tree\'s type names, on that agent\'s procedure, keyed to the tree', async () => {
+    const activities = createEngineActivities(grove([{ id: 'research-paper', label: 'Paper', summary: 's', agent: 'grove-paper' }]));
+
+    const input = await activities.GroveRunInputActivity({ treeId: 'tree-1', ownerId: 'user-1' });
+
+    expect(input.ticket).toMatchObject({ runId: 'grove-run-tree-1', agentSlug: 'grove-paper', ownerId: 'user-1' });
+    expect(input.procedure.id).toBe('grove-paper-run');
+    expect(input.inputs).toMatchObject({ treeId: 'tree-1' });
+  });
+
+  it('starts the grove agent when the type names none', async () => {
+    const activities = createEngineActivities(grove([{ id: 'research-paper', label: 'Paper', summary: 's' }]));
+    expect((await activities.GroveRunInputActivity({ treeId: 'tree-1', ownerId: 'user-1' })).procedure.id).toBe('grove-run');
+  });
+
+  it('refuses, without retrying, a tree that is not there or an agent that does not exist', async () => {
+    const missing = createEngineActivities(grove([{ id: 'research-paper', label: 'Paper', summary: 's', agent: 'ghost' }]));
+    await expect(missing.GroveRunInputActivity({ treeId: 'tree-1', ownerId: 'user-1' })).rejects.toThrow(/no agent called "ghost"/);
+    await expect(missing.GroveRunInputActivity({ treeId: 'nope', ownerId: 'user-1' })).rejects.toThrow(/no tree "nope"/);
+  });
+});

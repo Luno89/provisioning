@@ -1,11 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
-import { engineRouter } from './engine.js';
+import { engineRouter, type EngineRouterDeps } from './engine.js';
 import { createAgentRegistry, createRunStarter, type WorkflowStarter, type Task } from '../engine-host/index.js';
 import type { Database } from '../lib/db-interface.js';
 import { conversationBinding } from '../engine-host/conversation-binding.js';
 import { INTERACTIVE_CHAT_V4, RESEARCH_V2 } from '@koala/agent-engine/procedure';
+import { ExtensionService } from '../services/ExtensionService.js';
+import { MemoryDB } from '../lib/memory-db.js';
+import { INSTALLED_EXTENSIONS, platformCatalogue, platformGroups } from '../extensions/installed.js';
+import { defineGroup } from '@koala/agent-engine/procedure';
 
 let tasks: Task[] = [];
 
@@ -39,7 +43,7 @@ beforeEach(() => {
 });
 
 
-function harnessWith(workflows: WorkflowStarter | undefined) {
+function harnessWith(workflows: WorkflowStarter | undefined, extensions?: EngineRouterDeps['extensions']) {
   const registry = createAgentRegistry();
   const runs = createRunStarter({
     registry,
@@ -50,7 +54,7 @@ function harnessWith(workflows: WorkflowStarter | undefined) {
   return mountRouter({
     prefix: '/api/engine',
     router: (db) => {
-      return engineRouter({ runs, registry, tasks: taskAccess, traces: { list: (ownerId, runId) => db.getRunTraces(ownerId, runId) } });
+      return engineRouter({ runs, registry, tasks: taskAccess, traces: { list: (ownerId, runId) => db.getRunTraces(ownerId, runId) }, ...(extensions ? { extensions } : {}) });
     },
   });
 }
@@ -61,6 +65,65 @@ const starter = (): WorkflowStarter & { start: ReturnType<typeof vi.fn>; signal:
 });
 
 describe('engine routes', () => {
+  it('serves each installed extension\'s vocabulary and whether the caller has it on, and switches one for them', async () => {
+    const h = await harnessWith(undefined, new ExtensionService({ store: new MemoryDB(), installed: INSTALLED_EXTENSIONS }));
+    const res = await axios.get(h.url('/api/engine/extensions'));
+
+    expect(res.status).toBe(200);
+    const grove = res.data.find((extension: { id: string }) => extension.id === 'grove');
+    expect(grove).toMatchObject({ requires: ['platform'], personas: expect.arrayContaining(['grove', 'grove-leaf']), procedures: expect.arrayContaining(['grove-run', 'grove-leaf']) });
+    expect(grove.operations).toEqual(JSON.parse(JSON.stringify(INSTALLED_EXTENSIONS.find((extension) => extension.id === 'grove')!.operations)));
+    expect(res.data.map((extension: { id: string; enabled: boolean; alwaysOn: boolean }) => [extension.id, extension.enabled, extension.alwaysOn])).toEqual([['platform', true, true], ['grove', true, false]]);
+
+    const off = await axios.put(h.url('/api/engine/extensions/grove/enabled'), { enabled: false });
+    expect(off.data.find((extension: { id: string }) => extension.id === 'grove').enabled).toBe(false);
+    const refused = await axios.put(h.url('/api/engine/extensions/platform/enabled'), { enabled: false }, { validateStatus: () => true });
+    expect(refused.status).toBe(409);
+    const unread = await axios.put(h.url('/api/engine/extensions/grove/enabled'), { enabled: 'yes' }, { validateStatus: () => true });
+    expect(unread.status).toBe(400);
+    await h.close();
+  });
+
+  it('makes an extension of the caller\'s own, publishes a group into it as versioned operations, and refuses what it must', async () => {
+    const h = await harnessWith(undefined, new ExtensionService({ store: new MemoryDB(), installed: INSTALLED_EXTENSIONS, catalogue: platformCatalogue, sharedGroups: platformGroups }));
+    const shout = defineGroup('shout', {
+      title: 'Shout', describe: 'Passes it on.',
+      inputs: { text: { type: 'text', describe: 'What to say.', required: true } },
+      outputs: {},
+      exits: { done: { describe: 'Said.' }, quiet: { describe: 'Nothing said.' } },
+    }, (g) => {
+      const said = g.condition('said', { value: g.inputs.text }, { expression: 'not empty(value)' });
+      g.start(said);
+      said.on('true', g.exits.done);
+      said.on('false', g.exits.quiet);
+      g.layout({ said: [0, 0] });
+    });
+
+    const made = await axios.post(h.url('/api/engine/extensions'), { id: 'loud', title: 'Loud' });
+    expect(made.data.find((extension: { id: string }) => extension.id === 'loud')).toMatchObject({ authored: true, enabled: true, latest: [] });
+    expect((await axios.post(h.url('/api/engine/extensions'), { id: 'grove', title: 'Mine' }, { validateStatus: () => true })).status).toBe(400);
+
+    const first = await axios.post(h.url('/api/engine/extensions/loud/operations'), { name: 'shout', group: shout });
+    expect(first.data).toEqual({ id: 'loud.shout@1', version: 1, moved: [] });
+    const second = await axios.post(h.url('/api/engine/extensions/loud/operations'), { name: 'shout', group: shout });
+    expect(second.data.id).toBe('loud.shout@2');
+    const listed = (await axios.get(h.url('/api/engine/extensions'))).data.find((extension: { id: string }) => extension.id === 'loud');
+    expect(listed).toMatchObject({ version: '2', latest: ['loud.shout@2'] });
+    expect(listed.groups.map((group: { id: string }) => group.id)).toEqual(['loud.shout@1', 'loud.shout@2']);
+
+    expect((await axios.post(h.url('/api/engine/extensions/loud/operations'), { name: 'Shout!', group: shout }, { validateStatus: () => true })).status).toBe(400);
+    expect((await axios.post(h.url('/api/engine/extensions/loud/operations'), { name: 'shout' }, { validateStatus: () => true })).status).toBe(400);
+    expect((await axios.post(h.url('/api/engine/extensions/nope/operations'), { name: 'shout', group: shout }, { validateStatus: () => true })).status).toBe(404);
+
+    const bundled = await axios.put(h.url('/api/engine/extensions/loud'), { title: 'Louder' });
+    expect(bundled.data.find((extension: { id: string }) => extension.id === 'loud').title).toBe('Louder');
+    const gone = await axios.delete(h.url('/api/engine/extensions/loud/operations/shout'));
+    expect(gone.data.find((extension: { id: string }) => extension.id === 'loud').latest).toEqual([]);
+    const deleted = await axios.delete(h.url('/api/engine/extensions/loud'));
+    expect(deleted.data.map((extension: { id: string }) => extension.id)).toEqual(['platform', 'grove']);
+    await h.close();
+  });
+
   it('lists the agents a user can run', async () => {
     const workflows = starter();
     const h: Harness = await harnessWith(workflows);
@@ -69,7 +132,7 @@ describe('engine routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.data.map((a: { slug: string }) => a.slug).sort())
-      .toEqual(['agent-builder', 'delivery', 'executor', 'grove-runner', 'judge', 'koala', 'leaf-judge', 'leaf-worker', 'paper-writer', 'planner', 'research']);
+      .toEqual(['agent-builder', 'delivery', 'executor', 'grove', 'grove-leaf', 'grove-paper', 'grove-paper-leaf', 'judge', 'koala', 'leaf-judge', 'paper-writer', 'planner', 'research']);
     expect(res.data.find((a: { slug: string }) => a.slug === 'koala')).toMatchObject({ mine: false });
 
     await h.close();

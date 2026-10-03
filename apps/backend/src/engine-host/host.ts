@@ -17,6 +17,7 @@ import { createEngineToolHandlers } from './tools/engine-tools.js';
 import type { TaskStore } from './tools/task-tools.js';
 import type { MemoryItem } from './drivers/memory-store.js';
 import type { HostNodeServices } from './nodes/services.js';
+import { extensionRuntimes, operationHandlers } from '../extensions/runtime.js';
 import type { RunTicket, ToolRuntime } from './temporal/contracts.js';
 import type { WebTools } from '../lib/web-tools.js';
 import type { Database } from '../lib/db-interface.js';
@@ -47,7 +48,7 @@ export interface EngineHostStores {
       save(proposal: import('../lib/plan-proposals.js').PlanProposal): Promise<void>;
       list(ownerId: string, conversationId?: string): Promise<import('../lib/plan-proposals.js').PlanProposal[]>;
     };
-    treeTypes?: (ownerId: string) => Promise<import('./tools/grove-tools.js').TreeTypeChoice[]>;
+    treeTypes?: (ownerId: string) => Promise<import('../extensions/grove/tools/grove-tools.js').TreeTypeChoice[]>;
     binding?: (ownerId: string, conversationId: string) => Promise<{ treeId?: string | undefined; projectId?: string | undefined } | undefined>;
   };
   conversations: import('./nodes/conversation-nodes.js').ConversationStore;
@@ -79,6 +80,8 @@ export interface EngineHostOptions {
   corpus?: import('./tools/corpus-tools.js').CorpusAccess | undefined;
   /** Everyone whose agents could run, so the image sweep asks what each of them wants. */
   owners?: (() => Promise<string[]>) | undefined;
+  hidden?: ((ownerId: string) => Promise<import('../lib/extension-settings.js').HiddenVocabulary>) | undefined;
+  published?: ((ownerId: string) => Promise<import('@koala/agent-engine/procedure').GroupDefinition[]>) | undefined;
 }
 
 export interface EngineHost {
@@ -106,6 +109,8 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     personas: stores.personas,
     procedures: stores.procedures,
     tools: stores.tools,
+    ...(options.hidden ? { hidden: options.hidden } : {}),
+    ...(options.published ? { published: options.published } : {}),
   });
   const endpoints = createEndpointResolver({ models: options.models, registry });
   const kube = createKubeRunner({ kubeconfig: options.kubeconfig });
@@ -215,6 +220,17 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       list: async (ownerId: string) => (await stores.memories.list(ownerId)).filter((memory) => memory.ownerId === ownerId),
       save: stores.memories.save,
     },
+    ...(options.hidden ? { hidden: options.hidden } : {}),
+    operations: operationHandlers(extensionRuntimes({ grove: { operations: {
+      trees: stores.grove.trees,
+      branches: stores.grove.branches,
+      leaves: stores.grove.leaves,
+      tasks: stores.tasks,
+      plans: { list: async (ownerId: string) => (await stores.grove.plans?.list(ownerId)) ?? [] },
+      treeWorkspaces,
+      environments,
+      registry,
+    } } })),
   };
 
   const workspaceImages: WorkspaceImages = createWorkspaceImages({

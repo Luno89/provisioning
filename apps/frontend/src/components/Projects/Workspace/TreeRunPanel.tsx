@@ -13,15 +13,13 @@ function describe(status: TreeRunStatus): string {
     case 'running': return `Running since ${new Date(status.startedAt).toLocaleTimeString()} — leaves are worked and judged pass by pass.`
     case 'failed': return `The last run stopped: ${status.reason}.`
     case 'finished': {
-      const { outcome, passes, awaitingReview, awaitingApproval = [] } = status.result
+      const { outcome, awaitingReview, awaitingApproval = [] } = status.result
       const review = [
         awaitingReview.length > 0 ? ` ${awaitingReview.length} claim${awaitingReview.length === 1 ? ' waits' : 's wait'} for your review.` : '',
         awaitingApproval.length > 0 ? ` ${awaitingApproval.length} leaf plan${awaitingApproval.length === 1 ? ' waits' : 's wait'} for your approval above.` : '',
       ].join('')
-      if (outcome === 'stopped') return `You stopped the last run after ${passes} pass${passes === 1 ? '' : 'es'}; the leaves it was working are back to waiting.${review}`
-      return outcome === 'capped'
-        ? `The last run stopped at its pass limit after ${passes} passes — something kept coming back.${review}`
-        : `The last run finished after ${passes} pass${passes === 1 ? '' : 'es'}: nothing left to work.${review}`
+      if (outcome === 'stopped') return `You stopped the last run; the leaves it was working are back to waiting.${review}`
+      return `The last run finished: nothing left to work.${review}`
     }
   }
 }

@@ -130,54 +130,6 @@ if [ $FAILED -eq 0 ]; then
       print_fail "No active workers detected (neither in-cluster pod nor host processes)" "Run 'npm run dev' to start the backend and worker processes on the host."
       FAILED=1
     fi
-
-    # 5b. Worker staleness.
-    #
-    # The backend runs under `tsx watch` and reloads; the workers run plain `tsx` and DO NOT. So a
-    # worker silently keeps executing whatever code it started with, and nothing warns you. This
-    # has caused two separate multi-hour misdiagnoses: a PayloadCodec added to worker-host.ts five
-    # minutes after the workers booted left them unable to decode any payload the backend
-    # encrypted, and a contract change picked up by one half of a module pair but not the other
-    # returned HTTP 500 from a warm cache.
-    #
-    # Compared against apps/backend/src because that is what the workers import. index.ts is
-    # excluded (it is the backend entry, and it hot-reloads), as are tests. CDKTF constructs are
-    # excluded too: cdktf is a subprocess that reads its sources fresh, so editing one needs no
-    # worker restart — see CLAUDE.md.
-    #
-    # routes/ and middleware/ are excluded for the same reason index.ts is: they are reached only
-    # through the Express entry, which hot-reloads, and no worker imports them. Without this, the
-    # first router extracted out of index.ts would make EVERY route edit report stale workers —
-    # turning the check that exists to catch a real, silent failure into noise that gets ignored,
-    # which is the one way to lose it. If a worker ever does import from routes/, delete this.
-    if [ $HOST_WORKER_UP -eq 1 ] || [ $CLUSTER_WORKER_UP -eq 1 ]; then
-      WORKER_PID="$(pgrep -f 'worker-host' | head -1 || true)"
-      [ -z "$WORKER_PID" ] && WORKER_PID="$(pgrep -f 'worker-cluster' | head -1 || true)"
-
-      if [ -n "$WORKER_PID" ]; then
-        # ps -o lstart is not machine-readable across platforms; etimes (seconds alive) is.
-        WORKER_AGE="$(ps -o etimes= -p "$WORKER_PID" 2>/dev/null | tr -d ' ' || true)"
-        if [ -n "$WORKER_AGE" ]; then
-          WORKER_STARTED_AT=$(( $(date +%s) - WORKER_AGE ))
-          NEWEST_FILE="$(find "${ROOT}/apps/backend/src" -type f -name '*.ts' \
-            ! -name 'index.ts' ! -name '*.test.ts' \
-            ! -path '*/routes/*' ! -path '*/middleware/*' -newermt "@${WORKER_STARTED_AT}" \
-            -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2- || true)"
-
-          if [ -n "$NEWEST_FILE" ]; then
-            STALE_COUNT="$(find "${ROOT}/apps/backend/src" -type f -name '*.ts' \
-              ! -name 'index.ts' ! -name '*.test.ts' \
-              ! -path '*/routes/*' ! -path '*/middleware/*' -newermt "@${WORKER_STARTED_AT}" 2>/dev/null | wc -l | tr -d ' ')"
-            print_fail \
-              "Workers are STALE — ${STALE_COUNT} source file(s) changed since they started (newest: ${NEWEST_FILE#"${ROOT}/"})" \
-              "Workers do not hot-reload. Restart 'npm run dev', or the workers will keep running the old code with no error."
-            FAILED=1
-          else
-            print_ok "Workers are running current code (no source changes since they started)"
-          fi
-        fi
-      fi
-    fi
   fi
 fi
 

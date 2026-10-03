@@ -85,6 +85,7 @@ echo "  ▶  Ensuring Infisical Helm charts are updated..."
 "$HELM" repo update infisical-helm-charts >/dev/null 2>&1 || true
 
 echo "  ▶  Ensuring infisical-secrets secret exists..."
+"$KUBECTL" --context "$CONTEXT" create namespace "$NAMESPACE" --dry-run=client -o yaml | "$KUBECTL" --context "$CONTEXT" apply -f - >/dev/null
 "$KUBECTL" --context "$CONTEXT" -n "$NAMESPACE" create secret generic infisical-secrets \
   --from-literal=ENCRYPTION_KEY="${INFISICAL_ENCRYPTION_KEY}" \
   --from-literal=AUTH_SECRET="${INFISICAL_AUTH_SECRET}" \

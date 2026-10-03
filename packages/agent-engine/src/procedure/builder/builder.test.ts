@@ -115,7 +115,7 @@ describe('reading builder code without running it', () => {
     ['let', "  let x = 1", 5, 3],
     ['an assignment', "  done.id = 'x'", 5, 3],
     ['a call that is not the builder\'s', "  console.log('hi')", 5, 3],
-    ['reading with [ ]', "  const x = p['finish']", 5, 13],
+    ['reading with [ ] anything but a quoted name', "  const x = p[done.id]", 5, 13],
     ['a template with a value in it', "  const x = p.text('x', {}, { text: `${1}` })", 5, 37],
     ['a spread', "  const x = p.text('x', {}, { ...{} })", 5, 31],
     ['a type annotation', "  const x = p.text('x') as never", 5, 13],

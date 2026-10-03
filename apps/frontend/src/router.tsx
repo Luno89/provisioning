@@ -4,12 +4,11 @@ import {
   createRouter,
   createHashHistory,
   Navigate,
+  type RouterHistory,
 } from '@tanstack/react-router';
-import { RootLayout, useShellContext } from './RootLayout';
+import { RootLayout } from './RootLayout';
+import { AppsRoute, ClustersRoute, NginxRoute, ProjectsRoute, VpsCatalogRoute } from './components/ShellRoutes';
 import ChatPage from './components/ChatPage';
-import ClustersView from './components/ClustersView';
-import AppsView from './components/AppsView';
-import NginxView from './components/NginxView';
 import TemporalPanel from './components/TemporalPanel';
 import ServicesPanel from './components/ServicesPanel';
 import CloudAccounts from './components/CloudAccounts.js';
@@ -19,78 +18,7 @@ import StudioView from './components/Studio/StudioView';
 import ProcedurePage from './components/Studio/ProcedurePage';
 import TreeTypes from './components/TreeTypes/index.js';
 import Memories from './components/Memories.js';
-import VpsCatalog from './components/VpsCatalog.js';
-import Projects from './components/Projects/index.js';
 import SettingsView from './components/SettingsView';
-
-function ClustersRoute() {
-  const ctx = useShellContext();
-  if (!ctx) return null;
-  return (
-    <ClustersView
-      clusters={ctx.clusters}
-      onProvision={() => ctx.setShowClusterModal(true)}
-      onOpenLogs={(id) => ctx.openDashboard('cluster', id)}
-    />
-  );
-}
-
-function AppsRoute() {
-  const ctx = useShellContext();
-  if (!ctx) return null;
-  return (
-    <AppsView
-      deployments={ctx.deployments}
-      clusters={ctx.clusters}
-      onDeploy={() => ctx.setShowAppModal(true)}
-      onOpenLogs={(id) => ctx.openDashboard('app', id)}
-    />
-  );
-}
-
-function NginxRoute() {
-  const ctx = useShellContext();
-  if (!ctx) return null;
-  return (
-    <NginxView
-      editorContent={ctx.editorContent}
-      setEditorContent={ctx.setEditorContent}
-      loadingNginxConfig={ctx.loadingNginxConfig}
-      updateNginxConfig={ctx.updateNginxConfig}
-      deployments={ctx.deployments}
-      clusters={ctx.clusters}
-      vpnDomains={ctx.vpnDomains}
-      setVpnDomains={ctx.setVpnDomains}
-      onAddRoute={() => ctx.setShowNginxWizard(true)}
-    />
-  );
-}
-
-function VpsCatalogRoute() {
-  const ctx = useShellContext();
-  if (!ctx) return null;
-  return (
-    <VpsCatalog
-      onDeploy={(offer) => {
-        ctx.setWizardPreset({
-          provider: offer.provider,
-          serverType: offer.planId,
-          ...(offer.location ? { location: offer.location } : {}),
-        });
-        ctx.setShowClusterModal(true);
-      }}
-    />
-  );
-}
-
-function ProjectsRoute() {
-  const ctx = useShellContext();
-  return (
-    <Projects
-      clusters={ctx?.clusters ?? []}
-    />
-  );
-}
 
 export const rootRoute = createRootRoute({
   component: RootLayout,
@@ -101,6 +29,12 @@ export const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   component: () => <Navigate to="/chat" replace />,
+});
+
+export const handoffRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/handoff',
+  component: () => null,
 });
 
 export const chatRoute = createRoute({
@@ -254,6 +188,7 @@ export const boardRedirect = createRoute({
 });
 
 export const routeTree = rootRoute.addChildren([
+  handoffRoute,
   indexRoute,
   chatRoute,
   chatConvRoute,
@@ -282,7 +217,7 @@ export const routeTree = rootRoute.addChildren([
   boardRedirect,
 ]);
 
-export function createProvisioningRouter(history?: any) {
+export function createProvisioningRouter(history?: RouterHistory) {
   return createRouter({
     routeTree,
     history: history ?? createHashHistory(),

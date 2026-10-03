@@ -1,6 +1,6 @@
 import type { TreeType } from '../../types/grove.js';
 
-export type { TreeType, TreeTypeFile, TreeStages, WorkspaceLanguage, PersonaEgressRule } from '../../types/grove.js';
+export type { TreeType, TreeTypeFile, WorkspaceLanguage, PersonaEgressRule } from '../../types/grove.js';
 
 export const card = 'bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-xl';
 

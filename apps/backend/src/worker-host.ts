@@ -10,6 +10,7 @@ import { DestroyClusterActivity } from './activities/DestroyClusterActivity.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
+import { loadKeys } from './lib/keys.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -37,7 +38,7 @@ async function main() {
   while (true) {
     try {
       const connection = await NativeConnection.connect({ address });
-      const dataConverter = buildDataConverter(process.env.JWT_SECRET);
+      const dataConverter = buildDataConverter(loadKeys(process.env).payload);
       worker = await Worker.create({
         connection,
         ...(dataConverter ? { dataConverter } : {}),

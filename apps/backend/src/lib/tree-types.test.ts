@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MemoryDB } from './memory-db.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
-import { TREE_TYPE_SEEDS, validateTreeType, resolveTreeType, renderStarterFiles, seedTreeTypes, treeTypeChoices, treeTypesFor, type TreeTypeSpec } from './tree-types.js';
+import { TREE_TYPE_SEEDS, validateTreeType, resolveTreeType, renderStarterFiles, seedTreeTypes, treeTypeChoices, treeTypesFor, type TreeTypeSpec, agentProblem, groveAgentOf } from './tree-types.js';
 
 const spec = (over: Partial<TreeTypeSpec> = {}): TreeTypeSpec => ({
   id: 'custom-thing',
@@ -31,6 +31,15 @@ describe('what a tree type must declare', () => {
 
   it('refuses a produces value outside service and artefact', () => {
     expect(validateTreeType(IMAGES, spec({ produces: 'vibes' as never }))).toMatch(/produces/i);
+  });
+
+  it('names the agent that grows its trees, one of the person\'s own, or the grove agent when it names none', () => {
+    expect(agentProblem(undefined, ['grove'])).toBeNull();
+    expect(agentProblem('grove-paper', ['grove', 'grove-paper'])).toBeNull();
+    expect(agentProblem('ghost', ['grove'])).toMatch(/"ghost".*not one of your agents/);
+    expect(agentProblem('', ['grove'])).toMatch(/agent must name/);
+    expect(groveAgentOf(undefined)).toBe('grove');
+    expect(groveAgentOf({ agent: 'grove-paper' })).toBe('grove-paper');
   });
 
   it('refuses an id that would not survive a URL or a filename', () => {
@@ -70,12 +79,12 @@ describe('resolving a type for a tree', () => {
 describe('the types a person chooses from', () => {
   // A shipped type has no owner, which TreeTypeSpec cannot say — the seeds are Omit<..., 'ownerId'>.
   const shipped = { id: 'freeform', label: 'Freeform project', summary: "Doesn't fit the other types." } as TreeTypeSpec;
-  const mine = { ...shipped, ownerId: 'u1', label: 'Mine', stages: { work: 'type-worker' } };
-  const theirs = { ...shipped, ownerId: 'u2', label: 'Theirs', stages: { work: 'their-worker' } };
+  const mine = { ...shipped, ownerId: 'u1', label: 'Mine', agent: 'grove-careful' };
+  const theirs = { ...shipped, ownerId: 'u2', label: 'Theirs', agent: 'their-grove' };
 
-  it('lets a person\'s own row shadow the shipped one at the same id, stages and all', () => {
+  it('lets a person\'s own row shadow the shipped one at the same id, agent and all', () => {
     expect(treeTypeChoices([shipped, mine], 'u1')).toEqual([
-      { id: 'freeform', label: 'Mine', summary: "Doesn't fit the other types.", stages: { work: 'type-worker' } },
+      { id: 'freeform', label: 'Mine', summary: "Doesn't fit the other types.", agent: 'grove-careful' },
     ]);
   });
 
@@ -160,21 +169,21 @@ describe('seeding the shipped types', () => {
     await db.init();
 
     expect(await seedTreeTypes(db)).toBe(TREE_TYPE_SEEDS.length);
-    expect((await shippedPaper(db))?.stages).toEqual({ work: 'paper-writer' });
+    expect((await shippedPaper(db))?.agent).toBe('grove-paper');
   });
 
-  it('brings a stored type up to date with its seed, so a new stage reaches installs that already have it', async () => {
+  it('brings a stored type up to date with its seed, so a new agent reaches installs that already have it', async () => {
     const db = new MemoryDB();
     await db.init();
     await seedTreeTypes(db);
 
-    // An install from before the type named a work agent.
-    const { stages: _stages, ...stale } = paper();
+    // An install from before the type named its grove agent.
+    const { agent: _agent, ...stale } = paper();
     await db.saveTreeType(stale as TreeTypeSpec);
-    expect(await shippedPaper(db)).not.toHaveProperty('stages');
+    expect(await shippedPaper(db)).not.toHaveProperty('agent');
 
     expect(await seedTreeTypes(db)).toBe(1);
-    expect((await shippedPaper(db))?.stages).toEqual({ work: 'paper-writer' });
+    expect((await shippedPaper(db))?.agent).toBe('grove-paper');
   });
 
   it('writes nothing on a second run, so provenance does not move', async () => {
@@ -189,14 +198,14 @@ describe('seeding the shipped types', () => {
     const db = new MemoryDB();
     await db.init();
     await seedTreeTypes(db);
-    await db.saveTreeType({ ...paper(), ownerId: 'u1', label: 'Mine', stages: { work: 'type-worker' } });
+    await db.saveTreeType({ ...paper(), ownerId: 'u1', label: 'Mine', agent: 'grove-careful' });
 
     expect(await seedTreeTypes(db)).toBe(0);
 
     const rows = (await db.getTreeTypes('u1')).filter((type) => type.id === 'research-paper');
-    expect(rows.map((type) => `${type.label}:${JSON.stringify(type.stages)}`).sort()).toEqual([
-      'Mine:{"work":"type-worker"}',
-      'Research paper:{"work":"paper-writer"}',
+    expect(rows.map((type) => `${type.label}:${type.agent}`).sort()).toEqual([
+      'Mine:grove-careful',
+      'Research paper:grove-paper',
     ]);
   });
 });

@@ -9,6 +9,11 @@ export function getSocket(): Socket {
   return shared
 }
 
+export function reconnectSocket(): void {
+  const socket = getSocket()
+  if (!socket.connected) socket.connect()
+}
+
 export function disconnectShared(): void {
   shared?.disconnect()
   shared = null

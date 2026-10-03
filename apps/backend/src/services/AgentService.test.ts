@@ -1,13 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ALL_SEEDED_AGENTS, type Persona } from '@koala/agent-engine';
+import { type Persona } from '@koala/agent-engine';
 import { ENGINE_TOOL_SEEDS } from '../engine-host/tools/engine-tool-seeds.js';
 import { AgentService, agentProblems } from './AgentService.js';
 import type { ImageStanding } from '../engine-host/sandboxes/image-builder.js';
-import { BUILT_IN_PROCEDURES } from '@koala/agent-engine/procedure';
+import { seededPersonas, seededProcedures } from '../extensions/seeds.js';
 
 const tools = () => [...ENGINE_TOOL_SEEDS];
-const PROCEDURES = BUILT_IN_PROCEDURES;
-const AGENTS = new Set(ALL_SEEDED_AGENTS().map((agent) => agent.slug));
+const PROCEDURES = seededProcedures();
+const AGENTS = new Set(seededPersonas().map((agent) => agent.slug));
 
 const agent = (over: Partial<Persona> = {}): Persona => ({
   slug: 'digger',
@@ -164,7 +164,7 @@ describe('agents you can edit', () => {
   it('saves your own copy and shadows the built-in by slug', async () => {
     const { agents, stored } = service();
 
-    const outcome = await agents.save('user-1', { ...ALL_SEEDED_AGENTS().find((one) => one.slug === 'research')!, prompt: 'You dig, differently.' });
+    const outcome = await agents.save('user-1', { ...seededPersonas().find((one) => one.slug === 'research')!, prompt: 'You dig, differently.' });
 
     expect(outcome).toMatchObject({ saved: true, agent: { slug: 'research', mine: true } });
     expect(stored).toHaveLength(1);
@@ -176,7 +176,7 @@ describe('agents you can edit', () => {
 
   it('leaves the built-in alone for everybody else', async () => {
     const { agents } = service();
-    await agents.save('user-1', { ...ALL_SEEDED_AGENTS().find((one) => one.slug === 'research')!, prompt: 'Mine.' });
+    await agents.save('user-1', { ...seededPersonas().find((one) => one.slug === 'research')!, prompt: 'Mine.' });
 
     expect((await agents.get('user-2', 'research'))?.prompt).not.toBe('Mine.');
     expect((await agents.get('user-2', 'research'))?.mine).toBe(false);
@@ -231,7 +231,7 @@ describe('agents you can edit', () => {
 
   it('deletes only your own copy, and the built-in comes back', async () => {
     const { agents } = service();
-    await agents.save('user-1', { ...ALL_SEEDED_AGENTS().find((one) => one.slug === 'research')!, prompt: 'Mine.' });
+    await agents.save('user-1', { ...seededPersonas().find((one) => one.slug === 'research')!, prompt: 'Mine.' });
 
     expect(await agents.remove('user-1', 'research')).toBe(true);
     expect((await agents.get('user-1', 'research'))?.mine).toBe(false);

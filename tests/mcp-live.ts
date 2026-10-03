@@ -8,6 +8,7 @@ import axios, { type AxiosInstance } from 'axios';
 import { signJWT } from '../apps/backend/src/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
 import { slugify } from '../apps/backend/src/lib/mcp-tools.js';
+import { loadKeys } from '../apps/backend/src/lib/keys.js';
 
 const BASE = process.env.MCP_LIVE_URL ?? 'http://localhost:3001/api';
 const LIMIT_MS = 8 * 60_000;
@@ -51,8 +52,7 @@ async function main(): Promise<void> {
   assert.ok(ownerId, 'nobody runs an MCP server here');
   const user = await db.getUserById(ownerId);
   assert.ok(user);
-  const secret = process.env.JWT_SECRET;
-  assert.ok(secret, 'JWT_SECRET is not set');
+  const secret = loadKeys(process.env).session;
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, secret, 3600)}` } });
 
   const servers = (await http.get('/mcp/servers')).data as { name: string; tools: { name: string }[]; unreachable?: string }[];

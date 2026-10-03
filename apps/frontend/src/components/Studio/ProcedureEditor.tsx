@@ -36,8 +36,10 @@ import Palette from './Palette'
 import Inspector from './Inspector'
 import ProblemsPanel from './ProblemsPanel'
 import RunPanel, { type StudioRun } from './RunPanel'
+import { publishedName } from '../../lib/published-groups'
 import {
-  STUDIO_CONTEXT,
+  useStudioContext,
+  useStudioContextQuery,
   errorMessage,
   useDeleteProcedure,
   useProcedure,
@@ -59,14 +61,15 @@ const typingInto = (target: EventTarget | null) =>
 
 export default function ProcedureEditor({ procedureId }: { procedureId: string }) {
   const loaded = useProcedure(procedureId)
+  const context = useStudioContextQuery()
 
-  if (loaded.isPending) {
+  if (loaded.isPending || context.isPending) {
     return <div className="flex h-full items-center justify-center text-sm text-slate-400"><Loader2 size={16} className="mr-2 animate-spin" /> Opening {procedureId}…</div>
   }
-  if (loaded.isError || !loaded.data) {
+  if (loaded.isError || !loaded.data || context.isError) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-slate-400">
-        <p>{loaded.isError ? errorMessage(loaded.error) : `There is no procedure called "${procedureId}".`}</p>
+        <p>{loaded.isError ? errorMessage(loaded.error) : context.isError ? `The platform's operations could not be loaded: ${errorMessage(context.error)}` : `There is no procedure called "${procedureId}".`}</p>
         <Link to="/studio" className="text-[var(--leaf-light)] hover:underline">Back to all procedures</Link>
       </div>
     )
@@ -80,6 +83,7 @@ export default function ProcedureEditor({ procedureId }: { procedureId: string }
 }
 
 function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
+  const context = useStudioContext()
   const navigate = useNavigate()
   const flow = useReactFlow()
   const list = useProcedureList()
@@ -107,12 +111,12 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
   const added = useRef(0)
 
   const path = useMemo(
-    () => (openPath.length === 0 || libraryOf(draft, STUDIO_CONTEXT).has(openPath[openPath.length - 1]!) ? openPath : []),
-    [draft, openPath],
+    () => (openPath.length === 0 || libraryOf(draft, context).has(openPath[openPath.length - 1]!) ? openPath : []),
+    [draft, openPath, context],
   )
   const dirty = pretty(draft) !== pretty(saved)
   const editable = isEditable(draft, path)
-  const local = useMemo(() => localProblems(draft), [draft])
+  const local = useMemo(() => localProblems(draft, context), [draft, context])
   const server = useServerProblems(draft)
   const problems = useMemo(() => mergeProblems(local, saveProblems ?? server.problems), [local, saveProblems, server.problems])
   const errors = procedureErrors(problems)
@@ -200,16 +204,16 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirty])
 
-  const addFromPalette = (kind: string, group?: string) => {
+  const addFromPalette = (kind: string, group?: string, operation?: string) => {
     const bounds = canvasArea.current?.getBoundingClientRect()
     const centre = bounds
       ? flow.screenToFlowPosition({ x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 })
       : { x: 0, y: 0 }
     const offset = (added.current % 6) * 24
     added.current += 1
-    const body = bodyAt(draft, path, STUDIO_CONTEXT)
-    const spot = freeSpot(body?.nodes.map((node) => ({ ...node.position, height: nodeHeight(definitionOf(node, draft, STUDIO_CONTEXT)) })) ?? [], { x: centre.x - 120 + offset, y: centre.y - 40 + offset })
-    const result = addNode(draft, path, kind, spot, STUDIO_CONTEXT, group)
+    const body = bodyAt(draft, path, context)
+    const spot = freeSpot(body?.nodes.map((node) => ({ ...node.position, height: nodeHeight(definitionOf(node, draft, context)) })) ?? [], { x: centre.x - 120 + offset, y: centre.y - 40 + offset })
+    const result = addNode(draft, path, kind, spot, context, group, operation)
     if (isRefused(result)) return refuse(result.refused)
     change(result.procedure)
     setSelection([result.id])
@@ -218,7 +222,7 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
   const tidy = async () => {
     setTidying(true)
     try {
-      change(await layoutProcedure(draft, path, STUDIO_CONTEXT))
+      change(await layoutProcedure(draft, path, context))
       setTimeout(() => void flow.fitView({ padding: 0.2, duration: 300 }), 50)
     } finally {
       setTidying(false)
@@ -230,6 +234,13 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
     setSelection([])
   }
 
+  const showGroup = (groupId: string) => {
+    setPath((current) => [...current.slice(0, -1), groupId])
+    setSelection([])
+  }
+
+  const announce = (text: string) => setNotice({ tone: 'saved', text })
+
   const showProblem = (problem: ProcedureProblem) => {
     setView('canvas')
     setPath(problem.group ? [problem.group] : [])
@@ -238,7 +249,7 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
 
   const replay = (trace: NodeTrace | undefined) => {
     if (!trace) return setReplayAt(undefined)
-    const at = groupPathIn(draft, trace.node)
+    const at = groupPathIn(draft, trace.node, context)
     setView('canvas')
     setPath(at)
     const shown = nodeAtDepth(trace.node, at)
@@ -279,7 +290,7 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
   const trail = [
     { title: draft.name || draft.id, path: [] as string[] },
     ...path.map((groupId, index) => ({
-      title: libraryOf(draft, STUDIO_CONTEXT).get(groupId)?.title ?? groupId,
+      title: libraryOf(draft, context).get(groupId)?.title ?? groupId,
       path: path.slice(0, index + 1),
     })),
   ]
@@ -376,7 +387,7 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
                   </button>
                 </span>
               ))}
-              {!editable && <span className="ml-2 rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-200">built-in group · view only</span>}
+              {!editable && <span className="ml-2 rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-200">{publishedName(path[path.length - 1] ?? '') ? 'published version' : 'built-in group'} · view only</span>}
               {replayAt !== undefined && (
                 <button type="button" onClick={() => setReplayAt(undefined)} className="ml-auto flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] text-sky-200">
                   replaying step {replayAt} <X size={10} />
@@ -432,6 +443,8 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
             onChange={change}
             onSelect={setSelection}
             onOpenGroup={openGroup}
+            onShowGroup={showGroup}
+            onAnnounce={announce}
             onRefused={refuse}
           />
         )}

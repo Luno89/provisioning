@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+MONGO_ROOT_PASSWORD="${MONGO_ROOT_PASSWORD:-$(grep -s '^MONGO_ROOT_PASSWORD=' "$ROOT/.env" | cut -d= -f2- || true)}"
 BACKUP_DIR="${ROOT}/backups"
 DEFAULT_ARCHIVE="${BACKUP_DIR}/mongo_backup_latest.archive.gz"
 
@@ -49,7 +50,7 @@ docker cp "$ARCHIVE_PATH" "provisioning-mongodb-1:/tmp/restore_mongo.archive.gz"
 
 echo "▶ Restoring MongoDB database 'provisioning' (with --drop)..."
 if docker exec provisioning-mongodb-1 mongorestore \
-  -u admin -p admin --authenticationDatabase admin \
+  -u admin -p "${MONGO_ROOT_PASSWORD:-admin}" --authenticationDatabase admin \
   --drop \
   --archive="/tmp/restore_mongo.archive.gz" \
   --gzip; then

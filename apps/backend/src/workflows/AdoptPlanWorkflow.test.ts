@@ -18,6 +18,7 @@ import type { Branch, Leaf } from '../lib/leaves.js';
 import type { Tree } from '../lib/trees.js';
 import type { Task } from '../engine-host/tools/tasks.js';
 import type { AdoptPlanResult } from '../engine-host/temporal/contracts.js';
+import { seededProcedures } from '../extensions/seeds.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -45,7 +46,7 @@ const proposal = (over: Partial<PlanProposal> = {}): PlanProposal => ({
         {
           key: 'health', title: 'Health endpoint', body: 'GET /health answers 200 with the sha', brief: 'Keep it dependency-free.', dependsOn: [],
           tasks: [
-            { key: 'a', title: 'Handler', description: 'Write it', role: 'The probe target', doneMeans: 'curl answers 200', dependsOn: [] },
+            { key: 'a', title: 'Handler', description: 'Write it', role: 'The probe target', doneMeans: 'curl answers 200', dependsOn: [], checks: { fileExists: 'src/health.ts' } },
             { key: 'b', title: 'Test', description: 'Cover it', role: 'Keeps it honest', doneMeans: 'the test passes', dependsOn: ['a'] },
           ],
         },
@@ -167,6 +168,11 @@ async function adopt(w: ReturnType<typeof world>, proposalId = 'p1'): Promise<Ad
       PlanAdoptRecordsActivity: w.activities.PlanAdoptRecordsActivity,
       PlanAdoptDocumentsActivity: w.activities.PlanAdoptDocumentsActivity,
       PlanAdoptSettleActivity: w.activities.PlanAdoptSettleActivity,
+      GroveRunInputActivity: async ({ treeId, ownerId }: { treeId: string; ownerId: string }) => ({
+        ticket: { runId: `grove-run-${treeId}`, depth: 0, ownerId, agentSlug: 'grove', trigger: 'user' as const },
+        procedure: seededProcedures().find((procedure) => procedure.id === 'grove-run')!,
+        inputs: { treeId, message: 'Grow the tree.' },
+      }),
     },
   });
   return worker.runUntil(() => env.client.workflow.execute(AdoptPlanWorkflow, {
@@ -190,6 +196,8 @@ describe('AdoptPlanWorkflow', () => {
     expect(health).toMatchObject({ status: 'pending', branchId: 'plan-p1-b0', tasks: ['plan-p1-b0-l0-t0', 'plan-p1-b0-l0-t1'] });
     expect(w.leaves.get('plan-p1-b0-l1')).toMatchObject({ status: 'pending', dependsOn: ['plan-p1-b0-l0'], tasks: [] });
     expect(w.tasks.get('plan-p1-b0-l0-t1')).toMatchObject({ status: 'accepted', leafId: 'plan-p1-b0-l0', dependsOn: ['plan-p1-b0-l0-t0'], role: 'Keeps it honest' });
+    expect(w.tasks.get('plan-p1-b0-l0-t0')?.checks, 'the planner\'s checks were dropped at adoption').toEqual({ fileExists: 'src/health.ts' });
+    expect(w.tasks.get('plan-p1-b0-l0-t1')?.checks).toBeUndefined();
 
     expect([...w.files.keys()]).toEqual([
       'repo/README.md', 'repo/scripts/build.sh',
@@ -269,7 +277,7 @@ describe('AdoptPlanWorkflow', () => {
       leafPlan: {
         treeId: 'tree-r', leafId: 'leaf-r', leafTitle: 'Serve it', mode: 'replan',
         why: 'nginx is not installed; python3 is', brief: 'Serve with python3 -m http.server.',
-        tasks: [{ key: 'serve', title: 'Serve with python', description: 'python3 -m http.server 8080 in site/', role: 'The page answers', doneMeans: 'curl :8080 answers 200', dependsOn: [] }],
+        tasks: [{ key: 'serve', title: 'Serve with python', description: 'python3 -m http.server 8080 in site/', role: 'The page answers', doneMeans: 'curl :8080 answers 200', dependsOn: [], checks: { command: 'curl -s -o /dev/null -w %{http_code} :8080', expects: ['200'] } }],
       },
     };
     const w = world([leafProposal]);
@@ -285,6 +293,7 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.tasks.get('old-failed')?.status).toBe('dropped');
     expect(w.tasks.get('old-done')?.status).toBe('done');
     expect(w.tasks.get('plan-p2-t0')).toMatchObject({ status: 'accepted', leafId: 'leaf-r', title: 'Serve with python' });
+    expect(w.tasks.get('plan-p2-t0')?.checks, 'the replan\'s checks were dropped at adoption').toEqual({ command: 'curl -s -o /dev/null -w %{http_code} :8080', expects: ['200'] });
     expect(w.leaves.get('leaf-r')).toMatchObject({ status: 'pending', replans: 1, tasks: ['old-done', 'plan-p2-t0'], attempts: [{ attempt: 1, error: 'nginx is not installed' }] });
     expect(w.leaves.get('leaf-r')?.claim).toBeUndefined();
     expect(w.files.get('repo/leaves/leaf-r.md')).toContain('Serve with python3 -m http.server.');
@@ -292,7 +301,7 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.commands.some((command) => command.includes("commit -q -m 'replan: Serve it'"))).toBe(true);
 
     const run = await env.client.workflow.getHandle('grove-run-tree-r').describe();
-    expect(run.type).toBe('GroveRunWorkflow');
+    expect(run.type).toBe('AgentRunWorkflow');
     await env.client.workflow.getHandle('grove-run-tree-r').terminate('test over');
   }, 60_000);
 });

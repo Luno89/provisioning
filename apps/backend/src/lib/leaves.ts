@@ -15,6 +15,7 @@ export interface Leaf {
   status: LeafStatus;
   dependsOn?: string[];
   replans?: number | undefined;
+  runId?: string | undefined;
   tasks?: string[];
   findings?: string;
   claim?: {

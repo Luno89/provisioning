@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
-  BUILT_IN_PROCEDURES,
   type Procedure,
 } from '@koala/agent-engine/procedure';
 import { composedRequests, said, type ComposeOptions } from './composed-request.js';
+import { seededProcedures } from '../../extensions/seeds.js';
 
 const procedure = (id: string): Procedure => {
-  const found = BUILT_IN_PROCEDURES.find((entry) => entry.id === id);
+  const found = seededProcedures().find((entry) => entry.id === id);
   if (!found) throw new Error(`there is no built-in procedure called "${id}"`);
   return found;
 };
@@ -24,32 +24,7 @@ interface Carries {
   mustOffer?: string[];
   mustNotOffer?: string[];
   procedureId?: string;
-  /** The run is structure: no model rounds of its own, but the child it fans out makes one — checked for shape instead of count. */
-  passRun?: true;
-  /** The run is a leaf's work: no model rounds of its own, but each task it asks for goes to an executor child that makes them. */
-  workRun?: true;
 }
-
-// What the leaf's worker asks for, and what it is told: one task, then the ending. The asks are kept so the test can
-// prove the loop came back for more and that what the worker was given reached the tool.
-const LEAF_TASK = {
-  id: 'write-greeting',
-  title: 'Write hello.txt',
-  doneMeans: 'A file called hello.txt exists in the workspace and contains exactly the word hello, with no trailing newline.',
-  leafId: 'leaf-w1',
-  context: { planDoc: 'PLAN.md', leafBrief: 'leaves/leaf-w1.md', worktree: 'trees/leaf-w1', branch: 'leaf/leaf-w1' },
-  siblings: '2 other leaves',
-};
-
-const askedFor: Record<string, unknown>[] = [];
-
-const leafTools: NonNullable<ComposeOptions['tools']> = async (args) => {
-  if (args.name !== 'next_leaf_task') return { ok: true, digest: 'done', content: 'done' };
-
-  askedFor.push(JSON.parse(args.arguments || '{}') as Record<string, unknown>);
-  const step = askedFor.length === 1 ? { step: 'run', item: LEAF_TASK } : { step: 'claim' };
-  return { ok: true, digest: `${step.step} for leaf-w1`, content: JSON.stringify(step) };
-};
 
 const MUST_CARRY: Record<string, Carries> = {
   'do-one-task': {
@@ -105,13 +80,13 @@ const MUST_CARRY: Record<string, Carries> = {
     },
     mustSay: ['hello.txt'],
   },
-  'grove-judge-pass': {
-    agent: 'grove-runner',
-    passRun: true,
+  'leaf-judge on a fanned-out claim': {
+    agent: 'leaf-judge',
+    procedureId: 'tool-rounds',
     run: {
-      message: 'Grove judge pass, tree t-1.',
+      message: 'Settle the claim on leaf-j1.',
       inputs: {
-        claimed: [{
+        item: {
           leafId: 'leaf-j1',
           leafTitle: 'Health endpoint',
           leafBody: 'The server answers /health on :3000',
@@ -119,28 +94,12 @@ const MUST_CARRY: Record<string, Carries> = {
           worktree: 'judge/leaf-j1',
           context: { planDoc: 'PLAN.md', leafBrief: 'leaves/leaf-j1.md', worktree: 'judge/leaf-j1', branch: 'leaf/leaf-j1', commit: 'abc1233' },
           claim: { evidence: 'committed at abc1233: server/app.ts answers /health on :3000', commit: 'abc1233', at: '2026-07-22T12:00:00.000Z' },
-        }],
+        },
+        index: 0,
       },
     },
     mustSay: ['leaf-j1', 'committed at abc1233', 'leaves/leaf-j1.md', 'judge/leaf-j1'],
     mustOffer: ['settle_leaf', 'read_file'],
-  },
-  'grove-work-leaf': {
-    agent: 'leaf-worker',
-    workRun: true,
-    run: {
-      message: 'Work leaf leaf-w1 of tree t-1.',
-      inputs: { leafId: 'leaf-w1', siblings: '2 other leaves' },
-      tools: leafTools,
-      replies: [
-        { content: 'hello.txt now contains exactly the word hello.' },
-        { content: 'The work meets what was expected.' },
-        { content: 'yes' },
-      ],
-    },
-    mustSay: [LEAF_TASK.title, 'contains exactly the word hello', 'trees/leaf-w1', 'leaves/leaf-w1.md', 'The task has already been claimed for you.'],
-    mustOffer: ['run_command', 'write_file'],
-    mustNotOffer: ['next_leaf_task', 'start_task', 'mark_done'],
   },
 }
 
@@ -151,24 +110,6 @@ describe('what each built-in procedure actually puts in front of the model', () 
 
       expect(requests.length, 'the model was never called').toBeGreaterThan(0);
       const first = requests[0]!;
-
-      if (carries.passRun) {
-        // The pass itself makes no model rounds; its children do. The pass ends only when the merge ran.
-        expect(result.outcome, 'the pass did not run clean').toBe('ok');
-        const items = (carries.run.inputs as { ready?: unknown[]; claimed?: unknown[] }).ready
-          ?? (carries.run.inputs as { claimed?: unknown[] }).claimed!;
-        const kept = (result.outputs as Record<string, Record<string, { agentId: string }[]>>).done?.result;
-        expect(kept?.length, 'each item of the pass fanned out into exactly one child run').toBe(items.length);
-      }
-
-      if (carries.workRun) {
-        // The worker makes no model rounds; its executor children do. It asks again after each task and ends on the
-        // tool's claim, and what it was given reaches the tool it asks.
-        expect(result.outcome, 'the leaf never reached its claim').toBe('ok');
-        expect(result.finishedBy, 'the leaf ended somewhere other than the claim').toBe('claimed');
-        expect(askedFor, 'the worker asked once per task and once more for the ending, with the leaf it was given')
-          .toEqual([{ leafId: 'leaf-w1', siblings: '2 other leaves' }, { leafId: 'leaf-w1', siblings: '2 other leaves' }]);
-      }
 
       for (const text of carries.mustSay) {
         expect(`${first.system}\n${said(first)}`, `${id} never told the model about "${text}"`).toContain(text);
@@ -184,7 +125,10 @@ describe('what each built-in procedure actually puts in front of the model', () 
 
   it('every built-in procedure says what its context has to carry', () => {
     const covered = Object.entries(MUST_CARRY).filter(([, carries]) => carries.procedureId === undefined).map(([id]) => id);
-    expect(BUILT_IN_PROCEDURES.map((entry) => entry.id).sort()).toEqual(covered.sort());
+    // These run no model of their own; what reaches their children's models is pinned end to end by
+    // extensions/grove/grove-run.test.ts.
+    const structural = ['grove-run', 'grove-paper-run', 'grove-leaf', 'grove-paper-leaf'];
+    expect(seededProcedures().map((entry) => entry.id).filter((id) => !structural.includes(id)).sort()).toEqual(covered.sort());
   });
 });
 

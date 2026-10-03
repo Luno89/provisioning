@@ -1,5 +1,5 @@
 import React, { useState, useEffect, startTransition } from 'react';
-import { useRouter } from '@tanstack/react-router';
+import { useRouter, type NavigateOptions } from '@tanstack/react-router';
 import { useShellStore, type ViewName } from '../stores/shell';
 import {
   Brain, Trees, Trees as TreesIcon, ChevronDown, ChevronRight,
@@ -25,14 +25,14 @@ function useSafeRouter() {
 
   useEffect(() => {
     if (!router?.subscribe) return;
-    return router.subscribe('onResolved', (evt: any) => {
-      setPathname(evt?.toLocation?.pathname ?? null);
+    return router.subscribe('onResolved', (evt) => {
+      setPathname(evt.toLocation.pathname);
     });
   }, [router]);
 
   return {
     pathname,
-    navigate: router ? (opts: any) => router.navigate(opts) : null,
+    navigate: router ? (opts: NavigateOptions) => router.navigate(opts) : null,
   };
 }
 
@@ -105,7 +105,7 @@ export default function Sidebar({ forestTabs, onLogout }: {
       window.location.hash = hash;
       setCurrentHash(hash);
       if (navigate) {
-        navigate({ to: cleanPath as any }).catch(() => {});
+        navigate({ to: cleanPath as NonNullable<NavigateOptions['to']> }).catch(() => {});
       }
     });
   };

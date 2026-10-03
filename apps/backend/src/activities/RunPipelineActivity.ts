@@ -7,6 +7,7 @@ import { InfrastructureService } from '../services/InfrastructureService.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { parsePipelineConfig, buildArgEntries } from '../lib/pipeline-config.js';
+import { loadKeys } from '../lib/keys.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,7 +34,6 @@ const MGMT_CLUSTER = 'provisioning-lunorica';
 const MGMT_CONTEXT = `k3d-${MGMT_CLUSTER}`;
 const MGMT_KUBECONFIG = `/tmp/kubeconfig-${MGMT_CLUSTER}`;
 const BUILD_NAMESPACE = 'pipeline-builds';
-const JWT_SECRET = process.env.JWT_SECRET || 'provisioning-platform-secret-12345';
 
 async function resolveKubeconfig(infra: InfrastructureService): Promise<string> {
   try {
@@ -60,7 +60,7 @@ export function workspacePath(sub: string | undefined): string {
 export async function RunPipelineActivity(args: RunPipelineArgs): Promise<RunPipelineResult> {
   const infra = new InfrastructureService();
   const kubeconfig = await resolveKubeconfig(infra);
-  const gitea = new GiteaService(infra, JWT_SECRET, kubeconfig);
+  const gitea = new GiteaService(infra, loadKeys(process.env).data, kubeconfig);
 
   const runSlug = (args.runId ?? Math.random().toString(36).slice(2)).replace(/[^a-z0-9]/gi, '').slice(-8).toLowerCase();
   const jobName = `build-${args.giteaRepo}-${args.commitSha.slice(0, 8)}-${runSlug}`

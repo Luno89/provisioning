@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Flag, FolderOpen, Layers, Play, Trash2, Ungroup } from 'lucide-react'
+import { Flag, FolderOpen, Layers, PencilLine, Play, Trash2, Ungroup } from 'lucide-react'
 import {
   settingsProblems,
   type NodeDefinition,
@@ -20,9 +20,11 @@ import {
 } from '../../lib/procedure-canvas'
 import { groupSelection, ungroup, updateGroup } from '../../lib/procedure-grouping'
 import { BUDGET_FIELDS, withBudget } from '../../lib/procedure-drafts'
+import { draftNewVersion, publishedName } from '../../lib/published-groups'
 import SettingsFields from './SettingsFields'
+import PublishGroup from './PublishGroup'
 import TrackRecords from './TrackRecords'
-import { CATEGORY_COLOURS, CATEGORY_TITLES, PLACEMENT_TITLES, STUDIO_CONTEXT } from './shared'
+import { CATEGORY_COLOURS, CATEGORY_TITLES, PLACEMENT_TITLES, useStudioContext } from './shared'
 
 const input = 'w-full rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)] px-2 py-1 text-xs text-slate-200 outline-none focus:border-[var(--leaf-stem)] disabled:opacity-60'
 const action = 'flex items-center gap-1.5 rounded-md border border-[var(--bark-600)] px-2 py-1 text-[11px] text-slate-300 hover:bg-[var(--bark-700)] disabled:cursor-not-allowed disabled:opacity-40'
@@ -36,6 +38,8 @@ export interface InspectorProps {
   onChange: (next: Procedure, mergeKey?: string) => void
   onSelect: (ids: string[]) => void
   onOpenGroup: (groupId: string) => void
+  onShowGroup: (groupId: string) => void
+  onAnnounce: (message: string) => void
   onRefused: (message: string) => void
 }
 
@@ -97,8 +101,9 @@ function Sockets({ definition }: { definition: NodeDefinition }) {
 }
 
 export default function Inspector(props: InspectorProps) {
+  const context = useStudioContext()
   const { procedure, path, selection, editable, onChange, onRefused, onSelect } = props
-  const body = bodyAt(procedure, path, STUDIO_CONTEXT)
+  const body = bodyAt(procedure, path, context)
   const selected = body?.nodes.filter((node) => selection.includes(node.id)) ?? []
 
   const apply = (next: Procedure | { refused: string }) => {
@@ -117,7 +122,7 @@ export default function Inspector(props: InspectorProps) {
               disabled={!editable}
               className={action}
               onClick={() => {
-                const grouped = groupSelection(procedure, path, selection, STUDIO_CONTEXT)
+                const grouped = groupSelection(procedure, path, selection, context)
                 if (isRefused(grouped)) return onRefused(grouped.refused)
                 onChange(grouped.procedure)
                 onSelect([grouped.nodeId])
@@ -125,7 +130,7 @@ export default function Inspector(props: InspectorProps) {
             >
               <Layers size={12} /> Group
             </button>
-            <button type="button" disabled={!editable} className={action} onClick={() => { onChange(removeNodes(procedure, path, selection, STUDIO_CONTEXT)); onSelect([]) }}>
+            <button type="button" disabled={!editable} className={action} onClick={() => { onChange(removeNodes(procedure, path, selection, context)); onSelect([]) }}>
               <Trash2 size={12} /> Delete
             </button>
           </div>
@@ -136,7 +141,7 @@ export default function Inspector(props: InspectorProps) {
 
   const node = selected[0]
   if (node) {
-    const definition = definitionOf(node, procedure, STUDIO_CONTEXT)
+    const definition = definitionOf(node, procedure, context)
     const nodeProblems = props.problems.filter((problem) => problem.node === node.id && problem.group === (path.length ? path[path.length - 1] : undefined))
     const settingErrors = definition ? settingsProblems(definition.settings, node.settings ?? {}) : []
     const isStep = definition?.role === 'step'
@@ -172,24 +177,24 @@ export default function Inspector(props: InspectorProps) {
 
         <Section title="On this canvas">
           <Labelled label="Label" describe="Shown instead of the node's title">
-            <input className={input} value={node.label ?? ''} disabled={!editable} placeholder={definition?.title} onChange={(event) => onChange(updateNode(procedure, path, node.id, { label: event.target.value }, STUDIO_CONTEXT), `label:${node.id}`)} />
+            <input className={input} value={node.label ?? ''} disabled={!editable} placeholder={definition?.title} onChange={(event) => onChange(updateNode(procedure, path, node.id, { label: event.target.value }, context), `label:${node.id}`)} />
           </Labelled>
           <Labelled label="Notes" describe="Why this node is here, for whoever reads the procedure next">
-            <textarea className={`${input} min-h-14`} value={node.notes ?? ''} disabled={!editable} onChange={(event) => onChange(updateNode(procedure, path, node.id, { notes: event.target.value }, STUDIO_CONTEXT), `notes:${node.id}`)} />
+            <textarea className={`${input} min-h-14`} value={node.notes ?? ''} disabled={!editable} onChange={(event) => onChange(updateNode(procedure, path, node.id, { notes: event.target.value }, context), `notes:${node.id}`)} />
           </Labelled>
           <div className="flex flex-wrap gap-1.5">
             {isStep && (
-              <button type="button" className={action} disabled={!editable || body?.start === node.id} onClick={() => apply(setStart(procedure, path, node.id, STUDIO_CONTEXT))}>
+              <button type="button" className={action} disabled={!editable || body?.start === node.id} onClick={() => apply(setStart(procedure, path, node.id, context))}>
                 <Play size={12} /> {body?.start === node.id ? 'Starts here' : 'Start here'}
               </button>
             )}
             {isStep && path.length === 0 && (
               procedure.cleanup === node.id ? (
-                <button type="button" className={action} disabled={!editable} onClick={() => apply(setCleanup(procedure, undefined, STUDIO_CONTEXT))}>
+                <button type="button" className={action} disabled={!editable} onClick={() => apply(setCleanup(procedure, undefined, context))}>
                   <Flag size={12} /> Stop being the cleanup
                 </button>
               ) : (
-                <button type="button" className={action} disabled={!editable} onClick={() => apply(setCleanup(procedure, node.id, STUDIO_CONTEXT))} title="The cleanup runs last, however the run ends">
+                <button type="button" className={action} disabled={!editable} onClick={() => apply(setCleanup(procedure, node.id, context))} title="The cleanup runs last, however the run ends">
                   <Flag size={12} /> Make the cleanup
                 </button>
               )
@@ -206,7 +211,7 @@ export default function Inspector(props: InspectorProps) {
                 disabled={!editable}
                 title="Put this group's nodes directly on this canvas, where they can be edited"
                 onClick={() => {
-                  const result = ungroup(procedure, path, node.id, STUDIO_CONTEXT)
+                  const result = ungroup(procedure, path, node.id, context)
                   if (isRefused(result)) return onRefused(result.refused)
                   onChange(result.procedure)
                   onSelect(result.nodeIds)
@@ -215,7 +220,7 @@ export default function Inspector(props: InspectorProps) {
                 <Ungroup size={12} /> Ungroup
               </button>
             )}
-            <button type="button" className={`${action} hover:!text-red-300`} disabled={!editable} onClick={() => { onChange(removeNodes(procedure, path, [node.id], STUDIO_CONTEXT)); onSelect([]) }}>
+            <button type="button" className={`${action} hover:!text-red-300`} disabled={!editable} onClick={() => { onChange(removeNodes(procedure, path, [node.id], context)); onSelect([]) }}>
               <Trash2 size={12} /> Delete
             </button>
           </div>
@@ -228,7 +233,7 @@ export default function Inspector(props: InspectorProps) {
                 schema={definition.settings}
                 value={node.settings}
                 disabled={!editable}
-                onChange={(settings) => onChange(updateNode(procedure, path, node.id, { settings }, STUDIO_CONTEXT), `settings:${node.id}`)}
+                onChange={(settings) => onChange(updateNode(procedure, path, node.id, { settings }, context), `settings:${node.id}`)}
               />
             </div>
             {settingErrors.map((message) => <p key={message} className="text-[11px] text-red-300">{message}</p>)}
@@ -241,12 +246,33 @@ export default function Inspector(props: InspectorProps) {
   }
 
   if (path.length > 0) {
-    const group = libraryOf(procedure, STUDIO_CONTEXT).get(path[path.length - 1]!)
+    const group = libraryOf(procedure, context).get(path[path.length - 1]!)
     if (!group) return null
+    const published = publishedName(group.id)
     return (
       <aside className="h-full w-80 shrink-0 overflow-y-auto border-l border-[var(--bark-700)] bg-[var(--bark-900)]">
         <Section title="Group">
-          {!editable && <p className="rounded-md bg-sky-500/10 px-2 py-1.5 text-[11px] text-sky-200">A built-in group, shown so you can see what it does. To change it, go back up and use Ungroup on its node — that copies its nodes onto your canvas.</p>}
+          {!editable && !published && <p className="rounded-md bg-sky-500/10 px-2 py-1.5 text-[11px] text-sky-200">A built-in group, shown so you can see what it does. To change it, go back up and use Ungroup on its node — that copies its nodes onto your canvas.</p>}
+          {published && (
+            <div className="space-y-1.5 rounded-md bg-fuchsia-500/10 px-2 py-1.5 text-[11px] text-fuchsia-200">
+              <p>Version {published.version} of an operation you published to {context.extensions?.find((extension) => extension.id === published.extension)?.title ?? published.extension}. A published version never changes; edit a new one, and publishing it moves every procedure of yours onto it.</p>
+              <button
+                type="button"
+                className={action}
+                onClick={() => {
+                  const drafted = draftNewVersion(procedure, group)
+                  if ('refused' in drafted) return onRefused(drafted.refused)
+                  onChange(drafted.procedure)
+                  props.onShowGroup(drafted.draftId)
+                }}
+              >
+                <PencilLine size={12} /> Edit a new version
+              </button>
+            </div>
+          )}
+          {editable && procedure.groups.some((entry) => entry.id === group.id) && (
+            <PublishGroup procedure={procedure} group={group} onChange={onChange} onShowGroup={props.onShowGroup} onAnnounce={props.onAnnounce} />
+          )}
           <Labelled label="Title">
             <input className={input} value={group.title} disabled={!editable} onChange={(event) => onChange(updateGroup(procedure, group.id, { title: event.target.value }), `group-title:${group.id}`)} />
           </Labelled>

@@ -33,10 +33,10 @@ describe('TreeRunPanel', () => {
 
   it('says how the last run ended and what waits for review', async () => {
     vi.mocked(groveApi.getTreeRun).mockResolvedValue({
-      state: 'finished', startedAt: 'then', result: { outcome: 'quiet', passes: 2, awaitingReview: ['l2'] },
+      state: 'finished', startedAt: 'then', result: { outcome: 'quiet', awaitingReview: ['l2'] },
     })
     renderPanel()
-    expect(await screen.findByText('The last run finished after 2 passes: nothing left to work. 1 claim waits for your review.')).toBeTruthy()
+    expect(await screen.findByText('The last run finished: nothing left to work. 1 claim waits for your review.')).toBeTruthy()
     expect(screen.getByText('Run it again')).toBeTruthy()
   })
 
@@ -58,13 +58,13 @@ describe('TreeRunPanel', () => {
     vi.mocked(groveApi.stopTreeRun).mockResolvedValue({ state: 'running', startedAt: '2026-09-25T10:00:00.000Z' })
     vi.mocked(groveApi.getTreeRun).mockResolvedValue({
       state: 'finished', startedAt: 'then',
-      result: { treeId: 't1', outcome: 'stopped', passes: 1, awaitingReview: [] },
+      result: { treeId: 't1', outcome: 'stopped', awaitingReview: [] },
     } as never)
     renderPanel()
 
     fireEvent.click(await screen.findByText('Stop the run'))
     await waitFor(() => expect(groveApi.stopTreeRun).toHaveBeenCalledWith('t1'))
-    expect(await screen.findByText(/You stopped the last run after 1 pass; the leaves it was working are back to waiting/)).toBeTruthy()
+    expect(await screen.findByText(/You stopped the last run; the leaves it was working are back to waiting/)).toBeTruthy()
     expect(screen.getByText('Run it again')).toBeTruthy()
   })
 })

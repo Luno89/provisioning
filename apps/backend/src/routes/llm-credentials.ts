@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import { v4 as uuidv4 } from 'uuid';
-import { encryptValue } from '../lib/crypto.js';
+import { encryptValue, type SecretKey } from '../lib/crypto.js';
 import { buildIntelligenceIndex, intelligenceFor, type AaModel } from '../lib/intelligence-index.js';
 
 const userOf = (req: Request): { id: string } =>
@@ -160,7 +160,7 @@ async function intelligenceIndex(
 }
 
 export function llmCredentialsRouter(deps: Record<string, any>): Router {
-  const { db, jwtSecret, credentialService } = deps;
+  const { db, dataKey, credentialService } = deps;
   const router = Router();
 
   router.get('/llm', asyncRoute(async (req, res) => {
@@ -208,7 +208,7 @@ export function llmCredentialsRouter(deps: Record<string, any>): Router {
           name: label,
           baseUrl: effectiveBaseUrl,
           model,
-          ...(apiKey ? { apiKeyEnc: encryptValue(String(apiKey), jwtSecret) } : {}),
+          ...(apiKey ? { apiKeyEnc: encryptValue(String(apiKey), dataKey) } : {}),
           createdAt: new Date().toISOString(),
         });
       }
@@ -245,7 +245,7 @@ export function llmCredentialsRouter(deps: Record<string, any>): Router {
         name: `${preset.label} · ${m.id}`,
         baseUrl: effectiveBaseUrl,
         model: m.id,
-        ...(apiKey ? { apiKeyEnc: encryptValue(String(apiKey), jwtSecret) } : {}),
+        ...(apiKey ? { apiKeyEnc: encryptValue(String(apiKey), dataKey) } : {}),
         ...(m.contextTokens ? { contextTokens: m.contextTokens } : {}),
         ...(m.pricing ? { pricing: m.pricing } : {}),
         createdAt: new Date().toISOString(),

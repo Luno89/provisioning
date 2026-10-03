@@ -235,7 +235,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const items = Array.isArray(list) ? list : [];
       const limit = Math.max(1, numberOf(node.settings, 'maxParallel', 3));
       const children: ChildOutcomeValue[] = [];
-      const handed = sandboxOf(run.launch.environment);
+      const handed = (inputs.environment as EnvironmentValue | undefined) ?? sandboxOf(run.launch.environment);
       const narrowed = (item: unknown): EnvironmentValue | undefined => {
         const worktree = typeof item === 'object' && item !== null ? (item as { worktree?: unknown }).worktree : undefined;
         return handed?.kind === 'sandbox' && typeof worktree === 'string' && worktree.trim() ? { ...handed, worktree: worktree.trim() } : handed;
@@ -245,7 +245,9 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         if (run.signal?.aborted) break;
         const batch = await Promise.all(items.slice(offset, offset + limit).map((item, index) => {
           const environment = narrowed(item);
-          return ports.runChild({ nodeId: node.id, agent, inputs: { item, index: offset + index }, ...(environment ? { environment } : {}), run });
+          const spread = node.settings.itemAsInputs === true && typeof item === 'object' && item !== null && !Array.isArray(item);
+          const childInputs = spread ? { ...(item as Record<string, unknown>) } : { item, index: offset + index };
+          return ports.runChild({ nodeId: node.id, agent, inputs: childInputs, ...(environment ? { environment } : {}), run });
         }));
         children.push(...batch);
       }

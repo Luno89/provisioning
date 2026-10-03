@@ -13,10 +13,12 @@ export interface GroveRunStore {
 }
 
 export interface GroveRunLauncher {
-  startGroveRun(ownerId: string, treeId: string): Promise<{ started: true; workflowId: string } | { started: false; reason: 'unavailable' | 'running' }>;
+  startGroveRun(ownerId: string, treeId: string): Promise<{ started: true; workflowId: string } | { started: false; reason: 'unavailable' | 'running' | 'switched-off' }>;
   groveRunStatus(treeId: string): Promise<GroveRunStatus>;
   signalGroveRun(treeId: string, signal: 'stopRun' | 'cancelLeaf', ...args: string[]): Promise<boolean>;
 }
+
+const SWITCHED_OFF = 'The agent that grows this tree belongs to an extension you have switched off — switch it on in Extensions to run the tree.';
 
 export type GroveRunOutcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 404 | 409 | 503; error: string };
 
@@ -48,6 +50,7 @@ export class GroveRunService {
     if (found.value.leaves.length === 0) return { ok: false, status: 409, error: 'Nothing is planned in this tree yet — ask for work in its conversation, and approve the plan.' };
     const started = await this.deps.launcher.startGroveRun(ownerId, treeId);
     if (!started.started && started.reason === 'unavailable') return { ok: false, status: 503, error: 'Temporal is not reachable, so the tree cannot run.' };
+    if (!started.started && started.reason === 'switched-off') return { ok: false, status: 409, error: SWITCHED_OFF };
     return { ok: true, value: await this.deps.launcher.groveRunStatus(treeId) };
   }
 
@@ -89,6 +92,7 @@ export class GroveRunService {
 
     const started = await this.deps.launcher.startGroveRun(ownerId, branch.treeId);
     if (!started.started && started.reason === 'unavailable') return { ok: false, status: 503, error: 'The leaf is reset, but Temporal is not reachable to run the tree.' };
+    if (!started.started && started.reason === 'switched-off') return { ok: false, status: 409, error: `The leaf is reset, but ${SWITCHED_OFF.charAt(0).toLowerCase()}${SWITCHED_OFF.slice(1)}` };
     return { ok: true, value: reset.leaf };
   }
 }

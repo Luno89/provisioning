@@ -1,13 +1,16 @@
 import {
   BUILT_IN_GROUPS,
   GROUP_KIND,
+  HOST_OP_KIND,
   defaultSettings,
+  definitionFor,
   groupAsNode,
   groupLibrary,
   socketAccepts,
   type Body,
   type Flow,
   type GroupDefinition,
+  type HostOperation,
   type NodeCatalogue,
   type NodeDefinition,
   type PlacedNode,
@@ -25,6 +28,9 @@ export type GroupPath = readonly string[]
 export interface CanvasContext {
   catalogue: NodeCatalogue
   shared?: readonly GroupDefinition[] | undefined
+  operations?: readonly HostOperation[] | undefined
+  extensions?: readonly { id: string; title: string }[] | undefined
+  retired?: ReadonlySet<string> | undefined
 }
 
 export type Refused = { refused: string }
@@ -83,7 +89,7 @@ export function definitionOf(node: PlacedNode, procedure: Procedure, context: Ca
     const group = node.group ? libraryOf(procedure, context).get(node.group) : undefined
     return group ? groupAsNode(group) : undefined
   }
-  return context.catalogue.get(node.kind)
+  return definitionFor(context.catalogue, node)
 }
 
 const camel = (kind: string): string =>
@@ -181,6 +187,7 @@ export function addNode(
   position: Position,
   context: CanvasContext,
   group?: string,
+  operation?: string,
 ): { procedure: Procedure; id: string } | Refused {
   if (!isEditable(procedure, path)) return { refused: 'a built-in group cannot be changed' }
   const body = bodyAt(procedure, path, context)
@@ -191,15 +198,18 @@ export function addNode(
   if (kind === GROUP_KIND && !groupDefinition) return { refused: `there is no group called "${group ?? ''}"` }
   if (groupDefinition && path.includes(groupDefinition.id)) return { refused: 'a group cannot contain itself' }
 
-  const definition = groupDefinition ? groupAsNode(groupDefinition) : context.catalogue.get(kind)
+  const chosen = kind === HOST_OP_KIND && operation ? { operation } : undefined
+  const definition = groupDefinition ? groupAsNode(groupDefinition) : definitionFor(context.catalogue, { kind, ...(chosen ? { settings: chosen } : {}) })
   if (!definition) return { refused: `"${kind}" is not a kind of node` }
+  if (kind === HOST_OP_KIND && !chosen) return { refused: 'a platform operation is placed by choosing which one' }
+  if (chosen && !context.operations?.some((entry) => entry.name === operation)) return { refused: `"${operation}" is not an operation this platform offers` }
 
-  const id = freshNodeId(body, groupDefinition ? groupDefinition.id : kind)
+  const id = freshNodeId(body, groupDefinition ? groupDefinition.id : operation ? operation.split('.').pop()! : kind)
   const node: PlacedNode = {
     id,
     kind,
     ...(groupDefinition ? { group: groupDefinition.id } : {}),
-    settings: defaultSettings(definition.settings),
+    settings: { ...defaultSettings(definition.settings), ...(chosen ?? {}) },
     position: { x: Math.round(position.x), y: Math.round(position.y) },
   }
 

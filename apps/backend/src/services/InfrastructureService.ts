@@ -306,9 +306,11 @@ export class InfrastructureService {
 
   async getHostGatewayIp(): Promise<string> {
     const { stdout } = await execAsync(
-      `docker inspect provisioner-nginx --format '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}'`
+      `docker inspect provisioner-nginx --format '{{with index .NetworkSettings.Networks "bridge"}}{{.Gateway}}{{end}}'`
     );
-    return stdout.trim();
+    const gateway = stdout.trim();
+    if (!gateway) throw new Error('provisioner-nginx is not on the docker bridge network, so the host gateway is unknown.');
+    return gateway;
   }
 
   async disconnectNginxFromNetwork(clusterName: string): Promise<void> {

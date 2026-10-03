@@ -99,7 +99,14 @@ function findFreePort(): Promise<number> {
  * Boots a fresh Ubuntu 22.04 VM reachable at 127.0.0.1:<forwarded-port> over SSH as a
  * passwordless-sudo user — everything ProvisionRemoteHostActivity needs from a real target.
  */
-export async function createDisposableVm(name: string): Promise<DisposableVm> {
+export interface DisposableVmOptions {
+  memoryMB?: number;
+  cpus?: number;
+  diskGB?: number;
+  forwards?: Array<{ host: number; guest: number }>;
+}
+
+export async function createDisposableVm(name: string, options: DisposableVmOptions = {}): Promise<DisposableVm> {
   await checkPrereqs();
   const baseImage = await ensureBaseImage();
 
@@ -122,8 +129,9 @@ export async function createDisposableVm(name: string): Promise<DisposableVm> {
   // startup with "no space left on device" partway through extracting its bundled images.
   // Ubuntu cloud images run cloud-init's growpart/resizefs modules by default on first boot, so
   // giving the overlay a real virtual size here is all that's needed — no extra cloud-init config.
-  console.log(`  💽 Creating copy-on-write overlay disk for ${name} (20G, auto-grown by cloud-init)...`);
-  await execFileAsync('qemu-img', ['create', '-f', 'qcow2', '-F', 'qcow2', '-b', baseImage, overlayPath, '20G']);
+  const diskGB = options.diskGB ?? 20;
+  console.log(`  💽 Creating copy-on-write overlay disk for ${name} (${diskGB}G, auto-grown by cloud-init)...`);
+  await execFileAsync('qemu-img', ['create', '-f', 'qcow2', '-F', 'qcow2', '-b', baseImage, overlayPath, `${diskGB}G`]);
 
   await fs.writeFile(userDataPath, [
     '#cloud-config',
@@ -160,19 +168,19 @@ export async function createDisposableVm(name: string): Promise<DisposableVm> {
   // out to be an unconstrained Loki chart default (~9.8Gi for one sub-component alone, now fixed
   // in constructs/logging.ts) — no amount of guessing the VM size upward would have reliably
   // found that; measuring what's actually requested did.
-  const memoryMB = calculateRequiredVmMemoryMB();
+  const memoryMB = options.memoryMB ?? calculateRequiredVmMemoryMB();
   console.log(`  🚀 Booting ${name} (KVM-accelerated, ${memoryMB}MB RAM, SSH on 127.0.0.1:${sshPort}, k3s API on 127.0.0.1:${k3sApiPort})...`);
   await execFileAsync('qemu-system-x86_64', [
     '-enable-kvm',
     '-cpu', 'host',
     '-m', String(memoryMB),
-    '-smp', '2',
+    '-smp', String(options.cpus ?? 2),
     '-display', 'none',
     '-serial', `file:${serialLogPath}`,
     '-no-reboot',
     '-drive', `file=${overlayPath},if=virtio,format=qcow2`,
     '-drive', `file=${seedPath},if=virtio,format=raw,readonly=on`,
-    '-nic', `user,hostfwd=tcp::${sshPort}-:22,hostfwd=tcp::${k3sApiPort}-:6443`,
+    '-nic', `user,hostfwd=tcp::${sshPort}-:22,hostfwd=tcp::${k3sApiPort}-:6443${(options.forwards ?? []).map((forward) => `,hostfwd=tcp::${forward.host}-:${forward.guest}`).join('')}`,
     '-daemonize',
     '-pidfile', pidPath,
   ]);

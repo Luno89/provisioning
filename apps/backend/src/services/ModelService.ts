@@ -5,7 +5,7 @@ import type { ClusterService } from './ClusterService.js';
 import type { ClusterProxyService } from './ClusterProxyService.js';
 import { listProviders, routeProvider, type ModelProvider, type EndpointSource } from '../lib/model-registry.js';
 import { checkEndpointUrl, isMeshAddress } from '../lib/endpoint-url-safety.js';
-import { decryptValue } from '../lib/crypto.js';
+import { decryptValue, type SecretKey } from '../lib/crypto.js';
 import type { HeadscaleService } from './HeadscaleService.js';
 
 export class ModelService extends BaseService {
@@ -15,7 +15,7 @@ export class ModelService extends BaseService {
     private clusters: ClusterService,
     private proxy: ClusterProxyService,
     private headscale: HeadscaleService,
-    private masterKey: string,
+    private masterKey: SecretKey,
   ) {
     super(db);
   }

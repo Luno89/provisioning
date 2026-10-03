@@ -1,5 +1,5 @@
 import path from 'path';
-import { McpRegistryService } from '../services/McpRegistryService.js'
+import { McpRegistryService } from './McpRegistryService.js'
 import { looksLikeMcp } from '../lib/mcp-registry.js'
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js'
 import { healthFromProbe } from '../lib/service-health.js'
@@ -11,7 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const LOG_DIR = path.resolve(__dirname, '../../data/logs');
 import { getTemporalClient, pollWorkflowRun } from '../lib/temporal-client.js'
-import { DEFAULT_ENGINE_TASK_QUEUE, groveRunWorkflowId, type GroveRunResult } from '../engine-host/temporal/contracts.js'
+import { DEFAULT_ENGINE_TASK_QUEUE, type GroveRunResult } from '../engine-host/temporal/contracts.js'
 
 export type GroveRunStatus =
   | { state: 'none' | 'unavailable' }
@@ -19,10 +19,9 @@ export type GroveRunStatus =
   | { state: 'finished'; startedAt: string; closedAt?: string; result: GroveRunResult }
   | { state: 'failed'; startedAt: string; closedAt?: string; reason: string }
 import { reconcileRun, reconcileMissingWorkflow, LIVE_RUN_STATUSES, type RunStatus } from '../lib/run-reconcile.js'
-import { failureReason } from '../lib/temporal-failure.js'
 import { deploymentIdFor } from '../lib/deployment-id.js'
 import { resolveCloudCredentials } from '../lib/credential-resolver.js'
-import { decryptValue, encryptValue } from '../lib/crypto.js'
+import { decryptValue, encryptValue, type SecretKey } from '../lib/crypto.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
 import { consolidateMemories, type ConsolidationReport } from '../lib/memory-consolidate.js'
 import { corpusEndpoints } from '../lib/web-tools-resolver.js'
@@ -205,7 +204,7 @@ export class TemporalBridge {
   db!: Database
   io: SocketServer | undefined
   client!: Client
-  masterKey: string
+  masterKey: SecretKey
   clusterService?: ClusterService
   headscale?: { createPreAuthKey(userId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }> }
 
@@ -214,7 +213,7 @@ export class TemporalBridge {
   constructor(
     db: Database,
     io?: SocketServer,
-    masterKey?: string,
+    masterKey?: SecretKey,
     clusterService?: ClusterService,
     headscale?: { createPreAuthKey(userId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }> },
   ) {
@@ -425,60 +424,6 @@ export class TemporalBridge {
       workflowIdReusePolicy: 'ALLOW_DUPLICATE',
     })
     return workflowId
-  }
-
-  async startGroveRun(ownerId: string, treeId: string): Promise<{ started: true; workflowId: string } | { started: false; reason: 'unavailable' | 'running' }> {
-    if (!this.client) return { started: false, reason: 'unavailable' }
-    const workflowId = groveRunWorkflowId(treeId)
-    try {
-      await this.client.workflow.start('GroveRunWorkflow', {
-        workflowId,
-        taskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE,
-        args: [{ treeId, ownerId }],
-        workflowIdReusePolicy: 'ALLOW_DUPLICATE',
-      })
-      return { started: true, workflowId }
-    } catch (err: any) {
-      if (/already started|AlreadyStarted/i.test(`${err?.name} ${err?.message}`)) return { started: false, reason: 'running' }
-      throw err
-    }
-  }
-
-  async signalGroveRun(treeId: string, signal: 'stopRun' | 'cancelLeaf', ...args: string[]): Promise<boolean> {
-    if (!this.client) return false
-    const handle = this.client.workflow.getHandle(groveRunWorkflowId(treeId))
-    try {
-      if ((await handle.describe()).status.name !== 'RUNNING') return false
-    } catch (err: any) {
-      if (/not\s*found/i.test(String(err?.message ?? err))) return false
-      throw err
-    }
-    await handle.signal(signal, ...args)
-    return true
-  }
-
-  async groveRunStatus(treeId: string): Promise<GroveRunStatus> {
-    if (!this.client) return { state: 'unavailable' }
-    const handle = this.client.workflow.getHandle(groveRunWorkflowId(treeId))
-    let described
-    try {
-      described = await handle.describe()
-    } catch (err: any) {
-      if (/not found/i.test(err?.message ?? '')) return { state: 'none' }
-      throw err
-    }
-    const startedAt = described.startTime.toISOString()
-    const closedAt = described.closeTime?.toISOString()
-    const status = described.status.name
-    if (status === 'RUNNING') return { state: 'running', startedAt }
-    if (status === 'COMPLETED') {
-      const result = await handle.result() as GroveRunResult
-      return { state: 'finished', startedAt, ...(closedAt ? { closedAt } : {}), result }
-    }
-    // The status word is not a reason. Ask the workflow what it died of, so the tree says
-    // "the workspace image did not build: no match for jq-nonexistent" rather than "failed".
-    const said = await handle.result().then(() => undefined, (err: unknown) => err)
-    return { state: 'failed', startedAt, ...(closedAt ? { closedAt } : {}), reason: failureReason(status, said) }
   }
 
   async startActiveWorkflowRecovery(): Promise<void> {

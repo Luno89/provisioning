@@ -12,7 +12,7 @@ import {
   type Task,
   type TaskChecks,
   type TaskStatus,
-} from '../tools/tasks.js';
+} from './tasks.js';
 
 export interface TaskStore {
   list(ownerId: string): Promise<Task[]>;

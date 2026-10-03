@@ -25,6 +25,7 @@ import os from 'os';
 import path from 'path';
 import { createDatabase } from '../../apps/backend/src/lib/db-interface.js';
 import { decryptValue } from '../../apps/backend/src/lib/crypto.js';
+import { loadKeys } from '../../apps/backend/src/lib/keys.js';
 import { generateSshKeypair } from '../../apps/backend/src/lib/ssh-keypair.js';
 
 const execFileAsync = promisify(execFile);
@@ -44,10 +45,10 @@ const KEY_PATH = resolve(HERE, '.root-node-key');
 const args = process.argv.slice(2);
 const CONFIRMED = args.includes('--yes');
 /**
- * Copy THIS machine's JWT_SECRET to the new host instead of letting bootstrap.sh generate one.
+ * Copy THIS machine's platform keys to the new host instead of letting bootstrap.sh generate them.
  *
- * Only correct when migrating a host whose existing data must stay readable — the secret is the
- * master key for every stored credential. For a fresh host it is a pure downside: it gives a
+ * Only correct when migrating a host whose existing data must stay readable — DATA_KEY encrypts
+ * every stored credential. For a fresh host it is a pure downside: it gives a
  * development machine's compromise the power to forge production sessions and decrypt every
  * tenant's cloud credentials.
  */
@@ -93,8 +94,8 @@ async function ssh(host: string, command: string): Promise<string> {
 /**
  * Writes the backend .env on the remote host by piping it over SSH's stdin.
  *
- * Piped rather than interpolated into the command line, because JWT_SECRET is the master key for
- * every credential the platform stores: an argument would be visible in the remote host's process
+ * Piped rather than interpolated into the command line, because the platform keys protect every
+ * session and every credential the platform stores: an argument would be visible in the remote host's process
  * list and shell history.
  *
  * Uses spawn rather than execFile, which has no `input` option at all — passing one is silently
@@ -122,10 +123,10 @@ async function main() {
   const users: any[] = await (db as any).getUsers();
   const owner = users.find((u) => u?.credentials?.hetzner?.token && u?.credentials?.cloudflare?.token);
   if (!owner) die('Need both a Hetzner and a Cloudflare token stored under Cloud Accounts.');
-  if (!process.env.JWT_SECRET) die('JWT_SECRET is not set — apps/backend/.env did not load.');
+  const keys = loadKeys(process.env);
 
-  const hcloudToken = decryptValue(owner.credentials.hetzner.token, process.env.JWT_SECRET!);
-  const cfToken = decryptValue(owner.credentials.cloudflare.token, process.env.JWT_SECRET!);
+  const hcloudToken = decryptValue(owner.credentials.hetzner.token, keys.data);
+  const cfToken = decryptValue(owner.credentials.cloudflare.token, keys.data);
   ok('Hetzner and Cloudflare tokens loaded');
 
   const zones = await cf(cfToken, `/zones?name=${encodeURIComponent(DOMAIN)}`);
@@ -206,7 +207,7 @@ This bills hourly. Re-run with --yes to proceed.`);
     // billable machine on a re-run.
     ok(`Reusing existing server ${server.id} (${server.public_net?.ipv4?.ip})`);
   } else {
-    // No user_data. JWT_SECRET is the master key for every stored credential, and cloud-init data
+    // No user_data. The platform keys protect every stored credential, and cloud-init data
     // persists into the Hetzner console indefinitely — it goes over SSH below instead.
     server = (await hcloud(hcloudToken, '/servers', {
       method: 'POST',
@@ -251,7 +252,7 @@ This bills hourly. Re-run with --yes to proceed.`);
 
   // ── Repo and secret ──────────────────────────────────────────────────────────────────────────
   //
-  // JWT_SECRET is the master key for every session and every stored credential, so which one the
+  // The platform keys protect every session and every stored credential, so which ones the
   // host ends up with is close to irreversible: changing it later makes every credential a tenant
   // has stored permanently undecryptable.
   //
@@ -265,14 +266,22 @@ This bills hourly. Re-run with --yes to proceed.`);
   //   machine's secret into production would mean that compromising a laptop lets someone forge
   //   production sessions and decrypt every tenant's cloud credentials, for no benefit at all.
   //   bootstrap.sh generates a fresh one when it finds no .env.
-  step(CARRY_SECRET ? 'Placing the repo and carrying JWT_SECRET across' : 'Placing the repo');
+  step(CARRY_SECRET ? 'Placing the repo and carrying the platform keys across' : 'Placing the repo');
   await ssh(ip, 'command -v git >/dev/null || (apt-get update -qq && apt-get install -y -qq git)');
   await ssh(ip, `test -d ${REPO_DIR}/.git || git clone --quiet ${REPO_URL} ${REPO_DIR}`);
   if (CARRY_SECRET) {
-    await writeRemoteEnv(ip, `JWT_SECRET=${process.env.JWT_SECRET}\nNODE_ENV=production\n`);
-    warn('JWT_SECRET carried from this machine — the dev box and production now share a master key');
+    const carried = [
+      `SESSION_KEY=${keys.session.current}`,
+      `DATA_KEY=${keys.data.current}`,
+      `PAYLOAD_KEY=${keys.payload.current}`,
+      `EGRESS_KEY=${keys.egress}`,
+      ...(process.env.JWT_SECRET ? [`JWT_SECRET=${process.env.JWT_SECRET}`] : []),
+      'NODE_ENV=production',
+    ];
+    await writeRemoteEnv(ip, `${carried.join('\n')}\n`);
+    warn('Platform keys carried from this machine — the dev box and production now share them');
   } else {
-    ok('Leaving JWT_SECRET to bootstrap.sh, which generates a fresh one for this host');
+    ok('Leaving the platform keys to bootstrap.sh, which generates fresh ones for this host');
   }
 
   // ── Bootstrap ────────────────────────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+MONGO_ROOT_PASSWORD="${MONGO_ROOT_PASSWORD:-$(grep -s '^MONGO_ROOT_PASSWORD=' "$ROOT/.env" | cut -d= -f2- || true)}"
 BACKUP_DIR="${ROOT}/backups"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 ARCHIVE_NAME="mongo_backup_${TIMESTAMP}.archive.gz"
@@ -12,7 +13,7 @@ mkdir -p "$BACKUP_DIR"
 
 echo "▶ Dumping MongoDB database 'provisioning'..."
 if ! docker exec provisioning-mongodb-1 mongodump \
-  -u admin -p admin --authenticationDatabase admin \
+  -u admin -p "${MONGO_ROOT_PASSWORD:-admin}" --authenticationDatabase admin \
   --db provisioning \
   --archive="/tmp/${ARCHIVE_NAME}" \
   --gzip; then

@@ -1,0 +1,20 @@
+{{- $required := list "id" "ownerId" "rootUrl" "rootPublicKeys" -}}
+{{- range $required }}{{ if not (index $.Values.instance .) }}{{ fail (printf "instance.%s is required" .) }}{{ end }}{{ end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "instance.name" . }}-env
+  labels: {{- include "instance.labels" . | nindent 4 }}
+data:
+  NODE_ENV: production
+  ROLE: instance
+  INSTANCE_ID: {{ .Values.instance.id | quote }}
+  INSTANCE_OWNER_ID: {{ .Values.instance.ownerId | quote }}
+  ROOT_URL: {{ .Values.instance.rootUrl | quote }}
+  ROOT_PUBLIC_KEYS: {{ .Values.instance.rootPublicKeys | quote }}
+  PUBLIC_URL: {{ .Values.publicUrl | default "http://localhost:3001" | quote }}
+  TEMPORAL_CONNECTION_ADDRESS: {{ include "instance.name" . }}-temporal:7233
+  SEARXNG_URL: http://searxng.searxng.svc.cluster.local:8080
+  CRAWL4AI_URL: http://crawl4ai.crawl4ai.svc.cluster.local:11235
+  KUBECONFIG_PATH: /tmp/kubeconfig-provisioning-lunorica
+  IN_CLUSTER: "true"

@@ -1,4 +1,5 @@
 import { builtInCatalogue } from '../nodes/index.js';
+import type { NodeCatalogue } from '../definition.js';
 import { BuilderError } from '../builder/runtime.js';
 import { groupBuilder, procedureBuilder } from '../builder/typed.js';
 import type { Exits, GroupBody, GroupInfo, ProcedureBody, ProcedureMeta, Sockets } from '../builder/types.generated.js';
@@ -12,8 +13,13 @@ export function defineGroup<const I extends Sockets = Record<never, never>, cons
   return groupBuilder({ catalogue: builtInCatalogue() })(id, info, build);
 }
 
-export function defineProcedure(groups: readonly GroupDefinition[], meta: ProcedureMeta, build: (p: ProcedureBody) => void): Procedure {
-  const built = procedureBuilder({ catalogue: builtInCatalogue(), groups })(meta, build);
+export function defineProcedure(
+  groups: readonly GroupDefinition[],
+  meta: ProcedureMeta,
+  build: (p: ProcedureBody) => void,
+  catalogue: NodeCatalogue = builtInCatalogue(),
+): Procedure {
+  const built = procedureBuilder({ catalogue, groups })(meta, build);
   if (built.unplaced.length > 0) {
     throw new BuilderError(`procedure "${meta.id}" never places ${built.unplaced.map((node) => `"${node}"`).join(', ')} — add them to p.layout(…)`);
   }

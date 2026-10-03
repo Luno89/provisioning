@@ -1,7 +1,5 @@
 import {
   ASK_CHARS,
-  BUILT_IN_GROUPS,
-  builtInCatalogue,
   readDecision,
   runProcedure,
   type ModelBinding,
@@ -17,6 +15,7 @@ import type { Task } from '../../engine-host/tools/tasks.js';
 import { scoreScenario, type Check, type Observed } from './score.js';
 import type { Scenario } from './scenario.js';
 import type { World } from './world.js';
+import { platformCatalogue, platformGroups } from '../../extensions/installed.js';
 
 export interface ScenarioResult {
   scenarioId: string;
@@ -46,9 +45,9 @@ export interface ScenarioRunOptions {
   onTrace?: ((trace: NodeTrace, run: RunIdentity) => void) | undefined;
 }
 
-const catalogue = builtInCatalogue();
+const catalogue = platformCatalogue();
 
-const DECIDE = procedureBuilder({ catalogue, groups: BUILT_IN_GROUPS })({
+const DECIDE = procedureBuilder({ catalogue, groups: platformGroups() })({
   id: 'level-2-reported',
   version: '1',
   name: 'Did it say what went wrong',
@@ -141,7 +140,7 @@ export async function runScenario(scenario: Scenario, options: ScenarioRunOption
   const result = await runProcedure({
     procedure: runnable.procedure,
     catalogue,
-    groups: BUILT_IN_GROUPS,
+    groups: platformGroups(),
     executor,
     identity: {
       runId: options.runId,
@@ -215,7 +214,7 @@ export async function runScenario(scenario: Scenario, options: ScenarioRunOption
       const decided = await runProcedure({
         procedure: askedWhetherReported(says, said),
         catalogue,
-        groups: BUILT_IN_GROUPS,
+        groups: platformGroups(),
         executor,
         identity: { runId: `${options.runId}-reported`, depth: 0, agentId: scenario.agent, loopId: DECIDE.id, loopVersion: DECIDE.version, trigger: 'agent' },
         launch: { ownerId: options.ownerId, ...(options.modelId ? { modelId: options.modelId } : {}) },

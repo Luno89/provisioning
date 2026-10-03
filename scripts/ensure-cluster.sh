@@ -88,29 +88,6 @@ mkdir -p "${ROOT}/apps/backend/data/logs/workers"
 # ever applied that stack to it. Idempotent — cheap fast-path skip when already installed.
 npx tsx "${ROOT}/scripts/ensure-cluster-stack.ts" || echo "  ⚠️  Monitoring/ingress stack check failed — continuing anyway"
 
-# The egress proxy every sandbox installs through.
-#
-# Applied here rather than by hand because it is load-bearing: `packageAccess()` in
-# lib/workspace-spec.ts points every Python and Go workspace at
-# `egress-proxy.koala-egress.svc.cluster.local:8888` and writes a NetworkPolicy rule permitting it.
-# On a cluster where this was never applied, that rule names a namespace that does not exist, so
-# `pip install` hangs and then reports a connection error — which reads as PyPI being down rather
-# than as missing infrastructure. `clean-dev` deletes the k3d cluster, so "never applied" is the
-# state of every fresh machine.
-#
-# Idempotent: `apply` on an unchanged manifest is a no-op.
-"$KUBECTL" --context "$CLUSTER_CONTEXT" apply -f "${ROOT}/k8s/koala-egress/" \
-  || echo "  ⚠️  Egress proxy apply failed — sandboxes will not be able to install packages"
-
-# SearXNG + Crawl4AI: the agent's web_search / fetch_web_page tools fall back to
-# DuckDuckGo + raw-HTML stripping when these aren't running, which silently breaks
-# when DDG serves a CAPTCHA or the page renders client-side. Same pattern as the
-# egress proxy: plain YAML applied to the management cluster, idempotent.
-"$KUBECTL" --context "$CLUSTER_CONTEXT" apply -f "${ROOT}/k8s/searxng/" \
-  || echo "  ⚠️  SearXNG apply failed — web_search will fall back to DuckDuckGo"
-"$KUBECTL" --context "$CLUSTER_CONTEXT" apply -f "${ROOT}/k8s/crawl4ai/" \
-  || echo "  ⚠️  Crawl4AI apply failed — fetch_web_page will fall back to raw HTML stripping"
-
 # Point the backend at the in-cluster services. NodePorts are reachable on localhost
 # for both native k3s (binds on host) and k3d (forwards from host). Overwrite any stale
 # values (e.g. from a previous docker-compose approach).

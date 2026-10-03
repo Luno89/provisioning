@@ -18,8 +18,7 @@ export const releaseTreeWorkspace = (id: string): Promise<{ state: TreeWorkspace
   api.delete<{ state: TreeWorkspaceState }>(`/trees/${id}/workspace`).then((r) => r.data)
 
 export interface TreeRunResult {
-  outcome: 'quiet' | 'capped' | 'stopped'
-  passes: number
+  outcome: 'quiet' | 'stopped'
   awaitingReview: string[]
   awaitingApproval?: string[]
 }

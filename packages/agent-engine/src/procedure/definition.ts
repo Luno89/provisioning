@@ -16,6 +16,7 @@ export const NODE_CATEGORIES = [
   'memory',
   'control',
   'safety',
+  'host',
   'custom',
 ] as const;
 
@@ -55,16 +56,23 @@ export interface NodeDefinition {
   summarize(settings: Readonly<Record<string, unknown>>): string;
   check?(settings: Readonly<Record<string, unknown>>, known: KnownReferences): string[];
   sockets?(settings: Readonly<Record<string, unknown>>): { inputs: SocketSpec[]; outputs: SocketSpec[] };
+  resolve?(settings: Readonly<Record<string, unknown>>): ResolvedShape | undefined;
 }
+
+export type ResolvedShape = Partial<Pick<NodeDefinition, 'title' | 'describe' | 'inputs' | 'outputs' | 'exits' | 'settings' | 'idempotent' | 'spends' | 'summarize'>>;
 
 export function definitionFor(
   catalogue: { get(kind: string): NodeDefinition | undefined },
   node: { kind: string; settings?: Readonly<Record<string, unknown>> | undefined },
 ): NodeDefinition | undefined {
   const found = catalogue.get(node.kind);
-  if (!found?.sockets) return found;
-
-  return { ...found, ...found.sockets(node.settings ?? {}) };
+  if (!found || (!found.sockets && !found.resolve)) return found;
+  const settings = node.settings ?? {};
+  return {
+    ...found,
+    ...(found.sockets ? found.sockets(settings) : {}),
+    ...(found.resolve ? found.resolve(settings) ?? {} : {}),
+  };
 }
 
 export const defineNode = (definition: NodeDefinition): NodeDefinition => definition;

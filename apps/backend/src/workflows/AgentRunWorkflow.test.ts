@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { WorkflowClient, type WorkflowHandle } from '@temporalio/client';
+import { WorkflowClient, type WorkflowHandle, type WorkflowHandleWithFirstExecutionRunId } from '@temporalio/client';
 import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -458,6 +458,80 @@ describe('AgentRunWorkflow', () => {
     expect(result.reason).toMatch(/^"turn" failed/);
     expect(recorded(acts).some((trace) => trace.kind === 'release-sandbox')).toBe(true);
   }, 120_000);
+});
+
+describe('a long run continues as a new one', () => {
+  const twiceDelegating: Procedure = {
+    schema: PROCEDURE_SCHEMA,
+    id: 'hands-off-twice',
+    version: '1',
+    name: 'Hands off twice',
+    describe: 'delegates two times in a row',
+    budget: { maxRounds: 4 },
+    start: 'first',
+    nodes: [
+      place('first', 'delegate', { agent: 'research', inputs: '{"question":"one"}' }),
+      place('second', 'delegate', { agent: 'research', inputs: '{"question":"two"}' }),
+      place('done', 'finish', { outcome: 'ok' }),
+      place('failed', 'finish', { outcome: 'failed' }),
+    ],
+    wires: [
+      { from: { node: 'second', socket: 'outputs' }, to: { node: 'done', socket: 'result' } },
+      { from: { node: 'second', socket: 'reason' }, to: { node: 'failed', socket: 'reason' } },
+    ],
+    flow: [
+      { from: 'first', exit: 'ok', to: 'second' },
+      { from: 'first', exit: 'failed', to: 'failed' },
+      { from: 'second', exit: 'ok', to: 'done' },
+      { from: 'second', exit: 'failed', to: 'failed' },
+    ],
+    groups: [],
+  };
+
+  it('carries its tool rounds across every new run and ends with the same answer, settled and recorded once', async () => {
+    const acts = activities({ script: [
+      callsATool('c1', 'read_file', '{"path":"a"}'),
+      callsATool('c2', 'read_file', '{"path":"b"}'),
+      callsATool('c3', 'read_file', '{"path":"c"}'),
+      { content: 'a, b and c all say hello' },
+    ] });
+    const args = { ...input('executor', TOOL_ROUNDS_V2), continueAfterEvents: 1 };
+    let firstRun = '';
+
+    const result = await runWorkflow(args, acts, async (handle) => { firstRun = (handle as WorkflowHandleWithFirstExecutionRunId).firstExecutionRunId; });
+
+    expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'a, b and c all say hello' } });
+    const first = await env.client.workflow.getHandle(args.ticket.runId, firstRun).describe();
+    expect(first.status.name).toBe('CONTINUED_AS_NEW');
+    expect(acts.engine.EngineToolActivity.mock.calls.map(([call]) => call.callId)).toEqual(['c1', 'c2', 'c3']);
+    const lastTurn = acts.seen.at(-1)!;
+    expect(lastTurn.filter((message) => message.role === 'tool').map((message) => (message as { toolCallId?: string }).toolCallId)).toEqual(['c1', 'c2', 'c3']);
+    expect(acts.engine.EngineRunLimitsActivity).toHaveBeenCalledTimes(1);
+    expect(acts.engine.EngineSettleClaimsActivity).toHaveBeenCalledTimes(1);
+    expect(acts.efforts.filter((effort) => effort.runId === args.ticket.runId)).toHaveLength(1);
+    expect(published(acts).filter((event) => event.type === 'run.started' && event.runId === args.ticket.runId)).toHaveLength(1);
+  }, 120_000);
+
+  it('keeps numbering its children across a new run, so no child reuses an earlier one\'s id', async () => {
+    const acts = activities({ script: [{ content: 'one answered' }, { content: 'two answered' }] });
+    const args = { ...input('koala', twiceDelegating), continueAfterEvents: 1 };
+
+    const result = await runWorkflow(args, acts);
+
+    expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'two answered' } });
+    const childRuns = acts.efforts.map((effort) => effort.runId).filter((id) => id !== args.ticket.runId).sort();
+    expect(childRuns).toEqual([`${args.ticket.runId}-research-1`, `${args.ticket.runId}-research-2`]);
+  }, 120_000);
+
+  it('does not continue while its history is short', async () => {
+    const acts = activities({ script: [{ content: 'The answer is 42.' }] });
+    const args = input('research', RESEARCH_V2);
+    let firstRun = '';
+
+    await runWorkflow(args, acts, async (handle) => { firstRun = (handle as WorkflowHandleWithFirstExecutionRunId).firstExecutionRunId; });
+
+    expect((await env.client.workflow.getHandle(args.ticket.runId, firstRun).describe()).status.name).toBe('COMPLETED');
+  }, 60_000);
 });
 
 describe('a remembered conversation, through the workflow', () => {

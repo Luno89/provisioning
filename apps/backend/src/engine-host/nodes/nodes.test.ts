@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ALL_SEEDED_AGENTS, createEventBus, fittedMaxTokens, type AgentDefinition, type EngineEvent, type Monitor, type ModelProvider } from '@koala/agent-engine';
+import { createEventBus, fittedMaxTokens, type AgentDefinition, type EngineEvent, type Monitor, type ModelProvider } from '@koala/agent-engine';
 import {
   BUILT_IN_GROUPS,
   DO_ONE_TASK_V2,
@@ -21,6 +21,7 @@ import { procedureBuilder } from '@koala/agent-engine/procedure-builder';
 import { createProcedureExecutor, withTemperature, type HostNodeServices } from './index.js';
 import { inMemoryConversations } from './conversation-nodes.js';
 import { INTERACTIVE_CHAT_V4 } from '@koala/agent-engine/procedure';
+import { seededPersonas } from '../../extensions/seeds.js';
 
 const CATALOGUE: ToolContract[] = [
   { name: 'run_command', description: 'Run a shell command', binding: 'environment', requires: { terminal: true }, usageGuidance: 'Prefer a dedicated tool when one fits.' },
@@ -64,7 +65,7 @@ const CEILINGED: AgentDefinition = {
   model: { replyCeiling: 1_234 },
 };
 
-const PERSONAS = [...ALL_SEEDED_AGENTS(), SANDBOXED, CEILINGED];
+const PERSONAS = [...seededPersonas(), SANDBOXED, CEILINGED];
 
 const PROVIDER = {
   id: 'tabby',
@@ -394,16 +395,18 @@ describe('running tool-rounds node by node', () => {
     });
   });
 
-  it('stops when tool calls keep failing', async () => {
+  it('keeps working through failed tool calls, however many, and answers in the end', async () => {
     const { services } = world({ tools: async () => ({ ok: false, digest: 'permission denied', content: 'permission denied' }) });
     stubModel(
       toolCall('c1', 'run_command', { command: 'a' }),
       toolCall('c2', 'run_command', { command: 'b' }),
       toolCall('c3', 'run_command', { command: 'c' }),
-      answer('never reached'),
+      toolCall('c4', 'run_command', { command: 'd' }),
+      toolCall('c5', 'run_command', { command: 'e' }),
+      answer('I could not run any of them: permission denied each time.'),
     );
 
-    expect(await runV2(services, 'sandboxed')).toMatchObject({ outcome: 'failed', reason: '3 tool calls failed in a row' });
+    expect(await runV2(services, 'sandboxed')).toMatchObject({ outcome: 'ok' });
   });
 
   it('puts memories in the prompt, which today\'s engine never did', async () => {
@@ -621,7 +624,6 @@ describe('doing one task', () => {
   });
 });
 
-
 describe('a tool the procedure does itself', () => {
   const withHandledStep = (shared: boolean): Procedure =>
     procedureBuilder({ catalogue: builtInCatalogue(), groups: BUILT_IN_GROUPS })({
@@ -728,5 +730,76 @@ describe('a turn the model stream cut short', () => {
 
     const saved = await conversations.get('user-1', 'complete');
     expect(saved?.messages.map((one) => one.content)).toEqual(['tell me something', 'a whole thought']);
+  });
+});
+
+describe('code that runs once, as a step', () => {
+  const counting = (outcome: (call: number) => { ok: true; outputs: Record<string, unknown> } | { ok: false; error: string }) => {
+    let calls = 0;
+    return { calls: () => calls, run: vi.fn(async () => outcome(++calls)) };
+  };
+
+  const twoReaders = (asStep: boolean) => procedureBuilder({ catalogue: builtInCatalogue(), groups: BUILT_IN_GROUPS })({
+    id: 'reads-twice', version: '1', name: 'Reads twice', describe: 'Two steps read what the code hands back.', budget: {},
+  }, (p) => {
+    const provision = p.provisionSandbox('provision');
+    const code = { body: 'return { n: 1 }', inputs: [], outputs: [{ name: 'n', type: 'json' as const }] };
+    const unavailable = p.finish('unavailable', { reason: provision.reason }, { outcome: 'failed' });
+    const release = p.releaseSandbox('release', { environment: provision.environment });
+    const cleaned = p.finish('cleaned', {}, { outcome: 'ok' });
+    p.start(provision);
+    p.cleanup(release);
+    provision.on('unavailable', unavailable);
+    release.on('done', cleaned);
+
+    if (asStep) {
+      const stamp = p.runCode('stamp', { environment: provision.environment }, code);
+      const check = p.condition('check', { value: stamp.n! }, { expression: 'value == 1' });
+      const done = p.finish('done', { result: stamp.n! }, { outcome: 'ok' });
+      const broke = p.finish('broke', { reason: stamp.error }, { outcome: 'failed' });
+      provision.on('ready', stamp);
+      stamp.on('ok', check);
+      stamp.on('failed', broke);
+      check.on('true', done);
+      check.on('false', done);
+      p.layout({ provision: [0, 0], stamp: [260, 0], check: [520, 0], done: [780, 0], broke: [520, 140], unavailable: [260, 140], release: [0, 280], cleaned: [260, 280] });
+    } else {
+      const stamp = p.code('stamp', { environment: provision.environment }, code);
+      const check = p.condition('check', { value: stamp.n! }, { expression: 'value == 1' });
+      const done = p.finish('done', { result: stamp.n! }, { outcome: 'ok' });
+      provision.on('ready', check);
+      check.on('true', done);
+      check.on('false', done);
+      p.layout({ provision: [0, 0], stamp: [260, 140], check: [260, 0], done: [520, 0], unavailable: [520, 140], release: [0, 280], cleaned: [260, 280] });
+    }
+  }).procedure;
+
+  it('runs Run Code once where the flow reaches it, and every later step reads what it kept', async () => {
+    const { services } = world();
+    const code = counting(() => ({ ok: true, outputs: { n: 1 } }));
+
+    const result = await runV2({ ...services, code }, 'sandboxed', twoReaders(true));
+
+    expect(result).toMatchObject({ outcome: 'ok', outputs: { done: { result: 1 } } });
+    expect(code.calls()).toBe(1);
+  });
+
+  it('works a value Code out again for each step that reads it, which is why Run Code exists', async () => {
+    const { services } = world();
+    const code = counting(() => ({ ok: true, outputs: { n: 1 } }));
+
+    await runV2({ ...services, code }, 'sandboxed', twoReaders(false));
+
+    expect(code.calls()).toBe(2);
+  });
+
+  it('leaves through failed with what went wrong when the code throws, instead of failing the run', async () => {
+    const { services } = world();
+    const code = counting(() => ({ ok: false, error: 'the code failed: ReferenceError: nope is not defined' }));
+
+    const result = await runV2({ ...services, code }, 'sandboxed', twoReaders(true));
+
+    expect(result).toMatchObject({ outcome: 'failed', reason: 'the code failed: ReferenceError: nope is not defined' });
+    expect(code.calls()).toBe(1);
   });
 });

@@ -1,3 +1,4 @@
+import { serverError } from '../../api/client'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, X } from 'lucide-react'
@@ -145,7 +146,7 @@ export function NewProjectDialog({ clusters, onClose, onCreated }: {
 
           {createProject.isError && (
             <p className="text-rose-400 text-xs">
-              {(createProject.error as any)?.response?.data?.error || 'Failed to create project'}
+              {serverError(createProject.error) || 'Failed to create project'}
             </p>
           )}
 

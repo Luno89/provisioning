@@ -3,7 +3,7 @@ import type { Database } from '../lib/db-interface.js';
 import type { GiteaService, RepoFileEntry } from './GiteaService.js';
 import type { ProjectMetadata } from '../lib/types.js';
 import { webhookUrlFor, DEFAULT_TARGET_CLUSTER } from '../lib/project-shipping.js';
-import { encryptValue, decryptValue } from '../lib/crypto.js';
+import { encryptValue, decryptValue, type SecretKey } from '../lib/crypto.js';
 import {
   giteaUsernameFor,
   sanitiseRepoName,
@@ -19,7 +19,7 @@ export class ProjectRepoService {
   constructor(
     private db: Database,
     private gitea: GiteaService,
-    private masterKey: string,
+    private masterKey: SecretKey,
   ) {}
 
   async ensureAccountFor(ownerId: string): Promise<{ username: string }> {

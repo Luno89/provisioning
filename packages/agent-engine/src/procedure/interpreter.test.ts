@@ -396,3 +396,59 @@ describe('running a procedure', () => {
     });
   });
 });
+
+describe('pausing a run and resuming it from its checkpoint', () => {
+  const counting = procedure({
+    start: 'count',
+    budget: { maxRounds: 50 },
+    nodes: [node('count', 'count', { limit: 7 }), node('end', 'finish', { outcome: 'ok', reason: 'counted' })],
+    wires: [wire('count:count', 'count:previous')],
+    flow: [flow('count:again', 'count'), flow('count:done', 'end')],
+  });
+
+  it('ends where an unpaused run ends, however often it is paused and carried as JSON', async () => {
+    const whole = await run(counting, scriptedExecutor());
+
+    const executor = scriptedExecutor();
+    const events: EngineEvent[] = [];
+    const bus = createEventBus({ retain: 0 });
+    bus.subscribe((event) => { events.push(event); });
+    let sinceResume = 0;
+    let segments = 0;
+    let checkpoint: RunProcedureOptions['resume'];
+    let result;
+    do {
+      segments += 1;
+      sinceResume = 0;
+      result = await run(counting, executor, {
+        bus,
+        ...(checkpoint ? { resume: checkpoint } : {}),
+        pauseWhen: () => (sinceResume += 1) > 2,
+      });
+      checkpoint = result.paused ? JSON.parse(JSON.stringify(result.paused)) : undefined;
+    } while (checkpoint);
+
+    expect(segments).toBeGreaterThan(2);
+    expect(result.outcome).toBe('ok');
+    expect(result.reason).toBe('counted');
+    expect(result.outputs).toEqual(whole.outputs);
+    expect(result.steps).toBe(whole.steps);
+    expect(executor.calls.filter((call) => call.node === 'count').map((call) => call.inputs.previous)).toEqual([undefined, 1, 2, 3, 4, 5, 6]);
+    expect(events.filter((event) => event.type === 'run.started')).toHaveLength(1);
+    expect(events.filter((event) => event.type === 'run.finished')).toHaveLength(1);
+  });
+
+  it('takes at least one step before it pauses, so a resumed run always moves', async () => {
+    const result = await run(counting, scriptedExecutor(), { pauseWhen: () => true });
+    expect(result.paused).toMatchObject({ current: 'count', steps: 1 });
+    expect(result.outcome).toBe('interrupted');
+  });
+
+  it('keeps the budget counting across a resume', async () => {
+    const tight = { ...counting, budget: { maxRounds: 50 } };
+    const first = await run(tight, scriptedExecutor(), { pauseWhen: () => true });
+    expect(first.paused?.counters.startedAt).toBe(first.counters.startedAt);
+    const rest = await run(tight, scriptedExecutor(), { resume: first.paused, budget: { maxWallClockMs: 1 } });
+    expect(rest.outcome).toBe('exhausted');
+  });
+});

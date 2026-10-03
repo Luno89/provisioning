@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import axios from 'axios';
-import { ALL_SEEDED_AGENTS, type Persona } from '@koala/agent-engine';
+import { type Persona } from '@koala/agent-engine';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { agentsRouter } from './agents.js';
 import { AgentService } from '../services/AgentService.js';
 import { ENGINE_TOOL_SEEDS } from '../engine-host/tools/engine-tool-seeds.js';
-import { BUILT_IN_PROCEDURES } from '@koala/agent-engine/procedure';
+import { seededPersonas, seededProcedures } from '../extensions/seeds.js';
 
 const quiet = { validateStatus: () => true };
 
-const PROCEDURES = BUILT_IN_PROCEDURES;
+const PROCEDURES = seededProcedures();
 
 const digger = (over: Partial<Persona> = {}): Persona => ({
   slug: 'digger',
@@ -51,7 +51,7 @@ describe('the agents API', () => {
     const { data } = await axios.get(url('/api/agents'));
     await close();
 
-    expect(data.agents.length).toBe(ALL_SEEDED_AGENTS().length);
+    expect(data.agents.length).toBe(seededPersonas().length);
     expect(data.agents.every((agent: { mine: boolean }) => agent.mine === false)).toBe(true);
   });
 
@@ -101,7 +101,7 @@ describe('the agents API', () => {
 
   it('deletes your copy, leaving the built-in, and refuses to delete one that was never yours', async () => {
     const { url, close } = await harness();
-    await axios.put(`${url('/api/agents/research')}`, { ...ALL_SEEDED_AGENTS().find((one) => one.slug === 'research')!, prompt: 'Mine.' });
+    await axios.put(`${url('/api/agents/research')}`, { ...seededPersonas().find((one) => one.slug === 'research')!, prompt: 'Mine.' });
 
     const removed = await axios.delete(`${url('/api/agents/research')}`);
     const after = await axios.get(`${url('/api/agents/research')}`);

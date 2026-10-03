@@ -11,6 +11,7 @@ import { InfisicalService } from '../apps/backend/src/services/InfisicalService.
 import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
 import { ClusterProxyService } from '../apps/backend/src/services/ClusterProxyService.js';
 import type { SecretRequest } from '../apps/backend/src/lib/secret-requests.js';
+import { loadKeys } from '../apps/backend/src/lib/keys.js';
 
 const BASE = process.env.SECRETS_LIVE_URL ?? 'http://localhost:3001/api';
 const PROJECT = process.env.SECRETS_LIVE_PROJECT;
@@ -48,8 +49,7 @@ async function main(): Promise<void> {
   const user = await db.getUserById(project.ownerId);
   assert.ok(user, 'the project owner has no user record');
 
-  const secret = process.env.JWT_SECRET;
-  assert.ok(secret, 'JWT_SECRET is not set');
+  const secret = loadKeys(process.env).session;
   const http = axios.create({
     baseURL: BASE,
     proxy: false,

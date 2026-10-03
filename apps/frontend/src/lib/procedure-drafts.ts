@@ -2,7 +2,6 @@ import {
   BUILT_IN_GROUPS,
   GROUP_KIND,
   PROCEDURE_SCHEMA,
-  builtInCatalogue,
   checkProcedure,
   defaultSettings,
   groupLibrary,
@@ -11,13 +10,32 @@ import {
   type EffortMeasure,
   type ProcedureProblem,
   type SettingSchema,
+  catalogueFor,
+  groupsFor,
+  operationsOf,
+  type EngineExtension,
 } from '@koala/agent-engine/procedure'
 import { groupPathOf } from './procedure-run'
 import { addNode, isRefused, type CanvasContext } from './procedure-canvas'
 
 type RunBudget = Procedure['budget']
 
-export const STUDIO_CONTEXT: CanvasContext = { catalogue: builtInCatalogue(), shared: BUILT_IN_GROUPS }
+type ExtensionVocabulary = Pick<EngineExtension, 'id' | 'title' | 'describe' | 'version' | 'operations' | 'groups'> & { enabled?: boolean | undefined; latest?: readonly string[] | undefined }
+
+export const canvasContextFor = (extensions: readonly ExtensionVocabulary[]): CanvasContext => {
+  const vocabulary = extensions.map(({ id, title, describe, version, operations, groups }) => ({ id, title, describe, version, operations, groups }))
+  return {
+    catalogue: catalogueFor(vocabulary),
+    shared: groupsFor(vocabulary),
+    operations: operationsOf(vocabulary.filter((_, index) => extensions[index]!.enabled !== false)),
+    extensions: vocabulary.map(({ id, title }) => ({ id, title })),
+    retired: new Set(extensions.flatMap((extension) => (extension.groups ?? [])
+      .filter((group) => extension.enabled === false || (extension.latest !== undefined && !extension.latest.includes(group.id)))
+      .map((group) => group.id))),
+  }
+}
+
+const BLANK_CONTEXT: CanvasContext = canvasContextFor([])
 
 export function defaultFor(schema: SettingSchema): unknown {
   if (schema.default !== undefined) return structuredClone(schema.default)
@@ -60,7 +78,7 @@ export function blankProcedure(id: string, name: string): Procedure {
 }
 
 export function starterProcedure(id: string, name: string): Procedure {
-  const added = addNode(blankProcedure(id, name), [], 'finish', { x: 0, y: 0 }, STUDIO_CONTEXT)
+  const added = addNode(blankProcedure(id, name), [], 'finish', { x: 0, y: 0 }, BLANK_CONTEXT)
   if (isRefused(added)) throw new Error(added.refused)
   return added.procedure
 }
@@ -95,7 +113,7 @@ export function withBudget(procedure: Procedure, key: keyof RunBudget, value: nu
   return { ...procedure, budget: value === undefined ? rest : { ...rest, [key]: value } }
 }
 
-export const localProblems = (procedure: Procedure, context: CanvasContext = STUDIO_CONTEXT): ProcedureProblem[] =>
+export const localProblems = (procedure: Procedure, context: CanvasContext): ProcedureProblem[] =>
   checkProcedure(procedure, { catalogue: context.catalogue, groups: context.shared ?? BUILT_IN_GROUPS })
 
 const problemKey = (problem: ProcedureProblem) =>
@@ -107,7 +125,7 @@ export function mergeProblems(local: readonly ProcedureProblem[], server: readon
   return [...server, ...local.filter((problem) => !seen.has(problemKey(problem)))]
 }
 
-export function groupPathIn(procedure: Procedure, nodeId: string, context: CanvasContext = STUDIO_CONTEXT): string[] {
+export function groupPathIn(procedure: Procedure, nodeId: string, context: CanvasContext): string[] {
   const library = groupLibrary(procedure, context.shared ?? BUILT_IN_GROUPS)
   return groupPathOf(nodeId, (instance) => {
     let nodes = procedure.nodes

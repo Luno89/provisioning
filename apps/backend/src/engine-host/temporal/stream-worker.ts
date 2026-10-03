@@ -3,6 +3,8 @@ import { createEventBus, type EngineEvent, type EventBus } from '@koala/agent-en
 import { createStreamActivities, type StreamServices } from './activities.js';
 import { DEFAULT_STREAM_TASK_QUEUE } from './contracts.js';
 import { buildDataConverter } from '../../lib/temporal-codec.js';
+import type { SecretKey } from '../../lib/crypto.js';
+import { loadKeys } from '../../lib/keys.js';
 
 export interface SocketLike {
   emit(event: string, ...args: unknown[]): unknown;
@@ -15,7 +17,7 @@ export interface StreamWorkerOptions {
   namespace?: string | undefined;
   taskQueue?: string | undefined;
   channel?: string | undefined;
-  encryptionKey?: string | undefined;
+  encryptionKey?: SecretKey | undefined;
 }
 
 export const ENGINE_EVENT_CHANNEL = 'engine-event';
@@ -35,7 +37,7 @@ export async function startStreamWorker(options: StreamWorkerOptions): Promise<W
 
   const bus = createBrowserBus(options.io, options.channel);
 
-  const dataConverter = buildDataConverter(options.encryptionKey ?? process.env.JWT_SECRET);
+  const dataConverter = buildDataConverter(options.encryptionKey ?? loadKeys(process.env).payload);
 
   return Worker.create({
     connection,

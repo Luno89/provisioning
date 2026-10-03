@@ -1,6 +1,7 @@
 import { createProcedureTools, type ProcedureSourceStore, type ProcedureScope } from '../registries/procedure-tools.js';
 import { createTaskTools, type TaskStore } from './task-tools.js';
-import { createGroveTools, type GroveToolOptions } from './grove-tools.js';
+import type { GroveToolOptions } from '../../extensions/grove/tools/grove-tools.js';
+import { extensionRuntimes, toolHandlers } from '../../extensions/runtime.js';
 import { createPlatformTools, type PlatformToolOptions } from './platform-tools.js';
 import { createSecretTools, type SecretToolOptions } from './secret-tools.js';
 import { createMcpRequestTools, type McpAccess, type McpToolStores } from './mcp-tools.js';
@@ -34,7 +35,7 @@ export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, T
   return {
     ...createProcedureTools({ store: deps.procedures, scope: deps.scope }),
     ...createTaskTools({ store: deps.tasks, binding: deps.groove?.stores.binding }),
-    ...(deps.groove ? createGroveTools(deps.groove) : {}),
+    ...toolHandlers(extensionRuntimes({ grove: { tools: deps.groove } })),
     ...createPlatformTools(deps.platform),
     ...(deps.secrets ? createSecretTools(deps.secrets) : {}),
     ...(deps.mcp ? createMcpRequestTools(deps.mcp) : {}),

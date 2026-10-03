@@ -1,13 +1,13 @@
-import { Sprout, Terminal, Box, AlertTriangle } from 'lucide-react';
+import { Sprout, Terminal, Box, AlertTriangle, type LucideIcon } from 'lucide-react';
 import { KoalaSpot } from '../Koala.js';
 
 export interface StarterPrompt {
   label: string;
-  icon: any;
+  icon: LucideIcon;
   prompt: string;
 }
 
-export const STARTER_PROMPTS: StarterPrompt[] = [
+const STARTER_PROMPTS: StarterPrompt[] = [
   {
     label: 'Propose Project Tree',
     icon: Sprout,

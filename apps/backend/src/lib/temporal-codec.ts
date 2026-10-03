@@ -1,5 +1,5 @@
 import type { PayloadCodec } from '@temporalio/common';
-import { encryptValue, decryptValue } from './crypto.js';
+import { encryptValue, decryptValue, type SecretKey } from './crypto.js';
 
 const ENCODING = 'binary/encrypted-aes-256-gcm';
 const METADATA_ENCODING_KEY = 'encoding';
@@ -8,9 +8,9 @@ const te = new TextEncoder();
 const td = new TextDecoder();
 
 export class EncryptionCodec implements PayloadCodec {
-  constructor(private readonly masterKey: string) {
+  constructor(private readonly masterKey: SecretKey) {
     if (!masterKey) {
-      throw new Error('EncryptionCodec requires a master key (JWT_SECRET)');
+      throw new Error('EncryptionCodec requires a master key (PAYLOAD_KEY)');
     }
   }
 
@@ -45,7 +45,7 @@ export class EncryptionCodec implements PayloadCodec {
         };
       } catch (err) {
         throw new Error(
-          `Failed to decrypt a Temporal payload — JWT_SECRET may have changed since it was written: ${
+          `Failed to decrypt a Temporal payload — it was written with a key this worker does not hold (PAYLOAD_KEY, or the old JWT_SECRET): ${
             (err as Error).message
           }`,
         );
@@ -54,7 +54,7 @@ export class EncryptionCodec implements PayloadCodec {
   }
 }
 
-export function buildDataConverter(masterKey: string | undefined) {
+export function buildDataConverter(masterKey: SecretKey | undefined) {
   if (!masterKey) return undefined;
   return {
     payloadCodecs: [new EncryptionCodec(masterKey)],

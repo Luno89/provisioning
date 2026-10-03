@@ -29,7 +29,7 @@ import {
 import type { NodeState } from '../../lib/procedure-run'
 import StepNode from './StepNode'
 import { FlowEdge, WireEdge } from './CanvasEdges'
-import { CATEGORY_COLOURS, NODE_DRAG_TYPE, STUDIO_CONTEXT } from './shared'
+import { CATEGORY_COLOURS, NODE_DRAG_TYPE, useStudioContext } from './shared'
 
 const NODE_TYPES = { step: StepNode }
 const EDGE_TYPES = { wire: WireEdge, flow: FlowEdge }
@@ -62,12 +62,13 @@ export default function ProcedureCanvas({
   onOpenGroup,
   onRefused,
 }: ProcedureCanvasProps) {
+  const context = useStudioContext()
   const flow = useReactFlow()
   const [measured, setMeasured] = useState<Record<string, { width: number; height: number }>>({})
   const [selectedEdges, setSelectedEdges] = useState<string[]>([])
   const drag = useRef(0)
 
-  const drawn = useMemo(() => toCanvas(procedure, path, problems, STUDIO_CONTEXT, states), [procedure, path, problems, states])
+  const drawn = useMemo(() => toCanvas(procedure, path, problems, context, states), [procedure, path, problems, states, context])
 
   const nodes = useMemo<Node<StepNodeData, 'step'>[]>(
     () => drawn.nodes.map((node) => ({
@@ -109,9 +110,9 @@ export default function ProcedureCanvas({
     }
     if (selectionChanged) onSelect([...picked])
     if (editable && Object.keys(positions).length > 0) {
-      onChange(moveNodes(procedure, path, positions, STUDIO_CONTEXT), `drag:${drag.current}`)
+      onChange(moveNodes(procedure, path, positions, context), `drag:${drag.current}`)
     }
-  }, [editable, onChange, onSelect, procedure, path, selection])
+  }, [editable, onChange, onSelect, procedure, path, selection, context])
 
   const onEdgesChange = useCallback((changes: EdgeChange[]) => {
     setSelectedEdges((current) => {
@@ -126,31 +127,31 @@ export default function ProcedureCanvas({
   }, [])
 
   const onConnect = useCallback((connection: Connection) => {
-    const next = connect(procedure, path, connection, STUDIO_CONTEXT)
+    const next = connect(procedure, path, connection, context)
     if (isRefused(next)) onRefused(next.refused)
     else onChange(next)
-  }, [procedure, path, onChange, onRefused])
+  }, [procedure, path, onChange, onRefused, context])
 
   const onDelete = useCallback(({ nodes: goneNodes, edges: goneEdges }: { nodes: Node[]; edges: Edge[] }) => {
-    const withoutNodes = removeNodes(procedure, path, goneNodes.map((node) => node.id), STUDIO_CONTEXT)
-    onChange(removeEdges(withoutNodes, path, goneEdges.map((edge) => edge.id), STUDIO_CONTEXT))
+    const withoutNodes = removeNodes(procedure, path, goneNodes.map((node) => node.id), context)
+    onChange(removeEdges(withoutNodes, path, goneEdges.map((edge) => edge.id), context))
     onSelect([])
-  }, [procedure, path, onChange, onSelect])
+  }, [procedure, path, onChange, onSelect, context])
 
   const onDrop = useCallback((event: DragEvent) => {
     event.preventDefault()
     const raw = event.dataTransfer.getData(NODE_DRAG_TYPE)
     if (!raw || !editable) return
-    const { kind, group } = JSON.parse(raw) as { kind: string; group?: string }
+    const { kind, group, operation } = JSON.parse(raw) as { kind: string; group?: string; operation?: string }
     const position = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY })
-    const added = addNode(procedure, path, kind, position, STUDIO_CONTEXT, group)
+    const added = addNode(procedure, path, kind, position, context, group, operation)
     if (isRefused(added)) {
       onRefused(added.refused)
       return
     }
     onChange(added.procedure)
     onSelect([added.id])
-  }, [editable, flow, procedure, path, onChange, onSelect, onRefused])
+  }, [editable, flow, procedure, path, onChange, onSelect, onRefused, context])
 
   return (
     <ReactFlow
