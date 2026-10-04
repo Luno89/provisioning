@@ -5,7 +5,7 @@ import { Worker, NativeConnection, Runtime } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
-import { createDatabase } from './lib/db-interface.js';
+import { createDatabase, sharedPayloadBlobs } from './lib/db-interface.js';
 import { createPlanAdoption } from './engine-host/plan-adoption.js';
 import { GiteaService } from './services/GiteaService.js';
 import { InfrastructureService } from './services/InfrastructureService.js';
@@ -40,6 +40,8 @@ import { createHostNodes, hostNodesFor } from './engine-host/nodes/index.js';
 import { buildWebTools } from './lib/web-tools-wiring.js';
 import { extensionServiceFor } from './services/ExtensionService.js';
 import { loadKeys } from './lib/keys.js';
+import { healthPort, serveHealth } from './lib/worker-health.js';
+import { withHints } from './lib/mcp-tool-hints.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -156,7 +158,7 @@ async function buildActivities() {
       },
     },
     mcp: {
-      servers: (ownerId) => registryFor(ownerId).listWithTools(),
+      servers: async (ownerId) => withHints(await registryFor(ownerId).listWithTools(), await db.getMcpToolHints(ownerId)),
       call: (ownerId, server, tool, args) => registryFor(ownerId).call(server, tool, args),
     },
     ...(web ? { web } : {}),
@@ -246,11 +248,14 @@ async function main() {
   logger.info(`[EngineWorker] Starting — taskQueue=${queue}, address=${address}`);
 
   const activities = await buildActivities();
+  let current: Worker | undefined;
+  const port = healthPort(process.env);
+  if (port) serveHealth(port, () => current?.getState() === 'RUNNING');
 
   for (;;) {
     try {
       const connection = await NativeConnection.connect({ address });
-      const dataConverter = buildDataConverter(keys.payload);
+      const dataConverter = buildDataConverter(keys.payload, sharedPayloadBlobs());
 
       const worker = await Worker.create({
         connection,
@@ -259,6 +264,7 @@ async function main() {
         workflowsPath: resolve(__dirname, 'workflows'),
         activities,
       });
+      current = worker;
 
       logger.info('[EngineWorker] Connected, polling for work');
       await worker.run();

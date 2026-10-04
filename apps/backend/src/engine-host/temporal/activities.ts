@@ -33,7 +33,7 @@ import type {
   SettleClaimsArgs,
   ProcedureRunInput,
 } from './contracts.js';
-import { groveRunWorkflowId } from './contracts.js';
+import { type LifecycleEvent, type BenchIdleOutcome, groveRunWorkflowId } from './contracts.js';
 import { type TreeTypeChoice } from '../../extensions/grove/tools/grove-tools.js';
 import type { TreeWorkspaces } from '../sandboxes/tree-workspaces.js';
 import type { AdoptedRecords, PlanAdoption } from '../plan-adoption.js';
@@ -61,6 +61,8 @@ export interface StreamServices {
   streamMonitors?: ((request: NodeRequest) => Monitor[]) | undefined;
   streamNodes?: readonly NodeImplementation[] | undefined;
   runCancelled?: ((runId: string) => Promise<boolean>) | undefined;
+  conclude?: ((event: LifecycleEvent) => Promise<void>) | undefined;
+  benchIdle?: ((ownerId: string) => Promise<BenchIdleOutcome>) | undefined;
 }
 
 export interface TraceRecorder {
@@ -95,6 +97,8 @@ export interface GroveStores {
 export interface StreamActivities {
   EnginePublishActivity(args: PublishArgs): Promise<void>;
   EngineStreamNodeActivity(request: RemoteNodeRequest): Promise<RemoteNodeResult>;
+  EngineLifecycleActivity(event: LifecycleEvent): Promise<void>;
+  EngineBenchIdleActivity(args: { ownerId: string }): Promise<BenchIdleOutcome>;
 }
 
 export const NODE_HEARTBEAT_MS = 10_000;
@@ -276,5 +280,13 @@ export function createStreamActivities(services: StreamServices): StreamActiviti
     },
 
     EngineStreamNodeActivity: createNodeRunner(services.streamNodes ?? [], services.bus, { runCancelled: services.runCancelled }),
+
+    async EngineLifecycleActivity(event: LifecycleEvent): Promise<void> {
+      await services.conclude?.(event);
+    },
+
+    async EngineBenchIdleActivity({ ownerId }: { ownerId: string }): Promise<BenchIdleOutcome> {
+      return (await services.benchIdle?.(ownerId)) ?? 'nothing';
+    },
   };
 }

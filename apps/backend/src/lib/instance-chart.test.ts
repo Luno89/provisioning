@@ -100,6 +100,15 @@ describe('the instance chart', () => {
     expect(backend.envFrom).toEqual(expect.arrayContaining([{ secretRef: { name: 'luno-instance' } }]));
   });
 
+  it('upgrades each process by starting the new one before stopping the old, and only once it is healthy', () => {
+    const docs = render();
+    for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) {
+      const deployment = find(docs, 'Deployment', `luno-${process}`).spec;
+      expect(deployment.strategy).toEqual({ type: 'RollingUpdate', rollingUpdate: { maxSurge: 1, maxUnavailable: 0 } });
+      expect(deployment.template.spec.containers[0].readinessProbe?.httpGet?.path, process).toBe(process === 'backend' ? '/api/auth/sign-in' : '/healthz');
+    }
+  });
+
   it('refuses to render without knowing whose instance it is', () => {
     expect(() => execFileSync(HELM, ['template', 'x', CHART], { encoding: 'utf8', stdio: 'pipe' })).toThrow(/instance.id is required/);
   });

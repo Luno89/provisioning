@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { runProcedure, type NodeTrace, type RunProcedureOptions } from './interpreter.js';
+import { describeError, runProcedure, type NodeTrace, type RunProcedureOptions } from './interpreter.js';
 import type { Procedure } from './schema.js';
 import { createEventBus, type EngineEvent } from '../runtime/events.js';
 import {
@@ -450,5 +450,19 @@ describe('pausing a run and resuming it from its checkpoint', () => {
     expect(first.paused?.counters.startedAt).toBe(first.counters.startedAt);
     const rest = await run(tight, scriptedExecutor(), { resume: first.paused, budget: { maxWallClockMs: 1 } });
     expect(rest.outcome).toBe('exhausted');
+  });
+});
+
+describe('describeError', () => {
+  it('says what actually went wrong underneath a wrapper, not just the wrapper', () => {
+    const wrapped = new Error('Activity task failed', { cause: new Error('the model stopped answering mid-paper') });
+    expect(describeError(wrapped)).toBe('Activity task failed: the model stopped answering mid-paper');
+  });
+
+  it('does not repeat a message, and survives a cause that points back at itself', () => {
+    const looped = new Error('same');
+    (looped as { cause?: unknown }).cause = looped;
+    expect(describeError(new Error('same', { cause: looped }))).toBe('same');
+    expect(describeError('plain text')).toBe('plain text');
   });
 });

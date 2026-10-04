@@ -19,10 +19,10 @@ fi
 
 report installing "Upgrading from ${CURRENT_IMAGE_TAG} to ${WANT}"
 curl -fsSL "$CHART_URL" -o /tmp/instance-chart.tgz
-if helm upgrade "$RELEASE_NAME" /tmp/instance-chart.tgz -n "$RELEASE_NAMESPACE" --reuse-values --set image.tag="$WANT" --wait --timeout 20m; then
+if helm upgrade "$RELEASE_NAME" /tmp/instance-chart.tgz -n "$RELEASE_NAMESPACE" --reuse-values --set image.tag="$WANT" --wait --timeout "${UPGRADE_TIMEOUT:-20m}"; then
   report ready "Upgraded to ${WANT}"
 else
-  helm rollback "$RELEASE_NAME" -n "$RELEASE_NAMESPACE" --wait --timeout 20m || true
+  helm rollback "$RELEASE_NAME" -n "$RELEASE_NAMESPACE" --wait --timeout "${UPGRADE_TIMEOUT:-20m}" || true
   report failed "The upgrade to ${WANT} failed, so it was rolled back to ${CURRENT_IMAGE_TAG}"
   exit 1
 fi

@@ -8,7 +8,7 @@ interface Ending {
   reason?: string | undefined;
 }
 
-interface AgentLoopShape {
+export interface AgentLoopShape {
   id: string;
   name: string;
   describe: string;
@@ -20,14 +20,14 @@ interface AgentLoopShape {
 
 const ending = (shape: Ending) => ({ outcome: shape.outcome, ...(shape.reason ? { reason: shape.reason } : {}) });
 
-function agentLoop(shape: AgentLoopShape): Procedure {
+export function agentLoop(shape: AgentLoopShape): Procedure {
   return defineProcedure(BUILT_IN_GROUPS, { id: shape.id, version: '2', name: shape.name, describe: shape.describe, budget: {} }, (p) => {
     const input = p.runInput('input');
     const provision = p.provisionSandbox('provision');
     const conversation = p.conversation('conversation', { opening: input.message, given: input.inputs });
     const turn = p.groups.modelTurn('turn', { messages: conversation.messages, environment: provision.environment });
     const repetition = p.checkRepetition('repetition', { reply: turn.reply });
-    const tools = p.groups.toolLoop('tools', { reply: turn.reply, persona: turn.persona, environment: provision.environment });
+    const tools = p.groups.toolLoop('tools', { reply: turn.reply, persona: turn.persona, environment: provision.environment, offered: turn.offered });
     const answered = p.finish('answered', { result: turn.content }, ending(shape.answered));
     const truncated = shape.truncated === 'continue' ? undefined : p.finish('truncated', { result: turn.content }, ending(shape.truncated));
     const saidSomething = truncated ? p.condition('saidSomething', { value: turn.content }, { expression: 'not empty(value)' }) : undefined;
@@ -109,7 +109,7 @@ export const INTERACTIVE_CHAT_V4 = defineProcedure(BUILT_IN_GROUPS, {
   }, { omit: ['conversationId'] });
   const turn = p.groups.modelTurn('turn', { messages: conversation.messages, environment: provision.environment });
   const repetition = p.checkRepetition('repetition', { reply: turn.reply });
-  const tools = p.groups.toolLoop('tools', { reply: turn.reply, persona: turn.persona, environment: provision.environment });
+  const tools = p.groups.toolLoop('tools', { reply: turn.reply, persona: turn.persona, environment: provision.environment, offered: turn.offered });
   const saidSomething = p.condition('saidSomething', { value: turn.content }, { expression: 'not empty(value)' });
   const remember = p.saveConversation('remember', {
     values: input.inputs,
@@ -273,7 +273,7 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   const conversation = p.conversation('conversation', { opening: input.message, given: input.inputs });
   const turn = p.groups.modelTurn('turn', { messages: conversation.messages, environment: provision.environment });
   const repetition = p.checkRepetition('repetition', { reply: turn.reply });
-  const tools = p.groups.toolLoop('tools', { reply: turn.reply, persona: persona.persona, environment: provision.environment });
+  const tools = p.groups.toolLoop('tools', { reply: turn.reply, persona: persona.persona, environment: provision.environment, offered: turn.offered });
   const hasCheck = p.condition('hasCheck', { value: input.inputs }, { expression: 'not empty(value.item.checks.command)' });
   const check = p.callTool('check', onTask, {
     tool: 'run_command',

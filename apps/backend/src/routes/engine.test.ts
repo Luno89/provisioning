@@ -132,7 +132,7 @@ describe('engine routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.data.map((a: { slug: string }) => a.slug).sort())
-      .toEqual(['agent-builder', 'delivery', 'executor', 'grove', 'grove-leaf', 'grove-paper', 'grove-paper-leaf', 'judge', 'koala', 'leaf-judge', 'paper-writer', 'planner', 'research']);
+      .toEqual(['agent-builder', 'delivery', 'executor', 'grove', 'grove-leaf', 'grove-paper', 'grove-paper-leaf', 'judge', 'koala', 'leaf-judge', 'memory-keeper', 'paper-writer', 'planner', 'research']);
     expect(res.data.find((a: { slug: string }) => a.slug === 'koala')).toMatchObject({ mine: false });
 
     await h.close();

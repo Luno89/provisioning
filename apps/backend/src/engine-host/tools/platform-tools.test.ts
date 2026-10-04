@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createPlatformTools } from './platform-tools.js';
-import type { MemoryItem } from '../drivers/memory-store.js';
 
 const caller = { ownerId: 'user-1', projectId: 'project-9' };
 
@@ -81,81 +80,6 @@ describe('search_web', () => {
 
     expect(await run(tools, 'fetch_web_page', { url: 'https://example.test' }))
       .toMatchObject({ ok: false, declined: true, digest: 'HTTP 403: this site refused the fetch' });
-  });
-});
-
-describe('save_memory', () => {
-  const remembered: MemoryItem[] = [];
-  const memory = {
-    remember: vi.fn(async (item: MemoryItem) => {
-      remembered.push(item);
-      return { action: 'saved' };
-    }),
-  };
-
-  it('writes a memory scoped to the owner and project', async () => {
-    remembered.length = 0;
-    const tools = createPlatformTools({ memory, now: () => 'now' });
-
-    const outcome = await run(tools, 'save_memory', {
-      title: 'The db host',
-      text: 'postgres.odoo-db.svc.cluster.local',
-      category: 'environment_facts',
-    });
-
-    expect(outcome.ok).toBe(true);
-    expect(remembered[0]).toMatchObject({
-      ownerId: 'user-1',
-      projectId: 'project-9',
-      category: 'environment_facts',
-      title: 'The db host',
-      source: 'agent_tool',
-      scope: 'project',
-    });
-  });
-
-  it('falls back to a sane category when the model invents one', async () => {
-    remembered.length = 0;
-    const tools = createPlatformTools({ memory });
-
-    await run(tools, 'save_memory', { text: 'something', category: 'wild_guess' });
-
-    expect(remembered[0]?.category).toBe('lessons_learned');
-  });
-
-  it('derives a title when the model only gives text', async () => {
-    remembered.length = 0;
-    const tools = createPlatformTools({ memory });
-
-    await run(tools, 'save_memory', { text: 'a fact worth keeping' });
-
-    expect(remembered[0]?.title).toBe('a fact worth keeping');
-  });
-
-  it('honours an explicitly global scope', async () => {
-    remembered.length = 0;
-    const tools = createPlatformTools({ memory });
-
-    await run(tools, 'save_memory', { text: 'true everywhere', scope: 'global' });
-
-    expect(remembered[0]?.scope).toBe('global');
-  });
-
-  it('needs text rather than saving an empty memory', async () => {
-    const tools = createPlatformTools({ memory });
-    const outcome = await run(tools, 'save_memory', {});
-
-    expect(outcome).toMatchObject({ ok: false });
-    expect(outcome.digest).toContain('needs a "text"');
-  });
-
-  it('reports a rejected memory as a failed call', async () => {
-    const tools = createPlatformTools({
-      memory: { remember: vi.fn(async () => ({ action: 'rejected' })) },
-
-    });
-
-    expect((await run(tools, 'save_memory', { text: 'duplicate' })).ok).toBe(false);
   });
 });
 

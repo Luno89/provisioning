@@ -1,3 +1,4 @@
+import type { MemoryItem } from '../lib/memory-store.js';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { BUILDER_TOOLS, type ModelProvider } from '@koala/agent-engine';
 import { ENGINE_TOOL_SEEDS } from '../engine-host/tools/engine-tool-seeds.js';
@@ -46,10 +47,11 @@ const SCENARIO: Scenario = {
 
 const TIDY = JSON.stringify({ ...EXAMPLE_PROCEDURE, id: 'tidy', name: 'Tidy' });
 
-function world(over: { builtIn?: Scenario[] } = {}) {
+function world(over: { builtIn?: Scenario[]; onFinished?: (run: Level2Run) => Promise<void>; practices?: () => Promise<MemoryItem[]> } = {}) {
   const db = new MemoryDB();
   const traces: StoredNodeTrace[] = [];
   let ids = 0;
+  let ticks = 0;
   const service = new Level2Service({
     world: {
       models: { resolveBaseUrl: async () => ({ provider: PROVIDER, baseUrl: 'https://models.test/v1', apiKey: 'k' }) },
@@ -64,6 +66,9 @@ function world(over: { builtIn?: Scenario[] } = {}) {
     traces: async (batch) => { traces.push(...batch); },
     builtIn: over.builtIn ?? [SCENARIO],
     newId: () => `run-${(ids += 1)}`,
+    now: () => new Date(Date.parse('2026-10-03T12:00:00Z') + (ticks += 1) * 1000).toISOString(),
+    ...(over.onFinished ? { onFinished: over.onFinished } : {}),
+    ...(over.practices ? { practices: over.practices } : {}),
   });
   return { service, db, traces };
 }
@@ -130,6 +135,57 @@ describe('Level 2 scenarios', () => {
     const started = (await service.start({ ownerId: 'user-1', only: ['other'] })) as Level2Run;
     expect((await settled(service, started.id)).results.map((result) => result.scenarioId)).toEqual(['other']);
     expect(await service.start({ ownerId: 'user-1', only: ['ghost'] })).toEqual({ unknown: ['ghost'] });
+  }, 30_000);
+
+  it('names a scenario that passed last time and fails now as a regression, says why the run happened, and reports it when done', async () => {
+    const finished: Level2Run[] = [];
+    const { service } = world({ onFinished: async (run) => { finished.push(run); } });
+
+    stubModel(
+      calls({ name: 'check_procedure', args: { source: TIDY } }),
+      calls({ name: 'save_procedure', args: { source: TIDY } }),
+      answer('Saved it as tidy.'),
+    );
+    const good = await settled(service, ((await service.start({ ownerId: 'user-1' })) as Level2Run).id);
+    expect(good).toMatchObject({ trigger: { kind: 'manual' }, regressions: [] });
+
+    stubModel(answer('I would rather not.'));
+    const bad = await settled(service, ((await service.start({ ownerId: 'user-1', trigger: { kind: 'changed', agents: ['agent-builder'] } })) as Level2Run).id);
+
+    expect(bad).toMatchObject({ trigger: { kind: 'changed', agents: ['agent-builder'] }, regressions: ['builder-saves'] });
+    await vi.waitFor(() => expect(finished.map((run) => run.id)).toEqual([good.id, bad.id]));
+  }, 30_000);
+
+  it('runs a scenario with its agent\'s live practices, and the one on trial, recalled into its prompt — and no one else\'s', async () => {
+    stubModel(answer('done'));
+    const practice = (id: string, agent: string, status: NonNullable<MemoryItem['status']>, text: string): MemoryItem => ({ id, ownerId: 'user-1', category: 'practice', agent, status, title: id, text, createdAt: 'a', updatedAt: 'a' });
+    const { service, traces } = world({ practices: async () => [
+      practice('live', 'agent-builder', 'active', 'Always check before saving.'),
+      practice('trial', 'agent-builder', 'trial', 'Name the procedure you saved.'),
+      practice('held', 'agent-builder', 'pending_review', 'Never save anything.'),
+      practice('other', 'koala', 'active', 'Ask before deploying.'),
+    ] });
+
+    const run = await settled(service, ((await service.start({ ownerId: 'user-1', trialPractice: 'trial' })) as Level2Run).id);
+
+    const recalled = traces.filter((trace) => trace.runId === run.results[0]!.runId && trace.kind === 'recall-memory').map((trace) => JSON.stringify(trace.outputs));
+    expect(recalled.join('')).toContain('Always check before saving.');
+    expect(recalled.join('')).toContain('Name the procedure you saved.');
+    expect(recalled.join('')).not.toContain('Never save anything.');
+    expect(recalled.join('')).not.toContain('Ask before deploying.');
+  }, 30_000);
+
+  it('runs with the proposed prompt in place of the agent\'s own, when comparing a prompt change, and leaves it out of later baselines', async () => {
+    stubModel(answer('done'));
+    const { service, traces } = world();
+
+    const compared = await settled(service, ((await service.start({ ownerId: 'user-1', promptOverride: { agent: 'agent-builder', prompt: 'PROPOSED PROMPT MARKER' }, trigger: { kind: 'prompt-change', agent: 'agent-builder', changeId: 'c1' } })) as Level2Run).id);
+    const sent = traces.filter((trace) => trace.runId === compared.results[0]!.runId && trace.kind === 'build-context').map((trace) => JSON.stringify(trace.outputs)).join('');
+    expect(sent).toContain('PROPOSED PROMPT MARKER');
+
+    stubModel(answer('done'));
+    const real = await settled(service, ((await service.start({ ownerId: 'user-1' })) as Level2Run).id);
+    expect((await service.earlier(real)).map((run) => run.id)).not.toContain(compared.id);
   }, 30_000);
 
   it('marks a run that was still going when the server restarted as interrupted', async () => {

@@ -28,7 +28,7 @@ import {
 import { canvasContextFor } from '../../lib/procedure-drafts'
 import type { CanvasContext } from '../../lib/procedure-canvas'
 import { agentKeys, deleteAgent, listAgents, listGrantableTools, saveAgent, type Agent } from '../../api/agents'
-import { listMcpServers, mcpKeys } from '../../api/mcp'
+import { listMcpServers, mcpKeys, setMcpToolHint, type McpHintChoice } from '../../api/mcp'
 import { egressKeys, listEgressGrants, revokeEgress } from '../../api/egress'
 import {
   deleteEngineTool,
@@ -159,6 +159,19 @@ export function useEgressGrants(agent: string) {
 
 export function useMcpServerList() {
   return useQuery({ queryKey: mcpKeys.servers(), queryFn: listMcpServers })
+}
+
+export function useMcpToolHint() {
+  const qc = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: ({ server, tool, choice }: { server: string; tool: string; choice: McpHintChoice }) => setMcpToolHint(server, tool, choice),
+    onSuccess: (servers) => { qc.setQueryData(mcpKeys.servers(), servers) },
+  })
+  return {
+    choose: (server: string, tool: string, choice: McpHintChoice) => mutation.mutate({ server, tool, choice }),
+    busy: mutation.isPending,
+    error: mutation.error,
+  }
 }
 
 export function useGrantableTools() {

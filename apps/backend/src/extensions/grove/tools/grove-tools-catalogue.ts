@@ -40,6 +40,7 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: false,
     openWorld: false,
+    destructive: false,
     returns: 'text in the form `proposed leaf plan <id> — <mode> of "<leaf>": <n> tasks`',
     failures: [
       { when: 'the plan is incomplete', says: 'the first thing to fix, and that nothing was saved' },
@@ -98,6 +99,7 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: false,
     openWorld: false,
+    destructive: false,
     returns: 'text in the form `proposed plan <id> — <n> branches, <n> leaves, <n> tasks for <tree>`',
     failures: [
       { when: 'the plan is incomplete or inconsistent', says: 'the first thing to fix, and that nothing was saved' },
@@ -136,6 +138,7 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: false,
     openWorld: false,
+    destructive: false,
     returns: 'text in the form `claimed <leafId>` / `failed <leafId> — <reason>`; the leaf carries the claim record (evidence, findings, runs, at) for the judge',
     failures: [
       { when: 'result is missing, or a success word', says: 'what the result may be, and that the work does not grade itself' },
@@ -164,6 +167,7 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: false,
     openWorld: false,
+    destructive: false,
     returns: 'text in the form `settled <leafId> — verified` / `settled <leafId> — failed` / `kept <leafId> claimed — <note>`; the leaf carries the rewrite (status / verified / findings / review note)',
     failures: [
       { when: 'the verdict is missing or out of the three', says: 'what each of the three means, in the leaf’s life' },

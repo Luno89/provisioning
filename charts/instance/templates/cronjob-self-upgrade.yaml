@@ -35,4 +35,6 @@ spec:
                   value: {{ .Release.Namespace }}
                 - name: CURRENT_IMAGE_TAG
                   value: {{ .Values.image.tag | quote }}
+                - name: UPGRADE_TIMEOUT
+                  value: {{ .Values.selfUpgrade.timeout | quote }}
 {{- end }}

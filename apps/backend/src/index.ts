@@ -60,6 +60,15 @@ import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes
 import { conversationBinding } from './engine-host/conversation-binding.js';
 import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
 import { getTemporalClient } from './lib/temporal-client.js';
+import { PayloadStorageService } from './services/PayloadStorageService.js';
+import { withHints } from './lib/mcp-tool-hints.js';
+import { MemoryKeeperService } from './services/MemoryKeeperService.js';
+import { BENCH_IDLE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, conversationConclusionId } from './engine-host/temporal/contracts.js';
+import { BenchService } from './services/BenchService.js';
+import { PracticeService } from './services/PracticeService.js';
+import { randomUUID } from 'node:crypto';
+import { AgentChangeService } from './services/AgentChangeService.js';
+import { fingerprintOf } from './lib/bench.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
 import { projectFilesRouter } from './routes/project-files.js';
@@ -79,7 +88,7 @@ import { registryRouter } from './routes/registry.js';
 import { modulesRouter } from './routes/modules.js';
 import { appSchemasRouter } from './routes/app-schemas.js';
 import { ownsProject, ownedBy } from './lib/ownership.js';
-import { createDatabase, type Database } from './lib/db-interface.js';
+import { createDatabase, sharedPayloadBlobs, type Database } from './lib/db-interface.js';
 import { migrateLegacyOwnership } from './lib/migrate-ownership.js';
 
 import { InfrastructureService } from './services/InfrastructureService.js';
@@ -215,11 +224,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, headscaleService);
   clusterService.setTemporalBridge(temporalBridge);
   appService.setTemporalBridge(temporalBridge);
-  try {
-    await temporalBridge.start();
-    await temporalBridge.startActiveWorkflowRecovery();
-  } catch (e: any) {
-    console.warn(`⚠️ Temporal TS bridge not available. Routes will fall back to Local DB.`, e.message);
+  if (servesTenants(role)) {
+    try {
+      await temporalBridge.start();
+      await temporalBridge.startActiveWorkflowRecovery();
+    } catch (e: any) {
+      console.warn(`⚠️ Temporal TS bridge not available. Routes will fall back to Local DB.`, e.message);
+    }
   }
 
   const extensions = extensionServiceFor(db);
@@ -255,7 +266,31 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * The model call runs here rather than on the engine worker because this is the only process
    * holding browser sockets — tokens have to be produced next to whoever is watching them.
    */
-  startStreamWorker({
+  const bench: { service?: BenchService } = {};
+  const agentsHolder: { service?: AgentService } = {};
+  const memoryKeeper = new MemoryKeeperService({
+    store: db,
+    start: async (request) => { await engineRuns.start(request); },
+    timer: async ({ ownerId, conversationId, signal, quietMs }) => {
+      const workflows = (await getTemporalClient()).workflow;
+      const where = {
+        workflowId: conversationConclusionId(conversationId),
+        taskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE,
+        args: [{ ownerId, conversationId }],
+      };
+      if (signal === 'turnEnded') await workflows.signalWithStart(CONVERSATION_CONCLUSION_WORKFLOW, { ...where, signal, signalArgs: [{ quietMs: quietMs ?? 0 }] });
+      else await workflows.signalWithStart(CONVERSATION_CONCLUSION_WORKFLOW, { ...where, signal, signalArgs: [] });
+    },
+    concludeAfterMinutes: async (ownerId, agentSlug) => (await engineRegistry.agent(ownerId, agentSlug))?.concludeAfterMinutes,
+  });
+  const reportMemory = (why: string) => (report: { started: string[] }) => {
+    if (report.started.length > 0) console.log(`[memory] ${why}: started ${report.started.join(', ')}`);
+  };
+  const concluded = (ownerId: string, conversationId: string | undefined): void => {
+    void memoryKeeper.settled(ownerId, conversationId).then(reportMemory('a conversation settled')).catch((err: Error) => console.warn(`[memory] ${err.message}`));
+  };
+
+  if (servesTenants(role)) startStreamWorker({
     io,
     encryptionKey: keys.payload,
     services: {
@@ -263,6 +298,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       endpoints: createEndpointResolver({ models: modelService, registry: engineRegistry }),
       streamNodes: hostNodesFor(createModelNodes({ registry: engineRegistry, models: modelService }), ['stream']),
       runCancelled: runCancelledVia(() => getTemporalClient()),
+      conclude: async (event) => {
+        reportMemory(event.kind)(await memoryKeeper.handle(event));
+        await bench.service?.activity(event);
+      },
+      benchIdle: async (ownerId) => (bench.service ? bench.service.idle(ownerId) : 'nothing'),
     },
   })
     .then((worker) => {
@@ -373,6 +413,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
 
   io.on('connection', (socket) => {
+    const connectedUser = (socket.data.user as { id?: string } | undefined)?.id;
+    if (connectedUser) void socket.join(`user:${connectedUser}`);
     const socketTails = new Map<string, any>();
 
     socket.on('join-room', async (id) => {
@@ -628,6 +670,23 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     efforts: (effort) => db.saveRunEffort(effort),
   });
 
+  const practiceService = new PracticeService({ store: db });
+  const agentChanges = new AgentChangeService({
+    store: db,
+    savePrompt: async (ownerId, slug, prompt) => {
+      const current = await engineRegistry.agent(ownerId, slug);
+      if (!current || !agentsHolder.service) return { saved: false, problems: [`there is no agent called "${slug}"`] };
+      const saved = await agentsHolder.service.save(ownerId, { ...current, prompt });
+      return saved.saved ? { saved: true } : { saved: false, problems: saved.problems };
+    },
+    handOff: async (ownerId, message) => {
+      const at = new Date().toISOString();
+      const conversationId = randomUUID();
+      await db.saveConversation({ id: conversationId, ownerId, title: 'Procedure change request', messages: [], agentSlug: 'agent-builder', createdAt: at, updatedAt: at });
+      const started = await engineRuns.start({ ownerId, agentSlug: 'agent-builder', procedureId: 'interactive-chat', message, conversationId, inputs: { conversationId } });
+      return { conversationId, runId: started.runId };
+    },
+  });
   const level2Service: Level2Service = new Level2Service({
     world: {
       models: modelService,
@@ -644,9 +703,49 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     procedures: async (ownerId: string) => (await engineRegistry.procedures(ownerId)).map((procedure) => procedure.id),
     store: db,
     traces: (traces) => db.saveRunTraces(traces),
+    onFinished: async (run) => { await bench.service?.finished(run); },
+    practices: (ownerId) => practiceService.list(ownerId),
   });
 
-  await Promise.all([level1Service.recover(), level2Service.recover()]).catch(() => undefined);
+  bench.service = new BenchService({
+    store: db,
+    scenarios: async (ownerId) => (await level2Service.scenarios(ownerId)).map((scenario) => ({ id: scenario.id, agent: scenario.agent })),
+    fingerprints: async (ownerId, agents) => Object.fromEntries((await Promise.all(agents.map(async (slug) => {
+      const runnable = await engineRegistry.runnable(ownerId, slug).catch(() => undefined);
+      return runnable ? [slug, fingerprintOf({ agent: runnable.agent, procedure: runnable.procedure })] as const : undefined;
+    }))).filter((entry): entry is readonly [string, string] => entry !== undefined)),
+    practices: practiceService,
+    changes: agentChanges,
+    earlier: (run) => level2Service.earlier(run),
+    notifyChange: (ownerId, change) => {
+      io.to(`user:${ownerId}`).emit('agent-change-ready', { id: change.id, agent: change.agent, better: change.comparison?.better ?? [], worse: change.comparison?.worse ?? [] });
+    },
+    start: async (ownerId, plan, extra) => {
+      const started = await level2Service.start({ ownerId, only: plan.scenarioIds, trigger: plan.trigger, ...(extra?.trialPractice ? { trialPractice: extra.trialPractice } : {}), ...(extra?.promptOverride ? { promptOverride: extra.promptOverride } : {}) });
+      if ('unknown' in started) throw new Error(`the bench names scenarios that no longer exist: ${started.unknown.join(', ')}`);
+      console.log(`[bench] ${ownerId}: started ${plan.trigger.kind} run ${started.id} (${plan.scenarioIds.length} scenarios)`);
+    },
+    benchRunning: async (ownerId) => (await level2Service.list(ownerId)).some((run) => run.state === 'running'),
+    agentsRunning: async () => {
+      const client = await getTemporalClient();
+      for await (const _run of client.workflow.list({ query: 'WorkflowType = "AgentRunWorkflow" AND ExecutionStatus = "Running"' })) return true;
+      return false;
+    },
+    idleTimer: async (ownerId, idleMs) => {
+      await (await getTemporalClient()).workflow.signalWithStart(BENCH_IDLE_WORKFLOW, {
+        workflowId: benchIdleId(ownerId),
+        taskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE,
+        args: [{ ownerId }],
+        signal: 'benchActivity',
+        signalArgs: [{ idleMs }],
+      });
+    },
+    notify: (ownerId, run) => {
+      io.to(`user:${ownerId}`).emit('bench-regression', { runId: run.id, regressions: run.regressions ?? [], trigger: run.trigger });
+    },
+  });
+
+  if (servesTenants(role)) await Promise.all([level1Service.recover(), level2Service.recover()]).catch(() => undefined);
 
   void evalHost.workspaceImages.warm().then((images) => {
     const building = images.filter((image) => image.state === 'building');
@@ -675,8 +774,24 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   };
 
-  setTimeout(() => { void sweepImages('after the warm'); }, PRUNE_FIRST_DELAY_MS).unref();
-  setInterval(() => { void sweepImages('daily'); }, PRUNE_INTERVAL_MS).unref();
+  const payloadStorage = new PayloadStorageService(sharedPayloadBlobs(), () => getTemporalClient());
+  const sweepPayloads = async (): Promise<void> => {
+    try {
+      const report = await payloadStorage.sweep();
+      if (report.released.length > 0 || report.orphans > 0) {
+        console.log(`[payloads] released the stored payloads of ${report.released.length} finished workflows and ${report.orphans} unowned ones; ${report.kept} still in Temporal`);
+      }
+    } catch (err) {
+      console.warn(`[payloads] could not sweep stored Temporal payloads: ${(err as Error).message}`);
+    }
+  };
+
+  if (servesTenants(role)) {
+    setTimeout(() => { void sweepPayloads(); }, PRUNE_FIRST_DELAY_MS).unref();
+    setInterval(() => { void sweepPayloads(); }, PRUNE_INTERVAL_MS).unref();
+    setTimeout(() => { void sweepImages('after the warm'); }, PRUNE_FIRST_DELAY_MS).unref();
+    setInterval(() => { void sweepImages('daily'); }, PRUNE_INTERVAL_MS).unref();
+  }
 
   tenant.use('/api/procedures', proceduresRouter({
     procedures: new ProcedureService({
@@ -685,7 +800,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       procedures: createProcedureStore({ sources: { list: (ownerId?: string) => db.getProcedures(ownerId) }, published: (ownerId: string) => extensions.groups(ownerId) }),
       sources: {
         get: (ownerId, id) => db.getProcedure(ownerId, id),
-        save: (source) => db.saveProcedure(source),
+        save: async (source) => {
+          await db.saveProcedure(source);
+          if (source.ownerId) void bench.service?.changed(source.ownerId).catch(() => undefined);
+        },
         delete: (ownerId, id) => db.deleteProcedure(ownerId, id),
       },
       known: async (ownerId) => ({
@@ -726,10 +844,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }));
 
   tenant.use('/api/agents', agentsRouter({
-    agents: new AgentService({
+    agents: agentsHolder.service = new AgentService({
       personas: {
         list: (ownerId?: string) => db.getEnginePersonas(ownerId),
-        save: (persona) => db.saveEnginePersona(persona),
+        save: async (persona) => {
+          await db.saveEnginePersona(persona);
+          if (persona.ownerId) void bench.service?.changed(persona.ownerId).catch(() => undefined);
+        },
         remove: (ownerId, slug) => db.deleteEnginePersona(ownerId, slug),
       },
       tools: (ownerId: string) => draftCatalogue.list(ownerId),
@@ -740,7 +861,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }));
 
   tenant.use('/api/evals/level1', evalsLevel1Router({ level1: level1Service }));
-  tenant.use('/api/evals/level2', evalsLevel2Router({ level2: level2Service }));
+  tenant.use('/api/evals/level2', evalsLevel2Router({ level2: level2Service, bench: bench.service!, practices: practiceService, changes: agentChanges }));
 
   tenant.use('/api/conversations', conversationsRouter({
     db,
@@ -772,7 +893,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     workspaces: evalHost.treeWorkspaces,
   });
   tenant.use('/api/trees', treesRouter({ db, workspaces: evalHost.treeWorkspaces, runs: groveRuns, deletion: groveDeletion }));
-  tenant.use('/api/plans', plansRouter({ plans: new PlanService({ store: db, adopter: temporalBridge }) }));
+  tenant.use('/api/plans', plansRouter({ plans: new PlanService({ store: db, adopter: temporalBridge, onSettled: concluded }) }));
   tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault: infisicalService }) }));
   tenant.use('/api/branches', branchesRouter({ db, deletion: groveDeletion }));
 
@@ -780,10 +901,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const mcpServersOf = (ownerId: string) => {
     const known = mcpRegistries.get(ownerId) ?? new McpRegistryService(db, ownerId, (n: string) => resolveMcpProbeUrl(n));
     mcpRegistries.set(ownerId, known);
-    return known.listWithTools();
+    return Promise.all([known.listWithTools(), db.getMcpToolHints(ownerId)]).then(([servers, hints]) => withHints(servers, hints));
   };
   tenant.use('/api/mcp', mcpRouter({ mcp: new McpService({ store: db, servers: mcpServersOf }) }));
-  tenant.use('/api/actions', actionsRouter({ actions: new ActionService({ store: db, deployer: temporalBridge }) }));
+  tenant.use('/api/actions', actionsRouter({ actions: new ActionService({ store: db, deployer: temporalBridge, onSettled: concluded }) }));
   const egressService = new EgressService({
     store: db,
     proxy: new EgressProxyService({ kube: infraService, secret: keys.egress, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica' }),

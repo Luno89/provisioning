@@ -1,5 +1,6 @@
 import { Client, Connection } from '@temporalio/client'
 import { buildDataConverter } from './temporal-codec.js'
+import { sharedPayloadBlobs } from './db-interface.js'
 import { loadKeys } from './keys.js'
 
 const serverUrl = process.env.TEMPORAL_CONNECTION_ADDRESS || 'http://localhost:7233'
@@ -21,7 +22,7 @@ export async function getTemporalClient(options?: TemporalClientOptions): Promis
   const address = options?.address ?? process.env.TEMPORAL_CONNECTION_ADDRESS ?? serverUrl
   const namespace = options?.namespace ?? 'default'
   const connection = await Connection.connect({ address: toConnectionAddress(address) })
-  const dataConverter = buildDataConverter(loadKeys(process.env).payload)
+  const dataConverter = buildDataConverter(loadKeys(process.env).payload, sharedPayloadBlobs())
   shared = new Client({
     connection,
     namespace,

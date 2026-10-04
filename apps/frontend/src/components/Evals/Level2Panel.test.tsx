@@ -17,6 +17,10 @@ vi.mock('../../api/evals', async () => {
     cancelLevel2Run: vi.fn(async () => undefined),
     saveScenario: vi.fn(),
     deleteScenario: vi.fn(async () => undefined),
+    getBench: vi.fn(async () => ({ settings: { enabled: true, idleMinutes: 15, fullEveryHours: 24 }, state: { benched: {} } })),
+    listProposals: vi.fn(async () => []),
+    listPractices: vi.fn(async () => []),
+    listChanges: vi.fn(async () => []),
   }
 })
 

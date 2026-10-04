@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest'
 import McpServersMenu from './McpServersMenu'
 
 const servers = [
-  { name: 'Gitea MCP', tools: [{ name: 'list_repos', readOnly: true }] },
+  { name: 'Gitea MCP', tools: [{ name: 'list_repos', readOnly: true, kind: 'read-only' as const, declared: 'read-only' as const, choice: 'server' as const }] },
   { name: 'Docs', tools: [], unreachable: 'timeout' },
 ]
 

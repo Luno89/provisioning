@@ -95,6 +95,37 @@ describe('approve tool calls', () => {
     expect(outcome.exit).toBe('refused');
     expect(p.approve).toHaveBeenCalledTimes(2);
   });
+
+  const offered = [
+    { name: 'delete_file', description: 'Delete a path', binding: 'environment', effect: 'write', destructive: true },
+    { name: 'read_file', description: 'Read a file', binding: 'environment', effect: 'read' },
+  ];
+  const mixed = reply([{ id: 'a', name: 'delete_file', arguments: '{"path":"notes.md"}' }, { id: 'b', name: 'read_file', arguments: '{}' }]);
+
+  it('asks about a call to a destructive tool wherever it runs, and lets the rest of the reply through unasked', async () => {
+    const p = ports({ approve: vi.fn(async () => false) });
+    const outcome = await invoke(createOrchestrationNodes(p), approveToolCalls, { inputs: { reply: mixed, offered, environment: { kind: 'none', egress: false } } });
+
+    expect(p.approve).toHaveBeenCalledTimes(1);
+    expect(p.approve.mock.calls[0]![0].call.name).toBe('delete_file');
+    expect(outcome.exit).toBe('approved');
+    expect((outcome.outputs.approved as ModelReply).toolCalls.map((call) => call.id)).toEqual(['b']);
+    expect((outcome.outputs.refused as { callId: string }[]).map((result) => result.callId)).toEqual(['a']);
+  });
+
+  it('runs a destructive call once a person allows it', async () => {
+    const p = ports({ approve: vi.fn(async () => true) });
+    const outcome = await invoke(createOrchestrationNodes(p), approveToolCalls, { inputs: { reply: mixed, offered } });
+
+    expect((outcome.outputs.approved as ModelReply).toolCalls.map((call) => call.id)).toEqual(['a', 'b']);
+  });
+
+  it('asks about nothing, destructive or not, when told never to', async () => {
+    const p = ports();
+    await invoke(createOrchestrationNodes(p), approveToolCalls, { settings: { ask: 'never' }, inputs: { reply: mixed, offered, environment: machine } });
+
+    expect(p.approve).not.toHaveBeenCalled();
+  });
 });
 
 describe('run tool calls', () => {

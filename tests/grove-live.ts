@@ -15,6 +15,7 @@ const OWNER = process.env.GROVE_LIVE_OWNER;
 const GOAL = process.env.GROVE_LIVE_GOAL
   ?? 'New Grove project "greeter": a tiny Node.js command-line greeter. Exactly one branch and two leaves. Leaf 1: greet.js prints "hello, <name>" for the name given as its first argument (and "hello, world" without one). Leaf 2, which waits on leaf 1: test.sh runs greet.js with and without a name and exits 0 only when both outputs are right. A couple of tasks per leaf. Use only node and sh — nothing to install.';
 const DEADLINE_MS = Number(process.env.GROVE_LIVE_MINUTES ?? '60') * 60_000;
+const EXPECT_STOPPED = process.env.GROVE_LIVE_EXPECT_STOPPED === '1';
 
 const queue = process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
 const elapsed = (since: number) => `${Math.round((Date.now() - since) / 1000)}s`;
@@ -126,7 +127,29 @@ async function main(): Promise<void> {
   const log = await reader?.exec({ command: 'cd /work/repo && git log --all --graph --oneline -20 && echo ---- && git worktree list && echo ---- && ls -R /work/trees 2>/dev/null | head -40' });
   console.log(`\n  repo:\n${log?.stdout ?? log?.stderr ?? '(unreadable)'}`);
   await host.treeWorkspaces.park(treeId);
-  await db.close();
+
+  if (EXPECT_STOPPED) {
+    const failedTasks = tasks.filter((task) => task.status === 'failed');
+    const stoppedLeaves = leaves.filter((leaf) => failedTasks.some((task) => task.leafId === leaf.id));
+    const judgeRuns = (await db.getRunEffort(OWNER, 'tool-rounds'))
+      .filter((effort) => effort.agentSlug === 'leaf-judge' && effort.runId.startsWith(groveRunWorkflowId(treeId)))
+      .map((effort) => effort.runId);
+    const judgeTraces = (await Promise.all(judgeRuns.map((runId) => db.getRunTraces(OWNER, runId)))).flat();
+    const readRuns = judgeTraces
+      .filter((trace) => trace.kind === 'run-tool-calls')
+      .flatMap((trace) => (trace.outputs as { results?: { name: string; ok: boolean }[] } | undefined)?.results ?? [])
+      .filter((call) => call.name === 'read_run' && call.ok);
+    console.log(`\n  stopped: ${failedTasks.length} failed tasks on ${stoppedLeaves.length} leaves; ${judgeRuns.length} judge runs made ${readRuns.length} read_run calls`);
+    await db.close();
+    assert.ok(failedTasks.length > 0, 'no task failed, so this run did not exercise a stopped leaf');
+    for (const leaf of stoppedLeaves) {
+      assert.ok(leaf.claim?.evidence.includes('[failed]'), `${leaf.title} was not claimed with its failed task in the evidence`);
+      assert.equal(leaf.review?.model, 'leaf-judge', `${leaf.title} was settled by ${leaf.review?.model ?? 'nobody'}, not its judge`);
+    }
+    assert.ok(readRuns.length > 0, 'the judge never read the run that failed');
+  } else {
+    await db.close();
+  }
 
   if (!result) process.exit(1);
 }

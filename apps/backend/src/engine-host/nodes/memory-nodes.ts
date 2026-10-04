@@ -30,6 +30,7 @@ export function createMemoryNodes(services: HostNodeServices): NodeImplementatio
       const all = await services.memories.list(run.launch.ownerId);
       const { kept, dropped } = selectForContext(all.filter(inScope(node.settings.scope)), run.launch.projectId, {
         maxChars: typeof node.settings.maxChars === 'number' ? node.settings.maxChars : DEFAULT_MEMORY_CHARS,
+        agent: run.identity.agentId,
       });
 
       return { outputs: { memories: kept.map(recalled), text: renderMemoryContext(kept, dropped) } };

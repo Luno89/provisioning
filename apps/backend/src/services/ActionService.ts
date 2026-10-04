@@ -20,7 +20,7 @@ export type ActionDecision =
   | { ok: false; status: 404 | 409; error: string };
 
 export class ActionService {
-  constructor(private readonly deps: { store: ActionStore; deployer: ActionDeployer; now?: () => string }) {}
+  constructor(private readonly deps: { store: ActionStore; deployer: ActionDeployer; now?: () => string; onSettled?: ((ownerId: string, conversationId: string | undefined) => void) | undefined }) {}
 
   private now(): string {
     return this.deps.now?.() ?? new Date().toISOString();
@@ -48,6 +48,7 @@ export class ActionService {
       const applied: ActionProposal = { ...proposal, status: 'applied', result, updatedAt: this.now() };
       delete applied.reason;
       await this.deps.store.saveActionProposal(applied);
+      this.deps.onSettled?.(ownerId, proposal.conversationId);
       return { ok: true, proposal: applied };
     } catch (err) {
       const failed: ActionProposal = { ...proposal, status: 'failed', reason: (err as Error).message, updatedAt: this.now() };

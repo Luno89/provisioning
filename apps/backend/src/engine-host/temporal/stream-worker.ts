@@ -3,6 +3,7 @@ import { createEventBus, type EngineEvent, type EventBus } from '@koala/agent-en
 import { createStreamActivities, type StreamServices } from './activities.js';
 import { DEFAULT_STREAM_TASK_QUEUE } from './contracts.js';
 import { buildDataConverter } from '../../lib/temporal-codec.js';
+import { sharedPayloadBlobs } from '../../lib/db-interface.js';
 import type { SecretKey } from '../../lib/crypto.js';
 import { loadKeys } from '../../lib/keys.js';
 
@@ -37,7 +38,7 @@ export async function startStreamWorker(options: StreamWorkerOptions): Promise<W
 
   const bus = createBrowserBus(options.io, options.channel);
 
-  const dataConverter = buildDataConverter(options.encryptionKey ?? loadKeys(process.env).payload);
+  const dataConverter = buildDataConverter(options.encryptionKey ?? loadKeys(process.env).payload, sharedPayloadBlobs());
 
   return Worker.create({
     connection,

@@ -9,8 +9,10 @@ import { signJWT } from '../apps/backend/src/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
 import { slugify } from '../apps/backend/src/lib/mcp-tools.js';
 import { loadKeys } from '../apps/backend/src/lib/keys.js';
+import { io as connect } from 'socket.io-client';
 
 const BASE = process.env.MCP_LIVE_URL ?? 'http://localhost:3001/api';
+const ORIGIN = BASE.replace(/\/api$/, '');
 const LIMIT_MS = 8 * 60_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -25,7 +27,7 @@ async function until<T>(what: string, probe: () => Promise<T | undefined>): Prom
   }
 }
 
-interface Trace { finish?: unknown; outputs?: { results?: { name: string; ok: boolean }[] } }
+interface Trace { finish?: unknown; outputs?: { results?: { name: string; ok: boolean }[]; refused?: { name: string; ok: boolean }[] } }
 
 async function finished(http: AxiosInstance, runId: string): Promise<Trace[]> {
   return until(`run ${runId} to finish`, async () => {
@@ -38,12 +40,18 @@ const called = (traces: Trace[], prefix: string) => traces
   .flatMap((trace) => trace.outputs?.results ?? [])
   .filter((result) => result.name.startsWith(prefix));
 
-async function turn(http: AxiosInstance, agent: string, message: string, conversationId?: string): Promise<Trace[]> {
+async function start(http: AxiosInstance, agent: string, message: string, conversationId?: string): Promise<string> {
   const body = conversationId ? { agent, message, conversationId, inputs: { conversationId } } : { agent, message };
   const { runId } = (await http.post('/engine/runs', body)).data as { runId: string };
   console.log(`  ${agent} run ${runId}`);
-  return finished(http, runId);
+  return runId;
 }
+
+async function turn(http: AxiosInstance, agent: string, message: string, conversationId?: string): Promise<Trace[]> {
+  return finished(http, await start(http, agent, message, conversationId));
+}
+
+interface EngineEvent { type: string; runId: string; callId?: string; name?: string; message?: string }
 
 async function main(): Promise<void> {
   const db = createDatabase();
@@ -53,7 +61,8 @@ async function main(): Promise<void> {
   const user = await db.getUserById(ownerId);
   assert.ok(user);
   const secret = loadKeys(process.env).session;
-  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, secret, 3600)}` } });
+  const cookie = `session=${signJWT({ userId: user.id, email: user.email }, secret, 3600)}`;
+  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: cookie } });
 
   const servers = (await http.get('/mcp/servers')).data as { name: string; tools: { name: string }[]; unreachable?: string }[];
   const server = servers.find((candidate) => !candidate.unreachable && candidate.tools.some((tool) => tool.name.startsWith('list_')));
@@ -63,7 +72,56 @@ async function main(): Promise<void> {
 
   const conversations: string[] = [];
   const persona = `mcp-live-${Date.now().toString(36)}`;
+  const events: EngineEvent[] = [];
+  const socket = connect(ORIGIN, { extraHeaders: { Cookie: cookie }, transports: ['websocket'] });
+  socket.on('engine-event', (event: EngineEvent) => { events.push(event); });
+  await until('the event socket to connect', async () => (socket.connected ? true : undefined));
+  const readTools = server.tools.map((tool) => tool.name).filter((name) => /^(list|get|read|search|compare)_/.test(name));
   try {
+    const saved = await http.put(`/agents/${persona}`, {
+      slug: persona,
+      name: 'MCP live check',
+      description: 'Lists repositories through an MCP server',
+      version: '1',
+      prompt: 'You answer questions about the person\'s repositories using the tools you have.',
+      guidance: 'Delegate here to look at repositories.',
+      returns: 'An answer.',
+      failures: [{ when: 'the server does not answer', says: 'so' }],
+      procedure: 'tool-rounds',
+      tools: [],
+      mcp: [server.name],
+      environment: {},
+    });
+    assert.ok(saved.status < 300, `the persona was not saved: ${JSON.stringify(saved.data)}`);
+    const gatedRun = await start(http, persona, 'List the repositories — just the names.');
+    const answered = new Set<string>();
+    let finishedTraces: Trace[] | undefined;
+    await until('the run to end, denying every call it asks about', async () => {
+      for (const notice of events.filter((event) => event.runId === gatedRun && event.type === 'notice' && event.message?.includes(prefix))) {
+        const index = events.indexOf(notice);
+        const call = events.slice(0, index).reverse().find((event) => event.runId === gatedRun && event.type === 'tool.called' && event.name?.startsWith(prefix));
+        if (!call?.callId || answered.has(call.callId)) continue;
+        answered.add(call.callId);
+        console.log(`  the call to ${call.name} paused for the card; denying it`);
+        await http.post(`/engine/runs/${gatedRun}/approve`, { callId: call.callId, allowed: false });
+      }
+      const traces = (await http.get(`/engine/runs/${gatedRun}/traces`)).data.traces as Trace[];
+      if (traces.some((trace) => trace.finish !== undefined)) finishedTraces = traces;
+      return finishedTraces;
+    });
+    assert.ok(answered.size > 0, 'nothing asked before a tool the server does not describe ran');
+    const gatedTraces = finishedTraces!;
+    const refused = gatedTraces.flatMap((trace) => trace.outputs?.refused ?? []).filter((result) => result.name.startsWith(prefix));
+    assert.equal(refused.length, answered.size, `every denied call should be recorded as refused: ${JSON.stringify(refused)}`);
+    assert.ok(!called(gatedTraces, prefix).some((result) => result.ok), 'a call ran after it was denied');
+    console.log(`  denied ${answered.size}: none ran, and the agent was told each time`);
+
+    for (const tool of readTools) {
+      const set = await http.put(`/mcp/servers/${encodeURIComponent(server.name)}/tools/${tool}/hint`, { choice: 'read-only' });
+      assert.equal(set.status, 200, `could not mark ${tool} read-only: ${JSON.stringify(set.data)}`);
+    }
+    console.log(`  marked ${readTools.length} of its tools read-only`);
+
     const switched = (await http.post('/conversations', {})).data.id as string;
     conversations.push(switched);
     await http.put(`/mcp/conversations/${switched}/servers`, { servers: [server.name] });
@@ -84,26 +142,14 @@ async function main(): Promise<void> {
     assert.ok(after.some((result) => result.ok), 'the tools did not arrive after the request was approved');
     console.log(`  koala asked, the card approved it, and the next turn used ${[...new Set(after.map((result) => result.name))].join(', ')}`);
 
-    const saved = await http.put(`/agents/${persona}`, {
-      slug: persona,
-      name: 'MCP live check',
-      description: 'Lists repositories through an MCP server',
-      version: '1',
-      prompt: 'You answer questions about the person\'s repositories using the tools you have.',
-      guidance: 'Delegate here to look at repositories.',
-      returns: 'An answer.',
-      failures: [{ when: 'the server does not answer', says: 'so' }],
-      procedure: 'tool-rounds',
-      tools: [],
-      mcp: [server.name],
-      environment: {},
-    });
-    assert.ok(saved.status < 300, `the persona was not saved: ${JSON.stringify(saved.data)}`);
     const granted = called(await turn(http, persona, 'List the repositories — just the names.'), prefix);
     assert.ok(granted.some((result) => result.ok), 'a persona granted the server could not use it');
     console.log(`  granted to a persona: it called ${[...new Set(granted.map((result) => result.name))].join(', ')}`);
+    assert.ok(!events.some((event) => event.type === 'notice' && event.message?.includes(prefix) && event.runId !== gatedRun), 'a read-only tool still asked before it ran');
     console.log('mcp live — PASS');
   } finally {
+    socket.close();
+    for (const tool of readTools) await http.put(`/mcp/servers/${encodeURIComponent(server.name)}/tools/${tool}/hint`, { choice: 'server' }).catch(() => undefined);
     await http.delete(`/agents/${persona}`).catch(() => undefined);
     for (const id of conversations) await http.delete(`/conversations/${id}`).catch(() => undefined);
     await db.close();

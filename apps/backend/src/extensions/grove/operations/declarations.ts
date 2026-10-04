@@ -86,25 +86,21 @@ export const GROVE_OPERATIONS: readonly HostOperation[] = [
     name: 'grove.next-task',
     title: 'Next Task',
     group: 'Grove',
-    describe: 'Says what the leaf needs next: the next task to hand an executor (with what its last attempt left), that every task is finished and the leaf can be claimed, that it cannot finish, or that it has no tasks yet.',
+    describe: 'Says what the leaf needs next: the next task to hand an executor, that every task is finished and the leaf can be claimed, that a task failed and the work stops there for the judge to look at, that it can never finish, or that it has no tasks yet.',
     inputs: [LEAF],
     outputs: [
       { name: 'task', type: 'json', describe: 'The task to work, ready to hand an executor.' },
-      { name: 'reason', type: 'text', describe: 'Why the leaf cannot finish, when it cannot.' },
+      { name: 'reason', type: 'text', describe: 'Which tasks failed and what they reported, or why the leaf can never finish.' },
     ],
     exits: [
       { name: 'run', describe: 'A task is ready to work.' },
       { name: 'claim', describe: 'Every task is finished.' },
-      { name: 'fail', describe: 'A task used the attempts it was allowed, or can never start.' },
+      { name: 'stopped', describe: 'A task failed. The work stops, and the leaf is claimed so its judge sees what was attempted.' },
+      { name: 'fail', describe: 'A task can never start, because what it waits on never finished.' },
       { name: 'unbroken', describe: 'The leaf has no tasks yet.' },
     ],
-    settings: {
-      type: 'object',
-      properties: {
-        taskAttempts: { type: 'integer', title: 'Attempts per task', describe: 'How many times a failed task is worked before the leaf fails. Empty is as many as it takes.', minimum: 1 },
-      },
-    },
-    summary: 'asks what the leaf needs next (attempts: {{taskAttempts}})',
+    settings: { type: 'object', properties: {} },
+    summary: 'asks what the leaf needs next',
     idempotent: true,
   },
   {
@@ -129,7 +125,10 @@ export const GROVE_OPERATIONS: readonly HostOperation[] = [
     settings: {
       type: 'object',
       required: ['result'],
-      properties: { result: { type: 'string', title: 'Claim', enum: ['claimed', 'failed'], default: 'claimed' } },
+      properties: {
+        result: { type: 'string', title: 'Claim', enum: ['claimed', 'failed'], default: 'claimed' },
+        stopped: { type: 'boolean', title: 'The work stopped', describe: 'The work did not finish. The claim says so, so its judge looks at what was attempted.', default: false },
+      },
     },
     summary: 'files the leaf as {{result}}',
     idempotent: false,

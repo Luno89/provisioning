@@ -14,6 +14,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: false,
     openWorld: false,
+    destructive: false,
     requires: { terminal: true },
     returns: 'stdout and stderr together, or "exited <code>" when the command printed nothing. The '
       + 'call is marked failed when the exit code is not zero.',
@@ -64,6 +65,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: true,
     openWorld: false,
+    destructive: false,
     requires: { filesystem: true },
     returns: 'Confirmation of how many bytes went to which path.',
     failures: [
@@ -111,6 +113,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: true,
     openWorld: false,
+    destructive: true,
     requires: { filesystem: true },
     returns: 'Confirmation naming what was deleted.',
     failures: [

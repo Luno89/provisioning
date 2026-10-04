@@ -64,6 +64,28 @@ export interface MergeArgs {
   children: { runId: string; agentId: string; outcome: RunOutcome; outputs: Record<string, unknown> }[];
 }
 
+export type LifecycleEvent =
+  | { kind: 'run-started'; ownerId: string; runId: string; agentSlug: string; depth: number; conversationId?: string | undefined }
+  | {
+    kind: 'run-ended';
+    ownerId: string;
+    runId: string;
+    agentSlug: string;
+    outcome: string;
+    reason?: string | undefined;
+    ask: string;
+    depth: number;
+    conversationId?: string | undefined;
+    leafId?: string | undefined;
+  }
+  | { kind: 'conversation-quiet'; ownerId: string; conversationId: string };
+
+export const CONVERSATION_CONCLUSION_WORKFLOW = 'ConversationConclusionWorkflow';
+export const BENCH_IDLE_WORKFLOW = 'BenchIdleWorkflow';
+export const benchIdleId = (ownerId: string): string => `bench-idle-${ownerId}`;
+export type BenchIdleOutcome = 'started' | 'busy' | 'nothing';
+export const conversationConclusionId = (conversationId: string): string => `conclude-conversation-${conversationId}`;
+
 export interface PublishArgs {
   events: EngineEvent[];
 }

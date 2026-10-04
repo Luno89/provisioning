@@ -97,6 +97,20 @@ export function RootLayout() {
   const currentDeployment = showLogModal?.type === 'app' ? deployments.find((d) => d.id === showLogModal.id) : null;
   const currentCluster = showLogModal?.type === 'cluster' ? clusters.find((c) => c.id === showLogModal.id) : null;
 
+  useSocketEvent<{ runId: string; regressions: string[] }>('bench-regression', (data) => {
+    pushNotification({
+      type: 'error',
+      message: `The bench found ${data.regressions.length} regression${data.regressions.length === 1 ? '' : 's'}: ${data.regressions.join(', ')} passed before and fail now. See Evals → Level 2.`,
+    });
+  });
+
+  useSocketEvent<{ agent: string; better: string[]; worse: string[] }>('agent-change-ready', (data) => {
+    pushNotification({
+      type: 'info',
+      message: `A proposed prompt change for ${data.agent} has been compared on the bench (${data.better.length} better, ${data.worse.length} worse). Review it in Evals → Level 2.`,
+    });
+  });
+
   useSocketEvent<{ id: string }>('resource-destroyed', (data) => {
     pushNotification(data);
 

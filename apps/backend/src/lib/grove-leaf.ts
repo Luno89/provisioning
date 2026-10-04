@@ -4,6 +4,7 @@ import { leafContext } from './plan-documents.js';
 export type LeafStep =
   | { kind: 'run'; taskIds: string[] }
   | { kind: 'claim' }
+  | { kind: 'stopped'; taskIds: string[]; reason: string }
   | { kind: 'fail'; reason: string }
   | { kind: 'unbroken' };
 
@@ -11,27 +12,16 @@ export type LeafTask = Pick<Task, 'id' | 'title' | 'status' | 'dependsOn' | 'evi
 
 const FINISHED: TaskStatus[] = ['done', 'dropped'];
 
-/**
- * The next step a leaf takes, read from its tasks.
- *
- * The attempt count is the number of runs recorded against each task, so it survives a worker restart — nothing has
- * to remember what was tried in a variable that a replay would lose.
- */
-export interface TaskAttemptPolicy {
-  taskAttempts?: number | undefined;
-}
-
-export function nextLeafStep(tasks: readonly LeafTask[], policy: TaskAttemptPolicy = {}): LeafStep {
+export function nextLeafStep(tasks: readonly LeafTask[]): LeafStep {
   const live = tasks.filter((task) => task.status !== 'proposed');
   if (live.length === 0) return { kind: 'unbroken' };
   if (live.every((task) => FINISHED.includes(task.status))) return { kind: 'claim' };
 
   const byId = new Map(live.map((task) => [task.id, task]));
-  const { taskAttempts } = policy;
-  const exhausted = taskAttempts === undefined ? [] : live.filter((task) => task.status === 'failed' && task.runs.length >= taskAttempts);
-  if (exhausted.length > 0) {
-    const reasons = exhausted.map((task) => `"${task.title}" failed ${task.runs.length} times${task.evidence ? `: ${task.evidence}` : ''}`);
-    return { kind: 'fail', reason: reasons.join('; ') };
+  const failed = live.filter((task) => task.status === 'failed');
+  if (failed.length > 0) {
+    const reasons = failed.map((task) => `"${task.title}" failed${task.evidence ? `: ${task.evidence}` : ''}`);
+    return { kind: 'stopped', taskIds: failed.map((task) => task.id), reason: reasons.join('; ') };
   }
 
   const runnable = live.filter((task) =>

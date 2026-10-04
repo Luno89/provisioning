@@ -46,6 +46,12 @@
     "test:leaf-worktrees": "cd apps/backend && tsx ../../tests/leaf-worktrees-integration.ts",
     "test:grove-live": "cd apps/backend && tsx ../../tests/grove-live.ts",
     "test:continue-live": "cd apps/backend && tsx ../../tests/continue-as-new-live.ts",
+    "test:big-run-live": "cd apps/backend && tsx ../../tests/big-run-live.ts",
+    "test:memory-live": "cd apps/backend && tsx ../../tests/memory-live.ts",
+    "test:bench-live": "cd apps/backend && tsx ../../tests/bench-live.ts",
+    "test:proposals-live": "cd apps/backend && tsx ../../tests/proposals-live.ts",
+    "test:practices-live": "cd apps/backend && tsx ../../tests/practices-live.ts",
+    "test:changes-live": "cd apps/backend && tsx ../../tests/changes-live.ts",
     "test:extensions-live": "cd apps/backend && tsx ../../tests/extensions-live.ts",
     "test:instance-live": "cd apps/backend && tsx ../../tests/instance-live.ts",
     "test:byo-live": "cd apps/backend && tsx ../../tests/byo-machine-live.ts",
@@ -77,6 +83,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "axios": "^1.17.0"
+    "axios": "^1.17.0",
+    "protobufjs": "^8.7.1"
   }
 }

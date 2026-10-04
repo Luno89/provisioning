@@ -87,10 +87,10 @@ describe('seeded agents compose usable prompts', () => {
     expect(tools.map((tool) => tool.name).sort()).toEqual(['list_dir', 'read_file', 'run_command']);
   });
 
-  it('gives the settling hand to the leaf-judge alone, alongside what it needs to check the claimed commit', () => {
+  it('gives the settling hand to the leaf-judge alone, alongside what it needs to check the claimed commit and read the runs that did the work', () => {
     const { tools } = offered('leaf-judge');
 
-    expect(tools.map((tool) => tool.name).sort()).toEqual(['list_dir', 'read_file', 'run_command', 'settle_leaf']);
+    expect(tools.map((tool) => tool.name).sort()).toEqual(['list_dir', 'read_file', 'read_run', 'run_command', 'settle_leaf']);
     expect(ALL_SEEDED_AGENTS().filter((agent) => agent.tools.includes('settle_leaf')).map((agent) => agent.slug)).toEqual(['leaf-judge']);
   });
 

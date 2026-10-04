@@ -29,6 +29,7 @@ export function contractFor(server: string, tool: McpTool): ToolContract {
     effect: hints.readOnlyHint === true ? 'read' : 'write',
     idempotent: hints.idempotentHint === true,
     openWorld: hints.openWorldHint !== false,
+    destructive: hints.readOnlyHint !== true && hints.destructiveHint !== false,
     parameters: tool.inputSchema ?? { type: 'object', properties: {} },
   };
 }

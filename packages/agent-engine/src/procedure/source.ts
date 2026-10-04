@@ -153,6 +153,7 @@ export const EXAMPLE_PROCEDURE: Record<string, unknown> = {
     { from: { node: 'turn', socket: 'reply' }, to: { node: 'history', socket: 'replies' } },
     { from: { node: 'turn', socket: 'reply' }, to: { node: 'tools', socket: 'reply' } },
     { from: { node: 'turn', socket: 'persona' }, to: { node: 'tools', socket: 'persona' } },
+    { from: { node: 'turn', socket: 'offered' }, to: { node: 'tools', socket: 'offered' } },
     { from: { node: 'tools', socket: 'results' }, to: { node: 'history', socket: 'results' } },
     { from: { node: 'tools', socket: 'refused' }, to: { node: 'history', socket: 'results' } },
     { from: { node: 'tools', socket: 'reason' }, to: { node: 'stuck', socket: 'reason' } },

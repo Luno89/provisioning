@@ -9,6 +9,7 @@ const tool = (over: Partial<ToolDefinition> = {}): ToolDefinition => ({
   effect: 'write',
   idempotent: false,
   openWorld: false,
+  destructive: false,
   returns: 'Confirmation that the thing was done',
   failures: [{ when: 'the target does not exist', says: 'there is no such target' }],
   parameters: {
@@ -25,6 +26,20 @@ const complaints = (definition: ToolDefinition) =>
 describe('what a tool definition must carry', () => {
   it('accepts a complete one', () => {
     expect(checkDefinition(tool())).toEqual([]);
+  });
+
+  it('makes a tool that writes say whether it can destroy something, so approval knows whether to ask', () => {
+    expect(complaints(tool({ destructive: undefined }))).toEqual([expect.stringContaining('does not say whether it can destroy or overwrite')]);
+    expect(complaints(tool({ effect: 'read', destructive: undefined }))).toEqual([]);
+  });
+
+  it('refuses a reading or proposing tool that calls itself destructive', () => {
+    expect(complaints(tool({ effect: 'propose', destructive: true }))).toEqual([expect.stringContaining('only a tool that writes can destroy anything')]);
+  });
+
+  it('carries destructive through to what the model is offered', () => {
+    expect(asContract(tool({ destructive: true })).destructive).toBe(true);
+    expect('destructive' in asContract(tool({ effect: 'read', destructive: undefined }))).toBe(false);
   });
 
   it('refuses an argument with no description, since that is what the model reads', () => {

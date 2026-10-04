@@ -9,7 +9,10 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels: {{- include "instance.selector" (dict "root" $ "component" $process) | nindent 6 }}
   template:
@@ -58,6 +61,18 @@ spec:
             httpGet:
               path: /api/auth/sign-in
               port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            {{- else }}
+            - name: HEALTH_PORT
+              value: "8090"
+          ports:
+            - name: health
+              containerPort: 8090
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: health
             initialDelaySeconds: 10
             periodSeconds: 10
             {{- end }}

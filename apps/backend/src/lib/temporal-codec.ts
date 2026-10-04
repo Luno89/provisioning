@@ -1,5 +1,6 @@
 import type { PayloadCodec } from '@temporalio/common';
 import { encryptValue, decryptValue, type SecretKey } from './crypto.js';
+import { CompressionCodec, payloadStorage, type PayloadBlobs } from './payload-storage.js';
 
 const ENCODING = 'binary/encrypted-aes-256-gcm';
 const METADATA_ENCODING_KEY = 'encoding';
@@ -54,9 +55,9 @@ export class EncryptionCodec implements PayloadCodec {
   }
 }
 
-export function buildDataConverter(masterKey: SecretKey | undefined) {
-  if (!masterKey) return undefined;
+export function buildDataConverter(masterKey: SecretKey | undefined, blobs?: PayloadBlobs) {
   return {
-    payloadCodecs: [new EncryptionCodec(masterKey)],
+    payloadCodecs: [new CompressionCodec(), ...(masterKey ? [new EncryptionCodec(masterKey)] : [])],
+    ...(blobs ? { externalStorage: payloadStorage(blobs) } : {}),
   };
 }

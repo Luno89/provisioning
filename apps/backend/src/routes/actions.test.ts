@@ -15,13 +15,15 @@ const proposal = (over: Partial<ActionProposal>): ActionProposal => ({
 describe('/api/actions', () => {
   let harness: Harness;
   let deployer: ActionDeployer;
+  let settled: [string, string | undefined][];
 
   beforeEach(async () => {
     deployer = {
       deployApp: vi.fn(async () => ({ id: 'wf-1', resourceId: 'vectors' })),
       promoteProjectBuild: vi.fn(async () => ({ id: 'wf-2' })),
     };
-    harness = await mountRouter({ prefix: '/api/actions', router: (db) => actionsRouter({ actions: new ActionService({ store: db, deployer }) }) });
+    settled = [];
+    harness = await mountRouter({ prefix: '/api/actions', router: (db) => actionsRouter({ actions: new ActionService({ store: db, deployer, onSettled: (ownerId, conversationId) => { settled.push([ownerId, conversationId]); } }) }) });
     await harness.db.saveProject({ id: 'p1', name: 'billing', ownerId: TEST_USER.id, appType: 'gitapp', deployEnv: 'A=1', createdAt: 'x' });
   });
 
@@ -39,6 +41,7 @@ describe('/api/actions', () => {
     expect(res.data).toMatchObject({ status: 'applied', result: 'deploying vectors (workflow wf-1)' });
     expect(deployer.deployApp).toHaveBeenCalledWith({ appType: 'qdrant', name: 'vectors', clusterId: 'k', strategy: 'native' }, TEST_USER.id);
     expect((await post(harness.url('/api/actions/a1/apply'))).status).toBe(409);
+    expect(settled, 'an accepted card is something settled in its conversation').toEqual([[TEST_USER.id, 'c1']]);
   });
 
   it('writes the proposed environment when applied', async () => {

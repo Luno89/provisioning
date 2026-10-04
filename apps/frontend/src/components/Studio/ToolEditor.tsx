@@ -41,6 +41,10 @@ export default function ToolEditor({ tool, onClose }: { tool: EngineTool; onClos
 
   const set = <K extends keyof EngineTool>(key: K, value: EngineTool[K]) =>
     setDraft((current) => ({ ...current, [key]: value }))
+  const declareDestructive = (choice: boolean | undefined) =>
+    setDraft(({ destructive: _previous, ...current }) => (choice === undefined ? current : { ...current, destructive: choice }))
+  const changeEffect = (effect: EngineTool['effect']) =>
+    setDraft(({ destructive, ...current }) => (effect === 'write' && destructive !== undefined ? { ...current, effect, destructive } : { ...current, effect }))
 
   const args = Object.entries(draft.parameters.properties)
 
@@ -220,7 +224,7 @@ export default function ToolEditor({ tool, onClose }: { tool: EngineTool; onClos
         </label>
         <label className="space-y-1">
           <span className={label}>What it changes</span>
-          <select className={field} value={draft.effect} onChange={(event) => set('effect', event.target.value as EngineTool['effect'])}>
+          <select className={field} value={draft.effect} onChange={(event) => changeEffect(event.target.value as EngineTool['effect'])}>
             <option value="read">read — looks at things only</option>
             <option value="write">write — changes things</option>
             <option value="propose">propose — asks for a change</option>
@@ -237,6 +241,21 @@ export default function ToolEditor({ tool, onClose }: { tool: EngineTool; onClos
           <input type="checkbox" checked={draft.openWorld} onChange={(event) => set('openWorld', event.target.checked)} />
           Its results come from outside this platform and can differ between calls
         </label>
+        {draft.effect === 'write' && (
+          <label className="mt-1 flex items-center gap-2 text-[12px] text-slate-300">
+            <span>Can it destroy or overwrite something a person would want back?</span>
+            <select
+              aria-label="Can it destroy or overwrite something"
+              className={field + ' w-auto'}
+              value={draft.destructive === undefined ? '' : draft.destructive ? 'yes' : 'no'}
+              onChange={(event) => declareDestructive(event.target.value === '' ? undefined : event.target.value === 'yes')}
+            >
+              <option value="">choose</option>
+              <option value="yes">yes — ask a person before every call</option>
+              <option value="no">no</option>
+            </select>
+          </label>
+        )}
       </div>
 
       <div className="space-y-1">

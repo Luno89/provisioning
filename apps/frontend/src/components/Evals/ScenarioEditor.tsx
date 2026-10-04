@@ -10,12 +10,13 @@ interface ScenarioEditorProps {
   procedures: string[]
   onClose: () => void
   onSaved: (scenario: Scenario) => void
+  saveWith?: (scenario: Scenario) => Promise<Scenario>
 }
 
-export default function ScenarioEditor({ scenario, agents, procedures, onClose, onSaved }: ScenarioEditorProps) {
+export default function ScenarioEditor({ scenario, agents, procedures, onClose, onSaved, saveWith }: ScenarioEditorProps) {
   const [draft, setDraft] = useState<ScenarioDraft>(() => (scenario ? draftOf(scenario) : emptyDraft(agents[0] ?? '')))
   const [problems, setProblems] = useState<string[]>([])
-  const save = useSaveScenario(onSaved)
+  const save = useSaveScenario(onSaved, saveWith)
 
   const set = <K extends keyof ScenarioDraft>(key: K, value: ScenarioDraft[K]) =>
     setDraft((current) => ({ ...current, [key]: value }))

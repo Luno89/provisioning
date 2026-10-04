@@ -147,7 +147,18 @@ class NotProducedYet extends Error {
 
 const routeKey = (node: NodeId, exit: string): string => JSON.stringify([node, exit]);
 
-const describeError = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+export const describeError = (err: unknown): string => {
+  const said: string[] = [];
+  const visited = new Set<unknown>();
+  let current: unknown = err;
+  while (current !== undefined && current !== null && !visited.has(current)) {
+    visited.add(current);
+    const message = current instanceof Error ? current.message : String(current);
+    if (message && !said.includes(message)) said.push(message);
+    current = current instanceof Error ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return said.join(': ') || 'an unknown error';
+};
 
 function stopFor(run: RunContext, failure: string): RunStop {
   const signal = run.signal;

@@ -21,6 +21,7 @@ export interface EngineTool {
   effect: 'read' | 'write' | 'propose'
   idempotent: boolean
   openWorld: boolean
+  destructive?: boolean
   parameters: { type: 'object'; properties: Record<string, ToolArgument>; required?: string[] }
   returns: string
   failures: { when: string; says: string }[]

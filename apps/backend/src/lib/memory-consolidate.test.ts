@@ -207,7 +207,7 @@ describe('a whole pass', () => {
       store,
       deps: {
         db: {
-          getMemories: async () => [...store.values()],
+          getMemories: async (ownerId?: string) => [...store.values()].filter((m) => !ownerId || m.ownerId === ownerId),
           saveMemory: async (m: MemoryItem) => { store.set(m.id, m); },
           getLeaves: async () => leaves,
         },
@@ -245,6 +245,21 @@ describe('a whole pass', () => {
     const report = await consolidateMemories(deps);
     expect(report.deduped).toBe(1);
     expect(report.decayed).toBe(0);
+  });
+
+  it('consolidates one owner at a time, leaving everyone else\'s memories untouched', async () => {
+    const { deps, store } = setup([
+      mem({ id: 'a', title: 'Dup', createdAt: daysBefore(1) }),
+      mem({ id: 'b', title: 'Dup', createdAt: daysBefore(2) }),
+      mem({ id: 'c', ownerId: 'someone-else', title: 'Dup', createdAt: daysBefore(1) }),
+      mem({ id: 'd', ownerId: 'someone-else', title: 'Dup', createdAt: daysBefore(2) }),
+    ]);
+
+    const report = await consolidateMemories({ ...deps, ownerId: 'someone-else' });
+
+    expect(report.deduped).toBe(1);
+    expect(store.get('d')!.invalidAt).toBeDefined();
+    expect(store.get('b')!.invalidAt).toBeUndefined();
   });
 
   it('does nothing to an empty bank', async () => {

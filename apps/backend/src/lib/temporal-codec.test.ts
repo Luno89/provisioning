@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { EncryptionCodec, buildDataConverter } from './temporal-codec.js';
+import { CompressionCodec, OFFLOAD_ABOVE_BYTES, inMemoryPayloadBlobs } from './payload-storage.js';
 
 const KEY = 'test-master-key-for-codec';
 const te = new TextEncoder();
@@ -71,13 +72,20 @@ describe('EncryptionCodec', () => {
 });
 
 describe('buildDataConverter', () => {
-  it('returns a converter carrying the codec when a key is set', () => {
+  it('compresses before it encrypts, since encrypted bytes no longer compress', () => {
     const dc = buildDataConverter(KEY);
-    expect(dc?.payloadCodecs).toHaveLength(1);
+    expect(dc.payloadCodecs.map((codec) => codec.constructor)).toEqual([CompressionCodec, EncryptionCodec]);
   });
 
-  it('returns undefined with no key, so Temporal falls back to plaintext rather than failing', () => {
-    expect(buildDataConverter(undefined)).toBeUndefined();
-    expect(buildDataConverter('')).toBeUndefined();
+  it('still compresses with no key, and only then leaves payloads unencrypted', () => {
+    expect(buildDataConverter(undefined).payloadCodecs.map((codec) => codec.constructor)).toEqual([CompressionCodec]);
+    expect(buildDataConverter('').payloadCodecs.map((codec) => codec.constructor)).toEqual([CompressionCodec]);
+  });
+
+  it('stores large payloads outside Temporal when given somewhere to keep them', () => {
+    expect(buildDataConverter(KEY).externalStorage).toBeUndefined();
+    const storage = buildDataConverter(KEY, inMemoryPayloadBlobs()).externalStorage;
+    expect(storage?.payloadSizeThreshold).toBe(OFFLOAD_ABOVE_BYTES);
+    expect(storage?.drivers.map((driver) => driver.name)).toEqual(['blobs']);
   });
 });

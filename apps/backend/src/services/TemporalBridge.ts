@@ -621,30 +621,31 @@ export class TemporalBridge {
       if (consolidating) return
       consolidating = true
       try {
-        const memories = await this.db.getMemories().catch(() => [])
-        const ownerId = memories[0]?.ownerId
-        const ends = ownerId ? await corpusEndpoints(this.db, ownerId).catch(() => undefined) : undefined
+        const owners = [...new Set((await this.db.getMemories().catch(() => [])).map((memory) => memory.ownerId))]
+        for (const ownerId of owners) {
+          const ends = await corpusEndpoints(this.db, ownerId).catch(() => undefined)
+          const report = await consolidateMemories({
+            db: this.db as never,
+            ownerId,
+            ...(ends ? {
+              index: (items) => indexMemories(ends, items),
+              similar: async (ids: string[]) => {
+                const out = new Map<string, { id: string; score: number }[]>()
+                for (const id of ids) {
+                  out.set(id, await similarTo(ends, id, { ownerId }).catch(() => []))
+                }
+                return out
+              },
+            } : {}),
+          })
 
-        const report = await consolidateMemories({
-          db: this.db as never,
-          ...(ends ? {
-            index: (items) => indexMemories(ends, items),
-            similar: async (ids: string[]) => {
-              const out = new Map<string, { id: string; score: number }[]>()
-              for (const id of ids) {
-                out.set(id, await similarTo(ends, id, { ownerId: ownerId! }).catch(() => []))
-              }
-              return out
-            },
-          } : {}),
-        })
-
-        if (report.deduped || report.promoted || report.decayed) {
-          console.log(`[Consolidate] ${report.live} live memories`
-            + ` (deduped ${report.deduped}, promoted ${report.promoted}, decayed ${report.decayed},`
-            + ` indexed ${report.indexed})`)
+          if (report.deduped || report.promoted || report.decayed) {
+            console.log(`[Consolidate] ${ownerId}: ${report.live} live memories`
+              + ` (deduped ${report.deduped}, promoted ${report.promoted}, decayed ${report.decayed},`
+              + ` indexed ${report.indexed})`)
+          }
+          this.lastConsolidation = report
         }
-        this.lastConsolidation = report
       } catch (err: any) {
         console.warn(`[Consolidate] pass failed: ${err.message}`)
       } finally {

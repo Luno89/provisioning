@@ -9,6 +9,10 @@ import { createKubeTools, type KubeAccess } from './kube-tools.js';
 import { createProjectTools, type ProjectToolStores } from './project-tools.js';
 import { createEgressTools, type EgressToolStores } from './egress-tools.js';
 import { createCorpusTools, type CorpusAccess } from './corpus-tools.js';
+import { createRunTools, type RunReader } from './run-tools.js';
+import { createMemoryTools, type MemoryToolStore } from './memory-tools.js';
+import { createScenarioTools, type ScenarioProposalAccess } from './scenario-tools.js';
+import { createAgentChangeTools, type AgentChangeAccess } from './agent-change-tools.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { ImageBuilder } from '../sandboxes/image-builder.js';
 import type { ToolDefinition } from '@koala/agent-engine';
@@ -29,6 +33,10 @@ export interface EngineToolDeps {
   projects?: ProjectToolStores | undefined;
   egress?: EgressToolStores | undefined;
   corpus?: CorpusAccess | undefined;
+  runs?: RunReader | undefined;
+  memories?: MemoryToolStore | undefined;
+  scenarios?: ScenarioProposalAccess | undefined;
+  agentChanges?: AgentChangeAccess | undefined;
 }
 
 export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, ToolHandler> {
@@ -43,6 +51,10 @@ export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, T
     ...(deps.projects ? createProjectTools({ stores: deps.projects }) : {}),
     ...(deps.egress ? createEgressTools({ stores: deps.egress }) : {}),
     ...(deps.corpus ? createCorpusTools({ access: deps.corpus }) : {}),
+    ...(deps.runs ? createRunTools({ runs: deps.runs }) : {}),
+    ...(deps.memories ? createMemoryTools({ store: deps.memories, agents: async (ownerId) => (await deps.registry.agents(ownerId)).map((agent) => agent.slug) }) : {}),
+    ...(deps.scenarios ? createScenarioTools(deps.scenarios) : {}),
+    ...(deps.agentChanges ? createAgentChangeTools(deps.agentChanges) : {}),
   };
 }
 

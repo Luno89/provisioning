@@ -35,6 +35,7 @@ export interface ToolDefinition {
   effect: ToolEffect;
   idempotent: boolean;
   openWorld: boolean;
+  destructive?: boolean | undefined;
   parameters: JsonSchema;
 
   returns: string;
@@ -66,6 +67,8 @@ export function checkDefinition(tool: ToolDefinition): CatalogueProblem[] {
   if (!tool.summary.trim()) say('has no summary, so nothing tells the model what it does');
   if (typeof tool.idempotent !== 'boolean') say('does not say whether calling it twice with the same arguments is safe, so a failed call could never be retried or would be retried unsafely');
   if (typeof tool.openWorld !== 'boolean') say('does not say whether its results come from outside and can change between calls');
+  if (tool.effect === 'write' && typeof tool.destructive !== 'boolean') say('writes, and does not say whether it can destroy or overwrite something a person would want back, so nothing knows whether to ask before it runs');
+  if (tool.effect !== 'write' && tool.destructive === true) say('only a tool that writes can destroy anything; one that reads or proposes is never destructive');
 
   const names = Object.keys(tool.parameters.properties);
   for (const required of tool.parameters.required ?? []) {
@@ -130,6 +133,7 @@ export function asContract(tool: ToolDefinition): ToolContract {
     effect: tool.effect,
     idempotent: tool.idempotent,
     openWorld: tool.openWorld,
+    ...(tool.destructive !== undefined ? { destructive: tool.destructive } : {}),
     parameters: tool.parameters as unknown as Record<string, unknown>,
     ...(tool.guidance ? { usageGuidance: tool.guidance } : {}),
     ...(tool.command ? { command: tool.command } : {}),

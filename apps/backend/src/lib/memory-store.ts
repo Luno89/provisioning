@@ -1,11 +1,21 @@
+export interface PracticeTrial {
+  checkedAt: string;
+  runId?: string;
+  scenarios?: string[];
+  regressions?: string[];
+  unchecked?: boolean;
+}
+
 export interface MemoryItem {
   id: string;
   ownerId: string;
   projectId?: string;
-  category: 'lessons_learned' | 'environment_facts' | 'prompt_guidance';
+  category: 'lessons_learned' | 'environment_facts' | 'prompt_guidance' | 'practice';
+  agent?: string;
   scope?: 'project' | 'global';
   recommendedScope?: 'project' | 'global';
-  status?: 'active' | 'pending_review';
+  status?: 'active' | 'pending_review' | 'trial';
+  trial?: PracticeTrial;
   title: string;
   text: string;
   source?: 'manual' | 'agent_tool' | 'post_run_extractor';
@@ -33,7 +43,7 @@ const lineFor = (m: MemoryItem) => `- ${m.title}: ${m.text.replace(/\s+/g, ' ').
 
 export function ranked(memories: MemoryItem[]): MemoryItem[] {
   return [...memories].sort((a, b) => {
-    const scopeRank = (m: MemoryItem) => (m.scope === 'project' ? 0 : 1);
+    const scopeRank = (m: MemoryItem) => (m.category === 'practice' ? -1 : m.scope === 'project' ? 0 : 1);
     if (scopeRank(a) !== scopeRank(b)) return scopeRank(a) - scopeRank(b);
     return String(b.createdAt).localeCompare(String(a.createdAt));
   });
@@ -42,6 +52,7 @@ export function ranked(memories: MemoryItem[]): MemoryItem[] {
 export interface MemoryContextOptions {
   preRanked?: boolean | undefined;
   maxChars?: number | undefined;
+  agent?: string | undefined;
 }
 
 export function selectForContext(
@@ -52,8 +63,9 @@ export function selectForContext(
   if (!memories.length) return { kept: [], dropped: 0 };
 
   const activeMemories = memories.filter((m) => {
-    if (m.status === 'pending_review') return false;
+    if (m.status === 'pending_review' || m.status === 'trial') return false;
     if (m.invalidAt) return false;
+    if (m.category === 'practice') return Boolean(opts.agent) && m.agent === opts.agent;
     if (!m.scope || m.scope === 'global') return true;
     if (m.scope === 'project') return Boolean(projectId) && m.projectId === projectId;
     return true;
@@ -84,8 +96,13 @@ export function renderMemoryContext(kept: MemoryItem[], dropped: number): string
   const lessons = kept.filter((m) => m.category === 'lessons_learned');
   const facts = kept.filter((m) => m.category === 'environment_facts');
   const guidance = kept.filter((m) => m.category === 'prompt_guidance');
+  const practices = kept.filter((m) => m.category === 'practice');
 
   const sections: string[] = ['HARNESS MEMORY BANK:'];
+  if (practices.length) {
+    sections.push('🧭 How you work (practices learned from your earlier runs):');
+    practices.forEach((m) => sections.push(lineFor(m)));
+  }
 
   if (lessons.length) {
     sections.push('💡 Lessons Learned (Avoid repeat mistakes):');

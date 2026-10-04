@@ -97,6 +97,34 @@ describe('the tools a person can edit', () => {
     })))
   })
 
+  it('asks whether a tool that writes can destroy something, and saves the answer', async () => {
+    vi.mocked(listEngineTools).mockResolvedValue([tool({ name: 'wipe_cache', effect: 'write', mine: true })])
+    vi.mocked(saveEngineTool).mockResolvedValue({ tool: tool({ mine: true }), rebuilding: [], failed: [] })
+    show()
+
+    await userEvent.click(await screen.findByText('wipe_cache'))
+    const question = screen.getByRole('combobox', { name: 'Can it destroy or overwrite something' })
+    expect(question).toHaveValue('')
+    await userEvent.selectOptions(question, 'yes')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(saveEngineTool).toHaveBeenCalledWith(expect.objectContaining({ effect: 'write', destructive: true })))
+  })
+
+  it('does not ask a tool that only reads, and drops the answer when a tool stops writing', async () => {
+    vi.mocked(listEngineTools).mockResolvedValue([tool({ name: 'wipe_cache', effect: 'write', destructive: true, mine: true })])
+    vi.mocked(saveEngineTool).mockResolvedValue({ tool: tool({ mine: true }), rebuilding: [], failed: [] })
+    show()
+
+    await userEvent.click(await screen.findByText('wipe_cache'))
+    await userEvent.selectOptions(screen.getByDisplayValue(/write — changes things/), 'read')
+    expect(screen.queryByRole('combobox', { name: 'Can it destroy or overwrite something' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(saveEngineTool).toHaveBeenCalled())
+    expect(vi.mocked(saveEngineTool).mock.calls[0]![0]).not.toHaveProperty('destructive')
+  })
+
   it('says which agents are rebuilding a workspace to get it', async () => {
     vi.mocked(saveEngineTool).mockResolvedValue({ tool: tool({ mine: true }), rebuilding: ['executor', 'judge'], failed: [] })
     show()

@@ -15,7 +15,9 @@ import { VerifyGpuRuntimeActivity } from './activities/VerifyGpuRuntimeActivity.
 import { RunPipelineActivity } from './activities/RunPipelineActivity.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
+import { sharedPayloadBlobs } from './lib/db-interface.js';
 import { loadKeys } from './lib/keys.js';
+import { healthPort, serveHealth } from './lib/worker-health.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -62,7 +64,7 @@ async function main() {
   while (true) {
     try {
       const connection = await NativeConnection.connect({ address });
-      const dataConverter = buildDataConverter(loadKeys(process.env).payload);
+      const dataConverter = buildDataConverter(loadKeys(process.env).payload, sharedPayloadBlobs());
       worker = await Worker.create({
         connection,
         ...(dataConverter ? { dataConverter } : {}),
@@ -87,6 +89,8 @@ async function main() {
   }
 
   logger.info('[ClusterWorker] ✅ Listening for app deployment tasks');
+  const port = healthPort(process.env);
+  if (port) serveHealth(port, () => worker.getState() === 'RUNNING');
   await worker.run();
 }
 

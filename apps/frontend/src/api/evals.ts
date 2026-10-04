@@ -268,6 +268,128 @@ export interface Level2Run {
   running?: string
   results: ScenarioResult[]
   error?: string
+  trigger?: BenchTrigger
+  regressions?: string[]
+}
+
+export type BenchTrigger = { kind: 'manual' } | { kind: 'full' } | { kind: 'changed'; agents: string[] }
+
+export interface BenchSettings {
+  enabled: boolean
+  idleMinutes: number
+  fullEveryHours: number
+}
+
+export interface BenchState {
+  benched: Record<string, string>
+  lastFullAt?: string
+}
+
+export async function getBench(): Promise<{ settings: BenchSettings; state: BenchState }> {
+  const { data } = await api.get<{ settings: BenchSettings; state: BenchState }>('/evals/level2/bench')
+  return data
+}
+
+export async function saveBench(settings: BenchSettings): Promise<BenchSettings> {
+  const { data } = await api.put<{ settings: BenchSettings }>('/evals/level2/bench', settings)
+  return data.settings
+}
+
+export interface ScenarioOutcome {
+  scenarioId: string
+  before?: boolean
+  after: boolean
+}
+
+interface ChangeBase {
+  id: string
+  agent: string
+  why: string
+  status: 'proposed' | 'comparing' | 'ready' | 'accepted' | 'handed-over' | 'dismissed'
+  createdAt: string
+}
+
+export interface PromptChange extends ChangeBase {
+  kind: 'prompt'
+  prompt: string
+  currentPrompt: string
+  comparison?: { runId?: string; checkedAt: string; scenarios: ScenarioOutcome[]; better: string[]; worse: string[]; unchecked?: boolean }
+}
+
+export interface ProcedureRequest extends ChangeBase {
+  kind: 'procedure'
+  procedure: string
+  request: string
+  conversationId?: string
+}
+
+export type AgentChange = PromptChange | ProcedureRequest
+
+export async function listChanges(): Promise<AgentChange[]> {
+  const { data } = await api.get<{ changes: AgentChange[] }>('/evals/level2/changes')
+  return data.changes
+}
+
+export async function acceptChange(id: string, prompt?: string): Promise<AgentChange> {
+  const { data } = await api.post<{ change: AgentChange }>(`/evals/level2/changes/${encodeURIComponent(id)}/accept`, prompt ? { prompt } : {})
+  return data.change
+}
+
+export async function handOverChange(id: string): Promise<ProcedureRequest> {
+  const { data } = await api.post<{ change: ProcedureRequest }>(`/evals/level2/changes/${encodeURIComponent(id)}/hand-over`, {})
+  return data.change
+}
+
+export async function dismissChange(id: string): Promise<void> {
+  await api.post(`/evals/level2/changes/${encodeURIComponent(id)}/dismiss`, {})
+}
+
+export interface Practice {
+  id: string
+  agent?: string
+  title: string
+  text: string
+  status?: 'active' | 'pending_review' | 'trial'
+  trial?: { checkedAt: string; runId?: string; scenarios?: string[]; regressions?: string[]; unchecked?: boolean }
+  createdAt: string
+  updatedAt: string
+}
+
+export async function listPractices(): Promise<Practice[]> {
+  const { data } = await api.get<{ practices: Practice[] }>('/evals/level2/practices')
+  return data.practices
+}
+
+export async function makePracticeLive(id: string): Promise<void> {
+  await api.post(`/evals/level2/practices/${encodeURIComponent(id)}/live`, {})
+}
+
+export async function retirePractice(id: string): Promise<void> {
+  await api.post(`/evals/level2/practices/${encodeURIComponent(id)}/retire`, {})
+}
+
+export interface ScenarioProposal {
+  id: string
+  scenario: Scenario
+  why: string
+  status: 'proposed' | 'accepted' | 'dismissed'
+  proposedBy?: string
+  createdAt: string
+  decidedAt?: string
+}
+
+export async function listProposals(): Promise<ScenarioProposal[]> {
+  const { data } = await api.get<{ proposals: ScenarioProposal[] }>('/evals/level2/proposals')
+  return data.proposals
+}
+
+export async function acceptProposal(id: string, scenario?: Scenario): Promise<Scenario> {
+  const { data } = await api.post<{ scenario: Scenario }>(`/evals/level2/proposals/${encodeURIComponent(id)}/accept`, scenario ? { scenario } : {})
+  return data.scenario
+}
+
+export async function dismissProposal(id: string): Promise<void> {
+  await api.post(`/evals/level2/proposals/${encodeURIComponent(id)}/dismiss`, {})
 }
 
 export interface StartLevel2Input {

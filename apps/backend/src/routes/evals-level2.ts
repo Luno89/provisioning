@@ -1,10 +1,16 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import type { Level2Service } from '../services/Level2Service.js';
+import type { BenchService } from '../services/BenchService.js';
+import type { PracticeService } from '../services/PracticeService.js';
+import type { AgentChangeService } from '../services/AgentChangeService.js';
 import { samplingAt, temperatureProblem } from '../lib/run-knobs.js';
 
 export interface Level2RouterDeps {
   level2: Level2Service;
+  bench?: BenchService | undefined;
+  practices?: PracticeService | undefined;
+  changes?: AgentChangeService | undefined;
 }
 
 const userOf = (req: Request): { id: string } =>
@@ -12,6 +18,73 @@ const userOf = (req: Request): { id: string } =>
 
 export function evalsLevel2Router(deps: Level2RouterDeps): Router {
   const router = Router();
+
+  router.get('/bench', asyncRoute(async (req: Request, res: Response) => {
+    if (!deps.bench) return res.status(404).json({ error: 'there is no bench here' });
+    const ownerId = userOf(req).id;
+    res.json({ settings: await deps.bench.settings(ownerId), state: await deps.bench.state(ownerId) });
+  }));
+
+  router.put('/bench', asyncRoute(async (req: Request, res: Response) => {
+    if (!deps.bench) return res.status(404).json({ error: 'there is no bench here' });
+    const outcome = await deps.bench.saveSettings(userOf(req).id, req.body);
+    if (!outcome.saved) return res.status(400).json({ problems: outcome.problems });
+    res.json({ settings: outcome.settings });
+  }));
+
+  router.get('/changes', asyncRoute(async (req: Request, res: Response) => {
+    res.json({ changes: deps.changes ? await deps.changes.list(userOf(req).id) : [] });
+  }));
+
+  router.post('/changes/:id/accept', asyncRoute(async (req: Request, res: Response) => {
+    if (!deps.changes) return res.status(404).json({ error: 'there are no changes here' });
+    const outcome = await deps.changes.accept(userOf(req).id, String(req.params.id), req.body?.prompt);
+    if (!outcome.accepted) return res.status(outcome.status).json({ problems: outcome.problems });
+    res.json({ change: outcome.change });
+  }));
+
+  router.post('/changes/:id/hand-over', asyncRoute(async (req: Request, res: Response) => {
+    if (!deps.changes) return res.status(404).json({ error: 'there are no changes here' });
+    const outcome = await deps.changes.handOver(userOf(req).id, String(req.params.id));
+    if (!outcome.accepted) return res.status(outcome.status).json({ problems: outcome.problems });
+    res.json({ change: outcome.change });
+  }));
+
+  router.post('/changes/:id/dismiss', asyncRoute(async (req: Request, res: Response) => {
+    if (!(await deps.changes?.dismiss(userOf(req).id, String(req.params.id)))) return res.status(404).json({ error: 'there is no change waiting with that id' });
+    res.json({ dismissed: true });
+  }));
+
+  router.get('/practices', asyncRoute(async (req: Request, res: Response) => {
+    res.json({ practices: deps.practices ? await deps.practices.list(userOf(req).id) : [] });
+  }));
+
+  router.post('/practices/:id/live', asyncRoute(async (req: Request, res: Response) => {
+    const live = await deps.practices?.makeLive(userOf(req).id, String(req.params.id));
+    if (!live) return res.status(404).json({ error: 'there is no practice waiting with that id' });
+    res.json({ practice: live });
+  }));
+
+  router.post('/practices/:id/retire', asyncRoute(async (req: Request, res: Response) => {
+    if (!(await deps.practices?.retire(userOf(req).id, String(req.params.id)))) return res.status(404).json({ error: 'there is no practice with that id' });
+    res.json({ retired: true });
+  }));
+
+  router.get('/proposals', asyncRoute(async (req: Request, res: Response) => {
+    res.json({ proposals: await deps.level2.proposals(userOf(req).id) });
+  }));
+
+  router.post('/proposals/:id/accept', asyncRoute(async (req: Request, res: Response) => {
+    const outcome = await deps.level2.acceptProposal(userOf(req).id, String(req.params.id), req.body?.scenario);
+    if ('missing' in outcome) return res.status(404).json({ error: 'there is no proposal waiting with that id' });
+    if (!outcome.saved) return res.status(400).json({ problems: outcome.problems });
+    res.json({ scenario: outcome.scenario });
+  }));
+
+  router.post('/proposals/:id/dismiss', asyncRoute(async (req: Request, res: Response) => {
+    if (!(await deps.level2.dismissProposal(userOf(req).id, String(req.params.id)))) return res.status(404).json({ error: 'there is no proposal waiting with that id' });
+    res.json({ dismissed: true });
+  }));
 
   router.get('/scenarios', asyncRoute(async (req: Request, res: Response) => {
     res.json({ scenarios: await deps.level2.scenarios(userOf(req).id) });

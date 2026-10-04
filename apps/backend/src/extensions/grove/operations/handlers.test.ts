@@ -188,14 +188,14 @@ describe('Start Leaf, Return Leaf', () => {
 });
 
 describe('Next Task', () => {
-  it('works a failed task again however often it failed, unless its setting says how many attempts', async () => {
-    tasks = [task('t', 'a', { status: 'failed', runs: ['r1', 'r2', 'r3'], evidence: 'still broken' })];
-
+  it('hands out the next task with what its siblings are, and stops the work when a task has failed', async () => {
+    tasks = [task('t', 'a', { status: 'accepted' })];
     const open = await run('grove.next-task', { leaf: { leafId: 'a', siblings: 'one other leaf' } });
-    expect(open).toMatchObject({ exit: 'run', outputs: { task: { id: 't', leafId: 'a', previousAttempt: 'still broken', siblings: 'one other leaf' } } });
+    expect(open).toMatchObject({ exit: 'run', outputs: { task: { id: 't', leafId: 'a', siblings: 'one other leaf' } } });
 
-    const limited = await run('grove.next-task', { leaf: { leafId: 'a' } }, { taskAttempts: 3 });
-    expect(limited).toMatchObject({ exit: 'fail', outputs: { reason: expect.stringContaining('"task t" failed 3 times') } });
+    tasks = [task('t', 'a', { status: 'failed', runs: ['r1'], evidence: 'still broken' })];
+    const stopped = await run('grove.next-task', { leaf: { leafId: 'a' } });
+    expect(stopped).toMatchObject({ exit: 'stopped', outputs: { reason: '"task t" failed: still broken' } });
   });
 
   it('says claim when every task is done, and unbroken when there are none', async () => {
@@ -250,6 +250,16 @@ describe('Check Claims', () => {
     expect(outcome).toMatchObject({ exit: 'judge', outputs: { toJudge: [{ id: 'b' }], settled: [{ leafId: 'a', report: expect.stringContaining('missing.txt') }] } });
     expect(leaves.find((entry) => entry.id === 'a')).toMatchObject({ status: 'failed', review: { model: 'grove-check-runner' } });
   });
+
+  it('hands a claim whose work stopped on a failed task to its judge with the failing checks, rather than settling it', async () => {
+    leaves = [leaf('a', { status: 'claimed', claim: { evidence: 'x', at: 'then', commit: 'c0ffee' } } as never)];
+    tasks = [task('ta', 'a', { status: 'failed', checks: { fileExists: 'missing.txt' } })];
+
+    const outcome = await run('grove.check-claims', { tree: TREE, environment: SANDBOX, claimed: [{ id: 'a' }] });
+
+    expect(outcome).toMatchObject({ exit: 'judge', outputs: { toJudge: [{ id: 'a', checks: expect.stringContaining('missing.txt') }], settled: [] } });
+    expect(leaves.find((entry) => entry.id === 'a')).toMatchObject({ status: 'claimed' });
+  });
 });
 
 describe('Judge Checkouts', () => {
@@ -259,6 +269,14 @@ describe('Judge Checkouts', () => {
     const outcome = await run('grove.judge-checkouts', { tree: TREE, environment: SANDBOX, claims: [{ id: 'a' }] });
 
     expect(outcome).toMatchObject({ exit: 'ready', outputs: { items: [{ leafId: 'a', leafBody: 'a works', treeId: 't1', worktree: expect.stringMatching(/a$/), claim: { evidence: 'x' } }] } });
+  });
+
+  it('carries the checks a stopped claim failed on to its judge', async () => {
+    leaves = [leaf('a', { status: 'claimed', claim: { evidence: 'x', at: 'then', commit: 'c0ffee' } } as never)];
+
+    const outcome = await run('grove.judge-checkouts', { tree: TREE, environment: SANDBOX, claims: [{ id: 'a', checks: 'missing.txt is not there' }] });
+
+    expect(outcome).toMatchObject({ outputs: { items: [{ leafId: 'a', checks: 'missing.txt is not there' }] } });
   });
 });
 

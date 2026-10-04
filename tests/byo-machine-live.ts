@@ -20,6 +20,8 @@ const IMAGE = 'nowrinkles/app:dev';
 const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 const step = (message: string) => console.log(`\n▶ ${message}`);
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+const expect = (actual: { status: string; detail?: string | undefined }, wanted: { status: string; detail: string }) =>
+  assert.deepEqual({ status: actual.status, detail: actual.detail }, wanted, `root has the instance as ${actual.status}: ${actual.detail}`);
 
 async function until<T>(what: string, minutes: number, probe: () => Promise<T | undefined>): Promise<T> {
   const deadline = Date.now() + minutes * 60_000;
@@ -42,6 +44,15 @@ function inVm(vm: DisposableVm, command: string, stream = false): Promise<string
 }
 
 let vm: DisposableVm | undefined;
+
+async function startRoot(releaseTag: string): Promise<void> {
+  try { run('docker', ['rm', '-f', 'nw-byo-root']); } catch { /* not running */ }
+  run('docker', ['run', '-d', '--name', 'nw-byo-root', '--network', 'host', '--env-file', 'apps/backend/.env',
+    ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
+    '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`,
+    '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', `INSTANCE_IMAGE_TAG=${releaseTag}`, IMAGE, 'backend']);
+  await until('root answering', 3, async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
+}
 let instanceId: string | undefined;
 const SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-auth-secret', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
 
@@ -65,11 +76,7 @@ async function main(): Promise<void> {
   run('docker', ['push', '-q', `127.0.0.1:5000/${IMAGE}`]);
 
   step('root starts, as the user\'s machine will see it');
-  run('docker', ['run', '-d', '--name', 'nw-byo-root', '--network', 'host', '--env-file', 'apps/backend/.env',
-    ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
-    '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`,
-    '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', 'INSTANCE_IMAGE_TAG=dev', IMAGE, 'backend']);
-  await until('root answering', 3, async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
+  await startRoot('dev');
   const session = signJWT({ userId: OWNER, email: 'live' }, loadKeys(process.env).session, 3600);
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });
 
@@ -128,6 +135,57 @@ async function main(): Promise<void> {
   const after = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; detail?: string } }).instance;
   assert.equal(after.status, 'ready');
   assert.equal(after.detail, 'Running dev');
+
+  const kubectl = (args: string) => inVm(vm!, `sudo k3s kubectl -n nowrinkles ${args}`);
+  const backendImage = async () => (await kubectl("get deploy instance-backend -o jsonpath='{.spec.template.spec.containers[0].image}'")).trim();
+  const answers = async () => (await fetch(`${INSTANCE_URL}/api/auth/sign-in`)).status === 200;
+  const upgradeOnce = async (name: string, outcome: 'complete' | 'failed') => {
+    await kubectl(`create job --from=cronjob/instance-self-upgrade ${name}`);
+    await kubectl(`wait --for=condition=${outcome} job/${name} --timeout=900s`);
+  };
+  const watchAvailability = () => {
+    const misses: string[] = [];
+    let checks = 0;
+    const timer = setInterval(() => {
+      checks += 1;
+      void fetch(`${INSTANCE_URL}/api/auth/sign-in`, { signal: AbortSignal.timeout(5000) })
+        .then((response) => { if (response.status !== 200) misses.push(`${new Date().toISOString()} ${response.status}`); })
+        .catch((err: Error) => { misses.push(`${new Date().toISOString()} ${err.message}`); });
+    }, 3000);
+    return () => { clearInterval(timer); return { checks, misses }; };
+  };
+  const reported = async () => (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; detail?: string } }).instance;
+
+  step('root publishes a new release, and the instance upgrades itself to it');
+  await inVm(vm, 'sudo helm upgrade instance /tmp/instance-chart.tgz -n nowrinkles --reuse-values --set selfUpgrade.timeout=8m --kubeconfig /etc/rancher/k3s/k3s.yaml --wait --timeout 10m');
+  run('docker', ['tag', IMAGE, '127.0.0.1:5000/nowrinkles/app:upgrade-ok']);
+  run('docker', ['push', '-q', '127.0.0.1:5000/nowrinkles/app:upgrade-ok']);
+  await startRoot('upgrade-ok');
+  const duringGood = watchAvailability();
+  await upgradeOnce('upgrade-to-ok', 'complete');
+  const good = duringGood();
+  console.log(`  answered ${good.checks - good.misses.length} of ${good.checks} checks while upgrading`);
+  assert.deepEqual(good.misses, [], 'the instance stopped answering during a good upgrade');
+  expect(await reported(), { status: 'ready', detail: 'Upgraded to upgrade-ok' });
+  assert.match(await backendImage(), /:upgrade-ok$/, 'the backend is not running the new release');
+  assert.ok(await until('the upgraded instance answering', 5, async () => ((await answers()) ? true : undefined)));
+
+  step('root publishes a broken release, and the instance rolls itself back');
+  execFileSync('docker', ['build', '-q', '-t', '127.0.0.1:5000/nowrinkles/app:upgrade-broken', '-'], {
+    input: `FROM ${IMAGE}\nENTRYPOINT ["sh", "-c", "echo broken on purpose; exit 1"]\n`, cwd: REPO, stdio: ['pipe', 'ignore', 'pipe'],
+  });
+  run('docker', ['push', '-q', '127.0.0.1:5000/nowrinkles/app:upgrade-broken']);
+  await startRoot('upgrade-broken');
+  const duringBroken = watchAvailability();
+  await upgradeOnce('upgrade-to-broken', 'failed');
+  const broken = duringBroken();
+  console.log(`  answered ${broken.checks - broken.misses.length} of ${broken.checks} checks while the broken release failed and was rolled back`);
+  assert.deepEqual(broken.misses, [], 'the instance stopped answering while a broken release failed');
+  expect(await reported(), { status: 'failed', detail: 'The upgrade to upgrade-broken failed, so it was rolled back to upgrade-ok' });
+  assert.match(await backendImage(), /:upgrade-ok$/, 'the rollback did not put the working release back');
+  assert.ok(await until('the rolled-back instance answering', 5, async () => ((await answers()) ? true : undefined)));
+  const history = await inVm(vm, 'sudo helm history instance -n nowrinkles --kubeconfig /etc/rancher/k3s/k3s.yaml');
+  console.log(`  ${history.trim().split('\n').slice(-3).join('\n  ')}`);
 
   console.log('\npassed');
 }

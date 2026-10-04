@@ -9,6 +9,7 @@ export const CORPUS_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: false,
     openWorld: true,
+    destructive: false,
     returns: 'the id of the crawl, to check with ingest_status',
     failures: [{ when: 'the url is not an http(s) address', says: 'so' }, { when: 'a limit is out of range', says: 'the allowed range' }],
     parameters: {

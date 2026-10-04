@@ -56,6 +56,15 @@ const MUST_CARRY: Record<string, Carries> = {
     mustSay: ['Rust programming language'],
     mustOffer: ['search_web', 'fetch_web_page'],
   },
+  'paper-writing': {
+    agent: 'paper-writer',
+    run: {
+      message: 'Work the leaf "jq versus grep".',
+      inputs: { leafId: 'leaf-p1', leafTitle: 'jq versus grep', leafBody: 'A short paper comparing jq and grep for searching JSON logs, with a source for every claim.' },
+    },
+    mustSay: ['jq versus grep', 'comparing jq and grep for searching JSON logs', 'Write as you go'],
+    mustOffer: ['search_web', 'fetch_web_page', 'write_file'],
+  },
   'tool-rounds': {
     agent: 'agent-builder',
     run: { message: 'Show me how the research procedure is set up.' },

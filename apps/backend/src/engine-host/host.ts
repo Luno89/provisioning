@@ -1,4 +1,5 @@
 import { BUILDER_TOOLS, type Persona, type ProcedureSource, type ToolDefinition } from '@koala/agent-engine';
+import { BUILT_IN_SCENARIOS } from '../eval/level2/scenarios.js';
 import { environmentHandlers, type EnvironmentDriver } from '@koala/engine-core';
 import { createStoredAgentRegistry, type AgentRegistry } from './registries/registry.js';
 import { treeTypeChoices } from '../lib/tree-types.js';
@@ -59,6 +60,16 @@ export interface EngineHostStores {
   secrets?: import('./tools/secret-tools.js').SecretToolStores | undefined;
   mcp?: import('./tools/mcp-tools.js').McpToolStores | undefined;
   egress?: import('./tools/egress-tools.js').EgressToolStores | undefined;
+  runs?: import('./tools/run-tools.js').RunReader | undefined;
+  proposals?: {
+    scenarioIds(ownerId: string): Promise<string[]>;
+    list(ownerId: string): Promise<import('../lib/scenario-proposals.js').ScenarioProposal[]>;
+    save(proposal: import('../lib/scenario-proposals.js').ScenarioProposal): Promise<void>;
+  } | undefined;
+  agentChanges?: {
+    list(ownerId: string): Promise<import('../lib/agent-changes.js').AgentChange[]>;
+    save(change: import('../lib/agent-changes.js').AgentChange): Promise<void>;
+  } | undefined;
 }
 
 export interface EngineHostOptions {
@@ -176,6 +187,30 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       ...(options.projects ? { projects: options.projects } : {}),
       ...(stores.egress ? { egress: stores.egress } : {}),
       ...(options.corpus ? { corpus: options.corpus } : {}),
+      ...(stores.runs ? { runs: stores.runs } : {}),
+      memories: stores.memories,
+      ...(stores.proposals ? {
+        scenarios: {
+          known: async (ownerId: string) => ({
+            agents: new Set((await registry.agents(ownerId)).map((agent) => agent.slug)),
+            procedures: new Set((await registry.procedures(ownerId)).map((procedure) => procedure.id)),
+            tools: await catalogue.list(ownerId),
+          }),
+          procedureOf: async (ownerId: string, slug: string) => (await registry.agents(ownerId)).find((agent) => agent.slug === slug)?.procedure,
+          scenarioIds: stores.proposals.scenarioIds,
+          proposals: { list: stores.proposals.list, save: stores.proposals.save },
+        },
+      } : {}),
+      ...(stores.agentChanges ? {
+        agentChanges: {
+          agent: async (ownerId: string, slug: string) => {
+            const found = (await registry.agents(ownerId)).find((agent) => agent.slug === slug);
+            return found ? { prompt: found.prompt, procedure: found.procedure } : undefined;
+          },
+          procedures: async (ownerId: string) => (await registry.procedures(ownerId)).map((procedure) => procedure.id),
+          changes: stores.agentChanges,
+        },
+      } : {}),
       platform: {
         ...(web
           ? {
@@ -190,12 +225,6 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
             },
           }
           : {}),
-        memory: {
-          remember: async (item: MemoryItem) => {
-            await stores.memories.save(item);
-            return { action: 'saved' };
-          },
-        },
       },
   });
 
@@ -318,6 +347,19 @@ export function storesFromDatabase(db: Database): EngineHostStores {
         const conversation = await db.getConversation(ownerId, conversationId);
         return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId } : undefined;
       },
+    },
+    runs: { traces: (ownerId: string, runId: string) => db.getRunTraces(ownerId, runId) },
+    proposals: {
+      scenarioIds: async (ownerId: string) => [
+        ...BUILT_IN_SCENARIOS.map((scenario) => scenario.id),
+        ...(await db.getEvalRecords<{ id: string; ownerId: string }>('evalScenarios', ownerId, 1000)).map((scenario) => scenario.id),
+      ],
+      list: (ownerId: string) => db.getEvalRecords('evalScenarioProposals', ownerId, 1000),
+      save: (proposal) => db.saveEvalRecord('evalScenarioProposals', proposal),
+    },
+    agentChanges: {
+      list: (ownerId: string) => db.getEvalRecords('evalAgentChanges', ownerId, 1000),
+      save: (change) => db.saveEvalRecord('evalAgentChanges', change),
     },
   };
 }

@@ -10,6 +10,7 @@ export interface ToolContract {
   effect?: ToolEffect | undefined;
   idempotent?: boolean | undefined;
   openWorld?: boolean | undefined;
+  destructive?: boolean | undefined;
   requires?: EnvironmentRequirement | undefined;
   parameters?: Record<string, unknown> | undefined;
   usageGuidance?: string | undefined;

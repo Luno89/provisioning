@@ -13,6 +13,8 @@ export interface McpTool {
   description?: string;
   inputSchema?: Record<string, unknown>;
   annotations?: McpToolAnnotations;
+  declared?: McpToolAnnotations;
+  choice?: 'read-only' | 'safe-write' | 'destructive';
 }
 
 export interface McpSession {

@@ -1,4 +1,6 @@
 import type { Conversation } from './conversations.js';
+import { hintKey, type McpToolHint } from './mcp-tool-hints.js';
+import type { BenchSettings, BenchState } from './bench.js';
 import type { ExtensionSettings } from './extension-settings.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
@@ -29,12 +31,17 @@ import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { ClusterProviderSpec } from './cluster-providers.js';
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
-
 export const databaseOf = (uri: string): string => {
   const name = uri.replace(/^mongodb(\+srv)?:\/\/[^/]+\/?/, '').split('?')[0]?.trim();
   return name || 'provisioning';
 };
+
+export function mongoTarget(env: Readonly<Record<string, string | undefined>> = process.env): { uri: string; dbName: string; e2e: boolean } {
+  const base = env.MONGO_URI || 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
+  const e2e = env.IS_E2E === 'true';
+  if (e2e) return { uri: env.MONGO_TEST_URI || base.replace('/provisioning', '/provisioning_test'), dbName: 'provisioning_test', e2e };
+  return { uri: base, dbName: databaseOf(base), e2e };
+}
 
 function toBsonId(id: string): ObjectId | string {
   if (ObjectId.isValid(id)) return new ObjectId(id);
@@ -179,6 +186,10 @@ export class MongoDB implements Database {
     return this.db!.collection('secretRequests');
   }
 
+  private get mcpToolHints(): Collection {
+    return this.db!.collection('mcpToolHints');
+  }
+
   private get mcpRequests(): Collection {
     return this.db!.collection('mcpRequests');
   }
@@ -232,14 +243,11 @@ export class MongoDB implements Database {
   }
 
   async init(): Promise<void> {
-    const isE2E = process.env.IS_E2E === 'true';
-    const uri = isE2E
-      ? (process.env.MONGO_TEST_URI || MONGO_URI.replace('/provisioning', '/provisioning_test'))
-      : MONGO_URI;
+    const { uri, dbName, e2e: isE2E } = mongoTarget();
 
     this.client = new MongoClient(uri);
     await this.client.connect();
-    this.db = this.client.db(isE2E ? 'provisioning_test' : databaseOf(uri));
+    this.db = this.client.db(dbName);
 
     if (isE2E) {
       await this.db.dropDatabase();
@@ -784,6 +792,19 @@ export class MongoDB implements Database {
     await this.secretRequests.deleteOne({ _id: id as any, ownerId });
   }
 
+  async getMcpToolHints(ownerId: string): Promise<McpToolHint[]> {
+    const docs = await this.mcpToolHints.find({ ownerId }).toArray();
+    return docs.map(({ _id, ...hint }) => hint as unknown as McpToolHint);
+  }
+
+  async saveMcpToolHint(hint: McpToolHint): Promise<void> {
+    await this.mcpToolHints.replaceOne({ _id: hintKey(hint.ownerId, hint.server, hint.tool) as any }, { ...hint }, { upsert: true });
+  }
+
+  async deleteMcpToolHint(ownerId: string, server: string, tool: string): Promise<void> {
+    await this.mcpToolHints.deleteOne({ _id: hintKey(ownerId, server, tool) as any });
+  }
+
   async getMcpRequests(ownerId: string, conversationId?: string): Promise<McpRequest[]> {
     const query = conversationId === undefined ? { ownerId } : { ownerId, conversationId };
     const docs = await this.mcpRequests.find(query).sort({ createdAt: 1 }).toArray();
@@ -970,6 +991,37 @@ export class MongoDB implements Database {
 
   async saveRunEffort(effort: RunEffort): Promise<void> {
     await this.runEffort.replaceOne({ _id: effort.runId as any }, { ...effort }, { upsert: true });
+  }
+
+  async getBenchSettings(ownerId: string): Promise<BenchSettings | undefined> {
+    const doc = await this.db!.collection('benchSettings').findOne({ _id: ownerId as any });
+    if (!doc) return undefined;
+    const { _id, ...settings } = doc;
+    return settings as unknown as BenchSettings;
+  }
+
+  async saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void> {
+    await this.db!.collection('benchSettings').replaceOne({ _id: ownerId as any }, { ...settings }, { upsert: true });
+  }
+
+  async getBenchState(ownerId: string): Promise<BenchState | undefined> {
+    const doc = await this.db!.collection('benchStates').findOne({ _id: ownerId as any });
+    if (!doc) return undefined;
+    const { _id, ...state } = doc;
+    return state as unknown as BenchState;
+  }
+
+  async saveBenchState(state: BenchState): Promise<void> {
+    await this.db!.collection('benchStates').replaceOne({ _id: state.ownerId as any }, { ...state }, { upsert: true });
+  }
+
+  async getMemoryWatermark(key: string): Promise<string | undefined> {
+    const doc = await this.db!.collection('memoryWatermarks').findOne({ _id: key as any });
+    return typeof doc?.value === 'string' ? doc.value : undefined;
+  }
+
+  async saveMemoryWatermark(key: string, value: string): Promise<void> {
+    await this.db!.collection('memoryWatermarks').replaceOne({ _id: key as any }, { value }, { upsert: true });
   }
 
   async getRunEffort(ownerId: string, procedureId: string, modelKey?: string): Promise<RunEffort[]> {

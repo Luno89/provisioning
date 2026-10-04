@@ -6,6 +6,7 @@ import { evalsLevel1Router } from './evals-level1.js';
 import { evalsLevel2Router } from './evals-level2.js';
 import { Level1Service } from '../services/Level1Service.js';
 import { Level2Service } from '../services/Level2Service.js';
+import { BenchService } from '../services/BenchService.js';
 import { createAgentRegistry } from '../engine-host/registries/registry.js';
 import { createProcedureExecutor, type HostNodeServices } from '../engine-host/nodes/index.js';
 import { ENGINE_TOOL_SEEDS } from '../engine-host/tools/engine-tool-seeds.js';
@@ -74,6 +75,20 @@ const level2Harness = (): Promise<Harness> => mountRouter({
       store: db,
       builtIn: [SCENARIO],
       newId: () => 'run-2',
+    }),
+    bench: new BenchService({
+      store: db,
+      scenarios: async () => [],
+      fingerprints: async () => ({}),
+      practices: { trials: async () => [], settle: async () => undefined },
+      changes: { pending: async () => [], comparing: async () => undefined, settle: async () => undefined },
+      earlier: async () => [],
+      notifyChange: () => undefined,
+      start: async () => undefined,
+      benchRunning: async () => false,
+      agentsRunning: async () => false,
+      idleTimer: async () => undefined,
+      notify: () => undefined,
     }),
   }),
 });
@@ -144,6 +159,65 @@ describe('level 1 eval routes', () => {
 });
 
 describe('level 2 eval routes', () => {
+  it('lists proposed tests, accepts one into the person\'s scenarios — edited or as proposed — and dismisses another', async () => {
+    const harness = await level2Harness();
+    try {
+      const proposal = (id: string) => ({
+        id, ownerId: TEST_USER.id, status: 'proposed', why: 'it guessed', createdAt: `2026-10-03T12:00:0${id.length % 10}Z`,
+        scenario: { id, name: 'Saves when asked', describe: 'It saves.', agent: 'agent-builder', procedure: { id: 'tool-rounds' }, input: { message: 'save it' }, expect: { outcome: 'ok' } },
+      });
+      await harness.db.saveEvalRecord('evalScenarioProposals', proposal('agent-builder-saves') as never);
+      await harness.db.saveEvalRecord('evalScenarioProposals', proposal('agent-builder-other') as never);
+
+      expect((await axios.get(harness.url('/api/evals/level2/proposals'))).data.proposals.map((entry: { id: string }) => entry.id).sort()).toEqual(['agent-builder-other', 'agent-builder-saves']);
+
+      const edited = { ...proposal('agent-builder-saves').scenario, name: 'Saves when asked, edited' };
+      const accepted = await axios.post(harness.url('/api/evals/level2/proposals/agent-builder-saves/accept'), { scenario: edited }, quiet);
+      expect(accepted.data.scenario).toMatchObject({ id: 'agent-builder-saves', name: 'Saves when asked, edited' });
+      expect((await axios.get(harness.url('/api/evals/level2/scenarios'))).data.scenarios.some((scenario: { id: string }) => scenario.id === 'agent-builder-saves')).toBe(true);
+      expect((await axios.post(harness.url('/api/evals/level2/proposals/agent-builder-saves/accept'), {}, quiet)).status).toBe(404);
+
+      expect((await axios.post(harness.url('/api/evals/level2/proposals/agent-builder-other/dismiss'), {}, quiet)).data).toEqual({ dismissed: true });
+      const statuses = (await axios.get(harness.url('/api/evals/level2/proposals'))).data.proposals.map((entry: { id: string; status: string }) => `${entry.id}:${entry.status}`).sort();
+      expect(statuses).toEqual(['agent-builder-other:dismissed', 'agent-builder-saves:accepted']);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('refuses to accept a proposed test that does not check out, and keeps it waiting', async () => {
+    const harness = await level2Harness();
+    try {
+      await harness.db.saveEvalRecord('evalScenarioProposals', {
+        id: 'broken', ownerId: TEST_USER.id, status: 'proposed', why: 'x', createdAt: 'now',
+        scenario: { id: 'broken', name: 'Broken', describe: 'x', agent: 'nobody', procedure: { id: 'tool-rounds' }, input: { message: 'x' }, expect: { outcome: 'ok' } },
+      } as never);
+      const refused = await axios.post(harness.url('/api/evals/level2/proposals/broken/accept'), {}, quiet);
+      expect(refused.status).toBe(400);
+      expect(refused.data.problems).toContain('there is no agent called "nobody"');
+      expect((await axios.get(harness.url('/api/evals/level2/proposals'))).data.proposals[0].status).toBe('proposed');
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('reads the bench settings, defaults first, and saves good ones while refusing bad ones', async () => {
+    const harness = await level2Harness();
+    try {
+      expect((await axios.get(harness.url('/api/evals/level2/bench'))).data).toEqual({
+        settings: { enabled: true, idleMinutes: 15, fullEveryHours: 24 },
+        state: { ownerId: TEST_USER.id, benched: {} },
+      });
+      const saved = await axios.put(harness.url('/api/evals/level2/bench'), { enabled: false, idleMinutes: 30, fullEveryHours: 48 }, quiet);
+      expect(saved.data).toEqual({ settings: { enabled: false, idleMinutes: 30, fullEveryHours: 48 } });
+      const refused = await axios.put(harness.url('/api/evals/level2/bench'), { enabled: true, idleMinutes: -1, fullEveryHours: 48 }, quiet);
+      expect(refused.status).toBe(400);
+      expect((await axios.get(harness.url('/api/evals/level2/bench'))).data.settings).toEqual({ enabled: false, idleMinutes: 30, fullEveryHours: 48 });
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('lists scenarios, saves one of your own, and refuses a broken one', async () => {
     const h = await level2Harness();
 

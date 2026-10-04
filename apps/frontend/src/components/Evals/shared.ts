@@ -6,18 +6,31 @@ import {
   compareLevel1Runs,
   deleteCase,
   deleteScenario,
+  acceptProposal,
+  dismissProposal,
+  getBench,
   getLevel1Run,
   getLevel2Run,
   getPrompt,
   listCases,
   listLevel1Runs,
   listLevel2Runs,
+  listProposals,
+  listPractices,
+  listChanges,
+  acceptChange,
+  handOverChange,
+  dismissChange,
+  makePracticeLive,
+  retirePractice,
   listModels,
   listScenarios,
+  saveBench,
   saveCase,
   saveScenario,
   startLevel1Run,
   startLevel2Run,
+  type BenchSettings,
   type EvalCase,
   type Level1Run,
   type Level2Run,
@@ -36,6 +49,10 @@ export const evalKeys = {
   level2Runs: ['evals', 'level2', 'runs'] as const,
   level2Run: (id: string) => ['evals', 'level2', 'run', id] as const,
   models: ['evals', 'models'] as const,
+  bench: ['evals', 'level2', 'bench'] as const,
+  proposals: ['evals', 'level2', 'proposals'] as const,
+  practices: ['evals', 'level2', 'practices'] as const,
+  changes: ['evals', 'level2', 'changes'] as const,
 }
 
 const whileRunning = (state: string | undefined, every: number) => (state === 'running' ? every : false)
@@ -160,16 +177,32 @@ export function useCancelLevel2Run() {
   })
 }
 
-export function useSaveScenario(onSaved?: (scenario: Scenario) => void) {
+export function useSaveScenario(onSaved?: (scenario: Scenario) => void, saveWith?: (scenario: Scenario) => Promise<Scenario>) {
   const client = useQueryClient()
 
   return useMutation({
-    mutationFn: (scenario: Scenario) => saveScenario(scenario),
+    mutationFn: (scenario: Scenario) => (saveWith ?? saveScenario)(scenario),
     onSuccess: (scenario) => {
       void client.invalidateQueries({ queryKey: evalKeys.scenarios })
+      void client.invalidateQueries({ queryKey: evalKeys.proposals })
       onSaved?.(scenario)
     },
   })
+}
+
+export function useProposals() {
+  return useQuery({ queryKey: evalKeys.proposals, queryFn: listProposals })
+}
+
+export function useDecideProposal() {
+  const client = useQueryClient()
+  const settle = () => {
+    void client.invalidateQueries({ queryKey: evalKeys.proposals })
+    void client.invalidateQueries({ queryKey: evalKeys.scenarios })
+  }
+  const accept = useMutation({ mutationFn: (id: string) => acceptProposal(id), onSuccess: settle })
+  const dismiss = useMutation({ mutationFn: (id: string) => dismissProposal(id), onSuccess: settle })
+  return { accept, dismiss }
 }
 
 export function useDeleteScenario(onDeleted?: (id: string) => void) {
@@ -212,3 +245,49 @@ export const panelClass = 'rounded border border-slate-800 bg-slate-900/40 p-4'
 export const fieldClass = 'rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100 placeholder:text-slate-600'
 export const primaryButton = 'rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40'
 export const quietButton = 'rounded border border-slate-700 px-3 py-1.5 text-sm text-slate-300 disabled:opacity-40'
+
+export function useBench() {
+  return useQuery({ queryKey: evalKeys.bench, queryFn: getBench })
+}
+
+export function useSaveBench() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (settings: BenchSettings) => saveBench(settings),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: evalKeys.bench }) },
+  })
+}
+
+export function triggerLabel(trigger: Level2Run['trigger']): string {
+  if (!trigger || trigger.kind === 'manual') return 'by hand'
+  if (trigger.kind === 'full') return 'bench, everything'
+  return `bench, changed ${trigger.agents.join(', ')}`
+}
+
+export function usePractices() {
+  return useQuery({ queryKey: evalKeys.practices, queryFn: listPractices })
+}
+
+export function useDecidePractice() {
+  const client = useQueryClient()
+  const settle = () => { void client.invalidateQueries({ queryKey: evalKeys.practices }) }
+  const live = useMutation({ mutationFn: (id: string) => makePracticeLive(id), onSuccess: settle })
+  const retire = useMutation({ mutationFn: (id: string) => retirePractice(id), onSuccess: settle })
+  return { live, retire }
+}
+
+export function useChanges() {
+  return useQuery({ queryKey: evalKeys.changes, queryFn: listChanges, refetchInterval: 15_000, refetchIntervalInBackground: true })
+}
+
+export function useDecideChange(onHandedOver?: (conversationId: string) => void) {
+  const client = useQueryClient()
+  const settle = () => { void client.invalidateQueries({ queryKey: evalKeys.changes }) }
+  const accept = useMutation({ mutationFn: ({ id, prompt }: { id: string; prompt?: string }) => acceptChange(id, prompt), onSuccess: settle })
+  const handOver = useMutation({
+    mutationFn: (id: string) => handOverChange(id),
+    onSuccess: (change) => { settle(); if (change.conversationId) onHandedOver?.(change.conversationId) },
+  })
+  const dismiss = useMutation({ mutationFn: (id: string) => dismissChange(id), onSuccess: settle })
+  return { accept, handOver, dismiss }
+}

@@ -138,20 +138,22 @@ export interface ConsolidateDeps {
   similar?: (ids: string[]) => Promise<Map<string, { id: string; score: number }[]>>;
   now?: () => string;
   newId?: () => string;
+  ownerId?: string | undefined;
 }
 
 export async function consolidateMemories(deps: ConsolidateDeps): Promise<ConsolidationReport> {
   const now = (deps.now ?? (() => new Date().toISOString()))();
   const newId = deps.newId ?? (() => `mem_dream_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
 
-  let memories = await deps.db.getMemories();
+  let memories = await deps.db.getMemories(deps.ownerId);
 
   const unreachable = planUnreachable(memories, now);
   for (const m of unreachable) await deps.db.saveMemory(m).catch(() => undefined);
   const unreachableIds = new Set(unreachable.map((m) => m.id));
   memories = memories.map((m) => (unreachableIds.has(m.id) ? { ...m, invalidAt: now } : m));
 
-  const promoted = planPromotions(await deps.db.getLeaves().catch(() => []), memories, now, newId);
+  const leaves = (await deps.db.getLeaves().catch(() => [])).filter((leaf) => !deps.ownerId || leaf.ownerId === deps.ownerId);
+  const promoted = planPromotions(leaves, memories, now, newId);
   for (const m of promoted) await deps.db.saveMemory(m).catch(() => undefined);
   memories = [...memories, ...promoted];
 

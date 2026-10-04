@@ -14,15 +14,14 @@ describe('nextLeafStep', () => {
     expect(nextLeafStep([task('a', { status: 'done' }), task('b')]).kind).toBe('run');
   });
 
-  it('works a failed task again however often it has failed, unless a limit is set', () => {
-    const failed = (runs: string[]) => task('a', { status: 'failed', runs, evidence: 'the judge did not accept the work' });
-    expect(nextLeafStep([failed(['run-1', 'run-2', 'run-3', 'run-4', 'run-5'])])).toEqual({ kind: 'run', taskIds: ['a'] });
+  it('stops the work as soon as a task fails, with what it reported, so the judge looks at it rather than it being worked again', () => {
+    const failed = task('a', { status: 'failed', runs: ['run-1'], evidence: 'the endpoint never answered' });
+    expect(nextLeafStep([failed])).toEqual({ kind: 'stopped', taskIds: ['a'], reason: '"task a" failed: the endpoint never answered' });
   });
 
-  it('fails the leaf with the task\'s reason once it has used the attempts a limit allows — counting the runs recorded against it, so a restarted worker does not lose the count', () => {
-    const failed = (runs: string[]) => task('a', { status: 'failed', runs, evidence: 'the judge did not accept the work' });
-    expect(nextLeafStep([failed(['run-1'])], { taskAttempts: 2 })).toEqual({ kind: 'run', taskIds: ['a'] });
-    expect(nextLeafStep([failed(['run-1', 'run-2'])], { taskAttempts: 2 })).toEqual({ kind: 'fail', reason: '"task a" failed 2 times: the judge did not accept the work' });
+  it('stops even while other tasks could still run, and names every task that failed', () => {
+    const step = nextLeafStep([task('a', { status: 'failed' }), task('b', { status: 'failed', evidence: 'no build' }), task('c')]);
+    expect(step).toEqual({ kind: 'stopped', taskIds: ['a', 'b'], reason: '"task a" failed; "task b" failed: no build' });
   });
 
   it('re-runs a task left running by a crash', () => {

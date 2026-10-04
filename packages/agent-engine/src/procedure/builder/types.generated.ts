@@ -889,12 +889,14 @@ export interface ApproveToolCallsWires {
   reply?: In<'reply'>
   /** Where the calls would run. */
   environment?: In<'environment'>
+  /** The tools the model was offered, which say which of them are destructive. Required. */
+  offered?: In<'toolSet'>
 }
 
 export type ApproveToolCallsSettings = {
   /**
    * Ask
-   * "on-a-machine" asks only for a registered machine, "always" asks for every call, "never" lets everything through.
+   * "on-a-machine" asks for every call on a registered machine and for destructive calls anywhere, "always" asks for every call, "never" lets everything through, destructive or not.
    */
   ask?: 'on-a-machine' | 'always' | 'never'
 }
@@ -987,6 +989,8 @@ export interface ModelTurnGroupNode extends Step<'toolCalls' | 'answered' | 'tru
   readonly binding: Out<'modelBinding'>
   /** The system prompt that was sent. */
   readonly system: Out<'text'>
+  /** The tools the model was offered. */
+  readonly offered: Out<'toolSet'>
   wire(wires: ModelTurnGroupWires): void
 }
 
@@ -997,6 +1001,8 @@ export interface ToolLoopGroupWires {
   persona?: In<'persona'>
   /** Where environment tools run. */
   environment?: In<'environment'>
+  /** The tools the model was offered, so a call to one that destroys something is asked about first. Required. */
+  offered?: In<'toolSet'>
 }
 
 export interface ToolLoopGroupNode extends Step<'done' | 'refused' | 'failing'> {
@@ -1160,7 +1166,7 @@ export interface Nodes {
    */
   checkToolFailures(id: string, wires?: CheckToolFailuresWires, settings?: CheckToolFailuresSettings, meta?: NodeMeta): CheckToolFailuresNode
   /**
-   * Approve Tool Calls: Asks a person to allow each tool call before it runs. By default it only asks when the run is working on someone's own machine; sandboxes and the platform go straight through. A refused call gets a result saying so, which goes back to the model.
+   * Approve Tool Calls: Asks a person to allow each tool call before it runs. By default it asks for any call to a tool that can destroy or overwrite something, and for every call when the run is working on someone's own machine; other calls in sandboxes and on the platform go straight through. A refused call gets a result saying so, which goes back to the model.
    * Leaves through approved: At least one call may run.
    * Leaves through refused: Every call was refused.
    */

@@ -3,6 +3,7 @@ import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { WorkflowClient, type WorkflowHandle, type WorkflowHandleWithFirstExecutionRunId } from '@temporalio/client';
 import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
+import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'url';
 import type { ModelProvider } from '@koala/agent-engine';
 import {
@@ -25,10 +26,17 @@ import { createEffortTracker, type RunLimitsArgs } from '../engine-host/registri
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import { createHostNodes, hostNodesFor } from '../engine-host/nodes/index.js';
 import { inMemoryConversations } from '../engine-host/nodes/conversation-nodes.js';
+import { temporal } from '@temporalio/proto';
+import type { DataConverter } from '@temporalio/common';
+import { buildDataConverter } from '../lib/temporal-codec.js';
+import { inMemoryPayloadBlobs } from '../lib/payload-storage.js';
+import { loadKeys } from '../lib/keys.js';
+import { PAPER_WRITING } from '../extensions/grove/procedures.js';
 import {
   DEFAULT_STREAM_TASK_QUEUE,
   type ProcedureRunInput,
   type PublishArgs,
+  type LifecycleEvent,
   type RecordTracesArgs,
   type RunEnvironment,
   type RunTicket,
@@ -131,6 +139,7 @@ function activities(options: {
     stream: {
       EngineStreamNodeActivity: createNodeRunner([scriptedModel], undefined, { runCancelled: runCancelledVia(async () => env.client) }),
       EnginePublishActivity: vi.fn(async (_args: PublishArgs) => undefined),
+      EngineLifecycleActivity: vi.fn(async (_event: LifecycleEvent) => undefined),
     },
   };
 }
@@ -160,22 +169,26 @@ async function runWorkflow(
   args: ProcedureRunInput,
   acts: Activities,
   drive?: (handle: WorkflowHandle) => Promise<void>,
+  dataConverter?: DataConverter,
 ) {
   const taskQueue = `engine-test-${Math.random().toString(36).slice(2, 8)}`;
+  const converted = dataConverter ? { dataConverter } : {};
   const engineWorker = await Worker.create({
     connection: env.nativeConnection,
     taskQueue,
     workflowsPath: resolve(__dirname, 'AgentRunWorkflow.ts'),
     activities: acts.engine,
+    ...converted,
   });
-  const streamWorker = await Worker.create({ connection: env.nativeConnection, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: acts.stream });
+  const streamWorker = await Worker.create({ connection: env.nativeConnection, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: acts.stream, ...converted });
   const deviceWorker = await Worker.create({
     connection: env.nativeConnection,
     taskQueue: 'device-desk',
     activities: { EngineToolActivity: acts.engine.EngineToolActivity },
+    ...converted,
   });
 
-  const client = drive ? new WorkflowClient({ connection: env.connection }) : env.client.workflow;
+  const client = drive || dataConverter ? new WorkflowClient({ connection: env.connection, ...converted }) : env.client.workflow;
   const start = async () => {
     const handle = await client.start(AgentRunWorkflow, { args: [args], taskQueue, workflowId: args.ticket.runId });
     if (drive) await drive(handle);
@@ -383,6 +396,18 @@ describe('AgentRunWorkflow', () => {
     expect(child).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
   }, 60_000);
 
+  it('tells the backend when a chat turn starts and when each run ends, with what it needs to decide what to remember', async () => {
+    const acts = activities({ script: [{ content: 'Noted.' }] });
+    const args = input('research', RESEARCH_V2, 'We use Cloudflare.', { conversationId: 'conv-9' });
+
+    await runWorkflow(args, acts);
+
+    expect(acts.stream.EngineLifecycleActivity.mock.calls.map(([event]) => event)).toEqual([
+      { kind: 'run-started', ownerId: 'user-1', runId: args.ticket.runId, agentSlug: 'research', depth: 0, conversationId: 'conv-9' },
+      { kind: 'run-ended', ownerId: 'user-1', runId: args.ticket.runId, agentSlug: 'research', outcome: 'ok', ask: 'We use Cloudflare.', depth: 0, conversationId: 'conv-9' },
+    ]);
+  }, 60_000);
+
   it('runs a delegated persona as a child workflow on that persona\'s own procedure', async () => {
     const acts = activities({ script: [{ content: 'because it was' }] });
 
@@ -532,6 +557,72 @@ describe('a long run continues as a new one', () => {
 
     expect((await env.client.workflow.getHandle(args.ticket.runId, firstRun).describe()).status.name).toBe('COMPLETED');
   }, 60_000);
+});
+
+describe('a writer whose reply is cut off', () => {
+  it('carries on from what it already wrote instead of ending, and the run answers with the rest', async () => {
+    const acts = activities({ script: [
+      { content: '# The paper\n\nPart one, cut off mid', finishReason: 'length' },
+      { content: 'Part two, finished.' },
+    ] });
+
+    const result = await runWorkflow(input('paper-writer', PAPER_WRITING), acts);
+
+    expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'Part two, finished.' } });
+    const second = acts.seen[1]!;
+    expect(second.some((message) => message.role === 'assistant' && String(message.content).includes('Part one, cut off mid'))).toBe(true);
+  }, 60_000);
+
+  it('fails a writer that ends saying nothing, rather than letting it claim a paper it did not write', async () => {
+    const acts = activities({ script: [{ content: '' }] });
+
+    const result = await runWorkflow(input('paper-writer', PAPER_WRITING), acts);
+
+    expect(result).toMatchObject({ outcome: 'failed', reason: 'the writer ended without saying anything' });
+  }, 60_000);
+});
+
+describe('a run bigger than Temporal can carry', () => {
+  const page = () => randomBytes(800_000).toString('base64');
+
+  const historyOf = async (workflowId: string, firstRunId: string) => {
+    const sizes: number[] = [];
+    let runId: string | undefined = firstRunId;
+    while (runId) {
+      const history = await env.client.workflow.getHandle(workflowId, runId).fetchHistory();
+      let next: string | undefined;
+      for (const event of history.events ?? []) {
+        sizes.push(temporal.api.history.v1.HistoryEvent.encode(event).finish().length);
+        next = event.workflowExecutionContinuedAsNewEventAttributes?.newExecutionRunId ?? next;
+      }
+      runId = next;
+    }
+    return sizes;
+  };
+
+  it('keeps every event small however large the conversation grows, across continue-as-new, by storing big payloads outside Temporal', async () => {
+    const acts = activities({ script: [
+      callsATool('c1', 'fetch', '{"url":"a"}'),
+      callsATool('c2', 'fetch', '{"url":"b"}'),
+      callsATool('c3', 'fetch', '{"url":"c"}'),
+      { content: 'three pages read' },
+    ] });
+    acts.engine.EngineToolActivity.mockImplementation(async (call: ToolCallArgs) => ({ ok: true, digest: `fetched ${call.callId}`, content: `${call.callId}: ${page()}` }));
+    const blobs = inMemoryPayloadBlobs();
+    const converter = buildDataConverter(loadKeys({ JWT_SECRET: 'payload-storage-test' }).payload, blobs);
+    const args = { ...input('executor', TOOL_ROUNDS_V2), continueAfterEvents: 1 };
+    let firstRun = '';
+
+    const result = await runWorkflow(args, acts, async (handle) => { firstRun = (handle as WorkflowHandleWithFirstExecutionRunId).firstExecutionRunId; }, converter);
+
+    expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'three pages read' } });
+    const sizes = await historyOf(args.ticket.runId, firstRun);
+    expect(sizes.length).toBeGreaterThan(0);
+    expect(Math.max(...sizes)).toBeLessThan(512 * 1024);
+    expect(Math.max(...[...blobs.stored.values()].map((blob) => blob.data.length))).toBeGreaterThan(3_000_000);
+    expect(blobs.stored.size).toBeGreaterThan(0);
+    expect([...blobs.stored.values()].every((blob) => blob.workflowId === args.ticket.runId)).toBe(true);
+  }, 180_000);
 });
 
 describe('a remembered conversation, through the workflow', () => {

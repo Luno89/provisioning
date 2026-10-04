@@ -2,7 +2,7 @@ import type { EngineExtension } from '@koala/agent-engine/procedure';
 import { GROVE_OPERATIONS } from './operations/declarations.js';
 import { GROVE_TOOLS } from './tools/grove-tools-catalogue.js';
 import { GROVE_PERSONAS } from './personas.js';
-import { GROVE_LEAF, GROVE_PAPER_LEAF, GROVE_PAPER_RUN, GROVE_RUN } from './procedures.js';
+import { GROVE_LEAF, GROVE_PAPER_LEAF, GROVE_PAPER_RUN, GROVE_RUN, PAPER_WRITING } from './procedures.js';
 
 export const GROVE: EngineExtension = {
   id: 'grove',
@@ -13,5 +13,5 @@ export const GROVE: EngineExtension = {
   operations: GROVE_OPERATIONS,
   tools: GROVE_TOOLS,
   personas: GROVE_PERSONAS,
-  procedures: [GROVE_LEAF, GROVE_PAPER_LEAF, GROVE_RUN, GROVE_PAPER_RUN],
+  procedures: [GROVE_LEAF, GROVE_PAPER_LEAF, GROVE_RUN, GROVE_PAPER_RUN, PAPER_WRITING],
 };

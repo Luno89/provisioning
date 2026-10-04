@@ -1,4 +1,4 @@
-export const EVAL_COLLECTIONS = ['evalCases', 'evalPrompts', 'evalLevel1Runs', 'evalScenarios', 'evalScenarioRuns'] as const;
+export const EVAL_COLLECTIONS = ['evalCases', 'evalPrompts', 'evalLevel1Runs', 'evalScenarios', 'evalScenarioRuns', 'evalScenarioProposals', 'evalAgentChanges'] as const;
 
 export type EvalCollection = (typeof EVAL_COLLECTIONS)[number];
 

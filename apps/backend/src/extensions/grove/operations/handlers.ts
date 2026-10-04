@@ -239,10 +239,10 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
       const leafId = asked ? leafIdOf(asked) : undefined;
       if (!asked || !leafId) throw new Error('Next Task needs a leaf with a leafId');
       const tasks = (await deps.tasks.list(ownerOf(request))).filter((task) => task.leafId === leafId);
-      const attempts = request.node.settings.taskAttempts;
-      const step = nextLeafStep(tasks, { taskAttempts: typeof attempts === 'number' ? attempts : undefined });
+      const step = nextLeafStep(tasks);
 
       if (step.kind === 'claim') return { exit: 'claim', outputs: {} };
+      if (step.kind === 'stopped') return { exit: 'stopped', outputs: { reason: step.reason } };
       if (step.kind === 'unbroken') return { exit: 'unbroken', outputs: {} };
       if (step.kind === 'fail') return { exit: 'fail', outputs: { reason: step.reason } };
       const task = tasks.find((entry) => entry.id === step.taskIds[0])!;
@@ -271,7 +271,9 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
       }
 
       const tasks = (await deps.tasks.list(ownerId)).filter((task) => task.leafId === leafId);
-      const said = typeof request.inputs.evidence === 'string' && request.inputs.evidence.trim() ? runEvidence({ result: request.inputs.evidence }) : undefined;
+      const given = typeof request.inputs.evidence === 'string' && request.inputs.evidence.trim() ? request.inputs.evidence : undefined;
+      const stopped = request.node.settings.stopped === true;
+      const said = given ? runEvidence(stopped ? { stopped: `the work did not finish: ${given}` } : { result: given }) : (stopped ? 'stopped: the work did not finish, and said nothing about why' : undefined);
       const reason = typeof request.inputs.reason === 'string' && request.inputs.reason.trim() ? request.inputs.reason : undefined;
       const outcome = await groveTools(ownerId, true)['claim_leaf']!({
         name: 'claim_leaf',
@@ -318,6 +320,9 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
         if (!checksFailed(outcomes)) { toJudge.push(claim); continue; }
 
         const report = checkReport(outcomes);
+        const stopped = tasks.some((task) => task.leafId === leafId && task.status === 'failed');
+        if (stopped) { toJudge.push({ ...claim, checks: report }); continue; }
+
         await groveTools(ownerId, true)['settle_leaf']!({
           name: 'settle_leaf',
           parsed: { leafId, verdict: 'failed', note: `its own checks failed:\n${report}` },
@@ -351,6 +356,7 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
           worktree,
           context: { ...leafContext(leafId), worktree, ...(commit ? { commit } : {}) },
           ...(leaf.claim ? { claim: leaf.claim } : {}),
+          ...(typeof claim.checks === 'string' ? { checks: claim.checks } : {}),
         });
       }
       return { exit: 'ready', outputs: { items } };

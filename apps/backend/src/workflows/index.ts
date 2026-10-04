@@ -8,3 +8,5 @@ export { executePipelineRunWorkflow } from './PipelineRunWorkflow.js';
 export { AdoptPlanWorkflow } from './AdoptPlanWorkflow.js';
 export { executeIngestWorkflow } from './IngestWorkflow.js';
 export { AgentRunWorkflow } from './AgentRunWorkflow.js';
+export { ConversationConclusionWorkflow } from './ConversationConclusionWorkflow.js';
+export { BenchIdleWorkflow } from './BenchIdleWorkflow.js';

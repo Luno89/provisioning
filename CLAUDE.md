@@ -45,6 +45,12 @@ npm run test:worker  # tsx tests/worker-isolated.ts — runs real Temporal workf
 npm run test:e2e     # test:alive → Playwright (skips the unit preflight `npm test` does)
 npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
 npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
+npm run test:big-run-live         # real research run on your model, continuing as new each step; asserts every history event < 512 KB and that big payloads went to Mongo
+npm run test:memory-live          # Koala chat → a second message resets the countdown → keeper runs after the quiet time → a new chat recalls it, ~25 min
+npm run test:bench-live           # throwaway agent passes on an idle-started bench run, is broken, and the next idle bench names the regression, ~10 min
+npm run test:proposals-live       # Koala corrected in chat → the memory keeper proposes a test → accepted and run, ~25 min
+npm run test:practices-live       # a correction → a practice on trial → the bench tries it → live or held → recalled, ~45 min
+npm run test:changes-live         # a prompt change compared on the bench and accepted; a procedure request handed to the agent builder, ~30 min
 npm run test:instance-live        # k3d cluster + root container + charts/instance → sign in through root → sandboxed run, ~10 min, cleans up
 npm run test:remote-integration   # boots a disposable QEMU VM, provisions it as a provider:'remote' cluster over
                                    # real SSH, verifies kubectl + deploys a real app, tears down VM+cluster — proves
@@ -156,6 +162,36 @@ single-use token for your instance and redirects to `<instance>/#/handoff?token=
 checks the signature, audience, expiry and owner, records the token id so it cannot be reused, and
 sets its own session. Register an instance with `npm run instances -w apps/backend -- add <id> <owner> <url>`.
 
+## Memory
+
+Memories are made by the `memory-keeper` agent, never by a hidden model call. It is driven by events,
+not polling. `AgentRunWorkflow` reports `turn-started` and `run-ended` to the backend
+(`EngineConcludeActivity`), and `MemoryKeeperService` (rules in `lib/conclusions.ts`) hands the
+keeper each conclusion:
+- a conversation whose `ConversationConclusionWorkflow` countdown ran out — the conversation agent's
+  `concludeAfterMinutes` (default 10), held while a turn runs and restarted by every new turn — or
+  one where a card was accepted or a plan approved (`onSettled`);
+- a leaf the leaf-judge settled;
+- a run that failed, or a research run.
+
+It searches, saves, replaces or retires with `search_memories` / `save_memory` / `forget_memory`,
+and reads runs with `read_run`. It can also propose a test (`propose_scenario`), a practice for one
+agent (`propose_practice`, tried on the bench before it goes live), a prompt change (compared on the
+bench, always waiting for the person), or a procedure change in plain words (handed to the agent
+builder). Evals → Level 2 holds all of them. The live tests retire whatever their own runs leave
+behind (`tests/lib/forget-test-runs.ts`), since they feed the keeper made-up situations. Watermarks in `memoryWatermarks` mean nothing is processed twice,
+Koala also holds
+`save_memory` for what the person states outright.
+
+## The bench
+
+Level 2 scenarios also run on their own, when the model is idle (`BenchService`, `lib/bench.ts`).
+Top-level runs report start and end; `BenchIdleWorkflow` counts the owner's idle minutes down from
+the last event. When the time is up, everything runs if the last full run is older than the setting,
+otherwise only the scenarios of agents whose fingerprint changed. A scenario that passed last time and
+fails now is a regression: it is recorded on the run and shown as a toast. Settings live on Evals →
+Level 2.
+
 ## Platform keys
 
 Four keys, one per purpose, loaded once by `lib/keys.ts`'s `loadKeys(process.env)`:
@@ -234,6 +270,14 @@ In-cluster worker lifecycle: `ensure-cluster.sh` creates the k3d management clus
 MongoDB stays in sync with Temporal via two mechanisms:
 1. **`trackWorkflow()` polling** — every 5s per workflow; retries transient Temporal errors up to 12 times before giving up (avoids clusters getting stuck "provisioning" during brief Temporal outages).
 2. **Background reconciliation loop** — every 30s, scans clusters in intermediate states (`provisioning`, `destroying`), checks Temporal directly, and updates MongoDB if the workflow finished but the DB missed it. Also parses log files to update `ClusterMetadata.progress` (e.g. `creating-cluster`, `patching-storage`, `deploying-cdktf`, `installing-traefik`).
+
+**Large payloads are stored outside Temporal.** Every Temporal client and worker builds its
+converter with `buildDataConverter(key, sharedPayloadBlobs())`: payloads are compressed, then
+encrypted, and any still over 128 KB go to Mongo `temporal_payload_chunks`, leaving a claim in the
+history (`lib/payload-storage.ts`, Temporal's `externalStorage`). A new process that talks to
+Temporal must use it too, or it cannot read an offloaded payload. A daily sweep releases a
+workflow's payloads once Temporal no longer has it. `npm run test:big-run-live` proves it on a real
+research run.
 
 Temporal itself is optional — the backend starts and falls back to plain DB polling if it's unreachable. Start it with `docker compose -f docker-compose.temporal.yml up`.
 

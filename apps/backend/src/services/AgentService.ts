@@ -71,6 +71,9 @@ export function agentProblems(
   }
 
   const EFFECTS = ['read', 'propose', 'write'];
+  if (agent.concludeAfterMinutes !== undefined && !(typeof agent.concludeAfterMinutes === 'number' && agent.concludeAfterMinutes > 0)) {
+    problems.push('a conversation concludes after a number of quiet minutes greater than zero; leave it blank for the default');
+  }
   if (agent.maxEffect !== undefined && !EFFECTS.includes(agent.maxEffect)) {
     problems.push(`"${String(agent.maxEffect)}" is not a limit — an agent may be limited to read, propose or write`);
   }

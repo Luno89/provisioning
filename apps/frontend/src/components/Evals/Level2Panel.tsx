@@ -4,7 +4,7 @@ import ScenarioEditor from './ScenarioEditor'
 import ScenarioTrace from './ScenarioTrace'
 import { useProcedureList } from '../Studio/shared'
 import type { ScenarioResult } from '../../api/evals'
-import {
+import { triggerLabel,
   fieldClass,
   panelClass,
   primaryButton,
@@ -18,6 +18,10 @@ import {
   useSelection,
   useStartLevel2Run,
 } from './shared'
+import BenchPanel from './BenchPanel'
+import ProposalsPanel from './ProposalsPanel'
+import PracticesPanel from './PracticesPanel'
+import ChangesPanel from './ChangesPanel'
 
 const tone = (passed: boolean) => (passed ? 'text-emerald-400' : 'text-rose-400')
 
@@ -133,6 +137,14 @@ export default function Level2Panel() {
         and files — and what it did is scored check by check.
       </p>
 
+      <ProposalsPanel agents={agents} procedures={procedureIds} />
+
+      <ChangesPanel />
+
+      <PracticesPanel />
+
+      <BenchPanel scenarios={all} runs={runs.data ?? []} />
+
       {runs.data && runs.data.length > 0 && (
         <section className="flex flex-wrap items-center justify-between gap-3 rounded border border-slate-800 bg-slate-900/60 px-4 py-2 text-sm">
           <div className="flex items-center gap-2">
@@ -148,6 +160,8 @@ export default function Level2Panel() {
                   {new Date(past.startedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   {' · '}{past.modelLabel ?? past.modelId ?? 'Account default'}
                   {' · '}{past.results.filter((result) => result.passed).length}/{past.scenarios.length} passed
+                  {(past.regressions ?? []).length > 0 ? ` · ${past.regressions!.length} regressed` : ''}
+                  {' · '}{triggerLabel(past.trigger)}
                   {' · '}{past.state}
                 </option>
               ))}

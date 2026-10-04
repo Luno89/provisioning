@@ -12,6 +12,7 @@ instance:
 
 selfUpgrade:
   schedule: "17 * * * *"
+  timeout: 20m
 
 publicUrl: ""
 

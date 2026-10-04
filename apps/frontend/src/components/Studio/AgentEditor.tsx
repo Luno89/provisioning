@@ -24,6 +24,8 @@ export default function AgentEditor({ agent, agents, onClose }: {
   const remove = useDeleteAgent(() => onClose())
 
   const set = <K extends keyof Agent>(key: K, value: Agent[K]) => setDraft((current) => ({ ...current, [key]: value }))
+  const concludeAfter = (wanted: string) => setDraft(({ concludeAfterMinutes: _was, ...current }) =>
+    (wanted ? { ...current, concludeAfterMinutes: Number(wanted) } : current))
 
   const requires = procedures.data?.procedures.find((one) => one.id === draft.procedure)?.requires ?? []
 
@@ -239,6 +241,19 @@ export default function AgentEditor({ agent, agents, onClose }: {
             set('model', wanted ? { ...rest, replyCeiling: Number(wanted) } : rest)
           }}
         />
+      </label>
+
+      <label className="block space-y-1 sm:w-64">
+        <span className={label}>A conversation concludes after this many quiet minutes</span>
+        <input
+          aria-label="Quiet minutes before a conversation concludes"
+          className={field}
+          inputMode="numeric"
+          value={draft.concludeAfterMinutes ?? ''}
+          placeholder="the default"
+          onChange={(event) => concludeAfter(event.target.value.trim())}
+        />
+        <span className="block text-[11px] text-slate-500">Then what it taught is remembered. A new message starts the count again.</span>
       </label>
 
       {problems.length > 0 && (

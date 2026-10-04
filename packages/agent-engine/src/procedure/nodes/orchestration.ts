@@ -8,6 +8,7 @@ import type {
   ModelReply,
   ToolCallRequest,
   ToolResult,
+  ToolSet,
 } from '../values.js';
 import { numberOf, textOf } from './read.js';
 
@@ -132,15 +133,21 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const reply = inputs.reply as ModelReply;
       const environment = inputs.environment as EnvironmentValue | undefined;
       const ask = textOf(node.settings, 'ask', 'on-a-machine');
-      const needsAsking = ask === 'always' || (ask === 'on-a-machine' && environment?.kind === 'machine');
+      const destructive = new Set(((inputs.offered as ToolSet | undefined) ?? []).filter((tool) => tool.destructive === true).map((tool) => tool.name));
+      const needsAsking = (call: ToolCallRequest): boolean => {
+        if (ask === 'never') return false;
+        if (ask === 'always') return true;
+        return environment?.kind === 'machine' || destructive.has(call.name);
+      };
 
-      if (!needsAsking || reply.toolCalls.length === 0) {
+      if (!reply.toolCalls.some(needsAsking)) {
         return { exit: 'approved', outputs: { approved: reply, refused: [] } };
       }
 
       const approved: ToolCallRequest[] = [];
       const refused: ToolResult[] = [];
       for (const call of reply.toolCalls) {
+        if (!needsAsking(call)) { approved.push(call); continue; }
         run.emit({ type: 'tool.called', nodeId: node.id, callId: call.id, name: call.name, args: call.arguments } as never);
         if (await ports.approve({ nodeId: node.id, call, environment, run })) {
           approved.push(call);

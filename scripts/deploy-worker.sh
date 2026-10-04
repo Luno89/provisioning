@@ -29,6 +29,14 @@ if ss -ltnH "( sport = :7233 )" | awk '{print $4}' | grep -q '^127\.0\.0\.1:7233
   exit 1
 fi
 
+if ss -ltnH "( sport = :27017 )" | awk '{print $4}' | grep -q '^127\.0\.0\.1:27017$'; then
+  echo "❌ MongoDB listens on 127.0.0.1 only, so a worker inside the cluster cannot reach it at host.k3d.internal:27017."
+  echo "   The worker reads large Temporal payloads from it. Recreate it reachable from the cluster first:"
+  echo "   PLATFORM_BIND=0.0.0.0 ./bin/docker-compose -f docker-compose.mongo.yml up -d"
+  echo "   That also opens it to your network — do it only on a machine you trust the network of."
+  exit 1
+fi
+
 echo "🚀 Building worker Docker image..."
 docker build -t "${WORKER_IMAGE_NAME}" "${ROOT}"
 
@@ -50,6 +58,9 @@ for KEY_NAME in SESSION_KEY DATA_KEY PAYLOAD_KEY EGRESS_KEY JWT_SECRET; do
   VALUE="$(grep -E "^${KEY_NAME}=" "${ROOT}/apps/backend/.env" 2>/dev/null | head -1 | cut -d= -f2-)"
   [ -n "$VALUE" ] && SECRET_ARGS+=(--from-literal="${KEY_NAME}=${VALUE}")
 done
+MONGO_URI_FROM_ENV="$(grep -E "^MONGO_URI=" "${ROOT}/apps/backend/.env" 2>/dev/null | head -1 | cut -d= -f2-)"
+MONGO_URI_FROM_ENV="${MONGO_URI_FROM_ENV:-mongodb://admin:${MONGO_ROOT_PASSWORD:-admin}@localhost:27017/provisioning?authSource=admin}"
+SECRET_ARGS+=(--from-literal="MONGO_URI=$(printf '%s' "$MONGO_URI_FROM_ENV" | sed -E 's#@(localhost|127\.0\.0\.1):#@host.k3d.internal:#')")
 "$KUBECTL" create secret generic provisioning-worker-secrets "${SECRET_ARGS[@]}" \
   --dry-run=client -o yaml --context "k3d-${CLUSTER_NAME}" \
   | "$KUBECTL" apply -f - --context "k3d-${CLUSTER_NAME}" >/dev/null

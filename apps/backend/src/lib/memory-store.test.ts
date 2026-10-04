@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildMemoryContext, MAX_MEMORY_CONTEXT_CHARS, type MemoryItem,
+import { buildMemoryContext, MAX_MEMORY_CONTEXT_CHARS, selectForContext, renderMemoryContext, type MemoryItem,
   unreachableMemory,
 } from './memory-store.js';
 
@@ -137,5 +137,27 @@ describe('a memory that could never be recalled', () => {
 
   it('says which field would fix it', () => {
     expect(unreachableMemory({ ...base, scope: 'project' } as never)).toMatch(/projectId|global/);
+  });
+});
+
+describe('practices in what an agent is reminded of', () => {
+  const practice = (over: Partial<MemoryItem>): MemoryItem => ({
+    id: 'p', ownerId: 'u1', category: 'practice', agent: 'koala', status: 'active', title: 'Check first', text: 'Call list_infrastructure first.', createdAt: '2026-01-01', updatedAt: '2026-01-01', ...over,
+  });
+
+  it('reminds only the agent a practice is for, and never of one still on trial or held', () => {
+    const memories = [practice({}), practice({ id: 't', status: 'trial' }), practice({ id: 'h', status: 'pending_review' }), practice({ id: 'e', agent: 'executor' })];
+    expect(selectForContext(memories, undefined, { agent: 'koala' }).kept.map((m) => m.id)).toEqual(['p']);
+    expect(selectForContext(memories, undefined, { agent: 'executor' }).kept.map((m) => m.id)).toEqual(['e']);
+    expect(selectForContext(memories).kept).toEqual([]);
+  });
+
+  it('puts practices first, under their own heading, so a full memory budget never drops them', () => {
+    const { agent: _agent, ...rest } = practice({ id: 'f', category: 'environment_facts' });
+    const fact: MemoryItem = { ...rest, createdAt: '2026-06-01' };
+    const { kept, dropped } = selectForContext([fact, practice({})], undefined, { agent: 'koala', maxChars: 60 });
+    expect(kept.map((m) => m.id)).toEqual(['p']);
+    expect(dropped).toBe(1);
+    expect(renderMemoryContext(kept, 0)).toContain('How you work (practices learned from your earlier runs):\n- Check first: Call list_infrastructure first.');
   });
 });

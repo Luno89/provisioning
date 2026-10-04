@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
+import { ApplicationFailure } from '@temporalio/common';
 import { WorkflowClient } from '@temporalio/client';
 import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
@@ -68,6 +69,7 @@ let tasks: Task[];
 let clock = 0;
 let judgeVerdicts: Record<string, string> = {};
 let taskVerdict: 'yes' | 'no' = 'yes';
+let writerFails: string | undefined;
 let plans: PlanProposal[] = [];
 
 const pad = (value: number) => String(value).padStart(4, '0');
@@ -209,6 +211,7 @@ const scriptModel = (rounds: Map<string, number>, hang?: string) =>
     } else if (kind.startsWith('exec-') && kind !== 'exec-none') {
       value = reply({ content: `Wrote app-${name}.ts and committed it as seed-${name}; the endpoint answers 200 on :3000.` });
     } else if (kind.startsWith('paper-') && kind !== 'paper-none') {
+      if (writerFails === leaf) throw ApplicationFailure.nonRetryable('the writer\'s model stopped answering mid-paper');
       // One run, no task list: the leaf is written rather than worked through.
       value = reply({ content: `Wrote paper.md for ${leaf}: the answer in full, with a source for each claim.` });
     } else if (kind.startsWith('judge-claim')) {
@@ -268,6 +271,7 @@ beforeEach(() => {
   clock = 0;
   judgeVerdicts = {};
   taskVerdict = 'yes';
+  writerFails = undefined;
   plans = [];
   setupWorld();
 });
@@ -500,6 +504,7 @@ async function runGroveWorld(options: {
       activities: {
         EngineStreamNodeActivity: createNodeRunner([scriptModel(rounds, options.hang), decideModel], undefined, { runCancelled: runCancelledVia(async () => env.client) }),
         EnginePublishActivity: vi.fn(async (_args: PublishArgs) => undefined),
+        EngineLifecycleActivity: vi.fn(async () => undefined),
       },
     });
 
@@ -591,27 +596,37 @@ describe('the grove agent\'s procedure', () => {
     expect(result).toMatchObject({ outcome: 'quiet', awaitingApproval: [] });
   }, 120_000);
 
-  it('fails a leaf whose task used the attempts its Next Task allows, with the tool\'s own reason', async () => {
+  it('a failed task stops the leaf after one attempt and goes to the judge, whose diagnosis is what the replan starts from', async () => {
     taskVerdict = 'no';
-    const limited: Procedure = { ...seededProcedures().find((procedure) => procedure.id === 'grove-leaf')!, id: 'grove-leaf-limited' };
-    limited.nodes = limited.nodes.map((node) => (node.id === 'next' ? { ...node, settings: { ...node.settings, taskAttempts: 2 } } : node));
-    const run: Procedure = { ...seededProcedures().find((procedure) => procedure.id === 'grove-run')!, id: 'grove-run-limited' };
-    run.nodes = run.nodes.map((node) => (node.id === 'work' ? { ...node, settings: { ...node.settings, agent: 'grove-leaf-limited' } } : node));
-    const grove = seededPersonas().find((persona) => persona.slug === 'grove')!;
-    const leafAgent = seededPersonas().find((persona) => persona.slug === 'grove-leaf')!;
+    judgeVerdicts = { leafA: 'failed', leafB: 'failed' };
 
-    await runGroveWorld({
-      agent: 'grove-limited',
-      ownProcedures: [limited, run],
-      ownAgents: [
-        { ...grove, slug: 'grove-limited', procedure: 'grove-run-limited', agents: ['grove-leaf-limited', 'leaf-judge', 'planner'] },
-        { ...leafAgent, slug: 'grove-leaf-limited', procedure: 'grove-leaf-limited' },
-      ],
-    });
+    const { worktreeOfCall } = await runGroveWorld({});
 
     const leafA = leaves.find((entry) => entry.id === 'leafA')!;
+    expect(worktreeOfCall.filter((call) => call.includes('leafA')), 'the failed task was worked again instead of going to the judge').toEqual([
+      'executor start_task trees/leafA',
+      'executor mark_failed trees/leafA',
+      'leaf-judge settle_leaf judge/leafA',
+      'planner propose_leaf_plan trees/leafA',
+    ]);
+    expect(leafA.claim?.evidence ?? '', 'the claim does not say which task failed').toMatch(/\[failed\]/);
+    expect(worktreeOfCall.some((call) => call.startsWith('leaf-judge settle_leaf') && call.includes('leafA')), 'the judge never settled the stopped leaf').toBe(true);
     expect(leafA.status).toBe('failed');
-    expect(leafA.findings ?? '').toMatch(/failed 2 times/);
+    expect(leafA.findings ?? '').toMatch(/re-derived from the commit pointer seed-A/);
+    expect(plans.some((plan) => JSON.stringify(plan).includes('leafA')), 'nothing replanned the leaf the judge failed').toBe(true);
+  }, 120_000);
+
+  it('claims a paper leaf whose writer failed, saying the work stopped and why, so its judge decides', async () => {
+    trees = trees.map((tree) => ({ ...tree, type: 'research-paper' }));
+    writerFails = 'leafA';
+    judgeVerdicts = { leafA: 'failed' };
+
+    const { worktreeOfCall } = await runGroveWorld({ agent: 'grove-paper', vanishTasksOf: 'leafA' });
+
+    const leafA = leaves.find((leaf) => leaf.id === 'leafA')!;
+    expect(leafA.claim?.evidence ?? '').toMatch(/stopped: the work did not finish: .*stopped answering mid-paper/);
+    expect(worktreeOfCall.some((call) => call.startsWith('leaf-judge settle_leaf') && call.includes('leafA'))).toBe(true);
+    expect(leafA.status).toBe('failed');
   }, 120_000);
 
   it('has the paper writer write each leaf in one run, and the claim carries what it said', async () => {

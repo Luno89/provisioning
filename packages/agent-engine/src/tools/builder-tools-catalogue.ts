@@ -96,6 +96,7 @@ export const BUILDER_TOOLS: ToolDefinition[] = [
     effect: 'write',
     idempotent: true,
     openWorld: false,
+    destructive: true,
     replaces: ['create_tree_type', 'set_tree_type_overview', 'delete_tree_type', 'write_procedure'],
     returns: 'Confirmation naming what was saved, as your own copy. A built-in is never changed; '
       + 'your copy shadows it by id wherever it is referenced.',

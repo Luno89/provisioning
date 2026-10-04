@@ -1,4 +1,6 @@
 import type { Conversation } from './conversations.js';
+import { hintKey, type McpToolHint } from './mcp-tool-hints.js';
+import type { BenchSettings, BenchState } from './bench.js';
 import type { ExtensionSettings } from './extension-settings.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
@@ -55,6 +57,7 @@ export class MemoryDB implements Database {
   private planProposals: PlanProposal[] = [];
   private secretRequests: SecretRequest[] = [];
   private mcpRequests: McpRequest[] = [];
+  private mcpToolHints = new Map<string, McpToolHint>();
   private actionProposals: ActionProposal[] = [];
   private egressGrants: EgressGrantRecord[] = [];
   private extensionSettings = new Map<string, ExtensionSettings>();
@@ -67,6 +70,9 @@ export class MemoryDB implements Database {
   private procedures: ProcedureSource[] = [];
   private runTraces = new Map<string, StoredNodeTrace>();
   private runEffort = new Map<string, RunEffort>();
+  private memoryWatermarks = new Map<string, string>();
+  private benchSettings = new Map<string, BenchSettings>();
+  private benchStates = new Map<string, BenchState>();
   private enginePersonas: EnginePersona[] = [];
   private engineTools: EngineTool[] = [];
   private evalRecords = new Map<EvalCollection, Map<string, EvalRecord & { state?: unknown; startedAt?: unknown }>>();
@@ -560,6 +566,18 @@ export class MemoryDB implements Database {
     this.secretRequests = this.secretRequests.filter((r) => !(r.id === id && r.ownerId === ownerId));
   }
 
+  async getMcpToolHints(ownerId: string): Promise<McpToolHint[]> {
+    return [...this.mcpToolHints.values()].filter((hint) => hint.ownerId === ownerId);
+  }
+
+  async saveMcpToolHint(hint: McpToolHint): Promise<void> {
+    this.mcpToolHints.set(hintKey(hint.ownerId, hint.server, hint.tool), { ...hint });
+  }
+
+  async deleteMcpToolHint(ownerId: string, server: string, tool: string): Promise<void> {
+    this.mcpToolHints.delete(hintKey(ownerId, server, tool));
+  }
+
   async getMcpRequests(ownerId: string, conversationId?: string): Promise<McpRequest[]> {
     return this.mcpRequests
       .filter((r) => r.ownerId === ownerId && (conversationId === undefined || r.conversationId === conversationId))
@@ -711,6 +729,32 @@ export class MemoryDB implements Database {
 
   async saveRunEffort(effort: RunEffort): Promise<void> {
     this.runEffort.set(effort.runId, effort);
+  }
+
+  async getBenchSettings(ownerId: string): Promise<BenchSettings | undefined> {
+    const found = this.benchSettings.get(ownerId);
+    return found ? { ...found } : undefined;
+  }
+
+  async saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void> {
+    this.benchSettings.set(ownerId, { ...settings });
+  }
+
+  async getBenchState(ownerId: string): Promise<BenchState | undefined> {
+    const found = this.benchStates.get(ownerId);
+    return found ? { ...found, benched: { ...found.benched } } : undefined;
+  }
+
+  async saveBenchState(state: BenchState): Promise<void> {
+    this.benchStates.set(state.ownerId, { ...state, benched: { ...state.benched } });
+  }
+
+  async getMemoryWatermark(key: string): Promise<string | undefined> {
+    return this.memoryWatermarks.get(key);
+  }
+
+  async saveMemoryWatermark(key: string, value: string): Promise<void> {
+    this.memoryWatermarks.set(key, value);
   }
 
   async getRunEffort(ownerId: string, procedureId: string, modelKey?: string): Promise<RunEffort[]> {

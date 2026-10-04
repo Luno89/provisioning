@@ -10,6 +10,7 @@ import {
   ActivityCancellationType,
   continueAsNew,
   workflowInfo,
+  patched,
 } from '@temporalio/workflow';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 import { childInputs } from '../engine-host/nodes/child-inputs.js';
@@ -38,6 +39,7 @@ import {
   launchFor,
   ticketFor,
   type AgentRunOutcome,
+  type LifecycleEvent,
   type ProcedureRunInput,
   type RunContinuation,
   type PublishArgs,
@@ -57,7 +59,6 @@ import { platformCatalogue, platformGroups } from '../extensions/installed.js';
 
 const NODE_HEARTBEAT_TIMEOUT = '1 minute';
 export const CONTINUE_AFTER_EVENTS = 10_000;
-export const MAX_CHECKPOINT_BYTES = 1_500_000;
 
 interface EngineRemote {
   EngineNodeActivity(request: RemoteNodeRequest): Promise<RemoteNodeResult>;
@@ -86,11 +87,16 @@ const { EngineRecordTracesActivity, EngineRunLimitsActivity, EngineRecordEffortA
   startToCloseTimeout: '1 minute',
 });
 
-const { EnginePublishActivity } = proxyActivities<{ EnginePublishActivity(args: PublishArgs): Promise<void> }>({
+const { EnginePublishActivity, EngineLifecycleActivity } = proxyActivities<{
+  EnginePublishActivity(args: PublishArgs): Promise<void>;
+  EngineLifecycleActivity(event: LifecycleEvent): Promise<void>;
+}>({
   taskQueue: DEFAULT_STREAM_TASK_QUEUE,
   retry: { maximumAttempts: 3 },
   startToCloseTimeout: '1 minute',
 });
+
+const CONCLUSIONS = 'conclusion-events';
 
 export const approveSignal = defineSignal<[{ callId: string; allowed: boolean; forRun?: boolean }]>('approve');
 export const answerSignal = defineSignal<[{ nodeId: string; value: unknown }]>('answer');
@@ -120,6 +126,12 @@ const toRemote = (request: NodeRequest): RemoteNodeRequest => ({
 export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentRunOutcome> {
   const { ticket, procedure } = input;
   const catalogue = platformCatalogue();
+  const conversationId = typeof input.inputs.conversationId === 'string' && ticket.depth === 0 ? input.inputs.conversationId : undefined;
+  const item = input.inputs.item as { leafId?: unknown } | undefined;
+  const leafId = typeof item?.leafId === 'string' ? item.leafId : undefined;
+  const conclude = async (event: LifecycleEvent): Promise<void> => {
+    await EngineLifecycleActivity(event).catch(() => undefined);
+  };
 
   const { continued } = input;
   const approvals = new Map<string, boolean>(continued?.approvals ?? []);
@@ -129,7 +141,6 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   let currentNode: string | undefined;
   let rounds = continued?.checkpoint.counters.rounds ?? 0;
   let children = continued?.children ?? 0;
-  let tooBigToContinue = false;
 
   setHandler(approveSignal, ({ callId, allowed, forRun }) => {
     approvals.set(callId, allowed);
@@ -317,6 +328,16 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   const signal = { get aborted() { return cancelled; }, reason: 'the run was cancelled' } as AbortSignal;
 
   return CancellationScope.nonCancellable(async () => {
+    if (ticket.depth === 0 && !input.continued && patched(CONCLUSIONS)) {
+      await conclude({
+        kind: 'run-started',
+        ownerId: ticket.ownerId,
+        runId: ticket.runId,
+        agentSlug: ticket.agentSlug,
+        depth: ticket.depth,
+        ...(conversationId ? { conversationId } : {}),
+      });
+    }
     const resolvedLimits = continued?.limits ?? await EngineRunLimitsActivity({
       ownerId: ticket.ownerId,
       agentSlug: ticket.agentSlug,
@@ -326,20 +347,10 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
     const { modelKey, modelLabel, limits } = resolvedLimits;
     const continueAfter = input.continueAfterEvents ?? CONTINUE_AFTER_EVENTS;
 
-    const pauseWhen = (checkpoint: () => import('@koala/agent-engine/procedure').RunCheckpoint): boolean => {
-      if (cancelled || tooBigToContinue) return false;
+    const pauseWhen = (): boolean => {
+      if (cancelled) return false;
       const info = workflowInfo();
-      if (!info.continueAsNewSuggested && info.historyLength < continueAfter) return false;
-      if (JSON.stringify(checkpoint()).length <= MAX_CHECKPOINT_BYTES) return true;
-      tooBigToContinue = true;
-      bus.emit({
-        type: 'notice',
-        level: 'warn',
-        runId: ticket.runId,
-        at: new Date(Date.now()).toISOString(),
-        message: `this run's state is over ${MAX_CHECKPOINT_BYTES} bytes, so it cannot continue as a new run and will run on in this one`,
-      } as EngineEvent);
-      return false;
+      return info.continueAsNewSuggested || info.historyLength >= continueAfter;
     };
 
     const result = await runProcedure({
@@ -416,6 +427,21 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       limits,
       finishedAt: new Date(Date.now()).toISOString(),
     });
+
+    if (patched(CONCLUSIONS)) {
+      await conclude({
+        kind: 'run-ended',
+        ownerId: ticket.ownerId,
+        runId: ticket.runId,
+        agentSlug: ticket.agentSlug,
+        outcome: result.outcome,
+        ...(result.reason ? { reason: result.reason } : {}),
+        ask: ask.slice(0, ASK_CHARS),
+        depth: ticket.depth,
+        ...(conversationId ? { conversationId } : {}),
+        ...(leafId ? { leafId } : {}),
+      });
+    }
 
     const finished = result.finishedBy ? result.outputs[result.finishedBy]?.result : undefined;
     const outputs = finished === undefined ? {} : (isRecord(finished) ? finished : { result: finished });

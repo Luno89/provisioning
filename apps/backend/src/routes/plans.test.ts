@@ -8,13 +8,15 @@ import type { PlanProposal } from '../lib/plan-proposals.js';
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; });
 
+const settled: [string, string | undefined][] = [];
 const adopter = { adoptPlan: vi.fn(async (_ownerId: string, id: string): Promise<string | undefined> => `adopt-plan-${id}`) };
 
 const mount = async (): Promise<Harness> => {
   adopter.adoptPlan.mockClear();
+  settled.length = 0;
   h = await mountRouter({
     prefix: '/api/plans',
-    router: (db) => plansRouter({ plans: new PlanService({ store: db, adopter, now: () => 'now' }) }),
+    router: (db) => plansRouter({ plans: new PlanService({ store: db, adopter, now: () => 'now', onSettled: (ownerId, conversationId) => { settled.push([ownerId, conversationId]); } }) }),
   });
   return h!;
 };
@@ -54,6 +56,7 @@ describe('/api/plans', () => {
     expect(res.data.status).toBe('adopting');
     expect(adopter.adoptPlan).toHaveBeenCalledWith(TEST_USER.id, 'p1');
     expect((await harness.db.getPlanProposal(TEST_USER.id, 'p1'))?.status).toBe('adopting');
+    expect(settled, 'approving a plan is something settled in its conversation').toEqual([[TEST_USER.id, 'conv-1']]);
   });
 
   it('leaves the plan waiting when the adoption cannot start', async () => {
@@ -63,6 +66,7 @@ describe('/api/plans', () => {
 
     expect(await statusOf(axios.post(harness.url('/api/plans/p1/approve')))).toBe(503);
     expect((await harness.db.getPlanProposal(TEST_USER.id, 'p1'))?.status).toBe('proposed');
+    expect(settled).toEqual([]);
   });
 
   it('lets a failed adoption be approved again, but not an adopted or rejected plan', async () => {

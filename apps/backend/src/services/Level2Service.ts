@@ -10,6 +10,9 @@ import type { Provocation } from '../eval/cases.js';
 import type { EvalRecord } from '../lib/eval-run.js';
 import type { EvalRecordStore } from './Level1Service.js';
 import type { StoredNodeTrace } from '../lib/run-traces.js';
+import { regressionsIn, type BenchTrigger } from '../lib/bench.js';
+import type { ScenarioProposal } from '../lib/scenario-proposals.js';
+import type { MemoryItem } from '../lib/memory-store.js';
 
 export type Level2RunState = 'running' | 'done' | 'failed' | 'cancelled' | 'interrupted';
 
@@ -25,6 +28,10 @@ export interface Level2Run extends EvalRecord {
   running?: string | undefined;
   results: ScenarioResult[];
   error?: string | undefined;
+  trigger?: BenchTrigger | undefined;
+  regressions?: string[] | undefined;
+  trialPractice?: string | undefined;
+  promptOverride?: { agent: string; prompt: string } | undefined;
 }
 
 export type StoredScenario = Scenario & EvalRecord;
@@ -39,6 +46,8 @@ export interface Level2ServiceOptions {
   builtIn?: readonly Scenario[] | undefined;
   now?: (() => string) | undefined;
   newId?: (() => string) | undefined;
+  onFinished?: ((run: Level2Run) => Promise<void>) | undefined;
+  practices?: ((ownerId: string) => Promise<MemoryItem[]>) | undefined;
 }
 
 export type SaveScenarioOutcome = { saved: true; scenario: StoredScenario } | { saved: false; problems: string[] };
@@ -79,6 +88,26 @@ export class Level2Service {
   async provocations(ownerId: string): Promise<Provocation[]> {
     return (await this.scenarios(ownerId))
       .flatMap((scenario) => (scenario.expect.provokes ? [{ tool: scenario.expect.provokes.tool, when: scenario.expect.provokes.when }] : []));
+  }
+
+  async proposals(ownerId: string): Promise<ScenarioProposal[]> {
+    const all = await this.options.store.getEvalRecords<ScenarioProposal>('evalScenarioProposals', ownerId, 1000);
+    return all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async acceptProposal(ownerId: string, id: string, edited?: unknown): Promise<SaveScenarioOutcome | { missing: true }> {
+    const proposal = await this.options.store.getEvalRecord<ScenarioProposal>('evalScenarioProposals', ownerId, id);
+    if (!proposal || proposal.status !== 'proposed') return { missing: true };
+    const saved = await this.saveScenario(ownerId, edited ?? proposal.scenario);
+    if (saved.saved) await this.options.store.saveEvalRecord('evalScenarioProposals', { ...proposal, status: 'accepted', decidedAt: this.now() });
+    return saved;
+  }
+
+  async dismissProposal(ownerId: string, id: string): Promise<boolean> {
+    const proposal = await this.options.store.getEvalRecord<ScenarioProposal>('evalScenarioProposals', ownerId, id);
+    if (!proposal || proposal.status !== 'proposed') return false;
+    await this.options.store.saveEvalRecord('evalScenarioProposals', { ...proposal, status: 'dismissed', decidedAt: this.now() });
+    return true;
   }
 
   async saveScenario(ownerId: string, input: unknown): Promise<SaveScenarioOutcome> {
@@ -123,6 +152,9 @@ export class Level2Service {
     modelId?: string | undefined;
     modelLabel?: string | undefined;
     sampling?: SamplingConfig | undefined;
+    trigger?: BenchTrigger | undefined;
+    trialPractice?: string | undefined;
+    promptOverride?: { agent: string; prompt: string } | undefined;
   }): Promise<Level2Run | { unknown: string[] }> {
     const all = await this.scenarios(input.ownerId);
     const unknown = (input.only ?? []).filter((id) => !all.some((scenario) => scenario.id === id));
@@ -140,6 +172,9 @@ export class Level2Service {
       scenarios: chosen.map((scenario) => scenario.id),
       finished: 0,
       results: [],
+      trigger: input.trigger ?? { kind: 'manual' },
+      ...(input.trialPractice ? { trialPractice: input.trialPractice } : {}),
+      ...(input.promptOverride ? { promptOverride: input.promptOverride } : {}),
     };
     await this.options.store.saveEvalRecord('evalScenarioRuns', run);
 
@@ -151,13 +186,23 @@ export class Level2Service {
 
   private async drive(run: Level2Run, chosen: readonly Scenario[], signal: AbortSignal): Promise<void> {
     const tools = await this.options.tools(run.ownerId);
+    const practices = ((await this.options.practices?.(run.ownerId).catch(() => [])) ?? [])
+      .filter((practice) => !practice.invalidAt && (practice.status === 'active' || practice.id === run.trialPractice));
     try {
       for (const scenario of chosen) {
         if (signal.aborted) break;
         run.running = scenario.id;
         await this.options.store.saveEvalRecord('evalScenarioRuns', run);
 
-        const world = createWorld(scenario, { ...this.options.world, ownerId: run.ownerId });
+        const override = run.promptOverride;
+        const personas = override
+          ? async (ownerId?: string) => {
+            const all = await this.options.world.personas(ownerId);
+            const base = all.find((persona) => persona.slug === override.agent && persona.ownerId === run.ownerId) ?? all.find((persona) => persona.slug === override.agent);
+            return base ? [...all.filter((persona) => !(persona.slug === override.agent && persona.ownerId === run.ownerId)), { ...base, ownerId: run.ownerId, prompt: override.prompt }] : all;
+          }
+          : this.options.world.personas;
+        const world = createWorld(scenario, { ...this.options.world, personas, ownerId: run.ownerId, practices: practices.filter((practice) => practice.agent === scenario.agent) });
         const pending: StoredNodeTrace[] = [];
         try {
           const result = await runScenario(scenario, {
@@ -208,7 +253,17 @@ export class Level2Service {
     } finally {
       delete run.running;
       run.finishedAt = this.now();
+      run.regressions = regressionsIn(run.results, await this.earlier(run));
       await this.options.store.saveEvalRecord('evalScenarioRuns', run);
     }
+    await this.options.onFinished?.(run).catch(() => undefined);
+  }
+
+  async earlier(run: Level2Run): Promise<Level2Run[]> {
+    const runs = await this.options.store.getEvalRecords<Level2Run>('evalScenarioRuns', run.ownerId, 100).catch(() => []);
+    return runs
+      .filter((other) => other.id !== run.id && other.startedAt < run.startedAt && other.state === 'done')
+      .filter((other) => other.trigger?.kind !== 'practice' && other.trigger?.kind !== 'prompt-change')
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   }
 }

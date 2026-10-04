@@ -39,6 +39,7 @@ export interface Persona {
   environmentSpec?: EnvironmentSpec | undefined;
   interface?: AgentInterface | undefined;
   egressMode?: EgressMode | undefined;
+  concludeAfterMinutes?: number | undefined;
 }
 
 export function visibleAgents(all: readonly Persona[], ownerId: string): Persona[] {

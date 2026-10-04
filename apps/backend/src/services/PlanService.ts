@@ -17,7 +17,7 @@ export type PlanDecision =
 const DECIDABLE: PlanProposal['status'][] = ['proposed', 'failed'];
 
 export class PlanService {
-  constructor(private readonly deps: { store: PlanStore; adopter: PlanAdopter; now?: () => string }) {}
+  constructor(private readonly deps: { store: PlanStore; adopter: PlanAdopter; now?: () => string; onSettled?: ((ownerId: string, conversationId: string | undefined) => void) | undefined }) {}
 
   private now(): string {
     return this.deps.now?.() ?? new Date().toISOString();
@@ -52,6 +52,7 @@ export class PlanService {
       await this.deps.store.savePlanProposal(proposal);
       return { ok: false, status: 503, error: 'Temporal is not reachable, so the plan could not be built. It is still waiting for approval.' };
     }
+    this.deps.onSettled?.(ownerId, proposal.conversationId);
     return { ok: true, proposal: adopting };
   }
 

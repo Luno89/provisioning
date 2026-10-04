@@ -102,6 +102,12 @@ describe('what an agent is refused for', () => {
       .toContain('"nothing" is not a limit — an agent may be limited to read, propose or write');
   });
 
+  it('concludes a conversation only after a positive number of quiet minutes', () => {
+    expect(agentProblems(agent({ concludeAfterMinutes: 25 }), known())).toEqual([]);
+    expect(agentProblems(agent({ concludeAfterMinutes: 0 }), known())).toContain('a conversation concludes after a number of quiet minutes greater than zero; leave it blank for the default');
+    expect(agentProblems(agent({ concludeAfterMinutes: 'soon' as never }), known())).toHaveLength(1);
+  });
+
   it('cannot hand work to an agent that does not exist, or to itself', () => {
     expect(agentProblems(agent({ agents: ['nobody'] }), known()))
       .toContain('it may hand work to "nobody", which is not an agent');

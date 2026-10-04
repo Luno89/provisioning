@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Loader2, Plus } from 'lucide-react'
 import type { EngineTool } from '../../api/engineTools'
 import ToolEditor from './ToolEditor'
+import McpToolKinds from './McpToolKinds'
 import { errorMessage, useEngineTools } from './shared'
 import { blankTool } from './tool-forms'
 
@@ -82,6 +83,8 @@ export default function ToolsView() {
           </li>
         ))}
       </ul>
+
+      <McpToolKinds />
     </div>
   )
 }

@@ -21,6 +21,7 @@ export interface WorldOptions {
   registryHost?: string | undefined;
   efforts?: { save(effort: RunEffort): Promise<void>; list(ownerId: string, procedureId: string, modelKey?: string): Promise<RunEffort[]> } | undefined;
   now?: (() => string) | undefined;
+  practices?: readonly MemoryItem[] | undefined;
 }
 
 export interface World {
@@ -58,6 +59,7 @@ export function createWorld(scenario: Scenario, options: WorldOptions): World {
     createdAt: now(),
     updatedAt: now(),
   }));
+  for (const practice of options.practices ?? []) memories.push({ ...practice, ownerId: options.ownerId, status: 'active' });
 
   const procedures = new Map<string, ProcedureSource>();
   for (const procedure of scenario.world?.procedures ?? []) {

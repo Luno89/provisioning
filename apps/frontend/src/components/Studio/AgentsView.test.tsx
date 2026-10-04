@@ -114,6 +114,30 @@ describe('the agents a person can edit', () => {
     })))
   })
 
+  it('saves how many quiet minutes conclude a conversation', async () => {
+    vi.mocked(saveAgent).mockResolvedValue(agent({ mine: true }))
+    show()
+
+    await userEvent.click(await screen.findByText('executor'))
+    const minutes = screen.getByRole('textbox', { name: 'Quiet minutes before a conversation concludes' })
+    await userEvent.type(minutes, '25')
+    await userEvent.click(screen.getByRole('button', { name: 'Save as my own' }))
+    await waitFor(() => expect(saveAgent).toHaveBeenCalledWith(expect.objectContaining({ concludeAfterMinutes: 25 })))
+  })
+
+  it('drops the quiet minutes when cleared, so the default applies', async () => {
+    vi.mocked(listAgents).mockResolvedValue([agent({ concludeAfterMinutes: 25 })])
+    vi.mocked(saveAgent).mockResolvedValue(agent({ mine: true }))
+    show()
+
+    await userEvent.click(await screen.findByText('executor'))
+    await userEvent.clear(screen.getByRole('textbox', { name: 'Quiet minutes before a conversation concludes' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save as my own' }))
+
+    await waitFor(() => expect(saveAgent).toHaveBeenCalled())
+    expect(vi.mocked(saveAgent).mock.calls[0]![0]).not.toHaveProperty('concludeAfterMinutes')
+  })
+
   it('only offers to delete an agent of your own', async () => {
     show()
 

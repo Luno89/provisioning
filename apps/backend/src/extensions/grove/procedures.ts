@@ -1,4 +1,4 @@
-import { BUILT_IN_GROUPS, builtInCatalogue, defineProcedure, type Procedure } from '@koala/agent-engine/procedure';
+import { BUILT_IN_GROUPS, agentLoop, builtInCatalogue, defineProcedure, type Procedure } from '@koala/agent-engine/procedure';
 import { GROVE_OPERATIONS } from './operations/declarations.js';
 
 function out<T extends { readonly [socket: string]: unknown }>(node: T, socket: string): NonNullable<T[string]> {
@@ -17,11 +17,8 @@ function leafProcedure(meta: { id: string; name: string; describe: string }, wor
     const provision = p.provisionSandbox('provision');
     const start = p.hostOp('start', { leaf: input.inputs }, op('grove.start-leaf'));
     const claim = p.hostOp('claim', { leaf: input.inputs, environment: provision.environment }, op('grove.file-claim', { result: 'claimed' }));
-    const fail = p.hostOp('fail', { leaf: input.inputs, environment: provision.environment }, op('grove.file-claim', { result: 'failed' }));
     const filed = p.finish('filed', { result: out(claim, 'claim') }, { outcome: 'ok', reason: 'the leaf is claimed for its judge' });
-    const failedFiled = p.finish('failedFiled', { result: out(fail, 'claim') }, { outcome: 'failed', reason: 'the leaf is claimed as failed' });
     const refused = p.finish('refused', { reason: out(claim, 'reason') }, { outcome: 'failed' });
-    const failRefused = p.finish('failRefused', { reason: out(fail, 'reason') }, { outcome: 'failed' });
     const notWaiting = p.finish('notWaiting', {}, { outcome: 'ok', reason: 'the leaf was no longer waiting to be worked' });
     const unavailable = p.finish('unavailable', { reason: provision.reason }, { outcome: 'failed' });
     const putBack = p.hostOp('putBack', { leaf: input.inputs }, op('grove.return-leaf'));
@@ -34,11 +31,14 @@ function leafProcedure(meta: { id: string; name: string; describe: string }, wor
     start.on('notWaiting', notWaiting);
     claim.on('filed', filed);
     claim.on('refused', refused);
-    fail.on('filed', failedFiled);
-    fail.on('refused', failRefused);
     putBack.on('done', cleaned);
 
     if (work === 'tasks') {
+      const fail = p.hostOp('fail', { leaf: input.inputs, environment: provision.environment }, op('grove.file-claim', { result: 'failed' }));
+      const failedFiled = p.finish('failedFiled', { result: out(fail, 'claim') }, { outcome: 'failed', reason: 'the leaf is claimed as failed' });
+      const failRefused = p.finish('failRefused', { reason: out(fail, 'reason') }, { outcome: 'failed' });
+      fail.on('filed', failedFiled);
+      fail.on('refused', failRefused);
       const next = p.hostOp('next', { leaf: input.inputs }, op('grove.next-task'));
       const task = p.delegate('task', { values: out(next, 'task'), environment: provision.environment }, {
         agent: 'executor',
@@ -50,6 +50,7 @@ function leafProcedure(meta: { id: string; name: string; describe: string }, wor
       start.on('started', next);
       next.on('run', task);
       next.on('claim', claim);
+      next.on('stopped', claim);
       next.on('fail', fail);
       next.on('unbroken', back);
       task.on('ok', next);
@@ -66,14 +67,18 @@ function leafProcedure(meta: { id: string; name: string; describe: string }, wor
         agent: 'paper-writer',
         inputs: '{"leafId":"{{values.item.leafId}}","leafTitle":"{{values.item.title}}","leafBody":"{{values.item.body}}","message":"Work the leaf \\"{{values.item.title}}\\"."}',
       });
+      const stopped = p.hostOp('stopped', { leaf: input.inputs, environment: provision.environment, evidence: write.reason }, op('grove.file-claim', { result: 'claimed', stopped: true }));
+      const stoppedFiled = p.finish('stoppedFiled', { result: out(stopped, 'claim') }, { outcome: 'ok', reason: 'the writer did not finish, so the leaf is claimed for its judge to look at what was attempted' });
+      const stoppedRefused = p.finish('stoppedRefused', { reason: out(stopped, 'reason') }, { outcome: 'failed' });
       claim.wire({ evidence: write.text });
-      fail.wire({ reason: write.reason });
       start.on('started', write);
       write.on('ok', claim);
-      write.on('failed', fail);
+      write.on('failed', stopped);
+      stopped.on('filed', stoppedFiled);
+      stopped.on('refused', stoppedRefused);
       p.layout({
         input: [0, 0], provision: [260, 0], start: [520, 0], write: [780, 0],
-        claim: [1040, 0], fail: [1040, 160], filed: [1300, 0], refused: [1300, 80], failedFiled: [1300, 160], failRefused: [1300, 240],
+        claim: [1040, 0], stopped: [1040, 160], filed: [1300, 0], refused: [1300, 80], stoppedFiled: [1300, 160], stoppedRefused: [1300, 240],
         notWaiting: [780, 160], unavailable: [520, 160], putBack: [0, 400], cleaned: [260, 400],
       });
     }
@@ -161,3 +166,13 @@ export const GROVE_PAPER_RUN = runProcedure({
   name: 'Grove paper run',
   describe: 'A research-paper tree grown until it is quiet: the grove run, with each leaf written in one run by the paper writer rather than worked task by task.',
 }, 'grove-paper-leaf');
+
+export const PAPER_WRITING = agentLoop({
+  id: 'paper-writing',
+  name: 'Paper writing',
+  describe: 'The model researches and writes, round after round, until it answers. A reply cut off at the token cap carries on writing rather than ending the run, and a run that ends saying nothing has failed, so a leaf is never claimed on a paper that was not written.',
+  answered: { outcome: 'ok' },
+  truncated: 'continue',
+  empty: { outcome: 'failed', reason: 'the writer ended without saying anything' },
+  circling: { outcome: 'failed' },
+});

@@ -20,11 +20,12 @@ export const approveToolCalls: BuiltInNode = {
     kind: 'approve-tool-calls',
     title: 'Approve Tool Calls',
     category: 'tools',
-    describe: 'Asks a person to allow each tool call before it runs. By default it only asks when the run is working on someone\'s own machine; sandboxes and the platform go straight through. A refused call gets a result saying so, which goes back to the model.',
+    describe: 'Asks a person to allow each tool call before it runs. By default it asks for any call to a tool that can destroy or overwrite something, and for every call when the run is working on someone\'s own machine; other calls in sandboxes and on the platform go straight through. A refused call gets a result saying so, which goes back to the model.',
     role: 'step',
     inputs: [
       { name: 'reply', type: 'reply', describe: 'The reply whose tool calls need approving.', required: true },
       { name: 'environment', type: 'environment', describe: 'Where the calls would run.' },
+      { name: 'offered', type: 'toolSet', describe: 'The tools the model was offered, which say which of them are destructive.', required: true },
     ],
     outputs: [
       { name: 'approved', type: 'reply', describe: 'The reply with only the approved calls left in it.' },
@@ -40,7 +41,7 @@ export const approveToolCalls: BuiltInNode = {
         ask: {
           type: 'string',
           title: 'Ask',
-          describe: '"on-a-machine" asks only for a registered machine, "always" asks for every call, "never" lets everything through.',
+          describe: '"on-a-machine" asks for every call on a registered machine and for destructive calls anywhere, "always" asks for every call, "never" lets everything through, destructive or not.',
           enum: APPROVAL_POLICIES,
           default: 'on-a-machine',
         },

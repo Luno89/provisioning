@@ -1,9 +1,21 @@
 import type { McpRequest } from '@koala/harness-types'
 import { api } from './client'
 
+export type McpToolKind = 'read-only' | 'safe-write' | 'destructive'
+export type McpHintChoice = 'server' | McpToolKind
+
+export interface McpToolSummary {
+  name: string
+  description?: string
+  readOnly: boolean
+  kind: McpToolKind
+  declared: McpToolKind
+  choice: McpHintChoice
+}
+
 export interface McpServerSummary {
   name: string
-  tools: { name: string; description?: string; readOnly: boolean }[]
+  tools: McpToolSummary[]
   unreachable?: string
 }
 
@@ -15,6 +27,9 @@ export const mcpKeys = {
 
 export const listMcpServers = (): Promise<McpServerSummary[]> =>
   api.get<McpServerSummary[]>('/mcp/servers').then((r) => r.data)
+
+export const setMcpToolHint = (server: string, tool: string, choice: McpHintChoice): Promise<McpServerSummary[]> =>
+  api.put<McpServerSummary[]>(`/mcp/servers/${encodeURIComponent(server)}/tools/${encodeURIComponent(tool)}/hint`, { choice }).then((r) => r.data)
 
 export const listMcpRequests = (conversationId: string): Promise<McpRequest[]> =>
   api.get<McpRequest[]>('/mcp/requests', { params: { conversationId } }).then((r) => r.data)

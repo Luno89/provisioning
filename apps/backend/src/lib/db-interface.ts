@@ -1,7 +1,11 @@
 import type { Conversation } from './conversations.js';
 import type { StoredAppSpec } from './app-spec.js';
 import { MemoryDB } from './memory-db.js';
+import type { McpToolHint } from './mcp-tool-hints.js';
+import type { BenchSettings, BenchState } from './bench.js';
 import { MongoDB } from './mongo-db.js';
+import { mongoPayloadBlobs } from './mongo-payload-blobs.js';
+import { inMemoryPayloadBlobs, type PayloadBlobs } from './payload-storage.js';
 import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
@@ -154,6 +158,15 @@ export interface Database {
   getMcpRequests(ownerId: string, conversationId?: string): Promise<McpRequest[]>;
   getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined>;
   saveMcpRequest(request: McpRequest): Promise<void>;
+  getMcpToolHints(ownerId: string): Promise<McpToolHint[]>;
+  getMemoryWatermark(key: string): Promise<string | undefined>;
+  getBenchSettings(ownerId: string): Promise<BenchSettings | undefined>;
+  saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void>;
+  getBenchState(ownerId: string): Promise<BenchState | undefined>;
+  saveBenchState(state: BenchState): Promise<void>;
+  saveMemoryWatermark(key: string, value: string): Promise<void>;
+  saveMcpToolHint(hint: McpToolHint): Promise<void>;
+  deleteMcpToolHint(ownerId: string, server: string, tool: string): Promise<void>;
 
   getActionProposals(ownerId: string, filter?: { conversationId?: string | undefined; treeId?: string | undefined }): Promise<ActionProposal[]>;
   getActionProposal(ownerId: string, id: string): Promise<ActionProposal | undefined>;
@@ -211,6 +224,16 @@ export interface Database {
 
   getModelThinkingProfile?(modelId: string): Promise<ModelThinkingProfile | null>;
   saveModelThinkingProfile?(profile: ModelThinkingProfile): Promise<void>;
+}
+
+let payloadBlobs: PayloadBlobs | undefined;
+
+export function sharedPayloadBlobs(): PayloadBlobs {
+  if (!payloadBlobs) {
+    const inMemory = process.env.USE_MEMORY_DB === 'true' || (process.env.NODE_ENV === 'test' && !process.env.IS_E2E);
+    payloadBlobs = inMemory ? inMemoryPayloadBlobs() : mongoPayloadBlobs();
+  }
+  return payloadBlobs;
 }
 
 export function createDatabase(): Database {

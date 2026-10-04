@@ -21,6 +21,12 @@ export function mcpRouter(deps: McpRouterDeps): Router {
     res.json(await deps.mcp.servers(userOf(req).id));
   }));
 
+  router.put('/servers/:server/tools/:tool/hint', asyncRoute(async (req, res) => {
+    const decided = await deps.mcp.setToolHint(userOf(req).id, String(req.params.server ?? ''), String(req.params.tool ?? ''), req.body?.choice);
+    if (!decided.ok) return res.status(decided.status).json({ error: decided.error });
+    res.json(await deps.mcp.servers(userOf(req).id));
+  }));
+
   router.get('/requests', asyncRoute(async (req, res) => {
     const conversationId = typeof req.query.conversationId === 'string' ? req.query.conversationId : undefined;
     res.json(await deps.mcp.requests(userOf(req).id, conversationId));

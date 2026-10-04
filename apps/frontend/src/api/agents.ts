@@ -32,6 +32,7 @@ export interface Agent {
   agents?: string[]
   environment: AgentEnvironment
   model?: { endpointId?: string | null; reasoningEffort?: string; replyCeiling?: number }
+  concludeAfterMinutes?: number
   interface?: { inputs?: unknown; outputs?: string[] }
   mine: boolean
   image?: AgentImage
