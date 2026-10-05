@@ -20,6 +20,7 @@ export interface HostNodeServices {
   };
   code?: import('./code-runner.js').CodeRunner | undefined;
   conversations: import('./conversation-nodes.js').ConversationStore;
+  conversationWorkspaces?: Pick<import('../sandboxes/conversation-workspaces.js').ConversationWorkspaces, 'describe' | 'save'> | undefined;
   mcp?: import('../tools/mcp-tools.js').McpToolSource | undefined;
   images?: { waiting(ownerId: string, agentSlug: string): Promise<string | undefined> } | undefined;
   efforts?: {

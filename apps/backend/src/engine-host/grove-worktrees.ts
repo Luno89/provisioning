@@ -98,12 +98,17 @@ export async function prepareJudgeCheckout(driver: EnvironmentDriver, leafId: st
   return resolved.out;
 }
 
-export async function worktreeHead(driver: EnvironmentDriver): Promise<{ commit?: string | undefined; dirty: string[] }> {
+const lines = (text: string): string[] => text.split('\n').map((line) => line.trim()).filter(Boolean);
+
+/** Where the worktree stands: its commit, what is not committed, and the files its branch has added or changed since it left main. */
+export async function worktreeHead(driver: EnvironmentDriver): Promise<{ commit?: string | undefined; dirty: string[]; changed: string[] }> {
   const status = await run(driver, 'git status --porcelain');
-  if (!status.ok) return { dirty: [] };
+  if (!status.ok) return { dirty: [], changed: [] };
   const head = await run(driver, 'git rev-parse HEAD');
+  const changed = head.ok ? await run(driver, 'git -c core.quotePath=false diff --name-only --diff-filter=d main...HEAD') : undefined;
   return {
     ...(head.ok ? { commit: head.out } : {}),
-    dirty: status.out.split('\n').map((line) => line.trim()).filter(Boolean),
+    dirty: lines(status.out),
+    changed: changed?.ok ? lines(changed.out) : [],
   };
 }

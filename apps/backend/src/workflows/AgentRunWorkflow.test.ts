@@ -537,6 +537,30 @@ describe('a long run continues as a new one', () => {
     expect(published(acts).filter((event) => event.type === 'run.started' && event.runId === args.ticket.runId)).toHaveLength(1);
   }, 120_000);
 
+  it('answers with everything it and the runs it handed work to made, across a new run', async () => {
+    const findings = { kind: 'file' as const, workspace: 'conversation-c1', path: 'research/r1/findings.md' };
+    const notes = { kind: 'file' as const, workspace: 'conversation-c1', path: 'koala/notes.md' };
+    const acts = activities({ script: [
+      callsATool('c1', 'research', '{"question":"why"}'),
+      callsATool('c2', 'write_file', '{"path":"research/r1/findings.md"}'),
+      { content: 'it is in findings.md' },
+      callsATool('c3', 'write_file', '{"path":"koala/notes.md"}'),
+      { content: 'done' },
+    ] });
+    acts.engine.EngineToolActivity.mockImplementation(async (args: ToolCallArgs) => ({
+      ok: true,
+      digest: `ran ${args.name}`,
+      content: '',
+      artifacts: [args.callId === 'c2' ? findings : notes],
+    }));
+    const args = { ...input('koala', TOOL_ROUNDS_V2), continueAfterEvents: 1 };
+
+    const result = await runWorkflow(args, acts);
+
+    expect(result).toMatchObject({ outcome: 'ok' });
+    expect(result.artifacts).toEqual([findings, notes]);
+  }, 120_000);
+
   it('keeps numbering its children across a new run, so no child reuses an earlier one\'s id', async () => {
     const acts = activities({ script: [{ content: 'one answered' }, { content: 'two answered' }] });
     const args = { ...input('koala', twiceDelegating), continueAfterEvents: 1 };

@@ -1,3 +1,4 @@
+import type { DocumentAddress } from '../types/documents';
 
 export type LeafStatus = 'pending' | 'running' | 'claimed' | 'succeeded' | 'failed' | 'cancelled';
 
@@ -57,7 +58,7 @@ export interface Leaf {
   replans?: number;
   attempts?: LeafAttempt[];
   findings?: string;
-  claim?: { evidence: string; commit?: string; findings?: string; runs?: string[]; at: string };
+  claim?: { evidence: string; commit?: string; files?: string[]; findings?: string; runs?: string[]; at: string };
   verified?: boolean;
   review?: { verdict: 'sound' | 'concern' | 'unsound'; reason?: string; model?: string; at: string };
   createdAt?: string;
@@ -93,3 +94,17 @@ export const STATE_DOT: Record<LeafState, string> = {
 };
 
 export const CANCELLED_DOT = 'bg-slate-700';
+
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * The tree's workspace name mirrors `treeWorkspaceRunId` in
+ * `apps/backend/src/engine-host/sandboxes/workspace-repos.ts`, which wins.
+ */
+export const treeWorkspace = (treeId: string): string => `tree-${treeId}`;
+
+/** The files a leaf's branch added or changed, as of the commit it claimed: what its page opens. */
+export function leafDocuments(leaf: Pick<Leaf, 'claim'>, treeId: string): DocumentAddress[] {
+  const commit = leaf.claim?.commit;
+  if (!commit) return [];
+  return (leaf.claim?.files ?? []).map((path) => ({ workspace: treeWorkspace(treeId), path, at: commit }));
+}

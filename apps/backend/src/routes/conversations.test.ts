@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, beforeEach } from 'vitest';
 import { conversationsRouter } from './conversations.js';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import type { Database } from '../lib/db-interface.js';
@@ -11,10 +11,35 @@ const harness: Harness = await mountRouter({
       db.getConversations().then((c: any) => c.filter((x: any) => x.ownerId === userId)),
     ownedTrees: async (userId: string) => (await db.getTrees()).filter((tree) => tree.ownerId === userId),
     ownedProjects: async (userId: string) => (await db.getProjects()).filter((project) => project.ownerId === userId),
+    workspaces: { conclude: async (ownerId: string, conversationId: string) => {
+      concluded.push(`${ownerId}/${conversationId}`);
+      if (concludeFails) throw new Error('Pushing to koala-u1/research-x failed: Gitea is down');
+    } },
   }),
 });
 
+let concluded: string[] = [];
+let concludeFails = false;
+beforeEach(() => { concluded = []; concludeFails = false; });
+
 afterAll(async () => { await harness.close(); });
+
+describe('deleting a conversation', () => {
+  const create = async () => ((await (await fetch(harness.url('/api/conversations'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json()) as { id: string }).id;
+
+  it('saves its workspace first', async () => {
+    const id = await create();
+    expect((await fetch(harness.url(`/api/conversations/${id}`), { method: 'DELETE' })).status).toBe(200);
+    expect(concluded).toEqual([`${TEST_USER.id}/${id}`]);
+  });
+
+  it('keeps the conversation when its workspace could not be saved', async () => {
+    const id = await create();
+    concludeFails = true;
+    expect((await fetch(harness.url(`/api/conversations/${id}`), { method: 'DELETE' })).status).toBe(500);
+    expect((await fetch(harness.url(`/api/conversations/${id}`))).status).toBe(200);
+  });
+});
 
 describe('conversation CRUD', () => {
   it('creates, lists, reads, and deletes a conversation', async () => {

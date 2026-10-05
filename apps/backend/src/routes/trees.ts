@@ -92,7 +92,7 @@ export function treesRouter(deps: TreesRouterDeps): Router {
   router.delete('/:id/workspace', asyncRoute(async (req, res) => {
     const tree = (await ownedTrees(userOf(req).id)).find((t) => t.id === idOf(req));
     if (!tree) return res.status(404).json({ error: 'Tree not found' });
-    await workspaces.release(tree.id);
+    await workspaces.release(tree.id, userOf(req).id);
     res.json({ state: 'none' });
   }));
 

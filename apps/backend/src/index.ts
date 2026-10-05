@@ -112,6 +112,9 @@ import { CredentialService } from './services/CredentialService.js';
 import { GiteaService } from './services/GiteaService.js';
 import { InfisicalService } from './services/InfisicalService.js';
 import { ProjectRepoService } from './services/ProjectRepoService.js';
+import { WorkspaceConclusionService } from './services/WorkspaceConclusionService.js';
+import { DocumentService } from './services/DocumentService.js';
+import { documentsRouter } from './routes/documents.js';
 import { HeadscaleService } from './services/HeadscaleService.js';
 import { ModelService } from './services/ModelService.js';
 import { decryptValue } from './lib/crypto.js';
@@ -268,6 +271,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    */
   const bench: { service?: BenchService } = {};
   const agentsHolder: { service?: AgentService } = {};
+  const workspaceConclusions = new WorkspaceConclusionService({
+    workflows: async () => (await getTemporalClient()).workflow,
+    taskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE,
+  });
   const memoryKeeper = new MemoryKeeperService({
     store: db,
     start: async (request) => { await engineRuns.start(request); },
@@ -642,6 +649,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const evalWeb = await buildWebTools(db).catch(() => undefined);
   const evalHost = createEngineHost({
+    documents: { push: (request) => projectRepoService.pushDocuments(request), pull: (request) => projectRepoService.pullDocuments(request) },
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
     models: modelService,
@@ -865,10 +873,19 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   tenant.use('/api/conversations', conversationsRouter({
     db,
+    workspaces: { conclude: (ownerId: string, conversationId: string) => workspaceConclusions.conclude(ownerId, { kind: 'conversation', id: conversationId }) },
     ownedConversations,
     ownedTrees,
     ownedProjects: async (userId: string) => (await db.getProjects()).filter((project) => project.ownerId === userId),
   }));
+
+  const documentService = new DocumentService({
+    owns: async (userId, kind, id) => (kind === 'tree'
+      ? (await ownedTrees(userId)).some((tree) => tree.id === id)
+      : (await ownedConversations(userId)).some((conversation) => conversation.id === id)),
+    read: (userId, repo, path, ref) => projectRepoService.readDocument(userId, repo, path, ref),
+  });
+  tenant.use('/api/documents', documentsRouter({ documents: documentService }));
 
   tenant.use('/api/memories', memoriesRouter({ db, temporalBridge }));
 
@@ -887,12 +904,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       leafRun: async (leafId: string) => (await db.getLeaves()).find((leaf) => leaf.id === leafId)?.runId,
     }),
   });
+  const treeConclusions = { release: (treeId: string, ownerId: string) => workspaceConclusions.conclude(ownerId, { kind: 'tree', id: treeId }) };
   const groveDeletion = new GroveDeletionService({
     store: db,
     workflows: { terminate: (workflowId, reason) => temporalBridge.terminateIfRunning(workflowId, reason) },
-    workspaces: evalHost.treeWorkspaces,
+    workspaces: treeConclusions,
   });
-  tenant.use('/api/trees', treesRouter({ db, workspaces: evalHost.treeWorkspaces, runs: groveRuns, deletion: groveDeletion }));
+  tenant.use('/api/trees', treesRouter({ db, workspaces: { state: (treeId) => evalHost.treeWorkspaces.state(treeId), ...treeConclusions }, runs: groveRuns, deletion: groveDeletion }));
   tenant.use('/api/plans', plansRouter({ plans: new PlanService({ store: db, adopter: temporalBridge, onSettled: concluded }) }));
   tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault: infisicalService }) }));
   tenant.use('/api/branches', branchesRouter({ db, deletion: groveDeletion }));

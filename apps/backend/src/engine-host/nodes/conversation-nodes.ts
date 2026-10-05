@@ -87,6 +87,7 @@ export function asStoredToolCallsMany(
         args: call.arguments,
         ok: answer ? answer.ok : false,
         digest: answer ? answer.content : NOT_RUN_CALL,
+        ...(answer?.artifacts?.length ? { artifacts: answer.artifacts } : {}),
       });
     }
   }

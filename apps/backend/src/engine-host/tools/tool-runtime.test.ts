@@ -128,6 +128,19 @@ describe('tool runtime', () => {
     expect(seen).toEqual(['p-7']);
   });
 
+  it('tells a tool when the call works in a conversation\'s workspace', async () => {
+    const seen: (boolean | undefined)[] = [];
+    const tools = createToolRuntime({
+      registry: registry(),
+      environments: sourceFor(undefined),
+      handlers: { save_memory: async ({ caller }) => { seen.push(caller.inConversationWorkspace); return { ok: true, digest: 'ok' }; } },
+    });
+    const ticket = { runId: 'r', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user' as const };
+    await tools.run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket, environment: { id: 'engine-conversation-c1', spec: { kind: 'sandbox', lifecycle: 'persistent' }, workspace: { runId: 'conversation-c1', sharedBy: 'conversation' } as never } }));
+    await tools.run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket, environment: { id: 'engine-tree-t1', spec: { kind: 'sandbox', lifecycle: 'persistent' }, workspace: { runId: 'tree-t1' } as never } }));
+    expect(seen).toEqual([true, undefined]);
+  });
+
   it('refuses a tool the agent was never granted', async () => {
     const { driver } = sandbox();
     const outcome = await runtime(driver).run(args({ name: 'search_web', arguments: '{"q":"x"}' }));

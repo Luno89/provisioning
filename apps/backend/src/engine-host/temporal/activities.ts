@@ -33,7 +33,10 @@ import type {
   SettleClaimsArgs,
   ProcedureRunInput,
 } from './contracts.js';
-import { type LifecycleEvent, type BenchIdleOutcome, groveRunWorkflowId } from './contracts.js';
+import { type LifecycleEvent, type BenchIdleOutcome, type ConcludeWorkspaceArgs, groveRunWorkflowId } from './contracts.js';
+import type { ConversationWorkspaces } from '../sandboxes/conversation-workspaces.js';
+import type { SavedDocuments } from '../sandboxes/workspace-documents.js';
+import { DEFAULT_CHAT_AGENT } from '../../lib/conclusions.js';
 import { type TreeTypeChoice } from '../../extensions/grove/tools/grove-tools.js';
 import type { TreeWorkspaces } from '../sandboxes/tree-workspaces.js';
 import type { AdoptedRecords, PlanAdoption } from '../plan-adoption.js';
@@ -80,6 +83,9 @@ export interface EngineServices extends StreamServices {
   /** the grove's tree stores (read-only use by the partition activity) */
   grove?: GroveStores | undefined;
   treeWorkspaces?: TreeWorkspaces | undefined;
+  conversationWorkspaces?: Pick<ConversationWorkspaces, 'conclude'> | undefined;
+  /** The agent a conversation is held with, whose reach decides what its workspace was built for. */
+  conversationAgent?: ((ownerId: string, conversationId: string) => Promise<string | undefined>) | undefined;
   planAdoption?: PlanAdoption | undefined;
   plans?: { list(ownerId: string): Promise<import('../../lib/plan-proposals.js').PlanProposal[]> } | undefined;
 }
@@ -168,6 +174,7 @@ export interface EngineActivities extends StreamActivities {
   EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome>;
   EngineMergeActivity(args: MergeArgs): Promise<Record<string, unknown>>;
   GroveRunInputActivity(args: { treeId: string; ownerId: string }): Promise<ProcedureRunInput>;
+  ConcludeWorkspaceActivity(args: ConcludeWorkspaceArgs): Promise<SavedDocuments>;
   PlanAdoptRecordsActivity(args: AdoptPlanArgs): Promise<AdoptedRecords>;
   PlanAdoptDocumentsActivity(args: AdoptPlanArgs & { records: AdoptedRecords }): Promise<string>;
   PlanAdoptSettleActivity(args: AdoptPlanArgs & { status: 'adopted' | 'failed'; adopted?: AdoptedPlan | undefined; reason?: string | undefined }): Promise<void>;
@@ -230,6 +237,16 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
         procedure: runnable.procedure,
         inputs: { treeId: args.treeId, message: 'Grow the tree.' },
       };
+    },
+
+    async ConcludeWorkspaceActivity({ ownerId, workspace }) {
+      if (workspace.kind === 'tree') {
+        if (!services.treeWorkspaces) throw new Error('tree workspaces are not wired, so a tree\'s workspace cannot be concluded');
+        return services.treeWorkspaces.release(workspace.id, ownerId);
+      }
+      if (!services.conversationWorkspaces) return { saved: false, why: 'this server keeps no conversation workspaces' };
+      const agentSlug = (await services.conversationAgent?.(ownerId, workspace.id)) ?? DEFAULT_CHAT_AGENT;
+      return services.conversationWorkspaces.conclude({ conversationId: workspace.id, ownerId, agentSlug });
     },
 
     async PlanAdoptRecordsActivity(args) {

@@ -52,6 +52,7 @@
     "test:proposals-live": "cd apps/backend && tsx ../../tests/proposals-live.ts",
     "test:practices-live": "cd apps/backend && tsx ../../tests/practices-live.ts",
     "test:changes-live": "cd apps/backend && tsx ../../tests/changes-live.ts",
+    "test:research-live": "cd apps/backend && tsx ../../tests/research-live.ts",
     "test:extensions-live": "cd apps/backend && tsx ../../tests/extensions-live.ts",
     "test:instance-live": "cd apps/backend && tsx ../../tests/instance-live.ts",
     "test:byo-live": "cd apps/backend && tsx ../../tests/byo-machine-live.ts",

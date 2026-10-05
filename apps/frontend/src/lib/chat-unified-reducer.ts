@@ -1,3 +1,4 @@
+import type { Artifact } from '@koala/agent-engine/procedure'
 
 export interface ToolPill {
   id: string;
@@ -6,6 +7,7 @@ export interface ToolPill {
   running: boolean;
   ok?: boolean;
   digest?: string | undefined;
+  artifacts?: Artifact[] | undefined;
 }
 
 export interface ChatRenderState {
@@ -41,9 +43,9 @@ export function reduceUnifiedFrames(
     return { ...state, tools };
   }
   if (frame.type === 'toolResult' && 'payload' in frame) {
-    const { id, ok, digest } = frame.payload as { id: string; ok: boolean; digest?: string };
+    const { id, ok, digest, artifacts } = frame.payload as { id: string; ok: boolean; digest?: string; artifacts?: Artifact[] };
     const tools = state.tools.map((t) =>
-      t.id === id ? { ...t, running: false, ok, digest } : t
+      t.id === id ? { ...t, running: false, ok, digest, ...(artifacts?.length ? { artifacts } : {}) } : t
     );
     return { ...state, tools };
   }
@@ -57,7 +59,7 @@ export type UnifiedFrame =
   | { type: 'content'; delta: string }
   | { type: 'thinking'; delta: string }
   | { type: 'toolAnnounce'; payload: { id: string; name: string; args: string } }
-  | { type: 'toolResult'; payload: { id: string; ok: boolean; digest?: string } }
+  | { type: 'toolResult'; payload: { id: string; ok: boolean; digest?: string; artifacts?: Artifact[] } }
   | { type: 'usage'; payload: unknown }
   | { type: 'interrupted'; payload: unknown }
   | { type: string; payload?: unknown };

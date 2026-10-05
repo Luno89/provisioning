@@ -10,3 +10,4 @@ export { executeIngestWorkflow } from './IngestWorkflow.js';
 export { AgentRunWorkflow } from './AgentRunWorkflow.js';
 export { ConversationConclusionWorkflow } from './ConversationConclusionWorkflow.js';
 export { BenchIdleWorkflow } from './BenchIdleWorkflow.js';
+export { ConcludeWorkspaceWorkflow } from './ConcludeWorkspaceWorkflow.js';

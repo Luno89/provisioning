@@ -16,6 +16,7 @@ export interface ClusterBackendOptions {
   run: KubeRunner;
   workspace: RunWorkspace;
   readyTimeoutMs?: number | undefined;
+  onStarted?: (() => Promise<void>) | undefined;
 }
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
@@ -41,6 +42,7 @@ export function createClusterBackend(options: ClusterBackendOptions): SandboxBac
       pod: POD,
       readyTimeoutMs: options.readyTimeoutMs ?? 120_000,
     });
+    await options.onStarted?.();
 
     standing = true;
   };

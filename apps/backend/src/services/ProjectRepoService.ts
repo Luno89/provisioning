@@ -13,6 +13,8 @@ import {
 
 const EDITOR_TOKEN_TTL_MS = 30 * 60 * 1000;
 
+const DOCUMENTS_SERVED_WITHIN_MS = 30_000;
+
 export class ProjectRepoService {
   private editorTokens = new Map<string, { token: string; username: string; mintedAt: number }>();
 
@@ -206,6 +208,48 @@ export class ProjectRepoService {
     const { token } = await this.gitea.createPushToken(username, password);
     this.editorTokens.set(ownerId, { token, username, mintedAt: Date.now() });
     return { token, username };
+  }
+
+  async pushDocuments(request: { ownerId: string; repo: string; describe: string; bundle: string }): Promise<{ owner: string; repo: string; commit: string }> {
+    const { username, password } = await this.ensureAccount(request.ownerId);
+    const created = !(await this.gitea.findRepo(username, request.repo));
+    if (created) {
+      await this.gitea.createRepoForUser(username, request.repo, { private: true, description: request.describe, empty: true });
+    }
+    const { name: tokenName, token } = await this.gitea.createPushToken(username, password);
+    try {
+      const commit = await this.gitea.pushBundle({ username, token }, username, request.repo, request.bundle);
+      if (created) await this.untilServed(username, request.repo);
+      return { owner: username, repo: request.repo, commit };
+    } finally {
+      await this.gitea.revokeUserToken(username, password, tokenName).catch(() => undefined);
+    }
+  }
+
+  private async untilServed(owner: string, repo: string): Promise<void> {
+    const deadline = Date.now() + DOCUMENTS_SERVED_WITHIN_MS;
+    while (!(await this.gitea.repoServesFiles(owner, repo))) {
+      if (Date.now() > deadline) throw new Error(`${owner}/${repo} was pushed, but Gitea was still not serving its files after ${DOCUMENTS_SERVED_WITHIN_MS / 1000}s`);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+
+  async pullDocuments(request: { ownerId: string; repo: string; bundle: string }): Promise<boolean> {
+    const { username, password } = await this.ensureAccount(request.ownerId);
+    if (!(await this.gitea.findRepo(username, request.repo))) return false;
+    const { name: tokenName, token } = await this.gitea.createReadToken(username, password);
+    try {
+      return await this.gitea.pullBundle({ username, token }, username, request.repo, request.bundle);
+    } finally {
+      await this.gitea.revokeUserToken(username, password, tokenName).catch(() => undefined);
+    }
+  }
+
+  async readDocument(ownerId: string, repo: string, path: string, ref: string): Promise<{ owner: string; repo: string; content: string } | null> {
+    const { username } = await this.ensureAccount(ownerId);
+    if (!(await this.gitea.findRepo(username, repo))) return null;
+    const content = await this.gitea.getRawFile(username, repo, path.split('/').map(encodeURIComponent).join('/'), ref);
+    return content === null ? null : { owner: username, repo, content };
   }
 
   async revokeCheckout(ownerId: string, tokenName: string): Promise<void> {

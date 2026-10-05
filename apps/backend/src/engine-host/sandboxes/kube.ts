@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { createReadStream, createWriteStream } from 'fs';
 import path from 'path';
 
 export interface KubeResult {
@@ -11,10 +12,56 @@ export interface KubeRunner {
   (args: string[], input?: string, timeoutMs?: number): Promise<KubeResult>;
 }
 
+export interface KubeStreamer {
+  toFile(args: string[], destination: string, timeoutMs?: number): Promise<{ exitCode: number; stderr: string }>;
+  fromFile(args: string[], source: string, timeoutMs?: number): Promise<{ exitCode: number; stderr: string }>;
+}
+
 export const MAX_OUTPUT_CHARS = 30_000;
 
+const kubectlAt = (binDir?: string): string => path.join(binDir ?? path.join(process.cwd(), '..', '..', 'bin'), 'kubectl');
+
+export function createKubeStreamer(options: { binDir?: string; kubeconfig?: string | undefined } = {}): KubeStreamer {
+  const binary = kubectlAt(options.binDir);
+
+  const spawnWith = (
+    args: string[],
+    timeoutMs: number,
+    wire: (child: ReturnType<typeof spawn>) => (done: () => void) => void,
+  ) => new Promise<{ exitCode: number; stderr: string }>((resolve, reject) => {
+    const child = spawn(binary, args, {
+      env: { ...process.env, ...(options.kubeconfig ? { KUBECONFIG: options.kubeconfig } : {}) },
+    });
+    let stderr = '';
+    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    const finish = wire(child);
+
+    child.stderr!.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.on('error', (err) => { clearTimeout(timer); reject(err); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      finish(() => resolve({ exitCode: code ?? -1, stderr: stderr.slice(0, MAX_OUTPUT_CHARS) }));
+    });
+  });
+
+  return {
+    toFile: (args, destination, timeoutMs = 300_000) => spawnWith(args, timeoutMs, (child) => {
+      const out = createWriteStream(destination);
+      child.stdout!.pipe(out);
+      child.stdin!.end();
+      return (done) => out.end(done);
+    }),
+
+    fromFile: (args, source, timeoutMs = 300_000) => spawnWith(args, timeoutMs, (child) => {
+      child.stdout!.resume();
+      createReadStream(source).pipe(child.stdin!);
+      return (done) => done();
+    }),
+  };
+}
+
 export function createKubeRunner(options: { binDir?: string; kubeconfig?: string | undefined } = {}): KubeRunner {
-  const binary = path.join(options.binDir ?? path.join(process.cwd(), '..', '..', 'bin'), 'kubectl');
+  const binary = kubectlAt(options.binDir);
 
   return (args, input, timeoutMs = 120_000) => new Promise<KubeResult>((resolve, reject) => {
     const child = spawn(binary, args, {

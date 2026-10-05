@@ -2,7 +2,7 @@ import { User, Sparkles, ChevronDown, ChevronRight, AlertTriangle } from 'lucide
 import { memo, useState } from 'react';
 import Markdown from '../Markdown.js';
 import { KoalaSpot, type KoalaMood } from '../Koala.js';
-import ChatToolCallCard, { type ToolCallData } from './ChatToolCallCard.js';
+import ChatToolCallCard, { type FileArtifact, type ToolCallData } from './ChatToolCallCard.js';
 import { ChatParser } from '../../lib/chat-parser/chat-parser.js';
 
 export interface ChatMessageData {
@@ -72,10 +72,12 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   message,
   packLabel = 'Koala',
   isStreaming = false,
+  onOpenDocument,
 }: {
   message: ChatMessageData;
   packLabel?: string;
   isStreaming?: boolean;
+  onOpenDocument?: ((file: FileArtifact) => void) | undefined;
 }) {
   const isUser = message.role === 'user';
   const mascotMood: KoalaMood = isStreaming ? 'thinking' : 'idle';
@@ -141,7 +143,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
         {allToolCalls.length > 0 && (
           <div className="space-y-1 my-2">
             {allToolCalls.map((t) => (
-              <ChatToolCallCard key={t.id} tool={t} />
+              <ChatToolCallCard key={t.id} tool={t} onOpenDocument={onOpenDocument} />
             ))}
           </div>
         )}

@@ -27,6 +27,11 @@ export interface ModelReply {
   toolCalls: ToolCallRequest[];
 }
 
+/** Something a run made that a person can open: a file in a saved workspace, by its path in that workspace's repository, or a link. */
+export type Artifact =
+  | { kind: 'file'; workspace: string; path: string }
+  | { kind: 'link'; url: string; title?: string | undefined };
+
 export interface ToolResult {
   forReply: string;
   callId: string;
@@ -36,6 +41,7 @@ export interface ToolResult {
   content: string;
   /** The call ran, but the peer refused it (a site that blocks fetches replying 401/403). Check Tool Failures does not count these. */
   declined?: boolean;
+  artifacts?: Artifact[] | undefined;
 }
 
 export interface ModelBinding {
@@ -74,6 +80,7 @@ export interface ChildOutcomeValue {
   outcome: string;
   reason?: string | undefined;
   outputs: Record<string, unknown>;
+  artifacts?: Artifact[] | undefined;
 }
 
 export const replyExit = (reply: ModelReply): 'toolCalls' | 'truncated' | 'empty' | 'answered' => {

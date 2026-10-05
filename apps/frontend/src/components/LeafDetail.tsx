@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { CircleSlash, Trash2, AlertTriangle, ShieldCheck, RotateCw, Loader2 } from 'lucide-react';
+import { CircleSlash, Trash2, AlertTriangle, ShieldCheck, RotateCw, Loader2, FileText } from 'lucide-react';
 import Markdown from './Markdown.js';
 import ClaimReview from './ClaimReview.js';
 import ConfirmDelete from './ConfirmDelete.js';
-import { STATE_LABEL, STATE_STYLE, STATE_HINT, stateFor, blockedBy, type Leaf } from './leaf-types.js';
+import DocumentPanel from './DocumentPanel.js';
+import { STATE_LABEL, STATE_STYLE, STATE_HINT, stateFor, blockedBy, leafDocuments, type Leaf } from './leaf-types.js';
+import type { DocumentAddress } from '../types/documents';
 import { cancelLeaf, retryLeaf, deleteLeaf } from '../api/grove';
 import { errorMessage } from '../api/client';
 
@@ -47,7 +49,7 @@ function AttemptError({ error }: { error: string }) {
   );
 }
 
-export default function LeafDetail({ leaf, all = [] }: { leaf: Leaf; all?: Leaf[] }) {
+export default function LeafDetail({ leaf, all = [], treeId }: { leaf: Leaf; all?: Leaf[]; treeId?: string | undefined }) {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ['leaves'] });
   const call = (fn: () => Promise<unknown>) => ({ mutationFn: fn, onSuccess: invalidate });
@@ -56,6 +58,8 @@ export default function LeafDetail({ leaf, all = [] }: { leaf: Leaf; all?: Leaf[
   const remove = useMutation(call(() => deleteLeaf(leaf.id)));
   const retry = useMutation(call(() => retryLeaf(leaf.id)));
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [openDocument, setOpenDocument] = useState<DocumentAddress | undefined>(undefined);
+  const documents = treeId ? leafDocuments(leaf, treeId) : [];
 
   const state = stateFor(leaf, all);
   const waiting = blockedBy(leaf, all);
@@ -154,6 +158,25 @@ export default function LeafDetail({ leaf, all = [] }: { leaf: Leaf; all?: Leaf[
         </div>
       )}
 
+      {documents.length > 0 && (
+        <div className="mt-5">
+          <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Documents</h3>
+          <ul className="space-y-1">
+            {documents.map((document) => (
+              <li key={document.path}>
+                <button
+                  type="button"
+                  onClick={() => setOpenDocument(document)}
+                  className="flex items-center gap-1.5 text-[12px] font-mono text-emerald-300 hover:text-emerald-200 cursor-pointer text-left break-all"
+                >
+                  <FileText size={12} className="shrink-0" /> {document.path}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {leaf.body && (
         <div className="mt-5">
           <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">What it was asked to do</h3>
@@ -184,6 +207,7 @@ export default function LeafDetail({ leaf, all = [] }: { leaf: Leaf; all?: Leaf[
         </div>
       )}
 
+      {openDocument && <DocumentPanel file={openDocument} onClose={() => setOpenDocument(undefined)} />}
     </div>
   );
 }

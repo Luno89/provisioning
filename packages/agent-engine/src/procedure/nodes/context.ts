@@ -149,11 +149,12 @@ export const describeEnvironmentNode: BuiltInNode = {
     idempotent: true,
     summarize: () => 'describes where the model is working',
   }),
-  implementation: valueImplementation('describe-environment', ({ inputs }) => ({
+  implementation: valueImplementation('describe-environment', ({ inputs, run }) => ({
     outputs: {
       text: describeEnvironment(
         resolvedEnvironment(inputs.environment as EnvironmentValue | undefined),
         (inputs.delegates as AgentDefinition[] | undefined) ?? [],
+        { agent: run.identity.agentId, runId: run.identity.runId },
       ),
     },
   })),

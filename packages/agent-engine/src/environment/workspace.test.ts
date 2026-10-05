@@ -28,6 +28,17 @@ describe('describeWorkspace', () => {
   });
 });
 
+describe('a conversation\'s workspace', () => {
+  it('tells each run that the workspace is the conversation\'s and saved, and gives it a directory of its own', () => {
+    const text = describeWorkspace({ ...workspace, persistent: true, sharedBy: 'conversation' }, undefined, { agent: 'research', runId: 'run-7' });
+    expect(text).toContain('belongs to the conversation, not to this run');
+    expect(text).toContain('saved to the person\'s repository at the end of every turn');
+    expect(text).toContain('Write what you produce under /work/research/run-7/');
+    expect(text).toContain('Hand back the paths of what you wrote');
+    expect(text).not.toContain('belongs to the tree');
+  });
+});
+
 describe('a workspace with granted hosts', () => {
   it('tells the model exactly which hosts it may reach', () => {
     const text = describeWorkspace({

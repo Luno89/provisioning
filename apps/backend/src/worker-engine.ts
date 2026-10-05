@@ -94,6 +94,7 @@ async function buildActivities() {
   });
   const extensions = extensionServiceFor(db);
   const host = createEngineHost({
+    documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request) },
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
     models,
@@ -197,6 +198,8 @@ async function buildActivities() {
       save: (task: Task) => db.saveTask(task),
     },
     treeWorkspaces: host.treeWorkspaces,
+    conversationWorkspaces: host.conversationWorkspaces,
+    conversationAgent: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.agentSlug,
     plans: { list: (ownerId) => db.getPlanProposals(ownerId) },
     planAdoption: createPlanAdoption({
       stores: {

@@ -89,10 +89,10 @@ describe('describing a run environment', () => {
     expect(await resolver.describe(ticket('planner'))).toMatchObject({ kind: 'none', egress: false });
   });
 
-  it('gives research the network without provisioning a sandbox', async () => {
+  it('gives research a sandbox with the network, to write what it finds in, without starting it yet', async () => {
     const { resolver, provision } = setup();
 
-    expect(await resolver.describe(ticket('research'))).toMatchObject({ kind: 'none', egress: true });
+    expect(await resolver.describe(ticket('research'))).toMatchObject({ kind: 'sandbox', capabilities: { egress: true } });
     expect(provision).not.toHaveBeenCalled();
   });
 
@@ -263,11 +263,11 @@ describe('using a run environment', () => {
 
   it('never provisions a sandbox for an agent whose environment is nothing', async () => {
     const { resolver, provision } = setup();
-    const run = ticket('research');
+    const run = ticket('koala');
 
     const driver = await resolver.forRun({ ticket: run, environment: await handleFor(resolver, run) });
 
-    expect(driver?.handle().capabilities).toMatchObject({ egress: true, terminal: false });
+    expect(driver?.handle().capabilities).toMatchObject({ egress: false, terminal: false });
     expect(provision).not.toHaveBeenCalled();
   });
 
@@ -353,7 +353,7 @@ describe('a sandbox shared by several agents', () => {
     const { resolver } = setup();
 
     await expect(resolver.describeShared({ ticket: treeTicket(), agents: ['planner', 'executor'] })).resolves.toMatchObject({ kind: 'sandbox' });
-    await expect(resolver.describeShared({ ticket: treeTicket(), agents: ['planner', 'research'] })).rejects.toThrow(/nothing to share/);
+    await expect(resolver.describeShared({ ticket: treeTicket(), agents: ['planner', 'koala'] })).rejects.toThrow(/nothing to share/);
   });
 
   it('is the one pod every run handed it works in', async () => {

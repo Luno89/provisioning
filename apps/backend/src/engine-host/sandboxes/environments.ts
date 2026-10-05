@@ -107,6 +107,13 @@ export async function workspaceFor(input: {
  * pruner, which has to know this fingerprint is wanted or it would delete the image every tree runs
  * in, and each run would rebuild it.
  */
+export class NothingToShareError extends Error {
+  constructor(agents: readonly string[]) {
+    super(`none of ${agents.join(', ')} works in a sandbox, so there is nothing to share`);
+    this.name = 'NothingToShareError';
+  }
+}
+
 export function mergeWorkspaceAgents(
   agents: readonly (AgentDefinition | undefined)[],
   slug: string,
@@ -146,7 +153,7 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
     async describeShared({ ticket, agents }) {
       const found = await Promise.all(agents.map((slug) => options.registry.agent(ticket.ownerId, slug)));
       const merged = mergeWorkspaceAgents(found, ticket.agentSlug);
-      if (!merged) throw new Error(`none of ${agents.join(', ')} works in a sandbox, so there is nothing to share`);
+      if (!merged) throw new NothingToShareError(agents);
 
       const workspace = await workspaceFor({
         runId: ticket.runId,

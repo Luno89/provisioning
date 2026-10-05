@@ -464,6 +464,25 @@ describe('claim_leaf in a worktree', () => {
     expect(leaves[0]!.claim).toMatchObject({ commit: 'c0ffee1234567890' });
   });
 
+  it('records the files the leaf\'s branch added or changed since it left main, so the leaf page can open them', async () => {
+    leaves = [pending()];
+    const outcome = await claimWith(driverWith({
+      'git status': { stdout: '' },
+      'git rev-parse HEAD': { stdout: 'c0ffee1234567890' },
+      'git -c core.quotePath=false diff --name-only --diff-filter=d main...HEAD': { stdout: 'src/health.ts\nnotes/why.md\n' },
+    }));
+
+    expect(outcome).toMatchObject({ ok: true });
+    expect(leaves[0]!.claim).toMatchObject({ commit: 'c0ffee1234567890', files: ['src/health.ts', 'notes/why.md'] });
+  });
+
+  it('records no files when the branch changed nothing, or there is no main to compare with', async () => {
+    leaves = [pending()];
+    await claimWith(driverWith({ 'git status': { stdout: '' }, 'git rev-parse HEAD': { stdout: 'c0ffee' }, 'git -c core.quotePath': { stdout: '', exitCode: 128 } }));
+
+    expect(leaves[0]!.claim?.files).toBeUndefined();
+  });
+
   it('refuses while work is uncommitted, and names it', async () => {
     leaves = [pending()];
     const outcome = await claimWith(driverWith({ 'git status': { stdout: ' M site/index.html\n?? notes.txt' } }));
@@ -524,6 +543,35 @@ describe('a conversation about one tree', () => {
   beforeEach(() => {
     saved = [];
     leaves = [{ id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'Hello', body: 'hello.txt says hello', status: 'succeeded', createdAt: 'now', updatedAt: 'now' }];
+  });
+
+  it('writes the proposed plan into the conversation\'s workspace and hands it back to link, only when it works in one', async () => {
+    const files: Record<string, string> = {};
+    const driver = { writeFile: async (path: string, content: string) => { files[path] = content; } } as never;
+    const tools = bound('conv-free');
+    const fresh = { ...PLAN, tree: { name: 'New', type: 'application', goal: 'x' }, branches: [{ title: 'More', leaves: [{ ...PLAN.branches[0]!.leaves[0]!, dependsOn: [] }] }] };
+
+    const outcome = await tools['propose_plan']!({ name: 'propose_plan', parsed: fresh, driver, caller: { ...caller, conversationId: 'conv-free', runId: 'run-p', agentSlug: 'planner', inConversationWorkspace: true } });
+
+    expect(outcome).toMatchObject({ ok: true, artifacts: [{ kind: 'file', path: '/work/planner/run-p/plan.md' }] });
+    expect(outcome.content).toContain('also written to /work/planner/run-p/plan.md');
+    expect(files['/work/planner/run-p/plan.md']).toContain('## Destination');
+    expect(files['/work/planner/run-p/plan.md']).toContain('- **Bye** (`bye`): bye.txt says bye');
+
+    const elsewhere = await tools['propose_plan']!({ name: 'propose_plan', parsed: fresh, driver, caller: { ...caller, conversationId: 'conv-free', runId: 'run-q', agentSlug: 'planner' } });
+    expect(elsewhere.artifacts).toBeUndefined();
+    expect(Object.keys(files)).toEqual(['/work/planner/run-p/plan.md']);
+  });
+
+  it('still proposes when the plan cannot be written, and says so', async () => {
+    const driver = { writeFile: async () => { throw new Error('the workspace is full'); } } as never;
+    const fresh = { ...PLAN, tree: { name: 'New', type: 'application', goal: 'x' }, branches: [{ title: 'More', leaves: [{ ...PLAN.branches[0]!.leaves[0]!, dependsOn: [] }] }] };
+
+    const outcome = await bound('conv-free')['propose_plan']!({ name: 'propose_plan', parsed: fresh, driver, caller: { ...caller, conversationId: 'conv-free', runId: 'run-p', agentSlug: 'planner', inConversationWorkspace: true } });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.artifacts).toBeUndefined();
+    expect(outcome.content).toContain('Writing it to /work/planner/run-p/plan.md failed: the workspace is full');
   });
 
   it('grows the bound tree when the plan names none', async () => {

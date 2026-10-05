@@ -11,7 +11,7 @@ afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); }
 const terminate = vi.fn(async (_workflowId: string, _reason: string) => true);
 const workspaces = {
   state: vi.fn(async (_treeId: string) => 'parked' as const),
-  release: vi.fn(async (_treeId: string) => undefined),
+  release: vi.fn(async (_treeId: string, _ownerId: string) => ({ saved: false as const, why: 'no documents in this test' })),
 };
 
 let running = false;
@@ -60,7 +60,7 @@ describe('a tree\'s workspace', () => {
     const res = await axios.delete(harness.url('/api/trees/t1/workspace'));
     expect(res.data).toEqual({ state: 'none' });
     await expect(axios.delete(harness.url('/api/trees/t2/workspace'))).rejects.toMatchObject({ response: { status: 404 } });
-    expect(workspaces.release.mock.calls).toEqual([['t1']]);
+    expect(workspaces.release.mock.calls).toEqual([['t1', TEST_USER.id]]);
   });
 
   it('deleting a tree takes everything about it: its run, branches, leaves, tasks, plans, conversations and sandbox', async () => {
@@ -82,13 +82,27 @@ describe('a tree\'s workspace', () => {
 
     expect(res.data).toMatchObject({ success: true, stoppedRun: true });
     expect(terminate.mock.calls.map(([id]) => id)).toEqual(['grove-run-t1', 'adopt-plan-p1']);
-    expect(workspaces.release.mock.calls).toEqual([['t1']]);
+    expect(workspaces.release.mock.calls).toEqual([['t1', TEST_USER.id]]);
     expect((await db.getTrees()).map((t) => t.id)).toEqual(['keep']);
     expect((await db.getBranches()).map((b) => b.id)).toEqual(['b-keep']);
     expect((await db.getLeaves()).map((l) => l.id)).toEqual(['l-keep']);
     expect(await db.getTasks(TEST_USER.id)).toEqual([]);
     expect(await db.getConversation(TEST_USER.id, 'c1')).toBeUndefined();
     expect(await db.getPlanProposals(TEST_USER.id)).toEqual([]);
+  });
+
+  it('deletes nothing when the tree\'s repository could not be saved first', async () => {
+    const harness = await mount();
+    await harness.db.saveTree(tree() as never);
+    const stamp = new Date().toISOString();
+    await harness.db.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'L', status: 'pending', createdAt: stamp, updatedAt: stamp } as never);
+    workspaces.release.mockRejectedValueOnce(new Error('Pushing to koala-u1/tree-t1 failed: Gitea is down'));
+
+    const err = await axios.delete(harness.url('/api/trees/t1')).catch((e) => e);
+
+    expect(err.response.status).toBe(500);
+    expect((await harness.db.getTrees()).map((t) => t.id)).toEqual(['t1']);
+    expect((await harness.db.getLeaves()).map((l) => l.id)).toEqual(['l1']);
   });
 
   it('refuses to delete another owner\'s tree and touches nothing', async () => {

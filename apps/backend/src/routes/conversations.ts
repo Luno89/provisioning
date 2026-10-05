@@ -10,6 +10,7 @@ export interface ConversationsRouterDeps {
   ownedConversations: (userId: string) => Promise<Conversation[]>;
   ownedTrees?: (userId: string) => Promise<{ id: string }[]>;
   ownedProjects?: (userId: string) => Promise<{ id: string }[]>;
+  workspaces?: { conclude(ownerId: string, conversationId: string): Promise<unknown> } | undefined;
 }
 
 export function conversationsRouter(deps: ConversationsRouterDeps): Router {
@@ -60,6 +61,7 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
   router.delete('/:id', asyncRoute(async (req, res) => {
     const found = (await deps.ownedConversations((req as any).user.id)).find((c) => c.id === req.params.id);
     if (!found) return res.status(404).json({ error: 'No such conversation' });
+    await deps.workspaces?.conclude((req as any).user.id, found.id);
     await db.deleteConversation(found.id);
     res.json({ success: true });
   }));

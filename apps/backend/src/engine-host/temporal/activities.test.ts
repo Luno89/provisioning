@@ -222,3 +222,34 @@ describe('the run a tree is grown by', () => {
     await expect(missing.GroveRunInputActivity({ treeId: 'nope', ownerId: 'user-1' })).rejects.toThrow(/no tree "nope"/);
   });
 });
+
+describe('concluding a workspace', () => {
+  const saved = { saved: true as const, owner: 'koala-user-1', repo: 'x', commit: 'c0ffee' };
+
+  it('releases a tree\'s workspace, and concludes a conversation\'s for the agent it is held with', async () => {
+    const release = vi.fn(async () => saved);
+    const conclude = vi.fn(async () => saved);
+    const { services: svc } = services({
+      treeWorkspaces: { release } as never,
+      conversationWorkspaces: { conclude },
+      conversationAgent: async (_ownerId, id) => (id === 'c1' ? 'delivery' : undefined),
+    });
+    const activities = createEngineActivities(svc);
+
+    expect(await activities.ConcludeWorkspaceActivity({ ownerId: 'user-1', workspace: { kind: 'tree', id: 't1' } })).toEqual(saved);
+    await activities.ConcludeWorkspaceActivity({ ownerId: 'user-1', workspace: { kind: 'conversation', id: 'c1' } });
+    await activities.ConcludeWorkspaceActivity({ ownerId: 'user-1', workspace: { kind: 'conversation', id: 'gone' } });
+
+    expect(release).toHaveBeenCalledWith('t1', 'user-1');
+    expect(conclude.mock.calls).toEqual([
+      [{ conversationId: 'c1', ownerId: 'user-1', agentSlug: 'delivery' }],
+      [{ conversationId: 'gone', ownerId: 'user-1', agentSlug: 'koala' }],
+    ]);
+  });
+
+  it('fails, so Temporal retries it, when the save does not work', async () => {
+    const { services: svc } = services({ treeWorkspaces: { release: async () => { throw new Error('Gitea is down'); } } as never });
+
+    await expect(createEngineActivities(svc).ConcludeWorkspaceActivity({ ownerId: 'user-1', workspace: { kind: 'tree', id: 't1' } })).rejects.toThrow('Gitea is down');
+  });
+});

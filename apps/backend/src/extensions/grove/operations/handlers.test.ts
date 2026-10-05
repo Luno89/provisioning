@@ -19,6 +19,9 @@ let described: { treeId: string; agents?: readonly string[] | undefined }[];
 let parked: string[];
 let procedures: Record<string, Procedure>;
 let dirty: boolean;
+let saves: string[];
+let saveFails: string | undefined;
+let emitted: unknown[];
 
 const leaf = (id: string, over: Partial<Leaf> = {}): Leaf => ({
   id, ownerId: 'user-1', branchId: 'b1', title: `leaf ${id}`, body: `${id} works`, status: 'pending', createdAt: 'then', updatedAt: 'then', ...over,
@@ -42,8 +45,14 @@ const deps = (): GroveOperationDeps => ({
   treeWorkspaces: {
     describe: async (request) => { described.push(request); return SANDBOX as never; },
     state: async () => 'running',
-    park: async (treeId) => { parked.push(treeId); },
-    release: async () => undefined,
+    save: async (treeId) => {
+      saves.push(treeId);
+      if (saveFails) throw new Error(saveFails);
+      return { saved: true as const, owner: 'koala-user-1', repo: `tree-${treeId}`, commit: 'c0ffee' };
+    },
+    park: async (treeId) => { parked.push(treeId); return ({ saved: false as const, why: 'no documents in this test' }); },
+    release: async () => ({ saved: false as const, why: 'no documents in this test' }),
+    bring: async () => ({ brought: false as const, why: 'no documents in this test' }),
   },
   environments: {
     forRun: async (request) => {
@@ -82,7 +91,7 @@ const request = (settings: Record<string, unknown>, inputs: Record<string, unkno
     counters: {} as never,
     budget: {},
     cleaningUp: false,
-    emit: () => undefined,
+    emit: (event: unknown) => { emitted.push(event); },
   },
 } as never);
 
@@ -103,6 +112,9 @@ beforeEach(() => {
   parked = [];
   procedures = {};
   dirty = false;
+  saves = [];
+  saveFails = undefined;
+  emitted = [];
 });
 
 describe('Open Tree', () => {
@@ -215,6 +227,26 @@ describe('File Claim', () => {
     expect(outcome, JSON.stringify(outcome)).toMatchObject({ exit: 'filed' });
     expect(commands.filter((entry) => entry.worktree === 'trees/a').map((entry) => entry.command)).toEqual(expect.arrayContaining([expect.stringMatching(/^git add -A && git commit/)]));
     expect(leaves[0]).toMatchObject({ status: 'claimed', claim: { evidence: expect.stringContaining('wrote paper.md') } });
+  });
+
+  it('saves the tree\'s repository once the claim is filed, so the leaf\'s documents open from Gitea', async () => {
+    leaves = [leaf('a', { status: 'running' })];
+
+    await run('grove.file-claim', { leaf: { leafId: 'a' }, environment: SANDBOX, evidence: 'wrote paper.md' }, { result: 'claimed' });
+
+    expect(saves).toEqual(['t1']);
+    expect(emitted).toEqual([]);
+  });
+
+  it('still files the claim when the save fails, and says so', async () => {
+    leaves = [leaf('a', { status: 'running' })];
+    saveFails = 'Gitea is down';
+
+    const outcome = await run('grove.file-claim', { leaf: { leafId: 'a' }, environment: SANDBOX, evidence: 'wrote paper.md' }, { result: 'claimed' });
+
+    expect(outcome.exit).toBe('filed');
+    expect(leaves[0]).toMatchObject({ status: 'claimed' });
+    expect(emitted).toEqual([{ type: 'notice', level: 'info', message: 'the tree\'s repository was not saved after this leaf: Gitea is down' }]);
   });
 
   it('cuts a writer\'s long account down to what a claim can carry', async () => {

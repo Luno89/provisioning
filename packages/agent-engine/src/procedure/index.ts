@@ -104,6 +104,7 @@ export {
   type ChatMessage,
   type ModelReply,
   type ToolResult,
+  type Artifact,
   type ModelBinding,
   type ToolSet,
   type Withheld,

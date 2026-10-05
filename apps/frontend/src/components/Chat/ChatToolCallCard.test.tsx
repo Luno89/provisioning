@@ -31,3 +31,32 @@ describe('ChatToolCallCard — Hermes-style tool telemetry', () => {
     expect(screen.getByText('Application started on port 3000')).toBeInTheDocument();
   });
 });
+
+describe('ChatToolCallCard — what a tool made', () => {
+  const research = {
+    id: 't9',
+    name: 'research',
+    ok: true,
+    digest: 'found it',
+    artifacts: [
+      { kind: 'file' as const, workspace: 'conversation-c1', path: 'research/r1/findings.md' },
+      { kind: 'link' as const, url: 'https://example.com/app', title: 'the app' },
+    ],
+  };
+
+  it('lists each file without opening the card, and opens the one clicked', () => {
+    const opened: unknown[] = [];
+    render(<ChatToolCallCard tool={research} onOpenDocument={(file) => opened.push(file)} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /research\/r1\/findings\.md/ }));
+
+    expect(opened).toEqual([{ kind: 'file', workspace: 'conversation-c1', path: 'research/r1/findings.md' }]);
+  });
+
+  it('links a link to where it points, in a new tab', () => {
+    render(<ChatToolCallCard tool={research} onOpenDocument={() => undefined} />);
+    const link = screen.getByRole('link', { name: 'the app' });
+    expect(link).toHaveAttribute('href', 'https://example.com/app');
+    expect(link).toHaveAttribute('target', '_blank');
+  });
+});

@@ -1,3 +1,5 @@
+import type { Artifact } from '@koala/agent-engine/procedure';
+
 export interface ConversationMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -17,6 +19,7 @@ export interface ConversationToolCall {
   args: string;
   ok: boolean;
   digest: string;
+  artifacts?: Artifact[];
 }
 
 export const MAX_TOOL_CALL_ARGS = 300;

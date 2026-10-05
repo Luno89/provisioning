@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import { Terminal, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Terminal, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight, FileText, ExternalLink } from 'lucide-react';
+import type { Artifact } from '@koala/agent-engine/procedure';
+
+export type FileArtifact = Extract<Artifact, { kind: 'file' }>;
 
 export interface ToolCallData {
   id: string;
@@ -8,9 +11,43 @@ export interface ToolCallData {
   ok?: boolean | undefined;
   digest?: string | undefined;
   running?: boolean | undefined;
+  artifacts?: Artifact[] | undefined;
 }
 
-export function ChatToolCallCard({ tool }: { tool: ToolCallData }) {
+function ArtifactList({ artifacts, onOpenDocument }: { artifacts: Artifact[]; onOpenDocument?: ((file: FileArtifact) => void) | undefined }) {
+  return (
+    <ul className="px-3 pb-2 pt-0.5 space-y-0.5" aria-label="What it made">
+      {artifacts.map((artifact) => (
+        <li key={artifact.kind === 'file' ? `${artifact.workspace}:${artifact.path}` : artifact.url}>
+          {artifact.kind === 'file' ? (
+            <button
+              type="button"
+              onClick={() => onOpenDocument?.(artifact)}
+              disabled={!onOpenDocument}
+              title={artifact.path}
+              className="flex items-center gap-1.5 text-[11.5px] text-emerald-300/90 hover:text-emerald-200 hover:underline font-mono truncate max-w-full disabled:no-underline disabled:text-slate-400"
+            >
+              <FileText size={11} className="shrink-0" />
+              <span className="truncate">{artifact.path}</span>
+            </button>
+          ) : (
+            <a
+              href={artifact.url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1.5 text-[11.5px] text-sky-300 hover:underline truncate"
+            >
+              <ExternalLink size={11} className="shrink-0" />
+              <span className="truncate">{artifact.title ?? artifact.url}</span>
+            </a>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function ChatToolCallCard({ tool, onOpenDocument }: { tool: ToolCallData; onOpenDocument?: ((file: FileArtifact) => void) | undefined }) {
   const [open, setOpen] = useState(false);
   const isRunning = tool.running || (tool.ok === undefined && !tool.digest);
   const isOk = tool.ok === true || (!isRunning && tool.ok !== false);
@@ -57,6 +94,10 @@ export function ChatToolCallCard({ tool }: { tool: ToolCallData }) {
           </div>
         )}
       </div>
+
+      {tool.artifacts && tool.artifacts.length > 0 && (
+        <ArtifactList artifacts={tool.artifacts} onOpenDocument={onOpenDocument} />
+      )}
 
       {open && hasDetails && (
         <div className="px-3 pb-2.5 pt-1 border-t border-[var(--bark-800,#1b2620)] bg-black/20 space-y-2 text-xs leading-relaxed font-sans">

@@ -36,4 +36,13 @@ describe('reduceUnifiedFrames — unified wire → render state', () => {
     });
     expect(s.tools[0]).toMatchObject({ running: false, ok: true, digest: 'log lines...' });
   });
+
+  it('keeps what a tool made on its pill, so the chat can link to it', () => {
+    let s = reduceUnifiedFrames(empty, { type: 'toolAnnounce', payload: { id: 'c1', name: 'research', args: '{}' } });
+    s = reduceUnifiedFrames(s, {
+      type: 'toolResult',
+      payload: { id: 'c1', ok: true, digest: 'done', artifacts: [{ kind: 'file', workspace: 'conversation-x', path: 'research/r1/findings.md' }] },
+    });
+    expect(s.tools[0]!.artifacts).toEqual([{ kind: 'file', workspace: 'conversation-x', path: 'research/r1/findings.md' }]);
+  });
 });

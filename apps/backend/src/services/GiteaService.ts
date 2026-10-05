@@ -1,8 +1,13 @@
 import crypto from 'crypto';
+import { execFile } from 'child_process';
+import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
+import { promisify } from 'util';
 import { encryptValue, decryptValue, type SecretKey } from '../lib/crypto.js';
 import type { InfrastructureService } from './InfrastructureService.js';
+
+const run = promisify(execFile);
 
 const NAMESPACE = 'gitea';
 const ADMIN_USERNAME = 'provisioning-bot';
@@ -393,7 +398,69 @@ export class GiteaService {
     return written;
   }
 
-  async createRepoForUser(username: string, name: string, opts: { private?: boolean; description?: string } = {}) {
+  /** Whether Gitea serves the repository's files yet: after the first push into an empty repository it takes a moment to notice it has any. */
+  async repoServesFiles(owner: string, name: string): Promise<boolean> {
+    const res = await this.apiFetch(`/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
+    if (!res.ok) return false;
+    return (await res.json() as { empty?: boolean }).empty === false;
+  }
+
+  async findRepo(owner: string, name: string): Promise<{ owner: string; name: string } | null> {
+    const res = await this.apiFetch(`/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`Could not look up ${owner}/${name}: HTTP ${res.status}`);
+    return { owner, name };
+  }
+
+  private gitAuthEnv(auth: { username: string; token: string }): NodeJS.ProcessEnv {
+    return {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'http.extraHeader',
+      GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(`${auth.username}:${auth.token}`).toString('base64')}`,
+    };
+  }
+
+  private async withBareRepo<T>(auth: { username: string; token: string }, owner: string, name: string, what: string, work: (bare: string, url: string, env: NodeJS.ProcessEnv) => Promise<T>): Promise<T> {
+    const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-git-'));
+    const env = this.gitAuthEnv(auth);
+    const url = `${await this.resolveBaseUrl()}/${encodeURIComponent(owner)}/${encodeURIComponent(name)}.git`;
+    try {
+      return await work(path.join(scratch, 'repo.git'), url, env);
+    } catch (err) {
+      const detail = ((err as { stderr?: string }).stderr || (err as Error).message).replaceAll(auth.token, '***').trim();
+      throw new Error(`${what} ${owner}/${name} failed: ${detail}`);
+    } finally {
+      await fs.rm(scratch, { recursive: true, force: true });
+    }
+  }
+
+  async deleteRepo(owner: string, name: string): Promise<void> {
+    const res = await this.apiFetch(`/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (!res.ok && res.status !== 404) throw new Error(`Could not delete ${owner}/${name}: HTTP ${res.status}`);
+  }
+
+  async pushBundle(auth: { username: string; token: string }, owner: string, name: string, bundle: string): Promise<string> {
+    return this.withBareRepo(auth, owner, name, 'Pushing to', async (bare, url, env) => {
+      await run('git', ['clone', '--bare', '--quiet', bundle, bare], { env });
+      await run('git', ['-C', bare, 'push', '--quiet', '--all', url], { env });
+      await run('git', ['-C', bare, 'push', '--quiet', '--tags', url], { env });
+      return (await run('git', ['-C', bare, 'rev-parse', 'HEAD'], { env })).stdout.trim();
+    });
+  }
+
+  async pullBundle(auth: { username: string; token: string }, owner: string, name: string, destination: string): Promise<boolean> {
+    return this.withBareRepo(auth, owner, name, 'Fetching', async (bare, url, env) => {
+      await run('git', ['clone', '--bare', '--quiet', url, bare], { env });
+      const refs = (await run('git', ['-C', bare, 'for-each-ref', '--count=1'], { env })).stdout.trim();
+      if (!refs) return false;
+      await run('git', ['-C', bare, 'bundle', 'create', destination, '--all'], { env });
+      return true;
+    });
+  }
+
+  async createRepoForUser(username: string, name: string, opts: { private?: boolean; description?: string; empty?: boolean } = {}) {
     const baseUrl = await this.resolveBaseUrl();
     const adminPassword = await this.readAdminPassword();
     const res = await fetch(`${baseUrl}/api/v1/admin/users/${encodeURIComponent(username)}/repos`, {
@@ -402,10 +469,11 @@ export class GiteaService {
         'Content-Type': 'application/json',
         Authorization: `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`,
       },
-      body: JSON.stringify({ name, private: opts.private ?? true, description: opts.description, auto_init: true }),
+      body: JSON.stringify({ name, private: opts.private ?? true, description: opts.description, auto_init: opts.empty !== true }),
     });
     if (!res.ok) throw new Error(`Failed to create repo ${username}/${name}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
     const body = await res.json() as { clone_url: string; full_name: string };
+    if (opts.empty === true) return { fullName: body.full_name, cloneUrl: body.clone_url };
     await this.ensureGitignore(username, name).catch((err) =>
       console.warn(`[GiteaService] no .gitignore on ${username}/${name}: ${err.message}`));
     return { fullName: body.full_name, cloneUrl: body.clone_url };

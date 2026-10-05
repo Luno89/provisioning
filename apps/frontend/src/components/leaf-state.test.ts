@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stateFor, blockedBy, BOARD_COLUMNS, STATE_LABEL, type LeafStatus } from './leaf-types.js';
+import { stateFor, blockedBy, BOARD_COLUMNS, STATE_LABEL, leafDocuments, type LeafStatus } from './leaf-types.js';
 
 const leaf = (over: Partial<{ status: LeafStatus; verified: boolean; dependsOn: string[] }>) =>
   ({ status: 'pending' as LeafStatus, ...over });
@@ -28,4 +28,18 @@ describe('the server and the UI naming the same state', () => {
     expect(Object.keys(STATE_LABEL).sort()).toEqual(BOARD_COLUMNS.map((c) => c.id).sort());
   });
 
+});
+
+describe('a leaf\'s documents', () => {
+  it('are the files its claim recorded, each read at the commit it claimed', () => {
+    expect(leafDocuments({ claim: { evidence: 'x', at: 'now', commit: 'c0ffee', files: ['src/a.ts', 'notes.md'] } }, 't1')).toEqual([
+      { workspace: 'tree-t1', path: 'src/a.ts', at: 'c0ffee' },
+      { workspace: 'tree-t1', path: 'notes.md', at: 'c0ffee' },
+    ]);
+  });
+
+  it('are none before a claim, or when the claim has no commit', () => {
+    expect(leafDocuments({}, 't1')).toEqual([]);
+    expect(leafDocuments({ claim: { evidence: 'x', at: 'now', files: ['a.md'] } }, 't1')).toEqual([]);
+  });
 });

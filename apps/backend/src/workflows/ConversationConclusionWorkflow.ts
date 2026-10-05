@@ -1,5 +1,7 @@
-import { condition, defineSignal, proxyActivities, setHandler } from '@temporalio/workflow';
-import { DEFAULT_STREAM_TASK_QUEUE, type LifecycleEvent } from '../engine-host/temporal/contracts.js';
+import { condition, defineSignal, executeChild, patched, proxyActivities, setHandler } from '@temporalio/workflow';
+import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
+import { ConcludeWorkspaceWorkflow } from './ConcludeWorkspaceWorkflow.js';
+import { DEFAULT_STREAM_TASK_QUEUE, concludeWorkspaceId, type ConcludedWorkspace, type LifecycleEvent } from '../engine-host/temporal/contracts.js';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 
 export const turnStartedSignal = defineSignal('turnStarted');
@@ -23,6 +25,15 @@ export async function ConversationConclusionWorkflow(input: { ownerId: string; c
     const seen = changes;
     if (await condition(() => changes !== seen, quietMs)) continue;
     await EngineLifecycleActivity({ kind: 'conversation-quiet', ownerId: input.ownerId, conversationId: input.conversationId });
+    if (patched('conclude-workspace')) await concludeWorkspace(input.ownerId, { kind: 'conversation', id: input.conversationId });
     return;
+  }
+}
+
+async function concludeWorkspace(ownerId: string, workspace: ConcludedWorkspace): Promise<void> {
+  try {
+    await executeChild(ConcludeWorkspaceWorkflow, { workflowId: concludeWorkspaceId(workspace), args: [{ ownerId, workspace }] });
+  } catch (err) {
+    if (!(err instanceof WorkflowExecutionAlreadyStartedError)) throw err;
   }
 }

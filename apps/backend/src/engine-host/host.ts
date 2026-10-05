@@ -8,10 +8,13 @@ import { createEndpointResolver, type ModelServiceLike } from './registries/endp
 import { createRunEnvironments, type RunEnvironments } from './sandboxes/run-environments.js';
 import { createSandboxDriver } from './drivers/sandbox.js';
 import { createClusterBackend } from './sandboxes/cluster-backend.js';
-import { createKubeRunner } from './sandboxes/kube.js';
+import { createKubeRunner, createKubeStreamer } from './sandboxes/kube.js';
+import { createWorkspaceDocuments, type DocumentRepos } from './sandboxes/workspace-documents.js';
+import { repoForWorkspace } from './sandboxes/workspace-repos.js';
 import { createImageBuilder, discoverRegistry, type ImageBuilder, type RegistryAccount } from './sandboxes/image-builder.js';
 import { createEnvironmentResolver, type EnvironmentResolver } from './sandboxes/environments.js';
 import { createTreeWorkspaces, type TreeWorkspaces } from './sandboxes/tree-workspaces.js';
+import { createConversationWorkspaces, type ConversationWorkspaces } from './sandboxes/conversation-workspaces.js';
 import { createMachineBackend } from './drivers/machine-backend.js';
 import { createToolRuntime } from './tools/tool-runtime.js';
 import { createEngineToolHandlers } from './tools/engine-tools.js';
@@ -93,6 +96,7 @@ export interface EngineHostOptions {
   owners?: (() => Promise<string[]>) | undefined;
   hidden?: ((ownerId: string) => Promise<import('../lib/extension-settings.js').HiddenVocabulary>) | undefined;
   published?: ((ownerId: string) => Promise<import('@koala/agent-engine/procedure').GroupDefinition[]>) | undefined;
+  documents?: DocumentRepos | undefined;
 }
 
 export interface EngineHost {
@@ -104,6 +108,7 @@ export interface EngineHost {
   environments: EnvironmentResolver;
   runEnvironments: RunEnvironments;
   treeWorkspaces: TreeWorkspaces;
+  conversationWorkspaces: ConversationWorkspaces | undefined;
   images: ImageBuilder;
   /** Lets go of the workspace images nothing would run; absent where there is no registry account. */
   imagePruner: ImagePruner | undefined;
@@ -126,6 +131,9 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
   const endpoints = createEndpointResolver({ models: options.models, registry });
   const kube = createKubeRunner({ kubeconfig: options.kubeconfig });
 
+  const documents = options.documents
+    ? createWorkspaceDocuments({ kube, stream: createKubeStreamer({ kubeconfig: options.kubeconfig }), repos: options.documents })
+    : undefined;
   const runEnvironments = createRunEnvironments({
     provision: async ({ ticket, spec, workspace, scope }) => {
       if (!workspace) throw new Error(`Run ${ticket.runId} asked for a sandbox without a resolved workspace spec.`);
@@ -133,7 +141,13 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
         sandboxId: workspace.runId,
         spec,
         ...(scope ? { scope } : {}),
-        backend: createClusterBackend({ run: kube, workspace }),
+        backend: createClusterBackend({
+          run: kube,
+          workspace,
+          ...(documents && repoForWorkspace(workspace.runId)
+            ? { onStarted: async () => { await documents.restore({ ownerId: ticket.ownerId, workspaceRunId: workspace.runId, ...repoForWorkspace(workspace.runId)! }); } }
+            : {}),
+        }),
       });
       await options.onSandbox?.(driver, ticket);
       return driver;
@@ -166,7 +180,10 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       : {}),
   });
 
-  const treeWorkspaces = createTreeWorkspaces({ resolver: environments, kube });
+  const treeWorkspaces = createTreeWorkspaces({ resolver: environments, kube, documents });
+  const conversationWorkspaces = documents
+    ? createConversationWorkspaces({ resolver: environments, registry, kube, documents })
+    : undefined;
 
   const web = options.web;
   const handlers = createEngineToolHandlers({
@@ -244,6 +261,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     images: { waiting: (ownerId: string, agentSlug: string) => workspaceImages.waiting(ownerId, agentSlug) },
     code: createCodeRunner({ environments: { forRun: (request) => environments.forRun(request) } }),
     conversations: stores.conversations,
+    ...(conversationWorkspaces ? { conversationWorkspaces } : {}),
     ...(mcp ? { mcp } : {}),
     memories: {
       list: async (ownerId: string) => (await stores.memories.list(ownerId)).filter((memory) => memory.ownerId === ownerId),
@@ -290,7 +308,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
 
   return {
     efforts, workspaceImages, registry, catalogue, endpoints, environments,
-    runEnvironments, treeWorkspaces, images, imagePruner, tools, services, implemented,
+    runEnvironments, treeWorkspaces, conversationWorkspaces, images, imagePruner, tools, services, implemented,
   };
 }
 

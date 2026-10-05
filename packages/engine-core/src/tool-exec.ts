@@ -3,10 +3,16 @@ import { renderCommand } from './command-tool.js';
 import { ScopeError } from './scope.js';
 import { NO_CAPABILITIES, type EnvironmentDriver } from './environment.js';
 
+/** Something a tool made that a person can open: a file, by the path the tool wrote it at, or a link. */
+export type ToolArtifact =
+  | { kind: 'file'; path: string }
+  | { kind: 'link'; url: string; title?: string | undefined };
+
 export interface ToolOutcome {
   ok: boolean;
   digest: string;
   content?: string | undefined;
+  artifacts?: ToolArtifact[] | undefined;
   /** The call ran, but the peer answered no (a site that blocks fetches replying 401/403). The tool worked as designed, so failure monitors do not count it. */
   declined?: boolean;
 }
@@ -17,6 +23,7 @@ export interface ToolCallerContext {
   runId?: string | undefined;
   agentSlug?: string | undefined;
   conversationId?: string | undefined;
+  inConversationWorkspace?: boolean | undefined;
 }
 
 export interface ToolHandlerContext {
@@ -93,7 +100,7 @@ export const environmentHandlers: Record<string, ToolHandler> = {
     const path = stringArg(ctx.parsed, 'path');
     const content = typeof ctx.parsed.content === 'string' ? ctx.parsed.content : '';
     await driver.writeFile(path, content);
-    return { ok: true, digest: `wrote ${content.length} bytes to ${path}`, content: '' };
+    return { ok: true, digest: `wrote ${content.length} bytes to ${path}`, content: '', artifacts: [{ kind: 'file', path }] };
   },
 
   async list_dir(ctx) {
@@ -168,6 +175,7 @@ export async function executeTool(input: ExecuteToolInput): Promise<ToolOutcome>
       digest: clip(outcome.digest, digestChars),
       ...(outcome.content === undefined ? {} : { content: outcome.content }),
       ...(outcome.declined ? { declined: outcome.declined } : {}),
+      ...(outcome.artifacts?.length ? { artifacts: outcome.artifacts } : {}),
     };
   } catch (err) {
     return refuse(

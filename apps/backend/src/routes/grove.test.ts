@@ -91,7 +91,7 @@ describe('trees', () => {
   const mount = async () => {
     h = await mountRouter({
       prefix: '/api/trees',
-      router: (db) => treesRouter({ db, workspaces: { state: async () => 'none', release: async () => undefined }, runs: new GroveRunService({ store: db, launcher: { startGroveRun: async () => ({ started: false, reason: 'unavailable' }), groveRunStatus: async () => ({ state: 'none' }), signalGroveRun: async () => false } }), deletion: deletionFor(db) }),
+      router: (db) => treesRouter({ db, workspaces: { state: async () => 'none', release: async () => ({ saved: false as const, why: 'no documents in this test' }) }, runs: new GroveRunService({ store: db, launcher: { startGroveRun: async () => ({ started: false, reason: 'unavailable' }), groveRunStatus: async () => ({ state: 'none' }), signalGroveRun: async () => false } }), deletion: deletionFor(db) }),
     });
     await seedTreeTypes(h.db);
     return h!;

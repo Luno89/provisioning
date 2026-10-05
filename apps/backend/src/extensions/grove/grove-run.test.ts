@@ -439,7 +439,7 @@ async function runGroveWorld(options: {
     const efforts: RunEffort[] = [];
     const parkedTrees: string[] = [];
     const park = treeWorkspaces.park;
-    treeWorkspaces.park = async (treeId: string) => { parkedTrees.push(treeId); await park(treeId); };
+    treeWorkspaces.park = async (treeId: string, ownerId: string) => { parkedTrees.push(treeId); return park(treeId, ownerId); };
     const tracker = createEffortTracker({
       models,
       registry,

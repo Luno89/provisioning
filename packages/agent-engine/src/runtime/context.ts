@@ -39,11 +39,12 @@ export interface ComposedContext {
 export function describeEnvironment(
   environment: ResolvedEnvironment,
   callable: readonly AgentDefinition[] = [],
+  self?: { agent: string; runId: string },
 ): string {
   if (environment.kind === 'machine') {
     return describeMachine(environment.deviceName, environment.root);
   }
-  if (environment.kind === 'sandbox') return describeWorkspace(environment.workspace, environment.worktree);
+  if (environment.kind === 'sandbox') return describeWorkspace(environment.workspace, environment.worktree, self);
 
   const delegates = callable.some(needsWorkspace);
   const bases = environment.bases ?? [];

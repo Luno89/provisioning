@@ -31,6 +31,7 @@ export interface RunWorkspace {
   egressMode: EgressMode;
   grantedHosts?: string[] | undefined;
   persistent?: boolean | undefined;
+  sharedBy?: 'conversation' | undefined;
 }
 
 export const REGISTRY_MIRROR = 'http://verdaccio.koala-registry.svc.cluster.local:4873';
@@ -143,7 +144,7 @@ function packageNote(workspace: RunWorkspace): string {
   ].join(' ');
 }
 
-export function describeWorkspace(workspace: RunWorkspace, worktree?: string): string {
+export function describeWorkspace(workspace: RunWorkspace, worktree?: string, self?: { agent: string; runId: string }): string {
   const minutes = Math.round(workspace.lifetimeMs / 60_000);
   const open = workspace.egressMode === 'auto';
   const hosts = reachable(workspace);
@@ -177,7 +178,16 @@ export function describeWorkspace(workspace: RunWorkspace, worktree?: string): s
     `- ${network}`,
     `- You have ${workspace.cpu} CPUs and ${workspace.memory} of memory. IGNORE \`nproc\` and \`free\` —`,
     '  they report the host machine, not your limits, and building as if they were true gets you killed.',
-    ...(workspace.persistent
+    ...(workspace.sharedBy === 'conversation'
+      ? [
+        `- This container belongs to the conversation, not to this run. The other agents of the conversation work in`,
+        `  ${WORK_DIR} too, and everything in ${WORK_DIR} is saved to the person's repository at the end of every turn.`,
+        ...(self
+          ? [`  Write what you produce under ${WORK_DIR}/${self.agent}/${self.runId}/ and nowhere else in ${WORK_DIR}; read anything the others wrote.`]
+          : []),
+        '  Hand back the paths of what you wrote and a short summary, not the contents.',
+      ]
+      : workspace.persistent
       ? [
         `- This container belongs to the tree, not to this run: ${WORK_DIR} is kept between runs and other runs of the tree`,
         '  work in it too, each in its own worktree. Commit your work on your branch — that is what is judged.',

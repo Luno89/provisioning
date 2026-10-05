@@ -13,6 +13,7 @@ import { createPlanAdoption } from '../engine-host/plan-adoption.js';
 import type { TreeTypeSpec } from '../lib/tree-types.js';
 import { createEngineActivities } from '../engine-host/temporal/activities.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
+import type { WorkspaceDocuments } from '../engine-host/sandboxes/workspace-documents.js';
 import type { PlanProposal } from '../lib/plan-proposals.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
 import type { Tree } from '../lib/trees.js';
@@ -59,7 +60,7 @@ const proposal = (over: Partial<PlanProposal> = {}): PlanProposal => ({
   ...over,
 });
 
-function world(start: PlanProposal[]) {
+function world(start: PlanProposal[], options: { saved?: string[] } = {}) {
   const proposals = [...start];
   const trees: Tree[] = [];
   const branches = new Map<string, Branch>();
@@ -106,6 +107,15 @@ function world(start: PlanProposal[]) {
     },
     tools: async () => [],
   });
+  const brought: { from: string; into: string; workspace: string; planWritten: boolean }[] = [];
+  const documents: WorkspaceDocuments = {
+    save: async () => ({ saved: false, why: 'not saved in this test' }),
+    restore: async () => ({ restored: false, why: 'not restored in this test' }),
+    bring: async (request) => {
+      brought.push({ from: request.from, into: request.path, workspace: request.workspaceRunId, planWritten: files.has('repo/PLAN.md') });
+      return options.saved ? { brought: options.saved } : { brought: false, why: `nothing has been saved to ${request.from}` };
+    },
+  };
   const kube: KubeRunner = async (args) => {
     kubeCalls.push(args);
     return { stdout: '', stderr: '', exitCode: 0 };
@@ -146,7 +156,7 @@ function world(start: PlanProposal[]) {
       leaves: { list: async () => [...leaves.values()], save: async (leaf) => { leaves.set(leaf.id, leaf); } },
       tasks: { list: async (ownerId) => [...tasks.values()].filter((task) => task.ownerId === ownerId), save: async (task) => { tasks.set(task.id, task); } },
     },
-    treeWorkspaces: createTreeWorkspaces({ resolver, kube }),
+    treeWorkspaces: createTreeWorkspaces({ resolver, kube, documents }),
     environments: resolver,
     treeTypes: async () => treeTypes,
     registryHost: 'registry.test',
@@ -155,7 +165,7 @@ function world(start: PlanProposal[]) {
 
   const activities = createEngineActivities({ planAdoption } as never);
 
-  return { proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, markRepoExists: () => { repoExists = true; } };
+  return { proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, brought, markRepoExists: () => { repoExists = true; } };
 }
 
 async function adopt(w: ReturnType<typeof world>, proposalId = 'p1'): Promise<AdoptPlanResult> {
@@ -229,6 +239,23 @@ describe('AdoptPlanWorkflow', () => {
 
     expect(w.files.has('repo/README.md')).toBe(false);
     expect(w.files.get('repo/PLAN.md')).toContain('Widget API');
+  }, 60_000);
+
+  it('copies what the conversation saved into the new tree before writing the plan, so the plan wins any path both have', async () => {
+    const w = world([proposal()], { saved: ['research/r1/findings.md'] });
+
+    await adopt(w);
+
+    expect(w.brought).toEqual([{ from: 'research-conv-1', into: '/work/repo', workspace: 'tree-plan-p1-tree', planWritten: false }]);
+    expect(w.files.get('repo/PLAN.md')).toContain('Widget API');
+    expect(w.commands.some((command) => command.includes("commit -q -m 'plan: p1'"))).toBe(true);
+  }, 60_000);
+
+  it('brings nothing in when the plan was not proposed in a conversation', async () => {
+    const w = world([proposal({ conversationId: undefined })]);
+
+    expect(await adopt(w)).toMatchObject({ status: 'adopted' });
+    expect(w.brought).toEqual([]);
   }, 60_000);
 
   it('links a new tree planned in a conversation about a project to that project', async () => {

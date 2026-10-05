@@ -413,7 +413,7 @@ export function Workspace({
                 : {})}
             />
           ) : selectedLeaf ? (
-            <LeafDetail leaf={selectedLeaf} all={leaves} />
+            <LeafDetail key={selectedLeaf.id} leaf={selectedLeaf} all={leaves} treeId={treeId} />
           ) : tree ? (
             <Home
               leaves={leaves}

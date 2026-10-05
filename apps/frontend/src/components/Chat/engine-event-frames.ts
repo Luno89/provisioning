@@ -32,7 +32,7 @@ export function engineEventToFrame(event: EngineEvent): EngineFrameOutcome {
     case 'tool.result':
       return {
         kind: 'frame',
-        frame: { type: 'toolResult', payload: { id: event.callId, ok: event.ok, digest: event.digest } },
+        frame: { type: 'toolResult', payload: { id: event.callId, ok: event.ok, digest: event.digest, ...(event.artifacts?.length ? { artifacts: event.artifacts } : {}) } },
       }
     case 'usage':
       return { kind: 'frame', frame: { type: 'usage', payload: event.usage } }

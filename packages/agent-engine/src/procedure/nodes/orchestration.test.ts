@@ -129,7 +129,7 @@ describe('approve tool calls', () => {
 });
 
 describe('run tool calls', () => {
-  it('runs tools where they live and starts delegates as child runs, in order, announcing each', async () => {
+  it('runs tools where they live and starts delegates as child runs, answering in the order they were asked', async () => {
     const p = ports();
     const outcome = await invoke(createOrchestrationNodes(p), runToolCalls, {
       inputs: {
@@ -148,7 +148,69 @@ describe('run tool calls', () => {
       ['b', 'turn#5', true, '{"echoed":{"question":"why"}}'],
     ]);
     expect(outcome.usage).toEqual({ toolCalls: 1, childRuns: 1 });
-    expect(outcome.events.map((event) => (event as { type: string }).type)).toEqual(['tool.called', 'tool.result', 'tool.called', 'tool.result']);
+    expect(outcome.events.filter((event) => (event as { type: string }).type === 'tool.called')).toHaveLength(2);
+  });
+
+  it('hands on what a tool made and what a child run made, each on its own call', async () => {
+    const written = { kind: 'file' as const, workspace: 'conversation-c1', path: 'notes.md' };
+    const found = { kind: 'file' as const, workspace: 'conversation-c1', path: 'research/r1/findings.md' };
+    const p = ports({
+      runTool: vi.fn(async () => ({ ok: true, digest: 'wrote notes.md', artifacts: [written] })),
+      runChild: vi.fn(async () => ({ runId: 'c', agentId: 'research', outcome: 'ok', outputs: {}, artifacts: [found] })),
+    });
+    const outcome = await invoke(createOrchestrationNodes(p), runToolCalls, {
+      inputs: { persona: persona(), reply: reply([{ id: 'a', name: 'write_file', arguments: '{}' }, { id: 'b', name: 'research', arguments: '{}' }]) },
+    });
+
+    expect((outcome.outputs.results as ToolResult[]).map((result) => [result.callId, result.artifacts])).toEqual([['a', [written]], ['b', [found]]]);
+    expect(outcome.events.filter((event) => (event as { type: string }).type === 'tool.result').map((event) => (event as { artifacts?: unknown }).artifacts)).toEqual(expect.arrayContaining([[written], [found]]));
+  });
+
+  it('starts every hand-off in a reply at once, so none waits for another to finish', async () => {
+    const started: string[] = [];
+    const finishers: (() => void)[] = [];
+    const p = ports({
+      runChild: vi.fn(async ({ inputs }: { inputs: Record<string, unknown> }) => {
+        started.push(String(inputs.question));
+        await new Promise<void>((resolve) => finishers.push(resolve));
+        return { runId: `c-${String(inputs.question)}`, agentId: 'research', outcome: 'ok', outputs: { answer: String(inputs.question) } };
+      }),
+    });
+    const running = invoke(createOrchestrationNodes(p), runToolCalls, {
+      inputs: {
+        persona: persona(),
+        reply: reply([
+          { id: 'a', name: 'research', arguments: '{"question":"one"}' },
+          { id: 'b', name: 'research', arguments: '{"question":"two"}' },
+          { id: 'c', name: 'research', arguments: '{"question":"three"}' },
+        ]),
+      },
+    });
+
+    await vi.waitFor(() => expect(started).toEqual(['one', 'two', 'three']));
+    for (const finish of finishers.reverse()) finish();
+    const outcome = await running;
+
+    expect((outcome.outputs.results as ToolResult[]).map((result) => result.callId)).toEqual(['a', 'b', 'c']);
+    expect(outcome.usage).toEqual({ toolCalls: 0, childRuns: 3 });
+  });
+
+  it('starts hand-offs one at a time when the host says a run began before they started together', async () => {
+    let running = 0;
+    let most = 0;
+    const p = { ...ports(), handOffsTogether: () => false, runChild: vi.fn(async () => {
+      running += 1;
+      most = Math.max(most, running);
+      await Promise.resolve();
+      running -= 1;
+      return { runId: 'c', agentId: 'research', outcome: 'ok' as const, outputs: {} };
+    }) };
+    const outcome = await invoke(createOrchestrationNodes(p), runToolCalls, {
+      inputs: { persona: persona(), reply: reply([{ id: 'a', name: 'research', arguments: '{}' }, { id: 'b', name: 'research', arguments: '{}' }]) },
+    });
+
+    expect(most).toBe(1);
+    expect(outcome.usage).toEqual({ toolCalls: 0, childRuns: 2 });
   });
 
   it('answers a delegate call whose arguments are not an object, and says when a child did not finish', async () => {

@@ -1,4 +1,4 @@
-import type { GroupDefinition, HostOperation, NodeTrace } from '@koala/agent-engine/procedure'
+import type { Artifact, GroupDefinition, HostOperation, NodeTrace } from '@koala/agent-engine/procedure'
 import { api } from './client'
 
 export interface AgentInputSchema {
@@ -46,7 +46,7 @@ export type EngineEvent =
   | { type: 'thinking'; runId: string; at: string; nodeId: string; delta: string }
   | { type: 'content'; runId: string; at: string; nodeId: string; delta: string }
   | { type: 'tool.called'; runId: string; at: string; nodeId: string; callId: string; name: string; args: string }
-  | { type: 'tool.result'; runId: string; at: string; nodeId: string; callId: string; ok: boolean; digest: string }
+  | { type: 'tool.result'; runId: string; at: string; nodeId: string; callId: string; ok: boolean; digest: string; artifacts?: Artifact[] | undefined }
   | { type: 'usage'; runId: string; at: string; nodeId: string; usage: Record<string, unknown> }
   | { type: 'notice'; runId: string; at: string; level: 'info' | 'warn'; message: string; nodeId?: string }
   | { type: 'node.traced'; runId: string; at: string; nodeId: string; trace: Record<string, unknown> }

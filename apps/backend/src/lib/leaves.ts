@@ -21,6 +21,7 @@ export interface Leaf {
   claim?: {
     evidence: string;
     commit?: string;
+    files?: string[];
     findings?: string;
     runs?: string[];
     at: string;

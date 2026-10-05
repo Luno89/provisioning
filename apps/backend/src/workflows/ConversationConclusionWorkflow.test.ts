@@ -4,7 +4,7 @@ import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { ConversationConclusionWorkflow, turnEndedSignal, turnStartedSignal } from './ConversationConclusionWorkflow.js';
-import { DEFAULT_STREAM_TASK_QUEUE, type LifecycleEvent } from '../engine-host/temporal/contracts.js';
+import { DEFAULT_STREAM_TASK_QUEUE, type ConcludeWorkspaceArgs, type LifecycleEvent } from '../engine-host/temporal/contracts.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MINUTE = 60_000;
@@ -23,7 +23,13 @@ describe('a conversation\'s countdown to concluding', () => {
   it('concludes once the conversation has been quiet for the agent\'s time after its last turn, and a new message starts the count again', async () => {
     const taskQueue = `conclusion-test-${Math.random().toString(36).slice(2, 8)}`;
     const concluded: LifecycleEvent[] = [];
-    const timers = await Worker.create({ connection: env.nativeConnection, taskQueue, workflowsPath: resolve(__dirname, 'ConversationConclusionWorkflow.ts') });
+    const workspaces: ConcludeWorkspaceArgs[] = [];
+    const timers = await Worker.create({
+      connection: env.nativeConnection,
+      taskQueue,
+      workflowsPath: resolve(__dirname, 'index.ts'),
+      activities: { ConcludeWorkspaceActivity: async (args: ConcludeWorkspaceArgs) => { workspaces.push(args); return { saved: true, owner: 'koala-u1', repo: 'research-c1', commit: 'c0ffee' }; } },
+    });
     const backend = await Worker.create({
       connection: env.nativeConnection,
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
@@ -51,13 +57,20 @@ describe('a conversation\'s countdown to concluding', () => {
 
       await handle.result();
       expect(concluded).toEqual([{ kind: 'conversation-quiet', ownerId: 'u1', conversationId: 'c1' }]);
+      expect(workspaces, 'its workspace was not concluded through the workflow').toEqual([{ ownerId: 'u1', workspace: { kind: 'conversation', id: 'c1' } }]);
     }));
   }, 120_000);
 
   it('follows the time the agent is configured with', async () => {
     const taskQueue = `conclusion-test-${Math.random().toString(36).slice(2, 8)}`;
     const concluded: LifecycleEvent[] = [];
-    const timers = await Worker.create({ connection: env.nativeConnection, taskQueue, workflowsPath: resolve(__dirname, 'ConversationConclusionWorkflow.ts') });
+    const workspaces: ConcludeWorkspaceArgs[] = [];
+    const timers = await Worker.create({
+      connection: env.nativeConnection,
+      taskQueue,
+      workflowsPath: resolve(__dirname, 'index.ts'),
+      activities: { ConcludeWorkspaceActivity: async (args: ConcludeWorkspaceArgs) => { workspaces.push(args); return { saved: true, owner: 'koala-u1', repo: 'research-c1', commit: 'c0ffee' }; } },
+    });
     const backend = await Worker.create({
       connection: env.nativeConnection,
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
@@ -76,6 +89,7 @@ describe('a conversation\'s countdown to concluding', () => {
       expect(concluded).toEqual([]);
       await handle.result();
       expect(concluded).toHaveLength(1);
+      expect(workspaces).toHaveLength(1);
     }));
   }, 120_000);
 });

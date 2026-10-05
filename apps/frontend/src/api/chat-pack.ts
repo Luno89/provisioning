@@ -1,3 +1,4 @@
+import type { Artifact } from '@koala/agent-engine/procedure';
 
 import { api } from './client.js';
 
@@ -17,6 +18,7 @@ export interface ChatConversationMessage {
     args: string;
     ok: boolean;
     digest: string;
+    artifacts?: Artifact[] | undefined;
   }> | undefined;
   interruptedReason?: string | undefined;
 }

@@ -90,6 +90,16 @@ describe('recording what the tools did', () => {
     expect(calls).toEqual([{ id: 'c1', name: 'json_query', args: '{}', ok: true, digest: '3' }]);
   });
 
+  it('keeps what a call made with it, so the link outlasts the turn', () => {
+    const findings = { kind: 'file', workspace: 'conversation-c1', path: 'research/r1/findings.md' };
+    const calls = asStoredToolCalls(
+      reply({ toolCalls: [{ id: 'c1', name: 'research', arguments: '{}' }] }) as never,
+      [{ forReply: 'turn#1', callId: 'c1', name: 'research', ok: true, content: 'found it', artifacts: [findings] }] as never,
+    );
+
+    expect(calls).toEqual([{ id: 'c1', name: 'research', args: '{}', ok: true, digest: 'found it', artifacts: [findings] }]);
+  });
+
   it('records a call that never came back as not ok', () => {
     const calls = asStoredToolCalls(
       reply({ toolCalls: [{ id: 'c9', name: 'read_file', arguments: '{}' }] }) as never,

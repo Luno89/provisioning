@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowDown, AlertTriangle, X } from 'lucide-react';
 import CollapsibleHistoryList from './CollapsibleHistoryList.js';
@@ -8,6 +8,8 @@ import KoalaLoading from './KoalaLoading.js';
 import ChatHero from './Chat/ChatHero.js';
 import ChatComposer, { type PersonaPackOption } from './Chat/ChatComposer.js';
 import ChatMessageRow from './Chat/ChatMessageRow.js';
+import DocumentPanel from './DocumentPanel.js';
+import type { FileArtifact } from './Chat/ChatToolCallCard.js';
 import { listAgents, agentKeys, type Agent } from '../api/agents';
 import { listModels, providerKeys, useDefaultModel, type ModelProvider } from '../api/models';
 import type { ConversationBinding } from '../api/chat-pack.js';
@@ -62,6 +64,8 @@ export default function ChatSurface({
   const [showHistory, setShowHistory] = useState(false);
   const [showPersonaDrawer, setShowPersonaDrawer] = useState(false);
   const [showModelDrawer, setShowModelDrawer] = useState(false);
+  const [openDocument, setOpenDocument] = useState<FileArtifact | undefined>(undefined);
+  const showDocument = useCallback((file: FileArtifact) => setOpenDocument(file), []);
 
   const conv = useConversationTurn({
     externalConvId,
@@ -251,6 +255,7 @@ export default function ChatSurface({
                       key={idx}
                       message={msg}
                       packLabel={activePack?.label ?? ''}
+                      onOpenDocument={showDocument}
                     />
                   ))}
 
@@ -330,6 +335,7 @@ export default function ChatSurface({
                       }}
                       packLabel={activePack?.label ?? ''}
                       isStreaming={true}
+                      onOpenDocument={showDocument}
                     />
                   )}
 
@@ -400,6 +406,8 @@ export default function ChatSurface({
         selectedAgentSlug={conv.selectedAgentSlug}
         onSelectAgent={conv.setSelectedAgentSlug}
       />
+
+      {openDocument && <DocumentPanel file={openDocument} onClose={() => setOpenDocument(undefined)} />}
     </div>
   );
 }

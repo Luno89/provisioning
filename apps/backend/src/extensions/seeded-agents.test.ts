@@ -7,9 +7,11 @@ const ALL_SEEDED_AGENTS = seededPersonas;
 describe('seeded agents get environments that match what they do', () => {
   const agentBySlug = (slug: string) => ALL_SEEDED_AGENTS().find((agent) => agent.slug === slug)!;
 
-  it('gives research the network and nothing else', () => {
-    const caps = capabilitiesFor(agentBySlug('research'));
-    expect(caps).toMatchObject({ egress: true, terminal: false, filesystem: false });
+  it('gives research the network and files to write its findings in, but no shell', () => {
+    const research = agentBySlug('research');
+    expect(capabilitiesFor(research)).toMatchObject({ egress: true, filesystem: true });
+    expect(environmentFor(research).kind).toBe('sandbox');
+    expect(research.tools).not.toContain('run_command');
   });
 
   it('gives the paper writer the network and a workspace, because it writes down what it found', () => {
@@ -71,7 +73,7 @@ describe('seeded agents compose usable prompts', () => {
   it('offers research the web and corpus tools it is granted, and withholds nothing', () => {
     const { tools, withheld } = offered('research');
 
-    expect(tools.map((tool) => tool.name)).toEqual(['search_web', 'fetch_web_page', 'search_corpus']);
+    expect(tools.map((tool) => tool.name)).toEqual(['search_web', 'fetch_web_page', 'search_corpus', 'read_file', 'write_file', 'list_dir']);
     expect(withheld).toEqual([]);
   });
 
@@ -81,10 +83,17 @@ describe('seeded agents compose usable prompts', () => {
     expect(tools).toEqual([]);
   });
 
-  it('offers the judge what it needs to check work for itself, and not the hand that settles a leaf', () => {
+  it('offers the judge what it needs to check work for itself and write its verdict, and not the hand that settles a leaf', () => {
     const { tools } = offered('judge');
 
-    expect(tools.map((tool) => tool.name).sort()).toEqual(['list_dir', 'read_file', 'run_command']);
+    expect(tools.map((tool) => tool.name).sort()).toEqual(['list_dir', 'read_file', 'run_command', 'write_file']);
+  });
+
+  it('tells the planner and the judge to write their own files only in a conversation\'s workspace', () => {
+    for (const slug of ['planner', 'judge']) {
+      expect(agentBySlug(slug).tools).toContain('write_file');
+      expect(agentBySlug(slug).prompt).toMatch(/When your workspace belongs to the conversation[^]*Anywhere else, write no files/);
+    }
   });
 
   it('gives the settling hand to the leaf-judge alone, alongside what it needs to check the claimed commit and read the runs that did the work', () => {

@@ -283,6 +283,10 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
       });
       if (!outcome.ok) return { exit: 'refused', outputs: { reason: outcome.digest } };
       const filed = (await deps.leaves.list()).find((entry) => entry.id === leafId);
+      if (branch) {
+        const saved = await deps.treeWorkspaces.save(branch.treeId, ownerId).catch((err: Error) => ({ saved: false as const, why: err.message }));
+        if (!saved.saved) request.run.emit({ type: 'notice', level: 'info', message: `the tree's repository was not saved after this leaf: ${saved.why}` } as never);
+      }
       return { exit: 'filed', outputs: { claim: filed?.claim ?? { result } } };
     },
 
@@ -401,8 +405,9 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
 
     async 'grove.park-tree'(request): Promise<StepResult> {
       const tree = request.inputs.tree;
-      if (isRecord(tree) && typeof tree.id === 'string') await deps.treeWorkspaces.park(tree.id);
-      return { exit: 'done', outputs: {} };
+      if (!isRecord(tree) || typeof tree.id !== 'string') return { exit: 'done', outputs: {} };
+      const documents = await deps.treeWorkspaces.park(tree.id, ownerOf(request));
+      return { exit: 'done', outputs: { documents } };
     },
 
     async 'grove.report'(request): Promise<StepResult> {

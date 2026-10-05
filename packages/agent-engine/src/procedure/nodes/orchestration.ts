@@ -3,6 +3,7 @@ import { stepImplementation, type NodeImplementation } from '../implementation.j
 import { fillTemplate } from '../template.js';
 import type { NodeRequest, RunContext } from '../interpreter.js';
 import type {
+  Artifact,
   ChildOutcomeValue,
   EnvironmentValue,
   ModelReply,
@@ -26,6 +27,7 @@ export interface ToolRunOutcome {
   content?: string | undefined;
   /** The call ran, but the peer refused it — a site that blocks fetches replying 401/403, for example. */
   declined?: boolean | undefined;
+  artifacts?: Artifact[] | undefined;
 }
 
 export interface ChildRunRequest {
@@ -61,6 +63,8 @@ export interface OrchestrationPorts {
   runChild(request: ChildRunRequest): Promise<ChildOutcomeValue>;
   approve(request: ApprovalRequest): Promise<boolean>;
   ask(request: QuestionRequest): Promise<QuestionAnswer>;
+  /** Whether hand-offs in one reply start together. A host that replays history answers false for runs begun before they did. */
+  handOffsTogether?(): boolean;
 }
 
 export const REFUSED_CALL = 'you did not approve that call, so it did not run';
@@ -117,13 +121,13 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
           run,
         });
         const text = childText(call.name, child);
-        outcome = { ok: child.outcome === 'ok', digest: text, content: text };
+        outcome = { ok: child.outcome === 'ok', digest: text, content: text, ...(child.artifacts?.length ? { artifacts: child.artifacts } : {}) };
       }
     } else {
       outcome = await ports.runTool({ nodeId: node.id, call, persona, environment, run });
     }
 
-    run.emit({ type: 'tool.result', nodeId: node.id, callId: call.id, ok: outcome.ok, digest: outcome.digest } as never);
+    run.emit({ type: 'tool.result', nodeId: node.id, callId: call.id, ok: outcome.ok, digest: outcome.digest, ...(outcome.artifacts?.length ? { artifacts: outcome.artifacts } : {}) } as never);
     return { outcome, delegated };
   };
 
@@ -169,24 +173,35 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const persona = inputs.persona as AgentDefinition;
       const environment = inputs.environment as EnvironmentValue | undefined;
       const digestChars = numberOf(node.settings, 'digestChars', DEFAULT_DIGEST_CHARS);
-      const results: ToolResult[] = [];
-      let childRuns = 0;
+      const delegates = new Set(ports.handOffsTogether?.() === false ? [] : persona.agents ?? []);
+      const handOffs = new Map(reply.toolCalls
+        .filter((call) => delegates.has(call.name))
+        .map((call) => [call.id, runOne(request, call, persona, environment)] as const));
+      for (const handOff of handOffs.values()) handOff.catch(() => undefined);
+      const settled: { call: ToolCallRequest; outcome: ToolRunOutcome }[] = [];
 
       for (const call of reply.toolCalls) {
-        if (run.signal?.aborted) break;
-        const { outcome, delegated } = await runOne(request, call, persona, environment);
-        if (delegated) childRuns += 1;
-        results.push({
-          forReply: reply.id,
-          callId: call.id,
-          name: call.name,
-          ok: outcome.ok,
-          digest: outcome.digest.slice(0, digestChars),
-          content: outcome.content ?? outcome.digest,
-          ...(outcome.declined ? { declined: outcome.declined } : {}),
-        });
+        const handOff = handOffs.get(call.id);
+        if (handOff) {
+          settled.push({ call, outcome: (await handOff).outcome });
+          continue;
+        }
+        if (run.signal?.aborted) continue;
+        settled.push({ call, outcome: (await runOne(request, call, persona, environment)).outcome });
       }
 
+      const results: ToolResult[] = settled.map(({ call, outcome }) => ({
+        forReply: reply.id,
+        callId: call.id,
+        name: call.name,
+        ok: outcome.ok,
+        digest: outcome.digest.slice(0, digestChars),
+        content: outcome.content ?? outcome.digest,
+        ...(outcome.declined ? { declined: outcome.declined } : {}),
+        ...(outcome.artifacts?.length ? { artifacts: outcome.artifacts } : {}),
+      }));
+
+      const childRuns = settled.filter(({ call }) => (persona.agents ?? []).includes(call.name)).length;
       return { exit: 'done', outputs: { results }, usage: { toolCalls: results.length - childRuns, childRuns } };
     }),
 

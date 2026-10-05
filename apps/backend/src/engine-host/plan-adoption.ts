@@ -248,7 +248,7 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
         const commit = await run(`cd ${TREE_REPO} && git rev-parse HEAD`);
         const worktree = `/work/${leafWorktree(leafPlan.leafId)}`;
         await run(`test ! -e ${shell(worktree)}/.git || git -C ${shell(worktree)} merge -q --no-edit main || git -C ${shell(worktree)} merge --abort || true`);
-        await options.treeWorkspaces.park(adopted.treeId);
+        await options.treeWorkspaces.park(adopted.treeId, ownerId);
         return commit;
       }
 
@@ -256,6 +256,7 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
       const earlier = proposal.plan.treeId
         ? (await driver.exec({ command: `cat ${TREE_REPO}/${PLAN_DOC_PATH} 2>/dev/null || true`, timeoutMs: 30_000 })).stdout
         : '';
+      if (proposal.conversationId) await options.treeWorkspaces.bring(adopted.treeId, ownerId, proposal.conversationId);
       const documents = planDocuments(proposal.plan, adopted, treeName, { earlier, proposalId });
       const scaffold = fresh ? await scaffoldFor(ownerId, adopted.treeId, treeName) : [];
       const written = [...scaffold, ...documents];
@@ -266,7 +267,7 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
       await run(`cd ${TREE_REPO} && git add ${paths} && (git diff --cached --quiet || git -c user.name=koala -c user.email=koala@grove.local commit -q -m ${shell(`plan: ${proposalId}`)})`);
       const commit = await run(`cd ${TREE_REPO} && git rev-parse HEAD`);
 
-      await options.treeWorkspaces.park(adopted.treeId);
+      await options.treeWorkspaces.park(adopted.treeId, ownerId);
       return commit;
     },
 

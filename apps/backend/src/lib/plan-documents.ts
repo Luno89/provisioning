@@ -1,4 +1,5 @@
 import type { AdoptedPlan, Plan, PlanLeaf } from './plan-proposals.js';
+import path from 'path';
 
 export const TREE_REPO = '/work/repo';
 export const PLAN_DOC_PATH = 'PLAN.md';
@@ -168,4 +169,22 @@ export function planDocuments(
       content: renderLeafBrief(leaf, adopted, branch.title),
     }))),
   ];
+}
+
+/** Where a proposed plan is written in a conversation's workspace: under the proposing run's own directory. */
+export const proposedPlanPath = (agentSlug: string, runId: string): string => path.posix.join('/work', agentSlug, runId, 'plan.md');
+
+/** A proposed plan as one document a person or another agent can read before it is approved: the prose, then every leaf with its goal and tasks. */
+export function renderProposedPlan(plan: Plan, proposalId: string): string {
+  const heading = plan.tree ? `# ${plan.tree.name}` : `# A plan for tree ${plan.treeId ?? ''}`.trim();
+  const leaves = plan.branches.flatMap((branch) => [
+    `### ${branch.title}`,
+    '',
+    ...branch.leaves.flatMap((leaf) => [
+      `- **${leaf.title}** (\`${leaf.key}\`${leaf.dependsOn.length ? `, after ${leaf.dependsOn.join(', ')}` : ''}): ${leaf.body}`,
+      ...leaf.tasks.map((task) => `  - ${task.title} — done when ${task.doneMeans}`),
+    ]),
+    '',
+  ]);
+  return [heading, '', `_Proposed as ${proposalId}; nothing is created until it is approved._`, '', plan.planDoc.trim(), '', '## Branches and leaves', '', ...leaves].join('\n').trimEnd() + '\n';
 }

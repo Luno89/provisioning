@@ -24,7 +24,7 @@ export interface GroveDeletionStore {
 export interface GroveDeletionDeps {
   store: GroveDeletionStore;
   workflows: { terminate(workflowId: string, reason: string): Promise<boolean> };
-  workspaces: { release(treeId: string): Promise<void> };
+  workspaces: { release(treeId: string, ownerId: string): Promise<unknown> };
 }
 
 export type GroveDeletion =
@@ -68,16 +68,14 @@ export class GroveDeletionService {
     const reason = `${target.kind} ${target.id} was deleted`;
     const stoppedRun = treeId ? await this.deps.workflows.terminate(groveRunWorkflowId(treeId), reason) : false;
     for (const id of scope.adoptingProposalIds) await this.deps.workflows.terminate(adoptionWorkflowId(id), reason);
+    if (scope.treeId) await this.deps.workspaces.release(scope.treeId, ownerId);
 
     for (const id of scope.taskIds) await store.deleteTask(id);
     for (const id of scope.leafIds) await store.deleteLeaf(id);
     for (const id of scope.proposalIds) await store.deletePlanProposal(ownerId, id);
     for (const id of scope.conversationIds) await store.deleteConversation(id);
     for (const id of scope.branchIds) await store.deleteBranch(id);
-    if (scope.treeId) {
-      await this.deps.workspaces.release(scope.treeId);
-      await store.deleteTree(scope.treeId);
-    }
+    if (scope.treeId) await store.deleteTree(scope.treeId);
     return { ok: true, value: { scope, stoppedRun } };
   }
 }

@@ -8,6 +8,7 @@ import type {
 } from '@koala/agent-engine';
 import type { EnvironmentSpec } from '@koala/engine-core';
 import type {
+  Artifact,
   EnvironmentValue,
   NodeTrace,
   PlacedNode,
@@ -55,6 +56,7 @@ export interface ToolCallOutcome {
   digest: string;
   content?: string | undefined;
   declined?: boolean;
+  artifacts?: Artifact[] | undefined;
 }
 
 export interface MergeArgs {
@@ -81,6 +83,20 @@ export type LifecycleEvent =
   | { kind: 'conversation-quiet'; ownerId: string; conversationId: string };
 
 export const CONVERSATION_CONCLUSION_WORKFLOW = 'ConversationConclusionWorkflow';
+export const CONCLUDE_WORKSPACE_WORKFLOW = 'ConcludeWorkspaceWorkflow';
+
+/** A saved workspace that is finished with: a conversation's, or a tree's. */
+export interface ConcludedWorkspace {
+  kind: 'conversation' | 'tree';
+  id: string;
+}
+
+export interface ConcludeWorkspaceArgs {
+  ownerId: string;
+  workspace: ConcludedWorkspace;
+}
+
+export const concludeWorkspaceId = (workspace: ConcludedWorkspace): string => `conclude-workspace-${workspace.kind}-${workspace.id}`;
 export const BENCH_IDLE_WORKFLOW = 'BenchIdleWorkflow';
 export const benchIdleId = (ownerId: string): string => `bench-idle-${ownerId}`;
 export type BenchIdleOutcome = 'started' | 'busy' | 'nothing';
@@ -113,6 +129,8 @@ export interface AgentRunOutcome {
   outcome: RunOutcome;
   reason?: string | undefined;
   outputs: Record<string, unknown>;
+  /** What the run and every run it handed work to made that a person can open. */
+  artifacts?: Artifact[] | undefined;
 }
 
 export type RunEnvironment =
@@ -180,6 +198,7 @@ export interface RunContinuation {
   checkpoint: RunCheckpoint;
   limits: { modelKey: string; modelLabel: string; limits: RunBudget };
   children: number;
+  produced?: Artifact[] | undefined;
   approvedForRun: boolean;
   approvals: [string, boolean][];
   answers: [string, unknown][];

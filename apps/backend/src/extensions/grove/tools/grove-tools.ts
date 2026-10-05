@@ -4,6 +4,7 @@ import { awaitingReview, settleClaim, type Branch, type Leaf } from '../../../li
 import type { Tree } from '../../../lib/trees.js';
 import { SETTLED, type Task, type TaskStatus } from '../../../engine-host/tools/tasks.js';
 import { parseLeafPlan, parsePlan, planSummary, type PlanProposal } from '../../../lib/plan-proposals.js';
+import { proposedPlanPath, renderProposedPlan } from '../../../lib/plan-documents.js';
 import { worktreeHead } from '../../../engine-host/grove-worktrees.js';
 import { treeOutline } from '../../../lib/tree-outline.js';
 import { nextLeafStep, taskItem } from '../../../lib/grove-leaf.js';
@@ -82,7 +83,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       return { ok: true, digest: `tree ${tree.name}: ${branches.length} branches, ${leaves.length} leaves`, content: treeOutline(tree, branches, leaves, tasks) };
     },
 
-    async propose_plan({ parsed, caller }): Promise<ToolOutcome> {
+    async propose_plan({ parsed, caller, driver }): Promise<ToolOutcome> {
       if (!caller.ownerId) return refuse('this run has no owner to propose a plan for');
       if (!options.stores.plans) return refuse('plans cannot be proposed here — nothing is set up to keep them for approval');
 
@@ -127,6 +128,16 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       for (const entry of earlier) await options.stores.plans.save({ ...entry, status: 'superseded', updatedAt: stamp });
       await options.stores.plans.save(proposal);
 
+      const document = caller.inConversationWorkspace && driver && caller.agentSlug && caller.runId
+        ? proposedPlanPath(caller.agentSlug, caller.runId)
+        : undefined;
+      const written = document
+        ? await driver!.writeFile(document, renderProposedPlan(outcome.plan, proposal.id)).then(() => true, (err: Error) => err.message)
+        : undefined;
+      const documentNote = written === true
+        ? ` The plan is also written to ${document} in this conversation's workspace.`
+        : typeof written === 'string' ? ` Writing it to ${document} failed: ${written}.` : '';
+
       const summary = planSummary(outcome.plan);
       const joins = outcome.plan.tree?.joins;
       const serviceNote = joins
@@ -135,7 +146,8 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       return {
         ok: true,
         digest: `proposed plan ${proposal.id} — ${summary}`,
-        content: `Proposed plan ${proposal.id}: ${summary}. It is waiting for the person to approve it; nothing exists in the grove until they do. Approval creates the tree, its sandbox, PLAN.md and a brief per leaf.${earlier.length > 0 ? ` It replaces the ${earlier.length === 1 ? 'plan' : `${earlier.length} plans`} proposed earlier in this conversation, which can no longer be approved.` : ''} Propose again only to change the plan — each proposal replaces the last.${serviceNote}`,
+        content: `Proposed plan ${proposal.id}: ${summary}. It is waiting for the person to approve it; nothing exists in the grove until they do. Approval creates the tree, its sandbox, PLAN.md and a brief per leaf.${earlier.length > 0 ? ` It replaces the ${earlier.length === 1 ? 'plan' : `${earlier.length} plans`} proposed earlier in this conversation, which can no longer be approved.` : ''} Propose again only to change the plan — each proposal replaces the last.${serviceNote}${documentNote}`,
+        ...(written === true ? { artifacts: [{ kind: 'file' as const, path: document! }] } : {}),
       };
     },
 
@@ -207,18 +219,21 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       }
 
       let commit: string | undefined;
+      let files: string[] = [];
       if (outcome === 'claimed' && driver) {
         const head = await worktreeHead(driver);
         if (head.dirty.length > 0) {
           return refuse(`the leaf's worktree has uncommitted changes (${head.dirty.slice(0, 5).join('; ')}${head.dirty.length > 5 ? '; …' : ''}) — commit the work on the leaf's branch first. The judge checks out the commit you claim, so anything not committed does not exist for it.`);
         }
         commit = head.commit;
+        files = head.changed;
       }
 
       const stamp = now();
       const claim: Leaf['claim'] = {
         evidence,
         ...(commit ? { commit } : {}),
+        ...(commit && files.length > 0 ? { files } : {}),
         at: stamp,
         ...(findings ? { findings } : {}),
         ...(runs.length > 0 ? { runs } : {}),

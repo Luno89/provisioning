@@ -54,7 +54,7 @@ import {
 } from '../engine-host/temporal/contracts.js';
 import type { RunLimits, RunLimitsArgs } from '../engine-host/registries/effort.js';
 import { RUN_STATE_QUERY, type RunState } from '../engine-host/temporal/run-cancellation.js';
-import { ASK_CHARS, type RunEffort } from '@koala/agent-engine/procedure';
+import { ASK_CHARS, type Artifact, type RunEffort } from '@koala/agent-engine/procedure';
 import { platformCatalogue, platformGroups } from '../extensions/installed.js';
 
 const NODE_HEARTBEAT_TIMEOUT = '1 minute';
@@ -97,6 +97,7 @@ const { EnginePublishActivity, EngineLifecycleActivity } = proxyActivities<{
 });
 
 const CONCLUSIONS = 'conclusion-events';
+const HAND_OFFS_TOGETHER = 'hand-offs-together';
 
 export const approveSignal = defineSignal<[{ callId: string; allowed: boolean; forRun?: boolean }]>('approve');
 export const answerSignal = defineSignal<[{ nodeId: string; value: unknown }]>('answer');
@@ -141,6 +142,18 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   let currentNode: string | undefined;
   let rounds = continued?.checkpoint.counters.rounds ?? 0;
   let children = continued?.children ?? 0;
+  const produced: Artifact[] = [...(continued?.produced ?? [])];
+  const placedOnly = <T extends { artifacts?: Artifact[] | undefined }>(outcome: T): T => {
+    const artifacts = outcome.artifacts?.filter((artifact) => artifact.kind === 'link' || typeof artifact.workspace === 'string');
+    const { artifacts: _dropped, ...rest } = outcome;
+    return (artifacts?.length ? { ...rest, artifacts } : rest) as T;
+  };
+  const keep = (artifacts: readonly Artifact[] | undefined): void => {
+    for (const artifact of artifacts ?? []) {
+      const key = JSON.stringify(artifact);
+      if (!produced.some((known) => JSON.stringify(known) === key)) produced.push(artifact);
+    }
+  };
 
   setHandler(approveSignal, ({ callId, allowed, forRun }) => {
     approvals.set(callId, allowed);
@@ -221,11 +234,17 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
           startToCloseTimeout: '30 minutes',
           scheduleToStartTimeout: '1 hour',
         });
-        return cancellable(() => onDevice.EngineToolActivity(args));
+        const outcome = placedOnly(await cancellable(() => onDevice.EngineToolActivity(args)));
+        keep(outcome.artifacts);
+        return outcome;
       }
 
-      return cancellable(() => engine.EngineToolActivity(args));
+      const outcome = await cancellable(() => engine.EngineToolActivity(args));
+      keep(outcome.artifacts);
+      return outcome;
     },
+
+    handOffsTogether: () => patched(HAND_OFFS_TOGETHER),
 
     async runChild({ agent, inputs, environment, run }): Promise<ChildOutcomeValue> {
       children += 1;
@@ -259,6 +278,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       runningChildren.add(childRunId);
       if (cancelled) await started.signal(cancelSignal);
       const child = await started.result().finally(() => runningChildren.delete(childRunId));
+      keep(child.artifacts);
 
       return {
         runId: child.runId,
@@ -266,6 +286,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         outcome: child.outcome,
         ...(child.reason ? { reason: child.reason } : {}),
         outputs: child.outputs,
+        ...(child.artifacts?.length ? { artifacts: child.artifacts } : {}),
       };
     },
 
@@ -388,6 +409,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         checkpoint: result.paused,
         limits: resolvedLimits,
         children,
+        ...(produced.length ? { produced } : {}),
         approvedForRun,
         approvals: [...approvals],
         answers: [...answers],
@@ -452,6 +474,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       outcome: result.outcome,
       ...(result.reason ? { reason: result.reason } : {}),
       outputs,
+      ...(produced.length ? { artifacts: produced } : {}),
     };
   });
 }

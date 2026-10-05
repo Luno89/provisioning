@@ -2,6 +2,10 @@ import type { RunEnvironment } from '../temporal/contracts.js';
 import type { EnvironmentResolver } from './environments.js';
 import { destroyWorkspace, retirePod, workspaceRunning, type KubeRunner } from './kube.js';
 import { POD, workspaceName } from './workspace.js';
+import type { BroughtDocuments, SavedDocuments, WorkspaceDocuments } from './workspace-documents.js';
+import { conversationRepoName, repoForWorkspace, treeWorkspaceRunId } from './workspace-repos.js';
+
+export { treeRepoName, treeWorkspaceRunId } from './workspace-repos.js';
 
 export const GROVE_WORKSPACE_AGENTS = ['planner', 'executor', 'judge', 'leaf-judge'] as const;
 
@@ -17,14 +21,21 @@ export interface TreeWorkspaces {
    */
   describe(request: { treeId: string; ownerId: string; agents?: readonly string[] | undefined }): Promise<TreeSandbox>;
   state(treeId: string): Promise<TreeWorkspaceState>;
-  park(treeId: string): Promise<void>;
-  release(treeId: string): Promise<void>;
+  /** Saves the tree's repository to Gitea and leaves the pod as it is. */
+  save(treeId: string, ownerId: string): Promise<SavedDocuments>;
+  /** Saves the tree's repository to Gitea, then stops the pod. When the save fails the pod keeps running, so nothing unsaved is parked. */
+  park(treeId: string, ownerId: string): Promise<SavedDocuments>;
+  /** Saves the tree's repository to Gitea, then deletes the workspace. Throws, deleting nothing, when the save fails. */
+  release(treeId: string, ownerId: string): Promise<SavedDocuments>;
+  /** Stages the documents a conversation saved into the tree's repository at their own paths, leaving whatever the tree already has. The tree's workspace must be running. */
+  bring(treeId: string, ownerId: string, conversationId: string): Promise<BroughtDocuments>;
 }
 
-export const treeWorkspaceRunId = (treeId: string): string => `tree-${treeId}`;
-
-export function createTreeWorkspaces(options: { resolver: EnvironmentResolver; kube: KubeRunner }): TreeWorkspaces {
+export function createTreeWorkspaces(options: { resolver: EnvironmentResolver; kube: KubeRunner; documents?: WorkspaceDocuments | undefined }): TreeWorkspaces {
   const namespaceOf = (treeId: string): string => workspaceName(treeWorkspaceRunId(treeId));
+  const save = async (treeId: string, ownerId: string): Promise<SavedDocuments> => (options.documents
+    ? options.documents.save({ ownerId, workspaceRunId: treeWorkspaceRunId(treeId), ...repoForWorkspace(treeWorkspaceRunId(treeId))! })
+    : { saved: false, why: 'this server keeps no documents' });
 
   return {
     describe: ({ treeId, ownerId, agents }) => options.resolver.describeShared({
@@ -39,8 +50,23 @@ export function createTreeWorkspaces(options: { resolver: EnvironmentResolver; k
       return (await workspaceRunning(options.kube, namespace, POD).catch(() => false)) ? 'running' : 'parked';
     },
 
-    park: (treeId) => retirePod(options.kube, namespaceOf(treeId), POD),
+    save,
 
-    release: (treeId) => destroyWorkspace(options.kube, namespaceOf(treeId)),
+    async park(treeId, ownerId) {
+      const saved = await save(treeId, ownerId).catch((err: Error): SavedDocuments => ({ saved: false, why: err.message, failed: true }));
+      if (!saved.saved && saved.failed) return saved;
+      await retirePod(options.kube, namespaceOf(treeId), POD);
+      return saved;
+    },
+
+    async release(treeId, ownerId) {
+      const saved = await save(treeId, ownerId);
+      await destroyWorkspace(options.kube, namespaceOf(treeId));
+      return saved;
+    },
+
+    bring: async (treeId, ownerId, conversationId) => (options.documents
+      ? options.documents.bring({ ownerId, workspaceRunId: treeWorkspaceRunId(treeId), ...repoForWorkspace(treeWorkspaceRunId(treeId))!, from: conversationRepoName(conversationId) })
+      : { brought: false, why: 'this server keeps no documents' }),
   };
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { leafBriefPath, planDocuments, renderLeafBrief, renderPlanDoc } from './plan-documents.js';
+import { leafBriefPath, planDocuments, proposedPlanPath, renderLeafBrief, renderPlanDoc, renderProposedPlan } from './plan-documents.js';
 import type { AdoptedPlan, Plan } from './plan-proposals.js';
 
 const plan: Plan = {
@@ -77,5 +77,31 @@ describe('the plan documents', () => {
     const growth: Plan = { treeId: 'tree-1', planDoc: '## Destination\nMore.', branches: [{ title: 'Shouting', leaves: [] }] };
     const [doc] = planDocuments(growth, { treeId: 'tree-1', branchIds: ['b2'], leafIds: {}, taskIds: {} }, 'Widget API', { earlier: '# Widget API', proposalId: 'plan-9' });
     expect(doc!.content).toContain('## Grown: Shouting (plan `plan-9`)\n\n### Destination\nMore.');
+  });
+});
+
+describe('a proposed plan written down before approval', () => {
+  it('goes under the proposing run\'s own directory', () => {
+    expect(proposedPlanPath('planner', 'run-7')).toBe('/work/planner/run-7/plan.md');
+  });
+
+  it('carries the prose and every leaf with its goal, order and tasks', () => {
+    expect(renderProposedPlan(plan, 'p1')).toBe([
+      '# Widget API',
+      '',
+      '_Proposed as p1; nothing is created until it is approved._',
+      '',
+      '# Widget API\n\nAssumption: Node 22.',
+      '',
+      '## Branches and leaves',
+      '',
+      '### Operability',
+      '',
+      '- **Health endpoint** (`health`): GET /health answers 200 with the sha',
+      '  - Handler — done when curl answers 200',
+      '  - Test — done when the test passes',
+      '- **Deploy** (`deploy`, after health): The service runs in the cluster',
+      '',
+    ].join('\n'));
   });
 });
