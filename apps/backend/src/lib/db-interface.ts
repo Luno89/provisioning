@@ -22,6 +22,7 @@ import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
 import type { ProcedureSource } from './procedure-source.js';
 import type { StoredNodeTrace } from './run-traces.js';
+import type { TurnLogEntry } from './turn-log.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { Persona as EnginePersona, ToolDefinition as EngineTool } from '@koala/agent-engine';
 import type { EvalCollection, EvalRecord } from './eval-run.js';
@@ -201,6 +202,10 @@ export interface Database {
 
   saveRunTraces(traces: StoredNodeTrace[]): Promise<void>;
   getRunTraces(ownerId: string, runId: string): Promise<StoredNodeTrace[]>;
+  /** Appends one numbered write to a turn's log; a second write with the same number is refused. */
+  appendTurnLog(entry: TurnLogEntry): Promise<void>;
+  getTurnLog(ownerId: string, turnId: string, after: number): Promise<TurnLogEntry[]>;
+  lastTurnLogSeq(turnId: string): Promise<number>;
   saveRunEffort(effort: RunEffort): Promise<void>;
   getRunEffort(ownerId: string, procedureId: string, modelKey?: string): Promise<RunEffort[]>;
 

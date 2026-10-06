@@ -1,4 +1,4 @@
-import type { Artifact } from '@koala/agent-engine/procedure';
+import type { Artifact, ChildSteps } from '@koala/agent-engine/procedure';
 
 import { api } from './client.js';
 
@@ -19,6 +19,7 @@ export interface ChatConversationMessage {
     ok: boolean;
     digest: string;
     artifacts?: Artifact[] | undefined;
+    child?: ChildSteps | undefined;
   }> | undefined;
   interruptedReason?: string | undefined;
 }
@@ -40,6 +41,8 @@ export interface ChatConversation {
   treeId?: string | undefined;
   mcpServers?: string[] | undefined;
   projectId?: string | undefined;
+  /** The turn under way, until its run saves its reply; its log holds what it has done so far. */
+  liveTurn?: { runId: string; startedAt: string } | undefined;
   messages?: ChatConversationMessage[] | undefined;
 }
 

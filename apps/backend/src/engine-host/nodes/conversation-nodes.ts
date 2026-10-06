@@ -9,7 +9,7 @@ import {
   type NodeRequest,
   type ToolResult,
 } from '@koala/agent-engine/procedure';
-import { titleFrom } from '../../lib/conversations.js';
+import { closeTurn, openTurn, titleFrom } from '../../lib/conversations.js';
 import type { Conversation, ConversationMessage, ConversationToolCall } from '../../lib/conversations.js';
 
 export interface ConversationStore {
@@ -88,6 +88,7 @@ export function asStoredToolCallsMany(
         ok: answer ? answer.ok : false,
         digest: answer ? answer.content : NOT_RUN_CALL,
         ...(answer?.artifacts?.length ? { artifacts: answer.artifacts } : {}),
+        ...(answer?.child ? { child: answer.child } : {}),
       });
     }
   }
@@ -130,6 +131,7 @@ export function createConversationNodes(store: ConversationStore): NodeImplement
 
       const asked = String(request.inputs.asked ?? '');
       const ownerId = request.run.launch.ownerId;
+      const runId = request.run.identity.runId;
       const results = ((request.inputs.results as ToolResult[][] | undefined) ?? []).flat();
       const rounds = readRoundRecords(request);
       const now = new Date().toISOString();
@@ -137,14 +139,12 @@ export function createConversationNodes(store: ConversationStore): NodeImplement
       const existing = await store.get(ownerId, id);
 
       // The host may retry this very step after a crash — written, but the result never recorded.
-      // The earlier attempt already left this exchange as the last messages, so a plain append
-      // would show the turn twice. Its ask and answer are exactly what got written, so detect
-      // that and report it as saved rather than appending again.
+      // A conversation saved before turns carried their run is recognised by its last exchange.
       const written = existing?.messages ?? [];
       const last = written[written.length - 1];
       const beforeLast = written[written.length - 2];
       if (
-        last?.role === 'assistant' && last.content === reply.content
+        !last?.runId && last?.role === 'assistant' && last.content === reply.content
         && (asked.trim() ? beforeLast?.role === 'user' && beforeLast.content === asked : true)
       ) {
         return { exit: 'saved', outputs: { conversation: id } };
@@ -154,32 +154,25 @@ export function createConversationNodes(store: ConversationStore): NodeImplement
         ? asStoredToolCallsMany([...rounds.map((round) => round.reply), reply], [...rounds.flatMap((round) => round.results), ...results])
         : asStoredToolCalls(reply, results);
 
-      const turns: ConversationMessage[] = [
-        ...(asked.trim() ? [{ role: 'user' as const, content: asked, at: now }] : []),
-        {
-          role: 'assistant' as const,
-          content: reply.content,
-          at: now,
-          ...(reply.thinking.trim() ? { reasoning: reply.thinking } : {}),
-          ...(toolCalls.length ? { toolCalls } : {}),
-        },
-      ];
+      const ending = request.run.ending;
+      const stopped = !reply.content.trim() && ending && ending.outcome !== 'ok'
+        ? ending.reason ?? `the turn ended ${ending.outcome} before it answered`
+        : undefined;
 
       const nodeTitle = String(request.node.settings.title ?? '').trim();
+      const base = asked.trim()
+        ? openTurn(existing, { ownerId, conversationId: id, runId, message: asked, now })
+        : existing ?? { id, ownerId, title: '', messages: [], createdAt: now, updatedAt: now };
+      const titled = existing ? base : { ...base, title: nodeTitle || titleFrom(asked) };
+      const closed = closeTurn(titled, runId, {
+        content: reply.content,
+        at: now,
+        ...(reply.thinking.trim() ? { reasoning: reply.thinking } : {}),
+        ...(toolCalls.length ? { toolCalls } : {}),
+        ...(stopped ? { interruptedReason: stopped } : {}),
+      }, now);
 
-      await store.save({
-        ...(existing ?? {
-          id,
-          ownerId,
-          title: nodeTitle || titleFrom(asked),
-          messages: [],
-          createdAt: now,
-        }),
-        id,
-        ownerId,
-        messages: [...(existing?.messages ?? []), ...turns],
-        updatedAt: now,
-      } as Conversation);
+      await store.save({ ...closed, id, ownerId } as Conversation);
 
       return { exit: 'saved', outputs: { conversation: id } };
     }),

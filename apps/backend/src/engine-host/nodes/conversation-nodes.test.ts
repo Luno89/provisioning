@@ -5,6 +5,7 @@ import type { ConversationStore } from './conversation-nodes.js';
 import { storesFromDatabase } from '../host.js';
 import { MemoryDB } from '../../lib/memory-db.js';
 import type { Conversation, ConversationMessage } from '../../lib/conversations.js';
+import { openTurn } from '../../lib/conversations.js';
 
 const said = (over: Partial<ConversationMessage> & Pick<ConversationMessage, 'role' | 'content'>): ConversationMessage => ({
   at: '2026-09-20T00:00:00.000Z',
@@ -44,13 +45,13 @@ const run = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-const request = (kind: string, inputs: Record<string, unknown>, settings: Record<string, unknown>) => ({
+const request = (kind: string, inputs: Record<string, unknown>, settings: Record<string, unknown>, over: Record<string, unknown> = {}) => ({
   node: { id: kind, kind, settings, position: [0, 0] as never },
   origin: kind,
   definition: builtInCatalogue().get(kind)!,
   inputs,
   execution: 1,
-  run: run(),
+  run: run(over),
 }) as never;
 
 const nodes = (kept: ConversationStore) => {
@@ -98,6 +99,16 @@ describe('recording what the tools did', () => {
     );
 
     expect(calls).toEqual([{ id: 'c1', name: 'research', args: '{}', ok: true, digest: 'found it', artifacts: [findings] }]);
+  });
+
+  it('keeps what a hand-off\'s run did with its call, so the steps outlast the turn', () => {
+    const child = { runId: 'run-1-research-1', agentId: 'research', outcome: 'ok', steps: [{ callId: 'x', name: 'search_web', ok: true, digest: '3 results' }] };
+    const calls = asStoredToolCalls(
+      reply({ toolCalls: [{ id: 'c1', name: 'research', arguments: '{}' }] }) as never,
+      [{ forReply: 'turn#1', callId: 'c1', name: 'research', ok: true, content: 'found it', child }] as never,
+    );
+
+    expect(calls).toEqual([{ id: 'c1', name: 'research', args: '{}', ok: true, digest: 'found it', child }]);
   });
 
   it('records a call that never came back as not ok', () => {
@@ -174,6 +185,55 @@ describe('loading a conversation into a run', () => {
     const outcome = await nodes(kept).load.run(request('load-conversation', { values: { conversationId: 'c-1' } }, { id: '{{values.conversationId}}' })) as { outputs: Record<string, unknown> };
 
     expect(outcome.outputs).toEqual({ messages: [], found: false });
+  });
+});
+
+describe('a turn opened before its run and closed by it', () => {
+  const opened = (): Conversation => openTurn({ id: 'c-1', ownerId: 'user-1', title: 'Counting', createdAt: 'x', updatedAt: 'x', messages: [said({ role: 'user', content: 'earlier' })] }, { ownerId: 'user-1', conversationId: 'c-1', runId: 'r', message: 'and now?', now: 'then' });
+
+  it('opens by saving the person\'s message with its run and marking the turn under way, once', () => {
+    const turn = opened();
+    expect(turn.messages.map((one) => [one.role, one.content, one.runId])).toEqual([['user', 'earlier', undefined], ['user', 'and now?', 'r']]);
+    expect(turn.liveTurn).toEqual({ runId: 'r', startedAt: 'then' });
+    expect(openTurn(turn, { ownerId: 'user-1', conversationId: 'c-1', runId: 'r', message: 'and now?', now: 'later' })).toBe(turn);
+  });
+
+  it('opens a conversation that does not exist yet, named after the message', () => {
+    expect(openTurn(undefined, { ownerId: 'user-1', conversationId: 'c-new', runId: 'r', message: 'how many?', now: 'then' })).toMatchObject({ id: 'c-new', title: 'how many?', liveTurn: { runId: 'r' } });
+  });
+
+  it('closes with the reply alone when the run saves, and clears the turn', async () => {
+    const { rows, kept } = store([opened()]);
+
+    await nodes(kept).save.run(request('save-conversation', { values: { conversationId: 'c-1' }, asked: 'and now?', reply: reply() }, { id: '{{values.conversationId}}' }));
+
+    expect(rows[0]!.messages.map((one) => [one.role, one.content, one.runId])).toEqual([['user', 'earlier', undefined], ['user', 'and now?', 'r'], ['assistant', 'three of them', 'r']]);
+    expect(rows[0]!.liveTurn).toBeUndefined();
+  });
+
+  it('saves the reply once however often the save is retried, and leaves another run\'s turn under way', async () => {
+    const turn = { ...opened(), liveTurn: { runId: 'r-later', startedAt: 'later' } };
+    const { rows, kept } = store([turn]);
+    const save = () => nodes(kept).save.run(request('save-conversation', { values: { conversationId: 'c-1' }, asked: 'and now?', reply: reply() }, { id: '{{values.conversationId}}' }));
+
+    await save();
+    await save();
+
+    expect(rows[0]!.messages.filter((one) => one.role === 'assistant')).toHaveLength(1);
+    expect(rows[0]!.liveTurn).toEqual({ runId: 'r-later', startedAt: 'later' });
+  });
+
+  it('says why a turn stopped instead of saving an empty reply', async () => {
+    const { rows, kept } = store([opened()]);
+
+    await nodes(kept).save.run(request(
+      'save-conversation',
+      { values: { conversationId: 'c-1' }, asked: 'and now?', reply: reply({ content: '', toolCalls: [{ id: 'c1', name: 'get_logs', arguments: '{}' }] }) },
+      { id: '{{values.conversationId}}' },
+      { cleaningUp: true, ending: { outcome: 'failed', reason: '3 tool calls failed in a row' } },
+    ));
+
+    expect(rows[0]!.messages.at(-1)).toMatchObject({ role: 'assistant', content: '', interruptedReason: '3 tool calls failed in a row', runId: 'r' });
   });
 });
 

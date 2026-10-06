@@ -23,6 +23,7 @@ import type { SecretRequest } from './secret-requests.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
+import { TURN_LOG_RETENTION_SECONDS, type TurnLogEntry } from './turn-log.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { Persona as EnginePersona, ToolDefinition as EngineTool } from '@koala/agent-engine';
 import { evalRecordKey, type EvalCollection, type EvalRecord } from './eval-run.js';
@@ -162,6 +163,10 @@ export class MongoDB implements Database {
     return this.db!.collection('engineRunEffort');
   }
 
+  private get turnLogs(): Collection {
+    return this.db!.collection('turnLogs');
+  }
+
   private get runTraces(): Collection {
     return this.db!.collection('engineRunTraces');
   }
@@ -258,6 +263,8 @@ export class MongoDB implements Database {
     await this.deployments.createIndex({ name: 1 }, { unique: true });
     await this.users.createIndex({ email: 1 }, { unique: true });
     await this.runTraces.createIndex({ ownerId: 1, runId: 1, sequence: 1 });
+    await this.turnLogs.createIndex({ turnId: 1, seq: 1 }, { unique: true });
+    await this.turnLogs.createIndex({ at: 1 }, { expireAfterSeconds: TURN_LOG_RETENTION_SECONDS });
     await this.handoffs.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.instanceRegistry.createIndex({ ownerId: 1 });
     await this.joinTokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
@@ -1031,6 +1038,20 @@ export class MongoDB implements Database {
       .limit(500)
       .toArray();
     return docs.map(({ _id, ...rest }) => rest as unknown as RunEffort);
+  }
+
+  async appendTurnLog(entry: TurnLogEntry): Promise<void> {
+    await this.turnLogs.insertOne({ ...entry, at: new Date(entry.at) });
+  }
+
+  async getTurnLog(ownerId: string, turnId: string, after: number): Promise<TurnLogEntry[]> {
+    const docs = await this.turnLogs.find({ ownerId, turnId, seq: { $gt: after } }).sort({ seq: 1 }).toArray();
+    return docs.map(({ _id, at, ...rest }) => ({ ...rest, at: (at as Date).toISOString() }) as unknown as TurnLogEntry);
+  }
+
+  async lastTurnLogSeq(turnId: string): Promise<number> {
+    const [last] = await this.turnLogs.find({ turnId }).sort({ seq: -1 }).limit(1).toArray();
+    return (last?.seq as number | undefined) ?? 0;
   }
 
   async getRunTraces(ownerId: string, runId: string): Promise<StoredNodeTrace[]> {

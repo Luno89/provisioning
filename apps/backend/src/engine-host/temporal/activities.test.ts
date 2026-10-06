@@ -253,3 +253,14 @@ describe('concluding a workspace', () => {
     await expect(createEngineActivities(svc).ConcludeWorkspaceActivity({ ownerId: 'user-1', workspace: { kind: 'tree', id: 't1' } })).rejects.toThrow('Gitea is down');
   });
 });
+
+describe('publishing a run\'s events', () => {
+  it('stamps each with the run\'s owner, so only that person\'s browsers receive it', async () => {
+    const { services: svc, events } = services();
+    const event = { type: 'tool.called', runId: 'run-1', at: 'now', nodeId: 'tools', callId: 'a', name: 'read_file', args: '{}' } as EngineEvent;
+
+    await createEngineActivities(svc).EnginePublishActivity({ ownerId: 'user-1', events: [event] });
+
+    expect(events).toEqual([{ ...event, ownerId: 'user-1' }]);
+  });
+});

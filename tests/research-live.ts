@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 import axios, { type AxiosInstance } from 'axios';
+import { io as connectSocket, type Socket } from 'socket.io-client';
 import { signJWT } from '../apps/backend/src/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
 import { loadKeys } from '../apps/backend/src/lib/keys.js';
@@ -60,6 +61,19 @@ async function main(): Promise<void> {
     console.log(`  koala run ${runId}`);
     return { runId, traces: await finished(http, runId) };
   };
+
+  const origin = new URL(BASE).origin;
+  const listen = (userId: string, email: string) => {
+    const heard: { type: string; runId: string; parentRunId?: string; parentCallId?: string; callId?: string; name?: string }[] = [];
+    const socket: Socket = connectSocket(origin, { transports: ['websocket'], extraHeaders: { Cookie: `session=${signJWT({ userId, email }, loadKeys(process.env).session, 7200)}` } });
+    socket.on('engine-event', (event: (typeof heard)[number]) => { heard.push(event); });
+    return { heard, socket };
+  };
+  const outsiderUser = (await db.getUsers()).find((candidate) => candidate.id !== OWNER);
+  assert.ok(outsiderUser, 'there is no second account to check that events stay with their owner');
+  const owner = listen(user.id, user.email);
+  const outsider = listen(outsiderUser.id, outsiderUser.email);
+  await until('both sockets to connect', 30_000, async () => (owner.socket.connected && outsider.socket.connected ? true : undefined));
 
   const conversationId = (await http.post('/conversations', {})).data.id as string;
   const namespace = workspaceName(conversationWorkspaceRunId(conversationId));
@@ -128,6 +142,32 @@ async function main(): Promise<void> {
       opened.set(link!.path!, document.content);
     }
     console.log(`  all ${opened.size} findings open from ${repo} already, matching the workspace`);
+
+    console.log('[3c] each research run showed in the chat while it worked, under the call that started it, and only to its owner');
+    type StoredStep = { name: string; ok?: boolean };
+    type StoredHandOff = { id: string; name: string; child?: { runId: string; agentId: string; steps: StoredStep[] } };
+    const handOffs = (await http.get(`/conversations/${conversationId}`)).data.messages
+      .filter((message: { role: string }) => message.role === 'assistant')
+      .flatMap((message: { toolCalls?: StoredHandOff[] }) => message.toolCalls ?? [])
+      .filter((call: StoredHandOff) => call.name === 'research') as StoredHandOff[];
+    const turnEnded = owner.heard.findIndex((event) => event.type === 'run.finished' && event.runId === first.runId);
+    assert.ok(turnEnded >= 0, 'the owner\'s browser never heard koala\'s turn end');
+    for (const call of handOffs) {
+      assert.ok(call.child, `research call ${call.id} was stored without what its run did`);
+      const started = owner.heard.findIndex((event) => event.type === 'run.started' && event.runId === call.child!.runId);
+      assert.ok(started >= 0, `the browser never heard ${call.child.runId} start`);
+      assert.equal(owner.heard[started]!.parentRunId, first.runId);
+      assert.equal(owner.heard[started]!.parentCallId, call.id, `${call.child.runId} did not say which call started it`);
+      const liveSteps = owner.heard.slice(0, turnEnded).filter((event) => event.runId === call.child!.runId && event.type === 'tool.called').map((event) => event.name);
+      console.log(`  ${call.id} → ${call.child.runId.slice(-10)}: ${liveSteps.length} steps heard live before the turn ended; stored ${call.child.steps.length}: ${call.child.steps.map((step) => step.name).join(', ')}`);
+      assert.ok(liveSteps.length > 0, `none of ${call.child.runId}'s steps reached the browser before the turn ended`);
+      assert.deepEqual(call.child.steps.map((step) => step.name), liveSteps, `${call.child.runId}'s stored steps differ from what the browser saw`);
+    }
+    assert.ok(handOffs.length > 0, 'no research hand-off was stored');
+    console.log(`  the owner's browser heard ${owner.heard.length} events; another account's heard ${outsider.heard.length}`);
+    assert.equal(outsider.heard.length, 0, 'another account\'s browser received this run\'s events');
+    owner.socket.close();
+    outsider.socket.close();
 
     console.log(`[4/5] after ${QUIET_MS / 60_000} quiet minutes the workspace is saved to ${repo} and deleted`);
     assert.ok(account, 'the owner has no Gitea account');

@@ -11,6 +11,8 @@ export interface ConversationsRouterDeps {
   ownedTrees?: (userId: string) => Promise<{ id: string }[]>;
   ownedProjects?: (userId: string) => Promise<{ id: string }[]>;
   workspaces?: { conclude(ownerId: string, conversationId: string): Promise<unknown> } | undefined;
+  /** Settles a turn whose run ended without saving its reply, so reading never shows one that will not finish. */
+  turns?: { settle(conversation: Conversation): Promise<Conversation> } | undefined;
 }
 
 export function conversationsRouter(deps: ConversationsRouterDeps): Router {
@@ -27,7 +29,7 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
   router.get('/:id', asyncRoute(async (req, res) => {
     const found = (await deps.ownedConversations((req as any).user.id)).find((c) => c.id === req.params.id);
     if (!found) return res.status(404).json({ error: 'No such conversation' });
-    res.json(found);
+    res.json(deps.turns ? await deps.turns.settle(found) : found);
   }));
 
   router.post('/', asyncRoute(async (req, res) => {

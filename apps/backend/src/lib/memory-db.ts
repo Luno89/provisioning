@@ -24,6 +24,7 @@ import type { SecretRequest } from './secret-requests.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
+import type { TurnLogEntry } from './turn-log.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { Persona as EnginePersona, ToolDefinition as EngineTool } from '@koala/agent-engine';
 import { evalRecordKey, type EvalCollection, type EvalRecord } from './eval-run.js';
@@ -69,6 +70,7 @@ export class MemoryDB implements Database {
   private accessRequests: AccessRequest[] = [];
   private procedures: ProcedureSource[] = [];
   private runTraces = new Map<string, StoredNodeTrace>();
+  private turnLogs: TurnLogEntry[] = [];
   private runEffort = new Map<string, RunEffort>();
   private memoryWatermarks = new Map<string, string>();
   private benchSettings = new Map<string, BenchSettings>();
@@ -761,6 +763,19 @@ export class MemoryDB implements Database {
     return [...this.runEffort.values()]
       .filter((effort) => effort.ownerId === ownerId && effort.procedureId === procedureId && (!modelKey || effort.modelKey === modelKey))
       .sort((a, b) => b.finishedAt.localeCompare(a.finishedAt));
+  }
+
+  async appendTurnLog(entry: TurnLogEntry): Promise<void> {
+    if (this.turnLogs.some((known) => known.turnId === entry.turnId && known.seq === entry.seq)) throw new Error(`turn ${entry.turnId} already has entry ${entry.seq}`);
+    this.turnLogs.push(structuredClone(entry));
+  }
+
+  async getTurnLog(ownerId: string, turnId: string, after: number): Promise<TurnLogEntry[]> {
+    return this.turnLogs.filter((entry) => entry.ownerId === ownerId && entry.turnId === turnId && entry.seq > after).sort((a, b) => a.seq - b.seq).map((entry) => structuredClone(entry));
+  }
+
+  async lastTurnLogSeq(turnId: string): Promise<number> {
+    return Math.max(0, ...this.turnLogs.filter((entry) => entry.turnId === turnId).map((entry) => entry.seq));
   }
 
   async getRunTraces(ownerId: string, runId: string): Promise<StoredNodeTrace[]> {

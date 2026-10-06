@@ -111,6 +111,10 @@ export {
   type EnvironmentValue,
   type RecalledMemory,
   type ChildOutcomeValue,
+  type ChildSteps,
+  type RunStep,
+  collectStep,
+  STEP_DIGEST_CHARS,
 } from './values.js';
 export {
   stepImplementation,

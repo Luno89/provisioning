@@ -1,3 +1,4 @@
+import { WorkflowNotFoundError } from '@temporalio/client';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -56,6 +57,7 @@ import { buildWebTools } from './lib/web-tools-wiring.js';
 import { Level1Service } from './services/Level1Service.js';
 import { Level2Service } from './services/Level2Service.js';
 import { createStoredToolCatalogue, createEngineHost, storesFromDatabase, createStoredAgentRegistry, createEndpointResolver, createRunStarter, startStreamWorker } from './engine-host/index.js';
+import { userRoom } from './engine-host/temporal/stream-worker.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
 import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
@@ -113,6 +115,8 @@ import { GiteaService } from './services/GiteaService.js';
 import { InfisicalService } from './services/InfisicalService.js';
 import { ProjectRepoService } from './services/ProjectRepoService.js';
 import { WorkspaceConclusionService } from './services/WorkspaceConclusionService.js';
+import { ConversationTurnService } from './services/ConversationTurnService.js';
+import { turnsRouter } from './routes/turns.js';
 import { DocumentService } from './services/DocumentService.js';
 import { documentsRouter } from './routes/documents.js';
 import { HeadscaleService } from './services/HeadscaleService.js';
@@ -243,8 +247,22 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
   });
+  const conversationTurns = new ConversationTurnService({
+    store: db,
+    log: db,
+    running: async (runId) => {
+      if (!temporalBridge.isReady()) return true;
+      try {
+        return (await temporalBridge.client.workflow.getHandle(runId).describe()).status.name === 'RUNNING';
+      } catch (err) {
+        if (err instanceof WorkflowNotFoundError) return false;
+        throw err;
+      }
+    },
+  });
   const engineRuns = createRunStarter({
     registry: engineRegistry,
+    turns: conversationTurns,
     ...(Number(process.env.ENGINE_CONTINUE_AFTER_EVENTS) > 0 ? { continueAfterEvents: Number(process.env.ENGINE_CONTINUE_AFTER_EVENTS) } : {}),
     workflows: () => (temporalBridge.isReady()
       ? {
@@ -299,6 +317,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   if (servesTenants(role)) startStreamWorker({
     io,
+    turnLogs: db,
     encryptionKey: keys.payload,
     services: {
       registry: engineRegistry,
@@ -421,7 +440,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   io.on('connection', (socket) => {
     const connectedUser = (socket.data.user as { id?: string } | undefined)?.id;
-    if (connectedUser) void socket.join(`user:${connectedUser}`);
+    if (connectedUser) void socket.join(userRoom(connectedUser));
     const socketTails = new Map<string, any>();
 
     socket.on('join-room', async (id) => {
@@ -874,6 +893,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.use('/api/conversations', conversationsRouter({
     db,
     workspaces: { conclude: (ownerId: string, conversationId: string) => workspaceConclusions.conclude(ownerId, { kind: 'conversation', id: conversationId }) },
+    turns: conversationTurns,
     ownedConversations,
     ownedTrees,
     ownedProjects: async (userId: string) => (await db.getProjects()).filter((project) => project.ownerId === userId),
@@ -886,6 +906,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     read: (userId, repo, path, ref) => projectRepoService.readDocument(userId, repo, path, ref),
   });
   tenant.use('/api/documents', documentsRouter({ documents: documentService }));
+  tenant.use('/api/turns', turnsRouter({ log: { read: (ownerId, turnId, after) => db.getTurnLog(ownerId, turnId, after) } }));
 
   tenant.use('/api/memories', memoriesRouter({ db, temporalBridge }));
 

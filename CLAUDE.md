@@ -52,6 +52,7 @@ npm run test:proposals-live       # Koala corrected in chat → the memory keepe
 npm run test:practices-live       # a correction → a practice on trial → the bench tries it → live or held → recalled, ~45 min
 npm run test:changes-live         # a prompt change compared on the bench and accepted; a procedure request handed to the agent builder, ~30 min
 npm run test:research-live        # Koala fans out three research runs at once into one conversation workspace → reads their files → after the quiet time they are in Gitea and the pod is gone → a later turn restores them, ~25 min
+npm run test:turn-log-live        # a Koala turn is opened on the server before it runs → the browser drops mid-turn, rebuilds from the turn log and follows on with no gap → the saved reply is the logged text → a run killed mid-turn leaves its reply, marked interrupted, ~10 min
 npm run test:instance-live        # k3d cluster + root container + charts/instance → sign in through root → sandboxed run, ~10 min, cleans up
 npm run test:remote-integration   # boots a disposable QEMU VM, provisions it as a provider:'remote' cluster over
                                    # real SSH, verifies kubectl + deploys a real app, tears down VM+cluster — proves

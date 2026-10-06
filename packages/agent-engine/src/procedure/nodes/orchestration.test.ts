@@ -166,6 +166,19 @@ describe('run tool calls', () => {
     expect(outcome.events.filter((event) => (event as { type: string }).type === 'tool.result').map((event) => (event as { artifacts?: unknown }).artifacts)).toEqual(expect.arrayContaining([[written], [found]]));
   });
 
+  it('tells a hand-off\'s run which call started it, and hands on what that run did under the call', async () => {
+    const steps = [{ callId: 'c1', name: 'search_web', ok: true, digest: '3 results' }];
+    const p = ports({ runChild: vi.fn(async () => ({ runId: 'run-1-research-1', agentId: 'research', outcome: 'ok', outputs: {}, steps })) });
+    const outcome = await invoke(createOrchestrationNodes(p), runToolCalls, {
+      inputs: { persona: persona(), reply: reply([{ id: 'b', name: 'research', arguments: '{}' }]) },
+    });
+
+    const child = { runId: 'run-1-research-1', agentId: 'research', outcome: 'ok', steps };
+    expect(p.runChild).toHaveBeenCalledWith(expect.objectContaining({ callId: 'b', agent: 'research' }));
+    expect((outcome.outputs.results as ToolResult[])[0]!.child).toEqual(child);
+    expect(outcome.events.find((event) => (event as { type: string }).type === 'tool.result')).toMatchObject({ callId: 'b', child });
+  });
+
   it('starts every hand-off in a reply at once, so none waits for another to finish', async () => {
     const started: string[] = [];
     const finishers: (() => void)[] = [];

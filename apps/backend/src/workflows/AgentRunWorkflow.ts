@@ -38,6 +38,7 @@ import {
   handleFor,
   launchFor,
   ticketFor,
+  turnOf,
   type AgentRunOutcome,
   type LifecycleEvent,
   type ProcedureRunInput,
@@ -54,7 +55,7 @@ import {
 } from '../engine-host/temporal/contracts.js';
 import type { RunLimits, RunLimitsArgs } from '../engine-host/registries/effort.js';
 import { RUN_STATE_QUERY, type RunState } from '../engine-host/temporal/run-cancellation.js';
-import { ASK_CHARS, type Artifact, type RunEffort } from '@koala/agent-engine/procedure';
+import { ASK_CHARS, collectStep, type Artifact, type RunEffort, type RunStep } from '@koala/agent-engine/procedure';
 import { platformCatalogue, platformGroups } from '../extensions/installed.js';
 
 const NODE_HEARTBEAT_TIMEOUT = '1 minute';
@@ -121,6 +122,7 @@ const toRemote = (request: NodeRequest): RemoteNodeRequest => ({
     counters: { ...request.run.counters },
     budget: request.run.budget,
     cleaningUp: request.run.cleaningUp,
+    ...(request.run.ending ? { ending: request.run.ending } : {}),
   },
 });
 
@@ -143,6 +145,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   let rounds = continued?.checkpoint.counters.rounds ?? 0;
   let children = continued?.children ?? 0;
   const produced: Artifact[] = [...(continued?.produced ?? [])];
+  let steps: RunStep[] = [...(continued?.steps ?? [])];
   const placedOnly = <T extends { artifacts?: Artifact[] | undefined }>(outcome: T): T => {
     const artifacts = outcome.artifacts?.filter((artifact) => artifact.kind === 'link' || typeof artifact.workspace === 'string');
     const { artifacts: _dropped, ...rest } = outcome;
@@ -191,11 +194,12 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   bus.subscribe((event) => {
     if (event.type === 'thinking' || event.type === 'content') return;
     if (event.type === 'node.entered') currentNode = event.nodeId;
+    if (event.type === 'tool.called' || event.type === 'tool.result') steps = collectStep(steps, event);
     pending.push(event);
   });
 
   const flush = async (): Promise<void> => {
-    if (pending.length > 0) await EnginePublishActivity({ events: pending.splice(0, pending.length) });
+    if (pending.length > 0) await EnginePublishActivity({ ownerId: ticket.ownerId, turnId: turnOf(ticket), events: pending.splice(0, pending.length) });
     if (traces.length > 0) {
       await EngineRecordTracesActivity({
         ownerId: ticket.ownerId,
@@ -246,7 +250,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
 
     handOffsTogether: () => patched(HAND_OFFS_TOGETHER),
 
-    async runChild({ agent, inputs, environment, run }): Promise<ChildOutcomeValue> {
+    async runChild({ agent, inputs, environment, run, callId }): Promise<ChildOutcomeValue> {
       children += 1;
       const childRunId = `${ticket.runId}-${agent}-${children}`;
       const resolved = await engine.EngineResolveAgentActivity({ ownerId: ticket.ownerId, agentSlug: agent });
@@ -264,6 +268,8 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
             ...ticketFor(run),
             runId: childRunId,
             parentRunId: ticket.runId,
+            parentCallId: callId,
+            turnId: turnOf(ticket),
             depth: ticket.depth + 1,
             agentSlug: agent,
             trigger: 'agent',
@@ -287,6 +293,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         ...(child.reason ? { reason: child.reason } : {}),
         outputs: child.outputs,
         ...(child.artifacts?.length ? { artifacts: child.artifacts } : {}),
+        steps: child.steps ?? [],
       };
     },
 
@@ -382,6 +389,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       identity: {
         runId: ticket.runId,
         ...(ticket.parentRunId ? { parentRunId: ticket.parentRunId } : {}),
+        ...(ticket.parentCallId ? { parentCallId: ticket.parentCallId } : {}),
         depth: ticket.depth,
         agentId: ticket.agentSlug,
         loopId: procedure.id,
@@ -410,6 +418,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         limits: resolvedLimits,
         children,
         ...(produced.length ? { produced } : {}),
+        ...(steps.length ? { steps } : {}),
         approvedForRun,
         approvals: [...approvals],
         answers: [...answers],
@@ -475,6 +484,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       ...(result.reason ? { reason: result.reason } : {}),
       outputs,
       ...(produced.length ? { artifacts: produced } : {}),
+      ...(steps.length ? { steps } : {}),
     };
   });
 }

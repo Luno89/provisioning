@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Terminal, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight, FileText, ExternalLink } from 'lucide-react';
-import type { Artifact } from '@koala/agent-engine/procedure';
+import { Terminal, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight, FileText, ExternalLink, Bot } from 'lucide-react';
+import type { Artifact, ChildSteps } from '@koala/agent-engine/procedure';
+import { childView, type ChildRunView } from '../../lib/chat-unified-reducer.js';
 
 export type FileArtifact = Extract<Artifact, { kind: 'file' }>;
 
@@ -12,6 +13,47 @@ export interface ToolCallData {
   digest?: string | undefined;
   running?: boolean | undefined;
   artifacts?: Artifact[] | undefined;
+  child?: ChildRunView | ChildSteps | undefined;
+}
+
+const LIVE_TAIL_CHARS = 400;
+
+function ChildRun({ child, onOpenDocument }: { child: ChildRunView; onOpenDocument?: ((file: FileArtifact) => void) | undefined }) {
+  const [shown, setShown] = useState<boolean | undefined>(undefined);
+  const open = shown ?? child.running;
+  const steps = child.tools.length;
+  const failed = !child.running && child.outcome !== undefined && child.outcome !== 'ok';
+
+  return (
+    <div className="px-3 pb-2" aria-label={`What ${child.agentId} is doing`}>
+      <button
+        type="button"
+        onClick={() => setShown(!open)}
+        className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer"
+      >
+        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        <Bot size={11} className="shrink-0" />
+        <span className="font-mono">{child.agentId}</span>
+        <span>
+          {child.running
+            ? `working — ${steps} ${steps === 1 ? 'step' : 'steps'} so far`
+            : `${failed ? `did not finish${child.reason ? `: ${child.reason}` : ''}` : 'finished'} — ${steps} ${steps === 1 ? 'step' : 'steps'}`}
+        </span>
+      </button>
+      {open && (
+        <div className="mt-1 ml-1.5 pl-2 border-l border-[var(--bark-800,#1b2620)]">
+          {child.tools.map((tool) => (
+            <ChatToolCallCard key={tool.id} tool={tool} onOpenDocument={onOpenDocument} />
+          ))}
+          {child.running && child.live && (
+            <p className="mt-1 text-[11px] text-slate-400 whitespace-pre-wrap leading-relaxed">
+              {child.live.length > LIVE_TAIL_CHARS ? `…${child.live.slice(-LIVE_TAIL_CHARS)}` : child.live}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ArtifactList({ artifacts, onOpenDocument }: { artifacts: Artifact[]; onOpenDocument?: ((file: FileArtifact) => void) | undefined }) {
@@ -98,6 +140,8 @@ export function ChatToolCallCard({ tool, onOpenDocument }: { tool: ToolCallData;
       {tool.artifacts && tool.artifacts.length > 0 && (
         <ArtifactList artifacts={tool.artifacts} onOpenDocument={onOpenDocument} />
       )}
+
+      {tool.child && <ChildRun child={childView(tool.child)} onOpenDocument={onOpenDocument} />}
 
       {open && hasDetails && (
         <div className="px-3 pb-2.5 pt-1 border-t border-[var(--bark-800,#1b2620)] bg-black/20 space-y-2 text-xs leading-relaxed font-sans">

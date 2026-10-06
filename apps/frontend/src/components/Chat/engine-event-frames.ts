@@ -32,7 +32,7 @@ export function engineEventToFrame(event: EngineEvent): EngineFrameOutcome {
     case 'tool.result':
       return {
         kind: 'frame',
-        frame: { type: 'toolResult', payload: { id: event.callId, ok: event.ok, digest: event.digest, ...(event.artifacts?.length ? { artifacts: event.artifacts } : {}) } },
+        frame: { type: 'toolResult', payload: { id: event.callId, ok: event.ok, digest: event.digest, ...(event.artifacts?.length ? { artifacts: event.artifacts } : {}), ...(event.child ? { child: event.child } : {}) } },
       }
     case 'usage':
       return { kind: 'frame', frame: { type: 'usage', payload: event.usage } }
@@ -44,4 +44,17 @@ export function engineEventToFrame(event: EngineEvent): EngineFrameOutcome {
       // run.started, node.entered/exited/traced, model.requested, notice: the chat bubbles do not draw
       return { kind: 'idle' }
   }
+}
+/**
+ * A hand-off's run, and every run it hands work to in turn, draws inside the call that started it.
+ * `path` is the chain of call ids from the turn's own call down to that run, so each of its frames
+ * lands on the right card, and its ending finishes that card rather than the turn.
+ */
+export function childEventToFrame(event: EngineEvent, path: readonly string[]): EngineFrameOutcome {
+  const mapped = engineEventToFrame(event)
+  if (mapped.kind === 'idle') return mapped
+  if (mapped.kind === 'ended') {
+    return { kind: 'frame', frame: { type: 'childFinished', payload: { path: [...path], outcome: mapped.outcome, ...(mapped.reason !== undefined ? { reason: mapped.reason } : {}) } } }
+  }
+  return { kind: 'frame', frame: { type: 'childFrame', payload: { path: [...path], frame: mapped.frame } } }
 }

@@ -60,7 +60,14 @@ export interface RunStarterOptions {
   newRunId?: (() => string) | undefined;
   binding?: ((ownerId: string, conversationId: string) => Promise<Record<string, string> | undefined>) | undefined;
   continueAfterEvents?: number | undefined;
+  /** Opens a conversation turn before its run starts, and closes it with why when the run cannot. */
+  turns?: {
+    open(turn: { ownerId: string; conversationId: string; runId: string; message: string }): Promise<void>;
+    fail(turn: { ownerId: string; conversationId: string; runId: string }, why: string): Promise<void>;
+  } | undefined;
 }
+
+const savesConversation = (procedure: { nodes: readonly { kind: string }[] }): boolean => procedure.nodes.some((node) => node.kind === 'save-conversation');
 
 export const BINDING_INPUTS = ['treeId', 'tree', 'projectId', 'project'] as const;
 
@@ -110,11 +117,21 @@ export function createRunStarter(options: RunStarterOptions) {
         ...(options.continueAfterEvents ? { continueAfterEvents: options.continueAfterEvents } : {}),
       };
 
-      await workflows.start('AgentRunWorkflow', {
-        workflowId: runId,
-        taskQueue: queue,
-        args: [input],
-      });
+      const turn = request.conversationId && options.turns && savesConversation(runnable.procedure)
+        ? { ownerId: request.ownerId, conversationId: request.conversationId, runId }
+        : undefined;
+      if (turn) await options.turns!.open({ ...turn, message: request.message });
+
+      try {
+        await workflows.start('AgentRunWorkflow', {
+          workflowId: runId,
+          taskQueue: queue,
+          args: [input],
+        });
+      } catch (err) {
+        if (turn) await options.turns!.fail(turn, `the run could not start: ${(err as Error).message}`).catch(() => undefined);
+        throw err;
+      }
 
       return { runId, agentSlug: request.agentSlug, loopId: runnable.procedure.id };
     },

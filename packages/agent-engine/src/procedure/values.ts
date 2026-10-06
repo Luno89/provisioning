@@ -32,6 +32,43 @@ export type Artifact =
   | { kind: 'file'; workspace: string; path: string }
   | { kind: 'link'; url: string; title?: string | undefined };
 
+/** What a run that a hand-off started did, as a person reads it afterwards. */
+export interface ChildSteps {
+  runId: string;
+  agentId: string;
+  outcome: string;
+  reason?: string | undefined;
+  steps: RunStep[];
+}
+
+/** One tool call a run made: what it called and how that went, and for a hand-off, what the run it started did in turn. A step with no `ok` never got a result. */
+export interface RunStep {
+  callId: string;
+  name: string;
+  ok?: boolean | undefined;
+  digest?: string | undefined;
+  artifacts?: Artifact[] | undefined;
+  child?: ChildSteps | undefined;
+}
+
+export const STEP_DIGEST_CHARS = 500;
+
+/** Keeps a run's steps up to date from its own tool events: a call adds a step, its result settles it. */
+export function collectStep(steps: RunStep[], event: { type: string; callId?: string; name?: string; ok?: boolean; digest?: string; artifacts?: Artifact[]; child?: ChildSteps }): RunStep[] {
+  if (!event.callId) return steps;
+  if (event.type === 'tool.called' && event.name) {
+    return steps.some((step) => step.callId === event.callId) ? steps : [...steps, { callId: event.callId, name: event.name }];
+  }
+  if (event.type !== 'tool.result') return steps;
+  return steps.map((step) => (step.callId !== event.callId ? step : {
+    ...step,
+    ok: event.ok === true,
+    ...(event.digest ? { digest: event.digest.slice(0, STEP_DIGEST_CHARS) } : {}),
+    ...(event.artifacts?.length ? { artifacts: event.artifacts } : {}),
+    ...(event.child ? { child: event.child } : {}),
+  }));
+}
+
 export interface ToolResult {
   forReply: string;
   callId: string;
@@ -42,6 +79,7 @@ export interface ToolResult {
   /** The call ran, but the peer refused it (a site that blocks fetches replying 401/403). Check Tool Failures does not count these. */
   declined?: boolean;
   artifacts?: Artifact[] | undefined;
+  child?: ChildSteps | undefined;
 }
 
 export interface ModelBinding {
@@ -81,6 +119,7 @@ export interface ChildOutcomeValue {
   reason?: string | undefined;
   outputs: Record<string, unknown>;
   artifacts?: Artifact[] | undefined;
+  steps?: RunStep[] | undefined;
 }
 
 export const replyExit = (reply: ModelReply): 'toolCalls' | 'truncated' | 'empty' | 'answered' => {

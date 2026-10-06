@@ -19,6 +19,8 @@ export interface UsageDelta {
 
 export interface RunLaunch {
   ownerId: string;
+  /** The turn this run belongs to: the id of the run at the top, which every run it hands work to shares. */
+  turnId?: string | undefined;
   projectId?: string | undefined;
   conversationId?: string | undefined;
   modelId?: string | undefined;
@@ -35,6 +37,8 @@ export interface RunContext {
   budget: Readonly<RunBudget>;
   signal?: AbortSignal | undefined;
   cleaningUp: boolean;
+  /** While cleaning up: how the run ended and why, so a cleanup step can record it. */
+  ending?: { outcome: RunOutcome; reason?: string | undefined } | undefined;
   emit(event: Omit<EngineEvent, 'runId' | 'at'>): void;
 }
 
@@ -229,7 +233,7 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
     });
   };
 
-  const context = (cleaningUp: boolean, signal: AbortSignal | undefined): RunContext => ({
+  const context = (cleaningUp: boolean, signal: AbortSignal | undefined, ending?: RunContext['ending']): RunContext => ({
     identity,
     launch: options.launch,
     handles,
@@ -237,6 +241,7 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
     counters,
     budget,
     cleaningUp,
+    ...(ending ? { ending } : {}),
     emit,
     ...(signal ? { signal } : {}),
   });
@@ -401,7 +406,7 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
   };
 
   if (!options.resume) {
-    emit({ type: 'run.started', agentId: identity.agentId, loopId: identity.loopId, ...(identity.parentRunId ? { parentRunId: identity.parentRunId } : {}) } as never);
+    emit({ type: 'run.started', agentId: identity.agentId, loopId: identity.loopId, ...(identity.parentRunId ? { parentRunId: identity.parentRunId } : {}), ...(identity.parentCallId ? { parentCallId: identity.parentCallId } : {}) } as never);
   }
 
   let outcome: RunOutcome = 'failed';
@@ -454,7 +459,7 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
   if (body.cleanup !== undefined) {
     try {
       let current: NodeId | undefined = body.cleanup;
-      const run = context(true, undefined);
+      const run = context(true, undefined, { outcome, ...(reason ? { reason } : {}) });
       let cleanupSteps = 0;
 
       while (current !== undefined) {

@@ -6,7 +6,7 @@ export interface EventBase {
 }
 
 export type EngineEvent =
-  | (EventBase & { type: 'run.started'; agentId: string; loopId: string; parentRunId?: string })
+  | (EventBase & { type: 'run.started'; agentId: string; loopId: string; parentRunId?: string; parentCallId?: string })
   | (EventBase & { type: 'run.finished'; outcome: RunOutcome; reason?: string })
   | (EventBase & { type: 'node.entered'; nodeId: string })
   | (EventBase & { type: 'node.exited'; nodeId: string; via?: string })

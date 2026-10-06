@@ -15,6 +15,7 @@ const harness: Harness = await mountRouter({
       concluded.push(`${ownerId}/${conversationId}`);
       if (concludeFails) throw new Error('Pushing to koala-u1/research-x failed: Gitea is down');
     } },
+    turns: { settle: async (conversation) => (conversation.liveTurn ? { ...conversation, liveTurn: undefined, title: 'settled' } : conversation) },
   }),
 });
 
@@ -38,6 +39,20 @@ describe('deleting a conversation', () => {
     concludeFails = true;
     expect((await fetch(harness.url(`/api/conversations/${id}`), { method: 'DELETE' })).status).toBe(500);
     expect((await fetch(harness.url(`/api/conversations/${id}`))).status).toBe(200);
+  });
+});
+
+describe('reading a conversation with a turn under way', () => {
+  it('settles the turn first, so a turn whose run is gone never reads as still going', async () => {
+    const id = ((await (await fetch(harness.url('/api/conversations'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json()) as { id: string }).id;
+    const db = harness.db as Database;
+    const found = (await db.getConversations()).find((conversation) => conversation.id === id)!;
+    await db.saveConversation({ ...found, liveTurn: { runId: 'r1', startedAt: 'then' } });
+
+    const read = await (await fetch(harness.url(`/api/conversations/${id}`))).json() as { title: string; liveTurn?: unknown };
+
+    expect(read.title).toBe('settled');
+    expect(read.liveTurn).toBeUndefined();
   });
 });
 

@@ -14,15 +14,18 @@ import {
   startRun,
   cancelRun,
   approveRunCall,
-  ENGINE_EVENT_CHANNEL,
   type EngineEvent,
   type StartedRun,
 } from '../../../api/engine.js';
+import { readTurn, TURN_LOG_CHANNEL } from '../../../api/turns';
+import { createTurnFollower } from '../../../lib/turn-follower';
+import type { TurnLogEntry } from '../../../types/turns';
 import { emptyChatRenderState, type ChatRenderState } from '../../../lib/chat-unified-reducer.js';
 import { useLiveTurnsStore, conversationTurnKey } from '../../../stores/live-turns.js';
 import { useSocketEvent } from '../../../stores/socket.js';
 import { errorMessage } from '../../../api/client.js';
-import { engineEventToFrame } from '../engine-event-frames.js';
+import { childEventToFrame, engineEventToFrame } from '../engine-event-frames.js';
+import { planKeys } from '../../../api/plans';
 import { assistantMsgFromRenderState, type ChatMessageRecord } from '../chat-stream.js';
 
 const EMPTY_MESSAGES: ChatMessageRecord[] = [];
@@ -41,7 +44,20 @@ const DEFAULT_CHAT_AGENT = 'koala';
  * code had the same shape as an orphaned SSE read feeding the module-level store). A remounted
  * surface re-attaches to it and keeps receiving frames.
  */
-const liveRunsByRunId = new Map<string, { convId: string; key: string }>();
+/** Every run drawing into a live turn: the turn's own run (an empty path) and each hand-off's run, by the chain of calls that led to it. */
+const liveRunsByRunId = new Map<string, { convId: string; key: string; path: string[] }>();
+
+const PROPOSING = new Set(['propose_plan', 'propose_leaf_plan']);
+
+/** Every live turn's log, followed in order: the one source a turn is drawn from, live or after a refresh. */
+const follower = createTurnFollower(readTurn);
+
+/** Turns this tab has seen end, so a conversation still cached as mid-turn does not start drawing one again. */
+const endedTurns = new Set<string>();
+
+const forgetTurn = (key: string): void => {
+  for (const [runId, entry] of liveRunsByRunId) if (entry.key === key) liveRunsByRunId.delete(runId);
+};
 
 export interface PendingApproval {
   runId: string;
@@ -243,13 +259,23 @@ export function useConversationTurn({
     [qc, appendLocalMessage],
   );
 
-  // --- the run's events --------------------------------------------------------
-  useSocketEvent<EngineEvent>(ENGINE_EVENT_CHANNEL, (event) => {
+  // --- the turn's log ----------------------------------------------------------
+  const applyEvent = (event: EngineEvent) => {
     const active = liveRunsByRunId.get(event.runId);
-    if (!active) return;
+    if (!active) {
+      const parent = event.type === 'run.started' && event.parentRunId ? liveRunsByRunId.get(event.parentRunId) : undefined;
+      if (event.type !== 'run.started' || !parent || !event.parentCallId) return;
+      const path = [...parent.path, event.parentCallId];
+      liveRunsByRunId.set(event.runId, { convId: parent.convId, key: parent.key, path });
+      useLiveTurnsStore.getState().applyFrame(parent.key, { type: 'childStarted', payload: { path, runId: event.runId, agentId: event.agentId } });
+      return;
+    }
 
     if (event.type === 'tool.called') pendingCallsRef.current.set(event.callId, { name: event.name, args: event.args });
-    if (event.type === 'tool.result') pendingCallsRef.current.delete(event.callId);
+    if (event.type === 'tool.result') {
+      if (PROPOSING.has(pendingCallsRef.current.get(event.callId)?.name ?? '')) void qc.invalidateQueries({ queryKey: planKeys.all });
+      pendingCallsRef.current.delete(event.callId);
+    }
     if (event.type === 'notice' && event.level === 'warn') {
       const pending = pendingCallsRef.current.entries().next();
       const call = pending.done ? undefined : pending.value;
@@ -260,14 +286,48 @@ export function useConversationTurn({
       });
     }
 
+    if (active.path.length > 0) {
+      const mapped = childEventToFrame(event, active.path);
+      if (mapped.kind === 'frame') useLiveTurnsStore.getState().applyFrame(active.key, mapped.frame);
+      if (event.type === 'run.finished' || event.type === 'interrupted') liveRunsByRunId.delete(event.runId);
+      return;
+    }
+
     const mapped = engineEventToFrame(event);
     if (mapped.kind === 'frame') {
       useLiveTurnsStore.getState().applyFrame(active.key, mapped.frame);
     } else if (mapped.kind === 'ended') {
-      liveRunsByRunId.delete(event.runId);
+      forgetTurn(active.key);
+      follower.forget(event.runId);
+      endedTurns.add(event.runId);
+      if (activeRunRef.current?.runId === event.runId) activeRunRef.current = null;
       settleTurn(active.convId, active.key, mapped.outcome, mapped.reason);
     }
-  });
+  };
+
+  const applyRef = useRef<(event: EngineEvent) => void>(() => undefined);
+  useEffect(() => { applyRef.current = applyEvent; });
+  const apply = useCallback((entry: TurnLogEntry) => { for (const event of entry.events) applyRef.current(event); }, []);
+
+  useSocketEvent<TurnLogEntry>(TURN_LOG_CHANNEL, (entry) => follower.receive(entry, apply));
+
+  useEffect(() => {
+    for (const turnId of follower.followed()) void follower.catchUp(turnId, apply).catch(() => undefined);
+  }, [apply]);
+
+  /** A conversation that loads mid-turn — after a refresh, from another tab — draws the turn from its log. */
+  const liveTurnOf = activeConversation?.liveTurn?.runId;
+  useEffect(() => {
+    const convId = activeConversation?.id;
+    if (!enabled || !convId || !liveTurnOf || follower.following(liveTurnOf) || endedTurns.has(liveTurnOf)) return;
+    const key = conversationTurnKey(convId);
+    useLiveTurnsStore.getState().start(key);
+    settledKeysRef.current.delete(key);
+    pendingCallsRef.current = new Map();
+    liveRunsByRunId.set(liveTurnOf, { convId, key, path: [] });
+    activeRunRef.current = { runId: liveTurnOf, convId, key };
+    void follower.follow(liveTurnOf, apply).catch((err) => setError(`Could not catch up on the turn: ${errorMessage(err)}`));
+  }, [enabled, activeConversation?.id, liveTurnOf, apply]);
 
   // --- sending a turn ----------------------------------------------------------
   const sendConversationTurn = async (text: string) => {
@@ -319,14 +379,17 @@ export function useConversationTurn({
     }
 
     activeRunRef.current = { runId: started.runId, convId: targetConvId, key };
-    liveRunsByRunId.set(started.runId, { convId: targetConvId, key });
+    liveRunsByRunId.set(started.runId, { convId: targetConvId, key, path: [] });
+    void follower.follow(started.runId, apply).catch((err) => setError(`Could not follow the turn: ${errorMessage(err)}`));
   };
 
   const handleStop = useCallback(() => {
     const active = activeRunRef.current;
     if (!active) return;
     activeRunRef.current = null;
-    liveRunsByRunId.delete(active.runId);
+    forgetTurn(active.key);
+    follower.forget(active.runId);
+    endedTurns.add(active.runId);
     // The run's own interrupted/run.finished events follow, but the turn is settled now so the
     // bubble stops immediately instead of waiting on the round-trip.
     settleTurn(active.convId, active.key, 'interrupted', undefined, true);

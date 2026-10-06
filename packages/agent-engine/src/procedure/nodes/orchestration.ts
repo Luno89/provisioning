@@ -4,6 +4,7 @@ import { fillTemplate } from '../template.js';
 import type { NodeRequest, RunContext } from '../interpreter.js';
 import type {
   Artifact,
+  ChildSteps,
   ChildOutcomeValue,
   EnvironmentValue,
   ModelReply,
@@ -28,10 +29,13 @@ export interface ToolRunOutcome {
   /** The call ran, but the peer refused it — a site that blocks fetches replying 401/403, for example. */
   declined?: boolean | undefined;
   artifacts?: Artifact[] | undefined;
+  child?: ChildSteps | undefined;
 }
 
 export interface ChildRunRequest {
   nodeId: string;
+  /** The hand-off call that starts the run, when a model's reply asked for it. */
+  callId?: string | undefined;
   agent: string;
   inputs: Record<string, unknown>;
   environment?: EnvironmentValue | undefined;
@@ -115,19 +119,26 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         const handed = sandboxOf(environment) ?? sandboxOf(run.launch.environment);
         const child = await ports.runChild({
           nodeId: node.id,
+          callId: call.id,
           agent: call.name,
           inputs: inputs as Record<string, unknown>,
           ...(handed ? { environment: handed } : {}),
           run,
         });
         const text = childText(call.name, child);
-        outcome = { ok: child.outcome === 'ok', digest: text, content: text, ...(child.artifacts?.length ? { artifacts: child.artifacts } : {}) };
+        outcome = {
+          ok: child.outcome === 'ok',
+          digest: text,
+          content: text,
+          ...(child.artifacts?.length ? { artifacts: child.artifacts } : {}),
+          child: { runId: child.runId, agentId: child.agentId, outcome: child.outcome, ...(child.reason ? { reason: child.reason } : {}), steps: child.steps ?? [] },
+        };
       }
     } else {
       outcome = await ports.runTool({ nodeId: node.id, call, persona, environment, run });
     }
 
-    run.emit({ type: 'tool.result', nodeId: node.id, callId: call.id, ok: outcome.ok, digest: outcome.digest, ...(outcome.artifacts?.length ? { artifacts: outcome.artifacts } : {}) } as never);
+    run.emit({ type: 'tool.result', nodeId: node.id, callId: call.id, ok: outcome.ok, digest: outcome.digest, ...(outcome.artifacts?.length ? { artifacts: outcome.artifacts } : {}), ...(outcome.child ? { child: outcome.child } : {}) } as never);
     return { outcome, delegated };
   };
 
@@ -199,6 +210,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         content: outcome.content ?? outcome.digest,
         ...(outcome.declined ? { declined: outcome.declined } : {}),
         ...(outcome.artifacts?.length ? { artifacts: outcome.artifacts } : {}),
+        ...(outcome.child ? { child: outcome.child } : {}),
       }));
 
       const childRuns = settled.filter(({ call }) => (persona.agents ?? []).includes(call.name)).length;

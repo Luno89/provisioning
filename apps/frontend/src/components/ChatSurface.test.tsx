@@ -6,7 +6,10 @@ import ChatSurface from '../components/ChatSurface.js';
 import * as chatPackApi from '../api/chat-pack.js';
 import * as engineApi from '../api/engine.js';
 import { useLiveTurnsStore, conversationTurnKey } from '../stores/live-turns.js';
-import { ENGINE_EVENT_CHANNEL, type EngineEvent } from '../api/engine.js';
+import { type EngineEvent } from '../api/engine.js';
+import { TURN_LOG_CHANNEL } from '../api/turns';
+import type { TurnLogEntry } from '../types/turns';
+import { planKeys } from '../api/plans';
 
 vi.mock('../api/chat-pack', async (orig) => ({
   ...(await orig<typeof chatPackApi>()),
@@ -67,8 +70,14 @@ vi.mock('../api/grove', async (orig) => ({
  * table of the registered handlers so a test can deliver a scripted event stream to the surface
  * exactly as the socket bridge would.
  */
-const { socketHandlers } = vi.hoisted(() => ({
+const { socketHandlers, turnLog } = vi.hoisted(() => ({
   socketHandlers: new Map<string, (event: unknown) => void>(),
+  turnLog: [] as { turnId: string; seq: number; events: unknown[]; at: string }[],
+}));
+
+vi.mock('../api/turns', async (orig) => ({
+  ...(await orig<typeof import('../api/turns')>()),
+  readTurn: vi.fn(async (turnId: string, after: number) => turnLog.filter((entry) => entry.turnId === turnId && entry.seq > after)),
 }));
 
 vi.mock('../stores/socket.js', () => ({
@@ -94,15 +103,23 @@ function renderWithProviders(ui: ReactNode) {
 }
 
 
-const RUN_ID = 'run-1';
+let runs = 0;
+let RUN_ID = 'run-1';
 const AT = '2025-01-01T00:00:00.000Z';
 
 type EventSeed = { type: string } & Record<string, unknown>;
 
+/** Writes an event to a turn's log as its next entry and announces it, as the backend does once the write lands. */
+function deliver(turnId: string, event: EngineEvent, announce = true) {
+  const entry: TurnLogEntry = { turnId, seq: turnLog.filter((one) => one.turnId === turnId).length + 1, events: [event], at: AT };
+  turnLog.push(entry as never);
+  if (announce) socketHandlers.get(TURN_LOG_CHANNEL)?.(entry);
+}
+
 /** Deliver a scripted engine-event stream to the registered socket handler. */
 function emit(...seeds: EventSeed[]) {
   for (const seed of seeds) {
-    socketHandlers.get(ENGINE_EVENT_CHANNEL)?.({ runId: RUN_ID, at: AT, ...(seed as object) } as EngineEvent);
+    deliver(RUN_ID, { runId: RUN_ID, at: AT, ...(seed as object) } as EngineEvent);
   }
 }
 
@@ -114,9 +131,12 @@ async function waitForRunStarted() {
 beforeEach(() => {
   vi.clearAllMocks();
   socketHandlers.clear();
+  turnLog.length = 0;
+  runs += 1;
+  RUN_ID = `run-${runs}`;
   queryClient.clear();
   useLiveTurnsStore.setState({ turns: {} });
-  vi.mocked(engineApi.startRun).mockResolvedValue({ runId: RUN_ID, agentSlug: 'koala', loopId: 'koala-chat' } as never);
+  vi.mocked(engineApi.startRun).mockImplementation(async () => ({ runId: RUN_ID, agentSlug: 'koala', loopId: 'koala-chat' }) as never);
   vi.mocked(engineApi.cancelRun).mockResolvedValue({ ok: true } as never);
   vi.mocked(engineApi.approveRunCall).mockResolvedValue({ ok: true } as never);
   vi.mocked(chatPackApi.getChatConversation).mockImplementation(async (id: string) => ({
@@ -458,4 +478,80 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     await waitFor(() => expect(screen.getByTitle(chipTitle)).toHaveTextContent('Heron'));
   });
 
+});
+describe('a turn drawn from its log', () => {
+  it('draws a turn already under way when the conversation loads, from the start of its log, then follows it', async () => {
+    deliver('run-earlier', { runId: 'run-earlier', at: AT, type: 'content', nodeId: 'turn', delta: 'Halfway through ' } as EngineEvent, false);
+    deliver('run-earlier', { runId: 'run-earlier', at: AT, type: 'tool.called', nodeId: 'tools', callId: 'c1', name: 'get_logs', args: '{}' } as EngineEvent, false);
+    vi.mocked(chatPackApi.getChatConversation).mockImplementation(async (id: string) => ({
+      id, title: 'Mid-turn', liveTurn: { runId: 'run-earlier', startedAt: AT },
+      messages: [{ role: 'user', content: 'what is wrong?', at: AT }],
+    }) as never);
+
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+
+    await waitFor(() => expect(screen.getByText(/Halfway through/)).toBeInTheDocument());
+    expect(screen.getByText('get_logs')).toBeInTheDocument();
+    expect(engineApi.startRun).not.toHaveBeenCalled();
+
+    deliver('run-earlier', { runId: 'run-earlier', at: AT, type: 'content', nodeId: 'turn', delta: 'and done.' } as EngineEvent);
+    await waitFor(() => expect(screen.getByText(/Halfway through and done\./)).toBeInTheDocument());
+  });
+
+  it('fills in what the push missed from the log, so nothing written is lost', async () => {
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'hi' } });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    await waitForRunStarted();
+
+    emit({ type: 'content', delta: 'one ' });
+    deliver(RUN_ID, { runId: RUN_ID, at: AT, type: 'content', nodeId: 'turn', delta: 'two ' } as EngineEvent, false);
+    emit({ type: 'content', delta: 'three' });
+
+    await waitFor(() => expect(screen.getByText('one two three')).toBeInTheDocument());
+    emit({ type: 'run.finished', outcome: 'ok' });
+  });
+});
+
+describe('a hand-off\'s run in the chat', () => {
+  it('draws the child run under its call while it works, keeps the turn going when it ends, and refreshes plans as soon as one is proposed', async () => {
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'plan it' } });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    await waitForRunStarted();
+
+    const child = (seed: EventSeed) => deliver(RUN_ID, { runId: `${RUN_ID}-planner-1`, at: AT, ...(seed as object) } as EngineEvent);
+    emit({ type: 'tool.called', nodeId: 'tools', callId: 'c1', name: 'planner', args: '{}' });
+    child({ type: 'run.started', agentId: 'planner', loopId: 'planning', parentRunId: RUN_ID, parentCallId: 'c1' });
+    child({ type: 'tool.called', nodeId: 'tools', callId: 'p1', name: 'propose_plan', args: '{}' });
+
+    await waitFor(() => expect(screen.getByText('propose_plan')).toBeInTheDocument());
+    expect(screen.getByText('working — 1 step so far')).toBeInTheDocument();
+
+    invalidate.mockClear();
+    child({ type: 'tool.result', nodeId: 'tools', callId: 'p1', ok: true, digest: 'proposed plan p-9' });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: planKeys.all });
+
+    child({ type: 'run.finished', outcome: 'ok' });
+    await waitFor(() => expect(screen.getByText('finished — 1 step')).toBeInTheDocument());
+    expect(engineApi.cancelRun).not.toHaveBeenCalled();
+    expect(useLiveTurnsStore.getState().turns[conversationTurnKey('c1')]?.status).toBe('streaming');
+
+    child({ type: 'content', nodeId: 'turn', delta: 'a stray event after it ended' });
+    emit({ type: 'run.finished', outcome: 'ok' });
+  });
+
+  it('ignores runs that belong to nobody in this turn', async () => {
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'hi' } });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    await waitForRunStarted();
+
+    deliver('other-turn', { runId: 'someone-else', at: AT, type: 'run.started', agentId: 'research', loopId: 'research', parentRunId: 'other-run', parentCallId: 'c1' } as EngineEvent);
+    deliver('other-turn', { runId: 'someone-else', at: AT, type: 'tool.called', nodeId: 'tools', callId: 'z', name: 'search_web', args: '{}' } as EngineEvent);
+
+    expect(screen.queryByText('search_web')).not.toBeInTheDocument();
+    emit({ type: 'run.finished', outcome: 'ok' });
+  });
 });

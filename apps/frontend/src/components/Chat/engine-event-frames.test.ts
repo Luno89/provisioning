@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { EngineEvent } from '../../api/engine'
-import { engineEventToFrame } from './engine-event-frames'
+import { childEventToFrame, engineEventToFrame } from './engine-event-frames'
 
 const base = { runId: 'r1', at: '2025-01-01T00:00:00.000Z', nodeId: 'turn.call' }
 
@@ -83,5 +83,18 @@ describe('engine events -> chat frames (the chat surface contract)', () => {
     for (const event of events) {
       expect(engineEventToFrame(event).kind).toBe('idle')
     }
+  })
+})
+describe('a hand-off\'s run, drawn inside its call', () => {
+  it('wraps the child\'s frames with the path to its call, and ends its card rather than the turn', () => {
+    expect(childEventToFrame({ ...base, type: 'content', delta: 'hi' }, ['c1', 'p1'])).toEqual({
+      kind: 'frame',
+      frame: { type: 'childFrame', payload: { path: ['c1', 'p1'], frame: { type: 'content', delta: 'hi' } } },
+    })
+    expect(childEventToFrame({ ...base, type: 'run.finished', outcome: 'failed', reason: 'no answer' } as EngineEvent, ['c1'])).toEqual({
+      kind: 'frame',
+      frame: { type: 'childFinished', payload: { path: ['c1'], outcome: 'failed', reason: 'no answer' } },
+    })
+    expect(childEventToFrame({ ...base, type: 'node.entered' } as EngineEvent, ['c1'])).toEqual({ kind: 'idle' })
   })
 })

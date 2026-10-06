@@ -153,7 +153,7 @@ export function createNodeRunner(
       run: {
         ...request.run,
         signal: stop.signal,
-        emit: (event) => bus?.emit({ ...event, runId: request.run.identity.runId, at: new Date().toISOString() } as never),
+        emit: (event) => bus?.emit({ ...event, runId: request.run.identity.runId, at: new Date().toISOString(), ownerId: request.run.launch.ownerId, turnId: request.run.launch.turnId ?? request.run.identity.runId } as never),
       },
     };
 
@@ -293,7 +293,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
 export function createStreamActivities(services: StreamServices): StreamActivities {
   return {
     async EnginePublishActivity(args: PublishArgs): Promise<void> {
-      for (const event of args.events) services.bus.emit(event);
+      for (const event of args.events) services.bus.emit({ ...event, ...(args.ownerId ? { ownerId: args.ownerId } : {}), ...(args.turnId ? { turnId: args.turnId } : {}) } as never);
     },
 
     EngineStreamNodeActivity: createNodeRunner(services.streamNodes ?? [], services.bus, { runCancelled: services.runCancelled }),

@@ -60,3 +60,36 @@ describe('ChatToolCallCard — what a tool made', () => {
     expect(link).toHaveAttribute('target', '_blank');
   });
 });
+
+describe('a hand-off\'s card', () => {
+  it('shows what the run it started is doing while it works', () => {
+    render(<ChatToolCallCard tool={{
+      id: 'c1', name: 'research', running: true,
+      child: { runId: 'r1', agentId: 'research', running: true, live: 'Postgres listens on 5432', tools: [{ id: 'x1', name: 'search_web', args: '{}', running: false, ok: true }] },
+    }} />);
+
+    expect(screen.getByText('working — 1 step so far')).toBeInTheDocument();
+    expect(screen.getByText('search_web')).toBeInTheDocument();
+    expect(screen.getByText('Postgres listens on 5432')).toBeInTheDocument();
+  });
+
+  it('folds a finished run\'s steps away, and opens them again from what was stored', () => {
+    render(<ChatToolCallCard tool={{
+      id: 'c1', name: 'research', ok: true, digest: 'found it',
+      child: { runId: 'r1', agentId: 'research', outcome: 'ok', steps: [{ callId: 'x1', name: 'write_file', ok: true, digest: 'wrote findings.md' }, { callId: 'x2', name: 'fetch_web_page', ok: false }] },
+    }} />);
+
+    expect(screen.getByText('finished — 2 steps')).toBeInTheDocument();
+    expect(screen.queryByText('write_file')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('finished — 2 steps'));
+    expect(screen.getByText('write_file')).toBeInTheDocument();
+    expect(screen.getByText('fetch_web_page')).toBeInTheDocument();
+  });
+
+  it('says why a run that did not finish stopped', () => {
+    render(<ChatToolCallCard tool={{ id: 'c1', name: 'research', ok: false, digest: 'x', child: { runId: 'r1', agentId: 'research', outcome: 'failed', reason: 'no source answered it', steps: [] } }} />);
+
+    expect(screen.getByText('did not finish: no source answered it — 0 steps')).toBeInTheDocument();
+  });
+});

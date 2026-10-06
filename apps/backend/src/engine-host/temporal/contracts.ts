@@ -13,6 +13,7 @@ import type {
   NodeTrace,
   PlacedNode,
   Procedure,
+  RunStep,
   RunCheckpoint,
   RunContext,
   RunLaunch,
@@ -24,6 +25,9 @@ import type { SamplingConfig } from '@koala/harness-types';
 export interface RunTicket {
   runId: string;
   parentRunId?: string | undefined;
+  parentCallId?: string | undefined;
+  /** The top-level run of the turn; absent on the top-level run itself, whose own id it is. */
+  turnId?: string | undefined;
   depth: number;
   ownerId: string;
   agentSlug: string;
@@ -103,6 +107,10 @@ export type BenchIdleOutcome = 'started' | 'busy' | 'nothing';
 export const conversationConclusionId = (conversationId: string): string => `conclude-conversation-${conversationId}`;
 
 export interface PublishArgs {
+  /** Whose run the events are from: only that person's browsers receive them. */
+  ownerId?: string | undefined;
+  /** The turn the events belong to, whose log they are written to. */
+  turnId?: string | undefined;
   events: EngineEvent[];
 }
 
@@ -131,6 +139,8 @@ export interface AgentRunOutcome {
   outputs: Record<string, unknown>;
   /** What the run and every run it handed work to made that a person can open. */
   artifacts?: Artifact[] | undefined;
+  /** Every tool call the run made, with what each hand-off's run did nested under its call. */
+  steps?: RunStep[] | undefined;
 }
 
 export type RunEnvironment =
@@ -199,6 +209,7 @@ export interface RunContinuation {
   limits: { modelKey: string; modelLabel: string; limits: RunBudget };
   children: number;
   produced?: Artifact[] | undefined;
+  steps?: RunStep[] | undefined;
   approvedForRun: boolean;
   approvals: [string, boolean][];
   answers: [string, unknown][];
@@ -233,7 +244,7 @@ export interface RemoteNodeRequest {
   inputs: Record<string, unknown>;
   previous?: Record<string, unknown> | undefined;
   execution: number;
-  run: Pick<RunContext, 'identity' | 'launch' | 'inputs' | 'counters' | 'budget' | 'cleaningUp' | 'handles'>;
+  run: Pick<RunContext, 'identity' | 'launch' | 'inputs' | 'counters' | 'budget' | 'cleaningUp' | 'ending' | 'handles'>;
 }
 
 export type RemoteNodeResult = StepResult | ValueResult;
@@ -250,8 +261,10 @@ export interface RecordTracesArgs {
 export const ticketFor = (run: Pick<RunContext, 'identity' | 'launch'>): RunTicket => ({
   runId: run.identity.runId,
   ...(run.identity.parentRunId ? { parentRunId: run.identity.parentRunId } : {}),
+  ...(run.identity.parentCallId ? { parentCallId: run.identity.parentCallId } : {}),
   depth: run.identity.depth,
   ownerId: run.launch.ownerId,
+  ...(run.launch.turnId && run.launch.turnId !== run.identity.runId ? { turnId: run.launch.turnId } : {}),
   agentSlug: run.identity.agentId,
   ...(run.launch.conversationId ? { conversationId: run.launch.conversationId } : {}),
   ...(run.launch.projectId ? { projectId: run.launch.projectId } : {}),
@@ -260,8 +273,11 @@ export const ticketFor = (run: Pick<RunContext, 'identity' | 'launch'>): RunTick
   ...(run.launch.sampling ? { sampling: run.launch.sampling } : {}),
 });
 
+export const turnOf = (ticket: Pick<RunTicket, 'runId' | 'turnId'>): string => ticket.turnId ?? ticket.runId;
+
 export const launchFor = (ticket: RunTicket, projectId?: string): RunLaunch => ({
   ownerId: ticket.ownerId,
+  turnId: turnOf(ticket),
   ...((projectId ?? ticket.projectId) ? { projectId: projectId ?? ticket.projectId } : {}),
   ...(ticket.conversationId ? { conversationId: ticket.conversationId } : {}),
   ...(ticket.modelId ? { modelId: ticket.modelId } : {}),

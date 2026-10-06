@@ -7,6 +7,8 @@ export type TriggerKind = 'user' | 'workflow' | 'agent' | 'event';
 export interface RunIdentity {
   runId: string;
   parentRunId?: string | undefined;
+  /** The parent's hand-off call that started this run, when one did. */
+  parentCallId?: string | undefined;
   depth: number;
   agentId: string;
   loopId: string;

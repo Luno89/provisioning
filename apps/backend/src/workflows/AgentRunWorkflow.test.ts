@@ -561,6 +561,36 @@ describe('a long run continues as a new one', () => {
     expect(result.artifacts).toEqual([findings, notes]);
   }, 120_000);
 
+  it('answers with every step it took, each hand-off\'s run nested under the call that started it, across a new run', async () => {
+    const findings = { kind: 'file' as const, workspace: 'conversation-c1', path: 'research/r1/findings.md' };
+    const acts = activities({ script: [
+      callsATool('c1', 'research', '{"question":"why"}'),
+      callsATool('c2', 'write_file', '{"path":"research/r1/findings.md"}'),
+      { content: 'it is in findings.md' },
+      callsATool('c3', 'read_file', '{"path":"research/r1/findings.md"}'),
+      { content: 'done' },
+    ] });
+    acts.engine.EngineToolActivity.mockImplementation(async (args: ToolCallArgs) => ({
+      ok: true,
+      digest: `ran ${args.name}`,
+      content: '',
+      ...(args.callId === 'c2' ? { artifacts: [findings] } : {}),
+    }));
+    const args = { ...input('koala', TOOL_ROUNDS_V2), continueAfterEvents: 1 };
+
+    const result = await runWorkflow(args, acts);
+
+    const childRunId = `${args.ticket.runId}-research-1`;
+    expect(result.steps).toEqual([
+      {
+        callId: 'c1', name: 'research', ok: true, digest: expect.any(String), artifacts: [findings],
+        child: { runId: childRunId, agentId: 'research', outcome: 'ok', steps: [{ callId: 'c2', name: 'write_file', ok: true, digest: 'ran write_file', artifacts: [findings] }] },
+      },
+      { callId: 'c3', name: 'read_file', ok: true, digest: 'ran read_file' },
+    ]);
+    expect(published(acts).find((event) => event.type === 'run.started' && event.runId === childRunId)).toMatchObject({ parentRunId: args.ticket.runId, parentCallId: 'c1' });
+  }, 120_000);
+
   it('keeps numbering its children across a new run, so no child reuses an earlier one\'s id', async () => {
     const acts = activities({ script: [{ content: 'one answered' }, { content: 'two answered' }] });
     const args = { ...input('koala', twiceDelegating), continueAfterEvents: 1 };
