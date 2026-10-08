@@ -100,7 +100,6 @@ export async function prepareJudgeCheckout(driver: EnvironmentDriver, leafId: st
 
 const lines = (text: string): string[] => text.split('\n').map((line) => line.trim()).filter(Boolean);
 
-/** Where the worktree stands: its commit, what is not committed, and the files its branch has added or changed since it left main. */
 export async function worktreeHead(driver: EnvironmentDriver): Promise<{ commit?: string | undefined; dirty: string[]; changed: string[] }> {
   const status = await run(driver, 'git status --porcelain');
   if (!status.ok) return { dirty: [], changed: [] };

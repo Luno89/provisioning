@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { builtInCatalogue, NOT_RUN_CALL, REFUSED_CALL } from '@koala/agent-engine/procedure';
-import { asChatMessages, asStoredToolCalls, asStoredToolCallsMany, createConversationNodes } from './conversation-nodes.js';
+import { asChatMessages, asStoredToolCalls, asStoredToolCallsMany, createConversationNodes, loadedMessages, storedCompaction } from './conversation-nodes.js';
+import { COMPACTION_PREFIX } from '@koala/agent-engine/procedure';
 import type { ConversationStore } from './conversation-nodes.js';
 import { storesFromDatabase } from '../host.js';
 import { MemoryDB } from '../../lib/memory-db.js';
@@ -173,7 +174,7 @@ describe('loading a conversation into a run', () => {
 
     const outcome = await nodes(kept).load.run(request('load-conversation', { values: { conversationId: 'fresh' } }, { id: '{{values.conversationId}}' })) as { outputs: Record<string, unknown> };
 
-    expect(outcome.outputs).toEqual({ messages: [], found: false });
+    expect(outcome.outputs).toEqual({ messages: [], found: false, history: { base: 0, ends: [] } });
   });
 
   it('will not read another owner’s conversation', async () => {
@@ -184,7 +185,7 @@ describe('loading a conversation into a run', () => {
 
     const outcome = await nodes(kept).load.run(request('load-conversation', { values: { conversationId: 'c-1' } }, { id: '{{values.conversationId}}' })) as { outputs: Record<string, unknown> };
 
-    expect(outcome.outputs).toEqual({ messages: [], found: false });
+    expect(outcome.outputs).toEqual({ messages: [], found: false, history: { base: 0, ends: [] } });
   });
 });
 
@@ -427,5 +428,51 @@ describe('the store a run reads conversations from', () => {
     expect(await stores.conversations.get('someone-else', 'c-1')).toBeUndefined();
     expect(await stores.conversations.get('user-1', 'nope')).toBeUndefined();
     expect(listed).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('a conversation that outgrew its window, across turns', () => {
+  const stored = [
+    said({ role: 'user', content: 'one' }),
+    said({ role: 'assistant', content: '' }),
+    said({ role: 'assistant', content: 'two' }),
+    said({ role: 'user', content: 'three' }),
+    said({ role: 'assistant', content: 'four' }),
+  ];
+
+  it('is loaded with its summary in place of the messages it covers, saying where each stored message ends', () => {
+    const plain = loadedMessages({ messages: stored });
+    expect(plain.messages.map((message) => message.content)).toEqual(['one', 'two', 'three', 'four']);
+    expect(plain.history).toEqual({ base: 0, ends: [1, 1, 2, 3, 4] });
+
+    const summarised = loadedMessages({ messages: stored, compaction: { summary: 'one and two', through: 3 } });
+    expect(summarised.messages.map((message) => message.content)).toEqual([`${COMPACTION_PREFIX}\n\none and two`, 'three', 'four']);
+    expect(summarised.history).toEqual({ base: 3, ends: [2, 3] });
+  });
+
+  it('keeps a turn\'s compaction against the stored messages it covers whole, and nothing when it covers none', () => {
+    const { history } = loadedMessages({ messages: stored });
+    expect(storedCompaction({ summary: 's', through: 2 }, history)).toEqual({ summary: 's', through: 3 });
+    expect(storedCompaction({ summary: 's', through: 0 }, history)).toBeUndefined();
+
+    const later = loadedMessages({ messages: stored, compaction: { summary: 'one and two', through: 3 } }).history;
+    expect(storedCompaction({ summary: 's2', through: 2 }, later)).toEqual({ summary: 's2', through: 4 });
+    expect(storedCompaction({ summary: 's2', through: 1 }, later)).toBeUndefined();
+    expect(storedCompaction(undefined, later)).toBeUndefined();
+  });
+
+  it('is saved with the summary the turn ended up sending, so the next turn starts from it', async () => {
+    const { rows, kept } = store([{ id: 'c-1', ownerId: 'user-1', title: 'Long', createdAt: 'x', updatedAt: 'x', messages: stored } as Conversation]);
+    const history = loadedMessages({ messages: stored }).history;
+
+    await nodes(kept).save.run(request('save-conversation', {
+      values: { conversationId: 'c-1' }, asked: 'five?', reply: reply(), compaction: { summary: 'the first four', through: 3 }, history,
+    }, { id: '{{values.conversationId}}' }));
+
+    expect(rows[0]!.compaction).toEqual({ summary: 'the first four', through: 4 });
+    expect(rows[0]!.messages).toHaveLength(7);
+    const next = await nodes(kept).load.run(request('load-conversation', { values: { conversationId: 'c-1' } }, { id: '{{values.conversationId}}' })) as { outputs: { messages: { content: string }[] } };
+    expect(next.outputs.messages.map((message) => message.content)).toEqual([`${COMPACTION_PREFIX}\n\nthe first four`, 'four', 'five?', 'three of them']);
   });
 });

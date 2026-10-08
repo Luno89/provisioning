@@ -34,7 +34,6 @@ export interface ToolRunOutcome {
 
 export interface ChildRunRequest {
   nodeId: string;
-  /** The hand-off call that starts the run, when a model's reply asked for it. */
   callId?: string | undefined;
   agent: string;
   inputs: Record<string, unknown>;
@@ -67,7 +66,6 @@ export interface OrchestrationPorts {
   runChild(request: ChildRunRequest): Promise<ChildOutcomeValue>;
   approve(request: ApprovalRequest): Promise<boolean>;
   ask(request: QuestionRequest): Promise<QuestionAnswer>;
-  /** Whether hand-offs in one reply start together. A host that replays history answers false for runs begun before they did. */
   handOffsTogether?(): boolean;
 }
 

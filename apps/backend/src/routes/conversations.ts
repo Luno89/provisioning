@@ -10,8 +10,10 @@ export interface ConversationsRouterDeps {
   ownedConversations: (userId: string) => Promise<Conversation[]>;
   ownedTrees?: (userId: string) => Promise<{ id: string }[]>;
   ownedProjects?: (userId: string) => Promise<{ id: string }[]>;
-  workspaces?: { conclude(ownerId: string, conversationId: string): Promise<unknown> } | undefined;
-  /** Settles a turn whose run ended without saving its reply, so reading never shows one that will not finish. */
+  workspaces?: {
+    conclude(ownerId: string, conversationId: string): Promise<unknown>;
+    state?(conversationId: string): Promise<'none' | 'running' | 'parked'>;
+  } | undefined;
   turns?: { settle(conversation: Conversation): Promise<Conversation> } | undefined;
 }
 
@@ -24,6 +26,13 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
     res.json(mine
       .map(({ messages, ...rest }) => ({ ...rest, messageCount: messages.length }))
       .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')));
+  }));
+
+  router.get('/:id/workspace', asyncRoute(async (req, res) => {
+    const conversation = (await deps.ownedConversations((req as unknown as { user: { id: string } }).user.id)).find((entry) => entry.id === String(req.params.id));
+    if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+    if (!deps.workspaces?.state) return res.status(404).json({ error: 'This server keeps no conversation workspaces' });
+    return res.json({ state: await deps.workspaces.state(conversation.id) });
   }));
 
   router.get('/:id', asyncRoute(async (req, res) => {

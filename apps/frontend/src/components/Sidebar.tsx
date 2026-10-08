@@ -2,8 +2,8 @@ import React, { useState, useEffect, startTransition } from 'react';
 import { useRouter, type NavigateOptions } from '@tanstack/react-router';
 import { useShellStore, type ViewName } from '../stores/shell';
 import {
-  Brain, Trees, Trees as TreesIcon, ChevronDown, ChevronRight,
-  Plus, Trash2, GitBranch, ListChecks, Cpu, Layers
+  Trees, Trees as TreesIcon, ChevronDown, ChevronRight,
+  Plus, Trash2, GitBranch, Layers, Bot, Wrench, Network, Puzzle
 } from 'lucide-react';
 import { Koala } from './Koala';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -35,6 +35,14 @@ function useSafeRouter() {
     navigate: router ? (opts: NavigateOptions) => router.navigate(opts) : null,
   };
 }
+
+const STUDIO_SECTIONS = [
+  { path: 'agents', label: 'Agents', icon: Bot },
+  { path: 'tools', label: 'Tools', icon: Wrench },
+  { path: 'procedures', label: 'Procedures', icon: Network },
+  { path: 'tree-types', label: 'Tree Types', icon: GitBranch },
+  { path: 'extensions', label: 'Extensions', icon: Puzzle },
+] as const;
 
 export default function Sidebar({ forestTabs, onLogout }: {
   forestTabs: readonly ForestTab[];
@@ -79,7 +87,7 @@ export default function Sidebar({ forestTabs, onLogout }: {
       if (id === 'projects') return routerPath === '/projects' || routerPath.startsWith('/projects/');
       return routerPath === `/${id}` || routerPath.startsWith(`/${id}/`);
     }
-    return view === id;
+    return view === id || `${view}/${route?.path[0] ?? ''}` === id;
   };
 
   const qc = useQueryClient();
@@ -117,10 +125,6 @@ export default function Sidebar({ forestTabs, onLogout }: {
       if (activeConvId === deletedId) navigateTo('chat', '#/chat');
     },
   });
-
-  const nested = (active: boolean) =>
-    `w-full flex items-center gap-2.5 pl-10 pr-3 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer ${
-      active ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`;
 
   const groupHeader = (active: boolean) =>
     `w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium transition-colors cursor-pointer ${
@@ -268,43 +272,29 @@ export default function Sidebar({ forestTabs, onLogout }: {
 
         <button
           type="button"
-          onClick={() => navigateTo('memories')}
-          className={nested(isCurrentView('memories'))}
+          onClick={() => navigateTo('studio', '#/studio/agents')}
+          className={groupHeader(isCurrentView('studio'))}
         >
-          <Brain size={15} className="text-[var(--leaf)]" /> Memories
+          <Layers size={16} />
+          <span className="flex-1 text-left">Studio</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => navigateTo('tree-types')}
-          className={nested(isCurrentView('tree-types'))}
-        >
-          <GitBranch size={15} className="text-[var(--leaf)]" /> Tree Types
-        </button>
-
-        <button
-          type="button"
-          onClick={() => navigateTo('evals')}
-          className={nested(isCurrentView('evals'))}
-        >
-          <ListChecks size={15} className="text-[var(--leaf)]" /> Tool Evals
-        </button>
-
-        <button
-          type="button"
-          onClick={() => navigateTo('studio')}
-          className={nested(isCurrentView('studio'))}
-        >
-          <Layers size={15} className="text-[var(--leaf)]" /> Procedure Studio
-        </button>
-
-        <button
-          type="button"
-          onClick={() => navigateTo('engine')}
-          className={nested(isCurrentView('engine'))}
-        >
-          <Cpu size={15} className="text-[var(--leaf)]" /> Engine
-        </button>
+        <div className="ml-3 pl-3 border-l border-[var(--bark-600)] space-y-0.5">
+          {STUDIO_SECTIONS.map((section) => (
+            <button
+              key={section.path}
+              type="button"
+              onClick={() => navigateTo('studio', `#/studio/${section.path}`)}
+              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${
+                isCurrentView(`studio/${section.path}`)
+                  ? 'bg-[var(--bark-600)] text-slate-100 font-medium'
+                  : 'text-slate-400 hover:bg-[var(--bark-700)] hover:text-slate-200'
+              }`}
+            >
+              <section.icon size={14} className="text-[var(--leaf)]" /> {section.label}
+            </button>
+          ))}
+        </div>
 
         <button
           type="button"

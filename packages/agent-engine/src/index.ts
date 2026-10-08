@@ -87,6 +87,7 @@ export {
   NO_THINKING,
 } from './model/sampling.js';
 export { resolveSampling } from './model/pack-sampling.js';
+export { getModelRateLimiterSnapshot, type ModelRateLimitBucketSnapshot } from './model/model-rate-limiter.js';
 
 // Stream Parser
 export {

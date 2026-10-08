@@ -3,6 +3,7 @@ import {
   approvalFor,
   capabilitiesOf,
   lifecycleFor,
+  wholeFile,
   satisfies,
   specFingerprint,
   unmetRequirements,
@@ -111,5 +112,19 @@ describe('specFingerprint', () => {
     expect(specFingerprint(sandbox({ packages: ['jq'] }))).not.toBe(base);
     expect(specFingerprint(sandbox({ egress: false }))).not.toBe(base);
     expect(specFingerprint(sandbox({ env: { CI: 'true' } }))).not.toBe(base);
+  });
+});
+
+describe('reading a file whole', () => {
+  it('gives back exactly the bytes that were listed', () => {
+    const text = `${'é'.repeat(5)}\nline\n`;
+    const bytes = Buffer.from(text, 'utf8');
+    expect(wholeFile('a.txt', `${bytes.length}\n${bytes.toString('base64')}`)).toBe(text);
+    expect(wholeFile('empty', '0\n')).toBe('');
+  });
+
+  it('refuses a copy shorter than the file, or one with no size', () => {
+    expect(() => wholeFile('a.txt', `99\n${Buffer.from('abc').toString('base64')}`)).toThrow('a.txt came back as 3 of 99 bytes, so it was not read whole');
+    expect(() => wholeFile('a.txt', Buffer.from('abc').toString('base64'))).toThrow(/not read whole/);
   });
 });

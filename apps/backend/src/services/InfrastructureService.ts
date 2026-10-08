@@ -205,6 +205,18 @@ export class InfrastructureService {
     return stdout;
   }
 
+  async runHelmWithChart(args: (chart: string) => string[], chartDir: string, kubeconfig?: string): Promise<string> {
+    const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
+    const containerName = match ? `k3d-${match[1] ?? 'unknown'}-server-0` : undefined;
+    if (containerName && await this.dockerContainerExists(containerName)) {
+      const inside = `/tmp/charts/${path.basename(chartDir)}`;
+      await execAsync(`docker exec ${containerName} sh -c ${escapeShellArg(`rm -rf ${inside} && mkdir -p /tmp/charts`)}`);
+      await execAsync(`docker cp ${escapeShellArg(chartDir)} ${containerName}:${inside}`);
+      return this.runHelm(args(inside), kubeconfig);
+    }
+    return this.runHelm(args(chartDir), kubeconfig);
+  }
+
   async getKubeconfig(name: string) {
     const { stdout } = await execAsync(`${path.join(BIN_DIR, 'k3d')} kubeconfig get ${name}`);
     return stdout;

@@ -16,6 +16,7 @@ export interface BenchStore {
   saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void>;
   getBenchState(ownerId: string): Promise<BenchState | undefined>;
   saveBenchState(state: BenchState): Promise<void>;
+  getUserById(id: string): Promise<{ space?: unknown; removal?: unknown } | undefined>;
 }
 
 export interface BenchDeps {
@@ -144,6 +145,8 @@ export class BenchService {
   }
 
   private async countDown(ownerId: string): Promise<void> {
+    const owner = await this.deps.store.getUserById(ownerId);
+    if (!owner || owner.space || owner.removal) return;
     const settings = await this.settings(ownerId);
     if (settings.enabled) await this.deps.idleTimer(ownerId, settings.idleMinutes * 60_000);
   }

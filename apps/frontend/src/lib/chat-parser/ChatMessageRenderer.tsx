@@ -111,6 +111,11 @@ export default function ChatMessageRenderer({
                 {c}
               </a>
             ),
+            img: ({ src, alt }) => (
+              <a href={typeof src === 'string' ? src : undefined} target="_blank" rel="noreferrer noopener">
+                <img src={typeof src === 'string' ? src : undefined} alt={alt ?? ''} loading="lazy" className="my-2 max-w-full max-h-80 rounded-lg border border-slate-700/60" />
+              </a>
+            ),
             hr: () => <hr className="my-4 border-slate-700/60" />,
           }}
         >

@@ -32,7 +32,7 @@ const EMPTY_MESSAGES: ChatMessageRecord[] = [];
 
 /**
  * The koala chat surface now drives an engine run per turn: POST /engine/runs starts it, the
- * run's events arrive on ENGINE_EVENT_CHANNEL, and engine-event-frames.ts translates them into
+ * run's events arrive in its turn log (TURN_LOG_CHANNEL), and engine-event-frames.ts translates them into
  * the UnifiedFrames this render state already understands.
  */
 /** The agent slug every koala-chat turn runs on by default — the seed persona. */
@@ -44,15 +44,12 @@ const DEFAULT_CHAT_AGENT = 'koala';
  * code had the same shape as an orphaned SSE read feeding the module-level store). A remounted
  * surface re-attaches to it and keeps receiving frames.
  */
-/** Every run drawing into a live turn: the turn's own run (an empty path) and each hand-off's run, by the chain of calls that led to it. */
 const liveRunsByRunId = new Map<string, { convId: string; key: string; path: string[] }>();
 
 const PROPOSING = new Set(['propose_plan', 'propose_leaf_plan']);
 
-/** Every live turn's log, followed in order: the one source a turn is drawn from, live or after a refresh. */
 const follower = createTurnFollower(readTurn);
 
-/** Turns this tab has seen end, so a conversation still cached as mid-turn does not start drawing one again. */
 const endedTurns = new Set<string>();
 
 const forgetTurn = (key: string): void => {
@@ -259,7 +256,6 @@ export function useConversationTurn({
     [qc, appendLocalMessage],
   );
 
-  // --- the turn's log ----------------------------------------------------------
   const applyEvent = (event: EngineEvent) => {
     const active = liveRunsByRunId.get(event.runId);
     if (!active) {
@@ -315,7 +311,6 @@ export function useConversationTurn({
     for (const turnId of follower.followed()) void follower.catchUp(turnId, apply).catch(() => undefined);
   }, [apply]);
 
-  /** A conversation that loads mid-turn — after a refresh, from another tab — draws the turn from its log. */
   const liveTurnOf = activeConversation?.liveTurn?.runId;
   useEffect(() => {
     const convId = activeConversation?.id;
@@ -405,12 +400,16 @@ export function useConversationTurn({
       if (!approval.callId) return;
       setPendingApproval(null);
       try {
-        await approveRunCall(approval.runId, { callId: approval.callId, allowed });
+        await approveRunCall(approval.runId, {
+          callId: approval.callId,
+          allowed,
+          ...(allowed && selectedConvId && approval.toolName ? { conversationId: selectedConvId, tool: approval.toolName } : {}),
+        });
       } catch {
         setError('Approval could not be sent: the run may already have finished');
       }
     },
-    [pendingApproval],
+    [pendingApproval, selectedConvId],
   );
 
   const renderedMessages = useMemo(() => {

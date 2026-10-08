@@ -211,6 +211,21 @@ export const GROVE_OPERATIONS: readonly HostOperation[] = [
     idempotent: true,
   },
   {
+    name: 'grove.land-leaves',
+    title: 'Land Leaves',
+    group: 'Grove',
+    describe: 'Lands every verified leaf on the tree\'s main: saves the repository, merges each leaf\'s branch through a pull request in the person\'s Gitea — dependencies first — and brings main back into the workspace so the next leaves start from it. A leaf that conflicts with what landed first gets a task to merge main in and goes back to waiting. For a tree that belongs to a project, main is the project\'s, so landing starts its build and deploy.',
+    inputs: [ENVIRONMENT, TREE],
+    outputs: [
+      { name: 'landed', type: 'json', describe: 'The leaves that landed.' },
+      { name: 'conflicts', type: 'json', describe: 'The leaves sent back to resolve a conflict.' },
+    ],
+    exits: [{ name: 'done', describe: 'Everything ready has landed, gone back to resolve a conflict, or waits for the next pass.' }],
+    settings: NONE,
+    summary: 'lands verified leaves on main',
+    idempotent: true,
+  },
+  {
     name: 'grove.park-tree',
     title: 'Park Tree',
     group: 'Grove',

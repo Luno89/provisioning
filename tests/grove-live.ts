@@ -1,13 +1,9 @@
 import assert from 'node:assert/strict';
 import dotenv from 'dotenv';
-import { BUILT_IN_GROUPS, builtInCatalogue, runProcedure } from '@koala/agent-engine/procedure';
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
-import { createProcedureExecutor } from '../apps/backend/src/engine-host/nodes/index.js';
 import { getTemporalClient } from '../apps/backend/src/lib/temporal-client.js';
-import { PlanService } from '../apps/backend/src/services/PlanService.js';
 import { DEFAULT_ENGINE_TASK_QUEUE, groveRunWorkflowId, type AgentRunOutcome, type GroveRunResult } from '../apps/backend/src/engine-host/temporal/contracts.js';
-import { groveAgentOf, resolveTreeType } from '../apps/backend/src/lib/tree-types.js';
 import { GiteaService } from '../apps/backend/src/services/GiteaService.js';
 import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
 import { loadKeys } from '../apps/backend/src/lib/keys.js';
@@ -15,7 +11,6 @@ import axios from 'axios';
 import { treeRepoName, treeWorkspaceRunId } from '../apps/backend/src/engine-host/sandboxes/tree-workspaces.js';
 import { conversationRepoName } from '../apps/backend/src/engine-host/sandboxes/workspace-repos.js';
 import { signJWT } from '../apps/backend/src/lib/auth.js';
-import { WorkspaceConclusionService } from '../apps/backend/src/services/WorkspaceConclusionService.js';
 import { createKubeRunner } from '../apps/backend/src/engine-host/sandboxes/kube.js';
 import { workspaceName } from '../apps/backend/src/engine-host/sandboxes/workspace.js';
 
@@ -26,6 +21,7 @@ const GOAL = process.env.GROVE_LIVE_GOAL
   ?? 'New Grove project "greeter": a tiny Node.js command-line greeter. Exactly one branch and two leaves. Leaf 1: greet.js prints "hello, <name>" for the name given as its first argument (and "hello, world" without one). Leaf 2, which waits on leaf 1: test.sh runs greet.js with and without a name and exits 0 only when both outputs are right. A couple of tasks per leaf. Use only node and sh — nothing to install.';
 const DEADLINE_MS = Number(process.env.GROVE_LIVE_MINUTES ?? '60') * 60_000;
 const EXPECT_STOPPED = process.env.GROVE_LIVE_EXPECT_STOPPED === '1';
+const IN_PROJECT = process.env.GROVE_LIVE_PROJECT === '1';
 
 const BASE = process.env.GROVE_LIVE_URL ?? 'http://localhost:3001/api';
 const queue = process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
@@ -44,19 +40,27 @@ async function main(): Promise<void> {
   const gitea = new GiteaService(new InfrastructureService(), loadKeys(process.env).data, '/tmp/kubeconfig-provisioning-lunorica');
 
   console.log(`[1/4] the planner proposes (${elapsed(started)})`);
-  const runnable = await host.registry.runnable(OWNER, 'planner');
-  assert.ok(runnable, 'there is no planner');
-  const conversationId = `grove-live-${Date.now().toString(36)}`;
-  const planned = await runProcedure({
-    procedure: runnable.procedure,
-    catalogue: builtInCatalogue(),
-    groups: BUILT_IN_GROUPS,
-    executor: createProcedureExecutor(host.services, { registry: host.registry }),
-    identity: { runId: `run-${conversationId}`, depth: 0, agentId: 'planner', loopId: runnable.procedure.id, loopVersion: runnable.procedure.version, trigger: 'user' },
-    launch: { ownerId: OWNER, conversationId },
-    inputs: { goal: GOAL, message: GOAL },
-    budget: runnable.procedure.budget,
-  });
+  const stamp = Date.now().toString(36);
+  const project = IN_PROJECT
+    ? (await http.post('/projects', { name: `grove-live-${stamp}`, giteaRepo: `grove-live-${stamp}`, createRepo: true })).data as { id: string; giteaOwner: string; giteaRepo: string }
+    : undefined;
+  if (project) console.log(`      in project ${project.id}, whose repository is ${project.giteaOwner}/${project.giteaRepo}`);
+  const conversationId = ((await http.post('/conversations', project ? { projectId: project.id } : {})).data as { id: string }).id;
+  const { runId: plannerRun } = (await http.post('/engine/runs', {
+    agent: 'planner',
+    message: GOAL,
+    conversationId,
+    inputs: { goal: GOAL, conversationId, ...(project ? { projectId: project.id } : {}) },
+  })).data as { runId: string };
+  console.log(`      planner run ${plannerRun} in conversation ${conversationId} — watch it in the run view`);
+  const planned = await (async () => {
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      const entries = ((await http.get(`/turns/${plannerRun}`, { params: { after: 0 } })).data as { entries: { events: { type: string; runId: string; outcome?: string; reason?: string }[] }[] }).entries;
+      const finished = entries.flatMap((entry) => entry.events).find((event) => event.runId === plannerRun && event.type === 'run.finished');
+      if (finished) return { outcome: finished.outcome ?? 'unknown', reason: finished.reason };
+    }
+  })();
   const proposal = (await db.getPlanProposals(OWNER, conversationId)).find((entry) => entry.status === 'proposed');
   assert.ok(proposal, `the planner left no plan (${planned.outcome}${planned.reason ? `: ${planned.reason}` : ''})`);
   for (const branch of proposal.plan.branches) {
@@ -64,50 +68,35 @@ async function main(): Promise<void> {
   }
   const account = await db.getGiteaAccount(OWNER);
   assert.ok(account, 'the owner has no Gitea account, so nothing was saved');
-  const planNote = `planner/run-${conversationId}/plan.md`;
+  const planNote = `planner/${plannerRun}/plan.md`;
   const conversationRepo = conversationRepoName(conversationId);
   const noted = await gitea.getRawFile(account.username, conversationRepo, planNote, 'main');
   console.log(`      the planner wrote ${planNote} in the conversation's workspace, saved to ${account.username}/${conversationRepo}: ${noted ? `${noted.length} chars` : 'MISSING'}`);
   assert.ok(noted?.trim(), `the planner did not write ${planNote} into the conversation's workspace`);
 
   console.log(`[2/4] approved; the plan is adopted on the engine worker (${elapsed(started)})`);
-  const plans = new PlanService({
-    store: db,
-    adopter: {
-      adoptPlan: async (ownerId, id) => {
-        const handle = await client.workflow.start('AdoptPlanWorkflow', { workflowId: `adopt-plan-${id}`, taskQueue: queue, args: [{ ownerId, proposalId: id }] });
-        return handle.workflowId;
-      },
-    },
-  });
-  const approved = await plans.approve(OWNER, proposal.id);
-  assert.ok(approved.ok, approved.ok ? '' : approved.error);
+  await http.post(`/plans/${proposal.id}/approve`);
   await client.workflow.getHandle(`adopt-plan-${proposal.id}`).result();
   const adopted = await db.getPlanProposal(OWNER, proposal.id);
   assert.equal(adopted?.status, 'adopted', `adoption ended ${adopted?.status}: ${adopted?.reason ?? ''}`);
   const treeId = adopted!.adopted!.treeId;
   const leafIds = Object.values(adopted!.adopted!.leafIds);
   console.log(`      tree ${treeId}, plan commit ${adopted!.adopted!.commit?.slice(0, 12)}`);
-  const brought = await gitea.getRawFile(account.username, treeRepoName(treeId), planNote, 'main');
+  const treeRepo = project?.giteaRepo ?? treeRepoName(treeId);
+  const brought = await gitea.getRawFile(account.username, treeRepo, planNote, 'main');
   console.log(`      adoption copied ${planNote} into the tree's repository: ${brought === noted ? 'identical' : brought ? 'DIFFERENT' : 'MISSING'}`);
   assert.equal(brought, noted, `${planNote} was not copied into the tree's repository as the conversation saved it`);
-  const conclusions = new WorkspaceConclusionService({ workflows: async () => client.workflow, taskQueue: queue });
-  const concluded = await conclusions.conclude(OWNER, { kind: 'conversation', id: conversationId });
-  console.log(`      the conversation's workspace concluded through ConcludeWorkspaceWorkflow: ${JSON.stringify(concluded)}`);
+  await http.delete(`/conversations/${conversationId}`);
+  const concluded = await client.workflow.getHandle(`conclude-workspace-conversation-${conversationId}`).result() as { saved: boolean };
+  console.log(`      deleting the conversation concluded its workspace through ConcludeWorkspaceWorkflow: ${JSON.stringify(concluded)}`);
   assert.ok(concluded.saved, 'the conversation\'s workspace was not saved when it concluded');
   await gitea.deleteRepo(account.username, conversationRepo);
 
   console.log(`[3/4] the grove run works the tree (${elapsed(started)})`);
-  const tree = (await db.getTrees()).find((entry) => entry.id === treeId);
-  const groveAgent = groveAgentOf(await resolveTreeType(db, OWNER, tree?.type));
-  const grower = await host.registry.runnable(OWNER, groveAgent);
-  assert.ok(grower, `there is no agent called ${groveAgent} to grow the tree`);
-  console.log(`      grown by ${groveAgent} on ${grower.procedure.id}`);
-  const run = await client.workflow.start('AgentRunWorkflow', {
-    workflowId: groveRunWorkflowId(treeId),
-    taskQueue: queue,
-    args: [{ ticket: { runId: groveRunWorkflowId(treeId), depth: 0, ownerId: OWNER, agentSlug: groveAgent, trigger: 'user' }, procedure: grower.procedure, inputs: { treeId, message: 'Grow the tree.' } }],
-  });
+  const launched = await http.post(`/trees/${treeId}/run`, {}, { validateStatus: () => true });
+  console.log(`      started through /api/trees/${treeId}/run: ${launched.status}`);
+  assert.ok(launched.status === 202 || launched.status === 200, `the tree would not run: ${JSON.stringify(launched.data)}`);
+  const run = client.workflow.getHandle(groveRunWorkflowId(treeId));
   const seen = new Map<string, string>();
   const watch = setInterval(() => {
     void db.getLeaves().then((leaves) => {
@@ -158,7 +147,7 @@ async function main(): Promise<void> {
   console.log(`\n  repo:\n${log?.stdout ?? log?.stderr ?? '(unreadable)'}`);
   const heads = (await reader?.exec({ command: "cd /work/repo && git for-each-ref --format='%(refname:short) %(objectname)' refs/heads" }))?.stdout.trim().split('\n').filter(Boolean) ?? [];
   const plan = (await reader?.exec({ command: 'cat /work/repo/PLAN.md' }))?.stdout ?? '';
-  const repo = treeRepoName(treeId);
+  const repo = treeRepo;
   const missing: string[] = [];
   for (const head of heads) {
     const [branch, sha] = head.split(' ');
@@ -168,6 +157,24 @@ async function main(): Promise<void> {
   assert.ok(heads.length > 0, 'the tree repository has no branches');
   assert.deepEqual(missing, [], 'the tree repository in Gitea is behind the sandbox');
   assert.equal(await gitea.getRawFile(account.username, repo, 'PLAN.md', 'main'), plan, 'PLAN.md in Gitea differs from the sandbox');
+
+  const verified = leaves.filter((leaf) => leaf.status === 'succeeded' && leaf.verified);
+  const unlanded = verified.filter((leaf) => !leaf.landed);
+  console.log(`  ${verified.length - unlanded.length} of ${verified.length} verified leaves landed on main in ${account.username}/${repo}`);
+  assert.deepEqual(unlanded.map((leaf) => leaf.title), [], 'a verified leaf did not land on main');
+  const landedFiles = [...new Set(verified.flatMap((leaf) => leaf.claim?.files ?? []))];
+  for (const file of landedFiles) {
+    const onMain = await gitea.getRawFile(account.username, repo, file, 'main');
+    const inWorkspace = (await reader?.exec({ command: `cd /work/repo && git show main:${file}` }))?.stdout ?? '';
+    assert.ok(onMain !== null, `${file}, which a landed leaf changed, is not on main in Gitea`);
+    assert.equal(onMain, inWorkspace, `${file} on main in Gitea differs from the workspace's main`);
+  }
+  console.log(`  main holds every file the landed leaves changed: ${landedFiles.join(', ')}`);
+  if (project) {
+    const builds = (await db.getPipelineRuns()).filter((run: { projectId?: string }) => run.projectId === project.id);
+    console.log(`  the project's repository was pushed to, and ${builds.length} build${builds.length === 1 ? '' : 's'} started from it`);
+    assert.ok(builds.length > 0, 'landing on the project\'s main started no build');
+  }
 
   const withCommits = leaves.filter((leaf) => leaf.claim?.commit);
   let opened = 0;
@@ -196,6 +203,7 @@ async function main(): Promise<void> {
   assert.equal(after.status.name, 'COMPLETED');
   assert.equal(await gitea.getRawFile(account.username, repo, 'PLAN.md', 'main'), plan, 'PLAN.md is not in Gitea after the tree was deleted');
   await gitea.deleteRepo(account.username, repo);
+  if (project) await http.delete(`/projects/${project.id}`).catch(() => undefined);
 
   if (EXPECT_STOPPED) {
     const failedTasks = tasks.filter((task) => task.status === 'failed');

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { runTaskChecks, checksFailed, checkReport, type CheckEnvironment } from './task-checks.js';
+import { PLAYWRIGHT_REPORT } from './e2e-fixtures.js';
 
 interface Reply { stdout?: string; stderr?: string; exitCode?: number }
 
@@ -130,5 +131,78 @@ describe('the report a claim carries', () => {
     expect(checkReport(outcomes)).toBe(
       'passed — paper.md exists and is not empty: it is there\nFAILED — sh test.sh exits clean: it exited 1: boom',
     );
+  });
+});
+
+describe('a command that fails', () => {
+  it('reports the end of what it printed, not only its error stream', async () => {
+    const [outcome] = await runTaskChecks(environment(() => ({
+      stdout: 'Running 1 test\n  1 failed\n    e2e/probe.spec.ts › signs in\nodoo-e2e: FAILED — the browser tests did not pass (exit 1)',
+      stderr: 'command terminated with exit code 1',
+      exitCode: 1,
+    })), { command: 'odoo-e2e koala_probe e2e', expects: ['odoo-e2e: PASSED'] });
+
+    expect(outcome!.passed).toBe(false);
+    expect(outcome!.says).toContain('odoo-e2e: FAILED — the browser tests did not pass');
+    expect(outcome!.says).toContain('command terminated with exit code 1');
+  });
+});
+
+describe('a failing command that drew on a terminal', () => {
+  it('reports its words without the cursor codes', async () => {
+    const [outcome] = await runTaskChecks(environment(() => ({ stdout: '\u001b[1A\u001b[2K  1 failed\nodoo-e2e: FAILED', exitCode: 1 })), { command: 'odoo-e2e p e2e', expects: ['odoo-e2e: PASSED'] });
+    expect(outcome!.says).toBe('it exited 1:   1 failed\nodoo-e2e: FAILED'.replace(':   ', ': '));
+  });
+});
+
+describe('browser tests a task carries', () => {
+  const PASSING = JSON.stringify({ suites: [{ title: 'a.spec.ts', file: 'a.spec.ts', specs: [{ title: 'signs in', file: 'a.spec.ts', tests: [{ status: 'expected', results: [{ status: 'passed', duration: 900 }] }] }] }], errors: [] });
+
+  it('serves the workspace\'s own app, and reports the run and each test', async () => {
+    const world = environment(quiet, { 'e2e-results/report.json': PASSING });
+    const timeouts: (number | undefined)[] = [];
+    const outcomes = await runTaskChecks({ ...world, exec: (command, timeoutMs) => { timeouts.push(timeoutMs); return world.exec(command); } }, { e2e: { specs: ['e2e/a.spec.ts'] } });
+
+    expect(world.ran[0]).toBe(`rm -rf e2e-results && mkdir -p e2e-results && koala-e2e 'e2e/a.spec.ts'`);
+    expect(timeouts).toEqual([15 * 60_000]);
+    expect(outcomes).toEqual([
+      { check: 'the browser tests in e2e/a.spec.ts pass against the workspace\'s own app', passed: true, says: '1 passed, 0 failed' },
+      { check: 'browser test "signs in" (a.spec.ts)', passed: true, says: 'it passed' },
+    ]);
+  });
+
+  it('fails the test that failed, with Playwright\'s reason', async () => {
+    const outcomes = await runTaskChecks(environment(() => ({ exitCode: 1 }), { 'e2e-results/report.json': PLAYWRIGHT_REPORT }), { e2e: { specs: ['e2e'] } });
+
+    expect(checksFailed(outcomes)).toBe(true);
+    expect(outcomes[0]).toMatchObject({ passed: false, says: '1 passed, 1 failed, 1 flaky, 1 skipped' });
+    expect(outcomes.find((outcome) => outcome.check.includes('sees the field'))).toEqual({
+      check: 'browser test "sees the field" (probe.spec.ts)',
+      passed: false,
+      says: 'it failed: Error: expect(locator).toBeVisible() failed\nLocator: [name="koala_never_made"]',
+    });
+    expect(outcomes.find((outcome) => outcome.check.includes('saves'))).toMatchObject({ passed: true, says: 'it passed on a retry' });
+  });
+
+  it('fails with what was printed when the app never came up and no report was left', async () => {
+    const outcomes = await runTaskChecks(environment(() => ({ stdout: 'koala_probe: no such module\nodoo-e2e: FAILED — koala_probe did not install', exitCode: 1 })), { e2e: { specs: ['e2e'] } });
+
+    expect(outcomes).toEqual([{
+      check: 'the browser tests in e2e pass against the workspace\'s own app',
+      passed: false,
+      says: 'they left no report — it exited 1: koala_probe: no such module\nodoo-e2e: FAILED — koala_probe did not install',
+    }]);
+  });
+
+  it('fails a run that exited badly though no test failed', async () => {
+    const outcomes = await runTaskChecks(environment(() => ({ stdout: 'worker crashed', exitCode: 1 }), { 'e2e-results/report.json': PASSING }), { e2e: { specs: ['e2e'] } });
+
+    expect(outcomes[0]).toMatchObject({ passed: false, says: '1 passed, 0 failed, yet it exited 1: worker crashed' });
+  });
+
+  it('says so when the workspace image cannot serve its app to a browser', async () => {
+    const outcomes = await runTaskChecks(environment(() => ({ exitCode: 127 })), { e2e: { specs: ['e2e'] } });
+
+    expect(outcomes).toEqual([{ check: 'the browser tests in e2e pass against the workspace\'s own app', passed: false, says: 'this workspace\'s image has no koala-e2e, so it cannot serve its app to a browser' }]);
   });
 });

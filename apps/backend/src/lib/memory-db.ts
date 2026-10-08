@@ -30,6 +30,11 @@ import type { Persona as EnginePersona, ToolDefinition as EngineTool } from '@ko
 import { evalRecordKey, type EvalCollection, type EvalRecord } from './eval-run.js';
 import type { TreeTypeSpec } from './tree-types.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
+import type { AccountRelated } from './account-removal.js';
+import type { AccountIds, ScriptedRequestRecord } from './db-interface.js';
+import type { OdooRelease } from './odoo-release.js';
+import type { StoredArtifact } from './artifacts.js';
+import type { ArtifactChunk } from '../services/ArtifactService.js';
 
 export class MemoryDB implements Database {
   private clusters: ClusterMetadata[] = [];
@@ -57,6 +62,9 @@ export class MemoryDB implements Database {
   private tasks: Task[] = [];
   private planProposals: PlanProposal[] = [];
   private secretRequests: SecretRequest[] = [];
+  private odooReleases: OdooRelease[] = [];
+  private artifacts: StoredArtifact[] = [];
+  private artifactChunks: ArtifactChunk[] = [];
   private mcpRequests: McpRequest[] = [];
   private mcpToolHints = new Map<string, McpToolHint>();
   private actionProposals: ActionProposal[] = [];
@@ -251,6 +259,167 @@ export class MemoryDB implements Database {
     else this.invites.push(invite);
   }
 
+  async accountIds(ownerId: string): Promise<AccountIds> {
+    const conversations = this.conversations.filter((entry) => entry.ownerId === ownerId);
+    const turns = this.turnLogs.filter((entry) => entry.ownerId === ownerId).map((entry) => entry.turnId);
+    const live = conversations.map((entry) => entry.liveTurn?.runId).filter((id): id is string => typeof id === 'string');
+    return {
+      runIds: [...new Set([...turns, ...live])],
+      treeIds: this.trees.filter((entry) => entry.ownerId === ownerId).map((entry) => entry.id),
+      conversationIds: conversations.map((entry) => entry.id),
+      proposalIds: this.planProposals.filter((entry) => entry.ownerId === ownerId).map((entry) => entry.id),
+      projectIds: this.projects.filter((entry) => entry.ownerId === ownerId).map((entry) => entry.id),
+      ingestIds: [...new Set(this.corpus.filter((entry) => entry.ownerId === ownerId).map((entry) => entry.ingestId).filter((id): id is string => typeof id === 'string'))],
+    };
+  }
+
+  async accountLeftovers(ownerId: string): Promise<Record<string, number>> {
+    const left: Record<string, number> = {};
+    const note = (name: string, count: number) => { if (count) left[name] = count; };
+    const owned = (entry: unknown) => (entry as { ownerId?: unknown }).ownerId === ownerId;
+    note('users', this.users.filter((user) => user.id === ownerId).length);
+    note('conversations', this.conversations.filter(owned).length);
+    note('trees', this.trees.filter(owned).length);
+    note('memories', this.memories.filter(owned).length);
+    note('tasks', this.tasks.filter(owned).length);
+    note('turnLogs', this.turnLogs.filter(owned).length);
+    note('modelEndpoints', this.modelEndpoints.filter(owned).length);
+    note('giteaAccounts', this.giteaAccounts.filter(owned).length);
+    note('engineRunTraces', [...this.runTraces.values()].filter(owned).length);
+    note('scriptedRequests', this.scriptedRequests.filter(owned).length);
+    return left;
+  }
+
+  async removeAccountRecords(ownerId: string, related: AccountRelated): Promise<Record<string, number>> {
+    const removed: Record<string, number> = {};
+    const note = (name: string, count: number) => { if (count) removed[name] = (removed[name] ?? 0) + count; };
+    const owned = (entry: unknown) => (entry as { ownerId?: unknown }).ownerId === ownerId;
+    const sweep = <T>(name: string, list: T[], gone: (entry: T) => boolean = owned): T[] => {
+      const kept = list.filter((entry) => !gone(entry));
+      note(name, list.length - kept.length);
+      return kept;
+    };
+    const sweepMap = <T>(name: string, map: Map<string, T>, gone: (key: string, entry: T) => boolean) => {
+      for (const [key, entry] of [...map]) if (gone(key, entry)) { map.delete(key); note(name, 1); }
+    };
+
+    for (const key of related.watermarkKeys) if (this.memoryWatermarks.delete(key)) note('memoryWatermarks', 1);
+    this.frontier = sweep('crawl_frontier', this.frontier, (entry) => related.ingestIds.includes((entry as { ingestId?: string }).ingestId ?? ''));
+    this.pipelineRuns = sweep('pipelineRuns', this.pipelineRuns, (entry) => related.projectIds.includes(entry.projectId ?? ''));
+
+    this.accessRequests = sweep('accessRequests', this.accessRequests);
+    this.actionProposals = sweep('actionProposals', this.actionProposals);
+    this.appSpecs = sweep('appSpecs', this.appSpecs);
+    this.bindingTypes = sweep('bindingTypes', this.bindingTypes);
+    this.branches = sweep('branches', this.branches);
+    this.clusters = sweep('clusters', this.clusters);
+    this.conversations = sweep('conversations', this.conversations);
+    this.corpus = sweep('corpus', this.corpus);
+    this.deployments = sweep('deployments', this.deployments);
+    this.egressGrants = sweep('egressGrants', this.egressGrants);
+    this.egressRequests = sweep('egressRequests', this.egressRequests);
+    this.enginePersonas = sweep('enginePersonas', this.enginePersonas);
+    this.engineTools = sweep('engineTools', this.engineTools);
+    this.leaves = sweep('leaves', this.leaves);
+    this.localAgentDevices = sweep('localAgentDevices', this.localAgentDevices);
+    this.mcpRequests = sweep('mcpRequests', this.mcpRequests);
+    this.memories = sweep('memories', this.memories);
+    this.modelEndpoints = sweep('modelEndpoints', this.modelEndpoints);
+    this.pendingApprovals = sweep('pendingApprovals', this.pendingApprovals);
+    this.planProposals = sweep('planProposals', this.planProposals);
+    this.procedures = sweep('procedures', this.procedures);
+    this.projects = sweep('projects', this.projects);
+    this.secretRequests = sweep('secretRequests', this.secretRequests);
+    this.odooReleases = sweep('odooReleases', this.odooReleases);
+    this.artifacts = sweep('artifacts', this.artifacts);
+    this.artifactChunks = sweep('artifactChunks', this.artifactChunks);
+    this.tasks = sweep('tasks', this.tasks);
+    this.treeTypes = sweep('treeTypes', this.treeTypes);
+    this.trees = sweep('trees', this.trees);
+    this.turnLogs = sweep('turnLogs', this.turnLogs);
+    this.workspaceImages = sweep('workspaceImages', this.workspaceImages);
+    this.scriptedRequests = sweep('scriptedRequests', this.scriptedRequests);
+    sweepMap('mcpToolHints', this.mcpToolHints, (_, entry) => owned(entry));
+    sweepMap('authoredExtensions', this.authoredExtensions, (_, entry) => owned(entry));
+    sweepMap('instances', this.instances, (_, entry) => owned(entry));
+    sweepMap('instanceJoinTokens', this.joinTokens, (_, entry) => owned(entry));
+    sweepMap('engineRunTraces', this.runTraces, (_, entry) => owned(entry));
+    sweepMap('engineRunEffort', this.runEffort, (_, entry) => owned(entry));
+    for (const [collection, records] of this.evalRecords) sweepMap(collection, records, (_, entry) => owned(entry));
+    sweepMap('benchSettings', this.benchSettings, (key) => key === ownerId);
+    sweepMap('benchStates', this.benchStates, (key) => key === ownerId);
+    sweepMap('extensionSettings', this.extensionSettings, (key) => key === ownerId);
+    this.giteaAccounts = sweep('giteaAccounts', this.giteaAccounts);
+    this.users = sweep('users', this.users, (entry) => entry.id === ownerId);
+    return removed;
+  }
+
+  async removeProjectRecords(projectId: string): Promise<Record<string, number>> {
+    const removed: Record<string, number> = {};
+    const sweep = <T extends { projectId?: string | undefined }>(name: string, list: T[]): T[] => {
+      const kept = list.filter((entry) => entry.projectId !== projectId);
+      if (kept.length !== list.length) removed[name] = list.length - kept.length;
+      return kept;
+    };
+    this.pipelineRuns = sweep('pipelineRuns', this.pipelineRuns);
+    this.odooReleases = sweep('odooReleases', this.odooReleases);
+    this.corpus = sweep('corpus', this.corpus);
+    this.secretRequests = sweep('secretRequests', this.secretRequests);
+    this.pendingApprovals = sweep('pendingApprovals', this.pendingApprovals);
+    this.tasks = sweep('tasks', this.tasks);
+    const unlink = <T extends { projectId?: string | undefined }>(name: string, list: T[]): T[] => {
+      let count = 0;
+      const next = list.map((entry) => {
+        if (entry.projectId !== projectId) return entry;
+        count += 1;
+        const { projectId: _gone, ...rest } = entry;
+        return rest as T;
+      });
+      if (count) removed[`${name} unlinked`] = count;
+      return next;
+    };
+    this.conversations = unlink('conversations', this.conversations);
+    this.memories = unlink('memories', this.memories);
+    const before = this.projects.length;
+    this.projects = this.projects.filter((project) => project.id !== projectId);
+    if (before !== this.projects.length) removed.projects = before - this.projects.length;
+    return removed;
+  }
+
+  private scriptedRequests: ScriptedRequestRecord[] = [];
+
+  async saveScriptedRequest(request: ScriptedRequestRecord): Promise<void> {
+    this.scriptedRequests.push(request);
+  }
+
+  async getScriptedRequests(ownerId: string): Promise<ScriptedRequestRecord[]> {
+    return this.scriptedRequests.filter((request) => request.ownerId === ownerId);
+  }
+
+  async findRunEffort(runId: string): Promise<RunEffort | undefined> {
+    return this.runEffort.get(runId);
+  }
+
+  async reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number> {
+    let moved = 0;
+    const wanted = (id: string) => !runIds || runIds.includes(id);
+    for (const [key, trace] of this.runTraces) {
+      if (trace.ownerId === from && wanted(trace.runId)) { this.runTraces.set(key, { ...trace, ownerId: to }); moved += 1; }
+    }
+    this.turnLogs = this.turnLogs.map((entry) => {
+      if (entry.ownerId !== from || !wanted(entry.turnId)) return entry;
+      moved += 1;
+      return { ...entry, ownerId: to };
+    });
+    for (const [key, effort] of this.runEffort) {
+      if (effort.ownerId === from && wanted(effort.runId)) { this.runEffort.set(key, { ...effort, ownerId: to }); moved += 1; }
+    }
+    const reowned = new Set(this.artifacts.filter((entry) => entry.ownerId === from && wanted(entry.runId)).map((entry) => entry.id));
+    this.artifacts = this.artifacts.map((entry) => (reowned.has(entry.id) ? { ...entry, ownerId: to } : entry));
+    this.artifactChunks = this.artifactChunks.map((entry) => (reowned.has(entry.artifactId) ? { ...entry, ownerId: to } : entry));
+    return moved + reowned.size;
+  }
+
   async getUsers(): Promise<UserMetadata[]> {
     return [...this.users];
   }
@@ -424,6 +593,17 @@ export class MemoryDB implements Database {
     return this.conversations.find((c) => c.id === id && c.ownerId === ownerId);
   }
 
+  async allowToolInConversation(ownerId: string, conversationId: string, tool: string): Promise<boolean> {
+    const conversation = this.conversations.find((c) => c.id === conversationId && c.ownerId === ownerId);
+    if (!conversation) return false;
+    if (!(conversation.allowedTools ?? []).includes(tool)) conversation.allowedTools = [...(conversation.allowedTools ?? []), tool];
+    return true;
+  }
+
+  async ownsRun(ownerId: string, runId: string): Promise<boolean> {
+    return this.turnLogs.some((entry) => entry.ownerId === ownerId && (entry.turnId === runId || entry.events.some((event) => event.runId === runId)));
+  }
+
   async saveConversation(conversation: Conversation): Promise<void> {
     const i = this.conversations.findIndex((c) => c.id === conversation.id);
     if (i >= 0) this.conversations[i] = conversation;
@@ -543,6 +723,47 @@ export class MemoryDB implements Database {
 
   async deletePlanProposal(ownerId: string, id: string): Promise<void> {
     this.planProposals = this.planProposals.filter((p) => !(p.id === id && p.ownerId === ownerId));
+  }
+
+  async saveArtifact(artifact: StoredArtifact): Promise<void> {
+    this.artifacts = [...this.artifacts.filter((entry) => entry.id !== artifact.id), { ...artifact }];
+  }
+
+  async getArtifacts(ownerId: string, runId?: string): Promise<StoredArtifact[]> {
+    return this.artifacts.filter((entry) => entry.ownerId === ownerId && (!runId || entry.runId === runId)).map((entry) => ({ ...entry }));
+  }
+
+  async getExpiredArtifacts(now: string): Promise<StoredArtifact[]> {
+    return this.artifacts.filter((entry) => entry.expiresAt <= now).map((entry) => ({ ...entry }));
+  }
+
+  async deleteArtifact(id: string): Promise<void> {
+    this.artifacts = this.artifacts.filter((entry) => entry.id !== id);
+  }
+
+  async saveArtifactChunk(chunk: ArtifactChunk): Promise<void> {
+    this.artifactChunks = [...this.artifactChunks.filter((entry) => !(entry.artifactId === chunk.artifactId && entry.n === chunk.n)), { ...chunk, data: Buffer.from(chunk.data) }];
+  }
+
+  async getArtifactChunks(artifactId: string): Promise<ArtifactChunk[]> {
+    return this.artifactChunks.filter((entry) => entry.artifactId === artifactId).sort((a, b) => a.n - b.n);
+  }
+
+  async deleteArtifactChunks(artifactId: string): Promise<void> {
+    this.artifactChunks = this.artifactChunks.filter((entry) => entry.artifactId !== artifactId);
+  }
+
+  async getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]> {
+    return this.odooReleases
+      .filter((release) => release.ownerId === ownerId && (!projectId || release.projectId === projectId))
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+      .map((release) => ({ ...release }));
+  }
+
+  async saveOdooRelease(release: OdooRelease): Promise<void> {
+    const at = this.odooReleases.findIndex((entry) => entry.id === release.id);
+    if (at >= 0) this.odooReleases[at] = { ...release };
+    else this.odooReleases.push({ ...release });
   }
 
   async getSecretRequests(ownerId: string, filter: SecretRequestFilter = {}): Promise<SecretRequest[]> {
@@ -772,6 +993,14 @@ export class MemoryDB implements Database {
 
   async getTurnLog(ownerId: string, turnId: string, after: number): Promise<TurnLogEntry[]> {
     return this.turnLogs.filter((entry) => entry.ownerId === ownerId && entry.turnId === turnId && entry.seq > after).sort((a, b) => a.seq - b.seq).map((entry) => structuredClone(entry));
+  }
+
+  async recentTurns(ownerId: string, since: string, limit: number): Promise<TurnLogEntry[]> {
+    return this.turnLogs
+      .filter((entry) => entry.ownerId === ownerId && entry.seq === 1 && entry.at >= since)
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .slice(0, limit)
+      .map((entry) => structuredClone(entry));
   }
 
   async lastTurnLogSeq(turnId: string): Promise<number> {

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { createCompactContextNode } from '../../engine-host/nodes/model-nodes.js';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { ApplicationFailure } from '@temporalio/common';
 import { WorkflowClient } from '@temporalio/client';
@@ -45,6 +46,9 @@ import { extensionRuntimes, operationHandlers } from '../runtime.js';
 import type { HostOperationRun } from '../types.js';
 import { createProcedureStore } from '../../engine-host/registries/procedure-store.js';
 import { AgentRunWorkflow, cancelSignal } from '../../workflows/AgentRunWorkflow.js';
+import { timeSkippingTestEnvironment } from '../../workflows/temporal-test-env.js';
+
+const noSummaries = { resolveBaseUrl: async () => { throw new Error('nothing in this test outgrows its window'); } } as never;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -260,7 +264,7 @@ const decideModel = stepImplementation('decide', ({ node, execution, inputs }) =
 let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
-  env = await TestWorkflowEnvironment.createTimeSkipping();
+  env = await timeSkippingTestEnvironment();
 }, 120_000);
 
 afterAll(async () => {
@@ -502,7 +506,7 @@ async function runGroveWorld(options: {
       connection: env.nativeConnection,
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: {
-        EngineStreamNodeActivity: createNodeRunner([scriptModel(rounds, options.hang), decideModel], undefined, { runCancelled: runCancelledVia(async () => env.client) }),
+        EngineStreamNodeActivity: createNodeRunner([scriptModel(rounds, options.hang), decideModel, createCompactContextNode({ models: noSummaries })], undefined, { runCancelled: runCancelledVia(async () => env.client) }),
         EnginePublishActivity: vi.fn(async (_args: PublishArgs) => undefined),
         EngineLifecycleActivity: vi.fn(async () => undefined),
       },

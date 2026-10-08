@@ -1,4 +1,5 @@
 import type { TaskChecks } from '../engine-host/tools/tasks.js';
+import { E2E_REPORT, E2E_RUNNER, E2E_RUNNER_MISSING, E2E_TIMEOUT_MS, e2eCommand, e2eSummary, e2eTarget, printedTail, readE2EReport, type E2ERequest } from './e2e.js';
 
 /**
  * The checks a task carries, run where the claim says the work is.
@@ -11,7 +12,7 @@ import type { TaskChecks } from '../engine-host/tools/tasks.js';
 
 /** The slice of a sandbox the checks need, so they can be tested against a fake. */
 export interface CheckEnvironment {
-  exec(command: string): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+  exec(command: string, timeoutMs?: number): Promise<{ stdout: string; stderr: string; exitCode: number }>;
   readFile(path: string): Promise<string | undefined>;
 }
 
@@ -59,7 +60,7 @@ async function runCommand(environment: CheckEnvironment, command: string, expect
   const check = `${command}${expects.length > 0 ? ` says ${expects.map((entry) => `"${entry}"`).join(', ')}` : ' exits clean'}`;
   const outcome = await environment.exec(command);
   if (outcome.exitCode !== 0) {
-    return { check, passed: false, says: `it exited ${outcome.exitCode}: ${(outcome.stderr || outcome.stdout).trim().slice(0, 400) || 'no output'}` };
+    return { check, passed: false, says: `it exited ${outcome.exitCode}: ${printedTail(outcome) || 'no output'}` };
   }
 
   const said = `${outcome.stdout}\n${outcome.stderr}`;
@@ -85,6 +86,28 @@ async function httpProbe(environment: CheckEnvironment, url: string, status: num
   };
 }
 
+async function browserTests(environment: CheckEnvironment, request: E2ERequest): Promise<CheckOutcome[]> {
+  const check = `the browser tests in ${request.specs.join(', ')} pass against ${e2eTarget(request)}`;
+  const outcome = await environment.exec(e2eCommand(request), E2E_TIMEOUT_MS);
+  if (outcome.exitCode === E2E_RUNNER_MISSING) {
+    return [{ check, passed: false, says: request.url ? 'this workspace has no Playwright to run them with' : `this workspace's image has no ${E2E_RUNNER}, so it cannot serve its app to a browser` }];
+  }
+  const report = readE2EReport(await environment.readFile(E2E_REPORT));
+  if (!report) return [{ check, passed: false, says: `they left no report — it exited ${outcome.exitCode}: ${printedTail(outcome) || 'no output'}` }];
+
+  const outcomes: CheckOutcome[] = report.tests.map((test) => ({
+    check: `browser test "${test.title}" (${test.file})`,
+    passed: test.status !== 'failed',
+    says: test.status === 'failed' ? `it failed: ${test.error ?? 'Playwright gave no reason'}` : test.status === 'skipped' ? 'it was skipped' : test.status === 'flaky' ? 'it passed on a retry' : 'it passed',
+  }));
+  const ranClean = outcome.exitCode === 0 && report.errors.length === 0 && report.tests.length > 0;
+  const stray = report.failed === 0 && !ranClean;
+  return [
+    { check, passed: !stray && report.failed === 0, says: stray ? `${e2eSummary(report)}, yet it exited ${outcome.exitCode}: ${[...report.errors, printedTail(outcome)].filter(Boolean).join('\n').slice(-1200) || 'no output'}` : e2eSummary(report) },
+    ...outcomes,
+  ];
+}
+
 /** Every check a task carries, in the order a person would read them. */
 export async function runTaskChecks(environment: CheckEnvironment, checks: TaskChecks | undefined): Promise<CheckOutcome[]> {
   if (!checks) return [];
@@ -94,6 +117,7 @@ export async function runTaskChecks(environment: CheckEnvironment, checks: TaskC
   if (checks.contentPath && checks.contentPattern) outcomes.push(await contentMatches(environment, checks.contentPath, checks.contentPattern));
   if (checks.command) outcomes.push(await runCommand(environment, checks.command, checks.expects ?? []));
   if (checks.httpUrl) outcomes.push(await httpProbe(environment, checks.httpUrl, checks.httpStatus ?? 200));
+  if (checks.e2e) outcomes.push(...await browserTests(environment, checks.e2e));
 
   return outcomes;
 }

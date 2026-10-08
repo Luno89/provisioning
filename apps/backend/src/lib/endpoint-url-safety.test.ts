@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { checkEndpointUrl, isAllowedIp, isMeshAddress, normaliseBaseUrl } from './endpoint-url-safety.js';
+import { checkEndpointUrl, endpointRulesFromEnv, isAllowedIp, isMeshAddress, normaliseBaseUrl } from './endpoint-url-safety.js';
 
 describe('loopback and the platform control plane', () => {
   it('refuses localhost in every spelling', () => {
@@ -150,5 +150,13 @@ describe('normaliseBaseUrl', () => {
   it('is idempotent', () => {
     const once = normaliseBaseUrl('https://openrouter.ai/api/v1/chat/completions');
     expect(normaliseBaseUrl(once)).toBe(once);
+  });
+});
+
+describe('the scripted model a check uses', () => {
+  it('lives on this backend, at the check runner\'s own address', () => {
+    expect(endpointRulesFromEnv({})).toEqual({ scriptedBase: 'http://localhost:3001/api/checks/scripted' });
+    expect(endpointRulesFromEnv({ CHECKS_API_URL: 'http://backend:3001/api/' })).toEqual({ scriptedBase: 'http://backend:3001/api/checks/scripted' });
+    expect(checkEndpointUrl('http://localhost:3001/api/checks/scripted/space-1/v1').ok).toBe(false);
   });
 });

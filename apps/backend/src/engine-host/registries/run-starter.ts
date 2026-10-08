@@ -11,6 +11,7 @@ export interface WorkflowStarter {
       workflowId: string;
       taskQueue: string;
       args: unknown[];
+      owner: string;
     },
   ): Promise<{ workflowId: string }>;
   signal?(workflowId: string, name: string, payload: unknown): Promise<void>;
@@ -43,6 +44,13 @@ export class UnknownProcedureError extends Error {
   }
 }
 
+export class AccountClosingError extends Error {
+  constructor(reason: string) {
+    super(`No run can start for this account: ${reason}.`);
+    this.name = 'AccountClosingError';
+  }
+}
+
 export class EngineUnavailableError extends Error {
   constructor() {
     super('The engine is not connected to Temporal, so runs cannot be started right now.');
@@ -60,7 +68,7 @@ export interface RunStarterOptions {
   newRunId?: (() => string) | undefined;
   binding?: ((ownerId: string, conversationId: string) => Promise<Record<string, string> | undefined>) | undefined;
   continueAfterEvents?: number | undefined;
-  /** Opens a conversation turn before its run starts, and closes it with why when the run cannot. */
+  closing?: ((ownerId: string) => Promise<string | undefined>) | undefined;
   turns?: {
     open(turn: { ownerId: string; conversationId: string; runId: string; message: string }): Promise<void>;
     fail(turn: { ownerId: string; conversationId: string; runId: string }, why: string): Promise<void>;
@@ -79,6 +87,8 @@ export function createRunStarter(options: RunStarterOptions) {
     async start(request: StartRunRequest): Promise<StartedRun> {
       const workflows = options.workflows();
       if (!workflows) throw new EngineUnavailableError();
+      const closing = await options.closing?.(request.ownerId);
+      if (closing) throw new AccountClosingError(closing);
 
       const agent = await options.registry.agent(request.ownerId, request.agentSlug);
       if (!agent) throw new UnknownAgentError(request.agentSlug);
@@ -127,6 +137,7 @@ export function createRunStarter(options: RunStarterOptions) {
           workflowId: runId,
           taskQueue: queue,
           args: [input],
+          owner: request.ownerId,
         });
       } catch (err) {
         if (turn) await options.turns!.fail(turn, `the run could not start: ${(err as Error).message}`).catch(() => undefined);

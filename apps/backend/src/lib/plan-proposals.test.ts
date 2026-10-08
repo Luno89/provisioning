@@ -66,6 +66,18 @@ describe('parsePlan', () => {
     expect('plan' in half && half.plan.branches[0]!.leaves[0]!.tasks[0]!.checks).toBeUndefined();
   });
 
+  it('keeps browser tests a task carries, and drops one whose address carries a login', () => {
+    const withBrowser = parsePlan(plan({
+      branches: [{ title: 'Operability', leaves: [leaf({ tasks: [task({ checks: { e2e: { specs: ['e2e/note.spec.ts'] } } })] })] }],
+    }), world);
+    expect('plan' in withBrowser && withBrowser.plan.branches[0]!.leaves[0]!.tasks[0]!.checks).toEqual({ e2e: { specs: ['e2e/note.spec.ts'] } });
+
+    const withLogin = parsePlan(plan({
+      branches: [{ title: 'Operability', leaves: [leaf({ tasks: [task({ checks: { e2e: { specs: ['e2e'], url: 'https://admin:pw@shop.example' } } })] })] }],
+    }), world);
+    expect('plan' in withLogin && withLogin.plan.branches[0]!.leaves[0]!.tasks[0]!.checks).toBeUndefined();
+  });
+
   it('extends an existing tree by id', () => {
     const parsed = parsePlan(plan({ tree: undefined, treeId: 'tree-1' }), world);
     expect(parsed).toMatchObject({ plan: { treeId: 'tree-1' } });
@@ -135,7 +147,16 @@ describe('parsePlan', () => {
     expect(parsePlan({ ...raw, branches: surplus }, world)).toMatchObject({ plan: { branches: [{ title: 'Operability' }] } });
 
     const broken = JSON.stringify(raw.branches).replace('"leaves":', '"leaves"');
-    expect(problemOf(plan({ branches: broken }))).toMatch(/not a JSON list \(.+position \d+.*\)\. Send branches as a JSON array, not a string/);
+    expect(problemOf(plan({ branches: broken }))).toMatch(/does not read as JSON: .+position \d+.*⟪here⟫.*\. Fix that one place, and send branches as a JSON array rather than a string/);
+  });
+
+  it('points at a bracket too many deep in the branches, and says what is still open there, as a planner got wrong twice', () => {
+    const raw = plan();
+    const text = JSON.stringify(raw.branches);
+    const extra = text.replace(/\]\}/, ']}}');
+    const problem = problemOf(plan({ branches: extra }));
+    expect(problem).toMatch(/a \} at character \d+ closes an object, but the innermost thing still open there is a list/);
+    expect(problem).toContain('⟪here⟫');
   });
 });
 

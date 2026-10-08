@@ -1,6 +1,6 @@
 import { field, label, SLUG_PATTERN, type TreeType, type WorkspaceLanguage } from './shared.js';
 
-const LANGUAGES: WorkspaceLanguage[] = ['node', 'python', 'go', 'base'];
+const LANGUAGES: WorkspaceLanguage[] = ['node', 'python', 'go', 'odoo', 'base'];
 
 export function Overview({ value, onChange, idEditable, idError }: {
   value: TreeType;

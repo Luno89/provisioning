@@ -278,6 +278,23 @@ export class InfisicalService {
     }));
   }
 
+  async removeProject(projectId: string): Promise<{ workspace: boolean; readers: number }> {
+    this.workspaceCache.delete(projectId);
+    return this.authorized(async (token, baseUrl) => {
+      const options = { headers: { Authorization: `Bearer ${token}` }, timeout: 8000, proxy: false as const };
+      const prefix = `reader-${projectId}-`;
+      const memberships = await axios.get(`${baseUrl}/api/v2/organizations/${this.orgId}/identity-memberships`, options);
+      const readers = ((memberships.data?.identityMemberships ?? []) as { identity?: { id?: string; name?: string } }[])
+        .map((membership) => membership.identity)
+        .filter((identity): identity is { id: string; name: string } => typeof identity?.id === 'string' && (identity.name ?? '').startsWith(prefix));
+      for (const reader of readers) await axios.delete(`${baseUrl}/api/v1/identities/${reader.id}`, options);
+      const listed = await axios.get(`${baseUrl}/api/v1/workspace`, options);
+      const workspace = ((listed.data?.workspaces ?? []) as { id?: string; name?: string }[]).find((entry) => entry.name === `provisioning-${projectId}`);
+      if (workspace?.id) await axios.delete(`${baseUrl}/api/v1/workspace/${workspace.id}`, options);
+      return { workspace: Boolean(workspace?.id), readers: readers.length };
+    });
+  }
+
   async workspaceIdFor(projectId: string): Promise<string> {
     return this.ensureWorkspace(projectId);
   }

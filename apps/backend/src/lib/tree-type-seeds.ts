@@ -9,7 +9,11 @@ import {
   DATASET_FILES,
   BENCHMARK_FILES,
   INVESTIGATION_FILES,
+  ODOO_ADDONS_FILES,
 } from './project-templates.js';
+
+export const CATCH_ALL_TREE_TYPE = 'freeform';
+export const ODOO_TREE_TYPE = 'odoo-addons';
 
 export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
   {
@@ -134,7 +138,17 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     files: [],
   },
   {
-    id: 'freeform',
+    id: ODOO_TREE_TYPE,
+    label: 'Odoo addons',
+    summary: 'Odoo 18 Community customisations: each feature is a module, or a change to one, in addons/, built into an Odoo image.',
+    language: 'odoo',
+    produces: 'service',
+    doneMeans: 'Every module the work added or changed installs into a fresh Odoo 18 database and its own tests pass — `odoo-check <module>[,<module>] addons` says PASSED — following CHECKS.md.',
+    files: ODOO_ADDONS_FILES,
+    defaultBindings: ['gitea'],
+  },
+  {
+    id: CATCH_ALL_TREE_TYPE,
     label: 'Freeform project',
     summary: 'Doesn\'t fit the other types — no starter files, no language or framework assumed.',
     language: 'base',

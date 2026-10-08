@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { CircleAlert, Crosshair, Loader2, Play } from 'lucide-react'
+import { CircleAlert, Crosshair, FlaskConical, Loader2, Play } from 'lucide-react'
 import type { NodeTrace, Procedure } from '@koala/agent-engine/procedure'
 import { primaryInput, startRun, type EngineEvent } from '../../api/engine'
 import { reduceEngineEvents } from '../../lib/engine-run-state'
 import ModelSelector from '../ModelSelector/ModelSelector'
 import RunCard from '../EngineRun/RunCard'
-import { errorMessage, useEngineAgents } from './shared'
+import { errorMessage, useEngineAgents, useStudioContext } from './shared'
+import { stepCheckFrom } from '../../lib/step-check-draft'
+import { useChecksStore } from '../../stores/checks'
 
 export interface StudioRun {
   runId: string
@@ -22,6 +24,7 @@ export interface RunPanelProps {
   onStarted: (runId: string) => void
   onPickRun: (runId: string) => void
   onReplay: (trace: NodeTrace | undefined) => void
+  onCheckProposed: () => void
 }
 
 const field = 'rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)] px-2 py-1 text-xs text-slate-200 outline-none focus:border-[var(--leaf-stem)]'
@@ -31,7 +34,7 @@ function Json({ value }: { value: unknown }) {
   return <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-[var(--bark-950,#0d0f0d)] p-2 font-mono text-[10px] text-slate-300">{JSON.stringify(value, null, 2)}</pre>
 }
 
-export default function RunPanel({ procedure, blockedBecause, runs, activeRunId, traces, replayAt, onStarted, onPickRun, onReplay }: RunPanelProps) {
+export default function RunPanel({ procedure, blockedBecause, runs, activeRunId, traces, replayAt, onStarted, onPickRun, onReplay, onCheckProposed }: RunPanelProps) {
   const { data: agents = [] } = useEngineAgents()
   const [agentChoice, setAgentChoice] = useState<string>()
   const [modelId, setModelId] = useState('')
@@ -45,6 +48,15 @@ export default function RunPanel({ procedure, blockedBecause, runs, activeRunId,
   const active = runs.find((run) => run.runId === activeRunId)
   const state = active ? reduceEngineEvents(active.runId, active.events) : undefined
   const focused = traces.find((trace) => trace.sequence === replayAt)
+  const { catalogue } = useStudioContext()
+  const propose = useChecksStore((s) => s.propose)
+  const focusedNode = focused ? procedure.nodes.find((node) => node.id === focused.node) : undefined
+  const ranAs = (active?.events.find((event) => event.type === 'run.started' && event.runId === active.runId) as { agentId?: string } | undefined)?.agentId
+  const makeCheck = () => {
+    if (!focused || !focusedNode) return
+    propose(stepCheckFrom({ trace: focused, settings: focusedNode.settings, agent: ranAs ?? agent, message: '', procedure: procedure.id, catalogue }))
+    onCheckProposed()
+  }
 
   const run = async () => {
     if (!message.trim() || !agent || starting || blockedBecause) return
@@ -143,6 +155,11 @@ export default function RunPanel({ procedure, blockedBecause, runs, activeRunId,
                 <button type="button" onClick={() => onReplay(focused)} className="ml-auto flex items-center gap-1 text-sky-300 hover:underline">
                   <Crosshair size={11} /> Show on canvas
                 </button>
+                {focusedNode && (
+                  <button type="button" onClick={makeCheck} className="flex items-center gap-1 text-[var(--leaf)] hover:underline">
+                    <FlaskConical size={11} /> Make this step a check
+                  </button>
+                )}
               </div>
               {focused.error && <p className="text-red-300">Failed: {focused.error}</p>}
               {focused.interrupted && <p className="text-amber-300">Interrupted: {focused.interrupted}</p>}

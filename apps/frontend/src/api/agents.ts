@@ -35,13 +35,25 @@ export interface Agent {
   concludeAfterMinutes?: number
   interface?: { inputs?: unknown; outputs?: string[] }
   mine: boolean
+  recallsMemories?: boolean
+  usedBy?: AgentUsage[]
   image?: AgentImage
+}
+
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Authority: `AgentUsage` in apps/backend/src/lib/agent-usage.ts.
+ */
+export interface AgentUsage {
+  kind: 'chat' | 'platform' | 'tree-type' | 'procedure' | 'hand-off'
+  by: string
 }
 
 export interface GrantableTool {
   name: string
   summary: string
   binding: string
+  effect: 'read' | 'write' | 'propose'
   needs: string[]
 }
 

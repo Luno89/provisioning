@@ -100,7 +100,7 @@ describe('TanStack Router configuration and route matching', () => {
     });
   });
 
-  it('navigates to memories and settings views', async () => {
+  it('navigates to an agent\'s page through Studio, and sends the old pages there', async () => {
     const qc = createTestQueryClient();
     render(
       <QueryClientProvider client={qc}>
@@ -108,10 +108,20 @@ describe('TanStack Router configuration and route matching', () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /memories/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /^agents$/i }));
 
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/memories');
+      expect(router.state.location.pathname).toBe('/studio/agents');
+    });
+
+    await router.navigate({ to: '/memories' });
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/studio/agents/memory-keeper/memories');
+    });
+
+    await router.navigate({ to: '/studio/$procedureId', params: { procedureId: 'tool-rounds' } });
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/studio/procedures/tool-rounds');
     });
 
     await router.navigate({ to: '/settings' });

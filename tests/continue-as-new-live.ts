@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
 import { getTemporalClient } from '../apps/backend/src/lib/temporal-client.js';
+import { startedFor } from '../apps/backend/src/lib/workflow-owner.js';
 import { DEFAULT_ENGINE_TASK_QUEUE, type AgentRunOutcome, type ProcedureRunInput } from '../apps/backend/src/engine-host/temporal/contracts.js';
 
 dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname });
@@ -31,7 +32,7 @@ async function main(): Promise<void> {
   };
 
   console.log(`[1/3] ${AGENT} runs on the engine worker, continuing as new after every step (${runId})`);
-  const handle = await client.workflow.start('AgentRunWorkflow', { workflowId: runId, taskQueue: queue, args: [input] });
+  const handle = await client.workflow.start('AgentRunWorkflow', { workflowId: runId, taskQueue: queue, args: [input], ...startedFor(OWNER) });
   const result = await Promise.race([
     handle.result() as Promise<AgentRunOutcome>,
     new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`still running after ${DEADLINE_MS / 60_000} minutes`)), DEADLINE_MS)),

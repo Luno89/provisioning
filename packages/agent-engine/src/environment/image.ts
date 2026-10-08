@@ -7,12 +7,15 @@ export interface ImagePlan {
   installs: Install[];
   provides: string[];
   fingerprint: string;
+  env?: { name: string; value: string }[] | undefined;
 }
 
 export interface BaseImage {
   id: string;
   image: string;
   provides: string[];
+  setup?: Install[] | undefined;
+  env?: { name: string; value: string }[] | undefined;
 }
 
 export const BASES: BaseImage[] = [
@@ -84,14 +87,16 @@ export function planImage(input: {
   base?: string | undefined;
   languages?: readonly string[] | undefined;
   tools: readonly ToolDefinition[];
+  bases?: readonly BaseImage[] | undefined;
 }): ImagePlan {
-  const base = BASES.find((candidate) => candidate.id === (input.base ?? DEFAULT_BASE));
+  const base = (input.bases ?? BASES).find((candidate) => candidate.id === (input.base ?? DEFAULT_BASE));
   if (!base) throw new UnbuildableError(`There is no base image called "${input.base}"`);
 
   const provides = new Set(base.provides);
-  const installs: Install[] = [];
+  const installs: Install[] = [...(base.setup ?? [])];
 
   for (const asked of input.languages ?? []) {
+    if (asked === base.id) continue;
     const language = LANGUAGES.find((candidate) => candidate.id === asked);
     if (!language) {
       throw new UnbuildableError(
@@ -127,11 +132,16 @@ export function planImage(input: {
     installs,
     provides: [...provides].sort(),
     fingerprint: fingerprint(base.image, installs),
+    ...(base.env?.length ? { env: base.env.map((entry) => ({ ...entry })) } : {}),
   };
 }
 
+export const APT_NAMES: Readonly<Record<string, string>> = { 'go-toolset': 'golang-go' };
+
+const onApt = (packages: readonly string[]): string => packages.map((name) => APT_NAMES[name] ?? name).join(' ');
+
 const RUN_FOR: Record<Exclude<Install['via'], 'script' | 'base'>, (packages: string[]) => string> = {
-  dnf: (packages) => `if command -v microdnf >/dev/null 2>&1; then microdnf install -y ${packages.join(' ')} && microdnf clean all; else dnf install -y ${packages.join(' ')} && dnf clean all; fi`,
+  dnf: (packages) => `if command -v microdnf >/dev/null 2>&1; then microdnf install -y ${packages.join(' ')} && microdnf clean all; elif command -v dnf >/dev/null 2>&1; then dnf install -y ${packages.join(' ')} && dnf clean all; else apt-get update && apt-get install -y --no-install-recommends ${onApt(packages)} && rm -rf /var/lib/apt/lists/*; fi`,
   apt: (packages) => `apt-get update && apt-get install -y --no-install-recommends ${packages.join(' ')} && rm -rf /var/lib/apt/lists/*`,
   pip: (packages) => `pip install --no-cache-dir ${packages.join(' ')}`,
   npm: (packages) => `npm install -g ${packages.join(' ')}`,
@@ -167,21 +177,26 @@ export function languagesFor(agent: Pick<AgentDefinition, 'environmentSpec' | 'e
   return [...(agent.environmentSpec?.languages ?? agent.environment.languages ?? [])];
 }
 
-export function baseFor(agent: Pick<AgentDefinition, 'environmentSpec' | 'environment'>): string {
-  const first = languagesFor(agent)[0];
-  return first && BASES.some((base) => base.id === first) ? first : DEFAULT_BASE;
+export function baseFor(agent: Pick<AgentDefinition, 'environmentSpec' | 'environment'>, bases: readonly BaseImage[] = BASES): string {
+  const languages = languagesFor(agent);
+  const setUp = languages.find((language) => bases.some((base) => base.id === language && base.setup?.length));
+  if (setUp) return setUp;
+  const first = languages[0];
+  return first && bases.some((base) => base.id === first) ? first : DEFAULT_BASE;
 }
 
 export function planFor(
   agent: AgentDefinition,
   catalogue: readonly ToolDefinition[],
+  bases: readonly BaseImage[] = BASES,
 ): ImagePlan | undefined {
   if (environmentFor(agent).kind !== 'sandbox') return undefined;
 
   const granted = new Set(agent.tools);
   return planImage({
-    base: baseFor(agent),
+    base: baseFor(agent, bases),
     languages: languagesFor(agent),
     tools: catalogue.filter((tool) => granted.has(tool.name)),
+    bases,
   });
 }

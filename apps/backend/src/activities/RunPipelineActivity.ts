@@ -35,7 +35,7 @@ const MGMT_CONTEXT = `k3d-${MGMT_CLUSTER}`;
 const MGMT_KUBECONFIG = `/tmp/kubeconfig-${MGMT_CLUSTER}`;
 const BUILD_NAMESPACE = 'pipeline-builds';
 
-async function resolveKubeconfig(infra: InfrastructureService): Promise<string> {
+export async function resolveKubeconfig(infra: InfrastructureService): Promise<string> {
   try {
     await fs.access(MGMT_KUBECONFIG);
   } catch {

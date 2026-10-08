@@ -4,7 +4,9 @@ import type { Task } from '../engine-host/tools/tasks.js';
 import type { Tree } from '../lib/trees.js';
 import type { PlanProposal } from '../lib/plan-proposals.js';
 import type { Conversation } from '../lib/conversations.js';
-import { groveRunWorkflowId } from '../engine-host/temporal/contracts.js';
+import { adoptionWorkflowId, groveRunWorkflowId } from '../engine-host/temporal/contracts.js';
+
+export { adoptionWorkflowId };
 
 export interface GroveDeletionStore {
   getTrees(): Promise<Tree[]>;
@@ -23,15 +25,13 @@ export interface GroveDeletionStore {
 
 export interface GroveDeletionDeps {
   store: GroveDeletionStore;
-  workflows: { terminate(workflowId: string, reason: string): Promise<boolean> };
+  workflows: { stop(workflowId: string, reason: string): Promise<boolean> };
   workspaces: { release(treeId: string, ownerId: string): Promise<unknown> };
 }
 
 export type GroveDeletion =
   | { ok: true; value: { scope: DeletionScope; stoppedRun: boolean } }
   | { ok: false; status: 404; error: string };
-
-export const adoptionWorkflowId = (proposalId: string): string => `adopt-plan-${proposalId}`;
 
 export class GroveDeletionService {
   constructor(private readonly deps: GroveDeletionDeps) {}
@@ -66,8 +66,8 @@ export class GroveDeletionService {
     });
 
     const reason = `${target.kind} ${target.id} was deleted`;
-    const stoppedRun = treeId ? await this.deps.workflows.terminate(groveRunWorkflowId(treeId), reason) : false;
-    for (const id of scope.adoptingProposalIds) await this.deps.workflows.terminate(adoptionWorkflowId(id), reason);
+    const stoppedRun = treeId ? await this.deps.workflows.stop(groveRunWorkflowId(treeId), reason) : false;
+    for (const id of scope.adoptingProposalIds) await this.deps.workflows.stop(adoptionWorkflowId(id), reason);
     if (scope.treeId) await this.deps.workspaces.release(scope.treeId, ownerId);
 
     for (const id of scope.taskIds) await store.deleteTask(id);

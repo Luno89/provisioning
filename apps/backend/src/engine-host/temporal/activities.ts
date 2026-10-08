@@ -31,6 +31,7 @@ import type {
   ToolCallOutcome,
   ToolRuntime,
   SettleClaimsArgs,
+  ToolAllowedArgs,
   ProcedureRunInput,
 } from './contracts.js';
 import { type LifecycleEvent, type BenchIdleOutcome, type ConcludeWorkspaceArgs, groveRunWorkflowId } from './contracts.js';
@@ -80,11 +81,11 @@ export interface EngineServices extends StreamServices {
   traces?: TraceRecorder | undefined;
   effort?: EffortTracker | undefined;
   tasks?: { list(ownerId: string): Promise<Task[]>; save(task: Task): Promise<void> } | undefined;
+  allowedTools?: ((ownerId: string, conversationId: string) => Promise<readonly string[]>) | undefined;
   /** the grove's tree stores (read-only use by the partition activity) */
   grove?: GroveStores | undefined;
   treeWorkspaces?: TreeWorkspaces | undefined;
   conversationWorkspaces?: Pick<ConversationWorkspaces, 'conclude'> | undefined;
-  /** The agent a conversation is held with, whose reach decides what its workspace was built for. */
   conversationAgent?: ((ownerId: string, conversationId: string) => Promise<string | undefined>) | undefined;
   planAdoption?: PlanAdoption | undefined;
   plans?: { list(ownerId: string): Promise<import('../../lib/plan-proposals.js').PlanProposal[]> } | undefined;
@@ -183,6 +184,7 @@ export interface EngineActivities extends StreamActivities {
   EngineRunLimitsActivity(args: RunLimitsArgs): Promise<RunLimits>;
   EngineRecordEffortActivity(effort: RunEffort): Promise<void>;
   EngineSettleClaimsActivity(args: SettleClaimsArgs): Promise<string[]>;
+  EngineToolAllowedActivity(args: ToolAllowedArgs): Promise<boolean>;
 }
 
 export function createEngineActivities(services: EngineServices): EngineActivities {
@@ -278,6 +280,11 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
 
     async EngineRecordEffortActivity(effort: RunEffort): Promise<void> {
       await services.effort?.record(effort);
+    },
+
+    async EngineToolAllowedActivity(args: ToolAllowedArgs): Promise<boolean> {
+      if (!services.allowedTools) return false;
+      return (await services.allowedTools(args.ownerId, args.conversationId)).includes(args.tool);
     },
 
     async EngineSettleClaimsActivity(args: SettleClaimsArgs): Promise<string[]> {

@@ -47,9 +47,10 @@ function prepare(monaco: Monaco) {
 export interface CodeViewProps {
   procedure: Procedure
   onChange: (next: Procedure, mergeKey?: string) => void
+  readOnly?: boolean | undefined
 }
 
-export default function CodeView({ procedure, onChange }: CodeViewProps) {
+export default function CodeView({ procedure, onChange, readOnly = false }: CodeViewProps) {
   const context = useStudioContext()
   const options = useMemo(() => ({ catalogue: context.catalogue, groups: context.shared }), [context])
   const [text, setText] = useState(() => procedureToBuilderCode(procedure, options))
@@ -111,7 +112,7 @@ export default function CodeView({ procedure, onChange }: CodeViewProps) {
             monacoRef.current = monaco
           }}
           onChange={(value) => edit(value ?? '')}
-          options={{ minimap: { enabled: false }, fontSize: 12, tabSize: 2, scrollBeyondLastLine: false, automaticLayout: true }}
+          options={{ minimap: { enabled: false }, fontSize: 12, tabSize: 2, scrollBeyondLastLine: false, automaticLayout: true, readOnly }}
         />
       </div>
     </div>

@@ -26,7 +26,6 @@ export interface RunTicket {
   runId: string;
   parentRunId?: string | undefined;
   parentCallId?: string | undefined;
-  /** The top-level run of the turn; absent on the top-level run itself, whose own id it is. */
   turnId?: string | undefined;
   depth: number;
   ownerId: string;
@@ -89,7 +88,6 @@ export type LifecycleEvent =
 export const CONVERSATION_CONCLUSION_WORKFLOW = 'ConversationConclusionWorkflow';
 export const CONCLUDE_WORKSPACE_WORKFLOW = 'ConcludeWorkspaceWorkflow';
 
-/** A saved workspace that is finished with: a conversation's, or a tree's. */
 export interface ConcludedWorkspace {
   kind: 'conversation' | 'tree';
   id: string;
@@ -107,9 +105,7 @@ export type BenchIdleOutcome = 'started' | 'busy' | 'nothing';
 export const conversationConclusionId = (conversationId: string): string => `conclude-conversation-${conversationId}`;
 
 export interface PublishArgs {
-  /** Whose run the events are from: only that person's browsers receive them. */
   ownerId?: string | undefined;
-  /** The turn the events belong to, whose log they are written to. */
   turnId?: string | undefined;
   events: EngineEvent[];
 }
@@ -137,9 +133,7 @@ export interface AgentRunOutcome {
   outcome: RunOutcome;
   reason?: string | undefined;
   outputs: Record<string, unknown>;
-  /** What the run and every run it handed work to made that a person can open. */
   artifacts?: Artifact[] | undefined;
-  /** Every tool call the run made, with what each hand-off's run did nested under its call. */
   steps?: RunStep[] | undefined;
 }
 
@@ -188,6 +182,7 @@ export interface MergeRuntime {
 export const DEFAULT_ENGINE_TASK_QUEUE = 'engine-queue';
 
 export const groveRunWorkflowId = (treeId: string): string => `grove-run-${treeId}`;
+export const adoptionWorkflowId = (proposalId: string): string => `adopt-plan-${proposalId}`;
 
 
 export const DEFAULT_STREAM_TASK_QUEUE = 'engine-stream-queue';
@@ -302,6 +297,12 @@ export function handleFor(environment: EnvironmentValue | undefined): Environmen
     };
   }
   return undefined;
+}
+
+export interface ToolAllowedArgs {
+  ownerId: string;
+  conversationId: string;
+  tool: string;
 }
 
 export interface SettleClaimsArgs {

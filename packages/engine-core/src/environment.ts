@@ -152,3 +152,14 @@ export function satisfies(
 ): boolean {
   return unmetRequirements(requirement, capabilities).length === 0;
 }
+
+export const READ_WHOLE_FILE = 'wc -c < "$1" && base64 -w0 < "$1"';
+
+export function wholeFile(path: string, listed: string): string {
+  const [size = '', encoded = ''] = listed.split('\n', 2);
+  const bytes = Buffer.from(encoded.trim(), 'base64');
+  if (!/^\d+$/.test(size.trim()) || bytes.length !== Number(size.trim())) {
+    throw new Error(`${path} came back as ${bytes.length} of ${size.trim() || 'an unknown number of'} bytes, so it was not read whole`);
+  }
+  return bytes.toString('utf8');
+}

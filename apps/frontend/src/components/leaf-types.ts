@@ -60,6 +60,7 @@ export interface Leaf {
   findings?: string;
   claim?: { evidence: string; commit?: string; files?: string[]; findings?: string; runs?: string[]; at: string };
   verified?: boolean;
+  landed?: { at: string; outcome: 'merged' | 'nothing' };
   review?: { verdict: 'sound' | 'concern' | 'unsound'; reason?: string; model?: string; at: string };
   createdAt?: string;
   updatedAt: string;
@@ -102,9 +103,14 @@ export const CANCELLED_DOT = 'bg-slate-700';
  */
 export const treeWorkspace = (treeId: string): string => `tree-${treeId}`;
 
-/** The files a leaf's branch added or changed, as of the commit it claimed: what its page opens. */
 export function leafDocuments(leaf: Pick<Leaf, 'claim'>, treeId: string): DocumentAddress[] {
   const commit = leaf.claim?.commit;
   if (!commit) return [];
   return (leaf.claim?.files ?? []).map((path) => ({ workspace: treeWorkspace(treeId), path, at: commit }));
+}
+
+export function landingNote(leaf: Pick<Leaf, 'status' | 'verified' | 'landed'>): string | undefined {
+  if (leaf.landed) return leaf.landed.outcome === 'merged' ? 'Landed on main' : 'Landed on main — it had nothing main did not already have'
+  if (leaf.status === 'succeeded' && leaf.verified) return 'Verified — lands on main at the end of this judge pass'
+  return undefined
 }

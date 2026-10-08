@@ -1,190 +1,87 @@
-import { useState, type ReactNode } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { GitBranch, Save, Check, AlertTriangle, Plus } from 'lucide-react';
-import { listTreeTypes, updateTreeType, groveKeys } from '../../api/grove.js';
+import { useState } from 'react';
+import { useNavigate, useParams } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
+import { Bot, FolderTree, GitBranch, Network } from 'lucide-react';
+import { listTreeTypes, groveKeys } from '../../api/grove.js';
 import { errorMessage } from '../../api/client.js';
-import { card, blankTreeType, slugify, SLUG_PATTERN, type TreeType } from './shared.js';
-import { Overview } from './Overview.js';
-import { GroveAgent } from './GroveAgent.js';
-import { Scaffold } from './Scaffold.js';
-import { Bindings } from './Bindings.js';
+import Explorer, { FileHeader, type ExplorerGroup } from '../Studio/Explorer';
+import { groupTreeTypes } from '../../lib/studio-groups';
+import { TreeTypeEditor, type TreeTypeSection } from './TreeTypeEditor.js';
+import type { TreeType } from './shared.js';
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
-  return (
-    <section className="py-5 border-b border-[var(--bark-700)] last:border-0">
-      <h3 className="text-[11px] uppercase tracking-widest text-slate-400 font-semibold mb-0.5">{title}</h3>
-      {hint && <p className="text-[11px] text-slate-600 mb-3">{hint}</p>}
-      <div className={hint ? '' : 'mt-3'}>{children}</div>
-    </section>
-  );
-}
+const FILES: readonly { id: Exclude<TreeTypeSection, 'overview'>; title: string; icon: typeof Bot; says: string }[] = [
+  { id: 'grown-by', title: 'Grown by', icon: Bot, says: 'The agent whose procedure grows a tree of this type, start to finish.' },
+  { id: 'scaffold', title: 'Scaffold', icon: FolderTree, says: 'Starter files rendered into a fresh repository when a tree of this type is created.' },
+  { id: 'bindings', title: 'Bindings', icon: Network, says: 'Default service bindings, extra network egress, and fixed environment variables.' },
+];
+
+const isSection = (value: string | undefined): value is TreeTypeSection => value === 'overview' || FILES.some((file) => file.id === value);
 
 export function TreeTypes() {
-  const qc = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<TreeType | null>(null);
-  const [isNew, setIsNew] = useState(false);
-  const [savedNote, setSavedNote] = useState('');
-  const [saveError, setSaveError] = useState('');
+  const { typeId, part } = useParams({ strict: false }) as { typeId?: string; part?: string };
+  const navigate = useNavigate();
+  const [creating, setCreating] = useState<string>();
+  const { data: types = [], isLoading, isError, error } = useQuery<TreeType[]>({ queryKey: groveKeys.treeTypes(), queryFn: listTreeTypes });
 
-  const { data: types = [], isLoading } = useQuery<TreeType[]>({
-    queryKey: groveKeys.treeTypes(),
-    queryFn: listTreeTypes,
-  });
+  const type = types.find((one) => one.id === typeId);
+  const section: TreeTypeSection | undefined = part === undefined ? (typeId ? 'overview' : undefined) : isSection(part) ? part : undefined;
 
-  const selected = types.find((t) => t.id === selectedId) ?? null;
+  const groups: ExplorerGroup[] = groupTreeTypes(types).map((group) => ({
+    id: group.id,
+    title: group.title,
+    items: group.items.map((one) => ({
+      id: one.id,
+      label: one.label,
+      mine: Boolean(one.ownerId),
+      icon: GitBranch,
+      link: { to: '/studio/tree-types/$typeId', params: { typeId: one.id } },
+      files: FILES.map((file) => ({ id: file.id, title: file.title, icon: file.icon, link: { to: '/studio/tree-types/$typeId/$part', params: { typeId: one.id, part: file.id } } })),
+    })),
+  }));
 
-  // Reset the draft whenever a different tree type is selected, or the underlying record changes
-  // out from under an unmodified draft (e.g. after this component's own save). Not while creating a
-  // new one — there's no persisted record for that draft to resync against yet.
-  const selectionKey = `${selected?.id ?? ''}|${isNew}`;
-  const [seenSelection, setSeenSelection] = useState<string>();
-  if (selectionKey !== seenSelection) {
-    setSeenSelection(selectionKey);
-    if (!isNew && selected && (!draft || draft.id !== selected.id)) setDraft(selected);
-  }
-
-  const idTaken = isNew && draft ? types.some((t) => t.id === draft.id) : false;
-  const idValid = draft ? SLUG_PATTERN.test(draft.id) : false;
-
-  const dirty = isNew
-    ? Boolean(draft?.label.trim() && draft.summary.trim() && draft.doneMeans.trim())
-    : Boolean(draft && selected && JSON.stringify(draft) !== JSON.stringify(selected));
-  const canSave = dirty && idValid && !idTaken;
-
-  const save = useMutation({
-    mutationFn: () => updateTreeType(draft!.id, draft!),
-    onSuccess: (saved) => {
-      qc.invalidateQueries({ queryKey: groveKeys.treeTypes() });
-      setDraft(saved);
-      setIsNew(false);
-      setSelectedId(saved.id);
-      setSaveError('');
-      setSavedNote('Saved.');
-      setTimeout(() => setSavedNote(''), 2000);
-    },
-    onError: (err: unknown) => setSaveError(errorMessage(err)),
-  });
-
-  const patch = (p: Partial<TreeType>) => {
-    if (saveError) setSaveError('');
-    setDraft((d) => {
-      if (!d) return d;
-      const next = { ...d, ...p };
-      // While the id hasn't diverged from what the label alone would produce, keep deriving it —
-      // once the user edits the id field directly (or types.some already claims the derived slug),
-      // this stops so their own choice sticks.
-      if (isNew && p.label !== undefined && p.id === undefined && d.id === slugify(d.label)) {
-        next.id = slugify(next.label);
-      }
-      return next;
-    });
-  };
-
-  const startNew = () => {
-    setIsNew(true);
-    setSelectedId(null);
-    setDraft(blankTreeType());
-    setSaveError('');
-  };
+  const path = [
+    { label: 'Tree Types', link: { to: '/studio/tree-types' } },
+    ...(creating !== undefined ? [{ label: 'New tree type' }] : []),
+    ...(creating === undefined && type ? [{ label: type.label, link: { to: '/studio/tree-types/$typeId', params: { typeId: type.id } } }] : []),
+    ...(creating === undefined && type && section && section !== 'overview' ? [{ label: FILES.find((file) => file.id === section)?.title ?? section }] : []),
+  ];
+  const file = FILES.find((one) => one.id === section);
 
   return (
-    <div className="max-w-5xl space-y-6">
-      <div className="flex items-center gap-3 mb-1">
-        <GitBranch className="text-[var(--leaf-light)]" size={26} />
-        <h2 className="text-3xl font-bold">Tree Types</h2>
-      </div>
-      <p className="text-slate-500 text-sm -mt-4">
-        What a Grove project of a given type starts from: its language, what done means, starter
-        files and the services it binds to.
-      </p>
-
-      <div className="flex gap-6 items-start">
-        <div className="w-64 shrink-0 space-y-1">
-          <button
-            type="button"
-            onClick={startNew}
-            className="w-full flex items-center gap-1.5 justify-center text-[12px] px-3 py-2 mb-1 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white cursor-pointer"
-          >
-            <Plus size={13} /> New tree type
-          </button>
-
-          {isLoading && <p className="text-[12px] text-slate-500">Loading…</p>}
-          {types.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => { setIsNew(false); setSelectedId(t.id); }}
-              className={`w-full text-left px-3 py-2 rounded-lg text-[12px] transition-colors cursor-pointer ${
-                !isNew && t.id === selectedId
-                  ? 'bg-emerald-950/60 text-emerald-300 font-medium border border-emerald-500/30'
-                  : 'text-slate-300 hover:bg-[var(--bark-700)] border border-transparent'
-              }`}
-            >
-              <div className="font-semibold truncate">{t.label}</div>
-              <div className="text-slate-500 truncate">{t.summary}</div>
-            </button>
-          ))}
+    <Explorer
+      title="Tree Types"
+      groups={groups}
+      selected={typeId ? { item: typeId, file: section === 'overview' ? undefined : section } : undefined}
+      path={path}
+      onNew={(label) => setCreating(label)}
+      newPlaceholder="New tree type's name, then Enter"
+      loading={isLoading}
+      error={isError ? errorMessage(error) : undefined}
+    >
+      {creating !== undefined ? (
+        <TreeTypeEditor
+          key={`new-${creating}`}
+          type={undefined}
+          initialLabel={creating}
+          types={types}
+          onSaved={(saved) => { setCreating(undefined); void navigate({ to: '/studio/tree-types/$typeId', params: { typeId: saved.id } }); }}
+        />
+      ) : !typeId ? (
+        <div className="max-w-xl space-y-2 pt-10 text-sm text-slate-400">
+          <h1 className="flex items-center gap-2 text-lg font-semibold text-slate-200"><GitBranch size={20} className="text-[var(--leaf)]" /> Tree Types</h1>
+          <p>What a project of a given type starts from: its language, what done means, starter files and the services it binds to. The ones on the left are grouped by what they make — something that runs, or a document or artefact.</p>
         </div>
-
-        <div className="flex-1 min-w-0">
-          {!draft ? (
-            <div className={`${card} p-8 text-center text-[13px] text-slate-500`}>
-              Pick a tree type on the left to edit it, or create a new one.
-            </div>
-          ) : (
-            <div className={`${card} overflow-hidden`}>
-              <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-[var(--bark-700)] bg-[var(--bark-800)] px-4 py-2.5">
-                <span className="font-semibold text-slate-200 truncate">{draft.label || (isNew ? 'New tree type' : draft.id)}</span>
-                <div className="flex-1" />
-                {saveError && (
-                  <span className="text-[11px] text-red-400 flex items-center gap-1 max-w-xs truncate" title={saveError}>
-                    <AlertTriangle size={12} /> {saveError}
-                  </span>
-                )}
-                {!saveError && savedNote && (
-                  <span className="text-[11px] text-emerald-400 flex items-center gap-1">
-                    <Check size={12} /> {savedNote}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  disabled={!canSave || save.isPending}
-                  onClick={() => save.mutate()}
-                  className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 text-white cursor-pointer disabled:cursor-not-allowed"
-                >
-                  <Save size={13} /> {save.isPending ? 'Saving…' : isNew ? 'Create' : 'Save'}
-                </button>
-              </div>
-
-              <div className="px-4">
-                <Section title="Overview">
-                  <Overview
-                    value={draft}
-                    onChange={patch}
-                    idEditable={isNew}
-                    idError={idTaken ? 'Another type already uses this id.' : undefined}
-                  />
-                </Section>
-
-                <Section title="Grown by" hint="The agent whose procedure grows a tree of this type, start to finish.">
-                  <GroveAgent value={draft} onChange={patch} />
-                </Section>
-
-                <Section title="Scaffold" hint="Starter files rendered into a fresh repository when a tree of this type is created.">
-                  <Scaffold value={draft} onChange={patch} />
-                </Section>
-
-                <Section title="Bindings" hint="Default service bindings, extra network egress, and fixed environment variables.">
-                  <Bindings value={draft} onChange={patch} />
-                </Section>
-
-              </div>
-            </div>
-          )}
+      ) : isLoading ? null : !type ? (
+        <p className="text-sm text-slate-400">There is no tree type called “{typeId}”.</p>
+      ) : !section ? (
+        <p className="text-sm text-slate-400">{type.label} has no part called “{part}”.</p>
+      ) : (
+        <div>
+          {file && <FileHeader title={file.title} says={file.says} />}
+          <TreeTypeEditor key={`${type.id}-${section}`} type={type} types={types} only={section} />
         </div>
-      </div>
-    </div>
+      )}
+    </Explorer>
   );
 }
 

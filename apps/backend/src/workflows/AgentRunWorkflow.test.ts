@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { createCompactContextNode } from '../engine-host/nodes/model-nodes.js';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { WorkflowClient, type WorkflowHandle, type WorkflowHandleWithFirstExecutionRunId } from '@temporalio/client';
 import { Worker } from '@temporalio/worker';
@@ -32,6 +33,7 @@ import { buildDataConverter } from '../lib/temporal-codec.js';
 import { inMemoryPayloadBlobs } from '../lib/payload-storage.js';
 import { loadKeys } from '../lib/keys.js';
 import { PAPER_WRITING } from '../extensions/grove/procedures.js';
+import { timeSkippingTestEnvironment } from './temporal-test-env.js';
 import {
   DEFAULT_STREAM_TASK_QUEUE,
   type ProcedureRunInput,
@@ -43,12 +45,14 @@ import {
   type ToolCallArgs,
 } from '../engine-host/temporal/contracts.js';
 
+const noSummaries = { resolveBaseUrl: async () => { throw new Error('nothing in this test outgrows its window'); } } as never;
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
-  env = await TestWorkflowEnvironment.createTimeSkipping();
+  env = await timeSkippingTestEnvironment();
 }, 120_000);
 
 afterAll(async () => {
@@ -126,6 +130,7 @@ function activities(options: {
       EngineRunLimitsActivity: vi.fn((args: RunLimitsArgs) => tracker.limits(args)),
       EngineRecordEffortActivity: vi.fn((effort: RunEffort) => tracker.record(effort)),
       EngineSettleClaimsActivity: vi.fn(async (_args: { ownerId: string; runId: string; outcome: string }) => [] as string[]),
+      EngineToolAllowedActivity: vi.fn(async (_args: { ownerId: string; conversationId: string; tool: string }) => false),
       EngineNodeActivity: createNodeRunner(hostNodes, undefined),
       EngineResolveAgentActivity: vi.fn(async ({ ownerId, agentSlug }: { ownerId: string; agentSlug: string }) => {
         const runnable = await registry.runnable(ownerId, agentSlug);
@@ -137,7 +142,7 @@ function activities(options: {
       EngineRecordTracesActivity: vi.fn(async (_args: RecordTracesArgs) => undefined),
     },
     stream: {
-      EngineStreamNodeActivity: createNodeRunner([scriptedModel], undefined, { runCancelled: runCancelledVia(async () => env.client) }),
+      EngineStreamNodeActivity: createNodeRunner([scriptedModel, createCompactContextNode({ models: noSummaries })], undefined, { runCancelled: runCancelledVia(async () => env.client) }),
       EnginePublishActivity: vi.fn(async (_args: PublishArgs) => undefined),
       EngineLifecycleActivity: vi.fn(async (_event: LifecycleEvent) => undefined),
     },
@@ -343,6 +348,19 @@ describe('AgentRunWorkflow', () => {
     ]));
   }, 60_000);
 
+  it('does not ask again for a tool the person already allowed in this conversation', async () => {
+    const acts = activities({ environment: MACHINE, script: [callsATool('c1', 'run_command', '{"command":"ls"}'), { content: 'done' }] });
+    acts.engine.EngineToolAllowedActivity.mockImplementation(async ({ tool }) => tool === 'run_command');
+    const asked = input('executor', TOOL_ROUNDS_V2);
+
+    const result = await runWorkflow({ ...asked, ticket: { ...asked.ticket, conversationId: 'chat-1' } }, acts);
+
+    expect(result.outcome).toBe('ok');
+    expect(acts.engine.EngineToolAllowedActivity).toHaveBeenCalledWith({ ownerId: asked.ticket.ownerId, conversationId: 'chat-1', tool: 'run_command' });
+    expect(acts.engine.EngineToolActivity).toHaveBeenCalledTimes(1);
+    expect(published(acts)).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: 'notice', level: 'warn' })]));
+  }, 60_000);
+
   it('never runs a declined call, and tells the model it was declined', async () => {
     const acts = activities({ environment: MACHINE, script: [callsATool('c1', 'run_command', '{"command":"rm -rf /"}'), { content: 'understood' }] });
 
@@ -370,6 +388,16 @@ describe('AgentRunWorkflow', () => {
     const result = await runWorkflow(input('koala', WAITING), activities({ script: [{ content: 'unused' }] }));
 
     expect(result).toMatchObject({ outcome: 'failed', reason: 'nobody answered in time' });
+  }, 60_000);
+
+  it('ends interrupted and hands its claimed tasks back when Temporal cancels it, as a removal does', async () => {
+    const acts = activities({ script: [{ content: 'unused' }] });
+    const result = await runWorkflow(input('koala', WAITING), acts, async (handle) => {
+      await handle.cancel();
+    });
+
+    expect(result).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
+    expect(acts.engine.EngineSettleClaimsActivity).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'interrupted' }));
   }, 60_000);
 
   it('stops a waiting run when it is cancelled', async () => {

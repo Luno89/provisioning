@@ -7,6 +7,7 @@ import { PipelineRunRow, type PipelineRun } from '../../PipelineRunRow.js'
 import { listProjectRuns, listProjects, patchProject, projectKeys } from '../../../api/projects.js'
 import { listLocalAgentDevices, localAgentKeys, type LocalAgentDevice } from '../../../api/local-agents.js'
 import { ProjectStatusBadge } from '../StatusBadge.js'
+import { ReleasesPanel } from './ReleasesPanel.js'
 
 export interface LinkedProject {
   id: string
@@ -128,6 +129,8 @@ export function BuildsDeploysPanel({ project }: { project: LinkedProject }) {
           )}
         </div>
       </div>
+
+      <ReleasesPanel projectId={project.id} />
 
       {projectRuns.length > 0 && (
         <div className="space-y-2">

@@ -34,7 +34,7 @@ describe('procedures routes', () => {
     const res = await axios.get(h.url('/api/procedures'));
 
     expect(res.data.procedures.map((p: { id: string }) => p.id)).toEqual(expect.arrayContaining(['research', 'tool-rounds', 'delivery']));
-    expect(res.data.procedures.find((p: { id: string }) => p.id === 'research')).toMatchObject({ mine: false, version: '2' });
+    expect(res.data.procedures.find((p: { id: string }) => p.id === 'research')).toMatchObject({ mine: false, version: '3' });
     expect(res.data.unreadable).toEqual([]);
 
     await h.close();

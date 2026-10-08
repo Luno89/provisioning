@@ -179,7 +179,7 @@ describe('agent registry', () => {
     const registry = createAgentRegistry();
     const callable = await registry.callable('user-1', 'koala');
 
-    expect(callable.map((a) => a.slug).sort()).toEqual(['planner', 'research']);
+    expect(callable.map((a) => a.slug).sort()).toEqual(['check-writer', 'planner', 'research']);
     expect(await registry.callable('user-1', 'judge')).toEqual([]);
   });
 });

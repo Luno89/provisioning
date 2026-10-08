@@ -4,6 +4,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topology.js';
+import { reachCluster } from './cluster-access.js';
+import { ODOO_PROJECT_APP } from '../lib/odoo-release.js';
 
 export interface DestroyAppArgs {
   name: string;
@@ -13,6 +15,9 @@ export interface DestroyAppArgs {
   strategy: string;
   logFile: string;
   deploymentId?: string;
+  appType?: string | undefined;
+  gpuEnabled?: boolean | undefined;
+  kubeconfigPath?: string | undefined;
 }
 
 export interface DestroyAppResult {
@@ -36,6 +41,15 @@ export async function DestroyAppActivity(
 
   const stackName = `app-${physicalName}-${args.deploymentId || 'default'}`;
   const logFile = args.logFile;
+
+  if (args.appType === ODOO_PROJECT_APP) {
+    const kubeconfig = await reachCluster(infra, { clusterName: args.clusterName, provider: args.provider, gpuEnabled: args.gpuEnabled, kubeconfigPath: args.kubeconfigPath });
+    await fs.appendFile(logFile, `Uninstalling the Odoo release ${sanitizedName} and its namespace, databases and attachments with it\n`).catch(() => undefined);
+    await infra.runHelm(['uninstall', sanitizedName, '-n', sanitizedName, '--ignore-not-found'], kubeconfig);
+    await infra.runKubectl(['delete', 'namespace', sanitizedName, '--ignore-not-found', '--wait=false'], kubeconfig);
+    await infra.waitForNamespaceDeletion(sanitizedName, kubeconfig);
+    return { status: 'destroyed', msg: `App ${args.name} destroyed` };
+  }
 
   await infra.destroy(stackName, {
     logFile,

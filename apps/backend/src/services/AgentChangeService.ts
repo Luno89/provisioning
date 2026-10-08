@@ -1,4 +1,4 @@
-import type { EvalRecordStore } from './Level1Service.js';
+import type { EvalRecordStore } from '../lib/eval-run.js';
 import { handoffMessage, type AgentChange, type PromptChange, type PromptComparison } from '../lib/agent-changes.js';
 
 export type AcceptChangeOutcome =

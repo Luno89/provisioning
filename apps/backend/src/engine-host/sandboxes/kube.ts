@@ -8,8 +8,12 @@ export interface KubeResult {
   exitCode: number;
 }
 
+export interface KubeRunOptions {
+  outputChars?: number | undefined;
+}
+
 export interface KubeRunner {
-  (args: string[], input?: string, timeoutMs?: number): Promise<KubeResult>;
+  (args: string[], input?: string, timeoutMs?: number, options?: KubeRunOptions): Promise<KubeResult>;
 }
 
 export interface KubeStreamer {
@@ -63,24 +67,25 @@ export function createKubeStreamer(options: { binDir?: string; kubeconfig?: stri
 export function createKubeRunner(options: { binDir?: string; kubeconfig?: string | undefined } = {}): KubeRunner {
   const binary = kubectlAt(options.binDir);
 
-  return (args, input, timeoutMs = 120_000) => new Promise<KubeResult>((resolve, reject) => {
+  return (args, input, timeoutMs = 120_000, runOptions = {}) => new Promise<KubeResult>((resolve, reject) => {
     const child = spawn(binary, args, {
       env: { ...process.env, ...(options.kubeconfig ? { KUBECONFIG: options.kubeconfig } : {}) },
     });
 
-    let stdout = '';
-    let stderr = '';
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    const outputChars = runOptions.outputChars ?? MAX_OUTPUT_CHARS;
 
     const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
 
-    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.stdout.on('data', (chunk: Buffer) => { stdout.push(chunk); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk); });
     child.on('error', (err) => { clearTimeout(timer); reject(err); });
     child.on('close', (code) => {
       clearTimeout(timer);
       resolve({
-        stdout: stdout.slice(0, MAX_OUTPUT_CHARS),
-        stderr: stderr.slice(0, MAX_OUTPUT_CHARS),
+        stdout: Buffer.concat(stdout).toString().slice(0, outputChars),
+        stderr: Buffer.concat(stderr).toString().slice(0, MAX_OUTPUT_CHARS),
         exitCode: code ?? -1,
       });
     });
@@ -106,7 +111,10 @@ export class WorkspaceUnavailableError extends Error {
 
 export async function applyWorkspace(run: KubeRunner, request: ApplyRequest): Promise<void> {
   const doc = request.manifests.map((manifest) => JSON.stringify(manifest)).join('\n---\n');
-  const applied = await run(['apply', '-f', '-'], doc);
+  let applied = await run(['apply', '-f', '-'], doc);
+  for (let again = 0; again < 2 && applied.exitCode !== 0 && /AlreadyExists/.test(applied.stderr); again += 1) {
+    applied = await run(['apply', '-f', '-'], doc);
+  }
 
   if (applied.exitCode !== 0) {
     throw new WorkspaceUnavailableError(

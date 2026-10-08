@@ -81,6 +81,16 @@ describe('requireAuth', () => {
     expect((c.result().user as { email: string }).email).toBe('u1@example.com');
   });
 
+  it('refuses a still-valid session of an account being removed, for requests and sockets alike', async () => {
+    const { db, auth } = await build();
+    await db.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString(), removal: { startedAt: 'now', requestedBy: 'u1' } } as never);
+    const token = signJWT({ userId: 'u1' }, sessionKey, 3600);
+    const c = fakeCall({ cookie: `session=${token}` });
+    await auth.requireAuth(c.req, c.res, c.next);
+    expect(c.result().statusCode).toBe(401);
+    expect(await auth.userFromSessionCookie(`session=${token}`)).toBeUndefined();
+  });
+
   it('resolves the same user the socket handshake would', async () => {
     const { db, auth } = await build();
     await db.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);

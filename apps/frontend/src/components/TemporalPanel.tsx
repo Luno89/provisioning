@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import {
-  getTemporalStatus, getWorkflowCount, listWorkflows, getWorkflow, temporalKeys,
-  type WorkflowSummary,
+  cancelWorkflow, getTemporalStatus, getWorkflowCount, listWorkflows, getWorkflow, temporalKeys,
+  type WorkflowScope, type WorkflowSummary,
 } from '../api/temporal';
-import { useQuery } from '@tanstack/react-query';
-import { Activity, CheckCircle, XCircle, Timer, Loader2, ChevronDown, ChevronUp, Server, Hash, Play } from 'lucide-react';
+import { errorMessage } from '../api/client';
+import { useShellStore } from '../stores/shell';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Activity, CheckCircle, XCircle, Timer, Loader2, ChevronDown, ChevronUp, Server, Hash, Play, Ban } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -50,7 +52,63 @@ function fmtDuration(start: string | undefined, end: string | undefined) {
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
 
+function CancelWorkflow({ workflowId }: { workflowId: string }) {
+  const [confirming, setConfirming] = useState(false);
+  const client = useQueryClient();
+  const cancel = useMutation({
+    mutationFn: () => cancelWorkflow(workflowId),
+    onSuccess: () => {
+      setConfirming(false);
+      for (const key of [temporalKeys.everyList(), temporalKeys.everyCount(), temporalKeys.workflow(workflowId)]) void client.invalidateQueries({ queryKey: key });
+    },
+  });
+
+  if (cancel.isSuccess) return <p className="text-xs text-slate-400">Cancel requested — it runs its own ending, then closes.</p>;
+  return (
+    <div className="flex flex-col items-end gap-2">
+      {!confirming ? (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/40 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-500/10"
+        >
+          <Ban size={13} /> Cancel workflow
+        </button>
+      ) : (
+        <div className="flex flex-col items-end gap-2 rounded-lg border border-red-500/30 bg-red-500/5 p-3">
+          <p className="max-w-xs text-right text-xs text-slate-300">
+            Cancel <span className="font-mono">{workflowId}</span>? It stops what it is doing and runs its own ending. This cannot be undone.
+          </p>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setConfirming(false)} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-700">
+              Keep it running
+            </button>
+            <button
+              type="button"
+              onClick={() => cancel.mutate()}
+              disabled={cancel.isPending}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-500 disabled:opacity-50"
+            >
+              {cancel.isPending ? <Loader2 size={13} className="animate-spin" /> : <Ban size={13} />} Yes, cancel it
+            </button>
+          </div>
+        </div>
+      )}
+      {cancel.isError && <p className="text-xs text-red-400">{errorMessage(cancel.error)}</p>}
+    </div>
+  );
+}
+
+function ownerLabel(owner: string | undefined, me: string | undefined) {
+  if (!owner) return 'not recorded — started before owners were';
+  if (owner === me) return 'you';
+  if (owner === 'platform') return 'the platform';
+  return owner;
+}
+
 export default function TemporalPanel() {
+  const me = useShellStore((s) => s.user?.id);
+  const [scope, setScope] = useState<WorkflowScope | undefined>(undefined);
   const [expandedWf, setExpandedWf] = useState<string | null>(null);
 
   const { data: status } = useQuery({
@@ -60,14 +118,16 @@ export default function TemporalPanel() {
   });
 
   const { data: counts } = useQuery({
-    queryKey: temporalKeys.workflowCount(),
-    queryFn: getWorkflowCount,
+    queryKey: temporalKeys.workflowCount(scope),
+    queryFn: () => getWorkflowCount(scope),
+    placeholderData: keepPreviousData,
     refetchInterval: 5000,
   });
 
   const { data: workflowsData, isLoading } = useQuery({
-    queryKey: temporalKeys.workflows(),
-    queryFn: () => listWorkflows(50),
+    queryKey: temporalKeys.workflows(scope),
+    queryFn: () => listWorkflows(50, scope),
+    placeholderData: keepPreviousData,
     refetchInterval: 5000,
   });
 
@@ -77,7 +137,9 @@ export default function TemporalPanel() {
     enabled: !!expandedWf,
   });
 
-  const workflows: WorkflowSummary[] = workflowsData ?? [];
+  const workflows: WorkflowSummary[] = workflowsData?.workflows ?? [];
+  const canSeeAll = workflowsData?.canSeeAll === true;
+  const showing: WorkflowScope = scope ?? (workflowsData?.all ? 'all' : 'mine');
 
   const summaryCards = [
     {
@@ -117,9 +179,24 @@ export default function TemporalPanel() {
       <header className="flex justify-between items-center mb-8">
         <div>
           <h2 className="text-3xl font-bold">Temporal Workflows</h2>
-          <p className="text-slate-400">Monitor and manage Temporal workflow executions.</p>
+          <p className="text-slate-400">{showing === 'all' ? 'Every workflow on this platform, yours and everyone else\'s.' : 'The workflows started for you: your runs, deploys, machines and checks.'}</p>
         </div>
         <div className="flex items-center gap-3">
+          {canSeeAll && (
+            <div className="flex rounded-xl bg-slate-800 p-1 text-xs" role="group" aria-label="Whose workflows">
+              {(['mine', 'all'] as const).map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  aria-pressed={showing === choice}
+                  onClick={() => { setScope(choice); setExpandedWf(null); }}
+                  className={`rounded-lg px-3 py-1.5 font-medium ${showing === choice ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                >
+                  {choice === 'mine' ? 'Mine' : 'Everything'}
+                </button>
+              ))}
+            </div>
+          )}
           <div className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium ${status?.connected ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
             <div className={`w-2.5 h-2.5 rounded-full ${status?.connected ? 'bg-green-500' : 'bg-red-500'}`} />
             {status?.connected ? 'Connected' : 'Disconnected'}
@@ -198,6 +275,7 @@ export default function TemporalPanel() {
                           <div>
                             <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Workflow Info</h4>
                             <div className="space-y-1.5 text-xs">
+                              <div className="flex justify-between"><span className="text-slate-500">Owner</span><span className="font-mono text-slate-300 truncate ml-4">{ownerLabel(wfDetail.owner, me)}</span></div>
                               <div className="flex justify-between"><span className="text-slate-500">Run ID</span><span className="font-mono text-slate-300 truncate ml-4">{wfDetail.runId}</span></div>
                               <div className="flex justify-between"><span className="text-slate-500">Task Queue</span><span className="font-mono text-slate-300">{wfDetail.taskQueue}</span></div>
                               <div className="flex justify-between"><span className="text-slate-500">History Length</span><span className="font-mono text-slate-300">{wfDetail.historyLength}</span></div>
@@ -206,10 +284,11 @@ export default function TemporalPanel() {
                               )}
                             </div>
                           </div>
-                          <div className="text-right">
+                          <div className="flex flex-col items-end gap-3 text-right">
                             <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium ${statusBadge(wfDetail.status).props.className}`}>
                               {statusBadge(wfDetail.status)}
                             </span>
+                            {(canSeeAll || (me !== undefined && wfDetail.owner === me)) && wfDetail.status === 'RUNNING' && <CancelWorkflow key={wfDetail.workflowId} workflowId={wfDetail.workflowId} />}
                           </div>
                         </div>
                       ) : (

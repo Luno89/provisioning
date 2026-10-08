@@ -205,3 +205,28 @@ export function useDefaultModel() {
     queryFn: getDefaultModel,
   })
 }
+
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Authority: `ModelRateLimitBucketSnapshot` in packages/agent-engine/src/model/model-rate-limiter.ts.
+ */
+export interface ModelTraffic {
+  key: string
+  label: string
+  inFlight: number
+  queued: number
+  cooldownUntil?: string
+  totalRequests: number
+  total429: number
+  totalErrors: number
+  lastRequestAt?: string
+  lastStatus?: number
+}
+
+export const MODEL_TRAFFIC_POLL_MS = 5_000
+
+export async function getModelTraffic(): Promise<ModelTraffic[]> {
+  return (await api.get<{ buckets: ModelTraffic[] }>('/models/rate-limits')).data.buckets
+}
+
+export const modelTrafficKeys = { all: () => ['model-traffic'] as const }

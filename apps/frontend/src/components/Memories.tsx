@@ -50,7 +50,7 @@ const CATEGORY_META = {
   prompt_guidance: { label: 'Prompt Guidance', icon: ScrollText, color: 'text-emerald-400 border-emerald-800 bg-emerald-950/40' },
 };
 
-export default function Memories() {
+export default function Memories({ sharedWith }: { sharedWith?: string[] | undefined } = {}) {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<string>('all');
   const [adding, setAdding] = useState(false);
@@ -135,11 +135,12 @@ export default function Memories() {
         <div>
           <h3 className="text-lg font-semibold text-slate-200 flex items-center gap-2">
             <Brain size={18} className="text-[var(--leaf-light)]" />
-            Harness Memory Bank
+            What it recalls
           </h3>
           <p className="text-[12px] text-slate-400">
             Lessons, facts and prompt guidance, retrieved by relevance and admitted automatically.
             Superseded entries are retired rather than deleted, so nothing here is lost.
+            {sharedWith && sharedWith.length > 0 && <> Shared with every agent that recalls memories: {sharedWith.join(', ')}.</>}
           </p>
         </div>
         <button

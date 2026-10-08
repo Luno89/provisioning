@@ -20,13 +20,14 @@ import type { Tree } from '../lib/trees.js';
 import type { Task } from '../engine-host/tools/tasks.js';
 import type { AdoptPlanResult } from '../engine-host/temporal/contracts.js';
 import { seededProcedures } from '../extensions/seeds.js';
+import { timeSkippingTestEnvironment } from './temporal-test-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
-  env = await TestWorkflowEnvironment.createTimeSkipping();
+  env = await timeSkippingTestEnvironment();
 }, 120_000);
 
 afterAll(async () => {
@@ -111,6 +112,8 @@ function world(start: PlanProposal[], options: { saved?: string[] } = {}) {
   const documents: WorkspaceDocuments = {
     save: async () => ({ saved: false, why: 'not saved in this test' }),
     restore: async () => ({ restored: false, why: 'not restored in this test' }),
+    catchUp: async () => undefined,
+    merge: async () => 'merged',
     bring: async (request) => {
       brought.push({ from: request.from, into: request.path, workspace: request.workspaceRunId, planWritten: files.has('repo/PLAN.md') });
       return options.saved ? { brought: options.saved } : { brought: false, why: `nothing has been saved to ${request.from}` };

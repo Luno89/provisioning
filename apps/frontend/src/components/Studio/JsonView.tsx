@@ -8,9 +8,10 @@ const pretty = (procedure: Procedure) => JSON.stringify(procedure, null, 2)
 export interface JsonViewProps {
   procedure: Procedure
   onChange: (next: Procedure, mergeKey?: string) => void
+  readOnly?: boolean | undefined
 }
 
-export default function JsonView({ procedure, onChange }: JsonViewProps) {
+export default function JsonView({ procedure, onChange, readOnly = false }: JsonViewProps) {
   const [text, setText] = useState(() => pretty(procedure))
   const [refusal, setRefusal] = useState<string | null>(null)
   const typed = useRef(text)
@@ -43,7 +44,7 @@ export default function JsonView({ procedure, onChange }: JsonViewProps) {
   return (
     <div className="flex h-full flex-col">
       <div className={`border-b px-3 py-1.5 text-[11px] ${refusal ? 'border-red-500/30 bg-red-500/10 text-red-300' : 'border-[var(--bark-700)] text-slate-500'}`}>
-        {refusal ? `Not applied yet: ${refusal}` : 'Edits here apply to the canvas as soon as they read as a procedure.'}
+        {readOnly ? 'View only.' : refusal ? `Not applied yet: ${refusal}` : 'Edits here apply to the canvas as soon as they read as a procedure.'}
       </div>
       <div className="min-h-0 flex-1">
         <Editor
@@ -51,7 +52,7 @@ export default function JsonView({ procedure, onChange }: JsonViewProps) {
           theme="vs-dark"
           value={text}
           onChange={(value) => edit(value ?? '')}
-          options={{ minimap: { enabled: false }, fontSize: 12, tabSize: 2, scrollBeyondLastLine: false, automaticLayout: true }}
+          options={{ minimap: { enabled: false }, fontSize: 12, tabSize: 2, scrollBeyondLastLine: false, automaticLayout: true, readOnly }}
         />
       </div>
     </div>

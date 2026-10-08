@@ -11,7 +11,6 @@ export interface ToolPill {
   child?: ChildRunView | undefined;
 }
 
-/** What the run a hand-off started is doing, or did: its own calls, nested the same way, and what it is writing. */
 export interface ChildRunView {
   runId: string;
   agentId: string;
@@ -22,7 +21,6 @@ export interface ChildRunView {
   tools: ToolPill[];
 }
 
-/** The view of a finished child run, rebuilt from the steps stored with the hand-off's call. */
 export function childFromSteps(child: ChildSteps): ChildRunView {
   const pill = (step: RunStep): ToolPill => ({
     id: step.callId,

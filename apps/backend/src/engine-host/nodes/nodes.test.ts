@@ -5,6 +5,8 @@ import {
   DO_ONE_TASK_V2,
   PROCEDURE_SCHEMA,
   TOOL_ROUNDS_V2,
+  COMPACT_INSTRUCTIONS,
+  COMPACTION_PREFIX,
   builtInCatalogue,
   runProcedure,
   type NodeTrace,
@@ -65,7 +67,9 @@ const CEILINGED: AgentDefinition = {
   model: { replyCeiling: 1_234 },
 };
 
-const PERSONAS = [...seededPersonas(), SANDBOXED, CEILINGED];
+const LONG_RUNNER: AgentDefinition = { ...SANDBOXED, slug: 'long-runner', name: 'Long runner', budget: { maxRounds: 40 }, tools: ['read_file'], agents: [] };
+
+const PERSONAS = [...seededPersonas(), SANDBOXED, CEILINGED, LONG_RUNNER];
 
 const PROVIDER = {
   id: 'tabby',
@@ -801,5 +805,70 @@ describe('code that runs once, as a step', () => {
 
     expect(result).toMatchObject({ outcome: 'failed', reason: 'the code failed: ReferenceError: nope is not defined' });
     expect(code.calls()).toBe(1);
+  });
+});
+
+
+describe('keeping a long run inside its context window', () => {
+  const WINDOW_CHARS = 32_000 * 4;
+  const TOPICS = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel', 'india', 'juliet', 'kilo', 'lima', 'mike', 'november', 'oscar', 'papa', 'quebec', 'romeo', 'sierra', 'tango', 'uniform', 'victor', 'whiskey', 'xray', 'yankee', 'zulu'];
+  const PAGE = 'x'.repeat(12_000);
+
+  const modelThatSummarises = (rounds: number) => {
+    let worked = 0;
+    let summaries = 0;
+    const bodies: { messages: { role: string; content: string }[] }[] = [];
+    const respond = (frames: Frame[]) => ({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      text: async () => '',
+      body: (async function* () {
+        for (const frame of frames) yield `data: ${JSON.stringify(frame)}\n`;
+        yield 'data: [DONE]\n';
+      })(),
+    }) as unknown as Response;
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body) as { messages: { role: string; content: string }[] };
+      bodies.push(body);
+      if (body.messages[0]?.content === COMPACT_INSTRUCTIONS) {
+        summaries += 1;
+        return respond(answer(`summary ${summaries}: read pages 1 to many, each was 12000 x's`));
+      }
+      worked += 1;
+      return respond(worked <= rounds ? toolCall(`c${worked}`, 'read_file', { path: TOPICS[worked % TOPICS.length]! + '/' + TOPICS[(worked * 7) % TOPICS.length]! + '.md' }) : answer('read them all'));
+    }));
+    return { bodies, work: () => bodies.filter((body) => body.messages[0]?.content !== COMPACT_INSTRUCTIONS), summaries: () => summaries };
+  };
+
+  it('summarises the run once it nears the window, keeps every call inside it, and sends the same start of the prompt until it has to summarise again', async () => {
+    const { services } = world({ tools: async () => ({ ok: true, digest: 'a page', content: PAGE }) });
+    const model = modelThatSummarises(24);
+
+    const result = await runV2(services, 'long-runner');
+
+    expect(result, JSON.stringify({ outcome: result.outcome, reason: result.reason })).toMatchObject({ outcome: 'ok' });
+    expect(model.summaries()).toBeGreaterThanOrEqual(2);
+    const sent = model.work();
+    for (const body of sent) {
+      const chars = body.messages.reduce((total, message) => total + message.content.length, 0);
+      expect(chars, 'a call was sent more than the window holds').toBeLessThan(WINDOW_CHARS);
+    }
+    const summarised = sent.filter((body) => body.messages[1]?.content.startsWith(COMPACTION_PREFIX));
+    expect(summarised.length).toBeGreaterThan(0);
+    const firstSummaries = summarised.map((body) => body.messages[1]!.content);
+    const runs = firstSummaries.filter((summary, index) => index === 0 || summary !== firstSummaries[index - 1]);
+    expect(runs.length, 'the summary at the start of the prompt changed between calls without a new compaction').toBe(model.summaries());
+    expect(model.summaries(), 'it summarised on most calls rather than once in a while').toBeLessThan(sent.length / 3);
+  });
+
+  it('sends a run that fits exactly as it is, without asking for a summary', async () => {
+    const { services } = world({ tools: async () => ({ ok: true, digest: 'a line', content: 'a short line' }) });
+    const model = modelThatSummarises(3);
+
+    await runV2(services, 'long-runner');
+
+    expect(model.summaries()).toBe(0);
+    expect(model.work().every((body) => !body.messages.some((message) => message.content.startsWith(COMPACTION_PREFIX)))).toBe(true);
   });
 });

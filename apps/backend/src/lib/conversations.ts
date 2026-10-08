@@ -7,7 +7,6 @@ export interface ConversationMessage {
   at: string;
 
   toolCalls?: ConversationToolCall[];
-  /** The run whose turn this message belongs to: the user's message as it opened the turn, the reply as it closed it. */
   runId?: string;
   /** Set when this message is a salvaged partial reply — the turn was stopped or failed mid-stream
    * rather than completing normally. Names why, so it reads as "cut short" rather than a finished
@@ -22,7 +21,6 @@ export interface ConversationToolCall {
   ok: boolean;
   digest: string;
   artifacts?: Artifact[];
-  /** For a hand-off: what the run it started did, step by step. */
   child?: ChildSteps;
 }
 
@@ -50,13 +48,13 @@ export interface Conversation {
   projectId?: string | undefined;
   mcpServers?: string[] | undefined;
   platformNamespaces?: string[] | undefined;
-  /** The turn under way: its run, until the run saves its reply. Its log holds what it has done so far. */
+  compaction?: { summary: string; through: number } | undefined;
   liveTurn?: { runId: string; startedAt: string } | undefined;
+  allowedTools?: string[] | undefined;
   createdAt: string;
   updatedAt: string;
 }
 
-/** The conversation with the person's message saved and the turn marked under way, before its run starts. Opening the same run's turn again changes nothing. */
 export function openTurn(existing: Conversation | undefined, turn: { ownerId: string; conversationId: string; runId: string; message: string; now: string }): Conversation {
   const base: Conversation = existing ?? { id: turn.conversationId, ownerId: turn.ownerId, title: titleFrom(turn.message), messages: [], createdAt: turn.now, updatedAt: turn.now };
   if (base.messages.some((message) => message.runId === turn.runId)) return base;
@@ -68,7 +66,6 @@ export function openTurn(existing: Conversation | undefined, turn: { ownerId: st
   };
 }
 
-/** The conversation with a turn's reply saved and the turn no longer under way. A reply already saved for the run is kept as it is. */
 export function closeTurn(conversation: Conversation, runId: string, reply: Omit<ConversationMessage, 'role' | 'runId'>, now: string): Conversation {
   const { liveTurn, ...rest } = conversation;
   const still = liveTurn && liveTurn.runId !== runId ? { liveTurn } : {};

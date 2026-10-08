@@ -132,6 +132,16 @@ export async function resolveTreeType<T extends { id: string; ownerId?: string |
   return all.find((t) => t.id === id && t.ownerId === ownerId) ?? all.find((t) => t.id === id && t.ownerId === undefined);
 }
 
+export function treeLanguageFrom(store: {
+  getTrees(): Promise<{ id: string; ownerId?: string | undefined; type?: string | undefined }[]>;
+  getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
+}): (ownerId: string, treeId: string) => Promise<string | undefined> {
+  return async (ownerId, treeId) => {
+    const tree = (await store.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
+    return (await resolveTreeType(store, ownerId, tree?.type))?.language;
+  };
+}
+
 export type TreeTypeSeed = Omit<TreeTypeSpec, 'ownerId'>;
 
 /**

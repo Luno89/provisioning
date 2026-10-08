@@ -1,5 +1,6 @@
 import {
   callModel,
+  contextPressure,
   createMonitorSet,
   fittedMaxTokens,
   createRunState,
@@ -8,7 +9,15 @@ import {
   type EngineEndpoint,
 } from '@koala/agent-engine';
 import {
+  COMPACT_INSTRUCTIONS,
   DECIDE_INSTRUCTIONS,
+  DEFAULT_COMPACT_AT,
+  DEFAULT_COMPACT_KEEP,
+  DEFAULT_COMPACT_TAIL,
+  compactedView,
+  compactionBoundary,
+  summaryRequest,
+  type Compaction,
   DEFAULT_CONTEXT_MARGIN,
   DEFAULT_MIN_REPLY_TOKENS,
   promptCharacters,
@@ -232,5 +241,60 @@ export function createModelNodes(services: ModelNodeServices): NodeImplementatio
       const decision = readDecision(result.content);
       return { exit: decision, outputs: { decision, why: result.content.trim() }, usage };
     }),
+
+    createCompactContextNode(services),
   ];
+}
+
+export function createCompactContextNode(services: Pick<HostNodeServices, 'models' | 'fetchImpl'>): NodeImplementation {
+  return stepImplementation('compact-context', async ({ node, inputs, previous, run }) => {
+    const messages = (inputs.messages as ChatMessage[] | undefined) ?? [];
+    const binding = inputs.binding as ModelBinding;
+    const system = typeof inputs.system === 'string' ? inputs.system : '';
+    const at = typeof node.settings.at === 'number' ? node.settings.at : DEFAULT_COMPACT_AT;
+    const keep = typeof node.settings.keep === 'number' ? node.settings.keep : DEFAULT_COMPACT_KEEP;
+    const kept = previous?.compaction as Compaction | undefined;
+    const view = compactedView(messages, kept);
+    const unchanged = { messages: view, ...(kept && kept.through <= messages.length ? { compaction: kept } : {}) };
+
+    const pressure = contextPressure({ contextTokens: binding.contextTokens, contextMargin: DEFAULT_CONTEXT_MARGIN } as never, promptCharacters(system, view), binding.contextTokens);
+    if (pressure < at) return { exit: 'fits', outputs: unchanged };
+    const boundary = compactionBoundary(view, keep, binding.contextTokens * 4 * DEFAULT_COMPACT_TAIL);
+    if (boundary === 0) return { exit: 'fits', outputs: unchanged };
+
+    const { provider, baseUrl, apiKey } = await services.models.resolveBaseUrl(run.launch.ownerId, binding.modelId, binding.endpointId);
+    const asked = summaryRequest(view.slice(0, boundary));
+    const room = roomForReply(binding, COMPACT_INSTRUCTIONS, asked);
+    const result = await callModel(
+      {
+        endpoint: {
+          baseUrl,
+          ...(apiKey ? { apiKey } : {}),
+          ...(provider.model ? { model: provider.model } : {}),
+          ...(provider.kind ? { kind: provider.kind as ModelKind } : {}),
+          rateLimitKey: provider.id,
+          ownerId: run.launch.ownerId,
+          label: provider.name,
+        },
+        messages: toWireMessages(COMPACT_INSTRUCTIONS, asked),
+        maxTokens: room,
+        ...(binding.sampling ? { sampling: binding.sampling } : {}),
+        ...(run.signal ? { signal: run.signal } : {}),
+        ...(services.fetchImpl ? { fetchImpl: services.fetchImpl } : {}),
+      },
+      () => undefined,
+    );
+    const usage = {
+      promptTokens: numberUsage(result.usage, 'prompt_tokens'),
+      completionTokens: numberUsage(result.usage, 'completion_tokens'),
+      totalTokens: numberUsage(result.usage, 'total_tokens'),
+    };
+    if (result.interrupted) return { interrupted: result.interrupted, usage };
+    const summary = result.content.trim();
+    if (!summary) throw new Error('the model was asked to summarise the conversation to fit its context window and returned nothing');
+
+    const compaction: Compaction = { summary, through: kept && kept.through <= messages.length ? kept.through + boundary - 1 : boundary };
+    run.emit({ type: 'notice', level: 'info', nodeId: node.id, message: `the conversation was summarised to fit the context window: ${compaction.through} earlier messages now stand as one summary` } as never);
+    return { exit: 'compacted', outputs: { messages: compactedView(messages, compaction), compaction }, usage };
+  });
 }

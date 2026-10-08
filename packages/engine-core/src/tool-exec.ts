@@ -3,7 +3,6 @@ import { renderCommand } from './command-tool.js';
 import { ScopeError } from './scope.js';
 import { NO_CAPABILITIES, type EnvironmentDriver } from './environment.js';
 
-/** Something a tool made that a person can open: a file, by the path the tool wrote it at, or a link. */
 export type ToolArtifact =
   | { kind: 'file'; path: string }
   | { kind: 'link'; url: string; title?: string | undefined };
@@ -98,9 +97,16 @@ export const environmentHandlers: Record<string, ToolHandler> = {
   async write_file(ctx) {
     const driver = requireDriver(ctx);
     const path = stringArg(ctx.parsed, 'path');
-    const content = typeof ctx.parsed.content === 'string' ? ctx.parsed.content : '';
+    const given = ctx.parsed.content;
+    if (given === undefined || given === null || (typeof given !== 'string' && typeof given !== 'object')) {
+      const said = 'nothing was written — content has to be the text to write into the file';
+      return { ok: false, digest: said, content: said };
+    }
+    const structured = typeof given !== 'string';
+    const content = structured ? `${JSON.stringify(given, null, 2)}\n` : given;
     await driver.writeFile(path, content);
-    return { ok: true, digest: `wrote ${content.length} bytes to ${path}`, content: '', artifacts: [{ kind: 'file', path }] };
+    const said = `wrote ${content.length} bytes to ${path}${structured ? ' — content arrived as JSON data, so it was written out as JSON' : ''}`;
+    return { ok: true, digest: said, content: said, artifacts: [{ kind: 'file', path }] };
   },
 
   async list_dir(ctx) {
@@ -114,7 +120,7 @@ export const environmentHandlers: Record<string, ToolHandler> = {
     const driver = requireDriver(ctx);
     const path = stringArg(ctx.parsed, 'path');
     await driver.deleteFile(path);
-    return { ok: true, digest: `deleted ${path}`, content: '' };
+    return { ok: true, digest: `deleted ${path}`, content: `deleted ${path}` };
   },
 };
 

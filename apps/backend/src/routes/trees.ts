@@ -15,6 +15,16 @@ export interface TreesRouterDeps {
   workspaces: Pick<TreeWorkspaces, 'state' | 'release'>;
   runs: Pick<GroveRunService, 'run' | 'status' | 'stop'>;
   deletion: Pick<GroveDeletionService, 'deleteTree'>;
+  landings?: { pullRequests(ownerId: string, treeId: string): Promise<TreePullRequest[]> } | undefined;
+}
+
+export interface TreePullRequest {
+  number: number;
+  title: string;
+  head: string;
+  base: string;
+  state: string;
+  merged: boolean;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -87,6 +97,13 @@ export function treesRouter(deps: TreesRouterDeps): Router {
     const tree = (await ownedTrees(userOf(req).id)).find((t) => t.id === idOf(req));
     if (!tree) return res.status(404).json({ error: 'Tree not found' });
     res.json({ state: await workspaces.state(tree.id) });
+  }));
+
+  router.get('/:id/pull-requests', asyncRoute(async (req, res) => {
+    const tree = (await ownedTrees(userOf(req).id)).find((t) => t.id === idOf(req));
+    if (!tree) return res.status(404).json({ error: 'Tree not found' });
+    if (!deps.landings) return res.json({ pullRequests: [] });
+    res.json({ pullRequests: await deps.landings.pullRequests(userOf(req).id, tree.id) });
   }));
 
   router.delete('/:id/workspace', asyncRoute(async (req, res) => {

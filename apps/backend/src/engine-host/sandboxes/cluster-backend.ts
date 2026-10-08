@@ -6,7 +6,7 @@ import {
   workspaceRunning,
   type KubeRunner,
 } from './kube.js';
-import type { DirEntry, ExecResult } from '@koala/engine-core';
+import { READ_WHOLE_FILE, wholeFile, type DirEntry, type ExecResult } from '@koala/engine-core';
 import type { SandboxBackend } from '../drivers/sandbox.js';
 
 export { WorkspaceUnavailableError } from './kube.js';
@@ -19,6 +19,8 @@ export interface ClusterBackendOptions {
   onStarted?: (() => Promise<void>) | undefined;
 }
 
+const starting = new Map<string, Promise<void>>();
+
 const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
 
 export function createClusterBackend(options: ClusterBackendOptions): SandboxBackend {
@@ -28,13 +30,8 @@ export function createClusterBackend(options: ClusterBackendOptions): SandboxBac
 
   const persistent = options.workspace.persistent === true;
 
-  const ensure = async (): Promise<void> => {
-    if (standing && !persistent) return;
-    if (await workspaceRunning(run, namespace, POD).catch(() => false)) {
-      standing = true;
-      return;
-    }
-
+  const startIfStopped = async (): Promise<void> => {
+    if (await workspaceRunning(run, namespace, POD).catch(() => false)) return;
     if (persistent) await retirePod(run, namespace, POD);
     await applyWorkspace(run, {
       manifests: buildManifests(options.workspace),
@@ -43,7 +40,16 @@ export function createClusterBackend(options: ClusterBackendOptions): SandboxBac
       readyTimeoutMs: options.readyTimeoutMs ?? 120_000,
     });
     await options.onStarted?.();
+  };
 
+  const ensure = async (): Promise<void> => {
+    if (standing && !persistent) return;
+    let pending = starting.get(namespace);
+    if (!pending) {
+      pending = startIfStopped().finally(() => starting.delete(namespace));
+      starting.set(namespace, pending);
+    }
+    await pending;
     standing = true;
   };
 
@@ -63,9 +69,15 @@ export function createClusterBackend(options: ClusterBackendOptions): SandboxBac
     },
 
     async readFile({ path }): Promise<string> {
-      const result = await exec(`cat ${shellQuote(path)}`);
+      await ensure();
+      const result = await run(
+        ['exec', POD, '-n', namespace, '-i', '--', 'sh', '-c', READ_WHOLE_FILE, 'sh', path],
+        undefined,
+        undefined,
+        { outputChars: Infinity },
+      );
       if (result.exitCode !== 0) throw new Error(result.stderr.trim() || `could not read ${path}`);
-      return result.stdout;
+      return wholeFile(path, result.stdout);
     },
 
     async writeFile({ path, content }): Promise<void> {

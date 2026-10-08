@@ -1,5 +1,7 @@
 import {
   NOT_RUN_CALL,
+  summaryMessage,
+  type Compaction,
   valueImplementation,
   stepImplementation,
   fillTemplate,
@@ -48,6 +50,33 @@ export function asChatMessages(stored: readonly ConversationMessage[]): ChatMess
   return stored
     .filter((message: ConversationMessage) => message.content.trim())
     .map((message: ConversationMessage) => ({ role: message.role, content: message.content }));
+}
+
+export interface LoadedHistory {
+  base: number;
+  ends: number[];
+}
+
+export function loadedMessages(conversation: Pick<Conversation, 'messages' | 'compaction'> | undefined): { messages: ChatMessage[]; history: LoadedHistory } {
+  const stored = conversation?.messages ?? [];
+  const compaction = conversation?.compaction && conversation.compaction.through <= stored.length ? conversation.compaction : undefined;
+  const base = compaction?.through ?? 0;
+  const lead = compaction ? [summaryMessage(compaction.summary)] : [];
+  const rest = stored.slice(base);
+  let count = lead.length;
+  const ends = rest.map((message) => {
+    if (message.content.trim()) count += 1;
+    return count;
+  });
+  return { messages: [...lead, ...asChatMessages(rest)], history: { base, ends } };
+}
+
+export function storedCompaction(compaction: unknown, history: unknown): { summary: string; through: number } | undefined {
+  const sent = compaction as Compaction | undefined;
+  const loaded = history as LoadedHistory | undefined;
+  if (!sent || typeof sent.summary !== 'string' || typeof sent.through !== 'number' || !loaded || !Array.isArray(loaded.ends)) return undefined;
+  const covered = loaded.ends.filter((end) => end <= sent.through).length;
+  return covered > 0 ? { summary: sent.summary, through: loaded.base + covered } : undefined;
 }
 
 export function asStoredToolCalls(
@@ -120,8 +149,9 @@ export function createConversationNodes(store: ConversationStore): NodeImplement
     valueImplementation('load-conversation', async (request) => {
       const id = idFrom(request);
       const found = id ? await store.get(request.run.launch.ownerId, id) : undefined;
+      const { messages, history } = loadedMessages(found);
 
-      return { outputs: { messages: asChatMessages(found?.messages ?? []), found: Boolean(found) } };
+      return { outputs: { messages, found: Boolean(found), history } };
     }),
 
     stepImplementation('save-conversation', async (request) => {
@@ -139,7 +169,6 @@ export function createConversationNodes(store: ConversationStore): NodeImplement
       const existing = await store.get(ownerId, id);
 
       // The host may retry this very step after a crash — written, but the result never recorded.
-      // A conversation saved before turns carried their run is recognised by its last exchange.
       const written = existing?.messages ?? [];
       const last = written[written.length - 1];
       const beforeLast = written[written.length - 2];
@@ -172,7 +201,10 @@ export function createConversationNodes(store: ConversationStore): NodeImplement
         ...(stopped ? { interruptedReason: stopped } : {}),
       }, now);
 
-      await store.save({ ...closed, id, ownerId } as Conversation);
+      const summarised = storedCompaction(request.inputs.compaction, request.inputs.history);
+      const compacted = summarised && summarised.through > (closed.compaction?.through ?? 0) ? { ...closed, compaction: summarised } : closed;
+
+      await store.save({ ...compacted, id, ownerId } as Conversation);
 
       return { exit: 'saved', outputs: { conversation: id } };
     }),

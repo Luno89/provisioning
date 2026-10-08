@@ -15,6 +15,7 @@ import { BuilderService } from '../services/BuilderService.js';
 import { StorageAdapter } from '../services/StorageAdapter.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topology.js';
+import { clusterAccess } from './cluster-access.js';
 import { buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN } from '../lib/app-env.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { planHostMemory, parseQuantity, type HostMemoryPlan } from '../lib/host-memory-plan.js';
@@ -166,13 +167,9 @@ export async function DeployAppActivity(
   let finalOdooTag = sentOdooFallback ? appDefault.tag : (args.odooTag || appDefault.tag);
 
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
-  const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
+  const { physicalName, kubeconfigPath } = clusterAccess({ clusterName: args.clusterName, provider: args.provider });
 
   let customImageTag: string | undefined;
-
-  const kubeconfigPath = isSelfManagedCluster(args.provider, isMock)
-    ? `/tmp/kubeconfig-${physicalName}`
-    : path.join(LIVE_ROOT, '.kube/config');
 
   let effectiveDevice = process.env.VLLM_DEVICE || (args.vllmGpuCount === 0 ? 'cpu' : (args.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda'));
   let effectiveGpuCount = args.vllmGpuCount !== undefined ? args.vllmGpuCount : 1;

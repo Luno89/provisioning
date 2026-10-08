@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { BUILT_IN_GROUPS, builtInCatalogue, runProcedure } from '@koala/agent-engine/procedure';
-import { LEVEL1_PROCEDURE } from '../../eval/level1/attempt.js';
+import { turnProcedure } from '../../lib/turn-check.js';
+import { platformCatalogue, platformGroups } from '../../extensions/installed.js';
+
+const TURN_PROCEDURE = turnProcedure(platformCatalogue(), platformGroups());
 import { createProcedureExecutor, type HostNodeServices } from '../nodes/index.js';
 import { createAgentRegistry } from '../registries/registry.js';
 import { createEnvironmentResolver, type WorkspaceSource } from '../sandboxes/environments.js';
@@ -148,7 +151,7 @@ async function callWith(
   const environment = await world.environments.describe(run);
 
   await runProcedure({
-    procedure: LEVEL1_PROCEDURE,
+    procedure: TURN_PROCEDURE,
     catalogue: builtInCatalogue(),
     groups: over.tools === 'none' ? GROUPS_WITHOUT_TOOLS : BUILT_IN_GROUPS,
     executor: createProcedureExecutor(world.services, { registry: world.registry }),
@@ -156,8 +159,8 @@ async function callWith(
       runId: run.runId,
       depth: run.depth,
       agentId: run.agentSlug,
-      loopId: LEVEL1_PROCEDURE.id,
-      loopVersion: LEVEL1_PROCEDURE.version,
+      loopId: TURN_PROCEDURE.id,
+      loopVersion: TURN_PROCEDURE.version,
       trigger: 'user',
     },
     launch: { ownerId: run.ownerId },

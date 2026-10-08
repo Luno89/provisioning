@@ -83,17 +83,16 @@ describe('seeded agents compose usable prompts', () => {
     expect(tools).toEqual([]);
   });
 
-  it('offers the judge what it needs to check work for itself and write its verdict, and not the hand that settles a leaf', () => {
+  it('offers the judge what it needs to check work for itself and record its verdict, and not the hand that settles a leaf', () => {
     const { tools } = offered('judge');
 
-    expect(tools.map((tool) => tool.name).sort()).toEqual(['list_dir', 'read_file', 'run_command', 'write_file']);
+    expect(tools.map((tool) => tool.name).sort()).toEqual(['list_dir', 'read_file', 'record_verdict', 'run_command']);
+    expect(agentBySlug('judge').prompt).toContain('Give your verdict with record_verdict');
   });
 
-  it('tells the planner and the judge to write their own files only in a conversation\'s workspace', () => {
-    for (const slug of ['planner', 'judge']) {
-      expect(agentBySlug(slug).tools).toContain('write_file');
-      expect(agentBySlug(slug).prompt).toMatch(/When your workspace belongs to the conversation[^]*Anywhere else, write no files/);
-    }
+  it('tells the planner to write its own files only in a conversation\'s workspace', () => {
+    expect(agentBySlug('planner').tools).toContain('write_file');
+    expect(agentBySlug('planner').prompt).toMatch(/When your workspace belongs to the conversation[^]*Anywhere else, write no files/);
   });
 
   it('gives the settling hand to the leaf-judge alone, alongside what it needs to check the claimed commit and read the runs that did the work', () => {

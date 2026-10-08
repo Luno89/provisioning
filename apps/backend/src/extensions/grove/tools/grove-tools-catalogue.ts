@@ -9,7 +9,7 @@ const PLAN_TASK = {
     role: { type: 'string', description: 'The part it plays in the project: which goal it serves and what it makes possible.' },
     doneMeans: { type: 'string', description: 'How anyone can tell it worked, without reading your mind.' },
     dependsOn: { type: 'array', items: { type: 'string' }, description: 'Keys of tasks in the same leaf that must finish first.' },
-    checks: { type: 'object', description: 'What code can check when the task is done, run before any judge is asked — so only add what a command can settle, not what needs reading. fileExists: a path that must exist and not be empty. contentPath + contentPattern: a regular expression that file must match. command + expects: a command that must exit clean and whose output must contain each of these strings. httpUrl + httpStatus: an endpoint that must answer, with that status (default 200).' },
+    checks: { type: 'object', description: 'What code can check when the task is done, run before any judge is asked — so only add what a command can settle, not what needs reading. fileExists: a path that must exist and not be empty. contentPath + contentPattern: a regular expression that file must match. command + expects: a command that must exit clean and whose output must contain each of these strings. httpUrl + httpStatus: an endpoint that must answer, with that status (default 200). e2e: { specs: Playwright spec files or folders } runs those browser tests against the app the workspace serves (an Odoo workspace starts a throwaway Odoo with every module under addons/), each test reported on its own; add url only for an address that needs no login.' },
   },
   required: ['key', 'title', 'description', 'role', 'doneMeans'],
 };

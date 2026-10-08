@@ -27,12 +27,10 @@ export interface ModelReply {
   toolCalls: ToolCallRequest[];
 }
 
-/** Something a run made that a person can open: a file in a saved workspace, by its path in that workspace's repository, or a link. */
 export type Artifact =
   | { kind: 'file'; workspace: string; path: string }
   | { kind: 'link'; url: string; title?: string | undefined };
 
-/** What a run that a hand-off started did, as a person reads it afterwards. */
 export interface ChildSteps {
   runId: string;
   agentId: string;
@@ -41,7 +39,6 @@ export interface ChildSteps {
   steps: RunStep[];
 }
 
-/** One tool call a run made: what it called and how that went, and for a hand-off, what the run it started did in turn. A step with no `ok` never got a result. */
 export interface RunStep {
   callId: string;
   name: string;
@@ -53,7 +50,6 @@ export interface RunStep {
 
 export const STEP_DIGEST_CHARS = 500;
 
-/** Keeps a run's steps up to date from its own tool events: a call adds a step, its result settles it. */
 export function collectStep(steps: RunStep[], event: { type: string; callId?: string; name?: string; ok?: boolean; digest?: string; artifacts?: Artifact[]; child?: ChildSteps }): RunStep[] {
   if (!event.callId) return steps;
   if (event.type === 'tool.called' && event.name) {

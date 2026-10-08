@@ -589,6 +589,8 @@ export interface TaskChecks {
   /** http-probe: the endpoint that must answer, and with which status (default 200) */
   httpUrl?: string | undefined;
   httpStatus?: number | undefined;
+  /** browser tests: Playwright specs run against the workspace's own app, or an address that needs no login */
+  e2e?: { specs: string[]; url?: string | undefined } | undefined;
 }
 
 export interface PlanTask {

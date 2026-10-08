@@ -4,10 +4,13 @@ import { createGroveTools } from '../tools/grove-tools.js';
 import { prepareJudgeCheckout, prepareLeafWorktree, pruneLeafWorktrees, WorktreeConflictError } from '../../../engine-host/grove-worktrees.js';
 import { claimEvidenceFor, leavesNeedingPlan, nextLeafStep, runEvidence, taskItem } from '../../../lib/grove-leaf.js';
 import { checkReport, checksFailed, runTaskChecks, type CheckOutcome } from '../../../lib/task-checks.js';
+import { keepFailureArtifacts, type KeepArtifacts } from '../../../lib/artifacts.js';
 import { judgeCheckout, leafBriefPath, leafContext, leafFailurePath, leafWorktree, renderLeafFailure } from '../../../lib/plan-documents.js';
 import type { Branch, Leaf } from '../../../lib/leaves.js';
 import type { Tree } from '../../../lib/trees.js';
-import type { Task } from '../../../engine-host/tools/tasks.js';
+import { newTask, type Task } from '../../../engine-host/tools/tasks.js';
+import { conflictTask, landedLeaf, landingOrder, readyToLand, reopenForConflict, supersededByVerdict } from '../../../lib/landing.js';
+import { primaryProjectId } from '../../../lib/trees.js';
 import type { PlanProposal } from '../../../lib/plan-proposals.js';
 import type { TreeSandbox, TreeWorkspaces } from '../../../engine-host/sandboxes/tree-workspaces.js';
 import type { EnvironmentResolver } from '../../../engine-host/sandboxes/environments.js';
@@ -23,6 +26,7 @@ export interface GroveOperationDeps {
   treeWorkspaces: TreeWorkspaces;
   environments: Pick<EnvironmentResolver, 'forRun'>;
   registry: Pick<AgentRegistry, 'runnable'>;
+  artifacts?: { keep: KeepArtifacts } | undefined;
   now?: (() => string) | undefined;
 }
 
@@ -316,14 +320,15 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
         const checkout = commit ? await prepareJudgeCheckout(await driverFor(request, environment, tree.id), leafId, commit) : undefined;
         const driver = await driverFor(request, environment, tree.id, checkout ? judgeCheckout(leafId) : leafWorktree(leafId));
         const sandbox = {
-          exec: async (command: string) => driver.exec({ command, timeoutMs: 60_000 }),
+          exec: async (command: string, timeoutMs = 60_000) => driver.exec({ command, timeoutMs }),
           readFile: (path: string) => driver.readFile(path).catch(() => undefined),
         };
         const outcomes: CheckOutcome[] = [];
         for (const task of withChecks) outcomes.push(...await runTaskChecks(sandbox, task.checks));
-        if (!checksFailed(outcomes)) { toJudge.push(claim); continue; }
+        if (!checksFailed(outcomes)) { toJudge.push({ ...claim, checks: checkReport(outcomes) }); continue; }
+        const left = deps.artifacts ? (await keepFailureArtifacts(sandbox, deps.artifacts.keep, ownerId, request.run.identity.runId)).lines : '';
+        const report = [checkReport(outcomes), left].filter(Boolean).join('\n');
 
-        const report = checkReport(outcomes);
         const stopped = tasks.some((task) => task.leafId === leafId && task.status === 'failed');
         if (stopped) { toJudge.push({ ...claim, checks: report }); continue; }
 
@@ -401,6 +406,45 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
       const leaves = await treeLeaves(tree.id, ownerId);
       const proposals = (await openProposals(ownerId, leaves.map((leaf) => leaf.id))).map((proposal) => proposal.id);
       return { exit: proposals.length > 0 ? 'some' : 'none', outputs: { proposals } };
+    },
+
+    async 'grove.land-leaves'(request): Promise<StepResult> {
+      sandboxFrom(request);
+      const tree = treeFrom(request);
+      const ownerId = ownerOf(request);
+      const ready = landingOrder((await treeLeaves(tree.id, ownerId)).filter(readyToLand));
+      if (ready.length === 0) return { exit: 'done', outputs: { landed: [], conflicts: [] } };
+
+      const outcomes = await deps.treeWorkspaces.land(tree.id, ownerId, ready.map((leaf) => ({
+        leafId: leaf.id,
+        title: leaf.title,
+        ...(leaf.body ? { body: leaf.body } : {}),
+        ...(leaf.review?.reason ? { verdict: leaf.review.reason } : {}),
+      }))).catch((err: Error) => {
+        request.run.emit({ type: 'notice', level: 'info', nodeId: request.node.id, message: `nothing landed this pass: ${err.message}` } as never);
+        return [];
+      });
+
+      const stamp = now();
+      const projectId = primaryProjectId((await deps.trees.list()).find((entry) => entry.id === tree.id) ?? { projectIds: [] } as never);
+      const landed: string[] = [];
+      const conflicts: string[] = [];
+      for (const { leafId, outcome } of outcomes) {
+        const leaf = ready.find((entry) => entry.id === leafId)!;
+        if (outcome === 'merged' || outcome === 'nothing') {
+          await deps.leaves.save(landedLeaf(leaf, outcome, stamp));
+          landed.push(leafId);
+        } else if (outcome === 'conflict') {
+          for (const dropped of supersededByVerdict(await deps.tasks.list(ownerId), leafId, stamp)) await deps.tasks.save(dropped);
+          const taskId = `${leafId}-merge-${(leaf.tasks ?? []).length + 1}`;
+          await deps.tasks.save({ ...newTask({ id: taskId, ownerId, ...(projectId ? { projectId } : {}), ...conflictTask(leaf), dependsOn: [] }, stamp), leafId, status: 'accepted' });
+          await deps.leaves.save(reopenForConflict(leaf, taskId, stamp));
+          conflicts.push(leafId);
+        } else {
+          request.run.emit({ type: 'notice', level: 'info', nodeId: request.node.id, message: `${leaf.title} did not land this pass; it will be tried again` } as never);
+        }
+      }
+      return { exit: 'done', outputs: { landed, conflicts } };
     },
 
     async 'grove.park-tree'(request): Promise<StepResult> {

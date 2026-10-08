@@ -1,4 +1,5 @@
 import path from 'path';
+import { stopIfRunning } from '../lib/stop-workflow.js'
 import { McpRegistryService } from './McpRegistryService.js'
 import { looksLikeMcp } from '../lib/mcp-registry.js'
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js'
@@ -45,6 +46,7 @@ import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, res
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js'
 import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../lib/tabby-cache-path.js'
 import type { Server as SocketServer } from 'socket.io'
+import { PLATFORM_OWNER, ownerIn, startedFor } from '../lib/workflow-owner.js'
 
 const HOST_QUEUE = 'host-ops-queue'
 const CLUSTER_QUEUE = 'cluster-ops-queue'
@@ -224,6 +226,8 @@ export class TemporalBridge {
     if (headscale !== undefined) this.headscale = headscale
   }
 
+  onBuilt?: (project: ProjectMetadata, run: PipelineRunMetadata) => Promise<boolean>
+
   isReady(): boolean {
     return !!this.client
   }
@@ -392,7 +396,8 @@ export class TemporalBridge {
                 const [projects, runs] = await Promise.all([this.db.getProjects(), this.db.getPipelineRuns()])
                 const run = runs.find((r: any) => r.id === resourceId)
                 const project = run && projects.find((p: any) => p.id === run.projectId)
-                if (project?.autoDeployOnBuild && run) {
+                const released = project && run && this.onBuilt ? await this.onBuilt(project, run) : false
+                if (!released && project?.autoDeployOnBuild && run) {
                   await this.promoteProjectBuild(project, run)
                 }
               } catch (err: any) {
@@ -421,6 +426,7 @@ export class TemporalBridge {
       workflowId,
       taskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE,
       args: [{ ownerId, proposalId }],
+      ...startedFor(ownerId),
       workflowIdReusePolicy: 'ALLOW_DUPLICATE',
     })
     return workflowId
@@ -661,18 +667,21 @@ export class TemporalBridge {
     setInterval(reconcileRuns, RECONCILE_INTERVAL)
   }
 
-  async terminateIfRunning(wfId: string, reason: string): Promise<boolean> {
+  async stopIfRunning(wfId: string, reason: string): Promise<boolean> {
     if (!this.client) return false
-    const handle = this.client.workflow.getHandle(wfId)
-    try {
-      const described = await handle.describe()
-      if (described.status.name !== 'RUNNING') return false
-    } catch (err: any) {
-      if (/not\s*found/i.test(String(err?.message ?? err))) return false
-      throw err
-    }
-    await handle.terminate(reason)
-    return true
+    return (await stopIfRunning(this.client.workflow.getHandle(wfId), reason)) !== 'not-running'
+  }
+
+  async cancelWorkflow(workflowId: string): Promise<'cancelled' | 'not-running' | 'unreachable'> {
+    if (!this.isReady()) return 'unreachable';
+    const handle = this.client.workflow.getHandle(workflowId);
+    const status = await handle.describe().then((found) => found.status.name, (err: unknown) => {
+      if (/not\s*found/i.test(String((err as Error)?.message ?? err))) return 'NOT_FOUND';
+      throw err;
+    });
+    if (status !== 'RUNNING') return 'not-running';
+    await handle.cancel();
+    return 'cancelled';
   }
 
   async terminateWorkflow(wfId: string, reason = 'User aborted operation'): Promise<boolean> {
@@ -806,6 +815,7 @@ export class TemporalBridge {
       workflowId: wfId,
       taskQueue: HOST_QUEUE,
       args: [activityArgs],
+      ...startedFor(userId ?? PLATFORM_OWNER),
     })
 
     this.trackWorkflow(wfId, 'cluster-provision', savedCluster.id, clusterName, provider)
@@ -862,6 +872,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       workflowId: wfId,
       taskQueue: HOST_QUEUE,
       args: [activityArgs],
+      ...startedFor(cluster.ownerId ?? PLATFORM_OWNER),
     })
 
     this.trackWorkflow(wfId, 'cluster-destroy', cluster.id, cluster.name, cluster.provider)
@@ -1115,6 +1126,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
+      ...startedFor(dep.ownerId ?? userId ?? PLATFORM_OWNER),
     })
 
     this.trackWorkflow(wfId, 'app-deploy', dep.id, dep.name, '', dep)
@@ -1144,6 +1156,9 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       strategy: dep.strategy || 'helm',
       logFile: absoluteLogPath,
       deploymentId: dep.deploymentId || 'default',
+      ...(dep.appType ? { appType: dep.appType } : {}),
+      ...(cluster?.gpuEnabled ? { gpuEnabled: true } : {}),
+      ...(cluster?.kubeconfigPath ? { kubeconfigPath: cluster.kubeconfigPath } : {}),
     }
 
      this.db.saveDeploymentInfo({
@@ -1157,6 +1172,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
+      ...startedFor(dep.ownerId ?? PLATFORM_OWNER),
     })
 
     this.trackWorkflow(wfId, 'app-destroy', dep.id, dep.name, '', dep)
@@ -1202,6 +1218,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
+      ...startedFor(dep.ownerId ?? PLATFORM_OWNER),
     })
 
     this.trackWorkflow(wfId, 'app-resize', dep.id, dep.name, '', { ...dep, newStorage: storage })
@@ -1317,6 +1334,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
+      ...startedFor(dep.ownerId ?? PLATFORM_OWNER),
     })
 
     this.trackWorkflow(wfId, 'app-sync-config', dep.id, dep.name, '', dep)
@@ -1359,6 +1377,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
           startTime: wf.startTime?.toISOString?.() || wf.startTime,
           closeTime: wf.closeTime?.toISOString?.() || wf.closeTime,
           historyLength: wf.historyLength,
+          owner: ownerIn(wf.typedSearchAttributes),
         });
       }
       return workflows;
@@ -1387,6 +1406,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
         startTime: desc.startTime?.toISOString?.() || desc.startTime,
         closeTime: desc.closeTime?.toISOString?.() || desc.closeTime,
         historyLength: desc.historyLength,
+        owner: ownerIn(desc.typedSearchAttributes),
       };
     } catch { return null; }
   }
@@ -1450,6 +1470,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
+      ...startedFor(project.ownerId ?? PLATFORM_OWNER),
     })
 
     this.trackWorkflow(wfId, 'pipeline-run', runId, project.giteaRepo, '')
@@ -1472,6 +1493,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       taskQueue: 'host-ops-queue',
       workflowId,
       args: [args],
+      ...startedFor(args.ownerId),
     })
     return { workflowId }
   }

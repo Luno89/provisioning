@@ -31,6 +31,11 @@ import type { TreeTypeSpec } from './tree-types.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { ClusterProviderSpec } from './cluster-providers.js';
+import { ACCOUNT_DATA, type AccountRelated } from './account-removal.js';
+import type { AccountIds, ScriptedRequestRecord } from './db-interface.js';
+import type { OdooRelease } from './odoo-release.js';
+import type { StoredArtifact } from './artifacts.js';
+import type { ArtifactChunk } from '../services/ArtifactService.js';
 
 export const databaseOf = (uri: string): string => {
   const name = uri.replace(/^mongodb(\+srv)?:\/\/[^/]+\/?/, '').split('?')[0]?.trim();
@@ -187,6 +192,18 @@ export class MongoDB implements Database {
     return this.db!.collection('planProposals');
   }
 
+  private get artifacts(): Collection {
+    return this.db!.collection('artifacts');
+  }
+
+  private get artifactChunks(): Collection {
+    return this.db!.collection('artifactChunks');
+  }
+
+  private get odooReleases(): Collection {
+    return this.db!.collection('odooReleases');
+  }
+
   private get secretRequests(): Collection {
     return this.db!.collection('secretRequests');
   }
@@ -265,6 +282,7 @@ export class MongoDB implements Database {
     await this.runTraces.createIndex({ ownerId: 1, runId: 1, sequence: 1 });
     await this.turnLogs.createIndex({ turnId: 1, seq: 1 }, { unique: true });
     await this.turnLogs.createIndex({ at: 1 }, { expireAfterSeconds: TURN_LOG_RETENTION_SECONDS });
+    await this.turnLogs.createIndex({ ownerId: 1, seq: 1, at: -1 });
     await this.handoffs.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.instanceRegistry.createIndex({ ownerId: 1 });
     await this.joinTokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
@@ -284,6 +302,10 @@ export class MongoDB implements Database {
       });
     }
     await this.pipelineRuns.createIndex({ projectId: 1 });
+    await this.odooReleases.createIndex({ ownerId: 1, projectId: 1 });
+    await this.artifacts.createIndex({ ownerId: 1, runId: 1 });
+    await this.artifacts.createIndex({ expiresAt: 1 });
+    await this.artifactChunks.createIndex({ artifactId: 1, n: 1 });
     await this.frontier.createIndex({ ingestId: 1, state: 1, depth: 1, rank: -1, url: 1 });
     await this.corpus.createIndex({ ownerId: 1, ingestId: 1 });
     await this.corpus.createIndex({ ownerId: 1, projectId: 1 });
@@ -573,6 +595,15 @@ export class MongoDB implements Database {
     return doc ? fromDoc<Conversation>(doc) : undefined;
   }
 
+  async allowToolInConversation(ownerId: string, conversationId: string, tool: string): Promise<boolean> {
+    const result = await this.conversations.updateOne({ _id: conversationId as any, ownerId }, { $addToSet: { allowedTools: tool } });
+    return result.matchedCount > 0;
+  }
+
+  async ownsRun(ownerId: string, runId: string): Promise<boolean> {
+    return (await this.turnLogs.countDocuments({ ownerId, $or: [{ turnId: runId }, { 'events.runId': runId }] }, { limit: 1 })) > 0;
+  }
+
   async saveConversation(conversation: Conversation): Promise<void> {
     const doc = toDoc(conversation);
     const id = doc._id;
@@ -690,6 +721,100 @@ export class MongoDB implements Database {
     await this.pendingApprovals.deleteOne({ _id: id as any });
   }
 
+  async accountIds(ownerId: string): Promise<AccountIds> {
+    const ids = async (name: string, field = '_id') =>
+      (await this.db!.collection(name).find({ ownerId }, { projection: { [field]: 1 } }).toArray()).map((doc) => String(doc[field]));
+    const conversations = await this.conversations.find({ ownerId }, { projection: { _id: 1, liveTurn: 1 } }).toArray();
+    const turns = (await this.turnLogs.distinct('turnId', { ownerId })) as string[];
+    const live = conversations.map((doc) => (doc.liveTurn as { runId?: string } | undefined)?.runId).filter((id): id is string => typeof id === 'string');
+    return {
+      runIds: [...new Set([...turns, ...live])],
+      treeIds: await ids('trees'),
+      conversationIds: conversations.map((doc) => String(doc._id)),
+      proposalIds: await ids('planProposals'),
+      projectIds: await ids('projects'),
+      ingestIds: ((await this.corpus.distinct('ingestId', { ownerId })) as unknown[]).filter((id): id is string => typeof id === 'string'),
+    };
+  }
+
+  async accountLeftovers(ownerId: string): Promise<Record<string, number>> {
+    const left: Record<string, number> = {};
+    const count = async (name: string, filter: Record<string, unknown>) => {
+      const found = await this.db!.collection(name).countDocuments(filter as never);
+      if (found) left[name] = (left[name] ?? 0) + found;
+    };
+    for (const name of ACCOUNT_DATA.byOwner) await count(name, { ownerId });
+    for (const name of [...ACCOUNT_DATA.byId, ACCOUNT_DATA.last]) await count(name, { _id: ownerId });
+    return left;
+  }
+
+  async removeAccountRecords(ownerId: string, related: AccountRelated): Promise<Record<string, number>> {
+    const removed: Record<string, number> = {};
+    const count = async (name: string, filter: Record<string, unknown>) => {
+      const { deletedCount } = await this.db!.collection(name).deleteMany(filter as never);
+      if (deletedCount) removed[name] = (removed[name] ?? 0) + deletedCount;
+    };
+    if (related.watermarkKeys.length) await count('memoryWatermarks', { _id: { $in: [...related.watermarkKeys] } });
+    if (related.ingestIds.length) await count('crawl_frontier', { ingestId: { $in: [...related.ingestIds] } });
+    if (related.projectIds.length) await count('pipelineRuns', { projectId: { $in: [...related.projectIds] } });
+    for (const name of ACCOUNT_DATA.byOwner) await count(name, { ownerId });
+    for (const name of ACCOUNT_DATA.byId) await count(name, { _id: ownerId });
+    await count(ACCOUNT_DATA.last, { _id: ownerId });
+    return removed;
+  }
+
+  async removeProjectRecords(projectId: string): Promise<Record<string, number>> {
+    const removed: Record<string, number> = {};
+    for (const name of ['pipelineRuns', 'odooReleases', 'corpus', 'secretRequests', 'pendingApprovals', 'tasks']) {
+      const { deletedCount } = await this.db!.collection(name).deleteMany({ projectId });
+      if (deletedCount) removed[name] = deletedCount;
+    }
+    for (const name of ['conversations', 'memories']) {
+      const { modifiedCount } = await this.db!.collection(name).updateMany({ projectId }, { $unset: { projectId: '' } });
+      if (modifiedCount) removed[`${name} unlinked`] = modifiedCount;
+    }
+    const { deletedCount } = await this.projects.deleteOne({ _id: projectId as never });
+    if (deletedCount) removed.projects = deletedCount;
+    return removed;
+  }
+
+  async saveScriptedRequest(request: ScriptedRequestRecord): Promise<void> {
+    await this.db!.collection('scriptedRequests').insertOne({ ...request });
+  }
+
+  async getScriptedRequests(ownerId: string): Promise<ScriptedRequestRecord[]> {
+    const docs = await this.db!.collection('scriptedRequests').find({ ownerId }).sort({ at: 1, _id: 1 }).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as ScriptedRequestRecord);
+  }
+
+  async findRunEffort(runId: string): Promise<RunEffort | undefined> {
+    const doc = await this.runEffort.findOne({ _id: runId as never });
+    if (!doc) return undefined;
+    const { _id, ...effort } = doc;
+    return effort as unknown as RunEffort;
+  }
+
+  private async reownArtifacts(from: string, to: string, runIds?: readonly string[] | undefined): Promise<{ modifiedCount: number }> {
+    const moving = await this.artifacts.find({ ownerId: from, ...(runIds ? { runId: { $in: [...runIds] } } : {}) }).project({ _id: 1 }).toArray();
+    if (moving.length === 0) return { modifiedCount: 0 };
+    const ids = moving.map((doc) => doc._id);
+    await this.artifactChunks.updateMany({ artifactId: { $in: ids as never[] } }, { $set: { ownerId: to } });
+    return this.artifacts.updateMany({ _id: { $in: ids as never[] } }, { $set: { ownerId: to } });
+  }
+
+  async reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number> {
+    if (runIds && runIds.length === 0) return 0;
+    const runs = runIds ? { runId: { $in: [...runIds] } } : {};
+    const turns = runIds ? { turnId: { $in: [...runIds] } } : {};
+    const moved = await Promise.all([
+      this.db!.collection('engineRunTraces').updateMany({ ownerId: from, ...runs }, { $set: { ownerId: to } }),
+      this.turnLogs.updateMany({ ownerId: from, ...turns }, { $set: { ownerId: to } }),
+      this.runEffort.updateMany({ ownerId: from, ...runs }, { $set: { ownerId: to } }),
+      this.reownArtifacts(from, to, runIds),
+    ]);
+    return moved.reduce((total, result) => total + result.modifiedCount, 0);
+  }
+
   async getUsers(): Promise<UserMetadata[]> {
     return (await this.users.find({}).toArray()).map(doc => fromDoc<UserMetadata>(doc));
   }
@@ -772,6 +897,49 @@ export class MongoDB implements Database {
 
   async deletePlanProposal(ownerId: string, id: string): Promise<void> {
     await this.planProposals.deleteOne({ _id: id as any, ownerId });
+  }
+
+  async saveArtifact(artifact: StoredArtifact): Promise<void> {
+    const { _id, ...rest } = toDoc(artifact);
+    await this.artifacts.replaceOne({ _id }, rest, { upsert: true });
+  }
+
+  async getArtifacts(ownerId: string, runId?: string): Promise<StoredArtifact[]> {
+    const docs = await this.artifacts.find({ ownerId, ...(runId ? { runId } : {}) }).sort({ createdAt: 1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<StoredArtifact>(d));
+  }
+
+  async getExpiredArtifacts(now: string): Promise<StoredArtifact[]> {
+    const docs = await this.artifacts.find({ expiresAt: { $lte: now } }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<StoredArtifact>(d));
+  }
+
+  async deleteArtifact(id: string): Promise<void> {
+    await this.artifacts.deleteOne({ _id: id as never });
+  }
+
+  async saveArtifactChunk(chunk: ArtifactChunk): Promise<void> {
+    await this.artifactChunks.replaceOne({ _id: `${chunk.artifactId}:${chunk.n}` as never }, { artifactId: chunk.artifactId, ownerId: chunk.ownerId, n: chunk.n, data: chunk.data }, { upsert: true });
+  }
+
+  async getArtifactChunks(artifactId: string): Promise<ArtifactChunk[]> {
+    const docs = await this.artifactChunks.find({ artifactId }).sort({ n: 1 }).toArray();
+    return docs.map((d) => ({ artifactId: d.artifactId as string, ownerId: d.ownerId as string, n: d.n as number, data: Buffer.from((d.data as { buffer: ArrayBuffer }).buffer ?? d.data) }));
+  }
+
+  async deleteArtifactChunks(artifactId: string): Promise<void> {
+    await this.artifactChunks.deleteMany({ artifactId });
+  }
+
+  async getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]> {
+    const docs = await this.odooReleases.find({ ownerId, ...(projectId ? { projectId } : {}) }).sort({ startedAt: -1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<OdooRelease>(d));
+  }
+
+  async saveOdooRelease(release: OdooRelease): Promise<void> {
+    const doc = toDoc(release);
+    const { _id, ...rest } = doc;
+    await this.odooReleases.replaceOne({ _id }, rest, { upsert: true });
   }
 
   async getSecretRequests(ownerId: string, filter: SecretRequestFilter = {}): Promise<SecretRequest[]> {
@@ -1046,6 +1214,11 @@ export class MongoDB implements Database {
 
   async getTurnLog(ownerId: string, turnId: string, after: number): Promise<TurnLogEntry[]> {
     const docs = await this.turnLogs.find({ ownerId, turnId, seq: { $gt: after } }).sort({ seq: 1 }).toArray();
+    return docs.map(({ _id, at, ...rest }) => ({ ...rest, at: (at as Date).toISOString() }) as unknown as TurnLogEntry);
+  }
+
+  async recentTurns(ownerId: string, since: string, limit: number): Promise<TurnLogEntry[]> {
+    const docs = await this.turnLogs.find({ ownerId, seq: 1, at: { $gte: new Date(since) } }).sort({ at: -1 }).limit(limit).toArray();
     return docs.map(({ _id, at, ...rest }) => ({ ...rest, at: (at as Date).toISOString() }) as unknown as TurnLogEntry);
   }
 

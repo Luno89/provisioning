@@ -4,9 +4,28 @@ import type { TurnLogEntry } from '../lib/turn-log.js';
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;
 
-/** A turn's log, read from after a position: how a browser catches up before it follows the turn live. */
-export function turnsRouter(deps: { log: { read(ownerId: string, turnId: string, after: number): Promise<TurnLogEntry[]> } }): Router {
+export const RECENT_TURNS_HOURS = 24;
+export const RECENT_TURNS_SHOWN = 50;
+
+export function turnsRouter(deps: {
+  log: {
+    read(ownerId: string, turnId: string, after: number): Promise<TurnLogEntry[]>;
+    recent(ownerId: string, since: string, limit: number): Promise<TurnLogEntry[]>;
+  };
+  now?: (() => Date) | undefined;
+}): Router {
   const router = Router();
+
+  router.get('/', asyncRoute(async (req, res) => {
+    const since = new Date((deps.now?.() ?? new Date()).getTime() - RECENT_TURNS_HOURS * 3_600_000).toISOString();
+    const firsts = await deps.log.recent(userOf(req).id, since, RECENT_TURNS_SHOWN);
+    res.json({
+      turns: firsts.map((entry) => {
+        const started = entry.events.find((event) => event.type === 'run.started' && event.runId === entry.turnId) as { agentId?: string } | undefined;
+        return { turnId: entry.turnId, at: entry.at, ...(started?.agentId ? { agentId: started.agentId } : {}) };
+      }),
+    });
+  }));
 
   router.get('/:turnId', asyncRoute(async (req, res) => {
     const after = Number(req.query.after ?? 0);

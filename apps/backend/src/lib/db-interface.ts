@@ -30,7 +30,11 @@ import type { TreeTypeSpec } from './tree-types.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { ClusterProviderSpec } from './cluster-providers.js';
+import type { AccountRelated } from './account-removal.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
+import type { OdooRelease } from './odoo-release.js';
+import type { StoredArtifact } from './artifacts.js';
+import type { ArtifactChunk } from '../services/ArtifactService.js';
 
 export type PartialInfo<T> = { [K in keyof T]?: T[K] | undefined };
 
@@ -50,6 +54,24 @@ export interface SecretRequestFilter {
   treeId?: string | undefined;
 }
 
+export interface ScriptedRequestRecord {
+  ownerId: string;
+  at: string;
+  text: string;
+  tools: string[];
+  rule?: number | undefined;
+  miss?: string | undefined;
+}
+
+export interface AccountIds {
+  runIds: string[];
+  treeIds: string[];
+  conversationIds: string[];
+  proposalIds: string[];
+  projectIds: string[];
+  ingestIds: string[];
+}
+
 export interface Database {
   init(): Promise<void>;
   close(): Promise<void>;
@@ -67,6 +89,14 @@ export interface Database {
   saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata>;
 
   getUsers(): Promise<UserMetadata[]>;
+  accountIds(ownerId: string): Promise<AccountIds>;
+  removeAccountRecords(ownerId: string, related: AccountRelated): Promise<Record<string, number>>;
+  accountLeftovers(ownerId: string): Promise<Record<string, number>>;
+  removeProjectRecords(projectId: string): Promise<Record<string, number>>;
+  findRunEffort(runId: string): Promise<RunEffort | undefined>;
+  saveScriptedRequest(request: ScriptedRequestRecord): Promise<void>;
+  getScriptedRequests(ownerId: string): Promise<ScriptedRequestRecord[]>;
+  reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number>;
   saveUser(user: UserMetadata): Promise<void>;
   saveUserList(users: UserMetadata[]): Promise<void>;
   getUserByEmail(email: string): Promise<UserMetadata | undefined>;
@@ -120,6 +150,8 @@ export interface Database {
 
   getConversations(): Promise<Conversation[]>;
   getConversation(ownerId: string, id: string): Promise<Conversation | undefined>;
+  allowToolInConversation(ownerId: string, conversationId: string, tool: string): Promise<boolean>;
+  ownsRun(ownerId: string, runId: string): Promise<boolean>;
   saveConversation(conversation: Conversation): Promise<void>;
   deleteConversation(id: string): Promise<void>;
 
@@ -151,6 +183,15 @@ export interface Database {
   savePlanProposal(proposal: PlanProposal): Promise<void>;
   deletePlanProposal(ownerId: string, id: string): Promise<void>;
 
+  getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]>;
+  saveArtifact(artifact: StoredArtifact): Promise<void>;
+  getArtifacts(ownerId: string, runId?: string): Promise<StoredArtifact[]>;
+  getExpiredArtifacts(now: string): Promise<StoredArtifact[]>;
+  deleteArtifact(id: string): Promise<void>;
+  saveArtifactChunk(chunk: ArtifactChunk): Promise<void>;
+  getArtifactChunks(artifactId: string): Promise<ArtifactChunk[]>;
+  deleteArtifactChunks(artifactId: string): Promise<void>;
+  saveOdooRelease(release: OdooRelease): Promise<void>;
   getSecretRequests(ownerId: string, filter?: SecretRequestFilter): Promise<SecretRequest[]>;
   getSecretRequest(ownerId: string, id: string): Promise<SecretRequest | undefined>;
   saveSecretRequest(request: SecretRequest): Promise<void>;
@@ -202,10 +243,10 @@ export interface Database {
 
   saveRunTraces(traces: StoredNodeTrace[]): Promise<void>;
   getRunTraces(ownerId: string, runId: string): Promise<StoredNodeTrace[]>;
-  /** Appends one numbered write to a turn's log; a second write with the same number is refused. */
   appendTurnLog(entry: TurnLogEntry): Promise<void>;
   getTurnLog(ownerId: string, turnId: string, after: number): Promise<TurnLogEntry[]>;
   lastTurnLogSeq(turnId: string): Promise<number>;
+  recentTurns(ownerId: string, since: string, limit: number): Promise<TurnLogEntry[]>;
   saveRunEffort(effort: RunEffort): Promise<void>;
   getRunEffort(ownerId: string, procedureId: string, modelKey?: string): Promise<RunEffort[]>;
 

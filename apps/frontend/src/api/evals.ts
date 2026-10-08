@@ -1,6 +1,5 @@
 import { api } from './client'
-
-export type EvalCategory = 'simple' | 'multiple' | 'irrelevance'
+import type { Procedure } from '@koala/agent-engine/procedure'
 
 export type ArgCheck =
   | { arg: string; is: string }
@@ -8,84 +7,9 @@ export type ArgCheck =
   | { arg: string; matches: string }
   | { arg: string; nonEmpty: true }
 
-export interface Expectation {
+export interface TurnChoice {
   tool: string | null
   args?: ArgCheck[]
-}
-
-export interface EvalCase {
-  name: string
-  category: EvalCategory
-  agent: string
-  say: string
-  expect: Expectation
-  repeats?: number
-  provokes?: { tool: string; when: string }
-  mine?: boolean
-  updatedAt?: string
-}
-
-export interface EvalCaseSummary {
-  name: string
-  category: string
-  agent: string
-  say: string
-  expects: string | null
-}
-
-export type CoverageKind = 'uncovered' | 'unprovoked' | 'malformed'
-
-export interface CoverageGap {
-  case: string
-  message: string
-  kind: CoverageKind
-}
-
-export interface ToolScore {
-  tool: string
-  cases: number
-  attempts: number
-  passed: number
-  complaints: string[]
-}
-
-export interface CaseOutcome {
-  name: string
-  category: string
-  attempts: number
-  passed: number
-  complaints: string[]
-}
-
-export interface Reliability {
-  cases: number
-  always: number
-  never: number
-  flaky: number
-}
-
-export interface AttemptRecord {
-  attempt: number
-  passed: boolean
-  complaint?: string
-  error?: string
-  systemHash?: string
-  toolsOffered: string[]
-  content: string
-  thinking: string
-  toolCalls: { name: string; arguments: string }[]
-  promptTokens: number
-  completionTokens: number
-  totalTokens: number
-  latencyMs: number
-}
-
-export interface CaseResult {
-  name: string
-  category: string
-  agent: string
-  expects: string | null
-  attempts: AttemptRecord[]
 }
 
 export type RunState = 'running' | 'done' | 'failed' | 'cancelled' | 'interrupted'
@@ -103,87 +27,41 @@ export interface Sampling {
   conversation?: Record<string, number | undefined>
 }
 
-export interface Level1Run {
-  id: string
-  state: RunState
-  startedAt: string
-  finishedAt?: string
-  repeats: number
-  modelId?: string
-  modelLabel?: string
-  sampling?: Sampling
-  maxTokens?: number
-  toolCatalogueHash: string
-  cases: string[]
-  finished: number
-  running?: string
-  results: CaseResult[]
-  error?: string
-  summary: { reliability: Reliability; tools: ToolScore[] }
-}
-
 export interface Rate {
   passed: number
   attempts: number
 }
 
-export interface RunComparison {
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Authority: `CheckRunComparison` in apps/backend/src/lib/check-compare.ts and `CoverageGap` in
+ * apps/backend/src/lib/check-coverage.ts.
+ */
+export interface CheckRunComparison {
   before: string
   after: string
   differences: { what: string; before: string; after: string }[]
-  cases: { name: string; before?: Rate; after?: Rate; change?: number }[]
+  checks: { id: string; name: string; before?: Rate; after?: Rate; change?: number }[]
   tools: { tool: string; before: Rate; after: Rate; change: number }[]
 }
 
-export interface StartLevel1Input {
-  repeats?: number
-  only?: string[]
-  modelId?: string
-  modelLabel?: string
-  temperature?: number
-  maxTokens?: number
+export type CoverageGap =
+  | { kind: 'uncovered'; tool: string; message: string }
+  | { kind: 'unprovoked'; tool: string; when: string; message: string }
+  | { kind: 'no-restraint'; agent: string; message: string }
+
+export async function getCoverage(): Promise<CoverageGap[]> {
+  const { data } = await api.get<{ gaps: CoverageGap[] }>('/evals/level2/coverage')
+  return data.gaps
 }
 
-export async function listCases(): Promise<{ cases: EvalCase[]; coverage: CoverageGap[] }> {
-  const { data } = await api.get<{ cases: EvalCase[]; coverage: CoverageGap[] }>('/evals/level1/cases')
+export async function getCheckProcedure(id: string): Promise<{ procedure: Procedure }> {
+  const { data } = await api.get<{ procedure: Procedure }>(`/evals/level2/scenarios/${encodeURIComponent(id)}/procedure`)
   return data
 }
 
-export async function saveCase(entry: EvalCase): Promise<EvalCase> {
-  const { data } = await api.put<{ case: EvalCase }>(`/evals/level1/cases/${entry.name}`, entry)
-  return data.case
-}
-
-export async function deleteCase(name: string): Promise<void> {
-  await api.delete(`/evals/level1/cases/${name}`)
-}
-
-export async function listLevel1Runs(): Promise<Level1Run[]> {
-  const { data } = await api.get<{ runs: Level1Run[] }>('/evals/level1/runs')
-  return data.runs
-}
-
-export async function getLevel1Run(id: string): Promise<Level1Run> {
-  const { data } = await api.get<Level1Run>(`/evals/level1/runs/${id}`)
-  return data
-}
-
-export async function startLevel1Run(input: StartLevel1Input): Promise<Level1Run> {
-  const { data } = await api.post<Level1Run>('/evals/level1/runs', input)
-  return data
-}
-
-export async function cancelLevel1Run(id: string): Promise<void> {
-  await api.post(`/evals/level1/runs/${id}/cancel`, {})
-}
-
-export async function getPrompt(hash: string): Promise<string> {
-  const { data } = await api.get<{ hash: string; text: string }>(`/evals/level1/prompts/${hash}`)
-  return data.text
-}
-
-export async function compareLevel1Runs(before: string, after: string): Promise<RunComparison> {
-  const { data } = await api.get<RunComparison>('/evals/level1/compare', { params: { before, after } })
+export async function compareCheckRuns(before: string, after: string): Promise<CheckRunComparison> {
+  const { data } = await api.get<CheckRunComparison>('/evals/level2/compare', { params: { before, after } })
   return data
 }
 
@@ -204,17 +82,61 @@ export interface ScenarioWorld {
   memories?: { title: string; text: string; category?: string }[]
   files?: Record<string, string>
   acceptProposedWork?: boolean
+  agents?: Record<string, Record<string, unknown>>
+  project?: { name: string }
 }
 
 export interface ScenarioExpectations {
   outcome?: string
   toolsCalled?: string[]
   toolsNotCalled?: string[]
+  toolsSucceeded?: string[]
   toolsInOrder?: string[]
   tasks?: { id: string; status: TaskStatus }[]
   within?: { rounds?: number; toolCalls?: number; totalTokens?: number }
   provokes?: { tool: string; when: string; then: 'retried' | 'reported' }
   saved?: { procedure: string; stored: boolean }
+  handOffs?: { agent: string; atLeast?: number; atMost?: number; together?: boolean }[]
+  files?: { path: string; contains?: string[] }[]
+  modelSaw?: { contains?: string[]; lacks?: string[] }
+  compacted?: boolean
+  summaryKept?: boolean
+  interrupted?: boolean
+  turnLog?: { complete: boolean }
+  leaves?: { verified?: number; landed?: Record<string, 'merged' | 'nothing'>; mergeTasks?: number }
+  repository?: { of: 'tree' | 'conversation'; files: { path: string; contains?: string[] }[] }
+  pullRequests?: { merged?: number; open?: number; closedUnmerged?: number }
+  workspace?: { of: 'tree' | 'conversation'; exists: boolean }
+  project?: { exists: boolean }
+  trees?: number
+  exit?: string
+  outputs?: Record<string, { equals?: unknown; contains?: string }>
+  chooses?: TurnChoice
+}
+
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Authority: `PLUMBING_KEYS` follows `FlowExpectations` in apps/backend/src/eval/level2/scenario.ts, `CheckScript`
+ * in apps/backend/src/lib/check-script.ts, `StepUnderTest` in apps/backend/src/lib/step-check.ts.
+ */
+export const PLUMBING_KEYS = ['modelSaw', 'compacted', 'summaryKept', 'interrupted', 'turnLog', 'leaves', 'repository', 'pullRequests', 'workspace', 'project', 'trees', 'exit', 'outputs'] as const
+
+export interface CheckScript {
+  rules: { when: Record<string, unknown>; reply: { say?: string; call?: { tool: string; arguments: Record<string, unknown> }[]; paceMs?: number } }[]
+  contextTokens?: number
+}
+
+export interface StepUnderTest {
+  node: string
+  settings?: Record<string, unknown>
+  inputs?: Record<string, unknown>
+  from?: string
+}
+
+export interface FlowStage {
+  name: string
+  do: Record<string, unknown>
+  expect?: ScenarioExpectations
 }
 
 export interface Scenario {
@@ -222,12 +144,18 @@ export interface Scenario {
   name: string
   describe: string
   agent: string
-  procedure: { id: string; version?: string }
+  procedure: { id: string }
   input: { message: string; inputs?: Record<string, unknown> }
   world?: ScenarioWorld
   answers?: Record<string, unknown>
   approvals?: 'allow' | 'refuse'
+  script?: CheckScript
+  step?: StepUnderTest
+  turn?: boolean
+  repeats?: number
+  passAt?: number
   expect: ScenarioExpectations
+  then?: FlowStage[]
   mine?: boolean
   updatedAt?: string
 }
@@ -238,11 +166,22 @@ export interface Check {
   detail: string
 }
 
+export interface CheckAttempt {
+  runId: string
+  conversationId?: string
+  passed: boolean
+  durationMs: number
+  checks: Check[]
+  calls: { name: string; ok: boolean; digest: string }[]
+  error?: string
+}
+
 export interface ScenarioResult {
   scenarioId: string
   name: string
   runId: string
   procedure: { id: string; version: string }
+  conversationId?: string
   passed: boolean
   outcome: string
   reason?: string
@@ -253,6 +192,10 @@ export interface ScenarioResult {
   tasks: { id: string; title: string; status: string; evidence?: string }[]
   durationMs: number
   error?: string
+  repeats?: number
+  passAt?: number
+  passedAttempts?: number
+  attempts?: CheckAttempt[]
 }
 
 export interface Level2Run {
@@ -270,9 +213,20 @@ export interface Level2Run {
   error?: string
   trigger?: BenchTrigger
   regressions?: string[]
+  trialPractice?: string
+  agents?: Record<string, string>
 }
 
-export type BenchTrigger = { kind: 'manual' } | { kind: 'full' } | { kind: 'changed'; agents: string[] }
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Authority: `BenchTrigger` in apps/backend/src/lib/bench.ts.
+ */
+export type BenchTrigger =
+  | { kind: 'manual' }
+  | { kind: 'full' }
+  | { kind: 'changed'; agents: string[] }
+  | { kind: 'practice'; agent: string; practiceId: string }
+  | { kind: 'prompt-change'; agent: string; changeId: string }
 
 export interface BenchSettings {
   enabled: boolean

@@ -62,7 +62,7 @@ const setup = (init: {
 describe('what the nav offers', () => {
   it('renders the Koala entries', () => {
     setup();
-    for (const label of ['Koala', 'Projects', 'Memories', 'Tree Types', 'Tool Evals', 'Forest']) {
+    for (const label of ['Koala', 'Projects', 'Studio', 'Agents', 'Tools', 'Procedures', 'Tree Types', 'Extensions', 'Forest']) {
       expect(screen.getByText(label), label).toBeInTheDocument();
     }
   });
@@ -70,7 +70,7 @@ describe('what the nav offers', () => {
   it('keeps the Forest tabs hidden until it is opened', () => {
     setup();
     expect(screen.queryByText('Clusters')).not.toBeInTheDocument();
-    expect(screen.getByText('Memories')).toBeInTheDocument();
+    expect(screen.getByText('Agents')).toBeInTheDocument();
   });
 
   it('shows them when it is open', () => {
@@ -79,7 +79,7 @@ describe('what the nav offers', () => {
     expect(screen.getByText('Applications')).toBeInTheDocument();
   });
 
-  it('keeps Recent Chats hidden when Koala is collapsed, but leaves Memories and Tree Types visible — they are flat siblings, not nested under Koala', async () => {
+  it('keeps Recent Chats hidden when Koala is collapsed, but leaves Studio\'s entries visible — they are not nested under Koala', async () => {
     vi.mocked(chatPackApi.listChatConversations).mockResolvedValue([
       { id: 'c-1', title: 'Some Chat', messageCount: 1, updatedAt: '2026-08-26T00:00:00Z', messages: [] },
     ]);
@@ -87,7 +87,7 @@ describe('what the nav offers', () => {
     setup({ view: 'chat', koalaOpen: false });
 
     expect(screen.queryByText('Some Chat')).not.toBeInTheDocument();
-    expect(screen.getByText('Memories')).toBeInTheDocument();
+    expect(screen.getByText('Agents')).toBeInTheDocument();
     expect(screen.getByText('Tree Types')).toBeInTheDocument();
   });
 
@@ -101,11 +101,14 @@ describe('what the nav offers', () => {
 });
 
 describe('what clicking does', () => {
-  it('navigates to Projects, Memories and Tree Types from chat', () => {
+  it('navigates to Projects, and to each of Studio\'s concepts by its own address', () => {
     const { view } = setup();
-    for (const [label, id] of [['Projects', 'projects'], ['Memories', 'memories'], ['Tree Types', 'tree-types']]) {
+    fireEvent.click(screen.getByText('Projects'));
+    expect(view()).toBe('projects');
+    for (const [label, path] of [['Agents', 'agents'], ['Tools', 'tools'], ['Procedures', 'procedures'], ['Tree Types', 'tree-types'], ['Extensions', 'extensions']]) {
       fireEvent.click(screen.getByText(label!));
-      expect(view(), label).toBe(id);
+      expect(view(), label).toBe('studio');
+      expect(window.location.hash, label).toBe(`#/studio/${path}`);
     }
   });
 
@@ -162,8 +165,9 @@ describe('what clicking does', () => {
 
 describe('what the current view looks like', () => {
   it('marks the active entry, so you can tell where you are', () => {
-    setup({ view: 'memories' });
-    expect(screen.getByText('Memories').className).toMatch(/bg-\[var\(--bark-600\)\]/);
+    window.location.hash = '#/studio/tools'
+    setup({ view: 'studio' });
+    expect(screen.getByText('Tools').className).toMatch(/bg-\[var\(--bark-600\)\]/);
     expect(screen.getByText('Tree Types').className).not.toMatch(/bg-\[var\(--bark-600\)\]/);
   });
 

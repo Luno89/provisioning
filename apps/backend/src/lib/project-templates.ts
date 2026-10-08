@@ -1,3 +1,4 @@
+import { ODOO_CHART_FILES } from './odoo-chart-template.js';
 
 export interface TemplateFile {
   path: string;
@@ -569,4 +570,128 @@ echo "Reproducing failure case for {{projectName}}..."
     path: 'README.md',
     content: `# Investigation: {{projectName}}\n\nRoot cause analysis and diagnostic evidence.\n`,
   },
+];
+
+const ODOO_DOCKERFILE = `FROM odoo:18
+USER root
+COPY ./addons /mnt/extra-addons
+RUN chown -R odoo:odoo /mnt/extra-addons
+USER odoo
+`;
+
+const ODOO_README = (name: string) => `# ${name}
+
+Odoo 18 Community addons, built into an image \`FROM odoo:18\` with \`addons/\` copied to \`/mnt/extra-addons\`.
+
+- Every feature is a module, or a change to one, under \`addons/\` — see \`addons/README.md\`.
+- How a change is checked: \`CHECKS.md\`.
+- A push to \`main\` builds the image.
+`;
+
+const ODOO_ADDONS_README = `# Addons
+
+One folder per module. A module's folder name is its technical name: lower case, words joined by underscores.
+
+\`\`\`
+addons/sale_delivery_note/
+  __init__.py                 from . import models
+  __manifest__.py             name, version '18.0.1.0.0', depends, data, license 'LGPL-3'
+  models/__init__.py          from . import sale_order
+  models/sale_order.py        class SaleOrder(models.Model): _inherit = 'sale.order'; a new field
+  views/sale_order_views.xml  inherits the form view to show the field
+  security/ir.model.access.csv  access rules for any new model
+  tests/__init__.py           from . import test_sale_order
+  tests/test_sale_order.py    TransactionCase tests of what the module adds
+\`\`\`
+
+- Extend existing models with \`_inherit\`; never edit Odoo's own modules.
+- Every file listed under \`data\` in the manifest has to exist, and every new model needs an access rule.
+- Every module has tests in \`tests/\` for what it adds; \`odoo-check\` runs only the modules you name.
+`;
+
+const ODOO_CHECKS = `# How work on this project is checked
+
+Run from the repository root:
+
+\`\`\`
+odoo-check <module>[,<module>] addons
+\`\`\`
+
+It installs the named modules into a fresh, throwaway Odoo 18 database, runs their tests, and ends with
+\`odoo-check: PASSED\` or \`odoo-check: FAILED\`. Name every module the work added or changed, and the modules that
+depend on them.
+
+Changes a person would see — a field, a view, a menu, a button — come with a browser test in \`e2e/\`
+(TypeScript Playwright; \`e2e/signs-in.spec.ts\` shows the shape). Run it with:
+
+\`\`\`
+odoo-e2e <module>[,<module>] e2e
+\`\`\`
+
+It installs the modules into a throwaway Odoo it serves on localhost, signs in there as \`ODOO_LOGIN\` /
+\`ODOO_PASSWORD\` (that throwaway database's own admin, never a real one), runs the specs in Chromium, and ends with
+\`odoo-e2e: PASSED\` or \`odoo-e2e: FAILED\`. Screenshots, traces and videos of failures land in \`e2e-results/\`.
+
+A task whose work a person would see carries the browser tests as its check, so each test is reported on its own and
+a failure keeps what the browser saw:
+
+\`\`\`
+"checks": { "e2e": { "specs": ["e2e/<the spec>.spec.ts"] } }
+\`\`\`
+
+That serves every module under \`addons/\` the same way (\`koala-e2e <specs>\`).
+
+Changes under \`deploy/chart/\` (the Helm chart this project deploys with) are checked with:
+
+\`\`\`
+helm lint deploy/chart && helm template check deploy/chart --set image.repository=check --set slots.a.tag=x --set host=check.local > /dev/null
+\`\`\`
+
+The chart keeps two slots, a and b, on one PostgreSQL; the platform decides which is live and which tag each runs, so
+leave \`live\`, \`slots\`, \`image\`, \`host\` and \`previewHost\` to it.
+
+A piece of work is done when:
+- \`odoo-check\` says PASSED for every module it touched, and \`odoo-e2e\` for its browser tests when it has any;
+- each module's tests cover what the work added (a new field is set and read back, a new rule is enforced);
+- the manifest lists every data file, and every new model has an access rule.
+
+A judge runs the same command against the claimed commit and reads the tests, not only the result.
+`;
+
+export const ODOO_PLAYWRIGHT_CONFIG = `import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  testDir: 'e2e',
+  outputDir: 'e2e-results/artifacts',
+  timeout: 60_000,
+  use: {
+    baseURL: process.env.BASE_URL,
+    screenshot: 'only-on-failure',
+    trace: 'retain-on-failure',
+    video: 'retain-on-failure',
+  },
+});
+`;
+
+export const ODOO_E2E_EXAMPLE = `import { test, expect } from '@playwright/test';
+
+test('a person signs in and reaches the Odoo home', async ({ page }) => {
+  await page.goto('/web/login');
+  await page.fill('input[name="login"]', process.env.ODOO_LOGIN!);
+  await page.fill('input[name="password"]', process.env.ODOO_PASSWORD!);
+  await page.click('button[type="submit"]');
+  await expect(page).toHaveURL(/\\/odoo/);
+  await expect(page.locator('.o_main_navbar')).toBeVisible();
+});
+`;
+
+export const ODOO_ADDONS_FILES = [
+  { path: 'Dockerfile', content: ODOO_DOCKERFILE },
+  { path: 'README.md', content: ODOO_README('{{projectName}}') },
+  { path: 'addons/README.md', content: ODOO_ADDONS_README },
+  { path: 'CHECKS.md', content: ODOO_CHECKS },
+  { path: '.gitignore', content: '__pycache__/\n*.pyc\ne2e-results/\n' },
+  { path: 'playwright.config.ts', content: ODOO_PLAYWRIGHT_CONFIG },
+  { path: 'e2e/signs-in.spec.ts', content: ODOO_E2E_EXAMPLE },
+  ...ODOO_CHART_FILES,
 ];

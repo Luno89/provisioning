@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { executeTool, type ToolDefinition } from './tool-exec.js';
+import { environmentHandlers, executeTool, type ToolDefinition } from './tool-exec.js';
 
 describe('a tool whose implementation is the command it declares', () => {
   const counter = {
@@ -94,5 +94,41 @@ describe('a peer refusing a call', () => {
 
     expect(outcome.ok).toBe(false);
     expect(outcome.declined).toBeUndefined();
+  });
+});
+
+describe('what the model is told after changing a file', () => {
+  const driver = {
+    handle: () => ({ id: 'sandbox-1', capabilities: { terminal: true, filesystem: true } }),
+    exec: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
+    readFile: async () => '',
+    writeFile: async () => undefined,
+    listDir: async () => [],
+    deleteFile: async () => undefined,
+  };
+
+  it('says what was written and where, rather than nothing', async () => {
+    const written = await environmentHandlers.write_file!({ parsed: { path: 'findings.md', content: 'hello' }, driver } as never);
+    expect(written).toMatchObject({ ok: true, content: 'wrote 5 bytes to findings.md' });
+
+    const deleted = await environmentHandlers.delete_file!({ parsed: { path: 'old.md' }, driver } as never);
+    expect(deleted).toMatchObject({ ok: true, content: 'deleted old.md' });
+  });
+
+  it('writes content that arrives as JSON data out as JSON, rather than an empty file', async () => {
+    const files: Record<string, string> = {};
+    const keeping = { ...driver, writeFile: async (path: string, text: string) => { files[path] = text; } };
+    const written = await environmentHandlers.write_file!({ parsed: { path: 'branches.json', content: [{ title: 'a', leaves: [] }] }, driver: keeping } as never);
+
+    expect(files['branches.json']).toBe(`${JSON.stringify([{ title: 'a', leaves: [] }], null, 2)}\n`);
+    expect(written).toMatchObject({ ok: true, content: expect.stringContaining('content arrived as JSON data, so it was written out as JSON') });
+  });
+
+  it('refuses rather than writing an empty file when there is no content', async () => {
+    const files: Record<string, string> = {};
+    const keeping = { ...driver, writeFile: async (path: string, text: string) => { files[path] = text; } };
+    expect(await environmentHandlers.write_file!({ parsed: { path: 'x.md' }, driver: keeping } as never)).toMatchObject({ ok: false, content: 'nothing was written — content has to be the text to write into the file' });
+    expect(await environmentHandlers.write_file!({ parsed: { path: 'x.md', content: '' }, driver: keeping } as never)).toMatchObject({ ok: true });
+    expect(files).toEqual({ 'x.md': '' });
   });
 });

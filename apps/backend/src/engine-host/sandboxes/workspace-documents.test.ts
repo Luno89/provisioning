@@ -81,6 +81,18 @@ const repos: DocumentRepos = {
     await copyFile(bundle, remote(repo));
     return { owner: 'koala-u1', repo, commit: (await git('git', ['-C', clone, 'rev-parse', 'HEAD'])).stdout.trim() };
   },
+  async merge({ repo, head, base }) {
+    const clone = path.join(root, `merge-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+    await git('git', ['clone', '-q', remote(repo), clone]);
+    await git('git', ['-C', clone, 'checkout', '-q', base]);
+    const merged = await git('git', ['-C', clone, '-c', 'user.name=gitea', '-c', 'user.email=g@g', 'merge', '-q', '--no-ff', '--no-edit', `origin/${head}`]).then(() => true, () => false);
+    if (!merged) return 'conflict' as const;
+    for (const branch of (await git('git', ['-C', clone, 'branch', '-r', '--format=%(refname:short)'])).stdout.split('\n').filter((name) => name && !name.endsWith('/HEAD') && name !== `origin/${base}`)) {
+      await git('git', ['-C', clone, 'branch', '-q', '-f', branch.replace(/^origin\//, ''), branch]);
+    }
+    await git('git', ['-C', clone, 'bundle', 'create', remote(repo), '--all']);
+    return 'merged' as const;
+  },
   async pull({ repo, bundle }) {
     try {
       await copyFile(remote(repo), bundle);
@@ -265,5 +277,51 @@ describe('a tree\'s workspace keeps its repository in Gitea', () => {
     pushFails = undefined;
     expect((await workspaces.release('t1', 'u1')).saved).toBe(true);
     expect(deleted()).toEqual(['delete namespace']);
+  });
+});
+
+describe('landing a tree\'s verified leaves', () => {
+  const resolver = {} as EnvironmentResolver;
+  const repo = () => path.join(root, 'work/repo');
+  const commit = async (where: string, file: string, content: string, message: string) => {
+    await writeFile(path.join(where, file), content);
+    await git('git', ['-C', where, 'add', '-A']);
+    await git('git', ['-C', where, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', message]);
+  };
+  const tree = async () => {
+    await mkdir(repo(), { recursive: true });
+    await git('git', ['-C', repo(), 'init', '-q', '-b', 'main']);
+    await commit(repo(), 'PLAN.md', 'plan\n', 'plan');
+  };
+  const leafWork = async (leafId: string, file: string, content: string) => {
+    await git('git', ['-C', repo(), 'checkout', '-q', '-b', `leaf/${leafId}`, 'main']);
+    await commit(repo(), file, content, `leaf ${leafId}`);
+    await git('git', ['-C', repo(), 'checkout', '-q', 'main']);
+  };
+
+  it('merges each leaf into main in Gitea and brings main back into the workspace, so the next leaves start from it', async () => {
+    await tree();
+    await leafWork('a', 'greet.js', 'hello\n');
+    await leafWork('b', 'test.sh', 'echo ok\n');
+    const workspaces = createTreeWorkspaces({ resolver, kube, documents: documents() });
+
+    const landed = await workspaces.land('t1', 'u1', [{ leafId: 'a', title: 'Greeter' }, { leafId: 'b', title: 'Test' }]);
+
+    expect(landed).toEqual([{ leafId: 'a', outcome: 'merged' }, { leafId: 'b', outcome: 'merged' }]);
+    expect(await readFile(path.join(repo(), 'greet.js'), 'utf8')).toBe('hello\n');
+    expect(await readFile(path.join(repo(), 'test.sh'), 'utf8')).toBe('echo ok\n');
+    expect((await git('git', ['-C', repo(), 'symbolic-ref', '--short', 'HEAD'])).stdout.trim()).toBe('main');
+  });
+
+  it('reports a leaf whose work conflicts with what landed first, and leaves main as Gitea has it', async () => {
+    await tree();
+    await leafWork('a', 'PLAN.md', 'plan as a sees it\n');
+    await leafWork('b', 'PLAN.md', 'plan as b sees it\n');
+    const workspaces = createTreeWorkspaces({ resolver, kube, documents: documents() });
+
+    const landed = await workspaces.land('t1', 'u1', [{ leafId: 'a', title: 'A' }, { leafId: 'b', title: 'B' }]);
+
+    expect(landed).toEqual([{ leafId: 'a', outcome: 'merged' }, { leafId: 'b', outcome: 'conflict' }]);
+    expect(await readFile(path.join(repo(), 'PLAN.md'), 'utf8')).toBe('plan as a sees it\n');
   });
 });

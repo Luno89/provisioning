@@ -8,6 +8,7 @@ let started: Parameters<StartMemoryRun>[0][];
 let timers: Parameters<ConversationTimer>[0][];
 let refuse: string | undefined;
 let minutes: number | undefined;
+let forgetful: Set<string>;
 
 const keeper = () => new MemoryKeeperService({
   store: db,
@@ -17,6 +18,7 @@ const keeper = () => new MemoryKeeperService({
   },
   timer: async (request) => { timers.push(request); },
   concludeAfterMinutes: async () => minutes,
+  remembersFor: async (ownerId) => !forgetful.has(ownerId),
 });
 
 const say = async (content: string) => {
@@ -38,6 +40,7 @@ beforeEach(() => {
   started = [];
   timers = [];
   refuse = undefined;
+  forgetful = new Set();
   minutes = undefined;
 });
 
@@ -109,5 +112,14 @@ describe('the memory keeper, driven by what the engine reports', () => {
 
     expect(started.map((request) => request.runId)).toEqual(['memory-run-r-failed', 'memory-run-r-research', 'memory-leaf-leaf-1-2026-10-03T12-00-00Z']);
     expect(started[2]!.bound).toEqual({ treeId: 't1' });
+  });
+});
+
+describe('accounts nothing should be remembered for', () => {
+  it('starts no keeper for a check\'s space or an account being removed', async () => {
+    forgetful.add('u1');
+    const report = await keeper().handle(turnEnded({ agentSlug: 'research', conversationId: undefined }));
+    expect(report.started).toEqual([]);
+    expect(started).toEqual([]);
   });
 });

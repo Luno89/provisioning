@@ -27,6 +27,7 @@ export interface Leaf {
     at: string;
   };
   verified?: boolean;
+  landed?: { at: string; outcome: 'merged' | 'nothing' };
   review?: {
     verdict: 'sound' | 'concern' | 'unsound';
     model?: string;

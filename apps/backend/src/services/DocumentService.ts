@@ -1,4 +1,4 @@
-import { pathInRepo, repoForWorkspace, workspaceOwnerOf } from '../engine-host/sandboxes/workspace-repos.js';
+import { defaultRepoResolver, pathInRepo, workspaceOwnerOf, type WorkspaceRepoResolver } from '../engine-host/sandboxes/workspace-repos.js';
 
 export interface OpenedDocument {
   workspace: string;
@@ -19,12 +19,12 @@ export class DocumentService {
   constructor(private readonly deps: {
     owns: (ownerId: string, kind: 'tree' | 'conversation', id: string) => Promise<boolean>;
     read: (ownerId: string, repo: string, path: string, ref: string) => Promise<{ owner: string; repo: string; content: string } | null>;
+    repoFor?: WorkspaceRepoResolver | undefined;
   }) {}
 
-  /** Reads a saved document at a commit when one is given, falling back to main once that commit is gone, as it is after its branch was merged and deleted. */
   async read(ownerId: string, workspace: string, requested: string, at?: string): Promise<DocumentRead> {
     const owner = workspaceOwnerOf(workspace);
-    const repo = repoForWorkspace(workspace);
+    const repo = await (this.deps.repoFor ?? defaultRepoResolver)(workspace);
     if (!owner || !repo) return { ok: false, status: 404, error: `there is no saved workspace called ${workspace}` };
     if (!(await this.deps.owns(ownerId, owner.kind, owner.id))) return { ok: false, status: 404, error: `there is no saved workspace called ${workspace}` };
     const path = pathInRepo(requested);

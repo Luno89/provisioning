@@ -8,11 +8,6 @@ interface Followed {
   held: TurnLogEntry[]
 }
 
-/**
- * Follows turn logs: every entry of a followed turn is applied exactly once and in order, whether it
- * was pushed or read back. A pushed entry that skips ahead, or anything missed while nobody was
- * listening, is filled in from the log before going on.
- */
 export function createTurnFollower(read: (turnId: string, after: number) => Promise<TurnLogEntry[]>) {
   const turns = new Map<string, Followed>()
 
@@ -46,7 +41,6 @@ export function createTurnFollower(read: (turnId: string, after: number) => Prom
   }
 
   return {
-    /** Starts following a turn from its beginning, reading whatever it already holds. */
     follow(turnId: string, apply: Apply): Promise<void> {
       if (!turns.has(turnId)) turns.set(turnId, { lastSeq: 0, catchingUp: null, held: [] })
       return catchUp(turnId, apply)
@@ -68,7 +62,6 @@ export function createTurnFollower(read: (turnId: string, after: number) => Prom
       }
     },
     catchUp,
-    /** Every turn being followed, to catch up on after a while away. */
     followed: (): string[] => [...turns.keys()],
   }
 }

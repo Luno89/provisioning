@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 
 import { getTemporalClient } from '../apps/backend/src/lib/temporal-client.js';
+import { PLATFORM_OWNER, startedFor } from '../apps/backend/src/lib/workflow-owner.js';
 import { MongoDB } from '../apps/backend/src/lib/mongo-db.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -40,6 +41,7 @@ async function run() {
   console.log(`🔨 Level 3: Triggering ClusterProvisionWorkflow for cluster: ${clusterName}...`);
   try {
     const handle = await client.workflow.start('ClusterProvisionWorkflow', {
+      ...startedFor(PLATFORM_OWNER),
       taskQueue: 'host-ops-queue',
       workflowId: `cluster-provision-${clusterName}`,
       args: [{
@@ -89,6 +91,7 @@ async function run() {
 
     console.log(`📦 Triggering executeDeployAppWorkflow for app: ${appName}...`);
     const handleDep = await client.workflow.start('executeDeployAppWorkflow', {
+      ...startedFor(PLATFORM_OWNER),
       taskQueue: 'cluster-ops-queue',
       workflowId: `app-deploy-${appName}`,
       args: [{
@@ -133,6 +136,7 @@ async function run() {
     // Cleanup: Destroy App
     console.log(`🧹 Cleaning up: Triggering executeDestroyAppWorkflow for app: ${appName}...`);
     const handleDestroyDep = await client.workflow.start('executeDestroyAppWorkflow', {
+      ...startedFor(PLATFORM_OWNER),
       taskQueue: 'cluster-ops-queue',
       workflowId: `app-destroy-${appName}`,
       args: [{
@@ -151,6 +155,7 @@ async function run() {
     // Cleanup: Destroy Cluster
     console.log(`🧹 Cleaning up: Triggering executeDestroyClusterWorkflow for cluster: ${clusterName}...`);
     const handleDestroyCluster = await client.workflow.start('executeDestroyClusterWorkflow', {
+      ...startedFor(PLATFORM_OWNER),
       taskQueue: 'host-ops-queue',
       workflowId: `cluster-destroy-${clusterName}`,
       args: [{

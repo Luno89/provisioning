@@ -1,7 +1,9 @@
 import type { ExtensionService, ExtensionState } from '../services/ExtensionService.js';
 import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
+import type { ApprovalService } from '../services/ApprovalService.js';
 import {
+  AccountClosingError,
   EngineUnavailableError,
   UnknownAgentError,
   UnknownProcedureError,
@@ -38,6 +40,7 @@ export interface WorkspaceImageAccess {
 
 export interface EngineRouterDeps {
   runs: RunStarter;
+  approvals: Pick<ApprovalService, 'approve'>;
   registry: AgentRegistry;
   traces?: TraceAccess | undefined;
   tasks?: TaskAccess | undefined;
@@ -52,6 +55,7 @@ const userOf = (req: Request): { id: string } =>
 
 const fail = (res: Response, err: unknown): Response => {
   if (err instanceof EngineUnavailableError) return res.status(503).json({ error: err.message });
+  if (err instanceof AccountClosingError) return res.status(409).json({ error: err.message });
   if (err instanceof UnknownAgentError) return res.status(404).json({ error: err.message });
   if (err instanceof UnknownProcedureError) return res.status(404).json({ error: err.message });
   if (err instanceof SwitchedOffError) return res.status(409).json({ error: err.message, code: 'SWITCHED_OFF' });
@@ -228,12 +232,15 @@ export function engineRouter(deps: EngineRouterDeps): Router {
   }));
 
   router.post('/runs/:runId/approve', asyncRoute(async (req: Request, res: Response) => {
-    const { callId, allowed, forRun } = req.body ?? {};
+    const { callId, allowed, forRun, conversationId, tool } = req.body ?? {};
     if (typeof callId !== 'string') return res.status(400).json({ error: 'callId is required' });
     if (typeof allowed !== 'boolean') return res.status(400).json({ error: 'allowed must be true or false' });
+    const conversation = typeof conversationId === 'string' && typeof tool === 'string' && tool ? { id: conversationId, tool } : undefined;
 
     try {
-      await deps.runs.approve(String(req.params.runId), callId, allowed, forRun === true);
+      const outcome = await deps.approvals.approve(userOf(req).id, String(req.params.runId), { callId, allowed, forRun: forRun === true, conversation });
+      if (outcome === 'not-yours') return res.status(404).json({ error: 'You have no run with that id' });
+      if (outcome === 'no-such-conversation') return res.status(404).json({ error: 'You have no conversation with that id' });
       return res.json({ ok: true });
     } catch (err) {
       return fail(res, err);

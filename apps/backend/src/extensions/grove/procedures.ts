@@ -109,6 +109,7 @@ function runProcedure(meta: { id: string; name: string; describe: string }, leaf
     const judgeFailures = p.merge('judgeFailures', { children: judge.children }, { strategy: 'failed' });
     const judged = p.condition('judged', { value: judgeFailures.merged }, { expression: 'empty(value)' });
     const judgeBroke = p.finish('judgeBroke', { result: judgeFailures.merged }, { outcome: 'failed', reason: 'a judge could not settle its claim, so the run stops rather than judge it again every pass' });
+    const land = p.hostOp('land', { environment: out(open, 'environment'), tree: out(open, 'tree') }, op('grove.land-leaves'));
     const needs = p.hostOp('needs', { tree: out(open, 'tree') }, op('grove.needs-plan'));
     const preparePlans = p.hostOp('preparePlans', { environment: out(open, 'environment'), tree: out(open, 'tree'), leaves: out(needs, 'items') }, op('grove.prepare-worktrees'));
     const plan = p.fanOut('plan', { items: out(preparePlans, 'items'), environment: out(open, 'environment') }, { agent: 'planner', maxParallel: 3, itemAsInputs: true });
@@ -134,7 +135,8 @@ function runProcedure(meta: { id: string; name: string; describe: string }, leaf
     checkouts.on('ready', judge);
     judge.on('done', judgeFailures);
     judgeFailures.on('done', judged);
-    judged.on('true', leaves);
+    judged.on('true', land);
+    land.on('done', leaves);
     judged.on('false', judgeBroke);
     needs.on('some', preparePlans);
     needs.on('none', proposals);
@@ -148,7 +150,7 @@ function runProcedure(meta: { id: string; name: string; describe: string }, leaf
     p.layout({
       open: [0, 0], unavailable: [0, 160], leaves: [260, 0],
       prepareWork: [520, -160], work: [780, -160],
-      check: [520, 0], checkouts: [780, 0], judge: [1040, 0], judgeFailures: [1300, 0], judged: [1560, 0], judgeBroke: [1820, 0],
+      check: [520, 0], checkouts: [780, 0], judge: [1040, 0], judgeFailures: [1300, 0], judged: [1560, 0], judgeBroke: [1820, 0], land: [1560, -100],
       needs: [520, 160], preparePlans: [780, 160], plan: [1040, 160], proposals: [1300, 160], report: [1560, 160], quiet: [1820, 160],
       park: [0, 360], parked: [260, 360],
     });

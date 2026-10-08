@@ -10,7 +10,7 @@ import { createSandboxDriver } from './drivers/sandbox.js';
 import { createClusterBackend } from './sandboxes/cluster-backend.js';
 import { createKubeRunner, createKubeStreamer } from './sandboxes/kube.js';
 import { createWorkspaceDocuments, type DocumentRepos } from './sandboxes/workspace-documents.js';
-import { repoForWorkspace } from './sandboxes/workspace-repos.js';
+import { defaultRepoResolver, repoForWorkspace, type WorkspaceRepoResolver } from './sandboxes/workspace-repos.js';
 import { createImageBuilder, discoverRegistry, type ImageBuilder, type RegistryAccount } from './sandboxes/image-builder.js';
 import { createEnvironmentResolver, type EnvironmentResolver } from './sandboxes/environments.js';
 import { createTreeWorkspaces, type TreeWorkspaces } from './sandboxes/tree-workspaces.js';
@@ -32,6 +32,7 @@ import { createImagePruner, type ImagePruner } from './sandboxes/prune-images.js
 import { createRegistryPackages } from './sandboxes/registry-packages.js';
 import { createMcpToolSource } from './tools/mcp-tools.js';
 import { proxyUrlFor } from '../lib/egress-proxy.js';
+import type { GroveOperationDeps } from '../extensions/grove/operations/handlers.js';
 
 export interface EngineHostStores {
   personas: { list(ownerId?: string): Promise<Persona[]> };
@@ -76,6 +77,8 @@ export interface EngineHostStores {
 }
 
 export interface EngineHostOptions {
+  treeLanguage?: ((ownerId: string, treeId: string) => Promise<string | undefined>) | undefined;
+  artifacts?: GroveOperationDeps['artifacts'];
   models: ModelServiceLike;
   stores: EngineHostStores;
   web?: WebTools | undefined;
@@ -92,11 +95,13 @@ export interface EngineHostOptions {
   projects?: import('./tools/project-tools.js').ProjectToolStores | undefined;
   egressSecret?: string | undefined;
   corpus?: import('./tools/corpus-tools.js').CorpusAccess | undefined;
+  checks?: import('./tools/check-tools.js').CheckAccess | undefined;
   /** Everyone whose agents could run, so the image sweep asks what each of them wants. */
   owners?: (() => Promise<string[]>) | undefined;
   hidden?: ((ownerId: string) => Promise<import('../lib/extension-settings.js').HiddenVocabulary>) | undefined;
   published?: ((ownerId: string) => Promise<import('@koala/agent-engine/procedure').GroupDefinition[]>) | undefined;
   documents?: DocumentRepos | undefined;
+  repoFor?: WorkspaceRepoResolver | undefined;
 }
 
 export interface EngineHost {
@@ -131,6 +136,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
   const endpoints = createEndpointResolver({ models: options.models, registry });
   const kube = createKubeRunner({ kubeconfig: options.kubeconfig });
 
+  const repoFor = options.repoFor ?? defaultRepoResolver;
   const documents = options.documents
     ? createWorkspaceDocuments({ kube, stream: createKubeStreamer({ kubeconfig: options.kubeconfig }), repos: options.documents })
     : undefined;
@@ -145,7 +151,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
           run: kube,
           workspace,
           ...(documents && repoForWorkspace(workspace.runId)
-            ? { onStarted: async () => { await documents.restore({ ownerId: ticket.ownerId, workspaceRunId: workspace.runId, ...repoForWorkspace(workspace.runId)! }); } }
+            ? { onStarted: async () => { await documents.restore({ ownerId: ticket.ownerId, workspaceRunId: workspace.runId, ...(await repoFor(workspace.runId))! }); } }
             : {}),
         }),
       });
@@ -180,7 +186,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       : {}),
   });
 
-  const treeWorkspaces = createTreeWorkspaces({ resolver: environments, kube, documents });
+  const treeWorkspaces = createTreeWorkspaces({ resolver: environments, kube, documents, repoFor, languageOf: options.treeLanguage });
   const conversationWorkspaces = documents
     ? createConversationWorkspaces({ resolver: environments, registry, kube, documents })
     : undefined;
@@ -206,6 +212,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       ...(options.corpus ? { corpus: options.corpus } : {}),
       ...(stores.runs ? { runs: stores.runs } : {}),
       memories: stores.memories,
+      ...(options.checks ? { checks: options.checks } : {}),
       ...(stores.proposals ? {
         scenarios: {
           known: async (ownerId: string) => ({
@@ -268,16 +275,20 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       save: stores.memories.save,
     },
     ...(options.hidden ? { hidden: options.hidden } : {}),
-    operations: operationHandlers(extensionRuntimes({ grove: { operations: {
-      trees: stores.grove.trees,
-      branches: stores.grove.branches,
-      leaves: stores.grove.leaves,
-      tasks: stores.tasks,
-      plans: { list: async (ownerId: string) => (await stores.grove.plans?.list(ownerId)) ?? [] },
-      treeWorkspaces,
-      environments,
-      registry,
-    } } })),
+    operations: operationHandlers(extensionRuntimes({
+      platform: { operations: { environments, ...(options.artifacts ? { artifacts: options.artifacts } : {}) } },
+      grove: { operations: {
+        trees: stores.grove.trees,
+        branches: stores.grove.branches,
+        leaves: stores.grove.leaves,
+        tasks: stores.tasks,
+        plans: { list: async (ownerId: string) => (await stores.grove.plans?.list(ownerId)) ?? [] },
+        treeWorkspaces,
+        environments,
+        registry,
+        ...(options.artifacts ? { artifacts: options.artifacts } : {}),
+      } },
+    })),
   };
 
   const workspaceImages: WorkspaceImages = createWorkspaceImages({

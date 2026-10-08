@@ -3,7 +3,7 @@ import type { UnifiedFrame } from '../../lib/chat-unified-reducer.js'
 
 /**
  * The chat surface renders from UnifiedFrames (see chat-unified-reducer.ts), and the chat turn
- * now rides an engine run whose events come down the ENGINE_EVENT_CHANNEL as EngineEvents.
+ * now rides an engine run whose events come down TURN_LOG_CHANNEL, in turn log entries, as EngineEvents.
  * This module is the whole contract between the two: every EngineEvent the reducer can care
  * about,
  * mapped to the frame the chat render state already understands, or ended (the stream source is
@@ -45,11 +45,6 @@ export function engineEventToFrame(event: EngineEvent): EngineFrameOutcome {
       return { kind: 'idle' }
   }
 }
-/**
- * A hand-off's run, and every run it hands work to in turn, draws inside the call that started it.
- * `path` is the chain of call ids from the turn's own call down to that run, so each of its frames
- * lands on the right card, and its ending finishes that card rather than the turn.
- */
 export function childEventToFrame(event: EngineEvent, path: readonly string[]): EngineFrameOutcome {
   const mapped = engineEventToFrame(event)
   if (mapped.kind === 'idle') return mapped

@@ -32,6 +32,8 @@ const documents: WorkspaceDocuments = {
   },
   restore: async () => ({ restored: true }),
   bring: async () => ({ brought: [] }),
+  catchUp: async () => undefined,
+  merge: async () => 'merged',
 };
 
 const resolver = (describeShared: EnvironmentResolver['describeShared']) => ({

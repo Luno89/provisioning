@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stateFor, blockedBy, BOARD_COLUMNS, STATE_LABEL, leafDocuments, type LeafStatus } from './leaf-types.js';
+import { stateFor, blockedBy, BOARD_COLUMNS, STATE_LABEL, landingNote, leafDocuments, type LeafStatus } from './leaf-types.js';
 
 const leaf = (over: Partial<{ status: LeafStatus; verified: boolean; dependsOn: string[] }>) =>
   ({ status: 'pending' as LeafStatus, ...over });
@@ -41,5 +41,13 @@ describe('a leaf\'s documents', () => {
   it('are none before a claim, or when the claim has no commit', () => {
     expect(leafDocuments({}, 't1')).toEqual([]);
     expect(leafDocuments({ claim: { evidence: 'x', at: 'now', files: ['a.md'] } }, 't1')).toEqual([]);
+  });
+});
+
+describe('whether a leaf\'s work is on main', () => {
+  it('says a verified leaf lands at the end of the pass, and a landed one is on main', () => {
+    expect(landingNote({ status: 'succeeded', verified: true })).toBe('Verified — lands on main at the end of this judge pass');
+    expect(landingNote({ status: 'succeeded', verified: true, landed: { at: 'now', outcome: 'merged' } })).toBe('Landed on main');
+    expect(landingNote({ status: 'running' })).toBeUndefined();
   });
 });

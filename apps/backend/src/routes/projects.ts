@@ -9,6 +9,7 @@ import { ownsProject } from '../lib/ownership.js';
 import { rollupProjectStatus, deploymentForProject } from '../lib/project-status.js';
 import { webhookUrlFor } from '../lib/project-shipping.js';
 import { validateLocalEgressRules } from '../lib/egress-rules.js';
+import type { ProjectRemovalService } from '../services/ProjectRemovalService.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
@@ -204,6 +205,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
       const runs = await db.getPipelineRuns();
       const run = runs.find((r: any) => r.id === req.params.runId && r.projectId === project.id);
       if (!run) return res.status(404).json({ error: 'Run not found' });
+      if (project.removal) return res.status(409).json({ error: 'This project is being deleted' });
 
       const info = await temporalBridge.promoteProjectBuild(project, run, user?.id);
       res.status(202).json({ message: 'Promoting build to deployment', workflowId: info.id, deploymentId: info.resourceId });
@@ -211,6 +213,23 @@ export function projectsRouter(deps: Record<string, any>): Router {
       res.status(400).json({ error: err.message });
     }
   });
+
+  const removal = deps.removal as ProjectRemovalService | undefined;
+
+  router.get('/:id/removal', asyncRoute(async (req, res) => {
+    if (!removal) return res.status(404).json({ error: 'Projects cannot be deleted here' });
+    const preview = await removal.preview(userOf(req).id, idOf(req));
+    if (!preview) return res.status(404).json({ error: 'Project not found' });
+    return res.json(preview);
+  }));
+
+  router.delete('/:id', asyncRoute(async (req, res) => {
+    if (!removal) return res.status(404).json({ error: 'Projects cannot be deleted here' });
+    const confirm = typeof req.body?.confirm === 'string' ? req.body.confirm : '';
+    const outcome = await removal.remove(userOf(req).id, idOf(req), confirm);
+    if (!outcome.ok) return res.status(outcome.refusal.status).json(outcome.refusal);
+    return res.status(202).json({ state: outcome.state });
+  }));
 
   return router;
 }

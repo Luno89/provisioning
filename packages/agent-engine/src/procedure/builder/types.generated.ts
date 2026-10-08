@@ -111,6 +111,36 @@ export type CodeSettings = {
 
 export type CodeNode = Value & Record<string, Out<SocketType>> & { wire(wires: CodeWires): void }
 
+export interface CompactContextWires {
+  /** The whole conversation. Required. */
+  messages?: In<'messages'>
+  /** The model, for its context window; it also writes the summary. Required. */
+  binding?: In<'modelBinding'>
+  /** The system prompt, which also takes up the window. */
+  system?: In<'text'>
+}
+
+export type CompactContextSettings = {
+  /**
+   * Compact at
+   * How full the window may get before the conversation is summarised, from 0 to 1.
+   */
+  at?: number
+  /**
+   * Messages kept
+   * How many of the latest messages are always sent as they are.
+   */
+  keep?: number
+}
+
+export interface CompactContextNode extends Step<'fits' | 'compacted'> {
+  /** The conversation to send. */
+  readonly messages: Out<'messages'>
+  /** The summary in use and how many messages it stands for, when there is one. */
+  readonly compaction: Out<'json'>
+  wire(wires: CompactContextWires): void
+}
+
 export interface ConversationWires {
   /** The first user message. Required. */
   opening?: In<'text'>
@@ -240,10 +270,12 @@ export type LoadConversationSettings = {
 }
 
 export interface LoadConversationNode extends Value {
-  /** What was said before, oldest first. */
+  /** What was said before, oldest first — after a compaction, its summary in place of the messages it covers. */
   readonly messages: Out<'messages'>
   /** Whether a stored conversation was there to read. */
   readonly found: Out<'json'>
+  /** Where each stored message ends among those messages, so a later compaction can be saved against the messages it covers. */
+  readonly history: Out<'json'>
   wire(wires: LoadConversationWires): void
 }
 
@@ -288,6 +320,10 @@ export interface SaveConversationWires {
   results?: In<'toolResults'> | readonly In<'toolResults'>[]
   /** The rounds the Conversation node accumulated, each a reply with the results its calls drew back. They carry the calls made in the middle of a multi-round turn, which the reply and results inputs, being the latest, cannot. */
   rounds?: In<'json'>
+  /** The summary this turn ended up sending, from Compact Context, so the next turn starts from it rather than summarising again. */
+  compaction?: In<'json'>
+  /** Load Conversation's history, to tell which stored messages the summary covers. */
+  history?: In<'json'>
 }
 
 export type SaveConversationSettings = {
@@ -357,6 +393,19 @@ export interface TruncateTextNode extends Value {
   /** The text, capped, with a note saying how much was cut when any was. */
   readonly text: Out<'text'>
   wire(wires: TruncateTextWires): void
+}
+
+export type ValueWires = Record<string, never>
+
+export type ValueSettings = {
+  /** Value, as JSON */
+  json?: string
+}
+
+export interface ValueNode extends Value {
+  /** The value as written. */
+  readonly value: Out<'any'>
+  wire(wires: ValueWires): void
 }
 
 export type WarnRunningOutWires = Record<string, never>
@@ -991,6 +1040,8 @@ export interface ModelTurnGroupNode extends Step<'toolCalls' | 'answered' | 'tru
   readonly system: Out<'text'>
   /** The tools the model was offered. */
   readonly offered: Out<'toolSet'>
+  /** The summary sent in place of earlier messages, once the conversation outgrew the window. */
+  readonly compaction: Out<'json'>
   wire(wires: ModelTurnGroupWires): void
 }
 
@@ -1020,6 +1071,12 @@ export interface Nodes {
   buildContext(id: string, wires?: BuildContextWires, settings?: BuildContextSettings, meta?: NodeMeta): BuildContextNode
   /** Code: Runs a piece of JavaScript you wrote, in this run's own sandbox, with the values you wire in and the values you declare it hands back. The body is never read as a procedure — it is written out and executed there, so it can do anything the sandbox can, and nothing it cannot. */
   code(id: string, wires: CodeWires, settings: CodeSettings, meta?: NodeMeta): CodeNode
+  /**
+   * Compact Context: Keeps the conversation inside the context window. Once the prompt reaches the threshold, the model summarises everything but the last few messages, and the summary is sent in their place from then on, unchanged until the next compaction, so a server that caches the start of the prompt keeps reusing it.
+   * Leaves through fits: It fits; what was sent last time is sent again.
+   * Leaves through compacted: It was summarised to fit.
+   */
+  compactContext(id: string, wires?: CompactContextWires, settings?: CompactContextSettings, meta?: NodeMeta): CompactContextNode
   /**
    * Conversation: Keeps the message history. It starts from whatever earlier thread is wired in, then the opening message and whatever named inputs the run was given that the opening does not already say; each time it runs it adds any new replies in the order they were made, each with the tool calls it asked for, and once every call in a reply has a result it adds those results, answering each call by id. Nothing is added twice.
    * Leaves through done: Always.
@@ -1055,6 +1112,8 @@ export interface Nodes {
   trimToolResults(id: string, wires?: TrimToolResultsWires, settings?: TrimToolResultsSettings, meta?: NodeMeta): TrimToolResultsNode
   /** Truncate Text: Caps a piece of text at a number of characters and says how much was cut, so one long thing cannot crowd everything else out of the prompt. */
   truncateText(id: string, wires?: TruncateTextWires, settings?: TruncateTextSettings, meta?: NodeMeta): TruncateTextNode
+  /** Value: A value you write as JSON — a list, an object, a number — to wire into any input that takes one. */
+  value(id: string, wires?: ValueWires, settings?: ValueSettings, meta?: NodeMeta): ValueNode
   /** Warn Running Out: Adds a note when the run is close to its round budget, so the model wraps up instead of being cut off mid-task. The note with the fewest rounds that still applies wins. */
   warnRunningOut(id: string, wires: WarnRunningOutWires, settings: WarnRunningOutSettings, meta?: NodeMeta): WarnRunningOutNode
   /** Withdraw Tools: Stops offering some tools once the run has used a number of rounds — for example taking away search once it is time to write up. */

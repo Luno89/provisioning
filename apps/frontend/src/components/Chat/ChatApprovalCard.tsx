@@ -23,6 +23,9 @@ export default function ChatApprovalCard({ reason, toolName, args, onAllow, onDe
               {toolName ?? 'a tool'}{args ? ` ${args}` : ''}
             </span>
           ) : null}
+          {toolName ? (
+            <span className="block text-red-200/70 mt-1">Allowing it here means {toolName} will not ask again in this conversation.</span>
+          ) : null}
         </div>
       </div>
       <div className="shrink-0 flex items-center gap-1.5">
@@ -38,7 +41,7 @@ export default function ChatApprovalCard({ reason, toolName, args, onAllow, onDe
           onClick={onAllow}
           className="px-2.5 py-1 rounded bg-red-600 hover:bg-red-500 text-white transition-colors cursor-pointer text-xs font-medium"
         >
-          Allow
+          {toolName ? 'Allow in this chat' : 'Allow'}
         </button>
       </div>
     </div>

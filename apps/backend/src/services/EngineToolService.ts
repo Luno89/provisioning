@@ -2,11 +2,14 @@ import { placeholdersIn } from '@koala/engine-core';
 import {
   checkDefinition,
   planFor,
+  visibleAgents,
   type Persona,
   type ToolDefinition,
 } from '@koala/agent-engine';
+import { seededPersonas } from '../extensions/seeds.js';
 import { withBuiltIns } from '../lib/ownership.js';
 import type { ImageStanding } from '../engine-host/sandboxes/image-builder.js';
+import { planWorkspace } from '../extensions/workspace-bases.js';
 
 export interface EditableTool extends ToolDefinition {
   mine: boolean;
@@ -20,6 +23,8 @@ export interface EngineToolServiceOptions {
     remove(ownerId: string | undefined, name: string): Promise<void>;
   };
   personas: { list(ownerId?: string): Promise<Persona[]> };
+  catalogue?: { list(ownerId: string): Promise<ToolDefinition[]> } | undefined;
+  builtInAgents?: readonly Persona[] | undefined;
   implemented: ReadonlySet<string>;
   images?: {
     start(plan: NonNullable<ReturnType<typeof planFor>>): Promise<ImageStanding>;
@@ -81,12 +86,17 @@ export class EngineToolService {
     this.options = options;
   }
 
+  private async agents(ownerId: string): Promise<Persona[]> {
+    return visibleAgents([...(this.options.builtInAgents ?? seededPersonas()), ...(await this.options.personas.list(ownerId))], ownerId);
+  }
+
   private async visible(ownerId: string): Promise<ToolDefinition[]> {
+    if (this.options.catalogue) return this.options.catalogue.list(ownerId);
     return withBuiltIns(await this.options.tools.list(ownerId), ownerId, (tool: ToolDefinition) => tool.name);
   }
 
   async list(ownerId: string): Promise<EditableTool[]> {
-    const [tools, personas] = await Promise.all([this.visible(ownerId), this.options.personas.list(ownerId)]);
+    const [tools, personas] = await Promise.all([this.visible(ownerId), this.agents(ownerId)]);
 
     return tools
       .map((tool) => ({
@@ -131,13 +141,13 @@ export class EngineToolService {
   private async rebuild(ownerId: string, name: string): Promise<{ rebuilding: string[]; failed: WorkspaceBuildFailure[] }> {
     if (!this.options.images) return { rebuilding: [], failed: [] };
 
-    const [tools, personas] = await Promise.all([this.visible(ownerId), this.options.personas.list(ownerId)]);
+    const [tools, personas] = await Promise.all([this.visible(ownerId), this.agents(ownerId)]);
     const affected = personas.filter((persona) => persona.tools?.includes(name));
     const rebuilding: string[] = [];
     const failed: WorkspaceBuildFailure[] = [];
 
     for (const persona of affected) {
-      const plan = planFor(persona, tools);
+      const plan = planWorkspace(persona, tools);
       if (!plan) continue;
 
       // Taken the same way AgentService.save takes it: a workspace that cannot start building is

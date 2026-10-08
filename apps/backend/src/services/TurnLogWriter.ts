@@ -11,11 +11,6 @@ interface Pending {
   timer?: ReturnType<typeof setTimeout> | undefined;
 }
 
-/**
- * The only writer of turn logs. It gathers each turn's events for a moment, writes them as the turn's
- * next numbered entry, and only once that write has landed tells the owner's browsers about it — so
- * what a browser renders is always what the log holds.
- */
 export class TurnLogWriter {
   private readonly pending = new Map<string, Pending>();
   private readonly lastSeq = new Map<string, number>();
@@ -48,7 +43,6 @@ export class TurnLogWriter {
     }
   }
 
-  /** Writes whatever every turn still holds. */
   async drain(): Promise<void> {
     for (const turn of this.pending.values()) {
       if (turn.timer) clearTimeout(turn.timer);

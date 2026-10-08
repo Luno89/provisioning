@@ -12,6 +12,7 @@ import AppDashboard from './components/AppDashboard';
 import PendingKeyModal from './components/PendingKeyModal';
 import NginxWizard from './components/NginxWizard';
 import { errorMessage } from './api/client';
+import { releaseKeys, type OdooRelease } from './api/releases';
 import { useShellStore, startHistorySync } from './stores/shell';
 import { reconnectSocket, useSocketEvent } from './stores/socket';
 import { getMe, logout, signInElsewhere } from './api/auth';
@@ -55,6 +56,8 @@ export function RootLayout() {
   const pushNotification = useShellStore((s) => s.pushNotification);
   const dismissNotification = useShellStore((s) => s.dismissNotification);
   const clearDestroyFor = useShellStore((s) => s.clearDestroyFor);
+  const appDeploy = useShellStore((s) => s.appDeploy);
+  const closeAppDeploy = useShellStore((s) => s.closeAppDeploy);
   
   const [logTab, setLogTab] = useState<'general' | 'provision' | 'helm' | 'app' | 'diagnostics' | 'modules' | 'storage'>('general');
   const [vpnDomains, setVpnDomains] = useState<Record<string, string>>({});
@@ -120,6 +123,12 @@ export function RootLayout() {
     queryClient.invalidateQueries({ queryKey: ['clusters'] });
     queryClient.invalidateQueries({ queryKey: ['deployments'] });
     setTimeout(() => dismissNotification(useShellStore.getState().notifications.at(-1)?.nid ?? 0), 5000);
+  });
+
+  useSocketEvent<OdooRelease>('odoo-release-updated', (release) => {
+    queryClient.invalidateQueries({ queryKey: releaseKeys.list(release.projectId) });
+    if (release.state === 'preview') pushNotification({ type: 'info', message: `A new version (${release.commit.slice(0, 8)}) is ready to preview — open the project's Builds panel to look at it and cut over.` });
+    if (release.state === 'failed') pushNotification({ type: 'error', message: `A release of ${release.commit.slice(0, 8)} failed: ${release.reason ?? 'no reason given'}` });
   });
 
   useSocketEvent('deployment-updated', () => {
@@ -225,7 +234,7 @@ export function RootLayout() {
     return <NoInstance hasInstance={Boolean(placement.data.instance)} onLogout={handleLogout} />;
   }
 
-  const isFullBleed = ['/chat', '/projects', '/studio/'].some((prefix) => location.pathname.startsWith(prefix));
+  const isFullBleed = ['/chat', '/projects', '/studio/agents', '/studio/tools', '/studio/procedures', '/studio/tree-types'].some((prefix) => location.pathname.startsWith(prefix));
 
   const shellContext: ShellContext = {
     clusters,
@@ -249,7 +258,7 @@ export function RootLayout() {
       <Sidebar forestTabs={FOREST_TABS} onLogout={handleLogout} />
       <PendingApprovals />
 
-      <main className={`flex-1 h-full min-h-0 ${isFullBleed ? 'p-0 overflow-hidden' : 'p-10 overflow-y-auto'} relative flex flex-col`}>
+      <main className={`flex-1 min-w-0 h-full min-h-0 ${isFullBleed ? 'p-0 overflow-hidden' : 'p-10 overflow-y-auto'} relative flex flex-col`}>
         <div className="fixed top-6 right-6 z-[60] space-y-3">
           {notifications.map(n => (
             <div key={n.nid} className={`bg-slate-800 border-l-4 ${n.outOfBand ? 'border-yellow-500' : 'border-green-500'} p-4 rounded-lg shadow-2xl flex items-center gap-4 min-w-[300px] animate-in slide-in-from-right`}>
@@ -307,12 +316,13 @@ export function RootLayout() {
         />
       )}
 
-      {showAppModal && (
+      {(showAppModal || appDeploy) && (
         <AppDeployWizard
+          key={appDeploy ? `app:${appDeploy.appType}` : 'app'}
           clusters={clusters}
           deployments={deployments}
-          preset={wizardPreset as never}
-          onClose={() => setShowAppModal(false)}
+          preset={(appDeploy ?? wizardPreset) as never}
+          onClose={() => { setShowAppModal(false); closeAppDeploy(); }}
           onDeploy={(payload) => deployApp.mutate(payload as never)}
         />
       )}

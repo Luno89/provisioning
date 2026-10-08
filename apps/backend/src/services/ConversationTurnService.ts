@@ -3,10 +3,6 @@ import { replyFromLog, type TurnLogEntry } from '../lib/turn-log.js';
 
 export const ENDED_UNSAVED = 'the run ended before it saved its reply';
 
-/**
- * A conversation turn's life on the server: opened before its run starts, so the person's message is
- * never only in a browser, and settled from its log when the run ended without saving its reply.
- */
 export class ConversationTurnService {
   constructor(private readonly deps: {
     store: {
@@ -14,7 +10,6 @@ export class ConversationTurnService {
       saveConversation(conversation: Conversation): Promise<void>;
     };
     log: { getTurnLog(ownerId: string, turnId: string, after: number): Promise<TurnLogEntry[]> };
-    /** Whether the run is still going; when that cannot be told, it is taken to be. */
     running: (runId: string) => Promise<boolean>;
     now?: (() => string) | undefined;
   }) {}
@@ -28,7 +23,6 @@ export class ConversationTurnService {
     await this.deps.store.saveConversation(openTurn(existing, { ...turn, now: this.now() }));
   }
 
-  /** Closes a turn whose run never started, saying why. */
   async fail(turn: { ownerId: string; conversationId: string; runId: string }, why: string): Promise<void> {
     const conversation = await this.deps.store.getConversation(turn.ownerId, turn.conversationId);
     if (!conversation) return;
@@ -36,7 +30,6 @@ export class ConversationTurnService {
     await this.deps.store.saveConversation(closeTurn(conversation, turn.runId, { content: '', at: now, interruptedReason: why }, now));
   }
 
-  /** The conversation as it stands: a turn whose run is gone without saving is closed with what its log holds, marked interrupted. */
   async settle(conversation: Conversation): Promise<Conversation> {
     const live = conversation.liveTurn;
     if (!live || await this.deps.running(live.runId).catch(() => true)) return conversation;

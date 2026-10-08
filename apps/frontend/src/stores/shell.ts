@@ -6,7 +6,7 @@ export const FOREST_VIEWS = [
   'accounts', 'services', 'nginx', 'temporal', 'settings',
 ] as const
 
-export const KOALA_VIEWS = ['chat', 'memories', 'tree-types', 'evals', 'studio', 'engine'] as const
+export const KOALA_VIEWS = ['chat', 'studio'] as const
 
 export const KNOWN_VIEWS = [...FOREST_VIEWS, ...KOALA_VIEWS] as const
 
@@ -69,6 +69,15 @@ interface ShellState {
   confirmDestroy: DestroyTarget | null
   setConfirmDestroy: (target: DestroyTarget | null) => void
   clearDestroyFor: (id: string) => void
+
+  appDeploy: AppDeployPreset | null
+  openAppDeploy: (preset: AppDeployPreset) => void
+  closeAppDeploy: () => void
+}
+
+export interface AppDeployPreset {
+  appType: string
+  name?: string
 }
 
 let lastRoute: Route | undefined = parseHash(window.location.hash)
@@ -127,6 +136,10 @@ export const useShellStore = create<ShellState>((set) => ({
   clearDestroyFor: (id) => set((s) => (
     s.confirmDestroy?.id === id ? { confirmDestroy: null } : s
   )),
+
+  appDeploy: null,
+  openAppDeploy: (appDeploy) => set({ appDeploy }),
+  closeAppDeploy: () => set({ appDeploy: null }),
 }))
 
 export function startHistorySync(): () => void {

@@ -13,25 +13,20 @@ export interface SocketLike {
   to(room: string): { emit(event: string, ...args: unknown[]): unknown };
 }
 
-/** The socket room every browser of one person joins when it connects. */
 export const userRoom = (ownerId: string): string => `user:${ownerId}`;
 
 export interface StreamWorkerOptions {
   services: Omit<StreamServices, 'bus'>;
   io: SocketLike;
-  /** Where every turn's events are written before a browser hears of them. */
-  turnLogs?: { appendTurnLog(entry: TurnLogEntry): Promise<void>; lastTurnLogSeq(turnId: string): Promise<number> } | undefined;
+  turnLogs: { appendTurnLog(entry: TurnLogEntry): Promise<void>; lastTurnLogSeq(turnId: string): Promise<number> };
   address?: string | undefined;
   namespace?: string | undefined;
   taskQueue?: string | undefined;
-  channel?: string | undefined;
   encryptionKey?: SecretKey | undefined;
 }
 
-export const ENGINE_EVENT_CHANNEL = 'engine-event';
 export const TURN_LOG_CHANNEL = 'turn-log';
 
-/** Tells the owner's browsers that their turn's log has a new entry, with the entry. */
 export const notifyTurnLog = (io: SocketLike) => (entry: TurnLogEntry): void => {
   const { ownerId, ...rest } = entry;
   try {
@@ -41,12 +36,10 @@ export const notifyTurnLog = (io: SocketLike) => (entry: TurnLogEntry): void => 
   }
 };
 
-export function createBrowserBus(io: SocketLike, channel: string = ENGINE_EVENT_CHANNEL): EventBus {
-  const bus = createEventBus({ retain: 500 });
-  bus.subscribe((event: EngineEvent) => {
-    const { ownerId, ...rest } = event as EngineEvent & { ownerId?: string };
-    if (ownerId) io.to(userRoom(ownerId)).emit(channel, rest);
-  });
+export function createTurnLogBus(options: Pick<StreamWorkerOptions, 'io' | 'turnLogs'>): EventBus {
+  const bus = createEventBus({ retain: 0 });
+  const writer = new TurnLogWriter({ store: options.turnLogs, notify: notifyTurnLog(options.io) });
+  bus.subscribe((event: EngineEvent) => writer.accept(event));
   return bus;
 }
 
@@ -55,12 +48,7 @@ export async function startStreamWorker(options: StreamWorkerOptions): Promise<W
     address: options.address ?? process.env.TEMPORAL_CONNECTION_ADDRESS ?? 'localhost:7233',
   });
 
-  const bus = createBrowserBus(options.io, options.channel);
-  if (options.turnLogs) {
-    const writer = new TurnLogWriter({ store: options.turnLogs, notify: notifyTurnLog(options.io) });
-    bus.subscribe((event) => writer.accept(event));
-  }
-
+  const bus = createTurnLogBus(options);
   const dataConverter = buildDataConverter(options.encryptionKey ?? loadKeys(process.env).payload, sharedPayloadBlobs());
 
   return Worker.create({

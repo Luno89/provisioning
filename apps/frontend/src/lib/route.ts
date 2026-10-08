@@ -29,6 +29,10 @@ export const RETIRED_VIEWS: Record<string, string> = {
   board: 'projects',
   trees: 'projects',
   grove: 'projects',
+  memories: 'studio',
+  'tree-types': 'studio',
+  evals: 'studio',
+  engine: 'studio',
 };
 
 export function resolveView(view: string | undefined, known: readonly string[], fallback: string): string {

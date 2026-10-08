@@ -32,6 +32,7 @@ import { TreeRunPanel } from './TreeRunPanel.js'
 import { TreeProposalsPanel } from './TreeProposalsPanel.js'
 import { TreeConversationsPanel } from './TreeConversationsPanel.js'
 import { TreeDeletePanel } from './TreeDeletePanel.js'
+import { ProjectDeletePanel } from './ProjectDeletePanel.js'
 import { panel, resizeHandle, type SelectedEntity } from './shared.js'
 import { useResizableWidth } from './useResizableWidth.js'
 
@@ -243,6 +244,9 @@ export function Workspace({
             </div>
             <CollapsibleSection title="Builds & Deploys">
               <BuildsDeploysPanel project={project} />
+            </CollapsibleSection>
+            <CollapsibleSection title="Delete project">
+              <ProjectDeletePanel projectId={project.id} onDeleted={() => onTreeDeleted?.()} />
             </CollapsibleSection>
           </div>
         )

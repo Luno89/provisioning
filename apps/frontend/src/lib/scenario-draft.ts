@@ -1,4 +1,5 @@
-import type { Scenario, ScenarioExpectations, ScenarioWorld } from '../api/evals'
+import type { Scope } from './check-subjects'
+import { PLUMBING_KEYS, type ArgCheck, type CheckScript, type FlowStage, type Scenario, type ScenarioExpectations, type ScenarioWorld, type StepUnderTest } from '../api/evals'
 
 export interface ScenarioDraft {
   id: string
@@ -6,7 +7,6 @@ export interface ScenarioDraft {
   describe: string
   agent: string
   procedure: string
-  version: string
   message: string
   inputs: string
   world: string
@@ -16,6 +16,7 @@ export interface ScenarioDraft {
   outcome: string
   toolsCalled: string
   toolsNotCalled: string
+  toolsSucceeded: string
   toolsInOrder: string
   rounds: string
   toolCalls: string
@@ -25,6 +26,18 @@ export interface ScenarioDraft {
   provokesThen: 'retried' | 'reported'
   savedProcedure: string
   savedStored: 'yes' | 'no'
+  expectedTasks: string
+  handOffs: string
+  files: string
+  script: string
+  step: string
+  stages: string
+  plumbing: string
+  turn: boolean
+  choosesTool: string
+  choosesArgs: string
+  repeats: string
+  passAt: string
 }
 
 const listOf = (text: string): string[] =>
@@ -41,7 +54,6 @@ export function emptyDraft(agent = ''): ScenarioDraft {
     describe: '',
     agent,
     procedure: '',
-    version: '',
     message: '',
     inputs: '',
     world: '',
@@ -51,6 +63,7 @@ export function emptyDraft(agent = ''): ScenarioDraft {
     outcome: 'ok',
     toolsCalled: '',
     toolsNotCalled: '',
+    toolsSucceeded: '',
     toolsInOrder: '',
     rounds: '',
     toolCalls: '',
@@ -60,6 +73,18 @@ export function emptyDraft(agent = ''): ScenarioDraft {
     provokesThen: 'reported',
     savedProcedure: '',
     savedStored: 'yes',
+    expectedTasks: '',
+    handOffs: '',
+    files: '',
+    script: '',
+    step: '',
+    stages: '',
+    plumbing: '',
+    turn: false,
+    choosesTool: '',
+    choosesArgs: '',
+    repeats: '',
+    passAt: '',
   }
 }
 
@@ -74,7 +99,6 @@ export function draftOf(scenario: Scenario): ScenarioDraft {
     describe: scenario.describe,
     agent: scenario.agent,
     procedure: scenario.procedure.id,
-    version: scenario.procedure.version ?? '',
     message: scenario.input.message,
     inputs: jsonOf(scenario.input.inputs),
     world: jsonOf(kept),
@@ -84,6 +108,7 @@ export function draftOf(scenario: Scenario): ScenarioDraft {
     outcome: scenario.expect.outcome ?? '',
     toolsCalled: textOf(scenario.expect.toolsCalled),
     toolsNotCalled: textOf(scenario.expect.toolsNotCalled),
+    toolsSucceeded: textOf(scenario.expect.toolsSucceeded),
     toolsInOrder: textOf(scenario.expect.toolsInOrder),
     rounds: scenario.expect.within?.rounds === undefined ? '' : String(scenario.expect.within.rounds),
     toolCalls: scenario.expect.within?.toolCalls === undefined ? '' : String(scenario.expect.within.toolCalls),
@@ -93,8 +118,33 @@ export function draftOf(scenario: Scenario): ScenarioDraft {
     provokesThen: scenario.expect.provokes?.then ?? 'reported',
     savedProcedure: scenario.expect.saved?.procedure ?? '',
     savedStored: scenario.expect.saved?.stored === false ? 'no' : 'yes',
+    expectedTasks: jsonOf(scenario.expect.tasks),
+    handOffs: jsonOf(scenario.expect.handOffs),
+    files: jsonOf(scenario.expect.files),
+    script: jsonOf(scenario.script),
+    step: jsonOf(scenario.step),
+    stages: jsonOf(scenario.then),
+    plumbing: jsonOf(plumbingOf(scenario.expect)),
+    turn: scenario.turn === true,
+    choosesTool: scenario.expect.chooses?.tool ?? '',
+    choosesArgs: jsonOf(scenario.expect.chooses?.args?.length ? scenario.expect.chooses.args : undefined),
+    repeats: scenario.repeats === undefined ? '' : String(scenario.repeats),
+    passAt: scenario.passAt === undefined ? '' : String(scenario.passAt),
   }
 }
+
+function plumbingOf(expect: ScenarioExpectations): Partial<ScenarioExpectations> | undefined {
+  const picked = Object.fromEntries(PLUMBING_KEYS.filter((key) => expect[key] !== undefined).map((key) => [key, expect[key]]))
+  return Object.keys(picked).length > 0 ? picked : undefined
+}
+
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Authority: `stepProcedureId` in apps/backend/src/lib/step-check.ts and `TURN_PROCEDURE_ID` in
+ * apps/backend/src/lib/turn-check.ts.
+ */
+export const stepProcedureId = (id: string): string => `step-check-${id}`
+export const TURN_PROCEDURE_ID = 'turn-check'
 
 const parseJson = (text: string, what: string, problems: string[]): Record<string, unknown> | undefined => {
   if (!text.trim()) return undefined
@@ -121,6 +171,21 @@ const parseCount = (text: string, what: string, problems: string[]): number | un
   return value
 }
 
+const parseList = <T>(text: string, what: string, problems: string[]): T[] | undefined => {
+  if (!text.trim()) return undefined
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (!Array.isArray(parsed)) {
+      problems.push(`${what} has to be a JSON list`)
+      return undefined
+    }
+    return parsed as T[]
+  } catch (err) {
+    problems.push(`${what} is not valid JSON: ${(err as Error).message}`)
+    return undefined
+  }
+}
+
 export type DraftOutcome = { scenario: Scenario } | { problems: string[] }
 
 export function scenarioFromDraft(draft: ScenarioDraft): DraftOutcome {
@@ -130,7 +195,8 @@ export function scenarioFromDraft(draft: ScenarioDraft): DraftOutcome {
   if (!draft.name.trim()) problems.push('the scenario needs a name')
   if (!draft.describe.trim()) problems.push('the scenario has to say what it checks')
   if (!draft.agent.trim()) problems.push('the scenario has to name the persona to run')
-  if (!draft.procedure.trim()) problems.push('the scenario has to name the procedure to run')
+  if (!draft.procedure.trim() && !draft.step.trim() && !draft.turn) problems.push('the scenario has to name the procedure to run')
+  if (draft.turn && draft.step.trim()) problems.push('a check is one turn or one step, not both')
   if (!draft.message.trim()) problems.push('the scenario has to say what the run is asked to do')
 
   const inputs = parseJson(draft.inputs, 'the extra inputs', problems)
@@ -142,13 +208,32 @@ export function scenarioFromDraft(draft: ScenarioDraft): DraftOutcome {
     ...(parseCount(draft.totalTokens, 'the token limit', problems) !== undefined ? { totalTokens: Number(draft.totalTokens) } : {}),
   }
 
+  const tasks = parseList<NonNullable<ScenarioExpectations['tasks']>[number]>(draft.expectedTasks, 'the task states', problems)
+  const handOffs = parseList<NonNullable<ScenarioExpectations['handOffs']>[number]>(draft.handOffs, 'the hand-offs', problems)
+  const files = parseList<NonNullable<ScenarioExpectations['files']>[number]>(draft.files, 'the files', problems)
+  const script = parseJson(draft.script, 'the script', problems) as CheckScript | undefined
+  const step = parseJson(draft.step, 'the step', problems) as StepUnderTest | undefined
+  const stages = parseList<FlowStage>(draft.stages, 'the stages', problems)
+  const plumbing = parseJson(draft.plumbing, 'the plumbing checks', problems) as Partial<ScenarioExpectations> | undefined
+  for (const key of Object.keys(plumbing ?? {})) {
+    if (!(PLUMBING_KEYS as readonly string[]).includes(key)) problems.push(`"${key}" is not a plumbing check — one of ${PLUMBING_KEYS.join(', ')}`)
+  }
+
   if (draft.provokesTool.trim() && !draft.provokesWhen.trim()) problems.push('a provoked failure has to say when it happens')
   if (!draft.provokesTool.trim() && draft.provokesWhen.trim()) problems.push('a provoked failure has to name the tool that fails')
 
-  const expect: ScenarioExpectations = {
+  const repeats = parseCount(draft.repeats, 'repeats', problems)
+  const passAt = parseCount(draft.passAt, 'pass at', problems)
+  const args = parseList<ArgCheck>(draft.choosesArgs, 'the arguments to check', problems)
+
+  const expect: ScenarioExpectations = draft.turn ? {
+    chooses: { tool: draft.choosesTool.trim() || null, ...(args?.length ? { args } : {}) },
+    ...(plumbing?.modelSaw ? { modelSaw: plumbing.modelSaw } : {}),
+  } : {
     ...(draft.outcome.trim() ? { outcome: draft.outcome.trim() } : {}),
     ...(listOf(draft.toolsCalled).length > 0 ? { toolsCalled: listOf(draft.toolsCalled) } : {}),
     ...(listOf(draft.toolsNotCalled).length > 0 ? { toolsNotCalled: listOf(draft.toolsNotCalled) } : {}),
+    ...(listOf(draft.toolsSucceeded).length > 0 ? { toolsSucceeded: listOf(draft.toolsSucceeded) } : {}),
     ...(listOf(draft.toolsInOrder).length > 0 ? { toolsInOrder: listOf(draft.toolsInOrder) } : {}),
     ...(Object.keys(within).length > 0 ? { within } : {}),
     ...(draft.provokesTool.trim() && draft.provokesWhen.trim()
@@ -157,6 +242,10 @@ export function scenarioFromDraft(draft: ScenarioDraft): DraftOutcome {
     ...(draft.savedProcedure.trim()
       ? { saved: { procedure: draft.savedProcedure.trim(), stored: draft.savedStored === 'yes' } }
       : {}),
+    ...(tasks?.length ? { tasks } : {}),
+    ...(handOffs?.length ? { handOffs } : {}),
+    ...(files?.length ? { files } : {}),
+    ...(plumbing ?? {}),
   }
 
   if (Object.keys(expect).length === 0) problems.push('the scenario has to expect something')
@@ -173,12 +262,24 @@ export function scenarioFromDraft(draft: ScenarioDraft): DraftOutcome {
       name: draft.name.trim(),
       describe: draft.describe.trim(),
       agent: draft.agent.trim(),
-      procedure: { id: draft.procedure.trim(), ...(draft.version.trim() ? { version: draft.version.trim() } : {}) },
+      procedure: { id: draft.turn ? TURN_PROCEDURE_ID : step ? stepProcedureId(draft.id.trim()) : draft.procedure.trim() },
       input: { message: draft.message, ...(inputs ? { inputs } : {}) },
       ...(Object.keys(fullWorld).length > 0 ? { world: fullWorld } : {}),
       ...(answers ? { answers } : {}),
       ...(draft.approvals === 'refuse' ? { approvals: 'refuse' as const } : {}),
+      ...(script ? { script } : {}),
+      ...(step ? { step } : {}),
+      ...(draft.turn ? { turn: true } : {}),
+      ...(repeats !== undefined ? { repeats } : {}),
+      ...(passAt !== undefined ? { passAt } : {}),
       expect,
+      ...(stages?.length && !draft.turn ? { then: stages } : {}),
     },
   }
+}
+
+export function scopedDraft(scope: Scope, fallbackAgent: string): ScenarioDraft {
+  if ('agent' in scope) return emptyDraft(scope.agent)
+  if ('procedure' in scope) return { ...emptyDraft(fallbackAgent), procedure: scope.procedure }
+  return { ...emptyDraft(fallbackAgent), step: JSON.stringify({ node: 'call-tool', settings: { tool: scope.tool } }, null, 2) }
 }

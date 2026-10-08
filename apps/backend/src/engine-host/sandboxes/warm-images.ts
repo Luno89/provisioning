@@ -2,6 +2,7 @@ import { needsBuilding, planFor, type Persona, type ToolDefinition } from '@koal
 import type { ImageBuilder, ImageStanding } from './image-builder.js';
 import { mergeWorkspaceAgents } from './environments.js';
 import { GROVE_WORKSPACE_AGENTS } from './tree-workspaces.js';
+import { planWorkspace } from '../../extensions/workspace-bases.js';
 
 export interface WorkspaceImage extends ImageStanding {
   agent: string;
@@ -41,7 +42,7 @@ export function createWorkspaceImages(options: WarmImagesOptions): WorkspaceImag
     const [personas, tools] = await Promise.all([options.personas(ownerId), options.tools(ownerId)]);
 
     return personas.flatMap((persona) => {
-      const plan = planFor(persona, tools);
+      const plan = planWorkspace(persona, tools);
       return plan ? [{ agent: persona.slug, plan }] : [];
     });
   };
@@ -74,7 +75,7 @@ export function createWorkspaceImages(options: WarmImagesOptions): WorkspaceImag
       const [persona] = (await options.personas(ownerId)).filter((candidate) => candidate.slug === agentSlug);
       if (!persona) return undefined;
 
-      const plan = planFor(persona, await options.tools(ownerId));
+      const plan = planWorkspace(persona, await options.tools(ownerId));
       if (!plan) return undefined;
 
       const state = await options.images.standing(plan);
@@ -105,7 +106,7 @@ export function createWorkspaceImages(options: WarmImagesOptions): WorkspaceImag
         const [personas, tools] = await Promise.all([options.personas(ownerId), options.tools(ownerId)]);
 
         for (const persona of personas) {
-          const plan = planFor(persona, tools);
+          const plan = planWorkspace(persona, tools);
           if (plan && needsBuilding(plan)) want(plan.fingerprint, persona.slug);
         }
 
@@ -114,7 +115,7 @@ export function createWorkspaceImages(options: WarmImagesOptions): WorkspaceImag
           GROVE_WORKSPACE_AGENTS.map((slug) => personas.find((persona) => persona.slug === slug)),
           'grove-runner',
         );
-        const plan = shared ? planFor(shared, tools) : undefined;
+        const plan = shared ? planWorkspace(shared, tools) : undefined;
         if (plan && needsBuilding(plan)) want(plan.fingerprint, 'tree workspaces');
       }
 

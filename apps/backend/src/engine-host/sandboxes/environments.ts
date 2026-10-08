@@ -20,6 +20,7 @@ import type { ImageBuilder } from './image-builder.js';
 import type { EnvironmentDriver, EnvironmentSpec } from '@koala/engine-core';
 import type { EnvironmentHandleRef, RunEnvironment, RunTicket } from '../temporal/contracts.js';
 import type { AgentRegistry } from '../registries/registry.js';
+import { planWorkspace } from '../../extensions/workspace-bases.js';
 
 export type WorkspaceTarget =
   | { kind: 'machine'; deviceId: string; deviceName: string; path?: string | undefined }
@@ -37,7 +38,7 @@ export interface EnvironmentRequest {
 
 export interface EnvironmentResolver {
   describe(ticket: RunTicket, wallClockLimitMs?: number | undefined): Promise<RunEnvironment>;
-  describeShared(request: { ticket: RunTicket; agents: readonly string[] }): Promise<Extract<RunEnvironment, { kind: 'sandbox' }>>;
+  describeShared(request: { ticket: RunTicket; agents: readonly string[]; languages?: readonly string[] | undefined }): Promise<Extract<RunEnvironment, { kind: 'sandbox' }>>;
   forRun(request: EnvironmentRequest): Promise<EnvironmentDriver | undefined>;
   release(runId: string): Promise<void>;
 }
@@ -74,7 +75,7 @@ export async function workspaceFor(input: {
   grants?: readonly { host: string; ports?: readonly number[] | undefined }[] | undefined;
   proxyUrl?: string | undefined;
 }): Promise<RunWorkspace> {
-  const plan = planFor(input.agent, input.tools);
+  const plan = planWorkspace(input.agent, input.tools);
   if (!plan) throw new Error(`${input.agent.slug} does not run in a sandbox, so it has no workspace image`);
 
   const reference = await input.images.ensure(plan);
@@ -84,7 +85,8 @@ export async function workspaceFor(input: {
   const credentialed = granted.length > 0
     ? [{ name: 'HTTPS_PROXY', value: input.proxyUrl! }, { name: 'https_proxy', value: input.proxyUrl! }]
     : [];
-  const env = [...access.env.filter((entry) => !credentialed.some((over) => over.name === entry.name)), ...credentialed];
+  const baseEnv = (plan.env ?? []).filter((entry) => !access.env.some((own) => own.name === entry.name));
+  const env = [...access.env, ...baseEnv].filter((entry) => !credentialed.some((over) => over.name === entry.name)).concat(credentialed);
 
   return {
     runId: input.runId,
@@ -117,12 +119,14 @@ export class NothingToShareError extends Error {
 export function mergeWorkspaceAgents(
   agents: readonly (AgentDefinition | undefined)[],
   slug: string,
+  languages: readonly string[] = [],
 ): AgentDefinition | undefined {
   const working = agents.filter((agent): agent is AgentDefinition => agent !== undefined && environmentFor(agent).kind === 'sandbox');
   const [first] = working;
   if (!first) return undefined;
 
   const unique = (values: string[]): string[] => [...new Set(values)];
+  const merged = unique([...languages, ...working.flatMap((agent) => agent.environmentSpec?.languages ?? agent.environment.languages ?? [])]);
 
   return {
     ...first,
@@ -130,8 +134,9 @@ export function mergeWorkspaceAgents(
     tools: unique(working.flatMap((agent) => agent.tools)),
     environment: {
       ...Object.assign({}, ...working.map((agent) => agent.environment)),
-      languages: unique(working.flatMap((agent) => agent.environmentSpec?.languages ?? agent.environment.languages ?? [])),
+      languages: merged,
     },
+    ...(first.environmentSpec ? { environmentSpec: { ...first.environmentSpec, languages: merged } } : {}),
   };
 }
 
@@ -150,9 +155,9 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
   };
 
   return {
-    async describeShared({ ticket, agents }) {
+    async describeShared({ ticket, agents, languages }) {
       const found = await Promise.all(agents.map((slug) => options.registry.agent(ticket.ownerId, slug)));
-      const merged = mergeWorkspaceAgents(found, ticket.agentSlug);
+      const merged = mergeWorkspaceAgents(found, ticket.agentSlug, languages);
       if (!merged) throw new NothingToShareError(agents);
 
       const workspace = await workspaceFor({

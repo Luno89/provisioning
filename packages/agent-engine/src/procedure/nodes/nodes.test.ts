@@ -515,3 +515,13 @@ describe('reading a yes-or-no answer', () => {
   });
 });
 
+
+describe('the value node', () => {
+  it('hands on the JSON it was given, and refuses what is not JSON before it runs', async () => {
+    const { value } = await import('./context.js');
+    const ran = await value.implementation!.run({ node: { id: 'v', kind: 'value', settings: { json: '{"leafId":"l1","n":[1,2]}' }, position: { x: 0, y: 0 } } } as never);
+    expect(ran).toEqual({ outputs: { value: { leafId: 'l1', n: [1, 2] } } });
+    expect(value.definition.check?.({ json: '{nope' }, {} as never)).toEqual([expect.stringContaining('the value is not JSON')]);
+    expect(value.definition.check?.({ json: '[]' }, {} as never)).toEqual([]);
+  });
+});

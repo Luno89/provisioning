@@ -26,7 +26,7 @@ const agent = (over: Partial<Persona> = {}): Persona => ({
 
 const known = () => ({ tools: tools(), procedures: PROCEDURES, agents: AGENTS });
 
-function service(over: { stored?: Persona[]; image?: ImageStanding } = {}) {
+function service(over: { stored?: Persona[]; image?: ImageStanding; treeTypes?: { id: string; label: string; agent?: string }[] } = {}) {
   const stored = [...(over.stored ?? [])];
   const started: string[] = [];
 
@@ -56,10 +56,30 @@ function service(over: { stored?: Persona[]; image?: ImageStanding } = {}) {
       },
       tools: async () => tools(),
       procedures: async () => [...PROCEDURES],
+      treeTypes: async () => over.treeTypes ?? [],
       images,
     }),
   };
 }
+
+describe('file tools for an agent that works in a shared workspace', () => {
+  const finder = agent({ slug: 'finder', tools: ['read_file'], environment: { filesystem: true } });
+  const talker = (agents: string[]) => agent({ slug: 'talker', tools: ['read_file'], environment: {}, agents });
+
+  it('allows them when someone it can hand work to, however far down, works in a sandbox it will share', () => {
+    const middle = agent({ slug: 'middle', tools: [], environment: {}, agents: ['finder'] });
+    const personas = [finder, middle];
+
+    expect(agentProblems(talker(['finder']), { ...known(), agents: new Set(['finder', 'middle']), personas })).toEqual([]);
+    expect(agentProblems(talker(['middle']), { ...known(), agents: new Set(['finder', 'middle']), personas })).toEqual([]);
+  });
+
+  it('refuses them when nothing it can reach works in a sandbox', () => {
+    const idle = agent({ slug: 'idle', tools: [], environment: {} });
+
+    expect(agentProblems(talker(['idle']), { ...known(), agents: new Set(['idle']), personas: [idle] }).join('\n')).toContain('"read_file", which cannot run in the workspace it asks for');
+  });
+});
 
 describe('what an agent is refused for', () => {
   it('accepts a whole one', () => {
@@ -247,5 +267,26 @@ describe('agents you can edit', () => {
     const { agents } = service();
 
     expect(await agents.remove('user-1', 'research')).toBe(false);
+  });
+});
+
+describe('whether an agent recalls memories', () => {
+  it('says so when its procedure has a Recall memory step, inside groups too, and not otherwise', async () => {
+    const listed = await service().agents.list('user-1');
+    expect(listed.find((one) => one.slug === 'koala')?.recallsMemories).toBe(true);
+    expect(listed.find((one) => one.slug === 'research')?.recallsMemories).toBe(true);
+    expect(listed.find((one) => one.slug === 'grove')?.recallsMemories).toBe(false);
+  });
+});
+
+describe('how an agent is used', () => {
+  it('lists each agent with what uses it, including the tree types that grow with it', async () => {
+    const { agents } = service({ treeTypes: [{ id: 'default', label: 'Default' }] });
+    const listed = await agents.list('user-1');
+
+    expect(listed.find((one) => one.slug === 'koala')?.usedBy).toContainEqual({ kind: 'chat', by: 'every new conversation' });
+    expect(listed.find((one) => one.slug === 'memory-keeper')?.usedBy).toContainEqual(expect.objectContaining({ kind: 'platform' }));
+    expect(listed.find((one) => one.slug === 'grove')?.usedBy).toContainEqual({ kind: 'tree-type', by: 'Default' });
+    expect(listed.find((one) => one.slug === 'research')?.usedBy).toContainEqual({ kind: 'hand-off', by: 'koala' });
   });
 });

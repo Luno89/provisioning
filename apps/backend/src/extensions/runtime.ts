@@ -2,13 +2,15 @@ import type { ExtensionRuntime, HostOperationRun } from './types.js';
 import type { ToolHandler } from '@koala/engine-core';
 import { HOST_OPERATIONS } from './installed.js';
 import { groveRuntime, type GroveRuntimeDeps } from './grove/runtime.js';
+import { platformRuntime, type PlatformRuntimeDeps } from './platform/runtime.js';
 
 export interface ExtensionRuntimeDeps {
   grove?: GroveRuntimeDeps | undefined;
+  platform?: PlatformRuntimeDeps | undefined;
 }
 
 export function extensionRuntimes(deps: ExtensionRuntimeDeps): Record<string, ExtensionRuntime> {
-  return { grove: groveRuntime(deps.grove ?? {}) };
+  return { platform: platformRuntime(deps.platform ?? {}), grove: groveRuntime(deps.grove ?? {}) };
 }
 
 export const operationHandlers = (runtimes: Record<string, ExtensionRuntime>): Record<string, HostOperationRun> =>

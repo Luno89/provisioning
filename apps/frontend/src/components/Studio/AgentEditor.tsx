@@ -2,16 +2,22 @@ import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import type { Agent } from '../../api/agents'
 import { errorMessage, useDeleteAgent, useEgressGrants, useGrantableTools, useMcpServerList, useProcedureList, useSaveAgent } from './shared'
-import { NEEDS, requirementFor, toolProblem, withRequired } from './agent-forms'
+import { NEEDS, requirementFor, withRequired } from './agent-forms'
+import ToolGrants from './ToolGrants'
 
 const field = 'w-full rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)] px-2 py-1 text-xs text-slate-200 outline-none focus:border-[var(--leaf-stem)]'
 
 const label = 'text-[10px] font-semibold uppercase tracking-wider text-slate-400'
 
-export default function AgentEditor({ agent, agents, onClose }: {
+export type AgentSection = 'prompt' | 'procedure' | 'tools' | 'hand-offs' | 'workspace' | 'settings'
+
+export default function AgentEditor({ agent, agents, onClose, onSaved, onDeleted, only }: {
   agent: Agent
   agents: readonly Agent[]
-  onClose: () => void
+  only?: AgentSection | undefined
+  onClose?: (() => void) | undefined
+  onSaved?: ((saved: Agent) => void) | undefined
+  onDeleted?: (() => void) | undefined
 }) {
   const [draft, setDraft] = useState<Agent>(agent)
   const [problems, setProblems] = useState<string[]>([])
@@ -20,9 +26,15 @@ export default function AgentEditor({ agent, agents, onClose }: {
   const grantable = useGrantableTools()
   const languages = grantable.data?.languages ?? []
   const procedures = useProcedureList()
-  const save = useSaveAgent(() => onClose())
-  const remove = useDeleteAgent(() => onClose())
+  const [saved, setSaved] = useState(false)
+  const save = useSaveAgent((stored) => {
+    setSaved(true)
+    if (onSaved) onSaved(stored)
+    else onClose?.()
+  })
+  const remove = useDeleteAgent(() => (onDeleted ?? onClose)?.())
 
+  const show = (section: AgentSection) => !only || only === section
   const set = <K extends keyof Agent>(key: K, value: Agent[K]) => setDraft((current) => ({ ...current, [key]: value }))
   const concludeAfter = (wanted: string) => setDraft(({ concludeAfterMinutes: _was, ...current }) =>
     (wanted ? { ...current, concludeAfterMinutes: Number(wanted) } : current))
@@ -39,6 +51,7 @@ export default function AgentEditor({ agent, agents, onClose }: {
 
   const submit = () => {
     setProblems([])
+    setSaved(false)
     save.mutate(draft, {
       onError: (err) => setProblems([
         errorMessage(err),
@@ -54,35 +67,36 @@ export default function AgentEditor({ agent, agents, onClose }: {
           {agent.mine ? `Editing ${agent.name}` : `Your own copy of ${agent.name}`}
         </h2>
         {!agent.mine && <span className="text-[11px] text-slate-500">saving makes your copy; the built-in is untouched</span>}
-        <button type="button" onClick={onClose} className="ml-auto text-[11px] text-slate-500 hover:text-slate-200">Close</button>
+        {saved && <span role="status" className="text-[11px] text-emerald-300">saved</span>}
+        {onClose && <button type="button" onClick={onClose} className="ml-auto text-[11px] text-slate-500 hover:text-slate-200">Close</button>}
       </header>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="space-y-1">
+      {(show('settings') || show('procedure')) && <div className="grid gap-3 sm:grid-cols-2">
+        {show('settings') && <label className="space-y-1">
           <span className={label}>Name</span>
           <input className={field} value={draft.name} onChange={(event) => set('name', event.target.value)} />
-        </label>
-        <label className="space-y-1">
+        </label>}
+        {show('procedure') && <label className="space-y-1">
           <span className={label}>Procedure it runs</span>
           <select className={field} value={draft.procedure} onChange={(event) => runs(event.target.value)}>
             {(procedures.data?.procedures ?? []).map((procedure) => (
               <option key={procedure.id} value={procedure.id}>{procedure.id}</option>
             ))}
           </select>
-        </label>
-      </div>
+        </label>}
+      </div>}
 
-      <label className="block space-y-1">
+      {show('settings') && <label className="block space-y-1">
         <span className={label}>What it is for</span>
         <input className={field} value={draft.description} onChange={(event) => set('description', event.target.value)} />
-      </label>
+      </label>}
 
-      <label className="block space-y-1">
+      {show('prompt') && <label className="block space-y-1">
         <span className={label}>Prompt</span>
-        <textarea className={`${field} font-mono`} rows={8} value={draft.prompt} onChange={(event) => set('prompt', event.target.value)} />
-      </label>
+        <textarea className={`${field} font-mono leading-relaxed`} rows={only === 'prompt' ? 28 : 8} value={draft.prompt} onChange={(event) => set('prompt', event.target.value)} />
+      </label>}
 
-      <div className="space-y-1">
+      {show('workspace') && <div className="space-y-1">
         <span className={label}>Workspace</span>
         <div className="flex flex-wrap gap-3 text-[11px] text-slate-300">
           {(['terminal', 'filesystem', 'git', 'egress'] as const).map((need) => (
@@ -112,9 +126,9 @@ export default function AgentEditor({ agent, agents, onClose }: {
         <p className="text-[11px] text-slate-500">
           A workspace can ask for {languages.join(', ')}. The first one picks the image it starts from; the rest are installed into it, which is a build.
         </p>
-      </div>
+      </div>}
 
-      {requires.length > 0 && (
+      {show('procedure') && requires.length > 0 && (
         <div className="space-y-1 rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)]/40 p-2">
           <span className={label}>What {draft.procedure} needs</span>
           <p className="text-[11px] text-slate-500">
@@ -131,7 +145,7 @@ export default function AgentEditor({ agent, agents, onClose }: {
         </div>
       )}
 
-      <label className="block space-y-1">
+      {show('tools') && <label className="block space-y-1">
         <span className={label}>What it may do with its tools</span>
         <select
           className={field}
@@ -142,38 +156,24 @@ export default function AgentEditor({ agent, agents, onClose }: {
           <option value="propose">read and propose changes, never make them</option>
           <option value="read">only read</option>
         </select>
-      </label>
+      </label>}
 
-      <div className="space-y-1">
+      {show('tools') && <div className="space-y-1">
         <span className={label}>Tools it is granted</span>
         {grantable.isPending && <p className="flex items-center gap-1 text-[11px] text-slate-500"><Loader2 size={11} className="animate-spin" /> Loading tools…</p>}
-        <div className="grid gap-1 sm:grid-cols-2">
-          {(grantable.data?.tools ?? []).map((tool) => {
-            const refusal = toolProblem(tool, draft.environment)
-            const required = requirementFor(requires, 'tool', tool.name)
-            return (
-              <label key={tool.name} className="flex items-start gap-1.5 text-[11px] text-slate-300">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 accent-[var(--leaf-stem)]"
-                  checked={draft.tools.includes(tool.name)}
-                  disabled={required !== undefined}
-                  title={required ? `${draft.procedure} needs this — ${required.why}` : undefined}
-                  onChange={() => set('tools', toggle(draft.tools, tool.name))}
-                />
-                <span className="min-w-0">
-                  <span className="font-mono">{tool.name}</span>
-                  {required && <span className="text-emerald-300"> — {draft.procedure} needs it</span>}
-                  {refusal && draft.tools.includes(tool.name) && <span className="text-amber-300"> — {refusal}</span>}
-                  <span className="block truncate text-slate-500">{tool.summary}</span>
-                </span>
-              </label>
-            )
-          })}
-        </div>
-      </div>
+        {grantable.data && (
+          <ToolGrants
+            granted={draft.tools}
+            grantable={grantable.data.tools}
+            requires={requires}
+            procedure={draft.procedure}
+            environment={draft.environment}
+            onChange={(next) => set('tools', next)}
+          />
+        )}
+      </div>}
 
-      <div className="space-y-1">
+      {show('workspace') && <div className="space-y-1">
         <span className={label}>Hosts it may reach from its workspace</span>
         {egress.grants.length === 0 && <p className="text-[11px] text-slate-500">Only the package registries. It can ask for more with request_egress.</p>}
         <ul className="flex flex-col gap-1 text-[11px] text-slate-300">
@@ -185,9 +185,9 @@ export default function AgentEditor({ agent, agents, onClose }: {
             </li>
           ))}
         </ul>
-      </div>
+      </div>}
 
-      <div className="space-y-1">
+      {show('tools') && <div className="space-y-1">
         <span className={label}>MCP servers it may use</span>
         {(mcpServers.data ?? []).length === 0 && <p className="text-[11px] text-slate-500">You are not running any MCP servers.</p>}
         <div className="flex flex-wrap gap-3 text-[11px] text-slate-300">
@@ -204,9 +204,9 @@ export default function AgentEditor({ agent, agents, onClose }: {
             </label>
           ))}
         </div>
-      </div>
+      </div>}
 
-      <div className="space-y-1">
+      {show('hand-offs') && <div className="space-y-1">
         <span className={label}>Agents it may hand work to</span>
         <div className="flex flex-wrap gap-3 text-[11px] text-slate-300">
           {agents.filter((one) => one.slug !== draft.slug).map((one) => {
@@ -227,9 +227,9 @@ export default function AgentEditor({ agent, agents, onClose }: {
             )
           })}
         </div>
-      </div>
+      </div>}
 
-      <label className="block space-y-1 sm:w-64">
+      {show('settings') && <label className="block space-y-1 sm:w-64">
         <span className={label}>Reply ceiling, blank for the window</span>
         <input
           className={field}
@@ -241,9 +241,9 @@ export default function AgentEditor({ agent, agents, onClose }: {
             set('model', wanted ? { ...rest, replyCeiling: Number(wanted) } : rest)
           }}
         />
-      </label>
+      </label>}
 
-      <label className="block space-y-1 sm:w-64">
+      {show('settings') && <label className="block space-y-1 sm:w-64">
         <span className={label}>A conversation concludes after this many quiet minutes</span>
         <input
           aria-label="Quiet minutes before a conversation concludes"
@@ -254,7 +254,7 @@ export default function AgentEditor({ agent, agents, onClose }: {
           onChange={(event) => concludeAfter(event.target.value.trim())}
         />
         <span className="block text-[11px] text-slate-500">Then what it taught is remembered. A new message starts the count again.</span>
-      </label>
+      </label>}
 
       {problems.length > 0 && (
         <ul className="space-y-1 rounded-md border border-red-900 bg-red-950/30 p-2">
@@ -272,7 +272,7 @@ export default function AgentEditor({ agent, agents, onClose }: {
           {save.isPending ? <Loader2 size={12} className="animate-spin" /> : null}
           {agent.mine ? 'Save' : 'Save as my own'}
         </button>
-        {agent.mine && (
+        {agent.mine && (!only || only === 'settings') && (
           <button
             type="button"
             onClick={() => remove.mutate(draft.slug)}

@@ -1,4 +1,5 @@
-export type WorkspaceLanguage = 'node' | 'python' | 'go' | 'base';
+import { sameSeededRow } from './seed-diff.js';
+export type WorkspaceLanguage = 'node' | 'python' | 'go' | 'base' | 'odoo';
 
 export type EgressRule =
   | { cidr: string; namespace?: undefined; ports?: number[] }
@@ -73,6 +74,24 @@ export const WORKSPACE_IMAGE_SEEDS: WorkspaceImageSpec[] = [
     },
   },
   {
+    id: 'odoo',
+    image: 'odoo:18',
+    summary: 'Odoo 18 Community with its own PostgreSQL 18 and Playwright with Chromium, for building Odoo addons. `odoo-check <module>[,<module>] [addons-dir]` installs the modules into a throwaway database, runs their Python tests and says PASSED or FAILED; `odoo-e2e <module>[,<module>] <specs>` installs them into a throwaway Odoo it serves on localhost and runs the Playwright specs against it in a browser; `koala-e2e [specs]` does the same for every module under addons/, which is what browser test checks and the Run Browser Tests node use.',
+    available: ['bash', 'git', 'python3 3.12', 'pip', 'odoo 18', 'odoo-check', 'odoo-e2e', 'koala-e2e', 'postgres 18', 'psql', 'helm 3.15', 'node', 'npm', 'playwright 1.48 (chromium)', 'curl', 'tar'],
+    absent: ['gcc', 'make', 'wget', 'jq', 'go'],
+    packageAccess: {
+      env: [
+        { name: 'PIP_INDEX_URL', value: 'https://pypi.org/simple' },
+        { name: 'PIP_TARGET', value: `${WORKSPACE_MOUNT}/.python-packages` },
+        { name: 'PYTHONPATH', value: `${WORKSPACE_MOUNT}/.python-packages` },
+        { name: 'PLAYWRIGHT_BROWSERS_PATH', value: '/ms-playwright' },
+        { name: 'NODE_PATH', value: '/usr/local/lib/node_modules' },
+        ...PROXY_ENV,
+      ],
+      egress: [EGRESS_PROXY_EGRESS],
+    },
+  },
+  {
     id: 'base',
     image: 'registry.access.redhat.com/ubi9/ubi',
     summary: 'Minimal shell environment. No git, no compilers — shell and text editing only.',
@@ -91,11 +110,12 @@ export interface WorkspaceImageStore {
 
 export async function seedWorkspaceImages(store: WorkspaceImageStore): Promise<number> {
   const stored = await store.getWorkspaceImages().catch(() => [] as WorkspaceImageSpec[]);
-  const have = new Set(stored.filter((i) => i.ownerId === undefined).map((i) => i.id));
+  const shipped = new Map(stored.filter((i) => i.ownerId === undefined).map((i) => [i.id, i]));
 
   let seeded = 0;
   for (const seed of WORKSPACE_IMAGE_SEEDS) {
-    if (have.has(seed.id)) continue;
+    const existing = shipped.get(seed.id);
+    if (existing && sameSeededRow(existing, seed)) continue;
     await store.saveWorkspaceImage({ ...seed });
     seeded++;
   }

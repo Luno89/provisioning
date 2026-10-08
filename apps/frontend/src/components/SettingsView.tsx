@@ -3,6 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '../api/client';
 import { useShellStore, type AppUser } from '../stores/shell';
 import { DefaultModelPicker } from './DefaultModelPicker';
+import { ModelTraffic } from './ModelTraffic';
+import { DeleteAccount } from './Account/DeleteAccount';
+import BenchPanel from './Checks/BenchPanel';
+import { People } from './Account/People';
 
 interface Invite {
   id: string;
@@ -189,10 +193,20 @@ export default function SettingsView() {
           </div>
         </div>
       )}
+
+      {user.isAdmin && <People />}
+
+      <BenchPanel />
+
+      <DeleteAccount />
     </div>
 
     <div className="mt-8">
       <DefaultModelPicker />
+    </div>
+
+    <div className="mt-6">
+      <ModelTraffic />
     </div>
   </section>
   );

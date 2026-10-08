@@ -65,6 +65,8 @@ export interface DeploymentMetadata {
   localExposureUrl?: string;
   isExposedPublicly?: boolean;
   publicExposureUrl?: string;
+  previewLocalUrl?: string;
+  previewPublicUrl?: string;
   publicHostname?: string;
   lastLogPath?: string;
   modules?: string[];
@@ -173,6 +175,7 @@ export interface ProjectMetadata {
   lastBuildStatus?: 'queued' | 'running' | 'succeeded' | 'failed';
   requiredSecrets?: { key: string; source: string }[];
   infisicalReaderEnc?: string;
+  removal?: { startedAt: string; requestedBy: string } | undefined;
   createdAt: string;
   /**
    * Where this project's leaves execute. Absent means the K8s sandbox (today's only behaviour).
@@ -462,6 +465,15 @@ export interface UserMetadata {
    * it named.
    */
   globalModelOverride?: boolean;
+  removal?: { startedAt: string; requestedBy: string } | undefined;
+  space?: {
+    person: string;
+    checkRunId: string;
+    scenarioId: string;
+    models?: 'borrowed' | 'scripted' | undefined;
+    script?: import('./check-script.js').CheckScript | undefined;
+    world?: Record<string, unknown> | undefined;
+  } | undefined;
 }
 
 export interface InviteMetadata {

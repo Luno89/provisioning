@@ -5,6 +5,7 @@ import {
   LEAF_JUDGE,
   MEMORY_KEEPER,
   conversationConclusion,
+  conversationWatermarkKey,
   leafConclusion,
   runConclusion,
   type Conclusion,
@@ -38,7 +39,6 @@ export interface ConclusionReport {
   started: string[];
 }
 
-const conversationKey = (id: string) => `conversation:${id}`;
 
 export class MemoryKeeperService {
   constructor(private readonly deps: {
@@ -46,6 +46,7 @@ export class MemoryKeeperService {
     start: StartMemoryRun;
     timer: ConversationTimer;
     concludeAfterMinutes: (ownerId: string, agentSlug: string) => Promise<number | undefined>;
+    remembersFor?: ((ownerId: string) => Promise<boolean>) | undefined;
   }) {}
 
   async handle(event: LifecycleEvent): Promise<ConclusionReport> {
@@ -90,7 +91,7 @@ export class MemoryKeeperService {
   private async concludeConversation(ownerId: string, conversationId: string, why: 'quiet' | 'settled', report: ConclusionReport): Promise<void> {
     const conversation = await this.deps.store.getConversation(ownerId, conversationId);
     if (!conversation || conversation.agentSlug === MEMORY_KEEPER) return;
-    const key = conversationKey(conversation.id);
+    const key = conversationWatermarkKey(conversation.id);
     const through = Number(await this.deps.store.getMemoryWatermark(key)) || 0;
     const conclusion = conversationConclusion(conversation, through, why);
     if (!conclusion) return;
@@ -99,6 +100,7 @@ export class MemoryKeeperService {
   }
 
   private async begin(conclusion: Conclusion, report: ConclusionReport): Promise<void> {
+    if (this.deps.remembersFor && !(await this.deps.remembersFor(conclusion.ownerId))) return;
     try {
       await this.deps.start({
         ownerId: conclusion.ownerId,

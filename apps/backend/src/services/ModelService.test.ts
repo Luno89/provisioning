@@ -108,3 +108,16 @@ describe('the engine a run reaches', () => {
     await expect(models.resolveBaseUrl('u1')).rejects.toThrow(/No models available/);
   });
 });
+
+describe('a check space borrowing its person\'s models', () => {
+  it('sees and resolves the person\'s models, on the person\'s default, with nothing of its own', async () => {
+    const models = await build(gatewayEndpoints('u1', 3), { defaultModelId: 'openrouter-2' });
+    const db = (models as unknown as { db: MemoryDB }).db;
+    await db.saveUser({ id: 'space-1', email: 'space-1@checks.internal', emailVerified: true, twoFactorEnabled: false, createdAt: 'now', space: { person: 'u1', checkRunId: 'c1', scenarioId: 's1' } });
+
+    expect((await models.list('space-1')).map((provider) => provider.id)).toEqual(['openrouter-0', 'openrouter-1', 'openrouter-2']);
+    const resolved = await models.resolveBaseUrl('space-1');
+    expect(resolved.provider.id).toBe('openrouter-2');
+    expect(resolved.source).toBe('global');
+  });
+});

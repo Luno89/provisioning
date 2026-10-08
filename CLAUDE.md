@@ -51,8 +51,9 @@ npm run test:bench-live           # throwaway agent passes on an idle-started be
 npm run test:proposals-live       # Koala corrected in chat → the memory keeper proposes a test → accepted and run, ~25 min
 npm run test:practices-live       # a correction → a practice on trial → the bench tries it → live or held → recalled, ~45 min
 npm run test:changes-live         # a prompt change compared on the bench and accepted; a procedure request handed to the agent builder, ~30 min
-npm run test:research-live        # Koala fans out three research runs at once into one conversation workspace → reads their files → after the quiet time they are in Gitea and the pod is gone → a later turn restores them, ~25 min
-npm run test:turn-log-live        # a Koala turn is opened on the server before it runs → the browser drops mid-turn, rebuilds from the turn log and follows on with no gap → the saved reply is the logged text → a run killed mid-turn leaves its reply, marked interrupted, ~10 min
+npm run test:account-removal-live # a fresh account with a project, its repository and a conversation removes itself through DELETE /api/account → its session and sign-in are refused at once → an admin sees it go → nothing of it is left in any collection, Gitea or Kubernetes, ~1 min
+npm run test:odoo-release-live     # a throwaway project on the system cluster: its push builds and releases into slot a, a new module is prepared in slot b and previewed, cut over, then the app and project are removed, ~4 min
+npm run test:checks-live          # a Level 2 run on the check runner (CHECKS_LIVE_SCENARIOS picks which; default seven model scenarios on your model): each in a fresh hidden space, driven through the API → every run opens for you afterwards → no space is left behind
 npm run test:instance-live        # k3d cluster + root container + charts/instance → sign in through root → sandboxed run, ~10 min, cleans up
 npm run test:remote-integration   # boots a disposable QEMU VM, provisions it as a provider:'remote' cluster over
                                    # real SSH, verifies kubectl + deploys a real app, tears down VM+cluster — proves
@@ -74,6 +75,10 @@ Run a single test file: `npx vitest run <path>` from the relevant workspace dir,
 
 `npm run dev` runs the backend and all three workers (host, cluster, engine) under `tsx watch`, so
 an edit to anything they import restarts them within a few seconds. You no longer restart by hand.
+
+Workflow files are not imported: Temporal bundles them from `workflowsPath`. The workers' dev scripts watch them
+with `--include 'src/workflows/**'`; without that, a change to a workflow does nothing until the worker restarts
+for another reason — a fix can look applied and not be.
 
 The cost is that **a restart kills every activity that worker is running.** Temporal retries an
 idempotent node on the new worker once its heartbeat lapses, so a model turn or a sandbox
@@ -150,6 +155,36 @@ must work signed-out means editing the guard too. `requireAuth` and the Socket.I
 `userFromSessionCookie` for the same reason: a socket must never be able to resolve a user the HTTP
 API would reject.
 
+## Account removal
+
+`RemoveAccountWorkflow` (engine worker) removes an account and everything it owns: it stops the account's
+workflows, deletes its workspace namespaces (by the `koala.dev/owner` label), project secrets, mesh machines,
+Gitea user and repositories, then every record, the account last. A person removes their own account from
+Settings (typing their email), an admin removes anyone's from Settings → People. It is refused while the account
+still has clusters or deployed apps, and for the only admin. The moment it starts, the account's sessions and
+sign-in are refused (`userFromSessionCookie`), and no run can start for it (`closing` in the run starter).
+
+Removal, project deletion and tree deletion stop workflows by **cancelling** them (`lib/stop-workflow.ts`), never by
+terminating: a cancelled agent run still runs its own ending — it ends `interrupted` and hands its claimed tasks
+back. Only one that has not closed within `STOP_WAIT_MS` of being cancelled is terminated. Terminating skips all of
+that, so a task the run was working on would stay `running` forever.
+
+A closed workflow does not stop an activity already in flight (engine activities are abandoned on cancel), so when
+removal stopped anything it waits
+`ACTIVITY_STOP_GRACE_MS` (a few node heartbeats — an activity hears it was stopped on its next one) before it hands
+runs over (`keepRunsFor`, what the check runner uses) and deletes records. It finds runs through the turn logs, and
+each run's memory keeper by name (`memoryRunId`); the memory keeper never runs for a check's space.
+
+**Project deletion** (`RemoveProjectWorkflow`, the "Delete project" popup on a project's page, which lists what
+goes before anything does) deletes the trees whose home is the project, with their leaves, conversations, workspaces
+and repos; the project's repo (and its build webhook), Infisical workspace and reader identities, builds and
+records. A tree only also linked to it, and a conversation or memory that only mentions it, are kept and unlinked.
+It is refused while an app built from the project is deployed, and a project being deleted ignores pushes.
+
+`ACCOUNT_DATA` in `lib/account-removal.ts` classifies every Mongo collection as removed by owner, by id, through
+what it relates to, or shared; a test fails when a collection in `mongo-db.ts` is missing from it, so **a new
+collection has to say how it is removed**.
+
 ## Roles: root, instance, combined
 
 `ROLE` (read by `lib/platform-role.ts`) decides what a backend is:
@@ -180,10 +215,50 @@ It searches, saves, replaces or retires with `search_memories` / `save_memory` /
 and reads runs with `read_run`. It can also propose a test (`propose_scenario`), a practice for one
 agent (`propose_practice`, tried on the bench before it goes live), a prompt change (compared on the
 bench, always waiting for the person), or a procedure change in plain words (handed to the agent
-builder). Evals → Level 2 holds all of them. The live tests retire whatever their own runs leave
+builder). Each waits on the page of the agent it is for (Studio → Agents → Proposed changes). The live tests retire whatever their own runs leave
 behind (`tests/lib/forget-test-runs.ts`), since they feed the keeper made-up situations. Watermarks in `memoryWatermarks` mean nothing is processed twice,
 Koala also holds
 `save_memory` for what the person states outright.
+
+## Checks
+
+Level 2 scenarios — **checks** — run on the **check runner** (`CheckRunWorkflow`, engine worker), never in-process.
+Plan: `~/.claude/plans/testing-levels.md`.
+
+- **A fresh space per scenario**: a hidden account (`user.space`, no password, never listed among people) with the
+  person's agents, procedures, tools, tree types, extension settings and live practices — not their data — plus the
+  scenario's world (`tasks`, `memories`, `procedures`, `files`, `agents` settings, a `project`). It is removed with
+  `RemoveAccountWorkflow` afterwards, and every check ends with "its space leaves nothing behind" — so every check
+  run is also a live test of account removal.
+- **Who plays the model**: the person's model (the space borrows it — `ModelService` resolves as the person), or a
+  **script** (`scenario.script`, `lib/check-script.ts`): rules matched on what a model sees (`offered`, `called`,
+  `notCalled`, `asked`, `system`, `said`) answering with `say` and/or `call`, with lookups (`{{asked.N}}`,
+  `{{said.N}}`, `{{directory}}`, `{{mentioned.task|leaf}}`, `{{result.<tool>}}`, `{{world.<path>}}`). The backend
+  serves it at `/api/checks/scripted/:space/v1` (public prefix in the auth guard, checked by a per-space key) and
+  records every request, so a check can assert `modelSaw`. A request no rule answers fails the run with what was asked.
+- **Driven through the API, as the space** (`CHECKS_API_URL`, default the local backend), answering questions and
+  approvals as they come, then reading what the run left: the turn log, `/documents`, tasks, run effort.
+- **Flows**: `then` adds stages after the first run — `chat` (optionally `killAfterChars` to kill it mid-turn),
+  `approvePlan`, `runTree`, `waitQuiet`, `deleteTree`, `deleteProject` — each with its own expectations, including
+  plumbing ones: `modelSaw`, `compacted`, `summaryKept`, `interrupted`, `turnLog`, `leaves`, `repository`,
+  `pullRequests`, `workspace`, `project`, `trees`. Check names say which stage they belong to.
+- **The mechanics checks** (`eval/level2/mechanics.ts`, built in, scripted, so they run in seconds and on the bench):
+  the judge's verdict, the turn log (and a run killed mid-turn), research in one shared workspace through the quiet
+  time, compaction, landing, project deletion, and an Odoo module built and checked in an Odoo 18 workspace. They replaced the `*-live` scripts that tested the same plumbing.
+- **Turn checks** (`turn: true`, `lib/turn-check.ts`) are one model turn of an agent: its tools offered, nothing run
+  (procedure `turn-check`). `chooses` names the tool it should pick (or `null` to answer without one) and checks its
+  arguments, read from the model call's trace. They replaced Level 1; the built-in ones are `eval/level2/turns.ts`.
+- **Any check can repeat** (`repeats`, `passAt`, `lib/check-attempts.ts`): a turn check's attempts share one space, any
+  other gets a fresh space per attempt; the result keeps every attempt, and a space that leaks fails the check whatever
+  `passAt` allows. Coverage (`lib/check-coverage.ts`) and comparing two runs (`lib/check-compare.ts`) count every attempt.
+- The space's runs are handed to the person before it goes, so every result still opens in the run view.
+- **The Studio** (Agents, Tools, Procedures, Tree Types) is one explorer per concept (`components/Studio/Explorer.tsx`):
+  items grouped by how they are used (agents: `lib/agent-usage.ts` on the backend), each item's parts opening on the
+  right like files. Built-in procedures open read-only; "Make my own copy to edit" saves a copy under the same id.
+- **Checks live on what they check** (Studio, `~/.claude/plans/studio-layout.md`): there is no all-checks page. A
+  check shows on every agent, tool and procedure page it touches, worked out by `lib/check-subjects.ts` from its
+  agent, hand-offs, procedure (a step check's `step.from`), and the tools it expects or calls. One shared list
+  (`components/Checks/CheckList.tsx`) takes the scope; "New check" starts as a check of that page's subject.
 
 ## The bench
 
@@ -191,8 +266,8 @@ Level 2 scenarios also run on their own, when the model is idle (`BenchService`,
 Top-level runs report start and end; `BenchIdleWorkflow` counts the owner's idle minutes down from
 the last event. When the time is up, everything runs if the last full run is older than the setting,
 otherwise only the scenarios of agents whose fingerprint changed. A scenario that passed last time and
-fails now is a regression: it is recorded on the run and shown as a toast. Settings live on Evals →
-Level 2.
+fails now is a regression: it is recorded on the run, shown as a toast, and marked in that check's history. Settings
+live on Settings → The bench.
 
 ## Platform keys
 
@@ -272,6 +347,37 @@ In-cluster worker lifecycle: `ensure-cluster.sh` creates the k3d management clus
 MongoDB stays in sync with Temporal via two mechanisms:
 1. **`trackWorkflow()` polling** — every 5s per workflow; retries transient Temporal errors up to 12 times before giving up (avoids clusters getting stuck "provisioning" during brief Temporal outages).
 2. **Background reconciliation loop** — every 30s, scans clusters in intermediate states (`provisioning`, `destroying`), checks Temporal directly, and updates MongoDB if the workflow finished but the DB missed it. Also parses log files to update `ClusterMetadata.progress` (e.g. `creating-cluster`, `patching-storage`, `deploying-cdktf`, `installing-traefik`).
+
+**Workspace images can be product images.** A tree works in the image its type's `language` names. The engine's
+image planner takes the host's bases (`extensions/workspace-bases.ts`: the UBI ones plus `extensions/odoo/`'s Odoo 18
+with PostgreSQL 18 and `odoo-check`); a base may carry setup steps, and a `dnf` install falls back to `apt-get`
+(`APT_NAMES` maps the names that differ). Workflow code must not import `workspace-bases.ts` — the engine's root export
+pulls in `crypto` and `path`, which Temporal's workflow bundle refuses.
+
+## Odoo projects: A/B releases
+
+A project whose repository has `deploy/chart/Chart.yaml` (the `odoo-addons` tree type scaffolds it) is released by
+chart instead of the generic image promote (`TemporalBridge.onBuilt` → `OdooReleaseService`). One
+`OdooReleaseWorkflow` per project (`odoo-release-<projectId>`, cluster worker, `activities/OdooReleaseActivities.ts`)
+takes builds in order: the first goes into slot `a` (the init job creates `odoo_a` before slot a's Odoo exists — an
+Odoo started with `--database X` initialises X itself, so a slot's Deployment must never exist while its database is
+prepared); each later build is prepared in the idle slot from a copy of the live database and filestore, upgraded
+(`-i` new modules, `-u` the rest), and waits in preview until the person cuts over or discards
+(`/api/projects/:id/releases`). A newer build takes the place of a waiting preview. Cutting over puts the live slot in
+maintenance, copies and upgrades again, then switches `live`; the old slot stays as the way back. The cluster is the
+truth for which slot is live (`helm get values`); releases are records (`odooReleases`). Each project's release has
+a deployment record (`appType: odoo-project`), so it shows among apps, blocks project deletion, and destroying it
+uninstalls the release and its namespace. Releases reach clusters the way `ClusterService` does
+(`activities/cluster-access.ts`'s `reachCluster`). Exposing the app also exposes its preview on its own address, and
+the project's builds panel shows the releases with a card to cut over or discard a waiting one. `npm run test:odoo-release-live` proves it on the system cluster with
+a throwaway project, ~4 min, and removes everything.
+
+**Every workflow says whose it is.** Each start carries the `KoalaOwner` search attribute (`startedFor(owner)` in
+`lib/workflow-owner.ts`; `platform` for platform work). The shared client (`lib/temporal-client.ts`) registers the
+attribute on connect, refuses a start without it (`UnownedWorkflowError`), and stamps a check space's workflows as its
+person's. Child workflows inherit their parent's owner. The Temporal page lists, counts, opens and cancels only the
+viewer's own; an admin can switch to everything, and an instance's owner sees everything on it. Workflow tests create
+their server with `workflows/temporal-test-env.ts`, which registers the attribute.
 
 **Large payloads are stored outside Temporal.** Every Temporal client and worker builds its
 converter with `buildDataConverter(key, sharedPayloadBlobs())`: payloads are compressed, then

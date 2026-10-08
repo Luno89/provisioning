@@ -30,6 +30,8 @@ export interface RepoFileContent {
   sha: string;
 }
 
+const MERGEABILITY_TRIES = 15;
+
 export class GiteaService {
   private baseUrlCache: string | null = null;
   private tokenCache: string | null = null;
@@ -398,11 +400,17 @@ export class GiteaService {
     return written;
   }
 
-  /** Whether Gitea serves the repository's files yet: after the first push into an empty repository it takes a moment to notice it has any. */
   async repoServesFiles(owner: string, name: string): Promise<boolean> {
     const res = await this.apiFetch(`/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
     if (!res.ok) return false;
     return (await res.json() as { empty?: boolean }).empty === false;
+  }
+
+  async userExists(username: string): Promise<boolean> {
+    const res = await this.apiFetch(`/api/v1/users/${encodeURIComponent(username)}`);
+    if (res.status === 404) return false;
+    if (!res.ok) throw new Error(`Could not look up the user ${username}: HTTP ${res.status}`);
+    return true;
   }
 
   async findRepo(owner: string, name: string): Promise<{ owner: string; name: string } | null> {
@@ -525,6 +533,15 @@ export class GiteaService {
     return { username: ADMIN_USERNAME, password: await this.readAdminPassword() };
   }
 
+  async listPaths(owner: string, name: string, ref: string): Promise<string[]> {
+    const res = await this.apiFetch(`/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/git/trees/${encodeURIComponent(ref)}?recursive=true&per_page=10000`);
+    if (res.status === 404) return [];
+    if (!res.ok) throw new Error(`Failed to list the files of "${owner}/${name}" at ${ref}: HTTP ${res.status}`);
+    const body = await res.json() as { tree?: { path: string; type: string }[]; truncated?: boolean };
+    if (body.truncated) throw new Error(`"${owner}/${name}" at ${ref} has more files than one listing returns`);
+    return (body.tree ?? []).filter((entry) => entry.type === 'blob').map((entry) => entry.path);
+  }
+
   async getRawFile(owner: string, name: string, filePath: string, ref?: string): Promise<string | null> {
     const query = ref ? `?ref=${encodeURIComponent(ref)}` : '';
     const res = await this.apiFetch(`/api/v1/repos/${owner}/${name}/raw/${filePath}${query}`);
@@ -638,6 +655,7 @@ export class GiteaService {
     repo: string,
     head: string,
     base: string,
+    describe: { title?: string; body?: string } = {},
   ): Promise<'merged' | 'conflict' | 'nothing' | 'failed'> {
     const repoPath = `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
 
@@ -650,7 +668,7 @@ export class GiteaService {
 
     const created = await this.apiFetch(`${repoPath}/pulls`, {
       method: 'POST',
-      body: JSON.stringify({ head, base, title: `Land ${head}` }),
+      body: JSON.stringify({ head, base, title: describe.title ?? `Land ${head}`, ...(describe.body ? { body: describe.body } : {}) }),
     });
 
     let index: number | undefined;
@@ -671,15 +689,42 @@ export class GiteaService {
     return this.mergePull(repoPath, index);
   }
 
-  private async mergePull(repoPath: string, index: number): Promise<'merged' | 'conflict' | 'failed'> {
-    const merged = await this.apiFetch(`${repoPath}/pulls/${index}/merge`, {
-      method: 'POST',
-      body: JSON.stringify({ Do: 'merge' }),
-    });
-    if (merged.ok) return 'merged';
+  private async mergePull(repoPath: string, index: number): Promise<'merged' | 'conflict' | 'nothing' | 'failed'> {
+    const commits = await this.apiFetch(`${repoPath}/pulls/${index}/commits?limit=1`);
+    if (commits.ok && ((await commits.json().catch(() => [])) as unknown[]).length === 0) {
+      await this.apiFetch(`${repoPath}/pulls/${index}`, { method: 'PATCH', body: JSON.stringify({ state: 'closed' }) });
+      return 'nothing';
+    }
 
-    if (merged.status === 405) return 'conflict';
-    return 'failed';
+    for (let attempt = 0; ; attempt += 1) {
+      const merged = await this.apiFetch(`${repoPath}/pulls/${index}/merge`, {
+        method: 'POST',
+        body: JSON.stringify({ Do: 'merge' }),
+      });
+      if (merged.ok) return 'merged';
+      if (merged.status !== 405) return 'failed';
+
+      const pull = await this.apiFetch(`${repoPath}/pulls/${index}`);
+      const state = pull.ok ? (await pull.json().catch(() => ({}))) as { mergeable?: boolean; merged?: boolean } : {};
+      if (state.merged) return 'merged';
+      if (state.mergeable === false) return 'conflict';
+      if (attempt >= MERGEABILITY_TRIES) return 'failed';
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+  }
+
+  async deleteUser(username: string): Promise<boolean> {
+    const res = await this.apiFetch(`/api/v1/admin/users/${encodeURIComponent(username)}?purge=true`, { method: 'DELETE' });
+    if (res.status === 404) return false;
+    if (!res.ok) throw new Error(`Gitea would not delete the user ${username} (HTTP ${res.status}): ${(await res.text().catch(() => '')).slice(0, 200)}`);
+    return true;
+  }
+
+  async pullRequests(owner: string, repo: string): Promise<{ number: number; title: string; head: string; base: string; state: string; merged: boolean }[]> {
+    const listed = await this.apiFetch(`/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls?state=all&limit=50`);
+    if (!listed.ok) throw new Error(`Gitea would not list the pull requests of ${owner}/${repo} (HTTP ${listed.status})`);
+    const pulls = (await listed.json().catch(() => [])) as any[];
+    return pulls.map((pr) => ({ number: pr.number, title: pr.title, head: pr.head?.ref, base: pr.base?.ref, state: pr.state, merged: pr.merged === true }));
   }
 
   async getRegistryHost(): Promise<string> {

@@ -132,6 +132,24 @@ export class HeadscaleService {
     }));
   }
 
+  async removeUser(platformUserId: string): Promise<{ devices: number; user: boolean }> {
+    const name = `platform-${platformUserId}`;
+    const listRes = await this.apiFetch(`/api/v1/user?name=${encodeURIComponent(name)}`);
+    if (!listRes.ok) throw new Error(`Failed to list Headscale users: HTTP ${listRes.status}`);
+    const user = ((await listRes.json()) as { users?: Array<{ id: string; name: string }> }).users?.find((entry) => entry.name === name);
+    this.userIdCache.delete(platformUserId);
+    if (!user) return { devices: 0, user: false };
+
+    const nodesRes = await this.apiFetch(`/api/v1/node?user=${encodeURIComponent(name)}`);
+    if (!nodesRes.ok) throw new Error(`Failed to list Headscale nodes: HTTP ${nodesRes.status}`);
+    const nodes = ((await nodesRes.json()) as { nodes?: Array<{ id: string }> }).nodes ?? [];
+    for (const node of nodes) await this.revokeDevice(node.id);
+
+    const deleted = await this.apiFetch(`/api/v1/user/${user.id}`, { method: 'DELETE' });
+    if (!deleted.ok && deleted.status !== 404) throw new Error(`Failed to delete Headscale user "${name}": HTTP ${deleted.status} ${await deleted.text()}`);
+    return { devices: nodes.length, user: true };
+  }
+
   async revokeDevice(nodeId: string): Promise<void> {
     const res = await this.apiFetch(`/api/v1/node/${nodeId}`, { method: 'DELETE' });
     if (!res.ok) {

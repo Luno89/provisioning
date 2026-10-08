@@ -2,7 +2,6 @@ import type { EngineEvent } from '@koala/agent-engine';
 import type { Artifact, ChildSteps } from '@koala/agent-engine/procedure';
 import type { ConversationToolCall } from './conversations.js';
 
-/** One numbered write to a turn's log: the events of the turn's runs, in the order they happened. */
 export interface TurnLogEntry {
   turnId: string;
   ownerId: string;
@@ -17,7 +16,6 @@ type Delta = Extract<EngineEvent, { type: 'content' | 'thinking' }>;
 
 const isDelta = (event: EngineEvent): event is Delta => event.type === 'content' || event.type === 'thinking';
 
-/** Joins runs of text deltas from the same run and node into one event, so a log holds a few writes a second rather than one per token. */
 export function coalesce(events: readonly EngineEvent[]): EngineEvent[] {
   const joined: EngineEvent[] = [];
   for (const event of events) {
@@ -37,11 +35,6 @@ export interface LoggedReply {
   toolCalls: ConversationToolCall[];
 }
 
-/**
- * What a turn's top-level run had said and done, rebuilt from its log: the reply to keep when the run
- * ended without saving it. Only the turn's own run speaks in the reply; a hand-off's run is what its
- * call's result carries.
- */
 export function replyFromLog(entries: readonly TurnLogEntry[], turnId: string): LoggedReply {
   let content = '';
   let reasoning = '';

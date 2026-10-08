@@ -19,7 +19,7 @@ const VIA_SAYS: Record<InstallVia, string> = {
   script: 'a command run as root while the image is built',
 }
 
-export default function ToolEditor({ tool, onClose }: { tool: EngineTool; onClose: () => void }) {
+export default function ToolEditor({ tool, onClose, onDeleted }: { tool: EngineTool; onClose?: (() => void) | undefined; onDeleted?: (() => void) | undefined }) {
   // A tool stored before these two were required carries neither, and an unticked box sends nothing
   // at all — so without this the tool could never be saved again except by ticking a box that lies.
   const [draft, setDraft] = useState<EngineTool>({
@@ -30,14 +30,16 @@ export default function ToolEditor({ tool, onClose }: { tool: EngineTool; onClos
   const [problems, setProblems] = useState<string[]>([])
   const [rebuilding, setRebuilding] = useState<string[]>([])
   const [failed, setFailed] = useState<WorkspaceBuildFailure[]>([])
+  const [saved, setSaved] = useState(false)
   // A workspace that could not start building keeps the editor open: the tool is saved, and every
   // agent granted it now waits on an image that is not coming.
   const save = useSaveEngineTool((outcome) => {
     setRebuilding(outcome.rebuilding)
     setFailed(outcome.failed)
-    if (outcome.rebuilding.length === 0 && outcome.failed.length === 0) onClose()
+    setSaved(true)
+    if (outcome.rebuilding.length === 0 && outcome.failed.length === 0) onClose?.()
   })
-  const remove = useDeleteEngineTool(() => onClose())
+  const remove = useDeleteEngineTool(() => (onDeleted ?? onClose)?.())
 
   const set = <K extends keyof EngineTool>(key: K, value: EngineTool[K]) =>
     setDraft((current) => ({ ...current, [key]: value }))
@@ -87,6 +89,7 @@ export default function ToolEditor({ tool, onClose }: { tool: EngineTool; onClos
     setProblems([])
     setRebuilding([])
     setFailed([])
+    setSaved(false)
     save.mutate(draft, {
       onError: (err) => setProblems([
         errorMessage(err),
@@ -102,7 +105,8 @@ export default function ToolEditor({ tool, onClose }: { tool: EngineTool; onClos
           {tool.mine ? `Editing ${tool.name}` : `Your own copy of ${tool.name}`}
         </h2>
         {!tool.mine && <span className="text-[11px] text-slate-500">saving makes your copy; the built-in is untouched</span>}
-        <button type="button" onClick={onClose} className="ml-auto text-[11px] text-slate-500 hover:text-slate-200">Close</button>
+        {saved && <span role="status" className="text-[11px] text-emerald-300">saved</span>}
+        {onClose && <button type="button" onClick={onClose} className="ml-auto text-[11px] text-slate-500 hover:text-slate-200">Close</button>}
       </header>
 
       <div className="grid gap-3 sm:grid-cols-2">

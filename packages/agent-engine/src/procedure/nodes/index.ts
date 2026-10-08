@@ -47,7 +47,7 @@ export function builtInCatalogue(operations: readonly HostOperation[] = []): Nod
 }
 
 export { loadConversation, saveConversation, CONVERSATION_STORE_NODES } from './conversation-store.js';
-export { resolveTools, withdrawTools, describeEnvironmentNode, describeProcedure, describeTools, describeOutputsNode, warnRunningOut, text, buildContext, conversation, trimToolResults, truncateText, cappedText, handOffConversation, resolvedEnvironment, extendConversation, clampToolResult, handOff, pacingText, NO_ENVIRONMENT, type PacingNote, type HandOffSettings } from './context.js';
+export { resolveTools, withdrawTools, describeEnvironmentNode, describeProcedure, describeTools, describeOutputsNode, warnRunningOut, text, buildContext, conversation, trimToolResults, truncateText, cappedText, handOffConversation, resolvedEnvironment, extendConversation, clampToolResult, handOff, pacingText, NO_ENVIRONMENT, type PacingNote, type HandOffSettings, compactContext, compactedView, compactionBoundary, summaryRequest, summaryMessage, COMPACT_INSTRUCTIONS, COMPACTION_PREFIX, DEFAULT_COMPACT_AT, DEFAULT_COMPACT_KEEP, DEFAULT_COMPACT_TAIL, SUMMARY_TOOL_CHARS, type Compaction } from './context.js';
 export { condition, merge, collect, finish, delegate, fanOut, waitForPerson, CONDITION_ROOTS, FINISH_OUTCOMES } from './control.js';
 export { provisionSandbox, releaseSandbox } from './environment.js';
 export { runInput, persona } from './input.js';

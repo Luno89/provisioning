@@ -66,7 +66,7 @@ vi.mock('../api/grove', async (orig) => ({
 
 /**
  * The chat turns ride an engine run: startRun POSTs /engine/runs, and the run's engine events
- * arrive on the ENGINE_EVENT_CHANNEL via the socket bridge. The mock below keeps a module-level
+ * arrive on TURN_LOG_CHANNEL as turn log entries via the socket bridge. The mock below keeps a module-level
  * table of the registered handlers so a test can deliver a scripted event stream to the surface
  * exactly as the socket bridge would.
  */
@@ -109,7 +109,6 @@ const AT = '2025-01-01T00:00:00.000Z';
 
 type EventSeed = { type: string } & Record<string, unknown>;
 
-/** Writes an event to a turn's log as its next entry and announces it, as the backend does once the write lands. */
 function deliver(turnId: string, event: EngineEvent, announce = true) {
   const entry: TurnLogEntry = { turnId, seq: turnLog.filter((one) => one.turnId === turnId).length + 1, events: [event], at: AT };
   turnLog.push(entry as never);
@@ -371,15 +370,15 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     );
 
     const allowText = 'Koala wants to run run_command on this run: {"command":"docker compose up"}';
-    await waitFor(() => expect(screen.getByText(/^Allow$/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/^Allow in this chat$/)).toBeInTheDocument());
     expect(screen.getByText(allowText)).toBeInTheDocument();
     expect(screen.getByText('run_command')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText(/^Allow$/));
+    fireEvent.click(screen.getByText(/^Allow in this chat$/));
     await waitFor(() =>
-      expect(engineApi.approveRunCall).toHaveBeenCalledWith(RUN_ID, { callId: 'tc1', allowed: true }),
+      expect(engineApi.approveRunCall).toHaveBeenCalledWith(RUN_ID, { callId: 'tc1', allowed: true, conversationId: 'c1', tool: 'run_command' }),
     );
-    await waitFor(() => expect(screen.queryByText(/^Allow$/)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(/^Allow in this chat$/)).not.toBeInTheDocument());
 
     emit(
       { type: 'tool.result', callId: 'tc1', ok: true, digest: 'compose up done' },

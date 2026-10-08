@@ -2,11 +2,12 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { inMemoryPayloadBlobs } from '../lib/payload-storage.js';
 import { PayloadStorageService } from './PayloadStorageService.js';
+import { temporalTestEnvironment } from '../workflows/temporal-test-env.js';
 
 let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
-  env = await TestWorkflowEnvironment.createLocal();
+  env = await temporalTestEnvironment();
 }, 120_000);
 
 afterAll(async () => {

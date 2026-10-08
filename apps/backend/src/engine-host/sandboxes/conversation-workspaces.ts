@@ -15,11 +15,9 @@ export interface ConversationWorkspaceRequest {
 }
 
 export interface ConversationWorkspaces {
-  /** The conversation's workspace, covering its agent and every agent it can hand work to. No pod starts until something runs in it. Undefined when none of them works in a sandbox. */
   describe(request: ConversationWorkspaceRequest): Promise<ConversationSandbox | undefined>;
-  /** Saves the workspace to the conversation's repository and keeps it, when it is running. */
+  state(conversationId: string): Promise<'none' | 'running' | 'parked'>;
   save(request: { conversationId: string; ownerId: string }): Promise<SavedDocuments>;
-  /** Saves the workspace to the conversation's repository, then deletes it. Throws, deleting nothing, when the save fails. */
   conclude(request: ConversationWorkspaceRequest): Promise<SavedDocuments>;
 }
 
@@ -70,6 +68,12 @@ export function createConversationWorkspaces(options: {
 
   return {
     describe,
+
+    async state(conversationId) {
+      const namespace = workspaceName(conversationWorkspaceRunId(conversationId));
+      if ((await options.kube(['get', 'namespace', namespace, '-o', 'name'], undefined, 15_000)).exitCode !== 0) return 'none';
+      return (await workspaceRunning(options.kube, namespace, POD).catch(() => false)) ? 'running' : 'parked';
+    },
 
     save: ({ conversationId, ownerId }) => {
       const workspaceRunId = conversationWorkspaceRunId(conversationId);

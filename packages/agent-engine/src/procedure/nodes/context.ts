@@ -322,6 +322,47 @@ export const text: BuiltInNode = {
   implementation: valueImplementation('text', ({ node }) => ({ outputs: { text: textOf(node.settings, 'text') } })),
 };
 
+const parsedValue = (settings: Readonly<Record<string, unknown>>): { value: unknown } | { problem: string } => {
+  const written = typeof settings.json === 'string' && settings.json.trim() ? settings.json : 'null';
+  try {
+    return { value: JSON.parse(written) };
+  } catch (err) {
+    return { problem: `the value is not JSON: ${(err as Error).message}` };
+  }
+};
+
+export const value: BuiltInNode = {
+  definition: defineNode({
+    kind: 'value',
+    title: 'Value',
+    category: 'context',
+    describe: 'A value you write as JSON — a list, an object, a number — to wire into any input that takes one.',
+    role: 'value',
+    inputs: [],
+    outputs: [{ name: 'value', type: 'any', describe: 'The value as written.' }],
+    exits: [],
+    settings: {
+      type: 'object',
+      properties: { json: { type: 'string', title: 'Value, as JSON', multiline: true, default: 'null' } },
+    },
+    runs: 'workflow',
+    idempotent: true,
+    check: (settings) => {
+      const read = parsedValue(settings);
+      return 'problem' in read ? [read.problem] : [];
+    },
+    summarize: (settings) => {
+      const written = collapse(textOf(settings, 'json')) || 'null';
+      return written.length > 60 ? `${written.slice(0, 60)}…` : written;
+    },
+  }),
+  implementation: valueImplementation('value', ({ node }) => {
+    const read = parsedValue(node.settings);
+    if ('problem' in read) throw new Error(read.problem);
+    return { outputs: { value: read.value } };
+  }),
+};
+
 export const buildContext: BuiltInNode = {
   definition: defineNode({
     kind: 'build-context',
@@ -642,6 +683,83 @@ export const handOffConversation: BuiltInNode = {
   }),
 };
 
+export const DEFAULT_COMPACT_AT = 0.85;
+export const DEFAULT_COMPACT_KEEP = 6;
+export const DEFAULT_COMPACT_TAIL = 0.4;
+export const SUMMARY_TOOL_CHARS = 2000;
+export const COMPACTION_PREFIX = 'Earlier in this conversation, summarised to fit the context window:';
+
+export const COMPACT_INSTRUCTIONS = 'You are summarising the earlier part of a conversation so that the same assistant can carry on from it '
+  + 'without the original messages. Write it for that assistant, in plain prose and short lists. Keep: what the person wants and every '
+  + 'constraint or preference they stated; decisions made and why; what the tools found — specific facts, numbers, names, paths, ids and '
+  + 'commands, with where each came from; what was tried and failed, and why; what is still open. Leave out pleasantries and anything '
+  + 'superseded. Do not invent anything that is not in the transcript.';
+
+export interface Compaction {
+  summary: string;
+  through: number;
+}
+
+export const summaryMessage = (summary: string): ChatMessage => ({ role: 'user', content: `${COMPACTION_PREFIX}\n\n${summary}` });
+
+export function compactedView(messages: readonly ChatMessage[], compaction: Compaction | undefined): ChatMessage[] {
+  if (!compaction || compaction.through > messages.length) return [...messages];
+  return [summaryMessage(compaction.summary), ...messages.slice(compaction.through)];
+}
+
+export function compactionBoundary(messages: readonly ChatMessage[], keep: number, maxTailChars = Number.MAX_SAFE_INTEGER): number {
+  let latest = messages.length - 1;
+  while (latest > 0 && messages[latest]?.role === 'tool') latest -= 1;
+  let boundary = Math.min(latest, Math.max(0, messages.length - keep));
+  const tailChars = (from: number) => messages.slice(from).reduce((total, message) => total + message.content.length, 0);
+  while (boundary < latest && tailChars(boundary) > maxTailChars) boundary += 1;
+  while (boundary > 0 && messages[boundary]?.role === 'tool') boundary -= 1;
+  return boundary >= 1 ? boundary : 0;
+}
+
+export function summaryRequest(messages: readonly ChatMessage[]): ChatMessage[] {
+  const lines = messages.map((message) => {
+    if (message.role === 'tool') return `[tool result${message.name ? ` from ${message.name}` : ''}]\n${clampToolResult(message.content, SUMMARY_TOOL_CHARS)}`;
+    const calls = (message.toolCalls ?? []).map((call) => `[called ${call.name}(${call.arguments.slice(0, 300)})]`);
+    return [`[${message.role}]`, message.content, ...calls].filter((line) => line.trim()).join('\n');
+  });
+  return [{ role: 'user', content: `Summarise this conversation so far:\n\n${lines.join('\n\n')}` }];
+}
+
+export const compactContext: BuiltInNode = {
+  definition: defineNode({
+    kind: 'compact-context',
+    title: 'Compact Context',
+    category: 'context',
+    describe: 'Keeps the conversation inside the context window. Once the prompt reaches the threshold, the model summarises everything but the last few messages, and the summary is sent in their place from then on, unchanged until the next compaction, so a server that caches the start of the prompt keeps reusing it.',
+    role: 'step',
+    inputs: [
+      { name: 'messages', type: 'messages', describe: 'The whole conversation.', required: true },
+      { name: 'binding', type: 'modelBinding', describe: 'The model, for its context window; it also writes the summary.', required: true },
+      { name: 'system', type: 'text', describe: 'The system prompt, which also takes up the window.' },
+    ],
+    outputs: [
+      { name: 'messages', type: 'messages', describe: 'The conversation to send.' },
+      { name: 'compaction', type: 'json', describe: 'The summary in use and how many messages it stands for, when there is one.' },
+    ],
+    exits: [
+      { name: 'fits', describe: 'It fits; what was sent last time is sent again.' },
+      { name: 'compacted', describe: 'It was summarised to fit.' },
+    ],
+    settings: {
+      type: 'object',
+      properties: {
+        at: { type: 'number', title: 'Compact at', describe: 'How full the window may get before the conversation is summarised, from 0 to 1.', minimum: 0.01, maximum: 0.99, default: DEFAULT_COMPACT_AT },
+        keep: { type: 'integer', title: 'Messages kept', describe: 'How many of the latest messages are always sent as they are.', minimum: 1, default: DEFAULT_COMPACT_KEEP },
+      },
+    },
+    runs: 'stream',
+    spends: ['tokens'],
+    idempotent: true,
+    summarize: (settings) => `summarises the conversation once the window is ${Math.round(numberOf(settings, 'at', DEFAULT_COMPACT_AT) * 100)}% full`,
+  }),
+};
+
 export function cappedText(written: string, maxChars: number, keep: 'start' | 'end'): string {
   if (written.length <= maxChars) return written;
   const cut = written.length - maxChars;
@@ -690,6 +808,8 @@ export const truncateText: BuiltInNode = {
 };
 
 export const CONTEXT_NODES = [
+  value,
+  compactContext,
   resolveTools,
   withdrawTools,
   describeEnvironmentNode,

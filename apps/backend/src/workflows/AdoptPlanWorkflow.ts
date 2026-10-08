@@ -1,10 +1,11 @@
-import { ApplicationFailure, ParentClosePolicy, proxyActivities, startChild } from '@temporalio/workflow';
+import { ApplicationFailure, ParentClosePolicy, proxyActivities, startChild, workflowInfo } from '@temporalio/workflow';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import { AgentRunWorkflow } from './AgentRunWorkflow.js';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 import type { AdoptedRecords } from '../engine-host/plan-adoption.js';
 import type { AdoptedPlan } from '../lib/plan-proposals.js';
 import { groveRunWorkflowId, type AdoptPlanArgs, type AdoptPlanResult, type ProcedureRunInput } from '../engine-host/temporal/contracts.js';
+import { ownerIn, startedFor } from '../lib/workflow-owner.js';
 
 const { PlanAdoptRecordsActivity, PlanAdoptDocumentsActivity, PlanAdoptSettleActivity, GroveRunInputActivity } = proxyActivities<{
   GroveRunInputActivity(args: { treeId: string; ownerId: string }): Promise<ProcedureRunInput>;
@@ -42,6 +43,7 @@ async function runTreeAgain(treeId: string, ownerId: string): Promise<void> {
     await startChild(AgentRunWorkflow, {
       workflowId: groveRunWorkflowId(treeId),
       args: [input],
+      ...startedFor(ownerIn(workflowInfo().typedSearchAttributes) ?? ownerId),
       parentClosePolicy: ParentClosePolicy.ABANDON,
     });
   } catch (err) {

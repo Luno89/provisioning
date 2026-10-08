@@ -86,6 +86,10 @@ export function evalsLevel2Router(deps: Level2RouterDeps): Router {
     res.json({ dismissed: true });
   }));
 
+  router.get('/coverage', asyncRoute(async (req: Request, res: Response) => {
+    res.json({ gaps: await deps.level2.coverage(userOf(req).id) });
+  }));
+
   router.get('/scenarios', asyncRoute(async (req: Request, res: Response) => {
     res.json({ scenarios: await deps.level2.scenarios(userOf(req).id) });
   }));
@@ -96,6 +100,12 @@ export function evalsLevel2Router(deps: Level2RouterDeps): Router {
     const outcome = await deps.level2.saveScenario(userOf(req).id, req.body);
     if (!outcome.saved) return res.status(400).json({ error: 'The scenario has problems', problems: outcome.problems });
     return res.json({ scenario: outcome.scenario });
+  }));
+
+  router.get('/scenarios/:id/procedure', asyncRoute(async (req: Request, res: Response) => {
+    const procedure = await deps.level2.checkProcedure(userOf(req).id, String(req.params.id));
+    if (!procedure) return res.status(404).json({ error: 'That check runs a procedure of the store, not one made for it' });
+    return res.json({ procedure });
   }));
 
   router.delete('/scenarios/:id', asyncRoute(async (req: Request, res: Response) => {
@@ -129,6 +139,14 @@ export function evalsLevel2Router(deps: Level2RouterDeps): Router {
     return res.status(202).json(started);
   }));
 
+  router.get('/compare', asyncRoute(async (req: Request, res: Response) => {
+    const { before, after } = req.query;
+    if (typeof before !== 'string' || typeof after !== 'string') return res.status(400).json({ error: 'name the two runs to compare, as before and after' });
+    const comparison = await deps.level2.compare(userOf(req).id, before, after);
+    if (!comparison) return res.status(404).json({ error: 'You have no check run with one of those ids' });
+    return res.json(comparison);
+  }));
+
   router.get('/runs/:id', asyncRoute(async (req: Request, res: Response) => {
     const run = await deps.level2.get(userOf(req).id, String(req.params.id));
     if (!run) return res.status(404).json({ error: 'There is no scenario run with that id' });
@@ -136,7 +154,7 @@ export function evalsLevel2Router(deps: Level2RouterDeps): Router {
   }));
 
   router.post('/runs/:id/cancel', asyncRoute(async (req: Request, res: Response) => {
-    if (!deps.level2.cancel(userOf(req).id, String(req.params.id))) return res.status(409).json({ error: 'That run is not running' });
+    if (!(await deps.level2.cancel(userOf(req).id, String(req.params.id)))) return res.status(409).json({ error: 'That run is not running' });
     return res.status(202).json({ cancelling: true });
   }));
 

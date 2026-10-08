@@ -41,7 +41,7 @@ const persona = (over: Partial<Persona> = {}): Persona => ({
 
 const IMPLEMENTED = new Set(['run_command', 'read_file']);
 
-function setup(over: { stored?: ToolDefinition[]; personas?: Persona[]; images?: 'building' | 'unreachable' | 'reported' } = {}) {
+function setup(over: { stored?: ToolDefinition[]; personas?: Persona[]; builtIn?: Persona[]; images?: 'building' | 'unreachable' | 'reported' } = {}) {
   const stored = [...(over.stored ?? [])];
   const start = vi.fn(async () => {
     if (over.images === 'unreachable') throw new Error('Could not find the image registry (gitea-http in gitea)');
@@ -65,6 +65,7 @@ function setup(over: { stored?: ToolDefinition[]; personas?: Persona[]; images?:
         },
       },
       personas: { list: async () => over.personas ?? [] },
+      builtInAgents: over.builtIn ?? [],
       implemented: IMPLEMENTED,
       images: { start },
     }),
@@ -137,6 +138,13 @@ describe('the tools a person can edit', () => {
     ]);
   });
 
+  it('counts the built-in agents that hold a tool, unless the person\'s own copy of that agent dropped it', async () => {
+    const builtIn = [persona({ slug: 'koala', tools: ['count_lines'] }), persona({ slug: 'research', tools: ['count_lines'] })];
+    const { tools } = setup({ stored: [tool({ ownerId: undefined })], builtIn, personas: [persona({ slug: 'research', ownerId: 'user-1', tools: [] })] });
+
+    expect((await tools.list('user-1')).find((one) => one.name === 'count_lines')?.grantedTo).toEqual(['koala']);
+  });
+
   it('saves a tool as the owner’s own', async () => {
     const { tools, stored } = setup();
 
@@ -206,5 +214,22 @@ describe('the tools a person can edit', () => {
 
     expect(await tools.remove('user-1', 'count_lines')).toBe(true);
     expect(stored.map((one) => one.ownerId)).toEqual([undefined]);
+  });
+});
+
+describe('the tools page and an agent\'s grants read one catalogue', () => {
+  it('lists every tool an agent can be granted, the bootstrap ones too', async () => {
+    const { BUILDER_TOOLS } = await import('@koala/agent-engine');
+    const { createStoredToolCatalogue } = await import('../engine-host/registries/tool-catalogue-store.js');
+    const stored = [tool({ ownerId: undefined })];
+    const tools = new EngineToolService({
+      tools: { list: async () => stored, save: async () => undefined, remove: async () => undefined },
+      catalogue: createStoredToolCatalogue({ tools: { list: async () => stored } }),
+      personas: { list: async () => [] },
+      builtInAgents: [],
+      implemented: IMPLEMENTED,
+    });
+
+    expect((await tools.list('user-1')).map((one) => one.name)).toEqual([...BUILDER_TOOLS.map((one) => one.name), 'count_lines'].sort());
   });
 });

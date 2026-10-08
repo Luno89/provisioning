@@ -28,7 +28,6 @@ export function workspaceOwnerOf(workspaceRunId: string): { kind: 'tree' | 'conv
   return undefined;
 }
 
-/** A path inside a repository, or undefined when it would leave it. */
 export function pathInRepo(requested: string): string | undefined {
   const normal = path.posix.normalize(requested.replace(/^\/+/, ''));
   if (!normal || normal === '.' || normal.startsWith('..') || normal.split('/').includes('.git')) return undefined;
@@ -52,9 +51,31 @@ export function repoForWorkspace(workspaceRunId: string): WorkspaceRepo | undefi
   return undefined;
 }
 
+export type WorkspaceRepoResolver = (workspaceRunId: string) => Promise<WorkspaceRepo | undefined>;
+
+export function createWorkspaceRepoResolver(stores: {
+  trees: () => Promise<readonly { id: string; ownerId: string; projectIds?: readonly string[] | undefined }[]>;
+  projects: () => Promise<readonly { id: string; giteaOwner?: string | undefined; giteaRepo?: string | undefined; name?: string | undefined }[]>;
+  accountOf: (ownerId: string) => Promise<string | undefined>;
+}): WorkspaceRepoResolver {
+  return async (workspaceRunId) => {
+    const repo = repoForWorkspace(workspaceRunId);
+    const owner = workspaceOwnerOf(workspaceRunId);
+    if (!repo || owner?.kind !== 'tree') return repo;
+    const tree = (await stores.trees()).find((candidate) => candidate.id === owner.id);
+    if (!tree?.projectIds?.length) return repo;
+    const [projects, account] = await Promise.all([stores.projects(), stores.accountOf(tree.ownerId)]);
+    const project = tree.projectIds
+      .map((id) => projects.find((candidate) => candidate.id === id))
+      .find((candidate) => candidate?.giteaRepo && candidate.giteaOwner === account);
+    return project?.giteaRepo ? { ...repo, repo: project.giteaRepo, describe: `The repository of project ${project.name ?? project.id}` } : repo;
+  };
+}
+
+export const defaultRepoResolver: WorkspaceRepoResolver = async (workspaceRunId) => repoForWorkspace(workspaceRunId);
+
 const WORK = '/work';
 
-/** Keeps what a tool made that a person can open later: links as they are, and files only when they sit in a workspace that is saved, by their path in its repository. */
 export function placeArtifacts(
   artifacts: readonly ToolArtifact[] | undefined,
   environment: { workspace?: { runId: string } | undefined; scope?: { worktree?: string | undefined } | undefined } | undefined,

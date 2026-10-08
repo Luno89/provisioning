@@ -7,6 +7,7 @@ import { AppService } from '../services/AppService.js';
 import { ClusterProxyService } from '../services/ClusterProxyService.js';
 import { HeadscaleService } from '../services/HeadscaleService.js';
 import { ModelService } from '../services/ModelService.js';
+import { endpointRulesFromEnv } from './endpoint-url-safety.js';
 
 export function createModelService(db: Database, jwtSecret: SecretKey): ModelService {
   const infra = new InfrastructureService();
@@ -15,5 +16,5 @@ export function createModelService(db: Database, jwtSecret: SecretKey): ModelSer
   const apps = new AppService(db, infra, clusters, builder);
   const proxy = new ClusterProxyService();
   const headscale = new HeadscaleService(jwtSecret, process.env.HEADSCALE_URL || 'http://localhost:8080');
-  return new ModelService(db, apps, clusters, proxy, headscale, jwtSecret);
+  return new ModelService(db, apps, clusters, proxy, headscale, jwtSecret, endpointRulesFromEnv(process.env));
 }

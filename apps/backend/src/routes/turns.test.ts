@@ -7,11 +7,12 @@ const harness: Harness = await mountRouter({
   prefix: '/api/turns',
   router: (db) => {
     void Promise.all([
-      db.appendTurnLog({ turnId: 'r1', ownerId: TEST_USER.id, seq: 1, at, events: [] }),
+      db.appendTurnLog({ turnId: 'r1', ownerId: TEST_USER.id, seq: 1, at, events: [{ type: 'run.started', runId: 'r1', at, agentId: 'koala', loopId: 'interactive-chat' } as never] }),
+      db.appendTurnLog({ turnId: 'r-old', ownerId: TEST_USER.id, seq: 1, at: '2026-10-03T00:00:00.000Z', events: [] }),
       db.appendTurnLog({ turnId: 'r1', ownerId: TEST_USER.id, seq: 2, at, events: [] }),
       db.appendTurnLog({ turnId: 'r2', ownerId: 'someone-else', seq: 1, at, events: [] }),
     ]);
-    return turnsRouter({ log: { read: (ownerId, turnId, after) => db.getTurnLog(ownerId, turnId, after) } });
+    return turnsRouter({ log: { read: (ownerId, turnId, after) => db.getTurnLog(ownerId, turnId, after), recent: (ownerId, since, limit) => db.recentTurns(ownerId, since, limit) }, now: () => new Date('2026-10-05T12:00:00.000Z') });
   },
 });
 
@@ -21,6 +22,13 @@ const read = async (path: string) => {
   const res = await fetch(harness.url(`/api/turns/${path}`));
   return { status: res.status, body: await res.json() as { entries?: { seq: number; ownerId?: string }[]; error?: string } };
 };
+
+describe('listing recent turns', () => {
+  it('lists the person\'s own turns from the last day, newest first, with the agent each ran', async () => {
+    const res = await fetch(harness.url('/api/turns'));
+    expect(await res.json()).toEqual({ turns: [{ turnId: 'r1', at, agentId: 'koala' }] });
+  });
+});
 
 describe('reading a turn\'s log', () => {
   it('gives the person\'s own turn from after a position, without the owner on it', async () => {

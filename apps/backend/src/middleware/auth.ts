@@ -36,6 +36,8 @@ export interface Auth {
   ) => Promise<string | null>;
 }
 
+export const PUBLIC_PREFIXES = ['/checks/scripted/'];
+
 export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: AuthDeps): Auth {
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
 
@@ -44,7 +46,8 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
     if (!token) return undefined;
     const decoded = verifyJWT(token, sessionKey);
     if (!decoded || !decoded.userId) return undefined;
-    return await db.getUserById(decoded.userId);
+    const user = await db.getUserById(decoded.userId);
+    return user?.removal ? undefined : user;
   }
 
   const requireAuth: express.RequestHandler = async (req, res, next) => {
@@ -66,7 +69,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
       ]),
       ...(role === 'instance' ? ['/auth/handoff', '/auth/sign-in'] : []),
     ];
-    if (publicPaths.includes(req.path)) {
+    if (publicPaths.includes(req.path) || PUBLIC_PREFIXES.some((prefix) => req.path.startsWith(prefix))) {
       return next();
     }
     if (process.env.IS_E2E === 'true') {

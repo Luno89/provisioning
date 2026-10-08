@@ -16,6 +16,8 @@ export interface Conclusion {
 
 const safeId = (value: string): string => value.replace(/[^A-Za-z0-9_-]+/g, '-');
 
+export const memoryRunId = (runId: string): string => `memory-run-${safeId(runId)}`;
+
 const line = (message: ConversationMessage, agent: string): string => {
   const calls = (message.toolCalls ?? []).map((call) => `  [${call.name} ${call.ok ? 'gave' : 'failed'}: ${call.digest}]`);
   return [`${message.role === 'assistant' ? agent : 'person'}: ${message.content}`, ...calls].join('\n');
@@ -84,7 +86,7 @@ export function runConclusion(run: FinishedRun): Conclusion | undefined {
   if (run.outcome === 'ok' && run.agentSlug !== 'research') return undefined;
   return {
     ownerId: run.ownerId,
-    runId: `memory-run-${safeId(run.runId)}`,
+    runId: memoryRunId(run.runId),
     message: run.outcome === 'ok'
       ? [
         `A research run has finished (run ${run.runId}). Remember the durable facts it established — `
@@ -103,3 +105,5 @@ export function runConclusion(run: FinishedRun): Conclusion | undefined {
       ].join('\n'),
   };
 }
+
+export const conversationWatermarkKey = (conversationId: string): string => `conversation:${conversationId}`;

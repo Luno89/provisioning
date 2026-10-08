@@ -127,3 +127,109 @@ describe('scoring what a run left in the store', () => {
     expect(accepted[0]).toMatchObject({ passed: true });
   });
 });
+
+describe('scoring hand-offs and files', () => {
+  const handOff = (agent: string, startedAt: number, finishedAt: number) => ({ agent, startedAt, finishedAt, outcome: 'ok' });
+
+  it('checks how many times work was handed to an agent, and whether those runs went at once', async () => {
+    const together = await scoreScenario(
+      { handOffs: [{ agent: 'research', atLeast: 2, atMost: 3, together: true }] },
+      observed({ handOffs: [handOff('research', 0, 10), handOff('research', 1, 12), handOff('planner', 20, 30)] }),
+      { tools },
+    );
+    expect(together.map((check) => [check.what, check.passed])).toEqual([
+      ['hands work to research at least 2 times', true],
+      ['hands work to research at most 3 times', true],
+      ['hands work to research several at once', true],
+    ]);
+
+    const oneAfterAnother = await scoreScenario(
+      { handOffs: [{ agent: 'research', together: true }] },
+      observed({ handOffs: [handOff('research', 0, 10), handOff('research', 11, 20)] }),
+      { tools },
+    );
+    expect(oneAfterAnother).toEqual([{ what: 'hands work to research several at once', passed: false, detail: '0 of its 2 hand-offs to research ran at the same time as another' }]);
+  });
+
+  it('checks a file was written and says what it is missing', async () => {
+    const checks = await scoreScenario(
+      { files: [{ path: 'findings.md', contains: ['5432', 'source'] }, { path: 'missing.md' }] },
+      observed({ files: { 'findings.md': 'PostgreSQL listens on 5432.', 'missing.md': null } }),
+      { tools },
+    );
+
+    expect(checks).toEqual([
+      { what: 'writes findings.md saying 5432, source', passed: false, detail: 'findings.md does not mention source: "PostgreSQL listens on 5432."' },
+      { what: 'writes missing.md', passed: false, detail: 'there is no missing.md in its workspace' },
+    ]);
+  });
+});
+
+describe('a tool that has to work, not just be called', () => {
+  it('passes once a call worked, and otherwise says what the last refusal said', async () => {
+    const worked = await scoreScenario({ toolsSucceeded: ['propose_plan'] }, observed({ calls: [call('propose_plan', false, 'not a JSON list'), call('propose_plan', true)] }), { tools });
+    expect(worked).toEqual([{ what: 'calls propose_plan and it works', passed: true, detail: 'propose_plan worked on the 2nd try' }]);
+
+    const refused = await scoreScenario({ toolsSucceeded: ['propose_plan'] }, observed({ calls: [call('propose_plan', false, 'branches has to be a list'), call('propose_plan', false, 'JSON parse error at 3135')] }), { tools });
+    expect(refused).toEqual([{ what: 'calls propose_plan and it works', passed: false, detail: '2 calls to propose_plan, none worked; the last said: JSON parse error at 3135' }]);
+  });
+});
+
+describe('checks on the plumbing a flow goes through', () => {
+  it('reads what the model was sent, the summary, the turn log, the leaves, main, the pull requests and the workspace', async () => {
+    const checks = await scoreScenario({
+      modelSaw: { contains: ['Summary of the conversation'], lacks: ['Remember this code word'] },
+      compacted: false,
+      turnLog: { complete: true },
+      leaves: { verified: 2, landed: { Alpha: 'merged', Gamma: 'nothing' }, mergeTasks: 1 },
+      repository: { of: 'tree', files: [{ path: 'shared.txt', contains: ['alpha', 'beta'] }] },
+      pullRequests: { merged: 2, open: 0 },
+      workspace: { of: 'tree', exists: false },
+    }, observed({ flow: {
+      modelRequests: ['first: Remember this code word', 'later: Summary of the conversation so far'],
+      compacted: false,
+      turnLog: { contiguous: true, savedMatches: true, entries: 40 },
+      leaves: [{ title: 'Alpha', status: 'succeeded', verified: true, landed: 'merged' }, { title: 'Gamma', status: 'succeeded', verified: true, landed: 'nothing' }],
+      mergeTasks: 1,
+      repository: { 'shared.txt': 'alpha\nbeta\n' },
+      pullRequests: { merged: 2, open: 0, closedUnmerged: 1 },
+      workspaceExists: false,
+    } }), { tools });
+
+    expect(checks.filter((check) => !check.passed)).toEqual([]);
+    expect(checks).toHaveLength(12);
+  });
+
+  it('reads what a failed leaf\'s findings say and whether the browser files it left open', async () => {
+    const leaf = { title: 'Probe', status: 'failed', verified: false, findings: 'odoo-e2e: FAILED\nwhat the browser left behind:' };
+    const expectation = { leaves: { findings: { Probe: ['odoo-e2e: FAILED', 'what the browser left behind'] }, artifacts: { Probe: 2 } } };
+
+    const passing = await scoreScenario(expectation, observed({ flow: { leaves: [{ ...leaf, artifacts: [
+      { name: 'shot.png', opens: true, contentType: 'image/png', size: 900 },
+      { name: 'trace.zip', opens: true, contentType: 'application/zip', size: 4000 },
+    ] }] } }), { tools });
+    expect(passing.filter((check) => !check.passed)).toEqual([]);
+
+    const failing = await scoreScenario(expectation, observed({ flow: { leaves: [{ ...leaf, findings: 'odoo-e2e: FAILED', artifacts: [
+      { name: 'shot.png', opens: true, contentType: 'image/png', size: 900 },
+      { name: 'trace.zip', opens: false },
+    ] }] } }), { tools });
+    expect(failing.filter((check) => !check.passed).map((check) => check.detail)).toEqual([
+      'they do not say "what the browser left behind": odoo-e2e: FAILED',
+      '1 of 2 open: shot.png (image/png, 900 bytes); trace.zip does not open',
+    ]);
+  });
+
+  it('says what it found instead when the plumbing let something through', async () => {
+    const checks = await scoreScenario(
+      { repository: { of: 'tree', files: [{ path: 'shared.txt', contains: ['beta'] }] }, turnLog: { complete: true }, workspace: { of: 'conversation', exists: false } },
+      observed({ flow: { repository: { 'shared.txt': 'alpha\n' }, turnLog: { contiguous: false, savedMatches: true, entries: 12 }, workspaceExists: true } }),
+      { tools },
+    );
+    expect(checks.map((check) => check.detail)).toEqual([
+      'the turn log\'s 12 entries have a gap',
+      'shared.txt on main does not say beta: "alpha\n"',
+      'it is there',
+    ]);
+  });
+});

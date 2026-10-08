@@ -15,6 +15,7 @@ export const MODEL_TURN = defineGroup('model-turn', {
     binding: { type: 'modelBinding', describe: 'The model that was called.' },
     system: { type: 'text', describe: 'The system prompt that was sent.' },
     offered: { type: 'toolSet', describe: 'The tools the model was offered.' },
+    compaction: { type: 'json', describe: 'The summary sent in place of earlier messages, once the conversation outgrew the window.' },
   },
   exits: {
     toolCalls: { describe: 'The model asked for tools.' },
@@ -32,16 +33,19 @@ export const MODEL_TURN = defineGroup('model-turn', {
   const memory = g.recallMemory('memory');
   const outputs = g.describeOutputs('outputs', { persona: persona.persona });
   const context = g.buildContext('context', { sections: [persona.prompt, environment.text, around.text, toolText.text, memory.text, outputs.text] });
-  const fit = g.fitReplyBudget('fit', { binding: model.binding, system: context.text, messages: g.inputs.messages });
+  const compact = g.compactContext('compact', { messages: g.inputs.messages, binding: model.binding, system: context.text });
+  const fit = g.fitReplyBudget('fit', { binding: model.binding, system: context.text, messages: compact.messages });
   const call = g.callModel('call', {
     binding: model.binding,
     system: context.text,
-    messages: g.inputs.messages,
+    messages: compact.messages,
     tools: tools.offered,
     maxTokens: fit.maxTokens,
   });
 
-  g.start(call);
+  g.start(compact);
+  compact.on('fits', call);
+  compact.on('compacted', call);
   call.on('toolCalls', g.exits.toolCalls);
   call.on('answered', g.exits.answered);
   call.on('truncated', g.exits.truncated);
@@ -52,6 +56,7 @@ export const MODEL_TURN = defineGroup('model-turn', {
   g.output('binding', model.binding);
   g.output('system', context.text);
   g.output('offered', tools.offered);
+  g.output('compaction', compact.compaction);
 
   g.layout({
     persona: [0, 0],
@@ -63,6 +68,7 @@ export const MODEL_TURN = defineGroup('model-turn', {
     memory: [260, 420],
     outputs: [260, 560],
     context: [780, 280],
+    compact: [1040, 0],
     fit: [1040, 140],
     call: [1300, 140],
   });

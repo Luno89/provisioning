@@ -19,7 +19,6 @@ export interface UsageDelta {
 
 export interface RunLaunch {
   ownerId: string;
-  /** The turn this run belongs to: the id of the run at the top, which every run it hands work to shares. */
   turnId?: string | undefined;
   projectId?: string | undefined;
   conversationId?: string | undefined;
@@ -37,7 +36,6 @@ export interface RunContext {
   budget: Readonly<RunBudget>;
   signal?: AbortSignal | undefined;
   cleaningUp: boolean;
-  /** While cleaning up: how the run ended and why, so a cleanup step can record it. */
   ending?: { outcome: RunOutcome; reason?: string | undefined } | undefined;
   emit(event: Omit<EngineEvent, 'runId' | 'at'>): void;
 }

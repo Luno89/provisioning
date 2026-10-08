@@ -166,9 +166,16 @@ describe('exec/read/write in a container', () => {
     expect((call[1] as { stdin: string }).stdin).toBe(Buffer.from('hello').toString('base64'));
   });
 
-  it('readFile decodes the base64 the container printed', async () => {
-    runDockerMock.mockResolvedValue(ok(Buffer.from('file contents').toString('base64')));
-    expect(await readFileInContainer('leaf-1', 'a.txt')).toBe('file contents');
+  it('readFile decodes the base64 the container printed, uncapped', async () => {
+    const contents = 'file contents '.repeat(10_000);
+    runDockerMock.mockResolvedValue(ok(`${contents.length}\n${Buffer.from(contents).toString('base64')}`));
+    expect(await readFileInContainer('leaf-1', 'a.txt')).toBe(contents);
+    expect(runDockerMock.mock.calls.at(-1)?.[1]).toEqual({ maxOutputChars: Infinity });
+  });
+
+  it('readFile refuses a file that came back short', async () => {
+    runDockerMock.mockResolvedValue(ok(`500\n${Buffer.from('part').toString('base64')}`));
+    await expect(readFileInContainer('leaf-1', 'a.txt')).rejects.toThrow('a.txt came back as 4 of 500 bytes');
   });
 
   it('readFile throws with the real stderr when the file does not exist', async () => {

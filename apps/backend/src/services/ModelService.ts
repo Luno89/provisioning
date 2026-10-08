@@ -4,7 +4,8 @@ import type { AppService } from './AppService.js';
 import type { ClusterService } from './ClusterService.js';
 import type { ClusterProxyService } from './ClusterProxyService.js';
 import { listProviders, routeProvider, type ModelProvider, type EndpointSource } from '../lib/model-registry.js';
-import { checkEndpointUrl, isMeshAddress } from '../lib/endpoint-url-safety.js';
+import { checkEndpointUrl, isMeshAddress, type EndpointRules } from '../lib/endpoint-url-safety.js';
+import { modelOwner } from '../lib/check-space.js';
 import { decryptValue, type SecretKey } from '../lib/crypto.js';
 import type { HeadscaleService } from './HeadscaleService.js';
 
@@ -16,16 +17,22 @@ export class ModelService extends BaseService {
     private proxy: ClusterProxyService,
     private headscale: HeadscaleService,
     private masterKey: SecretKey,
+    private endpointRules: EndpointRules = {},
   ) {
     super(db);
   }
 
+  private async modelOwner(userId: string): Promise<string> {
+    return modelOwner(await this.db.getUserById(userId), userId);
+  }
+
   async list(userId: string): Promise<ModelProvider[]> {
+    const owner = await this.modelOwner(userId);
     const [deployments, endpoints] = await Promise.all([
-      this.apps.getAll(userId),
+      this.apps.getAll(owner),
       this.db.getModelEndpoints(),
     ]);
-    return listProviders(deployments, endpoints.filter((e) => e.ownerId === userId));
+    return listProviders(deployments, endpoints.filter((e) => e.ownerId === owner));
   }
 
   private async assertOwnsMeshAddress(userId: string, host: string): Promise<void> {
@@ -57,6 +64,7 @@ export class ModelService extends BaseService {
     modelId?: string | null,
     packEndpointId?: string | null,
   ): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string; source: EndpointSource }> {
+    userId = await this.modelOwner(userId);
     const providers = await this.list(userId);
     if (providers.length === 0) {
       throw new Error('No models available. Deploy a vLLM or TabbyAPI app, or register an OpenAI-compatible endpoint.');
@@ -93,7 +101,9 @@ export class ModelService extends BaseService {
     provider: ModelProvider,
   ): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string }> {
     const baseUrl = provider.baseUrl ?? '';
-    const check = checkEndpointUrl(baseUrl);
+    const owner = await this.db.getUserById(userId);
+    const scripted = owner?.space?.models === 'scripted' && this.endpointRules.scriptedBase !== undefined && baseUrl === `${this.endpointRules.scriptedBase}/${userId}/v1`;
+    const check = scripted ? { ok: true as const } : checkEndpointUrl(baseUrl);
     if (!check.ok) throw new Error(`Endpoint "${provider.name}" is no longer allowed: ${check.reason}`);
 
     if (check.literalIp && isMeshAddress(check.literalIp)) {

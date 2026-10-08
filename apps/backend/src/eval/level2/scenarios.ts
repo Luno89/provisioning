@@ -1,5 +1,8 @@
 import { EXAMPLE_PROCEDURE, SINGLE_SHOT_V2 } from '@koala/agent-engine/procedure';
 import type { Scenario } from './scenario.js';
+import { MECHANICS_CHECKS } from './mechanics.js';
+import { STEP_CHECKS } from './steps.js';
+import { TURN_CHECKS } from './turns.js';
 
 export const BUILT_IN_SCENARIOS: readonly Scenario[] = [
   {
@@ -158,4 +161,66 @@ export const BUILT_IN_SCENARIOS: readonly Scenario[] = [
       toolsInOrder: ['propose_work', 'list_tasks', 'start_task', 'mark_done'],
     },
   },
+  {
+    id: 'research-writes-its-findings',
+    name: 'Research writes what it found into a findings document',
+    describe: 'Research hands back a pointer, so the answer and its sources have to be in findings.md in its workspace.',
+    agent: 'research',
+    procedure: { id: 'research' },
+    input: { message: 'What is the default TCP port PostgreSQL listens on?', inputs: { question: 'What is the default TCP port PostgreSQL listens on?' } },
+    expect: {
+      outcome: 'ok',
+      toolsSucceeded: ['write_file'],
+      files: [{ path: 'findings.md', contains: ['5432'] }],
+    },
+  },
+  {
+    id: 'koala-fans-research-out',
+    name: 'Koala asks research several things at once',
+    describe: 'Separate questions go to research as separate hand-offs in one reply, so they run at the same time.',
+    agent: 'koala',
+    procedure: { id: 'interactive-chat' },
+    input: {
+      message: 'Look up three separate facts, each with its own research call, all at once: the year the first version of Node.js was released, the default TCP port PostgreSQL listens on, and who created Python. Then give me one short summary.',
+      inputs: { conversationId: 'eval-koala-fans-research-out' },
+    },
+    expect: {
+      outcome: 'ok',
+      handOffs: [{ agent: 'research', atLeast: 3, together: true }],
+    },
+  },
+  {
+    id: 'planner-proposes-a-grove-plan',
+    name: 'The planner proposes a whole grove plan that is accepted',
+    describe: 'A new project comes back as one propose_plan call the tool accepts — branches, leaves with goals and briefs, and their tasks.',
+    agent: 'planner',
+    procedure: { id: 'planning' },
+    input: {
+      message: 'New Grove project "greeter": a tiny Node.js command-line greeter. Exactly one branch and two leaves. Leaf 1: greet.js prints "hello, <name>" for the name given as its first argument (and "hello, world" without one). Leaf 2, which waits on leaf 1: test.sh runs greet.js with and without a name and exits 0 only when both outputs are right. A couple of tasks per leaf. Use only node and sh.',
+      inputs: { goal: 'A tiny Node.js command-line greeter with a test script.' },
+    },
+    expect: {
+      outcome: 'ok',
+      toolsSucceeded: ['propose_plan'],
+    },
+  },
+  {
+    id: 'judge-checks-then-records-its-verdict',
+    name: 'The judge checks for itself, then records its verdict',
+    describe: 'Handed a claim it can check, the judge runs the check and gives its verdict through record_verdict.',
+    agent: 'judge',
+    procedure: { id: 'tool-rounds' },
+    input: {
+      message: 'Judge this. Work: the command `expr 6 \\* 7` prints 42. Expected: running that command prints 42. Check it yourself.',
+      inputs: { work: 'the command `expr 6 \\* 7` prints 42', expected: 'running that command prints 42' },
+    },
+    expect: {
+      outcome: 'ok',
+      toolsInOrder: ['run_command', 'record_verdict'],
+      toolsSucceeded: ['record_verdict'],
+    },
+  },
+  ...MECHANICS_CHECKS(),
+  ...STEP_CHECKS(),
+  ...TURN_CHECKS,
 ];

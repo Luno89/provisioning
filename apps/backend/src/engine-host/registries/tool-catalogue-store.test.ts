@@ -71,3 +71,11 @@ describe('seeding the catalogue', () => {
     await expect(seedEngineTools(store(), { implemented })).resolves.toBe(ENGINE_TOOL_SEEDS.length);
   });
 });
+
+describe('a person\'s own copy of a bootstrap tool', () => {
+  it('replaces the shipped one rather than appearing beside it', async () => {
+    const mine: ToolDefinition = { ...BUILDER_TOOLS[0]!, ownerId: 'user-1', summary: 'my words' };
+    const listed = await catalogue([mine]).list('user-1');
+    expect(listed.filter((tool) => tool.name === mine.name)).toEqual([mine]);
+  });
+});

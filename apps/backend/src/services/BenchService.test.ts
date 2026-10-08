@@ -5,8 +5,10 @@ import { BenchService } from './BenchService.js';
 import type { Level2Run } from './Level2Service.js';
 import type { MemoryItem, PracticeTrial } from '../lib/memory-store.js';
 import type { PromptChange } from '../lib/agent-changes.js';
+import type { UserMetadata } from '../lib/types.js';
 
 const NOW = Date.parse('2026-10-03T12:00:00Z');
+const NOW_ISO = new Date(NOW).toISOString();
 
 let db: MemoryDB;
 let started: BenchPlan[];
@@ -42,8 +44,11 @@ const bench = () => new BenchService({
   now: () => NOW,
 });
 
-beforeEach(() => {
+const account = (id: string, over: Partial<UserMetadata> = {}) => db.saveUser({ id, email: `${id}@example.com`, emailVerified: true, createdAt: NOW_ISO, ...over } as UserMetadata);
+
+beforeEach(async () => {
   db = new MemoryDB();
+  await account('u1');
   started = [];
   timers = [];
   notified = [];
@@ -72,6 +77,15 @@ describe('the bench', () => {
   it('counts nothing down when it is switched off', async () => {
     await db.saveBenchSettings('u1', { enabled: false, idleMinutes: 30, fullEveryHours: 24 });
     await bench().activity({ kind: 'run-started', ownerId: 'u1', runId: 'r', agentSlug: 'koala', depth: 0 });
+    expect(timers).toEqual([]);
+  });
+
+  it('counts nothing down for a check\'s space, an account being removed, or one already gone', async () => {
+    await account('space-1', { space: { person: 'u1', checkRunId: 'c', scenarioId: 's' } } as Partial<UserMetadata>);
+    await account('leaving', { removal: { startedAt: NOW_ISO, requestedBy: 'leaving' } });
+    for (const ownerId of ['space-1', 'leaving', 'gone']) {
+      await bench().activity({ kind: 'run-ended', ownerId, runId: 'r', agentSlug: 'koala', outcome: 'ok', ask: 'x', depth: 0 });
+    }
     expect(timers).toEqual([]);
   });
 

@@ -39,7 +39,7 @@ export const TASK_TOOLS: ToolDefinition[] = [
         dependsOn: { type: 'array', items: { type: 'string' }, description: 'Ids of proposals that must be done first' },
         checks: {
           type: 'object',
-          description: 'How to check the work: { "command": a shell command that shows it is done, "expects": text its output should contain }',
+          description: 'How to check the work: { "command": a shell command that shows it is done, "expects": text its output should contain }, or { "e2e": { "specs": Playwright spec files or folders } } to run browser tests against the app the workspace serves',
         },
       },
       required: ['title', 'doneMeans'],

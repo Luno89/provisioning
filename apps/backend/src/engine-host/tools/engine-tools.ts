@@ -1,5 +1,6 @@
 import { createProcedureTools, type ProcedureSourceStore, type ProcedureScope } from '../registries/procedure-tools.js';
 import { createTaskTools, type TaskStore } from './task-tools.js';
+import { createVerdictTools } from './verdict-tools.js';
 import type { GroveToolOptions } from '../../extensions/grove/tools/grove-tools.js';
 import { extensionRuntimes, toolHandlers } from '../../extensions/runtime.js';
 import { createPlatformTools, type PlatformToolOptions } from './platform-tools.js';
@@ -12,6 +13,7 @@ import { createCorpusTools, type CorpusAccess } from './corpus-tools.js';
 import { createRunTools, type RunReader } from './run-tools.js';
 import { createMemoryTools, type MemoryToolStore } from './memory-tools.js';
 import { createScenarioTools, type ScenarioProposalAccess } from './scenario-tools.js';
+import { createCheckTools, type CheckAccess } from './check-tools.js';
 import { createAgentChangeTools, type AgentChangeAccess } from './agent-change-tools.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { ImageBuilder } from '../sandboxes/image-builder.js';
@@ -36,6 +38,7 @@ export interface EngineToolDeps {
   runs?: RunReader | undefined;
   memories?: MemoryToolStore | undefined;
   scenarios?: ScenarioProposalAccess | undefined;
+  checks?: CheckAccess | undefined;
   agentChanges?: AgentChangeAccess | undefined;
 }
 
@@ -43,6 +46,7 @@ export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, T
   return {
     ...createProcedureTools({ store: deps.procedures, scope: deps.scope }),
     ...createTaskTools({ store: deps.tasks, binding: deps.groove?.stores.binding }),
+    ...createVerdictTools(),
     ...toolHandlers(extensionRuntimes({ grove: { tools: deps.groove } })),
     ...createPlatformTools(deps.platform),
     ...(deps.secrets ? createSecretTools(deps.secrets) : {}),
@@ -54,6 +58,7 @@ export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, T
     ...(deps.runs ? createRunTools({ runs: deps.runs }) : {}),
     ...(deps.memories ? createMemoryTools({ store: deps.memories, agents: async (ownerId) => (await deps.registry.agents(ownerId)).map((agent) => agent.slug) }) : {}),
     ...(deps.scenarios ? createScenarioTools(deps.scenarios) : {}),
+    ...(deps.checks ? createCheckTools(deps.checks) : {}),
     ...(deps.agentChanges ? createAgentChangeTools(deps.agentChanges) : {}),
   };
 }

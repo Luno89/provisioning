@@ -52,7 +52,6 @@ export type EngineEvent =
   | { type: 'node.traced'; runId: string; at: string; nodeId: string; trace: Record<string, unknown> }
   | { type: 'interrupted'; runId: string; at: string; reason: string }
 
-export const ENGINE_EVENT_CHANNEL = 'engine-event'
 
 export type TaskStatus = 'proposed' | 'accepted' | 'running' | 'done' | 'failed' | 'dropped'
 
@@ -194,7 +193,7 @@ export async function answerRun(runId: string, nodeId: string, value: unknown): 
 
 export async function approveRunCall(
   runId: string,
-  input: { callId: string; allowed: boolean; forRun?: boolean },
+  input: { callId: string; allowed: boolean; forRun?: boolean; conversationId?: string; tool?: string },
 ): Promise<void> {
   await api.post(`/engine/runs/${runId}/approve`, input)
 }

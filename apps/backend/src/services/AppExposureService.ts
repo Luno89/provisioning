@@ -12,6 +12,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { Server as SocketServer } from 'socket.io';
+import { ODOO_PROJECT_APP } from '../lib/odoo-release.js';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -137,6 +138,16 @@ export class AppExposureService extends BaseService {
 `;
   }
 
+  private previewOf(dep: DeploymentMetadata): { key: string; appHostname: string } | undefined {
+    if (dep.appType !== ODOO_PROJECT_APP) return undefined;
+    const key = `${this.sanitize(dep.name)}-preview`;
+    return { key, appHostname: `${key}.apps.local` };
+  }
+
+  private previewPublicHostname(dep: DeploymentMetadata, domain: string): string {
+    return `${this.sanitize(dep.name)}-preview-${dep.id.replace(/-/g, '').slice(0, 6)}.${domain}`;
+  }
+
   private syncDerivedFields(dep: DeploymentMetadata) {
     dep.isExposed = !!(dep.isExposedLocally || dep.isExposedPublicly);
     if (dep.publicExposureUrl) dep.exposureUrl = dep.publicExposureUrl;
@@ -242,6 +253,11 @@ export class AppExposureService extends BaseService {
 
     const tunnelHost = dep.isExposedPublicly && dep.publicExposureUrl ? dep.publicExposureUrl.replace(/^https?:\/\//, '') : undefined;
     await this.writeNginxConf(namespace, backendTarget, appHostname, tunnelHost);
+    const preview = this.previewOf(dep);
+    if (preview) {
+      await this.writeNginxConf(preview.key, backendTarget, preview.appHostname);
+      dep.previewLocalUrl = `http://${preview.key}.localhost:8000`;
+    }
 
     await this.db.saveDeployment(dep);
     if (this.io) this.io.emit('deployment-updated');
@@ -272,6 +288,12 @@ export class AppExposureService extends BaseService {
     this.syncDerivedFields(dep);
 
     await this.writeCaddyConf(namespace, publicHostname, backendTarget, appHostname);
+    const preview = this.previewOf(dep);
+    if (preview) {
+      const previewHostname = this.previewPublicHostname(dep, domain);
+      await this.writeCaddyConf(preview.key, previewHostname, backendTarget, preview.appHostname);
+      dep.previewPublicUrl = `https://${previewHostname}`;
+    }
 
     await this.db.saveDeployment(dep);
     if (this.io) this.io.emit('deployment-updated');
@@ -294,15 +316,25 @@ export class AppExposureService extends BaseService {
         const { namespace, backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
 
         const domain = this.ingressDomain();
+        const preview = this.previewOf(dep);
         if (dep.isExposedPublicly && domain) {
           const publicHostname = this.hostnameFor(dep, domain);
           dep.publicHostname = publicHostname;
           dep.publicExposureUrl = `https://${publicHostname}`;
           await this.writeCaddyConf(namespace, publicHostname, backendTarget, appHostname);
+          if (preview) {
+            const previewHostname = this.previewPublicHostname(dep, domain);
+            await this.writeCaddyConf(preview.key, previewHostname, backendTarget, preview.appHostname);
+            dep.previewPublicUrl = `https://${previewHostname}`;
+          }
         }
         if (dep.isExposedLocally) {
           dep.localExposureUrl = `http://${namespace}.localhost:8000`;
           await this.writeNginxConf(namespace, backendTarget, appHostname);
+          if (preview) {
+            await this.writeNginxConf(preview.key, backendTarget, preview.appHostname);
+            dep.previewLocalUrl = `http://${preview.key}.localhost:8000`;
+          }
         }
         this.syncDerivedFields(dep);
         await this.db.saveDeployment(dep);
@@ -316,7 +348,7 @@ export class AppExposureService extends BaseService {
       }
     }
 
-    const exposedNamespaces = new Set(exposed.map(d => this.sanitize(d.name)));
+    const exposedNamespaces = new Set(exposed.flatMap(d => [this.sanitize(d.name), ...(this.previewOf(d) ? [this.previewOf(d)!.key] : [])]));
     const confDir = path.join(this.nginxConfDir, 'conf.d');
     try {
       const files = await fs.readdir(confDir);
@@ -356,6 +388,11 @@ export class AppExposureService extends BaseService {
     dep.isExposedLocally = false;
     delete dep.localExposureUrl;
     this.syncDerivedFields(dep);
+    const preview = this.previewOf(dep);
+    if (preview) {
+      await this.removeNginxConf(preview.key);
+      delete dep.previewLocalUrl;
+    }
 
     if (dep.isExposedPublicly && dep.publicExposureUrl) {
       const cluster = await this.clusters.getByIdUnscoped(dep.clusterId);
@@ -385,6 +422,11 @@ export class AppExposureService extends BaseService {
     this.syncDerivedFields(dep);
 
     await this.removeCaddyConf(namespace);
+    const preview = this.previewOf(dep);
+    if (preview) {
+      await this.removeCaddyConf(preview.key);
+      delete dep.previewPublicUrl;
+    }
 
     await this.db.saveDeployment(dep);
     if (this.io) this.io.emit('deployment-updated');

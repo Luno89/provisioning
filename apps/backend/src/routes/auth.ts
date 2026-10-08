@@ -78,6 +78,9 @@ export function authRouter(deps: AuthRouterDeps): Router {
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
+      if (user.removal) {
+        return res.status(403).json({ error: 'This account is being removed' });
+      }
       if (user.twoFactorEnabled) {
         const code = authService.create2FAChallenge(user.id);
         await authService.send2FACode(user, code);

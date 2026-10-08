@@ -229,8 +229,8 @@ describe('drawing the canvas', () => {
     const inside = toCanvas(RESEARCH_V2, ['model-turn'], [], context)
     const call = inside.nodes.find((node) => node.id === 'call')!
 
-    expect(bodyAt(RESEARCH_V2, ['model-turn'], context)?.start).toBe('call')
-    expect(inside.nodes.map((node) => node.id)).toContain('context')
+    expect(bodyAt(RESEARCH_V2, ['model-turn'], context)?.start).toBe('compact')
+    expect(inside.nodes.map((node) => node.id)).toEqual(expect.arrayContaining(['context', 'compact', 'call']))
     expect(call.data.exposed.exits).toMatchObject({ answered: 'answered' })
     expect(toCanvas(RESEARCH_V2, [], [], context).nodes[0]!.data.exposed).toEqual({ inputs: {}, outputs: {}, exits: {} })
   })

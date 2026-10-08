@@ -21,10 +21,11 @@ export function createStoredToolCatalogue(
   const bootstrap = options.bootstrap ?? BUILDER_TOOLS;
 
   const list = async (ownerId: string): Promise<ToolDefinition[]> => {
-    const stored = await options.tools.list(ownerId);
+    const stored = withBuiltIns(await options.tools.list(ownerId), ownerId, (tool) => tool.name);
+    const storedNames = new Set(stored.map((tool) => tool.name));
 
     // One catalogue. What is stored is what runs, and a persona granting it is the whole gate.
-    return [...bootstrap, ...withBuiltIns(stored, ownerId, (tool) => tool.name)];
+    return [...bootstrap.filter((tool) => !storedNames.has(tool.name)), ...stored];
   };
 
   return {

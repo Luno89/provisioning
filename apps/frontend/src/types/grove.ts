@@ -26,7 +26,7 @@ export interface TreeTypeFile {
   executable?: boolean | undefined
 }
 
-export type WorkspaceLanguage = 'node' | 'python' | 'go' | 'base'
+export type WorkspaceLanguage = 'node' | 'python' | 'go' | 'base' | 'odoo'
 
 export interface PersonaEgressRule {
   cidr?: string | undefined

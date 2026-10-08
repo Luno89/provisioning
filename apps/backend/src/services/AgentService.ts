@@ -12,9 +12,14 @@ import { missingGrants, type Procedure } from '@koala/agent-engine/procedure';
 import type { ImageStanding } from '../engine-host/sandboxes/image-builder.js';
 import { seededPersonas } from '../extensions/seeds.js';
 import { platformGroups } from '../extensions/installed.js';
+import { usesNode } from '../lib/procedure-reach.js';
+import { agentUsage, type AgentUsage } from '../lib/agent-usage.js';
+import { planWorkspace } from '../extensions/workspace-bases.js';
 
 export interface EditableAgent extends Persona {
   mine: boolean;
+  recallsMemories: boolean;
+  usedBy: AgentUsage[];
   image?: ImageStanding | undefined;
 }
 
@@ -32,6 +37,7 @@ export interface AgentServiceOptions {
     standing(plan: NonNullable<ReturnType<typeof planFor>>): Promise<ImageStanding>;
   } | undefined;
   builtIn?: readonly Persona[] | undefined;
+  treeTypes?: ((ownerId: string) => Promise<readonly { id: string; label: string; agent?: string | undefined }[]>) | undefined;
 }
 
 export type SaveAgentOutcome =
@@ -46,6 +52,7 @@ export function agentProblems(
     tools: readonly ToolDefinition[];
     procedures: readonly Procedure[];
     agents: ReadonlySet<string>;
+    personas?: readonly Persona[] | undefined;
     mcpServers?: readonly string[] | undefined;
   },
 ): string[] {
@@ -108,7 +115,19 @@ export function agentProblems(
 
   if (problems.length === 0) {
     const whole = agent as Persona;
-    const capabilities = capabilitiesOf(environmentFor(whole));
+    const bySlug = new Map((known.personas ?? []).map((persona) => [persona.slug, persona]));
+    const reachable: Persona[] = [];
+    const queue = [...(whole.agents ?? [])];
+    while (queue.length > 0) {
+      const slug = queue.shift()!;
+      const found = bySlug.get(slug);
+      if (!found || slug === whole.slug || reachable.includes(found)) continue;
+      reachable.push(found);
+      queue.push(...(found.agents ?? []));
+    }
+    const shared = reachable.map(environmentFor).find((spec) => spec.kind === 'sandbox');
+    const own = environmentFor(whole);
+    const capabilities = capabilitiesOf(own.kind === 'none' && shared ? shared : own);
     const granted = known.tools.filter((tool) => (whole.tools ?? []).includes(tool.name));
     const { withheld } = effectiveTools({
       granted: whole.tools ?? [],
@@ -122,6 +141,11 @@ export function agentProblems(
   }
 
   return problems;
+}
+
+function recallsMemories(agent: Persona, procedures: readonly Procedure[]): boolean {
+  const procedure = procedures.find((candidate) => candidate.id === agent.procedure);
+  return procedure ? usesNode(procedure, 'recall-memory', platformGroups()) : false;
 }
 
 export class AgentService {
@@ -139,23 +163,26 @@ export class AgentService {
     return visibleAgents([...this.builtIn, ...(await this.options.personas.list(ownerId))], ownerId);
   }
 
-  async grantable(ownerId: string): Promise<{ name: string; summary: string; binding: string; needs: string[] }[]> {
+  async grantable(ownerId: string): Promise<{ name: string; summary: string; binding: string; effect: ToolDefinition['effect']; needs: string[] }[]> {
     return (await this.options.tools(ownerId))
       .map((tool) => ({
         name: tool.name,
         summary: tool.summary,
         binding: tool.binding,
+        effect: tool.effect,
         needs: Object.entries(tool.requires ?? {}).filter(([, wanted]) => wanted === true).map(([need]) => need),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async list(ownerId: string): Promise<EditableAgent[]> {
-    const [agents, tools] = await Promise.all([this.all(ownerId), this.options.tools(ownerId)]);
-
+    const [agents, tools, procedures, treeTypes] = await Promise.all([
+      this.all(ownerId), this.options.tools(ownerId), this.options.procedures(ownerId), this.options.treeTypes?.(ownerId) ?? [],
+    ]);
+    const usage = agentUsage({ agents, procedures, treeTypes, groups: platformGroups() });
     return Promise.all(agents
       .sort((a, b) => a.slug.localeCompare(b.slug))
-      .map(async (agent) => ({ ...agent, mine: isFork(agent), ...(await this.imageOf(agent, tools)) })));
+      .map(async (agent) => ({ ...agent, mine: isFork(agent), recallsMemories: recallsMemories(agent, procedures), usedBy: usage.get(agent.slug) ?? [], ...(await this.imageOf(agent, tools)) })));
   }
 
   async get(ownerId: string, slug: string): Promise<EditableAgent | undefined> {
@@ -163,7 +190,7 @@ export class AgentService {
   }
 
   private async imageOf(agent: Persona, tools: readonly ToolDefinition[]): Promise<{ image?: ImageStanding }> {
-    const plan = planFor(agent, tools);
+    const plan = planWorkspace(agent, tools);
     if (!plan || !this.options.images) return {};
 
     const image = await this.options.images.standing(plan).catch((err: Error) => ({
@@ -187,6 +214,7 @@ export class AgentService {
       tools,
       procedures,
       agents: new Set(agents.map((agent) => agent.slug)),
+      personas: agents,
       mcpServers,
     });
     if (problems.length > 0) return { saved: false, problems };
@@ -194,12 +222,14 @@ export class AgentService {
     const agent: Persona = { ...(input as Persona), ownerId };
     await this.options.personas.save(agent);
 
-    const plan = planFor(agent, tools);
+    const plan = planWorkspace(agent, tools);
     const image = plan && this.options.images
       ? await this.options.images.start(plan).catch((err: Error) => ({ state: 'failed' as const, reference: '', detail: err.message }))
       : undefined;
 
-    return { saved: true, agent: { ...agent, mine: true, ...(image ? { image } : {}) } };
+    const treeTypes = await this.options.treeTypes?.(ownerId) ?? [];
+    const usage = agentUsage({ agents: [...agents.filter((one) => one.slug !== agent.slug), agent], procedures, treeTypes, groups: platformGroups() });
+    return { saved: true, agent: { ...agent, mine: true, recallsMemories: recallsMemories(agent, procedures), usedBy: usage.get(agent.slug) ?? [], ...(image ? { image } : {}) } };
   }
 
   async remove(ownerId: string, slug: string): Promise<boolean> {

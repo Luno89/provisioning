@@ -21,7 +21,7 @@ export interface AgentLoopShape {
 const ending = (shape: Ending) => ({ outcome: shape.outcome, ...(shape.reason ? { reason: shape.reason } : {}) });
 
 export function agentLoop(shape: AgentLoopShape): Procedure {
-  return defineProcedure(BUILT_IN_GROUPS, { id: shape.id, version: '2', name: shape.name, describe: shape.describe, budget: {} }, (p) => {
+  return defineProcedure(BUILT_IN_GROUPS, { id: shape.id, version: '3', name: shape.name, describe: shape.describe, budget: {} }, (p) => {
     const input = p.runInput('input');
     const provision = p.provisionSandbox('provision');
     const conversation = p.conversation('conversation', { opening: input.message, given: input.inputs });
@@ -94,7 +94,7 @@ export const TOOL_ROUNDS_V2 = agentLoop({
 
 export const INTERACTIVE_CHAT_V4 = defineProcedure(BUILT_IN_GROUPS, {
   id: 'interactive-chat',
-  version: '4',
+  version: '5',
   name: 'Interactive chat',
   describe: 'One turn of a conversation that is remembered: it reads back what was said before, answers with tools as needed, carries on when its reply is cut off, and writes the turn back so the next one picks up where this left off.',
   budget: {},
@@ -117,6 +117,8 @@ export const INTERACTIVE_CHAT_V4 = defineProcedure(BUILT_IN_GROUPS, {
     reply: turn.reply,
     results: [tools.results, tools.refused],
     rounds: conversation.rounds,
+    compaction: turn.compaction,
+    history: earlier.history,
   }, { id: '{{values.conversationId}}' });
 
   const answered = p.finish('answered', { result: turn.content }, { outcome: 'ok' });

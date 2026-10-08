@@ -46,6 +46,7 @@ import {
   type PublishArgs,
   type RecordTracesArgs,
   type SettleClaimsArgs,
+  type ToolAllowedArgs,
   type RemoteNodeRequest,
   type RemoteNodeResult,
   type ResolveAgentArgs,
@@ -57,6 +58,7 @@ import type { RunLimits, RunLimitsArgs } from '../engine-host/registries/effort.
 import { RUN_STATE_QUERY, type RunState } from '../engine-host/temporal/run-cancellation.js';
 import { ASK_CHARS, collectStep, type Artifact, type RunEffort, type RunStep } from '@koala/agent-engine/procedure';
 import { platformCatalogue, platformGroups } from '../extensions/installed.js';
+import { ownerIn, startedFor } from '../lib/workflow-owner.js';
 
 const NODE_HEARTBEAT_TIMEOUT = '1 minute';
 export const CONTINUE_AFTER_EVENTS = 10_000;
@@ -78,7 +80,8 @@ const engineNodesOnce = proxyActivities<EngineRemote>({ retry: { maximumAttempts
 const stream = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: ACTIVITY_RETRY, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: ABANDON });
 const streamOnce = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: { maximumAttempts: 1 }, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: ABANDON });
 
-const { EngineRecordTracesActivity, EngineRunLimitsActivity, EngineRecordEffortActivity, EngineSettleClaimsActivity } = proxyActivities<{
+const { EngineRecordTracesActivity, EngineRunLimitsActivity, EngineRecordEffortActivity, EngineSettleClaimsActivity, EngineToolAllowedActivity } = proxyActivities<{
+  EngineToolAllowedActivity(args: ToolAllowedArgs): Promise<boolean>;
   EngineRecordTracesActivity(args: RecordTracesArgs): Promise<void>;
   EngineRunLimitsActivity(args: RunLimitsArgs): Promise<RunLimits>;
   EngineRecordEffortActivity(effort: RunEffort): Promise<void>;
@@ -98,6 +101,7 @@ const { EnginePublishActivity, EngineLifecycleActivity } = proxyActivities<{
 });
 
 const CONCLUSIONS = 'conclusion-events';
+const CONVERSATION_APPROVALS = 'conversation-approvals';
 const HAND_OFFS_TOGETHER = 'hand-offs-together';
 
 export const approveSignal = defineSignal<[{ callId: string; allowed: boolean; forRun?: boolean }]>('approve');
@@ -172,7 +176,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       void getExternalWorkflowHandle(childId).signal(cancelSignal).catch(() => undefined);
     }
   };
-  void condition(() => cancelled).then(() => {
+  void CancellationScope.nonCancellable(() => condition(() => cancelled)).then(() => {
     for (const scope of inFlight) scope.cancel();
   });
   const cancellable = async <T>(work: () => Promise<T>): Promise<T> => {
@@ -263,6 +267,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
 
       const started = await startChild(AgentRunWorkflow, {
         workflowId: childRunId,
+        ...startedFor(ownerIn(workflowInfo().typedSearchAttributes) ?? ticket.ownerId),
         args: [{
           ticket: {
             ...ticketFor(run),
@@ -299,6 +304,9 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
 
     async approve({ nodeId, call, environment }) {
       if (approvedForRun) return true;
+      if (ticket.conversationId && patched(CONVERSATION_APPROVALS)) {
+        if (await EngineToolAllowedActivity({ ownerId: ticket.ownerId, conversationId: ticket.conversationId, tool: call.name })) return true;
+      }
 
       const where = environment?.kind === 'machine' ? environment.deviceName : 'this run';
       await publishNow({

@@ -8,6 +8,7 @@ import { conversationBinding } from '../engine-host/conversation-binding.js';
 import { INTERACTIVE_CHAT_V4, RESEARCH_V2 } from '@koala/agent-engine/procedure';
 import { ExtensionService } from '../services/ExtensionService.js';
 import { MemoryDB } from '../lib/memory-db.js';
+import { ApprovalService } from '../services/ApprovalService.js';
 import { INSTALLED_EXTENSIONS, platformCatalogue, platformGroups } from '../extensions/installed.js';
 import { defineGroup } from '@koala/agent-engine/procedure';
 
@@ -43,6 +44,8 @@ beforeEach(() => {
 });
 
 
+let harnessDb: Database | undefined;
+
 function harnessWith(workflows: WorkflowStarter | undefined, extensions?: EngineRouterDeps['extensions']) {
   const registry = createAgentRegistry();
   const runs = createRunStarter({
@@ -54,7 +57,8 @@ function harnessWith(workflows: WorkflowStarter | undefined, extensions?: Engine
   return mountRouter({
     prefix: '/api/engine',
     router: (db) => {
-      return engineRouter({ runs, registry, tasks: taskAccess, traces: { list: (ownerId, runId) => db.getRunTraces(ownerId, runId) }, ...(extensions ? { extensions } : {}) });
+      harnessDb = db;
+      return engineRouter({ runs, registry, approvals: new ApprovalService({ store: db, runs }), tasks: taskAccess, traces: { list: (ownerId, runId) => db.getRunTraces(ownerId, runId) }, ...(extensions ? { extensions } : {}) });
     },
   });
 }
@@ -132,7 +136,7 @@ describe('engine routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.data.map((a: { slug: string }) => a.slug).sort())
-      .toEqual(['agent-builder', 'delivery', 'executor', 'grove', 'grove-leaf', 'grove-paper', 'grove-paper-leaf', 'judge', 'koala', 'leaf-judge', 'memory-keeper', 'paper-writer', 'planner', 'research']);
+      .toEqual(['agent-builder', 'check-writer', 'delivery', 'executor', 'grove', 'grove-leaf', 'grove-paper', 'grove-paper-leaf', 'judge', 'koala', 'leaf-judge', 'memory-keeper', 'paper-writer', 'planner', 'research']);
     expect(res.data.find((a: { slug: string }) => a.slug === 'koala')).toMatchObject({ mine: false });
 
     await h.close();
@@ -185,7 +189,7 @@ describe('engine routes', () => {
       router: (database) => {
         db = database;
         const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => workflows, newRunId: () => 'run-fixed', binding: conversationBinding(database) });
-        return engineRouter({ runs, registry: createAgentRegistry() });
+        return engineRouter({ runs, registry: createAgentRegistry(), approvals: new ApprovalService({ store: { ownsRun: async () => true, allowToolInConversation: async () => true }, runs }) });
       },
     });
     const stamp = new Date().toISOString();
@@ -255,7 +259,8 @@ describe('engine routes', () => {
       prefix: '/api/engine',
       router: (database) => {
         db = database;
-        return engineRouter({ runs: createRunStarter({ registry: createAgentRegistry(), workflows: () => undefined }), registry: createAgentRegistry(), traces: { list: (ownerId, runId) => database.getRunTraces(ownerId, runId) } });
+        const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => undefined });
+        return engineRouter({ runs, registry: createAgentRegistry(), approvals: new ApprovalService({ store: database, runs }), traces: { list: (ownerId, runId) => database.getRunTraces(ownerId, runId) } });
       },
     });
     const trace = (sequence: number, ownerId: string) => ({
@@ -285,10 +290,22 @@ describe('engine routes', () => {
   it('signals an approval decision, carrying whether it stands for the rest of the run', async () => {
     const workflows = starter();
     const h: Harness = await harnessWith(workflows);
+    await harnessDb!.appendTurnLog({ turnId: 'run-1', ownerId: TEST_USER.id, seq: 1, at: 'now', events: [] });
 
     await axios.post(h.url('/api/engine/runs/run-1/approve'), { callId: 'c1', allowed: true, forRun: true });
 
     expect(workflows.signal).toHaveBeenCalledWith('run-1', 'approve', { callId: 'c1', allowed: true, forRun: true });
+
+    await h.close();
+  });
+
+  it('refuses to approve a run that is not the person\'s', async () => {
+    const workflows = starter();
+    const h: Harness = await harnessWith(workflows);
+    await harnessDb!.appendTurnLog({ turnId: 'run-theirs', ownerId: 'someone-else', seq: 1, at: 'now', events: [] });
+
+    await expect(axios.post(h.url('/api/engine/runs/run-theirs/approve'), { callId: 'c1', allowed: true })).rejects.toMatchObject({ response: { status: 404 } });
+    expect(workflows.signal).not.toHaveBeenCalled();
 
     await h.close();
   });

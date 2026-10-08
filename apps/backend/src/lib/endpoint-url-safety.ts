@@ -1,3 +1,5 @@
+import { scriptedModelBase } from './check-space.js';
+
 
 function ipv4ToInt(host: string): number | undefined {
   const parts = host.split('.');
@@ -67,6 +69,14 @@ export function normaliseBaseUrl(raw: string): string {
   }
   url.pathname = url.pathname.replace(OPERATION_SUFFIX, '');
   return url.toString().replace(/\/$/, '');
+}
+
+export interface EndpointRules {
+  scriptedBase?: string | undefined;
+}
+
+export function endpointRulesFromEnv(env: Readonly<Record<string, string | undefined>>): EndpointRules {
+  return { scriptedBase: scriptedModelBase(env) };
 }
 
 export function checkEndpointUrl(raw: string): UrlCheck {

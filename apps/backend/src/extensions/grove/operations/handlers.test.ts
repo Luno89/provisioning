@@ -5,6 +5,7 @@ import type { Leaf, Branch } from '../../../lib/leaves.js';
 import type { Tree } from '../../../lib/trees.js';
 import type { Task } from '../../../engine-host/tools/tasks.js';
 import type { PlanProposal } from '../../../lib/plan-proposals.js';
+import { SUPERSEDED_NOTE } from '../../../lib/landing.js';
 
 const SANDBOX = { kind: 'sandbox', id: 'engine-tree-t1', workspace: { runId: 'tree-t1' }, capabilities: { kind: 'sandbox', lifecycle: 'invocation' } } as const;
 
@@ -21,6 +22,8 @@ let procedures: Record<string, Procedure>;
 let dirty: boolean;
 let saves: string[];
 let saveFails: string | undefined;
+let landings: string[][];
+let landingOutcome: (leafId: string) => 'merged' | 'conflict' | 'nothing' | 'failed';
 let emitted: unknown[];
 
 const leaf = (id: string, over: Partial<Leaf> = {}): Leaf => ({
@@ -36,11 +39,13 @@ const procedureNaming = (id: string, nodes: ReturnType<typeof place>[]): Procedu
   schema: PROCEDURE_SCHEMA, id, version: '1', name: id, describe: id, budget: {}, start: nodes[0]!.id, nodes, wires: [], flow: [], groups: [],
 });
 
+let browserLeft = '';
+
 const deps = (): GroveOperationDeps => ({
   trees: { list: async () => trees },
   branches: { list: async () => branches },
   leaves: { list: async () => leaves, save: async (saved) => { leaves = leaves.map((entry) => (entry.id === saved.id ? saved : entry)); } },
-  tasks: { list: async (ownerId) => tasks.filter((entry) => entry.ownerId === ownerId), save: async (saved) => { tasks = tasks.map((entry) => (entry.id === saved.id ? saved : entry)); } },
+  tasks: { list: async (ownerId) => tasks.filter((entry) => entry.ownerId === ownerId), save: async (saved) => { tasks = tasks.some((entry) => entry.id === saved.id) ? tasks.map((entry) => (entry.id === saved.id ? saved : entry)) : [...tasks, saved]; } },
   plans: { list: async (ownerId) => plans.filter((entry) => entry.ownerId === ownerId) },
   treeWorkspaces: {
     describe: async (request) => { described.push(request); return SANDBOX as never; },
@@ -53,6 +58,7 @@ const deps = (): GroveOperationDeps => ({
     park: async (treeId) => { parked.push(treeId); return ({ saved: false as const, why: 'no documents in this test' }); },
     release: async () => ({ saved: false as const, why: 'no documents in this test' }),
     bring: async () => ({ brought: false as const, why: 'no documents in this test' }),
+    land: async (_treeId, _ownerId, toLand) => { landings.push(toLand.map((leaf) => leaf.leafId)); return toLand.map((leaf) => ({ leafId: leaf.leafId, outcome: landingOutcome(leaf.leafId) })); },
   },
   environments: {
     forRun: async (request) => {
@@ -65,6 +71,8 @@ const deps = (): GroveOperationDeps => ({
           if (command.includes('rev-parse')) return { stdout: 'c0ffee', stderr: '', exitCode: 0 };
           if (command.startsWith('test -e')) return { stdout: '', stderr: '', exitCode: 1 };
           if (command.includes('missing.txt')) return { stdout: '', stderr: '', exitCode: 1 };
+          if (command.startsWith('find e2e-results')) return { stdout: browserLeft, stderr: '', exitCode: 0 };
+          if (command.startsWith('tail -c')) return { stdout: Buffer.from('shot').toString('base64'), stderr: '', exitCode: 0 };
           return { stdout: '', stderr: '', exitCode: 0 };
         },
         readFile: async () => '',
@@ -111,9 +119,12 @@ beforeEach(() => {
   described = [];
   parked = [];
   procedures = {};
+  browserLeft = '';
   dirty = false;
   saves = [];
   saveFails = undefined;
+  landings = [];
+  landingOutcome = () => 'merged';
   emitted = [];
 });
 
@@ -217,6 +228,67 @@ describe('Next Task', () => {
   });
 });
 
+describe('Land Leaves', () => {
+  const verified = (id: string, over: Partial<Leaf> = {}) => leaf(id, { status: 'succeeded', verified: true, ...over });
+
+  it('lands every verified leaf not yet landed, the ones others depend on first, and records it', async () => {
+    leaves = [verified('b', { dependsOn: ['a'] }), verified('a'), leaf('c', { status: 'claimed' }), verified('d', { landed: { at: 'then', outcome: 'merged' } })];
+
+    const outcome = await run('grove.land-leaves', { environment: SANDBOX, tree: TREE });
+
+    expect(landings).toEqual([['a', 'b']]);
+    expect(outcome).toMatchObject({ exit: 'done', outputs: { landed: ['a', 'b'], conflicts: [] } });
+    expect(leaves.find((entry) => entry.id === 'a')!.landed).toEqual({ at: 'now', outcome: 'merged' });
+  });
+
+  it('turns a conflict into a task to merge main in, and sends the leaf back to waiting', async () => {
+    leaves = [verified('a', { tasks: ['t1'] })];
+    tasks = [task('t1', 'a', { status: 'done' })];
+    landingOutcome = () => 'conflict';
+
+    const outcome = await run('grove.land-leaves', { environment: SANDBOX, tree: TREE });
+
+    expect(outcome).toMatchObject({ outputs: { landed: [], conflicts: ['a'] } });
+    expect(leaves[0]).toMatchObject({ status: 'pending', verified: false, tasks: ['t1', 'a-merge-2'] });
+    expect(leaves[0]!.landed).toBeUndefined();
+    expect(tasks.find((entry) => entry.id === 'a-merge-2')).toMatchObject({
+      leafId: 'a',
+      status: 'accepted',
+      title: 'Merge main into this leaf and resolve the conflict',
+      checks: { command: 'git merge-base --is-ancestor main HEAD && echo merged', expects: ['merged'] },
+    });
+  });
+
+  it('drops the failed tasks of a leaf the judge verified anyway, so its merge task is what runs next rather than another claim', async () => {
+    leaves = [verified('a', { tasks: ['t1', 't2'] })];
+    tasks = [task('t1', 'a', { status: 'done' }), task('t2', 'a', { status: 'failed', evidence: 'the check timed out' })];
+    landingOutcome = () => 'conflict';
+
+    await run('grove.land-leaves', { environment: SANDBOX, tree: TREE });
+
+    expect(tasks.find((entry) => entry.id === 't2')).toMatchObject({ status: 'dropped', evidence: `the check timed out\n${SUPERSEDED_NOTE}` });
+    expect(await run('grove.next-task', { leaf: { leafId: 'a' } })).toMatchObject({ exit: 'run', outputs: { task: { id: 'a-merge-3' } } });
+  });
+
+  it('leaves a leaf whose landing failed as it is, for the next pass, and says so', async () => {
+    leaves = [verified('a')];
+    landingOutcome = () => 'failed';
+
+    await run('grove.land-leaves', { environment: SANDBOX, tree: TREE });
+
+    expect(leaves[0]).toMatchObject({ status: 'succeeded', verified: true });
+    expect(leaves[0]!.landed).toBeUndefined();
+    expect(emitted).toEqual([expect.objectContaining({ type: 'notice', message: 'leaf a did not land this pass; it will be tried again' })]);
+  });
+
+  it('does nothing when nothing is ready to land', async () => {
+    leaves = [leaf('a', { status: 'running' })];
+
+    expect(await run('grove.land-leaves', { environment: SANDBOX, tree: TREE })).toMatchObject({ outputs: { landed: [], conflicts: [] } });
+    expect(landings).toEqual([]);
+  });
+});
+
 describe('File Claim', () => {
   it('commits what the work left uncommitted, then files the claim with the run\'s own account', async () => {
     leaves = [leaf('a', { status: 'running' })];
@@ -283,6 +355,15 @@ describe('Check Claims', () => {
     expect(leaves.find((entry) => entry.id === 'a')).toMatchObject({ status: 'failed', review: { model: 'grove-check-runner' } });
   });
 
+  it('hands a claim whose checks pass to its judge with what they said, so the judge sees they ran', async () => {
+    leaves = [leaf('a', { status: 'claimed', claim: { evidence: 'x', at: 'then', commit: 'c0ffee' } } as never)];
+    tasks = [task('ta', 'a', { status: 'done', checks: { fileExists: 'addons/koala_probe/__manifest__.py' } })];
+
+    const outcome = await run('grove.check-claims', { tree: TREE, environment: SANDBOX, claimed: [{ id: 'a' }] });
+
+    expect(outcome).toMatchObject({ exit: 'judge', outputs: { toJudge: [{ id: 'a', checks: expect.stringMatching(/^passed — .*koala_probe/) }], settled: [] } });
+  });
+
   it('hands a claim whose work stopped on a failed task to its judge with the failing checks, rather than settling it', async () => {
     leaves = [leaf('a', { status: 'claimed', claim: { evidence: 'x', at: 'then', commit: 'c0ffee' } } as never)];
     tasks = [task('ta', 'a', { status: 'failed', checks: { fileExists: 'missing.txt' } })];
@@ -291,6 +372,35 @@ describe('Check Claims', () => {
 
     expect(outcome).toMatchObject({ exit: 'judge', outputs: { toJudge: [{ id: 'a', checks: expect.stringContaining('missing.txt') }], settled: [] } });
     expect(leaves.find((entry) => entry.id === 'a')).toMatchObject({ status: 'claimed' });
+  });
+});
+
+describe('Check Claims keeping what the browser left', () => {
+  it('stores a failing leaf\'s screenshots for its run and links them in the report it settles with', async () => {
+    leaves = [leaf('a', { status: 'claimed', claim: { evidence: 'x', at: 'then', commit: 'c0ffee' } } as never)];
+    tasks = [task('ta', 'a', { status: 'done', checks: { command: 'odoo-e2e koala_probe e2e missing.txt', expects: ['odoo-e2e: PASSED'] } })];
+    browserLeft = '4 e2e-results/artifacts/signs-in/test-failed-1.png\n';
+    const kept: unknown[] = [];
+    const withArtifacts: GroveOperationDeps = {
+      ...deps(),
+      artifacts: { keep: async (ownerId, runId, files) => { kept.push({ ownerId, runId, files }); return { stored: [{ id: 'a1', name: files[0]!.name }], dropped: [], minioMissing: true }; } },
+    };
+
+    const outcome = await createGroveOperations(withArtifacts)['grove.check-claims']!(request({ operation: 'grove.check-claims' }, { tree: TREE, environment: SANDBOX, claimed: [{ id: 'a' }] })) as unknown as { outputs: { settled: { report: string }[] } };
+
+    expect(kept).toEqual([{ ownerId: 'user-1', runId: 'run-g', files: [{ name: 'signs-in/test-failed-1.png', bytes: Buffer.from('shot') }] }]);
+    expect(outcome.outputs.settled[0]!.report).toContain('![signs-in/test-failed-1.png](/api/artifacts/a1)');
+  });
+
+  it('reads nothing back when the checks pass', async () => {
+    leaves = [leaf('a', { status: 'claimed', claim: { evidence: 'x', at: 'then', commit: 'c0ffee' } } as never)];
+    tasks = [task('ta', 'a', { status: 'done', checks: { command: 'odoo-e2e koala_probe e2e' } })];
+    browserLeft = '4 e2e-results/artifacts/old/test-failed-1.png\n';
+    const kept: unknown[] = [];
+    const withArtifacts: GroveOperationDeps = { ...deps(), artifacts: { keep: async (...args) => { kept.push(args); return { stored: [], dropped: [], minioMissing: false }; } } };
+
+    await createGroveOperations(withArtifacts)['grove.check-claims']!(request({ operation: 'grove.check-claims' }, { tree: TREE, environment: SANDBOX, claimed: [{ id: 'a' }] }));
+    expect(kept).toEqual([]);
   });
 });
 

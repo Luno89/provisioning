@@ -1,8 +1,9 @@
-import { condition, defineSignal, executeChild, patched, proxyActivities, setHandler } from '@temporalio/workflow';
+import { condition, defineSignal, executeChild, patched, proxyActivities, setHandler, workflowInfo } from '@temporalio/workflow';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import { ConcludeWorkspaceWorkflow } from './ConcludeWorkspaceWorkflow.js';
 import { DEFAULT_STREAM_TASK_QUEUE, concludeWorkspaceId, type ConcludedWorkspace, type LifecycleEvent } from '../engine-host/temporal/contracts.js';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
+import { ownerIn, startedFor } from '../lib/workflow-owner.js';
 
 export const turnStartedSignal = defineSignal('turnStarted');
 export const turnEndedSignal = defineSignal<[{ quietMs: number }]>('turnEnded');
@@ -32,7 +33,7 @@ export async function ConversationConclusionWorkflow(input: { ownerId: string; c
 
 async function concludeWorkspace(ownerId: string, workspace: ConcludedWorkspace): Promise<void> {
   try {
-    await executeChild(ConcludeWorkspaceWorkflow, { workflowId: concludeWorkspaceId(workspace), args: [{ ownerId, workspace }] });
+    await executeChild(ConcludeWorkspaceWorkflow, { workflowId: concludeWorkspaceId(workspace), args: [{ ownerId, workspace }], ...startedFor(ownerIn(workflowInfo().typedSearchAttributes) ?? ownerId) });
   } catch (err) {
     if (!(err instanceof WorkflowExecutionAlreadyStartedError)) throw err;
   }

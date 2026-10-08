@@ -4,9 +4,12 @@ import path from 'path';
 import { workspaceRunning, type KubeRunner, type KubeStreamer } from './kube.js';
 import { POD, workspaceName } from './workspace.js';
 
+export type MergeOutcome = 'merged' | 'conflict' | 'nothing' | 'failed';
+
 export interface DocumentRepos {
   push(request: { ownerId: string; repo: string; describe: string; bundle: string }): Promise<{ owner: string; repo: string; commit: string }>;
   pull(request: { ownerId: string; repo: string; bundle: string }): Promise<boolean>;
+  merge(request: { ownerId: string; repo: string; head: string; base: string; title: string; body: string }): Promise<MergeOutcome>;
 }
 
 export interface SaveDocuments {
@@ -35,10 +38,10 @@ export type BroughtDocuments = { brought: string[] } | { brought: false; why: st
 
 export interface WorkspaceDocuments {
   save(request: SaveDocuments): Promise<SavedDocuments>;
-  /** Puts what Gitea holds back into a workspace that has no history at the path yet. */
   restore(request: RestoreDocuments): Promise<RestoredDocuments>;
-  /** Stages what another repository holds into the workspace's repository at the same paths, leaving every path it already has as it is. */
   bring(request: RestoreDocuments & { from: string }): Promise<BroughtDocuments>;
+  catchUp(request: RestoreDocuments & { branch: string }): Promise<void>;
+  merge(request: { ownerId: string; repo: string; head: string; base: string; title: string; body: string }): Promise<MergeOutcome>;
 }
 
 const NO_DIRECTORY = 3;
@@ -91,6 +94,15 @@ export const bringScript = [
   `git update-ref -d ${BROUGHT}`,
 ].join('\n');
 
+export const catchUpScript = [
+  'set -e',
+  'cd "$1"',
+  trusting('$1'),
+  `git fetch -q --update-head-ok ${INCOMING} "+refs/heads/$2:refs/heads/$2"`,
+  `rm -f ${INCOMING}`,
+  'if [ "$(git symbolic-ref -q --short HEAD)" = "$2" ]; then git reset -q --hard "$2"; fi',
+].join('\n');
+
 export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: KubeStreamer; repos: DocumentRepos }): WorkspaceDocuments {
   const saving = new Map<string, Promise<unknown>>();
   const oneAtATime = <T>(workspaceRunId: string, work: () => Promise<T>): Promise<T> => {
@@ -141,6 +153,23 @@ export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: Ku
         const unpacked = await options.kube(['exec', POD, '-n', namespace, '--', 'sh', '-c', restoreScript, 'sh', request.path], undefined, 120_000);
         if (unpacked.exitCode !== 0) throw new Error(`could not restore ${request.repo} into ${request.path}: ${(unpacked.stderr || unpacked.stdout).trim()}`);
         return { restored: true };
+      } finally {
+        await rm(scratch, { recursive: true, force: true });
+      }
+    },
+
+    merge: (request) => options.repos.merge(request),
+
+    async catchUp(request) {
+      const namespace = workspaceName(request.workspaceRunId);
+      const scratch = await mkdtemp(path.join(os.tmpdir(), 'koala-documents-'));
+      try {
+        const bundle = path.join(scratch, 'documents.bundle');
+        if (!(await options.repos.pull({ ownerId: request.ownerId, repo: request.repo, bundle }))) throw new Error(`nothing has been saved to ${request.repo}`);
+        const sent = await options.stream.fromFile(['exec', '-i', POD, '-n', namespace, '--', 'sh', '-c', `cat > ${INCOMING}`], bundle);
+        if (sent.exitCode !== 0) throw new Error(`could not send ${request.repo} into the workspace: ${sent.stderr.trim()}`);
+        const fetched = await options.kube(['exec', POD, '-n', namespace, '--', 'sh', '-c', catchUpScript, 'sh', request.path, request.branch], undefined, 120_000);
+        if (fetched.exitCode !== 0) throw new Error(`could not bring ${request.branch} of ${request.repo} into ${request.path}: ${(fetched.stderr || fetched.stdout).trim()}`);
       } finally {
         await rm(scratch, { recursive: true, force: true });
       }

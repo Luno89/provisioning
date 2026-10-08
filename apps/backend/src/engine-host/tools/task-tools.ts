@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { leafContextLine } from '../../lib/plan-documents.js';
+import { e2eRequestOf } from '../../lib/e2e.js';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import {
   describeProblem,
@@ -57,9 +58,10 @@ const asChecks = (parsed: Record<string, unknown>): TaskChecks | undefined => {
     if (typeof value === 'string' && value.trim()) flat[key] = value.trim();
   }
   const httpStatus = typeof record.httpStatus === 'number' ? record.httpStatus : undefined;
+  const e2e = record.e2e === undefined ? undefined : e2eRequestOf(record.e2e);
 
-  if (!command && !expects?.length && Object.keys(flat).length === 0 && httpStatus === undefined) return undefined;
-  return { ...(command ? { command } : {}), ...(expects?.length ? { expects } : {}), ...flat, ...(httpStatus !== undefined ? { httpStatus } : {}) };
+  if (!command && !expects?.length && Object.keys(flat).length === 0 && httpStatus === undefined && !e2e) return undefined;
+  return { ...(command ? { command } : {}), ...(expects?.length ? { expects } : {}), ...flat, ...(httpStatus !== undefined ? { httpStatus } : {}), ...(e2e ? { e2e } : {}) };
 };
 
 const summarise = (task: Task): string =>

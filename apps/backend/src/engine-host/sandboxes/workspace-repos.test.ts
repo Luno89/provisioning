@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pathInRepo, placeArtifacts, repoForWorkspace, workspaceOwnerOf } from './workspace-repos.js';
+import { conversationRepoName, conversationWorkspaceRunId, createWorkspaceRepoResolver, pathInRepo, placeArtifacts, repoForWorkspace, treeRepoName, treeWorkspaceRunId, workspaceOwnerOf } from './workspace-repos.js';
 
 const conversation = { workspace: { runId: 'conversation-c1' } };
 
@@ -50,5 +50,24 @@ describe('whose a workspace is', () => {
     expect(workspaceOwnerOf('tree-t1')).toEqual({ kind: 'tree', id: 't1' });
     expect(workspaceOwnerOf('run-7')).toBeUndefined();
     expect(repoForWorkspace('conversation-c1')?.repo).toBe('research-c1');
+  });
+});
+
+describe('the repository a tree works in', () => {
+  const resolve = createWorkspaceRepoResolver({
+    trees: async () => [{ id: 't-project', ownerId: 'u1', projectIds: ['p1'] }, { id: 't-alone', ownerId: 'u1' }, { id: 't-bare', ownerId: 'u1', projectIds: ['p-no-repo'] }, { id: 't-theirs', ownerId: 'u1', projectIds: ['p-theirs'] }],
+    projects: async () => [{ id: 'p1', name: 'Shop', giteaOwner: 'koala-u1', giteaRepo: 'shop' }, { id: 'p-no-repo', name: 'Bare' }, { id: 'p-theirs', name: 'Elsewhere', giteaOwner: 'admin', giteaRepo: 'elsewhere' }],
+    accountOf: async (ownerId) => (ownerId === 'u1' ? 'koala-u1' : undefined),
+  });
+
+  it('is the project\'s repository for a tree that belongs to a project with one in the person\'s account, and the tree\'s own otherwise', async () => {
+    expect(await resolve(treeWorkspaceRunId('t-project'))).toMatchObject({ repo: 'shop', path: '/work/repo' });
+    expect(await resolve(treeWorkspaceRunId('t-alone'))).toMatchObject({ repo: treeRepoName('t-alone') });
+    expect(await resolve(treeWorkspaceRunId('t-bare'))).toMatchObject({ repo: treeRepoName('t-bare') });
+    expect(await resolve(treeWorkspaceRunId('t-theirs'))).toMatchObject({ repo: treeRepoName('t-theirs') });
+  });
+
+  it('leaves a conversation\'s repository as it is', async () => {
+    expect(await resolve(conversationWorkspaceRunId('c1'))).toMatchObject({ repo: conversationRepoName('c1') });
   });
 });

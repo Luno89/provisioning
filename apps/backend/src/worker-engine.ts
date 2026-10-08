@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /* eslint-disable no-console */
+import { stopIfRunning } from './lib/stop-workflow.js';
+import { createWorkspaceRepoResolver } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
 import { Worker, NativeConnection, Runtime } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
@@ -13,6 +15,19 @@ import { createModelService } from './lib/model-wiring.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
 import { InfisicalService } from './services/InfisicalService.js';
+import { HeadscaleService } from './services/HeadscaleService.js';
+import { createAccountRemovalActivities } from './activities/RemoveAccountActivities.js';
+import { createProjectRemovalActivities } from './activities/RemoveProjectActivities.js';
+import { createCheckProgressActivity, createCheckRunActivities } from './activities/CheckRunActivities.js';
+import { withSeedBundle } from './engine-host/sandboxes/seed-bundle.js';
+import { scriptedModelBase } from './lib/check-space.js';
+import { labelValue } from './engine-host/sandboxes/workspace.js';
+import { giteaUsernameFor } from './lib/projects.js';
+import { wasReported } from './eval/level2/reported.js';
+import { createProcedureExecutor } from './engine-host/nodes/index.js';
+import { signJWT } from './lib/auth.js';
+import axios from 'axios';
+import { httpCheckAccess } from './services/CheckToolAccess.js';
 import { ClusterProxyService } from './services/ClusterProxyService.js';
 import { ProjectRepoService } from './services/ProjectRepoService.js';
 import { createSecretVault } from './services/SecretRequestService.js';
@@ -20,10 +35,11 @@ import { McpRegistryService } from './services/McpRegistryService.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
 import { ClusterService } from './services/ClusterService.js';
 import { visibleAppSpecs } from './lib/app-spec.js';
-import { treeTypeChoices } from './lib/tree-types.js';
+import { treeTypeChoices, treeLanguageFrom } from './lib/tree-types.js';
 import { resolveBindings } from './lib/binding-resolve.js';
 import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
-import { getTemporalClient } from './lib/temporal-client.js';
+import { getTemporalClient, resolveOwnersWith } from './lib/temporal-client.js';
+import { createKubeRunner } from './engine-host/sandboxes/kube.js';
 
 import { createEventBus } from '@koala/agent-engine';
 import {
@@ -42,6 +58,8 @@ import { extensionServiceFor } from './services/ExtensionService.js';
 import { loadKeys } from './lib/keys.js';
 import { healthPort, serveHealth } from './lib/worker-health.js';
 import { withHints } from './lib/mcp-tool-hints.js';
+import { startedFor } from './lib/workflow-owner.js';
+import { createArtifactService } from './services/artifact-service-factory.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -65,6 +83,7 @@ Runtime.install({
 async function buildActivities() {
   const db = createDatabase();
   await db.init();
+  resolveOwnersWith(async (owner) => (await db.getUserById(owner))?.space?.person ?? owner);
 
   const models = createModelService(db, keys.data);
   const web = await buildWebTools(db).catch(() => undefined);
@@ -80,6 +99,7 @@ async function buildActivities() {
   const projectRepos = new ProjectRepoService(db, gitea, keys.data);
   const kubeInfra = new InfrastructureService();
   const clusterService = new ClusterService(db, kubeInfra, keys.data);
+  const artifactStore = createArtifactService(db, kubeInfra, clusterService);
   const mcpRegistries = new Map<string, McpRegistryService>();
   const registryFor = (ownerId: string): McpRegistryService => {
     const known = mcpRegistries.get(ownerId);
@@ -93,8 +113,18 @@ async function buildActivities() {
     minters: { readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token },
   });
   const extensions = extensionServiceFor(db);
+  const checksApi = process.env.CHECKS_API_URL || `http://localhost:${process.env.PORT || 3001}/api`;
+  const checks = httpCheckAccess(async (ownerId) => {
+    const person = await db.getUserById(ownerId);
+    if (!person) throw new Error(`there is no account ${ownerId} to act for`);
+    return axios.create({ baseURL: checksApi, proxy: false, headers: { Cookie: `session=${signJWT({ userId: person.id, email: person.email }, keys.session, 60 * 60)}` } });
+  });
   const host = createEngineHost({
-    documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request) },
+    treeLanguage: treeLanguageFrom(db),
+    artifacts: { keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files) },
+    checks,
+    documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request) },
+    repoFor: createWorkspaceRepoResolver({ trees: () => db.getTrees(), projects: () => db.getProjects(), accountOf: async (ownerId) => (await db.getGiteaAccount(ownerId))?.username }),
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
     models,
@@ -104,7 +134,7 @@ async function buildActivities() {
     corpus: {
       crawlerReady: async (ownerId) => (await db.getDeployments()).some((dep) => dep.appType === 'crawl4ai' && dep.status === 'running' && dep.ownerId === ownerId),
       start: async (workflowId, args) => {
-        await (await getTemporalClient()).workflow.start('executeIngestWorkflow', { taskQueue: 'host-ops-queue', workflowId, args: [args] });
+        await (await getTemporalClient()).workflow.start('executeIngestWorkflow', { taskQueue: 'host-ops-queue', workflowId, args: [args], ...startedFor(args.ownerId) });
       },
       status: async (workflowId) => {
         try {
@@ -186,7 +216,7 @@ async function buildActivities() {
 
   const hostNodes = hostNodesFor(createHostNodes(host.services), ['activity', 'sandbox']);
 
-  return createEngineActivities({
+  const engine = createEngineActivities({
     registry,
     endpoints,
     environments,
@@ -200,6 +230,7 @@ async function buildActivities() {
     treeWorkspaces: host.treeWorkspaces,
     conversationWorkspaces: host.conversationWorkspaces,
     conversationAgent: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.agentSlug,
+    allowedTools: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.allowedTools ?? [],
     plans: { list: (ownerId) => db.getPlanProposals(ownerId) },
     planAdoption: createPlanAdoption({
       stores: {
@@ -243,6 +274,49 @@ async function buildActivities() {
     },
     bus,
   });
+
+  const temporal = await getTemporalClient();
+  const removalWorkflows = {
+    stopIfRunning: async (workflowId: string, reason: string) => (await stopIfRunning(temporal.workflow.getHandle(workflowId), reason)) !== 'not-running',
+  };
+  return {
+    ...engine,
+    ...createAccountRemovalActivities({
+      store: db,
+      workflows: removalWorkflows,
+      kube: createKubeRunner(),
+      repositories: gitea,
+      mesh: new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080'),
+      secrets: infisical,
+    }),
+    ...createProjectRemovalActivities({
+      store: db,
+      workflows: removalWorkflows,
+      kube: createKubeRunner(),
+      repositories: gitea,
+      secrets: infisical,
+    }),
+    ...createCheckRunActivities({
+      store: db as never,
+      api: (space) => axios.create({
+        baseURL: process.env.CHECKS_API_URL || `http://localhost:${process.env.PORT || 3001}/api`,
+        proxy: false,
+        headers: { Cookie: `session=${signJWT({ userId: space.id, email: space.email }, keys.session, 24 * 60 * 60)}` },
+      }),
+      seedFiles: (ownerId, repo, files) => withSeedBundle(files, async (bundle) => {
+        await projectRepos.pushDocuments({ ownerId, repo, describe: 'A check\'s conversation workspace', bundle });
+      }),
+      scripted: { base: scriptedModelBase(process.env), dataKey: keys.data },
+      terminate: async (runId, reason) => { await temporal.workflow.getHandle(runId).terminate(reason).catch(() => undefined); },
+      leftovers: {
+        records: (ownerId) => db.accountLeftovers(ownerId),
+        workspaces: async (ownerId) => (await createKubeRunner()(['get', 'namespace', '-l', `koala.dev/owner=${labelValue(ownerId)}`, '-o', 'name'])).stdout.split('\n').map((line) => line.trim()).filter(Boolean),
+        giteaUser: (ownerId) => gitea.userExists(giteaUsernameFor(ownerId)),
+      },
+      reported: (run, says, answer) => wasReported(createProcedureExecutor(host.services, { registry: host.registry }), { runId: run.runId, ownerId: run.spaceId, agent: run.agent, modelId: run.modelId }, says, answer),
+    }),
+    ...createCheckProgressActivity(db as never),
+  };
 }
 
 async function main() {

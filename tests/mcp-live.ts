@@ -74,7 +74,7 @@ async function main(): Promise<void> {
   const persona = `mcp-live-${Date.now().toString(36)}`;
   const events: EngineEvent[] = [];
   const socket = connect(ORIGIN, { extraHeaders: { Cookie: cookie }, transports: ['websocket'] });
-  socket.on('engine-event', (event: EngineEvent) => { events.push(event); });
+  socket.on('turn-log', (entry: { events: EngineEvent[] }) => { events.push(...entry.events); });
   await until('the event socket to connect', async () => (socket.connected ? true : undefined));
   const readTools = server.tools.map((tool) => tool.name).filter((name) => /^(list|get|read|search|compare)_/.test(name));
   try {

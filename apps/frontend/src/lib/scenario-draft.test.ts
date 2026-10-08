@@ -108,3 +108,49 @@ describe('what a scenario expects to be left in the store', () => {
     expect('scenario' in outcome && outcome.scenario.expect.saved).toBeUndefined()
   })
 })
+
+describe('a scenario that expects hand-offs, files and task states', () => {
+  it('keeps them through the editor, unchanged', () => {
+    const scenario = {
+      id: 'fan-out', name: 'Fan out', describe: 'asks research three things at once', agent: 'koala', procedure: { id: 'interactive-chat' },
+      input: { message: 'look three things up' },
+      expect: {
+        handOffs: [{ agent: 'research', atLeast: 3, together: true }],
+        files: [{ path: 'research/findings.md', contains: ['5432'] }],
+        tasks: [{ id: 't1', status: 'done' as const }],
+      },
+    }
+
+    const back = scenarioFromDraft(draftOf(scenario))
+
+    expect(back).toEqual({ scenario })
+  })
+
+  it('says when one of them is not a JSON list', () => {
+    const draft = { ...draftOf({ id: 'x', name: 'x', describe: 'x', agent: 'koala', procedure: { id: 'p' }, input: { message: 'm' }, expect: { outcome: 'ok' } }), handOffs: '{ "agent": "research" }' }
+
+    expect(scenarioFromDraft(draft)).toEqual({ problems: ['the hand-offs has to be a JSON list'] })
+  })
+})
+
+describe('a turn check as a form', () => {
+  const turn: Scenario = {
+    id: 'turn-reads', name: 'Reads a named file', describe: 'One turn.', agent: 'executor',
+    procedure: { id: 'turn-check' }, input: { message: 'Show me package.json.' }, turn: true, repeats: 5, passAt: 4,
+    expect: { chooses: { tool: 'read_file', args: [{ arg: 'path', contains: 'package.json' }] } },
+  }
+
+  it('comes back exactly as it went in, repeats and all', () => {
+    expect(scenarioFromDraft(draftOf(turn))).toEqual({ scenario: turn })
+  })
+
+  it('runs the turn procedure, expects only the choice, and treats a blank tool as answering without one', () => {
+    const outcome = scenarioFromDraft({ ...emptyDraft('koala'), id: 'turn-declines', name: 'Declines', describe: 'x', message: 'What is a secret reference?', turn: true, toolsCalled: 'read_file', outcome: 'ok' })
+    expect(outcome).toEqual({ scenario: expect.objectContaining({ procedure: { id: 'turn-check' }, turn: true, expect: { chooses: { tool: null } } }) })
+  })
+
+  it('refuses repeats that are not a count, and a turn that is also a step', () => {
+    const outcome = scenarioFromDraft({ ...draftOf(turn), repeats: 'lots', step: '{ "node": "decide" }' })
+    expect(outcome).toEqual({ problems: ['a check is one turn or one step, not both', 'repeats has to be a whole number of at least 1'] })
+  })
+})

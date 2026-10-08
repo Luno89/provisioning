@@ -171,10 +171,8 @@ export function planDocuments(
   ];
 }
 
-/** Where a proposed plan is written in a conversation's workspace: under the proposing run's own directory. */
 export const proposedPlanPath = (agentSlug: string, runId: string): string => path.posix.join('/work', agentSlug, runId, 'plan.md');
 
-/** A proposed plan as one document a person or another agent can read before it is approved: the prose, then every leaf with its goal and tasks. */
 export function renderProposedPlan(plan: Plan, proposalId: string): string {
   const heading = plan.tree ? `# ${plan.tree.name}` : `# A plan for tree ${plan.treeId ?? ''}`.trim();
   const leaves = plan.branches.flatMap((branch) => [

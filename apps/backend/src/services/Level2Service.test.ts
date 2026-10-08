@@ -1,39 +1,12 @@
-import type { MemoryItem } from '../lib/memory-store.js';
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { BUILDER_TOOLS, type ModelProvider } from '@koala/agent-engine';
+import { describe, it, expect } from 'vitest';
+import { BUILDER_TOOLS } from '@koala/agent-engine';
 import { ENGINE_TOOL_SEEDS } from '../engine-host/tools/engine-tool-seeds.js';
-import { EXAMPLE_PROCEDURE } from '@koala/agent-engine/procedure';
 import { MemoryDB } from '../lib/memory-db.js';
-import type { StoredNodeTrace } from '../lib/run-traces.js';
 import type { Scenario } from '../eval/level2/scenario.js';
-import { Level2Service, type Level2Run } from './Level2Service.js';
+import type { ScenarioResult } from '../eval/level2/results.js';
+import type { CheckRunInput, CheckRunOutcome } from '../workflows/CheckRunWorkflow.js';
+import { Level2Service, type CheckRunner, type Level2Run } from './Level2Service.js';
 import { seededPersonas } from '../extensions/seeds.js';
-
-const PROVIDER = { id: 'tabby', name: 'Tabby', source: 'deployment', model: 'test-model', contextTokens: 32_000 } as ModelProvider;
-
-type Frame = Record<string, unknown>;
-const answer = (content: string): Frame[] => [{ choices: [{ delta: { content }, finish_reason: 'stop' }] }];
-const calls = (...made: { name: string; args: Record<string, unknown> }[]): Frame[] => [
-  ...made.map((call, index) => ({ choices: [{ delta: { tool_calls: [{ index, id: `c${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] } }] })),
-  { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
-];
-
-function stubModel(...turns: Frame[][]) {
-  let turn = 0;
-  const fetchImpl = vi.fn(async () => {
-    const frames = turns[Math.min(turn, turns.length - 1)]!;
-    turn += 1;
-    return {
-      ok: true, status: 200, headers: new Headers(), text: async () => '',
-      body: (async function* () {
-        for (const frame of frames) yield `data: ${JSON.stringify(frame)}\n`;
-        yield 'data: [DONE]\n';
-      })(),
-    } as unknown as Response;
-  });
-  vi.stubGlobal('fetch', fetchImpl);
-  return fetchImpl;
-}
 
 const SCENARIO: Scenario = {
   id: 'builder-saves',
@@ -45,155 +18,140 @@ const SCENARIO: Scenario = {
   expect: { outcome: 'ok', toolsInOrder: ['check_procedure', 'save_procedure'], toolsNotCalled: ['list_tasks'] },
 };
 
-const TIDY = JSON.stringify({ ...EXAMPLE_PROCEDURE, id: 'tidy', name: 'Tidy' });
+const result = (scenarioId: string, passed: boolean): ScenarioResult => ({
+  scenarioId, name: scenarioId, runId: `run-of-${scenarioId}`, procedure: { id: 'tool-rounds', version: '3' }, passed, outcome: passed ? 'ok' : 'failed',
+  answer: '', checks: [{ what: 'finishes ok', passed, detail: passed ? 'it finished ok' : 'it finished failed' }], calls: [], counters: { rounds: 1, toolCalls: 1, totalTokens: 10 }, tasks: [], durationMs: 5,
+});
 
-function world(over: { builtIn?: Scenario[]; onFinished?: (run: Level2Run) => Promise<void>; practices?: () => Promise<MemoryItem[]> } = {}) {
+function fakeRunner() {
+  const started: { workflowId: string; input: CheckRunInput }[] = [];
+  const finishes = new Map<string, (outcome: CheckRunOutcome | { failed: string } | { missing: true }) => void>();
+  const outcomes = new Map<string, Promise<CheckRunOutcome | { failed: string } | { missing: true }>>();
+  const cancelled: string[] = [];
+  const outcomeOf = (workflowId: string) => {
+    if (!outcomes.has(workflowId)) outcomes.set(workflowId, new Promise((resolve) => finishes.set(workflowId, resolve)));
+    return outcomes.get(workflowId)!;
+  };
+  const runner: CheckRunner = {
+    start: async (workflowId, input) => { started.push({ workflowId, input }); outcomeOf(workflowId); },
+    cancel: async (workflowId) => { cancelled.push(workflowId); return true; },
+    outcome: (workflowId) => outcomeOf(workflowId),
+  };
+  const finish = (workflowId: string, outcome: CheckRunOutcome | { failed: string } | { missing: true }) => { outcomeOf(workflowId); finishes.get(workflowId)!(outcome); };
+  return { runner, started, cancelled, finish };
+}
+
+function world(over: { builtIn?: Scenario[]; onFinished?: (run: Level2Run) => Promise<void>; runner?: CheckRunner } = {}) {
   const db = new MemoryDB();
-  const traces: StoredNodeTrace[] = [];
+  const fake = fakeRunner();
   let ids = 0;
   let ticks = 0;
   const service = new Level2Service({
-    world: {
-      models: { resolveBaseUrl: async () => ({ provider: PROVIDER, baseUrl: 'https://models.test/v1', apiKey: 'k' }) },
-      personas: async () => [...seededPersonas()],
-      tools: async () => [],
-      procedures: async () => [],
-    },
+    checks: over.runner ?? fake.runner,
     tools: async () => [...BUILDER_TOOLS, ...ENGINE_TOOL_SEEDS],
     agents: async () => seededPersonas().map((agent) => agent.slug),
     procedures: async () => ['tool-rounds', 'research'],
     store: db,
-    traces: async (batch) => { traces.push(...batch); },
     builtIn: over.builtIn ?? [SCENARIO],
     newId: () => `run-${(ids += 1)}`,
     now: () => new Date(Date.parse('2026-10-03T12:00:00Z') + (ticks += 1) * 1000).toISOString(),
     ...(over.onFinished ? { onFinished: over.onFinished } : {}),
-    ...(over.practices ? { practices: over.practices } : {}),
+    fingerprints: async (_ownerId, agents) => Object.fromEntries(agents.map((agent) => [agent, `${agent}-v1`])),
   });
-  return { service, db, traces };
+  return { service, db, fake };
 }
 
 const settled = async (service: Level2Service, id: string): Promise<Level2Run> => {
   for (let tries = 0; tries < 400; tries += 1) {
     const run = await service.get('user-1', id);
     if (run && run.state !== 'running') return run;
-    await new Promise((done) => setTimeout(done, 10));
+    await new Promise((done) => setTimeout(done, 5));
   }
-  throw new Error('the run never finished');
+  throw new Error('the run never settled');
 };
 
-afterEach(() => { vi.unstubAllGlobals(); });
+describe('Level 2 scenarios run as checks', () => {
+  it('hands the chosen scenarios to the check runner, with the model, temperature, trial and only the tools a provocation or a turn needs', async () => {
+    const provoking: Scenario = { ...SCENARIO, id: 'provokes', expect: { provokes: { tool: 'read_procedure', when: 'no procedure has that id', then: 'reported' } } };
+    const choosing: Scenario = { ...SCENARIO, id: 'turn', procedure: { id: 'turn-check' }, turn: true, expect: { chooses: { tool: 'check_procedure' } } };
+    const { service, fake } = world({ builtIn: [SCENARIO, provoking, choosing] });
 
-describe('Level 2 scenarios', () => {
-  it('runs the real procedure with real tool handlers and scores what happened', async () => {
-    stubModel(
-      calls({ name: 'check_procedure', args: { source: TIDY } }),
-      calls({ name: 'save_procedure', args: { source: TIDY } }),
-      answer('Saved it as tidy.'),
-    );
-    const { service, traces } = world();
+    const run = await service.start({ ownerId: 'user-1', modelId: 'tabby', sampling: { toolTurn: { temperature: 0.2 }, conversation: { temperature: 0.2 } }, trialPractice: 'p1', promptOverride: { agent: 'koala', prompt: 'new' } }) as Level2Run;
 
-    const run = await settled(service, ((await service.start({ ownerId: 'user-1' })) as Level2Run).id);
-    const [result] = run.results;
+    expect(run.state).toBe('running');
+    expect(fake.started).toHaveLength(1);
+    const { workflowId, input } = fake.started[0]!;
+    expect(workflowId).toBe(`check-run-${run.id}`);
+    expect(input).toMatchObject({ checkRunId: run.id, person: 'user-1', modelId: 'tabby', temperature: 0.2, trialPractice: 'p1', promptOverride: { agent: 'koala', prompt: 'new' } });
+    expect(input.scenarios.map((scenario) => scenario.id)).toEqual(['builder-saves', 'provokes', 'turn']);
+    expect(input.tools.map((tool) => tool.name).sort()).toEqual(['check_procedure', 'read_procedure']);
+  });
 
-    expect(run.state).toBe('done');
-    expect(result).toMatchObject({ scenarioId: 'builder-saves', passed: true, outcome: 'ok', answer: 'Saved it as tidy.' });
-    expect(result!.checks).toEqual([
-      { what: 'finishes ok', passed: true, detail: 'it finished ok' },
-      { what: 'never calls list_tasks', passed: true, detail: 'it did not call list_tasks' },
-      { what: 'calls check_procedure then save_procedure', passed: true, detail: 'it called them in that order' },
-    ]);
-    expect(result!.calls.map((call) => [call.name, call.ok])).toEqual([['check_procedure', true], ['save_procedure', true]]);
-    expect(traces.filter((trace) => trace.runId === result!.runId).map((trace) => trace.kind)).toEqual(expect.arrayContaining(['call-model', 'run-tool-calls', 'finish']));
-  }, 30_000);
-
-  it('keeps what the run wrote inside the scenario, never in the real store', async () => {
-    stubModel(calls({ name: 'save_procedure', args: { source: TIDY } }), answer('Saved.'));
-    const { service, db } = world();
-
-    await settled(service, ((await service.start({ ownerId: 'user-1' })) as Level2Run).id);
-
-    expect(await db.getProcedures('user-1')).toEqual([]);
-  }, 30_000);
-
-  it('says which expectations did not hold', async () => {
-    stubModel(answer('I would rather not.'));
-    const { service } = world();
-
-    const run = await settled(service, ((await service.start({ ownerId: 'user-1' })) as Level2Run).id);
-
-    expect(run.results[0]).toMatchObject({ passed: false });
-    expect(run.results[0]!.checks.filter((check) => !check.passed)).toEqual([
-      { what: 'calls check_procedure then save_procedure', passed: false, detail: 'it got as far as none of them, calling nothing' },
-    ]);
-  }, 30_000);
+  it('records the setup of every agent it checks, so two runs can be compared', async () => {
+    const { service } = world({ builtIn: [SCENARIO, { ...SCENARIO, id: 'koala-one', agent: 'koala' }] });
+    const run = await service.start({ ownerId: 'user-1' }) as Level2Run;
+    expect(run.agents).toEqual({ 'agent-builder': 'agent-builder-v1', koala: 'koala-v1' });
+  });
 
   it('runs only the scenarios asked for, and refuses one that does not exist', async () => {
-    stubModel(answer('done'));
-    const { service } = world({ builtIn: [SCENARIO, { ...SCENARIO, id: 'other', name: 'Other' }] });
-
-    const started = (await service.start({ ownerId: 'user-1', only: ['other'] })) as Level2Run;
-    expect((await settled(service, started.id)).results.map((result) => result.scenarioId)).toEqual(['other']);
+    const { service, fake } = world({ builtIn: [SCENARIO, { ...SCENARIO, id: 'other' }] });
     expect(await service.start({ ownerId: 'user-1', only: ['ghost'] })).toEqual({ unknown: ['ghost'] });
-  }, 30_000);
+    await service.start({ ownerId: 'user-1', only: ['other'] });
+    expect(fake.started[0]!.input.scenarios.map((scenario) => scenario.id)).toEqual(['other']);
+  });
 
-  it('names a scenario that passed last time and fails now as a regression, says why the run happened, and reports it when done', async () => {
+  it('settles the run with what the checks found, names a regression against the last full run, and reports it', async () => {
     const finished: Level2Run[] = [];
-    const { service } = world({ onFinished: async (run) => { finished.push(run); } });
+    const { service, fake } = world({ onFinished: async (run) => { finished.push(run); } });
 
-    stubModel(
-      calls({ name: 'check_procedure', args: { source: TIDY } }),
-      calls({ name: 'save_procedure', args: { source: TIDY } }),
-      answer('Saved it as tidy.'),
-    );
-    const good = await settled(service, ((await service.start({ ownerId: 'user-1' })) as Level2Run).id);
-    expect(good).toMatchObject({ trigger: { kind: 'manual' }, regressions: [] });
+    const first = await service.start({ ownerId: 'user-1' }) as Level2Run;
+    fake.finish(`check-run-${first.id}`, { cancelled: false, results: [result('builder-saves', true)] });
+    expect(await settled(service, first.id)).toMatchObject({ state: 'done', finished: 1, regressions: [] });
 
-    stubModel(answer('I would rather not.'));
-    const bad = await settled(service, ((await service.start({ ownerId: 'user-1', trigger: { kind: 'changed', agents: ['agent-builder'] } })) as Level2Run).id);
+    const second = await service.start({ ownerId: 'user-1', trigger: { kind: 'full' } }) as Level2Run;
+    fake.finish(`check-run-${second.id}`, { cancelled: false, results: [result('builder-saves', false)] });
+    const done = await settled(service, second.id);
+    expect(done).toMatchObject({ state: 'done', regressions: ['builder-saves'], trigger: { kind: 'full' } });
+    expect(finished.map((run) => run.id)).toEqual([first.id, second.id]);
+  });
 
-    expect(bad).toMatchObject({ trigger: { kind: 'changed', agents: ['agent-builder'] }, regressions: ['builder-saves'] });
-    await vi.waitFor(() => expect(finished.map((run) => run.id)).toEqual([good.id, bad.id]));
-  }, 30_000);
+  it('cancels through the runner, and settles as cancelled', async () => {
+    const { service, fake } = world();
+    const run = await service.start({ ownerId: 'user-1' }) as Level2Run;
 
-  it('runs a scenario with its agent\'s live practices, and the one on trial, recalled into its prompt — and no one else\'s', async () => {
-    stubModel(answer('done'));
-    const practice = (id: string, agent: string, status: NonNullable<MemoryItem['status']>, text: string): MemoryItem => ({ id, ownerId: 'user-1', category: 'practice', agent, status, title: id, text, createdAt: 'a', updatedAt: 'a' });
-    const { service, traces } = world({ practices: async () => [
-      practice('live', 'agent-builder', 'active', 'Always check before saving.'),
-      practice('trial', 'agent-builder', 'trial', 'Name the procedure you saved.'),
-      practice('held', 'agent-builder', 'pending_review', 'Never save anything.'),
-      practice('other', 'koala', 'active', 'Ask before deploying.'),
-    ] });
+    expect(await service.cancel('user-1', run.id)).toBe(true);
+    expect(fake.cancelled).toEqual([`check-run-${run.id}`]);
+    fake.finish(`check-run-${run.id}`, { cancelled: true, results: [] });
+    expect(await settled(service, run.id)).toMatchObject({ state: 'cancelled' });
+    expect(await service.cancel('user-1', run.id)).toBe(false);
+  });
 
-    const run = await settled(service, ((await service.start({ ownerId: 'user-1', trialPractice: 'trial' })) as Level2Run).id);
+  it('says why the checks could not start, or why they ended badly', async () => {
+    const failing: CheckRunner = { start: async () => { throw new Error('Temporal is not reachable'); }, cancel: async () => false, outcome: async () => ({ missing: true }) };
+    const refused = await world({ runner: failing }).service.start({ ownerId: 'user-1' }) as Level2Run;
+    expect(refused).toMatchObject({ state: 'failed', error: 'the checks could not start: Temporal is not reachable' });
 
-    const recalled = traces.filter((trace) => trace.runId === run.results[0]!.runId && trace.kind === 'recall-memory').map((trace) => JSON.stringify(trace.outputs));
-    expect(recalled.join('')).toContain('Always check before saving.');
-    expect(recalled.join('')).toContain('Name the procedure you saved.');
-    expect(recalled.join('')).not.toContain('Never save anything.');
-    expect(recalled.join('')).not.toContain('Ask before deploying.');
-  }, 30_000);
+    const { service, fake } = world();
+    const run = await service.start({ ownerId: 'user-1' }) as Level2Run;
+    fake.finish(`check-run-${run.id}`, { failed: 'a step could not finish' });
+    expect(await settled(service, run.id)).toMatchObject({ state: 'failed', error: 'a step could not finish' });
+  });
 
-  it('runs with the proposed prompt in place of the agent\'s own, when comparing a prompt change, and leaves it out of later baselines', async () => {
-    stubModel(answer('done'));
-    const { service, traces } = world();
-
-    const compared = await settled(service, ((await service.start({ ownerId: 'user-1', promptOverride: { agent: 'agent-builder', prompt: 'PROPOSED PROMPT MARKER' }, trigger: { kind: 'prompt-change', agent: 'agent-builder', changeId: 'c1' } })) as Level2Run).id);
-    const sent = traces.filter((trace) => trace.runId === compared.results[0]!.runId && trace.kind === 'build-context').map((trace) => JSON.stringify(trace.outputs)).join('');
-    expect(sent).toContain('PROPOSED PROMPT MARKER');
-
-    stubModel(answer('done'));
-    const real = await settled(service, ((await service.start({ ownerId: 'user-1' })) as Level2Run).id);
-    expect((await service.earlier(real)).map((run) => run.id)).not.toContain(compared.id);
-  }, 30_000);
-
-  it('marks a run that was still going when the server restarted as interrupted', async () => {
-    const { service, db } = world();
-    await db.saveEvalRecord('evalScenarioRuns', { id: 'old', ownerId: 'user-1', state: 'running', startedAt: 'earlier', results: [] });
+  it('follows runs still going after the server restarts, rather than marking them interrupted', async () => {
+    const { service, db, fake } = world();
+    await db.saveEvalRecord('evalScenarioRuns', { id: 'old', ownerId: 'user-1', state: 'running', startedAt: '2026-10-03T00:00:00Z', scenarios: ['builder-saves'], finished: 0, results: [] });
 
     expect(await service.recover()).toBe(1);
-    expect(await service.get('user-1', 'old')).toMatchObject({ state: 'interrupted' });
+    fake.finish('check-run-old', { cancelled: false, results: [result('builder-saves', true)] });
+    expect(await settled(service, 'old')).toMatchObject({ state: 'done', finished: 1 });
+  });
+
+  it('marks a run whose checks can no longer be found as interrupted', async () => {
+    const { service, db, fake } = world();
+    await db.saveEvalRecord('evalScenarioRuns', { id: 'lost', ownerId: 'user-1', state: 'running', startedAt: '2026-10-03T00:00:00Z', scenarios: ['builder-saves'], finished: 0, results: [] });
+    await service.recover();
+    fake.finish('check-run-lost', { missing: true });
+    expect(await settled(service, 'lost')).toMatchObject({ state: 'interrupted' });
   });
 });
 
@@ -217,11 +175,5 @@ describe('Level 2 scenarios as data', () => {
     });
     expect(await service.deleteScenario('user-1', 'mine')).toBe(true);
     expect(await service.deleteScenario('user-1', 'builder-saves')).toBe(false);
-  });
-
-  it('reports which declared tool failures its scenarios provoke', async () => {
-    const { service } = world({ builtIn: [{ ...SCENARIO, expect: { ...SCENARIO.expect, provokes: { tool: 'read_procedure', when: 'no procedure has that id', then: 'reported' } } }] });
-
-    expect(await service.provocations('user-1')).toEqual([{ tool: 'read_procedure', when: 'no procedure has that id' }]);
   });
 });

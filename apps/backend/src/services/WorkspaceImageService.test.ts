@@ -14,8 +14,8 @@ describe('the workspace images a pack can choose from', () => {
   it('serves the shipped catalogue to every user', async () => {
     const svc = new WorkspaceImageService(await seeded() as never);
 
-    expect((await svc.list('u1')).map((i) => i.id).sort()).toEqual(['base', 'go', 'node', 'python']);
-    expect((await svc.list('u2')).map((i) => i.id).sort()).toEqual(['base', 'go', 'node', 'python']);
+    expect((await svc.list('u1')).map((i) => i.id).sort()).toEqual(['base', 'go', 'node', 'odoo', 'python']);
+    expect((await svc.list('u2')).map((i) => i.id).sort()).toEqual(['base', 'go', 'node', 'odoo', 'python']);
   });
 
   it('resolves a language to the image it runs', async () => {

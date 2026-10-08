@@ -2,8 +2,8 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Link, useNavigate } from '@tanstack/react-router'
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react'
 import {
-  ArrowLeft,
   Braces,
+  FlaskConical,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -23,8 +23,10 @@ import {
   X,
 } from 'lucide-react'
 import { procedureErrors, type NodeTrace, type Procedure, type ProcedureProblem } from '@koala/agent-engine/procedure'
-import { ENGINE_EVENT_CHANNEL, type EngineEvent } from '../../api/engine'
 import { useSocketEvent } from '../../stores/socket'
+import { readTurn, TURN_LOG_CHANNEL } from '../../api/turns'
+import { createTurnFollower } from '../../lib/turn-follower'
+import type { TurnLogEntry } from '../../types/turns'
 import { addNode, bodyAt, definitionOf, isEditable, isRefused, libraryOf } from '../../lib/procedure-canvas'
 import { freeSpot, layoutProcedure, nodeHeight } from '../../lib/procedure-layout'
 import { record, redo, startHistory, undo, type DraftHistory } from '../../lib/draft-history'
@@ -47,7 +49,10 @@ import {
   useRunTraces,
   useSaveProcedure,
   useServerProblems,
+  useEngineAgents,
 } from './shared'
+import CheckList from '../Checks/CheckList'
+import { useChecksStore } from '../../stores/checks'
 
 const JsonView = lazy(() => import('./JsonView'))
 const CodeView = lazy(() => import('./CodeView'))
@@ -70,7 +75,7 @@ export default function ProcedureEditor({ procedureId }: { procedureId: string }
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-slate-400">
         <p>{loaded.isError ? errorMessage(loaded.error) : context.isError ? `The platform's operations could not be loaded: ${errorMessage(context.error)}` : `There is no procedure called "${procedureId}".`}</p>
-        <Link to="/studio" className="text-[var(--leaf-light)] hover:underline">Back to all procedures</Link>
+        <Link to="/studio/procedures" className="text-[var(--leaf-light)] hover:underline">Back to all procedures</Link>
       </div>
     )
   }
@@ -83,10 +88,12 @@ export default function ProcedureEditor({ procedureId }: { procedureId: string }
 }
 
 function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
+  const readOnly = !mine
   const context = useStudioContext()
   const navigate = useNavigate()
   const flow = useReactFlow()
   const list = useProcedureList()
+  const agents = useEngineAgents()
   const save = useSaveProcedure()
   const remove = useDeleteProcedure()
 
@@ -94,19 +101,19 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
   const draft = history.present
   const [openPath, setPath] = useState<string[]>([])
   const [selection, setSelection] = useState<string[]>([])
-  const [view, setView] = useState<'canvas' | 'code' | 'json'>('canvas')
+  const [view, setView] = useState<'canvas' | 'code' | 'json' | 'checks'>(() => (useChecksStore.getState().proposed?.step?.from === saved.id ? 'checks' : 'canvas'))
   const [panel, setPanel] = useState<'problems' | 'run' | null>(null)
   const [showPalette, setShowPalette] = useState(true)
   const [showInspector, setShowInspector] = useState(true)
   const [notice, setNotice] = useState<{ tone: 'refused' | 'saved' | 'failed'; text: string } | null>(null)
   const [saveProblems, setSaveProblems] = useState<ProcedureProblem[] | undefined>()
-  const [confirming, setConfirming] = useState<'leave' | 'delete' | null>(null)
+  const [confirming, setConfirming] = useState<'delete' | null>(null)
   const [copyName, setCopyName] = useState<string | null>(null)
   const [tidying, setTidying] = useState(false)
   const [runs, setRuns] = useState<StudioRun[]>([])
   const [activeRunId, setActiveRunId] = useState<string>()
   const [replayAt, setReplayAt] = useState<number>()
-  const unclaimed = useRef<EngineEvent[]>([])
+  const follower = useRef(createTurnFollower(readTurn))
   const canvasArea = useRef<HTMLDivElement>(null)
   const added = useRef(0)
 
@@ -115,16 +122,17 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
     [draft, openPath, context],
   )
   const dirty = pretty(draft) !== pretty(saved)
-  const editable = isEditable(draft, path)
+  const editable = !readOnly && isEditable(draft, path)
   const local = useMemo(() => localProblems(draft, context), [draft, context])
   const server = useServerProblems(draft)
   const problems = useMemo(() => mergeProblems(local, saveProblems ?? server.problems), [local, saveProblems, server.problems])
   const errors = procedureErrors(problems)
 
   const change = useCallback((next: Procedure, mergeKey?: string) => {
+    if (readOnly) return
     setHistory((current) => record(current, next, mergeKey))
     setSaveProblems(undefined)
-  }, [])
+  }, [readOnly])
 
   const refuse = useCallback((text: string) => setNotice({ tone: 'refused', text }), [])
 
@@ -134,15 +142,13 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
     return () => clearTimeout(timer)
   }, [notice])
 
-  useSocketEvent<EngineEvent>(ENGINE_EVENT_CHANNEL, (event) => {
-    setRuns((current) => {
-      if (!current.some((run) => run.runId === event.runId)) {
-        unclaimed.current = [...unclaimed.current.slice(-500), event]
-        return current
-      }
-      return current.map((run) => (run.runId === event.runId ? { ...run, events: [...run.events, event] } : run))
-    })
-  })
+  const applyEntry = useCallback((entry: TurnLogEntry) => {
+    setRuns((current) => current.map((run) => (run.runId === entry.turnId
+      ? { ...run, events: [...run.events, ...entry.events.filter((event) => event.runId === run.runId)] }
+      : run)))
+  }, [])
+
+  useSocketEvent<TurnLogEntry>(TURN_LOG_CHANNEL, (entry) => follower.current.receive(entry, applyEntry))
 
   const activeRun = runs.find((run) => run.runId === activeRunId)
   const finished = activeRun ? reduceEngineEvents(activeRun.runId, activeRun.events).finished : false
@@ -177,7 +183,7 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const command = event.ctrlKey || event.metaKey
-      if (!command) return
+      if (!command || readOnly) return
       const key = event.key.toLowerCase()
       if (key === 's') {
         event.preventDefault()
@@ -195,7 +201,7 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [doSave])
+  }, [doSave, readOnly])
 
   useEffect(() => {
     if (!dirty) return undefined
@@ -258,11 +264,10 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
   }
 
   const started = (runId: string) => {
-    const early = unclaimed.current.filter((event) => event.runId === runId)
-    unclaimed.current = unclaimed.current.filter((event) => event.runId !== runId)
-    setRuns((current) => [...current, { runId, events: early }])
+    setRuns((current) => [...current, { runId, events: [] }])
     setActiveRunId(runId)
     setReplayAt(undefined)
+    void follower.current.follow(runId, applyEntry).catch((err: Error) => setNotice({ tone: 'failed', text: `Could not follow the run: ${err.message}` }))
   }
 
   const takenIds = new Set(list.data?.procedures.map((procedure) => procedure.id) ?? [])
@@ -281,7 +286,7 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
         return
       }
       setCopyName(null)
-      void navigate({ to: '/studio/$procedureId', params: { procedureId: outcome.procedure.id } })
+      void navigate({ to: '/studio/procedures/$procedureId', params: { procedureId: outcome.procedure.id } })
     } catch (err) {
       setNotice({ tone: 'failed', text: `The copy was not saved — ${errorMessage(err)}` })
     }
@@ -300,17 +305,6 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bark-900)]">
       <header className="flex flex-wrap items-center gap-2 border-b border-[var(--bark-700)] px-3 py-2">
-        {confirming === 'leave' ? (
-          <span className="flex items-center gap-2 text-xs text-amber-200">
-            Leave without saving?
-            <button type="button" className={button} onClick={() => void navigate({ to: '/studio' })}>Discard changes</button>
-            <button type="button" className={button} onClick={() => setConfirming(null)}>Stay</button>
-          </span>
-        ) : (
-          <button type="button" className={button} onClick={() => (dirty ? setConfirming('leave') : void navigate({ to: '/studio' }))}>
-            <ArrowLeft size={13} /> Procedures
-          </button>
-        )}
 
         <div className="min-w-0">
           <h1 className="truncate text-sm font-semibold text-slate-100">{draft.name || draft.id}</h1>
@@ -319,25 +313,30 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
           </p>
         </div>
 
-        {!mine && (
-          <span className="rounded-md bg-sky-500/10 px-2 py-1 text-[11px] text-sky-200" title="Your copy keeps the same id, so every agent that uses this procedure uses your copy instead">
-            Built-in: saving makes it your own copy
+        {readOnly && (
+          <span className="flex items-center gap-2 rounded-md bg-sky-500/10 px-2 py-1 text-[11px] text-sky-200">
+            Built-in · view only
+            <button type="button" onClick={() => void doSave()} disabled={save.isPending} className="font-semibold underline hover:text-sky-100 disabled:opacity-50" title="Your copy keeps the same id, so every agent that runs this procedure runs your copy instead">Make my own copy to edit</button>
           </span>
         )}
 
+
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          {!readOnly && <>
           <button type="button" className={button} disabled={history.past.length === 0} onClick={() => setHistory(undo)} title="Undo (Ctrl+Z)"><Undo2 size={13} /></button>
           <button type="button" className={button} disabled={history.future.length === 0} onClick={() => setHistory(redo)} title="Redo (Ctrl+Shift+Z)"><Redo2 size={13} /></button>
           <button type="button" className={button} disabled={!editable || tidying || view !== 'canvas'} onClick={() => void tidy()} title="Lay the nodes out left to right in the order they run">
             {tidying ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />} Tidy
           </button>
+          </>}
           <div className="flex overflow-hidden rounded-md border border-[var(--bark-600)]">
             <button type="button" onClick={() => setView('canvas')} className={`flex items-center gap-1 px-2.5 py-1 text-xs ${view === 'canvas' ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-400'}`}><Network size={13} /> Canvas</button>
             <button type="button" onClick={() => setView('code')} className={`flex items-center gap-1 px-2.5 py-1 text-xs ${view === 'code' ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-400'}`}><Code2 size={13} /> Code</button>
             <button type="button" onClick={() => setView('json')} className={`flex items-center gap-1 px-2.5 py-1 text-xs ${view === 'json' ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-400'}`}><Braces size={13} /> JSON</button>
+            <button type="button" onClick={() => setView('checks')} className={`flex items-center gap-1 px-2.5 py-1 text-xs ${view === 'checks' ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-400'}`}><FlaskConical size={13} /> Checks</button>
           </div>
 
-          {copyName === null ? (
+          {readOnly ? null : copyName === null ? (
             <button type="button" className={button} onClick={() => setCopyName(`${draft.name} copy`)}><Copy size={13} /> Save as copy</button>
           ) : (
             <span className="flex items-center gap-1">
@@ -348,17 +347,17 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
             </span>
           )}
 
-          {mine && (confirming === 'delete' ? (
+          {mine && !readOnly && (confirming === 'delete' ? (
             <span className="flex items-center gap-1 text-xs text-red-200">
               Delete your copy?
-              <button type="button" className={`${button} !text-red-300`} onClick={() => { void remove.mutateAsync(draft.id).then(() => navigate({ to: '/studio' })) }}>Delete</button>
+              <button type="button" className={`${button} !text-red-300`} onClick={() => { void remove.mutateAsync(draft.id).then(() => navigate({ to: '/studio/procedures' })) }}>Delete</button>
               <button type="button" className={button} onClick={() => setConfirming(null)}>Keep</button>
             </span>
           ) : (
             <button type="button" className={button} onClick={() => setConfirming('delete')} title="Delete your copy. If it replaced a built-in, the built-in comes back."><Trash2 size={13} /></button>
           ))}
 
-          <button
+          {!readOnly && <button
             type="button"
             onClick={() => void doSave()}
             disabled={save.isPending || (!dirty && mine) || errors.length > 0}
@@ -366,12 +365,12 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
             className="flex items-center gap-1.5 rounded-md border border-[var(--leaf-stem)]/40 bg-[var(--leaf-stem)]/25 px-3 py-1 text-xs font-semibold text-[var(--leaf-light)] hover:bg-[var(--leaf-stem)]/35 disabled:opacity-40"
           >
             {save.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Save
-          </button>
+          </button>}
         </div>
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {view === 'canvas' && showPalette && <Palette procedure={draft} path={path} editable={editable} onAdd={addFromPalette} />}
+        {view === 'canvas' && showPalette && !readOnly && <Palette procedure={draft} path={path} editable={editable} onAdd={addFromPalette} />}
 
         <div className="relative flex min-w-0 flex-1 flex-col">
           {view === 'canvas' && (
@@ -413,9 +412,13 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
                 onOpenGroup={openGroup}
                 onRefused={refuse}
               />
+            ) : view === 'checks' ? (
+              <div className="h-full overflow-auto p-4">
+                <CheckList scope={{ procedure: saved.id }} agents={(agents.data ?? []).map((entry) => entry.slug)} procedures={(list.data?.procedures ?? []).map((entry) => entry.id)} />
+              </div>
             ) : (
               <Suspense fallback={<div className="flex h-full items-center justify-center text-xs text-slate-500"><Loader2 size={14} className="mr-2 animate-spin" /> Opening the editor…</div>}>
-                {view === 'code' ? <CodeView procedure={draft} onChange={change} /> : <JsonView procedure={draft} onChange={change} />}
+                {view === 'code' ? <CodeView procedure={draft} onChange={change} readOnly={readOnly} /> : <JsonView procedure={draft} onChange={change} readOnly={readOnly} />}
               </Suspense>
             )}
 
@@ -483,6 +486,7 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
               onStarted={started}
               onPickRun={(runId) => { setActiveRunId(runId); setReplayAt(undefined) }}
               onReplay={replay}
+              onCheckProposed={() => setView('checks')}
             />
           </div>
         )}

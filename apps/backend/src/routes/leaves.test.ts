@@ -8,7 +8,7 @@ import type { Database } from '../lib/db-interface.js';
 
 const deletionFor = (db: Database, terminated: string[] = [], released: string[] = []) => new GroveDeletionService({
   store: db,
-  workflows: { terminate: async (workflowId: string) => { terminated.push(workflowId); return false; } },
+  workflows: { stop: async (workflowId: string) => { terminated.push(workflowId); return false; } },
   workspaces: { release: async (treeId: string) => { released.push(treeId); } },
 });
 

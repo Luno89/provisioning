@@ -40,7 +40,7 @@ export function GroveAgent({ value, onChange }: {
           ))}
         </select>
         {procedure && (
-          <a href={`#/studio/${procedure}`} className="flex items-center gap-1 text-[11px] text-emerald-400 hover:text-emerald-300">
+          <a href={`#/studio/procedures/${procedure}`} className="flex items-center gap-1 text-[11px] text-emerald-400 hover:text-emerald-300">
             open {procedure} <ExternalLink size={11} />
           </a>
         )}

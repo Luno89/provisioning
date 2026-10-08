@@ -154,6 +154,28 @@ describe('working inside it', () => {
       .rejects.toThrow(/No such file/);
   });
 
+  it('reads a file whole, however long it is, with its characters intact', async () => {
+    const text = `${'é'.repeat(20_000)}\n${'x'.repeat(40_000)}\n`;
+    const bytes = Buffer.from(text, 'utf8');
+    const { run, calls } = kube({ get: running }, { stdout: `${bytes.length}\n${bytes.toString('base64')}`, stderr: '', exitCode: 0 });
+
+    expect(await createClusterBackend({ run, workspace }).readFile({ sandboxId: 'x', path: 'big.txt' })).toBe(text);
+    expect(calls.at(-1)?.args.slice(-2)).toEqual(['sh', 'big.txt']);
+  });
+
+  it('refuses a file that came back short rather than handing over part of it', async () => {
+    const { run } = kube({ get: running }, { stdout: `100000\n${Buffer.from('only some').toString('base64')}`, stderr: '', exitCode: 0 });
+
+    await expect(createClusterBackend({ run, workspace }).readFile({ sandboxId: 'x', path: 'big.txt' }))
+      .rejects.toThrow('big.txt came back as 9 of 100000 bytes, so it was not read whole');
+  });
+
+  it('reads an empty file as empty', async () => {
+    const { run } = kube({ get: running }, { stdout: '0\n', stderr: '', exitCode: 0 });
+
+    expect(await createClusterBackend({ run, workspace }).readFile({ sandboxId: 'x', path: 'empty' })).toBe('');
+  });
+
   it('deletes the whole namespace on teardown, so nothing is left behind', async () => {
     const { run, calls } = ready();
     await createClusterBackend({ run, workspace }).destroy!({ sandboxId: 'x' });
@@ -204,5 +226,38 @@ describe('a workspace that outlives its pod', () => {
     expect(verbs.filter((verb) => verb === 'delete pod')).toHaveLength(2);
     expect(verbs.filter((verb) => verb.startsWith('apply'))).toHaveLength(2);
     expect(verbs.some((verb) => verb === 'delete namespace')).toBe(false);
+  });
+});
+
+describe('a workspace several runs share', () => {
+  it('is started once when they all reach for it at the same moment, and its files are restored once', async () => {
+    let applied = 0;
+    const run: KubeRunner = vi.fn(async (args) => {
+      if (args[0] === 'apply') { applied += 1; await new Promise((resolve) => setTimeout(resolve, 30)); }
+      if (args[0] === 'get') return applied > 0 ? running : notRunning;
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+    let restored = 0;
+    const shared = { ...workspace, runId: 'conversation-c1', persistent: true };
+    const backends = [1, 2, 3].map(() => createClusterBackend({ run, workspace: shared, onStarted: async () => { restored += 1; } }));
+
+    await Promise.all(backends.map((backend) => backend.writeFile({ sandboxId: 's', path: 'a.md', content: 'x' })));
+
+    expect(applied).toBe(1);
+    expect(restored).toBe(1);
+  });
+
+  it('applies again when another process created it first', async () => {
+    let attempts = 0;
+    const run: KubeRunner = vi.fn(async (args) => {
+      if (args[0] === 'apply') {
+        attempts += 1;
+        return attempts === 1 ? { stdout: '', stderr: 'Error from server (AlreadyExists): persistentvolumeclaims "work" already exists', exitCode: 1 } : { stdout: 'configured', stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'get') return attempts > 1 ? running : notRunning;
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+    await createClusterBackend({ run, workspace: { ...workspace, runId: 'conversation-c2', persistent: true } }).writeFile({ sandboxId: 's', path: 'a.md', content: 'x' });
+    expect(attempts).toBe(2);
   });
 });

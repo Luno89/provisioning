@@ -368,3 +368,54 @@ describe('buildCaddyContent', () => {
     expect(c).toContain('write_timeout 0');
   });
 });
+
+describe('an Odoo project\'s preview', () => {
+  const cluster = { id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const };
+  const odoo = { id: 'd1abcdef', name: 'Shop', clusterId: 'c1', strategy: 'helm' as const, status: 'running' as const, appType: 'odoo-project' };
+  const svcJson = JSON.stringify({ items: [{ metadata: { name: 'shop-live' }, spec: { type: 'ClusterIP', ports: [{ port: 8069 }] } }] });
+  const reach = () => {
+    mockGetById.mockResolvedValue(cluster);
+    mockGetKubeconfigPath.mockResolvedValue('/tmp/kubeconfig');
+    mockRunKubectl.mockResolvedValueOnce(svcJson).mockResolvedValueOnce(traefikSvcJson);
+    mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
+  };
+  const written = () => mockWriteFile.mock.calls.map(([file, content]) => [String(file).split('/').pop(), String(content).match(/proxy_set_header Host ([^;]+);|header_up Host (\S+)/)?.slice(1).find(Boolean)]);
+
+  it('is exposed next to the app on its own host, and taken away with it', async () => {
+    mockGetDeployments.mockResolvedValue([{ ...odoo }]);
+    reach();
+    const exposed = await createService().exposeLocal('d1abcdef');
+    expect(exposed).toMatchObject({ localExposureUrl: 'http://shop.localhost:8000', previewLocalUrl: 'http://shop-preview.localhost:8000' });
+    expect(written()).toEqual([['shop.conf', 'shop.apps.local'], ['shop-preview.conf', 'shop-preview.apps.local']]);
+
+    mockGetDeployments.mockResolvedValue([{ ...odoo, ...exposed }]);
+    const hidden = await createService().unexposeLocal('d1abcdef');
+    expect(hidden.previewLocalUrl).toBeUndefined();
+    expect(mockUnlink.mock.calls.map(([file]) => String(file).split('/').pop())).toContain('shop-preview.conf');
+  });
+
+  it('is exposed publicly on a host of its own', async () => {
+    process.env.INGRESS_DOMAIN = 'nowrinkles.dev';
+    mockGetDeployments.mockResolvedValue([{ ...odoo }]);
+    reach();
+    const exposed = await createService().exposePublic('d1abcdef');
+    expect(exposed).toMatchObject({ publicExposureUrl: 'https://shop-d1abcd.nowrinkles.dev', previewPublicUrl: 'https://shop-preview-d1abcd.nowrinkles.dev' });
+    delete process.env.INGRESS_DOMAIN;
+  });
+
+  it('keeps its preview entry when the exposed apps are synced', async () => {
+    mockGetDeployments.mockResolvedValue([{ ...odoo, isExposedLocally: true }]);
+    reach();
+    mockReaddir.mockResolvedValue(['default.conf', 'shop.conf', 'shop-preview.conf', 'gone.conf']);
+    await createService().syncExposedApps();
+    expect(mockUnlink.mock.calls.map(([file]) => String(file).split('/').pop())).toEqual(['gone.conf']);
+  });
+
+  it('is nothing for an app that is not an Odoo project', async () => {
+    mockGetDeployments.mockResolvedValue([{ ...odoo, appType: 'gitapp' }]);
+    reach();
+    const exposed = await createService().exposeLocal('d1abcdef');
+    expect(exposed.previewLocalUrl).toBeUndefined();
+    expect(written()).toEqual([['shop.conf', 'shop.apps.local']]);
+  });
+});

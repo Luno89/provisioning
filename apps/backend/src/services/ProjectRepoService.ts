@@ -28,14 +28,34 @@ export class ProjectRepoService {
     return { username: (await this.ensureAccount(ownerId)).username };
   }
 
+  private readonly creating = new Map<string, Promise<{ username: string; password: string }>>();
+
   private async ensureAccount(ownerId: string): Promise<{ username: string; password: string }> {
     const existing = await this.db.getGiteaAccount(ownerId);
     if (existing) {
       return { username: existing.username, password: decryptValue(existing.passwordEnc, this.masterKey) };
     }
+    const under = this.creating.get(ownerId);
+    if (under) return under;
+    const made = this.createAccount(ownerId).finally(() => this.creating.delete(ownerId));
+    this.creating.set(ownerId, made);
+    return made;
+  }
 
+  private async createAccount(ownerId: string): Promise<{ username: string; password: string }> {
     const username = giteaUsernameFor(ownerId);
-    const { password } = await this.gitea.createUserAccount(username, `${username}@koala.local`);
+    let password: string;
+    try {
+      ({ password } = await this.gitea.createUserAccount(username, `${username}@koala.local`));
+    } catch (err) {
+      if (!/duplicate key|already exists|user already/i.test((err as Error).message)) throw err;
+      for (let tries = 0; tries < 30; tries += 1) {
+        const saved = await this.db.getGiteaAccount(ownerId);
+        if (saved) return { username: saved.username, password: decryptValue(saved.passwordEnc, this.masterKey) };
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+      throw new Error(`the Gitea user ${username} was made by another process, which never recorded it`);
+    }
 
     const account: GiteaAccount = {
       ownerId,
@@ -232,6 +252,11 @@ export class ProjectRepoService {
       if (Date.now() > deadline) throw new Error(`${owner}/${repo} was pushed, but Gitea was still not serving its files after ${DOCUMENTS_SERVED_WITHIN_MS / 1000}s`);
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
+  }
+
+  async mergeDocuments(request: { ownerId: string; repo: string; head: string; base: string; title: string; body: string }): Promise<'merged' | 'conflict' | 'nothing' | 'failed'> {
+    const { username } = await this.ensureAccount(request.ownerId);
+    return this.gitea.mergeBranch(username, request.repo, request.head, request.base, { title: request.title, body: request.body });
   }
 
   async pullDocuments(request: { ownerId: string; repo: string; bundle: string }): Promise<boolean> {

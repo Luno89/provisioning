@@ -133,11 +133,16 @@ describe('the procedure editor', () => {
     expect(await screen.findByText('the start node "missing" does not exist')).toBeInTheDocument()
   })
 
-  it('offers to save a built-in as your own copy straight away', async () => {
+  it('shows a built-in read-only, and makes your own copy to edit when asked', async () => {
     open(RESEARCH_V2, false)
 
-    expect(await screen.findByText('Built-in: saving makes it your own copy')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+    expect(await screen.findByText('Built-in · view only')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+    expect(screen.queryByText('Nodes')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Make my own copy to edit' }))
+
+    await waitFor(() => expect(api.saveProcedure).toHaveBeenCalled())
+    expect(vi.mocked(api.saveProcedure).mock.calls[0]![0]).toMatchObject({ id: RESEARCH_V2.id, nodes: RESEARCH_V2.nodes })
   })
 
   it('applies JSON edits to the procedure, but keeps its id', async () => {
@@ -154,7 +159,7 @@ describe('the procedure editor', () => {
   })
 
   it('opens a built-in group to show what is inside, without letting it be changed', async () => {
-    open(RESEARCH_V2, false)
+    open(RESEARCH_V2, true)
     await screen.findByTitle(/^Sends the system prompt/)
     fireEvent.doubleClick(within(document.querySelector('.react-flow') as HTMLElement).getByText('Model Turn'))
 
@@ -171,7 +176,7 @@ describe('the procedure editor', () => {
 
     await waitFor(() => expect(engine.startRun).toHaveBeenCalledWith({ agent: 'research', message: 'what is new?', inputs: { message: 'what is new?' }, procedure: 'research' }))
 
-    await userEvent.click(screen.getByRole('button', { name: /^Procedures/ }).closest('header')!.querySelector('button[title="Lay the nodes out left to right in the order they run"]')!)
+    await userEvent.click(screen.getByTitle('Lay the nodes out left to right in the order they run'))
     expect(await screen.findByText('Save your changes first — a run uses the saved version.')).toBeInTheDocument()
   })
   it("shows how long runs usually take on each model instead of a fixed budget", async () => {

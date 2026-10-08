@@ -1,6 +1,8 @@
 import { describeProblem, MAX_TASK_DESCRIPTION, MAX_TASK_ROLE } from '../engine-host/tools/tasks.js';
 import { usableServiceName } from './service-name.js';
 import { claimService } from './service-claim.js';
+import { explainJsonError } from './json-error.js';
+import { e2eRequestOf } from './e2e.js';
 import type { LeafPlan, LeafPlanMode, NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanTask, TaskChecks } from '@koala/harness-types';
 
 export type { AdoptedPlan, LeafPlan, LeafPlanMode, NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanProposal, PlanStatus, PlanTask } from '@koala/harness-types';
@@ -52,8 +54,9 @@ const decoded = (value: unknown): unknown => {
 
 const decodeError = (value: unknown): string | undefined => {
   if (typeof value !== 'string') return undefined;
-  const parsed = jsonText(value.trim());
-  return 'error' in parsed ? parsed.error : undefined;
+  const trimmed = value.trim();
+  const parsed = jsonText(trimmed);
+  return 'error' in parsed ? explainJsonError(trimmed, parsed.error) : undefined;
 };
 
 const list = (raw: Record<string, unknown>, key: string): unknown[] => {
@@ -115,6 +118,7 @@ function parseChecks(raw: unknown): TaskChecks | undefined {
   const contentPattern = text(checks, 'contentPattern') || text(checks, 'content_pattern');
   const httpUrl = text(checks, 'httpUrl') || text(checks, 'http_url');
   const httpStatus = Number(checks.httpStatus ?? checks.http_status ?? 0) || undefined;
+  const e2e = checks.e2e === undefined ? undefined : e2eRequestOf(checks.e2e);
 
   const parsed: TaskChecks = {
     ...(command ? { command, ...(expects.length > 0 ? { expects } : {}) } : {}),
@@ -122,6 +126,7 @@ function parseChecks(raw: unknown): TaskChecks | undefined {
     // A pattern with no file to match against, or a file with no pattern, checks nothing.
     ...(contentPath && contentPattern ? { contentPath, contentPattern } : {}),
     ...(httpUrl ? { httpUrl, ...(httpStatus ? { httpStatus } : {}) } : {}),
+    ...(e2e ? { e2e } : {}),
   };
 
   return Object.keys(parsed).length > 0 ? parsed : undefined;
@@ -234,7 +239,7 @@ export function parsePlan(raw: Record<string, unknown>, world: PlanWorld): Parse
 
   if (notAList(raw, 'branches')) {
     const why = decodeError(raw.branches);
-    return { problem: `branches has to be a list of { title, leaves } objects — it arrived as text that is not a JSON list${why ? ` (${why})` : ''}. Send branches as a JSON array, not a string` };
+    return { problem: `branches has to be a list of { title, leaves } objects — it arrived as text that does not read as JSON${why ? `: ${why}` : ''}. Fix that one place, and send branches as a JSON array rather than a string` };
   }
 
   const branches: PlanBranch[] = [];

@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { runDocker, dockerAvailable, type DockerResult } from './docker-cli.js';
+import { READ_WHOLE_FILE, wholeFile } from '@koala/engine-core';
 
 export interface EgressRule {
   host: string;
@@ -179,9 +180,9 @@ export async function writeFileInContainer(leafId: string, relativePath: string,
 }
 
 export async function readFileInContainer(leafId: string, relativePath: string): Promise<string> {
-  const result = await runDocker(['exec', containerName(leafId), 'sh', '-c', 'base64 "$1"', 'sh', relativePath]);
+  const result = await runDocker(['exec', containerName(leafId), 'sh', '-c', READ_WHOLE_FILE, 'sh', relativePath], { maxOutputChars: Infinity });
   if (result.exitCode !== 0) throw new Error(`Could not read ${relativePath}: ${result.stderr}`);
-  return Buffer.from(result.stdout, 'base64').toString('utf8');
+  return wholeFile(relativePath, result.stdout);
 }
 
 export async function destroyContainer(leafId: string): Promise<void> {

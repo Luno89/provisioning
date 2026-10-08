@@ -32,7 +32,7 @@ const mount = async (): Promise<Harness> => {
   running = false;
   h = await mountRouter({
     prefix: '/api/trees',
-    router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { terminate: terminate }, workspaces }) }),
+    router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }) }),
   });
   return h!;
 };

@@ -198,3 +198,43 @@ describe('choosing the base from the languages', () => {
     expect(languagesFor({ environment: { languages: ['node', 'go'] } })).toEqual(['node', 'go']);
   });
 });
+
+describe('a base image a host adds', () => {
+  const odoo = {
+    id: 'odoo',
+    image: 'odoo:18',
+    provides: ['bash', 'python3', 'odoo'],
+    setup: [{ via: 'apt' as const, packages: ['postgresql-18'] }, { via: 'script' as const, run: 'echo checker > /usr/local/bin/odoo-check' }],
+  };
+  const bases = [...BASES, odoo];
+
+  it('is chosen when a workspace asks for it, even after other languages, and its setup is built in first', () => {
+    expect(baseFor({ environment: { languages: ['node', 'odoo'] } }, bases)).toBe('odoo');
+    const plan = planImage({ base: 'odoo', languages: ['odoo'], tools: [], bases });
+    expect(plan.base).toBe('odoo:18');
+    expect(plan.installs).toEqual(odoo.setup);
+    expect(renderDockerfile(plan)).toContain('apt-get install -y --no-install-recommends postgresql-18');
+  });
+
+  it('is unknown to a planner that was not given it', () => {
+    expect(() => planImage({ base: 'odoo', tools: [] })).toThrow(/no base image called "odoo"/);
+    expect(baseFor({ environment: { languages: ['odoo'] } })).toBe(DEFAULT_BASE);
+  });
+
+  it('changes the fingerprint when its setup changes', () => {
+    const changed = { ...odoo, setup: [odoo.setup[0]!] };
+    expect(planImage({ base: 'odoo', tools: [], bases }).fingerprint).not.toBe(planImage({ base: 'odoo', tools: [], bases: [...BASES, changed] }).fingerprint);
+  });
+
+  it('installs a tool\'s dnf packages with apt-get on a base that has no dnf', () => {
+    const jq = tool({ name: 'json_query', needsBinaries: ['jq'], install: { via: 'dnf', packages: ['jq'] } });
+    const dockerfile = renderDockerfile(planImage({ base: 'odoo', tools: [jq], bases }));
+    expect(dockerfile).toMatch(/elif command -v dnf .* else apt-get update && apt-get install -y --no-install-recommends jq/);
+  });
+
+  it('asks apt for a language by the name apt knows it by, and keeps the fingerprint the same', () => {
+    const plan = planImage({ base: 'odoo', languages: ['odoo', 'node', 'go'], tools: [], bases });
+    expect(renderDockerfile(plan)).toMatch(/else apt-get update && apt-get install -y --no-install-recommends golang-go/);
+    expect(renderDockerfile(plan)).toMatch(/microdnf install -y go-toolset/);
+  });
+});

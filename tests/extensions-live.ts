@@ -4,6 +4,7 @@ import { BUILT_IN_GROUPS, defineGroup, defineProcedure, readProcedure, type Proc
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
 import { getTemporalClient } from '../apps/backend/src/lib/temporal-client.js';
+import { startedFor } from '../apps/backend/src/lib/workflow-owner.js';
 import { extensionServiceFor } from '../apps/backend/src/services/ExtensionService.js';
 import { createProcedureStore } from '../apps/backend/src/engine-host/registries/procedure-store.js';
 import { DEFAULT_ENGINE_TASK_QUEUE, type AgentRunOutcome, type ProcedureRunInput } from '../apps/backend/src/engine-host/temporal/contracts.js';
@@ -104,7 +105,7 @@ async function main(): Promise<void> {
       procedure: runnable.procedure,
       inputs: { message: 'shout' },
     };
-    const handle = await client.workflow.start('AgentRunWorkflow', { workflowId: runId, taskQueue: queue, args: [input] });
+    const handle = await client.workflow.start('AgentRunWorkflow', { workflowId: runId, taskQueue: queue, args: [input], ...startedFor(OWNER) });
     const result = await Promise.race([
       handle.result() as Promise<AgentRunOutcome>,
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`still running after ${DEADLINE_MS / 60_000} minutes`)), DEADLINE_MS)),

@@ -6,6 +6,7 @@ import type { Database } from '../../apps/backend/src/lib/db-interface.js';
 import { extensionServiceFor } from '../../apps/backend/src/services/ExtensionService.js';
 import { loadKeys } from '../../apps/backend/src/lib/keys.js';
 import { ProjectRepoService } from '../../apps/backend/src/services/ProjectRepoService.js';
+import { createWorkspaceRepoResolver } from '../../apps/backend/src/engine-host/sandboxes/workspace-repos.js';
 
 export function liveEngineHost(db: Database) {
   const keys = loadKeys(process.env);
@@ -13,7 +14,8 @@ export function liveEngineHost(db: Database) {
   const gitea = new GiteaService(new InfrastructureService(), keys.data, '/tmp/kubeconfig-provisioning-lunorica');
   const projectRepos = new ProjectRepoService(db, gitea, keys.data);
   return createEngineHost({
-    documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request) },
+    documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request) },
+    repoFor: createWorkspaceRepoResolver({ trees: () => db.getTrees(), projects: () => db.getProjects(), accountOf: async (ownerId) => (await db.getGiteaAccount(ownerId))?.username }),
     models: createModelService(db, keys.data),
     stores: storesFromDatabase(db),
     kubeconfig: process.env.KUBECONFIG_PATH,

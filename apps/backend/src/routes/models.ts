@@ -14,6 +14,10 @@ export function modelsRouter(deps: Record<string, any>): Router {
   const { modelService, db, credentialService } = deps;
   const router = Router();
 
+  router.get('/rate-limits', asyncRoute(async (req, res) => {
+    res.json({ buckets: deps.rateLimits(userOf(req).id) });
+  }));
+
   router.get('/', async (req, res) => {
     try {
       res.json(await modelService.list(userOf(req).id));

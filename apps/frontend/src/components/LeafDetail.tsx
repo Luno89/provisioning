@@ -5,10 +5,12 @@ import Markdown from './Markdown.js';
 import ClaimReview from './ClaimReview.js';
 import ConfirmDelete from './ConfirmDelete.js';
 import DocumentPanel from './DocumentPanel.js';
-import { STATE_LABEL, STATE_STYLE, STATE_HINT, stateFor, blockedBy, leafDocuments, type Leaf } from './leaf-types.js';
+import { STATE_LABEL, STATE_STYLE, STATE_HINT, stateFor, blockedBy, landingNote, leafDocuments, type Leaf } from './leaf-types.js';
 import type { DocumentAddress } from '../types/documents';
 import { cancelLeaf, retryLeaf, deleteLeaf } from '../api/grove';
 import { errorMessage } from '../api/client';
+import ArtifactStoragePrompt from './ArtifactStoragePrompt'
+import { mentionsArtifacts } from '../lib/artifact-storage'
 
 const ERROR_PREVIEW_CHARS = 240;
 
@@ -77,6 +79,7 @@ export default function LeafDetail({ leaf, all = [], treeId }: { leaf: Leaf; all
             >
               {state ? STATE_LABEL[state] : 'Cancelled'}
             </span>
+            {landingNote(leaf) && <span className="text-[11px] text-emerald-300/80">{landingNote(leaf)}</span>}
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -155,6 +158,7 @@ export default function LeafDetail({ leaf, all = [], treeId }: { leaf: Leaf; all
           <div className="text-[13px] text-slate-300 leading-relaxed rounded-xl border border-[var(--bark-600)] bg-[var(--bark-900)]/50 p-4 max-h-[32rem] overflow-y-auto">
             <Markdown>{leaf.findings}</Markdown>
           </div>
+          {mentionsArtifacts(leaf.findings) && <ArtifactStoragePrompt />}
         </div>
       )}
 

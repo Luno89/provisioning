@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createRunStarter } from './run-starter.js';
+import { AccountClosingError, createRunStarter } from './run-starter.js';
 import { createAgentRegistry } from './registry.js';
 
 const turns = () => ({ open: vi.fn(async () => undefined), fail: vi.fn(async () => undefined) });
@@ -43,5 +43,17 @@ describe('starting a run that is a conversation turn', () => {
 
     await expect(runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', conversationId: 'c1' })).rejects.toThrow('Temporal is down');
     expect(t.fail).toHaveBeenCalledWith({ ownerId: 'u1', conversationId: 'c1', runId: 'run-1' }, 'the run could not start: Temporal is down');
+  });
+});
+
+describe('an account being removed', () => {
+  it('starts no new run, so nothing writes after its records are gone', async () => {
+    const start = vi.fn(async () => ({ workflowId: 'x' }))
+    const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), closing: async (ownerId) => (ownerId === 'leaving' ? 'it is being removed' : undefined) });
+
+    await expect(runs.start({ ownerId: 'leaving', agentSlug: 'koala', message: 'hello' })).rejects.toBeInstanceOf(AccountClosingError);
+    expect(start).not.toHaveBeenCalled();
+    await runs.start({ ownerId: 'staying', agentSlug: 'koala', message: 'hello' });
+    expect(start).toHaveBeenCalledTimes(1);
   });
 });

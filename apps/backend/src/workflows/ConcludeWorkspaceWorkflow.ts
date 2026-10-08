@@ -8,7 +8,6 @@ const { ConcludeWorkspaceActivity } = proxyActivities<{ ConcludeWorkspaceActivit
   startToCloseTimeout: '10 minutes',
 });
 
-/** Saves a finished workspace to Gitea and then deletes it. It fails, deleting nothing, when the save does not work. */
 export async function ConcludeWorkspaceWorkflow(args: ConcludeWorkspaceArgs): Promise<SavedDocuments> {
   return ConcludeWorkspaceActivity(args);
 }
