@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { McpRequest } from '@koala/harness-types';
+import type { ActionProposal, McpRequest } from '@koala/harness-types';
+import { MCP_SERVER_TEMPLATES } from '../../extensions/mcp/templates.js';
 import type { AgentDefinition } from '@koala/agent-engine';
 import { createMcpRequestTools } from './mcp-tools.js';
 import { createServerTools } from './server-tools.js';
@@ -106,5 +107,51 @@ describe('enable_mcp_server', () => {
 
   it('says so when the server is already on', async () => {
     expect((await ask(world(['gitea']), { server: 'gitea', why: 'x' })).content).toContain('already switched on');
+  });
+});
+
+describe('list_mcp_servers and propose_mcp_server', () => {
+  const tools = (proposals: ActionProposal[]) => {
+    const w = world();
+    return createMcpRequestTools({
+      catalogue: async () => w.catalogue,
+      stores: w.stores,
+      proposing: {
+        templates: () => MCP_SERVER_TEMPLATES,
+        agents: async () => [{ slug: 'koala', servers: ['gitea'] }, { slug: 'executor' }],
+        proposals: { list: async () => proposals, save: async (proposal) => { proposals.push(proposal); } },
+      },
+      newId: () => `a${proposals.length + 1}`,
+      now: () => 't',
+    });
+  };
+  const call = (handlers: ReturnType<typeof tools>, name: string, parsed: Record<string, unknown>) =>
+    handlers[name]!({ name, parsed, driver: undefined, caller: { ownerId: 'u1', conversationId: 'c1', runId: 'r1' } } as never);
+
+  it('lists the person\'s servers with their state and who holds them, and the known ones not added', async () => {
+    const out = await call(tools([]), 'list_mcp_servers', {});
+    expect(out.content).toBe([
+      'YOUR MCP SERVERS', '',
+      '- gitea', '  Runs hosted at http://x/mcp; captured, 2 tools offered: list_repos, create_issue', '  Held by: koala', '',
+      'KNOWN SERVERS YOU CAN ADD', '',
+      `- playwright: ${MCP_SERVER_TEMPLATES[0]!.summary} (runs in the workspace (node))`,
+    ].join('\n'));
+  });
+
+  it('puts a proposal on a card in the conversation, once', async () => {
+    const proposals: ActionProposal[] = [];
+    const handlers = tools(proposals);
+    const out = await call(handlers, 'propose_mcp_server', { template: 'playwright', agents: ['executor'], why: 'check Odoo pages' });
+    expect(out).toMatchObject({ ok: true, content: 'Proposed on a card: add the MCP server playwright and give it to executor. Nothing changes until the person applies it.' });
+    expect(proposals).toEqual([expect.objectContaining({ id: 'a1', kind: 'add_mcp_server', status: 'proposed', conversationId: 'c1', runId: 'r1', summary: 'add the MCP server playwright and give it to executor' })]);
+    expect(JSON.parse(proposals[0]!.params.spec!)).toEqual({ template: 'playwright', name: 'playwright', agents: ['executor'], why: 'check Odoo pages' });
+
+    expect((await call(handlers, 'propose_mcp_server', { template: 'playwright', agents: ['executor'], why: 'check Odoo pages' })).content).toMatch(/^This is already waiting for the person on a card/);
+    expect(proposals).toHaveLength(1);
+  });
+
+  it('refuses what cannot be proposed, saying why', async () => {
+    const out = await call(tools([]), 'propose_mcp_server', { server: 'gitea', agents: ['koala'], why: 'w' });
+    expect(out).toMatchObject({ ok: false, content: 'koala already holds gitea; nothing was proposed' });
   });
 });

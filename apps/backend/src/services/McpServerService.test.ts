@@ -41,6 +41,13 @@ describe('the MCP server catalogue', () => {
     expect((await service.catalogue('u1')).templates).toEqual([expect.objectContaining({ id: 'playwright', added: true })]);
   });
 
+  it('adds a known server with the notes, dependency and tools it is given in place of the template\'s own', async () => {
+    const { service } = world();
+    const added = await service.add('u1', { template: 'playwright', notes: 'Odoo runs at http://localhost:8069.', dependsOn: 'the kept Odoo', offer: ['browser_navigate', 'browser_snapshot'] });
+    expect(added).toMatchObject({ ok: true, server: { notes: 'Odoo runs at http://localhost:8069.', dependsOn: 'the kept Odoo', offer: ['browser_navigate', 'browser_snapshot'] } });
+    expect(added.ok && added.server.omit).toBeUndefined();
+  });
+
   it('adds a custom one from a URL, and refuses one that makes no sense, a name taken, or a template there is not', async () => {
     const { service } = world();
     expect(await service.add('u1', { name: 'docs', runs: { where: 'hosted', url: 'http://docs.test/mcp' }, notes: '  Search before you read.  ' })).toMatchObject({ ok: true, server: { name: 'docs', notes: 'Search before you read.' } });

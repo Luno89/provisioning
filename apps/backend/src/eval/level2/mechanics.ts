@@ -106,6 +106,33 @@ const servedInWorkspace: Scenario = {
   },
 };
 
+const proposedServer: Scenario = {
+  id: 'mechanics-proposed-server',
+  name: 'An MCP server Koala proposes is added, captured and held once the card is applied',
+  describe: 'Mechanics, on a script: Koala lists the MCP servers, proposes a new one that runs in the workspace for the executor, and nothing changes until the card is applied; applying it adds the server, captures its tools and gives it to the executor.',
+  agent: 'koala',
+  procedure: { id: 'interactive-chat' },
+  input: { message: 'The executor needs something that echoes back what it is told.' },
+  script: { rules: [
+    { when: { called: ['propose_mcp_server'] }, reply: { say: 'It waits for you on a card.' } },
+    { when: { called: ['list_mcp_servers'] }, reply: { call: [{ tool: 'propose_mcp_server', arguments: {
+      name: 'echoes', summary: ECHOES_SERVER().summary, notes: ECHOES_SERVER().notes, runs: ECHOES_SERVER().runs, agents: ['executor'], why: 'the executor needs to echo',
+    } }] } },
+    { when: { offered: ['list_mcp_servers'] }, reply: { call: [{ tool: 'list_mcp_servers', arguments: {} }] } },
+    NOTHING,
+  ] },
+  expect: {
+    outcome: 'ok',
+    toolsSucceeded: ['list_mcp_servers', 'propose_mcp_server'],
+    modelSaw: { anyRequest: true, contains: ['YOUR MCP SERVERS', 'KNOWN SERVERS YOU CAN ADD', 'Proposed on a card: add the MCP server echoes and give it to executor'] },
+  },
+  then: [{
+    name: 'the card is applied',
+    do: { applyAction: true },
+    expect: { mcpServer: { name: 'echoes', state: 'captured', heldBy: ['executor'] } },
+  }],
+};
+
 const researched: Scenario = {
   id: 'mechanics-research-workspace',
   name: 'Research shares one workspace that outlives its pod',
@@ -524,4 +551,4 @@ const odooBrowserFailure: Scenario = {
   ],
 };
 
-export const MECHANICS_CHECKS = (): Scenario[] => [judged, longCommand, servedInWorkspace, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];
+export const MECHANICS_CHECKS = (): Scenario[] => [judged, longCommand, servedInWorkspace, proposedServer, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];

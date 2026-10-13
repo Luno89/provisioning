@@ -567,6 +567,15 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
             await wait();
           }
         }
+        if ('applyAction' in action) {
+          const waiting = ((await http.get('/actions', { params: { conversationId } })).data as { id: string; status: string; createdAt: string }[])
+            .filter((entry) => entry.status === 'proposed').sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1);
+          if (!waiting) throw new Error('the conversation has no card waiting to be applied');
+          const applied = await http.post(`/actions/${waiting.id}/apply`, {}, { validateStatus: () => true });
+          const decided = applied.data as { status?: string; reason?: string; error?: string };
+          if (applied.status >= 300) return { outcome: 'failed', reason: `the card would not be applied: ${decided.error ?? applied.status}` };
+          return decided.status === 'applied' ? { outcome: 'ok' } : { outcome: 'failed', reason: `applying the card ended ${decided.status}${decided.reason ? `: ${decided.reason}` : ''}` };
+        }
         if ('runTree' in action) {
           const id = treeId();
           const launched = await http.post(`/trees/${id}/run`, {}, { validateStatus: () => true });
@@ -747,6 +756,20 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         }
         if (expect.e2e) flow.e2e = await seenTests(browsed);
         if (expect.trees !== undefined) flow.trees = ((await http.get('/trees')).data as unknown[]).length;
+        if (expect.mcpServer) {
+          for (;;) {
+            await stopIfCancelled();
+            const listed = ((await http.get('/mcp/catalogue')).data as { servers: { name: string; status: { state: string; why?: string } }[] }).servers.find((entry) => entry.name === expect.mcpServer!.name);
+            if (listed && (listed.status.state === 'capturing' || listed.status.state === 'new') && expect.mcpServer.state) { await wait(); continue; }
+            const agents = ((await http.get('/agents')).data as { agents: { slug: string; servers?: string[] }[] }).agents;
+            flow.mcpServer = {
+              exists: Boolean(listed),
+              ...(listed ? { state: listed.status.state, ...(listed.status.why ? { why: listed.status.why } : {}) } : {}),
+              heldBy: agents.filter((agent) => (agent.servers ?? []).includes(expect.mcpServer!.name)).map((agent) => agent.slug),
+            };
+            break;
+          }
+        }
         if (expect.workspace) {
           const path = expect.workspace.of === 'tree' ? `/trees/${treeId()}/workspace` : `/conversations/${conversationId}/workspace`;
           const state = await http.get(path, { validateStatus: () => true });

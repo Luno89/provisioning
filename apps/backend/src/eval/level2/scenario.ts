@@ -106,6 +106,7 @@ export interface FlowExpectations {
   pullRequests?: { merged?: number | undefined; open?: number | undefined; closedUnmerged?: number | undefined } | undefined;
   workspace?: { of: 'tree' | 'conversation'; exists: boolean } | undefined;
   project?: { exists: boolean } | undefined;
+  mcpServer?: { name: string; state?: 'captured' | 'failed' | undefined; heldBy?: string[] | undefined } | undefined;
   trees?: number | undefined;
   exit?: string | undefined;
   outputs?: Record<string, { equals?: unknown; contains?: string | undefined }> | undefined;
@@ -120,6 +121,7 @@ export type FlowAction =
   | { chat: { message: string; agent?: string | undefined; inputs?: Record<string, unknown> | undefined; killAfterChars?: number | undefined; in?: ChatPlace | undefined } }
   | { post: { message: string; in: 'channel' } }
   | { approvePlan: true | { in: Exclude<ChatPlace, 'channel'> } }
+  | { applyAction: true }
   | { runTree: true }
   | { waitQuiet: true }
   | { settleTree: true }
@@ -163,7 +165,7 @@ export interface Scenario {
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 export const MAX_REPEATS = 25;
 const TURN_EXPECTATIONS: readonly (keyof ScenarioExpectations)[] = ['chooses', 'modelSaw'];
-const ACTIONS = ['chat', 'post', 'approvePlan', 'runTree', 'waitQuiet', 'settleTree', 'editWorkspace', 'waitWorkspace', 'deleteTree', 'deleteProject', 'waitRelease', 'cutOver', 'browse', 'removeRelease'];
+const ACTIONS = ['chat', 'post', 'approvePlan', 'applyAction', 'runTree', 'waitQuiet', 'settleTree', 'editWorkspace', 'waitWorkspace', 'deleteTree', 'deleteProject', 'waitRelease', 'cutOver', 'browse', 'removeRelease'];
 const RELEASE_ACTIONS = ['waitRelease', 'cutOver', 'browse', 'removeRelease'];
 const RELEASE_STATES: ReleaseState[] = ['preparing', 'preview', 'cutting-over', 'live', 'discarded', 'failed', 'superseded'];
 const TEST_STATUSES: BrowserTestStatus[] = ['passed', 'failed', 'flaky', 'skipped'];
@@ -191,6 +193,12 @@ function expectationProblems(
   }
   for (const task of expect.tasks ?? []) {
     if (!STATUSES.includes(task.status)) problems.push(`${where}"${String(task.status)}" is not a task status`);
+  }
+  if (expect.mcpServer !== undefined) {
+    const server = expect.mcpServer as { name?: unknown; state?: unknown; heldBy?: unknown };
+    if (typeof server.name !== 'string' || !server.name.trim()) problems.push(`${where}it expects an MCP server, but names none`);
+    if (server.state !== undefined && server.state !== 'captured' && server.state !== 'failed') problems.push(`${where}an MCP server is expected captured or failed`);
+    if (server.heldBy !== undefined && (!Array.isArray(server.heldBy) || server.heldBy.some((slug) => typeof slug !== 'string' || !known.agents.has(slug)))) problems.push(`${where}the MCP server is expected held by agents there are`);
   }
   for (const handOff of expect.handOffs ?? []) {
     if (typeof handOff?.agent !== 'string' || !known.agents.has(handOff.agent)) problems.push(`${where}it expects hand-offs to "${String(handOff?.agent)}", which is not an agent`);
@@ -353,6 +361,7 @@ export function scenarioProblems(
     const approvingIn = approving && typeof approving === 'object' ? (approving as { in?: unknown }).in : undefined;
     const approvesItem = approvingIn && typeof approvingIn === 'object' && Object.keys(approvingIn).length === 1
       && ((typeof (approvingIn as Record<string, unknown>).story === 'string') || (typeof (approvingIn as Record<string, unknown>).feature === 'string'));
+    if (kinds[0] === 'applyAction' && action?.applyAction !== true) problems.push(`${where} applies the card waiting in the check's own conversation (applyAction: true)`);
     if (kinds[0] === 'approvePlan' && approving !== true && !approvesItem) problems.push(`${where} approves what waits in the check's own conversation (approvePlan: true), or in a story's or a feature's chat named by its title`);
     const post = (action?.post ?? undefined) as { message?: unknown; in?: unknown } | undefined;
     if (kinds[0] === 'post' && (typeof post?.message !== 'string' || !post.message.trim() || post.in !== 'channel')) problems.push(`${where} posts a message in the channel`);

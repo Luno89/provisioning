@@ -188,7 +188,15 @@ export class McpServerService {
       const template = this.deps.templates().find((entry) => entry.id === input.template);
       if (!template) return { ok: false, status: 404, error: `there is no known server called "${String(input.template)}"` };
       const taken = new Set(existing.map((server) => server.name));
-      seed = { name: input.name ?? serverNameFrom(template.name, taken), summary: template.summary, runs: template.runs, offer: template.offer, omit: template.omit, notes: template.notes };
+      const given = (key: keyof McpServerInput) => Object.prototype.hasOwnProperty.call(input, key) && input[key] !== undefined;
+      seed = {
+        name: input.name ?? serverNameFrom(template.name, taken),
+        summary: given('summary') ? input.summary : template.summary,
+        runs: template.runs,
+        ...(given('offer') ? { offer: input.offer } : { offer: template.offer, omit: given('omit') ? input.omit : template.omit }),
+        notes: given('notes') ? input.notes : template.notes,
+        ...(given('dependsOn') ? { dependsOn: input.dependsOn } : {}),
+      };
       from = { template: template.id };
     }
     const shaped = this.shaped(seed, {});

@@ -25,6 +25,7 @@ import { WorkspaceFileService } from '../services/WorkspaceFileService.js';
 import type { ComposedWorkspace } from '../lib/workspace-composition.js';
 import { WORKSPACE_BASES } from '../extensions/workspace-bases.js';
 import { planServerImage, type McpServerRecord, type ServerRuns, type WorkspaceRuns } from '../lib/mcp-servers.js';
+import { MCP_SERVER_TEMPLATES } from '../extensions/mcp/templates.js';
 import type { TaskStore } from './tools/task-tools.js';
 import type { MemoryItem } from './drivers/memory-store.js';
 import type { HostNodeServices } from './nodes/services.js';
@@ -348,7 +349,15 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       extensions: toolHandlers(runtimes),
       ...(stores.grove.binding ? { binding: stores.grove.binding } : {}),
       ...(stores.secrets ? { secrets: { stores: stores.secrets, ...(options.vault ? { vault: options.vault } : {}) } } : {}),
-      ...(options.mcpServers && stores.mcp ? { mcp: { catalogue: options.mcpServers.list, stores: stores.mcp } } : {}),
+      ...(options.mcpServers && stores.mcp ? { mcp: {
+        catalogue: options.mcpServers.list,
+        stores: stores.mcp,
+        ...(options.projects?.proposals ? { proposing: {
+          templates: () => MCP_SERVER_TEMPLATES,
+          agents: (ownerId: string) => registry.agents(ownerId),
+          proposals: options.projects.proposals,
+        } } : {}),
+      } } : {}),
       ...(options.kube ? { kube: options.kube } : {}),
       ...(options.projects ? { projects: options.projects } : {}),
       ...(stores.egress ? { egress: stores.egress } : {}),

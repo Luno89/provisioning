@@ -234,7 +234,12 @@ instructions, the person's notes and what it depends on, and each tool's note as
 `WorkspaceServers` (started in the run's pod on first use, one `curl` per request) or to the hosted address. A check's
 world can carry `mcpServers` (captured before the run) and give an agent `servers`; `mechanics-workspace-server` proves
 the workspace path. Startup (`migrateMcpServers` in `seedAll`) moves `persona.mcp`, tools that served, and per-tool kinds
-onto the catalogue.
+onto the catalogue. **Koala proposes servers**: `list_mcp_servers` shows the person's servers (state, tools, who holds each) and the
+known ones not added; `propose_mcp_server` (rules in `lib/mcp-proposals.ts`) puts an `add_mcp_server` action card in
+the chat — add a known one (with the person's notes, depends-on, offer/omit), add a new one, or give one they have to
+agents. Applying it (`ActionService`) adds and captures the server, then gives it to each agent named through
+`setServers`, which rebuilds a workspace server's holders' images. `mechanics-proposed-server` proves it (check stage
+`applyAction`, expectation `mcpServer`).
 
 ## Memory
 

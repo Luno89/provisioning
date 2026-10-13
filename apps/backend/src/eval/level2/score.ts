@@ -37,6 +37,7 @@ export interface ObservedFlow {
   pullRequests?: { merged: number; open: number; closedUnmerged: number } | undefined;
   workspaceExists?: boolean | undefined;
   projectExists?: boolean | undefined;
+  mcpServer?: { exists: boolean; state?: string | undefined; why?: string | undefined; heldBy: string[] } | undefined;
   trees?: number | undefined;
   step?: { exit?: string | undefined; outputs?: Record<string, unknown> | undefined; error?: string | undefined } | undefined;
   turn?: TurnReply | undefined;
@@ -313,6 +314,16 @@ export async function scoreScenario(expect: ScenarioExpectations, observed: Obse
     if (expect.release.e2e) scoreBrowserTests(expect.release.e2e, release?.e2e, 'the preview\'s browser tests', add);
   }
   if (expect.e2e) scoreBrowserTests(expect.e2e, flow.e2e, 'the browser tests', add);
+  if (expect.mcpServer) {
+    const wanted = expect.mcpServer;
+    const seen = flow.mcpServer;
+    add(`the MCP server ${wanted.name} is there`, seen?.exists === true, seen?.exists ? 'it is' : 'there is no such server');
+    if (wanted.state) add(`${wanted.name} is ${wanted.state}`, seen?.state === wanted.state, !seen?.state ? 'it has no state' : `it is ${seen.state}${seen.why ? `: ${seen.why}` : ''}`);
+    if (wanted.heldBy) {
+      const missing = wanted.heldBy.filter((slug) => !(seen?.heldBy ?? []).includes(slug));
+      add(`${wanted.name} is held by ${wanted.heldBy.join(', ')}`, missing.length === 0, `held by ${(seen?.heldBy ?? []).join(', ') || 'no agent'}`);
+    }
+  }
   if (expect.trees !== undefined) add(`${expect.trees} trees`, flow.trees === expect.trees, `there ${flow.trees === 1 ? 'is' : 'are'} ${flow.trees ?? 0}`);
 
   return checks;

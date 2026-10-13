@@ -4,7 +4,7 @@ import { createVerdictTools } from './verdict-tools.js';
 import type { GroveToolOptions } from '../../extensions/grove/tools/grove-tools.js';
 import { createPlatformTools, type PlatformToolOptions } from './platform-tools.js';
 import { createSecretTools, type SecretToolOptions } from './secret-tools.js';
-import { createMcpRequestTools, type McpToolStores } from './mcp-tools.js';
+import { createMcpRequestTools, type McpProposalAccess, type McpToolStores } from './mcp-tools.js';
 import type { McpServerRecord } from '../../lib/mcp-servers.js';
 import { createKubeTools, type KubeAccess } from './kube-tools.js';
 import { createProjectTools, type ProjectToolStores } from './project-tools.js';
@@ -31,7 +31,7 @@ export interface EngineToolDeps {
   binding?: GroveToolOptions['stores']['binding'];
   platform: PlatformToolOptions;
   secrets?: SecretToolOptions | undefined;
-  mcp?: { catalogue: (ownerId: string) => Promise<readonly McpServerRecord[]>; stores: McpToolStores } | undefined;
+  mcp?: { catalogue: (ownerId: string) => Promise<readonly McpServerRecord[]>; stores: McpToolStores; proposing?: McpProposalAccess | undefined } | undefined;
   kube?: KubeAccess | undefined;
   projects?: ProjectToolStores | undefined;
   egress?: EgressToolStores | undefined;

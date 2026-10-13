@@ -5,6 +5,20 @@ import { explainSpecProblems, validateSpec } from '../lib/app-spec-validate.js';
 import { visibleAppSpecs, type AppSpec } from '../lib/app-spec.js';
 import type { Database } from '../lib/db-interface.js';
 import type { PipelineRunMetadata, ProjectMetadata } from '../lib/types.js';
+import type { McpServerRecord } from '../lib/mcp-servers.js';
+import type { ServerProposal } from '../lib/mcp-proposals.js';
+import type { McpServerInput, McpServerOutcome } from './McpServerService.js';
+import type { GrantMeta } from '../engine-host/registries/agent-directory.js';
+
+export interface ActionServers {
+  add(ownerId: string, input: McpServerInput & { template?: unknown }): Promise<McpServerOutcome>;
+  list(ownerId: string): Promise<readonly McpServerRecord[]>;
+}
+
+export interface ActionAgents {
+  agents(ownerId: string): Promise<readonly { slug: string; servers?: readonly string[] | undefined }[]>;
+  setServers(ownerId: string, slug: string, wanted: readonly string[], meta?: GrantMeta): Promise<boolean>;
+}
 
 export type ActionStore = Pick<Database,
   'getActionProposals' | 'getActionProposal' | 'saveActionProposal'
@@ -20,7 +34,14 @@ export type ActionDecision =
   | { ok: false; status: 404 | 409; error: string };
 
 export class ActionService {
-  constructor(private readonly deps: { store: ActionStore; deployer: ActionDeployer; now?: () => string; onSettled?: ((ownerId: string, conversationId: string | undefined) => void) | undefined }) {}
+  constructor(private readonly deps: {
+    store: ActionStore;
+    deployer: ActionDeployer;
+    servers?: ActionServers | undefined;
+    agents?: ActionAgents | undefined;
+    now?: () => string;
+    onSettled?: ((ownerId: string, conversationId: string | undefined) => void) | undefined;
+  }) {}
 
   private now(): string {
     return this.deps.now?.() ?? new Date().toISOString();
@@ -71,6 +92,38 @@ export class ActionService {
     return project;
   }
 
+  private async addServer(ownerId: string, proposalId: string, spec: ServerProposal): Promise<string> {
+    const { servers, agents } = this.deps;
+    if (!servers || !agents) throw new Error('MCP servers cannot be added from here');
+    const holders = await agents.agents(ownerId);
+    const missing = spec.agents.filter((slug) => !holders.some((agent) => agent.slug === slug));
+    if (missing.length > 0) throw new Error(`there is no agent called ${missing.join(', ')} any more`);
+
+    let server = spec.server ? (await servers.list(ownerId)).find((candidate) => candidate.name === spec.server) : undefined;
+    if (spec.server && !server) throw new Error(`there is no MCP server called ${spec.server} any more`);
+    if (!server) {
+      const added = await servers.add(ownerId, {
+        ...(spec.template ? { template: spec.template } : { runs: spec.runs }),
+        name: spec.name, summary: spec.summary, notes: spec.notes, dependsOn: spec.dependsOn, offer: spec.offer, omit: spec.omit,
+      });
+      if (!added.ok) throw new Error(added.error);
+      server = added.server;
+    }
+
+    const given: string[] = [];
+    for (const slug of spec.agents) {
+      const held = holders.find((agent) => agent.slug === slug)?.servers ?? [];
+      if (held.includes(server.name)) continue;
+      await agents.setServers(ownerId, slug, [...held, server.name], { why: spec.why, proposalId });
+      given.push(slug);
+    }
+    const workspace = server.runs.where === 'workspace';
+    return [
+      ...(spec.server ? [] : [`added ${server.name}; its tools are being captured`]),
+      ...(given.length ? [`given to ${given.join(', ')}${workspace ? `, whose image${given.length === 1 ? '' : 's'} rebuild${given.length === 1 ? 's' : ''} with it` : ''}`] : []),
+    ].join('; ') || `${server.name} was already held by everyone named`;
+  }
+
   private async execute(ownerId: string, proposal: ActionProposal): Promise<string> {
     const { params } = proposal;
     switch (proposal.kind) {
@@ -102,6 +155,8 @@ export class ActionService {
         await this.deps.store.saveAppSpec({ id: spec.id, spec, builtIn: false, ownerId, createdAt: existing?.createdAt ?? stamp, updatedAt: stamp });
         return `"${spec.id}" is in your catalogue and can be deployed`;
       }
+      case 'add_mcp_server':
+        return this.addServer(ownerId, proposal.id, JSON.parse(params.spec ?? '{}') as ServerProposal);
       case 'add_project_dependency': {
         const out = await declareDependency(this.deps.store, ownerId, { projectId: params.projectId, service: params.service, as: params.as });
         if (out.error) throw new Error(out.error);

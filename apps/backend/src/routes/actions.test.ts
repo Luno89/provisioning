@@ -73,3 +73,58 @@ describe('/api/actions', () => {
     expect((await post(harness.url('/api/actions/a2/apply'))).status).toBe(404);
   });
 });
+
+describe('/api/actions adding an MCP server', () => {
+  let harness: Harness;
+  let added: Record<string, unknown>[];
+  let granted: [string, string[], unknown][];
+  let held: Record<string, string[]>;
+  const servers: { name: string; runs: { where: string } }[] = [{ name: 'docs', runs: { where: 'hosted' } }];
+
+  beforeEach(async () => {
+    added = [];
+    granted = [];
+    held = { executor: ['docs'], planner: [] };
+    harness = await mountRouter({ prefix: '/api/actions', router: (db) => actionsRouter({ actions: new ActionService({
+      store: db,
+      deployer: { deployApp: vi.fn(), promoteProjectBuild: vi.fn() },
+      servers: {
+        add: async (_ownerId, input) => {
+          added.push(input as Record<string, unknown>);
+          if (input.template === 'nothing') return { ok: false, status: 404, error: 'there is no known server called "nothing"' };
+          return { ok: true, server: { name: (input.name as string) ?? 'playwright', runs: { where: 'workspace' } } as never };
+        },
+        list: async () => servers as never,
+      },
+      agents: {
+        agents: async () => Object.entries(held).map(([slug, names]) => ({ slug, servers: names })),
+        setServers: async (_ownerId, slug, wanted, meta) => { granted.push([slug, [...wanted], meta]); return true; },
+      },
+    }) }) });
+  });
+
+  afterEach(() => harness.close());
+
+  const spec = (over: Record<string, unknown>) => JSON.stringify({ name: 'playwright', agents: ['executor', 'planner'], why: 'check pages', ...over });
+
+  it('adds a known server with what the card said, then gives it to each agent named, keeping what they held', async () => {
+    await harness.db.saveActionProposal(proposal({ kind: 'add_mcp_server', params: { spec: spec({ template: 'playwright', notes: 'Odoo on 8069' }) } }));
+    const res = await post(harness.url('/api/actions/a1/apply'));
+    expect(res.data).toMatchObject({ status: 'applied', result: 'added playwright; its tools are being captured; given to executor, planner, whose images rebuild with it' });
+    expect(added).toEqual([expect.objectContaining({ template: 'playwright', name: 'playwright', notes: 'Odoo on 8069' })]);
+    expect(granted).toEqual([
+      ['executor', ['docs', 'playwright'], { why: 'check pages', proposalId: 'a1' }],
+      ['planner', ['playwright'], { why: 'check pages', proposalId: 'a1' }],
+    ]);
+  });
+
+  it('gives a server the person has without adding anything, and fails with the reason when it cannot add one', async () => {
+    await harness.db.saveActionProposal(proposal({ kind: 'add_mcp_server', params: { spec: spec({ server: 'docs', name: 'docs', agents: ['planner'] }) } }));
+    expect((await post(harness.url('/api/actions/a1/apply'))).data).toMatchObject({ status: 'applied', result: 'given to planner' });
+    expect(added).toEqual([]);
+
+    await harness.db.saveActionProposal(proposal({ id: 'a2', kind: 'add_mcp_server', params: { spec: spec({ template: 'nothing' }) } }));
+    expect((await post(harness.url('/api/actions/a2/apply'))).data).toMatchObject({ status: 'failed', reason: 'there is no known server called "nothing"' });
+    expect(granted.map(([slug]) => slug)).toEqual(['planner']);
+  });
+});

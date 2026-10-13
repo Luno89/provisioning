@@ -1194,7 +1194,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     },
   });
   tenant.use('/api/mcp', mcpRouter({ mcp: new McpService({ store: db, catalogue: (ownerId) => db.getMcpServers(ownerId) }), catalogue: mcpCatalogue }));
-  tenant.use('/api/actions', actionsRouter({ actions: new ActionService({ store: db, deployer: temporalBridge, onSettled: concluded }) }));
+  tenant.use('/api/actions', actionsRouter({ actions: new ActionService({
+    store: db,
+    deployer: temporalBridge,
+    servers: { add: (ownerId, input) => mcpCatalogue.add(ownerId, input), list: (ownerId) => db.getMcpServers(ownerId) },
+    agents: { agents: (ownerId) => agentDirectory.agents(ownerId), setServers: (ownerId, slug, wanted, meta) => agentDirectory.setServers(ownerId, slug, wanted, meta) },
+    onSettled: concluded,
+  }) }));
   const egressService = new EgressService({
     store: db,
     proxy: new EgressProxyService({ kube: infraService, secret: keys.egress, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica' }),
