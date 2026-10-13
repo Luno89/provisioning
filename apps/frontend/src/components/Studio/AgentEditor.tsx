@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import type { Agent } from '../../api/agents'
-import { errorMessage, useDeleteAgent, useEgressGrants, useGrantableTools, useMcpServerList, useProcedureList, useSaveAgent } from './shared'
-import { NEEDS, requirementFor, withRequired } from './agent-forms'
+import { errorMessage, useDeleteAgent, useEgressGrants, useGrantableTools, useMcpCatalogue, useProcedureList, useSaveAgent } from './shared'
+import { serverLine } from './mcp-server-forms'
+import { NEEDS, onlyToolsChanged, requirementFor, withRequired } from './agent-forms'
 import ToolGrants from './ToolGrants'
 
 const field = 'w-full rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)] px-2 py-1 text-xs text-slate-200 outline-none focus:border-[var(--leaf-stem)]'
@@ -22,7 +23,7 @@ export default function AgentEditor({ agent, agents, onClose, onSaved, onDeleted
   const [draft, setDraft] = useState<Agent>(agent)
   const [problems, setProblems] = useState<string[]>([])
   const egress = useEgressGrants(draft.slug)
-  const mcpServers = useMcpServerList()
+  const catalogue = useMcpCatalogue()
   const grantable = useGrantableTools()
   const languages = grantable.data?.languages ?? []
   const procedures = useProcedureList()
@@ -60,13 +61,19 @@ export default function AgentEditor({ agent, agents, onClose, onSaved, onDeleted
     })
   }
 
+  const staysBuiltIn = !agent.mine && onlyToolsChanged(agent, draft)
+
   return (
     <section className="space-y-4 rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)]/60 p-4">
       <header className="flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold text-slate-100">
-          {agent.mine ? `Editing ${agent.name}` : `Your own copy of ${agent.name}`}
+          {agent.mine || staysBuiltIn ? `Editing ${agent.name}` : `Your own copy of ${agent.name}`}
         </h2>
-        {!agent.mine && <span className="text-[11px] text-slate-500">saving makes your copy; the built-in is untouched</span>}
+        {!agent.mine && (
+          <span className="text-[11px] text-slate-500">
+            {staysBuiltIn ? 'changing only its tools keeps it built in; changing anything else makes your copy' : 'saving makes your copy; the built-in is untouched'}
+          </span>
+        )}
         {saved && <span role="status" className="text-[11px] text-emerald-300">saved</span>}
         {onClose && <button type="button" onClick={onClose} className="ml-auto text-[11px] text-slate-500 hover:text-slate-200">Close</button>}
       </header>
@@ -164,6 +171,7 @@ export default function AgentEditor({ agent, agents, onClose, onSaved, onDeleted
         {grantable.data && (
           <ToolGrants
             granted={draft.tools}
+            sources={agent.toolSources ?? []}
             grantable={grantable.data.tools}
             requires={requires}
             procedure={draft.procedure}
@@ -188,22 +196,25 @@ export default function AgentEditor({ agent, agents, onClose, onSaved, onDeleted
       </div>}
 
       {show('tools') && <div className="space-y-1">
-        <span className={label}>MCP servers it may use</span>
-        {(mcpServers.data ?? []).length === 0 && <p className="text-[11px] text-slate-500">You are not running any MCP servers.</p>}
+        <span className={label}>MCP servers it holds</span>
+        {(catalogue.data?.servers ?? []).length === 0 && <p className="text-[11px] text-slate-500">There are no MCP servers in your catalogue yet. Add one under Studio → MCP Servers.</p>}
         <div className="flex flex-wrap gap-3 text-[11px] text-slate-300">
-          {(mcpServers.data ?? []).map((server) => (
-            <label key={server.name} className="flex items-center gap-1.5">
+          {(catalogue.data?.servers ?? []).map((server) => (
+            <label key={server.id} className="flex items-center gap-1.5">
               <input
                 type="checkbox"
                 className="accent-[var(--leaf-stem)]"
-                checked={(draft.mcp ?? []).includes(server.name)}
-                onChange={() => set('mcp', toggle(draft.mcp ?? [], server.name))}
+                checked={(draft.servers ?? []).includes(server.name)}
+                onChange={() => set('servers', toggle(draft.servers ?? [], server.name))}
               />
-              {server.name}
-              <span className="text-slate-500">({server.tools.length} tools)</span>
+              <span className="font-mono">{server.name}</span>
+              <span className="text-slate-500">{serverLine(server)}</span>
             </label>
           ))}
         </div>
+        {(draft.servers ?? []).some((name) => catalogue.data?.servers.find((server) => server.name === name)?.runs.where === 'workspace') && (
+          <p className="text-[11px] text-slate-500">A server that runs in the workspace is installed in this agent's image, so holding one rebuilds it.</p>
+        )}
       </div>}
 
       {show('hand-offs') && <div className="space-y-1">
@@ -270,7 +281,7 @@ export default function AgentEditor({ agent, agents, onClose, onSaved, onDeleted
           className="flex items-center gap-1.5 rounded-md border border-[var(--leaf-stem)]/40 bg-[var(--leaf-stem)]/20 px-3 py-1.5 text-xs font-semibold text-[var(--leaf-light)] hover:bg-[var(--leaf-stem)]/30 disabled:opacity-40"
         >
           {save.isPending ? <Loader2 size={12} className="animate-spin" /> : null}
-          {agent.mine ? 'Save' : 'Save as my own'}
+          {agent.mine || staysBuiltIn ? 'Save' : 'Save as my own'}
         </button>
         {agent.mine && (!only || only === 'settings') && (
           <button

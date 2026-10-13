@@ -14,7 +14,7 @@ const conversation = (lastAt: string): Conversation => ({
   projectId: 'p1',
   messages: [
     { role: 'user', content: 'We use Cloudflare for DNS.', at: ago((10 * MINUTE) * 3) },
-    { role: 'assistant', content: 'Noted.', at: ago((10 * MINUTE) * 2), toolCalls: [{ id: 't', name: 'list_infrastructure', args: '{}', ok: true, digest: '2 clusters' }] },
+    { role: 'assistant', content: 'Noted.', at: ago((10 * MINUTE) * 2), runId: 'turn-2', toolCalls: [{ id: 't', name: 'list_infrastructure', args: '{}', ok: true, digest: '2 clusters' }] },
     { role: 'user', content: 'And trials last 7 days.', at: lastAt },
   ],
   createdAt: ago((10 * MINUTE) * 3),
@@ -37,6 +37,7 @@ describe('what a concluded conversation hands the memory keeper', () => {
     expect(conclusion.message).toContain('koala: Noted.');
     expect(conclusion.message).toContain('[list_infrastructure gave: 2 clusters]');
     expect(conclusion.message).toContain('person: And trials last 7 days.');
+    expect(conclusion.message).toContain('The runs that answered, which read_run can open: turn-2');
   });
 
   it('has nothing to conclude once everything is remembered', () => {

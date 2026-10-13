@@ -1,4 +1,5 @@
-import type { Persona } from '../agent/agent.js';
+import type { PersonaRecord } from '../agent/agent.js';
+import { grantsFrom, type GrantMap } from '../agent/grants.js';
 import type { ToolDefinition } from '../tools/catalogue.js';
 import type { NodeCatalogue } from './definition.js';
 import type { GroupDefinition, Procedure } from './schema.js';
@@ -16,7 +17,8 @@ export interface EngineExtension {
   operations?: readonly HostOperation[] | undefined;
   groups?: readonly GroupDefinition[] | undefined;
   tools?: readonly ToolDefinition[] | undefined;
-  personas?: readonly Persona[] | undefined;
+  personas?: readonly PersonaRecord[] | undefined;
+  grants?: GrantMap | undefined;
   procedures?: readonly Procedure[] | undefined;
 }
 
@@ -33,6 +35,9 @@ export const operationsOf = (extensions: readonly EngineExtension[]): HostOperat
   extensions.flatMap((extension) => extension.operations ?? []);
 
 export const catalogueFor = (extensions: readonly EngineExtension[]): NodeCatalogue => builtInCatalogue(operationsOf(extensions));
+
+export const shippedGrantsOf = (extensions: readonly EngineExtension[]): ReturnType<typeof grantsFrom> =>
+  extensions.flatMap((extension) => grantsFrom(extension.grants ?? {}));
 
 export const groupsFor = (extensions: readonly EngineExtension[]): GroupDefinition[] =>
   [...BUILT_IN_GROUPS, ...extensions.flatMap((extension) => extension.groups ?? [])];
@@ -87,8 +92,11 @@ export function extensionProblems(extensions: readonly EngineExtension[], option
     }
     for (const persona of extension.personas ?? []) {
       if (!procedureIds.has(persona.procedure)) say(`seeds agent "${persona.slug}" on procedure "${persona.procedure}", which nothing offers`);
-      for (const tool of persona.tools) if (!tools.has(tool)) say(`seeds agent "${persona.slug}" with tool "${tool}", which nothing offers`);
       for (const agent of persona.agents ?? []) if (!agents.has(agent)) say(`seeds agent "${persona.slug}" delegating to "${agent}", which nothing offers`);
+    }
+    for (const grant of grantsFrom(extension.grants ?? {})) {
+      if (!agents.has(grant.agent)) say(`grants "${grant.tool}" to agent "${grant.agent}", which nothing offers`);
+      if (!tools.has(grant.tool)) say(`grants agent "${grant.agent}" the tool "${grant.tool}", which nothing offers`);
     }
   }
 

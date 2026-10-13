@@ -11,6 +11,7 @@ import { cancelLeaf, retryLeaf, deleteLeaf } from '../api/grove';
 import { errorMessage } from '../api/client';
 import ArtifactStoragePrompt from './ArtifactStoragePrompt'
 import { mentionsArtifacts } from '../lib/artifact-storage'
+import { withArtifactAddresses } from '../api/artifacts'
 
 const ERROR_PREVIEW_CHARS = 240;
 
@@ -152,11 +153,22 @@ export default function LeafDetail({ leaf, all = [], treeId }: { leaf: Leaf; all
         </p>
       )}
 
+      {leaf.waitingFor && (
+        <p className="mt-4 text-[12px] text-amber-300/80" title="It is taken up again when the rebuilt workspace is published">
+          Put aside until its workspace is rebuilt: {leaf.waitingFor.reason}
+        </p>
+      )}
+      {leaf.waitingFor?.stuck && (
+        <p className="mt-1 text-[12px] text-red-300/80" title="A change to .koala/workspace.json on main starts the build again">
+          Its workspace is {leaf.waitingFor.stuck}
+        </p>
+      )}
+
       {leaf.findings && (
         <div className="mt-5">
           <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Findings</h3>
           <div className="text-[13px] text-slate-300 leading-relaxed rounded-xl border border-[var(--bark-600)] bg-[var(--bark-900)]/50 p-4 max-h-[32rem] overflow-y-auto">
-            <Markdown>{leaf.findings}</Markdown>
+            <Markdown>{withArtifactAddresses(leaf.findings)}</Markdown>
           </div>
           {mentionsArtifacts(leaf.findings) && <ArtifactStoragePrompt />}
         </div>

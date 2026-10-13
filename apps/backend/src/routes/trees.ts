@@ -9,13 +9,19 @@ import type { Database } from '../lib/db-interface.js';
 import type { TreeWorkspaces } from '../engine-host/sandboxes/tree-workspaces.js';
 import type { GroveDeletionService } from '../services/GroveDeletionService.js';
 import type { GroveRunService } from '../services/GroveRunService.js';
+import type { TreeHomeService } from '../services/TreeHomeService.js';
+import type { GroveOrderService } from '../services/GroveOrderService.js';
+import type { TreeWorkspaceService } from '../services/TreeWorkspaceService.js';
 
 export interface TreesRouterDeps {
   db: Database;
   workspaces: Pick<TreeWorkspaces, 'state' | 'release'>;
   runs: Pick<GroveRunService, 'run' | 'status' | 'stop'>;
   deletion: Pick<GroveDeletionService, 'deleteTree'>;
+  order: Pick<GroveOrderService, 'orderFeatures'>;
+  home: Pick<TreeHomeService, 'home'>;
   landings?: { pullRequests(ownerId: string, treeId: string): Promise<TreePullRequest[]> } | undefined;
+  workspaceFile?: Pick<TreeWorkspaceService, 'view' | 'save'> | undefined;
 }
 
 export interface TreePullRequest {
@@ -72,11 +78,22 @@ export function treesRouter(deps: TreesRouterDeps): Router {
       updatedAt: now,
     };
     await db.saveTree(tree);
-    res.status(201).json(tree);
+    try {
+      res.status(201).json(await deps.home.home(tree));
+    } catch (err) {
+      await db.deleteTree(tree.id);
+      res.status(502).json({ error: `The tree could not be given its project, so it was not made: ${(err as Error).message}` });
+    }
   }));
 
   router.get('/:id/run', asyncRoute(async (req, res) => {
     const outcome = await runs.status(userOf(req).id, idOf(req));
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json(outcome.value);
+  }));
+
+  router.put('/:id/order', asyncRoute(async (req, res) => {
+    const outcome = await deps.order.orderFeatures(userOf(req).id, idOf(req), req.body?.branchIds);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     res.json(outcome.value);
   }));
@@ -97,6 +114,22 @@ export function treesRouter(deps: TreesRouterDeps): Router {
     const tree = (await ownedTrees(userOf(req).id)).find((t) => t.id === idOf(req));
     if (!tree) return res.status(404).json({ error: 'Tree not found' });
     res.json({ state: await workspaces.state(tree.id) });
+  }));
+
+  router.get('/:id/workspace-file', asyncRoute(async (req, res) => {
+    if (!deps.workspaceFile) return res.status(503).json({ error: 'This server cannot read a tree\'s workspace file' });
+    const view = await deps.workspaceFile.view(userOf(req).id, idOf(req));
+    if (!view) return res.status(404).json({ error: 'Tree not found' });
+    res.json(view);
+  }));
+
+  router.put('/:id/workspace-file', asyncRoute(async (req, res) => {
+    if (!deps.workspaceFile) return res.status(503).json({ error: 'This server cannot save a tree\'s workspace file' });
+    const body = (req.body ?? {}) as { file?: unknown; said?: unknown };
+    const said = typeof body.said === 'string' && body.said.trim() ? body.said.trim() : 'edited in the Studio';
+    const saved = await deps.workspaceFile.save(userOf(req).id, idOf(req), body.file, said);
+    if (!saved.ok) return res.status(saved.status).json({ error: saved.why });
+    res.json({ ...saved.view, committed: saved.committed, ...(saved.build ? { build: saved.build } : {}) });
   }));
 
   router.get('/:id/pull-requests', asyncRoute(async (req, res) => {

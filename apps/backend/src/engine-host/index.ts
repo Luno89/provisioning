@@ -36,6 +36,7 @@ export * from './tools/platform-tools.js';
 export * from './tools/tool-runtime.js';
 
 export * from './registries/registry.js';
+export * from './registries/agent-directory.js';
 export * from './registries/tool-catalogue-store.js';
 export * from './registries/procedure-store.js';
 export * from './registries/procedure-tools.js';

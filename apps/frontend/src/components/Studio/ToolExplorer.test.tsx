@@ -17,7 +17,6 @@ const { stub } = vi.hoisted(() => ({
   stub: (name: string) => ({ default: (props: Record<string, unknown>) => { seen.props[name] = props; return <div data-testid={name} /> } }),
 }))
 vi.mock('./ToolEditor', () => stub('editor'))
-vi.mock('./McpToolKinds', () => stub('mcp'))
 vi.mock('../Checks/CheckList', () => stub('checks'))
 vi.mock('../Checks/Coverage', () => stub('coverage'))
 vi.mock('../Checks/shared', () => ({ useScenarios: () => ({ data: [] }), useLevel2Runs: () => ({ data: [] }) }))

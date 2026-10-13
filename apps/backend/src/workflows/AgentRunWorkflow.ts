@@ -59,6 +59,7 @@ import { RUN_STATE_QUERY, type RunState } from '../engine-host/temporal/run-canc
 import { ASK_CHARS, collectStep, type Artifact, type RunEffort, type RunStep } from '@koala/agent-engine/procedure';
 import { platformCatalogue, platformGroups } from '../extensions/installed.js';
 import { ownerIn, startedFor } from '../lib/workflow-owner.js';
+import { tracedSummary } from '../lib/turn-log.js';
 
 const NODE_HEARTBEAT_TIMEOUT = '1 minute';
 export const CONTINUE_AFTER_EVENTS = 10_000;
@@ -74,6 +75,9 @@ interface StreamRemote {
 }
 
 const ABANDON = ActivityCancellationType.ABANDON;
+const TRY_CANCEL = ActivityCancellationType.TRY_CANCEL;
+export const TOOL_CALL_CEILING = '30 days';
+const toolCalls = proxyActivities<Pick<EngineRemote, 'EngineToolActivity'>>({ retry: ACTIVITY_RETRY, startToCloseTimeout: TOOL_CALL_CEILING, heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: TRY_CANCEL });
 const engine = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, startToCloseTimeout: '30 minutes', cancellationType: ABANDON });
 const engineNodes = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: ABANDON });
 const engineNodesOnce = proxyActivities<EngineRemote>({ retry: { maximumAttempts: 1 }, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: ABANDON });
@@ -103,6 +107,7 @@ const { EnginePublishActivity, EngineLifecycleActivity } = proxyActivities<{
 const CONCLUSIONS = 'conclusion-events';
 const CONVERSATION_APPROVALS = 'conversation-approvals';
 const HAND_OFFS_TOGETHER = 'hand-offs-together';
+const TOOL_CALLS_HEAR_STOPS = 'tool-calls-hear-stops';
 
 export const approveSignal = defineSignal<[{ callId: string; allowed: boolean; forRun?: boolean }]>('approve');
 export const answerSignal = defineSignal<[{ nodeId: string; value: unknown }]>('answer');
@@ -234,12 +239,13 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         ...(handle ? { environment: handle } : {}),
       };
 
+      const hearsStops = patched(TOOL_CALLS_HEAR_STOPS);
       if (environment?.kind === 'machine') {
         const onDevice = proxyActivities<Pick<EngineRemote, 'EngineToolActivity'>>({
-          cancellationType: ABANDON,
+          cancellationType: hearsStops ? TRY_CANCEL : ABANDON,
           taskQueue: deviceQueue(environment.deviceId),
           retry: ACTIVITY_RETRY,
-          startToCloseTimeout: '30 minutes',
+          startToCloseTimeout: hearsStops ? TOOL_CALL_CEILING : '30 minutes',
           scheduleToStartTimeout: '1 hour',
         });
         const outcome = placedOnly(await cancellable(() => onDevice.EngineToolActivity(args)));
@@ -247,7 +253,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         return outcome;
       }
 
-      const outcome = await cancellable(() => engine.EngineToolActivity(args));
+      const outcome = await cancellable(() => (hearsStops ? toolCalls : engine).EngineToolActivity(args));
       keep(outcome.artifacts);
       return outcome;
     },
@@ -321,9 +327,14 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       return approvals.get(call.id) === true;
     },
 
-    async ask({ nodeId, timeoutMs }) {
+    async ask({ nodeId, timeoutMs, choices }) {
+      const usable = (): boolean => {
+        if (!answers.has(nodeId)) return false;
+        const value = answers.get(nodeId);
+        return !choices?.length || (typeof value === 'string' && choices.includes(value));
+      };
       await flush();
-      const answered = await condition(() => answers.has(nodeId) || cancelled, timeoutMs);
+      const answered = await condition(() => usable() || cancelled, timeoutMs);
       if (cancelled) return { answered: false, reason: 'the run was cancelled' };
       if (!answered) return { answered: false, reason: 'nobody answered in time' };
       return { answered: true, value: answers.get(nodeId) };
@@ -333,12 +344,16 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   const remote: NodeImplementation[] = catalogue.list()
     .filter((definition) => definition.runs === 'activity' || definition.runs === 'stream' || definition.runs === 'sandbox')
     .map((definition) => {
-      const call = (request: NodeRequest): Promise<RemoteNodeResult> => {
+      const call = async (request: NodeRequest): Promise<RemoteNodeResult> => {
         const retryable = (definitionFor(catalogue, request.node) ?? definition).idempotent;
         if (definition.runs === 'stream') {
           return cancellable(() => (retryable ? stream : streamOnce).EngineStreamNodeActivity(toRemote(request)));
         }
-        return cancellable(() => (retryable ? engineNodes : engineNodesOnce).EngineNodeActivity(toRemote(request)));
+        const { notices, ...result } = await cancellable(() => (retryable ? engineNodes : engineNodesOnce).EngineNodeActivity(toRemote(request)));
+        for (const notice of notices ?? []) {
+          bus.emit({ type: 'notice', runId: ticket.runId, at: new Date(Date.now()).toISOString(), level: notice.level, message: notice.message, nodeId: notice.nodeId ?? request.node.id, ...(notice.post ? { post: notice.post } : {}) } as EngineEvent);
+        }
+        return result as RemoteNodeResult;
       };
       return definition.role === 'step'
         ? stepImplementation(definition.kind, async (request) => (await call(request)) as StepResult)
@@ -414,7 +429,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       now: () => Date.now(),
       onTrace: (trace) => {
         traces.push(trace);
-        bus.emit({ type: 'node.traced', runId: ticket.runId, at: new Date(Date.now()).toISOString(), nodeId: trace.node, trace: { ...trace } } as EngineEvent);
+        bus.emit({ type: 'node.traced', runId: ticket.runId, at: new Date(Date.now()).toISOString(), nodeId: trace.node, trace: tracedSummary(trace as unknown as Record<string, unknown>) } as EngineEvent);
       },
     });
 

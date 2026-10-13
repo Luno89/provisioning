@@ -10,6 +10,7 @@ const trace = (sequence: number, node: string, kind: string, over: Partial<Store
 });
 
 const TRACES = [
+  trace(0, 'turn.model', 'choose-model', { outputs: { binding: { providerId: 'tabby', model: 'qwen/q' } } }),
   trace(1, 'turn', 'call-model', { exit: 'tools', outputs: { content: '', toolCalls: [{ name: 'run_command', arguments: '{"command":"npm test"}' }] } }),
   trace(2, 'tools', 'run-tools', { exit: 'ran', outputs: { results: [{ name: 'run_command', content: `npm ERR! missing script: test\n${'x'.repeat(2000)}` }] } }),
   trace(3, 'turn', 'call-model', { error: 'the model could not be reached' }),
@@ -29,7 +30,7 @@ describe('read_run', () => {
 
     expect(out.ok).toBe(true);
     const lines = out.content!.split('\n');
-    expect(lines[0]).toBe('run run-exec — agent executor, procedure tool-rounds@2, 4 steps');
+    expect(lines[0]).toBe('run run-exec — agent executor, model qwen/q, procedure tool-rounds@2, 5 steps');
     expect(out.content).toContain('#1 turn (call-model) → tools');
     expect(out.content).toContain('#2 tools (run-tools) → ran');
     expect(out.content).toContain('npm ERR! missing script: test');
@@ -48,7 +49,7 @@ describe('read_run', () => {
 
   it('names the steps a run has when asked for one it does not', async () => {
     const out = await call({ runId: 'run-exec', node: 'nowhere' });
-    expect(out).toMatchObject({ ok: false, content: 'run run-exec has no node "nowhere"; it has turn, tools, failed' });
+    expect(out).toMatchObject({ ok: false, content: 'run run-exec has no node "nowhere"; it has turn.model, turn, tools, failed' });
   });
 
   it('reads only the person\'s own runs', async () => {

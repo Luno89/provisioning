@@ -103,6 +103,32 @@ export const catchUpScript = [
   'if [ "$(git symbolic-ref -q --short HEAD)" = "$2" ]; then git reset -q --hard "$2"; fi',
 ].join('\n');
 
+export const BEHIND = 5;
+export const CONFLICTED = 6;
+const SAVED_MAIN = 'refs/koala/saved-main';
+const SAVED_BRANCH = 'main';
+
+export const reconcileScript = [
+  'cd "$1"',
+  trusting('$1'),
+  'set -e',
+  `git fetch -q ${INCOMING} "+refs/heads/$2:${SAVED_MAIN}"`,
+  `rm -f ${INCOMING}`,
+  'set +e',
+  `if git merge-base --is-ancestor ${SAVED_MAIN} "$2"; then git update-ref -d ${SAVED_MAIN}; exit 0; fi`,
+  `[ "$(git symbolic-ref -q --short HEAD)" = "$2" ] || { git update-ref -d ${SAVED_MAIN}; echo "$2 is not checked out here, so what was saved to it elsewhere cannot be merged in" >&2; exit ${BEHIND}; }`,
+  `if ! git -c user.name=koala -c user.email=koala@koala.local merge -q --no-edit -m "Merge what was saved to $2 elsewhere" ${SAVED_MAIN}; then`,
+  '  files=$(git diff --name-only --diff-filter=U | tr "\\n" " ")',
+  '  git merge --abort',
+  `  git update-ref -d ${SAVED_MAIN}`,
+  `  echo "$2 was changed elsewhere in a way that conflicts with this workspace: $files" >&2`,
+  `  exit ${CONFLICTED}`,
+  'fi',
+  `git update-ref -d ${SAVED_MAIN}`,
+].join('\n');
+
+const REJECTED = /\(fetch first\)|non-fast-forward|\[rejected\]/;
+
 export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: KubeStreamer; repos: DocumentRepos }): WorkspaceDocuments {
   const saving = new Map<string, Promise<unknown>>();
   const oneAtATime = <T>(workspaceRunId: string, work: () => Promise<T>): Promise<T> => {
@@ -130,9 +156,21 @@ export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: Ku
       const scratch = await mkdtemp(path.join(os.tmpdir(), 'koala-documents-'));
       try {
         const bundle = path.join(scratch, 'documents.bundle');
-        const streamed = await options.stream.toFile(['exec', POD, '-n', namespace, '--', 'sh', '-c', bundleScript, 'sh', request.path], bundle);
-        if (streamed.exitCode !== 0) throw new Error(`could not bundle ${request.path}: ${streamed.stderr.trim()}`);
-        const pushed = await options.repos.push({ ownerId: request.ownerId, repo: request.repo, describe: request.describe, bundle });
+        const push = async () => {
+          const streamed = await options.stream.toFile(['exec', POD, '-n', namespace, '--', 'sh', '-c', bundleScript, 'sh', request.path], bundle);
+          if (streamed.exitCode !== 0) throw new Error(`could not bundle ${request.path}: ${streamed.stderr.trim()}`);
+          return options.repos.push({ ownerId: request.ownerId, repo: request.repo, describe: request.describe, bundle });
+        };
+        const pushed = await push().catch(async (err: Error) => {
+          if (!REJECTED.test(err.message)) throw err;
+          const saved = path.join(scratch, 'saved.bundle');
+          if (!(await options.repos.pull({ ownerId: request.ownerId, repo: request.repo, bundle: saved }))) throw err;
+          const sent = await options.stream.fromFile(['exec', '-i', POD, '-n', namespace, '--', 'sh', '-c', `cat > ${INCOMING}`], saved);
+          if (sent.exitCode !== 0) throw new Error(`could not send what was saved to ${request.repo} into the workspace: ${sent.stderr.trim()}`);
+          const merged = await options.kube(['exec', POD, '-n', namespace, '--', 'sh', '-c', reconcileScript, 'sh', request.path, SAVED_BRANCH], undefined, 120_000);
+          if (merged.exitCode !== 0) throw new Error(`${request.repo} could not be saved: ${(merged.stderr || merged.stdout).trim()}`);
+          return push();
+        });
         return { saved: true, ...pushed };
       } finally {
         await rm(scratch, { recursive: true, force: true });

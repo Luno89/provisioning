@@ -16,7 +16,7 @@ export type EngineEvent =
   | (EventBase & { type: 'tool.called'; nodeId: string; callId: string; name: string; args: string })
   | (EventBase & { type: 'tool.result'; nodeId: string; callId: string; ok: boolean; digest: string })
   | (EventBase & { type: 'usage'; nodeId: string; usage: Record<string, unknown> })
-  | (EventBase & { type: 'notice'; level: 'info' | 'warn'; message: string; nodeId?: string })
+  | (EventBase & { type: 'notice'; level: 'info' | 'warn'; message: string; nodeId?: string; post?: Readonly<Record<string, unknown>>; choices?: readonly string[] })
   | (EventBase & { type: 'node.traced'; nodeId: string; trace: Record<string, unknown> })
   | (EventBase & { type: 'interrupted'; reason: string });
 

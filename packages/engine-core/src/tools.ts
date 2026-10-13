@@ -15,6 +15,16 @@ export interface ToolContract {
   parameters?: Record<string, unknown> | undefined;
   usageGuidance?: string | undefined;
   command?: string | undefined;
+  servedBy?: ServedBy | undefined;
+}
+
+export interface ServedBy {
+  server: string;
+  where: 'workspace' | 'hosted';
+  summary?: string | undefined;
+  instructions?: string | undefined;
+  notes?: string | undefined;
+  dependsOn?: string | undefined;
 }
 
 export interface WithheldTool {

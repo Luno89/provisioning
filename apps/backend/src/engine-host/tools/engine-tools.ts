@@ -2,10 +2,10 @@ import { createProcedureTools, type ProcedureSourceStore, type ProcedureScope } 
 import { createTaskTools, type TaskStore } from './task-tools.js';
 import { createVerdictTools } from './verdict-tools.js';
 import type { GroveToolOptions } from '../../extensions/grove/tools/grove-tools.js';
-import { extensionRuntimes, toolHandlers } from '../../extensions/runtime.js';
 import { createPlatformTools, type PlatformToolOptions } from './platform-tools.js';
 import { createSecretTools, type SecretToolOptions } from './secret-tools.js';
-import { createMcpRequestTools, type McpAccess, type McpToolStores } from './mcp-tools.js';
+import { createMcpRequestTools, type McpToolStores } from './mcp-tools.js';
+import type { McpServerRecord } from '../../lib/mcp-servers.js';
 import { createKubeTools, type KubeAccess } from './kube-tools.js';
 import { createProjectTools, type ProjectToolStores } from './project-tools.js';
 import { createEgressTools, type EgressToolStores } from './egress-tools.js';
@@ -27,16 +27,18 @@ export interface EngineToolDeps {
   procedures: ProcedureSourceStore;
   scope: ProcedureScope;
   tasks: TaskStore;
-  groove?: GroveToolOptions | undefined;
+  extensions: Record<string, ToolHandler>;
+  binding?: GroveToolOptions['stores']['binding'];
   platform: PlatformToolOptions;
   secrets?: SecretToolOptions | undefined;
-  mcp?: { access: McpAccess; stores: McpToolStores } | undefined;
+  mcp?: { catalogue: (ownerId: string) => Promise<readonly McpServerRecord[]>; stores: McpToolStores } | undefined;
   kube?: KubeAccess | undefined;
   projects?: ProjectToolStores | undefined;
   egress?: EgressToolStores | undefined;
   corpus?: CorpusAccess | undefined;
   runs?: RunReader | undefined;
   memories?: MemoryToolStore | undefined;
+  models?: ((ownerId: string) => Promise<string[]>) | undefined;
   scenarios?: ScenarioProposalAccess | undefined;
   checks?: CheckAccess | undefined;
   agentChanges?: AgentChangeAccess | undefined;
@@ -45,9 +47,9 @@ export interface EngineToolDeps {
 export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, ToolHandler> {
   return {
     ...createProcedureTools({ store: deps.procedures, scope: deps.scope }),
-    ...createTaskTools({ store: deps.tasks, binding: deps.groove?.stores.binding }),
+    ...createTaskTools({ store: deps.tasks, binding: deps.binding }),
     ...createVerdictTools(),
-    ...toolHandlers(extensionRuntimes({ grove: { tools: deps.groove } })),
+    ...deps.extensions,
     ...createPlatformTools(deps.platform),
     ...(deps.secrets ? createSecretTools(deps.secrets) : {}),
     ...(deps.mcp ? createMcpRequestTools(deps.mcp) : {}),
@@ -56,7 +58,7 @@ export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, T
     ...(deps.egress ? createEgressTools({ stores: deps.egress }) : {}),
     ...(deps.corpus ? createCorpusTools({ access: deps.corpus }) : {}),
     ...(deps.runs ? createRunTools({ runs: deps.runs }) : {}),
-    ...(deps.memories ? createMemoryTools({ store: deps.memories, agents: async (ownerId) => (await deps.registry.agents(ownerId)).map((agent) => agent.slug) }) : {}),
+    ...(deps.memories ? createMemoryTools({ store: deps.memories, agents: async (ownerId) => (await deps.registry.agents(ownerId)).map((agent) => agent.slug), models: deps.models }) : {}),
     ...(deps.scenarios ? createScenarioTools(deps.scenarios) : {}),
     ...(deps.checks ? createCheckTools(deps.checks) : {}),
     ...(deps.agentChanges ? createAgentChangeTools(deps.agentChanges) : {}),

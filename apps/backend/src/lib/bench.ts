@@ -55,15 +55,23 @@ export function benchPlan(
   };
 }
 
+export interface BenchResult {
+  scenarioId: string;
+  passed: boolean;
+  model?: string | undefined;
+}
+
+export const sameModel = (a: BenchResult, b: BenchResult): boolean => !a.model || !b.model || a.model === b.model;
+
 export function regressionsIn(
-  current: readonly { scenarioId: string; passed: boolean }[],
-  earlier: readonly { results: readonly { scenarioId: string; passed: boolean }[] }[],
+  current: readonly BenchResult[],
+  earlier: readonly { results: readonly BenchResult[] }[],
 ): string[] {
   return current
     .filter((result) => !result.passed)
     .filter((result) => {
       for (const run of earlier) {
-        const before = run.results.find((entry) => entry.scenarioId === result.scenarioId);
+        const before = run.results.find((entry) => entry.scenarioId === result.scenarioId && sameModel(entry, result));
         if (before) return before.passed;
       }
       return false;

@@ -4,8 +4,9 @@ import { projectRemovalLines, projectRemovalProgress } from './project-removal-t
 describe('what the delete-project popup says', () => {
   it('lists what goes with the project', () => {
     expect(projectRemovalLines({
-      name: 'shop', repository: 'koala-bo/shop', trees: [{ id: 't1', name: 'Shop features', leaves: 3, conversations: 1 }], keptConversations: 2, builds: 1, blockers: [], state: { state: 'none' },
+      name: 'shop', repository: 'koala-bo/shop', trees: [{ id: 't1', name: 'Shop features', leaves: 3, conversations: 1 }], keptConversations: 2, builds: 1, apps: ['shop'], state: { state: 'none' },
     })).toEqual([
+      'The app “shop” running on its cluster, with its databases and files',
       'The repository koala-bo/shop, with its history and its build webhook',
       'The tree “Shop features”, with 3 leaves, their tasks and plans, 1 conversation and its sandbox',
       '1 build and their logs',
@@ -14,7 +15,8 @@ describe('what the delete-project popup says', () => {
   })
 
   it('says which step it is on, or why it stopped', () => {
-    expect(projectRemovalProgress({ state: 'running', done: ['workflows'] })).toBe('Deleting its workspaces (2 of 5)')
+    expect(projectRemovalProgress({ state: 'running', done: ['workflows'] })).toBe('Removing its apps from their clusters (2 of 6)')
+    expect(projectRemovalProgress({ state: 'running', done: ['workflows', 'apps'] })).toBe('Deleting its workspaces (3 of 6)')
     expect(projectRemovalProgress({ state: 'failed', reason: 'Gitea is down' })).toBe('Stopped: Gitea is down')
     expect(projectRemovalProgress({ state: 'finished' })).toBe('Deleted')
   })

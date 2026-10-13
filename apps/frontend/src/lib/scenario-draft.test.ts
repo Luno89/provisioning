@@ -144,6 +144,13 @@ describe('a turn check as a form', () => {
     expect(scenarioFromDraft(draftOf(turn))).toEqual({ scenario: turn })
   })
 
+  it('keeps a check off the bench only when it says so', () => {
+    expect(draftOf(turn).onBench).toBe(true)
+    const off = { ...turn, onBench: false }
+    expect(draftOf(off).onBench).toBe(false)
+    expect(scenarioFromDraft(draftOf(off))).toEqual({ scenario: off })
+  })
+
   it('runs the turn procedure, expects only the choice, and treats a blank tool as answering without one', () => {
     const outcome = scenarioFromDraft({ ...emptyDraft('koala'), id: 'turn-declines', name: 'Declines', describe: 'x', message: 'What is a secret reference?', turn: true, toolsCalled: 'read_file', outcome: 'ok' })
     expect(outcome).toEqual({ scenario: expect.objectContaining({ procedure: { id: 'turn-check' }, turn: true, expect: { chooses: { tool: null } } }) })

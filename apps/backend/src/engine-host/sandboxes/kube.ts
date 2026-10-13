@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { WORKSPACE_STAMP } from '../../lib/published-workspace.js';
 import { createReadStream, createWriteStream } from 'fs';
 import path from 'path';
 
@@ -6,10 +7,14 @@ export interface KubeResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  stopped?: 'timeout' | 'cancelled' | undefined;
 }
 
 export interface KubeRunOptions {
   outputChars?: number | undefined;
+  untimed?: boolean | undefined;
+  signal?: AbortSignal | undefined;
+  onStop?: ((why: 'timeout' | 'cancelled') => Promise<void>) | undefined;
 }
 
 export interface KubeRunner {
@@ -76,17 +81,32 @@ export function createKubeRunner(options: { binDir?: string; kubeconfig?: string
     const stderr: Buffer[] = [];
     const outputChars = runOptions.outputChars ?? MAX_OUTPUT_CHARS;
 
-    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    let stopped: 'timeout' | 'cancelled' | undefined;
+    const stop = (why: 'timeout' | 'cancelled'): void => {
+      if (stopped) return;
+      stopped = why;
+      const ended = runOptions.onStop ? runOptions.onStop(why).catch(() => undefined) : Promise.resolve();
+      void ended.finally(() => child.kill('SIGKILL'));
+    };
+    const timer = runOptions.untimed ? undefined : setTimeout(() => stop('timeout'), timeoutMs);
+    const onAbort = (): void => stop('cancelled');
+    if (runOptions.signal?.aborted) onAbort();
+    else runOptions.signal?.addEventListener('abort', onAbort, { once: true });
+    const settle = (): void => {
+      if (timer) clearTimeout(timer);
+      runOptions.signal?.removeEventListener('abort', onAbort);
+    };
 
     child.stdout.on('data', (chunk: Buffer) => { stdout.push(chunk); });
     child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk); });
-    child.on('error', (err) => { clearTimeout(timer); reject(err); });
+    child.on('error', (err) => { settle(); reject(err); });
     child.on('close', (code) => {
-      clearTimeout(timer);
+      settle();
       resolve({
         stdout: Buffer.concat(stdout).toString().slice(0, outputChars),
         stderr: Buffer.concat(stderr).toString().slice(0, MAX_OUTPUT_CHARS),
         exitCode: code ?? -1,
+        ...(stopped ? { stopped } : {}),
       });
     });
 
@@ -142,6 +162,17 @@ export async function destroyWorkspace(run: KubeRunner, namespace: string): Prom
 
 export async function retirePod(run: KubeRunner, namespace: string, pod: string): Promise<void> {
   await run(['delete', 'pod', pod, '-n', namespace, '--ignore-not-found', '--wait=true'], undefined, 60_000);
+}
+
+export async function workspaceStampOf(run: KubeRunner, namespace: string, pod: string): Promise<{ running: boolean; stamp?: string | undefined }> {
+  const got = await run(
+    ['get', 'pod', pod, '-n', namespace, '-o', `jsonpath={.status.phase}{"\\t"}{.metadata.annotations.${WORKSPACE_STAMP.replaceAll('.', '\\.')}}`],
+    undefined,
+    15_000,
+  );
+  if (got.exitCode !== 0) return { running: false };
+  const [phase = '', stamp = ''] = got.stdout.trim().split('\t');
+  return { running: phase === 'Running', ...(stamp ? { stamp } : {}) };
 }
 
 export async function workspaceRunning(run: KubeRunner, namespace: string, pod: string): Promise<boolean> {

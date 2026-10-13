@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toolChoices } from './tool-grants'
+import { toolChoices, toolOrigins } from './tool-grants'
 import type { GrantableTool } from '../api/agents'
 
 const tool = (name: string, binding: string, effect: GrantableTool['effect'], summary = ''): GrantableTool => ({ name, binding, effect, summary, needs: [] })
@@ -30,5 +30,21 @@ describe('choosing an agent\'s tools', () => {
 
   it('names a granted tool the catalogue no longer has, so it can be taken away', () => {
     expect(toolChoices(['write_file', 'gone_tool'], CATALOGUE).unknown).toEqual(['gone_tool'])
+  })
+})
+
+describe('where an agent\'s tools come from', () => {
+  it('marks each held tool built in or yours, and lists the built-in ones taken away', () => {
+    const sources = [
+      { tool: 'read_file', source: 'shipped' as const },
+      { tool: 'run_command', source: 'revoked' as const },
+      { tool: 'browser', source: 'granted' as const },
+    ]
+    expect(toolOrigins(['read_file', 'browser'], sources)).toEqual({ of: { read_file: 'built-in', browser: 'yours' }, takenAway: ['run_command'] })
+    expect(toolOrigins(['run_command', 'browser'], sources)).toEqual({ of: { run_command: 'built-in', browser: 'yours' }, takenAway: ['read_file'] })
+  })
+
+  it('says nothing about origins for an agent of your own, whose every tool is yours', () => {
+    expect(toolOrigins(['read_file'], [{ tool: 'read_file', source: 'granted' }])).toEqual({ of: {}, takenAway: [] })
   })
 })

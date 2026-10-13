@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { projectRemovalBlockers, projectRemovalPreview, projectRemovalScope, projectWorkflowIds, type ProjectWorld } from './project-removal.js';
+import { projectApps, projectRemovalPreview, projectRemovalScope, projectWorkflowIds, type ProjectWorld } from './project-removal.js';
 
 const project = { id: 'p1', name: 'shop', ownerId: 'bo', giteaOwner: 'koala-bo', giteaRepo: 'shop' };
 
@@ -31,14 +31,30 @@ describe('what deleting a project takes with it', () => {
   });
 
   it('says what it will do, for the person to read before agreeing', () => {
-    expect(projectRemovalPreview(project, projectRemovalScope(project, world()), [])).toEqual({
-      name: 'shop', repository: 'koala-bo/shop', trees: [{ id: 't1', name: 'Shop features', leaves: 1, conversations: 1 }], keptConversations: 1, builds: 2, blockers: [],
+    expect(projectRemovalPreview(project, projectRemovalScope(project, world()))).toEqual({
+      name: 'shop', repository: 'koala-bo/shop', trees: [{ id: 't1', name: 'Shop features', leaves: 1, conversations: 1 }], keptConversations: 1, builds: 2, apps: [],
     });
   });
 
-  it('is refused while an app built from it is deployed', () => {
-    expect(projectRemovalBlockers(project, { deployments: [{ id: 'd1', name: 'shop-web', clusterId: 'c', strategy: 'helm', gitappProjectId: 'p1' } as never] }))
-      .toEqual(['the app "shop-web" built from it is still deployed; remove it first']);
-    expect(projectRemovalBlockers(project, { deployments: [] })).toEqual([]);
+  it('takes the apps built from it, by their project or, for an older one, by its name, and only the owner\'s', () => {
+    const deployments = [
+      { id: 'd1', name: 'shop', clusterId: 'c', strategy: 'helm', appType: 'odoo-project', ownerId: 'bo', gitappProjectId: 'p1' },
+      { id: 'd2', name: 'shop', clusterId: 'c', strategy: 'helm', appType: 'gitapp', ownerId: 'bo' },
+      { id: 'd3', name: 'shop', clusterId: 'c', strategy: 'helm', appType: 'gitapp', ownerId: 'bo', gitappProjectId: 'p9' },
+      { id: 'd4', name: 'wordpress', clusterId: 'c', strategy: 'helm', appType: 'wordpress', ownerId: 'bo' },
+      { id: 'd5', name: 'shop', clusterId: 'c', strategy: 'helm', appType: 'odoo-project', ownerId: 'cy', gitappProjectId: 'p1' },
+    ] as never[];
+    expect(projectApps(project, deployments).map((app: { id: string }) => app.id)).toEqual(['d1', 'd2', 'd5']);
+    const scope = projectRemovalScope(project, world({ deployments }));
+    expect(scope.apps).toEqual([{ id: 'd1', name: 'shop' }, { id: 'd2', name: 'shop' }]);
+    expect(projectRemovalPreview(project, scope).apps).toEqual(['shop', 'shop']);
+  });
+});
+
+describe('the channel of a project being deleted', () => {
+  it('goes with it, while other chats about it are kept and unlinked', () => {
+    const scope = projectRemovalScope(project, world({ trees: [], conversations: [{ id: 'channel-p1', ownerId: 'bo', projectId: 'p1', kind: 'channel' }, { id: 'side', ownerId: 'bo', projectId: 'p1' }] }));
+    expect(scope.channelIds).toEqual(['channel-p1']);
+    expect(scope.keptConversationIds).toEqual(['side']);
   });
 });

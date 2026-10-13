@@ -1,4 +1,4 @@
-import type { Conversation } from './conversations.js';
+import type { Conversation, ConversationMessage } from './conversations.js';
 import { hintKey, type McpToolHint } from './mcp-tool-hints.js';
 import type { BenchSettings, BenchState } from './bench.js';
 import type { ExtensionSettings } from './extension-settings.js';
@@ -26,7 +26,9 @@ import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import type { TurnLogEntry } from './turn-log.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
-import type { Persona as EnginePersona, ToolDefinition as EngineTool } from '@koala/agent-engine';
+import { kindOfGrant, type GrantKind, type PersonaRecord as EnginePersona, type ToolDefinition as EngineTool, type ToolGrant } from '@koala/agent-engine';
+import type { PublishedWorkspace } from './published-workspace.js';
+import type { McpServerRecord } from './mcp-servers.js';
 import { evalRecordKey, type EvalCollection, type EvalRecord } from './eval-run.js';
 import type { TreeTypeSpec } from './tree-types.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
@@ -84,6 +86,9 @@ export class MemoryDB implements Database {
   private benchSettings = new Map<string, BenchSettings>();
   private benchStates = new Map<string, BenchState>();
   private enginePersonas: EnginePersona[] = [];
+  private toolGrants: ToolGrant[] = [];
+  private publishedWorkspaces: PublishedWorkspace[] = [];
+  private mcpServers: McpServerRecord[] = [];
   private engineTools: EngineTool[] = [];
   private evalRecords = new Map<EvalCollection, Map<string, EvalRecord & { state?: unknown; startedAt?: unknown }>>();
   private bindingTypes: BindingTypeRecord[] = [];
@@ -263,12 +268,14 @@ export class MemoryDB implements Database {
     const conversations = this.conversations.filter((entry) => entry.ownerId === ownerId);
     const turns = this.turnLogs.filter((entry) => entry.ownerId === ownerId).map((entry) => entry.turnId);
     const live = conversations.map((entry) => entry.liveTurn?.runId).filter((id): id is string => typeof id === 'string');
+    const projectIds = this.projects.filter((entry) => entry.ownerId === ownerId).map((entry) => entry.id);
     return {
       runIds: [...new Set([...turns, ...live])],
       treeIds: this.trees.filter((entry) => entry.ownerId === ownerId).map((entry) => entry.id),
       conversationIds: conversations.map((entry) => entry.id),
       proposalIds: this.planProposals.filter((entry) => entry.ownerId === ownerId).map((entry) => entry.id),
-      projectIds: this.projects.filter((entry) => entry.ownerId === ownerId).map((entry) => entry.id),
+      projectIds,
+      buildWorkflowIds: this.pipelineRuns.filter((run) => projectIds.includes(run.projectId) && ['queued', 'running'].includes(run.status)).map((run) => run.temporalWorkflowId).filter((id): id is string => typeof id === 'string'),
       ingestIds: [...new Set(this.corpus.filter((entry) => entry.ownerId === ownerId).map((entry) => entry.ingestId).filter((id): id is string => typeof id === 'string'))],
     };
   }
@@ -319,6 +326,9 @@ export class MemoryDB implements Database {
     this.egressGrants = sweep('egressGrants', this.egressGrants);
     this.egressRequests = sweep('egressRequests', this.egressRequests);
     this.enginePersonas = sweep('enginePersonas', this.enginePersonas);
+    this.toolGrants = sweep('toolGrants', this.toolGrants);
+    this.publishedWorkspaces = sweep('publishedWorkspaces', this.publishedWorkspaces);
+    this.mcpServers = sweep('mcpServers', this.mcpServers);
     this.engineTools = sweep('engineTools', this.engineTools);
     this.leaves = sweep('leaves', this.leaves);
     this.localAgentDevices = sweep('localAgentDevices', this.localAgentDevices);
@@ -600,6 +610,31 @@ export class MemoryDB implements Database {
     return true;
   }
 
+  async bindConversation(ownerId: string, conversationId: string, binding: { treeId: string; projectId?: string | undefined }): Promise<boolean> {
+    const conversation = this.conversations.find((c) => c.id === conversationId && c.ownerId === ownerId);
+    if (!conversation || conversation.treeId) return false;
+    conversation.treeId = binding.treeId;
+    if (binding.projectId) conversation.projectId = binding.projectId;
+    conversation.updatedAt = new Date().toISOString();
+    return true;
+  }
+
+  async appendMessage(ownerId: string, conversationId: string, message: ConversationMessage): Promise<boolean> {
+    const conversation = this.conversations.find((c) => c.id === conversationId && c.ownerId === ownerId);
+    if (!conversation) return false;
+    conversation.messages = [...conversation.messages, message];
+    conversation.updatedAt = message.at;
+    return true;
+  }
+
+  async appendNotice(ownerId: string, conversationId: string, message: ConversationMessage): Promise<boolean> {
+    const conversation = this.conversations.find((c) => c.id === conversationId && c.ownerId === ownerId);
+    if (!conversation || !message.notice || conversation.messages.some((entry) => entry.notice?.key === message.notice!.key)) return false;
+    conversation.messages = [...conversation.messages, message];
+    conversation.updatedAt = message.at;
+    return true;
+  }
+
   async ownsRun(ownerId: string, runId: string): Promise<boolean> {
     return this.turnLogs.some((entry) => entry.ownerId === ownerId && (entry.turnId === runId || entry.events.some((event) => event.runId === runId)));
   }
@@ -791,10 +826,6 @@ export class MemoryDB implements Database {
 
   async getMcpToolHints(ownerId: string): Promise<McpToolHint[]> {
     return [...this.mcpToolHints.values()].filter((hint) => hint.ownerId === ownerId);
-  }
-
-  async saveMcpToolHint(hint: McpToolHint): Promise<void> {
-    this.mcpToolHints.set(hintKey(hint.ownerId, hint.server, hint.tool), { ...hint });
   }
 
   async deleteMcpToolHint(ownerId: string, server: string, tool: string): Promise<void> {
@@ -1020,6 +1051,52 @@ export class MemoryDB implements Database {
   async getEnginePersonas(ownerId?: string): Promise<EnginePersona[]> {
     if (ownerId === undefined) return [...this.enginePersonas];
     return this.enginePersonas.filter((p) => p.ownerId === ownerId || p.ownerId === undefined);
+  }
+
+  async getPublishedWorkspace(ownerId: string, treeId: string): Promise<PublishedWorkspace | undefined> {
+    const found = this.publishedWorkspaces.find((one) => one.ownerId === ownerId && one.treeId === treeId);
+    return found ? { ...found } : undefined;
+  }
+
+  async savePublishedWorkspace(workspace: PublishedWorkspace): Promise<void> {
+    this.publishedWorkspaces = [...this.publishedWorkspaces.filter((one) => !(one.ownerId === workspace.ownerId && one.treeId === workspace.treeId)), { ...workspace }];
+  }
+
+  async getMcpServers(ownerId: string): Promise<McpServerRecord[]> {
+    return this.mcpServers.filter((one) => one.ownerId === ownerId).sort((a, b) => a.name.localeCompare(b.name)).map((one) => structuredClone(one));
+  }
+
+  async saveMcpServer(server: McpServerRecord): Promise<void> {
+    this.mcpServers = [...this.mcpServers.filter((one) => !(one.ownerId === server.ownerId && one.id === server.id)), structuredClone(server)];
+  }
+
+  async deleteMcpServer(ownerId: string, id: string): Promise<void> {
+    this.mcpServers = this.mcpServers.filter((one) => !(one.ownerId === ownerId && one.id === id));
+  }
+
+  async deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void> {
+    this.publishedWorkspaces = this.publishedWorkspaces.filter((one) => !(one.ownerId === ownerId && one.treeId === treeId));
+  }
+
+  async getToolGrants(ownerId: string): Promise<ToolGrant[]> {
+    return this.toolGrants.filter((grant) => grant.ownerId === ownerId).map((grant) => ({ ...grant }));
+  }
+
+  async saveToolGrant(grant: ToolGrant & { ownerId: string }): Promise<void> {
+    const at = this.toolGrants.findIndex((one) => one.ownerId === grant.ownerId && one.agent === grant.agent && one.tool === grant.tool && kindOfGrant(one) === kindOfGrant(grant));
+    if (at >= 0) this.toolGrants[at] = { ...grant };
+    else this.toolGrants.push({ ...grant });
+  }
+
+  async deleteToolGrant(ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): Promise<void> {
+    this.toolGrants = this.toolGrants.filter((one) => !(one.ownerId === ownerId && one.agent === agent && one.tool === tool && kindOfGrant(one) === (kind ?? 'tool')));
+  }
+
+  async deleteToolGrantsFor(ownerId: string | undefined, of: { agent?: string; tool?: string; kind?: GrantKind | undefined }): Promise<number> {
+    const gone = (one: ToolGrant) => (ownerId === undefined || one.ownerId === ownerId) && (!of.agent || one.agent === of.agent) && (!of.tool || one.tool === of.tool) && (!of.kind || kindOfGrant(one) === of.kind);
+    const before = this.toolGrants.length;
+    this.toolGrants = this.toolGrants.filter((one) => !gone(one));
+    return before - this.toolGrants.length;
   }
 
   async getEngineTools(ownerId?: string): Promise<EngineTool[]> {

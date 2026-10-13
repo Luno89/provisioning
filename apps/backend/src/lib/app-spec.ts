@@ -202,7 +202,7 @@ function probeFor(probe: SpecProbe) {
 
 export const MINIO_SPEC: AppSpec = {
   id: 'minio',
-  image: 'minio/minio:latest',
+  image: 'pgsty/minio:RELEASE.2026-03-14T12-00-00Z',
   args: ['server', '/data', '--console-address', ':9001'],
   ports: [{ name: 's3', port: 9000 }, { name: 'console', port: 9001 }],
   env: [

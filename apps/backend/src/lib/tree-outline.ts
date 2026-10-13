@@ -1,10 +1,11 @@
 import type { Branch, Leaf } from './leaves.js';
 import type { Task } from '../engine-host/tools/tasks.js';
 import type { Tree } from './trees.js';
+import { byRank } from './work-order.js';
 
 export type OutlineTree = Pick<Tree, 'id' | 'name' | 'type' | 'goal'>;
-export type OutlineBranch = Pick<Branch, 'id' | 'treeId' | 'title'>;
-export type OutlineLeaf = Pick<Leaf, 'id' | 'branchId' | 'title' | 'body' | 'status' | 'dependsOn'>;
+export type OutlineBranch = Pick<Branch, 'id' | 'treeId' | 'title'> & Partial<Pick<Branch, 'priority' | 'createdAt'>>;
+export type OutlineLeaf = Pick<Leaf, 'id' | 'branchId' | 'title' | 'body' | 'status' | 'dependsOn'> & Partial<Pick<Leaf, 'priority' | 'createdAt'>>;
 export type OutlineTask = Pick<Task, 'leafId' | 'status'>;
 
 export const MAX_OUTLINE_LEAVES = 60;
@@ -15,7 +16,7 @@ export function treeOutline(
   leaves: readonly OutlineLeaf[],
   tasks: readonly OutlineTask[] = [],
 ): string {
-  const own = branches.filter((branch) => branch.treeId === tree.id);
+  const own = branches.filter((branch) => branch.treeId === tree.id).sort(byRank);
   const header = [
     `Tree "${tree.name}" (${tree.id}), type ${tree.type}.`,
     tree.goal ? `Goal: ${tree.goal}` : 'Goal: not written down.',
@@ -23,7 +24,7 @@ export function treeOutline(
 
   let shown = 0;
   const sections = own.map((branch) => {
-    const under = leaves.filter((leaf) => leaf.branchId === branch.id && leaf.status !== 'cancelled');
+    const under = leaves.filter((leaf) => leaf.branchId === branch.id && leaf.status !== 'cancelled').sort(byRank);
     const lines = under.slice(0, Math.max(0, MAX_OUTLINE_LEAVES - shown)).map((leaf) => {
       const live = tasks.filter((task) => task.leafId === leaf.id && task.status !== 'proposed' && task.status !== 'dropped');
       const done = live.filter((task) => task.status === 'done').length;

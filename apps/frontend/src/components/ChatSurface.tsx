@@ -1,18 +1,23 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, AlertTriangle, X } from 'lucide-react';
 import CollapsibleHistoryList from './CollapsibleHistoryList.js';
 import AgentConfigDrawer from './AgentConfigDrawer.js';
 import ModelConfigDrawer from './ModelConfigDrawer.js';
 import KoalaLoading from './KoalaLoading.js';
 import ChatHero from './Chat/ChatHero.js';
+import { ConversationContext } from './Chat/ConversationContext.js';
 import ChatComposer, { type PersonaPackOption } from './Chat/ChatComposer.js';
 import ChatMessageRow from './Chat/ChatMessageRow.js';
+import ChatNotice, { type StoryAddress } from './Chat/ChatNotice.js';
 import DocumentPanel from './DocumentPanel.js';
 import type { FileArtifact } from './Chat/ChatToolCallCard.js';
 import { listAgents, agentKeys, type Agent } from '../api/agents';
 import { listModels, providerKeys, useDefaultModel, type ModelProvider } from '../api/models';
-import type { ConversationBinding } from '../api/chat-pack.js';
+import { chatPackKeys, type ConversationBinding } from '../api/chat-pack.js';
+import { postChannelMessage } from '../api/project-channel.js';
+import { addressOf, channelAsksKoala, goesToKoala, rememberChannelAsks } from '../lib/channel-asks.js';
+import { errorMessage } from '../api/client.js';
 import { modelOptionLabel } from '../lib/model-label';
 import { type ChatMessageRecord } from './Chat/chat-stream.js';
 import { useChatScroll } from './Chat/hooks/useChatScroll.js';
@@ -44,8 +49,12 @@ export interface ChatSurfaceProps {
   modelId?: string | undefined;
   initialMessages?: ChatMessageRecord[] | undefined;
   hideSidebar?: boolean | undefined;
+  channel?: boolean | undefined;
+  pinned?: boolean | undefined;
+  intro?: ReactNode | undefined;
   onConversationChange?: ((conversationId: string | null) => void) | undefined;
   onOpenTree?: ((treeId: string) => void) | undefined;
+  onOpenStory?: ((story: StoryAddress) => void) | undefined;
   binding?: ConversationBinding | undefined;
   autoSend?: { text: string; onSent?: (() => void) | undefined } | undefined;
 }
@@ -56,8 +65,12 @@ export default function ChatSurface({
   modelId,
   initialMessages = [],
   hideSidebar = false,
+  channel = false,
+  pinned = false,
+  intro,
   onConversationChange,
   onOpenTree,
+  onOpenStory,
   binding,
   autoSend,
 }: ChatSurfaceProps) {
@@ -67,6 +80,7 @@ export default function ChatSurface({
   const [openDocument, setOpenDocument] = useState<FileArtifact | undefined>(undefined);
   const showDocument = useCallback((file: FileArtifact) => setOpenDocument(file), []);
 
+  const qc = useQueryClient();
   const conv = useConversationTurn({
     externalConvId,
     externalSessionId,
@@ -152,6 +166,21 @@ export default function ChatSurface({
   const isLoadingThread = conv.loadingConversation && renderedMessages.length === 0 && !streaming;
   const isConversationEmpty = renderedMessages.length === 0 && !streaming && !isLoadingThread;
 
+  const [askingKoala, setAskingKoala] = useState(() => Boolean(channel && externalConvId && channelAsksKoala(externalConvId)));
+  const toggleAskingKoala = () => {
+    const next = !askingKoala;
+    setAskingKoala(next);
+    if (conv.selectedConvId) rememberChannelAsks(conv.selectedConvId, next);
+  };
+  const localFrom = renderedMessages.length - conv.localMessages.length;
+  const askKoalaAbout = (message: ChatMessageRecord) => {
+    if (streaming || !message.at) return;
+    setError(null);
+    setIsAtBottom(true);
+    requestAnimationFrame(scrollToBottomInstant);
+    void conv.sendConversationTurn(message.content, { asks: message.at });
+  };
+
   const handleSend = (rawText: string) => {
     const text = rawText.trim();
     if (!text || streaming) return;
@@ -159,6 +188,13 @@ export default function ChatSurface({
     setError(null);
     setIsAtBottom(true);
     requestAnimationFrame(scrollToBottomInstant);
+    if (channel && conv.selectedConvId && !goesToKoala(text, askingKoala)) {
+      const id = conv.selectedConvId;
+      void postChannelMessage(id, text)
+        .then(() => qc.invalidateQueries({ queryKey: chatPackKeys.conversation(id) }))
+        .catch((err: unknown) => setError(errorMessage(err)));
+      return;
+    }
     void conv.sendConversationTurn(text);
   };
 
@@ -184,11 +220,16 @@ export default function ChatSurface({
       {...(toolCount !== undefined ? { toolCount } : {})}
       modelLabel={modelLabel}
       onOpenModelDrawer={() => setShowModelDrawer(true)}
+      {...(channel ? {
+        placeholder: askingKoala ? 'Ask Koala — it answers in the channel' : 'Post to the channel — start with @koala to ask Koala',
+        channelAsk: { on: askingKoala, onToggle: toggleAskingKoala },
+      } : {})}
     />
   );
 
   return (
     <div className="flex flex-col h-full min-h-0 w-full bg-[var(--bark-950,#090d0b)] text-slate-200 font-sans overflow-hidden">
+      {(!(channel || pinned) || mcpServers.length > 0) && (
       <ChatHeader
         hideSidebar={hideSidebar}
         showHistory={showHistory}
@@ -196,11 +237,13 @@ export default function ChatSurface({
         selectedConvId={conv.selectedConvId}
         activeConversation={conv.activeConversation}
         conversations={conv.conversations}
-        onSelectConversation={(id) => {
-          conv.setSelectedConvId(id);
-          onConversationChange?.(id);
-        }}
-        onNewChat={() => conv.createMutation.mutate()}
+        {...(channel || pinned ? {} : {
+          onSelectConversation: (id: string) => {
+            conv.setSelectedConvId(id);
+            onConversationChange?.(id);
+          },
+        })}
+        {...(channel || pinned ? {} : { onNewChat: () => conv.createMutation.mutate() })}
         isCreatingChat={conv.createMutation.isPending}
         actions={conv.selectedConvId ? (
           <McpServersMenu
@@ -211,6 +254,7 @@ export default function ChatSurface({
           />
         ) : undefined}
       />
+      )}
 
       <div className="flex-1 min-h-0 flex flex-col sm:flex-row overflow-hidden relative">
         {!hideSidebar && (
@@ -232,11 +276,21 @@ export default function ChatSurface({
           {isConversationEmpty ? (
             <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 flex flex-col justify-center items-center">
               <div className="w-full max-w-3xl space-y-6">
-                <ChatHero
-                  packName={activePack?.name ?? 'Koala'}
-                  onSelectPrompt={(p) => handleSend(p)}
-                  onOpenPersona={openPersonaDrawer}
-                />
+                {intro ? (
+                  <div className="text-center space-y-2 text-slate-400" data-testid="chat-intro">{intro}</div>
+                ) : channel ? (
+                  <div className="text-center space-y-2 text-slate-400" data-testid="channel-empty">
+                    <p className="text-[14px] text-slate-200">This is the project&apos;s channel.</p>
+                    <p className="text-[12px]">What happens to the project lands here: previews to look at, releases, trees that finish. Write here to post a note for the project; start with @koala, or turn on Ask Koala below, to ask Koala.</p>
+                  </div>
+                ) : (
+                  <ChatHero
+                    packName={activePack?.name ?? 'Koala'}
+                    onSelectPrompt={(p) => handleSend(p)}
+                    onOpenPersona={openPersonaDrawer}
+                  />
+                )}
+                {conv.selectedConvId && <ConversationContext conversationId={conv.selectedConvId} channel={channel} />}
                 {composer}
               </div>
             </div>
@@ -250,14 +304,22 @@ export default function ChatSurface({
                 <div className="max-w-4xl mx-auto w-full space-y-0 pb-36">
                   {isLoadingThread && <KoalaLoading label="Fetching this conversation…" />}
 
-                  {renderedMessages.map((msg, idx) => (
-                    <ChatMessageRow
-                      key={idx}
-                      message={msg}
-                      packLabel={activePack?.label ?? ''}
-                      onOpenDocument={showDocument}
-                    />
-                  ))}
+                  {conv.selectedConvId && <ConversationContext conversationId={conv.selectedConvId} channel={channel} />}
+
+                  {renderedMessages.map((msg, idx) => (msg.role === 'notice' && msg.notice
+                    ? <ChatNotice key={idx} notice={msg.notice} at={msg.at} onOpenTree={onOpenTree} onOpenStory={onOpenStory} />
+                    : (
+                      <ChatMessageRow
+                        key={idx}
+                        message={msg}
+                        packLabel={activePack?.label ?? ''}
+                        onOpenDocument={showDocument}
+                        {...(channel ? {
+                          address: addressOf(msg, idx >= localFrom),
+                          ...(!streaming && msg.at && !msg.runId && idx < localFrom ? { onAskKoala: () => askKoalaAbout(msg) } : {}),
+                        } : {})}
+                      />
+                    )))}
 
                   {planProposals.plans.map((proposal) => (
                     <PlanProposalCard

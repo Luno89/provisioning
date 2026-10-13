@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { MockActivityEnvironment } from '@temporalio/testing';
 import { createDeviceActivities, deviceQueue, DEVICE_TOOLS } from './engine-worker.js';
 
 let rootDir: string;
@@ -115,5 +116,25 @@ describe('device tool activity', () => {
 
   it('only offers environment tools, since a machine has no platform tools', () => {
     expect(DEVICE_TOOLS.every((tool) => tool.binding === 'environment')).toBe(true);
+  });
+});
+
+describe('a command on the person\'s own machine', () => {
+  it('runs until it ends, and stops with everything it started when the run is stopped', async () => {
+    const env = new MockActivityEnvironment();
+    const running = env.run(activities().EngineToolActivity, call({ name: 'run_command', arguments: JSON.stringify({ command: 'sleep 30 & sleep 30' }) }));
+    setTimeout(() => env.cancel(), 300);
+    const outcome = await running as Awaited<ReturnType<ReturnType<typeof activities>["EngineToolActivity"]>>;
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.content).toContain('[stopped because the run was stopped; everything it started was stopped too]');
+  });
+
+  it('stops at the timeoutSeconds the call set, and says so', async () => {
+    const outcome = await activities().EngineToolActivity(call({ name: 'run_command', arguments: JSON.stringify({ command: 'echo started; sleep 30', timeoutSeconds: 1 }) }));
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.content).toContain('started');
+    expect(outcome.content).toContain('[stopped after 1s, the timeoutSeconds this call set; everything it started was stopped too]');
   });
 });

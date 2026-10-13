@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { stateFor, blockedBy, BOARD_COLUMNS, STATE_LABEL, landingNote, leafDocuments, type LeafStatus } from './leaf-types.js';
 
-const leaf = (over: Partial<{ status: LeafStatus; verified: boolean; dependsOn: string[] }>) =>
+const leaf = (over: Partial<{ status: LeafStatus; verified: boolean; dependsOn: string[]; waitingFor: { reason: string; since: string } }>) =>
   ({ status: 'pending' as LeafStatus, ...over });
 
 describe('the server and the UI naming the same state', () => {
@@ -12,6 +12,10 @@ describe('the server and the UI naming the same state', () => {
 
     const done = [{ id: 'd', status: 'succeeded' as LeafStatus }];
     expect(blockedBy({ dependsOn: ['d'] }, done)).toHaveLength(0);
+  });
+
+  it('blocks a story put aside until its workspace is rebuilt, as the server keeps it out of the ready ones', () => {
+    expect(stateFor(leaf({ status: 'pending', waitingFor: { reason: 'waits for jq', since: 't' } }), [])).toBe('blocked');
   });
 
   it('ignores a dependency that no longer exists', () => {

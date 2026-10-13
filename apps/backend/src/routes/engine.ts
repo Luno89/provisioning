@@ -1,6 +1,7 @@
 import type { ExtensionService, ExtensionState } from '../services/ExtensionService.js';
 import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
+import { NoNoteToAskError } from '../lib/conversations.js';
 import type { ApprovalService } from '../services/ApprovalService.js';
 import {
   AccountClosingError,
@@ -59,6 +60,7 @@ const fail = (res: Response, err: unknown): Response => {
   if (err instanceof UnknownAgentError) return res.status(404).json({ error: err.message });
   if (err instanceof UnknownProcedureError) return res.status(404).json({ error: err.message });
   if (err instanceof SwitchedOffError) return res.status(409).json({ error: err.message, code: 'SWITCHED_OFF' });
+  if (err instanceof NoNoteToAskError) return res.status(409).json({ error: err.message });
   throw err;
 };
 
@@ -186,7 +188,7 @@ export function engineRouter(deps: EngineRouterDeps): Router {
   router.post('/tasks/:taskId/drop', decide('dropped'));
 
   router.post('/runs', asyncRoute(async (req: Request, res: Response) => {
-    const { agent, message, inputs, conversationId, modelId, temperature, procedure } = req.body ?? {};
+    const { agent, message, inputs, conversationId, modelId, temperature, procedure, asks } = req.body ?? {};
 
     if (typeof agent !== 'string' || !agent.trim()) {
       return res.status(400).json({ error: 'agent is required' });
@@ -196,6 +198,9 @@ export function engineRouter(deps: EngineRouterDeps): Router {
     }
     const knobProblem = temperatureProblem(temperature);
     if (knobProblem) return res.status(400).json({ error: knobProblem });
+    if (asks !== undefined && (typeof asks !== 'string' || !asks || typeof conversationId !== 'string')) {
+      return res.status(400).json({ error: 'asks names the time of a posted message, and needs its conversationId' });
+    }
 
     try {
       const started = await deps.runs.start({
@@ -207,6 +212,7 @@ export function engineRouter(deps: EngineRouterDeps): Router {
         ...(typeof modelId === 'string' && modelId ? { modelId } : {}),
         ...(temperature === undefined ? {} : { sampling: samplingAt(temperature) }),
         ...(typeof procedure === 'string' && procedure.trim() ? { procedureId: procedure.trim() } : {}),
+        ...(typeof asks === 'string' ? { asks } : {}),
       });
       return res.status(201).json(started);
     } catch (err) {

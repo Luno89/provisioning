@@ -24,6 +24,7 @@ afterAll(async () => {
 const fakeSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {}): AccountRemovalActivities => ({
   RemoveAccountWorkflowsActivity: async () => { seen.push('workflows'); return 0; },
   RemoveAccountKeepRunsActivity: async ({ keepRunsFor }) => { seen.push(`keep for ${keepRunsFor}`); return 3; },
+  RemoveAccountAppsActivity: async () => { seen.push('apps'); return []; },
   RemoveAccountWorkspacesActivity: async () => { seen.push('workspaces'); return 'deleted'; },
   RemoveAccountSecretsActivity: async () => { seen.push('secrets'); return 0; },
   RemoveAccountMeshActivity: async () => { seen.push('mesh'); return { devices: 1, user: true }; },
@@ -53,16 +54,16 @@ const until = async <T>(probe: () => Promise<T | undefined>): Promise<T> => {
 };
 
 describe('removing an account through Temporal', () => {
-  it('stops its workflows, then deletes its workspaces, secrets, mesh, repositories and records, in that order', async () => {
+  it('stops its workflows, then destroys its apps and deletes its workspaces, secrets, mesh, repositories and records, in that order', async () => {
     const seen: string[] = [];
     await withWorker(fakeSteps(seen), async (workflows) => {
       await workflows.start(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('bo'), [{ ownerId: 'bo' }], 'bo');
       expect(await env.client.workflow.getHandle(removeAccountWorkflowId('bo')).result()).toEqual({
-        stoppedWorkflows: 0, secrets: 0, meshDevices: 1, repositories: true, records: { conversations: 3, users: 1 },
+        stoppedWorkflows: 0, apps: 0, secrets: 0, meshDevices: 1, repositories: true, records: { conversations: 3, users: 1 },
       });
       expect(await workflows.state(removeAccountWorkflowId('bo'))).toEqual({ state: 'finished' });
     });
-    expect(seen).toEqual(['workflows', 'workspaces', 'secrets', 'mesh', 'repositories', 'records']);
+    expect(seen).toEqual(['workflows', 'apps', 'workspaces', 'secrets', 'mesh', 'repositories', 'records']);
   }, 60_000);
 
   it('says how far it has got while it runs', async () => {
@@ -72,9 +73,9 @@ describe('removing an account through Temporal', () => {
       await workflows.start(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('cy'), [{ ownerId: 'cy' }], 'cy');
       const midway = await until(async () => {
         const state = await workflows.state(removeAccountWorkflowId('cy'));
-        return state.state === 'running' && state.done.length === 3 ? state : undefined;
+        return state.state === 'running' && state.done.length === 4 ? state : undefined;
       });
-      expect(midway).toEqual({ state: 'running', done: ['workflows', 'workspaces', 'secrets'] });
+      expect(midway).toEqual({ state: 'running', done: ['workflows', 'apps', 'workspaces', 'secrets'] });
       release();
       await env.client.workflow.getHandle(removeAccountWorkflowId('cy')).result();
     });
@@ -86,6 +87,27 @@ describe('removing an account through Temporal', () => {
       await env.client.workflow.getHandle(removeAccountWorkflowId('dee')).result().catch(() => undefined);
       expect(await workflows.state(removeAccountWorkflowId('dee'))).toEqual({ state: 'failed', reason: 'Gitea would not delete the user koala-dee (HTTP 500)' });
     });
+  }, 60_000);
+
+  it('destroys each of its apps on the cluster worker before it deletes anything else', async () => {
+    const seen: string[] = [];
+    const clusterQueue = `remove-account-apps-${Math.random().toString(36).slice(2, 8)}`;
+    const destroyed: string[] = [];
+    const clusterWorker = await Worker.create({
+      connection: env.nativeConnection,
+      taskQueue: clusterQueue,
+      workflowsPath: resolve(__dirname, 'DestroyAppWorkflow.ts'),
+      activities: { DestroyAppActivity: async (args: { name: string; namespace?: string }) => { destroyed.push(`${args.name} in ${args.namespace}`); seen.push('destroyed'); return { status: 'destroyed', msg: '' }; } },
+    });
+    const app = { name: 'shop', clusterId: 'c', clusterName: 'system', provider: 'k3d', strategy: 'helm', logFile: '/tmp/x.log', appType: 'odoo-project', namespace: 'shop-1a2b3c' };
+    await clusterWorker.runUntil(withWorker(fakeSteps(seen, {
+      RemoveAccountAppsActivity: async () => { seen.push('apps'); return [{ deploymentId: 'd1', workflowId: `app-destroy-shop-${clusterQueue}`, taskQueue: clusterQueue, args: app }]; },
+    }), async (workflows) => {
+      await workflows.start(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('eve'), [{ ownerId: 'eve' }], 'eve');
+      expect(await env.client.workflow.getHandle(removeAccountWorkflowId('eve')).result()).toMatchObject({ apps: 1 });
+    }));
+    expect(destroyed).toEqual(['shop in shop-1a2b3c']);
+    expect(seen.slice(0, 4)).toEqual(['workflows', 'apps', 'destroyed', 'workspaces']);
   }, 60_000);
 
   it('knows nothing of an account that was never being removed', async () => {

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /* eslint-disable no-console */
+import path from 'path';
+import { DEFAULT_TARGET_CLUSTER } from './lib/project-shipping.js';
 import { stopIfRunning } from './lib/stop-workflow.js';
 import { createWorkspaceRepoResolver } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
@@ -10,14 +12,17 @@ import { fileURLToPath } from 'url';
 import { createDatabase, sharedPayloadBlobs } from './lib/db-interface.js';
 import { createPlanAdoption } from './engine-host/plan-adoption.js';
 import { GiteaService } from './services/GiteaService.js';
-import { InfrastructureService } from './services/InfrastructureService.js';
+import { InfrastructureService, LOG_DIR } from './services/InfrastructureService.js';
 import { createModelService } from './lib/model-wiring.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
 import { InfisicalService } from './services/InfisicalService.js';
 import { HeadscaleService } from './services/HeadscaleService.js';
 import { createAccountRemovalActivities } from './activities/RemoveAccountActivities.js';
-import { createProjectRemovalActivities } from './activities/RemoveProjectActivities.js';
+import { createProjectRemovalActivities, type AppTeardown } from './activities/RemoveProjectActivities.js';
+import { projectSecretsFor } from './services/ProjectSecretsService.js';
+import { ProjectChannelService } from './services/ProjectChannelService.js';
+import { createCheckReleases, createReleaseBrowserTestActivities, namespacedCluster } from './activities/ReleaseBrowserTestsActivity.js';
 import { createCheckProgressActivity, createCheckRunActivities } from './activities/CheckRunActivities.js';
 import { withSeedBundle } from './engine-host/sandboxes/seed-bundle.js';
 import { scriptedModelBase } from './lib/check-space.js';
@@ -31,11 +36,12 @@ import { httpCheckAccess } from './services/CheckToolAccess.js';
 import { ClusterProxyService } from './services/ClusterProxyService.js';
 import { ProjectRepoService } from './services/ProjectRepoService.js';
 import { createSecretVault } from './services/SecretRequestService.js';
-import { McpRegistryService } from './services/McpRegistryService.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
 import { ClusterService } from './services/ClusterService.js';
 import { visibleAppSpecs } from './lib/app-spec.js';
-import { treeTypeChoices, treeLanguageFrom } from './lib/tree-types.js';
+import { treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, renderStarterFiles, groveAgentOf, resolveTreeType } from './lib/tree-types.js';
+import { TreeHomeService } from './services/TreeHomeService.js';
+import { webhookAddress } from './services/webhook-address.js';
 import { resolveBindings } from './lib/binding-resolve.js';
 import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
 import { getTemporalClient, resolveOwnersWith } from './lib/temporal-client.js';
@@ -57,9 +63,15 @@ import { buildWebTools } from './lib/web-tools-wiring.js';
 import { extensionServiceFor } from './services/ExtensionService.js';
 import { loadKeys } from './lib/keys.js';
 import { healthPort, serveHealth } from './lib/worker-health.js';
-import { withHints } from './lib/mcp-tool-hints.js';
 import { startedFor } from './lib/workflow-owner.js';
+import { createGroveLauncher } from './engine-host/grove-launcher.js';
+import { createRunStarter } from './engine-host/registries/run-starter.js';
+import { WorkspaceBuildService } from './services/WorkspaceBuildService.js';
+import { conversationBinding } from './engine-host/conversation-binding.js';
+import type { GroveRunLauncher } from './services/GroveRunService.js';
 import { createArtifactService } from './services/artifact-service-factory.js';
+import { workflowOfRun } from './engine-host/temporal/contracts.js';
+import { hostedMcpUrl } from './lib/mcp-hosted-url.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -96,18 +108,26 @@ async function buildActivities() {
     undefined,
     new ClusterProxyService(),
   );
-  const projectRepos = new ProjectRepoService(db, gitea, keys.data);
+  const projectRepos = new ProjectRepoService(db, gitea, keys.data, webhookAddress(new InfrastructureService(), '/tmp/kubeconfig-provisioning-lunorica', process.env.PORT || 3001));
+  const treeHome = new TreeHomeService({
+    treeTypes: (ownerId) => db.getTreeTypes(ownerId),
+    projects: () => db.getProjects(),
+    createProject: (ownerId, project) => projectRepos.createProject(ownerId, project),
+    starter: async (type, tree) => renderStarterFiles(type.files, { projectName: tree.name, registryHost: await gitea.getRegistryHost() }),
+    saveTree: (tree) => db.saveTree(tree),
+    secrets: projectSecretsFor({ db, backend: infisical, readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token }),
+    saveNeeds: (project, needs) => db.saveProjectInfo({ id: project.id, needs }),
+    channel: (project) => new ProjectChannelService({
+      conversation: (ownerId, id) => db.getConversation(ownerId, id),
+      save: (conversation) => db.saveConversation(conversation),
+      bind: (ownerId, conversationId, binding) => db.bindConversation(ownerId, conversationId, binding),
+      trees: () => db.getTrees(),
+      saveProjectInfo: (entry) => db.saveProjectInfo(entry),
+    }).ensure(project),
+  });
   const kubeInfra = new InfrastructureService();
   const clusterService = new ClusterService(db, kubeInfra, keys.data);
   const artifactStore = createArtifactService(db, kubeInfra, clusterService);
-  const mcpRegistries = new Map<string, McpRegistryService>();
-  const registryFor = (ownerId: string): McpRegistryService => {
-    const known = mcpRegistries.get(ownerId);
-    if (known) return known;
-    const made = new McpRegistryService(db, ownerId, (namespace: string) => resolveMcpProbeUrl(namespace));
-    mcpRegistries.set(ownerId, made);
-    return made;
-  };
   const vault = createSecretVault({
     backend: infisical,
     minters: { readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token },
@@ -119,8 +139,23 @@ async function buildActivities() {
     if (!person) throw new Error(`there is no account ${ownerId} to act for`);
     return axios.create({ baseURL: checksApi, proxy: false, headers: { Cookie: `session=${signJWT({ userId: person.id, email: person.email }, keys.session, 60 * 60)}` } });
   });
+  const engineStores = storesFromDatabase(db);
+  const growers: { launcher?: GroveRunLauncher } = {};
+  const groving = (): GroveRunLauncher => {
+    if (!growers.launcher) throw new Error('the grove launcher is not ready yet');
+    return growers.launcher;
+  };
+  const builders: { service?: WorkspaceBuildService } = {};
   const host = createEngineHost({
+    publishedWorkspaces: { get: (ownerId: string, treeId: string) => db.getPublishedWorkspace(ownerId, treeId), save: (workspace) => db.savePublishedWorkspace(workspace) },
+    readRepoFile: async (ownerId: string, repo: string, path: string, ref: string) => (await projectRepos.readDocument(ownerId, repo, path, ref))?.content,
+    writeRepoFile: (ownerId, repo, path, content, message, branch) => projectRepos.putDocument(ownerId, repo, path, content, message, branch),
+    workspaceBuild: async (ownerId, treeId, commit) => {
+      if (!builders.service) throw new Error('the workspace builder is not ready yet');
+      return builders.service.start(ownerId, treeId, commit);
+    },
     treeLanguage: treeLanguageFrom(db),
+    treeExtras: treeExtrasFrom(db, dependencyNamespaceFrom(db)),
     artifacts: { keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files) },
     checks,
     documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request) },
@@ -128,7 +163,7 @@ async function buildActivities() {
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
     models,
-    stores: storesFromDatabase(db),
+    stores: { ...engineStores, grove: { ...engineStores.grove, growing: { start: (ownerId, treeId) => groving().startGroveRun(ownerId, treeId), status: (treeId) => groving().groveRunStatus(treeId) } } },
     vault,
     egressSecret: keys.egress,
     corpus: {
@@ -159,6 +194,7 @@ async function buildActivities() {
       },
       runs: () => db.getPipelineRuns(),
       deployments: () => db.getDeployments(),
+      releases: (ownerId, projectId) => db.getOdooReleases(ownerId, projectId),
       clusters: async (ownerId) => [
         await clusterService.getSystemClusterEntry(),
         ...(await db.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem),
@@ -188,9 +224,11 @@ async function buildActivities() {
         save: (request) => db.saveAccessRequest(request),
       },
     },
-    mcp: {
-      servers: async (ownerId) => withHints(await registryFor(ownerId).listWithTools(), await db.getMcpToolHints(ownerId)),
-      call: (ownerId, server, tool, args) => registryFor(ownerId).call(server, tool, args),
+    mcpServers: {
+      list: (ownerId) => db.getMcpServers(ownerId),
+      get: async (ownerId, id) => (await db.getMcpServers(ownerId)).find((server) => server.id === id),
+      save: (server) => db.saveMcpServer(server),
+      hostedUrl: hostedMcpUrl({ deployments: () => db.getDeployments(), probeUrl: resolveMcpProbeUrl }),
     },
     ...(web ? { web } : {}),
     kubeconfig: process.env.KUBECONFIG_PATH,
@@ -202,6 +240,29 @@ async function buildActivities() {
     },
   });
   const { registry, endpoints, environments, tools } = host;
+  const runStarter = createRunStarter({
+    registry,
+    workflows: () => ({
+      start: async (type, options) => {
+        const handle = await temporal.workflow.start(type, { workflowId: options.workflowId, taskQueue: options.taskQueue, args: options.args, memo: options.memo, ...startedFor(options.owner) });
+        return { workflowId: handle.workflowId };
+      },
+      signal: async (workflowId, name, payload) => { await temporal.workflow.getHandle(workflowId).signal(name, ...(payload === undefined ? [] : [payload])); },
+    }),
+    binding: conversationBinding(db),
+    closing: async (ownerId: string) => ((await db.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
+  });
+  builders.service = new WorkspaceBuildService({ runs: runStarter, trees: () => db.getTrees(), hidden: (ownerId: string) => extensions.hidden(ownerId) });
+  growers.launcher = createGroveLauncher({
+    hidden: (ownerId: string) => extensions.hidden(ownerId),
+    runs: runStarter,
+    client: () => temporal.workflow,
+    agentFor: async (ownerId: string, treeId: string) => {
+      const tree = (await db.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
+      return groveAgentOf(await resolveTreeType(db, ownerId, tree?.type));
+    },
+    leafRun: async (leafId: string) => (await db.getLeaves()).find((leaf) => leaf.id === leafId)?.runId,
+  });
 
   const sweeper = setInterval(() => {
     void host.runEnvironments.sweep();
@@ -239,12 +300,15 @@ async function buildActivities() {
         branches: { list: () => db.getBranches(), save: (branch) => db.saveBranch(branch) },
         leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
         tasks: { list: (ownerId) => db.getTasks(ownerId), save: (task) => db.saveTask(task) },
+        conversations: { bind: (ownerId, conversationId, binding) => db.bindConversation(ownerId, conversationId, binding) },
       },
       treeWorkspaces: host.treeWorkspaces,
       environments: host.environments,
       // So a tree this adoption creates starts from its type's scaffold rather than an empty repo.
       treeTypes: (ownerId: string) => db.getTreeTypes(ownerId),
       registryHost: process.env.KOALA_REGISTRY,
+      homeTree: (tree) => treeHome.home(tree, { starter: false }),
+      stopRun: async (workflowId: string) => { await stopIfRunning(temporal.workflow.getHandle(workflowId), 'the story it was working changed'); },
     }),
     grove: {
       trees: { list: () => db.getTrees() },
@@ -279,10 +343,21 @@ async function buildActivities() {
   const removalWorkflows = {
     stopIfRunning: async (workflowId: string, reason: string) => (await stopIfRunning(temporal.workflow.getHandle(workflowId), reason)) !== 'not-running',
   };
+  const releaseBrowser = createReleaseBrowserTestActivities({
+    cluster: namespacedCluster(kubeInfra),
+    specs: async () => gitea,
+    keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files),
+  });
+  const appTeardown: AppTeardown = {
+    clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
+    logFile: () => path.join(LOG_DIR, `${Date.now()}-${Math.random().toString(36).slice(2)}-D4.log`),
+    taskQueue: 'cluster-ops-queue',
+  };
   return {
     ...engine,
     ...createAccountRemovalActivities({
       store: db,
+      apps: appTeardown,
       workflows: removalWorkflows,
       kube: createKubeRunner(),
       repositories: gitea,
@@ -291,11 +366,14 @@ async function buildActivities() {
     }),
     ...createProjectRemovalActivities({
       store: db,
+      apps: appTeardown,
       workflows: removalWorkflows,
       kube: createKubeRunner(),
       repositories: gitea,
       secrets: infisical,
+      artifacts: artifactStore.artifacts,
     }),
+    ReleaseBrowserTestsActivity: releaseBrowser.ReleaseBrowserTestsActivity,
     ...createCheckRunActivities({
       store: db as never,
       api: (space) => axios.create({
@@ -307,7 +385,13 @@ async function buildActivities() {
         await projectRepos.pushDocuments({ ownerId, repo, describe: 'A check\'s conversation workspace', bundle });
       }),
       scripted: { base: scriptedModelBase(process.env), dataKey: keys.data },
-      terminate: async (runId, reason) => { await temporal.workflow.getHandle(runId).terminate(reason).catch(() => undefined); },
+      releases: createCheckReleases({
+        browser: releaseBrowser,
+        cluster: namespacedCluster(kubeInfra),
+        project: async (id) => (await db.getProjects()).find((project) => project.id === id),
+        clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
+      }),
+      terminate: async (runId, reason) => { await temporal.workflow.getHandle(workflowOfRun(runId)).terminate(reason).catch(() => undefined); },
       leftovers: {
         records: (ownerId) => db.accountLeftovers(ownerId),
         workspaces: async (ownerId) => (await createKubeRunner()(['get', 'namespace', '-l', `koala.dev/owner=${labelValue(ownerId)}`, '-o', 'name'])).stdout.split('\n').map((line) => line.trim()).filter(Boolean),

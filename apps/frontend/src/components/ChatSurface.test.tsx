@@ -10,6 +10,7 @@ import { type EngineEvent } from '../api/engine.js';
 import { TURN_LOG_CHANNEL } from '../api/turns';
 import type { TurnLogEntry } from '../types/turns';
 import { planKeys } from '../api/plans';
+import * as channelApi from '../api/project-channel.js';
 
 vi.mock('../api/chat-pack', async (orig) => ({
   ...(await orig<typeof chatPackApi>()),
@@ -20,6 +21,12 @@ vi.mock('../api/chat-pack', async (orig) => ({
     messages: [],
   })),
   patchChatConversation: vi.fn().mockResolvedValue({ id: 'c1', title: 'Test Conversation', messages: [] }),
+  getConversationContext: vi.fn().mockResolvedValue({ given: {}, text: '' }),
+}));
+
+vi.mock('../api/project-channel', async (orig) => ({
+  ...(await orig<typeof import('../api/project-channel.js')>()),
+  postChannelMessage: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../api/models', async (orig) => ({
@@ -143,6 +150,71 @@ beforeEach(() => {
     title: 'Test Conversation',
     messages: [],
   }) as never);
+  vi.mocked(chatPackApi.getConversationContext).mockResolvedValue({ given: {}, text: '' });
+  try { localStorage.clear(); } catch { /* none */ }
+});
+
+describe('ChatSurface in a channel', () => {
+  const NOTE_AT = '2026-10-11T17:59:09.231Z';
+  const channelThread = () => vi.mocked(chatPackApi.getChatConversation).mockResolvedValue({
+    id: 'channel-p1',
+    title: 'Shop',
+    messages: [
+      { role: 'user', content: 'a note for the team', at: NOTE_AT },
+      { role: 'user', content: '@koala what is live?', at: '2026-10-11T18:00:00.000Z', runId: 'run-old' },
+      { role: 'assistant', content: 'Slot a.', at: '2026-10-11T18:00:05.000Z', runId: 'run-old' },
+    ],
+  } as never);
+
+  it('says of each message whether Koala was asked', async () => {
+    channelThread();
+    renderWithProviders(<ChatSurface conversationId="channel-p1" channel hideSidebar />);
+    await screen.findByText('a note for the team');
+    const labels = screen.getAllByTestId('message-address').map((one) => one.textContent);
+    expect(labels).toEqual(["posted · Koala wasn't askedAsk Koala", 'asked Koala']);
+  });
+
+  it('posts a message without @koala to the channel, naming the button for what it does', async () => {
+    channelThread();
+    renderWithProviders(<ChatSurface conversationId="channel-p1" channel hideSidebar />);
+    await screen.findByText('a note for the team');
+    const input = screen.getByPlaceholderText(/post to the channel/i);
+    fireEvent.change(input, { target: { value: 'the shop opens at 9' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(() => expect(channelApi.postChannelMessage).toHaveBeenCalledWith('channel-p1', 'the shop opens at 9'));
+    expect(engineApi.startRun).not.toHaveBeenCalled();
+  });
+
+  it('asks Koala about a posted note without posting it again', async () => {
+    channelThread();
+    renderWithProviders(<ChatSurface conversationId="channel-p1" channel hideSidebar />);
+    await screen.findByText('a note for the team');
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Koala' }));
+    await waitForRunStarted();
+    expect(engineApi.startRun).toHaveBeenCalledWith(expect.objectContaining({ message: 'a note for the team', conversationId: 'channel-p1', asks: NOTE_AT }));
+    expect(screen.getAllByText('a note for the team')).toHaveLength(1);
+  });
+
+  it('sends every message to Koala once Ask Koala is on, and remembers it for the channel', async () => {
+    channelThread();
+    const { unmount } = renderWithProviders(<ChatSurface conversationId="channel-p1" channel hideSidebar />);
+    await screen.findByText('a note for the team');
+    const toggle = screen.getByRole('button', { name: /ask koala: off/i });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(toggle);
+    expect(screen.getByRole('button', { name: /asking koala/i })).toHaveAttribute('aria-pressed', 'true');
+    const input = screen.getByPlaceholderText(/ask koala/i);
+    fireEvent.change(input, { target: { value: 'add an e2e test' } });
+    expect(screen.getByRole('button', { name: 'Send message' })).toHaveTextContent('Ask Koala');
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitForRunStarted();
+    expect(engineApi.startRun).toHaveBeenCalledWith(expect.objectContaining({ message: 'add an e2e test' }));
+    expect(vi.mocked(engineApi.startRun).mock.calls[0]![0]).not.toHaveProperty('asks');
+    expect(channelApi.postChannelMessage).not.toHaveBeenCalled();
+    unmount();
+    renderWithProviders(<ChatSurface conversationId="channel-p1" channel hideSidebar />);
+    expect(await screen.findByRole('button', { name: /asking koala/i })).toHaveAttribute('aria-pressed', 'true');
+  });
 });
 
 describe('ChatSurface — unified persona-pack chat surface', () => {
@@ -302,6 +374,30 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     expect(screen.getByText('hello from user')).toBeInTheDocument();
     expect(screen.getByText('Bold reply')).toBeInTheDocument();
     expect(screen.getByText('code')).toBeInTheDocument();
+  });
+
+  it('shows what Koala sees about what the conversation is bound to, above its messages and while it is empty', async () => {
+    vi.mocked(chatPackApi.getConversationContext).mockResolvedValue({ given: { treeId: 't1', tree: 'Tree "Shop" (t1).' }, text: 'treeId: t1\n\ntree: Tree "Shop" (t1).' });
+    vi.mocked(chatPackApi.getChatConversation).mockResolvedValue({ id: 'c1', title: 'T', messages: [{ role: 'user', content: 'hello from user' }] } as never);
+    const { unmount } = renderWithProviders(<ChatSurface conversationId="c1" />);
+    await screen.findByText('hello from user');
+    const context = await screen.findByTestId('conversation-context');
+    expect(context).toHaveTextContent('What Koala sees about this tree');
+    expect(context.compareDocumentPosition(screen.getByText('hello from user')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(chatPackApi.getConversationContext).toHaveBeenCalledWith('c1');
+    unmount();
+    vi.mocked(chatPackApi.getChatConversation).mockResolvedValue({ id: 'c2', title: 'T', messages: [] } as never);
+    renderWithProviders(<ChatSurface conversationId="c2" pinned intro={<p>Ask Koala</p>} />);
+    expect(await screen.findByTestId('chat-intro')).toHaveTextContent('Ask Koala');
+    expect(await screen.findByTestId('conversation-context')).toBeInTheDocument();
+  });
+
+  it('shows nothing of the sort for a conversation bound to nothing', async () => {
+    vi.mocked(chatPackApi.getChatConversation).mockResolvedValue({ id: 'c1', title: 'T', messages: [{ role: 'user', content: 'hello from user' }] } as never);
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+    await screen.findByText('hello from user');
+    await waitFor(() => expect(chatPackApi.getConversationContext).toHaveBeenCalled());
+    expect(screen.queryByTestId('conversation-context')).not.toBeInTheDocument();
   });
 
   it('shows the koala while a conversation is being fetched, not an empty thread', () => {

@@ -65,7 +65,7 @@ export async function compareCheckRuns(before: string, after: string): Promise<C
   return data
 }
 
-export type TaskStatus = 'proposed' | 'accepted' | 'running' | 'done' | 'failed' | 'dropped'
+export type TaskStatus = 'proposed' | 'accepted' | 'running' | 'waiting' | 'done' | 'failed' | 'dropped'
 
 export interface WorldTask {
   id: string
@@ -98,7 +98,7 @@ export interface ScenarioExpectations {
   saved?: { procedure: string; stored: boolean }
   handOffs?: { agent: string; atLeast?: number; atMost?: number; together?: boolean }[]
   files?: { path: string; contains?: string[] }[]
-  modelSaw?: { contains?: string[]; lacks?: string[] }
+  modelSaw?: { contains?: string[]; lacks?: string[]; anyRequest?: boolean }
   compacted?: boolean
   summaryKept?: boolean
   interrupted?: boolean
@@ -154,6 +154,7 @@ export interface Scenario {
   turn?: boolean
   repeats?: number
   passAt?: number
+  onBench?: boolean
   expect: ScenarioExpectations
   then?: FlowStage[]
   mine?: boolean
@@ -181,6 +182,7 @@ export interface ScenarioResult {
   name: string
   runId: string
   procedure: { id: string; version: string }
+  model?: string
   conversationId?: string
   passed: boolean
   outcome: string
@@ -301,6 +303,7 @@ export async function dismissChange(id: string): Promise<void> {
 export interface Practice {
   id: string
   agent?: string
+  model?: string
   title: string
   text: string
   status?: 'active' | 'pending_review' | 'trial'

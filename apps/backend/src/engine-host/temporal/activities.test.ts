@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { MockActivityEnvironment } from '@temporalio/testing';
 import { stepImplementation } from '@koala/agent-engine/procedure';
-import { createEngineActivities, createNodeRunner, NODE_HEARTBEAT_MS, type EngineServices } from './activities.js';
+import { CANCEL_POLL_MS, createEngineActivities, createNodeRunner, NODE_HEARTBEAT_MS, type EngineServices } from './activities.js';
 import type { Task } from '../tools/tasks.js';
 import { createEventBus, type EngineEvent } from '@koala/agent-engine';
 import { createAgentRegistry } from '../registries/registry.js';
@@ -41,6 +41,7 @@ function services(over: Partial<EngineServices> = {}): { services: EngineService
       environments: {
         describe: vi.fn(async () => sandboxEnvironment()),
         describeShared: vi.fn(async () => sandboxEnvironment()),
+        composeShared: vi.fn(async () => { throw new Error('composing is not used here'); }),
         forRun: vi.fn(async () => undefined),
         release: vi.fn(async () => undefined),
       },
@@ -84,7 +85,49 @@ describe('the remaining engine activities', () => {
     });
 
     expect(outcome).toMatchObject({ ok: true, digest: 'tool digest' });
-    expect(svc.tools.run).toHaveBeenCalledWith(expect.objectContaining({ name: 'read_file' }), 1);
+    expect(svc.tools.run).toHaveBeenCalledWith(expect.objectContaining({ name: 'read_file' }), 1, expect.any(AbortSignal));
+  });
+
+  it('keeps a long tool call alive with heartbeats, and hands it the stop when the run is stopped', async () => {
+    const { services: svc } = services();
+    let seen: AbortSignal | undefined;
+    svc.tools.run = vi.fn(async (_args, _attempt, signal?: AbortSignal) => {
+      seen = signal;
+      await new Promise<void>((resolve) => signal!.addEventListener('abort', () => resolve(), { once: true }));
+      return { ok: false, digest: 'stopped' };
+    }) as never;
+    const env = new MockActivityEnvironment();
+    const beats: unknown[] = [];
+    env.on('heartbeat', (detail: unknown) => beats.push(detail));
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const running = env.run(createEngineActivities(svc).EngineToolActivity, { ticket: ticket(), nodeId: 'work', name: 'run_command', arguments: '{"command":"sleep 600"}' });
+      vi.advanceTimersByTime(NODE_HEARTBEAT_MS * 3);
+      expect(beats.length).toBeGreaterThanOrEqual(3);
+      env.cancel();
+      expect(await running).toEqual({ ok: false, digest: 'stopped' });
+      expect(seen?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('hears that the run was stopped even when nothing cancels the call itself', async () => {
+    const { services: svc } = services();
+    svc.runCancelled = vi.fn(async () => true);
+    svc.tools.run = vi.fn(async (_args, _attempt, signal?: AbortSignal) => {
+      await new Promise<void>((resolve) => signal!.addEventListener('abort', () => resolve(), { once: true }));
+      return { ok: false, digest: 'stopped' };
+    }) as never;
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const running = createEngineActivities(svc).EngineToolActivity({ ticket: ticket(), nodeId: 'work', name: 'run_command', arguments: '{"command":"sleep 600"}' });
+      vi.advanceTimersByTime(CANCEL_POLL_MS);
+      expect(await running).toEqual({ ok: false, digest: 'stopped' });
+      expect(svc.runCancelled).toHaveBeenCalledWith('run-1');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('delegates a custom merge strategy to its runtime', async () => {
@@ -120,6 +163,22 @@ describe('the remaining engine activities', () => {
     });
 
     expect(events.map((e) => e.type)).toEqual(['run.started', 'notice']);
+  });
+
+  it('hands a notice meant for people to whoever posts it, with the run\'s owner, and nothing else', async () => {
+    const { services: svc } = services();
+    const posted: unknown[] = [];
+    const activities = createEngineActivities({ ...svc, post: async (ownerId, notice) => { posted.push({ ownerId, notice }); } });
+
+    await activities.EnginePublishActivity({
+      ownerId: 'user-1',
+      events: [
+        { type: 'notice', runId: 'run-1', at: 'now', level: 'info', message: 'ready', post: { key: 'k', kind: 'workspace-ready' } },
+        { type: 'notice', runId: 'run-1', at: 'now', level: 'info', message: 'just a note' },
+      ] as never,
+    });
+
+    expect(posted).toEqual([{ ownerId: 'user-1', notice: { key: 'k', kind: 'workspace-ready' } }]);
   });
 });
 
@@ -206,7 +265,7 @@ describe('the run a tree is grown by', () => {
 
     const input = await activities.GroveRunInputActivity({ treeId: 'tree-1', ownerId: 'user-1' });
 
-    expect(input.ticket).toMatchObject({ runId: 'grove-run-tree-1', agentSlug: 'grove-paper', ownerId: 'user-1' });
+    expect(input.ticket).toMatchObject({ runId: expect.stringMatching(/^grove-run-tree-1~[0-9a-z]+$/), agentSlug: 'grove-paper', ownerId: 'user-1' });
     expect(input.procedure.id).toBe('grove-paper-run');
     expect(input.inputs).toMatchObject({ treeId: 'tree-1' });
   });

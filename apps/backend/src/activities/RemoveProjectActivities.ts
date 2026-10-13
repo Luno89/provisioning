@@ -1,5 +1,6 @@
 import { Context } from '@temporalio/activity';
-import type { ProjectMetadata, DeploymentMetadata, PipelineRunMetadata } from '../lib/types.js';
+import type { ClusterMetadata, ProjectMetadata, DeploymentMetadata, PipelineRunMetadata } from '../lib/types.js';
+import { destroyAppArgs, destroyAppWorkflowId, type DestroyAppArgs } from '../lib/app-destroy.js';
 import type { Tree } from '../lib/trees.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
 import type { Task } from '../engine-host/tools/tasks.js';
@@ -25,27 +26,56 @@ export interface ProjectRemovalStore {
   getPlanProposals(ownerId: string): Promise<PlanProposal[]>;
   getConversations(): Promise<Conversation[]>;
   getDeployments(): Promise<DeploymentMetadata[]>;
+  saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
+  deleteDeployment(id: string): Promise<void>;
   getPipelineRuns(): Promise<PipelineRunMetadata[]>;
   getGiteaAccount(ownerId: string): Promise<{ username: string } | null>;
   deleteTree(id: string): Promise<void>;
+  deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void>;
   deleteBranch(id: string): Promise<void>;
   deleteLeaf(id: string): Promise<void>;
   deleteTask(id: string): Promise<void>;
   deletePlanProposal(ownerId: string, id: string): Promise<void>;
   deleteConversation(id: string): Promise<void>;
   removeProjectRecords(projectId: string): Promise<Record<string, number>>;
+  getOdooReleases(ownerId: string, projectId?: string): Promise<{ id: string }[]>;
+}
+
+export interface AppTeardown {
+  clusterById(id: string): Promise<ClusterMetadata | undefined>;
+  logFile(): string;
+  taskQueue: string;
+}
+
+export interface AppToDestroy {
+  deploymentId: string;
+  workflowId: string;
+  taskQueue: string;
+  args: DestroyAppArgs;
+}
+
+export function planAppDestroys(deployments: readonly DeploymentMetadata[], ids: readonly string[], teardown: AppTeardown, nonce: () => string): Promise<AppToDestroy[]> {
+  return Promise.all(deployments.filter((deployment) => ids.includes(deployment.id)).map(async (deployment) => ({
+    deploymentId: deployment.id,
+    workflowId: destroyAppWorkflowId(deployment, Date.now(), nonce()),
+    taskQueue: teardown.taskQueue,
+    args: destroyAppArgs(deployment, await teardown.clusterById(deployment.clusterId), teardown.logFile()),
+  })));
 }
 
 export interface ProjectRemovalDeps {
   store: ProjectRemovalStore;
+  apps: AppTeardown;
   workflows: { stopIfRunning(workflowId: string, reason: string): Promise<boolean> };
   kube: KubeRunner;
   repositories: { deleteRepo(owner: string, name: string): Promise<void> };
   secrets: { removeProject(projectId: string): Promise<{ workspace: boolean; readers: number }> };
+  artifacts?: { removeRun(ownerId: string, runId: string): Promise<number> } | undefined;
 }
 
 export interface ProjectRemovalActivities {
   RemoveProjectWorkflowsActivity(args: RemoveProjectArgs): Promise<number>;
+  RemoveProjectAppsActivity(args: RemoveProjectArgs): Promise<AppToDestroy[]>;
   RemoveProjectWorkspacesActivity(args: RemoveProjectArgs): Promise<number>;
   RemoveProjectSecretsActivity(args: RemoveProjectArgs): Promise<{ workspace: boolean; readers: number }>;
   RemoveProjectRepositoriesActivity(args: RemoveProjectArgs): Promise<string[]>;
@@ -77,6 +107,14 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
         heartbeat();
       }
       return stopped;
+    },
+
+    async RemoveProjectAppsActivity({ projectId }) {
+      const found = await scopeOf(projectId);
+      if (!found || found.scope.apps.length === 0) return [];
+      const planned = await planAppDestroys(await store.getDeployments(), found.scope.apps.map((app) => app.id), deps.apps, () => Math.random().toString(36).slice(2, 8));
+      for (const app of planned) await store.saveDeploymentInfo({ id: app.deploymentId, status: 'destroying', temporalWorkflowId: app.workflowId, lastLogPath: app.args.logFile });
+      return planned;
     },
 
     async RemoveProjectWorkspacesActivity({ projectId }) {
@@ -127,6 +165,7 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
         for (const id of scope.conversationIds) await store.deleteConversation(id);
         for (const id of scope.branchIds) await store.deleteBranch(id);
         if (scope.treeId) await store.deleteTree(scope.treeId);
+        if (scope.treeId) await store.deletePublishedWorkspace(ownerId, scope.treeId);
         count('tasks', scope.taskIds.length);
         count('leaves', scope.leafIds.length);
         count('planProposals', scope.proposalIds.length);
@@ -141,6 +180,13 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
         if (tree) await store.saveTree({ ...tree, projectIds: (tree.projectIds ?? []).filter((linked) => linked !== projectId) });
       }
       count('trees unlinked', found.scope.unlinkedTreeIds.length);
+      for (const id of found.scope.channelIds) await store.deleteConversation(id);
+      count('conversations', found.scope.channelIds.length);
+      for (const app of found.scope.apps) await store.deleteDeployment(app.id);
+      count('deployments', found.scope.apps.length);
+      if (deps.artifacts && ownerId) {
+        for (const release of await store.getOdooReleases(ownerId, projectId)) count('artifacts', await deps.artifacts.removeRun(ownerId, release.id));
+      }
       for (const [name, n] of Object.entries(await store.removeProjectRecords(projectId))) count(name, n);
       return removed;
     },

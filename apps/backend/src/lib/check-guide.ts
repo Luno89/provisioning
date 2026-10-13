@@ -26,6 +26,7 @@ export const SCENARIO_FIELDS: Record<Authored, Entry> = {
   turn: { means: 'true: check one model turn instead of a whole run (see Turn checks); its procedure is `turn-check`' },
   repeats: { means: 'how many times to run it, 1 to 25 (default 1); real models vary, so repeat a check of behaviour to measure how reliable it is', example: '5' },
   passAt: { means: 'how many of its repeats have to pass (default all of them)', example: '4' },
+  onBench: { means: 'false keeps it off the bench, so it runs only when the person starts it (default true); for a check that holds the model or a cluster for a long time', example: 'false' },
   expect: { means: 'what has to be true once the run ends (see Expectations)' },
   then: { means: 'stages after the first run, each with its own expectations (see Flows)' },
 };
@@ -33,11 +34,14 @@ export const SCENARIO_FIELDS: Record<Authored, Entry> = {
 export const WORLD_FIELDS: Record<keyof ScenarioWorld, Entry> = {
   tasks: { means: 'tasks on the board, accepted unless a status is given', example: '[{ "id": "write-greeting", "title": "Write the greeting", "doneMeans": "greeting.txt says hello" }]' },
   procedures: { means: 'procedures saved as the space\'s own before the run' },
-  memories: { means: 'memories the space has', example: '[{ "title": "House style", "text": "Say hello, not hi." }]' },
+  memories: { means: 'memories the space has; a model keeps one for that model only (a scripted check runs on "scripted")', example: '[{ "title": "House style", "text": "Say hello, not hi." }]' },
   files: { means: 'files in the run\'s workspace, by path', example: '{ "notes/todo.md": "check the indexes" }' },
   acceptProposedWork: { means: 'true: work the run proposes is accepted as if the person said yes' },
-  agents: { means: 'settings laid over agents for this check only, by slug', example: '{ "koala": { "concludeAfterMinutes": 0 } }' },
+  agents: { means: 'settings laid over agents for this check only, by slug; "tools" is what the agent holds, granted in the space, and "servers" the world\'s MCP servers it holds', example: '{ "koala": { "concludeAfterMinutes": 0 }, "judge": { "tools": ["read_file"], "servers": ["echoes"] } }' },
+  tools: { means: 'tools the space has as its own, defined like any tool', example: '[{"name": "count_lines", "summary": "Count the lines of a file", "binding": "environment", "effect": "read", "idempotent": true, "openWorld": false, "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "the file"}}, "required": ["path"]}, "returns": "the count", "failures": [], "command": "wc -l {{path}}"}]' },
+  mcpServers: { means: 'MCP servers the space has in its catalogue, captured before the run starts; an agent holds one through its "servers", and its tools are offered as <name>__<tool>', example: '[{"name": "echoes", "summary": "Says back what it is told", "runs": {"where": "workspace", "install": [{"via": "npm", "packages": ["echoes-server"]}], "start": "echoes-server", "port": 8931}}]' },
   project: { means: 'a project made before the first run; the conversation is bound to it', example: '{ "name": "check project" }' },
+  treeTypes: { means: 'settings laid over tree types for this check only, by id', example: '{ "odoo-addons": { "env": [{ "name": "SHOP", "value": "demo" }] } }' },
 };
 
 export const EXPECTATIONS: Record<keyof ScenarioExpectations, Entry> = {
@@ -52,12 +56,12 @@ export const EXPECTATIONS: Record<keyof ScenarioExpectations, Entry> = {
   saved: { means: 'a procedure it leaves in the store, and whether it is stored', example: '{ "procedure": "tidy", "stored": true }' },
   handOffs: { means: 'hand-offs to other agents: how many, and whether at the same time', example: '[{ "agent": "research", "atLeast": 2, "together": true }]' },
   files: { means: 'files it leaves in the workspace, and what they contain', example: '[{ "path": "research/findings.md", "contains": ["5432"] }]' },
-  modelSaw: { means: 'plumbing: text that was or was not in what the model was sent', example: '{ "contains": ["Earlier in this conversation"], "lacks": ["secret"] }' },
+  modelSaw: { means: 'plumbing: text that was or was not in the last request the model was sent, or in any of them with anyRequest: true (for what a hand-off saw)', example: '{ "contains": ["Earlier in this conversation"], "lacks": ["secret"] }' },
   compacted: { means: 'plumbing: the conversation was summarised to fit the window' },
   summaryKept: { means: 'plumbing: the summary was saved and used on the next turn' },
   interrupted: { means: 'plumbing: a turn killed mid-reply was kept as interrupted' },
   turnLog: { means: 'plumbing: every event the run streamed is in the turn log', example: '{ "complete": true }' },
-  leaves: { means: 'plumbing: how a tree\'s leaves ended — verified count, how each landed, merge tasks, what a leaf\'s findings say, and how many browser files a failed check left that open', example: '{ "verified": 2, "landed": { "p1": "merged" }, "mergeTasks": 0, "findings": { "p1": ["FAILED — browser test"] }, "artifacts": { "p1": 1 } }' },
+  leaves: { means: 'plumbing: how a tree\'s leaves ended — verified count, how each landed, merge tasks, what a leaf\'s findings say, and how many browser files a failed check left that open, and how often a leaf was retried after failing', example: '{ "verified": 2, "landed": { "p1": "merged" }, "mergeTasks": 0, "findings": { "p1": ["FAILED — browser test"] }, "artifacts": { "p1": 1 }, "retried": { "p1": 0 } }' },
   repository: { means: 'plumbing: files on main of the tree\'s or conversation\'s repository', example: '{ "of": "tree", "files": [{ "path": "greet.js" }] }' },
   pullRequests: { means: 'plumbing: pull requests by state', example: '{ "merged": 2, "open": 0 }' },
   workspace: { means: 'plumbing: whether the tree\'s or conversation\'s workspace exists', example: '{ "of": "conversation", "exists": false }' },
@@ -65,6 +69,8 @@ export const EXPECTATIONS: Record<keyof ScenarioExpectations, Entry> = {
   trees: { means: 'plumbing: how many trees the space has' },
   exit: { means: 'step checks: the exit the node leaves by', example: '"yes"' },
   outputs: { means: 'step checks: a node output, equal to or containing a value', example: '{ "text": { "contains": "wrote" } }' },
+  release: { means: 'releases: the world\'s project\'s newest release — its state, the browser tests the preview ran against it, and whether the project\'s app is still there', example: '{ "state": "preview", "e2e": { "state": "passed", "tests": { "a person sees the colour field": "passed" } } }' },
+  e2e: { means: 'releases: the browser tests a browse stage ran — how they ended, each test by title, and how many files a failure left that open', example: '{ "state": "passed", "tests": { "a person sees the colour field": "passed" } }' },
   chooses: { means: 'turn checks: the tool the model asks for, or null when it should answer without one, and what it sends; required arguments and arguments the tool does not have are checked too', example: '{ "tool": "read_file", "args": [{ "arg": "path", "contains": "package.json" }] }' },
 };
 
@@ -76,12 +82,20 @@ export const ARG_CHECKS: Record<'is' | 'contains' | 'matches' | 'nonEmpty', Entr
 };
 
 export const STAGE_ACTIONS: Record<ActionKey, Entry> = {
-  chat: { means: 'send another message, optionally to another agent; killAfterChars kills the turn once that much streamed', example: '{ "chat": { "message": "And the second one?" } }' },
+  chat: { means: 'send another message, optionally to another agent; killAfterChars kills the turn once that much streamed; in: "channel" sends it in the project\'s channel, in: { "story": title } or { "feature": title } in that story\'s or feature\'s own chat', example: '{ "chat": { "message": "And the second one?" } }' },
+  post: { means: 'post a plain message in the project\'s channel: it starts no turn', example: '{ "post": { "message": "The shop opens at 9.", "in": "channel" } }' },
   approvePlan: { means: 'approve the plan the run proposed', example: '{ "approvePlan": true }' },
   runTree: { means: 'grow the approved tree until it settles', example: '{ "runTree": true }' },
   waitQuiet: { means: 'wait out the conversation\'s quiet time, so it concludes', example: '{ "waitQuiet": true }' },
+  editWorkspace: { means: 'save the tree\'s .koala/workspace.json as the person does in the Studio\'s Workspace section: it is committed to main and its build starts', example: '{ "editWorkspace": { "packages": { "dnf": ["jq"] } } }' },
+  waitWorkspace: { means: 'wait until main\'s .koala/workspace.json is built and published as the tree\'s workspace; it fails when the build fails or its install script is declined', example: '{ "waitWorkspace": true }' },
+  settleTree: { means: 'wait until every story of the tree is settled and nothing grows it, whatever starts its runs — a rebuilt workspace putting a waiting story back in line, for one', example: '{ "settleTree": true }' },
   deleteTree: { means: 'delete the tree', example: '{ "deleteTree": true }' },
   deleteProject: { means: 'delete the world\'s project', example: '{ "deleteProject": true }' },
+  waitRelease: { means: 'wait until the world\'s project\'s newest release is live, or waits in preview with its browser tests finished; fails when a build or release fails, or nothing is building or releasing', example: '{ "waitRelease": { "state": "preview" } }' },
+  cutOver: { means: 'cut the release waiting in preview over, and wait until it is live', example: '{ "cutOver": true }' },
+  browse: { means: 'run browser tests against the live release or the one in preview, signed in as its test user — the specs given here, or the project\'s own e2e/ at that release\'s commit', example: '{ "browse": { "release": "live", "specs": { "e2e/colour.spec.ts": "import { test, expect } from \'@playwright/test\';\\n…" } } }' },
+  removeRelease: { means: 'remove the project\'s app — both slots, their databases and the namespace — and wait until it is gone', example: '{ "removeRelease": true }' },
 };
 
 export const STEP_FIELDS: Record<keyof StepUnderTest, Entry> = {

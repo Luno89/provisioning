@@ -1,6 +1,7 @@
 import { BUILDER_TOOLS, type Persona, type ProcedureSource, type ToolDefinition } from '@koala/agent-engine';
 import { BUILT_IN_SCENARIOS } from '../eval/level2/scenarios.js';
 import { environmentHandlers, type EnvironmentDriver } from '@koala/engine-core';
+import { createAgentDirectory, grantStoreFrom, type AgentRecordStore, type ToolGrantStore } from './registries/agent-directory.js';
 import { createStoredAgentRegistry, type AgentRegistry } from './registries/registry.js';
 import { treeTypeChoices } from '../lib/tree-types.js';
 import { createStoredToolCatalogue, type StoredToolCatalogue } from './registries/tool-catalogue-store.js';
@@ -10,32 +11,46 @@ import { createSandboxDriver } from './drivers/sandbox.js';
 import { createClusterBackend } from './sandboxes/cluster-backend.js';
 import { createKubeRunner, createKubeStreamer } from './sandboxes/kube.js';
 import { createWorkspaceDocuments, type DocumentRepos } from './sandboxes/workspace-documents.js';
-import { defaultRepoResolver, repoForWorkspace, type WorkspaceRepoResolver } from './sandboxes/workspace-repos.js';
+import { defaultRepoResolver, repoForWorkspace, treeWorkspaceRunId, type WorkspaceRepoResolver } from './sandboxes/workspace-repos.js';
 import { createImageBuilder, discoverRegistry, type ImageBuilder, type RegistryAccount } from './sandboxes/image-builder.js';
 import { createEnvironmentResolver, type EnvironmentResolver } from './sandboxes/environments.js';
-import { createTreeWorkspaces, type TreeWorkspaces } from './sandboxes/tree-workspaces.js';
+import { createTreeWorkspaces, LANDING_BASE, type TreeWorkspaces } from './sandboxes/tree-workspaces.js';
 import { createConversationWorkspaces, type ConversationWorkspaces } from './sandboxes/conversation-workspaces.js';
 import { createMachineBackend } from './drivers/machine-backend.js';
 import { createToolRuntime } from './tools/tool-runtime.js';
 import { createEngineToolHandlers } from './tools/engine-tools.js';
+import { TreeTypeDescriptions } from '../services/TreeTypeDescriptions.js';
+import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
+import { WorkspaceFileService } from '../services/WorkspaceFileService.js';
+import type { ComposedWorkspace } from '../lib/workspace-composition.js';
+import { WORKSPACE_BASES } from '../extensions/workspace-bases.js';
+import { planServerImage, type McpServerRecord, type ServerRuns, type WorkspaceRuns } from '../lib/mcp-servers.js';
 import type { TaskStore } from './tools/task-tools.js';
 import type { MemoryItem } from './drivers/memory-store.js';
 import type { HostNodeServices } from './nodes/services.js';
-import { extensionRuntimes, operationHandlers } from '../extensions/runtime.js';
+import { extensionRuntimes, operationHandlers, toolHandlers } from '../extensions/runtime.js';
 import type { RunTicket, ToolRuntime } from './temporal/contracts.js';
 import type { WebTools } from '../lib/web-tools.js';
 import type { Database } from '../lib/db-interface.js';
 import { createEffortTracker, type EffortTracker, type EffortTrackerOptions } from './registries/effort.js';
 import { createCodeRunner } from './nodes/code-runner.js';
+import { createWorkspaceServers } from './tools/workspace-servers.js';
+import { parkingFor, type Parking, type PublishedWorkspace } from '../lib/published-workspace.js';
+import { WORKSPACE_FILE, pendingChanges, type WorkspaceFile } from '../lib/workspace-file.js';
+import { groveAgentOf, resolveTreeType } from '../lib/tree-types.js';
+import { agentsReachable } from '../extensions/grove/operations/handlers.js';
 import { createWorkspaceImages, type WorkspaceImages } from './sandboxes/warm-images.js';
 import { createImagePruner, type ImagePruner } from './sandboxes/prune-images.js';
 import { createRegistryPackages } from './sandboxes/registry-packages.js';
-import { createMcpToolSource } from './tools/mcp-tools.js';
+import { createServerTools } from './tools/server-tools.js';
+import { hostedCaller } from './tools/hosted-servers.js';
 import { proxyUrlFor } from '../lib/egress-proxy.js';
+import { modelNames } from '../lib/model-registry.js';
 import type { GroveOperationDeps } from '../extensions/grove/operations/handlers.js';
 
 export interface EngineHostStores {
-  personas: { list(ownerId?: string): Promise<Persona[]> };
+  agentRecords: AgentRecordStore;
+  toolGrants: ToolGrantStore;
   procedures: {
     list(ownerId?: string): Promise<ProcedureSource[]>;
     get(ownerId: string, id: string): Promise<ProcedureSource | undefined>;
@@ -54,7 +69,10 @@ export interface EngineHostStores {
       list(ownerId: string, conversationId?: string): Promise<import('../lib/plan-proposals.js').PlanProposal[]>;
     };
     treeTypes?: (ownerId: string) => Promise<import('../extensions/grove/tools/grove-tools.js').TreeTypeChoice[]>;
-    binding?: (ownerId: string, conversationId: string) => Promise<{ treeId?: string | undefined; projectId?: string | undefined } | undefined>;
+    treeTypeSpecs?: (ownerId: string) => Promise<import('../lib/tree-types.js').TreeTypeSpec[]>;
+    workspaceImages?: (ownerId: string) => Promise<import('../lib/workspace-image-seeds.js').WorkspaceImageSpec[]>;
+    binding?: (ownerId: string, conversationId: string) => Promise<{ treeId?: string | undefined; projectId?: string | undefined; leafId?: string | undefined; branchId?: string | undefined } | undefined>;
+    growing?: import('../extensions/grove/tools/grove-tools.js').TreeGrowing | undefined;
   };
   conversations: import('./nodes/conversation-nodes.js').ConversationStore;
   memories: {
@@ -77,7 +95,15 @@ export interface EngineHostStores {
 }
 
 export interface EngineHostOptions {
+  publishedWorkspaces?: {
+    get(ownerId: string, treeId: string): Promise<PublishedWorkspace | undefined>;
+    save(workspace: PublishedWorkspace): Promise<void>;
+  } | undefined;
+  readRepoFile?: ((ownerId: string, repo: string, path: string, ref: string) => Promise<string | undefined>) | undefined;
+  writeRepoFile?: ((ownerId: string, repo: string, path: string, content: string, message: string, branch: string) => Promise<{ changed: boolean; commit?: string | undefined }>) | undefined;
+  workspaceBuild?: ((ownerId: string, treeId: string, commit: string) => Promise<{ started: true; runId: string } | { started: false; reason: 'running' | 'switched-off' }>) | undefined;
   treeLanguage?: ((ownerId: string, treeId: string) => Promise<string | undefined>) | undefined;
+  treeExtras?: ((ownerId: string, treeId: string) => Promise<import('./sandboxes/environments.js').WorkspaceExtras | undefined>) | undefined;
   artifacts?: GroveOperationDeps['artifacts'];
   models: ModelServiceLike;
   stores: EngineHostStores;
@@ -90,7 +116,12 @@ export interface EngineHostOptions {
   onLeak?: ((runId: string, ageMs: number) => void) | undefined;
   efforts?: EffortTrackerOptions['store'] | undefined;
   vault?: import('./tools/secret-tools.js').SecretVault | undefined;
-  mcp?: import('./tools/mcp-tools.js').McpAccess | undefined;
+  mcpServers?: {
+    list(ownerId: string): Promise<McpServerRecord[]>;
+    get(ownerId: string, id: string): Promise<McpServerRecord | undefined>;
+    save(server: McpServerRecord): Promise<void>;
+    hostedUrl(ownerId: string, runs: Extract<ServerRuns, { where: 'hosted' }>): Promise<string | undefined>;
+  } | undefined;
   kube?: import('./tools/kube-tools.js').KubeAccess | undefined;
   projects?: import('./tools/project-tools.js').ProjectToolStores | undefined;
   egressSecret?: string | undefined;
@@ -120,14 +151,25 @@ export interface EngineHost {
   tools: ToolRuntime;
   services: HostNodeServices;
   implemented: ReadonlySet<string>;
+  treeWorkspaceFiles: TreeWorkspaceFiles | undefined;
+}
+
+export interface TreeWorkspaceFiles {
+  files: WorkspaceFileService;
+  compose(ownerId: string, treeId: string, file: WorkspaceFile): Promise<ComposedWorkspace>;
 }
 
 export function createEngineHost(options: EngineHostOptions): EngineHost {
   const { stores } = options;
 
   const catalogue = createStoredToolCatalogue({ tools: stores.tools });
+  const agents = createAgentDirectory({
+    records: stores.agentRecords,
+    grants: stores.toolGrants,
+    ...(options.hidden ? { hidden: options.hidden } : {}),
+  });
   const registry = createStoredAgentRegistry({
-    personas: stores.personas,
+    agents,
     procedures: stores.procedures,
     tools: stores.tools,
     ...(options.hidden ? { hidden: options.hidden } : {}),
@@ -168,11 +210,32 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     ...(options.registryPushToken ? { pushToken: options.registryPushToken } : {}),
   });
 
+  const treeWorkspacesFor: { current?: TreeWorkspaces | undefined } = {};
+  const workspaceFiles = options.readRepoFile && options.writeRepoFile ? new WorkspaceFileService({
+    trees: () => stores.grove.trees.list(),
+    repoOf: (treeId) => repoFor(treeWorkspaceRunId(treeId)),
+    read: options.readRepoFile,
+    write: options.writeRepoFile,
+    branch: LANDING_BASE,
+  }) : undefined;
+  const published = options.publishedWorkspaces ? {
+    get: options.publishedWorkspaces.get,
+    save: options.publishedWorkspaces.save,
+    file: async (ownerId: string, treeId: string): Promise<string | undefined> => {
+      const repo = await repoFor(treeWorkspaceRunId(treeId));
+      return repo && options.readRepoFile ? options.readRepoFile(ownerId, repo.repo, WORKSPACE_FILE, LANDING_BASE) : undefined;
+    },
+    describe: (ownerId: string, treeId: string) => {
+      if (!treeWorkspacesFor.current) throw new Error('the tree workspaces are not ready yet');
+      return treeWorkspacesFor.current.describe({ treeId, ownerId });
+    },
+  } : undefined;
   const environments = createEnvironmentResolver({
     registry,
     environments: runEnvironments,
     images,
     tools: (ownerId: string) => catalogue.list(ownerId),
+    ...(options.mcpServers ? { servers: options.mcpServers.list } : {}),
     machineBackend: createMachineBackend(),
     ...(stores.egress && options.egressSecret
       ? {
@@ -184,14 +247,93 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
         },
       }
       : {}),
+    ...(published ? { published } : {}),
   });
 
-  const treeWorkspaces = createTreeWorkspaces({ resolver: environments, kube, documents, repoFor, languageOf: options.treeLanguage });
+  const treeWorkspaces = createTreeWorkspaces({ resolver: environments, kube, documents, repoFor, languageOf: options.treeLanguage, extrasOf: options.treeExtras });
+  treeWorkspacesFor.current = treeWorkspaces;
   const conversationWorkspaces = documents
     ? createConversationWorkspaces({ resolver: environments, registry, kube, documents })
     : undefined;
 
   const web = options.web;
+  const treeTypeDescriptions = stores.grove.treeTypeSpecs && stores.grove.workspaceImages
+    ? new TreeTypeDescriptions({
+      treeTypes: stores.grove.treeTypeSpecs,
+      images: stores.grove.workspaceImages,
+      agentOf: async (ownerId, slug) => {
+        const runnable = await registry.runnable(ownerId, slug);
+        return runnable && { describe: runnable.agent.description, procedure: runnable.procedure };
+      },
+    })
+    : undefined;
+  const workspaceWaits = workspaceFiles && options.publishedWorkspaces
+    ? async (ownerId: string, treeId: string): Promise<{ pending: string[]; parking: Parking }> => {
+      const onMain = await workspaceFiles.read(ownerId, treeId);
+      if (!onMain.ok) return { pending: [], parking: { state: 'coming' } };
+      const current = await options.publishedWorkspaces!.get(ownerId, treeId);
+      const pending = pendingChanges(current?.file, onMain.file);
+      return { pending, parking: parkingFor(current, pending) };
+    }
+    : undefined;
+  const treeAgents = async (ownerId: string, treeId: string): Promise<string[]> => {
+    const tree = (await stores.grove.trees.list()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
+    const type = tree?.type ? resolveTreeType({ getTreeTypes: async () => (await stores.grove.treeTypeSpecs?.(ownerId)) ?? [] }, ownerId, tree.type) : undefined;
+    const runnable = await registry.runnable(ownerId, groveAgentOf(await type));
+    return runnable ? agentsReachable(runnable.procedure, async (agent) => (await registry.runnable(ownerId, agent))?.procedure) : [];
+  };
+  const runtimes = extensionRuntimes({
+    platform: { operations: { environments, ...(options.artifacts ? { artifacts: options.artifacts } : {}) } },
+    grove: {
+      tools: { stores: { ...stores.grove, ...(treeTypeDescriptions ? { describeTreeType: (ownerId: string, typeId: string) => treeTypeDescriptions.describe(ownerId, typeId) } : {}) } },
+      operations: {
+        trees: stores.grove.trees,
+        branches: stores.grove.branches,
+        leaves: stores.grove.leaves,
+        tasks: stores.tasks,
+        plans: { list: async (ownerId: string) => (await stores.grove.plans?.list(ownerId)) ?? [] },
+        treeWorkspaces,
+        environments,
+        registry,
+        ...(stores.grove.treeTypeSpecs ? { treeTypes: stores.grove.treeTypeSpecs } : {}),
+        ...(options.artifacts ? { artifacts: options.artifacts } : {}),
+        ...(workspaceWaits ? { parking: async (ownerId: string, treeId: string) => (await workspaceWaits(ownerId, treeId)).parking } : {}),
+      },
+    },
+    ...(options.mcpServers ? {
+      mcp: { operations: {
+        servers: options.mcpServers,
+        hostedUrl: options.mcpServers.hostedUrl,
+        plan: (runs: WorkspaceRuns, name: string) => planServerImage(runs, name, WORKSPACE_BASES),
+        images,
+        environments,
+      } },
+    } : {}),
+    ...(published && options.publishedWorkspaces ? {
+      workspace: { operations: {
+        trees: stores.grove.trees,
+        readFile: published.file,
+        agentsFor: treeAgents,
+        compose: (request) => treeWorkspaces.compose(request),
+        images,
+        published: options.publishedWorkspaces,
+        waiting: {
+          branches: stores.grove.branches,
+          leaves: stores.grove.leaves,
+          tasks: stores.tasks,
+          grow: async (ownerId: string, treeId: string) => ({ started: stores.grove.growing ? (await stores.grove.growing.start(ownerId, treeId)).started : false }),
+        },
+      },
+      ...(workspaceFiles && workspaceWaits && options.writeRepoFile && options.workspaceBuild ? { tools: {
+        files: workspaceFiles,
+        build: options.workspaceBuild,
+        tasks: stores.tasks,
+        pending: async (ownerId: string, treeId: string) => (await workspaceWaits(ownerId, treeId)).pending,
+        ...(stores.grove.binding ? { binding: stores.grove.binding } : {}),
+      } } : {}) },
+    } : {}),
+  });
+
   const handlers = createEngineToolHandlers({
       registry,
       images,
@@ -203,15 +345,17 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
         toolNames: (ownerId: string) => catalogue.names(ownerId),
       },
       tasks: stores.tasks,
-      groove: { stores: stores.grove },
+      extensions: toolHandlers(runtimes),
+      ...(stores.grove.binding ? { binding: stores.grove.binding } : {}),
       ...(stores.secrets ? { secrets: { stores: stores.secrets, ...(options.vault ? { vault: options.vault } : {}) } } : {}),
-      ...(options.mcp && stores.mcp ? { mcp: { access: options.mcp, stores: stores.mcp } } : {}),
+      ...(options.mcpServers && stores.mcp ? { mcp: { catalogue: options.mcpServers.list, stores: stores.mcp } } : {}),
       ...(options.kube ? { kube: options.kube } : {}),
       ...(options.projects ? { projects: options.projects } : {}),
       ...(stores.egress ? { egress: stores.egress } : {}),
       ...(options.corpus ? { corpus: options.corpus } : {}),
       ...(stores.runs ? { runs: stores.runs } : {}),
       memories: stores.memories,
+      ...(options.models.list ? { models: async (ownerId: string) => modelNames(await options.models.list!(ownerId)) } : {}),
       ...(options.checks ? { checks: options.checks } : {}),
       ...(stores.proposals ? {
         scenarios: {
@@ -252,8 +396,13 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       },
   });
 
-  const mcp = options.mcp && stores.mcp ? createMcpToolSource({ access: options.mcp, stores: stores.mcp }) : undefined;
-  const tools = createToolRuntime({ registry, environments, handlers, ...(mcp ? { mcp } : {}) });
+  const serverTools = options.mcpServers ? createServerTools({
+    catalogue: options.mcpServers.list,
+    enabled: async (ownerId, conversationId) => (stores.mcp ? stores.mcp.enabled(ownerId, conversationId) : []),
+    hosted: { call: hostedCaller(options.mcpServers.hostedUrl) },
+    workspace: createWorkspaceServers({ environments: { forRun: (request) => environments.forRun(request) } }),
+  }) : undefined;
+  const tools = createToolRuntime({ registry, environments, handlers, ...(serverTools ? { serverTools } : {}) });
 
   const efforts = options.efforts
     ? createEffortTracker({ models: options.models, registry, store: options.efforts })
@@ -269,32 +418,20 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     code: createCodeRunner({ environments: { forRun: (request) => environments.forRun(request) } }),
     conversations: stores.conversations,
     ...(conversationWorkspaces ? { conversationWorkspaces } : {}),
-    ...(mcp ? { mcp } : {}),
+    ...(serverTools ? { serverTools } : {}),
     memories: {
       list: async (ownerId: string) => (await stores.memories.list(ownerId)).filter((memory) => memory.ownerId === ownerId),
       save: stores.memories.save,
     },
     ...(options.hidden ? { hidden: options.hidden } : {}),
-    operations: operationHandlers(extensionRuntimes({
-      platform: { operations: { environments, ...(options.artifacts ? { artifacts: options.artifacts } : {}) } },
-      grove: { operations: {
-        trees: stores.grove.trees,
-        branches: stores.grove.branches,
-        leaves: stores.grove.leaves,
-        tasks: stores.tasks,
-        plans: { list: async (ownerId: string) => (await stores.grove.plans?.list(ownerId)) ?? [] },
-        treeWorkspaces,
-        environments,
-        registry,
-        ...(options.artifacts ? { artifacts: options.artifacts } : {}),
-      } },
-    })),
+    operations: operationHandlers(runtimes),
   };
 
   const workspaceImages: WorkspaceImages = createWorkspaceImages({
     images,
     personas: (ownerId?: string) => registry.agents(ownerId ?? ''),
     tools: (ownerId?: string) => stores.tools.list(ownerId),
+    ...(options.mcpServers ? { servers: options.mcpServers.list } : {}),
     ...(options.owners ? { owners: options.owners } : {}),
   });
 
@@ -317,15 +454,21 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
 
   const implemented = new Set([...Object.keys(environmentHandlers), ...Object.keys(handlers)]);
 
+  const treeWorkspaceFiles = workspaceFiles ? {
+    files: workspaceFiles,
+    compose: async (ownerId: string, treeId: string, file: WorkspaceFile) => treeWorkspaces.compose({ treeId, ownerId, agents: await treeAgents(ownerId, treeId), file }),
+  } : undefined;
+
   return {
     efforts, workspaceImages, registry, catalogue, endpoints, environments,
-    runEnvironments, treeWorkspaces, conversationWorkspaces, images, imagePruner, tools, services, implemented,
+    runEnvironments, treeWorkspaces, conversationWorkspaces, images, imagePruner, tools, services, implemented, treeWorkspaceFiles,
   };
 }
 
 export function storesFromDatabase(db: Database): EngineHostStores {
   return {
-    personas: { list: (ownerId?: string) => db.getEnginePersonas(ownerId) },
+    agentRecords: { list: (ownerId: string) => db.getEnginePersonas(ownerId) },
+    toolGrants: grantStoreFrom(db),
     procedures: {
       list: (ownerId?: string) => db.getProcedures(ownerId),
       get: (ownerId: string, id: string) => db.getProcedure(ownerId, id),
@@ -335,6 +478,8 @@ export function storesFromDatabase(db: Database): EngineHostStores {
     conversations: {
       get: (ownerId, id) => db.getConversation(ownerId, id),
       save: (conversation) => db.saveConversation(conversation),
+      names: async (ids) => Object.fromEntries((await Promise.all(ids.map(async (id) => [id, (await db.getUserById(id))?.email] as const)))
+        .filter((entry): entry is readonly [string, string] => Boolean(entry[1]))),
     },
     tasks: { list: (ownerId: string) => db.getTasks(ownerId), save: (task) => db.saveTask(task) },
     grove: {
@@ -347,9 +492,11 @@ export function storesFromDatabase(db: Database): EngineHostStores {
         list: (ownerId, conversationId) => db.getPlanProposals(ownerId, conversationId),
       },
       treeTypes: async (ownerId: string) => treeTypeChoices(await db.getTreeTypes(ownerId), ownerId),
+      treeTypeSpecs: (ownerId: string) => db.getTreeTypes(ownerId),
+      workspaceImages: (ownerId: string) => new WorkspaceImageService(db).list(ownerId),
       binding: async (ownerId: string, conversationId: string) => {
         const conversation = await db.getConversation(ownerId, conversationId);
-        return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId } : undefined;
+        return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId, leafId: conversation.leafId, branchId: conversation.branchId } : undefined;
       },
     },
     memories: { list: (ownerId: string) => db.getMemories(ownerId), save: (item: MemoryItem) => db.saveMemory(item) },
@@ -374,7 +521,7 @@ export function storesFromDatabase(db: Database): EngineHostStores {
       trees: { list: () => db.getTrees() },
       binding: async (ownerId: string, conversationId: string) => {
         const conversation = await db.getConversation(ownerId, conversationId);
-        return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId } : undefined;
+        return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId, leafId: conversation.leafId, branchId: conversation.branchId } : undefined;
       },
     },
     runs: { traces: (ownerId: string, runId: string) => db.getRunTraces(ownerId, runId) },

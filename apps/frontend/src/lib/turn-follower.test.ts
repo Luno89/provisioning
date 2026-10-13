@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createTurnFollower } from './turn-follower'
 import type { TurnLogEntry } from '../types/turns'
 
@@ -74,5 +74,16 @@ describe('following a turn\'s log', () => {
 
     expect(applied).toEqual([])
     expect(follower.following('t1')).toBe(false)
+  })
+
+  it('takes a filtered read as covering the whole log up to where it says, so the next pushed entry carries straight on', async () => {
+    const applied: number[] = []
+    const read = vi.fn(async () => ({ entries: [entry(2), entry(7)], through: 9 }))
+    const follower = createTurnFollower(read)
+    await follower.follow('t1', (one) => applied.push(one.seq))
+    follower.receive(entry(10), (one) => applied.push(one.seq))
+
+    expect(applied).toEqual([2, 7, 10])
+    expect(read).toHaveBeenCalledTimes(1)
   })
 })

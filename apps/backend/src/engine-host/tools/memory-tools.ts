@@ -23,7 +23,7 @@ const same = (a: string, b: string): boolean => a.replace(/\s+/g, ' ').trim().to
 const current = (memory: MemoryItem): boolean => !memory.invalidAt && memory.status !== 'pending_review';
 
 const describe = (memory: MemoryItem): string =>
-  `- id ${memory.id} [${memory.category}, ${memory.scope ?? 'global'}] ${memory.title}: ${memory.text}`;
+  `- id ${memory.id} [${memory.category}, ${memory.scope ?? 'global'}${memory.model ? `, only for ${memory.model}` : ''}] ${memory.title}: ${memory.text}`;
 
 export function matchMemories(memories: readonly MemoryItem[], query: string): MemoryItem[] {
   const wanted = new Set(words(query));
@@ -35,10 +35,20 @@ export function matchMemories(memories: readonly MemoryItem[], query: string): M
     .map((entry) => entry.memory);
 }
 
-export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((ownerId: string) => Promise<string[]>) | undefined; now?: () => string; newId?: () => string }): Record<string, ToolHandler> {
+export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((ownerId: string) => Promise<string[]>) | undefined; models?: ((ownerId: string) => Promise<string[]>) | undefined; now?: () => string; newId?: () => string }): Record<string, ToolHandler> {
   const now = options.now ?? (() => new Date().toISOString());
   const newId = options.newId ?? uuidv4;
   const { store } = options;
+
+  const modelOf = async (ownerId: string, parsed: Record<string, unknown>): Promise<{ model?: string } | { refused: string }> => {
+    const model = text(parsed, 'model');
+    if (!model) return {};
+    const known = options.models ? await options.models(ownerId) : [];
+    if (!known.includes(model)) {
+      return { refused: `"${model}" is not one of the person's models; name the model exactly as read_run shows it, or leave model out` };
+    }
+    return { model };
+  };
 
   return {
     async search_memories({ parsed, caller }): Promise<ToolOutcome> {
@@ -59,13 +69,15 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       const asked = text(parsed, 'category') as MemoryItem['category'] | undefined;
       const category = asked && CATEGORIES.has(asked) ? asked : 'lessons_learned';
       const scope = text(parsed, 'scope') === 'global' || (!caller.projectId && text(parsed, 'scope') !== 'project') ? 'global' : 'project';
+      const forModel = await modelOf(ownerId, parsed);
+      if ('refused' in forModel) return refuse(forModel.refused);
       const mine = (await store.list(ownerId)).filter(current);
 
       const replaces = text(parsed, 'replaces');
       const old = replaces ? mine.find((memory) => memory.id === replaces) : undefined;
       if (replaces && !old) return refuse(`there is no current memory ${replaces} to replace; nothing was saved`);
 
-      const known = mine.find((memory) => memory.id !== replaces && same(memory.title, title) && same(memory.text, body));
+      const known = mine.find((memory) => memory.id !== replaces && memory.model === forModel.model && same(memory.title, title) && same(memory.text, body));
       if (known) return { ok: true, digest: `already known: ${known.title}`, content: `That is already remembered as ${known.id}; nothing new was stored.` };
 
       const at = now();
@@ -74,6 +86,7 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
         ownerId,
         ...(scope === 'project' && caller.projectId ? { projectId: caller.projectId } : {}),
         category,
+        ...(forModel.model ? { model: forModel.model } : {}),
         scope,
         recommendedScope: scope,
         status: 'active',
@@ -91,7 +104,7 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       if (old) await store.save({ ...old, invalidAt: at, supersededBy: item.id, updatedAt: at });
       return {
         ok: true,
-        digest: old ? `replaced ${old.title} with ${title}` : `remembered ${title}`,
+        digest: `${old ? `replaced ${old.title} with ${title}` : `remembered ${title}`}${forModel.model ? ` for ${forModel.model}` : ''}`,
         content: old ? `Saved as ${item.id}, replacing ${old.id}.` : `Saved as ${item.id}.`,
       };
     },
@@ -104,9 +117,12 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       const why = text(parsed, 'why');
       if (!agent || !body || !why) return refuse('give the agent, the practice and what it was learned from');
       if (options.agents && !(await options.agents(ownerId)).includes(agent)) return refuse(`there is no agent called "${agent}"`);
+      const forModel = await modelOf(ownerId, parsed);
+      if ('refused' in forModel) return refuse(forModel.refused);
       const title = text(parsed, 'title') ?? body.split('\n')[0]!.slice(0, 60);
-      const known = (await store.list(ownerId)).find((memory) => !memory.invalidAt && memory.category === 'practice' && memory.agent === agent && same(memory.text, body));
-      if (known) return refuse(`${agent} already has that practice (${known.id}, ${known.status ?? 'active'}); nothing was proposed`);
+      const learned = `${body}\n(learned from: ${why})`;
+      const known = (await store.list(ownerId)).find((memory) => !memory.invalidAt && memory.category === 'practice' && memory.agent === agent && memory.model === forModel.model && same(memory.text, body));
+      if (known) return refuse(`${agent} already has that practice${forModel.model ? ` on ${forModel.model}` : ''} (${known.id}, ${known.status ?? 'active'}); nothing was proposed`);
 
       const at = now();
       const item: MemoryItem = {
@@ -114,18 +130,20 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
         ownerId,
         category: 'practice',
         agent,
+        ...(forModel.model ? { model: forModel.model } : {}),
         scope: 'global',
         recommendedScope: 'global',
         status: 'trial',
         title,
-        text: `${body}\n(learned from: ${why})`,
+        text: learned,
         source: 'agent_tool',
         ...(caller.runId ? { provenance: { experimentId: caller.runId } } : {}),
         createdAt: at,
         updatedAt: at,
       };
       await store.save(item);
-      return { ok: true, digest: `practice on trial for ${agent}: ${title}`, content: `Proposed ${item.id} for ${agent}; it is on trial until the bench has run ${agent}'s scenarios with it.` };
+      const on = forModel.model ? ` on ${forModel.model}` : '';
+      return { ok: true, digest: `practice on trial for ${agent}${on}: ${title}`, content: `Proposed ${item.id} for ${agent}${on}; it is on trial until the bench has run ${agent}'s scenarios with it${on}.` };
     },
 
     async forget_memory({ parsed, caller }): Promise<ToolOutcome> {

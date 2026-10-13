@@ -6,6 +6,8 @@ import { createNoneDriver } from '@koala/engine-core';
 import type { ToolCallArgs } from '../temporal/contracts.js';
 import type { EnvironmentDriver, EnvironmentSpec, ToolContract } from '@koala/engine-core';
 import type { AgentDefinition } from '@koala/agent-engine';
+import { createServerTools } from './server-tools.js';
+import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../lib/mcp-servers.js';
 
 const spec: EnvironmentSpec = { kind: 'sandbox', lifecycle: 'invocation', languages: ['node20'] };
 
@@ -141,6 +143,20 @@ describe('tool runtime', () => {
     expect(seen).toEqual([true, undefined]);
   });
 
+  it('tells a tool which tree it works in when the call runs in a tree\'s workspace', async () => {
+    const seen: (string | undefined)[] = [];
+    const tools = createToolRuntime({
+      registry: registry(),
+      environments: sourceFor(undefined),
+      handlers: { save_memory: async ({ caller }) => { seen.push(caller.treeId); return { ok: true, digest: 'ok' }; } },
+    });
+    const ticket = { runId: 'r', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user' as const };
+    await tools.run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket, environment: { id: 'engine-tree-t1', spec: { kind: 'sandbox', lifecycle: 'persistent' }, workspace: { runId: 'tree-t1' } as never } }));
+    await tools.run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket, environment: { id: 'engine-conversation-c1', spec: { kind: 'sandbox', lifecycle: 'persistent' }, workspace: { runId: 'conversation-c1', sharedBy: 'conversation' } as never } }));
+    await tools.run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket }));
+    expect(seen).toEqual(['t1', undefined, undefined]);
+  });
+
   it('refuses a tool the agent was never granted', async () => {
     const { driver } = sandbox();
     const outcome = await runtime(driver).run(args({ name: 'search_web', arguments: '{"q":"x"}' }));
@@ -257,5 +273,39 @@ describe('tool runtime', () => {
     const outcome = await runtime(driver).run(args({ name: 'read_file', arguments: '{"path":"a.ts"}' }));
 
     expect(outcome.content).toBe('file contents');
+  });
+});
+
+describe('calling a tool a workspace server serves', () => {
+  const runs: ServerRuns = { where: 'workspace', install: [{ via: 'npm', packages: ['echoes'] }], start: 'serve', port: 8931 };
+  const echoes: McpServerRecord = { id: 'e1', ownerId: 'user-1', name: 'echoes', runs, createdAt: 't0', updatedAt: 't0', captured: { tools: [{ name: 'echo', annotations: { idempotentHint: true, readOnlyHint: true } }], at: 't1', fingerprint: runsFingerprint(runs) } };
+  const calls: unknown[] = [];
+  const tools = (servers: string[]) => createToolRuntime({
+    registry: createAgentRegistry({ agentStore: { list: async () => [{ ...EXECUTOR, servers }] }, toolCatalogue: { list: async () => CATALOGUE } }),
+    environments: sourceFor(sandbox().driver),
+    serverTools: createServerTools({
+      catalogue: async () => [echoes],
+      enabled: async () => [],
+      hosted: { call: async () => ({ text: '', isError: true }) },
+      workspace: {
+        call: async (request) => {
+          calls.push(request);
+          return { ok: true, digest: `You said: ${String(request.args.message)}`, content: `You said: ${String(request.args.message)}` };
+        },
+      },
+    }),
+  });
+  const environment = { id: 'sb-1', spec };
+
+  it('hands the call to the server, with the run\'s workspace and the arguments as given', async () => {
+    const outcome = await tools(['echoes']).run(args({ name: 'echoes__echo', arguments: '{"message":"hi"}', environment }));
+
+    expect(outcome).toMatchObject({ ok: true, digest: 'You said: hi' });
+    expect(calls[0]).toMatchObject({ environment: { id: 'sb-1' }, server: { name: 'echoes', start: 'serve', port: 8931 }, tool: 'echo', args: { message: 'hi' } });
+  });
+
+  it('refuses it to an agent that does not hold the server', async () => {
+    const outcome = await tools([]).run(args({ name: 'echoes__echo', arguments: '{"message":"hi"}', environment }));
+    expect(outcome.ok).toBe(false);
   });
 });

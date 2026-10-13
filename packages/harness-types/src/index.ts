@@ -646,6 +646,37 @@ export interface LeafPlan {
   tasks: PlanTask[];
 }
 
+export interface StoryEdit {
+  leafId: string;
+  title?: string | undefined;
+  body?: string | undefined;
+  brief?: string | undefined;
+  dependsOn?: string[] | undefined;
+  addTasks?: PlanTask[] | undefined;
+  dropTasks?: string[] | undefined;
+  rework?: boolean | undefined;
+}
+
+export interface StorySnapshot {
+  leafId: string;
+  title: string;
+  status: string;
+  body?: string | undefined;
+  dependsOn: string[];
+  tasks: { id: string; title: string; status: string }[];
+}
+
+export interface ItemChange {
+  treeId: string;
+  why: string;
+  edit?: StoryEdit | undefined;
+  add?: { branchId: string; branchTitle: string; leaves: PlanLeaf[] } | undefined;
+  cancel?: string[] | undefined;
+  before: StorySnapshot[];
+  outcome: string[];
+  names?: Record<string, string> | undefined;
+}
+
 export interface AdoptedPlan {
   treeId: string;
   branchIds: string[];
@@ -663,6 +694,7 @@ export interface PlanProposal {
   status: PlanStatus;
   plan?: Plan | undefined;
   leafPlan?: LeafPlan | undefined;
+  change?: ItemChange | undefined;
   reason?: string | undefined;
   adopted?: AdoptedPlan | undefined;
   createdAt: string;

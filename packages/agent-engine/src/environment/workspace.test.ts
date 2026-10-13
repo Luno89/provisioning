@@ -21,6 +21,13 @@ describe('describeWorkspace', () => {
     expect(text).not.toContain('- /work is your working directory');
   });
 
+  it('tells a run what its tree asked for that is not here yet, how far it has got, and what to do meanwhile', () => {
+    const text = describeWorkspace({ ...workspace, persistent: true, coming: { what: ['dnf wkhtmltopdf'], stage: 'being rebuilt' } }, 'trees/leaf-1');
+    expect(text).toContain('- NOT here yet: dnf wkhtmltopdf. The tree asked for it, and its workspace is being rebuilt.');
+    expect(text).toContain('mark_waiting');
+    expect(describeWorkspace({ ...workspace, persistent: true }, 'trees/leaf-1')).not.toContain('NOT here yet');
+  });
+
   it('tells a run in a tree sandbox that the sandbox outlives it and is shared', () => {
     const text = describeWorkspace({ ...workspace, persistent: true }, 'trees/leaf-1');
     expect(text).toContain('belongs to the tree, not to this run');

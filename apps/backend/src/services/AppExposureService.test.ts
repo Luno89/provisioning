@@ -141,6 +141,17 @@ describe('syncExposedApps', () => {
     expect(mockUnlink.mock.calls[0]![0]).toContain('stale-app.conf');
   });
 
+  it('keeps the config of a locally exposed app whose release has a namespace of its own name, and sweeps public configs nothing exposes', async () => {
+    mockGetDeployments.mockResolvedValue([{ ...mockDep, name: 'Shop', namespace: 'shop-1a2b3c', appType: 'odoo-project', isExposedPublicly: false, isExposedLocally: true }]);
+    mockGetById.mockResolvedValue(null);
+    mockReaddir.mockImplementation(async (dir: string) => (String(dir).includes('caddy') ? ['shop-1a2b3c.caddy', 'gone-app.caddy'] : ['default.conf', 'shop-1a2b3c.conf', 'shop-1a2b3c-preview.conf', 'shop.conf']));
+
+    await createService().syncExposedApps();
+    const removed = mockUnlink.mock.calls.map((call) => String(call[0]).split('/').pop());
+    expect(removed.sort()).toEqual(['gone-app.caddy', 'shop-1a2b3c.caddy', 'shop.conf']);
+    mockReaddir.mockReset();
+  });
+
   it('handles missing cluster gracefully', async () => {
     mockGetDeployments.mockResolvedValue([mockDep]);
     mockGetById.mockResolvedValue(null);

@@ -1,4 +1,5 @@
 import type { EgressMode } from '@koala/agent-engine';
+import { WORKSPACE_STAMP, workspaceStamp } from '../../lib/published-workspace.js';
 
 export type EgressRule =
   | { cidr: string; namespace?: undefined; ports?: number[] }
@@ -188,7 +189,7 @@ export function buildManifests(workspace: RunWorkspace): Record<string, unknown>
     {
       apiVersion: 'v1',
       kind: 'Pod',
-      metadata: { name: POD, namespace, labels },
+      metadata: { name: POD, namespace, labels, annotations: { [WORKSPACE_STAMP]: workspaceStamp(workspace) } },
       spec: {
         automountServiceAccountToken: false,
         restartPolicy: 'Never',

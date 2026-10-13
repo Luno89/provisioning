@@ -24,7 +24,9 @@ import type { ProcedureSource } from './procedure-source.js';
 import type { StoredNodeTrace } from './run-traces.js';
 import type { TurnLogEntry } from './turn-log.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
-import type { Persona as EnginePersona, ToolDefinition as EngineTool } from '@koala/agent-engine';
+import type { GrantKind, PersonaRecord as EnginePersona, ToolDefinition as EngineTool, ToolGrant } from '@koala/agent-engine';
+import type { PublishedWorkspace } from './published-workspace.js';
+import type { McpServerRecord } from './mcp-servers.js';
 import type { EvalCollection, EvalRecord } from './eval-run.js';
 import type { TreeTypeSpec } from './tree-types.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
@@ -69,6 +71,7 @@ export interface AccountIds {
   conversationIds: string[];
   proposalIds: string[];
   projectIds: string[];
+  buildWorkflowIds: string[];
   ingestIds: string[];
 }
 
@@ -151,6 +154,9 @@ export interface Database {
   getConversations(): Promise<Conversation[]>;
   getConversation(ownerId: string, id: string): Promise<Conversation | undefined>;
   allowToolInConversation(ownerId: string, conversationId: string, tool: string): Promise<boolean>;
+  bindConversation(ownerId: string, conversationId: string, binding: { treeId: string; projectId?: string | undefined }): Promise<boolean>;
+  appendNotice(ownerId: string, conversationId: string, message: import('./conversations.js').ConversationMessage): Promise<boolean>;
+  appendMessage(ownerId: string, conversationId: string, message: import('./conversations.js').ConversationMessage): Promise<boolean>;
   ownsRun(ownerId: string, runId: string): Promise<boolean>;
   saveConversation(conversation: Conversation): Promise<void>;
   deleteConversation(id: string): Promise<void>;
@@ -207,7 +213,6 @@ export interface Database {
   getBenchState(ownerId: string): Promise<BenchState | undefined>;
   saveBenchState(state: BenchState): Promise<void>;
   saveMemoryWatermark(key: string, value: string): Promise<void>;
-  saveMcpToolHint(hint: McpToolHint): Promise<void>;
   deleteMcpToolHint(ownerId: string, server: string, tool: string): Promise<void>;
 
   getActionProposals(ownerId: string, filter?: { conversationId?: string | undefined; treeId?: string | undefined }): Promise<ActionProposal[]>;
@@ -253,6 +258,18 @@ export interface Database {
   getEnginePersonas(ownerId?: string): Promise<EnginePersona[]>;
   saveEnginePersona(persona: EnginePersona): Promise<void>;
   deleteEnginePersona(ownerId: string | undefined, slug: string): Promise<void>;
+
+  getPublishedWorkspace(ownerId: string, treeId: string): Promise<PublishedWorkspace | undefined>;
+  savePublishedWorkspace(workspace: PublishedWorkspace): Promise<void>;
+  deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void>;
+  getMcpServers(ownerId: string): Promise<McpServerRecord[]>;
+  saveMcpServer(server: McpServerRecord): Promise<void>;
+  deleteMcpServer(ownerId: string, id: string): Promise<void>;
+
+  getToolGrants(ownerId: string): Promise<ToolGrant[]>;
+  saveToolGrant(grant: ToolGrant & { ownerId: string }): Promise<void>;
+  deleteToolGrant(ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): Promise<void>;
+  deleteToolGrantsFor(ownerId: string | undefined, of: { agent?: string; tool?: string; kind?: GrantKind | undefined }): Promise<number>;
 
   getEngineTools(ownerId?: string): Promise<EngineTool[]>;
   saveEngineTool(tool: EngineTool): Promise<void>;

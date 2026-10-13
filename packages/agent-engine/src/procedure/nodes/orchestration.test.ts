@@ -321,6 +321,14 @@ describe('call tool, delegate, fan out and wait', () => {
     expect((await invoke(createOrchestrationNodes(structured), delegate, { settings: { agent: 'judge' } })).outputs.text).toBe('{"verdict":"met"}');
   });
 
+  it('offers the answers to choose from when it has them, and asks for one of them', async () => {
+    const p = ports();
+    const outcome = await invoke(createOrchestrationNodes(p), waitForPerson, { settings: { prompt: 'Install it?', choices: ['Install it', 'Do not install'] } });
+
+    expect(outcome.events).toEqual([{ type: 'notice', level: 'info', nodeId: 'here', message: 'Install it?', choices: ['Install it', 'Do not install'] }]);
+    expect(p.ask).toHaveBeenCalledWith(expect.objectContaining({ choices: ['Install it', 'Do not install'] }));
+  });
+
   it('shows the message, waits, and leaves by whether anyone answered', async () => {
     const answered = await invoke(createOrchestrationNodes(ports()), waitForPerson, { settings: { prompt: 'Accept the plan?', timeoutMinutes: 5 } });
     const silent = ports({ ask: vi.fn(async () => ({ answered: false, reason: 'the run was cancelled' })) });

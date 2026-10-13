@@ -17,7 +17,7 @@ import { egressKeys, listEgressRequests } from '../../../api/egress.js'
 const ADOPTING_POLL_MS = 3_000
 const SHOWN: PlanProposal['status'][] = ['proposed', 'adopting', 'failed']
 
-export function TreeProposalsPanel({ treeId }: { treeId: string }) {
+export function TreeProposalsPanel({ treeId, quietWhenEmpty = false }: { treeId: string; quietWhenEmpty?: boolean | undefined }) {
   const qc = useQueryClient()
   const { data: proposals = [] } = useQuery({
     queryKey: planKeys.forTree(treeId),
@@ -41,7 +41,7 @@ export function TreeProposalsPanel({ treeId }: { treeId: string }) {
   const pending = actions.proposals.filter((proposal) => proposal.status === 'proposed' || proposal.status === 'applying' || proposal.status === 'failed')
 
   const open = proposals.filter((proposal) => SHOWN.includes(proposal.status))
-  if (open.length === 0 && waiting.length === 0 && pending.length === 0 && asking.length === 0) return <div className="px-3 py-2 text-[12px] text-slate-500">No plans waiting.</div>
+  if (open.length === 0 && waiting.length === 0 && pending.length === 0 && asking.length === 0) return quietWhenEmpty ? null : <div className="px-3 py-2 text-[12px] text-slate-500">No plans waiting.</div>
 
   return (
     <div className="px-2 flex flex-col" data-testid="tree-proposals">

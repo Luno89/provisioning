@@ -9,7 +9,10 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
     guidance: 'Use this for anything the workspace can do that no other tool covers — installing, '
       + 'building, running a test suite, inspecting git. It is the general case, so prefer a tool '
       + 'that names what you want when one exists. A non-zero exit is reported as a failure with '
-      + 'the output, not as an error to retry blindly.',
+      + 'the output, not as an error to retry blindly. A command runs until it ends, however long that '
+      + 'takes; give timeoutSeconds when it might never end on its own (a server started in the '
+      + 'foreground, something waiting for input), and it is stopped, with everything it started, '
+      + 'once that time is up.',
     binding: 'environment',
     effect: 'write',
     idempotent: false,
@@ -22,12 +25,14 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
       NO_MACHINE,
       { when: 'the command argument is missing', says: 'this call needs a "command"' },
       { when: 'the command exits non-zero', says: 'the output, with the call marked failed' },
+      { when: 'timeoutSeconds ran out', says: 'the output so far, "[stopped after <n>s, the timeoutSeconds this call set; …]", with the call marked failed' },
     ],
     parameters: {
       type: 'object',
       properties: {
         command: { type: 'string', description: 'The shell command to run' },
         cwd: { type: 'string', description: 'Directory to run it in, defaulting to the workspace root' },
+        timeoutSeconds: { type: 'number', description: 'Stop the command, and everything it started, after this many seconds. Leave it out to let it run until it ends.' },
       },
       required: ['command'],
     },

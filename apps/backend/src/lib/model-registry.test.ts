@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  modelNames,
+  providerServing,
   sanitizeNamespace,
   providerFromDeployment,
   providerFromEndpoint,
@@ -196,5 +198,23 @@ describe('routeProvider', () => {
     const served = listProviders([dep({ id: 'dep-a', vllmModel: 'Qwen3-32B' })]);
     expect(routeProvider(served, 'dep-a')?.provider.model).toBe('Qwen3-32B');
     expect(routeProvider(served, 'Qwen3-32B')).toBeUndefined();
+  });
+});
+
+describe('the models a person has', () => {
+  const providers = [
+    { id: 'tabby', name: 'Tabby', source: 'deployment' as const, model: 'qwen/q' },
+    { id: 'router', name: 'Router', source: 'endpoint' as const, model: 'qwen/q' },
+    { id: 'blank', name: 'Blank', source: 'endpoint' as const, model: '' },
+    { id: 'old', name: 'Old', source: 'endpoint' as const, model: 'a/old' },
+  ];
+
+  it('names each model once, however many endpoints serve it', () => {
+    expect(modelNames(providers)).toEqual(['a/old', 'qwen/q']);
+  });
+
+  it('finds an endpoint serving a model, or none', () => {
+    expect(providerServing(providers, 'qwen/q')?.id).toBe('tabby');
+    expect(providerServing(providers, 'gone/m')).toBeUndefined();
   });
 });

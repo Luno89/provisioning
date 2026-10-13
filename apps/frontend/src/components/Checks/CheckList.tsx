@@ -172,7 +172,7 @@ export default function CheckList({ scope, agents, procedures }: CheckListProps)
                     />
                   ))}
                 </span>
-                <span className="font-mono text-xs text-slate-600">{scenario.agent}{scenario.step ? ` · ${scenario.step.node}` : scenario.turn ? ` · ${scenario.expect.chooses?.tool ?? 'no tool'}` : ` · ${scenario.procedure.id}`}{(scenario.repeats ?? 1) > 1 ? ` · ×${scenario.repeats}` : ''}</span>
+                <span className="font-mono text-xs text-slate-600">{scenario.agent}{scenario.step ? ` · ${scenario.step.node}` : scenario.turn ? ` · ${scenario.expect.chooses?.tool ?? 'no tool'}` : ` · ${scenario.procedure.id}`}{(scenario.repeats ?? 1) > 1 ? ` · ×${scenario.repeats}` : ''}{scenario.onBench === false ? ' · not on the bench' : ''}</span>
                 <button type="button" disabled={Boolean(running)} onClick={() => launch([scenario.id])} className="text-xs text-slate-500 hover:text-sky-400 disabled:opacity-40">run</button>
                 <button type="button" onClick={() => setEditing({ id: scenario.id })} className="text-xs text-slate-500 hover:text-sky-400">
                   {scenario.mine ? 'edit' : 'copy'}

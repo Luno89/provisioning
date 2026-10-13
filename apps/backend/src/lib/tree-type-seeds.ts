@@ -1,4 +1,5 @@
 import type { TreeTypeSeed } from './tree-types.js';
+import { ODOO_RELEASE_SECRETS } from './odoo-release.js';
 import {
   NODE_SERVICE_FILES,
   MCP_SERVER_FILES,
@@ -24,7 +25,7 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     produces: 'service',
     doneMeans: 'It builds, it deploys, it answers `initialize`, and its tools return real data when called.',
     files: MCP_SERVER_FILES,
-    defaultBindings: ['gitea'],
+    releaseWhen: ['Dockerfile', 'package.json', 'package-lock.json', 'src/**'],
   },
   {
     id: 'ui-app',
@@ -34,6 +35,7 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     produces: 'service',
     doneMeans: 'The frontend builds cleanly, dist/index.html is produced, and the web UI renders and serves.',
     files: UI_APP_FILES,
+    releaseWhen: ['Dockerfile', 'package.json', 'package-lock.json', 'src/**', 'public/**', 'index.html', 'vite.config.ts'],
   },
   {
     id: 'api-service',
@@ -43,6 +45,7 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     summary: 'Something that runs and answers requests.',
     doneMeans: 'Its tests pass, it builds, it deploys, and the endpoint responds.',
     files: NODE_SERVICE_FILES,
+    releaseWhen: ['Dockerfile', 'package.json', 'package-lock.json', 'src/**'],
   },
   {
     id: 'research-paper',
@@ -145,7 +148,8 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     produces: 'service',
     doneMeans: 'Every module the work added or changed installs into a fresh Odoo 18 database and its own tests pass — `odoo-check <module>[,<module>] addons` says PASSED — following CHECKS.md.',
     files: ODOO_ADDONS_FILES,
-    defaultBindings: ['gitea'],
+    releaseWhen: ['Dockerfile', 'addons/**', 'deploy/chart/**', 'e2e/**', 'playwright.config.ts', 'requirements.txt'],
+    secrets: ODOO_RELEASE_SECRETS,
   },
   {
     id: CATCH_ALL_TREE_TYPE,

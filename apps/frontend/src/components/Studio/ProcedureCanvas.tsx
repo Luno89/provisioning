@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type DragEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import {
   Background,
   BackgroundVariant,
@@ -6,6 +6,7 @@ import {
   MarkerType,
   MiniMap,
   ReactFlow,
+  useNodesInitialized,
   useReactFlow,
   type Connection,
   type Edge,
@@ -45,6 +46,7 @@ export interface ProcedureCanvasProps {
   onSelect: (ids: string[]) => void
   onOpenGroup: (groupId: string) => void
   onRefused: (message: string) => void
+  focus?: string | undefined
 }
 
 const sameIds = (a: readonly string[], b: readonly string[]) =>
@@ -61,6 +63,7 @@ export default function ProcedureCanvas({
   onSelect,
   onOpenGroup,
   onRefused,
+  focus,
 }: ProcedureCanvasProps) {
   const context = useStudioContext()
   const flow = useReactFlow()
@@ -69,6 +72,14 @@ export default function ProcedureCanvas({
   const drag = useRef(0)
 
   const drawn = useMemo(() => toCanvas(procedure, path, problems, context, states), [procedure, path, problems, states, context])
+  const focusDrawn = Boolean(focus && drawn.nodes.some((node) => node.id === focus))
+
+  const laidOut = useNodesInitialized()
+
+  useEffect(() => {
+    if (!focus || !focusDrawn || !laidOut) return
+    void flow.fitView({ nodes: [{ id: focus }], padding: 1.2, maxZoom: 1, duration: 300 })
+  }, [focus, focusDrawn, laidOut, flow, path])
 
   const nodes = useMemo<Node<StepNodeData, 'step'>[]>(
     () => drawn.nodes.map((node) => ({

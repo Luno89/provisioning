@@ -22,6 +22,7 @@ vi.mock('../../../api/projects.js', async (importOriginal) => ({
   listProjects: vi.fn(),
 }))
 vi.mock('../../Home.js', () => ({ default: () => <div data-testid="home">home</div> }))
+vi.mock('./ProjectChannel.js', () => ({ ProjectChannel: ({ projectId }: { projectId: string }) => <div data-testid="project-channel">{projectId}</div> }))
 vi.mock('../../ChatSurface.js', () => ({ default: () => <div data-testid="koala-chat">koala-chat</div> }))
 vi.mock('../../LeafDetail.js', () => ({ default: () => <div data-testid="leaf-detail">leaf-detail</div> }))
 vi.mock('../../ProjectEditor/FileTree.js', () => ({ FileTree: () => <div data-testid="file-tree">file-tree</div> }))
@@ -60,7 +61,7 @@ describe('Workspace layout', () => {
 
     expect(await screen.findByTestId('file-tree')).toBeInTheDocument()
     expect(screen.getByTestId('builds-panel')).toBeInTheDocument()
-    expect(screen.getByTestId('home')).toBeInTheDocument()
+    expect(screen.getByTestId('project-channel')).toHaveTextContent('p1')
     expect(screen.getByTestId('branches-panel')).toBeInTheDocument()
   })
 
@@ -88,6 +89,7 @@ describe('Workspace layout', () => {
     expect(await screen.findByText('Start a conversation')).toBeInTheDocument()
     expect(await screen.findByTestId('file-tree')).toBeInTheDocument()
     expect(screen.queryByTestId('home')).not.toBeInTheDocument()
+    expect(screen.getByTestId('project-channel')).toHaveTextContent('p1')
     expect(screen.queryByTestId('branches-panel')).not.toBeInTheDocument()
   })
 
@@ -115,7 +117,7 @@ describe('Workspace layout', () => {
     vi.mocked(projectsApi.listProjects).mockResolvedValue([project])
 
     renderWorkspace({ treeId: 't1' })
-    await screen.findByTestId('home')
+    await screen.findByTestId('project-channel')
 
     fireEvent.click(screen.getByText('select-leaf'))
     expect(await screen.findByTestId('leaf-detail')).toBeInTheDocument()
@@ -152,20 +154,20 @@ describe('Workspace layout', () => {
     vi.mocked(projectsApi.listProjects).mockResolvedValue([project])
 
     renderWorkspace({ treeId: 't1' })
-    expect(await screen.findByTestId('home')).toBeInTheDocument()
+    expect(await screen.findByTestId('project-channel')).toBeInTheDocument()
 
     // Collapse right panel
     const collapseRightBtn = screen.getByLabelText('Collapse right panel')
     fireEvent.click(collapseRightBtn)
 
-    expect(screen.queryByTestId('home')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('project-channel')).not.toBeInTheDocument()
     expect(screen.getByTestId('right-panel-collapsed')).toBeInTheDocument()
 
     // Expand right panel
     const expandRightBtn = screen.getAllByLabelText('Expand right panel')[0]!
     fireEvent.click(expandRightBtn)
 
-    expect(await screen.findByTestId('home')).toBeInTheDocument()
+    expect(await screen.findByTestId('project-channel')).toBeInTheDocument()
     expect(screen.queryByTestId('right-panel-collapsed')).not.toBeInTheDocument()
   })
 
@@ -187,7 +189,7 @@ describe('Workspace layout', () => {
     // Double click right separator
     const rightSeparator = screen.getByLabelText('Resize conversation panel')
     fireEvent.doubleClick(rightSeparator)
-    expect(screen.queryByTestId('home')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('project-channel')).not.toBeInTheDocument()
     expect(screen.getByTestId('right-panel-collapsed')).toBeInTheDocument()
   })
 })

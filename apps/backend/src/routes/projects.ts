@@ -1,13 +1,10 @@
 import { Router, type Request } from 'express';
-import crypto from 'crypto';
-import { encryptValue } from '../lib/crypto.js';
 import { asyncRoute } from '../middleware/async-route.js';
 import { isWorkspaceLanguage } from '../lib/workspace-image-catalogue.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import { v4 as uuidv4 } from 'uuid';
 import { ownsProject } from '../lib/ownership.js';
 import { rollupProjectStatus, deploymentForProject } from '../lib/project-status.js';
-import { webhookUrlFor } from '../lib/project-shipping.js';
 import { validateLocalEgressRules } from '../lib/egress-rules.js';
 import type { ProjectRemovalService } from '../services/ProjectRemovalService.js';
 
@@ -27,7 +24,7 @@ const claimedByAnotherProject = (
 export function projectsRouter(deps: Record<string, any>): Router {
   const {
     db, projectRepoService, appService, temporalBridge, getOwnedProject,
-    giteaService, clusterService, infraService, dataKey,
+    giteaService, channels,
   } = deps;
   const router = Router();
 
@@ -68,7 +65,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
   router.post('/', async (req, res) => {
     try {
       const {
-        name, giteaOwner, giteaRepo, createRepo, targetClusterId, targetNamespace, autoDeployOnBuild, language,
+        name, giteaOwner, giteaRepo, createRepo, targetClusterId, autoDeployOnBuild, language: language_,
         executionTargetDeviceId, executionTargetPath, executionApproval, executionTargetEgress,
       } = req.body;
       if (!name) return res.status(400).json({ error: 'name is required' });
@@ -104,48 +101,34 @@ export function projectsRouter(deps: Record<string, any>): Router {
         };
       }
 
-      const id = uuidv4();
-      let repoFields: Record<string, unknown> = {};
-
-      if (wantsRepo) {
-        let owner = giteaOwner || giteaService.adminUsername;
-
-        if (createRepo) {
-          const account = await projectRepoService.ensureAccountFor(userOf(req).id);
-          owner = account.username;
-          await giteaService.createRepoForUser(owner, giteaRepo, { description: `Provisioning project: ${name}` });
-        } else {
-          await giteaService.getRepo(owner, giteaRepo);
-        }
-
-        const webhookSecret = crypto.randomBytes(32).toString('hex');
-        const nodeIpRaw = (await infraService.runKubectl(
-          ['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}'],
-          '/tmp/kubeconfig-provisioning-lunorica',
-        )).trim();
-        await giteaService.createWebhook(owner, giteaRepo, webhookUrlFor(nodeIpRaw, process.env.PORT || 3001, id), webhookSecret);
-
-        repoFields = { giteaOwner: owner, giteaRepo, webhookSecretEnc: encryptValue(webhookSecret, dataKey) };
-      }
-
-      const project = await db.saveProjectInfo({
-        id,
-        name,
-        ownerId: userOf(req).id,
-        ...repoFields,
-        ...(isWorkspaceLanguage(await new WorkspaceImageService(db).list(userOf(req).id), language)
-          ? { language }
-          : {}),
-        appType: wantsRepo ? 'gitapp' : 'local',
-        ...(targetClusterId ? { targetClusterId } : {}),
-        ...(targetNamespace ? { targetNamespace } : {}),
+      const language = isWorkspaceLanguage(await new WorkspaceImageService(db).list(userOf(req).id), language_) ? language_ : undefined;
+      const extra = {
         ...(executionTarget ? { executionTarget } : {}),
-        ...(executionTarget && (executionApproval === 'auto' || executionApproval === 'plan')
-          ? { executionApproval }
-          : {}),
-        autoDeployOnBuild: autoDeployOnBuild === true,
-        createdAt: new Date().toISOString(),
-      });
+        ...(executionTarget && (executionApproval === 'auto' || executionApproval === 'plan') ? { executionApproval } : {}),
+      };
+
+      const project = wantsRepo
+        ? await projectRepoService.createProject(userOf(req).id, {
+          name,
+          repo: giteaRepo,
+          ...(createRepo ? {} : { existingOwner: giteaOwner || giteaService.adminUsername }),
+          ...(language ? { language } : {}),
+          ...(targetClusterId ? { targetClusterId } : {}),
+          autoDeployOnBuild: autoDeployOnBuild === true,
+          description: `Provisioning project: ${name}`,
+          extra,
+        })
+        : await db.saveProjectInfo({
+          id: uuidv4(),
+          name,
+          ownerId: userOf(req).id,
+          ...(language ? { language } : {}),
+          appType: 'local',
+          ...extra,
+          autoDeployOnBuild: false,
+          createdAt: new Date().toISOString(),
+        });
+      await channels?.ensure(project);
       res.status(201).json(project);
     } catch (err: any) {
       res.status(500).json({ error: err.message });

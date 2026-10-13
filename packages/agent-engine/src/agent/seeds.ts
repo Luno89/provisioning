@@ -1,4 +1,5 @@
-import type { Persona } from './agent.js';
+import type { PersonaRecord } from './agent.js';
+import type { GrantMap } from './grants.js';
 import { describeProcedureFormat } from '../procedure/source.js';
 import { builtInCatalogue } from '../procedure/nodes/index.js';
 import { BUILT_IN_GROUPS } from '../procedure/seeds/groups.js';
@@ -6,7 +7,7 @@ import { BUILDER_TOOLS } from '../tools/builder-tools-catalogue.js';
 
 
 
-export const SEEDED_AGENTS: Persona[] = [
+export const SEEDED_AGENTS: PersonaRecord[] = [
   {
     slug: 'agent-builder',
     guidance: "Delegate to the builder when a procedure needs writing or changing. It authors control flow, not personas and not the work itself. It cannot grant anyone a tool it does not hold.",
@@ -34,7 +35,6 @@ export const SEEDED_AGENTS: Persona[] = [
       describeProcedureFormat(builtInCatalogue(), BUILT_IN_GROUPS),
     ].join('\n'),
     procedure: 'tool-rounds',
-    tools: ['list_references', 'read_procedure', 'check_procedure', 'save_procedure'],
     sampling: { toolTurn: { temperature: 0.6 }, conversation: { temperature: 0.7 } },
     environment: {},
     interface: {
@@ -44,11 +44,15 @@ export const SEEDED_AGENTS: Persona[] = [
   },
 ];
 
+export const SEEDED_GRANTS: GrantMap = {
+  'agent-builder': ['list_references', 'read_procedure', 'check_procedure', 'save_procedure'],
+};
+
 export const seededAgentSlugs = (): Set<string> => new Set(ALL_SEEDED_AGENTS().map((agent) => agent.slug));
 
 export const definedToolNames = (extra: readonly string[] = []): Set<string> =>
   new Set([...BUILDER_TOOLS.map((tool) => tool.name), ...extra]);
 
 
-export const ALL_SEEDED_AGENTS = (): Persona[] => [...SEEDED_AGENTS];
+export const ALL_SEEDED_AGENTS = (): PersonaRecord[] => [...SEEDED_AGENTS];
 

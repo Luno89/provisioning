@@ -1,3 +1,4 @@
+import { execSync } from 'child_process';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
@@ -78,11 +79,33 @@ describe('local filesystem driver', () => {
     expect(result.stderr).not.toBe('');
   });
 
-  it('kills a command that runs past its timeout instead of hanging', async () => {
-    const result = await driverFor().exec({ command: 'sleep 5', timeoutMs: 300 });
+  it('kills a command that runs past its timeout instead of hanging, with everything it started', async () => {
+    const marker = `koala-left-${Date.now()}`;
+    const result = await driverFor().exec({ command: `sh -c 'sleep 30; echo ${marker}' & sleep 30`, timeoutMs: 300 });
 
-    expect(result.exitCode).toBe(124);
-    expect(result.stderr).toContain('stopped after');
+    expect(result.stopped).toBe('timeout');
+    expect(result.exitCode).not.toBe(0);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(execSync('ps -eo args').toString()).not.toContain(`echo ${marker}`);
+  });
+
+  it('lets an untimed command run past the default until it ends', async () => {
+    const result = await driverFor().exec({ command: 'sleep 0.6; echo done', untimed: true });
+
+    expect(result).toMatchObject({ stdout: 'done\n', exitCode: 0 });
+    expect(result.stopped).toBeUndefined();
+    const short = createLocalFsDriver({ rootDir, deviceId: 'tallgeese', defaultTimeoutMs: 200 });
+    expect((await short.exec({ command: 'sleep 0.6; echo done', untimed: true })).stdout).toBe('done\n');
+    expect((await short.exec({ command: 'sleep 0.6; echo done' })).stopped).toBe('timeout');
+  });
+
+  it('stops a command, and what it started, when the run is stopped', async () => {
+    const stop = new AbortController();
+    const running = driverFor().exec({ command: 'sleep 30 & sleep 30', untimed: true, signal: stop.signal });
+    setTimeout(() => stop.abort(), 200);
+    const result = await running;
+
+    expect(result.stopped).toBe('cancelled');
   });
 
   it('runs commands inside the scoped path, not the root', async () => {

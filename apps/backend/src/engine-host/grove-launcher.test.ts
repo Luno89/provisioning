@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createGroveLauncher } from './grove-launcher.js';
-import { EngineUnavailableError } from './registries/run-starter.js';
+import { EngineUnavailableError, type StartRunRequest } from './registries/run-starter.js';
+import { workflowOfRun } from './temporal/contracts.js';
 
-type Described = { status: { name: string }; startTime: Date; closeTime?: Date };
+type Described = { status: { name: string }; startTime: Date; closeTime?: Date; memo?: Record<string, unknown> };
 
 function fakeClient(runs: Record<string, { described: Described; result?: unknown; fails?: unknown }>) {
   const signalled: [string, string][] = [];
@@ -35,7 +36,19 @@ describe('the grove launcher', () => {
     const launcher = createGroveLauncher({ runs: { start }, client: () => client, agentFor: async () => 'grove-paper', leafRun: async () => undefined });
 
     expect(await launcher.startGroveRun('u1', 't1')).toEqual({ started: true, workflowId: 'grove-run-t1' });
-    expect(start).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 'u1', agentSlug: 'grove-paper', runId: 'grove-run-t1', bound: { treeId: 't1' } }));
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 'u1', agentSlug: 'grove-paper', runId: expect.stringMatching(/^grove-run-t1~[0-9a-z]+$/), bound: { treeId: 't1' } }));
+  });
+
+  it('gives every run of a tree its own run id, under the one workflow that keeps it to one run at a time', async () => {
+    const ids: string[] = [];
+    const start = vi.fn(async (request: StartRunRequest) => { ids.push(request.runId!); return { runId: request.runId!, agentSlug: 'grove', loopId: 'grove-run' }; });
+    const { client } = fakeClient({});
+    const launcher = createGroveLauncher({ runs: { start }, client: () => client, agentFor: async () => 'grove', leafRun: async () => undefined });
+    await launcher.startGroveRun('u1', 't1');
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await launcher.startGroveRun('u1', 't1');
+    expect(new Set(ids).size).toBe(2);
+    expect(ids.map(workflowOfRun)).toEqual(['grove-run-t1', 'grove-run-t1']);
   });
 
   it('says the tree is already running, or that the engine is not reachable', async () => {
@@ -63,14 +76,14 @@ describe('the grove launcher', () => {
       'grove-run-t1': { described: { status: { name: 'COMPLETED' }, startTime: at, closeTime: at }, result: { runId: 'r', agentId: 'grove', outcome: 'ok', outputs: report } },
       'grove-run-t2': { described: { status: { name: 'COMPLETED' }, startTime: at }, result: { runId: 'r', agentId: 'grove', outcome: 'interrupted', outputs: {} } },
       'grove-run-t3': { described: { status: { name: 'COMPLETED' }, startTime: at }, result: { runId: 'r', agentId: 'grove', outcome: 'failed', reason: 'a judge could not settle its claim', outputs: {} } },
-      'grove-run-t4': { described: { status: { name: 'RUNNING' }, startTime: at } },
+      'grove-run-t4': { described: { status: { name: 'RUNNING' }, startTime: at, memo: { runId: 'grove-run-t4~k2' } } },
     });
     const launcher = createGroveLauncher({ runs: { start: vi.fn() }, client: () => client, agentFor: async () => 'grove', leafRun: async () => undefined });
 
-    expect(await launcher.groveRunStatus('t1')).toMatchObject({ state: 'finished', result: report });
+    expect(await launcher.groveRunStatus('t1')).toMatchObject({ state: 'finished', result: report, turnId: 'grove-run-t1' });
     expect(await launcher.groveRunStatus('t2')).toMatchObject({ state: 'finished', result: { treeId: 't2', outcome: 'stopped' } });
     expect(await launcher.groveRunStatus('t3')).toMatchObject({ state: 'failed', reason: 'a judge could not settle its claim' });
-    expect(await launcher.groveRunStatus('t4')).toMatchObject({ state: 'running' });
+    expect(await launcher.groveRunStatus('t4')).toMatchObject({ state: 'running', turnId: 'grove-run-t4~k2' });
     expect(await launcher.groveRunStatus('t9')).toEqual({ state: 'none' });
   });
 

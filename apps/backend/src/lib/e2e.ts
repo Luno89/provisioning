@@ -1,5 +1,6 @@
 import { E2E_RESULTS_DIR } from './artifacts.js';
 
+export const PLAYWRIGHT_VERSION = '1.48.2';
 export const E2E_RUNNER = 'koala-e2e';
 export const E2E_ROOT = 'e2e-results';
 export const E2E_REPORT = `${E2E_ROOT}/report.json`;
@@ -15,7 +16,11 @@ export interface E2ETest {
   status: E2ETestStatus;
   durationMs: number;
   error?: string | undefined;
+  page?: string | undefined;
 }
+
+export const PAGE_AT_FAILURE = 'page-at-failure';
+export const MAX_PAGE_CHARS = 4_000;
 
 export interface E2EReport {
   passed: number;
@@ -74,7 +79,8 @@ export function e2eTarget(request: E2ERequest): string {
   return request.url ? request.url : 'the workspace\'s own app';
 }
 
-interface ReportResult { status?: string; duration?: number; error?: { message?: string }; errors?: { message?: string }[] }
+interface ReportAttachment { name?: string; body?: string; contentType?: string }
+interface ReportResult { status?: string; duration?: number; error?: { message?: string }; errors?: { message?: string }[]; attachments?: ReportAttachment[] }
 interface ReportTest { status?: string; results?: ReportResult[] }
 interface ReportSpec { title?: string; file?: string; tests?: ReportTest[] }
 interface ReportSuite { title?: string; file?: string; specs?: ReportSpec[]; suites?: ReportSuite[] }
@@ -87,17 +93,26 @@ function errorOf(results: readonly ReportResult[]): string | undefined {
   return message ? plain(message).slice(0, 600) : undefined;
 }
 
+function pageOf(results: readonly ReportResult[]): string | undefined {
+  const body = results.at(-1)?.attachments?.find((attachment) => attachment.name === PAGE_AT_FAILURE)?.body;
+  if (!body) return undefined;
+  const text = /^[A-Za-z0-9+/=\s]+$/.test(body) ? Buffer.from(body, 'base64').toString('utf8') : body;
+  return plain(text).slice(0, MAX_PAGE_CHARS) || undefined;
+}
+
 function testsOf(suite: ReportSuite, path: readonly string[], top: boolean): E2ETest[] {
   const here = top ? path : [...path, suite.title ?? ''].filter(Boolean);
   const own = (suite.specs ?? []).flatMap((spec) => (spec.tests ?? []).map((test): E2ETest => {
     const results = test.results ?? [];
     const error = errorOf(results);
+    const page = test.status !== 'expected' ? pageOf(results) : undefined;
     return {
       title: [...here, spec.title ?? ''].filter(Boolean).join(' › '),
       file: spec.file ?? suite.file ?? '',
       status: STATUS[test.status ?? ''] ?? 'failed',
       durationMs: results.reduce((sum, result) => sum + (result.duration ?? 0), 0),
       ...(error && test.status !== 'expected' ? { error } : {}),
+      ...(page ? { page } : {}),
     };
   }));
   return [...own, ...(suite.suites ?? []).flatMap((child) => testsOf(child, here, false))];

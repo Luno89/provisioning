@@ -8,7 +8,9 @@ interface Followed {
   held: TurnLogEntry[]
 }
 
-export function createTurnFollower(read: (turnId: string, after: number) => Promise<TurnLogEntry[]>) {
+export type TurnRead = TurnLogEntry[] | { entries: TurnLogEntry[]; through: number }
+
+export function createTurnFollower(read: (turnId: string, after: number) => Promise<TurnRead>) {
   const turns = new Map<string, Followed>()
 
   const applyInOrder = (turn: Followed, entries: readonly TurnLogEntry[], apply: Apply): boolean => {
@@ -28,7 +30,17 @@ export function createTurnFollower(read: (turnId: string, after: number) => Prom
     const run = async () => {
       try {
         for (;;) {
-          applyInOrder(turn, await read(turnId, turn.lastSeq), apply)
+          const got = await read(turnId, turn.lastSeq)
+          if (Array.isArray(got)) {
+            applyInOrder(turn, got, apply)
+          } else {
+            for (const entry of [...got.entries].sort((a, b) => a.seq - b.seq)) {
+              if (entry.seq <= turn.lastSeq) continue
+              apply(entry)
+              turn.lastSeq = entry.seq
+            }
+            turn.lastSeq = Math.max(turn.lastSeq, got.through)
+          }
           const held = turn.held.splice(0, turn.held.length)
           if (applyInOrder(turn, held, apply)) return
         }

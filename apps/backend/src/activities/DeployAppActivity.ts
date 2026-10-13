@@ -154,7 +154,7 @@ export async function DeployAppActivity(
     openwebui: { repo: 'ghcr.io/open-webui/open-webui', tag: 'main' },
     hermes: { repo: 'nousresearch/hermes-agent', tag: 'latest' },
     palworld: { repo: 'thijsvanloef/palworld-server-docker', tag: 'latest' },
-    minio: { repo: 'minio/minio', tag: 'latest' },
+    minio: { repo: 'pgsty/minio', tag: 'RELEASE.2026-03-14T12-00-00Z' },
     qdrant: { repo: 'qdrant/qdrant', tag: 'latest' },
     quickwit: { repo: 'quickwit/quickwit', tag: 'latest' },
     tei: { repo: 'ghcr.io/huggingface/text-embeddings-inference', tag: 'cpu-latest' },

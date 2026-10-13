@@ -4,7 +4,7 @@ import { HOST_OP_KIND, type HostOperation } from './host-operations.js';
 import { definitionFor } from './definition.js';
 import { BUILT_IN_GROUPS } from './seeds/groups.js';
 import { PROCEDURE_SCHEMA, type GroupDefinition, type Procedure } from './schema.js';
-import type { Persona } from '../agent/agent.js';
+import type { PersonaRecord } from '../agent/agent.js';
 
 const operation = (name: string): HostOperation => ({
   name,
@@ -30,8 +30,8 @@ const group = (id: string): GroupDefinition => ({
   start: 'note', nodes: [place('note', 'text', { text: 'shelved' })], wires: [], flow: [],
 } as never);
 
-const persona = (slug: string, over: Partial<Persona> = {}): Persona => ({
-  slug, name: slug, description: slug, version: '1', prompt: 'p', guidance: 'g', returns: 'r', failures: [], procedure: 'storage-run', tools: [], environment: {}, ...over,
+const persona = (slug: string, over: Partial<PersonaRecord> = {}): PersonaRecord => ({
+  slug, name: slug, description: slug, version: '1', prompt: 'p', guidance: 'g', returns: 'r', failures: [], procedure: 'storage-run', environment: {}, ...over,
 });
 
 const storage: EngineExtension = {
@@ -42,7 +42,8 @@ const storage: EngineExtension = {
   operations: [operation('storage.tidy')],
   groups: [group('storage.shelve')],
   tools: [{ name: 'list_shelves' } as never],
-  personas: [persona('archivist', { tools: ['list_shelves'] })],
+  personas: [persona('archivist')],
+  grants: { archivist: ['list_shelves'] },
   procedures: [procedure('storage-run', [place('tidy', HOST_OP_KIND, { operation: 'storage.tidy' }), place('done', 'finish', { outcome: 'ok' })])].map((entry) => ({
     ...entry,
     flow: [{ from: 'tidy', exit: 'done', to: 'done' }],
@@ -89,19 +90,21 @@ describe('extensions compose into one node language', () => {
     const broken: EngineExtension = {
       ...storage,
       procedures: [procedure('storage-run', [place('tidy', HOST_OP_KIND, { operation: 'storage.missing' })])],
-      personas: [persona('archivist', { tools: ['nowhere'], agents: ['ghost'], procedure: 'absent' })],
+      personas: [persona('archivist', { agents: ['ghost'], procedure: 'absent' })],
+      grants: { archivist: ['nowhere'], stranger: ['list_shelves'] },
     };
     const problems = extensionProblems([broken]);
     expect(problems.some((problem) => problem.startsWith('extension "storage" seeds procedure "storage-run", which does not check'))).toBe(true);
     expect(problems).toEqual(expect.arrayContaining([
       'extension "storage" seeds agent "archivist" on procedure "absent", which nothing offers',
-      'extension "storage" seeds agent "archivist" with tool "nowhere", which nothing offers',
+      'extension "storage" grants agent "archivist" the tool "nowhere", which nothing offers',
+      'extension "storage" grants "list_shelves" to agent "stranger", which nothing offers',
       'extension "storage" seeds agent "archivist" delegating to "ghost", which nothing offers',
     ]));
   });
 
   it('counts what the engine itself offers when checking what an extension names', () => {
-    const leaning: EngineExtension = { ...storage, personas: [persona('archivist', { procedure: 'engine-run', tools: ['save_procedure'], agents: ['agent-builder'] })] };
+    const leaning: EngineExtension = { ...storage, personas: [persona('archivist', { procedure: 'engine-run', agents: ['agent-builder'] })], grants: { archivist: ['save_procedure'], 'agent-builder': ['list_shelves'] } };
     expect(extensionProblems([leaning], { procedures: [procedure('engine-run')], tools: ['save_procedure'], personas: ['agent-builder'] })).toEqual([]);
   });
 });

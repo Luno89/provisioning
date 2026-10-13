@@ -1,4 +1,5 @@
 import { GroveRunService } from '../services/GroveRunService.js';
+import { GroveOrderService } from '../services/GroveOrderService.js';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import axios from 'axios';
 import { treeTypesRouter } from './tree-types.js';
@@ -85,13 +86,46 @@ describe('the tree-type catalogue', () => {
     expect(unknown.status).toBe(400);
     expect(unknown.data.error).toContain('"nobody"');
   });
+
+  it('deletes a person\'s copy of a shipped type even while trees use it, since they fall back to the shipped one', async () => {
+    h = await mountRouter({
+      prefix: '/api/tree-types',
+      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
+    });
+    await seedTreeTypes(h.db);
+    await seedWorkspaceImages(h.db);
+    const shipped = ((await axios.get(h.url('/api/tree-types'))).data as { id: string; summary: string }[]).find((t) => t.id === 'api-service')!;
+    await axios.put(h.url('/api/tree-types/api-service'), { ...shipped, summary: 'Mine' });
+    await h.db.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'shortener', type: 'api-service', createdAt: 'x', updatedAt: 'x' } as never);
+
+    expect((await axios.delete(h.url('/api/tree-types/api-service'))).status).toBe(200);
+    const listed = ((await axios.get(h.url('/api/tree-types'))).data as { id: string; summary: string; ownerId?: string }[]).filter((t) => t.id === 'api-service');
+    expect(listed).toEqual([expect.objectContaining({ summary: shipped.summary })]);
+    expect(listed[0]).not.toHaveProperty('ownerId');
+  });
+
+  it('refuses to delete a type of a person\'s own that trees still use', async () => {
+    h = await mountRouter({
+      prefix: '/api/tree-types',
+      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
+    });
+    await seedTreeTypes(h.db);
+    await seedWorkspaceImages(h.db);
+    const shipped = ((await axios.get(h.url('/api/tree-types'))).data as { id: string }[]).find((t) => t.id === 'api-service')!;
+    await axios.put(h.url('/api/tree-types/my-own-kind'), { ...shipped, id: 'my-own-kind', label: 'Mine' });
+    await h.db.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'thing', type: 'my-own-kind', createdAt: 'x', updatedAt: 'x' } as never);
+
+    const refused = await axios.delete(h.url('/api/tree-types/my-own-kind'), { validateStatus: () => true });
+    expect(refused.status).toBe(409);
+    expect(refused.data.error).toBe('1 tree(s) still use this type: thing.');
+  });
 });
 
 describe('trees', () => {
   const mount = async () => {
     h = await mountRouter({
       prefix: '/api/trees',
-      router: (db) => treesRouter({ db, workspaces: { state: async () => 'none', release: async () => ({ saved: false as const, why: 'no documents in this test' }) }, runs: new GroveRunService({ store: db, launcher: { startGroveRun: async () => ({ started: false, reason: 'unavailable' }), groveRunStatus: async () => ({ state: 'none' }), signalGroveRun: async () => false } }), deletion: deletionFor(db) }),
+      router: (db) => treesRouter({ db, workspaces: { state: async () => 'none', release: async () => ({ saved: false as const, why: 'no documents in this test' }) }, runs: new GroveRunService({ store: db, launcher: { startGroveRun: async () => ({ started: false, reason: 'unavailable' }), groveRunStatus: async () => ({ state: 'none' }), signalGroveRun: async () => false } }), deletion: deletionFor(db), order: new GroveOrderService({ store: db, now: () => 'now' }), home: { home: async (tree) => tree } }),
     });
     await seedTreeTypes(h.db);
     return h!;
@@ -112,6 +146,19 @@ describe('trees', () => {
     expect(err.response.status).toBe(404);
   });
 
+  it('saves the order of a tree\'s features, and refuses one naming a feature of another tree or another person\'s tree', async () => {
+    const harness = await mount();
+    await harness.db.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'mine', projectIds: [] } as never);
+    await harness.db.saveTree({ id: 't2', ownerId: 'someone-else', name: 'theirs', projectIds: [] } as never);
+    for (const [id, treeId] of [['b1', 't1'], ['b2', 't1'], ['bx', 't9']] as const) await harness.db.saveBranch({ id, ownerId: TEST_USER.id, title: id, treeId, createdAt: 'then', updatedAt: 'then' });
+    const ok = await axios.put(harness.url('/api/trees/t1/order'), { branchIds: ['b2', 'b1'] });
+    expect(ok.data).toEqual({ ordered: 2 });
+    expect((await harness.db.getBranches()).filter((branch) => branch.treeId === 't1').map((branch) => [branch.id, branch.priority])).toEqual([['b1', 1], ['b2', 0]]);
+    const outside = await axios.put(harness.url('/api/trees/t1/order'), { branchIds: ['bx'] }, { validateStatus: () => true });
+    expect([outside.status, outside.data.error]).toEqual([400, 'bx is not among the features here']);
+    expect((await axios.put(harness.url('/api/trees/t2/order'), { branchIds: [] }, { validateStatus: () => true })).status).toBe(404);
+  });
+
   it('creates a tree owned by the session user, not by anything in the body', async () => {
     const harness = await mount();
     const res = await axios.post(harness.url('/api/trees'), {
@@ -127,10 +174,22 @@ describe('branches', () => {
   const mount = async () => {
     h = await mountRouter({
       prefix: '/api/branches',
-      router: (db) => branchesRouter({ db, deletion: deletionFor(db) }),
+      router: (db) => branchesRouter({ db, deletion: deletionFor(db), order: new GroveOrderService({ store: db, now: () => 'now' }) }),
     });
     return h!;
   };
+
+  it('saves the order of a feature\'s stories, and refuses another person\'s feature', async () => {
+    const harness = await mount();
+    await harness.db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, title: 'mine', treeId: 't1', createdAt: 'then', updatedAt: 'then' });
+    await harness.db.saveBranch({ id: 'b2', ownerId: 'someone-else', title: 'theirs', treeId: 't2', createdAt: 'then', updatedAt: 'then' });
+    for (const id of ['l1', 'l2', 'l3']) await harness.db.saveLeaf({ id, ownerId: TEST_USER.id, branchId: 'b1', title: id, status: 'pending', createdAt: 'then', updatedAt: 'then' });
+    expect((await axios.put(harness.url('/api/branches/b1/order'), { leafIds: ['l3', 'l1', 'l2'] })).data).toEqual({ ordered: 3 });
+    expect((await harness.db.getLeaves()).map((leaf) => [leaf.id, leaf.priority])).toEqual([['l1', 1], ['l2', 2], ['l3', 0]]);
+    const twice = await axios.put(harness.url('/api/branches/b1/order'), { leafIds: ['l1', 'l1'] }, { validateStatus: () => true });
+    expect([twice.status, twice.data.error]).toEqual([400, 'a story appears twice in the order']);
+    expect((await axios.put(harness.url('/api/branches/b2/order'), { leafIds: [] }, { validateStatus: () => true })).status).toBe(404);
+  });
 
   it('lists only the caller\'s own', async () => {
     const harness = await mount();
@@ -149,3 +208,15 @@ describe('branches', () => {
     expect(stored?.title).toBe('theirs');
   });
 });
+
+describe('a tree type\'s description', () => {
+  it('is served for a person\'s type, and not for one they do not have', async () => {
+    h = await mountRouter({
+      prefix: '/api/tree-types',
+      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS, describe: async (_ownerId, typeId) => (typeId === 'odoo-addons' ? 'Odoo addons (odoo-addons): …' : undefined) }),
+    });
+    expect((await axios.get(h.url('/api/tree-types/odoo-addons/description'))).data).toEqual({ text: 'Odoo addons (odoo-addons): …' });
+    expect((await axios.get(h.url('/api/tree-types/nope/description'), { validateStatus: () => true })).status).toBe(404);
+  });
+});
+

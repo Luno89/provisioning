@@ -22,6 +22,7 @@ export interface McpSession {
   protocolVersion: string;
   serverName?: string | undefined;
   serverVersion?: string | undefined;
+  instructions?: string | undefined;
 }
 
 export type Fetcher = typeof fetch;
@@ -61,7 +62,7 @@ export class McpClient {
 
   private async rpc(method: string, params: Record<string, unknown> = {}): Promise<RpcResult & { headers: Headers }> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = this.timeoutMs > 0 ? setTimeout(() => controller.abort(), this.timeoutMs) : undefined;
     try {
       const res = await this.fetchImpl(this.url, {
         method: 'POST',
@@ -99,6 +100,7 @@ export class McpClient {
       protocolVersion: String(out.result?.protocolVersion ?? PROTOCOL_VERSION),
       serverName: info.name,
       serverVersion: info.version,
+      ...(typeof out.result?.instructions === 'string' && out.result.instructions.trim() ? { instructions: out.result.instructions.trim() } : {}),
     };
     return this.session;
   }

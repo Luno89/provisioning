@@ -31,7 +31,7 @@ import { addNode, bodyAt, definitionOf, isEditable, isRefused, libraryOf } from 
 import { freeSpot, layoutProcedure, nodeHeight } from '../../lib/procedure-layout'
 import { record, redo, startHistory, undo, type DraftHistory } from '../../lib/draft-history'
 import { reduceEngineEvents } from '../../lib/engine-run-state'
-import { nodeAtDepth, statesFromEvents, statesFromTraces, tracesFromEvents } from '../../lib/procedure-run'
+import { nodeAtDepth, statesFromEvents, statesFromTraces, tracesFromEvents, withStoredTraces } from '../../lib/procedure-run'
 import { copyOf, groupPathIn, localProblems, mergeProblems, procedureIdFrom } from '../../lib/procedure-drafts'
 import ProcedureCanvas from './ProcedureCanvas'
 import Palette from './Palette'
@@ -154,7 +154,7 @@ function EditorBody({ saved, mine }: { saved: Procedure; mine: boolean }) {
   const finished = activeRun ? reduceEngineEvents(activeRun.runId, activeRun.events).finished : false
   const stored = useRunTraces(activeRunId, finished)
   const traces = useMemo(
-    () => (stored.data && stored.data.length > 0 ? stored.data : activeRun ? tracesFromEvents(activeRun.events) : []),
+    () => withStoredTraces(activeRun ? tracesFromEvents(activeRun.events) : [], stored.data ?? []),
     [stored.data, activeRun],
   )
 

@@ -1,7 +1,7 @@
-import type { Persona } from '@koala/agent-engine';
+import type { PersonaRecord } from '@koala/agent-engine';
 
 export interface StoredPersonas {
-  getEnginePersonas(ownerId?: string): Promise<Persona[]>;
+  getEnginePersonas(ownerId?: string): Promise<PersonaRecord[]>;
   deleteEnginePersona(ownerId: string | undefined, slug: string): Promise<void>;
 }
 

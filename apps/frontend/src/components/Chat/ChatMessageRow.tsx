@@ -1,15 +1,18 @@
-import { User, Sparkles, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
+import { User, Sparkles, ChevronDown, ChevronRight, AlertTriangle, MessageSquare } from 'lucide-react';
 import { memo, useState } from 'react';
 import Markdown from '../Markdown.js';
 import { KoalaSpot, type KoalaMood } from '../Koala.js';
 import ChatToolCallCard, { type FileArtifact, type ToolCallData } from './ChatToolCallCard.js';
 import { ChatParser } from '../../lib/chat-parser/chat-parser.js';
+import type { ChannelAddress } from '../../lib/channel-asks.js';
 
 export interface ChatMessageData {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'notice';
+  notice?: import('../../api/chat-pack.js').ConversationNotice | undefined;
   content: string;
   reasoning?: string | undefined;
   at?: string | undefined;
+  runId?: string | undefined;
   toolCalls?: ToolCallData[] | undefined;
   interruptedReason?: string | undefined;
 }
@@ -73,11 +76,15 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   packLabel = 'Koala',
   isStreaming = false,
   onOpenDocument,
+  address,
+  onAskKoala,
 }: {
   message: ChatMessageData;
   packLabel?: string;
   isStreaming?: boolean;
   onOpenDocument?: ((file: FileArtifact) => void) | undefined;
+  address?: ChannelAddress | undefined;
+  onAskKoala?: (() => void) | undefined;
 }) {
   const isUser = message.role === 'user';
   const mascotMood: KoalaMood = isStreaming ? 'thinking' : 'idle';
@@ -128,6 +135,24 @@ export const ChatMessageRow = memo(function ChatMessageRow({
           {message.at && (
             <span className="text-slate-500 text-[11px]">
               {new Date(message.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+          {address === 'koala' && (
+            <span className="text-[11px] text-emerald-400/80" data-testid="message-address">asked Koala</span>
+          )}
+          {address === 'channel' && (
+            <span className="flex items-center gap-1.5 text-[11px] text-slate-500" data-testid="message-address">
+              <MessageSquare size={11} aria-hidden="true" />
+              posted · Koala wasn&apos;t asked
+              {onAskKoala && (
+                <button
+                  type="button"
+                  onClick={onAskKoala}
+                  className="text-emerald-400 hover:text-emerald-300 underline-offset-2 hover:underline cursor-pointer"
+                >
+                  Ask Koala
+                </button>
+              )}
             </span>
           )}
         </div>

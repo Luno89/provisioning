@@ -50,3 +50,13 @@ export function withRequired(agent: Agent, requires: readonly RequiredGrant[]): 
     agents: [...new Set([...(agent.agents ?? []), ...agents])],
   }
 }
+
+const DERIVED: readonly string[] = ['tools', 'servers', 'mine', 'usedBy', 'image', 'toolSources', 'serverSources', 'recallsMemories']
+
+const settingsOf = (agent: Agent): string => JSON.stringify(
+  Object.entries(agent).filter(([key, value]) => !DERIVED.includes(key) && value !== undefined).sort(([a], [b]) => a.localeCompare(b)),
+)
+
+export function onlyToolsChanged(before: Agent, after: Agent): boolean {
+  return settingsOf(before) === settingsOf(after)
+}

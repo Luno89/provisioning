@@ -8,6 +8,18 @@ export interface ImagePlan {
   provides: string[];
   fingerprint: string;
   env?: { name: string; value: string }[] | undefined;
+  lines?: PlanLine[] | undefined;
+}
+
+export interface PlanLine {
+  install: Install;
+  from: string;
+}
+
+export interface Contribution {
+  from: string;
+  install: Install;
+  provides?: readonly string[] | undefined;
 }
 
 export interface BaseImage {
@@ -57,6 +69,11 @@ export const LANGUAGES: Language[] = [
 
 export const LANGUAGE_IDS: string[] = LANGUAGES.map((language) => language.id);
 
+const MANAGED_BY: Partial<Record<Install['via'], { binary: string; language: string }>> = {
+  pip: { binary: 'pip', language: 'python' },
+  npm: { binary: 'npm', language: 'node' },
+};
+
 export class UnbuildableError extends Error {
   constructor(detail: string) {
     super(detail);
@@ -87,13 +104,14 @@ export function planImage(input: {
   base?: string | undefined;
   languages?: readonly string[] | undefined;
   tools: readonly ToolDefinition[];
+  contributions?: readonly Contribution[] | undefined;
   bases?: readonly BaseImage[] | undefined;
 }): ImagePlan {
   const base = (input.bases ?? BASES).find((candidate) => candidate.id === (input.base ?? DEFAULT_BASE));
   if (!base) throw new UnbuildableError(`There is no base image called "${input.base}"`);
 
   const provides = new Set(base.provides);
-  const installs: Install[] = [...(base.setup ?? [])];
+  const lines: PlanLine[] = (base.setup ?? []).map((install) => ({ install, from: `base:${base.id}` }));
 
   for (const asked of input.languages ?? []) {
     if (asked === base.id) continue;
@@ -106,8 +124,24 @@ export function planImage(input: {
 
     if (language.binaries.every((binary) => provides.has(binary))) continue;
 
-    installs.push(language.install);
+    lines.push({ install: language.install, from: `language:${language.id}` });
     for (const binary of language.binaries) provides.add(binary);
+  }
+
+  const withManager = (install: Install, from: string): void => {
+    const manager = MANAGED_BY[install.via];
+    const language = manager && !provides.has(manager.binary) ? LANGUAGES.find((candidate) => candidate.id === manager.language) : undefined;
+    if (language) {
+      lines.push({ install: language.install, from: `language:${language.id}` });
+      for (const binary of language.binaries) provides.add(binary);
+    }
+    lines.push({ install, from });
+  };
+
+  for (const contribution of input.contributions ?? []) {
+    if (contribution.install.via === 'base') continue;
+    withManager(contribution.install, contribution.from);
+    for (const binary of contribution.provides ?? []) provides.add(binary);
   }
 
   for (const tool of input.tools) {
@@ -122,14 +156,16 @@ export function planImage(input: {
       );
     }
 
-    installs.push(tool.install);
+    withManager(tool.install, `tool:${tool.name}`);
     for (const binary of tool.needsBinaries ?? []) provides.add(binary);
     for (const binary of tool.provides ?? []) provides.add(binary);
   }
 
+  const installs = lines.map((line) => line.install);
   return {
     base: base.image,
     installs,
+    lines,
     provides: [...provides].sort(),
     fingerprint: fingerprint(base.image, installs),
     ...(base.env?.length ? { env: base.env.map((entry) => ({ ...entry })) } : {}),
@@ -143,7 +179,7 @@ const onApt = (packages: readonly string[]): string => packages.map((name) => AP
 const RUN_FOR: Record<Exclude<Install['via'], 'script' | 'base'>, (packages: string[]) => string> = {
   dnf: (packages) => `if command -v microdnf >/dev/null 2>&1; then microdnf install -y ${packages.join(' ')} && microdnf clean all; elif command -v dnf >/dev/null 2>&1; then dnf install -y ${packages.join(' ')} && dnf clean all; else apt-get update && apt-get install -y --no-install-recommends ${onApt(packages)} && rm -rf /var/lib/apt/lists/*; fi`,
   apt: (packages) => `apt-get update && apt-get install -y --no-install-recommends ${packages.join(' ')} && rm -rf /var/lib/apt/lists/*`,
-  pip: (packages) => `pip install --no-cache-dir ${packages.join(' ')}`,
+  pip: (packages) => `PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --no-cache-dir ${packages.join(' ')}`,
   npm: (packages) => `npm install -g ${packages.join(' ')}`,
 };
 
@@ -189,6 +225,7 @@ export function planFor(
   agent: AgentDefinition,
   catalogue: readonly ToolDefinition[],
   bases: readonly BaseImage[] = BASES,
+  contributions: readonly Contribution[] = [],
 ): ImagePlan | undefined {
   if (environmentFor(agent).kind !== 'sandbox') return undefined;
 
@@ -197,6 +234,7 @@ export function planFor(
     base: baseFor(agent, bases),
     languages: languagesFor(agent),
     tools: catalogue.filter((tool) => granted.has(tool.name)),
+    contributions,
     bases,
   });
 }

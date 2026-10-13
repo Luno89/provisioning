@@ -9,9 +9,11 @@ export const recallMemory: BuiltInNode = {
     kind: 'recall-memory',
     title: 'Recall Memory',
     category: 'memory',
-    describe: 'Picks the owner\'s active memories that apply here — project ones first, then global, newest first — and renders them as a prompt section within a character budget, saying how many were left out.',
+    describe: 'Picks the owner\'s active memories that apply here — project ones first, then global, newest first — and renders them as a prompt section within a character budget, saying how many were left out. A memory kept for one model is picked only when the wired binding is that model.',
     role: 'value',
-    inputs: [],
+    inputs: [
+      { name: 'binding', type: 'modelBinding', describe: 'The model the prompt is for. Nothing wired means memories kept for one model are left out.' },
+    ],
     outputs: [
       { name: 'memories', type: 'memory', describe: 'The memories picked.' },
       { name: 'text', type: 'text', describe: 'The memory section of the prompt, or nothing if there are none.' },

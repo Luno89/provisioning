@@ -4,6 +4,8 @@ export interface LeafAttempt {
   attempt: number;
   error: string;
   failedAt: string;
+  runId?: string | undefined;
+  change?: string | undefined;
 }
 
 export interface Leaf {
@@ -15,6 +17,7 @@ export interface Leaf {
   status: LeafStatus;
   dependsOn?: string[];
   replans?: number | undefined;
+  priority?: number | undefined;
   runId?: string | undefined;
   tasks?: string[];
   findings?: string;
@@ -35,6 +38,7 @@ export interface Leaf {
     reason?: string;
   };
   attempts?: LeafAttempt[];
+  waitingFor?: { reason: string; since: string; stuck?: string | undefined } | undefined;
   createdAt: string;
   updatedAt: string;
 }
@@ -44,6 +48,7 @@ export interface Branch {
   ownerId: string;
   treeId: string;
   title: string;
+  priority?: number | undefined;
   createdAt: string;
   updatedAt: string;
 }
@@ -90,7 +95,7 @@ export function resetForRetry<T extends { status: string; updatedAt: string }>(
 ): { leaf: Leaf; tasks: T[] } {
   const attempts = leaf.attempts ?? [];
   const failure = leaf.findings ?? leaf.claim?.evidence ?? 'failed';
-  const { claim: _claim, review: _review, ...rest } = leaf;
+  const { claim: _claim, review: _review, waitingFor: _waitingFor, ...rest } = leaf;
   return {
     leaf: {
       ...rest,
@@ -99,6 +104,6 @@ export function resetForRetry<T extends { status: string; updatedAt: string }>(
       attempts: [...attempts, { attempt: attempts.length + 1, error: failure, failedAt: leaf.updatedAt }],
       updatedAt: at,
     },
-    tasks: tasks.filter((task) => task.status === 'failed').map((task) => ({ ...task, status: 'accepted', updatedAt: at })),
+    tasks: tasks.filter((task) => task.status === 'failed' || task.status === 'waiting').map((task) => ({ ...task, status: 'accepted', updatedAt: at })),
   };
 }

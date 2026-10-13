@@ -1,12 +1,13 @@
 import type { ClusterMetadata, DeploymentMetadata, UserMetadata } from './types.js';
 import { adoptionWorkflowId, benchIdleId, concludeWorkspaceId, conversationConclusionId, groveRunWorkflowId } from '../engine-host/temporal/contracts.js';
 import { conversationWatermarkKey, memoryRunId } from './conclusions.js';
+import { releaseWorkflowId } from './odoo-release.js';
 
 export const removeAccountWorkflowId = (ownerId: string): string => `remove-account-${ownerId}`;
 export const REMOVE_ACCOUNT_WORKFLOW = 'RemoveAccountWorkflow';
 export const REMOVAL_PROGRESS_QUERY = 'removalProgress';
 
-export type RemovalStep = 'workflows' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records';
+export type RemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records';
 export const REMOVAL_STEPS: readonly RemovalStep[] = ['workflows', 'workspaces', 'secrets', 'mesh', 'repositories', 'records'];
 
 export const ACTIVITY_STOP_GRACE_MS = 30_000;
@@ -61,6 +62,8 @@ export interface OwnedIds {
   treeIds: readonly string[];
   conversationIds: readonly string[];
   proposalIds: readonly string[];
+  projectIds: readonly string[];
+  buildWorkflowIds: readonly string[];
 }
 
 export function ownedWorkflowIds(ownerId: string, owned: OwnedIds): string[] {
@@ -71,6 +74,8 @@ export function ownedWorkflowIds(ownerId: string, owned: OwnedIds): string[] {
     ...owned.treeIds.flatMap((id) => [groveRunWorkflowId(id), concludeWorkspaceId({ kind: 'tree', id })]),
     ...owned.conversationIds.flatMap((id) => [conversationConclusionId(id), concludeWorkspaceId({ kind: 'conversation', id })]),
     ...owned.proposalIds.map(adoptionWorkflowId),
+    ...owned.projectIds.map(releaseWorkflowId),
+    ...owned.buildWorkflowIds,
   ])];
 }
 
@@ -92,7 +97,7 @@ export const ACCOUNT_DATA = {
     'corpus', 'deployments', 'egressGrants', 'egressRequests', 'enginePersonas', 'engineRunEffort', 'engineRunTraces', 'engineTools',
     'evalAgentChanges', 'evalCases', 'evalLevel1Runs', 'evalPrompts', 'evalRuns', 'evalScenarioProposals', 'evalScenarioRuns',
     'evalScenarios', 'instanceJoinTokens', 'instances', 'leaves', 'localAgentDevices', 'mcpRequests', 'mcpToolHints', 'memories',
-    'modelEndpoints', 'odooReleases', 'pendingApprovals', 'planProposals', 'procedures', 'projects', 'secretRequests', 'tasks', 'treeTypes', 'trees',
+    'modelEndpoints', 'mcpServers', 'odooReleases', 'pendingApprovals', 'planProposals', 'procedures', 'projects', 'publishedWorkspaces', 'secretRequests', 'tasks', 'toolGrants', 'treeTypes', 'trees',
     'scriptedRequests', 'turnLogs', 'workspaceImages',
   ],
   byId: ['benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts'],

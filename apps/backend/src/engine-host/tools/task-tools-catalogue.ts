@@ -85,6 +85,26 @@ export const TASK_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'task_status',
+    summary: 'Read what state a task is in now',
+    guidance: 'For a procedure step that branches on the task: whether it is still running, or was marked done, failed or waiting while it was worked.',
+    binding: 'platform',
+    effect: 'read',
+    idempotent: true,
+    openWorld: false,
+    destructive: false,
+    returns: 'The status alone: proposed, accepted, running, waiting, done, failed or dropped.',
+    failures: [
+      { when: 'no task has that id', says: 'there is no task called "<taskId>"' },
+      { when: 'the taskId argument is missing', says: 'this call needs a "taskId"' },
+    ],
+    parameters: {
+      type: 'object',
+      properties: { taskId: { type: 'string', description: 'The task' } },
+      required: ['taskId'],
+    },
+  },
+  {
     name: 'start_task',
     summary: 'Claim a task for this run and mark it running',
     guidance: 'Use this when you are about to do a piece of work, so nobody else picks it up and '

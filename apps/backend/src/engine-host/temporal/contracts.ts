@@ -172,7 +172,7 @@ export interface ResolvedAgentInfo {
 }
 
 export interface ToolRuntime {
-  run(args: ToolCallArgs, attempt?: number): Promise<ToolCallOutcome>;
+  run(args: ToolCallArgs, attempt?: number, signal?: AbortSignal): Promise<ToolCallOutcome>;
 }
 
 export interface MergeRuntime {
@@ -182,6 +182,10 @@ export interface MergeRuntime {
 export const DEFAULT_ENGINE_TASK_QUEUE = 'engine-queue';
 
 export const groveRunWorkflowId = (treeId: string): string => `grove-run-${treeId}`;
+export const RUN_ID_MEMO = 'runId';
+export const runStamp = (at: number = Date.now()): string => at.toString(36);
+export const groveRunId = (treeId: string, stamp: string): string => `${groveRunWorkflowId(treeId)}~${stamp}`;
+export const workflowOfRun = (runId: string): string => runId.replace(/~[0-9a-z]+$/, '');
 export const adoptionWorkflowId = (proposalId: string): string => `adopt-plan-${proposalId}`;
 
 
@@ -223,6 +227,7 @@ export interface AdoptPlanResult {
   treeId?: string | undefined;
   commit?: string | undefined;
   reason?: string | undefined;
+  growing?: { started: true } | { started: false; reason: string } | undefined;
 }
 
 /** The agent that runs each stage of a tree, resolved: what its type names, and the default where it names none. */
@@ -242,7 +247,14 @@ export interface RemoteNodeRequest {
   run: Pick<RunContext, 'identity' | 'launch' | 'inputs' | 'counters' | 'budget' | 'cleaningUp' | 'ending' | 'handles'>;
 }
 
-export type RemoteNodeResult = StepResult | ValueResult;
+export interface CarriedNotice {
+  level: 'info' | 'warn';
+  message: string;
+  nodeId?: string | undefined;
+  post?: Readonly<Record<string, unknown>> | undefined;
+}
+
+export type RemoteNodeResult = (StepResult | ValueResult) & { notices?: CarriedNotice[] | undefined };
 
 export interface RecordTracesArgs {
   ownerId: string;

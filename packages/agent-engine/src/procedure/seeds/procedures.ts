@@ -208,7 +208,7 @@ export const SINGLE_SHOT_V2 = defineProcedure(BUILT_IN_GROUPS, {
   const tools = p.resolveTools('tools', { persona: persona.persona, delegates: persona.delegates, environment: provision.environment }, { offer: 'none' });
   const environment = p.describeEnvironment('environment', { environment: provision.environment, delegates: persona.delegates });
   const toolText = p.describeTools('toolText', { offered: tools.offered, withheld: tools.withheld, environment: provision.environment });
-  const memory = p.recallMemory('memory');
+  const memory = p.recallMemory('memory', { binding: model.binding });
   const outputs = p.describeOutputs('outputs', { persona: persona.persona });
   const context = p.buildContext('context', { sections: [persona.prompt, environment.text, toolText.text, memory.text, outputs.text] });
   const fit = p.fitReplyBudget('fit', { binding: model.binding, system: context.text, messages: conversation.messages });
@@ -260,7 +260,7 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   id: 'do-one-task',
   version: '2',
   name: 'Do one task',
-  describe: 'Claims one task, works it with tools until the model is done, runs the task\'s own check if it has one, has the judge weigh the work and the check against what the task asked for, has a model read the verdict, and marks the task done or failed.',
+  describe: 'Claims one task, works it with tools until the model is done — and stops there when the task now waits for something it asked for — runs the task\'s own check if it has one, has the judge weigh the work and the check against what the task asked for, has a model read the verdict, and marks the task done or failed.',
   budget: {},
 }, (p) => {
   const provision = p.provisionSandbox('provision');
@@ -276,6 +276,13 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   const turn = p.groups.modelTurn('turn', { messages: conversation.messages, environment: provision.environment });
   const repetition = p.checkRepetition('repetition', { reply: turn.reply });
   const tools = p.groups.toolLoop('tools', { reply: turn.reply, persona: persona.persona, environment: provision.environment, offered: turn.offered });
+  const status = p.callTool('status', onTask, {
+    tool: 'task_status',
+    args: '{"taskId":"{{values.item.id}}"}',
+    says: 'When you finish, the task\'s state is read for you: if you said it waits with mark_waiting, the work stops there until what it waits for is ready.',
+  });
+  const waits = p.condition('waits', { value: status.text }, { expression: "value == 'waiting'" });
+  const waiting = p.finish('waiting', {}, { outcome: 'ok', reason: 'the task waits for something it asked for; it is taken up again when that is there' });
   const hasCheck = p.condition('hasCheck', { value: input.inputs }, { expression: 'not empty(value.item.checks.command)' });
   const check = p.callTool('check', onTask, {
     tool: 'run_command',
@@ -329,8 +336,12 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   claim.on('failed', notClaimed);
   conversation.on('done', turn);
   turn.on('toolCalls', repetition);
-  turn.on('answered', hasCheck);
-  turn.on('truncated', hasCheck);
+  turn.on('answered', status);
+  turn.on('truncated', status);
+  status.on('ok', waits);
+  status.on('failed', hasCheck);
+  waits.on('true', waiting);
+  waits.on('false', hasCheck);
   turn.on('empty', empty);
   repetition.on('ok', tools);
   repetition.on('tripped', circling);
@@ -363,6 +374,9 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
     turn: [780, 0],
     repetition: [1040, 0],
     tools: [1300, 0],
+    status: [780, 280],
+    waits: [780, 420],
+    waiting: [780, 560],
     hasCheck: [1040, 280],
     check: [1300, 280],
     evidence: [1300, 420],

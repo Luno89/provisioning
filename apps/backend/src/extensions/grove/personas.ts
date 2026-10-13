@@ -1,6 +1,6 @@
-import type { Persona } from '@koala/agent-engine';
+import type { GrantMap, PersonaRecord } from '@koala/agent-engine';
 
-export const GROVE_PERSONAS: Persona[] = [
+export const GROVE_PERSONAS: PersonaRecord[] = [
   {
     slug: 'paper-writer',
     sampling: { toolTurn: { temperature: 0.6 }, conversation: { temperature: 0.7 } },
@@ -10,7 +10,6 @@ export const GROVE_PERSONAS: Persona[] = [
     name: 'Paper Writer',
     description: 'Works a research-paper leaf in one run: research the goal, write the artefact, cite the sources',
     version: '1',
-    tools: ['search_web', 'fetch_web_page', 'search_corpus', 'read_file', 'write_file', 'list_dir'],
     maxEffect: 'write',
     environment: { filesystem: true, workspace: true, egress: true },
     interface: { inputs: { type: 'object', properties: { leafId: { type: 'string', description: 'The leaf being worked.' }, leafTitle: { type: 'string', description: 'What the leaf is called.' }, leafBody: { type: 'string', description: 'The goal the leaf must reach — the statement its judge checks, and what to research.' }, siblings: { type: 'string', description: 'How many other leaves this pass is working at once; empty means this leaf is alone.' } }, required: ['leafBody'] }, outputs: ['summary', 'sources'], workspace: true },
@@ -26,11 +25,10 @@ export const GROVE_PERSONAS: Persona[] = [
     name: "Leaf Judge",
     description: "Settles a grove leaf's claim by checking the claimed commit against the leaf's goal",
     version: "1",
-    tools: ["read_file", "list_dir", "run_command", "settle_leaf", "read_run"],
     environment: {"terminal":true,"filesystem":true},
-    interface: {"inputs":{"type":"object","properties":{"item":{"type":"object","description":"The claim to settle: { leafId, leafTitle, leafBody, claim, context } — leafBody is the goal, claim the evidence, context.commit the commit checked out as the working directory.","properties":{"leafId":{"type":"string"},"leafTitle":{"type":"string"},"leafBody":{"type":"string"},"claim":{"type":"object"},"context":{"type":"object"}},"required":["leafId","leafBody"]},"index":{"type":"integer","description":"Position in the set being judged, when the run is one of a fan-out."}},"required":["item"]},"outputs":["verdict","reasoning"]},
+    interface: {"inputs":{"type":"object","properties":{"item":{"type":"object","description":"The claim to settle: { leafId, leafTitle, leafBody, doneMeans, claim, context } — leafBody is the goal, doneMeans what done means for every leaf of this kind of tree, claim the evidence, context.commit the commit checked out as the working directory.","properties":{"leafId":{"type":"string"},"leafTitle":{"type":"string"},"leafBody":{"type":"string"},"doneMeans":{"type":"string"},"claim":{"type":"object"},"context":{"type":"object"}},"required":["leafId","leafBody"]},"index":{"type":"integer","description":"Position in the set being judged, when the run is one of a fan-out."}},"required":["item"]},"outputs":["verdict","reasoning"]},
     procedure: 'tool-rounds',
-    prompt: "You settle one grove leaf's claim. The claim rides in as item: the goal the leaf must reach (item.leafBody) and the claim's evidence (item.claim). Your working directory is a checkout of exactly the commit the leaf claimed (item.context.commit), so what is there is what the leaf did.\n\nRead PLAN.md and the leaf's brief (item.context.leafBrief) at its top for what was intended. Re-derive what the claim points at — the commit is the primary source, the claim only points into it — by reading the files and running the commands that would show it. What you see for yourself outranks what the claim says about itself.\n\nWhen the claim lists a task as [failed], the work stopped there instead of finishing: read what was attempted with read_run on that task's runs, and weigh it with how the leaf's own checks went (item.checks, when present: each says passed or FAILED with what it printed). Decide from the commit and those runs whether the goal was reached anyway, or what went wrong and why — your note is what the replan starts from.\n\nThen settle the leaf with settle_leaf (item.leafId): verified when what you saw demonstrates the goal; stay-claimed when it is plausible but you could not establish it — nothing gets re-run, the run parks it and a person decides from your note, so say exactly what you could not establish; failed with the reason when the goal was not reached. The worker claims; you settle; nobody grades their own leaf.",
+    prompt: "You settle one grove leaf's claim. The claim rides in as item: the goal the leaf must reach (item.leafBody), what done means for every leaf of this kind of tree (item.doneMeans, when present — a leaf that reaches its goal but leaves this unmet is not verified), and the claim's evidence (item.claim). Your working directory is a checkout of exactly the commit the leaf claimed (item.context.commit), so what is there is what the leaf did.\n\nRead PLAN.md and the leaf's brief (item.context.leafBrief) at its top for what was intended. Re-derive what the claim points at — the commit is the primary source, the claim only points into it — by reading the files and running the commands that would show it. What you see for yourself outranks what the claim says about itself.\n\nWhen the claim lists a task as [failed], the work stopped there instead of finishing: read what was attempted with read_run on that task's runs, and weigh it with how the leaf's own checks went (item.checks, when present: each says passed or FAILED with what it printed). Decide from the commit and those runs whether the goal was reached anyway, or what went wrong and why — your note is what the replan starts from.\n\nThen settle the leaf with settle_leaf (item.leafId): verified when what you saw demonstrates the goal; stay-claimed when it is plausible but you could not establish it — nothing gets re-run, the run parks it and a person decides from your note, so say exactly what you could not establish; failed with the reason when the goal was not reached. The worker claims; you settle; nobody grades their own leaf.",
   },
   {
     slug: 'grove',
@@ -44,7 +42,6 @@ export const GROVE_PERSONAS: Persona[] = [
       { when: 'a judge cannot settle a claim', says: 'that the run stopped rather than judge the claim again every pass' },
     ],
     procedure: 'grove-run',
-    tools: [],
     agents: ['grove-leaf', 'leaf-judge', 'planner'],
     maxEffect: 'read',
     environment: {},
@@ -63,7 +60,6 @@ export const GROVE_PERSONAS: Persona[] = [
       { when: 'the leaf has no tasks yet', says: 'that the leaf waits for the planner' },
     ],
     procedure: 'grove-leaf',
-    tools: [],
     agents: ['executor'],
     maxEffect: 'read',
     environment: {},
@@ -82,7 +78,6 @@ export const GROVE_PERSONAS: Persona[] = [
       { when: 'a judge cannot settle a claim', says: 'that the run stopped rather than judge the claim again every pass' },
     ],
     procedure: 'grove-paper-run',
-    tools: [],
     agents: ['grove-paper-leaf', 'leaf-judge', 'planner'],
     maxEffect: 'read',
     environment: {},
@@ -98,7 +93,6 @@ export const GROVE_PERSONAS: Persona[] = [
     returns: 'The claim it filed.',
     failures: [{ when: 'the writer does not finish', says: 'that the leaf is claimed as failed, with the writer\'s reason' }],
     procedure: 'grove-paper-leaf',
-    tools: [],
     agents: ['paper-writer'],
     maxEffect: 'read',
     environment: {},
@@ -106,3 +100,8 @@ export const GROVE_PERSONAS: Persona[] = [
     prompt: 'You are the structure of a paper leaf\'s work, not a thinker in it. You only ever file the claim.',
   },
 ];
+
+export const GROVE_GRANTS: GrantMap = {
+  'paper-writer': ['search_web', 'fetch_web_page', 'search_corpus', 'read_file', 'write_file', 'list_dir'],
+  'leaf-judge': ['read_file', 'list_dir', 'run_command', 'settle_leaf', 'read_run'],
+};

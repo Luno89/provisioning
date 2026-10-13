@@ -1,13 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
 import { type Persona } from '@koala/agent-engine';
+import { MemoryDB } from '../lib/memory-db.js';
+import { directoryFromDatabase } from '../engine-host/registries/agent-directory.js';
 import { ENGINE_TOOL_SEEDS } from '../engine-host/tools/engine-tool-seeds.js';
 import { AgentService, agentProblems } from './AgentService.js';
 import type { ImageStanding } from '../engine-host/sandboxes/image-builder.js';
-import { seededPersonas, seededProcedures } from '../extensions/seeds.js';
+import { seededAgents, seededProcedures } from '../extensions/seeds.js';
 
 const tools = () => [...ENGINE_TOOL_SEEDS];
 const PROCEDURES = seededProcedures();
-const AGENTS = new Set(seededPersonas().map((agent) => agent.slug));
+const AGENTS = new Set(seededAgents().map((agent) => agent.slug));
 
 const agent = (over: Partial<Persona> = {}): Persona => ({
   slug: 'digger',
@@ -26,8 +28,9 @@ const agent = (over: Partial<Persona> = {}): Persona => ({
 
 const known = () => ({ tools: tools(), procedures: PROCEDURES, agents: AGENTS });
 
-function service(over: { stored?: Persona[]; image?: ImageStanding; treeTypes?: { id: string; label: string; agent?: string }[] } = {}) {
-  const stored = [...(over.stored ?? [])];
+function service(over: { image?: ImageStanding; treeTypes?: { id: string; label: string; agent?: string }[] } = {}) {
+  const db = new MemoryDB();
+  const stored = () => db.getEnginePersonas();
   const started: string[] = [];
 
   const images = {
@@ -39,20 +42,15 @@ function service(over: { stored?: Persona[]; image?: ImageStanding; treeTypes?: 
   };
 
   return {
+    db,
     stored,
     started,
     images,
     agents: new AgentService({
-      personas: {
-        list: async () => [...stored],
-        save: async (persona: Persona) => {
-          const at = stored.findIndex((row) => row.slug === persona.slug && row.ownerId === persona.ownerId);
-          if (at === -1) stored.push(persona); else stored[at] = persona;
-        },
-        remove: async (ownerId: string | undefined, slug: string) => {
-          const at = stored.findIndex((row) => row.slug === slug && row.ownerId === ownerId);
-          if (at !== -1) stored.splice(at, 1);
-        },
+      agents: directoryFromDatabase(db),
+      records: {
+        save: (record) => db.saveEnginePersona(record),
+        remove: (ownerId, slug) => db.deleteEnginePersona(ownerId, slug),
       },
       tools: async () => tools(),
       procedures: async () => [...PROCEDURES],
@@ -108,10 +106,10 @@ describe('what an agent is refused for', () => {
       .toContain('it is granted "ghost_tool", which is not a tool');
   });
 
-  it('may only be given MCP servers the person runs', () => {
-    expect(agentProblems(agent({ mcp: ['Gitea MCP'] }), { ...known(), mcpServers: ['Gitea MCP'] })).toEqual([]);
-    expect(agentProblems(agent({ mcp: ['Jira'] }), { ...known(), mcpServers: ['Gitea MCP'] }))
-      .toContain('it may use "Jira", which is not one of your MCP servers');
+  it('may only hold MCP servers in the person\'s catalogue', () => {
+    expect(agentProblems(agent({ servers: ['gitea'] }), { ...known(), servers: ['gitea'] })).toEqual([]);
+    expect(agentProblems(agent({ servers: ['jira'] }), { ...known(), servers: ['gitea'] }))
+      .toContain('it holds "jira", which is not one of your MCP servers');
   });
 
   it('cannot be granted a tool above the limit it is held to', () => {
@@ -154,7 +152,7 @@ describe('what an agent is refused for', () => {
   it('accepts one that is granted everything its procedure drives', () => {
     const whole = agent({
       procedure: 'do-one-task',
-      tools: ['start_task', 'mark_done', 'mark_failed', 'run_command'],
+      tools: ['start_task', 'task_status', 'mark_done', 'mark_failed', 'run_command'],
       agents: ['judge'],
       environment: { terminal: true, filesystem: true },
     });
@@ -190,10 +188,10 @@ describe('agents you can edit', () => {
   it('saves your own copy and shadows the built-in by slug', async () => {
     const { agents, stored } = service();
 
-    const outcome = await agents.save('user-1', { ...seededPersonas().find((one) => one.slug === 'research')!, prompt: 'You dig, differently.' });
+    const outcome = await agents.save('user-1', { ...seededAgents().find((one) => one.slug === 'research')!, prompt: 'You dig, differently.' });
 
     expect(outcome).toMatchObject({ saved: true, agent: { slug: 'research', mine: true } });
-    expect(stored).toHaveLength(1);
+    expect(await stored()).toHaveLength(1);
 
     const listed = await agents.list('user-1');
     expect(listed.filter((one) => one.slug === 'research')).toHaveLength(1);
@@ -202,7 +200,7 @@ describe('agents you can edit', () => {
 
   it('leaves the built-in alone for everybody else', async () => {
     const { agents } = service();
-    await agents.save('user-1', { ...seededPersonas().find((one) => one.slug === 'research')!, prompt: 'Mine.' });
+    await agents.save('user-1', { ...seededAgents().find((one) => one.slug === 'research')!, prompt: 'Mine.' });
 
     expect((await agents.get('user-2', 'research'))?.prompt).not.toBe('Mine.');
     expect((await agents.get('user-2', 'research'))?.mine).toBe(false);
@@ -241,7 +239,7 @@ describe('agents you can edit', () => {
     const outcome = await agents.save('user-1', agent({ procedure: 'ghost' }));
 
     expect(outcome).toMatchObject({ saved: false });
-    expect(stored).toEqual([]);
+    expect(await stored()).toEqual([]);
   });
 
   it('says an image that could not be started failed, rather than refusing the save', async () => {
@@ -257,10 +255,50 @@ describe('agents you can edit', () => {
 
   it('deletes only your own copy, and the built-in comes back', async () => {
     const { agents } = service();
-    await agents.save('user-1', { ...seededPersonas().find((one) => one.slug === 'research')!, prompt: 'Mine.' });
+    await agents.save('user-1', { ...seededAgents().find((one) => one.slug === 'research')!, prompt: 'Mine.' });
 
     expect(await agents.remove('user-1', 'research')).toBe(true);
     expect((await agents.get('user-1', 'research'))?.mine).toBe(false);
+  });
+
+  it('stores an agent without its tools: what it holds is its grants, and a built-in keeps what ships', async () => {
+    const { agents, db, stored } = service();
+    const research = seededAgents().find((one) => one.slug === 'research')!;
+    const [first, ...rest] = research.tools;
+
+    await agents.save('user-1', { ...research, prompt: 'Mine.', tools: [...rest, 'run_command'] });
+
+    expect(await stored()).toHaveLength(1);
+    expect((await stored()).some((one) => 'tools' in one)).toBe(false);
+    expect((await agents.get('user-1', 'research'))?.tools).toEqual([...rest, 'run_command']);
+    expect((await agents.get('user-1', 'research'))?.toolSources).toEqual([
+      { tool: first, source: 'revoked' },
+      ...rest.map((tool) => ({ tool, source: 'shipped' })),
+      { tool: 'run_command', source: 'granted' },
+    ]);
+    expect((await db.getToolGrants('user-1')).map((grant) => [grant.tool, grant.revoked === true])).toEqual([['run_command', false], [first, true]]);
+    expect((await agents.get('user-2', 'research'))?.tools).toEqual(research.tools);
+  });
+
+  it('changes only the grants of a built-in whose tools are all that changed, so it stays built in', async () => {
+    const { agents, stored } = service();
+    const research = seededAgents().find((one) => one.slug === 'research')!;
+
+    const outcome = await agents.save('user-1', { ...research, tools: [...research.tools, 'run_command'] });
+
+    expect(outcome).toMatchObject({ saved: true, agent: { slug: 'research', mine: false, tools: [...research.tools, 'run_command'] } });
+    expect(await stored()).toEqual([]);
+    expect((await agents.get('user-1', 'research'))?.prompt).toBe(research.prompt);
+  });
+
+  it('gives a built-in its shipped tools back when your copy of it is deleted', async () => {
+    const { agents, db } = service();
+    const research = seededAgents().find((one) => one.slug === 'research')!;
+    await agents.save('user-1', { ...research, prompt: 'Mine.', tools: ['run_command'] });
+
+    expect(await agents.remove('user-1', 'research')).toBe(true);
+    expect((await agents.get('user-1', 'research'))?.tools).toEqual(research.tools);
+    expect(await db.getToolGrants('user-1')).toEqual([]);
   });
 
   it('will not delete a built-in, because it was never yours', async () => {

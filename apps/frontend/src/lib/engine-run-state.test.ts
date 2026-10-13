@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { emptyRunState, pendingApproval, reduceEngineEvent, reduceEngineEvents } from './engine-run-state'
+import { emptyRunState, pendingApproval, reduceEngineEvent, reduceEngineEvents, applyInstanceEvents, instancesUnder } from './engine-run-state'
 import type { EngineEvent } from '../api/engine'
 
 const at = '2026-01-01T00:00:00.000Z'
@@ -26,6 +26,15 @@ describe('engine run state', () => {
 
     expect(state.thinking).toBe('weighing it up')
     expect(state.content).toBe('the answer')
+  })
+
+  it('takes the step the model is speaking in as the one it is on, before that step is logged as entered', () => {
+    const state = reduceEngineEvents('run-1', [
+      { ...base, type: 'node.entered', nodeId: 'turn.compact' },
+      { ...base, type: 'thinking', nodeId: 'turn.call', delta: 'hmm' },
+    ] as EngineEvent[])
+
+    expect(state.currentNode).toBe('turn.call')
   })
 
   it('tracks which node is active and where the run has been', () => {
@@ -101,5 +110,24 @@ describe('engine run state', () => {
 
   it('has no pending approval when nothing is waiting', () => {
     expect(pendingApproval(emptyRunState('run-1'))).toBeUndefined()
+  })
+})
+
+describe('the runs of one story inside its tree\'s turn', () => {
+  const started = (runId: string, at: string, parentRunId?: string): EngineEvent => ({ type: 'run.started', runId, at, agentId: 'a', loopId: 'l', ...(parentRunId ? { parentRunId } : {}) })
+  const thought = (runId: string, at: string, delta: string): EngineEvent => ({ type: 'thinking', runId, at, nodeId: 'model', delta })
+
+  it('keeps a story\'s worker run and the runs it started, apart from another story\'s worker in the same turn', () => {
+    const runs = applyInstanceEvents([], [started('grove', '1'), started('leaf-a', '2', 'grove'), started('task-1', '3', 'leaf-a'), started('leaf-b', '4', 'grove'), thought('task-1', '5', 'reading the view')])
+    expect(instancesUnder(runs, 'leaf-a').map((run) => [run.runId, run.thinking])).toEqual([['leaf-a', ''], ['task-1', 'reading the view']])
+  })
+
+  it('tells apart two runs that reused the same ids, by when they started and when the story was settled', () => {
+    const runs = applyInstanceEvents([], [
+      started('leaf-1', '2026-10-09T01:00:00Z', 'grove'), started('leaf-1-executor-1', '2026-10-09T01:01:00Z', 'leaf-1'), thought('leaf-1-executor-1', '2026-10-09T01:02:00Z', 'the first story'),
+      started('leaf-1', '2026-10-10T01:00:00Z', 'grove'), started('leaf-1-executor-1', '2026-10-10T01:01:00Z', 'leaf-1'), thought('leaf-1-executor-1', '2026-10-10T01:02:00Z', 'the second story'),
+    ])
+    expect(instancesUnder(runs, 'leaf-1').map((run) => run.thinking)).toEqual(['', 'the second story'])
+    expect(instancesUnder(runs, 'leaf-1', '2026-10-09T05:00:00Z').map((run) => run.thinking)).toEqual(['', 'the first story'])
   })
 })

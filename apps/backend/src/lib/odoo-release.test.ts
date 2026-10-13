@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NOTHING_INSTALLED, copyDatabaseScript, filestoreJob, helmSets, idleOf, modulesIn, odooJob, releasePlace, slotStateFrom, splitImage } from './odoo-release.js';
+import { NOTHING_INSTALLED, rollBackTarget, type OdooRelease, copyDatabaseScript, filestoreJob, helmSets, idleOf, modulesIn, odooJob, newReleaseName, releaseNameOf, releasePlace, releaseTargetOf, slotStateFrom, splitImage } from './odoo-release.js';
 
 describe('the two slots of an Odoo project', () => {
   it('prepares the next version in the slot that is not live', () => {
@@ -25,8 +25,33 @@ describe('the two slots of an Odoo project', () => {
     ]);
   });
 
-  it('names a project\'s namespace, release and hosts from its name', () => {
-    expect(releasePlace('My Shop!')).toEqual({ namespace: 'my-shop', release: 'my-shop', host: 'my-shop.apps.local', previewHost: 'my-shop-preview.apps.local' });
+  it('puts a release, its namespace and its hosts under one name', () => {
+    expect(releasePlace('my-shop-1a2b3c')).toEqual({ namespace: 'my-shop-1a2b3c', release: 'my-shop-1a2b3c', host: 'my-shop-1a2b3c.apps.local', previewHost: 'my-shop-1a2b3c-preview.apps.local' });
+  });
+
+  it('gives two projects with the same name different release names, each the same every time', () => {
+    const first = newReleaseName({ id: 'project-a', name: 'Odoo check' });
+    const second = newReleaseName({ id: 'project-b', name: 'Odoo check' });
+    expect(first).toMatch(/^odoo-check-[a-z0-9]{6}$/);
+    expect(second).toMatch(/^odoo-check-[a-z0-9]{6}$/);
+    expect(first).not.toBe(second);
+    expect(newReleaseName({ id: 'project-a', name: 'Odoo check' })).toBe(first);
+  });
+
+  it('keeps a long name short enough for its preview host to be a DNS label', () => {
+    const name = newReleaseName({ id: 'p1', name: 'A shop with a very long name that keeps going and going on and on' });
+    expect(`${name}-preview`.length).toBeLessThanOrEqual(63);
+    expect(name).not.toMatch(/--/);
+  });
+
+  it('uses the name a project was given, else the one its releases already have', () => {
+    expect(releaseNameOf({ name: 'Shop', releaseName: 'shop-1a2b3c' })).toBe('shop-1a2b3c');
+    expect(releaseNameOf({ name: 'My Shop!' })).toBe('my-shop');
+  });
+
+  it('aims a release at its project\'s name and says whose it is', () => {
+    expect(releaseTargetOf({ name: 'system', provider: 'k3d' }, { id: 'p1', name: 'Shop', releaseName: 'shop-1a2b3c', ownerId: 'bo' }))
+      .toEqual({ clusterName: 'system', provider: 'k3d', namespace: 'shop-1a2b3c', release: 'shop-1a2b3c', owner: { ownerId: 'bo', projectId: 'p1' } });
   });
 
   it('splits a built image into its repository and tag, registry port and all', () => {
@@ -57,5 +82,28 @@ describe('the jobs a release runs', () => {
     const job = filestoreJob({ name: 'j', release: 'shop', image: 'i:t', from: 'odoo_a', to: 'odoo_b' }) as { spec: { template: { spec: { containers: { command: string[] }[] } } } };
     expect(job.spec.template.spec.containers[0]!.command[2]).toBe('rm -rf /var/lib/odoo/filestore/odoo_b && if [ -d /var/lib/odoo/filestore/odoo_a ]; then cp -a /var/lib/odoo/filestore/odoo_a /var/lib/odoo/filestore/odoo_b; fi');
     expect(copyDatabaseScript('odoo_a', 'odoo_b')).toBe('dropdb --if-exists -U odoo odoo_b && createdb -U odoo odoo_b && pg_dump -U odoo odoo_a | psql -q -v ON_ERROR_STOP=1 -U odoo -d odoo_b > /dev/null');
+  });
+});
+
+describe('going back to the release before a cutover', () => {
+  const release = (id: string, extra: Partial<OdooRelease>): OdooRelease => ({
+    id, ownerId: 'u1', projectId: 'p1', pipelineRunId: `run-${id}`, commit: `${id}0000000`, image: `reg/shop:${id}`,
+    state: 'live', host: 'shop.apps.local', startedAt: `2026-10-09T10:0${id.length}:00Z`, updatedAt: 'x', ...extra,
+  });
+  const before = release('a', { state: 'superseded', slot: 'a', replacedBy: 'bb' });
+  const live = release('bb', { slot: 'b' });
+
+  it('goes back to the release the live one replaced', () => {
+    expect(rollBackTarget([before, live], live)).toEqual({ to: before });
+  });
+
+  it('has nothing to go back to when no release was replaced by it, or it is not live', () => {
+    expect(rollBackTarget([{ ...before, replacedBy: undefined }, live], live)).toEqual({ problem: 'no earlier release is kept to go back to' });
+    expect(rollBackTarget([before, live], { ...live, state: 'preview' })).toEqual({ problem: 'the release is preview, not live' });
+  });
+
+  it('refuses once a later build has reused the kept slot', () => {
+    const later = release('ccc', { state: 'discarded', slot: 'a' });
+    expect(rollBackTarget([before, live, later], live)).toEqual({ problem: 'the build of ccc00000 has taken the slot the earlier release was kept in' });
   });
 });

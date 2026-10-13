@@ -26,6 +26,14 @@ vi.mock('./Workspace/index.js', () => ({
   ),
 }))
 
+vi.mock('./Board/index.js', () => ({
+  default: ({ treeId, projectId, initialBranchId, initialLeafId }: { treeId?: string; projectId?: string; initialBranchId?: string; initialLeafId?: string }) => (
+    <div data-testid="board">
+      Board for {treeId ? `tree:${treeId}` : `project:${projectId}`}{initialBranchId ? ` in ${initialBranchId}` : ''}{initialLeafId ? ` at ${initialLeafId}` : ''}
+    </div>
+  ),
+}))
+
 afterEach(() => {
   window.location.hash = ''
 })
@@ -47,32 +55,57 @@ describe('Projects component routing and hash synchronization', () => {
     expect(screen.queryByTestId('workspace')).not.toBeInTheDocument()
   })
 
-  it('renders Workspace when hash points to a tree', async () => {
+  it('opens a tree on its board, and its files under /files', async () => {
     window.location.hash = '#/projects/tree/tree-1'
     renderProjects()
+    expect(await screen.findByText('Board for tree:tree-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('workspace')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Files' }))
+    expect(window.location.hash).toBe('#/projects/tree/tree-1/files')
     expect(await screen.findByText('Workspace for tree:tree-1')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Board' }))
+    expect(window.location.hash).toBe('#/projects/tree/tree-1')
+    expect(await screen.findByText('Board for tree:tree-1')).toBeInTheDocument()
+  })
+
+  it('opens a project\'s files straight from its address, and a story on the board from a link to it', async () => {
+    window.location.hash = '#/projects/project/p1/files'
+    const { unmount } = renderProjects()
+    expect(await screen.findByText('Workspace for project:p1')).toBeInTheDocument()
+    unmount()
+    window.location.hash = '#/projects/tree/tree-1/branch-1/leaf-1'
+    renderProjects()
+    expect(await screen.findByText('Board for tree:tree-1 in branch-1 at leaf-1')).toBeInTheDocument()
+  })
+
+  it('opens a feature on the board from a link to it', async () => {
+    window.location.hash = '#/projects/tree/tree-1/branch-1'
+    renderProjects()
+    expect(await screen.findByText('Board for tree:tree-1 in branch-1')).toBeInTheDocument()
   })
 
   it('refreshes the workspace when the hash changes to another tree via hashchange event', async () => {
     window.location.hash = '#/projects/tree/tree-1'
     renderProjects()
 
-    expect(await screen.findByText('Workspace for tree:tree-1')).toBeInTheDocument()
+    expect(await screen.findByText('Board for tree:tree-1')).toBeInTheDocument()
 
     act(() => {
       window.location.hash = '#/projects/tree/tree-2'
       window.dispatchEvent(new HashChangeEvent('hashchange'))
     })
 
-    expect(await screen.findByText('Workspace for tree:tree-2')).toBeInTheDocument()
-    expect(screen.queryByText('Workspace for tree:tree-1')).not.toBeInTheDocument()
+    expect(await screen.findByText('Board for tree:tree-2')).toBeInTheDocument()
+    expect(screen.queryByText('Board for tree:tree-1')).not.toBeInTheDocument()
   })
 
   it('returns to ProjectList when Back to Projects is clicked', async () => {
     window.location.hash = '#/projects/tree/tree-1'
     renderProjects()
 
-    expect(await screen.findByText('Workspace for tree:tree-1')).toBeInTheDocument()
+    expect(await screen.findByText('Board for tree:tree-1')).toBeInTheDocument()
 
     fireEvent.click(screen.getByText('Back to Projects'))
 
@@ -88,6 +121,6 @@ describe('Projects component routing and hash synchronization', () => {
     fireEvent.click(screen.getByText('open-tree-1'))
 
     expect(window.location.hash).toBe('#/projects/tree/tree-1')
-    expect(await screen.findByText('Workspace for tree:tree-1')).toBeInTheDocument()
+    expect(await screen.findByText('Board for tree:tree-1')).toBeInTheDocument()
   })
 })

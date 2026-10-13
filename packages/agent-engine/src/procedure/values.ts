@@ -106,6 +106,7 @@ export interface RecalledMemory {
   text: string;
   category: string;
   scope: 'project' | 'global';
+  model?: string | undefined;
 }
 
 export interface ChildOutcomeValue {

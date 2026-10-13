@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { parseHash } from '../lib/route.js';
 import { useShellStore } from '../stores/shell.js';
 import ChatSurface from './ChatSurface.js';
+import type { StoryAddress } from './Chat/ChatNotice.js';
 
 function useSafeChatParams() {
   const router = useRouter({ warn: false });
@@ -42,6 +43,14 @@ export default function ChatPage() {
     }
   };
 
+  const handleOpenStory = ({ treeId, branchId, leafId }: StoryAddress) => {
+    setView('projects');
+    window.location.hash = `#/projects/tree/${treeId}/${branchId}/${leafId}`;
+    if (navigate) {
+      navigate({ to: '/projects/tree/$treeId/$branchId/$leafId', params: { treeId, branchId, leafId } }).catch(() => {});
+    }
+  };
+
   const handleConversationChange = (convId: string | null) => {
     const hash = convId ? `#/chat/${convId}` : '#/chat';
     window.location.hash = hash;
@@ -58,6 +67,7 @@ export default function ChatPage() {
     <ChatSurface
       conversationId={conversationId}
       onOpenTree={handleOpenTree}
+      onOpenStory={handleOpenStory}
       onConversationChange={handleConversationChange}
     />
   );

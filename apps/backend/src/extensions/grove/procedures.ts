@@ -46,6 +46,8 @@ function leafProcedure(meta: { id: string; name: string; describe: string }, wor
       });
       const back = p.hostOp('back', { leaf: input.inputs }, op('grove.return-leaf'));
       const returned = p.finish('returned', {}, { outcome: 'ok', reason: 'the leaf has no tasks yet, so it waits for the planner' });
+      const park = p.hostOp('park', { leaf: input.inputs, reason: out(next, 'reason') }, op('grove.return-leaf', { parked: true }));
+      const parked = p.finish('parked', { reason: out(next, 'reason') }, { outcome: 'ok', reason: 'the leaf waits for its workspace to be rebuilt with what a task asked for; it is put back in line when the rebuild is published' });
       fail.wire({ reason: out(next, 'reason') });
       start.on('started', next);
       next.on('run', task);
@@ -53,14 +55,16 @@ function leafProcedure(meta: { id: string; name: string; describe: string }, wor
       next.on('stopped', claim);
       next.on('fail', fail);
       next.on('unbroken', back);
+      next.on('waiting', park);
+      park.on('done', parked);
       task.on('ok', next);
       task.on('failed', next);
       back.on('done', returned);
       p.layout({
         input: [0, 0], provision: [260, 0], start: [520, 0], next: [780, 0], task: [1040, 0],
-        claim: [1040, 160], fail: [1040, 320], back: [1040, 480],
-        filed: [1300, 160], refused: [1300, 240], failedFiled: [1300, 320], failRefused: [1300, 400], returned: [1300, 480],
-        notWaiting: [780, 160], unavailable: [520, 160], putBack: [0, 640], cleaned: [260, 640],
+        claim: [1040, 160], fail: [1040, 320], back: [1040, 480], park: [1040, 640],
+        filed: [1300, 160], refused: [1300, 240], failedFiled: [1300, 320], failRefused: [1300, 400], returned: [1300, 480], parked: [1300, 640],
+        notWaiting: [780, 160], unavailable: [520, 160], putBack: [0, 800], cleaned: [260, 800],
       });
     } else {
       const write = p.delegate('write', { values: input.inputs, environment: provision.environment }, {
@@ -110,6 +114,7 @@ function runProcedure(meta: { id: string; name: string; describe: string }, leaf
     const judged = p.condition('judged', { value: judgeFailures.merged }, { expression: 'empty(value)' });
     const judgeBroke = p.finish('judgeBroke', { result: judgeFailures.merged }, { outcome: 'failed', reason: 'a judge could not settle its claim, so the run stops rather than judge it again every pass' });
     const land = p.hostOp('land', { environment: out(open, 'environment'), tree: out(open, 'tree') }, op('grove.land-leaves'));
+    const landWaiting = p.hostOp('landWaiting', { environment: out(open, 'environment'), tree: out(open, 'tree') }, op('grove.land-leaves'));
     const needs = p.hostOp('needs', { tree: out(open, 'tree') }, op('grove.needs-plan'));
     const preparePlans = p.hostOp('preparePlans', { environment: out(open, 'environment'), tree: out(open, 'tree'), leaves: out(needs, 'items') }, op('grove.prepare-worktrees'));
     const plan = p.fanOut('plan', { items: out(preparePlans, 'items'), environment: out(open, 'environment') }, { agent: 'planner', maxParallel: 3, itemAsInputs: true });
@@ -126,7 +131,8 @@ function runProcedure(meta: { id: string; name: string; describe: string }, leaf
     open.on('unavailable', unavailable);
     leaves.on('work', prepareWork);
     leaves.on('judge', check);
-    leaves.on('quiet', needs);
+    leaves.on('quiet', landWaiting);
+    landWaiting.on('done', needs);
     prepareWork.on('ready', work);
     prepareWork.on('none', leaves);
     work.on('done', leaves);
@@ -151,7 +157,7 @@ function runProcedure(meta: { id: string; name: string; describe: string }, leaf
       open: [0, 0], unavailable: [0, 160], leaves: [260, 0],
       prepareWork: [520, -160], work: [780, -160],
       check: [520, 0], checkouts: [780, 0], judge: [1040, 0], judgeFailures: [1300, 0], judged: [1560, 0], judgeBroke: [1820, 0], land: [1560, -100],
-      needs: [520, 160], preparePlans: [780, 160], plan: [1040, 160], proposals: [1300, 160], report: [1560, 160], quiet: [1820, 160],
+      landWaiting: [390, 260], needs: [520, 160], preparePlans: [780, 160], plan: [1040, 160], proposals: [1300, 160], report: [1560, 160], quiet: [1820, 160],
       park: [0, 360], parked: [260, 360],
     });
   }, GROVE_CATALOGUE);
@@ -160,7 +166,7 @@ function runProcedure(meta: { id: string; name: string; describe: string }, leaf
 export const GROVE_RUN = runProcedure({
   id: 'grove-run',
   name: 'Grove run',
-  describe: 'A tree grown until it is quiet: open the tree and its shared workspace, work every ready leaf in its own worktree, check each claim\'s own checks and judge the rest from the commit it points at, and when nothing is left to work or judge, plan the leaves that failed or have no tasks yet — then report what waits for a person. The workspace is parked however the run ends.',
+  describe: 'A tree grown until it is quiet: open the tree and its shared workspace, work every ready leaf in its own worktree, check each claim\'s own checks and judge the rest from the commit it points at, land what was verified, and when nothing is left to work or judge, land anything verified that has not landed yet and plan the leaves that failed or have no tasks yet — then report what waits for a person. The workspace is parked however the run ends.',
 }, 'grove-leaf');
 
 export const GROVE_PAPER_RUN = runProcedure({

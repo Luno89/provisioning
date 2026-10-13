@@ -7,6 +7,7 @@ import {
   type ApprovalGate,
   BASES,
   planFor,
+  type ImagePlan,
   type ToolDefinition,
 } from '@koala/agent-engine';
 import { createNoneDriver } from '@koala/engine-core';
@@ -20,7 +21,12 @@ import type { ImageBuilder } from './image-builder.js';
 import type { EnvironmentDriver, EnvironmentSpec } from '@koala/engine-core';
 import type { EnvironmentHandleRef, RunEnvironment, RunTicket } from '../temporal/contracts.js';
 import type { AgentRegistry } from '../registries/registry.js';
-import { planWorkspace } from '../../extensions/workspace-bases.js';
+import { composeWithBases } from '../../extensions/workspace-bases.js';
+import type { McpServerRecord } from '../../lib/mcp-servers.js';
+import type { ComposedWorkspace } from '../../lib/workspace-composition.js';
+import { readWorkspaceFile, type WorkspaceFile, pendingChanges } from '../../lib/workspace-file.js';
+import { stageText, type PublishedWorkspace } from '../../lib/published-workspace.js';
+import { treeOfWorkspace } from './workspace-repos.js';
 
 export type WorkspaceTarget =
   | { kind: 'machine'; deviceId: string; deviceName: string; path?: string | undefined }
@@ -38,9 +44,25 @@ export interface EnvironmentRequest {
 
 export interface EnvironmentResolver {
   describe(ticket: RunTicket, wallClockLimitMs?: number | undefined): Promise<RunEnvironment>;
-  describeShared(request: { ticket: RunTicket; agents: readonly string[]; languages?: readonly string[] | undefined }): Promise<Extract<RunEnvironment, { kind: 'sandbox' }>>;
+  describeShared(request: { ticket: RunTicket; agents: readonly string[]; languages?: readonly string[] | undefined; extras?: WorkspaceExtras | undefined; treeId?: string | undefined }): Promise<Extract<RunEnvironment, { kind: 'sandbox' }>>;
+  composeShared(request: { ticket: RunTicket; agents: readonly string[]; languages?: readonly string[] | undefined; file?: WorkspaceFile | undefined }): Promise<ComposedWorkspace>;
   forRun(request: EnvironmentRequest): Promise<EnvironmentDriver | undefined>;
   release(runId: string): Promise<void>;
+}
+
+export interface WorkspaceExtras {
+  env?: readonly { name: string; value: string }[] | undefined;
+  egress?: readonly EgressRule[] | undefined;
+}
+
+export function withExtras(workspace: RunWorkspace, extras: WorkspaceExtras | undefined): RunWorkspace {
+  if (!extras) return workspace;
+  const taken = new Set(workspace.env.map((entry) => entry.name));
+  const env = [...workspace.env, ...(extras.env ?? []).filter((entry) => !taken.has(entry.name))];
+  const key = (rule: EgressRule) => `${rule.namespace ?? rule.cidr}:${(rule.ports ?? []).join(',')}`;
+  const seen = new Set(workspace.egress.map(key));
+  const egress = [...workspace.egress, ...(extras.egress ?? []).filter((rule) => !seen.has(key(rule)) && seen.add(key(rule)))];
+  return { ...workspace, env, egress };
 }
 
 export interface EnvironmentResolverOptions {
@@ -48,6 +70,7 @@ export interface EnvironmentResolverOptions {
   environments: RunEnvironments;
   images: ImageBuilder;
   tools: (ownerId: string) => Promise<ToolDefinition[]>;
+  servers?: ((ownerId: string) => Promise<readonly McpServerRecord[]>) | undefined;
   workspaces?: WorkspaceSource | undefined;
   machineBackend?: MachineBackend | undefined;
   approval?: ApprovalGate | undefined;
@@ -55,6 +78,15 @@ export interface EnvironmentResolverOptions {
     grants(ownerId: string, agentSlug: string): Promise<{ host: string; ports?: number[] | undefined }[]>;
     proxyUrl(ownerId: string, agentSlug: string): string;
   } | undefined;
+  published?: PublishedWorkspaces | undefined;
+  now?: (() => string) | undefined;
+}
+
+export interface PublishedWorkspaces {
+  get(ownerId: string, treeId: string): Promise<PublishedWorkspace | undefined>;
+  save(workspace: PublishedWorkspace): Promise<void>;
+  file(ownerId: string, treeId: string): Promise<string | undefined>;
+  describe(ownerId: string, treeId: string): Promise<Extract<RunEnvironment, { kind: 'sandbox' }>>;
 }
 
 export class NoMachineAvailableError extends Error {
@@ -64,7 +96,17 @@ export class NoMachineAvailableError extends Error {
   }
 }
 
-export async function workspaceFor(input: {
+export interface ComposedRunWorkspace {
+  workspace: RunWorkspace;
+  plan?: ImagePlan | undefined;
+  fileEnv: { name: string; value: string }[];
+}
+
+export async function workspaceFor(input: Parameters<typeof composeRunWorkspace>[0]): Promise<RunWorkspace> {
+  return (await composeRunWorkspace(input)).workspace;
+}
+
+export async function composeRunWorkspace(input: {
   runId: string;
   ownerId: string;
   agent: AgentDefinition;
@@ -74,26 +116,34 @@ export async function workspaceFor(input: {
   wallClockLimitMs?: number | undefined;
   grants?: readonly { host: string; ports?: readonly number[] | undefined }[] | undefined;
   proxyUrl?: string | undefined;
-}): Promise<RunWorkspace> {
-  const plan = planWorkspace(input.agent, input.tools);
-  if (!plan) throw new Error(`${input.agent.slug} does not run in a sandbox, so it has no workspace image`);
+  file?: WorkspaceFile | undefined;
+  published?: PublishedWorkspace | undefined;
+  servers?: readonly McpServerRecord[] | undefined;
+}): Promise<ComposedRunWorkspace> {
+  const composed = input.published ? undefined : composeWithBases(input.agent, input.tools, input.file, input.servers);
+  if (!input.published && !composed) throw new Error(`${input.agent.slug} does not run in a sandbox, so it has no workspace image`);
+  const plan = composed?.plan;
+  const fileEnv = input.published ? input.published.env : composed!.env;
+  const provides = input.published ? input.published.provides : plan!.provides;
+  const planEnv = input.published ? input.published.baseEnv : (plan!.env ?? []);
 
-  const reference = await input.images.ensure(plan);
-  const access = packageAccessFor(plan.provides);
+  const reference = input.published ? input.published.image : await input.images.ensure(plan!);
+  const access = packageAccessFor(provides);
 
   const granted = input.egressMode === 'none' || input.egressMode === 'auto' || !input.proxyUrl ? [] : [...(input.grants ?? [])];
   const credentialed = granted.length > 0
     ? [{ name: 'HTTPS_PROXY', value: input.proxyUrl! }, { name: 'https_proxy', value: input.proxyUrl! }]
     : [];
-  const baseEnv = (plan.env ?? []).filter((entry) => !access.env.some((own) => own.name === entry.name));
-  const env = [...access.env, ...baseEnv].filter((entry) => !credentialed.some((over) => over.name === entry.name)).concat(credentialed);
+  const baseEnv = planEnv.filter((entry) => !access.env.some((own) => own.name === entry.name));
+  const declared = fileEnv.filter((entry) => !access.env.some((own) => own.name === entry.name) && !baseEnv.some((own) => own.name === entry.name));
+  const env = [...access.env, ...baseEnv, ...declared].filter((entry) => !credentialed.some((over) => over.name === entry.name)).concat(credentialed);
 
-  return {
+  const workspace: RunWorkspace = {
     runId: input.runId,
     ownerId: input.ownerId,
     agent: input.agent.slug,
     image: reference,
-    provides: plan.provides,
+    provides,
     egressMode: input.egressMode,
     lifetimeMs: lifetimeFor(input.wallClockLimitMs),
     cpu: DEFAULT_CPU,
@@ -102,6 +152,7 @@ export async function workspaceFor(input: {
     env,
     ...(granted.length > 0 ? { grantedHosts: granted.map((grant) => `${grant.host}${grant.ports?.length ? `:${grant.ports.join(',')}` : ''}`) } : {}),
   };
+  return { workspace, ...(plan ? { plan } : {}), fileEnv };
 }
 
 /**
@@ -132,6 +183,7 @@ export function mergeWorkspaceAgents(
     ...first,
     slug,
     tools: unique(working.flatMap((agent) => agent.tools)),
+    servers: unique(working.flatMap((agent) => agent.servers ?? [])),
     environment: {
       ...Object.assign({}, ...working.map((agent) => agent.environment)),
       languages: merged,
@@ -141,6 +193,7 @@ export function mergeWorkspaceAgents(
 }
 
 export function createEnvironmentResolver(options: EnvironmentResolverOptions): EnvironmentResolver {
+  const serversOf = async (ownerId: string): Promise<readonly McpServerRecord[]> => (options.servers ? options.servers(ownerId) : []);
   const approval = options.approval ?? allowAll();
   const egressFor_ = async (ownerId: string, agentSlug: string) => (options.egress
     ? { grants: await options.egress.grants(ownerId, agentSlug), proxyUrl: options.egress.proxyUrl(ownerId, agentSlug) }
@@ -154,27 +207,71 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
     return { agent, spec: environmentFor(agent), workspace: needsWorkspace(agent) };
   };
 
+  const currentWorkspace = async (ownerId: string, workspace: RunWorkspace | undefined): Promise<RunWorkspace | undefined> => {
+    const treeId = workspace?.persistent ? treeOfWorkspace(workspace.runId) : undefined;
+    if (!workspace || !treeId || !options.published) return workspace;
+    const published = await options.published.get(ownerId, treeId);
+    if (!published || published.image === workspace.image) return workspace;
+    return (await options.published.describe(ownerId, treeId)).workspace ?? workspace;
+  };
+
   return {
-    async describeShared({ ticket, agents, languages }) {
+    async composeShared({ ticket, agents, languages, file }) {
+      const found = await Promise.all(agents.map((slug) => options.registry.agent(ticket.ownerId, slug)));
+      const merged = mergeWorkspaceAgents(found, ticket.agentSlug, languages);
+      if (!merged) throw new NothingToShareError(agents);
+      const composed = composeWithBases(merged, await options.tools(ticket.ownerId), file, await serversOf(ticket.ownerId));
+      if (!composed) throw new NothingToShareError(agents);
+      return composed;
+    },
+
+    async describeShared({ ticket, agents, languages, extras, treeId }) {
       const found = await Promise.all(agents.map((slug) => options.registry.agent(ticket.ownerId, slug)));
       const merged = mergeWorkspaceAgents(found, ticket.agentSlug, languages);
       if (!merged) throw new NothingToShareError(agents);
 
-      const workspace = await workspaceFor({
+      const store = treeId ? options.published : undefined;
+      const tools = await options.tools(ticket.ownerId);
+      const servers = await serversOf(ticket.ownerId);
+      const published = store ? await store.get(ticket.ownerId, treeId!) : undefined;
+      const read = store && !published ? readWorkspaceFile(await store.file(ticket.ownerId, treeId!).catch(() => undefined)) : undefined;
+      const file = published ? published.file : read && 'file' in read ? read.file : undefined;
+      const current = published && composeWithBases(merged, tools, file, servers)?.plan.fingerprint === published.fingerprint ? published : undefined;
+      const onMain = published ? readWorkspaceFile(await store!.file(ticket.ownerId, treeId!).catch(() => undefined)) : undefined;
+      const coming = published && onMain && 'file' in onMain ? pendingChanges(published.file, onMain.file) : [];
+      const { workspace, plan, fileEnv } = await composeRunWorkspace({
         runId: ticket.runId,
         ownerId: ticket.ownerId,
         agent: merged,
-        tools: await options.tools(ticket.ownerId),
+        tools,
+        servers,
         images: options.images,
         egressMode: merged.egressMode ?? 'declared',
+        ...(file ? { file } : {}),
+        ...(current ? { published: current } : {}),
         ...(await egressFor_(ticket.ownerId, merged.slug)),
       });
+      if (store && plan) {
+        await store.save({
+          ownerId: ticket.ownerId,
+          treeId: treeId!,
+          ...(published?.commit ? { commit: published.commit } : {}),
+          file: file ?? {},
+          fingerprint: plan.fingerprint,
+          image: workspace.image,
+          provides: plan.provides,
+          lines: plan.lines ?? [],
+          env: fileEnv,
+          baseEnv: plan.env ?? [],
+          publishedAt: (options.now ?? (() => new Date().toISOString()))(),
+        });
+      }
 
       return {
         kind: 'sandbox',
         id: environmentIdFor(ticket.runId),
         capabilities: { ...environmentFor(merged), lifecycle: 'persistent' },
-        workspace: { ...workspace, persistent: true },
+        workspace: { ...withExtras(workspace, extras), persistent: true, ...(coming.length ? { coming: { what: coming, stage: stageText(published?.next) } } : {}) },
       };
     },
 
@@ -212,6 +309,7 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
           ownerId: ticket.ownerId,
           agent,
           tools: await options.tools(ticket.ownerId),
+          servers: await serversOf(ticket.ownerId),
           images: options.images,
           egressMode,
           wallClockLimitMs,
@@ -259,11 +357,12 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
         });
       }
 
+      const workspace = await currentWorkspace(ticket.ownerId, environment?.workspace);
       return options.environments.forRun({
         ticket,
         ...(environment?.id ? { id: environment.id } : {}),
         spec,
-        ...(environment?.workspace ? { workspace: environment.workspace } : {}),
+        ...(workspace ? { workspace } : {}),
         ...(request.worktree ?? environment?.scope?.worktree ? { scope: { worktree: (request.worktree ?? environment?.scope?.worktree)! } } : {}),
       });
     },

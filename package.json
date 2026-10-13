@@ -55,6 +55,7 @@
     "test:account-removal-live": "cd apps/backend && tsx ../../tests/account-removal-live.ts",
     "test:checks-live": "cd apps/backend && tsx ../../tests/checks-live.ts",
     "test:odoo-release-live": "cd apps/backend && tsx ../../tests/odoo-release-live.ts",
+    "test:tree-to-release-live": "cd apps/backend && tsx ../../tests/tree-to-release-live.ts",
     "test:extensions-live": "cd apps/backend && tsx ../../tests/extensions-live.ts",
     "test:instance-live": "cd apps/backend && tsx ../../tests/instance-live.ts",
     "test:byo-live": "cd apps/backend && tsx ../../tests/byo-machine-live.ts",

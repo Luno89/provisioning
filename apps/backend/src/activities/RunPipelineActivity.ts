@@ -6,7 +6,8 @@ import { fileURLToPath } from 'url';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { ApplicationFailure } from '@temporalio/common';
-import { parsePipelineConfig, buildArgEntries } from '../lib/pipeline-config.js';
+import { buildPlanAt, isCommitSha } from '../lib/build-plan.js';
+import { buildArgEntries } from '../lib/pipeline-config.js';
 import { loadKeys } from '../lib/keys.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -62,6 +63,7 @@ export async function RunPipelineActivity(args: RunPipelineArgs): Promise<RunPip
   const kubeconfig = await resolveKubeconfig(infra);
   const gitea = new GiteaService(infra, loadKeys(process.env).data, kubeconfig);
 
+  if (!isCommitSha(args.commitSha)) throw ApplicationFailure.nonRetryable(`"${args.commitSha}" is not a commit to build`, 'NotACommit');
   const runSlug = (args.runId ?? Math.random().toString(36).slice(2)).replace(/[^a-z0-9]/gi, '').slice(-8).toLowerCase();
   const jobName = `build-${args.giteaRepo}-${args.commitSha.slice(0, 8)}-${runSlug}`
     .toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 63);
@@ -72,24 +74,14 @@ export async function RunPipelineActivity(args: RunPipelineArgs): Promise<RunPip
 
   await log(args.logFile, `Building ${args.giteaOwner}/${args.giteaRepo}@${args.commitSha} -> ${imageTag}`);
 
-  const pipelineFile = await gitea.getRawFile(args.giteaOwner, args.giteaRepo, '.provisioning/pipeline.yml', args.ref).catch(() => null);
-  const pipeline = pipelineFile ? parsePipelineConfig(pipelineFile) : { config: null, error: null };
-  if (pipelineFile && pipeline.error) {
-    await log(args.logFile, `.provisioning/pipeline.yml ${pipeline.error} — building the repo root Dockerfile instead`);
-  } else if (pipelineFile) {
-    await log(args.logFile, `Found .provisioning/pipeline.yml: dockerfile=${pipeline.config?.dockerfile ?? 'Dockerfile'}, context=${pipeline.config?.context ?? '.'}, ${Object.keys(pipeline.config?.buildArgs ?? {}).length} build arg(s)`);
-  } else {
-    await log(args.logFile, 'No .provisioning/pipeline.yml — building the repo root Dockerfile');
+  const plan = await buildPlanAt((file) => gitea.getRawFile(args.giteaOwner, args.giteaRepo, file, args.commitSha).catch(() => null), args.commitSha);
+  if (!plan.build) {
+    await log(args.logFile, `Nothing to build: ${plan.reason}.`);
+    throw ApplicationFailure.nonRetryable(`Nothing to build: ${plan.reason}.`, 'NoDockerfile');
   }
-
-  const dockerfilePath = pipeline.config?.dockerfile ?? 'Dockerfile';
-  const dockerfile = await gitea.getRawFile(args.giteaOwner, args.giteaRepo, dockerfilePath, args.ref).catch(() => null);
-  if (!dockerfile) {
-    const message = `${args.giteaRepo} has no Dockerfile at "${dockerfilePath}" on ${args.ref}, so there is `
-      + 'nothing to build into an image. Add one and push again.';
-    await log(args.logFile, message);
-    throw ApplicationFailure.nonRetryable(message, 'NoDockerfile');
-  }
+  for (const note of plan.notes) await log(args.logFile, note);
+  const pipeline = { config: plan.config };
+  const dockerfilePath = plan.dockerfile;
 
   const buildArgFlags = buildArgEntries(pipeline.config)
     .map(([key, value]) => `--build-arg=${key}=${yamlDoubleQuoted(value)}`);
@@ -140,7 +132,7 @@ spec:
             - secretRef: { name: ${gitSecretName} }
           command: ["sh", "-c"]
           args:
-            - "git -c http.extraHeader=\\"Authorization: Basic ${'$'}{GIT_AUTH_BASIC}\\" clone --branch ${args.ref} --single-branch --depth 1 http://${registryHost}/${args.giteaOwner}/${args.giteaRepo}.git /workspace"
+            - "git -c http.extraHeader=\\"Authorization: Basic ${'$'}{GIT_AUTH_BASIC}\\" clone --branch ${args.ref} --single-branch http://${registryHost}/${args.giteaOwner}/${args.giteaRepo}.git /workspace && git -C /workspace checkout -q ${args.commitSha}"
           volumeMounts:
             - { name: workspace, mountPath: /workspace }
       containers:

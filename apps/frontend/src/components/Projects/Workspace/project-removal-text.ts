@@ -2,6 +2,7 @@ import type { ProjectRemovalPreview, ProjectRemovalState, ProjectRemovalStep } f
 
 const STEPS: { step: ProjectRemovalStep; doing: string }[] = [
   { step: 'workflows', doing: 'Stopping its runs and builds' },
+  { step: 'apps', doing: 'Removing its apps from their clusters' },
   { step: 'workspaces', doing: 'Deleting its workspaces' },
   { step: 'secrets', doing: 'Deleting its secrets' },
   { step: 'repositories', doing: 'Deleting its repositories' },
@@ -20,6 +21,7 @@ const plural = (count: number, one: string, many: string) => `${count} ${count =
 
 export function projectRemovalLines(preview: ProjectRemovalPreview): string[] {
   return [
+    ...preview.apps.map((app) => `The app “${app}” running on its cluster, with its databases and files`),
     ...(preview.repository ? [`The repository ${preview.repository}, with its history and its build webhook`] : []),
     ...preview.trees.map((tree) => `The tree “${tree.name}”, with ${plural(tree.leaves, 'leaf', 'leaves')}, their tasks and plans, ${plural(tree.conversations, 'conversation', 'conversations')} and its sandbox`),
     ...(preview.builds ? [`${plural(preview.builds, 'build', 'builds')} and their logs`] : []),

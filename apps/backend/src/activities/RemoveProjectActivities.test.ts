@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryDB } from '../lib/memory-db.js';
 import { createProjectRemovalActivities, type ProjectRemovalDeps } from './RemoveProjectActivities.js';
+import { ArtifactService } from '../services/ArtifactService.js';
 
 let db: MemoryDB;
 let terminated: string[];
@@ -14,6 +15,11 @@ const deps = (): ProjectRemovalDeps => ({
   kube: async (args) => { kubectl.push(args); return { stdout: '', stderr: '', exitCode: 0 }; },
   repositories: { deleteRepo: async (owner, name) => { repos.push(`${owner}/${name}`); } },
   secrets: { removeProject: async (projectId) => { secrets.push(projectId); return { workspace: true, readers: 1 }; } },
+  apps: {
+    clusterById: async (id) => (id === 'system' ? { id: 'system', name: 'provisioning-lunorica', provider: 'k3d', status: 'running' } as never : undefined),
+    logFile: () => '/logs/destroy.log',
+    taskQueue: 'cluster-ops-queue',
+  },
 });
 
 const at = 'then';
@@ -66,6 +72,40 @@ describe('the steps that delete a project', () => {
     expect(await db.getConversation('bo', 'c1')).toBeUndefined();
     expect((await db.getConversation('bo', 'c2'))?.projectId).toBeUndefined();
     expect((await db.getPipelineRuns()).map((run) => run.id)).toEqual(['r2']);
+  });
+
+  it('removes what its releases\' browser tests kept, and nothing of another project\'s', async () => {
+    const artifacts = new ArtifactService({ records: db, minioFor: async () => undefined });
+    for (const [id, projectId] of [['rel1', 'p1'], ['rel2', 'p2']] as const) {
+      await db.saveOdooRelease({ id, ownerId: 'bo', projectId, pipelineRunId: 'x', commit: 'c', image: 'i:t', state: 'preview', host: 'h', startedAt: at, updatedAt: at });
+      await artifacts.put('bo', id, [{ name: 'shot.png', bytes: Buffer.from('png') }]);
+    }
+    const removed = await createProjectRemovalActivities({ ...deps(), artifacts }).RemoveProjectRecordsActivity({ projectId: 'p1' });
+    expect(removed).toMatchObject({ artifacts: 1, odooReleases: 1 });
+    expect(await artifacts.list('bo', 'rel1')).toEqual([]);
+    expect((await artifacts.list('bo', 'rel2')).map((artifact) => artifact.name)).toEqual(['shot.png']);
+  });
+
+  it('plans the destroy of each app built from it, on the app\'s own cluster and namespace, and deletes the app\'s record with the rest', async () => {
+    await db.saveDeploymentInfo({ id: 'odoo-p1', name: 'shop-p1', clusterId: 'system', strategy: 'helm', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c', ownerId: 'bo', gitappProjectId: 'p1', status: 'running' });
+    await db.saveDeploymentInfo({ id: 'odoo-p2', name: 'shop-p2', clusterId: 'system', strategy: 'helm', appType: 'odoo-project', ownerId: 'bo', gitappProjectId: 'p2', status: 'running' });
+    const steps = createProjectRemovalActivities(deps());
+
+    const planned = await steps.RemoveProjectAppsActivity({ projectId: 'p1' });
+    expect(planned).toEqual([{
+      deploymentId: 'odoo-p1',
+      workflowId: expect.stringMatching(/^app-destroy-shop-p1-/),
+      taskQueue: 'cluster-ops-queue',
+      args: { name: 'shop-p1', clusterId: 'system', clusterName: 'provisioning-lunorica', provider: 'k3d', strategy: 'helm', logFile: '/logs/destroy.log', deploymentId: 'default', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c' },
+    }]);
+    expect((await db.getDeployments()).find((deployment) => deployment.id === 'odoo-p1')?.status).toBe('destroying');
+
+    expect(await steps.RemoveProjectRecordsActivity({ projectId: 'p1' })).toMatchObject({ deployments: 1 });
+    expect((await db.getDeployments()).map((deployment) => deployment.id)).toEqual(['odoo-p2']);
+  });
+
+  it('plans nothing for a project with no app', async () => {
+    expect(await createProjectRemovalActivities(deps()).RemoveProjectAppsActivity({ projectId: 'p1' })).toEqual([]);
   });
 
   it('finds nothing to do for a project already gone', async () => {

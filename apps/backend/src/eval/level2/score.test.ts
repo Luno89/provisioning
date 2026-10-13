@@ -200,6 +200,16 @@ describe('checks on the plumbing a flow goes through', () => {
     expect(checks).toHaveLength(12);
   });
 
+  it('can look for what any request carried, not only the last', async () => {
+    const flow = { modelRequests: ['the planner: THE PLATFORM DOES THESE', 'Koala: the plan is on the card'] };
+    const any = await scoreScenario({ modelSaw: { anyRequest: true, contains: ['THE PLATFORM DOES THESE'], lacks: ['secret'] } }, observed({ flow }), { tools });
+    expect(any).toEqual([
+      { what: 'some request to the model carries "THE PLATFORM DOES THESE"', passed: true, detail: 'the model was sent 2 requests; 1 carried it' },
+      { what: 'no request to the model carries "secret"', passed: true, detail: 'the model was sent 2 requests; 0 carried it' },
+    ]);
+    expect((await scoreScenario({ modelSaw: { contains: ['THE PLATFORM DOES THESE'] } }, observed({ flow }), { tools }))[0]!.passed).toBe(false);
+  });
+
   it('reads what a failed leaf\'s findings say and whether the browser files it left open', async () => {
     const leaf = { title: 'Probe', status: 'failed', verified: false, findings: 'odoo-e2e: FAILED\nwhat the browser left behind:' };
     const expectation = { leaves: { findings: { Probe: ['odoo-e2e: FAILED', 'what the browser left behind'] }, artifacts: { Probe: 2 } } };
@@ -230,6 +240,20 @@ describe('checks on the plumbing a flow goes through', () => {
       'the turn log\'s 12 entries have a gap',
       'shared.txt on main does not say beta: "alpha\n"',
       'it is there',
+    ]);
+  });
+
+  it('fails a file on main that says what it must not, and passes one that does not', async () => {
+    const checks = await scoreScenario(
+      { repository: { of: 'tree', files: [{ path: 'leaves/l1.md', lacks: ['which door'] }, { path: 'PLAN.md', lacks: ['## Changed'] }] } },
+      observed({ flow: { repository: { 'leaves/l1.md': 'Leave it at the back, which door is red.', 'PLAN.md': '# Plan\n' } } }),
+      { tools },
+    );
+    expect(checks.map((check) => [check.what, check.passed, check.detail])).toEqual([
+      ['the tree\'s main holds leaves/l1.md', true, 'leaves/l1.md is on main'],
+      ['leaves/l1.md on the tree\'s main does not say which door', false, 'it says which door'],
+      ['the tree\'s main holds PLAN.md', true, 'PLAN.md is on main'],
+      ['PLAN.md on the tree\'s main does not say ## Changed', true, 'it does not'],
     ]);
   });
 });

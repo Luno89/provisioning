@@ -116,6 +116,22 @@ describe('what it still refuses to include', () => {
   });
 });
 
+describe('a memory kept for one model', () => {
+  it('reaches only that model, beside those kept for every model', () => {
+    const bank = [mem({ id: 'a', title: 'EVERYONE' }), mem({ id: 'b', title: 'MINE', model: 'qwen/q' }), mem({ id: 'c', title: 'THEIRS', model: 'old/m' })];
+
+    expect(selectForContext(bank, undefined, { model: 'qwen/q' }).kept.map((m) => m.title)).toEqual(['EVERYONE', 'MINE']);
+    expect(selectForContext(bank, undefined, {}).kept.map((m) => m.title)).toEqual(['EVERYONE']);
+  });
+
+  it('holds for a practice too', () => {
+    const bank = [mem({ id: 'p', category: 'practice', agent: 'koala', title: 'MINE', model: 'qwen/q' })];
+
+    expect(selectForContext(bank, undefined, { agent: 'koala', model: 'qwen/q' }).kept).toHaveLength(1);
+    expect(selectForContext(bank, undefined, { agent: 'koala', model: 'old/m' }).kept).toHaveLength(0);
+  });
+});
+
 describe('a memory that could never be recalled', () => {
   const base = {
     id: 'm1', ownerId: 'u1', category: 'fact', title: 'T', text: 'x',

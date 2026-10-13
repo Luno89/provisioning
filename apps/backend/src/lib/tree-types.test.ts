@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MemoryDB } from './memory-db.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
-import { TREE_TYPE_SEEDS, validateTreeType, resolveTreeType, renderStarterFiles, seedTreeTypes, treeTypeChoices, treeTypesFor, type TreeTypeSpec, agentProblem, groveAgentOf } from './tree-types.js';
+import { dependencyNamespaceFrom, treeExtrasFrom, treeTypeOfProject, TREE_TYPE_SEEDS, validateTreeType, resolveTreeType, renderStarterFiles, seedTreeTypes, treeTypeChoices, treeTypesFor, type TreeTypeSpec, agentProblem, groveAgentOf } from './tree-types.js';
 
 const spec = (over: Partial<TreeTypeSpec> = {}): TreeTypeSpec => ({
   id: 'custom-thing',
@@ -49,6 +49,27 @@ describe('what a tree type must declare', () => {
   it('refuses a starter file with an absolute or escaping path', () => {
     expect(validateTreeType(IMAGES, spec({ files: [{ path: '/etc/passwd', content: 'x' }] }))).toMatch(/path/i);
     expect(validateTreeType(IMAGES, spec({ files: [{ path: '../outside.md', content: 'x' }] }))).toMatch(/path/i);
+  });
+});
+
+describe('the secrets a type declares', () => {
+  const secrets = (list: unknown) => validateTreeType(IMAGES, spec({ secrets: list as TreeTypeSpec['secrets'] }));
+
+  it('takes environment variable names, each from a source it knows, said what it is for, at most once', () => {
+    expect(secrets([{ key: 'ODOO_ADMIN_PASSWORD', source: 'generated', describe: 'The admin password.', signInAs: 'admin' }, { key: 'STRIPE_KEY', source: 'person', describe: 'From the Stripe dashboard.' }])).toBeNull();
+    expect(secrets([{ key: 'admin password', source: 'generated', describe: 'x' }])).toMatch(/not an environment variable name/);
+    expect(secrets([{ key: 'A', source: 'magic', describe: 'x' }])).toBe('A must come from one of generated, gitea-read-token, person.');
+    expect(secrets([{ key: 'A', source: 'generated', describe: '' }])).toMatch(/^A: say what the secret is for/);
+    expect(secrets([{ key: 'A', source: 'generated', describe: 'x' }, { key: 'A', source: 'person', describe: 'y' }])).toBe('A is declared twice.');
+    expect(secrets([{ key: 'A', source: 'generated', describe: 'x', signInAs: ' ' }])).toBe('A: signInAs names the login this password signs in as.');
+    expect(secrets('A')).toBe('secrets must be a list of {key, source, describe}.');
+  });
+
+  it('gives the Odoo type a database and an admin password the platform makes, the admin\'s to sign in with', () => {
+    expect(TREE_TYPE_SEEDS.find((type) => type.id === 'odoo-addons')?.secrets).toEqual([
+      expect.objectContaining({ key: 'POSTGRES_PASSWORD', source: 'generated' }),
+      expect.objectContaining({ key: 'ODOO_ADMIN_PASSWORD', source: 'generated', signInAs: 'admin' }),
+    ]);
   });
 });
 
@@ -207,5 +228,48 @@ describe('seeding the shipped types', () => {
       'Mine:grove-careful',
       'Research paper:grove-paper',
     ]);
+  });
+});
+
+describe('what a tree\'s type adds to its workspaces', () => {
+  const store = (type: Partial<TreeTypeSpec>) => ({
+    getTrees: async () => [{ id: 't1', ownerId: 'u1', type: 'custom-thing' }],
+    getTreeTypes: async () => [spec(type)],
+  });
+
+  it('gives every leaf the type\'s plain values, its own network rules, and a way to the services the app depends on', async () => {
+    const extras = await treeExtrasFrom(store({
+      env: [{ name: 'SHOP_CURRENCY', value: 'EUR' }],
+      egress: [{ cidr: '10.1.0.0/16', ports: [5432] }, { namespace: 'mail' }, {} as never],
+      defaultBindings: ['shop-db', 'missing'],
+    }), async (_owner, service) => (service === 'shop-db' ? 'shop-db-1a2b3c' : undefined))('u1', 't1');
+    expect(extras).toEqual({
+      env: [{ name: 'SHOP_CURRENCY', value: 'EUR' }],
+      egress: [{ cidr: '10.1.0.0/16', ports: [5432] }, { namespace: 'mail' }, { namespace: 'shop-db-1a2b3c' }],
+    });
+  });
+
+  it('adds nothing for a tree whose type is gone', async () => {
+    expect(await treeExtrasFrom({ getTrees: async () => [], getTreeTypes: async () => [] }, async () => undefined)('u1', 't1')).toBeUndefined();
+  });
+
+  it('finds a service the app depends on among the person\'s own apps, by name, in the namespace it runs in', async () => {
+    const find = dependencyNamespaceFrom({ getDeployments: async () => [
+      { ownerId: 'u1', name: 'Shop DB', namespace: 'shop-db-1a2b3c' },
+      { ownerId: 'u1', name: 'cache' },
+      { ownerId: 'u2', name: 'mine-not' },
+    ] });
+    expect(await find('u1', 'shop-db')).toBe('shop-db-1a2b3c');
+    expect(await find('u1', 'cache')).toBe('cache');
+    expect(await find('u1', 'mine-not')).toBeUndefined();
+  });
+});
+
+describe('the type a project is built as', () => {
+  it('is the type of the tree it is the home of, and nothing for a project no tree is the home of', async () => {
+    const store = { getTrees: async () => [{ id: 't1', ownerId: 'u1', type: 'custom-thing', projectIds: ['p1', 'p2'] }], getTreeTypes: async () => [spec({ releaseWhen: ['src/**'] })] };
+    expect((await treeTypeOfProject(store, { id: 'p1', ownerId: 'u1' }))?.releaseWhen).toEqual(['src/**']);
+    expect(await treeTypeOfProject(store, { id: 'p2', ownerId: 'u1' })).toBeUndefined();
+    expect(await treeTypeOfProject(store, { id: 'p1', ownerId: 'u2' })).toBeUndefined();
   });
 });

@@ -23,6 +23,7 @@ afterAll(async () => {
 const fakeSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {}): AccountRemovalActivities => ({
   RemoveAccountWorkflowsActivity: async () => { seen.push('workflows'); return 0; },
   RemoveAccountKeepRunsActivity: async ({ keepRunsFor }) => { seen.push(`keep for ${keepRunsFor}`); return 3; },
+  RemoveAccountAppsActivity: async () => { seen.push('apps'); return []; },
   RemoveAccountWorkspacesActivity: async () => { seen.push('workspaces'); return 'deleted'; },
   RemoveAccountSecretsActivity: async () => { seen.push('secrets'); return 0; },
   RemoveAccountMeshActivity: async () => { seen.push('mesh'); return { devices: 1, user: true }; },
@@ -56,7 +57,7 @@ describe('removing an account that still had something running', () => {
       expect(timers.map((event) => Number(event.timerStartedEventAttributes!.startToFireTimeout!.seconds))).toEqual([ACTIVITY_STOP_GRACE_MS / 1000]);
       expect(Date.now() - started).toBeLessThan(ACTIVITY_STOP_GRACE_MS);
     });
-    expect(seen).toEqual(['workflows', 'keep for bo', 'workspaces', 'secrets', 'mesh', 'repositories', 'records']);
+    expect(seen).toEqual(['workflows', 'keep for bo', 'apps', 'workspaces', 'secrets', 'mesh', 'repositories', 'records']);
   });
 
   it('does not wait when nothing was running, and keeps no runs unless asked', async () => {
@@ -67,6 +68,6 @@ describe('removing an account that still had something running', () => {
       await handle.result();
       expect(((await handle.fetchHistory()).events ?? []).some((event) => event.timerStartedEventAttributes)).toBe(false);
     });
-    expect(seen).toEqual(['workflows', 'workspaces', 'secrets', 'mesh', 'repositories', 'records']);
+    expect(seen).toEqual(['workflows', 'apps', 'workspaces', 'secrets', 'mesh', 'repositories', 'records']);
   });
 });

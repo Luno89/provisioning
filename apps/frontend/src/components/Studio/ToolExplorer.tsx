@@ -3,7 +3,6 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { FileText, FlaskConical, ListChecks, Wrench } from 'lucide-react'
 import type { EngineTool } from '../../api/engineTools'
 import ToolEditor from './ToolEditor'
-import McpToolKinds from './McpToolKinds'
 import Explorer, { FileHeader, type ExplorerGroup } from './Explorer'
 import CheckList from '../Checks/CheckList'
 import Coverage from '../Checks/Coverage'
@@ -14,7 +13,7 @@ import { groupTools } from '../../lib/studio-groups'
 import { checksSummary, describeChecks } from '../../lib/subject-summary'
 
 const FILES = [
-  { id: 'definition', title: 'Definition', icon: FileText, says: 'What it does, the arguments it takes, the command it runs and what it needs installed.' },
+  { id: 'definition', title: 'Definition', icon: FileText, says: 'What it does, the arguments it takes, the command it runs, and what it needs installed.' },
   { id: 'checks', title: 'Checks', icon: FlaskConical, says: 'Every check that expects it to be called or chosen, or calls it as its step.' },
   { id: 'coverage', title: 'Coverage', icon: ListChecks, says: 'How reliably a model picks it when it should, and what no check covers yet.' },
 ] as const
@@ -89,8 +88,7 @@ export default function ToolExplorer() {
         <div className="max-w-xl space-y-4 pt-10 text-sm text-slate-400">
           <h1 className="flex items-center gap-2 text-lg font-semibold text-slate-200"><Wrench size={20} className="text-[var(--leaf)]" /> Tools</h1>
           <p>A tool is something an agent may call. The ones on the left are grouped by what they act on and how far they go: your workspace, the web, or the platform — looking, proposing, or changing.</p>
-          <p>A tool you write is a command run in the workspace, with the arguments it takes and the binary it needs. Saying how to install that binary is what puts it in the workspace image, so changing it rebuilds the workspace of every agent granted it.</p>
-          <McpToolKinds />
+          <p>A tool you write is a command run in the workspace, with the arguments it takes and the binary it needs. Saying how to install that binary is what puts it in the workspace image, so changing it rebuilds the workspace of every agent granted it. An MCP server, with the tools it serves, is added under MCP Servers instead.</p>
         </div>
       ) : tools.isPending ? null : !tool ? (
         <p className="text-sm text-slate-400">There is no tool called “{name}”.</p>

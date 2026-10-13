@@ -1,13 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createAgentRegistry, createStoredAgentRegistry } from './registry.js';
+import { createAgentDirectory } from './agent-directory.js';
+import type { HiddenVocabulary } from '../../lib/extension-settings.js';
 import { createEndpointResolver, UnknownAgentError } from './endpoints.js';
 import {
+  toRecord,
   type AgentDefinition,
   type ModelProvider,
+  type PersonaRecord,
   type ProcedureSource,
 } from '@koala/agent-engine';
 import { RESEARCH_V2, defineGroup, type Procedure } from '@koala/agent-engine/procedure';
-import { seededPersonas } from '../../extensions/seeds.js';
+import { seededAgents } from '../../extensions/seeds.js';
 import { ENGINE_TOOL_SEEDS } from '../../lib/engine-tool-seeds.js';
 
 const provider = (over: Partial<ModelProvider> = {}): ModelProvider => ({
@@ -27,6 +31,12 @@ const stored = (over: Partial<ProcedureSource> & { procedure: object }): Procedu
   ...over,
 });
 
+const directory = (records: readonly PersonaRecord[], hidden?: (ownerId: string) => Promise<HiddenVocabulary>) => createAgentDirectory({
+  records: { list: async () => [...records] },
+  grants: { list: async () => [], save: async () => undefined, remove: async () => undefined, removeAll: async () => 0 },
+  ...(hidden ? { hidden } : {}),
+});
+
 describe('agent registry', () => {
   it('resolves a seeded agent and the procedure it points at', async () => {
     const runnable = await createAgentRegistry().runnable('user-1', 'research');
@@ -37,7 +47,7 @@ describe('agent registry', () => {
 
   it('resolves every seeded agent to a procedure it can run', async () => {
     const registry = createAgentRegistry();
-    for (const agent of seededPersonas()) {
+    for (const agent of seededAgents()) {
       expect((await registry.runnable('user-1', agent.slug))?.procedure.id, agent.slug).toBe(agent.procedure);
     }
   });
@@ -47,10 +57,10 @@ describe('agent registry', () => {
   });
 
   it("prefers a user's own fork of an agent", async () => {
-    const koala = seededPersonas().find((a) => a.slug === 'koala')!;
+    const koala = seededAgents().find((a) => a.slug === 'koala')!;
     const fork: AgentDefinition = { ...koala, ownerId: 'user-1', name: 'My Koala' };
     const registry = createAgentRegistry({
-      agentStore: { list: async () => [...seededPersonas(), fork] },
+      agentStore: { list: async () => [...seededAgents(), fork] },
     });
 
     expect((await registry.agent('user-1', 'koala'))?.name).toBe('My Koala');
@@ -58,10 +68,10 @@ describe('agent registry', () => {
   });
 
   it('lists each built-in agent once, even when an old copy of it is still stored without an owner', async () => {
-    const leftover = { ...seededPersonas().find((agent) => agent.slug === 'koala')!, name: 'Stale Koala' };
+    const leftover = { ...toRecord(seededAgents().find((agent) => agent.slug === 'koala')!), name: 'Stale Koala' };
     const mine = { ...leftover, ownerId: 'user-1', name: 'My Koala' };
     const registry = createStoredAgentRegistry({
-      personas: { list: async () => [leftover, mine] },
+      agents: directory([leftover, mine]),
       procedures: { list: async () => [] },
     });
 
@@ -73,12 +83,13 @@ describe('agent registry', () => {
   });
 
   it('hides the agents and tools of an extension an owner switched off, from that owner alone', async () => {
-    const hidden = { extensions: new Set(['grove']), operations: new Set<string>(), groups: new Set<string>(), tools: new Set(['claim_leaf']), agents: new Set(['grove', 'grove-leaf']) };
+    const hidden = { extensions: new Set(['grove']), operations: new Set<string>(), groups: new Set<string>(), tools: new Set(['claim_leaf', 'settle_leaf']), agents: new Set(['grove', 'grove-leaf']) };
+    const hiddenFor = async (ownerId: string) => (ownerId === 'user-1' ? hidden : { ...hidden, extensions: new Set<string>(), tools: new Set<string>(), agents: new Set<string>() });
     const registry = createStoredAgentRegistry({
-      personas: { list: async () => [] },
+      agents: directory([], hiddenFor),
       procedures: { list: async () => [] },
       tools: { list: async () => [...ENGINE_TOOL_SEEDS] },
-      hidden: async (ownerId) => (ownerId === 'user-1' ? hidden : { ...hidden, extensions: new Set(), tools: new Set(), agents: new Set() }),
+      hidden: hiddenFor,
     });
 
     const mine = (await registry.agents('user-1')).map((agent) => agent.slug);
@@ -87,6 +98,8 @@ describe('agent registry', () => {
     expect((await registry.agents('user-2')).map((agent) => agent.slug)).toContain('grove');
     expect((await registry.tools('user-1')).map((tool) => tool.name)).not.toContain('claim_leaf');
     expect((await registry.tools('user-2')).map((tool) => tool.name)).toContain('claim_leaf');
+    expect((await registry.agent('user-1', 'leaf-judge'))?.tools).not.toContain('settle_leaf');
+    expect((await registry.agent('user-2', 'leaf-judge'))?.tools).toContain('settle_leaf');
   });
 
   it('hands a run the published groups its procedure uses, copied in so the workflow never has to look them up', async () => {
@@ -113,7 +126,7 @@ describe('agent registry', () => {
     };
     const usesIt = stored({ ownerId: 'user-1', procedure });
     const registry = createStoredAgentRegistry({
-      personas: { list: async () => [] },
+      agents: directory([]),
       procedures: { list: async () => [usesIt] },
       published: async (ownerId) => (ownerId === 'user-1' ? [published, other] : []),
     });
@@ -123,7 +136,7 @@ describe('agent registry', () => {
 
     const off = { extensions: new Set(['loud']), operations: new Set<string>(), groups: new Set(['loud.shout@2', 'loud.whisper@1']), tools: new Set<string>(), agents: new Set<string>() };
     const switchedOff = createStoredAgentRegistry({
-      personas: { list: async () => [] },
+      agents: directory([]),
       procedures: { list: async () => [usesIt] },
       published: async () => [published, other],
       hidden: async (ownerId) => (ownerId === 'user-1' ? off : { ...off, groups: new Set<string>() }),
@@ -134,7 +147,7 @@ describe('agent registry', () => {
   it("serves a user's own copy of a procedure to that user only", async () => {
     const copy = stored({ ownerId: 'user-1', procedure: { ...RESEARCH_V2, budget: { maxRounds: 9 } } });
     const registry = createStoredAgentRegistry({
-      personas: { list: async () => [] },
+      agents: directory([]),
       procedures: { list: async () => [copy] },
     });
 
@@ -146,7 +159,7 @@ describe('agent registry', () => {
     const old = stored({ ownerId: 'user-1', procedure: { id: 'research', version: '1', initialStep: 'ask', nodes: [] } });
     const broken = stored({ id: 'half', ownerId: 'user-1', procedure: { ...RESEARCH_V2, id: 'half', flow: [] } });
     const registry = createStoredAgentRegistry({
-      personas: { list: async () => [] },
+      agents: directory([]),
       procedures: { list: async () => [old, broken] },
     });
 
@@ -219,7 +232,7 @@ describe('endpoint resolver', () => {
   });
 
   it("routes through the agent's own endpoint binding when it has one", async () => {
-    const koala = seededPersonas().find((a) => a.slug === 'koala')!;
+    const koala = seededAgents().find((a) => a.slug === 'koala')!;
     const pinned: AgentDefinition = { ...koala, model: { endpointId: 'endpoint-9' } };
     const service = models();
     const resolver = createEndpointResolver({

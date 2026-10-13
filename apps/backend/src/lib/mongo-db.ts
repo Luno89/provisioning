@@ -1,4 +1,4 @@
-import type { Conversation } from './conversations.js';
+import type { Conversation, ConversationMessage } from './conversations.js';
 import { hintKey, type McpToolHint } from './mcp-tool-hints.js';
 import type { BenchSettings, BenchState } from './bench.js';
 import type { ExtensionSettings } from './extension-settings.js';
@@ -25,7 +25,9 @@ import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import { TURN_LOG_RETENTION_SECONDS, type TurnLogEntry } from './turn-log.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
-import type { Persona as EnginePersona, ToolDefinition as EngineTool } from '@koala/agent-engine';
+import type { PersonaRecord as EnginePersona, ToolDefinition as EngineTool, ToolGrant, GrantKind } from '@koala/agent-engine';
+import type { PublishedWorkspace } from './published-workspace.js';
+import type { McpServerRecord } from './mcp-servers.js';
 import { evalRecordKey, type EvalCollection, type EvalRecord } from './eval-run.js';
 import type { TreeTypeSpec } from './tree-types.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
@@ -76,6 +78,9 @@ function toDoc<T extends { id: string }>(entity: T): Record<string, any> {
   };
 }
 
+
+const toolGrantKey = (ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): string => (kind === 'server' ? `${ownerId}:${agent}:server:${tool}` : `${ownerId}:${agent}:${tool}`);
+const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (kind === 'server' ? { kind: 'server' } : kind === 'tool' ? { kind: { $ne: 'server' } } : {});
 export class MongoDB implements Database {
   private client: MongoClient | null = null;
   private db: Db | null = null;
@@ -178,6 +183,18 @@ export class MongoDB implements Database {
 
   private get enginePersonas(): Collection {
     return this.db!.collection('enginePersonas');
+  }
+
+  private get publishedWorkspaces(): Collection {
+    return this.db!.collection('publishedWorkspaces');
+  }
+
+  private get mcpServers(): Collection {
+    return this.db!.collection('mcpServers');
+  }
+
+  private get toolGrants(): Collection {
+    return this.db!.collection('toolGrants');
   }
 
   private get engineTools(): Collection {
@@ -288,6 +305,7 @@ export class MongoDB implements Database {
     await this.joinTokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.planProposals.createIndex({ ownerId: 1, conversationId: 1, createdAt: 1 });
     await this.secretRequests.createIndex({ ownerId: 1, projectId: 1, key: 1 });
+    await this.toolGrants.createIndex({ ownerId: 1, agent: 1 });
     await this.runEffort.createIndex({ ownerId: 1, procedureId: 1, modelKey: 1, finishedAt: -1 });
     try {
       await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, {
@@ -600,6 +618,26 @@ export class MongoDB implements Database {
     return result.matchedCount > 0;
   }
 
+  async bindConversation(ownerId: string, conversationId: string, binding: { treeId: string; projectId?: string | undefined }): Promise<boolean> {
+    const set = { treeId: binding.treeId, ...(binding.projectId ? { projectId: binding.projectId } : {}), updatedAt: new Date().toISOString() };
+    const result = await this.conversations.updateOne({ _id: conversationId as any, ownerId, treeId: { $exists: false } }, { $set: set });
+    return result.modifiedCount > 0;
+  }
+
+  async appendMessage(ownerId: string, conversationId: string, message: ConversationMessage): Promise<boolean> {
+    const result = await this.conversations.updateOne({ _id: conversationId as any, ownerId }, { $push: { messages: message as any }, $set: { updatedAt: message.at } });
+    return result.modifiedCount > 0;
+  }
+
+  async appendNotice(ownerId: string, conversationId: string, message: ConversationMessage): Promise<boolean> {
+    if (!message.notice) return false;
+    const result = await this.conversations.updateOne(
+      { _id: conversationId as any, ownerId, 'messages.notice.key': { $ne: message.notice.key } },
+      { $push: { messages: message as any }, $set: { updatedAt: message.at } },
+    );
+    return result.modifiedCount > 0;
+  }
+
   async ownsRun(ownerId: string, runId: string): Promise<boolean> {
     return (await this.turnLogs.countDocuments({ ownerId, $or: [{ turnId: runId }, { 'events.runId': runId }] }, { limit: 1 })) > 0;
   }
@@ -727,12 +765,15 @@ export class MongoDB implements Database {
     const conversations = await this.conversations.find({ ownerId }, { projection: { _id: 1, liveTurn: 1 } }).toArray();
     const turns = (await this.turnLogs.distinct('turnId', { ownerId })) as string[];
     const live = conversations.map((doc) => (doc.liveTurn as { runId?: string } | undefined)?.runId).filter((id): id is string => typeof id === 'string');
+    const projectIds = await ids('projects');
     return {
       runIds: [...new Set([...turns, ...live])],
       treeIds: await ids('trees'),
       conversationIds: conversations.map((doc) => String(doc._id)),
       proposalIds: await ids('planProposals'),
-      projectIds: await ids('projects'),
+      projectIds,
+      buildWorkflowIds: (await this.pipelineRuns.find({ projectId: { $in: projectIds }, status: { $in: ['queued', 'running'] } }, { projection: { temporalWorkflowId: 1 } }).toArray())
+        .map((doc) => doc.temporalWorkflowId).filter((id): id is string => typeof id === 'string'),
       ingestIds: ((await this.corpus.distinct('ingestId', { ownerId })) as unknown[]).filter((id): id is string => typeof id === 'string'),
     };
   }
@@ -970,10 +1011,6 @@ export class MongoDB implements Database {
   async getMcpToolHints(ownerId: string): Promise<McpToolHint[]> {
     const docs = await this.mcpToolHints.find({ ownerId }).toArray();
     return docs.map(({ _id, ...hint }) => hint as unknown as McpToolHint);
-  }
-
-  async saveMcpToolHint(hint: McpToolHint): Promise<void> {
-    await this.mcpToolHints.replaceOne({ _id: hintKey(hint.ownerId, hint.server, hint.tool) as any }, { ...hint }, { upsert: true });
   }
 
   async deleteMcpToolHint(ownerId: string, server: string, tool: string): Promise<void> {
@@ -1301,6 +1338,52 @@ export class MongoDB implements Database {
 
   async deleteEnginePersona(ownerId: string | undefined, slug: string): Promise<void> {
     await this.enginePersonas.deleteOne({ _id: `${ownerId ?? 'builtin'}:${slug}` as any });
+  }
+
+  async getPublishedWorkspace(ownerId: string, treeId: string): Promise<PublishedWorkspace | undefined> {
+    const doc = await this.publishedWorkspaces.findOne({ _id: `${ownerId}:${treeId}` as any });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc;
+    return rest as unknown as PublishedWorkspace;
+  }
+
+  async savePublishedWorkspace(workspace: PublishedWorkspace): Promise<void> {
+    await this.publishedWorkspaces.replaceOne({ _id: `${workspace.ownerId}:${workspace.treeId}` as any }, { ...workspace }, { upsert: true });
+  }
+
+  async deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void> {
+    await this.publishedWorkspaces.deleteOne({ _id: `${ownerId}:${treeId}` as any });
+  }
+
+  async getMcpServers(ownerId: string): Promise<McpServerRecord[]> {
+    const docs = await this.mcpServers.find({ ownerId }).sort({ name: 1 }).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as McpServerRecord);
+  }
+
+  async saveMcpServer(server: McpServerRecord): Promise<void> {
+    await this.mcpServers.replaceOne({ _id: `${server.ownerId}:${server.id}` as any }, { ...server }, { upsert: true });
+  }
+
+  async deleteMcpServer(ownerId: string, id: string): Promise<void> {
+    await this.mcpServers.deleteOne({ _id: `${ownerId}:${id}` as any });
+  }
+
+  async getToolGrants(ownerId: string): Promise<ToolGrant[]> {
+    const docs = await this.toolGrants.find({ ownerId }).sort({ grantedAt: 1, _id: 1 }).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as ToolGrant);
+  }
+
+  async saveToolGrant(grant: ToolGrant & { ownerId: string }): Promise<void> {
+    await this.toolGrants.replaceOne({ _id: toolGrantKey(grant.ownerId, grant.agent, grant.tool, grant.kind) as any }, { ...grant }, { upsert: true });
+  }
+
+  async deleteToolGrant(ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): Promise<void> {
+    await this.toolGrants.deleteOne({ _id: toolGrantKey(ownerId, agent, tool, kind) as any });
+  }
+
+  async deleteToolGrantsFor(ownerId: string | undefined, of: { agent?: string; tool?: string; kind?: GrantKind | undefined }): Promise<number> {
+    const filter = { ...(ownerId === undefined ? {} : { ownerId }), ...(of.agent ? { agent: of.agent } : {}), ...(of.tool ? { tool: of.tool } : {}), ...kindFilter(of.kind) };
+    return (await this.toolGrants.deleteMany(filter)).deletedCount;
   }
 
   async getBindingTypes(): Promise<BindingTypeRecord[]> {

@@ -132,6 +132,12 @@ export interface RouteOptions {
   overrideGlobal?: boolean | undefined;
 }
 
+export const modelNames = (providers: readonly Pick<ModelProvider, 'model'>[]): string[] =>
+  [...new Set(providers.map((provider) => provider.model).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+
+export const providerServing = (providers: readonly ModelProvider[], model: string): ModelProvider | undefined =>
+  providers.find((provider) => provider.model === model);
+
 export function routeProvider(
   providers: ModelProvider[],
   requestedId?: string | null,

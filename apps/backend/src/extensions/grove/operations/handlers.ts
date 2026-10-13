@@ -1,4 +1,5 @@
 import type { NodeRequest, Procedure, StepResult } from '@koala/agent-engine/procedure';
+import { resolveTreeType, type TreeTypeSpec } from '../../../lib/tree-types.js';
 import type { EnvironmentDriver } from '@koala/engine-core';
 import { createGroveTools } from '../tools/grove-tools.js';
 import { prepareJudgeCheckout, prepareLeafWorktree, pruneLeafWorktrees, WorktreeConflictError } from '../../../engine-host/grove-worktrees.js';
@@ -6,6 +7,7 @@ import { claimEvidenceFor, leavesNeedingPlan, nextLeafStep, runEvidence, taskIte
 import { checkReport, checksFailed, runTaskChecks, type CheckOutcome } from '../../../lib/task-checks.js';
 import { keepFailureArtifacts, type KeepArtifacts } from '../../../lib/artifacts.js';
 import { judgeCheckout, leafBriefPath, leafContext, leafFailurePath, leafWorktree, renderLeafFailure } from '../../../lib/plan-documents.js';
+import type { Parking } from '../../../lib/published-workspace.js';
 import type { Branch, Leaf } from '../../../lib/leaves.js';
 import type { Tree } from '../../../lib/trees.js';
 import { newTask, type Task } from '../../../engine-host/tools/tasks.js';
@@ -26,7 +28,9 @@ export interface GroveOperationDeps {
   treeWorkspaces: TreeWorkspaces;
   environments: Pick<EnvironmentResolver, 'forRun'>;
   registry: Pick<AgentRegistry, 'runnable'>;
+  treeTypes?: ((ownerId: string) => Promise<TreeTypeSpec[]>) | undefined;
   artifacts?: { keep: KeepArtifacts } | undefined;
+  parking?: ((ownerId: string, treeId: string) => Promise<Parking>) | undefined;
   now?: (() => string) | undefined;
 }
 
@@ -249,6 +253,7 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
       if (step.kind === 'stopped') return { exit: 'stopped', outputs: { reason: step.reason } };
       if (step.kind === 'unbroken') return { exit: 'unbroken', outputs: {} };
       if (step.kind === 'fail') return { exit: 'fail', outputs: { reason: step.reason } };
+      if (step.kind === 'waiting') return { exit: 'waiting', outputs: { reason: step.reason } };
       const task = tasks.find((entry) => entry.id === step.taskIds[0])!;
       const siblings = typeof asked.siblings === 'string' ? asked.siblings : undefined;
       return { exit: 'run', outputs: { task: taskItem(leafId, task, siblings) } };
@@ -297,7 +302,26 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
     async 'grove.return-leaf'(request): Promise<StepResult> {
       const asked = leafFrom(request.inputs.leaf);
       const leafId = asked ? leafIdOf(asked) : undefined;
-      if (leafId) await setStatus(request, leafId, ['running'], 'pending');
+      const reason = typeof request.inputs.reason === 'string' && request.inputs.reason.trim() ? request.inputs.reason.trim() : undefined;
+      if (!leafId) return { exit: 'done', outputs: {} };
+      if (request.node.settings.parked !== true) {
+        await setStatus(request, leafId, ['running'], 'pending');
+        return { exit: 'done', outputs: {} };
+      }
+      const ownerId = ownerOf(request);
+      const leaf = (await deps.leaves.list()).find((entry) => entry.id === leafId && entry.ownerId === ownerId);
+      const treeId = leaf && (await deps.branches.list()).find((entry) => entry.id === leaf.branchId)?.treeId;
+      const parking: Parking = deps.parking && treeId ? await deps.parking(ownerId, treeId) : { state: 'coming' };
+      if (parking.state === 'here') {
+        for (const task of (await deps.tasks.list(ownerId)).filter((entry) => entry.leafId === leafId && entry.status === 'waiting')) {
+          await deps.tasks.save({ ...task, status: 'accepted', updatedAt: now() });
+        }
+        await setStatus(request, leafId, ['running'], 'pending');
+        return { exit: 'done', outputs: {} };
+      }
+      await setStatus(request, leafId, ['running'], 'pending', {
+        waitingFor: { reason: reason ?? 'something outside the tree', since: now(), ...(parking.state === 'stuck' ? { stuck: parking.why } : {}) },
+      });
       return { exit: 'done', outputs: {} };
     },
 
@@ -349,6 +373,7 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
       const environment = sandboxFrom(request);
       const driver = await driverFor(request, environment, tree.id);
       const leaves = await treeLeaves(tree.id, ownerOf(request));
+      const type = deps.treeTypes && tree.type ? await resolveTreeType({ getTreeTypes: () => deps.treeTypes!(ownerOf(request)) }, ownerOf(request), tree.type) : undefined;
       const items: Record<string, unknown>[] = [];
       for (const claim of listOf(request.inputs.claims)) {
         const leafId = leafIdOf(claim);
@@ -360,6 +385,7 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
           leafId,
           leafTitle: leaf.title,
           leafBody: leaf.body,
+          ...(type?.doneMeans ? { doneMeans: type.doneMeans } : {}),
           treeId: tree.id,
           branchId: leaf.branchId,
           worktree,

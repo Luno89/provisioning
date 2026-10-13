@@ -22,6 +22,7 @@ export interface ToolCallerContext {
   runId?: string | undefined;
   agentSlug?: string | undefined;
   conversationId?: string | undefined;
+  treeId?: string | undefined;
   inConversationWorkspace?: boolean | undefined;
 }
 
@@ -30,6 +31,7 @@ export interface ToolHandlerContext {
   parsed: Record<string, unknown>;
   driver: EnvironmentDriver | undefined;
   caller: ToolCallerContext;
+  signal?: AbortSignal | undefined;
 }
 
 export type ToolHandler = (ctx: ToolHandlerContext) => Promise<ToolOutcome>;
@@ -72,17 +74,31 @@ export function commandHandlerFor(tool: ToolContract | undefined): ToolHandler |
   };
 }
 
+export function timeoutSecondsOf(parsed: Record<string, unknown>): number | undefined {
+  const given = parsed.timeoutSeconds;
+  if (given === undefined || given === null || given === '') return undefined;
+  const seconds = typeof given === 'number' ? given : Number(given);
+  if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('"timeoutSeconds" has to be a number of seconds above zero, or left out to let the command run until it ends');
+  return Math.ceil(seconds);
+}
+
 export const environmentHandlers: Record<string, ToolHandler> = {
   async run_command(ctx) {
     const driver = requireDriver(ctx);
+    const seconds = timeoutSecondsOf(ctx.parsed);
     const result = await driver.exec({
       command: stringArg(ctx.parsed, 'command'),
       ...(typeof ctx.parsed.cwd === 'string' ? { cwd: ctx.parsed.cwd } : {}),
+      ...(seconds === undefined ? { untimed: true } : { timeoutMs: seconds * 1000 }),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 
-    const body = [result.stdout, result.stderr].filter(Boolean).join('\n');
+    const stopped = result.stopped === 'timeout'
+      ? `[stopped after ${seconds ?? 0}s, the timeoutSeconds this call set; everything it started was stopped too]`
+      : result.stopped === 'cancelled' ? '[stopped because the run was stopped; everything it started was stopped too]' : '';
+    const body = [result.stdout, result.stderr, stopped].filter(Boolean).join('\n');
     return {
-      ok: result.exitCode === 0,
+      ok: result.exitCode === 0 && !result.stopped,
       digest: body || `exited ${result.exitCode}`,
       content: body,
     };
@@ -134,6 +150,7 @@ export interface ExecuteToolInput {
   handlers?: Record<string, ToolHandler> | undefined;
   digestChars?: number | undefined;
   caller?: ToolCallerContext | undefined;
+  signal?: AbortSignal | undefined;
 }
 
 export const refuse = (why: string): ToolOutcome => ({ ok: false, digest: why, content: why });
@@ -175,6 +192,7 @@ export async function executeTool(input: ExecuteToolInput): Promise<ToolOutcome>
       parsed,
       driver: input.driver,
       caller: input.caller ?? {},
+      ...(input.signal ? { signal: input.signal } : {}),
     });
     return {
       ok: outcome.ok,

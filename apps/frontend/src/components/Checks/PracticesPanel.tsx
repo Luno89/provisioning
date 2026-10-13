@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import type { Practice } from '../../api/evals'
+import { ANY_MODEL, EVERY_MODEL, matchesModel, modelChoices } from '../memory-models'
 import { errorMessage } from '../../api/client'
 import { panelClass, primaryButton, quietButton, useDecidePractice, usePractices } from './shared'
 
@@ -21,14 +23,24 @@ function trialResult(practice: Practice): string {
 export default function PracticesPanel({ agent }: { agent?: string | undefined } = {}) {
   const practices = usePractices()
   const { live, retire } = useDecidePractice()
-  const all = (practices.data ?? []).filter((practice) => !agent || practice.agent === agent)
+  const [modelFilter, setModelFilter] = useState(ANY_MODEL)
+  const mine = (practices.data ?? []).filter((practice) => !agent || practice.agent === agent)
+  const models = modelChoices(mine, [])
+  const all = mine.filter((practice) => matchesModel(practice, modelFilter))
   const error = live.error ?? retire.error
-  if (all.length === 0) return null
+  if (mine.length === 0) return null
 
   return (
     <section className={`flex flex-col gap-3 ${panelClass}`}>
       <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Practices</h3>
-      <p className="text-xs text-slate-500">Lessons about how an agent should work, learned from its runs. Each one is tried on the bench first and goes live only if nothing gets worse.</p>
+      <p className="text-xs text-slate-500">Lessons about how an agent should work, learned from its runs. Each one is tried on the bench first and goes live only if nothing gets worse. One kept for a model reaches the agent only on that model, and is tried on it.</p>
+      {models.length > 0 && (
+        <select aria-label="Practices for which model" value={modelFilter} onChange={(event) => setModelFilter(event.target.value)} className="self-start rounded border border-[var(--bark-600)] bg-[var(--bark-900)] px-2 py-1 text-xs text-slate-300">
+          <option value={ANY_MODEL}>Any model</option>
+          <option value={EVERY_MODEL}>Kept for every model</option>
+          {models.map((name) => <option key={name} value={name}>What {name} is given</option>)}
+        </select>
+      )}
       {error && <p className="text-xs text-rose-300">{errorMessage(error)}</p>}
       {GROUPS.map((group) => {
         const members = all.filter((practice) => (practice.status ?? 'active') === group.status)
@@ -42,10 +54,11 @@ export default function PracticesPanel({ agent }: { agent?: string | undefined }
                 <li key={practice.id} className="rounded border border-[var(--bark-700)] p-3 text-sm">
                   <div className="flex flex-wrap items-baseline gap-2">
                     <span className="font-semibold text-slate-200">{practice.title}</span>
-                    <span className="text-xs text-slate-500">for {practice.agent}</span>
+                    <span className="text-xs text-slate-500">for {practice.agent}{practice.model ? ` on ${practice.model}` : ''}</span>
                   </div>
                   <p className="mt-1 whitespace-pre-wrap text-xs text-slate-300">{practice.text}</p>
                   {practice.trial && <p className="mt-1 text-xs text-slate-400">Trial: {trialResult(practice)}</p>}
+                  {practice.status === 'trial' && practice.model && <p className="mt-1 text-xs text-slate-400">The bench tries it on {practice.model}, at an idle moment while one of your endpoints serves it.</p>}
                   <div className="mt-2 flex gap-2">
                     {practice.status !== 'active' && (
                       <button type="button" disabled={live.isPending} onClick={() => live.mutate(practice.id)} className={primaryButton}>Make live</button>

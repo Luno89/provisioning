@@ -12,6 +12,7 @@ export interface MemoryItem {
   projectId?: string;
   category: 'lessons_learned' | 'environment_facts' | 'prompt_guidance' | 'practice';
   agent?: string;
+  model?: string;
   scope?: 'project' | 'global';
   recommendedScope?: 'project' | 'global';
   status?: 'active' | 'pending_review' | 'trial';
@@ -53,6 +54,7 @@ export interface MemoryContextOptions {
   preRanked?: boolean | undefined;
   maxChars?: number | undefined;
   agent?: string | undefined;
+  model?: string | undefined;
 }
 
 export function selectForContext(
@@ -65,6 +67,7 @@ export function selectForContext(
   const activeMemories = memories.filter((m) => {
     if (m.status === 'pending_review' || m.status === 'trial') return false;
     if (m.invalidAt) return false;
+    if (m.model && m.model !== opts.model) return false;
     if (m.category === 'practice') return Boolean(opts.agent) && m.agent === opts.agent;
     if (!m.scope || m.scope === 'global') return true;
     if (m.scope === 'project') return Boolean(projectId) && m.projectId === projectId;

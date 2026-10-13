@@ -19,11 +19,19 @@ export interface BenchStore {
   getUserById(id: string): Promise<{ space?: unknown; removal?: unknown } | undefined>;
 }
 
+export interface BenchStartExtra {
+  trialPractice?: string;
+  promptOverride?: { agent: string; prompt: string };
+  modelId?: string;
+  modelLabel?: string;
+}
+
 export interface BenchDeps {
   store: BenchStore;
-  scenarios: (ownerId: string) => Promise<{ id: string; agent: string }[]>;
+  scenarios: (ownerId: string) => Promise<{ id: string; agent: string; onBench?: boolean | undefined }[]>;
   fingerprints: (ownerId: string, agents: readonly string[]) => Promise<Record<string, string>>;
-  start: (ownerId: string, plan: BenchPlan, extra?: { trialPractice?: string; promptOverride?: { agent: string; prompt: string } }) => Promise<void>;
+  start: (ownerId: string, plan: BenchPlan, extra?: BenchStartExtra) => Promise<void>;
+  serving: (ownerId: string, model: string) => Promise<{ modelId: string; modelLabel: string } | undefined>;
   changes: {
     pending(ownerId: string): Promise<PromptChange[]>;
     comparing(ownerId: string, id: string): Promise<void>;
@@ -81,7 +89,7 @@ export class BenchService {
   async idle(ownerId: string): Promise<BenchIdleOutcome> {
     if (await this.deps.agentsRunning() || await this.deps.benchRunning(ownerId)) return 'busy';
     const state = await this.state(ownerId);
-    const scenarios = await this.deps.scenarios(ownerId);
+    const scenarios = (await this.deps.scenarios(ownerId)).filter((scenario) => scenario.onBench !== false);
 
     const trials = (await this.deps.practices.trials(ownerId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     for (const practice of trials) {
@@ -90,7 +98,9 @@ export class BenchService {
         await this.deps.practices.settle(ownerId, practice.id, { checkedAt: new Date(this.now()).toISOString(), unchecked: true }, true);
         continue;
       }
-      await this.deps.start(ownerId, { trigger: { kind: 'practice', agent: practice.agent!, practiceId: practice.id }, scenarioIds: checks }, { trialPractice: practice.id });
+      const on = practice.model ? await this.deps.serving(ownerId, practice.model) : undefined;
+      if (practice.model && !on) continue;
+      await this.deps.start(ownerId, { trigger: { kind: 'practice', agent: practice.agent!, practiceId: practice.id }, scenarioIds: checks }, { trialPractice: practice.id, ...(on ?? {}) });
       return 'started';
     }
 

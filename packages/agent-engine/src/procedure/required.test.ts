@@ -13,6 +13,7 @@ describe('what a procedure requires of whoever runs it', () => {
       ['mark_failed', 'tool'],
       ['run_command', 'tool'],
       ['start_task', 'tool'],
+      ['task_status', 'tool'],
     ]);
   });
 
@@ -42,13 +43,13 @@ describe('what a persona is missing for the procedure it runs', () => {
       BUILT_IN_GROUPS,
     );
 
-    expect(missing.map((entry) => entry.name)).toEqual(['judge', 'mark_done', 'mark_failed']);
+    expect(missing.map((entry) => entry.name)).toEqual(['judge', 'mark_done', 'mark_failed', 'task_status']);
   });
 
   it('is happy once everything it drives is granted', () => {
     const missing = missingGrants(
       DO_ONE_TASK_V2,
-      { tools: ['start_task', 'mark_done', 'mark_failed', 'run_command'], agents: ['judge'] },
+      { tools: ['start_task', 'task_status', 'mark_done', 'mark_failed', 'run_command'], agents: ['judge'] },
       BUILT_IN_GROUPS,
     );
 

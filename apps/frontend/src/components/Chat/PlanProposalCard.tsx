@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { CheckCircle2, ClipboardList, Loader2, XCircle } from 'lucide-react'
 import type { PlanProposal } from '@koala/harness-types'
+import { changeHeading } from '../../lib/item-change'
+import { ItemChangeDetails } from './ItemChangeDetails'
 
 export interface PlanProposalCardProps {
   proposal: PlanProposal
@@ -19,14 +21,25 @@ const STATUS_WORD: Record<PlanProposal['status'], string> = {
   failed: 'Building it failed',
 }
 
+const CHANGE_STATUS_WORD: Record<PlanProposal['status'], string> = {
+  proposed: 'Waiting for your approval',
+  superseded: 'Replaced by a newer change below',
+  adopting: 'Applying the change and updating the plan documents…',
+  adopted: 'Applied',
+  rejected: 'Rejected',
+  failed: 'Applying it failed',
+}
+
 export default function PlanProposalCard({ proposal, deciding, onApprove, onReject, onOpenTree }: PlanProposalCardProps) {
   const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState('')
   const [showDoc, setShowDoc] = useState(false)
-  const { plan, leafPlan, status } = proposal
-  const where = leafPlan
-    ? `${leafPlan.mode === 'replan' ? 'Replan' : 'Break down'} “${leafPlan.leafTitle}”`
-    : plan?.tree ? `New ${plan.tree.type} tree “${plan.tree.name}”` : 'Grows the current tree'
+  const { plan, leafPlan, change, status } = proposal
+  const where = change
+    ? changeHeading(change)
+    : leafPlan
+      ? `${leafPlan.mode === 'replan' ? 'Replan' : 'Break down'} “${leafPlan.leafTitle}”`
+      : plan?.tree ? `New ${plan.tree.type} tree “${plan.tree.name}”` : 'Grows the current tree'
   const decidable = status === 'proposed' || status === 'failed'
 
   return (
@@ -35,12 +48,14 @@ export default function PlanProposalCard({ proposal, deciding, onApprove, onReje
         <ClipboardList size={14} className="text-emerald-400 shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
           <div className="font-medium text-slate-100">{where}</div>
-          <div className="text-slate-400">{STATUS_WORD[status]}{proposal.reason ? ` — ${proposal.reason}` : ''}</div>
+          <div className="text-slate-400">{change ? CHANGE_STATUS_WORD[status] : STATUS_WORD[status]}{proposal.reason ? ` — ${proposal.reason}` : ''}</div>
         </div>
         {status === 'adopting' && <Loader2 size={14} className="animate-spin text-slate-400 shrink-0" />}
         {status === 'adopted' && <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />}
         {status === 'rejected' && <XCircle size={14} className="text-slate-500 shrink-0" />}
       </div>
+
+      {change && <ItemChangeDetails change={change} decided={!decidable} />}
 
       {leafPlan && (
         <>
@@ -126,11 +141,11 @@ export default function PlanProposalCard({ proposal, deciding, onApprove, onReje
           />
           <button type="button" onClick={() => setRejecting(false)} className="px-2 py-1 rounded hover:bg-[var(--bark-700)] cursor-pointer">Back</button>
           <button type="button" onClick={() => onReject(reason.trim() || undefined)} disabled={deciding} className="px-2.5 py-1 rounded bg-red-700 hover:bg-red-600 text-white cursor-pointer disabled:opacity-50">
-            Reject plan
+            {change ? 'Reject change' : 'Reject plan'}
           </button>
         </div>
       )}
-      {status === 'adopted' && proposal.adopted && onOpenTree && (
+      {status === 'adopted' && proposal.adopted && onOpenTree && !change && (
         <button type="button" onClick={() => onOpenTree(proposal.adopted!.treeId)} className="self-end px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white cursor-pointer">
           Open the tree
         </button>

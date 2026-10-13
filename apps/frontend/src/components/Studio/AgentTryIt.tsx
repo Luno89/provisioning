@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Loader2, Play } from 'lucide-react'
-import { primaryInput, startRun, type EngineAgent, type EngineEvent } from '../../api/engine'
+import { primaryInput, startRun, type EngineAgent } from '../../api/engine'
 import { errorMessage } from '../../api/client'
 import { useSocketEvent } from '../../stores/socket'
 import { listRecentTurns, readTurn, turnKeys, TURN_LOG_CHANNEL } from '../../api/turns'
 import { createTurnFollower } from '../../lib/turn-follower'
 import type { TurnLogEntry } from '../../types/turns'
-import { emptyRunState, reduceEngineEvent, type EngineRunState } from '../../lib/engine-run-state'
+import { applyTurnEvents, emptyRunState, type EngineRunState } from '../../lib/engine-run-state'
 import RunCard from '../EngineRun/RunCard'
 import ModelSelector from '../ModelSelector/ModelSelector'
 
@@ -24,10 +24,7 @@ function TryIt({ agent }: { agent: EngineAgent }) {
 
   const follower = useRef(createTurnFollower(readTurn))
   const apply = useCallback((entry: TurnLogEntry) => {
-    setRuns((current) => entry.events.reduce((all: EngineRunState[], event: EngineEvent) => {
-      const withRun = all.some((run) => run.runId === event.runId) ? all : [...all, emptyRunState(event.runId)]
-      return withRun.map((run) => (run.runId === event.runId ? reduceEngineEvent(run, event) : run))
-    }, current))
+    setRuns((current) => applyTurnEvents(current, entry.events))
   }, [])
   const follow = useCallback((turnId: string) => {
     if (follower.current.following(turnId)) return

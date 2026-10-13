@@ -18,7 +18,7 @@ import { createProcedureExecutor, type HostNodeServices } from '../nodes/index.j
 import type { ToolCallArgs, ToolCallOutcome } from '../temporal/contracts.js';
 import { inMemoryConversations } from '../nodes/conversation-nodes.js';
 import { platformCatalogue, platformGroups } from '../../extensions/installed.js';
-import { seededPersonas } from '../../extensions/seeds.js';
+import { seededAgents } from '../../extensions/seeds.js';
 
 export interface ComposedRequest {
   system: string;
@@ -111,7 +111,7 @@ export async function composedRequests(options: ComposeOptions): Promise<Compose
   };
 
   const registry = createAgentRegistry({
-    agentStore: { list: async () => seededPersonas() },
+    agentStore: { list: async () => seededAgents() },
     toolCatalogue: { list: async () => CATALOGUE },
   });
 

@@ -26,7 +26,7 @@ let changeNotices: string[];
 
 const bench = () => new BenchService({
   store: db,
-  scenarios: async () => [{ id: 'koala-cluster', agent: 'koala' }, { id: 'executor-hello', agent: 'executor' }],
+  scenarios: async () => [{ id: 'koala-cluster', agent: 'koala' }, { id: 'executor-hello', agent: 'executor' }, { id: 'koala-long-story', agent: 'koala', onBench: false }],
   fingerprints: async () => prints,
   practices: { trials: async () => trials, settle: async (_ownerId, id, trial, live) => { settled.push({ id, trial, live }); } },
   changes: {
@@ -37,6 +37,7 @@ const bench = () => new BenchService({
   earlier: async () => earlierRuns,
   notifyChange: (_ownerId, change) => { changeNotices.push(change.id); },
   start: async (_ownerId, plan) => { started.push(plan); },
+  serving: async () => undefined,
   benchRunning: async () => false,
   agentsRunning: async () => agentsRunning,
   idleTimer: async (_ownerId, idleMs) => { timers.push(idleMs); },
@@ -91,7 +92,7 @@ describe('the bench', () => {
 
   it('runs everything the first time the model is idle, then only what changed', async () => {
     expect(await bench().idle('u1')).toBe('started');
-    expect(started[0]!.trigger).toEqual({ kind: 'full' });
+    expect(started[0]).toEqual({ trigger: { kind: 'full' }, scenarioIds: ['koala-cluster', 'executor-hello'] });
     expect(await bench().idle('u1')).toBe('nothing');
 
     prints = { koala: 'k2', executor: 'e1' };
@@ -123,12 +124,35 @@ describe('the bench', () => {
       earlier: async () => [],
       notifyChange: () => undefined,
       start: async (_ownerId, plan, extra) => { started.push(plan); startedWith.push(extra?.trialPractice); },
-      benchRunning: async () => false, agentsRunning: async () => false, idleTimer: async () => undefined, notify: () => undefined, now: () => NOW,
+      serving: async () => undefined, benchRunning: async () => false, agentsRunning: async () => false, idleTimer: async () => undefined, notify: () => undefined, now: () => NOW,
     });
 
     expect(await service.idle('u1')).toBe('started');
     expect(started).toEqual([{ trigger: { kind: 'practice', agent: 'koala', practiceId: 'p1' }, scenarioIds: ['koala-cluster'] }]);
     expect(startedWith).toEqual(['p1']);
+  });
+
+  it('tries a practice kept for one model on that model, and leaves it on trial while nothing serves that model', async () => {
+    trials = [
+      { id: 'gone', ownerId: 'u1', category: 'practice', agent: 'koala', model: 'old/model', status: 'trial', title: 't', text: 'x', createdAt: 'a', updatedAt: 'a' },
+      { id: 'here', ownerId: 'u1', category: 'practice', agent: 'koala', model: 'qwen/q', status: 'trial', title: 't', text: 'y', createdAt: 'b', updatedAt: 'b' },
+    ];
+    const startedWith: unknown[] = [];
+    const service = new BenchService({
+      store: db, scenarios: async () => [{ id: 'koala-cluster', agent: 'koala' }], fingerprints: async () => prints,
+      practices: { trials: async () => trials, settle: async (_ownerId, id, trial, live) => { settled.push({ id, trial, live }); } },
+      changes: { pending: async () => [], comparing: async () => undefined, settle: async () => undefined },
+      earlier: async () => [],
+      notifyChange: () => undefined,
+      start: async (_ownerId, plan, extra) => { started.push(plan); startedWith.push(extra); },
+      serving: async (_ownerId, model) => (model === 'qwen/q' ? { modelId: 'tabby', modelLabel: 'Tabby' } : undefined),
+      benchRunning: async () => false, agentsRunning: async () => false, idleTimer: async () => undefined, notify: () => undefined, now: () => NOW,
+    });
+
+    expect(await service.idle('u1')).toBe('started');
+    expect(started).toEqual([{ trigger: { kind: 'practice', agent: 'koala', practiceId: 'here' }, scenarioIds: ['koala-cluster'] }]);
+    expect(startedWith).toEqual([{ trialPractice: 'here', modelId: 'tabby', modelLabel: 'Tabby' }]);
+    expect(settled).toEqual([]);
   });
 
   it('lets a practice for an agent with no scenarios go live, marked unchecked, since there is nothing to check it against', async () => {
@@ -164,7 +188,7 @@ describe('the bench', () => {
       changes: { pending: async () => pendingChanges, comparing: async (_o, id) => { comparing.push(id); }, settle: async () => undefined },
       earlier: async () => [], notifyChange: () => undefined,
       start: async (_ownerId, plan, extra) => { started.push(plan); extras.push(extra); },
-      benchRunning: async () => false, agentsRunning: async () => false, idleTimer: async () => undefined, notify: () => undefined, now: () => NOW,
+      serving: async () => undefined, benchRunning: async () => false, agentsRunning: async () => false, idleTimer: async () => undefined, notify: () => undefined, now: () => NOW,
     });
 
     expect(await service.idle('u1')).toBe('started');

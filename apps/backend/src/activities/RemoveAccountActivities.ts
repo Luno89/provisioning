@@ -3,6 +3,8 @@ import type { AccountIds } from '../lib/db-interface.js';
 import { memoryWatermarkKeys, ownedWorkflowIds, type AccountRelated } from '../lib/account-removal.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { labelValue } from '../engine-host/sandboxes/workspace.js';
+import type { DeploymentMetadata } from '../lib/types.js';
+import { planAppDestroys, type AppTeardown, type AppToDestroy } from './RemoveProjectActivities.js';
 
 export interface RemoveAccountArgs {
   ownerId: string;
@@ -15,7 +17,10 @@ export interface AccountRemovalDeps {
     removeAccountRecords(ownerId: string, related: AccountRelated): Promise<Record<string, number>>;
     getGiteaAccount(ownerId: string): Promise<{ username: string } | null>;
     reownRuns(from: string, to: string): Promise<number>;
+    getDeployments(): Promise<DeploymentMetadata[]>;
+    saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
   };
+  apps: AppTeardown;
   workflows: { stopIfRunning(workflowId: string, reason: string): Promise<boolean> };
   kube: KubeRunner;
   repositories: { deleteUser(username: string): Promise<boolean> };
@@ -26,6 +31,7 @@ export interface AccountRemovalDeps {
 export interface AccountRemovalActivities {
   RemoveAccountWorkflowsActivity(args: RemoveAccountArgs): Promise<number>;
   RemoveAccountKeepRunsActivity(args: { ownerId: string; keepRunsFor: string }): Promise<number>;
+  RemoveAccountAppsActivity(args: RemoveAccountArgs): Promise<AppToDestroy[]>;
   RemoveAccountWorkspacesActivity(args: RemoveAccountArgs): Promise<string>;
   RemoveAccountSecretsActivity(args: RemoveAccountArgs): Promise<number>;
   RemoveAccountMeshActivity(args: RemoveAccountArgs): Promise<{ devices: number; user: boolean }>;
@@ -59,6 +65,15 @@ export function createAccountRemovalActivities(deps: AccountRemovalDeps): Accoun
 
     async RemoveAccountKeepRunsActivity({ ownerId, keepRunsFor }) {
       return deps.store.reownRuns(ownerId, keepRunsFor);
+    },
+
+    async RemoveAccountAppsActivity({ ownerId }) {
+      const deployments = await deps.store.getDeployments();
+      const owned = deployments.filter((deployment) => deployment.ownerId === ownerId).map((deployment) => deployment.id);
+      if (owned.length === 0) return [];
+      const planned = await planAppDestroys(deployments, owned, deps.apps, () => Math.random().toString(36).slice(2, 8));
+      for (const app of planned) await deps.store.saveDeploymentInfo({ id: app.deploymentId, status: 'destroying', temporalWorkflowId: app.workflowId, lastLogPath: app.args.logFile });
+      return planned;
     },
 
     async RemoveAccountWorkspacesActivity({ ownerId }) {

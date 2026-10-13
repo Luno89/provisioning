@@ -4,6 +4,13 @@ import { treesRouter } from './trees.js';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { GroveRunService } from '../services/GroveRunService.js';
 import { GroveDeletionService } from '../services/GroveDeletionService.js';
+import { GroveOrderService } from '../services/GroveOrderService.js';
+import { TreeHomeService } from '../services/TreeHomeService.js';
+import { TreeWorkspaceService } from '../services/TreeWorkspaceService.js';
+import { WorkspaceFileService } from '../services/WorkspaceFileService.js';
+import { seedTreeTypes } from '../lib/tree-types.js';
+import type { Database } from '../lib/db-interface.js';
+import type { ProjectMetadata } from '../lib/types.js';
 
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
@@ -25,6 +32,18 @@ const launcher = {
   signalGroveRun: vi.fn(async (_treeId: string, _signal: string) => running),
 };
 
+let homeFails = false;
+const homeFor = (db: Database) => new TreeHomeService({
+  treeTypes: (ownerId) => db.getTreeTypes(ownerId),
+  projects: () => db.getProjects(),
+  createProject: async (ownerId, project) => {
+    if (homeFails) throw new Error('Gitea is down');
+    return db.saveProjectInfo({ id: project.id!, name: project.name, ownerId, giteaOwner: 'koala-u', giteaRepo: project.repo, appType: 'gitapp', createdAt: 'now' } as ProjectMetadata);
+  },
+  starter: async () => [],
+  saveTree: (made) => db.saveTree(made),
+});
+
 const mount = async (): Promise<Harness> => {
   workspaces.state.mockClear();
   workspaces.release.mockClear();
@@ -32,7 +51,7 @@ const mount = async (): Promise<Harness> => {
   running = false;
   h = await mountRouter({
     prefix: '/api/trees',
-    router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }) }),
+    router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db }), home: homeFor(db) }),
   });
   return h!;
 };
@@ -159,3 +178,78 @@ describe('running a tree on the engine', () => {
   });
 });
 
+describe('making a tree', () => {
+  it('gives a tree that produces a service its own project, and an artefact none', async () => {
+    homeFails = false;
+    const harness = await mount();
+    await seedTreeTypes(harness.db);
+    const service = await axios.post(harness.url('/api/trees'), { name: 'My Shop', type: 'odoo-addons', goal: 'sell things' });
+    expect(service.status).toBe(201);
+    expect(service.data.projectIds).toEqual([`project-${service.data.id}`]);
+    expect((await harness.db.getProjects()).map((project) => project.giteaRepo)).toEqual(['my-shop']);
+    expect((await harness.db.getTrees()).find((entry) => entry.id === service.data.id)?.projectIds).toEqual([`project-${service.data.id}`]);
+
+    const paper = await axios.post(harness.url('/api/trees'), { name: 'Which queue', type: 'research-paper', goal: 'compare queues' });
+    expect(paper.status).toBe(201);
+    expect(paper.data.projectIds).toEqual([]);
+    expect(await harness.db.getProjects()).toHaveLength(1);
+  });
+
+  it('makes no tree when its project cannot be made, and says why', async () => {
+    homeFails = true;
+    const harness = await mount();
+    await seedTreeTypes(harness.db);
+    const res = await axios.post(harness.url('/api/trees'), { name: 'My Shop', type: 'odoo-addons', goal: 'sell things' }, { validateStatus: () => true });
+    expect(res.status).toBe(502);
+    expect(res.data.error).toBe('The tree could not be given its project, so it was not made: Gitea is down');
+    expect(await harness.db.getTrees()).toEqual([]);
+    homeFails = false;
+  });
+});
+
+
+describe('a tree\'s workspace file', () => {
+  const mountWithFile = async () => {
+    const repo: Record<string, string> = {};
+    const builds: string[] = [];
+    h = await mountRouter({
+      prefix: '/api/trees',
+      router: (db) => {
+        const files = new WorkspaceFileService({
+          trees: () => db.getTrees(),
+          repoOf: async (treeId) => ({ repo: `tree-${treeId}` }),
+          read: async (_ownerId, name, path) => repo[`${name}/${path}`],
+          write: async (_ownerId, name, path, content) => { repo[`${name}/${path}`] = content; return { changed: true, commit: 'abcdef0123456789' }; },
+          branch: 'main',
+        });
+        const workspaceFile = new TreeWorkspaceService({
+          trees: () => db.getTrees(),
+          files,
+          compose: async (_ownerId, _treeId, file) => ({ plan: { base: 'ubi', installs: [], provides: [], fingerprint: 'f', lines: (file.packages?.pip ?? []).map((name) => ({ install: { via: 'pip' as const, packages: [name] }, from: 'project' })) }, env: [] }),
+          published: async () => undefined,
+          builds: async () => [],
+          startBuild: async (_ownerId, treeId, commit) => { builds.push(`${treeId}@${commit}`); return { started: true, runId: `workspace-build-${treeId}-${commit.slice(0, 12)}` }; },
+        });
+        return treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db }), home: homeFor(db), workspaceFile });
+      },
+    });
+    return { harness: h!, repo, builds };
+  };
+
+  it('reads it, saves it to main and starts the build, as the owner only', async () => {
+    const { harness, repo, builds } = await mountWithFile();
+    await harness.db.saveTree(tree() as never);
+    await harness.db.saveTree(tree({ id: 't9', ownerId: 'someone-else' }) as never);
+
+    expect((await axios.get(harness.url('/api/trees/t1/workspace-file'))).data).toMatchObject({ path: '.koala/workspace.json', file: {}, pending: [], builds: [] });
+    await expect(axios.get(harness.url('/api/trees/t9/workspace-file'))).rejects.toMatchObject({ response: { status: 404 } });
+
+    const saved = await axios.put(harness.url('/api/trees/t1/workspace-file'), { file: { packages: { pip: ['cowsay'] } } });
+    expect(saved.data).toMatchObject({ committed: true, build: { started: true }, composed: { lines: [{ what: 'pip cowsay', from: 'project' }] } });
+    expect(JSON.parse(repo['tree-t1/.koala/workspace.json']!)).toEqual({ packages: { pip: ['cowsay'] } });
+    expect(builds).toEqual(['t1@abcdef0123456789']);
+
+    await expect(axios.put(harness.url('/api/trees/t1/workspace-file'), { file: { env: [{ name: 'DB_PASSWORD', value: 'x' }] } })).rejects.toMatchObject({ response: { status: 400, data: { error: expect.stringContaining('looks like a secret') } } });
+    await expect(axios.put(harness.url('/api/trees/t9/workspace-file'), { file: {} })).rejects.toMatchObject({ response: { status: 404 } });
+  });
+});

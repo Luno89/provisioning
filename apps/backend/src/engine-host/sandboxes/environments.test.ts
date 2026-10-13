@@ -1,15 +1,17 @@
+import type { ToolDefinition } from '@koala/agent-engine';
 import { MAX_LIFETIME_MS } from './workspace.js';
 import { describe, it, expect, vi } from 'vitest';
 import {
   createEnvironmentResolver, NoMachineAvailableError, type WorkspaceSource,
 } from './environments.js';
+import type { PublishedWorkspace } from '../../lib/published-workspace.js';
 import { createAgentRegistry } from '../registries/registry.js';
 import { createRunEnvironments, environmentIdFor, type ProvisionForRun } from './run-environments.js';
 import { createSandboxDriver } from '../drivers/sandbox.js';
 import { denyAll } from '@koala/agent-engine';
 import type { MachineBackend } from '../drivers/machine.js';
 import type { EnvironmentHandleRef, RunTicket } from '../temporal/contracts.js';
-import { seededPersonas } from '../../extensions/seeds.js';
+import { seededAgents } from '../../extensions/seeds.js';
 
 const ticket = (agentSlug: string, runId = 'run-1'): RunTicket => ({
   runId,
@@ -59,7 +61,7 @@ function setup(over: Partial<Parameters<typeof createEnvironmentResolver>[0]> = 
 }
 
 const scratchAgent = () => ({
-  ...seededPersonas().find((agent) => agent.slug === 'executor')!,
+  ...seededAgents().find((agent) => agent.slug === 'executor')!,
   slug: 'scratch',
   interface: {},
 });
@@ -367,5 +369,127 @@ describe('a sandbox shared by several agents', () => {
     expect(second).toBe(first);
     expect(provision).toHaveBeenCalledTimes(1);
     expect(provision.mock.calls[0]![0]).toMatchObject({ id: environmentIdFor('tree-t1'), workspace: { runId: 'tree-t1', persistent: true } });
+  });
+});
+
+describe('what a tree adds to its shared workspace', () => {
+  const base = { runId: 'r', ownerId: 'u', agent: 'a', image: 'i', provides: [], lifetimeMs: 1, cpu: '1', memory: '1Gi', egressMode: 'declared' as const,
+    env: [{ name: 'NPM_CONFIG_REGISTRY', value: 'http://mirror' }], egress: [{ namespace: 'koala-registry', ports: [4873] }] };
+
+  it('adds its values and network rules, never overriding what the platform set, and no rule twice', async () => {
+    const { withExtras } = await import('./environments.js');
+    expect(withExtras(base, {
+      env: [{ name: 'NPM_CONFIG_REGISTRY', value: 'http://elsewhere' }, { name: 'SHOP_CURRENCY', value: 'EUR' }],
+      egress: [{ namespace: 'koala-registry', ports: [4873] }, { namespace: 'shop-db' }, { namespace: 'shop-db' }],
+    })).toMatchObject({
+      env: [{ name: 'NPM_CONFIG_REGISTRY', value: 'http://mirror' }, { name: 'SHOP_CURRENCY', value: 'EUR' }],
+      egress: [{ namespace: 'koala-registry', ports: [4873] }, { namespace: 'shop-db' }],
+    });
+    expect(withExtras(base, undefined)).toBe(base);
+  });
+});
+
+describe('a tree\'s published workspace', () => {
+  const treeTicket = (): RunTicket => ({ runId: 'tree-t1', depth: 0, ownerId: 'user-1', agentSlug: 'grove-runner', trigger: 'user' });
+  const file = JSON.stringify({ packages: { dnf: ['wkhtmltopdf'] }, env: [{ name: 'SHOP', value: 'demo' }] });
+
+  function store(initial?: PublishedWorkspace) {
+    const saved: PublishedWorkspace[] = initial ? [initial] : [];
+    const described: string[] = [];
+    return {
+      saved,
+      described,
+      published: {
+        get: async () => saved.at(-1),
+        save: async (workspace: PublishedWorkspace) => { saved.push(workspace); },
+        file: async () => file,
+        describe: async (): Promise<never> => { described.push('again'); throw new Error('set per test'); },
+      },
+    };
+  }
+
+  it('is composed from the project\'s file the first time, with every line saying where it came from, and published', async () => {
+    const ensured: string[][] = [];
+    const kept = store();
+    const { resolver } = setup({
+      published: kept.published,
+      now: () => '2026-10-12T00:00:00Z',
+      images: { ensure: async (plan) => { ensured.push(plan.installs.map((install) => JSON.stringify(install))); return 'registry/koala/workspace:first'; }, exists: async () => true, start: async () => ({ state: 'ready' as const, reference: '' }), standing: async () => ({ state: 'ready' as const, reference: '' }) },
+    });
+
+    const shared = await resolver.describeShared({ ticket: treeTicket(), agents: ['executor'], treeId: 't1' });
+
+    expect(ensured[0]).toContain(JSON.stringify({ via: 'dnf', packages: ['wkhtmltopdf'] }));
+    expect(shared.workspace.image).toBe('registry/koala/workspace:first');
+    expect(shared.workspace.env).toContainEqual({ name: 'SHOP', value: 'demo' });
+    expect(kept.saved).toEqual([expect.objectContaining({
+      ownerId: 'user-1', treeId: 't1', image: 'registry/koala/workspace:first', env: [{ name: 'SHOP', value: 'demo' }], publishedAt: '2026-10-12T00:00:00Z',
+      lines: expect.arrayContaining([{ install: { via: 'dnf', packages: ['wkhtmltopdf'] }, from: 'project' }]),
+    })]);
+  });
+
+  const images = (built: string[] = []) => ({
+    ensure: async (plan: { fingerprint: string }) => { built.push(plan.fingerprint); return `registry/koala/workspace:${plan.fingerprint.slice(0, 6)}`; },
+    exists: async () => true,
+    start: async () => ({ state: 'ready' as const, reference: '' }),
+    standing: async () => ({ state: 'ready' as const, reference: '' }),
+  });
+
+  it('is what every later run works in, without building anything', async () => {
+    const built: string[] = [];
+    const { resolver } = setup({ published: store().published, images: images(built) });
+
+    const first = await resolver.describeShared({ ticket: treeTicket(), agents: ['executor'], treeId: 't1' });
+    const later = await resolver.describeShared({ ticket: treeTicket(), agents: ['executor'], treeId: 't1' });
+    expect(later.workspace.image).toBe(first.workspace.image);
+    expect(later.workspace.env).toContainEqual({ name: 'SHOP', value: 'demo' });
+    expect(built).toHaveLength(1);
+  });
+
+  it('is built again, from the same version of the file, when an agent working in it gains what needs installing', async () => {
+    const built: string[] = [];
+    let catalogue: ToolDefinition[] = [];
+    const kept = store();
+    const { resolver } = setup({ published: kept.published, images: images(built), tools: async () => catalogue });
+    await resolver.describeShared({ ticket: treeTicket(), agents: ['executor'], treeId: 't1' });
+
+    catalogue = [{ name: 'run_command', binding: 'environment', needsBinaries: ['jq'], install: { via: 'dnf', packages: ['jq'] } } as ToolDefinition];
+    const after = await resolver.describeShared({ ticket: treeTicket(), agents: ['executor'], treeId: 't1' });
+
+    expect(built).toHaveLength(2);
+    expect(kept.saved.at(-1)).toMatchObject({ image: after.workspace.image, file: { packages: { dnf: ['wkhtmltopdf'] } } });
+    expect(kept.saved.at(-1)!.lines.map((line) => line.from)).toEqual(expect.arrayContaining(['project', 'tool:run_command']));
+  });
+
+  it('tells the runs in it what main asks for that it does not have yet, and how far the rebuild has got', async () => {
+    const kept = store();
+    const { resolver } = setup({ published: kept.published, images: images() });
+    expect((await resolver.describeShared({ ticket: treeTicket(), agents: ['executor'], treeId: 't1' })).workspace.coming).toBeUndefined();
+
+    kept.published.file = async () => JSON.stringify({ packages: { dnf: ['wkhtmltopdf', 'jq'] }, env: [{ name: 'SHOP', value: 'demo' }] });
+    const asked = await resolver.describeShared({ ticket: treeTicket(), agents: ['executor'], treeId: 't1' });
+    expect(asked.workspace.coming).toEqual({ what: ['dnf jq'], stage: 'to be rebuilt once the commit that asked for it reaches main' });
+    expect(asked.workspace.image).toBe(kept.saved[0]!.image);
+    expect(kept.saved).toHaveLength(1);
+
+    kept.saved.push({ ...kept.saved[0]!, next: { runId: 'workspace-build-t1-abc', stage: 'failed', reason: 'No match for argument: jq', at: 't' } });
+    expect((await resolver.describeShared({ ticket: treeTicket(), agents: ['executor'], treeId: 't1' })).workspace.coming).toEqual({ what: ['dnf jq'], stage: 'not rebuilt: the build failed — No match for argument: jq' });
+  });
+
+  it('moves a run already working in it onto a newer one at its next command', async () => {
+    const kept = store();
+    const { resolver, provision } = setup({ published: kept.published, images: images() });
+    const first = await resolver.describeShared({ ticket: treeTicket(), agents: ['executor'], treeId: 't1' });
+    const handle = { id: first.id, spec: first.capabilities, workspace: first.workspace };
+    await resolver.forRun({ ticket: ticket('executor', 'grove-t1-p1-leaf-a-task-1'), environment: handle });
+
+    const newer = { packages: { dnf: ['wkhtmltopdf', 'jq'] } };
+    const composed = await resolver.composeShared({ ticket: treeTicket(), agents: ['executor'], file: newer });
+    kept.saved.push({ ...kept.saved.at(-1)!, file: newer, fingerprint: composed.plan.fingerprint, lines: composed.plan.lines ?? [], image: 'registry/koala/workspace:built-by-the-procedure' });
+    kept.published.describe = async () => resolver.describeShared({ ticket: treeTicket(), agents: ['executor'], treeId: 't1' }) as never;
+    await resolver.forRun({ ticket: ticket('executor', 'grove-t1-p1-leaf-a-task-1'), environment: handle });
+
+    expect(provision).toHaveBeenCalledTimes(2);
+    expect(provision.mock.calls[1]![0]).toMatchObject({ workspace: { image: 'registry/koala/workspace:built-by-the-procedure', persistent: true } });
   });
 });

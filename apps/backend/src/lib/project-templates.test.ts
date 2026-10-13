@@ -67,3 +67,20 @@ describe('choosing a template', () => {
     expect(pkg.name).toBe('weather-api');
   });
 });
+
+describe('every shipped type\'s Dockerfile', () => {
+  const IMAGE = /^FROM (?:--platform=\S+ )?[a-z0-9][a-z0-9._-]*(?:[:/][a-z0-9._-]+)*(?::[\w.-]+)?(?: AS \w+)?$/i;
+
+  it('starts FROM an image a build can pull, whatever registry the install has', () => {
+    for (const seed of TREE_TYPE_SEEDS) {
+      for (const registryHost of ['', '10.0.0.130:31737']) {
+        const dockerfile = renderStarterFiles(seed.files, { projectName: 'probe', registryHost }).find((file) => file.path === 'Dockerfile');
+        if (!dockerfile) continue;
+        const froms = dockerfile.content.split('\n').filter((line) => line.startsWith('FROM'));
+        expect(froms.length, seed.id).toBeGreaterThan(0);
+        for (const line of froms) expect(line, `${seed.id} with registry "${registryHost}"`).toMatch(IMAGE);
+      }
+    }
+  });
+});
+

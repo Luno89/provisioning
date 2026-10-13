@@ -7,12 +7,36 @@ describe('seed-all', () => {
     const db = new MemoryDB();
     await db.init();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, ...counts } = await seedAll(db as never);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, ...counts } = await seedAll(db as never);
+    expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved]).toEqual([0, 0, 0]);
     expect(removedBuiltInProcedures).toBe(0);
     expect(removedBuiltInPersonas).toBe(0);
+    expect(agentToolListsMoved).toBe(0);
+    expect(toolGrantsWritten).toBe(0);
+    expect(builtInCopiesDropped).toBe(0);
     for (const [name, n] of Object.entries(counts)) {
       expect(n, `${name} seeded nothing`).toBeGreaterThan(0);
     }
+  });
+
+  it('moves an agent stored with its own tool list onto grants, once', async () => {
+    const db = new MemoryDB();
+    await db.init();
+    await db.saveEnginePersona({ slug: 'helper', ownerId: 'user-1', name: 'Helper', tools: ['read_file'] } as never);
+
+    expect(await seedAll(db as never)).toMatchObject({ agentToolListsMoved: 1, toolGrantsWritten: 1 });
+    expect(await seedAll(db as never)).toMatchObject({ agentToolListsMoved: 0, toolGrantsWritten: 0 });
+    expect((await db.getToolGrants('user-1')).map((grant) => grant.tool)).toEqual(['read_file']);
+  });
+
+  it('moves an agent stored with its own list of MCP servers onto server grants, once', async () => {
+    const db = new MemoryDB();
+    await db.init();
+    await db.saveEnginePersona({ slug: 'helper', ownerId: 'user-1', name: 'Helper', mcp: ['gitea'] } as never);
+
+    expect(await seedAll(db as never)).toMatchObject({ agentServerListsMoved: 1 });
+    expect(await seedAll(db as never)).toMatchObject({ agentServerListsMoved: 0 });
+    expect(await db.getToolGrants('user-1')).toEqual([expect.objectContaining({ agent: 'helper', tool: 'gitea', kind: 'server' })]);
   });
 
   it('writes nothing on a second run', async () => {

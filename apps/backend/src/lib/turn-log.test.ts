@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { EngineEvent } from '@koala/agent-engine';
-import { coalesce, replyFromLog, type TurnLogEntry } from './turn-log.js';
+import { coalesce, replyFromLog, runsUnder, tracedSummary, type TurnLogEntry } from './turn-log.js';
 
 const at = '2026-10-05T00:00:00.000Z';
 const ev = (event: Record<string, unknown>): EngineEvent => ({ runId: 't1', at, ...event }) as unknown as EngineEvent;
@@ -48,5 +48,26 @@ describe('rebuilding a reply that was never saved', () => {
         { id: 'c2', name: 'read_file', args: '{"path":"a"}', ok: false, digest: 'it did not finish — the run ended first' },
       ],
     });
+  });
+});
+
+describe('what a turn log carries of a step\'s trace', () => {
+  const trace = { sequence: 4, node: 'turn.call', kind: 'call-model', role: 'step', durationMs: 900, exit: 'answered', inputs: { messages: ['the whole conversation'] }, outputs: { reply: 'it' } };
+
+  it('keeps what the step was and how it went, never its inputs and outputs, which the run\'s stored traces hold', () => {
+    expect(tracedSummary(trace)).toEqual({ sequence: 4, node: 'turn.call', kind: 'call-model', role: 'step', durationMs: 900, exit: 'answered' });
+    expect(tracedSummary({ ...trace, error: 'refused' })).toMatchObject({ error: 'refused' });
+  });
+
+  it('cuts traces written before that down when a story reads its runs', () => {
+    const read = runsUnder([{ seq: 1, events: [
+      { type: 'node.traced', runId: 'leaf', at: 't', nodeId: 'turn.call', trace },
+      { type: 'node.traced', runId: 'other', at: 't', nodeId: 'turn.call', trace },
+    ] as EngineEvent[] }], 'leaf');
+
+    expect(read.entries.flatMap((entry) => entry.events)).toEqual([
+      { type: 'node.traced', runId: 'leaf', at: 't', nodeId: 'turn.call', trace: tracedSummary(trace) },
+    ]);
+    expect(read.through).toBe(1);
   });
 });

@@ -1,9 +1,9 @@
 import { executeTool, refuse, type EnvironmentDriver, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
 import type { EnvironmentHandleRef, RunTicket, ToolCallArgs, ToolCallOutcome, ToolRuntime } from '../temporal/contracts.js';
 import type { AgentRegistry } from '../registries/registry.js';
-import type { McpToolSource } from './mcp-tools.js';
+import type { ServerTools } from './server-tools.js';
 import { isMcpToolName } from '../../lib/mcp-tools.js';
-import { placeArtifacts } from '../sandboxes/workspace-repos.js';
+import { placeArtifacts, treeOfWorkspace } from '../sandboxes/workspace-repos.js';
 
 export type { ToolHandler } from '@koala/engine-core';
 export type { ToolRuntime } from '../temporal/contracts.js';
@@ -20,7 +20,7 @@ export interface ToolRuntimeOptions {
   environments?: EnvironmentSource | undefined;
   handlers?: Record<string, ToolHandler> | undefined;
   digestChars?: number | undefined;
-  mcp?: McpToolSource | undefined;
+  serverTools?: ServerTools | undefined;
 }
 
 const placed = (outcome: ToolOutcome, args: ToolCallArgs): ToolCallOutcome => {
@@ -31,7 +31,7 @@ const placed = (outcome: ToolOutcome, args: ToolCallArgs): ToolCallOutcome => {
 
 export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
   return {
-    async run(args: ToolCallArgs, attempt = 1): Promise<ToolCallOutcome> {
+    async run(args: ToolCallArgs, attempt = 1, signal?: AbortSignal): Promise<ToolCallOutcome> {
       const agent = await options.registry.agent(args.ticket.ownerId, args.ticket.agentSlug);
       if (!agent) return placed(refuse(`There is no agent called "${args.ticket.agentSlug}".`), args);
 
@@ -39,10 +39,11 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
         ticket: args.ticket,
         ...(args.environment ? { environment: args.environment } : {}),
       });
-      const mcp = options.mcp && isMcpToolName(args.name)
-        ? await options.mcp.forRun(args.ticket.ownerId, agent, args.ticket.conversationId)
+      const registered = await options.registry.tools(args.ticket.ownerId);
+      const served = options.serverTools && isMcpToolName(args.name)
+        ? await options.serverTools.forRun({ ticket: args.ticket, environment: args.environment, held: agent.servers ?? [], ceiling: agent.maxEffect })
         : undefined;
-      const catalogue = [...await options.registry.tools(args.ticket.ownerId), ...(mcp?.contracts ?? [])];
+      const catalogue = [...registered, ...(served?.tools ?? [])];
       if (attempt > 1 && catalogue.find((tool) => tool.name === args.name)?.idempotent !== true) {
         return placed(refuse(`${args.name} may already have run once before this call failed, and running it again is not safe, so it was not repeated. Check what it did before calling it again.`), args);
       }
@@ -50,7 +51,7 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
       const outcome = await executeTool({
         name: args.name,
         arguments: args.arguments,
-        granted: [...agent.tools, ...(mcp?.contracts.map((tool) => tool.name) ?? [])],
+        granted: [...agent.tools, ...(served?.tools.map((tool) => tool.name) ?? [])],
         catalogue,
         ...(agent.maxEffect ? { ceiling: agent.maxEffect } : {}),
         caller: {
@@ -60,10 +61,12 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
           ...(args.ticket.conversationId ? { conversationId: args.ticket.conversationId } : {}),
           ...(args.ticket.projectId ? { projectId: args.ticket.projectId } : {}),
           ...(args.environment?.workspace?.sharedBy === 'conversation' ? { inConversationWorkspace: true } : {}),
+          ...(args.environment?.workspace && treeOfWorkspace(args.environment.workspace.runId) ? { treeId: treeOfWorkspace(args.environment.workspace.runId) } : {}),
         },
         ...(driver ? { driver } : {}),
-        ...(options.handlers || mcp ? { handlers: { ...(options.handlers ?? {}), ...(mcp?.handlers ?? {}) } } : {}),
+        ...(options.handlers || served ? { handlers: { ...(options.handlers ?? {}), ...(served?.handlers ?? {}) } } : {}),
         ...(options.digestChars === undefined ? {} : { digestChars: options.digestChars }),
+        ...(signal ? { signal } : {}),
       });
       return placed(outcome, args);
     },

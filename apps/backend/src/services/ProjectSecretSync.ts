@@ -38,7 +38,7 @@ export async function ensureInfisicalOperator(infra: SecretSyncInfra, kubeconfig
 
 export async function syncProjectSecrets(
   deps: { infra: SecretSyncInfra; vault: SecretSyncVault; projects: SecretSyncProjects; masterKey: SecretKey },
-  args: { project: ProjectMetadata; namespace: string; kubeconfig: string; target: SecretTarget },
+  args: { project: ProjectMetadata; namespace: string; kubeconfig: string; target: SecretTarget; secretName?: string | undefined },
 ): Promise<{ hostAPI: string; operator: 'present' | 'installed' }> {
   const host = infisicalHostFor(args.target);
   if ('problem' in host) throw new Error(host.problem);
@@ -65,6 +65,7 @@ export async function syncProjectSecrets(
     namespace: args.namespace,
     hostAPI: host.hostAPI,
     workspaceId,
+    ...(args.secretName ? { secretName: args.secretName } : {}),
   }), args.kubeconfig);
   return { hostAPI: host.hostAPI, operator };
 }

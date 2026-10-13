@@ -306,6 +306,12 @@ export function useConversationTurn({
   const apply = useCallback((entry: TurnLogEntry) => { for (const event of entry.events) applyRef.current(event); }, []);
 
   useSocketEvent<TurnLogEntry>(TURN_LOG_CHANNEL, (entry) => follower.receive(entry, apply));
+  useSocketEvent<{ conversationId: string }>('conversation-notice', ({ conversationId }) => {
+    void qc.invalidateQueries({ queryKey: chatPackKeys.conversation(conversationId) });
+  });
+  useSocketEvent<{ conversationId: string }>('conversation-message', ({ conversationId }) => {
+    void qc.invalidateQueries({ queryKey: chatPackKeys.conversation(conversationId) });
+  });
 
   useEffect(() => {
     for (const turnId of follower.followed()) void follower.catchUp(turnId, apply).catch(() => undefined);
@@ -325,7 +331,7 @@ export function useConversationTurn({
   }, [enabled, activeConversation?.id, liveTurnOf, apply]);
 
   // --- sending a turn ----------------------------------------------------------
-  const sendConversationTurn = async (text: string) => {
+  const sendConversationTurn = async (text: string, options: { asks?: string | undefined } = {}) => {
     let targetConvId = selectedConvId;
     if (!targetConvId) {
       setCreatingConversation(true);
@@ -349,7 +355,7 @@ export function useConversationTurn({
       content: text,
       at: new Date().toISOString(),
     };
-    appendLocalMessage(targetConvId, userMsg);
+    if (!options.asks) appendLocalMessage(targetConvId, userMsg);
     useLiveTurnsStore.getState().start(key);
     settledKeysRef.current.delete(key);
     pendingCallsRef.current = new Map();
@@ -362,7 +368,9 @@ export function useConversationTurn({
         inputs: { conversationId: targetConvId },
         conversationId: targetConvId,
         ...(pinnedModelId ? { modelId: pinnedModelId } : {}),
+        ...(options.asks ? { asks: options.asks } : {}),
       });
+      if (options.asks) qc.invalidateQueries({ queryKey: chatPackKeys.conversation(targetConvId) });
     } catch (err) {
       const state = useLiveTurnsStore.getState().turns[key]?.renderState ?? emptyChatRenderState;
       const msg = assistantMsgFromRenderState(state);

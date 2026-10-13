@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createEngineToolHandlers, unimplemented, undeclaredHandlers } from './engine-tools.js';
 import { createStoredAgentRegistry } from '../registries/registry.js';
+import { createAgentDirectory } from '../registries/agent-directory.js';
 import {
   BUILDER_TOOLS,
   type ProcedureSource,
@@ -11,7 +12,7 @@ import type { ToolHandler, ToolHandlerContext } from '@koala/engine-core';
 
 function wired(saved: ProcedureSource[] = []) {
   const registry = createStoredAgentRegistry({
-    personas: { list: async () => [] },
+    agents: createAgentDirectory({ records: { list: async () => [] }, grants: { list: async () => [], save: async () => undefined, remove: async () => undefined, removeAll: async () => 0 } }),
     procedures: { list: async () => saved },
   });
 
@@ -37,6 +38,7 @@ function wired(saved: ProcedureSource[] = []) {
       },
       tasks: { list: async () => [], save: vi.fn() },
       platform: {},
+      extensions: {},
     }),
   };
 }

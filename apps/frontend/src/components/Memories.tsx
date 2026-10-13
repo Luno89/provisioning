@@ -8,6 +8,8 @@ import {
   listMemories, getConsolidation, createMemory, updateMemory,
   approveMemory, promoteMemory, deleteMemory, memoryKeys,
 } from '../api/memories';
+import { listModels, providerKeys, useDefaultModel } from '../api/models';
+import { ANY_MODEL, EVERY_MODEL, matchesModel, modelChoices, modelLine } from './memory-models';
 
 const card = 'bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-xl';
 
@@ -16,6 +18,7 @@ interface MemoryItem {
   ownerId: string;
   projectId?: string;
   category: 'lessons_learned' | 'environment_facts' | 'prompt_guidance';
+  model?: string;
   scope?: 'project' | 'global';
   recommendedScope?: 'project' | 'global';
   status?: 'active' | 'pending_review';
@@ -60,11 +63,17 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
   const [scope, setScope] = useState<MemoryScope>('project');
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
+  const [model, setModel] = useState('');
+  const [modelFilter, setModelFilter] = useState<string>(ANY_MODEL);
 
   const { data: memories, isLoading } = useQuery<MemoryItem[]>({
     queryKey: memoryKeys.list(),
     queryFn: listMemories,
   });
+
+  const { data: providers } = useQuery({ queryKey: providerKeys.list(), queryFn: listModels });
+  const { data: defaultModel } = useDefaultModel();
+  const models = modelChoices(memories ?? [], providers ?? [], defaultModel?.defaultModelId);
 
   const { data: consolidation } = useQuery<ConsolidationReport | null>({
     queryKey: memoryKeys.consolidation(),
@@ -74,11 +83,12 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
   const invalidate = () => qc.invalidateQueries({ queryKey: memoryKeys.list() });
 
   const createMut = useMutation({
-    mutationFn: () => createMemory({ category: cat, scope, title, text, status: 'active' }),
+    mutationFn: () => createMemory({ category: cat, scope, title, text, status: 'active', ...(model ? { model } : {}) }),
     onSuccess: () => {
       setAdding(false);
       setTitle('');
       setText('');
+      setModel('');
       invalidate();
     },
   });
@@ -94,7 +104,7 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
   });
 
   const updateMut = useMutation({
-    mutationFn: (item: { id: string; title: string; text: string; category: string; scope?: string }) =>
+    mutationFn: (item: { id: string; title: string; text: string; category: string; scope?: string; model: string | null }) =>
       updateMemory(item.id, item),
     onSuccess: () => {
       setEditingId(null);
@@ -113,12 +123,13 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
     setScope(m.scope || 'project');
     setTitle(m.title);
     setText(m.text);
+    setModel(m.model ?? '');
   };
 
   const pendingList = (memories ?? []).filter((m) => m.status === 'pending_review' && !m.invalidAt);
   const retiredList = (memories ?? []).filter((m) => m.invalidAt);
 
-  const activeList = (memories ?? []).filter((m) => {
+  const activeList = (memories ?? []).filter((m) => matchesModel(m, modelFilter)).filter((m) => {
     if (filter === 'retired') return Boolean(m.invalidAt);
     if (m.invalidAt) return false;
     if (filter === 'pending') return m.status === 'pending_review';
@@ -144,7 +155,7 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
           </p>
         </div>
         <button
-          onClick={() => { setAdding((a) => !a); setEditingId(null); setTitle(''); setText(''); }}
+          onClick={() => { setAdding((a) => !a); setEditingId(null); setTitle(''); setText(''); setModel(''); }}
           className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white"
         >
           <Plus size={14} />
@@ -172,6 +183,18 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
             {tab.label}
           </button>
         ))}
+        {models.length > 0 && (
+          <select
+            aria-label="Which model"
+            value={modelFilter}
+            onChange={(e) => setModelFilter(e.target.value)}
+            className="ml-auto bg-[var(--bark-900)] border border-[var(--bark-600)] rounded px-2 py-1 text-[11px] text-slate-300"
+          >
+            <option value={ANY_MODEL}>Any model</option>
+            <option value={EVERY_MODEL}>Kept for every model</option>
+            {models.map((name) => <option key={name} value={name}>What {name} recalls</option>)}
+          </select>
+        )}
       </div>
 
       {consolidation && (consolidation.deduped > 0 || consolidation.decayed > 0 || consolidation.promoted > 0) && (
@@ -235,6 +258,18 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
               >
                 <option value="project">Project Scope</option>
                 <option value="global">Global User Scope</option>
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1" htmlFor="new-memory-model">Model</label>
+              <select
+                id="new-memory-model"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                className="w-full bg-[var(--bark-900)] border border-[var(--bark-600)] rounded px-2.5 py-1.5 text-xs text-slate-200"
+              >
+                <option value="">Every model</option>
+                {models.map((name) => <option key={name} value={name}>Only {name} — about how that model behaves</option>)}
               </select>
             </div>
           </div>
@@ -321,6 +356,18 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
                         <option value="global">Global Scope</option>
                       </select>
                     </div>
+                    <div className="sm:col-span-2">
+                      <label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1" htmlFor="edit-memory-model">Model</label>
+                      <select
+                        id="edit-memory-model"
+                        value={model}
+                        onChange={(e) => setModel(e.target.value)}
+                        className="w-full bg-[var(--bark-900)] border border-[var(--bark-600)] rounded px-2.5 py-1.5 text-xs text-slate-200"
+                      >
+                        <option value="">Every model</option>
+                        {models.map((name) => <option key={name} value={name}>Only {name} — about how that model behaves</option>)}
+                      </select>
+                    </div>
                   </div>
                   <div>
                     <label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Title</label>
@@ -345,7 +392,7 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
                       Cancel
                     </button>
                     <button
-                      onClick={() => updateMut.mutate({ id: m.id, title, text, category: cat, scope })}
+                      onClick={() => updateMut.mutate({ id: m.id, title, text, category: cat, scope, model: model || null })}
                       disabled={!title.trim() || !text.trim() || updateMut.isPending}
                       className="flex items-center gap-1 text-xs px-3 py-1.5 bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white rounded-md disabled:opacity-40"
                     >
@@ -380,6 +427,11 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
                         <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border bg-slate-800 text-slate-300 border-slate-700 flex items-center gap-1">
                           <Folder size={10} />
                           Project Scope
+                        </span>
+                      )}
+                      {m.model && (
+                        <span className="text-[10px] px-2 py-0.5 rounded border bg-sky-950/60 text-sky-300 border-sky-800">
+                          {modelLine(m.model)}
                         </span>
                       )}
                       {m.recommendedScope && m.recommendedScope !== m.scope && (

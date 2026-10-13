@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EngineToolService, toolProblems } from './EngineToolService.js';
-import type { Persona, ToolDefinition } from '@koala/agent-engine';
+import { toRecord, type Persona, type ToolDefinition } from '@koala/agent-engine';
+import { MemoryDB } from '../lib/memory-db.js';
+import { createAgentDirectory, grantStoreFrom } from '../engine-host/registries/agent-directory.js';
 
 const tool = (over: Partial<ToolDefinition> = {}): ToolDefinition => ({
   name: 'count_lines',
@@ -41,8 +43,26 @@ const persona = (over: Partial<Persona> = {}): Persona => ({
 
 const IMPLEMENTED = new Set(['run_command', 'read_file']);
 
-function setup(over: { stored?: ToolDefinition[]; personas?: Persona[]; builtIn?: Persona[]; images?: 'building' | 'unreachable' | 'reported' } = {}) {
+async function agentsOf(personas: readonly Persona[], builtIn: readonly Persona[]) {
+  const db = new MemoryDB();
+  const shippedAgents = [...builtIn, ...personas.filter((one) => one.ownerId === undefined)];
+  const shipped = shippedAgents.flatMap((one) => one.tools.map((name) => ({ agent: one.slug, tool: name })));
+  const directory = createAgentDirectory({
+    records: { list: (ownerId) => db.getEnginePersonas(ownerId) },
+    grants: grantStoreFrom(db),
+    builtIn: () => shippedAgents.map(toRecord),
+    shipped: () => shipped,
+  });
+  for (const one of personas.filter((agent) => agent.ownerId !== undefined)) {
+    await db.saveEnginePersona(toRecord(one));
+    await directory.setTools(one.ownerId!, one.slug, one.tools);
+  }
+  return { db, directory };
+}
+
+async function setup(over: { stored?: ToolDefinition[]; personas?: Persona[]; builtIn?: Persona[]; images?: 'building' | 'unreachable' | 'reported' } = {}) {
   const stored = [...(over.stored ?? [])];
+  const { db, directory } = await agentsOf(over.personas ?? [], over.builtIn ?? []);
   const start = vi.fn(async () => {
     if (over.images === 'unreachable') throw new Error('Could not find the image registry (gitea-http in gitea)');
     if (over.images === 'reported') return { state: 'failed' as const, reference: '', detail: 'no such package' };
@@ -50,6 +70,7 @@ function setup(over: { stored?: ToolDefinition[]; personas?: Persona[]; builtIn?
   });
 
   return {
+    db,
     stored,
     start,
     tools: new EngineToolService({
@@ -64,8 +85,7 @@ function setup(over: { stored?: ToolDefinition[]; personas?: Persona[]; builtIn?
           if (at !== -1) stored.splice(at, 1);
         },
       },
-      personas: { list: async () => over.personas ?? [] },
-      builtInAgents: over.builtIn ?? [],
+      agents: directory,
       implemented: IMPLEMENTED,
       images: { start },
     }),
@@ -79,7 +99,7 @@ describe('what a tool is refused for', () => {
 
   it('needs a command when nothing here already runs a tool of that name', () => {
     expect(toolProblems(tool({ command: undefined, needsBinaries: undefined, install: undefined }), { implemented: IMPLEMENTED }))
-      .toContain('nothing here runs this tool, so it needs a command to run in the workspace');
+      .toContain('nothing here runs this tool, so it needs a command to run in the workspace; an MCP server is added to the catalogue of MCP servers instead');
   });
 
   it('lets a copy of a built-in stand without a command, because one already runs it', () => {
@@ -125,7 +145,7 @@ describe('what a tool is refused for', () => {
 
 describe('the tools a person can edit', () => {
   it('says which are theirs and which agents were granted them', async () => {
-    const { tools } = setup({
+    const { tools } = await setup({
       stored: [tool({ ownerId: undefined }), tool({ name: 'read_file', ownerId: 'user-1', command: undefined, needsBinaries: undefined, install: undefined })],
       personas: [persona()],
     });
@@ -140,13 +160,13 @@ describe('the tools a person can edit', () => {
 
   it('counts the built-in agents that hold a tool, unless the person\'s own copy of that agent dropped it', async () => {
     const builtIn = [persona({ slug: 'koala', tools: ['count_lines'] }), persona({ slug: 'research', tools: ['count_lines'] })];
-    const { tools } = setup({ stored: [tool({ ownerId: undefined })], builtIn, personas: [persona({ slug: 'research', ownerId: 'user-1', tools: [] })] });
+    const { tools } = await setup({ stored: [tool({ ownerId: undefined })], builtIn, personas: [persona({ slug: 'research', ownerId: 'user-1', tools: [] })] });
 
     expect((await tools.list('user-1')).find((one) => one.name === 'count_lines')?.grantedTo).toEqual(['koala']);
   });
 
   it('saves a tool as the owner’s own', async () => {
-    const { tools, stored } = setup();
+    const { tools, stored } = await setup();
 
     const outcome = await tools.save('user-1', tool());
 
@@ -155,7 +175,7 @@ describe('the tools a person can edit', () => {
   });
 
   it('refuses to save one that does not hold together, and stores nothing', async () => {
-    const { tools, stored } = setup();
+    const { tools, stored } = await setup();
 
     const outcome = await tools.save('user-1', tool({ command: '' }));
 
@@ -164,7 +184,7 @@ describe('the tools a person can edit', () => {
   });
 
   it('rebuilds the workspace of every agent granted the tool it just changed', async () => {
-    const { tools, start } = setup({ stored: [tool({ ownerId: undefined })], personas: [persona(), persona({ slug: 'judge', tools: [] })] });
+    const { tools, start } = await setup({ stored: [tool({ ownerId: undefined })], personas: [persona(), persona({ slug: 'judge', tools: [] })] });
 
     const outcome = await tools.save('user-1', tool({ install: { via: 'dnf', packages: ['ripgrep', 'jq'] } }));
 
@@ -173,7 +193,7 @@ describe('the tools a person can edit', () => {
   });
 
   it('says which workspaces could not start building, rather than only which did', async () => {
-    const { tools } = setup({
+    const { tools } = await setup({
       stored: [tool({ ownerId: undefined })],
       personas: [persona(), persona({ slug: 'judge' })],
       images: 'unreachable',
@@ -192,7 +212,7 @@ describe('the tools a person can edit', () => {
   });
 
   it('passes on a build that reported itself failed, so the person hears it at the save', async () => {
-    const { tools } = setup({ stored: [tool({ ownerId: undefined })], personas: [persona()], images: 'reported' });
+    const { tools } = await setup({ stored: [tool({ ownerId: undefined })], personas: [persona()], images: 'reported' });
 
     const outcome = await tools.save('user-1', tool({ install: { via: 'dnf', packages: ['ripgrep'] } }));
 
@@ -204,16 +224,25 @@ describe('the tools a person can edit', () => {
   });
 
   it('only deletes a tool of your own', async () => {
-    const { tools } = setup({ stored: [tool({ ownerId: undefined })] });
+    const { tools } = await setup({ stored: [tool({ ownerId: undefined })] });
 
     expect(await tools.remove('user-1', 'count_lines')).toBe(false);
   });
 
-  it('deletes your copy and leaves the built-in standing', async () => {
-    const { tools, stored } = setup({ stored: [tool({ ownerId: undefined }), tool({ ownerId: 'user-1' })] });
+  it('deletes your copy and leaves the built-in standing, still held by whoever was granted it', async () => {
+    const { tools, stored, db } = await setup({ stored: [tool({ ownerId: undefined }), tool({ ownerId: 'user-1' })], personas: [persona({ slug: 'helper', ownerId: 'user-1' })] });
 
     expect(await tools.remove('user-1', 'count_lines')).toBe(true);
     expect(stored.map((one) => one.ownerId)).toEqual([undefined]);
+    expect((await db.getToolGrants('user-1')).map((grant) => grant.tool)).toEqual(['count_lines']);
+  });
+
+  it('takes a deleted tool away from every agent of yours that held it, and rebuilds their workspaces without it', async () => {
+    const { tools, db, start } = await setup({ stored: [tool({ ownerId: 'user-1' })], personas: [persona({ slug: 'helper', ownerId: 'user-1' })] });
+
+    expect(await tools.remove('user-1', 'count_lines')).toBe(true);
+    expect(await db.getToolGrants('user-1')).toEqual([]);
+    expect(start).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -225,8 +254,7 @@ describe('the tools page and an agent\'s grants read one catalogue', () => {
     const tools = new EngineToolService({
       tools: { list: async () => stored, save: async () => undefined, remove: async () => undefined },
       catalogue: createStoredToolCatalogue({ tools: { list: async () => stored } }),
-      personas: { list: async () => [] },
-      builtInAgents: [],
+      agents: (await agentsOf([], [])).directory,
       implemented: IMPLEMENTED,
     });
 

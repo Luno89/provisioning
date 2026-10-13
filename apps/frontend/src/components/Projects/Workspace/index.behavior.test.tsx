@@ -37,6 +37,7 @@ vi.mock('../../../api/engine', async (importOriginal) => ({
   ...(await importOriginal<typeof engineApi>()),
   startRun: vi.fn(),
 }));
+vi.mock('./ProjectChannel.js', () => ({ ProjectChannel: () => <div data-testid="project-channel" /> }));
 vi.mock('../../ProjectEditor/FileTree.js', () => ({ FileTree: () => <div>file-tree</div> }));
 vi.mock('../../ProjectEditor/EditorPane.js', () => ({ EditorPane: () => <div>editor-pane</div> }));
 vi.mock('../../ProjectEditor/TabBar.js', () => ({ TabBar: () => <div>tab-bar</div> }));
@@ -130,8 +131,9 @@ describe('a project with no tree yet', () => {
     mockApi({ trees: [] });
     renderWorkspace({ projectId: 'proj-1' });
 
-    const start = (await screen.findByText('Start a conversation')).closest('button')!;
-    await waitFor(() => expect(start).not.toBeDisabled());
+    await screen.findByTestId('project-channel');
+    const start = screen.getByRole('button', { name: 'Start a conversation' });
+    expect(start).not.toBeDisabled();
     fireEvent.click(start);
 
     await waitFor(() => expect(chatPackApi.createChatConversation).toHaveBeenCalledWith('New conversation', { projectId: 'proj-1' }));

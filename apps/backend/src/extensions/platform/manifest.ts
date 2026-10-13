@@ -1,5 +1,5 @@
 import type { EngineExtension } from '@koala/agent-engine/procedure';
-import { PLATFORM_PERSONAS } from './personas.js';
+import { PLATFORM_GRANTS, PLATFORM_PERSONAS } from './personas.js';
 import { PLATFORM_OPERATIONS } from './operations/declarations.js';
 import { TASK_TOOLS } from '../../engine-host/tools/task-tools-catalogue.js';
 import { WORKSPACE_TOOLS } from '../../engine-host/tools/workspace-tools-catalogue.js';
@@ -23,5 +23,6 @@ export const PLATFORM: EngineExtension = {
   version: '1',
   operations: [...PLATFORM_OPERATIONS],
   personas: PLATFORM_PERSONAS,
+  grants: PLATFORM_GRANTS,
   tools: [...TASK_TOOLS, ...WORKSPACE_TOOLS, ...SECRET_TOOLS, ...MCP_TOOLS, ...KUBE_TOOLS, ...PROJECT_TOOLS, ...EGRESS_TOOLS, ...CORPUS_TOOLS, ...RUN_TOOLS, ...MEMORY_TOOLS, ...SCENARIO_TOOLS, ...CHECK_TOOLS, ...AGENT_CHANGE_TOOLS, ...VERDICT_TOOLS],
 };

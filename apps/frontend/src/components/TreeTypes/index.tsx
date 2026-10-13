@@ -1,18 +1,21 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Bot, FolderTree, GitBranch, Network } from 'lucide-react';
+import { BookOpen, Bot, FolderTree, GitBranch, KeyRound, Network } from 'lucide-react';
 import { listTreeTypes, groveKeys } from '../../api/grove.js';
 import { errorMessage } from '../../api/client.js';
 import Explorer, { FileHeader, type ExplorerGroup } from '../Studio/Explorer';
 import { groupTreeTypes } from '../../lib/studio-groups';
 import { TreeTypeEditor, type TreeTypeSection } from './TreeTypeEditor.js';
+import { Becomes } from './Becomes.js';
 import type { TreeType } from './shared.js';
 
 const FILES: readonly { id: Exclude<TreeTypeSection, 'overview'>; title: string; icon: typeof Bot; says: string }[] = [
   { id: 'grown-by', title: 'Grown by', icon: Bot, says: 'The agent whose procedure grows a tree of this type, start to finish.' },
   { id: 'scaffold', title: 'Scaffold', icon: FolderTree, says: 'Starter files rendered into a fresh repository when a tree of this type is created.' },
-  { id: 'bindings', title: 'Bindings', icon: Network, says: 'Default service bindings, extra network egress, and fixed environment variables.' },
+  { id: 'bindings', title: 'Depends on', icon: Network, says: 'The services the app needs, what its workspaces may reach, and the plain values every leaf runs with.' },
+  { id: 'secrets', title: 'Secrets', icon: KeyRound, says: 'What the app needs from the project\'s vault, and where each value comes from.' },
+  { id: 'becomes', title: 'What it becomes', icon: BookOpen, says: 'Put together from what runs a tree of this type, and what the planner reads before it plans one. Change it by changing those parts.' },
 ];
 
 const isSection = (value: string | undefined): value is TreeTypeSection => value === 'overview' || FILES.some((file) => file.id === value);
@@ -78,7 +81,7 @@ export function TreeTypes() {
       ) : (
         <div>
           {file && <FileHeader title={file.title} says={file.says} />}
-          <TreeTypeEditor key={`${type.id}-${section}`} type={type} types={types} only={section} />
+          {section === 'becomes' ? <Becomes typeId={type.id} /> : <TreeTypeEditor key={`${type.id}-${section}`} type={type} types={types} only={section} />}
         </div>
       )}
     </Explorer>

@@ -9,7 +9,7 @@ export const RUN_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    returns: 'the run\'s nodes in order, each with how it exited, any error and what it produced — or one node\'s inputs and outputs in full',
+    returns: 'which agent ran it and on which model, then the run\'s nodes in order, each with how it exited, any error and what it produced — or one node\'s inputs and outputs in full',
     failures: [
       { when: 'the run is not one of the person\'s, or recorded nothing', says: 'that there is no such run' },
       { when: 'the node is not in the run', says: 'which nodes it has' },

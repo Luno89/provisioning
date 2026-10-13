@@ -5,7 +5,7 @@ import {
   type NodeImplementation,
 } from '@koala/agent-engine/procedure';
 import { capabilitiesOf } from '@koala/engine-core';
-import type { HostNodeServices } from './services.js';
+import { handleFor, ticketFor, type HostNodeServices } from './services.js';
 
 const allowedFrom = (settings: Readonly<Record<string, unknown>>): 'granted' | 'none' | string[] => {
   if (settings.offer === 'none') return 'none';
@@ -15,7 +15,7 @@ const allowedFrom = (settings: Readonly<Record<string, unknown>>): 'granted' | '
   return 'granted';
 };
 
-export function createToolNodes(services: Pick<HostNodeServices, 'registry' | 'mcp'>): NodeImplementation[] {
+export function createToolNodes(services: Pick<HostNodeServices, 'registry' | 'serverTools'>): NodeImplementation[] {
   return [
     valueImplementation('resolve-tools', async ({ node, inputs, run }) => {
       const persona = inputs.persona as AgentDefinition;
@@ -24,14 +24,21 @@ export function createToolNodes(services: Pick<HostNodeServices, 'registry' | 'm
         ? capabilitiesOf(environment.capabilities)
         : capabilitiesOf(environmentFor(persona));
 
-      const mcp = services.mcp ? await services.mcp.forRun(run.launch.ownerId, persona, run.launch.conversationId) : undefined;
-      const { tools, withheld } = resolveToolSet({
-        agent: mcp ? { ...persona, tools: [...persona.tools, ...mcp.contracts.map((tool) => tool.name)] } : persona,
+      const allowed = allowedFrom(node.settings);
+      const resolved = resolveToolSet({
+        agent: persona,
         callable: (inputs.delegates as AgentDefinition[] | undefined) ?? [],
-        catalogue: [...await services.registry.tools(run.launch.ownerId), ...(mcp?.contracts ?? [])],
+        catalogue: await services.registry.tools(run.launch.ownerId),
         capabilities,
-        allowed: allowedFrom(node.settings),
+        allowed,
       });
+      const held = allowed === 'none' ? [] : persona.servers ?? [];
+      const fromServers = services.serverTools && (held.length > 0 || run.launch.conversationId)
+        ? await services.serverTools.forRun({ ticket: ticketFor(run), environment: handleFor(environment), held, ceiling: persona.maxEffect })
+        : { tools: [], withheld: [] };
+      const chosen = Array.isArray(allowed) ? fromServers.tools.filter((tool) => allowed.includes(tool.name)) : allowed === 'none' ? [] : fromServers.tools;
+      const tools = [...resolved.tools, ...chosen];
+      const withheld = [...resolved.withheld, ...fromServers.withheld];
 
       const handled = run.handles ?? {};
 

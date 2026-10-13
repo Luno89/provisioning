@@ -11,12 +11,13 @@ import {
   type NodeRequest,
   type ToolResult,
 } from '@koala/agent-engine/procedure';
-import { closeTurn, openTurn, titleFrom } from '../../lib/conversations.js';
+import { closeTurn, heardAs, NOTICE_PREFIX, openTurn, peopleIn, titleFrom, type ChatKind } from '../../lib/conversations.js';
 import type { Conversation, ConversationMessage, ConversationToolCall } from '../../lib/conversations.js';
 
 export interface ConversationStore {
   get(ownerId: string, id: string): Promise<Conversation | undefined>;
   save(conversation: Conversation): Promise<void>;
+  names?(ids: readonly string[]): Promise<Record<string, string>>;
 }
 
 export function inMemoryConversations(): ConversationStore {
@@ -46,10 +47,17 @@ export const idFrom = (request: NodeRequest): string => {
   }
 };
 
-export function asChatMessages(stored: readonly ConversationMessage[]): ChatMessage[] {
+export interface Speakers {
+  kind?: ChatKind;
+  names?: Readonly<Record<string, string>> | undefined;
+}
+
+export function asChatMessages(stored: readonly ConversationMessage[], speakers: Speakers = {}): ChatMessage[] {
   return stored
     .filter((message: ConversationMessage) => message.content.trim())
-    .map((message: ConversationMessage) => ({ role: message.role, content: message.content }));
+    .map((message: ConversationMessage) => (message.role === 'notice'
+      ? { role: 'user' as const, content: `${NOTICE_PREFIX}${message.content}` }
+      : { role: message.role, content: heardAs(message, speakers.kind, speakers.names ?? {}) }));
 }
 
 export interface LoadedHistory {
@@ -57,18 +65,20 @@ export interface LoadedHistory {
   ends: number[];
 }
 
-export function loadedMessages(conversation: Pick<Conversation, 'messages' | 'compaction'> | undefined): { messages: ChatMessage[]; history: LoadedHistory } {
+export function loadedMessages(conversation: Pick<Conversation, 'messages' | 'compaction' | 'liveTurn' | 'kind'> | undefined, runId?: string, names?: Readonly<Record<string, string>>): { messages: ChatMessage[]; history: LoadedHistory } {
+  const answering = runId && conversation?.liveTurn?.runId === runId ? runId : undefined;
   const stored = conversation?.messages ?? [];
   const compaction = conversation?.compaction && conversation.compaction.through <= stored.length ? conversation.compaction : undefined;
   const base = compaction?.through ?? 0;
   const lead = compaction ? [summaryMessage(compaction.summary)] : [];
   const rest = stored.slice(base);
+  const asked = (message: ConversationMessage): boolean => Boolean(answering) && message.role === 'user' && message.runId === answering;
   let count = lead.length;
   const ends = rest.map((message) => {
-    if (message.content.trim()) count += 1;
+    if (message.content.trim() && !asked(message)) count += 1;
     return count;
   });
-  return { messages: [...lead, ...asChatMessages(rest)], history: { base, ends } };
+  return { messages: [...lead, ...asChatMessages(rest.filter((message) => !asked(message)), { kind: conversation?.kind, names })], history: { base, ends } };
 }
 
 export function storedCompaction(compaction: unknown, history: unknown): { summary: string; through: number } | undefined {
@@ -149,7 +159,8 @@ export function createConversationNodes(store: ConversationStore): NodeImplement
     valueImplementation('load-conversation', async (request) => {
       const id = idFrom(request);
       const found = id ? await store.get(request.run.launch.ownerId, id) : undefined;
-      const { messages, history } = loadedMessages(found);
+      const names = found?.kind && store.names ? await store.names(peopleIn(found.messages)) : undefined;
+      const { messages, history } = loadedMessages(found, request.run.identity.runId, names);
 
       return { outputs: { messages, found: Boolean(found), history } };
     }),
@@ -194,6 +205,7 @@ export function createConversationNodes(store: ConversationStore): NodeImplement
         : existing ?? { id, ownerId, title: '', messages: [], createdAt: now, updatedAt: now };
       const titled = existing ? base : { ...base, title: nodeTitle || titleFrom(asked) };
       const closed = closeTurn(titled, runId, {
+        author: { kind: 'agent', slug: request.run.identity.agentId },
         content: reply.content,
         at: now,
         ...(reply.thinking.trim() ? { reasoning: reply.thinking } : {}),

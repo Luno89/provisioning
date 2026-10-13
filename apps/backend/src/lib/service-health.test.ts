@@ -1,3 +1,4 @@
+import { cachedProbes } from './mcp-probe-url.js';
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -46,9 +47,18 @@ describe('where reconciliation applies it', () => {
     expect(bridge).toMatch(/if \(health === 'healthy' && looksLikeMcp\(dep\) && dep\.ownerId\)/);
   });
 
-  it('uses the cache rather than forcing a probe every sweep', () => {
-    expect(bridge).toMatch(/registry\.listWithTools\(\)/);
-    expect(bridge).not.toMatch(/registry\.listWithTools\(true\)/);
+  it('uses the cache rather than forcing a probe every sweep', async () => {
+    expect(bridge).toMatch(/healthFromProbe\(await this\.mcpProbes\(/);
+    let probes = 0;
+    let clock = 0;
+    const probe = cachedProbes(async () => { probes += 1; return { tools: 2 }; }, 1000, () => clock);
+    await probe('ns');
+    clock = 500;
+    await probe('ns');
+    expect(probes).toBe(1);
+    clock = 1500;
+    await probe('ns');
+    expect(probes).toBe(2);
   });
 
   it('prefers the service reason over the workload one when both exist', () => {

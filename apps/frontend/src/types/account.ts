@@ -3,7 +3,7 @@
  * Authority: `RemovalWorkflowState` and `PersonEntry` in apps/backend/src/services/AccountRemovalService.ts,
  * `RemovalStep` in apps/backend/src/lib/account-removal.ts.
  */
-export type RemovalStep = 'workflows' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records'
+export type RemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records'
 
 export type RemovalState =
   | { state: 'running'; done: RemovalStep[] }

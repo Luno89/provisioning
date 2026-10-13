@@ -50,4 +50,19 @@ describe('practices', () => {
     await userEvent.click(within(live).getByRole('button', { name: 'Retire' }))
     await waitFor(() => expect(retirePractice).toHaveBeenCalledWith('live'))
   })
+
+  it('says which model a practice is kept for, and shows what one model is given', async () => {
+    vi.mocked(listPractices).mockResolvedValue([
+      practice({ id: 'mine', title: 'Quote arguments', model: 'qwen/q' }),
+      practice({ id: 'other', title: 'Skip retries', model: 'old/m' }),
+      practice({ id: 'all', title: 'Check first' }),
+    ])
+    show()
+
+    expect(await screen.findByText('for koala on qwen/q')).toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Practices for which model' }), 'qwen/q')
+    expect(screen.getByText('Quote arguments')).toBeInTheDocument()
+    expect(screen.getByText('Check first')).toBeInTheDocument()
+    expect(screen.queryByText('Skip retries')).not.toBeInTheDocument()
+  })
 })

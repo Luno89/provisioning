@@ -20,4 +20,8 @@ describe('the scenarios the platform ships', () => {
     const ids = BUILT_IN_SCENARIOS.map((scenario) => scenario.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  it('keep only the model story of Odoo off the bench, since it holds the model for an hour and a half', () => {
+    expect(BUILT_IN_SCENARIOS.filter((scenario) => scenario.onBench === false).map((scenario) => scenario.id)).toEqual(['story-odoo-field']);
+  });
 });

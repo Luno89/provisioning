@@ -12,6 +12,15 @@ export interface TurnLogEntry {
 
 export const TURN_LOG_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 
+export function tracedSummary(trace: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const { inputs: _inputs, outputs: _outputs, ...summary } = trace;
+  return summary;
+}
+
+export function withTraceSummaries(events: readonly EngineEvent[]): EngineEvent[] {
+  return events.map((event) => (event.type === 'node.traced' ? { ...event, trace: tracedSummary(event.trace) } : event));
+}
+
 type Delta = Extract<EngineEvent, { type: 'content' | 'thinking' }>;
 
 const isDelta = (event: EngineEvent): event is Delta => event.type === 'content' || event.type === 'thinking';
@@ -52,4 +61,25 @@ export function replyFromLog(entries: readonly TurnLogEntry[], turnId: string): 
     }
   }
   return { content, reasoning, toolCalls: [...calls.values()] };
+}
+
+export function runsUnder<T extends Pick<TurnLogEntry, 'seq' | 'events'>>(entries: readonly T[], rootRunId: string): { entries: T[]; through: number } {
+  const ids = new Set([rootRunId]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const entry of entries) {
+      for (const event of entry.events) {
+        const started = event as { type: string; runId: string; parentRunId?: string };
+        if (started.type === 'run.started' && started.parentRunId && ids.has(started.parentRunId) && !ids.has(started.runId)) {
+          ids.add(started.runId);
+          grew = true;
+        }
+      }
+    }
+  }
+  const kept = entries
+    .map((entry) => ({ ...entry, events: withTraceSummaries(entry.events.filter((event) => ids.has((event as { runId: string }).runId))) }))
+    .filter((entry) => entry.events.length > 0);
+  return { entries: kept, through: entries.reduce((last, entry) => Math.max(last, entry.seq), 0) };
 }

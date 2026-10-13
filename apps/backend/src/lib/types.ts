@@ -51,6 +51,7 @@ export interface DeploymentMetadata {
   appType?: string;
   gitappProjectId?: string;
   gitappImageTag?: string;
+  namespace?: string;
   status: 'deploying' | 'running' | 'failed' | 'unhealthy' | 'destroying' | 'discovered';
   healthReason?: string;
   webRepo?: string;
@@ -165,7 +166,6 @@ export interface ProjectMetadata {
   giteaRepo?: string;
   ownerId?: string;
   targetClusterId?: string;
-  targetNamespace?: string;
   language?: string;
   appType: string;
   autoDeployOnBuild?: boolean; // default false — see RunPipelineActivity's promote step
@@ -176,6 +176,8 @@ export interface ProjectMetadata {
   requiredSecrets?: { key: string; source: string }[];
   infisicalReaderEnc?: string;
   removal?: { startedAt: string; requestedBy: string } | undefined;
+  releaseName?: string | undefined;
+  channelId?: string | undefined;
   createdAt: string;
   /**
    * Where this project's leaves execute. Absent means the K8s sandbox (today's only behaviour).
@@ -245,6 +247,8 @@ export interface PipelineRunMetadata {
   commitMessage?: string;
   promotedAt?: string;
   deploymentId?: string;
+  releaseRefused?: string;
+  releaseSkipped?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }

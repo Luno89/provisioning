@@ -3,8 +3,11 @@ import { scriptProblems, type CheckScript } from '../../lib/check-script.js';
 import { stepProcedure, stepProcedureId, type StepUnderTest } from '../../lib/step-check.js';
 import { TURN_PROCEDURE_ID, turnChoiceProblems, type TurnChoice } from '../../lib/turn-check.js';
 import { platformCatalogue } from '../../extensions/installed.js';
-import type { ToolDefinition } from '@koala/agent-engine';
+import { checkDefinition, type ToolDefinition } from '@koala/agent-engine';
+import { SEPARATOR, slugify } from '../../lib/mcp-tools.js';
+import { serverProblems, type McpServerRecord } from '../../lib/mcp-servers.js';
 import type { TaskStatus } from '../../engine-host/tools/tasks.js';
+import type { ReleaseState } from '../../lib/odoo-release.js';
 
 export interface WorldTask {
   id: string;
@@ -20,6 +23,7 @@ export interface WorldMemory {
   title: string;
   text: string;
   category?: string | undefined;
+  model?: string | undefined;
 }
 
 export interface ScenarioWorld {
@@ -29,8 +33,13 @@ export interface ScenarioWorld {
   files?: Record<string, string> | undefined;
   acceptProposedWork?: boolean | undefined;
   agents?: Record<string, Record<string, unknown>> | undefined;
+  tools?: ToolDefinition[] | undefined;
+  mcpServers?: WorldServer[] | undefined;
   project?: { name: string } | undefined;
+  treeTypes?: Record<string, Record<string, unknown>> | undefined;
 }
+
+export type WorldServer = Pick<McpServerRecord, 'name' | 'runs' | 'summary' | 'offer' | 'omit' | 'notes' | 'dependsOn' | 'tools'>;
 
 export interface ProvokedFailure {
   tool: string;
@@ -53,6 +62,7 @@ export interface ExpectedHandOff {
 export interface ExpectedFile {
   path: string;
   contains?: string[] | undefined;
+  lacks?: string[] | undefined;
 }
 
 export interface ScenarioExpectations extends FlowExpectations {
@@ -69,13 +79,27 @@ export interface ScenarioExpectations extends FlowExpectations {
   saved?: SavedProcedure | undefined;
 }
 
+export type BrowserTestStatus = 'passed' | 'failed' | 'flaky' | 'skipped';
+
+export interface ExpectedBrowserTests {
+  state?: 'passed' | 'failed' | 'unavailable' | undefined;
+  tests?: Record<string, BrowserTestStatus> | undefined;
+  artifacts?: number | undefined;
+}
+
+export interface ExpectedRelease {
+  state?: ReleaseState | undefined;
+  e2e?: ExpectedBrowserTests | undefined;
+  exists?: boolean | undefined;
+}
+
 export interface FlowExpectations {
-  modelSaw?: { contains?: string[] | undefined; lacks?: string[] | undefined } | undefined;
+  modelSaw?: { contains?: string[] | undefined; lacks?: string[] | undefined; anyRequest?: boolean | undefined } | undefined;
   compacted?: boolean | undefined;
   summaryKept?: boolean | undefined;
   interrupted?: boolean | undefined;
   turnLog?: { complete: boolean } | undefined;
-  leaves?: { verified?: number | undefined; landed?: Record<string, 'merged' | 'nothing'> | undefined; mergeTasks?: number | undefined; findings?: Record<string, string[]> | undefined; artifacts?: Record<string, number> | undefined } | undefined;
+  leaves?: { verified?: number | undefined; landed?: Record<string, 'merged' | 'nothing'> | undefined; mergeTasks?: number | undefined; findings?: Record<string, string[]> | undefined; artifacts?: Record<string, number> | undefined; retried?: Record<string, number> | undefined } | undefined;
   repository?: { of: 'tree' | 'conversation'; files: ExpectedFile[] } | undefined;
   pullRequests?: { merged?: number | undefined; open?: number | undefined; closedUnmerged?: number | undefined } | undefined;
   workspace?: { of: 'tree' | 'conversation'; exists: boolean } | undefined;
@@ -84,15 +108,27 @@ export interface FlowExpectations {
   exit?: string | undefined;
   outputs?: Record<string, { equals?: unknown; contains?: string | undefined }> | undefined;
   chooses?: TurnChoice | undefined;
+  release?: ExpectedRelease | undefined;
+  e2e?: ExpectedBrowserTests | undefined;
 }
 
+export type ChatPlace = 'channel' | { story: string } | { feature: string };
+
 export type FlowAction =
-  | { chat: { message: string; agent?: string | undefined; inputs?: Record<string, unknown> | undefined; killAfterChars?: number | undefined } }
-  | { approvePlan: true }
+  | { chat: { message: string; agent?: string | undefined; inputs?: Record<string, unknown> | undefined; killAfterChars?: number | undefined; in?: ChatPlace | undefined } }
+  | { post: { message: string; in: 'channel' } }
+  | { approvePlan: true | { in: Exclude<ChatPlace, 'channel'> } }
   | { runTree: true }
   | { waitQuiet: true }
+  | { settleTree: true }
+  | { editWorkspace: Record<string, unknown> }
+  | { waitWorkspace: true }
   | { deleteTree: true }
-  | { deleteProject: true };
+  | { deleteProject: true }
+  | { waitRelease: { state: 'preview' | 'live' } }
+  | { cutOver: true }
+  | { browse: { release: 'preview' | 'live'; specs?: Record<string, string> | undefined } }
+  | { removeRelease: true };
 
 export interface FlowStage {
   name: string;
@@ -115,6 +151,7 @@ export interface Scenario {
   turn?: boolean | undefined;
   repeats?: number | undefined;
   passAt?: number | undefined;
+  onBench?: boolean | undefined;
   expect: ScenarioExpectations;
   then?: FlowStage[] | undefined;
   ownerId?: string | undefined;
@@ -124,7 +161,21 @@ export interface Scenario {
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 export const MAX_REPEATS = 25;
 const TURN_EXPECTATIONS: readonly (keyof ScenarioExpectations)[] = ['chooses', 'modelSaw'];
-const ACTIONS = ['chat', 'approvePlan', 'runTree', 'waitQuiet', 'deleteTree', 'deleteProject'];
+const ACTIONS = ['chat', 'post', 'approvePlan', 'runTree', 'waitQuiet', 'settleTree', 'editWorkspace', 'waitWorkspace', 'deleteTree', 'deleteProject', 'waitRelease', 'cutOver', 'browse', 'removeRelease'];
+const RELEASE_ACTIONS = ['waitRelease', 'cutOver', 'browse', 'removeRelease'];
+const RELEASE_STATES: ReleaseState[] = ['preparing', 'preview', 'cutting-over', 'live', 'discarded', 'failed', 'superseded'];
+const TEST_STATUSES: BrowserTestStatus[] = ['passed', 'failed', 'flaky', 'skipped'];
+const SPEC_PATH = /^e2e\/(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.spec\.ts$/;
+
+function browserTestProblems(expect: ExpectedBrowserTests, where: string): string[] {
+  const problems: string[] = [];
+  if (expect.state !== undefined && !['passed', 'failed', 'unavailable'].includes(expect.state)) problems.push(`${where}browser tests end passed, failed or unavailable, never "${String(expect.state)}"`);
+  for (const [title, status] of Object.entries(expect.tests ?? {})) {
+    if (!TEST_STATUSES.includes(status)) problems.push(`${where}the browser test "${title}" can be ${TEST_STATUSES.join(', ')}, not "${String(status)}"`);
+  }
+  if (expect.artifacts !== undefined && (!Number.isInteger(expect.artifacts) || expect.artifacts < 0)) problems.push(`${where}how many browser files are kept has to be a whole number`);
+  return problems;
+}
 
 function expectationProblems(
   expect: ScenarioExpectations,
@@ -150,6 +201,7 @@ function expectationProblems(
       problems.push(`${where}"${String(file?.path)}" is not a path inside the workspace — give it relative to /work, without ..`);
     }
     if (file?.contains !== undefined && (!Array.isArray(file.contains) || file.contains.some((text) => typeof text !== 'string'))) problems.push(`${where}what ${file.path} should say has to be a list of words`);
+    if (file?.lacks !== undefined && (!Array.isArray(file.lacks) || file.lacks.some((text) => typeof text !== 'string'))) problems.push(`${where}what ${file.path} must not say has to be a list of words`);
   }
   if (expect.repository && !['tree', 'conversation'].includes(expect.repository.of)) problems.push(`${where}a repository is the tree's or the conversation's`);
   if (expect.workspace && !['tree', 'conversation'].includes(expect.workspace.of)) problems.push(`${where}a workspace is the tree's or the conversation's`);
@@ -164,12 +216,25 @@ function expectationProblems(
     }
     if (!['retried', 'reported'].includes(expect.provokes.then)) problems.push(`${where}a provoked failure has to expect it was retried or reported`);
   }
+  if (expect.release?.state !== undefined && !RELEASE_STATES.includes(expect.release.state)) problems.push(`${where}"${String(expect.release.state)}" is not a release state`);
+  if (expect.release?.e2e) problems.push(...browserTestProblems(expect.release.e2e, `${where}the release's `));
+  if (expect.e2e) problems.push(...browserTestProblems(expect.e2e, where));
   if (expect.chooses !== undefined && where) problems.push(`${where}only a turn check's own expectations can say what the model chooses`);
   else if (expect.chooses !== undefined) problems.push(...turnChoiceProblems(expect.chooses, known.tools));
   if (!where && Object.values(expect).every((entry) => entry === undefined)) problems.push('the scenario has to expect something');
   return problems;
 }
-const STATUSES: TaskStatus[] = ['proposed', 'accepted', 'running', 'done', 'failed', 'dropped'];
+const STATUSES: TaskStatus[] = ['proposed', 'accepted', 'running', 'waiting', 'done', 'failed', 'dropped'];
+
+class ToolNames extends Set<string> {
+  constructor(names: readonly string[], readonly served: readonly string[]) {
+    super(names);
+  }
+
+  override has(name: string): boolean {
+    return super.has(name) || this.served.some((prefix) => name.startsWith(prefix) && name.length > prefix.length);
+  }
+}
 
 export function scenarioProblems(
   value: unknown,
@@ -178,7 +243,21 @@ export function scenarioProblems(
   if (typeof value !== 'object' || value === null) return ['a scenario has to be an object'];
   const scenario = value as Partial<Scenario>;
   const problems: string[] = [];
-  const toolNames = new Set(known.tools.map((tool) => tool.name));
+  const worldTools = Array.isArray(scenario.world?.tools) ? scenario.world.tools : [];
+  const worldServers = Array.isArray(scenario.world?.mcpServers) ? scenario.world.mcpServers : [];
+  const toolNames = new ToolNames(
+    [...known.tools, ...worldTools].map((tool) => tool.name),
+    worldServers.map((server) => `${slugify(server.name)}${SEPARATOR}`),
+  );
+  if (scenario.world?.mcpServers !== undefined && !Array.isArray(scenario.world.mcpServers)) problems.push('its world\'s MCP servers have to be a list');
+  worldServers.forEach((server, at) => {
+    for (const problem of serverProblems(server, worldServers.slice(0, at).map((other, index) => ({ id: String(index), name: other.name })))) problems.push(`its world's MCP server ${String(server.name)}: ${problem}`);
+  });
+  if (scenario.world?.tools !== undefined && !Array.isArray(scenario.world.tools)) problems.push('its world\'s tools have to be a list');
+  for (const tool of worldTools) {
+    if (known.tools.some((existing) => existing.name === tool.name)) problems.push(`its world defines "${tool.name}", which is already a tool`);
+    for (const problem of checkDefinition(tool)) problems.push(`its world's tool ${problem.tool} ${problem.message}`);
+  }
 
   if (typeof scenario.id !== 'string' || !ID.test(scenario.id)) problems.push('the id has to be lower-case words joined by dashes');
   if (typeof scenario.name !== 'string' || !scenario.name.trim()) problems.push('the scenario needs a name');
@@ -205,12 +284,17 @@ export function scenarioProblems(
   if (scenario.step !== undefined && scenario.turn !== undefined) problems.push('a check is a step check or a turn check, not both');
   if (scenario.expect?.chooses !== undefined && scenario.turn !== true) problems.push('only a turn check can expect what the model chooses — set turn to true');
   if (scenario.repeats !== undefined && (!Number.isInteger(scenario.repeats) || scenario.repeats < 1 || scenario.repeats > MAX_REPEATS)) problems.push(`repeats has to be a whole number from 1 to ${MAX_REPEATS}`);
+  if (scenario.onBench !== undefined && typeof scenario.onBench !== 'boolean') problems.push('onBench has to be true or false');
   if (scenario.passAt !== undefined && (!Number.isInteger(scenario.passAt) || scenario.passAt < 1 || scenario.passAt > (scenario.repeats ?? 1))) problems.push(`passAt has to be a whole number from 1 to its repeats (${scenario.repeats ?? 1})`);
   if (!scenario.input || typeof scenario.input.message !== 'string' || !scenario.input.message.trim()) problems.push('the scenario has to say what the run is asked to do');
 
   for (const task of scenario.world?.tasks ?? []) {
     if (!task.id?.trim() || !task.title?.trim() || !task.doneMeans?.trim()) problems.push('every task in the world needs an id, a title and what done means');
     if (task.status !== undefined && !STATUSES.includes(task.status)) problems.push(`"${String(task.status)}" is not a task status`);
+  }
+  for (const memory of scenario.world?.memories ?? []) {
+    if (typeof memory.title !== 'string' || !memory.title.trim() || typeof memory.text !== 'string' || !memory.text.trim()) problems.push('every memory in the world needs a title and a text');
+    if (memory.model !== undefined && (typeof memory.model !== 'string' || !memory.model.trim())) problems.push(`the memory "${String(memory.title)}" names a model that is not a name`);
   }
   for (const [path, content] of Object.entries(scenario.world?.files ?? {})) {
     if (path.startsWith('/') || path.includes('..')) problems.push(`"${path}" has to be a path inside the workspace`);
@@ -220,15 +304,37 @@ export function scenarioProblems(
   if (!scenario.expect || typeof scenario.expect !== 'object') problems.push('the scenario has to expect something');
   else problems.push(...expectationProblems(scenario.expect, known, toolNames, ''));
 
-  if (scenario.script !== undefined) problems.push(...scriptProblems(scenario.script, new Set([...toolNames, ...known.agents])).map((problem) => `its script: ${problem}`));
+  if (scenario.script !== undefined) problems.push(...scriptProblems(scenario.script, new ToolNames([...toolNames, ...known.agents], toolNames.served)).map((problem) => `its script: ${problem}`));
   for (const [slug, settings] of Object.entries(scenario.world?.agents ?? {})) {
     if (!known.agents.has(slug)) problems.push(`its world changes "${slug}", which is not an agent`);
     if (!settings || typeof settings !== 'object' || Array.isArray(settings)) problems.push(`its world's settings for ${slug} have to be an object`);
+    else if ('slug' in settings || 'ownerId' in settings) problems.push(`its world's settings for ${slug} cannot change its slug or owner`);
+    else if ('tools' in settings) {
+      const tools = (settings as { tools?: unknown }).tools;
+      if (!Array.isArray(tools) || tools.some((tool) => typeof tool !== 'string')) problems.push(`its world's tools for ${slug} have to be a list of tool names`);
+      else for (const tool of tools) if (!toolNames.has(tool)) problems.push(`its world grants ${slug} "${tool}", which is not a tool`);
+    }
+    if (settings && typeof settings === 'object' && 'servers' in settings) {
+      const servers = (settings as { servers?: unknown }).servers;
+      if (!Array.isArray(servers) || servers.some((server) => typeof server !== 'string')) problems.push(`its world's servers for ${slug} have to be a list of server names`);
+      else for (const server of servers) if (!worldServers.some((own) => own.name === server)) problems.push(`its world gives ${slug} the MCP server "${server}", which its world does not have`);
+    }
+  }
+  for (const [id, settings] of Object.entries(scenario.world?.treeTypes ?? {})) {
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) problems.push(`its world's settings for the tree type ${id} have to be an object`);
+    else if ('id' in settings || 'ownerId' in settings) problems.push(`its world's settings for the tree type ${id} cannot change its id or owner`);
   }
   if (scenario.world?.project !== undefined && (typeof scenario.world.project.name !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(scenario.world.project.name))) {
     problems.push('the world\'s project needs a name of lower-case words joined by dashes');
   }
-  if ((scenario.then ?? []).some((stage) => stage?.do && 'deleteProject' in stage.do) && !scenario.world?.project) problems.push('a check can only delete the project its world declares');
+  const stages = Array.isArray(scenario.then) ? scenario.then : [];
+  const approvedAt = stages.findIndex((stage) => stage?.do && typeof stage.do === 'object' && 'approvePlan' in stage.do);
+  const hasProject = (index: number) => scenario.world?.project !== undefined || (approvedAt >= 0 && index >= approvedAt);
+  if (stages.some((stage, index) => stage?.do && typeof stage.do === 'object' && 'deleteProject' in stage.do && !hasProject(index))) problems.push('a check can only delete a project its world declares or an approved plan made');
+  const releasingAt = (stage: FlowStage | undefined) => Boolean(stage?.do && typeof stage.do === 'object' && RELEASE_ACTIONS.some((kind) => kind in stage.do)) || stage?.expect?.release !== undefined;
+  if (scenario.expect?.release !== undefined && !scenario.world?.project) problems.push('a check can only release a project its world declares or an approved plan made');
+  else if (stages.some((stage, index) => releasingAt(stage) && !hasProject(index))) problems.push('a check can only release a project its world declares or an approved plan made');
+  if (scenario.expect?.e2e !== undefined) problems.push('the first run does not browse, so it has no browser tests of its own — browse in a later stage');
   if (scenario.then !== undefined && !Array.isArray(scenario.then)) problems.push('what happens next has to be a list of stages');
   for (const [index, stage] of (scenario.then ?? []).entries()) {
     const where = `stage ${index + 2}`;
@@ -236,9 +342,34 @@ export function scenarioProblems(
     const action = stage?.do as Record<string, unknown> | undefined;
     const kinds = action ? Object.keys(action) : [];
     if (kinds.length !== 1 || !ACTIONS.includes(kinds[0]!)) problems.push(`${where} has to do one of ${ACTIONS.join(', ')}`);
-    const chat = (action?.chat ?? undefined) as { message?: unknown; agent?: unknown } | undefined;
+    const chat = (action?.chat ?? undefined) as { message?: unknown; agent?: unknown; in?: unknown } | undefined;
+    const item = chat?.in && typeof chat.in === 'object' ? chat.in as Record<string, unknown> : undefined;
+    const namesItem = item !== undefined && Object.keys(item).length === 1 && ((typeof item.story === 'string' && item.story.trim() !== '') || (typeof item.feature === 'string' && item.feature.trim() !== ''));
+    if (kinds[0] === 'chat' && chat?.in !== undefined && chat.in !== 'channel' && !namesItem) problems.push(`${where} talks in the channel, in a story's or a feature's chat named by its title, or in the check's own conversation`);
+    const approving = action?.approvePlan;
+    const approvingIn = approving && typeof approving === 'object' ? (approving as { in?: unknown }).in : undefined;
+    const approvesItem = approvingIn && typeof approvingIn === 'object' && Object.keys(approvingIn).length === 1
+      && ((typeof (approvingIn as Record<string, unknown>).story === 'string') || (typeof (approvingIn as Record<string, unknown>).feature === 'string'));
+    if (kinds[0] === 'approvePlan' && approving !== true && !approvesItem) problems.push(`${where} approves what waits in the check's own conversation (approvePlan: true), or in a story's or a feature's chat named by its title`);
+    const post = (action?.post ?? undefined) as { message?: unknown; in?: unknown } | undefined;
+    if (kinds[0] === 'post' && (typeof post?.message !== 'string' || !post.message.trim() || post.in !== 'channel')) problems.push(`${where} posts a message in the channel`);
     if (kinds[0] === 'chat' && (typeof chat?.message !== 'string' || !chat.message.trim())) problems.push(`${where} has to say what is asked`);
     if (kinds[0] === 'chat' && chat?.agent !== undefined && (typeof chat.agent !== 'string' || !known.agents.has(chat.agent))) problems.push(`${where} talks to "${String(chat.agent)}", which is not an agent`);
+    const waiting = action?.waitRelease as { state?: unknown } | undefined;
+    if (kinds[0] === 'waitRelease' && !['preview', 'live'].includes(String(waiting?.state))) problems.push(`${where} waits for a release in preview or live`);
+    const browsing = action?.browse as { release?: unknown; specs?: unknown } | undefined;
+    if (kinds[0] === 'browse') {
+      if (!['preview', 'live'].includes(String(browsing?.release))) problems.push(`${where} browses the release in preview or the live one`);
+      if (browsing?.specs !== undefined) {
+        const specs = browsing.specs;
+        if (!specs || typeof specs !== 'object' || Array.isArray(specs) || Object.keys(specs).length === 0) problems.push(`${where}'s specs are files by path`);
+        else for (const [path, content] of Object.entries(specs)) {
+          if (!SPEC_PATH.test(path) || path.split('/').includes('..')) problems.push(`${where}: "${path}" has to be a spec under e2e/ ending .spec.ts`);
+          if (typeof content !== 'string' || !content.trim()) problems.push(`${where}: the spec ${path} has to be text`);
+        }
+      }
+    }
+    if (stage?.expect?.e2e !== undefined && kinds[0] !== 'browse') problems.push(`${where} does not browse, so it has no browser tests of its own — expect the release's instead`);
     if (stage?.expect !== undefined) problems.push(...expectationProblems(stage.expect, known, toolNames, `${where}: `));
   }
   if ((scenario.expect?.modelSaw || (scenario.then ?? []).some((stage) => stage.expect?.modelSaw)) && !scenario.script) {

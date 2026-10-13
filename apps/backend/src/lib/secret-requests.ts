@@ -58,6 +58,28 @@ export const GITEA_READ_TOKEN: SecretSource = {
   },
 };
 
+export const GENERATED: SecretSource = {
+  id: 'generated',
+  label: 'a random value the platform made',
+  matches: () => false,
+};
+
 export const SECRET_SOURCES: readonly SecretSource[] = [GITEA_READ_TOKEN];
+
+export const DECLARED_SOURCES = [GENERATED.id, GITEA_READ_TOKEN.id, 'person'] as const;
+export type DeclaredSource = typeof DECLARED_SOURCES[number];
+
+const ALPHANUMERIC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+export function generatedValue(randomBytes: (size: number) => Uint8Array, length = 32): string {
+  const usable = 256 - (256 % ALPHANUMERIC.length);
+  let out = '';
+  while (out.length < length) {
+    for (const byte of randomBytes(length * 2)) {
+      if (byte < usable && out.length < length) out += ALPHANUMERIC[byte % ALPHANUMERIC.length];
+    }
+  }
+  return out;
+}
 
 export const sourceFor = (key: string): SecretSource | undefined => SECRET_SOURCES.find((source) => source.matches(key));

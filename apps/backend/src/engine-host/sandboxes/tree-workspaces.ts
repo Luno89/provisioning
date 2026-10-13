@@ -1,5 +1,7 @@
 import type { RunEnvironment } from '../temporal/contracts.js';
-import type { EnvironmentResolver } from './environments.js';
+import type { WorkspaceFile } from '../../lib/workspace-file.js';
+import type { ComposedWorkspace } from '../../lib/workspace-composition.js';
+import type { EnvironmentResolver, WorkspaceExtras } from './environments.js';
 import { destroyWorkspace, retirePod, workspaceRunning, type KubeRunner } from './kube.js';
 import { POD, workspaceName } from './workspace.js';
 import type { BroughtDocuments, MergeOutcome, SavedDocuments, WorkspaceDocuments } from './workspace-documents.js';
@@ -21,6 +23,7 @@ export interface TreeWorkspaces {
    * asks for a tool its own workspace does not have.
    */
   describe(request: { treeId: string; ownerId: string; agents?: readonly string[] | undefined }): Promise<TreeSandbox>;
+  compose(request: { treeId: string; ownerId: string; agents?: readonly string[] | undefined; file?: WorkspaceFile | undefined }): Promise<ComposedWorkspace>;
   state(treeId: string): Promise<TreeWorkspaceState>;
   save(treeId: string, ownerId: string): Promise<SavedDocuments>;
   park(treeId: string, ownerId: string): Promise<SavedDocuments>;
@@ -43,7 +46,7 @@ export interface Landed {
   outcome: MergeOutcome;
 }
 
-export function createTreeWorkspaces(options: { resolver: EnvironmentResolver; kube: KubeRunner; documents?: WorkspaceDocuments | undefined; repoFor?: WorkspaceRepoResolver | undefined; languageOf?: ((ownerId: string, treeId: string) => Promise<string | undefined>) | undefined }): TreeWorkspaces {
+export function createTreeWorkspaces(options: { resolver: EnvironmentResolver; kube: KubeRunner; documents?: WorkspaceDocuments | undefined; repoFor?: WorkspaceRepoResolver | undefined; languageOf?: ((ownerId: string, treeId: string) => Promise<string | undefined>) | undefined; extrasOf?: ((ownerId: string, treeId: string) => Promise<WorkspaceExtras | undefined>) | undefined }): TreeWorkspaces {
   const namespaceOf = (treeId: string): string => workspaceName(treeWorkspaceRunId(treeId));
   const repoOf = async (treeId: string) => (await (options.repoFor ?? defaultRepoResolver)(treeWorkspaceRunId(treeId)))!;
   const save = async (treeId: string, ownerId: string): Promise<SavedDocuments> => (options.documents
@@ -53,10 +56,23 @@ export function createTreeWorkspaces(options: { resolver: EnvironmentResolver; k
   return {
     describe: async ({ treeId, ownerId, agents }) => {
       const language = await options.languageOf?.(ownerId, treeId);
+      const extras = await options.extrasOf?.(ownerId, treeId);
       return options.resolver.describeShared({
         ticket: { runId: treeWorkspaceRunId(treeId), depth: 0, ownerId, agentSlug: 'grove-runner', trigger: 'user' },
         agents: [...new Set([...GROVE_WORKSPACE_AGENTS, ...(agents ?? [])])],
         ...(language ? { languages: [language] } : {}),
+        ...(extras ? { extras } : {}),
+        treeId,
+      });
+    },
+
+    compose: async ({ treeId, ownerId, file, agents }) => {
+      const language = await options.languageOf?.(ownerId, treeId);
+      return options.resolver.composeShared({
+        ticket: { runId: treeWorkspaceRunId(treeId), depth: 0, ownerId, agentSlug: 'grove-runner', trigger: 'user' },
+        agents: [...new Set([...GROVE_WORKSPACE_AGENTS, ...(agents ?? [])])],
+        ...(language ? { languages: [language] } : {}),
+        ...(file ? { file } : {}),
       });
     },
 

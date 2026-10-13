@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { DEFAULT_ENGINE_TASK_QUEUE } from '../temporal/contracts.js';
+import { DEFAULT_ENGINE_TASK_QUEUE, RUN_ID_MEMO, workflowOfRun } from '../temporal/contracts.js';
 import type { SamplingConfig } from '@koala/harness-types';
 import type { AgentRegistry } from './registry.js';
 import type { ProcedureRunInput, RunTicket } from '../temporal/contracts.js';
@@ -12,6 +12,7 @@ export interface WorkflowStarter {
       taskQueue: string;
       args: unknown[];
       owner: string;
+      memo: Record<string, unknown>;
     },
   ): Promise<{ workflowId: string }>;
   signal?(workflowId: string, name: string, payload: unknown): Promise<void>;
@@ -29,6 +30,7 @@ export interface StartRunRequest {
   procedureId?: string | undefined;
   runId?: string | undefined;
   bound?: Record<string, string> | undefined;
+  asks?: string | undefined;
 }
 
 export interface StartedRun {
@@ -70,14 +72,14 @@ export interface RunStarterOptions {
   continueAfterEvents?: number | undefined;
   closing?: ((ownerId: string) => Promise<string | undefined>) | undefined;
   turns?: {
-    open(turn: { ownerId: string; conversationId: string; runId: string; message: string }): Promise<void>;
+    open(turn: { ownerId: string; conversationId: string; runId: string; message: string; asks?: string | undefined }): Promise<void>;
     fail(turn: { ownerId: string; conversationId: string; runId: string }, why: string): Promise<void>;
   } | undefined;
 }
 
 const savesConversation = (procedure: { nodes: readonly { kind: string }[] }): boolean => procedure.nodes.some((node) => node.kind === 'save-conversation');
 
-export const BINDING_INPUTS = ['treeId', 'tree', 'projectId', 'project'] as const;
+export const BINDING_INPUTS = ['treeId', 'tree', 'projectId', 'project', 'leafId', 'story', 'branchId', 'feature'] as const;
 
 export function createRunStarter(options: RunStarterOptions) {
   const queue = options.taskQueue ?? DEFAULT_ENGINE_TASK_QUEUE;
@@ -130,14 +132,15 @@ export function createRunStarter(options: RunStarterOptions) {
       const turn = request.conversationId && options.turns && savesConversation(runnable.procedure)
         ? { ownerId: request.ownerId, conversationId: request.conversationId, runId }
         : undefined;
-      if (turn) await options.turns!.open({ ...turn, message: request.message });
+      if (turn) await options.turns!.open({ ...turn, message: request.message, ...(request.asks ? { asks: request.asks } : {}) });
 
       try {
         await workflows.start('AgentRunWorkflow', {
-          workflowId: runId,
+          workflowId: workflowOfRun(runId),
           taskQueue: queue,
           args: [input],
           owner: request.ownerId,
+          memo: { [RUN_ID_MEMO]: runId },
         });
       } catch (err) {
         if (turn) await options.turns!.fail(turn, `the run could not start: ${(err as Error).message}`).catch(() => undefined);
@@ -150,19 +153,19 @@ export function createRunStarter(options: RunStarterOptions) {
     async answer(runId: string, nodeId: string, value: unknown): Promise<void> {
       const workflows = options.workflows();
       if (!workflows?.signal) throw new EngineUnavailableError();
-      await workflows.signal(runId, 'answer', { nodeId, value });
+      await workflows.signal(workflowOfRun(runId), 'answer', { nodeId, value });
     },
 
     async approve(runId: string, callId: string, allowed: boolean, forRun = false): Promise<void> {
       const workflows = options.workflows();
       if (!workflows?.signal) throw new EngineUnavailableError();
-      await workflows.signal(runId, 'approve', { callId, allowed, forRun });
+      await workflows.signal(workflowOfRun(runId), 'approve', { callId, allowed, forRun });
     },
 
     async cancel(runId: string): Promise<void> {
       const workflows = options.workflows();
       if (!workflows?.signal) throw new EngineUnavailableError();
-      await workflows.signal(runId, 'cancelRun', undefined);
+      await workflows.signal(workflowOfRun(runId), 'cancelRun', undefined);
     },
   };
 }

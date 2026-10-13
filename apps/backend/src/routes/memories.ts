@@ -8,6 +8,9 @@ import type { TemporalBridge } from '../services/TemporalBridge.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
+const modelIn = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.trim() ? value.trim() : undefined;
+
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
@@ -33,6 +36,7 @@ export function memoriesRouter(deps: MemoriesRouterDeps): Router {
   router.post('/', asyncRoute(async (req, res) => {
     const ownerId = userOf(req).id;
     const { category, title, text, projectId, scope, recommendedScope, status } = req.body;
+    const model = modelIn(req.body.model);
     if (!category || !title || !text) {
       return res.status(400).json({ error: 'category, title, and text are required' });
     }
@@ -41,6 +45,7 @@ export function memoriesRouter(deps: MemoriesRouterDeps): Router {
       ownerId,
       ...(projectId ? { projectId: String(projectId) } : {}),
       category,
+      ...(model ? { model } : {}),
       scope: scope === 'global' ? 'global' : 'project',
       recommendedScope: recommendedScope === 'global' ? 'global' : 'project',
       status: status === 'pending_review' ? 'pending_review' : 'active',
@@ -88,8 +93,11 @@ export function memoriesRouter(deps: MemoriesRouterDeps): Router {
     const existing = (await db.getMemories(ownerId)).find((m) => m.id === idOf(req));
     if (!existing) return res.status(404).json({ error: 'No such memory item' });
     const { category, title, text, scope, status, projectId } = req.body;
+    const { model: _model, ...kept } = existing;
+    const model = 'model' in req.body ? modelIn(req.body.model) : existing.model;
     const updated: MemoryItem = {
-      ...existing,
+      ...kept,
+      ...(model ? { model } : {}),
       ...(category ? { category } : {}),
       ...(title ? { title: String(title).trim() } : {}),
       ...(text ? { text: String(text).trim() } : {}),

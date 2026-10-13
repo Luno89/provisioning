@@ -51,6 +51,7 @@ export interface ApprovalRequest {
 export interface QuestionRequest {
   nodeId: string;
   prompt: string;
+  choices?: readonly string[] | undefined;
   timeoutMs: number;
   run: RunContext;
 }
@@ -291,11 +292,13 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const written = textOf(node.settings, 'prompt');
       const details = typeof inputs.details === 'string' ? inputs.details.trim() : '';
       const prompt = details ? `${written}\n\n${details}` : written;
-      run.emit({ type: 'notice', level: 'info', nodeId: node.id, message: prompt } as never);
+      const choices = Array.isArray(node.settings.choices) ? node.settings.choices.filter((choice): choice is string => typeof choice === 'string' && choice.length > 0) : [];
+      run.emit({ type: 'notice', level: 'info', nodeId: node.id, message: prompt, ...(choices.length ? { choices } : {}) } as never);
 
       const answer = await ports.ask({
         nodeId: node.id,
         prompt,
+        ...(choices.length ? { choices } : {}),
         timeoutMs: numberOf(node.settings, 'timeoutMinutes', 10_080) * 60_000,
         run,
       });

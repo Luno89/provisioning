@@ -15,6 +15,7 @@ export interface Branch {
   id: string
   title: string
   treeId?: string
+  priority?: number
   ownerId?: string
   createdAt?: string
   updatedAt?: string
@@ -32,6 +33,15 @@ export interface PersonaEgressRule {
   cidr?: string | undefined
   namespace?: string | undefined
   ports?: number[] | undefined
+}
+
+export type TreeTypeSecretSource = 'generated' | 'gitea-read-token' | 'person'
+
+export interface TreeTypeSecret {
+  key: string
+  source: TreeTypeSecretSource
+  describe: string
+  signInAs?: string | undefined
 }
 
 /**
@@ -52,5 +62,7 @@ export interface TreeType {
   defaultBindings?: string[] | undefined
   egress?: PersonaEgressRule[] | undefined
   env?: { name: string; value: string }[] | undefined
+  secrets?: TreeTypeSecret[] | undefined
+  releaseWhen?: string[] | undefined
   agent?: string | undefined
 }

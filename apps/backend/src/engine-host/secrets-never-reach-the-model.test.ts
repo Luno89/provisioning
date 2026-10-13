@@ -18,12 +18,12 @@ import { createToolRuntime } from './tools/tool-runtime.js';
 import { MemoryDB } from '../lib/memory-db.js';
 import { SecretRequestService, createSecretVault } from '../services/SecretRequestService.js';
 import type { Tree } from '../lib/trees.js';
-import { seededPersonas } from '../extensions/seeds.js';
+import { seededAgents } from '../extensions/seeds.js';
 
 const TYPED = 'sk_live_TYPED_SENTINEL_4b1f9c';
 const MINTED = 'gitea_MINTED_SENTINEL_77ad02';
 
-const koala = seededPersonas().find((agent) => agent.slug === 'koala')!;
+const koala = seededAgents().find((agent) => agent.slug === 'koala')!;
 
 function vaultBackend() {
   const held = new Map<string, string>();

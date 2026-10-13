@@ -251,3 +251,29 @@ describe('a tool whose results come from outside', () => {
     expect(read).not.toContain('can differ');
   });
 });
+
+describe('the tools an MCP server serves', () => {
+  it('are listed together under the server, once, with what it says about itself and the person\'s notes', () => {
+    const servedBy = { server: 'playwright', where: 'workspace' as const, summary: 'A headless browser.', instructions: 'Snapshot before you click.', notes: 'Odoo is at http://localhost:8069.', dependsOn: 'the kept Odoo' };
+    const text = describeAvailable([
+      { name: 'read_file', description: 'Read a file', binding: 'environment' },
+      { name: 'playwright__browser_snapshot', description: 'Capture the page', binding: 'environment', servedBy, usageGuidance: 'Prefer this to screenshots.' },
+      { name: 'playwright__browser_click', description: 'Click', binding: 'environment', servedBy },
+      { name: 'docs__search', description: 'Search', binding: 'network', servedBy: { server: 'docs', where: 'hosted' } },
+    ]);
+    expect(text).toBe([
+      'TOOLS YOU CAN USE RIGHT NOW',
+      '',
+      '- read_file: Read a file',
+      '- From playwright, an MCP server that runs in your workspace: A headless browser.',
+      '  What the server says about itself: Snapshot before you click.',
+      "  The person's notes: Odoo is at http://localhost:8069.",
+      '  It depends on: the kept Odoo',
+      '  - playwright__browser_snapshot: Capture the page',
+      '    Prefer this to screenshots.',
+      '  - playwright__browser_click: Click',
+      '- From docs, an MCP server this platform reaches for you',
+      '  - docs__search: Search',
+    ].join('\n'));
+  });
+});

@@ -48,7 +48,13 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
     'get_project_url',
     'Find where a project\'s deployment is reached, and whether it is healthy',
     'Use this when someone wants the address of a deployed project or whether it is up.',
-    'the deployment, its state and its address, or that it is not deployed',
+    'the deployment, its state, and where it is reached on this machine, publicly and in preview — or that it is not exposed or not deployed',
+  ),
+  reader(
+    'project_releases',
+    'See a project\'s releases: what is live, which build waits in preview, and how each one\'s browser tests went',
+    'Use this to tell the person what happened to their work after it landed: whether a preview is waiting for them, what is live, and why a release failed. Cutting over, discarding and rolling back are the person\'s, on the project\'s card: point them there, never claim it is done.',
+    'what is live, any preview waiting for the person, and the newest releases with their slot, state, reason and browser tests',
   ),
   reader(
     'get_project_env',

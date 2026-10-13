@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, BellRing, Loader2 } from 'lucide-react';
+import { AlertTriangle, BellRing, Loader2, X } from 'lucide-react';
+import { releaseNotice, toastOf, type ToastKind } from './lib/toast';
 import Sidebar from './components/Sidebar';
 import { FOREST_TABS, ShellContextInstance, type ShellContext, type WizardPreset } from './components/shell-context';
 import PendingApprovals from './components/PendingApprovals';
@@ -31,6 +32,13 @@ import {
 } from './api/deployments';
 import { listProviders, credentialKeys } from './api/credentials';
 import { getNginxConfig, saveNginxConfig, nginxKeys } from './api/nginx';
+
+const TOAST_TONE: Record<ToastKind, { border: string; icon: string }> = {
+  destroyed: { border: 'border-green-500', icon: 'text-green-500' },
+  external: { border: 'border-yellow-500', icon: 'text-yellow-500' },
+  info: { border: 'border-sky-500', icon: 'text-sky-400' },
+  error: { border: 'border-rose-500', icon: 'text-rose-400' },
+};
 
 export function RootLayout() {
   const queryClient = useQueryClient();
@@ -115,20 +123,21 @@ export function RootLayout() {
   });
 
   useSocketEvent<{ id: string }>('resource-destroyed', (data) => {
-    pushNotification(data);
+    const nid = pushNotification(data);
 
     setShowLogModal((current) => (current && current.id === data.id) ? null : current);
     clearDestroyFor(data.id);
 
     queryClient.invalidateQueries({ queryKey: ['clusters'] });
     queryClient.invalidateQueries({ queryKey: ['deployments'] });
-    setTimeout(() => dismissNotification(useShellStore.getState().notifications.at(-1)?.nid ?? 0), 5000);
+    setTimeout(() => dismissNotification(nid), 5000);
   });
 
+  const [releasesNoticed] = useState(() => new Set<string>());
   useSocketEvent<OdooRelease>('odoo-release-updated', (release) => {
     queryClient.invalidateQueries({ queryKey: releaseKeys.list(release.projectId) });
-    if (release.state === 'preview') pushNotification({ type: 'info', message: `A new version (${release.commit.slice(0, 8)}) is ready to preview — open the project's Builds panel to look at it and cut over.` });
-    if (release.state === 'failed') pushNotification({ type: 'error', message: `A release of ${release.commit.slice(0, 8)} failed: ${release.reason ?? 'no reason given'}` });
+    const notice = releaseNotice(releasesNoticed, release);
+    if (notice) pushNotification(notice);
   });
 
   useSocketEvent('deployment-updated', () => {
@@ -234,7 +243,7 @@ export function RootLayout() {
     return <NoInstance hasInstance={Boolean(placement.data.instance)} onLogout={handleLogout} />;
   }
 
-  const isFullBleed = ['/chat', '/projects', '/studio/agents', '/studio/tools', '/studio/procedures', '/studio/tree-types'].some((prefix) => location.pathname.startsWith(prefix));
+  const isFullBleed = ['/chat', '/projects', '/studio/agents', '/studio/tools', '/studio/mcp-servers', '/studio/procedures', '/studio/tree-types'].some((prefix) => location.pathname.startsWith(prefix));
 
   const shellContext: ShellContext = {
     clusters,
@@ -260,15 +269,22 @@ export function RootLayout() {
 
       <main className={`flex-1 min-w-0 h-full min-h-0 ${isFullBleed ? 'p-0 overflow-hidden' : 'p-10 overflow-y-auto'} relative flex flex-col`}>
         <div className="fixed top-6 right-6 z-[60] space-y-3">
-          {notifications.map(n => (
-            <div key={n.nid} className={`bg-slate-800 border-l-4 ${n.outOfBand ? 'border-yellow-500' : 'border-green-500'} p-4 rounded-lg shadow-2xl flex items-center gap-4 min-w-[300px] animate-in slide-in-from-right`}>
-              <BellRing className={n.outOfBand ? 'text-yellow-500' : 'text-green-500'} size={20} />
-              <div>
-                <div className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">{n.outOfBand ? 'External Event' : 'System Event'}</div>
-                <div className="text-sm font-bold">{n.name} {n.outOfBand ? 'Deleted Externally' : 'Destroyed'}</div>
+          {notifications.map((n) => {
+            const toast = toastOf(n);
+            const tone = TOAST_TONE[toast.kind];
+            return (
+              <div key={n.nid} className={`bg-slate-800 border-l-4 ${tone.border} p-4 rounded-lg shadow-2xl flex items-center gap-4 min-w-[300px] max-w-[420px] animate-in slide-in-from-right`}>
+                <BellRing className={`${tone.icon} shrink-0`} size={20} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">{toast.label}</div>
+                  <div className="text-sm font-bold break-words">{toast.text}</div>
+                </div>
+                <button onClick={() => dismissNotification(n.nid)} aria-label="Dismiss" className="text-slate-500 hover:text-slate-200 shrink-0 self-start">
+                  <X size={14} />
+                </button>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <ShellContextInstance.Provider value={shellContext}>

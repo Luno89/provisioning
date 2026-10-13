@@ -608,6 +608,11 @@ export interface WaitForPersonWires {
 export type WaitForPersonSettings = {
   /** Message */
   prompt: string
+  /**
+   * Answers to choose from
+   * When set, the person picks one of these, and the answer is the one picked.
+   */
+  choices?: readonly (string)[]
   /** Wait for (minutes) */
   timeoutMinutes?: number
 }
@@ -716,7 +721,10 @@ export interface RunInputNode extends Value {
   wire(wires: RunInputWires): void
 }
 
-export type RecallMemoryWires = Record<string, never>
+export interface RecallMemoryWires {
+  /** The model the prompt is for. Nothing wired means memories kept for one model are left out. */
+  binding?: In<'modelBinding'>
+}
 
 export type RecallMemorySettings = {
   /**
@@ -1179,7 +1187,7 @@ export interface Nodes {
   persona(id: string, wires?: PersonaWires, settings?: PersonaSettings, meta?: NodeMeta): PersonaNode
   /** Run Input: What this run was started with: the message, and any named inputs. */
   runInput(id: string, wires?: RunInputWires, settings?: RunInputSettings, meta?: NodeMeta): RunInputNode
-  /** Recall Memory: Picks the owner's active memories that apply here — project ones first, then global, newest first — and renders them as a prompt section within a character budget, saying how many were left out. */
+  /** Recall Memory: Picks the owner's active memories that apply here — project ones first, then global, newest first — and renders them as a prompt section within a character budget, saying how many were left out. A memory kept for one model is picked only when the wired binding is that model. */
   recallMemory(id: string, wires?: RecallMemoryWires, settings?: RecallMemorySettings, meta?: NodeMeta): RecallMemoryNode
   /**
    * Save Memory: Writes something worth remembering for later runs. A project memory is refused when the run has no project, because it could never be recalled.

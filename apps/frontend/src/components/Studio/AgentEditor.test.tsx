@@ -24,6 +24,17 @@ vi.mock('../../api/agents', async () => {
   }
 })
 
+vi.mock('../../api/mcp', async () => {
+  const actual = await vi.importActual<typeof import('../../api/mcp')>('../../api/mcp')
+  return {
+    ...actual,
+    getMcpCatalogue: vi.fn(async () => ({
+      servers: [{ id: 'p1', name: 'playwright', runs: { where: 'workspace', install: [{ via: 'npm', packages: ['@playwright/mcp'] }], start: 'playwright-mcp', port: 8931 }, status: { state: 'captured', tools: 23 }, createdAt: 't', updatedAt: 't' }],
+      templates: [],
+    })),
+  }
+})
+
 vi.mock('../../api/procedures', async () => {
   const actual = await vi.importActual<typeof import('../../api/procedures')>('../../api/procedures')
   return {
@@ -67,6 +78,7 @@ const agent = (over: Partial<Agent> = {}): Agent => ({
   failures: [],
   procedure: 'do-one-task',
   tools: ['read_file'],
+  toolSources: [{ tool: 'read_file', source: 'shipped' }],
   environment: { terminal: true, filesystem: true },
   mine: false,
   image: { state: 'ready', reference: 'registry/koala:abc' },
@@ -95,12 +107,32 @@ beforeEach(() => {
 
 describe('editing an agent', () => {
 
-  it('opens one and offers to save your own copy of a built-in', async () => {
+  it('keeps a built-in built in while only its tools change, and offers your own copy once anything else does', async () => {
     await edit('executor')
 
+    expect(screen.getByText(/changing only its tools keeps it built in/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete my copy' })).not.toBeInTheDocument()
+
+    await userEvent.type(screen.getByDisplayValue('You do one thing.'), ' Carefully.')
     expect(screen.getByText(/Your own copy of Executor/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save as my own' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Delete my copy' })).not.toBeInTheDocument()
+  })
+
+  it('says which tools are built in and which you granted, and gives back a built-in one taken away', async () => {
+    vi.mocked(listAgents).mockResolvedValue([agent({
+      tools: ['read_file', 'search_web'],
+      toolSources: [{ tool: 'read_file', source: 'shipped' }, { tool: 'mark_done', source: 'revoked' }, { tool: 'search_web', source: 'granted' }],
+    })])
+    await edit('executor')
+    const held = within(screen.getByRole('region', { name: 'Tools it holds' }))
+    expect(held.getByText('read_file').closest('div')).toHaveTextContent('built in')
+    expect(held.getByText('search_web').closest('div')).toHaveTextContent('granted by you')
+    expect(held.getByText('Built in, taken away by you')).toBeInTheDocument()
+
+    await userEvent.click(held.getByRole('button', { name: 'Give back mark_done' }))
+    expect(held.queryByText('Built in, taken away by you')).toBeNull()
+    expect(held.getByText('mark_done').closest('div')).toHaveTextContent('built in')
   })
 
   it('lists the tools it holds, grouped, and offers the rest to add', async () => {
@@ -123,7 +155,7 @@ describe('editing an agent', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add tools' }))
     await userEvent.click(screen.getByRole('button', { name: 'Add search_web' }))
     await userEvent.click(screen.getByRole('button', { name: 'Take away read_file' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Save as my own' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(saveAgent).toHaveBeenCalledWith(expect.objectContaining({
       slug: 'executor',
@@ -230,5 +262,17 @@ describe('one part of an agent, opened on its own', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save as my own' }))
 
     await waitFor(() => expect(saveAgent).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'You do one thing. Carefully.', tools: ['read_file'], procedure: 'do-one-task' })))
+  })
+
+  it('holds an MCP server from the catalogue, still built in, and says holding a workspace one rebuilds its image', async () => {
+    vi.mocked(saveAgent).mockImplementation(async (saved) => saved)
+    await edit('executor')
+    const server = await screen.findByRole('checkbox', { name: /playwright/ })
+    expect(screen.getByText('in the workspace · 23 tools')).toBeInTheDocument()
+    await userEvent.click(server)
+    expect(screen.getByText(/installed in this agent's image, so holding one rebuilds it/)).toBeInTheDocument()
+    expect(screen.getByText(/changing only its tools keeps it built in/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(saveAgent).toHaveBeenCalledWith(expect.objectContaining({ slug: 'executor', servers: ['playwright'] })))
   })
 })

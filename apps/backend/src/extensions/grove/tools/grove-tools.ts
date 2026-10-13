@@ -8,6 +8,9 @@ import { proposedPlanPath, renderProposedPlan } from '../../../lib/plan-document
 import { worktreeHead } from '../../../engine-host/grove-worktrees.js';
 import { treeOutline } from '../../../lib/tree-outline.js';
 import { nextLeafStep, taskItem } from '../../../lib/grove-leaf.js';
+import { workOrder } from '../../../lib/work-order.js';
+import { changeSummary, parseCancel, parseNewStories, parseStoryEdit, type ChangeWorld } from '../../../lib/item-changes.js';
+import type { ItemChange } from '../../../lib/plan-proposals.js';
 
 export interface GroveStores {
   trees: { list(): Promise<Tree[]>; save(tree: Tree): Promise<void> };
@@ -20,7 +23,24 @@ export interface GroveStores {
     list(ownerId: string, conversationId?: string): Promise<PlanProposal[]>;
   };
   treeTypes?: (ownerId: string) => Promise<TreeTypeChoice[]>;
-  binding?: (ownerId: string, conversationId: string) => Promise<{ treeId?: string | undefined; projectId?: string | undefined } | undefined>;
+  describeTreeType?: (ownerId: string, typeId: string) => Promise<string | undefined>;
+  binding?: (ownerId: string, conversationId: string) => Promise<{ treeId?: string | undefined; projectId?: string | undefined; leafId?: string | undefined; branchId?: string | undefined } | undefined>;
+  growing?: TreeGrowing | undefined;
+}
+
+export interface TreeGrowing {
+  start(ownerId: string, treeId: string): Promise<{ started: true } | { started: false; reason: 'unavailable' | 'running' | 'switched-off' }>;
+  status(treeId: string): Promise<{ state: string; startedAt?: string | undefined; reason?: string | undefined }>;
+}
+
+const UNFINISHED: readonly Leaf['status'][] = ['pending', 'running', 'claimed'];
+
+export function growingLine(status: { state: string; startedAt?: string | undefined; reason?: string | undefined }): string {
+  if (status.state === 'running') return `It is growing now${status.startedAt ? `, since ${status.startedAt}` : ''}.`;
+  if (status.state === 'finished') return 'Its last run finished: nothing was left that it could work.';
+  if (status.state === 'failed') return `Its last run failed: ${status.reason ?? 'no reason was given'}.`;
+  if (status.state === 'unavailable') return 'Whether it is growing cannot be seen right now.';
+  return 'It is not growing.';
 }
 
 export interface TreeTypeChoice {
@@ -59,13 +79,113 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
   const treeTypesOf = async (ownerId: string): Promise<TreeTypeChoice[]> =>
     (options.stores.treeTypes ? await options.stores.treeTypes(ownerId) : []);
 
+  const treeWorld = async (ownerId: string, treeId: string): Promise<ChangeWorld> => {
+    const branchIds = new Set((await options.stores.branches.list()).filter((branch) => branch.treeId === treeId && branch.ownerId === ownerId).map((branch) => branch.id));
+    const leaves = (await options.stores.leaves.list()).filter((leaf) => branchIds.has(leaf.branchId) && leaf.ownerId === ownerId);
+    const leafIds = new Set(leaves.map((leaf) => leaf.id));
+    const tasks = options.stores.tasks ? (await options.stores.tasks.list()).filter((task) => task.ownerId === ownerId && task.leafId !== undefined && leafIds.has(task.leafId)) : [];
+    return { treeId, leaves, tasks };
+  };
+
+  const storyOf = async (ownerId: string, leafId: string) => {
+    const leaf = (await options.stores.leaves.list()).find((candidate) => candidate.id === leafId && candidate.ownerId === ownerId);
+    const branch = leaf ? (await options.stores.branches.list()).find((candidate) => candidate.id === leaf.branchId && candidate.ownerId === ownerId) : undefined;
+    return leaf && branch ? { leaf, branch } : undefined;
+  };
+
+  const proposeChange = async (
+    caller: { ownerId?: string | undefined; conversationId?: string | undefined; runId?: string | undefined },
+    change: ItemChange,
+    replaces: (earlier: ItemChange) => boolean,
+  ): Promise<ToolOutcome> => {
+    const ownerId = caller.ownerId!;
+    const stamp = now();
+    const earlier = (await options.stores.plans!.list(ownerId, caller.conversationId))
+      .filter((entry) => entry.status === 'proposed' && entry.change !== undefined && replaces(entry.change));
+    for (const entry of earlier) await options.stores.plans!.save({ ...entry, status: 'superseded', updatedAt: stamp });
+    const proposal: PlanProposal = {
+      id: newId(),
+      ownerId,
+      ...(caller.conversationId ? { conversationId: caller.conversationId } : {}),
+      ...(caller.runId ? { runId: caller.runId } : {}),
+      status: 'proposed',
+      change,
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
+    await options.stores.plans!.save(proposal);
+    const summary = changeSummary(change);
+    return {
+      ok: true,
+      digest: `proposed change ${proposal.id} — ${summary}`,
+      content: `Proposed change ${proposal.id}: ${summary}. It waits on a card for the person; nothing changes until they approve it. Approving does this:\n${change.outcome.map((line) => `- ${line}`).join('\n')}${earlier.length > 0 ? `\nIt replaces the change proposed earlier here, which can no longer be approved.` : ''}`,
+    };
+  };
+
+  const boundItem = async (ownerId: string, conversationId: string | undefined) => {
+    const binding = await bindingOf(ownerId, conversationId);
+    return { leafId: binding?.leafId, branchId: binding?.branchId };
+  };
+
   return {
+    async propose_story_change({ parsed, caller }): Promise<ToolOutcome> {
+      if (!caller.ownerId) return refuse('this run has no owner to propose a change for');
+      if (!options.stores.plans) return refuse('changes cannot be proposed here — nothing is set up to keep them for approval');
+      const leafId = asString(parsed, 'leafId') ?? asString(parsed, 'storyId') ?? (await boundItem(caller.ownerId, caller.conversationId)).leafId;
+      if (!leafId) return refuse('say which story (leafId) — this conversation is not about one story');
+      const found = await storyOf(caller.ownerId, leafId);
+      if (!found) return refuse(`no such story: ${leafId}`);
+      const outcome = parseStoryEdit(parsed, leafId, await treeWorld(caller.ownerId, found.branch.treeId));
+      if ('problem' in outcome) return refuse(`${outcome.problem}. Nothing was proposed.`);
+      return proposeChange(caller, outcome.change, (earlier) => earlier.edit?.leafId === leafId);
+    },
+
+    async propose_stories({ parsed, caller }): Promise<ToolOutcome> {
+      if (!caller.ownerId) return refuse('this run has no owner to propose stories for');
+      if (!options.stores.plans) return refuse('changes cannot be proposed here — nothing is set up to keep them for approval');
+      const bound = await boundItem(caller.ownerId, caller.conversationId);
+      const boundBranch = bound.branchId ?? (bound.leafId ? (await storyOf(caller.ownerId, bound.leafId))?.branch.id : undefined);
+      const branchId = asString(parsed, 'branchId') ?? asString(parsed, 'featureId') ?? boundBranch;
+      if (!branchId) return refuse('say which feature (branchId) the stories go in — this conversation is not about one');
+      const branch = (await options.stores.branches.list()).find((candidate) => candidate.id === branchId && candidate.ownerId === caller.ownerId);
+      if (!branch) return refuse(`no such feature: ${branchId}`);
+      const outcome = parseNewStories(parsed, branch, await treeWorld(caller.ownerId, branch.treeId));
+      if ('problem' in outcome) return refuse(`${outcome.problem}. Nothing was proposed — send all the stories again with that fixed.`);
+      return proposeChange(caller, outcome.change, (earlier) => earlier.add?.branchId === branchId);
+    },
+
+    async propose_story_cancel({ parsed, caller }): Promise<ToolOutcome> {
+      if (!caller.ownerId) return refuse('this run has no owner to propose a change for');
+      if (!options.stores.plans) return refuse('changes cannot be proposed here — nothing is set up to keep them for approval');
+      const named = asStringList(parsed, 'leafIds');
+      const single = asString(parsed, 'leafId');
+      const bound = (await boundItem(caller.ownerId, caller.conversationId)).leafId;
+      const leafIds = named.length > 0 ? named : single ? [single] : bound ? [bound] : [];
+      if (leafIds.length === 0) return refuse('say which stories to cancel (leafIds) — this conversation is not about one story');
+      const first = await storyOf(caller.ownerId, leafIds[0]!);
+      if (!first) return refuse(`no such story: ${leafIds[0]}`);
+      const outcome = parseCancel(parsed, leafIds, await treeWorld(caller.ownerId, first.branch.treeId));
+      if ('problem' in outcome) return refuse(`${outcome.problem}. Nothing was proposed.`);
+      const asked = new Set(leafIds);
+      return proposeChange(caller, outcome.change, (earlier) => (earlier.cancel ?? []).some((id) => asked.has(id)));
+    },
+
     async list_tree_types({ caller }): Promise<ToolOutcome> {
       if (!caller.ownerId) return refuse('this run has no owner whose tree types to list');
       const types = await treeTypesOf(caller.ownerId);
       if (types.length === 0) return refuse('this person has no tree types set up, so no new tree can be proposed');
       const lines = types.map((type) => `- ${type.id} — ${type.label}: ${type.summary}`);
       return { ok: true, digest: `${types.length} tree types`, content: `The tree types a new tree can be:\n${lines.join('\n')}` };
+    },
+
+    async describe_tree_type({ parsed, caller }): Promise<ToolOutcome> {
+      if (!caller.ownerId) return refuse('this run has no owner whose tree types to describe');
+      const type = asString(parsed, 'type');
+      if (!type) return refuse('name the tree type to describe as type — list_tree_types gives the ids');
+      if (!options.stores.describeTreeType) return refuse('tree types cannot be described here');
+      const described = await options.stores.describeTreeType(caller.ownerId, type);
+      if (!described) return refuse(`there is no tree type "${type}" — list_tree_types gives the ids`);
+      return { ok: true, digest: `${type} described`, content: described };
     },
 
     async read_tree({ parsed, caller }): Promise<ToolOutcome> {
@@ -80,7 +200,27 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       const leaves = (await options.stores.leaves.list()).filter((leaf) => branchIds.has(leaf.branchId));
       const leafIds = new Set(leaves.map((leaf) => leaf.id));
       const tasks = options.stores.tasks ? (await options.stores.tasks.list()).filter((task) => task.leafId && leafIds.has(task.leafId)) : [];
-      return { ok: true, digest: `tree ${tree.name}: ${branches.length} branches, ${leaves.length} leaves`, content: treeOutline(tree, branches, leaves, tasks) };
+      const growing = options.stores.growing ? `\n\n${growingLine(await options.stores.growing.status(tree.id))}` : '';
+      return { ok: true, digest: `tree ${tree.name}: ${branches.length} branches, ${leaves.length} leaves`, content: `${treeOutline(tree, branches, leaves, tasks)}${growing}` };
+    },
+
+    async run_tree({ parsed, caller }): Promise<ToolOutcome> {
+      if (!caller.ownerId) return refuse('this run has no owner whose tree to grow');
+      if (!options.stores.growing) return refuse('trees cannot be started from here');
+      const bound = (await bindingOf(caller.ownerId, caller.conversationId))?.treeId;
+      const treeId = asString(parsed, 'treeId') ?? asString(parsed, 'tree_id') ?? bound;
+      if (!treeId) return refuse('run_tree needs the treeId of the tree to grow');
+      const tree = (await options.stores.trees.list()).find((candidate) => candidate.id === treeId && candidate.ownerId === caller.ownerId);
+      if (!tree) return refuse(`no such tree: ${treeId}`);
+      const branchIds = new Set((await options.stores.branches.list()).filter((branch) => branch.treeId === tree.id).map((branch) => branch.id));
+      const leaves = (await options.stores.leaves.list()).filter((leaf) => branchIds.has(leaf.branchId));
+      if (leaves.length === 0) return refuse(`${tree.name} has nothing planned yet: propose a plan for it and let the person approve it first`);
+      if (!leaves.some((leaf) => UNFINISHED.includes(leaf.status))) return refuse(`${tree.name} has nothing left to work: every leaf has landed, failed or been cancelled. Plan more for it, or ask the planner to replan what failed`);
+      const started = await options.stores.growing.start(caller.ownerId, tree.id);
+      if (started.started) return { ok: true, digest: `${tree.name} is growing`, content: `${tree.name} started growing: its ready leaves are being worked and judged. read_tree shows how it goes; when work lands, project_releases shows the preview it makes.` };
+      if (started.reason === 'running') return { ok: true, digest: `${tree.name} was already growing`, content: `${tree.name} is already growing; nothing new was started.` };
+      if (started.reason === 'switched-off') return refuse(`the agent that grows ${tree.name} is switched off for this person, so it cannot be started`);
+      return refuse('the engine is not reachable right now, so the tree cannot be started');
     },
 
     async propose_plan({ parsed, caller, driver }): Promise<ToolOutcome> {
@@ -124,7 +264,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
         updatedAt: stamp,
       };
       const earlier = (await options.stores.plans.list(caller.ownerId, caller.conversationId))
-        .filter((entry) => entry.status === 'proposed' && (caller.conversationId ? true : entry.runId === caller.runId));
+        .filter((entry) => entry.status === 'proposed' && entry.plan !== undefined && (caller.conversationId ? true : entry.runId === caller.runId));
       for (const entry of earlier) await options.stores.plans.save({ ...entry, status: 'superseded', updatedAt: stamp });
       await options.stores.plans.save(proposal);
 
@@ -213,6 +353,8 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       const leaves = await options.stores.leaves.list();
       const leaf = leaves.find((candidate) => candidate.id === needle && candidate.ownerId === caller.ownerId);
       if (!leaf) return refuse(`no such leaf: ${needle}`);
+      const ended = caller.runId ? leaf.attempts?.find((attempt) => attempt.runId === caller.runId) : undefined;
+      if (ended) return refuse(`${leaf.id} was taken off this run (${ended.error}); this run's work on it is over and is not claimed`);
       if (leaf.status === 'claimed') return refuse(`${leaf.id} is already claimed — the next word comes from the judge, not a second claim`);
       if (leaf.status === 'succeeded' || leaf.status === 'failed' || leaf.status === 'cancelled') {
         return refuse(`${leaf.id} is already settled (${leaf.status}) — there is nothing left to claim`);
@@ -303,8 +445,9 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       const claimed: { id: string; title: string; body: string; branchId: string; claim?: Leaf['claim'] }[] = [];
       const settled: { id: string; title: string; status: TaskStatus | string }[] = [];
       const parked: { id: string; title: string; review?: string }[] = [];
+      const waiting: { id: string; title: string; waitingFor: string }[] = [];
 
-      for (const leaf of leaves) {
+      for (const leaf of workOrder(leaves, branches.filter((branch) => branchOfTree.has(branch.id)))) {
         switch (leaf.status) {
           case 'succeeded':
           case 'failed':
@@ -323,7 +466,9 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
             break;
           case 'pending': {
             const waitingOn = (leaf.dependsOn ?? []).filter((dep) => byId.get(dep)?.status !== 'succeeded');
-            if (waitingOn.length > 0) {
+            if (leaf.waitingFor) {
+              waiting.push({ id: leaf.id, title: leaf.title, waitingFor: leaf.waitingFor.reason });
+            } else if (waitingOn.length > 0) {
               blocked.push({ id: leaf.id, title: leaf.title, waitingOn });
             } else if ((openTasksByLeaf.get(leaf.id) ?? 0) === 0) {
               unbroken.push({ id: leaf.id, title: leaf.title, branchId: leaf.branchId });
@@ -335,8 +480,8 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
         }
       }
 
-      const digest = `${ready.length} ready, ${blocked.length} blocked, ${unbroken.length} without tasks, ${claimed.length} claimed, ${parked.length} awaiting a person's review, ${inFlight.length} in flight, ${settled.length} settled — tree ${treeId}`;
-      const content = JSON.stringify({ treeId, ready, unbroken, blocked, claimed, awaitingReview: parked, inFlight, settled }, null, 2);
+      const digest = `${ready.length} ready, ${blocked.length} blocked, ${unbroken.length} without tasks, ${claimed.length} claimed, ${parked.length} awaiting a person's review, ${waiting.length} waiting on the workspace, ${inFlight.length} in flight, ${settled.length} settled — tree ${treeId}`;
+      const content = JSON.stringify({ treeId, ready, unbroken, blocked, claimed, awaitingReview: parked, waitingOnWorkspace: waiting, inFlight, settled }, null, 2);
       return { ok: true, digest, content };
     },
 
@@ -352,6 +497,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       if (step.kind === 'claim') return { ok: true, digest: `every task of ${leaf.title} is finished — claim it`, content: JSON.stringify({ step: 'claim' }) };
       if (step.kind === 'unbroken') return { ok: true, digest: `${leaf.title} has no tasks yet`, content: JSON.stringify({ step: 'unbroken' }) };
       if (step.kind === 'fail') return { ok: true, digest: `${leaf.title} cannot finish: ${step.reason}`, content: JSON.stringify({ step: 'fail', reason: step.reason }) };
+      if (step.kind === 'waiting') return { ok: true, digest: `${leaf.title} waits on its workspace: ${step.reason}`, content: JSON.stringify({ step: 'waiting', reason: step.reason }) };
 
       const task = tasks.find((entry) => entry.id === step.taskIds[0])!;
       const item = taskItem(leafId, task, asString(parsed, 'siblings'));

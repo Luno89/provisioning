@@ -1,8 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { BUILDER_TOOLS, capabilitiesFor, contractsFor, environmentFor, resolveToolSet } from '@koala/agent-engine';
-import { extensionTools, seededPersonas } from './seeds.js';
+import { extensionTools, seededAgents, seededGrants, seededPersonas } from './seeds.js';
 
-const ALL_SEEDED_AGENTS = seededPersonas;
+const ALL_SEEDED_AGENTS = seededAgents;
+
+describe('what the shipped agents hold', () => {
+  it('is granted, never listed on the agent itself', () => {
+    for (const record of seededPersonas()) expect('tools' in record, record.slug).toBe(false);
+  });
+
+  it('grants only tools something offers, to agents that ship', () => {
+    const tools = new Set([...BUILDER_TOOLS, ...extensionTools()].map((tool) => tool.name));
+    const agents = new Set(seededPersonas().map((record) => record.slug));
+    for (const grant of seededGrants()) {
+      expect(tools.has(grant.tool), `${grant.agent} is granted ${grant.tool}, which nothing offers`).toBe(true);
+      expect(agents.has(grant.agent), `${grant.tool} is granted to ${grant.agent}, which does not ship`).toBe(true);
+    }
+  });
+});
 
 describe('seeded agents get environments that match what they do', () => {
   const agentBySlug = (slug: string) => ALL_SEEDED_AGENTS().find((agent) => agent.slug === slug)!;

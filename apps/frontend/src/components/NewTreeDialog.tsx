@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Loader2, X } from 'lucide-react';
 import { listTreeTypes, createTree, groveKeys } from '../api/grove';
+import { Becomes } from './TreeTypes/Becomes';
 import type { TreeType } from '../types/grove.js';
 
 export default function NewTreeDialog({ onClose, onCreated }: {
@@ -79,10 +80,18 @@ export default function NewTreeDialog({ onClose, onCreated }: {
               ))}
             </div>
             {chosen && (
+              <>
               <p className="mt-3 text-[11px] text-slate-400 leading-relaxed border-l-2 border-[var(--leaf)] pl-3">
                 <strong className="text-slate-300">Done means:</strong> {chosen.doneMeans}
-                {chosen.produces === 'artefact' && ' This type produces an answer rather than files, so it gets no repository.'}
+                {chosen.produces === 'service'
+                  ? ' It gets a project of its own: a repository whose every push builds and deploys to your cluster.'
+                  : ' It produces an answer, so it gets no project: nothing is built or deployed.'}
               </p>
+              <details className="mt-2 text-[11px] text-slate-400">
+                <summary className="cursor-pointer text-slate-300">What a tree of this type becomes</summary>
+                <div className="mt-2 max-h-64 overflow-y-auto"><Becomes typeId={chosen.id} /></div>
+              </details>
+              </>
             )}
           </div>
 

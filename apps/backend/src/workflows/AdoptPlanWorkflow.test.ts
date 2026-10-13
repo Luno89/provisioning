@@ -1,3 +1,4 @@
+import { ApplicationFailure } from '@temporalio/common';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
@@ -61,7 +62,8 @@ const proposal = (over: Partial<PlanProposal> = {}): PlanProposal => ({
   ...over,
 });
 
-function world(start: PlanProposal[], options: { saved?: string[] } = {}) {
+function world(start: PlanProposal[], options: { saved?: string[]; homes?: boolean; bound?: string[] } = {}) {
+  const stopped: string[] = [];
   const proposals = [...start];
   const trees: Tree[] = [];
   const branches = new Map<string, Branch>();
@@ -70,8 +72,11 @@ function world(start: PlanProposal[], options: { saved?: string[] } = {}) {
   const files = new Map<string, string>();
   const commands: string[] = [];
   let repoExists = false;
+  const repoFiles: string[] = [];
   const provisioned: string[] = [];
   const kubeCalls: string[][] = [];
+  const bound: string[] = [];
+  const alreadyBound = new Set<string>(options.bound ?? []);
 
   const registry = createAgentRegistry();
   const resolver = createEnvironmentResolver({
@@ -90,6 +95,12 @@ function world(start: PlanProposal[], options: { saved?: string[] } = {}) {
                 return { stdout: '', stderr: '', exitCode: repoExists ? 0 : 1 };
               }
               if (command.includes('git init')) repoExists = true;
+              if (command.includes('grep -l -F')) {
+                const ids = [...command.matchAll(/-e '`([^`]+)`'/g)].map((match) => match[1]!);
+                const found = [...files.entries()].filter(([path, content]) => path.startsWith('repo/leaves/') && ids.some((id) => content.includes(`\`${id}\``))).map(([path]) => path.slice('repo/'.length));
+                return { stdout: found.map((path) => `${path}\n`).join(''), stderr: '', exitCode: 0 };
+              }
+              if (command.includes('for f in') && command.includes('test -e')) return { stdout: repoFiles.map((file) => `${file}\n`).join(''), stderr: '', exitCode: 0 };
               return { stdout: command.includes('rev-parse HEAD') ? 'c0ffee\n' : '', stderr: '', exitCode: 0 };
             },
             readFile: async ({ path }) => files.get(path) ?? '',
@@ -158,30 +169,48 @@ function world(start: PlanProposal[], options: { saved?: string[] } = {}) {
       branches: { list: async () => [...branches.values()], save: async (branch) => { branches.set(branch.id, branch); } },
       leaves: { list: async () => [...leaves.values()], save: async (leaf) => { leaves.set(leaf.id, leaf); } },
       tasks: { list: async (ownerId) => [...tasks.values()].filter((task) => task.ownerId === ownerId), save: async (task) => { tasks.set(task.id, task); } },
+      conversations: {
+        bind: async (ownerId, conversationId, binding) => {
+          if (alreadyBound.has(conversationId)) return false;
+          alreadyBound.add(conversationId);
+          bound.push(`${ownerId} ${conversationId} -> ${binding.treeId}${binding.projectId ? ` / ${binding.projectId}` : ''}`);
+          return true;
+        },
+      },
     },
     treeWorkspaces: createTreeWorkspaces({ resolver, kube, documents }),
     environments: resolver,
     treeTypes: async () => treeTypes,
     registryHost: 'registry.test',
+    ...(options.homes ? {
+      homeTree: async (tree: Tree) => {
+        if (tree.projectIds?.length) return tree;
+        const homed = { ...tree, projectIds: [`project-${tree.id}`] };
+        trees[trees.findIndex((candidate) => candidate.id === tree.id)] = homed;
+        return homed;
+      },
+    } : {}),
+    stopRun: async (workflowId: string) => { stopped.push(workflowId); },
     now: () => 'now',
   });
 
   const activities = createEngineActivities({ planAdoption } as never);
 
-  return { proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, brought, markRepoExists: () => { repoExists = true; } };
+  return { stopped, proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, brought, bound, markRepoExists: (...present: string[]) => { repoExists = true; repoFiles.push(...present); } };
 }
 
-async function adopt(w: ReturnType<typeof world>, proposalId = 'p1'): Promise<AdoptPlanResult> {
+async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: () => never): Promise<AdoptPlanResult> {
   const taskQueue = `adopt-test-${Math.random().toString(36).slice(2, 8)}`;
   const worker = await Worker.create({
     connection: env.nativeConnection,
     taskQueue,
     workflowsPath: resolve(__dirname),
     activities: {
+      PlanAdoptStopActivity: w.activities.PlanAdoptStopActivity,
       PlanAdoptRecordsActivity: w.activities.PlanAdoptRecordsActivity,
       PlanAdoptDocumentsActivity: w.activities.PlanAdoptDocumentsActivity,
       PlanAdoptSettleActivity: w.activities.PlanAdoptSettleActivity,
-      GroveRunInputActivity: async ({ treeId, ownerId }: { treeId: string; ownerId: string }) => ({
+      GroveRunInputActivity: async ({ treeId, ownerId }: { treeId: string; ownerId: string }) => (growing ? growing() : {
         ticket: { runId: `grove-run-${treeId}`, depth: 0, ownerId, agentSlug: 'grove', trigger: 'user' as const },
         procedure: seededProcedures().find((procedure) => procedure.id === 'grove-run')!,
         inputs: { treeId, message: 'Grow the tree.' },
@@ -202,6 +231,9 @@ describe('AdoptPlanWorkflow', () => {
     const result = await adopt(w);
 
     expect(result).toMatchObject({ status: 'adopted', treeId: 'plan-p1-tree', commit: 'c0ffee' });
+    expect(result.growing).toEqual({ started: true });
+    expect((await env.client.workflow.getHandle('grove-run-plan-p1-tree').describe()).type).toBe('AgentRunWorkflow');
+    await env.client.workflow.getHandle('grove-run-plan-p1-tree').terminate('test over').catch(() => undefined);
     expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', ownerId: 'user-1', name: 'Widget API', type: 'api-service', projectIds: [] })]);
     expect([...w.branches.values()]).toEqual([expect.objectContaining({ id: 'plan-p1-b0', treeId: 'plan-p1-tree', title: 'Operability' })]);
 
@@ -232,15 +264,14 @@ describe('AdoptPlanWorkflow', () => {
     });
   }, 60_000);
 
-  it("leaves an existing repository's own files alone when a plan grows the tree", async () => {
+  it("adds only the starter files an existing repository lacks when a plan makes a tree in it, leaving its own alone", async () => {
     const w = world([proposal()]);
-    // The repository is already there: a tree made in the UI and planned afterwards, or a second plan
-    // adopted into a tree whose leaves have worked.
-    w.markRepoExists();
+    w.markRepoExists('README.md');
 
     await adopt(w);
 
     expect(w.files.has('repo/README.md')).toBe(false);
+    expect(w.files.get('repo/scripts/build.sh')).toContain('echo Widget API');
     expect(w.files.get('repo/PLAN.md')).toContain('Widget API');
   }, 60_000);
 
@@ -269,6 +300,24 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', projectIds: ['project-9'] })]);
   }, 60_000);
 
+  it('gives a new tree with no project the home its type calls for, so its tasks belong to that project', async () => {
+    const w = world([proposal()], { homes: true });
+
+    await adopt(w);
+
+    expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', projectIds: ['project-plan-p1-tree'] })]);
+    expect([...w.tasks.values()].map((task) => task.projectId)).toEqual([...w.tasks.values()].map(() => 'project-plan-p1-tree'));
+    expect(w.tasks.size).toBeGreaterThan(0);
+  }, 60_000);
+
+  it('keeps the project a new tree was planned into', async () => {
+    const w = world([proposal({ projectId: 'project-9' })], { homes: true });
+
+    await adopt(w);
+
+    expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', projectIds: ['project-9'] })]);
+  }, 60_000);
+
   it('gives the new tree its service name, and joins the project of the service it claims', async () => {
     const base = proposal();
     const w = world([proposal({ plan: { ...base.plan!, tree: { ...base.plan!.tree!, serviceName: 'widgets', joins: { treeId: 't0', treeName: 'Old widgets', projectId: 'project-7' } } } })]);
@@ -288,6 +337,27 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.branches.size).toBe(1);
     expect(w.leaves.size).toBe(2);
     expect(w.tasks.size).toBe(2);
+  }, 60_000);
+
+  it('binds the conversation a new tree was planned in to that tree and its project, so asking there later is about it', async () => {
+    const w = world([proposal({ id: 'p5' } as never)], { homes: true });
+    await adopt(w, 'p5');
+    expect(w.bound).toEqual(['user-1 conv-1 -> plan-p5-tree / project-plan-p5-tree']);
+    await env.client.workflow.getHandle('grove-run-plan-p5-tree').terminate('test over').catch(() => undefined);
+  }, 60_000);
+
+  it('leaves a conversation already about a tree as it is', async () => {
+    const w = world([proposal({ id: 'p6' } as never)], { bound: ['conv-1'] });
+    await adopt(w, 'p6');
+    expect(w.bound).toEqual([]);
+    await env.client.workflow.getHandle('grove-run-plan-p6-tree').terminate('test over').catch(() => undefined);
+  }, 60_000);
+
+  it('keeps a plan adopted when its tree cannot be started, and says why', async () => {
+    const w = world([proposal({ id: 'p9' } as never)]);
+    const result = await adopt(w, 'p9', () => { throw ApplicationFailure.nonRetryable('there is no agent called "grove" to grow this tree'); });
+    expect(result).toMatchObject({ status: 'adopted', growing: { started: false, reason: 'there is no agent called "grove" to grow this tree' } });
+    expect(w.proposals.find((entry) => entry.id === 'p9')).toMatchObject({ status: 'adopted' });
   }, 60_000);
 
   it('marks the proposal failed with the reason when the tree it grows is gone, and builds nothing', async () => {
@@ -334,5 +404,56 @@ describe('AdoptPlanWorkflow', () => {
     expect(run.type).toBe('AgentRunWorkflow');
     await env.client.workflow.getHandle('grove-run-tree-r').terminate('test over');
   }, 60_000);
-});
 
+  const changeWorld = (change: PlanProposal['change']) => {
+    const w = world([{ id: 'p3', ownerId: 'user-1', conversationId: 'story-chat', status: 'adopting', change, createdAt: 'then', updatedAt: 'then' }]);
+    w.trees.push({ id: 'tree-c', ownerId: 'user-1', name: 'Shop', type: 'odoo-addons', projectIds: ['project-c'], createdAt: 'then', updatedAt: 'then' } as never);
+    w.branches.set('branch-c', { id: 'branch-c', ownerId: 'user-1', treeId: 'tree-c', title: 'The field', createdAt: 'then', updatedAt: 'then' });
+    w.leaves.set('leaf-a', { id: 'leaf-a', ownerId: 'user-1', branchId: 'branch-c', title: 'Note on screen', body: 'The form shows the note', status: 'running', runId: 'leaf-run-a', createdAt: 'then', updatedAt: 'then' });
+    w.leaves.set('leaf-b', { id: 'leaf-b', ownerId: 'user-1', branchId: 'branch-c', title: 'Note in the list', body: 'The list shows the note', status: 'pending', dependsOn: ['leaf-a'], createdAt: 'then', updatedAt: 'then' });
+    w.tasks.set('t-done', { id: 't-done', ownerId: 'user-1', leafId: 'leaf-a', title: 'Add the field', doneMeans: 'it exists', dependsOn: [], status: 'done', runs: [], createdAt: 'then', updatedAt: 'then' });
+    w.tasks.set('t-busy', { id: 't-busy', ownerId: 'user-1', leafId: 'leaf-a', title: 'Show it', doneMeans: 'it shows', dependsOn: [], status: 'running', runs: [], createdAt: 'then', updatedAt: 'then' });
+    w.files.set('repo/leaves/leaf-a.md', '# Note on screen\n\nLeaf `leaf-a`\n\n## The goal the judge checks\n\nThe form shows the note\n\nWaits on: nothing\n\n## Brief\n\nInherit the sale order form view.\n\n## Tasks\n\nNone\n');
+    w.files.set('repo/leaves/leaf-b.md', '# Note in the list\n\nLeaf `leaf-b`\n\nWaits on: `leaf-a`\n\n## Brief\n\nB\n\n## Tasks\n\nNone\n');
+    w.files.set('repo/PLAN.md', '# Shop\n');
+    return w;
+  };
+
+  it('applies a story change: stops the worker on it, starts it again from the change, rewrites its brief and PLAN.md, and runs the tree', async () => {
+    const w = changeWorld({
+      treeId: 'tree-c', why: 'print it too',
+      edit: { leafId: 'leaf-a', body: 'The form and the printed order show the note' },
+      before: [], outcome: [],
+    });
+
+    const result = await adopt(w, 'p3');
+
+    expect(result).toMatchObject({ status: 'adopted', treeId: 'tree-c', growing: { started: true } });
+    expect(w.stopped).toEqual(['leaf-run-a']);
+    expect(w.leaves.get('leaf-a')).toMatchObject({ status: 'pending', body: 'The form and the printed order show the note', attempts: [{ attempt: 1, error: 'stopped and started again: print it too', runId: 'leaf-run-a', change: 'p3' }] });
+    expect(w.leaves.get('leaf-a')?.runId).toBeUndefined();
+    expect(w.tasks.get('t-busy')?.status).toBe('accepted');
+    const brief = w.files.get('repo/leaves/leaf-a.md')!;
+    expect(brief).toContain('The form and the printed order show the note');
+    expect(brief).toContain('Inherit the sale order form view.\n\n_Changed: print it too_');
+    expect(brief).toContain('### Add the field (`t-done`)');
+    expect(w.files.get('repo/PLAN.md')).toContain('## Changed: Change “Note on screen” (change `p3`)\n\nprint it too\n\n- **Note on screen** (`leaf-a`): its goal changed');
+    expect(w.commands.some((command) => command.includes("commit -q -m 'change: p3'"))).toBe(true);
+    expect(w.bound).toEqual([]);
+    await env.client.workflow.getHandle('grove-run-tree-c').terminate('test over');
+  }, 60_000);
+
+  it('applies a cancel: stops the worker, frees what waited on it in the records and its brief, and does not run the tree', async () => {
+    const w = changeWorld({ treeId: 'tree-c', why: 'not wanted', cancel: ['leaf-a'], before: [], outcome: [] });
+
+    const result = await adopt(w, 'p3');
+
+    expect(result).toMatchObject({ status: 'adopted', growing: { started: false } });
+    expect(w.stopped).toEqual(['leaf-run-a']);
+    expect(w.leaves.get('leaf-a')).toMatchObject({ status: 'cancelled', findings: 'Cancelled: not wanted' });
+    expect(w.leaves.get('leaf-b')?.dependsOn).toBeUndefined();
+    expect(w.tasks.get('t-busy')?.status).toBe('dropped');
+    expect(w.files.get('repo/leaves/leaf-b.md')).toContain('Waits on: nothing');
+    expect(w.files.get('repo/PLAN.md')).toContain('- **Note on screen** (`leaf-a`): cancelled');
+  }, 60_000);
+});

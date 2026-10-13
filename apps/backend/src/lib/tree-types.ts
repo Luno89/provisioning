@@ -1,9 +1,12 @@
+import { sanitiseNamespaceName } from './projects.js';
 import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { PersonaEgressRule } from '@koala/harness-types';
 import { TREE_TYPE_SEEDS as TREE_TYPE_SEEDS_VALUE } from './tree-type-seeds.js';
 import { sameSeededRow } from './seed-diff.js';
 import { validateEgressRules } from './egress-rules.js';
+import { releasePathsProblem } from './release-paths.js';
+import { DECLARED_SOURCES, descriptionProblem, keyProblem, type DeclaredSource } from './secret-requests.js';
 
 export const DEFAULT_GROVE_AGENT = 'grove';
 
@@ -13,6 +16,13 @@ export interface TreeTypeFile {
   path: string;
   content: string;
   executable?: boolean | undefined;
+}
+
+export interface TreeTypeSecret {
+  key: string;
+  source: DeclaredSource;
+  describe: string;
+  signInAs?: string | undefined;
 }
 
 export interface TreeTypeSpec {
@@ -28,7 +38,27 @@ export interface TreeTypeSpec {
   defaultBindings?: string[] | undefined;
   egress?: PersonaEgressRule[] | undefined;
   env?: { name: string; value: string }[] | undefined;
+  secrets?: TreeTypeSecret[] | undefined;
+  releaseWhen?: string[] | undefined;
   agent?: string | undefined;
+}
+
+export function secretsProblem(secrets: unknown): string | null {
+  if (secrets === undefined) return null;
+  if (!Array.isArray(secrets)) return 'secrets must be a list of {key, source, describe}.';
+  const seen = new Set<string>();
+  for (const entry of secrets as Partial<TreeTypeSecret>[]) {
+    const key = typeof entry?.key === 'string' ? entry.key : '';
+    const badKey = keyProblem(key);
+    if (badKey) return badKey;
+    if (seen.has(key)) return `${key} is declared twice.`;
+    seen.add(key);
+    if (!DECLARED_SOURCES.includes(entry.source as DeclaredSource)) return `${key} must come from one of ${DECLARED_SOURCES.join(', ')}.`;
+    const badDescription = descriptionProblem(typeof entry.describe === 'string' ? entry.describe.trim() : '');
+    if (badDescription) return `${key}: ${badDescription}.`;
+    if (entry.signInAs !== undefined && (typeof entry.signInAs !== 'string' || !entry.signInAs.trim())) return `${key}: signInAs names the login this password signs in as.`;
+  }
+  return null;
 }
 
 export function agentProblem(agent: unknown, agents: readonly string[]): string | null {
@@ -69,6 +99,12 @@ export function validateTreeType(
 
   const badEgress = validateEgressRules(candidate.egress);
   if (badEgress) return badEgress;
+
+  const badSecrets = secretsProblem(candidate.secrets);
+  if (badSecrets) return badSecrets;
+
+  const badPaths = releasePathsProblem(candidate.releaseWhen);
+  if (badPaths) return badPaths;
 
   if (candidate.env !== undefined) {
     if (!Array.isArray(candidate.env)) return 'env must be a list of {name, value} pairs.';
@@ -132,14 +168,63 @@ export async function resolveTreeType<T extends { id: string; ownerId?: string |
   return all.find((t) => t.id === id && t.ownerId === ownerId) ?? all.find((t) => t.id === id && t.ownerId === undefined);
 }
 
+export const NO_PARTICULAR_LANGUAGE = 'base';
+
 export function treeLanguageFrom(store: {
   getTrees(): Promise<{ id: string; ownerId?: string | undefined; type?: string | undefined }[]>;
   getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
 }): (ownerId: string, treeId: string) => Promise<string | undefined> {
   return async (ownerId, treeId) => {
     const tree = (await store.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
-    return (await resolveTreeType(store, ownerId, tree?.type))?.language;
+    const language = (await resolveTreeType(store, ownerId, tree?.type))?.language;
+    return language === NO_PARTICULAR_LANGUAGE ? undefined : language;
   };
+}
+
+export interface TreeWorkspaceExtras {
+  env: { name: string; value: string }[];
+  egress: ({ cidr: string; ports?: number[] } | { namespace: string; ports?: number[] })[];
+}
+
+export function dependencyNamespaceFrom(store: {
+  getDeployments(): Promise<{ ownerId?: string | undefined; name: string; namespace?: string | undefined }[]>;
+}): (ownerId: string, service: string) => Promise<string | undefined> {
+  return async (ownerId, service) => {
+    const wanted = sanitiseNamespaceName(service);
+    const found = (await store.getDeployments()).find((entry) => entry.ownerId === ownerId && (entry.name === service || sanitiseNamespaceName(entry.name) === wanted));
+    return found ? found.namespace || sanitiseNamespaceName(found.name) : undefined;
+  };
+}
+
+export function treeExtrasFrom(
+  store: {
+    getTrees(): Promise<{ id: string; ownerId?: string | undefined; type?: string | undefined }[]>;
+    getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
+  },
+  namespaceOf: (ownerId: string, service: string) => Promise<string | undefined>,
+): (ownerId: string, treeId: string) => Promise<TreeWorkspaceExtras | undefined> {
+  return async (ownerId, treeId) => {
+    const tree = (await store.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
+    const type = await resolveTreeType(store, ownerId, tree?.type);
+    if (!type) return undefined;
+    const ports = (rule: { ports?: number[] | undefined }) => (rule.ports?.length ? { ports: [...rule.ports] } : {});
+    const own = (type.egress ?? []).flatMap((rule): TreeWorkspaceExtras['egress'] => (rule.cidr
+      ? [{ cidr: rule.cidr, ...ports(rule) }]
+      : rule.namespace ? [{ namespace: rule.namespace, ...ports(rule) }] : []));
+    const services = (await Promise.all((type.defaultBindings ?? []).map((service) => namespaceOf(ownerId, service))))
+      .filter((namespace): namespace is string => Boolean(namespace))
+      .map((namespace) => ({ namespace }));
+    return { env: (type.env ?? []).map((entry) => ({ name: entry.name, value: entry.value })), egress: [...own, ...services] };
+  };
+}
+
+export async function treeTypeOfProject(
+  store: { getTrees(): Promise<{ id: string; ownerId?: string | undefined; type?: string | undefined; projectIds?: string[] | undefined }[]>; getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]> },
+  project: { id: string; ownerId?: string | undefined },
+): Promise<TreeTypeSpec | undefined> {
+  if (!project.ownerId) return undefined;
+  const tree = (await store.getTrees()).find((entry) => entry.ownerId === project.ownerId && entry.projectIds?.[0] === project.id);
+  return tree ? resolveTreeType(store, project.ownerId, tree.type) : undefined;
 }
 
 export type TreeTypeSeed = Omit<TreeTypeSpec, 'ownerId'>;

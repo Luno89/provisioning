@@ -5,7 +5,7 @@ import { explainJsonError } from './json-error.js';
 import { e2eRequestOf } from './e2e.js';
 import type { LeafPlan, LeafPlanMode, NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanTask, TaskChecks } from '@koala/harness-types';
 
-export type { AdoptedPlan, LeafPlan, LeafPlanMode, NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanProposal, PlanStatus, PlanTask } from '@koala/harness-types';
+export type { AdoptedPlan, ItemChange, LeafPlan, LeafPlanMode, NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanProposal, PlanStatus, PlanTask, StoryEdit, StorySnapshot } from '@koala/harness-types';
 
 export const MAX_PLAN_DOC = 40_000;
 export const MAX_BRIEF = 12_000;
@@ -75,7 +75,7 @@ const record = (raw: unknown): Record<string, unknown> | undefined => {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 };
 
-function cycleIn(edges: ReadonlyMap<string, readonly string[]>): string[] | undefined {
+export function cycleIn(edges: ReadonlyMap<string, readonly string[]>): string[] | undefined {
   const state = new Map<string, 'visiting' | 'done'>();
   const path: string[] = [];
 
@@ -132,7 +132,7 @@ function parseChecks(raw: unknown): TaskChecks | undefined {
   return Object.keys(parsed).length > 0 ? parsed : undefined;
 }
 
-function parseTask(raw: unknown, leafKey: string, index: number): { task: PlanTask } | { problem: string } {
+export function parseTask(raw: unknown, leafKey: string, index: number): { task: PlanTask } | { problem: string } {
   const task = record(raw);
   if (!task) return { problem: `task ${index + 1} of leaf "${leafKey}" is not an object` };
 
@@ -161,7 +161,7 @@ function parseTask(raw: unknown, leafKey: string, index: number): { task: PlanTa
   };
 }
 
-function parseLeaf(raw: unknown, index: number): { leaf: PlanLeaf } | { problem: string } {
+export function parseLeaf(raw: unknown, index: number): { leaf: PlanLeaf } | { problem: string } {
   const leaf = record(raw);
   if (!leaf) return { problem: `leaf ${index + 1} is not an object` };
 

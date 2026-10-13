@@ -4,6 +4,8 @@ import { projectsRouter } from './projects.js';
 import { mountRouter, type Harness, TEST_USER } from './test-harness.js';
 import { ownsProject } from '../lib/ownership.js';
 import type { Database } from '../lib/db-interface.js';
+import { ProjectRepoService } from '../services/ProjectRepoService.js';
+import { DEFAULT_TARGET_CLUSTER } from '../lib/project-shipping.js';
 
 const project = {
   id: 'proj-1',
@@ -40,19 +42,18 @@ async function mountForCreate(): Promise<Harness> {
     prefix: '/api/projects',
     router: (db: Database) => projectsRouter({
       db,
-      giteaService: {
-        adminUsername: 'koala-bot',
+      giteaService: { adminUsername: 'koala-bot' },
+      projectRepoService: new ProjectRepoService(db, {
+        createUserAccount: async (username: string) => ({ username, password: 'pw' }),
         getRepo: async () => ({}),
-        createWebhook: async () => undefined,
-      },
-      infraService: {
-        runKubectl: async () => '10.0.0.5',
-      },
+        createRepoForUser: async () => ({}),
+        replaceWebhook: async () => undefined,
+        seedTemplate: async () => [],
+      } as never, 'a'.repeat(64) as never, async (id) => `http://10.0.0.5:3001/webhooks/gitea/${id}`),
       getOwnedProject: async (id: string, user: any) => {
         const p = (await db.getProjects()).find((x: any) => x.id === id);
         return p && ownsProject(p, user) ? p : undefined;
       },
-      dataKey: 'test-secret',
     }),
   });
 }
@@ -373,6 +374,23 @@ describe('PATCH /:id — execution target', () => {
       executionTargetDeviceId: 'dev-1',
     })).rejects.toMatchObject({ response: { status: 404 } });
 
+    await harness.close();
+  });
+});
+
+describe('POST / — where it deploys', () => {
+  it('sends a project with a repository to its own cluster when none is picked', async () => {
+    const harness = await mountForCreate();
+    const res = await axios.post(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo' });
+    expect(res.status).toBe(201);
+    expect(res.data.targetClusterId).toBe(DEFAULT_TARGET_CLUSTER);
+    await harness.close();
+  });
+
+  it('keeps the cluster the person picked', async () => {
+    const harness = await mountForCreate();
+    const res = await axios.post(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo', targetClusterId: 'my-k3d' });
+    expect(res.data.targetClusterId).toBe('my-k3d');
     await harness.close();
   });
 });

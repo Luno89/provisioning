@@ -1,8 +1,6 @@
 import type { McpRequest } from '@koala/harness-types';
 import type { Conversation } from '../lib/conversations.js';
-import { preferUsable, type McpServer } from '../lib/mcp-registry.js';
-import { contractFor } from '../lib/mcp-tools.js';
-import { HINT_CHOICES, overriddenAnnotations, type HintChoice, type McpToolHint } from '../lib/mcp-tool-hints.js';
+import { kindOfTool, offers, usable, withKind, type McpServerRecord, type McpToolKind } from '../lib/mcp-servers.js';
 
 export interface McpStore {
   getConversation(ownerId: string, id: string): Promise<Conversation | undefined>;
@@ -10,11 +8,7 @@ export interface McpStore {
   getMcpRequests(ownerId: string, conversationId?: string): Promise<McpRequest[]>;
   getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined>;
   saveMcpRequest(request: McpRequest): Promise<void>;
-  saveMcpToolHint(hint: McpToolHint): Promise<void>;
-  deleteMcpToolHint(ownerId: string, server: string, tool: string): Promise<void>;
 }
-
-export type McpToolKind = 'read-only' | 'safe-write' | 'destructive';
 
 export interface McpServerSummary {
   name: string;
@@ -24,25 +18,19 @@ export interface McpServerSummary {
     readOnly: boolean;
     kind: McpToolKind;
     declared: McpToolKind;
-    choice: HintChoice;
   }[];
-  unreachable?: string | undefined;
 }
 
 export type McpDecision =
   | { ok: true; request?: McpRequest | undefined; conversation?: Conversation | undefined }
   | { ok: false; status: 400 | 404 | 409; error: string };
 
-function kindOf(server: string, annotations: Parameters<typeof overriddenAnnotations>[0]): McpToolKind {
-  const contract = contractFor(server, { name: 'probe', ...(annotations ? { annotations } : {}) });
-  if (contract.effect === 'read') return 'read-only';
-  return contract.destructive ? 'destructive' : 'safe-write';
-}
+const switchable = (server: McpServerRecord): boolean => server.runs.where === 'hosted' && usable(server);
 
 export class McpService {
   constructor(private readonly deps: {
     store: McpStore;
-    servers: (ownerId: string) => Promise<McpServer[]>;
+    catalogue: (ownerId: string) => Promise<readonly McpServerRecord[]>;
     now?: () => string;
   }) {}
 
@@ -51,33 +39,23 @@ export class McpService {
   }
 
   async servers(ownerId: string): Promise<McpServerSummary[]> {
-    return preferUsable(await this.deps.servers(ownerId)).map((server) => ({
+    return (await this.deps.catalogue(ownerId)).filter(switchable).map((server) => ({
       name: server.name,
-      tools: server.tools.map((tool) => ({
-        name: tool.name,
-        ...(tool.description ? { description: tool.description } : {}),
-        readOnly: tool.annotations?.readOnlyHint === true,
-        kind: kindOf(server.name, tool.annotations),
-        declared: kindOf(server.name, tool.choice ? tool.declared : tool.annotations),
-        choice: tool.choice ?? 'server',
-      })),
-      ...(server.unreachable ? { unreachable: server.unreachable } : {}),
+      tools: server.captured!.tools.filter((tool) => offers(server, tool.name)).map((tool) => {
+        const kind = kindOfTool(withKind(tool.annotations, server.tools?.[tool.name]?.kind));
+        return {
+          name: tool.name,
+          ...(tool.description ? { description: tool.description } : {}),
+          readOnly: kind === 'read-only',
+          kind,
+          declared: kindOfTool(tool.annotations),
+        };
+      }),
     }));
   }
 
-  async setToolHint(ownerId: string, server: string, tool: string, choice: unknown): Promise<{ ok: true } | { ok: false; status: 400 | 404; error: string }> {
-    if (typeof choice !== 'string' || !(HINT_CHOICES as readonly string[]).includes(choice)) {
-      return { ok: false, status: 400, error: `choice has to be one of ${HINT_CHOICES.join(', ')}` };
-    }
-    const found = (await this.deps.servers(ownerId)).find((entry) => entry.name === server)?.tools.some((entry) => entry.name === tool);
-    if (!found) return { ok: false, status: 404, error: `${server} offers no tool called ${tool}` };
-    if (choice === 'server') await this.deps.store.deleteMcpToolHint(ownerId, server, tool);
-    else await this.deps.store.saveMcpToolHint({ ownerId, server, tool, choice: choice as Exclude<HintChoice, 'server'>, updatedAt: this.now() });
-    return { ok: true };
-  }
-
   async serverNames(ownerId: string): Promise<string[]> {
-    return [...new Set((await this.deps.servers(ownerId)).map((server) => server.name))];
+    return (await this.deps.catalogue(ownerId)).filter(switchable).map((server) => server.name);
   }
 
   requests(ownerId: string, conversationId?: string): Promise<McpRequest[]> {

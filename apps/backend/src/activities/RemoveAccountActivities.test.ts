@@ -14,6 +14,7 @@ const deps = (over: Partial<AccountRemovalDeps> = {}): AccountRemovalDeps => ({
   repositories: { deleteUser: async (username) => { deletedUsers.push(username); return true; } },
   mesh: { removeUser: async () => ({ devices: 0, user: false }) },
   secrets: { removeProject: async () => ({ workspace: true, readers: 1 }) },
+  apps: { clusterById: async () => undefined, logFile: () => '/logs/destroy.log', taskQueue: 'cluster-ops-queue' },
   ...over,
 });
 
@@ -43,6 +44,23 @@ describe('the steps that remove an account', () => {
     expect(stopped).toBe(1);
     expect(terminated).toEqual(expect.arrayContaining(['bench-idle-bo', 'run-live', 'grove-run-bo-t1', 'conclude-conversation-bo-c1', 'conclude-workspace-conversation-bo-c1']));
     expect(terminated.some((id) => id.includes('ana'))).toBe(false);
+  });
+
+  it('stops its projects\' releases and running builds', async () => {
+    await db.saveProject({ id: 'bo-shop', name: 'shop', ownerId: 'bo', appType: 'gitapp', createdAt: 'then' });
+    await db.savePipelineRun({ id: 'r1', projectId: 'bo-shop', status: 'running', temporalWorkflowId: 'pipeline-r1', startedAt: 'then' } as never);
+    await db.savePipelineRun({ id: 'r2', projectId: 'bo-shop', status: 'succeeded', temporalWorkflowId: 'pipeline-r2', startedAt: 'then' } as never);
+    await createAccountRemovalActivities(deps()).RemoveAccountWorkflowsActivity({ ownerId: 'bo' });
+    expect(terminated).toEqual(expect.arrayContaining(['odoo-release-bo-shop', 'pipeline-r1']));
+    expect(terminated).not.toContain('pipeline-r2');
+  });
+
+  it('plans the destroy of every app it still has, and only its own', async () => {
+    await db.saveDeploymentInfo({ id: 'odoo-bo', name: 'shop', clusterId: 'system', strategy: 'helm', appType: 'odoo-project', namespace: 'shop-1a2b3c', ownerId: 'bo', status: 'running' });
+    await db.saveDeploymentInfo({ id: 'odoo-ana', name: 'shop', clusterId: 'system', strategy: 'helm', appType: 'odoo-project', ownerId: 'ana', status: 'running' });
+    const planned = await createAccountRemovalActivities(deps()).RemoveAccountAppsActivity({ ownerId: 'bo' });
+    expect(planned.map((app) => [app.deploymentId, app.args.namespace, app.taskQueue])).toEqual([['odoo-bo', 'shop-1a2b3c', 'cluster-ops-queue']]);
+    expect((await db.getDeployments()).map((deployment) => [deployment.id, deployment.status])).toEqual([['odoo-bo', 'destroying'], ['odoo-ana', 'running']]);
   });
 
   it('deletes its workspaces by their owner label, and takes "none left" as done', async () => {

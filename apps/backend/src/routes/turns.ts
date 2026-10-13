@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
-import type { TurnLogEntry } from '../lib/turn-log.js';
+import { runsUnder, type TurnLogEntry } from '../lib/turn-log.js';
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;
 
@@ -30,8 +30,11 @@ export function turnsRouter(deps: {
   router.get('/:turnId', asyncRoute(async (req, res) => {
     const after = Number(req.query.after ?? 0);
     if (!Number.isInteger(after) || after < 0) return res.status(400).json({ error: 'after is a position in the log: a whole number, 0 or more' });
-    const entries = await deps.log.read(userOf(req).id, String(req.params.turnId ?? ''), after);
-    res.json({ entries: entries.map(({ ownerId: _ownerId, ...entry }) => entry) });
+    const under = typeof req.query.under === 'string' && req.query.under.trim() ? req.query.under.trim() : undefined;
+    const read = await deps.log.read(userOf(req).id, String(req.params.turnId ?? ''), after);
+    const entries = read.map(({ ownerId: _ownerId, ...entry }) => entry);
+    if (!under) return res.json({ entries });
+    return res.json(runsUnder(entries, under));
   }));
 
   return router;

@@ -220,6 +220,17 @@ export class GiteaService {
     }
   }
 
+  async replaceWebhook(owner: string, name: string, targetUrl: string, secret: string): Promise<void> {
+    const listed = await this.apiFetch(`/api/v1/repos/${owner}/${name}/hooks`);
+    if (!listed.ok) throw new Error(`Failed to list the webhooks of "${owner}/${name}": HTTP ${listed.status}`);
+    const hooks = await listed.json() as { id: number; config?: { url?: string } }[];
+    for (const hook of hooks.filter((entry) => entry.config?.url === targetUrl)) {
+      const gone = await this.apiFetch(`/api/v1/repos/${owner}/${name}/hooks/${hook.id}`, { method: 'DELETE' });
+      if (!gone.ok && gone.status !== 404) throw new Error(`Failed to remove an old webhook from "${owner}/${name}": HTTP ${gone.status}`);
+    }
+    await this.createWebhook(owner, name, targetUrl, secret);
+  }
+
   async createDeployToken(): Promise<{ name: string; token: string }> {
     const baseUrl = await this.resolveBaseUrl();
     const password = await this.readAdminPassword();
@@ -323,6 +334,35 @@ export class GiteaService {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).slice(0, 160)}`);
     return true;
+  }
+
+  async putFile(
+    username: string,
+    name: string,
+    path: string,
+    content: string,
+    message: string,
+    branch: string,
+  ): Promise<{ changed: boolean; commit?: string | undefined }> {
+    const baseUrl = await this.resolveBaseUrl();
+    const adminPassword = await this.readAdminPassword();
+    const auth = `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`;
+    const url = `${baseUrl}/api/v1/repos/${encodeURIComponent(username)}/${encodeURIComponent(name)}/contents/${path}`;
+
+    const existing = await fetch(`${url}?ref=${encodeURIComponent(branch)}`, { headers: { Authorization: auth } });
+    if (!existing.ok && existing.status !== 404) throw new Error(`HTTP ${existing.status} ${(await existing.text()).slice(0, 160)}`);
+    const current = existing.ok ? await existing.json() as { sha: string; content?: string } : undefined;
+    if (current?.content !== undefined && Buffer.from(current.content, 'base64').toString() === content) return { changed: false };
+
+    const res = await fetch(url, {
+      method: current ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: auth },
+      body: JSON.stringify({ content: Buffer.from(content).toString('base64'), message, branch, ...(current ? { sha: current.sha } : {}) }),
+    });
+    if (res.status === 409 || res.status === 422) throw new GiteaConflictError(`"${path}" changed on ${branch} while it was being written; read it again and retry.`);
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).slice(0, 160)}`);
+    const body = await res.json() as { commit?: { sha?: string } };
+    return { changed: true, commit: body.commit?.sha };
   }
 
   async inspectBranch(
@@ -540,6 +580,14 @@ export class GiteaService {
     const body = await res.json() as { tree?: { path: string; type: string }[]; truncated?: boolean };
     if (body.truncated) throw new Error(`"${owner}/${name}" at ${ref} has more files than one listing returns`);
     return (body.tree ?? []).filter((entry) => entry.type === 'blob').map((entry) => entry.path);
+  }
+
+  async fileHashes(owner: string, name: string, ref: string): Promise<Map<string, string>> {
+    const res = await this.apiFetch(`/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/git/trees/${encodeURIComponent(ref)}?recursive=true&per_page=10000`);
+    if (!res.ok) throw new Error(`Failed to list the files of "${owner}/${name}" at ${ref}: HTTP ${res.status}`);
+    const body = await res.json() as { tree?: { path: string; type: string; sha: string }[]; truncated?: boolean };
+    if (body.truncated) throw new Error(`"${owner}/${name}" at ${ref} has more files than one listing returns`);
+    return new Map((body.tree ?? []).filter((entry) => entry.type === 'blob').map((entry) => [entry.path, entry.sha]));
   }
 
   async getRawFile(owner: string, name: string, filePath: string, ref?: string): Promise<string | null> {

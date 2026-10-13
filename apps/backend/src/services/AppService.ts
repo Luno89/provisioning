@@ -81,7 +81,7 @@ export class AppService extends BaseService {
             continue;
           }
 
-          const ns = this.sanitize(dep.name);
+          const ns = (dep.namespace || this.sanitize(dep.name));
           if (namespaces.includes(ns)) {
             cleanDeployments.push({ ...dep, lastSyncedAt: now });
           } else {
@@ -135,7 +135,7 @@ export class AppService extends BaseService {
     const catalogueIds = (await this.db.getAppSpecs()).map((s) => s.id);
 
     for (const ns of userNamespaces) {
-      const alreadyTracked = clusterDeployments.some(d => this.sanitize(d.name) === ns);
+      const alreadyTracked = clusterDeployments.some(d => (d.namespace || this.sanitize(d.name)) === ns);
       if (alreadyTracked) continue;
 
       const nsReleases = helmReleases.filter((r: any) => r.Namespace === ns);
@@ -435,7 +435,7 @@ export class AppService extends BaseService {
         const cluster = await this.clusters.getById(dep.clusterId, userId);
         if (!cluster) throw new Error('Cluster not found');
 
-        const namespace = this.sanitize(dep.name);
+        const namespace = (dep.namespace || this.sanitize(dep.name));
         const isMock = this.clusters.isMockCloud(cluster);
         const physicalName = this.clusters.getPhysicalClusterName(cluster);
         const context = (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : undefined;
@@ -460,7 +460,7 @@ export class AppService extends BaseService {
         const cluster = await this.clusters.getById(dep.clusterId, userId);
         if (!cluster) throw new Error('Cluster not found');
 
-        const namespace = this.sanitize(dep.name);
+        const namespace = (dep.namespace || this.sanitize(dep.name));
         const isMock = this.clusters.isMockCloud(cluster);
         const physicalName = this.clusters.getPhysicalClusterName(cluster);
         const context = (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : undefined;
@@ -483,7 +483,7 @@ export class AppService extends BaseService {
         const cluster = await this.clusters.getById(dep.clusterId, userId);
         if (!cluster) throw new Error('Cluster not found');
 
-        const namespace = this.sanitize(dep.name);
+        const namespace = (dep.namespace || this.sanitize(dep.name));
         const isMock = this.clusters.isMockCloud(cluster);
         const physicalName = this.clusters.getPhysicalClusterName(cluster);
         const context = (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : undefined;
@@ -533,7 +533,7 @@ export class AppService extends BaseService {
         await this.infra.destroy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
         
         try {
-            await this.infra.waitForNamespaceDeletion(this.sanitize(dep.name), kubeconfigPath);
+            await this.infra.waitForNamespaceDeletion((dep.namespace || this.sanitize(dep.name)), kubeconfigPath);
         } catch { /* ignored */ }
 
         await this.db.deleteDeployment(id);
@@ -562,7 +562,7 @@ export class AppService extends BaseService {
         if (cluster) {
           const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
           try {
-            await this.infra.waitForNamespaceDeletion(this.sanitize(dep.name), kubeconfigPath);
+            await this.infra.waitForNamespaceDeletion((dep.namespace || this.sanitize(dep.name)), kubeconfigPath);
           } catch (err: any) {
             this.logger.warn(`Error deleting namespace during app abort: ${err.message}`);
           }

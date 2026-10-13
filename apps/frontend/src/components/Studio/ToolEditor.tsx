@@ -121,56 +121,56 @@ export default function ToolEditor({ tool, onClose, onDeleted }: { tool: EngineT
       </div>
 
       <label className="block space-y-1">
-        <span className={label}>Command it runs in the workspace</span>
-        <input
-          aria-label="Command it runs in the workspace"
-          className={`${field} font-mono`}
-          value={draft.command ?? ''}
-          placeholder="rg --count {pattern} {path}"
-          onChange={(event) => set('command', event.target.value)}
-        />
-        <span className="block text-[11px] text-slate-500">
-          Each {'{blank}'} is filled from the arguments below and quoted, so what the model puts in stays one argument and can never become a second command.
-        </span>
-      </label>
-
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <span className={label}>Arguments it takes</span>
-          <button type="button" onClick={addArgument} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200">
-            <Plus size={11} /> Add
-          </button>
-        </div>
-        {args.length === 0 && <p className="text-[11px] text-slate-500">It takes none — the command runs as written.</p>}
-        {args.map(([name, schema]) => (
-          <div key={name} className="flex flex-wrap items-center gap-2">
-            <input
-              aria-label={`Name of ${name}`}
-              className={`${field} w-40 font-mono`}
-              value={name}
-              onChange={(event) => setArgument(name, { rename: event.target.value })}
-            />
-            <select
-              aria-label={`Type of ${name}`}
-              className={`${field} w-28`}
-              value={schema.type}
-              onChange={(event) => setArgument(name, { type: event.target.value })}
-            >
-              {['string', 'number', 'boolean', 'array'].map((type) => <option key={type} value={type}>{type}</option>)}
-            </select>
-            <input
-              aria-label={`What ${name} is for`}
-              className={`${field} min-w-0 flex-1`}
-              placeholder="what it is for — the model reads this"
-              value={schema.description}
-              onChange={(event) => setArgument(name, { description: event.target.value })}
-            />
-            <button type="button" aria-label={`Remove ${name}`} onClick={() => dropArgument(name)} className="text-slate-500 hover:text-red-300">
-              <X size={13} />
+          <span className={label}>Command it runs in the workspace</span>
+          <input
+            aria-label="Command it runs in the workspace"
+            className={`${field} font-mono`}
+            value={draft.command ?? ''}
+            placeholder="rg --count {pattern} {path}"
+            onChange={(event) => set('command', event.target.value)}
+          />
+          <span className="block text-[11px] text-slate-500">
+            Each {'{blank}'} is filled from the arguments below and quoted, so what the model puts in stays one argument and can never become a second command.
+          </span>
+        </label>
+  
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className={label}>Arguments it takes</span>
+            <button type="button" onClick={addArgument} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200">
+              <Plus size={11} /> Add
             </button>
           </div>
-        ))}
-      </div>
+          {args.length === 0 && <p className="text-[11px] text-slate-500">It takes none — the command runs as written.</p>}
+          {args.map(([name, schema]) => (
+            <div key={name} className="flex flex-wrap items-center gap-2">
+              <input
+                aria-label={`Name of ${name}`}
+                className={`${field} w-40 font-mono`}
+                value={name}
+                onChange={(event) => setArgument(name, { rename: event.target.value })}
+              />
+              <select
+                aria-label={`Type of ${name}`}
+                className={`${field} w-28`}
+                value={schema.type}
+                onChange={(event) => setArgument(name, { type: event.target.value })}
+              >
+                {['string', 'number', 'boolean', 'array'].map((type) => <option key={type} value={type}>{type}</option>)}
+              </select>
+              <input
+                aria-label={`What ${name} is for`}
+                className={`${field} min-w-0 flex-1`}
+                placeholder="what it is for — the model reads this"
+                value={schema.description}
+                onChange={(event) => setArgument(name, { description: event.target.value })}
+              />
+              <button type="button" aria-label={`Remove ${name}`} onClick={() => dropArgument(name)} className="text-slate-500 hover:text-red-300">
+                <X size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1">

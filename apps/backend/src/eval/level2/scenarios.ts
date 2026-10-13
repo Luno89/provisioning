@@ -1,6 +1,7 @@
 import { EXAMPLE_PROCEDURE, SINGLE_SHOT_V2 } from '@koala/agent-engine/procedure';
 import type { Scenario } from './scenario.js';
 import { MECHANICS_CHECKS } from './mechanics.js';
+import { STORY_CHECKS } from './stories.js';
 import { STEP_CHECKS } from './steps.js';
 import { TURN_CHECKS } from './turns.js';
 
@@ -221,6 +222,7 @@ export const BUILT_IN_SCENARIOS: readonly Scenario[] = [
     },
   },
   ...MECHANICS_CHECKS(),
+  ...STORY_CHECKS(),
   ...STEP_CHECKS(),
   ...TURN_CHECKS,
 ];

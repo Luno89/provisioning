@@ -4,7 +4,7 @@ import { retireStoredBuiltInProcedures } from './built-in-procedures.js';
 import { ENGINE_TOOL_SEEDS, seedEngineTools } from './engine-tool-seeds.js';
 import type { Persona, ToolDefinition } from '@koala/agent-engine';
 import type { ProcedureSource } from './procedure-source.js';
-import { seededPersonas } from '../extensions/seeds.js';
+import { seededAgents } from '../extensions/seeds.js';
 import { INSTALLED_EXTENSIONS } from '../extensions/installed.js';
 
 function personaStore(rows: Persona[] = []) {
@@ -46,7 +46,7 @@ function toolStore(rows: ToolDefinition[] = []) {
 
 describe('a built-in that changed in code reaches the database', () => {
   it('removes built-in personas from the database, because they ship in code, and keeps every user copy', async () => {
-    const builtIns = seededPersonas();
+    const builtIns = seededAgents();
     const mine: Persona = { ...builtIns[0]!, ownerId: 'user-1', prompt: 'mine' };
     const db = personaStore([...builtIns.map((seed) => ({ ...seed })), mine]);
 

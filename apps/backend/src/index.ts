@@ -1,6 +1,6 @@
 import { WorkflowNotFoundError } from '@temporalio/client';
 import { PROCEDURE_CHANGE_AGENT } from './lib/agent-usage.js';
-import { getModelRateLimiterSnapshot } from '@koala/agent-engine';
+import { getModelRateLimiterSnapshot, type PersonaRecord } from '@koala/agent-engine';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -34,6 +34,7 @@ import { AccessService } from './services/AccessService.js';
 import { EgressService } from './services/EgressService.js';
 import { EgressProxyService } from './services/EgressProxyService.js';
 import { ActionService } from './services/ActionService.js';
+import { GroveOrderService } from './services/GroveOrderService.js';
 import { McpService } from './services/McpService.js';
 import { SecretRequestService } from './services/SecretRequestService.js';
 import { PlanService } from './services/PlanService.js';
@@ -56,7 +57,7 @@ import { AgentService } from './services/AgentService.js';
 import { evalsLevel2Router } from './routes/evals-level2.js';
 import { buildWebTools } from './lib/web-tools-wiring.js';
 import { Level2Service, temporalCheckRunner } from './services/Level2Service.js';
-import { createStoredToolCatalogue, createEngineHost, storesFromDatabase, createStoredAgentRegistry, createEndpointResolver, createRunStarter, startStreamWorker } from './engine-host/index.js';
+import { createStoredToolCatalogue, createEngineHost, storesFromDatabase, createStoredAgentRegistry, directoryFromDatabase, createEndpointResolver, createRunStarter, startStreamWorker } from './engine-host/index.js';
 import { userRoom } from './engine-host/temporal/stream-worker.js';
 import { createWorkspaceRepoResolver, treeWorkspaceRunId } from './engine-host/sandboxes/workspace-repos.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
@@ -64,9 +65,8 @@ import { conversationBinding } from './engine-host/conversation-binding.js';
 import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
 import { getTemporalClient, resolveOwnersWith } from './lib/temporal-client.js';
 import { PayloadStorageService } from './services/PayloadStorageService.js';
-import { withHints } from './lib/mcp-tool-hints.js';
 import { MemoryKeeperService } from './services/MemoryKeeperService.js';
-import { BENCH_IDLE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, conversationConclusionId } from './engine-host/temporal/contracts.js';
+import { BENCH_IDLE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, conversationConclusionId, workflowOfRun } from './engine-host/temporal/contracts.js';
 import { BenchService } from './services/BenchService.js';
 import { PracticeService } from './services/PracticeService.js';
 import { randomUUID } from 'node:crypto';
@@ -102,7 +102,7 @@ import { RegistryService } from './services/RegistryService.js';
 import { GitModuleService } from './services/GitModuleService.js';
 import { BuilderService } from './services/BuilderService.js';
 import { AppExposureService } from './services/AppExposureService.js';
-import type { UserMetadata } from './lib/types.js';
+import type { ProjectMetadata, UserMetadata } from './lib/types.js';
 import { VpsCatalogService } from './services/VpsCatalogService.js';
 import { TemporalBridge } from './services/TemporalBridge.js';
 import WorkerService from './services/WorkerService.js';
@@ -127,13 +127,33 @@ import { HeadscaleService } from './services/HeadscaleService.js';
 import { ModelService } from './services/ModelService.js';
 import { decryptValue } from './lib/crypto.js';
 
-import { McpRegistryService } from './services/McpRegistryService.js';
+import { McpServerService } from './services/McpServerService.js';
+import { hostedMcpUrl } from './lib/mcp-hosted-url.js';
+import { MCP_SERVER_TEMPLATES } from './extensions/mcp/templates.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
 import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { seedAll } from './scripts/seed-all.js';
 import type { SearchOutcome } from './lib/web-tools.js';
 import { createGroveLauncher } from './engine-host/grove-launcher.js';
-import { groveAgentOf, resolveTreeType, treeTypeChoices, treeLanguageFrom } from './lib/tree-types.js';
+import { groveAgentOf, resolveTreeType, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, treeTypeOfProject, renderStarterFiles } from './lib/tree-types.js';
+import { TreeHomeService } from './services/TreeHomeService.js';
+import { ProjectAppService } from './services/ProjectAppService.js';
+import { projectAppRouter } from './routes/project-app.js';
+import { projectSecretsFor } from './services/ProjectSecretsService.js';
+import { ConversationNoticeService } from './services/ConversationNoticeService.js';
+import { WorkspaceBuildService } from './services/WorkspaceBuildService.js';
+import { TreeWorkspaceService } from './services/TreeWorkspaceService.js';
+import { BUILD_WORKSPACE } from './extensions/workspace/procedures.js';
+import { ProjectChannelService } from './services/ProjectChannelService.js';
+import { projectChannelRouter } from './routes/project-channel.js';
+import { itemChatsRouter } from './routes/item-chats.js';
+import { ItemChatService } from './services/ItemChatService.js';
+import { grovedTree, releaseNotice, secretNotice, treeNotices, postedNotice } from './lib/notices.js';
+import { changedPaths, releaseDecision, type ReleaseDecision } from './lib/release-paths.js';
+import { TreeTypeDescriptions } from './services/TreeTypeDescriptions.js';
+import { WorkspaceImageService } from './services/WorkspaceImageService.js';
+import { buildPlanAt } from './lib/build-plan.js';
+import { webhookAddress } from './services/webhook-address.js';
 import { endpointRulesFromEnv } from './lib/endpoint-url-safety.js';
 import { AccountRemovalService, temporalRemovalWorkflows } from './services/AccountRemovalService.js';
 import { ProjectRemovalService } from './services/ProjectRemovalService.js';
@@ -154,7 +174,8 @@ import { instancesRouter } from './routes/instances.js';
 import { OdooReleaseService, temporalReleaseWorkflows } from './services/OdooReleaseService.js';
 import { releasesRouter } from './routes/releases.js';
 import { artifactsRouter } from './routes/artifacts.js';
-import { CHART_FILE } from './lib/odoo-release.js';
+import { CHART_FILE, ODOO_RELEASE_SECRETS, OWN_SECRET_FILE } from './lib/odoo-release.js';
+import { providerServing } from './lib/model-registry.js';
 import { createArtifactService } from './services/artifact-service-factory.js';
 
 dotenv.config();
@@ -238,7 +259,49 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     undefined,
     clusterProxyService,
   );
-  const projectRepoService = new ProjectRepoService(db, giteaService, keys.data);
+  const projectRepoService = new ProjectRepoService(db, giteaService, keys.data, webhookAddress(infraService, '/tmp/kubeconfig-provisioning-lunorica', process.env.PORT || 3001));
+  const channels = new ProjectChannelService({
+    conversation: (ownerId, id) => db.getConversation(ownerId, id),
+    save: (conversation) => db.saveConversation(conversation),
+    bind: (ownerId, conversationId, binding) => db.bindConversation(ownerId, conversationId, binding),
+    trees: () => db.getTrees(),
+    saveProjectInfo: (project) => db.saveProjectInfo(project),
+  });
+  const itemChats = new ItemChatService({
+    leaves: () => db.getLeaves(),
+    branches: () => db.getBranches(),
+    trees: () => db.getTrees(),
+    conversation: (ownerId, id) => db.getConversation(ownerId, id),
+    save: (conversation) => db.saveConversation(conversation),
+  });
+  const notices = new ConversationNoticeService({
+    conversations: () => db.getConversations(),
+    append: (ownerId, conversationId, message) => db.appendNotice(ownerId, conversationId, message),
+    told: (ownerId, conversationId) => { io.to(`user:${ownerId}`).emit('conversation-notice', { conversationId }); },
+    channelOf: async (ownerId, projectId) => {
+      const project = (await db.getProjects()).find((entry) => entry.id === projectId && entry.ownerId === ownerId);
+      return project ? (await channels.ensure(project))?.id : undefined;
+    },
+    itemChatOf: async (ownerId, item) => (await itemChats.ensure(ownerId, item))?.id,
+  });
+  const treeOfProject = async (projectId: string) => (await db.getTrees()).find((tree) => tree.projectIds?.[0] === projectId);
+  const postNotice = (what: string, posting: Promise<unknown>) => { posting.catch((err: Error) => console.warn(`[notices] ${what}: ${err.message}`)); };
+  const projectSecrets = projectSecretsFor({
+    db,
+    backend: infisicalService,
+    readToken: async (ownerId) => (await projectRepoService.mintReadToken(ownerId)).token,
+    asked: (request) => { if (request.projectId) postNotice('a secret was asked for', notices.post(request.ownerId, { projectId: request.projectId, treeId: request.treeId }, secretNotice({ ...request, projectId: request.projectId }))); },
+  });
+  const treeHome = new TreeHomeService({
+    treeTypes: (ownerId) => db.getTreeTypes(ownerId),
+    projects: () => db.getProjects(),
+    createProject: (ownerId, project) => projectRepoService.createProject(ownerId, project),
+    starter: async (type, tree) => renderStarterFiles(type.files, { projectName: tree.name, registryHost: await giteaService.getRegistryHost() }),
+    saveTree: (tree) => db.saveTree(tree),
+    secrets: projectSecrets,
+    channel: (project) => channels.ensure(project),
+    saveNeeds: (project, needs) => db.saveProjectInfo({ id: project.id, needs }),
+  });
   const headscaleService = new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080');
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, endpointRulesFromEnv(process.env));
 
@@ -260,8 +323,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
 
   const extensions = extensionServiceFor(db);
+  const agentDirectory = directoryFromDatabase(db, {
+    hidden: (ownerId: string) => extensions.hidden(ownerId),
+    onChanged: (ownerId: string) => void bench.service?.changed(ownerId).catch(() => undefined),
+  });
   const engineRegistry = createStoredAgentRegistry({
-    personas: { list: (ownerId?: string) => db.getEnginePersonas(ownerId) },
+    agents: agentDirectory,
     procedures: { list: (ownerId?: string) => db.getProcedures(ownerId) },
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
@@ -272,7 +339,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     running: async (runId) => {
       if (!temporalBridge.isReady()) return true;
       try {
-        return (await temporalBridge.client.workflow.getHandle(runId).describe()).status.name === 'RUNNING';
+        return (await temporalBridge.client.workflow.getHandle(workflowOfRun(runId)).describe()).status.name === 'RUNNING';
       } catch (err) {
         if (err instanceof WorkflowNotFoundError) return false;
         throw err;
@@ -290,6 +357,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
             workflowId: options.workflowId,
             taskQueue: options.taskQueue,
             args: options.args,
+            memo: options.memo,
             ...startedFor(options.owner),
           });
           return { workflowId: handle.workflowId };
@@ -302,6 +370,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       : undefined),
     binding: conversationBinding(db),
     closing: async (ownerId: string) => ((await db.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
+  });
+  const workspaceBuilds = new WorkspaceBuildService({
+    runs: engineRuns,
+    trees: () => db.getTrees(),
+    hidden: (ownerId: string) => extensions.hidden(ownerId),
   });
 
   /**
@@ -352,10 +425,27 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       streamNodes: hostNodesFor(createModelNodes({ registry: engineRegistry, models: modelService }), ['stream']),
       runCancelled: runCancelledVia(() => getTemporalClient()),
       conclude: async (event) => {
+        const grown = event.kind === 'run-ended' ? grovedTree(event.runId, event.depth) : undefined;
+        if (event.kind === 'run-ended' && grown) {
+          postNotice('a tree stopped growing', (async () => {
+            const tree = (await db.getTrees()).find((entry) => entry.id === grown && entry.ownerId === event.ownerId);
+            if (!tree) return;
+            const branchIds = new Set((await db.getBranches()).filter((branch) => branch.treeId === tree.id).map((branch) => branch.id));
+            const leaves = (await db.getLeaves()).filter((leaf) => branchIds.has(leaf.branchId));
+            const projectId = tree.projectIds?.[0];
+            for (const notice of treeNotices({ id: tree.id, name: tree.name, ...(projectId ? { projectId } : {}) }, leaves, { runId: event.runId, outcome: event.outcome, ...(event.reason ? { reason: event.reason } : {}) })) {
+              await notices.post(event.ownerId, { treeId: tree.id, projectId }, notice);
+            }
+          })());
+        }
         reportMemory(event.kind)(await memoryKeeper.handle(event));
         await bench.service?.activity(event);
       },
       benchIdle: async (ownerId) => (bench.service ? bench.service.idle(ownerId) : 'nothing'),
+      post: async (ownerId, posted) => {
+        const notice = postedNotice(posted);
+        if (notice) await notices.post(ownerId, { treeId: notice.refs.treeId, projectId: notice.refs.projectId }, notice);
+      },
     },
   })
     .then((worker) => {
@@ -399,6 +489,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       res.status(202).json({ status: 'accepted' });
       temporalBridge.runPipeline(project, payload.after, ref).catch((err: any) =>
         console.error(`[webhook] Failed to start pipeline run for project ${project.id}: ${err.message}`)
+      );
+      workspaceBuilds.pushed(project, String(payload.after), Array.isArray(payload.commits) ? payload.commits : []).catch((err: any) =>
+        console.error(`[webhook] Failed to start the workspace build for project ${project.id}: ${err.message}`)
       );
     } catch (err: any) {
       console.error(`[webhook] Gitea webhook error: ${err.message}`);
@@ -661,23 +754,64 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   tenant.use('/api/projects', projectsRouter({
     db, projectRepoService, appService, temporalBridge, getOwnedProject,
-    giteaService, clusterService, infraService, dataKey: keys.data, removal: projectRemoval,
+    giteaService, clusterService, infraService, dataKey: keys.data, removal: projectRemoval, channels,
   }));
+  tenant.use('/api/items', itemChatsRouter({ items: itemChats }));
+  tenant.use('/api/projects', projectChannelRouter({ channels, conversations: async (ownerId) => (await db.getConversations()).filter((conversation) => conversation.ownerId === ownerId), getOwnedProject }));
   tenant.use('/api/projects', projectFilesRouter({ projectRepoService, giteaService, getOwnedProject }));
+  const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
+    const releaseWhen = (await treeTypeOfProject(db, project))?.releaseWhen;
+    if (!releaseWhen?.length || !project.giteaOwner || !project.giteaRepo) return { release: true };
+    try {
+      const [before, after] = await Promise.all([giteaService.fileHashes(project.giteaOwner, project.giteaRepo, since), giteaService.fileHashes(project.giteaOwner, project.giteaRepo, commit)]);
+      return releaseDecision(changedPaths(before, after), releaseWhen, since);
+    } catch (err) {
+      console.warn(`[releases] ${project.name}: what changed since ${since.slice(0, 8)} could not be read, so the build is released: ${(err as Error).message}`);
+      return { release: true };
+    }
+  };
+  temporalBridge.decideRelease = decideRelease;
   const odooReleases = new OdooReleaseService({
     store: db,
+    decide: decideRelease,
     workflows: temporalReleaseWorkflows(() => temporalBridge.client, process.env.TEMPORAL_TASK_QUEUE || 'cluster-ops-queue'),
     chartAt: async (owner, repo, commit) => (await giteaService.getRawFile(owner, repo, CHART_FILE, commit)) !== null,
     clusterById: async (id) => (id === 'provisioning-lunorica' ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
-    notify: (ownerId, release) => { io.to(`user:${ownerId}`).emit('odoo-release-updated', release); },
+    notify: (ownerId, release) => {
+      io.to(`user:${ownerId}`).emit('odoo-release-updated', release);
+      postNotice('a release changed', treeOfProject(release.projectId).then((tree) => {
+        const notice = releaseNotice(release, tree?.id);
+        return notice ? notices.post(ownerId, { projectId: release.projectId, treeId: tree?.id }, notice) : [];
+      }));
+    },
+    secrets: {
+      ensure: (project, options) => projectSecrets.ensure(project, options),
+      keep: (projectId, key, value) => projectSecrets.keep(projectId, key, value),
+      chartKeepsOwnSecret: async (owner, repo, commit) => (await giteaService.getRawFile(owner, repo, OWN_SECRET_FILE, commit)) !== null,
+      onCluster: async (cluster, namespace, secret, key) => {
+        const data = await infraService.runKubectl(['get', 'secret', secret, '-n', namespace, '-o', 'jsonpath={.data}'], await clusterService.getKubeconfigPath(cluster)).catch(() => '');
+        const encoded = data ? (JSON.parse(data) as Record<string, string>)[key] : undefined;
+        return encoded ? Buffer.from(encoded, 'base64').toString('utf8') : undefined;
+      },
+    },
   });
+  temporalBridge.ensureSecrets = (project) => projectSecrets.ensure(project, {});
+  temporalBridge.planBuild = (project, commitSha) => buildPlanAt((file) => giteaService.getRawFile(project.giteaOwner!, project.giteaRepo!, file, commitSha).catch(() => null), commitSha);
   temporalBridge.onBuilt = async (project, run) => {
     if (!(await odooReleases.releasesByChart(project, run.commitSha))) return false;
     const started = await odooReleases.release(project, run);
     if ('error' in started) console.error(`[releases] ${project.name}: the build of ${run.commitSha} was not released: ${started.error}`);
+    if ('skipped' in started) console.log(`[releases] ${project.name}: the build of ${run.commitSha.slice(0, 8)} has nothing to release: ${started.skipped}`);
     return true;
   };
-  tenant.use('/api/projects', releasesRouter({ releases: odooReleases, getOwnedProject }));
+  tenant.use('/api/projects', projectAppRouter({
+    apps: new ProjectAppService({
+      deployments: () => db.getDeployments(),
+      expose: (deploymentId, mode) => (mode === 'local' ? appExposureService.exposeLocal(deploymentId) : appExposureService.exposePublic(deploymentId)),
+    }),
+    getOwnedProject,
+  }));
+  tenant.use('/api/projects', releasesRouter({ releases: odooReleases, getOwnedProject, signIns: (project) => projectSecrets.signIns(project, ODOO_RELEASE_SECRETS) }));
   tenant.use('/api/artifacts', artifactsRouter({ artifacts: artifactStore.artifacts, hasMinio: (ownerId) => artifactStore.minio.hasMinio(ownerId) }));
   const sweepArtifacts = () => artifactStore.artifacts.sweep().catch((err: Error) => console.warn(`[artifacts] the sweep failed: ${err.message}`));
   setInterval(sweepArtifacts, 24 * 60 * 60 * 1000).unref();
@@ -711,7 +845,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * sees drafts. Production stays approved-only.
    */
   const draftRegistry = createStoredAgentRegistry({
-    personas: { list: (ownerId?: string) => db.getEnginePersonas(ownerId) },
+    agents: agentDirectory,
     procedures: { list: (ownerId?: string) => db.getProcedures(ownerId) },
     tools: { list: (ownerId?: string) => db.getEngineTools(ownerId) },
     hidden: (ownerId: string) => extensions.hidden(ownerId),
@@ -724,7 +858,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const evalWeb = await buildWebTools(db).catch(() => undefined);
   const evalHost = createEngineHost({
+    mcpServers: {
+      list: (ownerId) => db.getMcpServers(ownerId),
+      get: async (ownerId, id) => (await db.getMcpServers(ownerId)).find((server) => server.id === id),
+      save: (server) => db.saveMcpServer(server),
+      hostedUrl: hostedMcpUrl({ deployments: () => db.getDeployments(), probeUrl: resolveMcpProbeUrl }),
+    },
+    publishedWorkspaces: { get: (ownerId: string, treeId: string) => db.getPublishedWorkspace(ownerId, treeId), save: (workspace) => db.savePublishedWorkspace(workspace) },
+    readRepoFile: async (ownerId: string, repo: string, path: string, ref: string) => (await projectRepoService.readDocument(ownerId, repo, path, ref))?.content,
+    writeRepoFile: (ownerId, repo, path, content, message, branch) => projectRepoService.putDocument(ownerId, repo, path, content, message, branch),
+    workspaceBuild: (ownerId, treeId, commit) => workspaceBuilds.start(ownerId, treeId, commit),
     treeLanguage: treeLanguageFrom(db),
+    treeExtras: treeExtrasFrom(db, dependencyNamespaceFrom(db)),
     artifacts: { keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files) },
     checks: httpCheckAccess(async (ownerId) => {
       const person = await db.getUserById(ownerId);
@@ -786,7 +931,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   bench.service = new BenchService({
     store: db,
-    scenarios: async (ownerId) => (await level2Service.scenarios(ownerId)).map((scenario) => ({ id: scenario.id, agent: scenario.agent })),
+    scenarios: async (ownerId) => (await level2Service.scenarios(ownerId)).map((scenario) => ({ id: scenario.id, agent: scenario.agent, onBench: scenario.onBench })),
     fingerprints: agentFingerprints,
     practices: practiceService,
     changes: agentChanges,
@@ -795,9 +940,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       io.to(`user:${ownerId}`).emit('agent-change-ready', { id: change.id, agent: change.agent, better: change.comparison?.better ?? [], worse: change.comparison?.worse ?? [] });
     },
     start: async (ownerId, plan, extra) => {
-      const started = await level2Service.start({ ownerId, only: plan.scenarioIds, trigger: plan.trigger, ...(extra?.trialPractice ? { trialPractice: extra.trialPractice } : {}), ...(extra?.promptOverride ? { promptOverride: extra.promptOverride } : {}) });
+      const started = await level2Service.start({ ownerId, only: plan.scenarioIds, trigger: plan.trigger, ...extra });
       if ('unknown' in started) throw new Error(`the bench names scenarios that no longer exist: ${started.unknown.join(', ')}`);
       console.log(`[bench] ${ownerId}: started ${plan.trigger.kind} run ${started.id} (${plan.scenarioIds.length} scenarios)`);
+    },
+    serving: async (ownerId, model) => {
+      const provider = providerServing(await modelService.list(ownerId), model);
+      return provider ? { modelId: provider.id, modelLabel: provider.name } : undefined;
     },
     benchRunning: async (ownerId) => (await level2Service.list(ownerId)).some((run) => run.state === 'running'),
     agentsRunning: async () => {
@@ -915,7 +1064,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         save: (tool) => db.saveEngineTool(tool),
         remove: (ownerId, name) => db.deleteEngineTool(ownerId, name),
       },
-      personas: { list: (ownerId?: string) => db.getEnginePersonas(ownerId) },
+      agents: agentDirectory,
+      servers: (ownerId: string) => db.getMcpServers(ownerId),
       implemented: evalHost.implemented,
       images: evalHost.images,
     }),
@@ -923,18 +1073,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   tenant.use('/api/agents', agentsRouter({
     agents: agentsHolder.service = new AgentService({
-      personas: {
-        list: (ownerId?: string) => db.getEnginePersonas(ownerId),
-        save: async (persona) => {
-          await db.saveEnginePersona(persona);
-          if (persona.ownerId) void bench.service?.changed(persona.ownerId).catch(() => undefined);
+      agents: agentDirectory,
+      records: {
+        save: async (record: PersonaRecord) => {
+          await db.saveEnginePersona(record);
+          if (record.ownerId) void bench.service?.changed(record.ownerId).catch(() => undefined);
         },
-        remove: (ownerId, slug) => db.deleteEnginePersona(ownerId, slug),
+        remove: (ownerId: string | undefined, slug: string) => db.deleteEnginePersona(ownerId, slug),
       },
       tools: (ownerId: string) => draftCatalogue.list(ownerId),
       procedures: (ownerId: string) => engineRegistry.procedures(ownerId),
       treeTypes: async (ownerId: string) => treeTypeChoices(await db.getTreeTypes(ownerId), ownerId),
-      mcpServers: async (ownerId: string) => [...new Set((await new McpRegistryService(db, ownerId, (n: string) => resolveMcpProbeUrl(n)).list()).map((server) => server.name))],
+      servers: (ownerId: string) => db.getMcpServers(ownerId),
       images: evalHost.images,
     }),
   }));
@@ -948,6 +1098,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       ...(evalHost.conversationWorkspaces ? { state: (conversationId: string) => evalHost.conversationWorkspaces!.state(conversationId) } : {}),
     },
     turns: conversationTurns,
+    posted: (ownerId, conversationId) => { io.to(`user:${ownerId}`).emit('conversation-message', { conversationId }); },
+    binding: conversationBinding(db),
     ownedConversations,
     ownedTrees,
     ownedProjects: async (userId: string) => (await db.getProjects()).filter((project) => project.ownerId === userId),
@@ -965,7 +1117,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   tenant.use('/api/memories', memoriesRouter({ db, temporalBridge }));
 
-  tenant.use('/api/tree-types', treeTypesRouter({ db, agents: async (ownerId: string) => (await engineRegistry.agents(ownerId)).map((agent) => agent.slug) }));
+  const treeTypeDescriptions = new TreeTypeDescriptions({
+    treeTypes: (ownerId) => db.getTreeTypes(ownerId),
+    images: (ownerId) => new WorkspaceImageService(db).list(ownerId),
+    agentOf: async (ownerId, slug) => {
+      const runnable = await engineRegistry.runnable(ownerId, slug);
+      return runnable && { describe: runnable.agent.description, procedure: runnable.procedure };
+    },
+  });
+  tenant.use('/api/tree-types', treeTypesRouter({ db, agents: async (ownerId: string) => (await engineRegistry.agents(ownerId)).map((agent) => agent.slug), describe: (ownerId, typeId) => treeTypeDescriptions.describe(ownerId, typeId) }));
   tenant.use('/api/binding-types', bindingTypesRouter({ db }));
   const groveRuns = new GroveRunService({
     store: db,
@@ -986,8 +1146,20 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     workflows: { stop: (workflowId, reason) => temporalBridge.stopIfRunning(workflowId, reason) },
     workspaces: treeConclusions,
   });
+  const groveOrder = new GroveOrderService({ store: db });
+  const treeWorkspace = evalHost.treeWorkspaceFiles ? new TreeWorkspaceService({
+    trees: () => db.getTrees(),
+    files: evalHost.treeWorkspaceFiles.files,
+    compose: evalHost.treeWorkspaceFiles.compose,
+    published: (ownerId, treeId) => db.getPublishedWorkspace(ownerId, treeId),
+    builds: (ownerId) => db.getRunEffort(ownerId, BUILD_WORKSPACE.id),
+    startBuild: (ownerId, treeId, commit) => workspaceBuilds.start(ownerId, treeId, commit),
+  }) : undefined;
   tenant.use('/api/trees', treesRouter({
     db,
+    ...(treeWorkspace ? { workspaceFile: treeWorkspace } : {}),
+    order: groveOrder,
+    home: treeHome,
     workspaces: { state: (treeId) => evalHost.treeWorkspaces.state(treeId), ...treeConclusions },
     runs: groveRuns,
     deletion: groveDeletion,
@@ -1002,15 +1174,22 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }));
   tenant.use('/api/plans', plansRouter({ plans: new PlanService({ store: db, adopter: temporalBridge, onSettled: concluded }) }));
   tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault: infisicalService }) }));
-  tenant.use('/api/branches', branchesRouter({ db, deletion: groveDeletion }));
+  tenant.use('/api/branches', branchesRouter({ db, deletion: groveDeletion, order: groveOrder }));
 
-  const mcpRegistries = new Map<string, McpRegistryService>();
-  const mcpServersOf = (ownerId: string) => {
-    const known = mcpRegistries.get(ownerId) ?? new McpRegistryService(db, ownerId, (n: string) => resolveMcpProbeUrl(n));
-    mcpRegistries.set(ownerId, known);
-    return Promise.all([known.listWithTools(), db.getMcpToolHints(ownerId)]).then(([servers, hints]) => withHints(servers, hints));
-  };
-  tenant.use('/api/mcp', mcpRouter({ mcp: new McpService({ store: db, servers: mcpServersOf }) }));
+  const mcpCatalogue = new McpServerService({
+    store: { list: (ownerId) => db.getMcpServers(ownerId), save: (server) => db.saveMcpServer(server), remove: (ownerId, id) => db.deleteMcpServer(ownerId, id) },
+    templates: () => MCP_SERVER_TEMPLATES,
+    runs: engineRuns,
+    finished: async (runId) => db.findRunEffort(runId),
+    deployments: () => db.getDeployments(),
+    grants: agentDirectory,
+    names: async (ownerId, deployment) => {
+      const project = deployment.gitappProjectId ? (await db.getProjects()).find((entry) => entry.id === deployment.gitappProjectId && entry.ownerId === ownerId) : undefined;
+      const tree = project ? (await db.getTrees()).find((entry) => entry.ownerId === ownerId && (entry.projectIds ?? []).includes(project.id)) : undefined;
+      return { ...(tree?.name ? { treeName: tree.name } : {}), ...(project?.name ? { projectName: project.name } : {}), declared: (tree as { serviceName?: unknown } | undefined)?.serviceName as string | undefined };
+    },
+  });
+  tenant.use('/api/mcp', mcpRouter({ mcp: new McpService({ store: db, catalogue: (ownerId) => db.getMcpServers(ownerId) }), catalogue: mcpCatalogue }));
   tenant.use('/api/actions', actionsRouter({ actions: new ActionService({ store: db, deployer: temporalBridge, onSettled: concluded }) }));
   const egressService = new EgressService({
     store: db,

@@ -15,7 +15,7 @@ export function statesFromEvents(events: readonly EngineEvent[], path: GroupPath
   let finished = false
 
   for (const event of events) {
-    if (event.type === 'node.entered') {
+    if (event.type === 'node.entered' || event.type === 'thinking' || event.type === 'content') {
       current = event.nodeId
     } else if (event.type === 'node.exited') {
       const shown = nodeAtDepth(event.nodeId, path)
@@ -36,6 +36,12 @@ export function statesFromEvents(events: readonly EngineEvent[], path: GroupPath
   return states
 }
 
+export const statesKey = (states: Readonly<Record<string, NodeState>>): string =>
+  JSON.stringify(Object.entries(states).sort(([a], [b]) => a.localeCompare(b)))
+
+export const statesFromKey = (key: string): Record<string, NodeState> =>
+  Object.fromEntries(JSON.parse(key) as [string, NodeState][])
+
 export function statesFromTraces(traces: readonly NodeTrace[], path: GroupPath, upTo?: number): Record<string, NodeState> {
   const states: Record<string, NodeState> = {}
   for (const trace of traces) {
@@ -55,6 +61,13 @@ export function tracesFromEvents(events: readonly EngineEvent[]): NodeTrace[] {
   return events
     .flatMap((event) => (event.type === 'node.traced' ? [event.trace as unknown as NodeTrace] : []))
     .sort((a, b) => a.sequence - b.sequence)
+}
+
+export function withStoredTraces(live: readonly NodeTrace[], stored: readonly NodeTrace[]): NodeTrace[] {
+  const full = new Map(stored.map((trace) => [trace.sequence, trace]))
+  const merged = live.map((trace) => full.get(trace.sequence) ?? trace)
+  const seen = new Set(merged.map((trace) => trace.sequence))
+  return [...merged, ...stored.filter((trace) => !seen.has(trace.sequence))].sort((a, b) => a.sequence - b.sequence)
 }
 
 export function groupPathOf(nodeId: string, groupOfInstance: (instancePath: readonly string[]) => string | undefined): string[] {

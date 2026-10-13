@@ -1,4 +1,5 @@
 import type { EvalRecord } from './eval-run.js';
+import { sameModel, type BenchResult } from './bench.js';
 
 export type AgentChangeStatus = 'proposed' | 'comparing' | 'ready' | 'accepted' | 'handed-over' | 'dismissed';
 
@@ -44,12 +45,12 @@ export interface ProcedureRequest extends ChangeBase {
 export type AgentChange = PromptChange | ProcedureRequest;
 
 export function compareWithEarlier(
-  after: readonly { scenarioId: string; passed: boolean }[],
-  earlier: readonly { results: readonly { scenarioId: string; passed: boolean }[] }[],
+  after: readonly BenchResult[],
+  earlier: readonly { results: readonly BenchResult[] }[],
 ): Pick<PromptComparison, 'scenarios' | 'better' | 'worse'> {
   const scenarios = after.map((result): ScenarioOutcome => {
     for (const run of earlier) {
-      const found = run.results.find((entry) => entry.scenarioId === result.scenarioId);
+      const found = run.results.find((entry) => entry.scenarioId === result.scenarioId && sameModel(entry, result));
       if (found) return { scenarioId: result.scenarioId, before: found.passed, after: result.passed };
     }
     return { scenarioId: result.scenarioId, after: result.passed };

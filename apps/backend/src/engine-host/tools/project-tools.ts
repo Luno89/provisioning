@@ -6,6 +6,8 @@ import { deploymentForProject, rollupProjectStatus } from '../../lib/project-sta
 import { explainSpecProblems, validateSpec } from '../../lib/app-spec-validate.js';
 import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../lib/types.js';
 import { projectFor, type ProjectScopeStores } from './project-scope.js';
+import { projectAppOf } from '../../lib/project-app.js';
+import type { OdooRelease } from '../../lib/odoo-release.js';
 
 export interface ProjectToolStores extends ProjectScopeStores {
   runs(): Promise<PipelineRunMetadata[]>;
@@ -13,6 +15,7 @@ export interface ProjectToolStores extends ProjectScopeStores {
   clusters(ownerId: string): Promise<ClusterMetadata[]>;
   appTypes(ownerId: string): Promise<{ id: string; label?: string | undefined; strategies?: readonly string[] | undefined; builtIn?: boolean | undefined }[]>;
   readPath(project: ProjectMetadata, path: string): Promise<unknown>;
+  releases?: ((ownerId: string, projectId: string) => Promise<OdooRelease[]>) | undefined;
   bindingCheck(ownerId: string, service: string, as?: string): Promise<{ name: string; type: string } | { problem: string }>;
   proposals: {
     list(ownerId: string): Promise<ActionProposal[]>;
@@ -102,13 +105,46 @@ export function createProjectTools(options: {
       if (!caller.ownerId) return refuse('this run has no owner whose projects to read');
       const found = await scoped(caller.ownerId, parsed, caller);
       if ('problem' in found) return refuse(found.problem);
-      const deployment = deploymentForProject(found.project, await stores.deployments());
+      const deployments = await stores.deployments();
+      const deployment = deploymentForProject(found.project, deployments);
       if (!deployment) return answer(`${found.project.name}: not deployed`, `${found.project.name} is not deployed yet.`);
+      const app = projectAppOf(found.project, deployments);
+      const addresses = [
+        app?.local.app ? `on this machine at ${app.local.app}` : '',
+        app?.public.app ? `publicly at ${app.public.app}` : '',
+        app?.local.preview ? `its preview on this machine at ${app.local.preview}` : '',
+        app?.public.preview ? `its preview publicly at ${app.public.preview}` : '',
+      ].filter(Boolean);
       const url = deployment.displayUrl ?? deployment.url;
+      const reached = addresses.length > 0
+        ? `It is reached ${addresses.join('; ')}.`
+        : url ? `It is reached at ${url}.` : 'It is not exposed yet: the person opens it with "Open app" on the project\'s card, on this machine or publicly.';
       return answer(
         `${found.project.name}: ${deployment.status}`,
-        `${found.project.name} runs as ${deployment.name} on ${deployment.clusterId}, ${deployment.status}${deployment.healthReason ? ` — ${deployment.healthReason}` : ''}. ${url ? `It is reached at ${url}.` : 'It has no address yet.'}`,
+        `${found.project.name} runs as ${deployment.name} on ${deployment.clusterId}, ${deployment.status}${deployment.healthReason ? ` — ${deployment.healthReason}` : ''}. ${reached}`,
       );
+    },
+
+    async project_releases({ parsed, caller }): Promise<ToolOutcome> {
+      if (!caller.ownerId) return refuse('this run has no owner whose projects to read');
+      const found = await scoped(caller.ownerId, parsed, caller);
+      if ('problem' in found) return refuse(found.problem);
+      const { project } = found;
+      if (!stores.releases) return refuse('releases cannot be read here');
+      const releases = [...await stores.releases(caller.ownerId, project.id)].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+      if (releases.length === 0) return answer(`${project.name}: no releases`, `${project.name} has no releases: it is not released by chart, or nothing has built yet — get_project_pipeline says which.`);
+      const live = releases.find((release) => release.state === 'live');
+      const waiting = releases.find((release) => release.state === 'preview');
+      const line = (release: OdooRelease) => `- ${release.commit.slice(0, 8)}${release.slot ? ` in slot ${release.slot}` : ''}: ${release.state}${release.reason ? ` — ${release.reason}` : ''}${release.e2e ? `; browser tests ${release.e2e.state}${release.e2e.summary ? ` (${release.e2e.summary})` : release.e2e.reason ? ` (${release.e2e.reason})` : ''}` : ''}`;
+      const lines = [
+        live ? `Live: ${live.commit.slice(0, 8)} in slot ${live.slot ?? '?'}.` : 'Nothing is live yet.',
+        waiting
+          ? `Waiting for the person: ${waiting.commit.slice(0, 8)} is ready to preview in slot ${waiting.slot ?? '?'}. Cutting over or discarding it is theirs, on the project's Builds & Deploys card; tell them it is there rather than doing it.`
+          : '',
+        'Newest first:',
+        ...releases.slice(0, 6).map(line),
+      ].filter(Boolean);
+      return answer(`${project.name}: ${live ? `live ${live.commit.slice(0, 8)}` : 'nothing live'}${waiting ? ', a preview waits' : ''}`, lines.join('\n'));
     },
 
     async get_project_env({ parsed, caller }): Promise<ToolOutcome> {

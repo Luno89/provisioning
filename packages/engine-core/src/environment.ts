@@ -40,13 +40,18 @@ export interface ExecRequest {
   command: string;
   cwd?: string | undefined;
   timeoutMs?: number | undefined;
+  untimed?: boolean | undefined;
+  signal?: AbortSignal | undefined;
   env?: Record<string, string> | undefined;
 }
+
+export type ExecStopped = 'timeout' | 'cancelled';
 
 export interface ExecResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  stopped?: ExecStopped | undefined;
 }
 
 export interface DirEntry {

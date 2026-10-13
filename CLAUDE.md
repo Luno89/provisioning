@@ -52,7 +52,8 @@ npm run test:proposals-live       # Koala corrected in chat → the memory keepe
 npm run test:practices-live       # a correction → a practice on trial → the bench tries it → live or held → recalled, ~45 min
 npm run test:changes-live         # a prompt change compared on the bench and accepted; a procedure request handed to the agent builder, ~30 min
 npm run test:account-removal-live # a fresh account with a project, its repository and a conversation removes itself through DELETE /api/account → its session and sign-in are refused at once → an admin sees it go → nothing of it is left in any collection, Gitea or Kubernetes, ~1 min
-npm run test:odoo-release-live     # a throwaway project on the system cluster: its push builds and releases into slot a, a new module is prepared in slot b and previewed, cut over, then the app and project are removed, ~4 min
+npm run test:odoo-release-live     # a throwaway project on the system cluster: its push builds and releases into slot a, a new module is prepared in slot b and previewed, cut over and rolled back, then deleting the project takes the live app, its namespace and its release workflow with it, ~5 min
+npm run test:tree-to-release-live  # new trees made through the API: an Odoo tree gets its own project and its starter goes live in slot a, an API tree gets one and is built and deployed, a paper tree gets none; ~10 min, removes everything
 npm run test:checks-live          # a Level 2 run on the check runner (CHECKS_LIVE_SCENARIOS picks which; default seven model scenarios on your model): each in a fresh hidden space, driven through the API → every run opens for you afterwards → no space is left behind
 npm run test:instance-live        # k3d cluster + root container + charts/instance → sign in through root → sandboxed run, ~10 min, cleans up
 npm run test:remote-integration   # boots a disposable QEMU VM, provisions it as a provider:'remote' cluster over
@@ -158,7 +159,7 @@ API would reject.
 ## Account removal
 
 `RemoveAccountWorkflow` (engine worker) removes an account and everything it owns: it stops the account's
-workflows, deletes its workspace namespaces (by the `koala.dev/owner` label), project secrets, mesh machines,
+workflows (its projects' release workflows and running builds too), destroys its apps on their clusters, deletes its workspace namespaces (by the `koala.dev/owner` label, which release namespaces carry too), project secrets, mesh machines,
 Gitea user and repositories, then every record, the account last. A person removes their own account from
 Settings (typing their email), an admin removes anyone's from Settings → People. It is refused while the account
 still has clusters or deployed apps, and for the only admin. The moment it starts, the account's sessions and
@@ -179,7 +180,7 @@ each run's memory keeper by name (`memoryRunId`); the memory keeper never runs f
 goes before anything does) deletes the trees whose home is the project, with their leaves, conversations, workspaces
 and repos; the project's repo (and its build webhook), Infisical workspace and reader identities, builds and
 records. A tree only also linked to it, and a conversation or memory that only mentions it, are kept and unlinked.
-It is refused while an app built from the project is deployed, and a project being deleted ignores pushes.
+An app built from the project goes with it: once the project's workflows (its release workflow among them) are stopped, each of its deployments is destroyed on its own cluster through `executeDestroyAppWorkflow` on the cluster worker, and the popup lists the app among what goes. A project being deleted ignores pushes.
 
 `ACCOUNT_DATA` in `lib/account-removal.ts` classifies every Mongo collection as removed by owner, by id, through
 what it relates to, or shared; a test fails when a collection in `mongo-db.ts` is missing from it, so **a new
@@ -198,6 +199,42 @@ Sign-in on an instance: the instance sends you to root's `/api/identity/go`, whi
 single-use token for your instance and redirects to `<instance>/#/handoff?token=…`. The instance
 checks the signature, audience, expiry and owner, records the token id so it cannot be reused, and
 sets its own session. Register an instance with `npm run instances -w apps/backend -- add <id> <owner> <url>`.
+
+## How an agent holds a tool
+
+An agent never lists its own tools. What it holds is its **grants** (`toolGrants`, many to many, neither the agent
+nor the tool records the other): **shipped** ones, declared by each extension as `grants` (`extensions/*/personas.ts`,
+the engine's own in `SEEDED_GRANTS`) and never stored; the person's own, **granted** (the Studio, an approved
+proposal); and **revoked** ones, which take a shipped tool away from their agent. `toolsOf` / `withGrants` in
+`agent-engine/src/agent/grants.ts` resolve them; the backend reads every agent through **`AgentDirectory`**
+(`engine-host/registries/agent-directory.ts`, which also drops what a switched-off extension brings), and writes only
+through its `setTools` (`grantChanges` turns the wanted list into grants and revocations). So a built-in agent stays
+built in when only its tools change — the Studio says so, and saving stores grants, not a copy — and keeps getting
+shipped changes. The resolved agent (`Persona`, with `tools`) is what the engine runs; what is stored is a
+`PersonaRecord`, without them. A grant change starts the agent's image rebuilding and tells the bench, like an agent
+save. Check spaces copy the person's grants, and a world's `agents.<slug>.tools` becomes grants there. Startup moves any
+stored agent's old tool list onto grants (`lib/tool-grant-migration.ts`, in `seedAll`) and drops a copy of a built-in
+that differed only in its tools.
+
+**MCP servers are a catalogue of their own** (`mcpServers`, `lib/mcp-servers.ts`, Studio → MCP Servers, `/api/mcp/catalogue`).
+A server runs hosted (at a URL, or one of the person's MCP deployments, recorded as they run, `from: { projectId }`) or in
+the workspace (what installs it, the command that starts it, its port and path). Known ones ship as templates
+(`extensions/mcp/templates.ts`: Playwright, with Chromium installed against the Playwright its package bundles). Adding
+or saving one **captures** it with the `capture-mcp-server` procedure (`extensions/mcp/`, agent `mcp-capture`, no model):
+a hosted one is asked over HTTP; a workspace one has its image built (`planServerImage`) and is started in the capture
+run's own sandbox, which the run's cleanup step releases. `initialize` and `tools/list` are kept on the record —
+instructions, tools, the fingerprint of how it ran — or why it failed; a server is offered only while its capture
+matches how it runs now (`usable`). Agents **hold** servers through grants of `kind: 'server'` (stored under a key of
+their own, so a server and a tool may share a name; `persona.servers` resolved like tools), renamed and dropped with the
+server. A held workspace server's install joins the agent's image and the tree workspace (`heldWorkspaceServers` in the
+composer, each line `server:<name>`). Runs never list a server: `ServerTools` (`engine-host/tools/server-tools.ts`)
+offers each held (or chat-enabled, hosted) server's captured tools as `<server>__<tool>`, filtered by `offer`/`omit`,
+each tool's effect from the server's hints or the person's `kind`, grouped in the prompt under the server with its
+instructions, the person's notes and what it depends on, and each tool's note as its guidance; calls go to
+`WorkspaceServers` (started in the run's pod on first use, one `curl` per request) or to the hosted address. A check's
+world can carry `mcpServers` (captured before the run) and give an agent `servers`; `mechanics-workspace-server` proves
+the workspace path. Startup (`migrateMcpServers` in `seedAll`) moves `persona.mcp`, tools that served, and per-tool kinds
+onto the catalogue.
 
 ## Memory
 
@@ -219,6 +256,15 @@ builder). Each waits on the page of the agent it is for (Studio → Agents → P
 behind (`tests/lib/forget-test-runs.ts`), since they feed the keeper made-up situations. Watermarks in `memoryWatermarks` mean nothing is processed twice,
 Koala also holds
 `save_memory` for what the person states outright.
+
+**A memory or a practice can be kept for one model** (`model` on the memory: the model's own name, as a turn's
+binding has it — `provider.model`, never the endpoint). The recall step takes the turn's binding, so one is recalled
+only when that model works (`selectForContext`); without a binding, none kept for a model is. The keeper sees the model
+in `read_run` (from the `choose-model` trace) and names it on `save_memory` / `propose_practice`, refused unless it is
+one of the person's models. The bench tries a model's practice on an endpoint serving that model, leaving it on trial
+while none does; every check result records the model it ran on, and regressions and prompt-change comparisons only
+compare results on the same model (`sameModel` in `lib/bench.ts`). The Memories page and the agent's practices show
+and filter by model; `mechanics-memory-per-model` proves recall on a script (a scripted space's model is `scripted`).
 
 ## Checks
 
@@ -348,11 +394,67 @@ MongoDB stays in sync with Temporal via two mechanisms:
 1. **`trackWorkflow()` polling** — every 5s per workflow; retries transient Temporal errors up to 12 times before giving up (avoids clusters getting stuck "provisioning" during brief Temporal outages).
 2. **Background reconciliation loop** — every 30s, scans clusters in intermediate states (`provisioning`, `destroying`), checks Temporal directly, and updates MongoDB if the workflow finished but the DB missed it. Also parses log files to update `ClusterMetadata.progress` (e.g. `creating-cluster`, `patching-storage`, `deploying-cdktf`, `installing-traefik`).
 
+**A command runs until it ends.** `run_command` has no time limit unless the call sets `timeoutSeconds`. In a cluster
+workspace it runs in its own process group (`GROUPED_EXEC` in `cluster-backend.ts`), so a timeout or a stopped run
+kills everything it started in the pod (`STOP_GROUPED_EXEC`), not only kubectl. Tool calls heartbeat and are cancelled
+with `TRY_CANCEL` (behind the `tool-calls-hear-stops` patch); the activity also polls `runCancelled`. Their only ceiling
+is Temporal's required `startToCloseTimeout` (`TOOL_CALL_CEILING`, 30 days). `mechanics-long-command` proves it.
+
+**Odoo browser tests.** `odoo-e2e --keep` leaves the throwaway Odoo served between runs (reused while `addons/` is
+unchanged, upgraded in place when it changed, `--stop` ends it). Specs use `e2e/odoo.ts` (`lib/odoo-e2e-helpers.ts`:
+`signIn`, `openAction`, `fill`, `choose`, `addLine`, `save`, `press`, `smartButton`, `reportHtml`), whose `test` gives each
+step ten seconds and attaches `page-at-failure`, an outline of the page, which `odoo-e2e` prints and `readE2EReport`
+keeps as `E2ETest.page` (task checks and the release card show it). The image carries the helpers and `odoo-e2e` copies
+them into a repository that lacks them.
+
 **Workspace images can be product images.** A tree works in the image its type's `language` names. The engine's
 image planner takes the host's bases (`extensions/workspace-bases.ts`: the UBI ones plus `extensions/odoo/`'s Odoo 18
 with PostgreSQL 18 and `odoo-check`); a base may carry setup steps, and a `dnf` install falls back to `apt-get`
 (`APT_NAMES` maps the names that differ). Workflow code must not import `workspace-bases.ts` — the engine's root export
 pulls in `crypto` and `path`, which Temporal's workflow bundle refuses.
+
+**A tree's workspace is composed, built and published.** Plan: `~/.claude/plans/workspace-tool-servers.md` (step 0).
+- A project says what its workspace needs in `.koala/workspace.json` on `main` (`lib/workspace-file.ts`: packages by
+  manager, an install script, languages, plain env values — a secret-looking name is refused).
+- One composer (`lib/workspace-composition.ts` → the engine's `planImage`) puts the tree type's base, that file and the
+  tools of every agent that works in the tree into one plan, each line saying where it came from (`PlanLine.from`).
+- The image a tree works in is its **published workspace** (`publishedWorkspaces`, `lib/published-workspace.ts`): the
+  file it was built from, its image, lines and env, and `next` (how far the next build has got). A tree with none is
+  composed from `main` and published the first time it is wanted. Later runs compose from the published file, so an
+  agent gaining a tool is still picked up, but a new `main` waits for its build.
+- A pod carries `koala.dev/workspace` (`workspaceStamp`). A tree pod whose stamp differs is replaced at the run's next
+  command, with `/work` kept (`currentWorkspace` in `environments.ts`).
+- **Builds are the `build-workspace` procedure** (`extensions/workspace/`, agent `workspace`, no model): read →
+  compose → (a new install script waits on Wait for Person with Install it / Do not install) → build → publish →
+  resume → tell the channel. Any failure keeps the workspace the tree had. It runs once per tree and commit
+  (`workspace-build-<tree>-<commit12>`). It is started by a push to `main` that touches the file (the Gitea webhook →
+  `WorkspaceBuildService.pushed`) or by `change_workspace`. A notice a procedure step emits with `post` goes to the
+  project's channel (`StreamServices.post`), and a Wait for Person with `choices` takes no other answer.
+- **Agents ask with `change_workspace`** (executor, planner, Koala). It commits the addition to `main` straight away,
+  not to the leaf's worktree: a story that needs a package cannot be verified without it, so it would never land. It
+  then starts the build. The tree comes from the call's workspace (`caller.treeId`, for a run in `tree-<id>`), the
+  chat's binding, or `treeId`.
+- **A task waits with `mark_waiting`** (executor). It is refused while `main` has nothing the published workspace
+  lacks (`pendingChanges`). do-one-task reads the task's state when the model answers (`task_status`) and ends the
+  run there, judging and recording nothing, if it waits. When only waiting tasks are left, Next Task leaves through `waiting`. The story is parked
+  (`waitingFor` on the leaf, still `pending`): it is not failed, not replanned, kept out of `ready_leaves`, and shown
+  as Blocked on the board. `workspace.resume`, after a publish, clears it, sets its waiting tasks to `accepted` and
+  grows the tree. A story is parked only after its run ends, so parking asks the workspace first (`parkingFor`): a
+  build already published puts it straight back in line, and one that failed or was declined marks it `stuck` (as
+  does a build failing later; the next build clears it), which the board shows and `settleTree` fails on.
+- A `pip` or `npm` line on a base without that manager installs its language first (`withManager` in `planImage`).
+- A run in a tree's workspace is told what is coming that it does not have yet, and at what stage
+  (`RunWorkspace.coming`, `stageText`).
+- **The person edits it on the tree's Files page, in its Workspace section** (`TreeWorkspaceFilePanel`,
+  `TreeWorkspaceService`, `GET`/`PUT /api/trees/:id/workspace-file`): the file on `main` as a form, every line it
+  composes to with where it came from (lines `main` has that the published image lacks are marked), the published
+  image, the next build's stage and the last builds. Saving commits to `main` as the person and starts the build,
+  the same run a push would. Workspace notices open it (`open-workspace`). Check stages `editWorkspace` and
+  `waitWorkspace` do the same through the API.
+- Extension tools reach the tool runtime through the same runtimes as their operations (`extensionRuntimes` once in
+  the host); `engine-host/host.test.ts` fails if a grove or workspace tool has no handler there.
+  `mechanics-workspace-change` proves the whole path, with the check stage `settleTree` waiting for the story the
+  build puts back in line.
 
 ## Odoo projects: A/B releases
 
@@ -364,13 +466,97 @@ Odoo started with `--database X` initialises X itself, so a slot's Deployment mu
 prepared); each later build is prepared in the idle slot from a copy of the live database and filestore, upgraded
 (`-i` new modules, `-u` the rest), and waits in preview until the person cuts over or discards
 (`/api/projects/:id/releases`). A newer build takes the place of a waiting preview. Cutting over puts the live slot in
-maintenance, copies and upgrades again, then switches `live`; the old slot stays as the way back. The cluster is the
+maintenance, copies and upgrades again, then switches `live`; the old slot is stopped with its database untouched as the
+way back. Rolling back (`roll-back`, offered on the live release until a later build reuses that slot) starts it,
+waits for it, then switches `live` to it — the app returns to the snapshot taken at the cutover, so anything entered
+since is lost, and the confirm says so. The cluster is the
 truth for which slot is live (`helm get values`); releases are records (`odooReleases`). Each project's release has
-a deployment record (`appType: odoo-project`), so it shows among apps, blocks project deletion, and destroying it
-uninstalls the release and its namespace. Releases reach clusters the way `ClusterService` does
+a deployment record (`appType: odoo-project`, with its `namespace`), so it shows among apps, goes with the project, and destroying it
+uninstalls the release and its namespace. A release is named once, at its project's first release: the project's name plus a
+short hash of its id (`newReleaseName`), stored as `releaseName` — so two projects with the same name never share a
+namespace or a host, and renaming a project does not orphan its app; a project released before names were stored keeps
+the name it has. Its namespace is labelled `koala.dev/owner` and `koala.dev/project` before Helm installs into it. Releases reach clusters the way `ClusterService` does
 (`activities/cluster-access.ts`'s `reachCluster`). Exposing the app also exposes its preview on its own address, and
 the project's builds panel shows the releases with a card to cut over or discard a waiting one. `npm run test:odoo-release-live` proves it on the system cluster with
 a throwaway project, ~4 min, and removes everything.
+
+**A new tree that produces a service gets its own project** (`TreeHomeService`, rule in `lib/tree-home.ts`): plan
+approval (`homeTree` in plan adoption) and `POST /api/trees` both call it, so it does not matter whether the tree came
+from chat, a check or the New Tree dialog. The project (`project-<treeId>`, so a retry finishes rather than doubles it)
+gets a repository, the build webhook, the person's own cluster and auto-deploy (`ProjectRepoService.createProject`, the
+one way a project gets a repository). The New Tree path also seeds the type's starter; adoption writes the starter with
+the plan in one commit. A tree that produces an artefact gets no project. A build is pinned to the commit that was pushed
+(`lib/build-plan.ts`), and a push whose commit has no Dockerfile records no build at all.
+
+**A tree type declares the secrets its app needs** (`secrets` on the type: a key, where it comes from — `generated` by the
+platform, a minted `gitea-read-token`, or a `person` on a card — what it is for, and optionally the login it `signInAs`).
+`ProjectSecretsService.ensure` puts them in the project's Infisical workspace when `TreeHomeService` makes the project, and
+again before every Odoo release (`OdooReleaseService`) and image deploy (`TemporalBridge.promoteProjectBuild`), so a project
+made before a type declared something catches up; a person-sourced one waits on a card on the tree's page and holds the
+release. No value ever reaches a model, and leaf workspaces get none. Image deploys sync the vault into `<namespace>-secrets`
+(the app's `envFrom`); an Odoo release syncs it into `<release>-vault` (`OdooReleaseVaultActivity`, before Helm), the chart
+reads `POSTGRES_PASSWORD` from it, and the init and upgrade jobs set `admin`'s password from `ODOO_ADMIN_PASSWORD` every
+time. A chart from before this (its repo still has `deploy/chart/templates/secret.yaml`) keeps its own database password,
+which is copied into the vault on every release so the two never drift. An Odoo project no tree is the home of uses the
+release's own list (`ODOO_RELEASE_SECRETS`). The person sees a sign-in with "Show sign-in" on the project's card
+(`GET /api/projects/:id/sign-in`, uncached, read from the vault to their browser); the planner reads the list in
+`describe_tree_type`, and the Studio edits it under a type's Secrets.
+
+**A tree type also says what its app depends on, what its leaves get, and what makes a release.** `defaultBindings`
+("Depends on" in the Studio) are seeded into a new project's `needs`, so every deploy binds those services into the
+app with their credentials; the tree's workspaces get network access to them only (`treeExtrasFrom` → `extrasOf` on
+the tree workspace), along with the type's own `egress` rules and plain `env` values — never a credential, since a
+model works there. `releaseWhen` lists the paths the app is built from: a push that changes none of them since the last
+release (Odoo) or the deployed image (image deploys) still builds, but nothing is released, and the build says why
+(`releaseSkipped`, `lib/release-paths.ts`). A check's world can lay settings over a tree type (`world.treeTypes`).
+
+**Every project has a channel, and the channel hears what happens to its work.** A project's channel is its own
+conversation (`channel-<projectId>`, `kind: 'channel'`, `ProjectChannelService.ensure`, made with the project or the
+first time its page opens, bound to its tree, deleted with it).
+
+**A project opens on its board** (`components/Projects/Board/`, `#/projects/tree/<id>` or `#/projects/project/<id>`):
+what is going on with it across the top (what is live, a preview with its cut-over, Open app, sign-in, the last build),
+each tree as an epic with its features (branches) as rows and its stories (leaves) as cards in the state columns
+(`BOARD_COLUMNS`/`stateFor`, the one rule for a leaf's column; `board.ts` builds it), and the channel on the right, its
+width dragged (and kept) at the divider. Opening a card or a feature puts it on its own page in place of the board, with
+breadcrumbs back up (`…/<branchId>/<leafId>`, `…/<branchId>`; each opening is a history step), and its chat on the right
+beside the Channel and Threads tabs. You set the order work is taken in on the board: drag a card by its grip within its column, move a feature with its arrows (`PUT /api/branches/:id/order`, `PUT /api/trees/:id/order` → `priority` on stories and features, `GroveOrderService`); `ready_leaves` takes ready stories in that order (`lib/work-order.ts`), so the fan-out starts yours first, and Koala's outlines list them in it. A story's page lists its tasks, with Accept and Drop for any proposed while it was worked, and "Watch it work" opens the live feed of its worker's run and the runs it starts (the tree run's turn, `turnId` on `GET /api/trees/:id/run`; `GET /api/turns/:id?under=<runId>` sends only that run's family, with `through`, the last seq it read). Each run is a tab (`Board/StoryRun.tsx`): its procedure on the Studio graph, read-only, following and centring on the step it is on, and its rounds (`lib/run-rounds.ts`: a round starts each time the model step is entered again, since the log has no `model.requested`; a tool the procedure calls itself, a `call-tool` trace, is shown apart from the model's). The turn log writes a step's node events when the workflow step ends, so the model call is only "entered" once it has answered; streamed thinking and text carry its node, and the run state takes the step from them. A `node.traced` event in the turn log is a summary (`tracedSummary` in `lib/turn-log.ts`: no `inputs` or `outputs`); the full trace is only in `engineRunTraces` (`/engine/runs/:id/traces`, which checks read), and the Studio's run panel reads those every few seconds while a run is live. Each trace used to carry the whole conversation, which made a long run's log tens of MB and crashed the tab watching it. A story that can be started shows the tree's run panel on its page: there is no running one story, the tree takes the ready ones in board order. The editor, explorer, builds and the tree's sandbox and delete are its **Files** page (`…/files`), the switch at
+the top. Both read the project through `useProjectWork` and keep the address with `useRouteSync`.
+
+**A story and a feature each have their own chat** (`ItemChatService`, `POST /api/items/<story|feature>/<id>/chat`,
+`story-<leafId>` / `feature-<branchId>`, `kind: 'item'`, bound to the leaf or branch and its tree, made the first time it
+is opened). On every turn in it Koala is handed the item (`conversationBinding` → `story` / `feature`, written by
+`lib/item-outline.ts`): where it sits, its brief, what it waits on, its tasks, what was claimed, the judge's verdict and
+the attempts that failed. Every chat bound to a project, a tree or one of its items is also handed the status of each of its projects — what is live, a preview waiting on the person, a release in progress, the last build (`lib/project-outline.ts`). Every chat bound to something (a project, a tree, a feature, a story) opens with what Koala is handed on each
+message, read fresh (`GET /api/conversations/:id/context`, `openingWith` over the same binding a turn gets;
+`Chat/ConversationContext.tsx`), formatted, with the exact text a click away. In a story's or feature's chat Koala changes the work only through a card: `propose_story_change` (title, goal, brief, waits-on, tasks, rework), `propose_stories` (new stories in a feature, or a follow-up to a shipped story, which is never changed) and `propose_story_cancel` make a plan proposal with a `change` (`lib/item-changes.ts`), shown on the plan card in that chat, and nothing changes until it is approved. `AdoptPlanWorkflow` applies it: it first stops the worker of a story that must start again (a running story whose title, goal or brief changes or that is reworked; a claimed one has its claim set aside), saves the records, rewrites `leaves/<story>.md` and notes the change in PLAN.md, and runs the tree only when work was put back in line. A run a story was taken off can no longer claim it (`claim_leaf` checks the story's attempts). Cancelling frees the stories that waited on it. A notice about one story (a failed leaf) is posted in full in its chat and as one line with
+"Open the story" in the channel (`line`, `open-story`); item chats are never a tree's threads and never hear the tree's
+own notices. A check stage talks in one with `chat.in: { story: title }` or `{ feature: title }`, and approves a card there with `approvePlan: { in: … }`;
+`mechanics-item-chats` proves it, change card included.
+In the channel a message is just posted (`POST /api/conversations/:id/messages`, only channels) unless it names @koala or the person has turned on "Ask Koala" beside the message box (remembered per channel in their browser, `lib/channel-asks.ts`); then it starts Koala's turn. Every person message in a channel says which it was ("asked Koala" if it carries a `runId`, else "posted · Koala wasn't asked" with **Ask Koala**, which starts a turn with `asks: <its at>` so that note is answered in place, never posted again; `openTurn` refuses one already asked about). A turn's history leaves out the message its own open turn is answering, since the opening already carries it with the context. In a channel or an item chat each person message in Koala's history says who wrote it (`heardAs`, by email), a channel post nobody asked Koala about reads "<who> posted, not to you:", and the binding's `chat` value tells Koala which chat it is in and who is asking (`chatFraming`), so it reads the discussion without acting on it. Other chats about the project are its threads. Approving a new tree's plan binds the
+conversation it was planned in to the tree and its project. Releases (preview ready, live, failed), a tree's run ending
+(and each failed leaf), and a secret only the person can enter post a notice — a third kind of message
+(`role: 'notice'`, author `platform`, with links and actions) — to the project's channel (a tree with no project: to
+the conversations bound to it), once per event (`ConversationNoticeService`,
+`lib/notices.ts`), pushed live as `conversation-notice`. Koala does not reply on its own; on the person's next message
+it is given each notice as a message labelled "From the platform, not the person:". Koala reads trees and releases with
+`read_tree`, `run_tree` and `project_releases`; a plan's tree starts growing when it is approved.
+
+**A tree type describes itself** (`TreeTypeDescriptions`, `lib/tree-type-description.ts`): what approving a plan makes
+(`lib/tree-home.ts`), the starter's files, the workspace image's own summary, how the tree grows — the grove agent's
+procedure and the agents it hands work to, each in its own words (`outlineProcedure` in the engine) — and what happens
+to work that lands (`lib/delivery.ts`: the release text is keyed by every `ReleaseState`, so a new state must be described),
+with what the platform owns so the plan must not. The planner reads it with `describe_tree_type`; the Studio shows it as
+a tree type's "What it becomes"; the leaf judge is handed the type's `doneMeans`. Nothing in it is written by hand
+except next to the code it describes.
+
+**A grove lands what it verified, and says when it cannot.** `grove-run` lands verified stories after each judge pass and again when the tree goes quiet (`landWaiting`), so one that missed its landing is landed on the next run rather than stranded. Notices a step raises in the engine worker (a story that did not land, nothing landed this pass) come back with its result and are published into the run's turn log by `AgentRunWorkflow`; before, they never left the worker. Saving a workspace whose `main` was changed elsewhere (a person's edit in the editor, a merged pull request) no longer fails: the rejected push brings Gitea's `main` in, merges it, and pushes again; a real conflict is refused with the files that conflict and the workspace left as it was (`reconcileScript` in `workspace-documents.ts`).
+
+**A tree's run is one workflow at a time, each run with its own id.** The workflow is `grove-run-<tree>` (so a tree
+never runs twice at once, and Stop and deletion find it), but each run's id is `grove-run-<tree>~<stamp>`
+(`groveRunId`), remembered in the workflow's memo (`RUN_ID_MEMO`, read back as the tree run's `turnId`). Child runs,
+traces, turn logs and a task's `runs` derive from the run id, so a tree's second run never overwrites its first.
+Anything that reaches a workflow by a run id goes through `workflowOfRun`.
 
 **Every workflow says whose it is.** Each start carries the `KoalaOwner` search attribute (`startedFor(owner)` in
 `lib/workflow-owner.ts`; `platform` for platform work). The shared client (`lib/temporal-client.ts`) registers the

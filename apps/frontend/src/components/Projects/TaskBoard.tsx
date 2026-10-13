@@ -7,12 +7,13 @@ const STATUS_STYLE: Record<TaskStatus, string> = {
   proposed: 'text-amber-300 bg-amber-500/10 border-amber-500/20',
   accepted: 'text-sky-300 bg-sky-500/10 border-sky-500/20',
   running: 'text-[var(--leaf)] bg-[var(--leaf-stem)]/10 border-[var(--leaf-stem)]/20',
+  waiting: 'text-amber-300 bg-amber-500/10 border-amber-500/20',
   done: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20',
   failed: 'text-red-300 bg-red-500/10 border-red-500/20',
   dropped: 'text-slate-400 bg-slate-500/10 border-slate-500/20',
 }
 
-const ORDER: TaskStatus[] = ['proposed', 'running', 'accepted', 'done', 'failed', 'dropped']
+const ORDER: TaskStatus[] = ['proposed', 'running', 'waiting', 'accepted', 'done', 'failed', 'dropped']
 
 const FINISHED: TaskStatus[] = ['done', 'failed', 'dropped']
 

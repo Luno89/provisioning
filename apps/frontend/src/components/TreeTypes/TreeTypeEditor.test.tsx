@@ -72,14 +72,14 @@ describe('editing a tree type', () => {
     renderEditor(treeType());
     expect(await screen.findByDisplayValue('A service exposing tools over MCP.')).toBeInTheDocument();
     expect(screen.getByText('Scaffold')).toBeInTheDocument();
-    expect(screen.getByText('Bindings')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Depends on' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
   });
 
   it('shows one section on its own', () => {
     renderEditor(treeType(), [treeType()], 'bindings');
-    expect(screen.getByText('Default service bindings')).toBeInTheDocument();
-    expect(screen.queryByText('Bindings')).toBeNull();
+    expect(screen.getByText('Depends on')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Depends on' })).toBeNull();
     expect(screen.queryByText('Scaffold')).toBeNull();
     expect(screen.queryByDisplayValue('A service exposing tools over MCP.')).toBeNull();
   });
@@ -125,6 +125,30 @@ describe('editing a tree type', () => {
     expect(screen.getByRole('button', { name: /create/i })).toBeDisabled();
   });
 
+  it('declares a secret the app needs from the vault, where it comes from and who it signs in as, and saves it', async () => {
+    vi.mocked(groveApi.updateTreeType).mockImplementation(async (_id, saved) => saved as TreeType);
+    renderEditor(treeType(), [treeType()], 'secrets');
+
+    fireEvent.click(screen.getByRole('button', { name: /add secret/i }));
+    fireEvent.change(screen.getByLabelText('Key'), { target: { value: 'admin_password' } });
+    fireEvent.change(screen.getByLabelText('Comes from'), { target: { value: 'generated' } });
+    fireEvent.change(screen.getByLabelText('What it is for'), { target: { value: 'The admin password.' } });
+    fireEvent.change(screen.getByLabelText('Signs in as'), { target: { value: 'admin' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+
+    await waitFor(() => expect(groveApi.updateTreeType).toHaveBeenCalledWith('mcp-server', expect.objectContaining({
+      secrets: [{ key: 'ADMIN_PASSWORD', source: 'generated', describe: 'The admin password.', signInAs: 'admin' }],
+    })));
+  });
+
+  it('leaves out who a secret signs in as once that is cleared', async () => {
+    vi.mocked(groveApi.updateTreeType).mockImplementation(async (_id, saved) => saved as TreeType);
+    renderEditor(treeType({ secrets: [{ key: 'A', source: 'person', describe: 'x', signInAs: 'admin' }] }), [treeType()], 'secrets');
+    fireEvent.change(screen.getByLabelText('Signs in as'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(groveApi.updateTreeType).toHaveBeenCalledWith('mcp-server', expect.objectContaining({ secrets: [{ key: 'A', source: 'person', describe: 'x' }] })));
+  });
+
   it('says the grove agent grows a type that names none', async () => {
     renderEditor(treeType(), [treeType()], 'grown-by');
     expect(await screen.findByLabelText('Agent that grows trees of this type')).toHaveValue('');
@@ -156,5 +180,18 @@ describe('editing a tree type', () => {
     fireEvent.change(await screen.findByLabelText('Agent that grows trees of this type'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() => expect(groveApi.updateTreeType).toHaveBeenCalledWith('mcp-server', expect.objectContaining({ agent: undefined })));
+  });
+});
+
+describe('the paths a type is released from', () => {
+  it('takes one path per line, lets a new line be started, and saves the list', async () => {
+    vi.mocked(groveApi.updateTreeType).mockImplementation(async (_id, saved) => saved as TreeType);
+    renderEditor(treeType(), [treeType()], 'scaffold');
+    const box = screen.getByLabelText('Released when these change');
+    fireEvent.change(box, { target: { value: 'src/**\n' } });
+    expect(box).toHaveValue('src/**\n');
+    fireEvent.change(box, { target: { value: 'src/**\nDockerfile' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(groveApi.updateTreeType).toHaveBeenCalledWith('mcp-server', expect.objectContaining({ releaseWhen: ['src/**', 'Dockerfile'] })));
   });
 });

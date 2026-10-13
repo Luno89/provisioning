@@ -105,4 +105,48 @@ describe('a plan that names its service', () => {
     expect(screen.getByText('weather')).toBeInTheDocument()
     expect(screen.getByText(/already belongs to “Old weather”/)).toBeInTheDocument()
   })
+
+  it('shows a story change: what changes from what to what, what approving does, and decides it like a plan', () => {
+    const { onApprove, onReject } = renderCard({
+      plan: undefined,
+      conversationId: 'story-chat',
+      change: {
+        treeId: 't1',
+        why: 'the person wants it printed too',
+        edit: { leafId: 'l1', body: 'The form and the printed order show the note', brief: 'Inherit the report too.' },
+        before: [{ leafId: 'l1', title: 'Note on screen', status: 'running', body: 'The form shows the note', dependsOn: [], tasks: [] }],
+        outcome: ['The worker on it now is stopped, and the story starts again from this change.'],
+      },
+    })
+    expect(screen.getByText('Change “Note on screen”')).toBeTruthy()
+    expect(screen.getByText('the person wants it printed too')).toBeTruthy()
+    expect(screen.getByText('The form shows the note')).toBeTruthy()
+    expect(screen.getByText('The form and the printed order show the note')).toBeTruthy()
+    expect(screen.getByText(/The worker on it now is stopped/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Read the new brief' }))
+    expect(screen.getByText('Inherit the report too.')).toBeTruthy()
+    expect(screen.queryByText(/Read PLAN.md/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+    expect(onApprove).toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Reject' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reject change' }))
+    expect(onReject).toHaveBeenCalled()
+  })
+
+  it('lists the stories a change adds or cancels, and drops what approving would do once it is applied', () => {
+    renderCard({
+      plan: undefined,
+      status: 'adopted',
+      change: {
+        treeId: 't1', why: 'mail it too',
+        add: { branchId: 'b1', branchTitle: 'The field', leaves: [{ key: 'mail', title: 'Mailed note', body: 'The email shows the note', brief: 'b', dependsOn: ['l1'], tasks: [] }] },
+        before: [], outcome: ['The tree is run once they are added.'], names: { l1: 'Note on screen' },
+      },
+    })
+    expect(screen.getByText('Add “Mailed note” to “The field”')).toBeTruthy()
+    expect(screen.getByText('Applied')).toBeTruthy()
+    expect(screen.getByText(/after Note on screen/)).toBeTruthy()
+    expect(screen.queryByText(/The tree is run/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Open the tree' })).toBeNull()
+  })
 })

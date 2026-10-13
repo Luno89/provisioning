@@ -1,6 +1,6 @@
 import type { TaskChecks } from '@koala/harness-types';
 
-export type TaskStatus = 'proposed' | 'accepted' | 'running' | 'done' | 'failed' | 'dropped';
+export type TaskStatus = 'proposed' | 'accepted' | 'running' | 'waiting' | 'done' | 'failed' | 'dropped';
 
 /** The shape lives with the other shared records, so a plan can carry the same checks a task does. */
 export type { TaskChecks };

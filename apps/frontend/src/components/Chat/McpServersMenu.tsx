@@ -33,9 +33,7 @@ export default function McpServersMenu({ servers, enabled, busy, onChoose }: Mcp
               <input type="checkbox" disabled={busy} checked={enabled.includes(server.name)} onChange={() => toggle(server.name)} />
               <span className="min-w-0">
                 <span className="text-slate-200">{server.name}</span>
-                <span className="block text-slate-500">
-                  {server.unreachable ? `not answering — ${server.unreachable}` : `${server.tools.length} tools`}
-                </span>
+                <span className="block text-slate-500">{server.tools.length} tool{server.tools.length === 1 ? '' : 's'}</span>
               </span>
             </label>
           ))}

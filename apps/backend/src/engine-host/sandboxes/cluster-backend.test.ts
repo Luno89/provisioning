@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createClusterBackend, WorkspaceUnavailableError } from './cluster-backend.js';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { createClusterBackend, GROUPED_EXEC, STOP_GROUPED_EXEC, WorkspaceUnavailableError } from './cluster-backend.js';
 import { workspaceName, type RunWorkspace } from './workspace.js';
 import type { KubeResult, KubeRunner } from './kube.js';
+import { workspaceStamp } from '../../lib/published-workspace.js';
 
 const workspace: RunWorkspace = {
   runId: 'run-abc',
@@ -229,6 +232,38 @@ describe('a workspace that outlives its pod', () => {
   });
 });
 
+describe('a kept workspace whose image was rebuilt', () => {
+  const kept: RunWorkspace = { ...workspace, runId: 'tree-t1', persistent: true };
+  const standing = (image: string): KubeResult => ({ stdout: `Running\t${workspaceStamp({ ...kept, image })}`, stderr: '', exitCode: 0 });
+
+  it('carries a stamp of its image and environment on the pod', async () => {
+    const { run, calls } = kube({ get: notRunning });
+    await createClusterBackend({ run, workspace: kept }).exec({ sandboxId: 'x', command: 'echo' });
+    expect(calls.find((call) => call.args[0] === 'apply')?.input).toContain(`"koala.dev/workspace":"${workspaceStamp(kept)}"`);
+  });
+
+  it('goes on in the pod it has while the image is the same', async () => {
+    const { run, calls } = kube({ get: standing(kept.image) });
+    await createClusterBackend({ run, workspace: kept }).exec({ sandboxId: 'x', command: 'echo' });
+    expect(calls.some((call) => call.args[0] === 'apply')).toBe(false);
+  });
+
+  it('is brought back on the new image over the same volume, when the one running is older', async () => {
+    const { run, calls } = kube({ get: standing('registry/koala/workspace:old') });
+    await createClusterBackend({ run, workspace: kept }).exec({ sandboxId: 'x', command: 'echo' });
+    const verbs = calls.map((call) => call.args.slice(0, 2).join(' '));
+    expect(verbs).toContain('delete pod');
+    expect(verbs.some((verb) => verb.startsWith('apply'))).toBe(true);
+    expect(verbs).not.toContain('delete namespace');
+  });
+
+  it('keeps a pod started before stamps existed, rather than replacing every workspace at once', async () => {
+    const { run, calls } = kube({ get: running });
+    await createClusterBackend({ run, workspace: kept }).exec({ sandboxId: 'x', command: 'echo' });
+    expect(calls.some((call) => call.args[0] === 'apply')).toBe(false);
+  });
+});
+
 describe('a workspace several runs share', () => {
   it('is started once when they all reach for it at the same moment, and its files are restored once', async () => {
     let applied = 0;
@@ -259,5 +294,51 @@ describe('a workspace several runs share', () => {
     });
     await createClusterBackend({ run, workspace: { ...workspace, runId: 'conversation-c2', persistent: true } }).writeFile({ sandboxId: 's', path: 'a.md', content: 'x' });
     expect(attempts).toBe(2);
+  });
+});
+
+describe('a command that may run long', () => {
+  it('runs in its own process group with no time limit, and stopping it stops that group in the pod first', async () => {
+    const calls: { args: string[]; timeoutMs?: number | undefined; options?: Record<string, unknown> | undefined }[] = [];
+    const stop = new AbortController();
+    const run: KubeRunner = vi.fn(async (args, _input, timeoutMs, options) => {
+      calls.push({ args, timeoutMs, options: options as never });
+      if (args[0] === 'get') return running;
+      if (args.includes(GROUPED_EXEC)) {
+        await (options as { onStop: (why: string) => Promise<void> }).onStop('cancelled');
+        return { stdout: 'partial', stderr: '', exitCode: 143, stopped: 'cancelled' as const };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+
+    const result = await createClusterBackend({ run, workspace }).exec({ sandboxId: 'x', command: 'npm run e2e', cwd: 'app', untimed: true, signal: stop.signal });
+
+    expect(result).toEqual({ stdout: 'partial', stderr: '', exitCode: 143, stopped: 'cancelled' });
+    const grouped = calls.find((call) => call.args.includes(GROUPED_EXEC))!;
+    const id = grouped.args.at(-2)!;
+    expect(grouped.args.at(-1)).toBe("cd 'app' && npm run e2e");
+    expect(grouped.options).toMatchObject({ untimed: true, signal: stop.signal });
+    expect(calls.find((call) => call.args.includes(STOP_GROUPED_EXEC))!.args).toEqual(['exec', 'workspace', '-n', NAMESPACE, '--', 'sh', '-c', STOP_GROUPED_EXEC, 'sh', id]);
+  });
+
+  it('keeps the old path for a plain call', async () => {
+    const { run, calls } = kube({ get: running });
+    await createClusterBackend({ run, workspace }).exec({ sandboxId: 'x', command: 'ls', timeoutMs: 5_000 });
+    expect(calls.at(-1)?.args).toEqual(['exec', 'workspace', '-n', NAMESPACE, '-i', '--', 'sh', '-c', 'ls']);
+  });
+
+  it('really stops what a command started when the stop script runs, and leaves the exit code of one that ends on its own', async () => {
+    const run = promisify(execFile);
+    const id = `test-${Date.now()}`;
+    const marker = `koala-grandchild-${Date.now()}`;
+    const started = run('sh', ['-c', GROUPED_EXEC, 'sh', id, `sh -c 'sleep 30; echo ${marker}' & sleep 30`]).catch((err: { code?: number }) => err);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await run('sh', ['-c', STOP_GROUPED_EXEC, 'sh', id]);
+    await started;
+    const { stdout } = await run('ps', ['-eo', 'args']);
+    expect(stdout).not.toContain(`echo ${marker}`);
+
+    const ended = await run('sh', ['-c', GROUPED_EXEC, 'sh', `${id}-b`, 'echo fine; exit 3']).catch((err: { code?: number; stdout?: string }) => err) as { code?: number; stdout?: string };
+    expect(ended).toMatchObject({ code: 3, stdout: 'fine\n' });
   });
 });

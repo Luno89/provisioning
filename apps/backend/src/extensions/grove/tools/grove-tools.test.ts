@@ -76,6 +76,29 @@ describe('ready_leaves', () => {
     updatedAt: 'now',
   });
 
+  it('lists the ready leaves in the order the person set: feature by feature, then each feature\'s own order', async () => {
+    branches.push({ id: 'branch-first', ownerId: 'user-1', treeId: 'tree-1', title: 'First', priority: 0, createdAt: 'now', updatedAt: 'now' });
+    branches[0] = { ...branches[0]!, priority: 1 };
+    leaves.push(
+      leaf('later', 'pending', { createdAt: '2026-10-01' }),
+      leaf('top', 'pending', { priority: 0, createdAt: '2026-10-05' }),
+      leaf('first-feature', 'pending', { branchId: 'branch-first' }),
+    );
+    for (const id of ['later', 'top', 'first-feature']) tasks.push(task(`t-${id}`, id, 'accepted'));
+    const outcome = await run('ready_leaves', { treeId: 'tree-1' });
+    expect(JSON.parse(outcome.content!).ready.map((entry: { id: string }) => entry.id)).toEqual(['first-feature', 'top', 'later']);
+  });
+
+  it('keeps a leaf waiting on its workspace out of the ready ones, saying what it waits for', async () => {
+    leaves.push(leaf('parked', 'pending', { waitingFor: { reason: '"task t-parked" waits for the workspace to get dnf jq', since: 't0' } }), leaf('free', 'pending'));
+    tasks.push(task('t-parked', 'parked', 'waiting'), task('t-free', 'free', 'accepted'));
+    const outcome = await run('ready_leaves', { treeId: 'tree-1' });
+    const read = JSON.parse(outcome.content!);
+    expect(read.ready.map((entry: { id: string }) => entry.id)).toEqual(['free']);
+    expect(read.waitingOnWorkspace).toEqual([{ id: 'parked', title: 'leaf parked', waitingFor: '"task t-parked" waits for the workspace to get dnf jq' }]);
+    expect(outcome.digest).toContain('1 waiting on the workspace');
+  });
+
   const seedWorld = () => {
     trees.push({ id: 'tree-2', ownerId: 'user-1', name: 'Other', type: 'application', projectIds: ['project-9'], createdAt: 'now', updatedAt: 'now' });
     branches.push({
@@ -111,7 +134,7 @@ describe('ready_leaves', () => {
     const outcome = await run('ready_leaves', { treeId: 'tree-1' });
 
     expect(outcome.ok).toBe(true);
-    expect(outcome.digest).toBe("2 ready, 1 blocked, 1 without tasks, 1 claimed, 0 awaiting a person's review, 1 in flight, 2 settled — tree tree-1");
+    expect(outcome.digest).toBe("2 ready, 1 blocked, 1 without tasks, 1 claimed, 0 awaiting a person's review, 0 waiting on the workspace, 1 in flight, 2 settled — tree tree-1");
 
     const content = JSON.parse(outcome.content as string) as {
       ready: { id: string; taskCount: number }[];
@@ -274,6 +297,19 @@ describe('claim_leaf', () => {
       findings: 'health endpoint flaky under load',
       runs: ['r7'],
     });
+  });
+
+  it('refuses a claim from a run the story was taken off, after it was changed and started again', async () => {
+    leaves.push({
+      id: 'leaf-r', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'a goal', status: 'pending',
+      attempts: [{ attempt: 1, error: 'stopped and started again: print it too', failedAt: 'now', runId: 'run-1', change: 'p1' }],
+      createdAt: 'now', updatedAt: 'now',
+    });
+    const outcome = await claim({ leafId: 'leaf-r', result: 'claimed', evidence: 'ran it' });
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.digest).toContain('was taken off this run (stopped and started again: print it too)');
+    expect(leaves.find((leaf) => leaf.id === 'leaf-r')!.status).toBe('pending');
   });
 
   it('never lets the work grade itself — a success word is refused with the teaching', async () => {
@@ -439,6 +475,27 @@ describe('list_tree_types', () => {
 
   it('says so when there are none', async () => {
     expect(await run('list_tree_types', {})).toMatchObject({ ok: false, digest: expect.stringContaining('no tree types') });
+  });
+});
+
+describe('describe_tree_type', () => {
+  const withDescriptions = () => createGroveTools({
+    stores: {
+      trees: { list: async () => trees, save: async () => undefined },
+      branches: { list: async () => branches, save: async () => undefined },
+      leaves: { list: async () => leaves, save: async () => undefined },
+      describeTreeType: async (_ownerId: string, type: string) => (type === 'odoo-addons' ? 'Odoo addons (odoo-addons): …\n\nTHE PLATFORM DOES THESE, SO NEVER PLAN THEM\n- deploying or releasing' : undefined),
+    },
+  });
+
+  it('hands the planner what a tree of that type becomes', async () => {
+    const outcome = await withDescriptions()['describe_tree_type']!({ name: 'describe_tree_type', parsed: { type: 'odoo-addons' }, driver: undefined, caller });
+    expect(outcome).toMatchObject({ ok: true, digest: 'odoo-addons described', content: expect.stringContaining('- deploying or releasing') });
+  });
+
+  it('refuses a type that is not the person\'s, or none at all, pointing at list_tree_types', async () => {
+    expect(await withDescriptions()['describe_tree_type']!({ name: 'describe_tree_type', parsed: { type: 'nope' }, driver: undefined, caller })).toMatchObject({ ok: false, digest: 'there is no tree type "nope" — list_tree_types gives the ids' });
+    expect(await withDescriptions()['describe_tree_type']!({ name: 'describe_tree_type', parsed: {}, driver: undefined, caller })).toMatchObject({ ok: false, digest: expect.stringContaining('name the tree type') });
   });
 });
 
@@ -615,5 +672,107 @@ describe('a conversation about one tree', () => {
     trees.push({ ...trees[0]!, id: 'tree-x', ownerId: 'someone-else' });
     expect((await call('conv-free', 'read_tree', { treeId: 'tree-x' })).ok).toBe(false);
     expect((await call('conv-free', 'read_tree', {})).digest).toContain('needs the treeId');
+  });
+});
+
+describe('growing a tree from a conversation', () => {
+  const leaf = (id: string, status: LeafStatus): Leaf => ({ id, ownerId: 'user-1', branchId: 'branch-1', title: `leaf ${id}`, body: 'goal', status, createdAt: 'now', updatedAt: 'now' });
+  const growing = (start: () => Promise<{ started: true } | { started: false; reason: 'unavailable' | 'running' | 'switched-off' }>, state = 'none') => {
+    const started: string[] = [];
+    const made = createGroveTools({
+      stores: {
+        trees: { list: async () => trees, save: async () => undefined },
+        branches: { list: async () => branches, save: async () => undefined },
+        leaves: { list: async () => leaves, save: async () => undefined },
+        tasks: { list: async () => tasks },
+        growing: { start: async (ownerId, treeId) => { started.push(`${ownerId} ${treeId}`); return start(); }, status: async () => ({ state, startedAt: '2026-10-09T20:00:00Z' }) },
+      },
+    });
+    const call = (name: string, parsed: Record<string, unknown>) => made[name]!({ name, parsed, driver: undefined, caller });
+    return { call, started };
+  };
+
+  it('starts a tree with work waiting, and says it started rather than that it is done', async () => {
+    leaves = [leaf('l1', 'pending'), leaf('l2', 'succeeded')];
+    const { call, started } = growing(async () => ({ started: true }));
+    const outcome = await call('run_tree', { treeId: 'tree-1' });
+    expect(outcome).toMatchObject({ ok: true, digest: 'The app is growing' });
+    expect(started).toEqual(['user-1 tree-1']);
+  });
+
+  it('says a tree already growing is, and starts nothing new', async () => {
+    leaves = [leaf('l1', 'running')];
+    expect(await growing(async () => ({ started: false, reason: 'running' })).call('run_tree', { treeId: 'tree-1' })).toMatchObject({ ok: true, content: 'The app is already growing; nothing new was started.' });
+  });
+
+  it('refuses a tree with nothing planned, one with nothing left, and one whose grower is switched off, saying what to do', async () => {
+    leaves = [];
+    expect((await growing(async () => ({ started: true })).call('run_tree', { treeId: 'tree-1' })).digest).toContain('has nothing planned yet');
+    leaves = [leaf('l1', 'succeeded'), leaf('l2', 'failed')];
+    expect((await growing(async () => ({ started: true })).call('run_tree', { treeId: 'tree-1' })).digest).toContain('has nothing left to work');
+    leaves = [leaf('l1', 'pending')];
+    expect((await growing(async () => ({ started: false, reason: 'switched-off' })).call('run_tree', { treeId: 'tree-1' })).digest).toContain('switched off');
+    expect((await growing(async () => ({ started: true })).call('run_tree', { treeId: 'tree-x' })).digest).toBe('no such tree: tree-x');
+  });
+
+  it('says in read_tree whether the tree is growing', async () => {
+    leaves = [leaf('l1', 'running')];
+    expect((await growing(async () => ({ started: true }), 'running').call('read_tree', { treeId: 'tree-1' })).content).toContain('It is growing now, since 2026-10-09T20:00:00Z.');
+    expect((await growing(async () => ({ started: true }), 'none').call('read_tree', { treeId: 'tree-1' })).content).toContain('It is not growing.');
+  });
+});
+
+describe('proposing changes to stories and features from their chats', () => {
+  let plans: PlanProposal[] = [];
+  const bound: Record<string, { treeId?: string; leafId?: string; branchId?: string }> = {
+    'story-chat': { treeId: 'tree-1', leafId: 'leaf-a' },
+    'feature-chat': { treeId: 'tree-1', branchId: 'branch-1' },
+  };
+  const changeTools = () => createGroveTools({
+    stores: {
+      trees: { list: async () => trees, save: async () => {} },
+      branches: { list: async () => branches, save: async () => {} },
+      leaves: { list: async () => leaves, save: async () => {} },
+      tasks: { list: async () => tasks },
+      plans: {
+        save: async (proposal) => { plans = [...plans.filter((entry) => entry.id !== proposal.id), proposal]; },
+        list: async (_ownerId, conversationId) => plans.filter((entry) => !conversationId || entry.conversationId === conversationId),
+      },
+      binding: async (_ownerId, conversationId) => bound[conversationId],
+    },
+    newId: () => `c${++nextId}`,
+    now: () => '2026-01-01T00:00:00.000Z',
+  });
+  const say = (name: string, parsed: Record<string, unknown>, conversationId: string) =>
+    changeTools()[name]!({ name, parsed, driver: undefined, caller: { ...caller, agentSlug: 'koala', conversationId } });
+  const story = (id: string, status: LeafStatus): Leaf => ({ id, ownerId: 'user-1', branchId: 'branch-1', title: `Story ${id}`, body: 'a goal', status, createdAt: 'now', updatedAt: 'now' });
+
+  beforeEach(() => {
+    plans = [];
+    leaves = [story('leaf-a', 'running'), story('leaf-b', 'succeeded')];
+  });
+
+  it('proposes a change to the story its chat is about, says what approving does, and replaces an earlier one', async () => {
+    const first = await say('propose_story_change', { why: 'print it too', body: 'On screen and on paper' }, 'story-chat');
+    expect(first.ok).toBe(true);
+    expect(first.content).toContain('The worker on it now is stopped');
+    const second = await say('propose_story_change', { why: 'print it too', body: 'On screen, on paper and by mail' }, 'story-chat');
+    expect(second.content).toContain('replaces the change proposed earlier');
+    expect(plans.map((entry) => [entry.status, entry.change?.edit?.body])).toEqual([['superseded', 'On screen and on paper'], ['proposed', 'On screen, on paper and by mail']]);
+    expect(plans[1]).toMatchObject({ conversationId: 'story-chat', runId: 'run-1' });
+  });
+
+  it('refuses changing a shipped story and points at a follow-up, which goes in its feature waiting on it', async () => {
+    const refused = await say('propose_story_change', { leafId: 'leaf-b', why: 'w', body: 'new' }, 'feature-chat');
+    expect(refused.ok).toBe(false);
+    expect(refused.digest).toContain('propose_stories, waiting on leaf-b');
+    const followUp = await say('propose_stories', { why: 'mail it too', stories: [{ title: 'Mailed note', body: 'The order email shows the note', brief: 'Inherit the mail template.', dependsOn: ['leaf-b'] }] }, 'story-chat');
+    expect(followUp.ok).toBe(true);
+    expect(plans[0]!.change?.add).toMatchObject({ branchId: 'branch-1', branchTitle: 'The direction' });
+  });
+
+  it('cancels the story its chat is about, and needs a story when the chat is about none', async () => {
+    expect((await say('propose_story_cancel', { why: 'not wanted' }, 'story-chat')).digest).toContain('Cancel “Story leaf-a”');
+    expect((await say('propose_story_cancel', { why: 'not wanted' }, 'feature-chat')).digest).toContain('say which stories to cancel');
   });
 });

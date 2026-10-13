@@ -42,7 +42,7 @@ export class AppExposureService extends BaseService {
   }
 
   private async buildUpstreamTarget(dep: DeploymentMetadata, cluster: ClusterMetadata): Promise<{namespace: string, backendTarget: string, appHostname: string}> {
-    const namespace = this.sanitize(dep.name);
+    const namespace = dep.namespace || this.sanitize(dep.name);
     const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
 
     const output = await this.infra.runKubectl(['get', 'svc', '-n', namespace, '-o', 'json'], kubeconfigPath);
@@ -140,7 +140,7 @@ export class AppExposureService extends BaseService {
 
   private previewOf(dep: DeploymentMetadata): { key: string; appHostname: string } | undefined {
     if (dep.appType !== ODOO_PROJECT_APP) return undefined;
-    const key = `${this.sanitize(dep.name)}-preview`;
+    const key = `${dep.namespace || this.sanitize(dep.name)}-preview`;
     return { key, appHostname: `${key}.apps.local` };
   }
 
@@ -348,7 +348,9 @@ export class AppExposureService extends BaseService {
       }
     }
 
-    const exposedNamespaces = new Set(exposed.flatMap(d => [this.sanitize(d.name), ...(this.previewOf(d) ? [this.previewOf(d)!.key] : [])]));
+    const keys = (d: DeploymentMetadata) => [d.namespace || this.sanitize(d.name), ...(this.previewOf(d) ? [this.previewOf(d)!.key] : [])];
+    const exposedNamespaces = new Set(exposed.filter(d => d.isExposedLocally).flatMap(keys));
+    const publicNamespaces = new Set(exposed.filter(d => d.isExposedPublicly).flatMap(keys));
     const confDir = path.join(this.nginxConfDir, 'conf.d');
     try {
       const files = await fs.readdir(confDir);
@@ -363,6 +365,20 @@ export class AppExposureService extends BaseService {
       }
     } catch (err: any) {
       this.logger.error(`Failed to clean stale nginx configs: ${err.message}`);
+    }
+
+    const caddyDir = path.dirname(this.caddyConfPathFor('x'));
+    try {
+      let removed = false;
+      for (const file of await fs.readdir(caddyDir).catch(() => [] as string[])) {
+        if (!file.endsWith('.caddy') || publicNamespaces.has(file.replace(/\.caddy$/, ''))) continue;
+        await fs.unlink(path.join(caddyDir, file));
+        this.logger.info(`Removed stale Caddy config: ${file}`);
+        removed = true;
+      }
+      if (removed) await this.reloadCaddy();
+    } catch (err: any) {
+      this.logger.error(`Failed to clean stale Caddy configs: ${err.message}`);
     }
 
     if (changed) {
@@ -384,7 +400,7 @@ export class AppExposureService extends BaseService {
     const dep = deployments.find(d => d.id === id);
     if (!dep) throw new Error('Deployment not found');
 
-    const namespace = this.sanitize(dep.name);
+    const namespace = dep.namespace || this.sanitize(dep.name);
     dep.isExposedLocally = false;
     delete dep.localExposureUrl;
     this.syncDerivedFields(dep);
@@ -415,7 +431,7 @@ export class AppExposureService extends BaseService {
     const dep = deployments.find(d => d.id === id);
     if (!dep) throw new Error('Deployment not found');
 
-    const namespace = this.sanitize(dep.name);
+    const namespace = dep.namespace || this.sanitize(dep.name);
 
     dep.isExposedPublicly = false;
     delete dep.publicExposureUrl;

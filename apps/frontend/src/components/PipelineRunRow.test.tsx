@@ -42,6 +42,14 @@ describe('PipelineRunRow', () => {
     expect(screen.queryByText(/^Fix/)).not.toBeInTheDocument();
   });
 
+  it('says why a build was not released, and nothing when it was', () => {
+    const { rerender } = render(<PipelineRunRow run={{ ...baseRun, releaseRefused: 'the project has no cluster to deploy to' }} onViewLogs={vi.fn()} />);
+    expect(screen.getByText('Not released: the project has no cluster to deploy to')).toBeInTheDocument();
+
+    rerender(<PipelineRunRow run={baseRun} onViewLogs={vi.fn()} />);
+    expect(screen.queryByText(/Not released/)).not.toBeInTheDocument();
+  });
+
   it('shows the Live tag only when isLive is true', () => {
     const { rerender } = render(<PipelineRunRow run={baseRun} isLive onViewLogs={vi.fn()} />);
     expect(screen.getByText('● Live')).toBeInTheDocument();

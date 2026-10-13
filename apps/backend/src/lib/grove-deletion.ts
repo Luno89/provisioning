@@ -8,7 +8,7 @@ export interface GroveWorld {
   branches: readonly Pick<Branch, 'id' | 'treeId'>[];
   leaves: readonly Pick<Leaf, 'id' | 'branchId'>[];
   tasks: readonly Pick<Task, 'id' | 'leafId'>[];
-  proposals: readonly Pick<PlanProposal, 'id' | 'status' | 'conversationId' | 'plan' | 'leafPlan' | 'adopted'>[];
+  proposals: readonly Pick<PlanProposal, 'id' | 'status' | 'conversationId' | 'plan' | 'leafPlan' | 'change' | 'adopted'>[];
   conversations: readonly { id: string; treeId?: string | undefined }[];
 }
 
@@ -39,9 +39,13 @@ export function deletionScope(target: DeletionTarget, world: GroveWorld): Deleti
 
   const proposals = world.proposals.filter((proposal) => {
     if (proposal.leafPlan && leafSet.has(proposal.leafPlan.leafId)) return true;
+    if (proposal.change?.edit && leafSet.has(proposal.change.edit.leafId)) return true;
+    if (proposal.change?.cancel?.some((id) => leafSet.has(id))) return true;
+    if (proposal.change?.add && branchSet.has(proposal.change.add.branchId)) return true;
     if (target.kind !== 'tree') return false;
     return proposal.plan?.treeId === target.id
       || proposal.leafPlan?.treeId === target.id
+      || proposal.change?.treeId === target.id
       || proposal.adopted?.treeId === target.id
       || (proposal.conversationId !== undefined && conversationSet.has(proposal.conversationId));
   });

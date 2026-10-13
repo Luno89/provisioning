@@ -4,8 +4,9 @@ import { type Persona } from '@koala/agent-engine';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { agentsRouter } from './agents.js';
 import { AgentService } from '../services/AgentService.js';
+import { directoryFromDatabase } from '../engine-host/registries/agent-directory.js';
 import { ENGINE_TOOL_SEEDS } from '../engine-host/tools/engine-tool-seeds.js';
-import { seededPersonas, seededProcedures } from '../extensions/seeds.js';
+import { seededAgents, seededProcedures } from '../extensions/seeds.js';
 
 const quiet = { validateStatus: () => true };
 
@@ -30,9 +31,9 @@ const harness = (): Promise<Harness> => mountRouter({
   prefix: '/api/agents',
   router: (db) => agentsRouter({
     agents: new AgentService({
-      personas: {
-        list: (ownerId?: string) => db.getEnginePersonas(ownerId),
-        save: (persona) => db.saveEnginePersona(persona),
+      agents: directoryFromDatabase(db),
+      records: {
+        save: (record) => db.saveEnginePersona(record),
         remove: (ownerId, slug) => db.deleteEnginePersona(ownerId, slug),
       },
       tools: async () => [...ENGINE_TOOL_SEEDS],
@@ -51,7 +52,7 @@ describe('the agents API', () => {
     const { data } = await axios.get(url('/api/agents'));
     await close();
 
-    expect(data.agents.length).toBe(seededPersonas().length);
+    expect(data.agents.length).toBe(seededAgents().length);
     expect(data.agents.every((agent: { mine: boolean }) => agent.mine === false)).toBe(true);
   });
 
@@ -101,7 +102,7 @@ describe('the agents API', () => {
 
   it('deletes your copy, leaving the built-in, and refuses to delete one that was never yours', async () => {
     const { url, close } = await harness();
-    await axios.put(`${url('/api/agents/research')}`, { ...seededPersonas().find((one) => one.slug === 'research')!, prompt: 'Mine.' });
+    await axios.put(`${url('/api/agents/research')}`, { ...seededAgents().find((one) => one.slug === 'research')!, prompt: 'Mine.' });
 
     const removed = await axios.delete(`${url('/api/agents/research')}`);
     const after = await axios.get(`${url('/api/agents/research')}`);

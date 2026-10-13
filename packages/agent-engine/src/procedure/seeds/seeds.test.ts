@@ -104,7 +104,8 @@ describe('the steps do-one-task carries out for the model', () => {
   it('claims the task and records the outcome itself, and says so', () => {
     const handled = handledTools(DO_ONE_TASK_V2);
 
-    expect(Object.keys(handled).sort()).toEqual(['judge', 'mark_done', 'mark_failed', 'start_task']);
+    expect(Object.keys(handled).sort()).toEqual(['judge', 'mark_done', 'mark_failed', 'start_task', 'task_status']);
+    expect(handled.task_status).toContain('mark_waiting');
     expect(handled.start_task).toBe('The task has already been claimed for you.');
     expect(handled.mark_done).toContain('Do not record it yourself.');
     expect(handled.judge).toContain('You do not have to ask it yourself.');

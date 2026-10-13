@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  BASES, DEFAULT_BASE, UnbuildableError,
-  baseFor, fingerprint, imageFor, imageReference, languagesFor, needsBuilding, planImage, renderDockerfile,
-} from './image.js';
+import { BASES, DEFAULT_BASE, UnbuildableError, baseFor, fingerprint, imageFor, imageReference, languagesFor, needsBuilding, planImage, renderDockerfile } from './image.js';
 import type { ToolDefinition } from '../tools/catalogue.js';
 
 const tool = (over: Partial<ToolDefinition> & Pick<ToolDefinition, 'name'>): ToolDefinition => ({
@@ -120,7 +117,7 @@ describe('the Dockerfile it produces', () => {
     expect(dockerfile).toContain(`FROM ${plan.base}`);
     expect(dockerfile).toContain('microdnf install -y postgresql');
     expect(dockerfile).toContain('dnf install -y postgresql');
-    expect(dockerfile).toContain('pip install --no-cache-dir ruff');
+    expect(dockerfile).toContain('python3 -m pip install --no-cache-dir ruff');
     expect(dockerfile.trimEnd().endsWith('USER 1000')).toBe(true);
   });
 
@@ -236,5 +233,45 @@ describe('a base image a host adds', () => {
     const plan = planImage({ base: 'odoo', languages: ['odoo', 'node', 'go'], tools: [], bases });
     expect(renderDockerfile(plan)).toMatch(/else apt-get update && apt-get install -y --no-install-recommends golang-go/);
     expect(renderDockerfile(plan)).toMatch(/microdnf install -y go-toolset/);
+  });
+});
+
+describe('where each line of a workspace image comes from', () => {
+  const rg = { name: 'count_lines', binding: 'environment', needsBinaries: ['rg'], install: { via: 'dnf', packages: ['ripgrep'] } } as never;
+
+  it('says, for every install, whether the base, a language, the project or a tool put it there', () => {
+    const plan = planImage({
+      base: 'node',
+      languages: ['go'],
+      tools: [rg],
+      contributions: [{ from: 'project', install: { via: 'dnf', packages: ['wkhtmltopdf'] }, provides: ['wkhtmltopdf'] }],
+    });
+
+    expect(plan.lines).toEqual([
+      { install: { via: 'dnf', packages: ['go-toolset'] }, from: 'language:go' },
+      { install: { via: 'dnf', packages: ['wkhtmltopdf'] }, from: 'project' },
+      { install: { via: 'dnf', packages: ['ripgrep'] }, from: 'tool:count_lines' },
+    ]);
+    expect(plan.installs).toEqual(plan.lines!.map((line) => line.install));
+    expect(plan.provides).toContain('wkhtmltopdf');
+  });
+
+  it('keeps the fingerprint a matter of what is installed, so labelling it rebuilds nothing', () => {
+    const plan = planImage({ base: 'node', tools: [rg] });
+    expect(plan.fingerprint).toBe(fingerprint('registry.access.redhat.com/ubi9/nodejs-22', [{ via: 'dnf', packages: ['ripgrep'] }]));
+  });
+
+  it('installs the package manager a line needs first, when the base has none', () => {
+    const plan = planImage({ base: 'node', tools: [], contributions: [{ from: 'project', install: { via: 'pip', packages: ['cowsay'] } }] });
+    expect(plan.lines).toEqual([
+      { install: { via: 'dnf', packages: ['python3', 'python3-pip'] }, from: 'language:python' },
+      { install: { via: 'pip', packages: ['cowsay'] }, from: 'project' },
+    ]);
+    expect(planImage({ base: 'python', tools: [], contributions: [{ from: 'project', install: { via: 'pip', packages: ['cowsay'] } }, { from: 'project', install: { via: 'npm', packages: ['left-pad'] } }] }).lines!.map((line) => line.from)).toEqual(['project', 'project']);
+    expect(planImage({ base: 'minimal', tools: [], contributions: [{ from: 'project', install: { via: 'npm', packages: ['left-pad'] } }, { from: 'project', install: { via: 'npm', packages: ['is-odd'] } }] }).lines!.map((line) => line.from)).toEqual(['language:node', 'project', 'project']);
+  });
+
+  it('adds nothing for a contribution the base already provides', () => {
+    expect(planImage({ base: 'node', tools: [], contributions: [{ from: 'project', install: { via: 'base' } }] }).lines).toEqual([]);
   });
 });

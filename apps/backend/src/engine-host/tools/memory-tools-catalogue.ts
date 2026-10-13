@@ -6,6 +6,11 @@ const CATEGORY = {
   description: 'lessons_learned — what went wrong or right and why; environment_facts — what is true about the person\'s setup, projects and services; prompt_guidance — how the person wants things done.',
 };
 
+const MODEL = {
+  type: 'string',
+  description: 'Only when it is about the habits of the model that ran — how it formats calls, what it tends to skip or repeat — and would not hold for another model: that model\'s name, exactly as read_run shows it. It is then recalled only on that model. Leave it out for anything true of the work, the tools or the person.',
+};
+
 export const MEMORY_TOOLS: ToolDefinition[] = [
   {
     name: 'search_memories',
@@ -15,7 +20,7 @@ export const MEMORY_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    returns: 'each matching memory with its id, category, scope, title and text, best match first — or that nothing matched',
+    returns: 'each matching memory with its id, category, scope, the model it is kept for if only one, title and text, best match first — or that nothing matched',
     failures: [{ when: 'no query is given', says: 'to give one' }],
     parameters: {
       type: 'object',
@@ -37,6 +42,7 @@ export const MEMORY_TOOLS: ToolDefinition[] = [
       { when: 'there is no text', says: 'what is missing' },
       { when: 'replaces names a memory that is not one of the person\'s current ones', says: 'so, and saves nothing' },
       { when: 'it is scoped to a project and there is no project', says: 'to scope it global instead' },
+      { when: 'model is not one of the person\'s models', says: 'which models there are' },
     ],
     parameters: {
       type: 'object',
@@ -46,6 +52,7 @@ export const MEMORY_TOOLS: ToolDefinition[] = [
         category: CATEGORY,
         scope: { type: 'string', enum: ['project', 'global'], description: 'project — only for work on this project; global — everywhere. Defaults to project when there is one.' },
         replaces: { type: 'string', description: 'The id of the memory this one updates.' },
+        model: MODEL,
       },
       required: ['text'],
     },
@@ -62,6 +69,7 @@ export const MEMORY_TOOLS: ToolDefinition[] = [
     failures: [
       { when: 'the agent does not exist', says: 'so' },
       { when: 'the agent already has that practice', says: 'so, and proposes nothing' },
+      { when: 'model is not one of the person\'s models', says: 'which models there are' },
     ],
     parameters: {
       type: 'object',
@@ -70,6 +78,7 @@ export const MEMORY_TOOLS: ToolDefinition[] = [
         title: { type: 'string', description: 'A short name for it.' },
         text: { type: 'string', description: 'The practice, as an instruction to the agent.' },
         why: { type: 'string', description: 'What it was learned from, naming runs when there are some.' },
+        model: { ...MODEL, description: 'Only when the practice corrects a habit of the model that ran rather than how the agent should work on any model: that model\'s name, exactly as read_run shows it. The bench then tries it on that model, and it reaches the agent\'s prompt only on that model.' },
       },
       required: ['agent', 'text', 'why'],
     },

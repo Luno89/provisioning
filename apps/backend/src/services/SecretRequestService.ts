@@ -1,4 +1,5 @@
-import { GITEA_READ_TOKEN, valueProblem, withRequired, type SecretRequest } from '../lib/secret-requests.js';
+import { randomBytes } from 'crypto';
+import { GENERATED, GITEA_READ_TOKEN, generatedValue, valueProblem, withRequired, type SecretRequest } from '../lib/secret-requests.js';
 import type { SecretRequestFilter } from '../lib/db-interface.js';
 import type { ProjectMetadata } from '../lib/types.js';
 import type { SecretVault } from '../engine-host/tools/secret-tools.js';
@@ -17,6 +18,10 @@ export function createSecretVault(deps: { backend: VaultBackend & { listSecrets(
     has: (projectId, key) => deps.backend.hasSecret(projectId, key),
     keys: async (projectId) => (await deps.backend.listSecrets(projectId)).map((entry) => entry.key),
     async mint(ownerId, projectId, key, sourceId) {
+      if (sourceId === GENERATED.id) {
+        await deps.backend.setSecret(projectId, key, generatedValue((size) => randomBytes(size)), `Provisioned automatically: ${GENERATED.label}`);
+        return;
+      }
       if (sourceId !== GITEA_READ_TOKEN.id) throw new Error(`no minter for ${sourceId}`);
       const token = await deps.minters.readToken(ownerId);
       await deps.backend.setSecret(projectId, key, token, `Provisioned automatically: ${GITEA_READ_TOKEN.label}`);

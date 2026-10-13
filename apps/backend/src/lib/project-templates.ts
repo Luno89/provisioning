@@ -1,15 +1,12 @@
 import { ODOO_CHART_FILES } from './odoo-chart-template.js';
+import { ODOO_E2E_HELPERS, ODOO_E2E_HELPERS_PATH } from './odoo-e2e-helpers.js';
 
 export interface TemplateFile {
   path: string;
   content: string;
 }
 
-export const MIRROR_NAMESPACE = 'provisioning-bot';
-
-export function nodeBaseImage(registryHost?: string): string {
-  return registryHost ? `${registryHost}/${MIRROR_NAMESPACE}/node:22-alpine` : 'node:22-alpine';
-}
+const NODE_BASE_IMAGE = 'node:22-alpine';
 
 const NODE_DOCKERFILE = (base: string) => [
   '# This Dockerfile already works. Change it only if you add dependencies or build steps.',
@@ -254,7 +251,7 @@ test('an unknown tool is an error, not a crash', async () => {
 `;
 
 export const NODE_SERVICE_FILES = [
-  { path: 'Dockerfile', content: NODE_DOCKERFILE('{{registryHost}}') },
+  { path: 'Dockerfile', content: NODE_DOCKERFILE(NODE_BASE_IMAGE) },
   { path: 'package.json', content: NODE_PACKAGE('{{projectName}}') },
   { path: 'src/server.js', content: NODE_SERVER },
   { path: 'test/server.test.js', content: NODE_TEST },
@@ -262,7 +259,7 @@ export const NODE_SERVICE_FILES = [
 ];
 
 export const MCP_SERVER_FILES = [
-  { path: 'Dockerfile', content: NODE_DOCKERFILE('{{registryHost}}') },
+  { path: 'Dockerfile', content: NODE_DOCKERFILE(NODE_BASE_IMAGE) },
   { path: 'package.json', content: NODE_PACKAGE('{{projectName}}') },
   { path: 'src/server.js', content: MCP_SERVER.replace('NAME_PLACEHOLDER', '{{projectName}}') },
   { path: 'test/server.test.js', content: MCP_TEST },
@@ -380,7 +377,7 @@ export function App() {
   },
   {
     path: 'Dockerfile',
-    content: `FROM {{registryHost}}/provisioning-bot/node:22-alpine AS build
+    content: `FROM ${NODE_BASE_IMAGE} AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
@@ -630,7 +627,21 @@ odoo-e2e <module>[,<module>] e2e
 
 It installs the modules into a throwaway Odoo it serves on localhost, signs in there as \`ODOO_LOGIN\` /
 \`ODOO_PASSWORD\` (that throwaway database's own admin, never a real one), runs the specs in Chromium, and ends with
-\`odoo-e2e: PASSED\` or \`odoo-e2e: FAILED\`. Screenshots, traces and videos of failures land in \`e2e-results/\`.
+\`odoo-e2e: PASSED\` or \`odoo-e2e: FAILED\`. When a test fails it prints what the page showed at that moment — the
+buttons with their labels and names, the fields with their values, any dialog or notification — so a selector that
+matched nothing shows what was there instead. Screenshots, traces and videos of failures land in \`e2e-results/\`.
+
+While writing a spec, run it with \`odoo-e2e --keep <module>[,<module>] <spec>\`: the Odoo it serves stays up, so the
+next run takes seconds rather than a fresh install. It upgrades the modules in place when anything under
+\`addons/\` changed, and starts over when the module list changes. \`odoo-e2e --stop\` ends it. Run once without
+\`--keep\` before you are done, since that is what the checks run.
+
+Write specs with the helpers in \`e2e/odoo.ts\` rather than guessing at Odoo 18's markup: \`signIn\`,
+\`openAction(page, 'sale.action_quotations_with_onboarding', { newRecord: true })\`, \`fill\` and \`choose\` (a
+many2one, optionally creating the record) and \`tick\` and \`pick\` by field name, \`addLine\` for a one2many,
+\`save\` (returns the record id), \`press\` for a form button by its method name, \`smartButton\`, and \`reportHtml\`
+to read a printed report as HTML. Import \`test\` and \`expect\` from \`./odoo\` too: they give each step ten seconds
+rather than the whole test's minute and record what the page showed when a test fails.
 
 A task whose work a person would see carries the browser tests as its check, so each test is reported on its own and
 a failure keeps what the browser saw:
@@ -640,6 +651,12 @@ a failure keeps what the browser saw:
 \`\`\`
 
 That serves every module under \`addons/\` the same way (\`koala-e2e <specs>\`).
+
+Every build that reaches the preview slot runs all of \`e2e/\` again there, against a copy of the live data, signed
+in as a test user (\`koala-e2e\`, with the admin's rights) through the same \`ODOO_LOGIN\` / \`ODOO_PASSWORD\`. The
+result shows on the release's card as advice; the person still decides whether to cut over. Outgoing mail and
+scheduled jobs are off in a preview, and what the tests change there is thrown away. Write specs that hold on real
+data: make the records a test looks at, rather than counting on them being there.
 
 Changes under \`deploy/chart/\` (the Helm chart this project deploys with) are checked with:
 
@@ -664,8 +681,11 @@ export default defineConfig({
   testDir: 'e2e',
   outputDir: 'e2e-results/artifacts',
   timeout: 60_000,
+  expect: { timeout: 10_000 },
   use: {
     baseURL: process.env.BASE_URL,
+    actionTimeout: 10_000,
+    navigationTimeout: 30_000,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
     video: 'retain-on-failure',
@@ -673,13 +693,10 @@ export default defineConfig({
 });
 `;
 
-export const ODOO_E2E_EXAMPLE = `import { test, expect } from '@playwright/test';
+export const ODOO_E2E_EXAMPLE = `import { test, expect, signIn } from './odoo';
 
 test('a person signs in and reaches the Odoo home', async ({ page }) => {
-  await page.goto('/web/login');
-  await page.fill('input[name="login"]', process.env.ODOO_LOGIN!);
-  await page.fill('input[name="password"]', process.env.ODOO_PASSWORD!);
-  await page.click('button[type="submit"]');
+  await signIn(page);
   await expect(page).toHaveURL(/\\/odoo/);
   await expect(page.locator('.o_main_navbar')).toBeVisible();
 });
@@ -693,5 +710,6 @@ export const ODOO_ADDONS_FILES = [
   { path: '.gitignore', content: '__pycache__/\n*.pyc\ne2e-results/\n' },
   { path: 'playwright.config.ts', content: ODOO_PLAYWRIGHT_CONFIG },
   { path: 'e2e/signs-in.spec.ts', content: ODOO_E2E_EXAMPLE },
+  { path: ODOO_E2E_HELPERS_PATH, content: ODOO_E2E_HELPERS },
   ...ODOO_CHART_FILES,
 ];

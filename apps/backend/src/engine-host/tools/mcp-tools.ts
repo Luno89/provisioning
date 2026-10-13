@@ -1,53 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import type { ToolContract, ToolHandler, ToolOutcome } from '@koala/engine-core';
+import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import type { McpRequest } from '@koala/harness-types';
-import type { McpServer } from '../../lib/mcp-registry.js';
-import { contractsFor, routeCall, serversFor, slugify } from '../../lib/mcp-tools.js';
-
-export interface McpAccess {
-  servers(ownerId: string): Promise<McpServer[]>;
-  call(ownerId: string, server: McpServer, tool: string, args: Record<string, unknown>): Promise<{ text: string; isError: boolean }>;
-}
-
-export interface McpRunTools {
-  contracts: ToolContract[];
-  handlers: Record<string, ToolHandler>;
-}
-
-export interface McpToolSource {
-  forRun(ownerId: string, persona: { mcp?: string[] | undefined }, conversationId?: string): Promise<McpRunTools>;
-}
+import { usable, type McpServerRecord } from '../../lib/mcp-servers.js';
+import { slugify } from '../../lib/mcp-tools.js';
 
 export interface McpToolStores {
   enabled(ownerId: string, conversationId: string): Promise<string[]>;
   requests: {
     list(ownerId: string, conversationId: string): Promise<McpRequest[]>;
     save(request: McpRequest): Promise<void>;
-  };
-}
-
-const EMPTY: McpRunTools = { contracts: [], handlers: {} };
-
-export function createMcpToolSource(options: { access: McpAccess; stores: McpToolStores }): McpToolSource {
-  return {
-    async forRun(ownerId, persona, conversationId) {
-      const enabled = conversationId ? await options.stores.enabled(ownerId, conversationId) : [];
-      const wanted = [...new Set([...(persona.mcp ?? []), ...enabled])];
-      if (wanted.length === 0) return EMPTY;
-
-      const servers = serversFor(wanted, await options.access.servers(ownerId));
-      const contracts = contractsFor(servers);
-      const handlers: Record<string, ToolHandler> = {};
-      for (const contract of contracts) {
-        handlers[contract.name] = async ({ parsed }): Promise<ToolOutcome> => {
-          const route = routeCall(contract.name, servers);
-          if (!route) return { ok: false, digest: `${contract.name} is not a tool that server offers`, content: '' };
-          const out = await options.access.call(ownerId, route.server, route.tool, parsed);
-          return { ok: !out.isError, digest: out.text, content: out.text };
-        };
-      }
-      return { contracts, handlers };
-    },
   };
 }
 
@@ -59,7 +20,7 @@ const asString = (parsed: Record<string, unknown>, key: string): string | undefi
 const refuse = (reason: string): ToolOutcome => ({ ok: false, digest: reason, content: reason });
 
 export function createMcpRequestTools(options: {
-  access: McpAccess;
+  catalogue: (ownerId: string) => Promise<readonly McpServerRecord[]>;
   stores: McpToolStores;
   now?: (() => string) | undefined;
   newId?: (() => string) | undefined;
@@ -76,11 +37,11 @@ export function createMcpRequestTools(options: {
       const why = asString(parsed, 'why');
       if (!why) return refuse('say why this conversation needs it, so the person can decide');
 
-      const servers = await options.access.servers(caller.ownerId);
+      const servers = (await options.catalogue(caller.ownerId)).filter((candidate) => candidate.runs.where === 'hosted' && usable(candidate));
       const server = servers.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
       if (!server) {
         const known = servers.map((candidate) => candidate.name).join(', ') || 'none';
-        return refuse(`there is no MCP server called "${name}" — the servers this person runs are: ${known}`);
+        return refuse(`there is no hosted MCP server called "${name}" that is ready to use — the ones that are: ${known}`);
       }
 
       const enabled = await options.stores.enabled(caller.ownerId, caller.conversationId);

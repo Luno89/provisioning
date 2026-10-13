@@ -133,6 +133,10 @@ export default function ScenarioEditor({ scenario, agents, procedures, onClose, 
           <input type="checkbox" checked={draft.turn} onChange={(event) => set('turn', event.target.checked)} className="accent-sky-500" />
           One model turn instead of a whole run: its tools are offered, and nothing it asks for runs
         </label>
+        <label className="flex items-center gap-2 text-xs text-slate-400">
+          <input type="checkbox" checked={draft.onBench} onChange={(event) => set('onBench', event.target.checked)} className="accent-sky-500" />
+          Runs on the bench when the model is idle; unticked, it runs only when you start it
+        </label>
         {draft.turn && (
           <div className="grid gap-3 sm:grid-cols-2">
             {field('The tool it should choose — blank when it should answer without one', 'choosesTool', 'read_file')}

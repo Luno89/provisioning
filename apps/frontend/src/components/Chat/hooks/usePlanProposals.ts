@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { PlanProposal } from '@koala/harness-types'
 import { approvePlan, listPlans, planKeys, rejectPlan } from '../../../api/plans'
+import { groveKeys } from '../../../api/grove'
+import { engineKeys } from '../../../api/engine'
 
 const ADOPTING_POLL_MS = 2_000
 
@@ -15,6 +17,15 @@ export function usePlanProposals(conversationId: string | null | undefined, stre
     enabled: Boolean(conversationId),
     refetchInterval: (query) => (query.state.data?.some((plan) => plan.status === 'adopting') ? ADOPTING_POLL_MS : false),
   })
+
+  const finished = plans.filter((plan) => plan.status === 'adopted' || plan.status === 'failed').map((plan) => plan.id).join(' ')
+  const seenFinished = useRef(finished)
+  useEffect(() => {
+    if (seenFinished.current !== finished) {
+      for (const queryKey of [groveKeys.leaves(), groveKeys.branches(), engineKeys.tasks()]) void qc.invalidateQueries({ queryKey })
+    }
+    seenFinished.current = finished
+  }, [finished, qc])
 
   const wasStreaming = useRef(streaming)
   useEffect(() => {

@@ -16,6 +16,7 @@ export interface ScenarioResult {
   runId: string;
   conversationId?: string | undefined;
   procedure: { id: string; version: string };
+  model?: string | undefined;
   passed: boolean;
   outcome: string;
   reason?: string | undefined;

@@ -28,6 +28,12 @@ describe('nextLeafStep', () => {
     expect(nextLeafStep([task('a', { status: 'running' })])).toEqual({ kind: 'run', taskIds: ['a'] });
   });
 
+  it('waits when nothing can run until the workspace has what a task waits for, and runs what does not need it first', () => {
+    const waiting = task('a', { status: 'waiting', evidence: 'waits for the workspace to get dnf jq: parse the feed' });
+    expect(nextLeafStep([waiting, task('b')])).toEqual({ kind: 'run', taskIds: ['b'] });
+    expect(nextLeafStep([waiting, task('b', { status: 'done' }), task('c', { dependsOn: ['a'] })])).toEqual({ kind: 'waiting', taskIds: ['a'], reason: '"task a" waits for the workspace to get dnf jq: parse the feed' });
+  });
+
   it('says a leaf with no accepted tasks is not broken down, rather than claiming it', () => {
     expect(nextLeafStep([])).toEqual({ kind: 'unbroken' });
     expect(nextLeafStep([task('a', { status: 'proposed' })])).toEqual({ kind: 'unbroken' });

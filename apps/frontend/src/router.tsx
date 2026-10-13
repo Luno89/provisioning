@@ -17,6 +17,7 @@ import { Puzzle } from 'lucide-react';
 import ProcedureExplorer from './components/Studio/ProcedureExplorer';
 import AgentExplorer from './components/Studio/AgentExplorer';
 import ToolExplorer from './components/Studio/ToolExplorer';
+import McpServerExplorer from './components/Studio/McpServerExplorer';
 import ExtensionsView from './components/Studio/ExtensionsView';
 import StudioFrame from './components/Studio/StudioFrame';
 import TreeTypes from './components/TreeTypes/index.js';
@@ -78,6 +79,18 @@ export const treeBranchRoute = createRoute({
 export const treeLeafRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/projects/tree/$treeId/$branchId/$leafId',
+  component: ProjectsRoute,
+});
+
+export const projectFilesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/projects/project/$projectId/files',
+  component: ProjectsRoute,
+});
+
+export const treeFilesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/projects/tree/$treeId/files',
   component: ProjectsRoute,
 });
 
@@ -189,6 +202,24 @@ export const studioToolRoute = createRoute({
   component: ToolExplorer,
 });
 
+export const studioMcpServersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/studio/mcp-servers',
+  component: McpServerExplorer,
+});
+
+export const studioMcpServerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/studio/mcp-servers/$id',
+  component: McpServerExplorer,
+});
+
+export const studioMcpServerPartRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/studio/mcp-servers/$id/$part',
+  component: McpServerExplorer,
+});
+
 export const studioProceduresRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/studio/procedures',
@@ -277,6 +308,8 @@ export const routeTree = rootRoute.addChildren([
   chatConvRoute,
   projectsRoute,
   projectDetailRoute,
+  projectFilesRoute,
+  treeFilesRoute,
   treeDetailRoute,
   treeBranchRoute,
   treeLeafRoute,
@@ -297,6 +330,9 @@ export const routeTree = rootRoute.addChildren([
   studioAgentPartRoute,
   studioToolsRoute,
   studioToolRoute,
+  studioMcpServersRoute,
+  studioMcpServerRoute,
+  studioMcpServerPartRoute,
   studioToolPartRoute,
   studioProceduresRoute,
   studioProcedureRoute,

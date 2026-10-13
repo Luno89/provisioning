@@ -1,12 +1,8 @@
-import { useState } from 'react'
-import { Brain, Loader2, Square, Wrench } from 'lucide-react'
-import { answerRun, approveRunCall, cancelRun } from '../../api/engine'
-import { pendingApproval, type EngineRunState } from '../../lib/engine-run-state'
+import { Brain, Loader2, Wrench } from 'lucide-react'
+import type { EngineRunState } from '../../lib/engine-run-state'
+import RunControls, { StopRun } from './RunControls'
 
 export default function RunCard({ run }: { run: EngineRunState }) {
-  const approval = pendingApproval(run)
-  const waiting = run.notices.filter((notice) => notice.level === 'info').at(-1)
-
   return (
     <section className="border border-[var(--bark-800)] rounded-lg bg-[var(--bark-900)]/40 p-4 space-y-3 shadow-sm">
       <div className="flex items-center gap-2 flex-wrap">
@@ -33,15 +29,7 @@ export default function RunCard({ run }: { run: EngineRunState }) {
             {run.outcomeReason ? ` — ${run.outcomeReason}` : ''}
           </span>
         )}
-        {!run.finished && (
-          <button
-            type="button"
-            onClick={() => void cancelRun(run.runId)}
-            className="ml-auto text-[11px] text-slate-400 hover:text-slate-200 flex items-center gap-1 cursor-pointer"
-          >
-            <Square size={10} /> Stop
-          </button>
-        )}
+        <StopRun run={run} />
       </div>
 
       {run.visited.length > 0 && (
@@ -92,70 +80,7 @@ export default function RunCard({ run }: { run: EngineRunState }) {
         <p className="text-xs text-amber-400">Interrupted: {run.interruptedReason}</p>
       )}
 
-      {approval && !run.finished && (
-        <div className="border border-amber-500/30 bg-amber-500/10 rounded-md p-3 space-y-2">
-          <p className="text-xs text-amber-300">{approval}</p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => void approveRunCall(run.runId, { callId: lastCallId(run), allowed: true })}
-              className="text-xs px-3 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors"
-            >
-              Allow
-            </button>
-            <button
-              type="button"
-              onClick={() => void approveRunCall(run.runId, { callId: lastCallId(run), allowed: true, forRun: true })}
-              className="text-xs px-3 py-1 rounded bg-emerald-500/10 text-emerald-300/80 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
-            >
-              Allow for this run
-            </button>
-            <button
-              type="button"
-              onClick={() => void approveRunCall(run.runId, { callId: lastCallId(run), allowed: false })}
-              className="text-xs px-3 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30 transition-colors"
-            >
-              Decline
-            </button>
-          </div>
-        </div>
-      )}
-
-      {waiting && !approval && !run.finished && run.currentNode && (
-        <WaitingOnYou run={run} prompt={waiting.message} />
-      )}
+      <RunControls run={run} />
     </section>
   )
 }
-
-function WaitingOnYou({ run, prompt }: { run: EngineRunState; prompt: string }) {
-  const [answer, setAnswer] = useState('')
-
-  return (
-    <div className="border border-[var(--bark-800)] rounded-md p-3 space-y-2">
-      <p className="text-xs text-slate-300">{prompt}</p>
-      <div className="flex gap-2">
-        <input
-          value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
-          placeholder="Your answer"
-          className="flex-1 bg-[var(--bark-950)] border border-[var(--bark-800)] rounded px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-[var(--leaf-stem)]"
-        />
-        <button
-          type="button"
-          onClick={() => {
-            if (!answer.trim() || !run.currentNode) return
-            void answerRun(run.runId, run.currentNode, answer.trim())
-            setAnswer('')
-          }}
-          className="text-xs px-3 py-1 rounded bg-[var(--leaf-stem)]/20 text-[var(--leaf)] border border-[var(--leaf-stem)]/30 hover:bg-[var(--leaf-stem)]/30 transition-colors cursor-pointer"
-        >
-          Answer
-        </button>
-      </div>
-    </div>
-  )
-}
-
-const lastCallId = (run: EngineRunState): string =>
-  run.toolCalls.at(-1)?.callId ?? 'unknown'

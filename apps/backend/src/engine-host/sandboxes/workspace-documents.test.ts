@@ -17,6 +17,7 @@ let podRunning: boolean;
 let calls: string[][];
 let pushed: { repo: string; describe: string; files: Record<string, string>; bundle: string }[];
 let pushFails: string | undefined;
+let guardMain: boolean;
 
 const local = (args: string[]): string[] => {
   const command = args.slice(args.indexOf('--') + 1);
@@ -72,8 +73,13 @@ const remote = (repo: string): string => path.join(root, `remote-${repo}.bundle`
 const repos: DocumentRepos = {
   async push({ repo, describe, bundle }) {
     if (pushFails) throw new Error(pushFails);
-    const clone = path.join(root, `clone-${pushed.length}`);
+    const clone = path.join(root, `clone-${pushed.length}-${Math.random().toString(36).slice(2, 6)}`);
     await git('git', ['clone', '-q', bundle, clone]);
+    if (guardMain && await access(remote(repo)).then(() => true, () => false)) {
+      await git('git', ['-C', clone, 'fetch', '-q', remote(repo), '+refs/heads/main:refs/saved/main']);
+      const behind = await git('git', ['-C', clone, 'merge-base', '--is-ancestor', 'refs/saved/main', 'origin/main']).then(() => false, () => true);
+      if (behind) throw new Error(`Pushing to koala-u1/${repo} failed: To http://gitea/koala-u1/${repo}.git\n ! [rejected]        main -> main (fetch first)`);
+    }
     const listed = (await git('git', ['-C', clone, 'ls-files'])).stdout.trim().split('\n').filter(Boolean);
     const files: Record<string, string> = {};
     for (const file of listed) files[file] = await readFile(path.join(clone, file), 'utf8');
@@ -111,6 +117,7 @@ beforeEach(async () => {
   calls = [];
   pushed = [];
   pushFails = undefined;
+  guardMain = false;
 });
 
 afterEach(async () => {
@@ -157,6 +164,52 @@ describe('saving a workspace\'s documents', () => {
     await git('git', ['-C', path.join(root, 'work/repo'), 'init', '-q']);
     expect(await documents().save({ ownerId: 'u1', workspaceRunId: 'tree-t1', path: '/work/repo', repo: 'tree-t1', describe: 'tree' })).toEqual({ saved: false, empty: true, why: '/work/repo has nothing committed' });
     expect(pushed).toEqual([]);
+  });
+});
+
+describe('saving after main was changed somewhere else', () => {
+  const tree = { ownerId: 'u1', workspaceRunId: 'tree-t1', path: '/work/repo', repo: 'tree-t1', describe: 'tree' };
+  const commitIn = async (dir: string, file: string, content: string, message: string) => {
+    await writeFile(path.join(dir, file), content);
+    await git('git', ['-C', dir, 'add', '-A']);
+    await git('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', message]);
+  };
+  const editSaved = async (file: string, content: string) => {
+    const elsewhere = path.join(root, `elsewhere-${Math.random().toString(36).slice(2, 6)}`);
+    await git('git', ['clone', '-q', '-b', 'main', remote('tree-t1'), elsewhere]);
+    await commitIn(elsewhere, file, content, `Update ${file}`);
+    await git('git', ['-C', elsewhere, 'bundle', 'create', remote('tree-t1'), '--all']);
+  };
+  const work = () => path.join(root, 'work/repo');
+
+  beforeEach(async () => {
+    guardMain = true;
+    await mkdir(work(), { recursive: true });
+    await git('git', ['-C', work(), 'init', '-q', '-b', 'main']);
+    await commitIn(work(), 'PLAN.md', 'plan\n', 'plan: p1');
+    await documents().save(tree);
+  });
+
+  it('brings in what was saved to main elsewhere, merges it with what the workspace added, and saves both', async () => {
+    await editSaved('README.md', 'edited in the editor\n');
+    await commitIn(work(), 'leaves.md', 'a new story\n', 'change: p2');
+
+    const saved = await documents().save(tree);
+
+    expect(saved).toMatchObject({ saved: true });
+    expect(pushed.at(-1)!.files).toEqual({ 'PLAN.md': 'plan\n', 'README.md': 'edited in the editor\n', 'leaves.md': 'a new story\n' });
+    expect((await git('git', ['-C', work(), 'log', '-1', '--format=%s'])).stdout.trim()).toBe('Merge what was saved to main elsewhere');
+    expect((await git('git', ['-C', work(), 'show-ref'])).stdout).not.toContain('refs/koala/saved-main');
+  });
+
+  it('refuses with the files that conflict, and leaves the workspace as it was', async () => {
+    await editSaved('PLAN.md', 'the editor\'s plan\n');
+    await commitIn(work(), 'PLAN.md', 'the workspace\'s plan\n', 'change: p2');
+    const before = (await git('git', ['-C', work(), 'rev-parse', 'HEAD'])).stdout.trim();
+
+    await expect(documents().save(tree)).rejects.toThrow('tree-t1 could not be saved: main was changed elsewhere in a way that conflicts with this workspace: PLAN.md');
+    expect((await git('git', ['-C', work(), 'rev-parse', 'HEAD'])).stdout.trim()).toBe(before);
+    expect((await git('git', ['-C', work(), 'status', '--porcelain'])).stdout.trim()).toBe('');
   });
 });
 

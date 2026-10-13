@@ -9,6 +9,9 @@ import { seedWorkspaceImages } from '../lib/workspace-image-seeds.js';
 import { retireStoredBuiltInProcedures } from '../lib/built-in-procedures.js';
 import { retireStoredBuiltInPersonas } from '../lib/built-in-personas.js';
 import { seedEngineTools } from '../lib/engine-tool-seeds.js';
+import { migrateAgentTools } from '../lib/tool-grant-migration.js';
+import { migrateMcpServers } from '../lib/mcp-server-migration.js';
+import { seededGrants, seededPersonas } from '../extensions/seeds.js';
 
 export async function seedAll(db: Record<string, unknown>) {
   const counts: Record<string, number> = {};
@@ -22,6 +25,14 @@ export async function seedAll(db: Record<string, unknown>) {
   counts.removedBuiltInProcedures = await retireStoredBuiltInProcedures(db as never);
   counts.engineTools = await seedEngineTools(db as never);
   counts.removedBuiltInPersonas = await retireStoredBuiltInPersonas(db as never);
+  const moved = await migrateAgentTools(db as never, seededPersonas(), seededGrants(), new Date().toISOString());
+  counts.agentToolListsMoved = moved.agents;
+  counts.toolGrantsWritten = moved.granted + moved.revoked;
+  counts.builtInCopiesDropped = moved.copiesDropped;
+  const servers = await migrateMcpServers(db as never, new Date().toISOString());
+  counts.agentServerListsMoved = servers.agentServerListsMoved;
+  counts.servingToolsMoved = servers.servingToolsMoved;
+  counts.mcpToolKindsMoved = servers.toolKindsMoved;
   return counts;
 }
 

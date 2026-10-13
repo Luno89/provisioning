@@ -63,7 +63,7 @@ interface ShellState {
   setAuthLoading: (loading: boolean) => void
 
   notifications: Notification[]
-  pushNotification: (notification: Omit<Notification, 'nid'>) => void
+  pushNotification: (notification: Omit<Notification, 'nid'>) => number
   dismissNotification: (nid: number) => void
 
   confirmDestroy: DestroyTarget | null
@@ -124,9 +124,11 @@ export const useShellStore = create<ShellState>((set) => ({
   setAuthLoading: (authLoading) => set({ authLoading }),
 
   notifications: [],
-  pushNotification: (notification) => set((s) => ({
-    notifications: [...s.notifications, { ...notification, nid: Date.now() + (++nextNotificationId / 1000) }],
-  })),
+  pushNotification: (notification) => {
+    const nid = Date.now() + (++nextNotificationId / 1000);
+    set((s) => ({ notifications: [...s.notifications, { ...notification, nid }] }));
+    return nid;
+  },
   dismissNotification: (nid) => set((s) => ({
     notifications: s.notifications.filter((n) => n.nid !== nid),
   })),

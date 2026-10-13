@@ -17,7 +17,7 @@ export function TreeConversationsPanel({
     queryFn: listChatConversations,
     refetchInterval: 15_000,
   })
-  const mine = conversations.filter((conversation) => (binding.treeId
+  const mine = conversations.filter((conversation) => conversation.kind !== 'channel' && conversation.kind !== 'item' && (binding.treeId
     ? conversation.treeId === binding.treeId
     : Boolean(binding.projectId) && conversation.projectId === binding.projectId))
 

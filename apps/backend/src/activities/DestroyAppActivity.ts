@@ -6,19 +6,9 @@ import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { reachCluster } from './cluster-access.js';
 import { ODOO_PROJECT_APP } from '../lib/odoo-release.js';
+import type { DestroyAppArgs } from '../lib/app-destroy.js';
 
-export interface DestroyAppArgs {
-  name: string;
-  clusterId: string;
-  clusterName: string;
-  provider: string;
-  strategy: string;
-  logFile: string;
-  deploymentId?: string;
-  appType?: string | undefined;
-  gpuEnabled?: boolean | undefined;
-  kubeconfigPath?: string | undefined;
-}
+export type { DestroyAppArgs } from '../lib/app-destroy.js';
 
 export interface DestroyAppResult {
   status: string;
@@ -44,10 +34,11 @@ export async function DestroyAppActivity(
 
   if (args.appType === ODOO_PROJECT_APP) {
     const kubeconfig = await reachCluster(infra, { clusterName: args.clusterName, provider: args.provider, gpuEnabled: args.gpuEnabled, kubeconfigPath: args.kubeconfigPath });
-    await fs.appendFile(logFile, `Uninstalling the Odoo release ${sanitizedName} and its namespace, databases and attachments with it\n`).catch(() => undefined);
-    await infra.runHelm(['uninstall', sanitizedName, '-n', sanitizedName, '--ignore-not-found'], kubeconfig);
-    await infra.runKubectl(['delete', 'namespace', sanitizedName, '--ignore-not-found', '--wait=false'], kubeconfig);
-    await infra.waitForNamespaceDeletion(sanitizedName, kubeconfig);
+    const release = args.namespace || sanitizedName;
+    await fs.appendFile(logFile, `Uninstalling the Odoo release ${release} and its namespace, databases and attachments with it\n`).catch(() => undefined);
+    await infra.runHelm(['uninstall', release, '-n', release, '--ignore-not-found'], kubeconfig);
+    await infra.runKubectl(['delete', 'namespace', release, '--ignore-not-found', '--wait=false'], kubeconfig);
+    await infra.waitForNamespaceDeletion(release, kubeconfig);
     return { status: 'destroyed', msg: `App ${args.name} destroyed` };
   }
 

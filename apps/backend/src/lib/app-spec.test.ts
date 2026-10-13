@@ -39,7 +39,7 @@ describe('minio, rendered from a spec', () => {
   it('builds the same container, down to the args and probes', () => {
     const container = (out.deployment as any).spec.template.spec.container[0];
     expect(container.name).toBe('minio');
-    expect(container.image).toBe('minio/minio:latest');
+    expect(container.image).toBe('pgsty/minio:RELEASE.2026-03-14T12-00-00Z');
     expect(container.args).toEqual(['server', '/data', '--console-address', ':9001']);
     expect(container.port).toEqual([
       { containerPort: 9000, name: 's3' },

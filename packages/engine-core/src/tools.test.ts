@@ -186,3 +186,5 @@ describe('an agent held to a limit', () => {
     expect(offer().tools).toHaveLength(3);
   });
 });
+
+

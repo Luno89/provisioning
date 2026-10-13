@@ -1,13 +1,14 @@
 import type { BaseImage } from '@koala/agent-engine';
 import { ODOO_CHECK_SCRIPT } from './odoo-check.js';
-import { KOALA_E2E_SCRIPT, ODOO_E2E_SCRIPT } from './odoo-e2e.js';
+import { KOALA_E2E_SCRIPT, ODOO_E2E_HELPERS_AT, ODOO_E2E_SCRIPT } from './odoo-e2e.js';
+import { ODOO_E2E_HELPERS } from '../../lib/odoo-e2e-helpers.js';
+import { PLAYWRIGHT_VERSION } from '../../lib/e2e.js';
 
 export const ODOO_VERSION = '18';
 export const ODOO_IMAGE = `odoo:${ODOO_VERSION}`;
 export const ODOO_CHECK = '/usr/local/bin/odoo-check';
 export const ODOO_E2E = '/usr/local/bin/odoo-e2e';
 export const KOALA_E2E = '/usr/local/bin/koala-e2e';
-export const PLAYWRIGHT_VERSION = '1.48.2';
 export const PLAYWRIGHT_BROWSERS = '/ms-playwright';
 
 export const HELM_VERSION = 'v3.15.1';
@@ -58,6 +59,10 @@ export const ODOO_BASE: BaseImage = {
         `PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS} npx -y playwright@${PLAYWRIGHT_VERSION} install --with-deps chromium`,
         `chmod -R a+rX ${PLAYWRIGHT_BROWSERS}`,
       ].join(' && '),
+    },
+    {
+      via: 'script',
+      run: `mkdir -p $(dirname ${ODOO_E2E_HELPERS_AT}) && echo ${base64(ODOO_E2E_HELPERS)} | base64 -d > ${ODOO_E2E_HELPERS_AT} && chmod 644 ${ODOO_E2E_HELPERS_AT}`,
     },
     {
       via: 'script',

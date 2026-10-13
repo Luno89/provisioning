@@ -1,7 +1,7 @@
 import type { ToolDefinition } from '@koala/agent-engine';
 import type { Task } from '../../engine-host/tools/tasks.js';
 import { formatProcedureProblems, readAndCheckProcedure } from '@koala/agent-engine/procedure';
-import type { ProvokedFailure, ScenarioExpectations } from './scenario.js';
+import type { ExpectedBrowserTests, ProvokedFailure, ScenarioExpectations } from './scenario.js';
 import { platformCatalogue, platformGroups } from '../../extensions/installed.js';
 import { describeChoice, scoreTurn, type TurnReply } from '../../lib/turn-check.js';
 
@@ -31,7 +31,7 @@ export interface ObservedFlow {
   summary?: { through: number } | undefined;
   kept?: { interrupted: boolean; chars: number; loggedChars: number; prefix: boolean } | undefined;
   turnLog?: { contiguous: boolean; savedMatches: boolean; entries: number } | undefined;
-  leaves?: { title: string; status: string; verified: boolean; landed?: string | undefined; findings?: string | undefined; artifacts?: { name: string; opens: boolean; contentType?: string | undefined; size?: number | undefined }[] | undefined }[] | undefined;
+  leaves?: { title: string; status: string; verified: boolean; landed?: string | undefined; findings?: string | undefined; retried?: number | undefined; artifacts?: { name: string; opens: boolean; contentType?: string | undefined; size?: number | undefined }[] | undefined }[] | undefined;
   mergeTasks?: number | undefined;
   repository?: Record<string, string | null> | undefined;
   pullRequests?: { merged: number; open: number; closedUnmerged: number } | undefined;
@@ -40,6 +40,24 @@ export interface ObservedFlow {
   trees?: number | undefined;
   step?: { exit?: string | undefined; outputs?: Record<string, unknown> | undefined; error?: string | undefined } | undefined;
   turn?: TurnReply | undefined;
+  release?: ObservedRelease | undefined;
+  e2e?: ObservedBrowserTests | undefined;
+}
+
+export interface ObservedBrowserTests {
+  state: string;
+  summary?: string | undefined;
+  reason?: string | undefined;
+  tests?: { title: string; status: string; error?: string | undefined }[] | undefined;
+  artifacts?: { name: string; opens: boolean; contentType?: string | undefined; size?: number | undefined }[] | undefined;
+}
+
+export interface ObservedRelease {
+  exists: boolean;
+  state?: string | undefined;
+  slot?: string | undefined;
+  reason?: string | undefined;
+  e2e?: ObservedBrowserTests | undefined;
 }
 
 export interface Observed {
@@ -181,10 +199,17 @@ export async function scoreScenario(expect: ScenarioExpectations, observed: Obse
 
   const flow = observed.flow ?? {};
   if (expect.modelSaw) {
-    const last = flow.modelRequests?.at(-1) ?? '';
-    const seen = `the model was sent ${flow.modelRequests?.length ?? 0} request${flow.modelRequests?.length === 1 ? '' : 's'}`;
-    for (const text of expect.modelSaw.contains ?? []) add(`the model is sent "${text}"`, last.includes(text), last.includes(text) ? `${seen}; the last one had it` : `${seen}; the last one did not have it`);
-    for (const text of expect.modelSaw.lacks ?? []) add(`the model is no longer sent "${text}"`, !last.includes(text), last.includes(text) ? `${seen}; the last one still had it` : `${seen}; the last one did not have it`);
+    const requests = flow.modelRequests ?? [];
+    const seen = `the model was sent ${requests.length} request${requests.length === 1 ? '' : 's'}`;
+    if (expect.modelSaw.anyRequest) {
+      const carrying = (text: string) => requests.filter((request) => request.includes(text)).length;
+      for (const text of expect.modelSaw.contains ?? []) add(`some request to the model carries "${text}"`, carrying(text) > 0, `${seen}; ${carrying(text)} carried it`);
+      for (const text of expect.modelSaw.lacks ?? []) add(`no request to the model carries "${text}"`, carrying(text) === 0, `${seen}; ${carrying(text)} carried it`);
+    } else {
+      const last = requests.at(-1) ?? '';
+      for (const text of expect.modelSaw.contains ?? []) add(`the model is sent "${text}"`, last.includes(text), last.includes(text) ? `${seen}; the last one had it` : `${seen}; the last one did not have it`);
+      for (const text of expect.modelSaw.lacks ?? []) add(`the model is no longer sent "${text}"`, !last.includes(text), last.includes(text) ? `${seen}; the last one still had it` : `${seen}; the last one did not have it`);
+    }
   }
   if (expect.compacted !== undefined) {
     add(expect.compacted ? 'summarises the conversation' : 'does not summarise again', flow.compacted === expect.compacted, flow.compacted ? 'the conversation was summarised in this turn' : 'nothing was summarised in this turn');
@@ -226,6 +251,10 @@ export async function scoreScenario(expect: ScenarioExpectations, observed: Obse
       const opening = (leaf?.artifacts ?? []).filter((artifact) => artifact.opens);
       add(`${title} leaves at least ${least} browser files that open`, opening.length >= least, !leaf ? `there is no leaf called ${title}` : `${opening.length} of ${(leaf.artifacts ?? []).length} open${(leaf.artifacts ?? []).length > 0 ? `: ${(leaf.artifacts ?? []).map((artifact) => `${artifact.name} ${artifact.opens ? `(${artifact.contentType}, ${artifact.size} bytes)` : 'does not open'}`).join('; ')}` : ''}`);
     }
+    for (const [title, times] of Object.entries(expect.leaves.retried ?? {})) {
+      const leaf = leaves.find((entry) => entry.title === title);
+      add(`${title} was retried ${times} time${times === 1 ? '' : 's'}`, leaf?.retried === times, !leaf ? `there is no leaf called ${title}` : `it was retried ${leaf.retried ?? 0}`);
+    }
     if (expect.leaves.mergeTasks !== undefined) add(`${expect.leaves.mergeTasks} merge tasks`, flow.mergeTasks === expect.leaves.mergeTasks, `there ${flow.mergeTasks === 1 ? 'is' : 'are'} ${flow.mergeTasks ?? 0}`);
   }
   if (expect.repository) {
@@ -238,6 +267,8 @@ export async function scoreScenario(expect: ScenarioExpectations, observed: Obse
       const missing = (file.contains ?? []).filter((text) => !content.includes(text));
       add(`the ${expect.repository.of}'s main holds ${file.path}${file.contains?.length ? ` saying ${file.contains.join(', ')}` : ''}`, missing.length === 0,
         missing.length === 0 ? `${file.path} is on main` : `${file.path} on main does not say ${missing.join(', ')}: "${content.slice(0, 160)}"`);
+      const present = (file.lacks ?? []).filter((text) => content.includes(text));
+      if (file.lacks?.length) add(`${file.path} on the ${expect.repository.of}'s main does not say ${file.lacks.join(', ')}`, present.length === 0, present.length === 0 ? 'it does not' : `it says ${present.join(', ')}`);
     }
   }
   if (expect.pullRequests) {
@@ -271,7 +302,32 @@ export async function scoreScenario(expect: ScenarioExpectations, observed: Obse
     const chose = flow.turn?.toolCalls.map((call) => call.name).join(', ');
     add(describeChoice(expect.chooses), verdict.passed, verdict.complaint ?? (chose ? `it called ${chose}` : 'it answered without calling a tool'));
   }
+  if (expect.release) {
+    const release = flow.release;
+    if (expect.release.exists !== undefined) {
+      add(expect.release.exists ? 'the project\'s app is there' : 'the project\'s app and its namespace are gone', release?.exists === expect.release.exists, release?.exists ? 'it is there' : 'it is gone');
+    }
+    if (expect.release.state !== undefined) {
+      add(`the newest release is ${expect.release.state}`, release?.state === expect.release.state, !release?.state ? 'there is no release' : `it is ${release.state}${release.slot ? ` in slot ${release.slot}` : ''}${release.reason ? `: ${release.reason}` : ''}`);
+    }
+    if (expect.release.e2e) scoreBrowserTests(expect.release.e2e, release?.e2e, 'the preview\'s browser tests', add);
+  }
+  if (expect.e2e) scoreBrowserTests(expect.e2e, flow.e2e, 'the browser tests', add);
   if (expect.trees !== undefined) add(`${expect.trees} trees`, flow.trees === expect.trees, `there ${flow.trees === 1 ? 'is' : 'are'} ${flow.trees ?? 0}`);
 
   return checks;
+}
+
+function scoreBrowserTests(expect: ExpectedBrowserTests, seen: ObservedBrowserTests | undefined, what: string, add: (what: string, passed: boolean, detail: string) => void): void {
+  const said = !seen ? 'they never ran' : `they ended ${seen.state}${seen.summary ? `: ${seen.summary}` : ''}${seen.reason ? ` — ${seen.reason.slice(0, 600)}` : ''}`;
+  if (expect.state !== undefined) add(`${what} end ${expect.state}`, seen?.state === expect.state, said);
+  for (const [title, status] of Object.entries(expect.tests ?? {})) {
+    const test = seen?.tests?.find((entry) => entry.title === title);
+    add(`${what}: "${title}" ${status}`, test?.status === status, !test ? `there is no such test (${(seen?.tests ?? []).map((entry) => `"${entry.title}" ${entry.status}`).join('; ') || said})` : `it ${test.status}${test.error ? `: ${test.error.slice(0, 300)}` : ''}`);
+  }
+  if (expect.artifacts !== undefined) {
+    const files = seen?.artifacts ?? [];
+    const opening = files.filter((file) => file.opens);
+    add(`${what} keep at least ${expect.artifacts} files that open`, opening.length >= expect.artifacts, `${opening.length} of ${files.length} open${files.length > 0 ? `: ${files.map((file) => `${file.name} ${file.opens ? `(${file.contentType}, ${file.size} bytes)` : 'does not open'}`).join('; ')}` : ''}`);
+  }
 }

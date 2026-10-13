@@ -97,15 +97,23 @@ export class ArtifactService {
     return { artifact, bytes: Buffer.concat(chunks.map((chunk) => Buffer.from(chunk.data))) };
   }
 
+  private async remove(artifact: StoredArtifact): Promise<void> {
+    if (artifact.place === 'minio') {
+      const minio = await this.deps.minioFor(artifact.ownerId).catch(() => undefined);
+      await minio?.remove(objectKey(artifact)).catch(() => undefined);
+    } else await this.deps.records.deleteArtifactChunks(artifact.id);
+    await this.deps.records.deleteArtifact(artifact.id);
+  }
+
+  async removeRun(ownerId: string, runId: string): Promise<number> {
+    const artifacts = await this.deps.records.getArtifacts(ownerId, runId);
+    for (const artifact of artifacts) await this.remove(artifact);
+    return artifacts.length;
+  }
+
   async sweep(): Promise<number> {
     const expired = await this.deps.records.getExpiredArtifacts(this.now());
-    for (const artifact of expired) {
-      if (artifact.place === 'minio') {
-        const minio = await this.deps.minioFor(artifact.ownerId).catch(() => undefined);
-        await minio?.remove(objectKey(artifact)).catch(() => undefined);
-      } else await this.deps.records.deleteArtifactChunks(artifact.id);
-      await this.deps.records.deleteArtifact(artifact.id);
-    }
+    for (const artifact of expired) await this.remove(artifact);
     return expired.length;
   }
 }

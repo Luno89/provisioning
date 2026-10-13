@@ -1,13 +1,15 @@
 import { serverError } from '../../../api/client'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Box, ExternalLink, ShieldCheck, AlertTriangle, History, Terminal } from 'lucide-react'
+import { Box, ShieldCheck, AlertTriangle, History, Terminal } from 'lucide-react'
 import PipelineLogModal from '../../PipelineLogModal.js'
 import { PipelineRunRow, type PipelineRun } from '../../PipelineRunRow.js'
 import { listProjectRuns, listProjects, patchProject, projectKeys } from '../../../api/projects.js'
 import { listLocalAgentDevices, localAgentKeys, type LocalAgentDevice } from '../../../api/local-agents.js'
 import { ProjectStatusBadge } from '../StatusBadge.js'
 import { ReleasesPanel } from './ReleasesPanel.js'
+import { SignInReveal } from './SignInReveal.js'
+import { OpenApp } from './OpenApp.js'
 
 export interface LinkedProject {
   id: string
@@ -78,16 +80,8 @@ export function BuildsDeploysPanel({ project }: { project: LinkedProject }) {
               <ShieldCheck size={10} /> auto-deploy
             </span>
           )}
-          {project.status === 'running' && (
-            <a
-              href={`http://${project.name.toLowerCase()}.apps.local`}
-              target="_blank"
-              rel="noreferrer"
-              className="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-[11px] font-medium px-2 py-0.5 rounded flex items-center gap-1 transition-colors shrink-0"
-            >
-              <ExternalLink size={11} /> Open App
-            </a>
-          )}
+          {project.status === 'running' && <OpenApp projectId={project.id} />}
+          {project.status === 'running' && <SignInReveal projectId={project.id} />}
         </div>
 
         {project.reason && (

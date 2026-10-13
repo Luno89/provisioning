@@ -382,3 +382,15 @@ describe('tasks under a grove leaf', () => {
   });
 });
 
+
+describe('task_status', () => {
+  it('answers with the status alone, for a procedure step to branch on', async () => {
+    seed({ id: 'k1', title: 'Render', status: 'waiting' });
+    expect(await run('task_status', { taskId: 'k1' })).toEqual({ ok: true, digest: 'Render is waiting', content: 'waiting' });
+  });
+
+  it('knows no one else\'s task', async () => {
+    seed({ id: 'k1', ownerId: 'user-2' });
+    expect(await run('task_status', { taskId: 'k1' })).toMatchObject({ ok: false, digest: 'there is no task called "k1"' });
+  });
+});

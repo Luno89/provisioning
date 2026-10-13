@@ -11,6 +11,7 @@ import {
   type EnvironmentSpec,
   type ExecRequest,
   type ExecResult,
+  type ExecStopped,
 } from '@koala/engine-core';
 
 export interface LocalFsDriverOptions {
@@ -23,6 +24,7 @@ export interface LocalFsDriverOptions {
 }
 
 export const DEFAULT_TIMEOUT_MS = 10 * 60_000;
+export const STOP_GRACE_MS = 5_000;
 
 export function createLocalFsDriver(options: LocalFsDriverOptions): EnvironmentDriver {
   const spec: EnvironmentSpec = {
@@ -51,39 +53,53 @@ export function createLocalFsDriver(options: LocalFsDriverOptions): EnvironmentD
 
     async exec(request: ExecRequest): Promise<ExecResult> {
       const cwd = workingDir(request.cwd);
-      const timeoutMs = request.timeoutMs ?? options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
+      const timeoutMs = request.untimed ? undefined : request.timeoutMs ?? options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
 
       return new Promise<ExecResult>((resolve) => {
         const child = spawn(options.shell ?? '/bin/bash', ['-lc', request.command], {
           cwd,
           env: { ...process.env, ...(request.env ?? {}) },
+          detached: true,
         });
 
         let stdout = '';
         let stderr = '';
         let settled = false;
+        let stopped: ExecStopped | undefined;
+
+        const killGroup = (signal: NodeJS.Signals): void => {
+          try {
+            if (child.pid) process.kill(-child.pid, signal);
+          } catch {
+            child.kill(signal);
+          }
+        };
+
+        const stop = (why: ExecStopped): void => {
+          if (stopped || settled) return;
+          stopped = why;
+          killGroup('SIGTERM');
+          setTimeout(() => killGroup('SIGKILL'), STOP_GRACE_MS).unref();
+        };
+
+        const timer = timeoutMs === undefined ? undefined : setTimeout(() => stop('timeout'), timeoutMs);
+        const onAbort = (): void => stop('cancelled');
+        if (request.signal?.aborted) onAbort();
+        else request.signal?.addEventListener('abort', onAbort, { once: true });
 
         const finish = (result: ExecResult): void => {
           if (settled) return;
           settled = true;
-          clearTimeout(timer);
-          resolve(result);
+          if (timer) clearTimeout(timer);
+          request.signal?.removeEventListener('abort', onAbort);
+          resolve(stopped ? { ...result, stopped } : result);
         };
-
-        const timer = setTimeout(() => {
-          child.kill('SIGKILL');
-          finish({
-            stdout,
-            stderr: `${stderr}\n[stopped after ${Math.round(timeoutMs / 1000)}s]`.trim(),
-            exitCode: 124,
-          });
-        }, timeoutMs);
 
         child.stdout.on('data', (chunk) => { stdout += String(chunk); });
         child.stderr.on('data', (chunk) => { stderr += String(chunk); });
 
         child.on('error', (err) => finish({ stdout, stderr: `${stderr}\n${err.message}`.trim(), exitCode: 127 }));
-        child.on('close', (code) => finish({ stdout, stderr, exitCode: code ?? 0 }));
+        child.on('close', (code) => finish({ stdout, stderr, exitCode: code ?? (stopped ? 124 : 0) }));
       });
     },
 

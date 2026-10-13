@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll, beforeEach } from 'vitest';
 import { conversationsRouter } from './conversations.js';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import type { Database } from '../lib/db-interface.js';
+import { conversationBinding } from '../engine-host/conversation-binding.js';
 
 const harness: Harness = await mountRouter({
   prefix: '/api/conversations',
@@ -15,6 +16,7 @@ const harness: Harness = await mountRouter({
       concluded.push(`${ownerId}/${conversationId}`);
       if (concludeFails) throw new Error('Pushing to koala-u1/research-x failed: Gitea is down');
     } },
+    binding: conversationBinding(db),
     turns: { settle: async (conversation) => (conversation.liveTurn ? { ...conversation, liveTurn: undefined, title: 'settled' } : conversation) },
   }),
 });
@@ -178,5 +180,57 @@ describe('conversation chat-owned picks', () => {
       body: JSON.stringify({ modelId: 'x' }),
     });
     expect(missingRes.status).toBe(404);
+  });
+});
+
+describe('what Koala sees in a conversation', () => {
+  const save = (id: string, bound: Record<string, string>, ownerId = TEST_USER.id) => harness.db.saveConversation({ id, ownerId, title: id, messages: [], createdAt: 't', updatedAt: 't', ...bound } as never);
+  const context = async (id: string) => {
+    const response = await fetch(harness.url(`/api/conversations/${id}/context`));
+    return { status: response.status, body: response.status === 200 ? await response.json() as { given: Record<string, string>; text: string } : undefined };
+  };
+
+  it('is shown at every level a conversation can be about: a project, a tree, a feature, a story', async () => {
+    const owner = TEST_USER.id;
+    await harness.db.saveTree({ id: 'ctx-t', ownerId: owner, name: 'Shop', type: 'odoo-addons', goal: 'Delivery notes', projectIds: ['ctx-p'], createdAt: 't', updatedAt: 't' } as never);
+    await harness.db.saveBranch({ id: 'ctx-b', ownerId: owner, treeId: 'ctx-t', title: 'The field', createdAt: 't', updatedAt: 't' });
+    await harness.db.saveLeaf({ id: 'ctx-l', ownerId: owner, branchId: 'ctx-b', title: 'Module installs', body: 'Add the field.', status: 'failed', findings: 'the view did not load', createdAt: 't', updatedAt: 't' });
+    await harness.db.saveProject({ id: 'ctx-p', ownerId: owner, name: 'Bare', giteaOwner: 'o', giteaRepo: 'r', createdAt: 't' } as never);
+    const release = { ownerId: owner, projectId: 'ctx-p', image: 'i', host: 'h', updatedAt: '2026-10-09T10:00:00Z' };
+    await harness.db.saveOdooRelease({ ...release, id: 'ctx-r1', pipelineRunId: 'ctx-run1', commit: 'aaaaaaaa11', slot: 'a', state: 'live', liveAt: '2026-10-09T10:05:00Z', startedAt: '2026-10-09T10:00:00Z' });
+    await harness.db.saveOdooRelease({ ...release, id: 'ctx-r2', pipelineRunId: 'ctx-run2', commit: 'bbbbbbbb22', slot: 'b', state: 'preview', startedAt: '2026-10-10T09:00:00Z' });
+    await harness.db.savePipelineRun({ id: 'ctx-run2', projectId: 'ctx-p', commitSha: 'bbbbbbbb22', ref: 'main', status: 'succeeded', startedAt: '2026-10-10T08:55:00Z', finishedAt: '2026-10-10T08:59:00Z' });
+    await save('ctx-story', { treeId: 'ctx-t', leafId: 'ctx-l' });
+    await save('ctx-feature', { treeId: 'ctx-t', branchId: 'ctx-b' });
+    await save('ctx-channel', { treeId: 'ctx-t', projectId: 'ctx-p' });
+    await save('ctx-project', { projectId: 'ctx-p' });
+    await save('ctx-loose', {});
+
+    const story = (await context('ctx-story')).body!;
+    expect(Object.keys(story.given)).toEqual(['treeId', 'leafId', 'story', 'project']);
+    expect(story.given.story).toContain('Findings: the view did not load');
+    expect(story.given.project).toContain('Live: aaaaaaaa in slot a');
+    expect(story.text).toBe(`treeId: ctx-t\n\nleafId: ctx-l\n\nstory: ${story.given.story}\n\nproject: ${story.given.project}`);
+    const feature = (await context('ctx-feature')).body!;
+    expect(Object.keys(feature.given)).toEqual(['treeId', 'branchId', 'feature', 'project']);
+    expect(feature.given.feature).toContain('Feature "The field" (ctx-b)');
+    expect(feature.given.project).toContain('Waiting for the person: bbbbbbbb');
+    const channel = (await context('ctx-channel')).body!;
+    expect(Object.keys(channel.given)).toEqual(['treeId', 'tree', 'project']);
+    expect(channel.given.tree).toContain('Tree "Shop" (ctx-t), type odoo-addons.');
+    expect(channel.given.project).toContain('Live: aaaaaaaa in slot a, since 2026-10-09 10:05 UTC.');
+    expect(channel.given.project).toContain('Waiting for the person: bbbbbbbb is ready to preview in slot b.');
+    expect(channel.given.project).toContain('Last build: succeeded, bbbbbbbb, 2026-10-10 08:59 UTC.');
+    const project = (await context('ctx-project')).body!.given.project!;
+    expect(project).toContain('Project "Bare" (ctx-p)');
+    expect(project).toContain('Live: aaaaaaaa in slot a');
+    expect(project).toContain('It has no Grove tree yet');
+    expect((await context('ctx-loose')).body).toEqual({ given: {}, text: '' });
+  });
+
+  it('is not shown for someone else\'s conversation', async () => {
+    await save('ctx-theirs', { projectId: 'ctx-p' }, 'someone-else');
+    expect((await context('ctx-theirs')).status).toBe(404);
+    expect((await context('ctx-nope')).status).toBe(404);
   });
 });

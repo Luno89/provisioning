@@ -17,19 +17,23 @@ beforeEach(async () => {
 describe('an owner\'s extensions', () => {
   it('are all on until the owner switches one off, and the platform says it is always on', async () => {
     const states = await service.list('u1');
-    expect(states.map((state) => [state.extension.id, state.enabled, state.alwaysOn])).toEqual([['platform', true, true], ['grove', true, false]]);
+    expect(states.map((state) => [state.extension.id, state.enabled, state.alwaysOn])).toEqual([['platform', true, true], ['grove', true, false], ['workspace', true, false], ['mcp', true, false]]);
   });
 
   it('switch off for that owner alone, hiding what the extension brings, and back on again', async () => {
-    const off = await service.setEnabled('u1', 'grove', false);
-    expect(off.ok && off.value.find((state) => state.extension.id === 'grove')?.enabled).toBe(false);
-    expect((await service.hidden('u1')).agents.has('grove')).toBe(true);
-    expect((await service.hidden('u1')).operations.has('grove.open-tree')).toBe(true);
+    const off = await service.setEnabled('u1', 'workspace', false);
+    expect(off.ok && off.value.find((state) => state.extension.id === 'workspace')?.enabled).toBe(false);
+    expect((await service.hidden('u1')).agents.has('workspace')).toBe(true);
+    expect((await service.hidden('u1')).operations.has('workspace.read')).toBe(true);
     expect((await service.hidden('u2')).agents.size).toBe(0);
-    expect(await db.getExtensionSettings('u1')).toEqual({ ownerId: 'u1', disabled: ['grove'], updatedAt: 'now' });
+    expect(await db.getExtensionSettings('u1')).toEqual({ ownerId: 'u1', disabled: ['workspace'], updatedAt: 'now' });
 
-    await service.setEnabled('u1', 'grove', true);
+    await service.setEnabled('u1', 'workspace', true);
     expect((await service.hidden('u1')).agents.size).toBe(0);
+  });
+
+  it('refuse to switch off one another needs, saying which', async () => {
+    expect(await service.setEnabled('u1', 'grove', false)).toMatchObject({ ok: false, status: 409, error: 'Workspace needs Grove, so switch that off first' });
   });
 
   it('refuse to switch off the platform, and know no extension that is not installed', async () => {
@@ -102,7 +106,7 @@ describe('an extension of the owner\'s own', () => {
 
     const states = await service.list('u1');
     expect(states.find((state) => state.extension.id === 'loud')).toMatchObject({ enabled: true, authored: true });
-    expect(await service.list('u2')).toHaveLength(2);
+    expect(await service.list('u2')).toHaveLength(4);
 
     await service.setEnabled('u1', 'loud', false);
     const hidden = await service.hidden('u1');

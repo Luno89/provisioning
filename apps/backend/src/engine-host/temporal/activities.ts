@@ -23,6 +23,7 @@ import type {
   ReleaseEnvironmentArgs,
   RemoteNodeRequest,
   RemoteNodeResult,
+  CarriedNotice,
   ResolveAgentArgs,
   ResolvedAgentInfo,
   ResolveEnvironmentArgs,
@@ -34,7 +35,7 @@ import type {
   ToolAllowedArgs,
   ProcedureRunInput,
 } from './contracts.js';
-import { type LifecycleEvent, type BenchIdleOutcome, type ConcludeWorkspaceArgs, groveRunWorkflowId } from './contracts.js';
+import { type LifecycleEvent, type BenchIdleOutcome, type ConcludeWorkspaceArgs, groveRunId, runStamp } from './contracts.js';
 import type { ConversationWorkspaces } from '../sandboxes/conversation-workspaces.js';
 import type { SavedDocuments } from '../sandboxes/workspace-documents.js';
 import { DEFAULT_CHAT_AGENT } from '../../lib/conclusions.js';
@@ -67,6 +68,7 @@ export interface StreamServices {
   runCancelled?: ((runId: string) => Promise<boolean>) | undefined;
   conclude?: ((event: LifecycleEvent) => Promise<void>) | undefined;
   benchIdle?: ((ownerId: string) => Promise<BenchIdleOutcome>) | undefined;
+  post?: ((ownerId: string, notice: Readonly<Record<string, unknown>>) => Promise<void>) | undefined;
 }
 
 export interface TraceRecorder {
@@ -123,7 +125,7 @@ export const CANCEL_POLL_MS = 3_000;
 export function createNodeRunner(
   implementations: readonly NodeImplementation[],
   bus: EventBus | undefined,
-  options: { catalogue?: NodeCatalogue | undefined; runCancelled?: ((runId: string) => Promise<boolean>) | undefined } = {},
+  options: { catalogue?: NodeCatalogue | undefined; runCancelled?: ((runId: string) => Promise<boolean>) | undefined; carryNotices?: boolean | undefined } = {},
 ): (request: RemoteNodeRequest) => Promise<RemoteNodeResult> {
   const catalogue = options.catalogue ?? platformCatalogue();
   const byKind = new Map(implementations.map((implementation) => [implementation.kind, implementation]));
@@ -144,6 +146,7 @@ export function createNodeRunner(
         void options.runCancelled!(runId).then((cancelled) => { if (cancelled) stop.abort('the run was cancelled'); });
       }, CANCEL_POLL_MS)
       : undefined;
+    const notices: CarriedNotice[] = [];
     const full: NodeRequest = {
       node: request.node,
       origin: request.origin,
@@ -154,13 +157,18 @@ export function createNodeRunner(
       run: {
         ...request.run,
         signal: stop.signal,
-        emit: (event) => bus?.emit({ ...event, runId: request.run.identity.runId, at: new Date().toISOString(), ownerId: request.run.launch.ownerId, turnId: request.run.launch.turnId ?? request.run.identity.runId } as never),
+        emit: (event) => {
+          const said = event as { type: string; level?: 'info' | 'warn'; message?: string; nodeId?: string; post?: Readonly<Record<string, unknown>> };
+          if (options.carryNotices && said.type === 'notice' && said.message) notices.push({ level: said.level ?? 'info', message: said.message, ...(said.nodeId ? { nodeId: said.nodeId } : {}), ...(said.post ? { post: said.post } : {}) });
+          bus?.emit({ ...event, runId: request.run.identity.runId, at: new Date().toISOString(), ownerId: request.run.launch.ownerId, turnId: request.run.launch.turnId ?? request.run.identity.runId } as never);
+        },
       },
     };
 
     const beating = context ? setInterval(() => context.heartbeat(), NODE_HEARTBEAT_MS) : undefined;
     try {
-      return await implementation.run(full);
+      const result = await implementation.run(full) as RemoteNodeResult;
+      return notices.length > 0 ? { ...result, notices } : result;
     } finally {
       if (beating) clearInterval(beating);
       if (watching) clearInterval(watching);
@@ -176,6 +184,7 @@ export interface EngineActivities extends StreamActivities {
   EngineMergeActivity(args: MergeArgs): Promise<Record<string, unknown>>;
   GroveRunInputActivity(args: { treeId: string; ownerId: string }): Promise<ProcedureRunInput>;
   ConcludeWorkspaceActivity(args: ConcludeWorkspaceArgs): Promise<SavedDocuments>;
+  PlanAdoptStopActivity(args: AdoptPlanArgs): Promise<string[]>;
   PlanAdoptRecordsActivity(args: AdoptPlanArgs): Promise<AdoptedRecords>;
   PlanAdoptDocumentsActivity(args: AdoptPlanArgs & { records: AdoptedRecords }): Promise<string>;
   PlanAdoptSettleActivity(args: AdoptPlanArgs & { status: 'adopted' | 'failed'; adopted?: AdoptedPlan | undefined; reason?: string | undefined }): Promise<void>;
@@ -219,7 +228,21 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
     },
 
     async EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome> {
-      return services.tools.run(args, currentActivity()?.info.attempt ?? 1);
+      const context = currentActivity();
+      const stop = new AbortController();
+      context?.cancellationSignal.addEventListener('abort', () => stop.abort('the run was stopped'));
+      const watching = services.runCancelled
+        ? setInterval(() => {
+          void services.runCancelled!(args.ticket.runId).then((cancelled) => { if (cancelled) stop.abort('the run was stopped'); });
+        }, CANCEL_POLL_MS)
+        : undefined;
+      const beating = context ? setInterval(() => context.heartbeat(), NODE_HEARTBEAT_MS) : undefined;
+      try {
+        return await services.tools.run(args, context?.info.attempt ?? 1, stop.signal);
+      } finally {
+        if (beating) clearInterval(beating);
+        if (watching) clearInterval(watching);
+      }
     },
 
     async EngineMergeActivity(args: MergeArgs): Promise<Record<string, unknown>> {
@@ -235,7 +258,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       const runnable = await services.registry.runnable(args.ownerId, agentSlug);
       if (!runnable) throw ApplicationFailure.nonRetryable(`there is no agent called "${agentSlug}" to grow this tree`, 'GroveAgentMissing');
       return {
-        ticket: { runId: groveRunWorkflowId(args.treeId), depth: 0, ownerId: args.ownerId, agentSlug, trigger: 'user' },
+        ticket: { runId: groveRunId(args.treeId, runStamp()), depth: 0, ownerId: args.ownerId, agentSlug, trigger: 'user' },
         procedure: runnable.procedure,
         inputs: { treeId: args.treeId, message: 'Grow the tree.' },
       };
@@ -249,6 +272,10 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       if (!services.conversationWorkspaces) return { saved: false, why: 'this server keeps no conversation workspaces' };
       const agentSlug = (await services.conversationAgent?.(ownerId, workspace.id)) ?? DEFAULT_CHAT_AGENT;
       return services.conversationWorkspaces.conclude({ conversationId: workspace.id, ownerId, agentSlug });
+    },
+
+    async PlanAdoptStopActivity(args) {
+      return adoption().stop(args.ownerId, args.proposalId);
     },
 
     async PlanAdoptRecordsActivity(args) {
@@ -267,7 +294,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       });
     },
 
-    EngineNodeActivity: createNodeRunner(services.hostNodes ?? [], services.bus, { runCancelled: services.runCancelled }),
+    EngineNodeActivity: createNodeRunner(services.hostNodes ?? [], services.bus, { runCancelled: services.runCancelled, carryNotices: true }),
 
     async EngineRecordTracesActivity(args: RecordTracesArgs): Promise<void> {
       await services.traces?.record(args);
@@ -301,6 +328,11 @@ export function createStreamActivities(services: StreamServices): StreamActiviti
   return {
     async EnginePublishActivity(args: PublishArgs): Promise<void> {
       for (const event of args.events) services.bus.emit({ ...event, ...(args.ownerId ? { ownerId: args.ownerId } : {}), ...(args.turnId ? { turnId: args.turnId } : {}) } as never);
+      if (!args.ownerId || !services.post) return;
+      for (const event of args.events) {
+        const posted = (event as { type: string; post?: Readonly<Record<string, unknown>> }).post;
+        if (event.type === 'notice' && posted) await services.post(args.ownerId, posted);
+      }
     },
 
     EngineStreamNodeActivity: createNodeRunner(services.streamNodes ?? [], services.bus, { runCancelled: services.runCancelled }),

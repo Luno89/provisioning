@@ -53,6 +53,7 @@ export function ChatHeader({
 
         {actions}
 
+        {onSelectConversation && (
         <div className="relative">
           <button
             type="button"
@@ -93,6 +94,7 @@ export function ChatHeader({
             </div>
           )}
         </div>
+        )}
       </div>
 
       <div className="flex items-center gap-2">

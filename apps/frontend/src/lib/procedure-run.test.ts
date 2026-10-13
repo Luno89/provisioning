@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { NodeTrace } from '@koala/agent-engine/procedure'
 import type { EngineEvent } from '../api/engine'
-import { groupPathOf, nodeAtDepth, statesFromEvents, statesFromTraces, tracesFromEvents } from './procedure-run'
+import { groupPathOf, nodeAtDepth, statesFromEvents, statesFromKey, statesKey, statesFromTraces, tracesFromEvents, withStoredTraces } from './procedure-run'
 
 const at = '2026-09-16T00:00:00.000Z'
 const runId = 'run-1'
@@ -36,6 +36,24 @@ describe('node states during a live run', () => {
     expect(statesFromEvents(events, [])).toEqual({ provision: 'done', memory: 'failed', turn: 'running' })
     expect(statesFromEvents([...events, { type: 'run.finished', runId, at, outcome: 'ok' }], [])).toEqual({ provision: 'done', memory: 'failed' })
   })
+
+  it('shows the model call running while it streams, though only the step before it is logged as entered', () => {
+    const events: EngineEvent[] = [
+      { type: 'node.entered', runId, at, nodeId: 'turn.compact' },
+      { type: 'thinking', runId, at, nodeId: 'turn.call', delta: 'hmm' },
+    ]
+
+    expect(statesFromEvents(events, ['model-turn'])).toEqual({ call: 'running' })
+  })
+})
+
+describe('whether the graph needs drawing again', () => {
+  it('keys the states by what they say, whatever order they came in', () => {
+    expect(statesKey({ call: 'running', compact: 'done' })).toBe(statesKey({ compact: 'done', call: 'running' }))
+    expect(statesKey({ call: 'running' })).not.toBe(statesKey({ call: 'done' }))
+    expect(statesKey({ call: 'running' })).not.toBe(statesKey({ call: 'running', fit: 'done' }))
+    expect(statesFromKey(statesKey({ call: 'running', compact: 'done' }))).toEqual({ call: 'running', compact: 'done' })
+  })
 })
 
 describe('replaying a stored run', () => {
@@ -54,5 +72,15 @@ describe('replaying a stored run', () => {
       { type: 'node.traced', runId, at, nodeId: 'a', trace: trace(1, 'a') as unknown as Record<string, unknown> },
     ]
     expect(tracesFromEvents(events).map((entry) => entry.node)).toEqual(['a', 'b'])
+  })
+})
+
+describe('the traces a live run shows', () => {
+  it('uses the stored trace of each step it has, with its inputs, and the logged summary of the rest', () => {
+    const logged = [trace(1, 'provision'), trace(2, 'turn.call')]
+    const stored = [{ ...trace(1, 'provision'), inputs: { size: 'small' } }, { ...trace(3, 'verdict'), inputs: {} }]
+
+    expect(withStoredTraces(logged, stored)).toEqual([stored[0], logged[1], stored[1]])
+    expect(withStoredTraces(logged, [])).toEqual(logged)
   })
 })

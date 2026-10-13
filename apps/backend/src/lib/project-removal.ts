@@ -2,7 +2,6 @@ import type { DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '.
 import type { Tree } from './trees.js';
 import { primaryProjectId } from './trees.js';
 import { deletionScope, type DeletionScope, type GroveWorld } from './grove-deletion.js';
-import { deploymentForProject } from './project-status.js';
 import { adoptionWorkflowId, concludeWorkspaceId, groveRunWorkflowId } from '../engine-host/temporal/contracts.js';
 import { releaseWorkflowId } from './odoo-release.js';
 
@@ -10,13 +9,13 @@ export const removeProjectWorkflowId = (projectId: string): string => `remove-pr
 export const REMOVE_PROJECT_WORKFLOW = 'RemoveProjectWorkflow';
 export const PROJECT_REMOVAL_PROGRESS_QUERY = 'projectRemovalProgress';
 
-export type ProjectRemovalStep = 'workflows' | 'workspaces' | 'secrets' | 'repositories' | 'records';
+export type ProjectRemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'records';
 
 export interface ProjectWorld extends GroveWorld {
   trees: readonly Pick<Tree, 'id' | 'name' | 'ownerId' | 'projectIds'>[];
   deployments: readonly DeploymentMetadata[];
   pipelineRuns: readonly Pick<PipelineRunMetadata, 'id' | 'projectId' | 'status' | 'temporalWorkflowId'>[];
-  conversations: readonly { id: string; ownerId?: string | undefined; treeId?: string | undefined; projectId?: string | undefined }[];
+  conversations: readonly { id: string; ownerId?: string | undefined; treeId?: string | undefined; projectId?: string | undefined; kind?: 'channel' | 'item' | undefined }[];
 }
 
 export interface ProjectRemovalScope {
@@ -25,13 +24,20 @@ export interface ProjectRemovalScope {
   trees: { id: string; name: string; scope: DeletionScope }[];
   unlinkedTreeIds: string[];
   keptConversationIds: string[];
+  channelIds: string[];
   pipelineRunIds: string[];
   runningBuildWorkflowIds: string[];
+  apps: { id: string; name: string }[];
+}
+
+export function projectApps(project: Pick<ProjectMetadata, 'id' | 'name'>, deployments: readonly DeploymentMetadata[]): DeploymentMetadata[] {
+  return deployments.filter((deployment) => deployment.gitappProjectId === project.id
+    || (!deployment.gitappProjectId && deployment.appType === 'gitapp' && deployment.name === project.name));
 }
 
 const RUNNING_BUILDS = ['queued', 'running'];
 
-export function projectRemovalScope(project: Pick<ProjectMetadata, 'id' | 'ownerId' | 'giteaOwner' | 'giteaRepo'>, world: ProjectWorld): ProjectRemovalScope {
+export function projectRemovalScope(project: Pick<ProjectMetadata, 'id' | 'name' | 'ownerId' | 'giteaOwner' | 'giteaRepo'>, world: ProjectWorld): ProjectRemovalScope {
   const owned = world.trees.filter((tree) => tree.ownerId === project.ownerId && (tree.projectIds ?? []).includes(project.id));
   const trees = owned.filter((tree) => primaryProjectId(tree) === project.id)
     .map((tree) => ({ id: tree.id, name: tree.name, scope: deletionScope({ kind: 'tree', id: tree.id }, world) }));
@@ -42,15 +48,12 @@ export function projectRemovalScope(project: Pick<ProjectMetadata, 'id' | 'owner
     ...(project.giteaOwner && project.giteaRepo ? { repository: `${project.giteaOwner}/${project.giteaRepo}` } : {}),
     trees,
     unlinkedTreeIds: owned.filter((tree) => primaryProjectId(tree) !== project.id).map((tree) => tree.id),
-    keptConversationIds: world.conversations.filter((conversation) => conversation.projectId === project.id && !goingWithTrees.has(conversation.id)).map((conversation) => conversation.id),
+    keptConversationIds: world.conversations.filter((conversation) => conversation.projectId === project.id && conversation.kind !== 'channel' && !goingWithTrees.has(conversation.id)).map((conversation) => conversation.id),
+    channelIds: world.conversations.filter((conversation) => conversation.projectId === project.id && conversation.kind === 'channel' && !goingWithTrees.has(conversation.id)).map((conversation) => conversation.id),
     pipelineRunIds: runs.map((run) => run.id),
     runningBuildWorkflowIds: runs.filter((run) => RUNNING_BUILDS.includes(run.status) && run.temporalWorkflowId).map((run) => run.temporalWorkflowId!),
+    apps: projectApps(project, world.deployments.filter((deployment) => deployment.ownerId === project.ownerId)).map((deployment) => ({ id: deployment.id, name: deployment.name })),
   };
-}
-
-export function projectRemovalBlockers(project: Pick<ProjectMetadata, 'id' | 'name'>, world: Pick<ProjectWorld, 'deployments'>): string[] {
-  const deployed = deploymentForProject(project, [...world.deployments]);
-  return deployed ? [`the app "${deployed.name}" built from it is still deployed; remove it first`] : [];
 }
 
 export function projectWorkflowIds(scope: ProjectRemovalScope): string[] {
@@ -71,16 +74,16 @@ export interface ProjectRemovalPreview {
   trees: { id: string; name: string; leaves: number; conversations: number }[];
   keptConversations: number;
   builds: number;
-  blockers: string[];
+  apps: string[];
 }
 
-export function projectRemovalPreview(project: Pick<ProjectMetadata, 'id' | 'name'>, scope: ProjectRemovalScope, blockers: string[]): ProjectRemovalPreview {
+export function projectRemovalPreview(project: Pick<ProjectMetadata, 'id' | 'name'>, scope: ProjectRemovalScope): ProjectRemovalPreview {
   return {
     name: project.name,
     ...(scope.repository ? { repository: scope.repository } : {}),
     trees: scope.trees.map((tree) => ({ id: tree.id, name: tree.name, leaves: tree.scope.leafIds.length, conversations: tree.scope.conversationIds.length })),
     keptConversations: scope.keptConversationIds.length,
     builds: scope.pipelineRunIds.length,
-    blockers,
+    apps: scope.apps.map((app) => app.name),
   };
 }

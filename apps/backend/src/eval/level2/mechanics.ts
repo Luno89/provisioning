@@ -1,8 +1,10 @@
 import { MODEL_TURN, type Procedure } from '@koala/agent-engine/procedure';
-import type { Scenario } from './scenario.js';
+import type { Scenario, WorldServer } from './scenario.js';
 import type { CheckScript } from '../../lib/check-script.js';
 import { seededProcedures } from '../../extensions/seeds.js';
 import { CATCH_ALL_TREE_TYPE, ODOO_TREE_TYPE } from '../../lib/tree-type-seeds.js';
+import { MCP_SERVER_FILES } from '../../lib/project-templates.js';
+import type { ToolDefinition } from '@koala/agent-engine';
 
 const NOTHING = { when: {}, reply: { say: 'Nothing to do here.' } };
 const DECIDE = { when: { asked: '^Question: ' }, reply: { say: 'yes' } };
@@ -26,6 +28,81 @@ const judged: Scenario = {
     toolsInOrder: ['run_command', 'record_verdict'],
     toolsSucceeded: ['record_verdict'],
     files: [{ path: 'verdict.md', contains: ['Verdict: met'] }],
+  },
+};
+
+export const LONG_COMMAND_SECONDS = 150;
+
+const longCommand: Scenario = {
+  id: 'mechanics-long-command',
+  name: 'A command runs as long as it takes, and a timeout stops all it started',
+  describe: `Mechanics, on a script: in a real workspace a command that takes ${LONG_COMMAND_SECONDS}s finishes and is answered in full; one given timeoutSeconds is stopped at that time and says so, and the process it left in the background is gone with it.`,
+  agent: 'judge',
+  procedure: { id: 'tool-rounds' },
+  input: { message: 'Judge this. Work: commands in the workspace. Expected: a slow one finishes, and a stopped one leaves nothing running.', inputs: { work: 'commands in the workspace', expected: 'a slow one finishes, and a stopped one leaves nothing running' } },
+  script: { rules: [
+    { when: { offered: ['record_verdict'], called: ['record_verdict'] }, reply: { say: 'Met.' } },
+    { when: { offered: ['record_verdict'], said: 'child-(gone|alive)-4' }, reply: { call: [{ tool: 'record_verdict', arguments: { verdict: 'met', reasoning: 'the background child was {{said.1}}' } }] } },
+    { when: { offered: ['record_verdict'], said: '\\[stopped after 3s, the timeoutSeconds this call set' }, reply: { call: [{ tool: 'run_command', arguments: { command: 'state=$(awk \'{print $3}\' "/proc/$(cat /tmp/koala-long-child)/stat" 2>/dev/null); if [ -n "$state" ] && [ "$state" != Z ]; then echo "child-alive-$((2+2))"; else echo "child-gone-$((2+2))"; fi' } }] } },
+    { when: { offered: ['record_verdict'], said: 'slow-done-2' }, reply: { call: [{ tool: 'run_command', arguments: { command: 'sh -c "sleep 600" & echo $! > /tmp/koala-long-child; echo "started-$((3+3))"; sleep 600', timeoutSeconds: 3 } }] } },
+    { when: { offered: ['record_verdict'], notCalled: ['run_command'] }, reply: { call: [{ tool: 'run_command', arguments: { command: `sleep ${LONG_COMMAND_SECONDS}; echo "slow-done-$((1+1))"` } }] } },
+    NOTHING,
+  ] },
+  expect: {
+    outcome: 'ok',
+    toolsSucceeded: ['record_verdict'],
+    modelSaw: { anyRequest: true, contains: ['slow-done-2', 'started-6', '[stopped after 3s, the timeoutSeconds this call set; everything it started was stopped too]', 'child-gone-4'], lacks: ['child-alive-4'] },
+  },
+};
+
+export const ECHO_SERVER_PORT = 8931;
+
+const ECHO_SERVER_SOURCE = (): string => MCP_SERVER_FILES.find((file) => file.path === 'src/server.js')!.content.replaceAll('{{projectName}}', 'echoes');
+
+export const ECHOES_SERVER = (): WorldServer => ({
+  name: 'echoes',
+  summary: 'A small server in the workspace that says back what it is told',
+  notes: 'Call its echo tool with a message; it answers with the same message.',
+  runs: {
+    where: 'workspace',
+    languages: ['node'],
+    install: [{
+      via: 'script',
+      run: [
+        'mkdir -p /opt/koala-echoes',
+        `echo ${Buffer.from(ECHO_SERVER_SOURCE(), 'utf8').toString('base64')} | base64 -d > /opt/koala-echoes/server.mjs`,
+        "printf '#!/bin/sh\\nexec node /opt/koala-echoes/server.mjs\\n' > /usr/local/bin/echoes-server",
+        'chmod 755 /usr/local/bin/echoes-server',
+      ].join(' && '),
+    }],
+    start: `PORT=${ECHO_SERVER_PORT} echoes-server`,
+    port: ECHO_SERVER_PORT,
+  },
+});
+
+const servedInWorkspace: Scenario = {
+  id: 'mechanics-workspace-server',
+  name: 'An MCP server in the workspace is captured, offered from its record, started on first use and kept running',
+  describe: 'Mechanics, on a script: an MCP server that runs in the workspace is added to the space\'s catalogue and captured; the judge holds it, so its install is in the judge\'s image and its tools are offered under its name with the person\'s notes; calling one starts the server, a second call reuses it, and both answer.',
+  agent: 'judge',
+  procedure: { id: 'tool-rounds' },
+  input: { message: 'Judge this. Work: a server in the workspace. Expected: it answers twice from one process.', inputs: { work: 'a server in the workspace', expected: 'it answers twice from one process' } },
+  world: {
+    mcpServers: [ECHOES_SERVER()],
+    agents: { judge: { tools: ['read_file', 'list_dir', 'run_command', 'record_verdict'], servers: ['echoes'] } },
+  },
+  script: { rules: [
+    { when: { offered: ['record_verdict'], called: ['record_verdict'] }, reply: { say: 'Met.' } },
+    { when: { offered: ['record_verdict'], said: 'servers-(\\d+)' }, reply: { call: [{ tool: 'record_verdict', arguments: { verdict: 'met', reasoning: 'it answered twice, and {{said.1}} server was running' } }] } },
+    { when: { offered: ['record_verdict'], said: 'You said: second-call' }, reply: { call: [{ tool: 'run_command', arguments: { command: 'echo "servers-$(pgrep -f \'[s]erver.mjs\' | wc -l)"' } }] } },
+    { when: { offered: ['echoes__echo'], said: 'You said: first-call' }, reply: { call: [{ tool: 'echoes__echo', arguments: { message: 'second-call' } }] } },
+    { when: { offered: ['echoes__echo'], notCalled: ['echoes__echo'] }, reply: { call: [{ tool: 'echoes__echo', arguments: { message: 'first-call' } }] } },
+    NOTHING,
+  ] },
+  expect: {
+    outcome: 'ok',
+    toolsSucceeded: ['echoes__echo', 'run_command', 'record_verdict'],
+    modelSaw: { anyRequest: true, contains: ['From echoes, an MCP server that runs in your workspace', "The person's notes: Call its echo tool", 'You said: first-call', 'You said: second-call', 'servers-1'], lacks: ['servers-2'] },
   },
 };
 
@@ -114,6 +191,22 @@ const logged: Scenario = {
   ],
 };
 
+const perModel: Scenario = {
+  id: 'mechanics-memory-per-model',
+  name: 'A memory kept for one model reaches only that model',
+  describe: 'Mechanics, on a script: the space remembers one thing for every model, one for the scripted model and one for another model; the model is sent the first two and not the third.',
+  agent: 'koala',
+  procedure: { id: 'interactive-chat' },
+  input: { message: 'What do you remember?' },
+  world: { memories: [
+    { title: 'Shared lesson', text: 'Holds whichever model works.' },
+    { title: 'Scripted habit', text: 'Only the scripted model is told this.', model: 'scripted' },
+    { title: 'Other habit', text: 'Only another model is told this.', model: 'other/model' },
+  ] },
+  script: { rules: [NOTHING] },
+  expect: { outcome: 'ok', modelSaw: { contains: ['Shared lesson: Holds whichever model works.', 'Scripted habit: Only the scripted model is told this.'], lacks: ['Other habit'] } },
+};
+
 const LEAVES = [
   { key: 'alpha', title: 'Alpha files', file: 'alpha.txt', line: 'alpha' },
   { key: 'beta', title: 'Beta files', file: 'beta.txt', line: 'beta' },
@@ -167,6 +260,62 @@ const landed: Scenario = {
   ],
 };
 
+const MOO = 'Say moo through cowsay';
+export const WORKSPACE_PACKAGE = 'cowsay';
+const MOO_COMMAND = `python3 -c "import ${WORKSPACE_PACKAGE}; print(${WORKSPACE_PACKAGE}.get_output_string('cow', 'moo'))" > /tmp/moo.txt && mv /tmp/moo.txt moo.txt && echo 'the c''ow is drawn' || echo 'no ${WORKSPACE_PACKAGE.slice(0, 3)}''${WORKSPACE_PACKAGE.slice(3)} here'`;
+
+const workspaceChange: Scenario = {
+  id: 'mechanics-workspace-change',
+  name: 'A story waits for the package it asked for',
+  describe: 'Mechanics, on a script: a story\'s task needs a Python package its workspace lacks. The executor asks for it with change_workspace, which commits it to .koala/workspace.json on main and starts the build-workspace procedure, then says the task waits with mark_waiting — the story is put aside, not failed and not replanned. The build publishes the new workspace, puts the story back in line and grows the tree; the executor works the task again with the package there, and the story is verified and lands.',
+  agent: 'planner',
+  procedure: { id: 'planning' },
+  input: { message: 'Plan the workspace change check.', inputs: { goal: 'workspace change check' } },
+  script: { rules: [
+    { when: { offered: ['propose_plan'], notCalled: ['propose_plan'] }, reply: { call: [{ tool: 'propose_plan', arguments: {
+      tree: { name: 'Workspace change check', type: CATCH_ALL_TREE_TYPE, goal: 'A story that needs a package its workspace does not have.' },
+      planDoc: '# Workspace change check\n\n## Destination\nmoo.txt on main, written by cowsay.\n\n## Not yet specified\nNothing.\n\n## Out of scope\nEverything else.\n',
+      branches: [{ title: 'Moo', leaves: [{
+        key: 'moo', title: 'A cow says moo', body: 'moo.txt holds a cow saying moo, drawn by the cowsay Python package', brief: 'Use the cowsay Python package.',
+        tasks: [{ key: 'say', title: MOO, description: 'Write moo.txt with cowsay.', role: 'All of it.', doneMeans: 'moo.txt holds a cow saying moo', checks: { command: 'cat moo.txt', expects: ['moo'] } }],
+      }] }],
+    } }] } },
+    { when: { offered: ['propose_plan'] }, reply: { say: 'Proposed; it waits for your approval.' } },
+    DECIDE,
+    { when: { offered: ['settle_leaf'], notCalled: ['settle_leaf'] }, reply: { call: [{ tool: 'settle_leaf', arguments: { leafId: '{{mentioned.leaf}}', verdict: 'verified', note: 'scripted' } }] } },
+    { when: { offered: ['settle_leaf'] }, reply: { say: 'Settled.' } },
+    { when: { offered: ['record_verdict'], notCalled: ['record_verdict'] }, reply: { call: [{ tool: 'record_verdict', arguments: { verdict: 'met', reasoning: 'scripted' } }] } },
+    { when: { offered: ['record_verdict'] }, reply: { say: 'Met.' } },
+    { when: { asked: `Work the task ${MOO}`, notCalled: ['run_command'] }, reply: { call: [{ tool: 'run_command', arguments: { command: MOO_COMMAND } }] } },
+    { when: { asked: `Work the task ${MOO}`, said: 'the cow is drawn' }, reply: { say: 'Done: moo.txt is written.' } },
+    { when: { offered: ['change_workspace'], asked: `Work the task ${MOO}`, said: `no ${WORKSPACE_PACKAGE} here`, notCalled: ['change_workspace'] }, reply: { call: [{ tool: 'change_workspace', arguments: { why: `the task draws its cow with the ${WORKSPACE_PACKAGE} Python package`, pip: [WORKSPACE_PACKAGE] } }] } },
+    { when: { offered: ['mark_waiting'], asked: `Work the task ${MOO}`, called: ['change_workspace'], notCalled: ['mark_waiting'] }, reply: { call: [{ tool: 'mark_waiting', arguments: { taskId: '{{mentioned.task}}', waitsFor: `${WORKSPACE_PACKAGE}, to draw the cow` } }] } },
+    { when: { asked: `Work the task ${MOO}`, called: ['mark_waiting'], said: `run the command again(?!.*no ${WORKSPACE_PACKAGE} here)` }, reply: { call: [{ tool: 'run_command', arguments: { command: MOO_COMMAND } }] } },
+    { when: { asked: `Work the task ${MOO}` }, reply: { say: `Waiting for the workspace to have ${WORKSPACE_PACKAGE}.` } },
+    NOTHING,
+  ] },
+  expect: { outcome: 'ok', toolsSucceeded: ['propose_plan'] },
+  then: [
+    { name: 'approving the plan', do: { approvePlan: true }, expect: { trees: 1 } },
+    { name: 'the tree runs until the story waits', do: { runTree: true }, expect: {
+      outcome: 'ok',
+      repository: { of: 'tree', files: [{ path: '.koala/workspace.json', contains: [`"${WORKSPACE_PACKAGE}"`] }] },
+      modelSaw: { contains: [`no ${WORKSPACE_PACKAGE} here`], anyRequest: true },
+    } },
+    { name: 'the workspace is rebuilt and the story taken up again', do: { settleTree: true }, expect: {
+      leaves: { verified: 1, landed: { 'A cow says moo': 'merged' }, retried: { 'A cow says moo': 0 } },
+      repository: { of: 'tree', files: [{ path: 'moo.txt', contains: ['moo'] }] },
+    } },
+    { name: 'the quiet tree runs again', do: { runTree: true }, expect: { outcome: 'ok' } },
+    { name: 'the Studio adds a package', do: { editWorkspace: { packages: { pip: [WORKSPACE_PACKAGE], dnf: ['jq'] } } }, expect: {
+      outcome: 'ok',
+      repository: { of: 'tree', files: [{ path: '.koala/workspace.json', contains: ['"jq"', `"${WORKSPACE_PACKAGE}"`] }] },
+    } },
+    { name: 'the edit is built and published', do: { waitWorkspace: true }, expect: { outcome: 'ok' } },
+    { name: 'deleting the tree', do: { deleteTree: true }, expect: { workspace: { of: 'tree', exists: false } } },
+  ],
+};
+
 const deletedProject: Scenario = {
   id: 'mechanics-project-deletion',
   name: 'Deleting a project takes its tree with it',
@@ -191,6 +340,61 @@ const deletedProject: Scenario = {
   ],
 };
 
+const itemChats: Scenario = {
+  id: 'mechanics-item-chats',
+  name: 'A story and a feature each have their own chat',
+  describe: 'Mechanics, on a script: a plan for the check\'s project is approved; asked in a story\'s own chat, Koala is handed that story — where it sits and its brief — and asked in a feature\'s chat, the feature and its stories; asked in the story\'s chat for a change, Koala proposes it on a card, and nothing changes until it is approved: then the story\'s goal, its brief file and PLAN.md say so, and Koala is handed the new goal there; deleting the project takes the chats with it.',
+  agent: 'planner',
+  procedure: { id: 'planning' },
+  input: { message: 'Plan the item chat check.', inputs: { goal: 'item chat check', projectId: '{{world.projectId}}' } },
+  world: { project: { name: 'item-chat-check' } },
+  script: { rules: [
+    { when: { asked: 'What is this story about' }, reply: { say: 'It writes the delivery note.' } },
+    { when: { asked: 'How is this feature going' }, reply: { say: 'Nothing is worked yet.' } },
+    { when: { asked: 'which door', notCalled: ['propose_story_change'] }, reply: { call: [{ tool: 'propose_story_change', arguments: { why: 'the person wants the door named', body: 'note.txt says where to leave the parcel and which door to use' } }] } },
+    { when: { asked: 'which door' }, reply: { say: 'Proposed on a card; nothing changes until you approve it.' } },
+    { when: { asked: 'What is the story now' }, reply: { say: 'It names the door too.' } },
+    { when: { offered: ['propose_plan'], notCalled: ['propose_plan'] }, reply: { call: [{ tool: 'propose_plan', arguments: {
+      tree: { name: 'Item chat check', type: CATCH_ALL_TREE_TYPE, goal: 'A tree whose story and feature are talked about.' },
+      planDoc: '# Item chat check\n\n## Destination\nnote.txt.\n\n## Not yet specified\nNothing.\n\n## Out of scope\nEverything else.\n',
+      branches: [{ title: 'Delivery note', leaves: [
+        { key: 'print', title: 'Print the note', body: 'note.txt says where to leave the parcel', brief: 'Write note.txt.', tasks: [{ key: 'w', title: 'Write note.txt', description: 'Write it.', role: 'All of it.', doneMeans: 'note.txt exists' }] },
+        { key: 'sign', title: 'Sign the note', body: 'note.txt is signed', brief: 'Sign note.txt.', tasks: [{ key: 's', title: 'Sign note.txt', description: 'Sign it.', role: 'All of it.', doneMeans: 'note.txt is signed' }] },
+      ] }],
+    } }] } },
+    { when: { offered: ['propose_plan'] }, reply: { say: 'Proposed.' } },
+    NOTHING,
+  ] },
+  expect: { outcome: 'ok', toolsSucceeded: ['propose_plan'] },
+  then: [
+    { name: 'approving the plan into the project', do: { approvePlan: true }, expect: { trees: 1 } },
+    { name: 'asking in the story\'s chat', do: { chat: { message: 'What is this story about?', agent: 'koala', in: { story: 'Print the note' } } }, expect: {
+      outcome: 'ok',
+      modelSaw: { anyRequest: true, contains: ['Story "Print the note"', 'in the feature "Delivery note"', 'Brief: note.txt says where to leave the parcel', 'Write note.txt [', 'What is this story about?'], lacks: ['Story "Sign the note"'] },
+    } },
+    { name: 'asking in the feature\'s chat', do: { chat: { message: 'How is this feature going?', agent: 'koala', in: { feature: 'Delivery note' } } }, expect: {
+      outcome: 'ok',
+      modelSaw: { anyRequest: true, contains: ['Feature "Delivery note"', '  - Print the note', '  - Sign the note'] },
+    } },
+    { name: 'asking for a change in the story\'s chat', do: { chat: { message: 'Please also say which door to use.', agent: 'koala', in: { story: 'Print the note' } } }, expect: {
+      outcome: 'ok',
+      toolsSucceeded: ['propose_story_change'],
+      repository: { of: 'tree', files: [{ path: 'leaves/{{world.leafIds.print}}.md', contains: ['note.txt says where to leave the parcel'], lacks: ['which door'] }, { path: 'PLAN.md', lacks: ['## Changed'] }] },
+    } },
+    { name: 'approving the change in the story\'s chat', do: { approvePlan: { in: { story: 'Print the note' } } }, expect: {
+      repository: { of: 'tree', files: [
+        { path: 'leaves/{{world.leafIds.print}}.md', contains: ['note.txt says where to leave the parcel and which door to use', '_Changed: the person wants the door named_'] },
+        { path: 'PLAN.md', contains: ['## Changed: Change “Print the note”', 'the person wants the door named', 'its goal changed'] },
+      ] },
+    } },
+    { name: 'asking in the story\'s chat after the change', do: { chat: { message: 'What is the story now?', agent: 'koala', in: { story: 'Print the note' } } }, expect: {
+      outcome: 'ok',
+      modelSaw: { anyRequest: true, contains: ['Brief: note.txt says where to leave the parcel and which door to use'] },
+    } },
+    { name: 'deleting the project', do: { deleteProject: true }, expect: { outcome: 'ok', project: { exists: false }, trees: 0 } },
+  ],
+};
+
 export const PROBE = 'koala_probe';
 export const PROBE_FILES: Record<string, string> = {
   [`addons/${PROBE}/__init__.py`]: 'from . import models\n',
@@ -206,9 +410,10 @@ export const PROBE_FILES: Record<string, string> = {
 const odooModule: Scenario = {
   id: 'mechanics-odoo-module',
   name: 'An Odoo module is built and checked in its own Odoo',
-  describe: 'Mechanics, on a script: a plan for an Odoo addons tree is approved; the tree starts from the Odoo scaffold in an Odoo 18 workspace with its own Postgres and a browser; a leaf writes a module, its task checks install it into a throwaway database and run its tests, lint the chart, run its browser tests against a throwaway Odoo in Chromium, and read its description, longer than one command\'s output, to its last line, and it lands on main.',
+  describe: 'Mechanics, on a script: a plan for an Odoo addons tree is approved; the tree starts from the Odoo scaffold in an Odoo 18 workspace with its own Postgres and a browser; a leaf writes a module, its task checks install it into a throwaway database and run its tests, lint the chart, run its browser tests against a throwaway Odoo in Chromium, and read its description, longer than one command\'s output, to its last line; the workspace also has the value and the network rule its tree type gives it; and it lands on main.',
   agent: 'planner',
   procedure: { id: 'planning' },
+  world: { treeTypes: { [ODOO_TREE_TYPE]: { env: [{ name: 'KOALA_TREE_CHECK', value: 'from the tree type' }], egress: [{ namespace: 'gitea', ports: [3000] }] } } },
   input: { message: 'Plan the Odoo check tree.', inputs: { goal: 'odoo check' } },
   script: { rules: [
     { when: { offered: ['propose_plan'], notCalled: ['propose_plan'] }, reply: { call: [{ tool: 'propose_plan', arguments: {
@@ -220,6 +425,7 @@ const odooModule: Scenario = {
           { key: 'write', title: 'Write the koala_probe module', description: 'Write koala_probe under addons/ with a model and a test.', role: 'The leaf.', doneMeans: 'odoo-check says PASSED for koala_probe', checks: { command: `odoo-check ${PROBE} addons`, expects: ['odoo-check: PASSED'] } },
           { key: 'chart', title: 'Check the deployment chart', description: 'Lint deploy/chart.', role: 'The leaf.', doneMeans: 'the chart lints clean', dependsOn: ['write'], checks: { command: 'helm lint deploy/chart', expects: ['1 chart(s) linted, 0 chart(s) failed'] } },
           { key: 'browser', title: 'Check it in a browser', description: 'Run the browser tests against an Odoo with the module.', role: 'The leaf.', doneMeans: 'its browser tests pass', dependsOn: ['write'], checks: { e2e: { specs: ['e2e'] } } },
+          { key: 'type', title: 'Check what the tree type gives its workspace', description: 'Nothing to write: the checks read the workspace.', role: 'The leaf.', doneMeans: 'the type\'s value and network rule reach the workspace', dependsOn: ['write'], checks: { command: 'echo "value: $KOALA_TREE_CHECK"; curl -s -o /dev/null -w "gitea answers %{http_code}" --max-time 10 http://gitea-http.gitea.svc:3000/', expects: ['value: from the tree type', 'gitea answers 200'] } },
           { key: 'description', title: 'Describe the module', description: 'Give it a description page.', role: 'The leaf.', doneMeans: 'the description reads to its end', dependsOn: ['write'], checks: { contentPath: `addons/${PROBE}/static/description/index.html`, contentPattern: 'koala_probe ends here' } },
         ],
       }] }],
@@ -299,4 +505,4 @@ const odooBrowserFailure: Scenario = {
   ],
 };
 
-export const MECHANICS_CHECKS = (): Scenario[] => [judged, researched, compacted(), logged, landed, deletedProject, odooModule, odooBrowserFailure];
+export const MECHANICS_CHECKS = (): Scenario[] => [judged, longCommand, servedInWorkspace, researched, compacted(), logged, perModel, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];

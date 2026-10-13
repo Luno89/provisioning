@@ -44,6 +44,7 @@ const level2Harness = (): Promise<Harness> => mountRouter({
       earlier: async () => [],
       notifyChange: () => undefined,
       start: async () => undefined,
+      serving: async () => undefined,
       benchRunning: async () => false,
       agentsRunning: async () => false,
       idleTimer: async () => undefined,

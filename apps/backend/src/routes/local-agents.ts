@@ -46,7 +46,6 @@ export function localAgentsRouter(deps: { db: Database; dataKey: SecretKey; proj
     try {
       const folderName = path.basename(rootDir) || rootDir;
       const project = await projects.register(userOf(req).id, `${name} - ${folderName}`, {
-        withRepo: false,
         executionTarget: { kind: 'local-device', deviceId: id },
       });
       projectId = project.id;

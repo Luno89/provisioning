@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import type { Database } from '../lib/db-interface.js';
 import type { Conversation } from '../lib/conversations.js';
-import { titleFrom } from '../lib/conversations.js';
+import { personMessage, titleFrom } from '../lib/conversations.js';
+import { conversationContext } from '../lib/conversation-context.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface ConversationsRouterDeps {
@@ -15,6 +16,8 @@ export interface ConversationsRouterDeps {
     state?(conversationId: string): Promise<'none' | 'running' | 'parked'>;
   } | undefined;
   turns?: { settle(conversation: Conversation): Promise<Conversation> } | undefined;
+  posted?: ((ownerId: string, conversationId: string) => void) | undefined;
+  binding?: ((ownerId: string, conversationId: string) => Promise<Record<string, string> | undefined>) | undefined;
 }
 
 export function conversationsRouter(deps: ConversationsRouterDeps): Router {
@@ -33,6 +36,13 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
     if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
     if (!deps.workspaces?.state) return res.status(404).json({ error: 'This server keeps no conversation workspaces' });
     return res.json({ state: await deps.workspaces.state(conversation.id) });
+  }));
+
+  router.get('/:id/context', asyncRoute(async (req, res) => {
+    const userId = (req as unknown as { user: { id: string } }).user.id;
+    const conversation = (await deps.ownedConversations(userId)).find((entry) => entry.id === String(req.params.id));
+    if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+    return res.json(conversationContext(await deps.binding?.(userId, conversation.id)));
   }));
 
   router.get('/:id', asyncRoute(async (req, res) => {
@@ -67,6 +77,18 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
     };
     await db.saveConversation(conversation);
     res.json(conversation);
+  }));
+
+  router.post('/:id/messages', asyncRoute(async (req, res) => {
+    const userId = (req as any).user.id;
+    const found = (await deps.ownedConversations(userId)).find((c) => c.id === req.params.id);
+    if (!found) return res.status(404).json({ error: 'No such conversation' });
+    if (found.kind !== 'channel') return res.status(409).json({ error: 'Only a project\'s channel takes messages without a turn; this conversation answers every message' });
+    const message = personMessage(userId, String(req.body?.content ?? ''), new Date().toISOString());
+    if ('problem' in message) return res.status(400).json({ error: message.problem });
+    if (!(await db.appendMessage(found.ownerId, found.id, message))) return res.status(404).json({ error: 'No such conversation' });
+    deps.posted?.(found.ownerId, found.id);
+    return res.status(201).json({ message });
   }));
 
   router.delete('/:id', asyncRoute(async (req, res) => {

@@ -1,11 +1,12 @@
 import { Context } from '@temporalio/activity';
 import type { AxiosInstance } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import type { ToolDefinition } from '@koala/agent-engine';
+import { grantChanges, type GrantKind, type ToolDefinition, type ToolGrant } from '@koala/agent-engine';
+import type { McpServerRecord } from '../lib/mcp-servers.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { Scenario } from '../eval/level2/scenario.js';
-import { scoreScenario, type Check, type Observed, type ObservedFlow, type ObservedHandOff, type StoredProcedure, type ToolCallLog } from '../eval/level2/score.js';
-import type { FlowAction, ScenarioExpectations } from '../eval/level2/scenario.js';
+import { scoreScenario, type Check, type ObservedBrowserTests, type Observed, type ObservedFlow, type ObservedHandOff, type StoredProcedure, type ToolCallLog } from '../eval/level2/score.js';
+import type { ChatPlace, FlowAction, ScenarioExpectations } from '../eval/level2/scenario.js';
 import type { ScenarioResult } from '../eval/level2/results.js';
 import { newTask, type Task } from '../engine-host/tools/tasks.js';
 import type { MemoryItem } from '../lib/memory-store.js';
@@ -14,17 +15,20 @@ import type { UserMetadata } from '../lib/types.js';
 import type { BenchSettings } from '../lib/bench.js';
 import type { ExtensionSettings } from '../lib/extension-settings.js';
 import type { AuthoredExtension } from '../lib/authored-extensions.js';
-import type { TreeTypeSpec } from '../lib/tree-types.js';
-import { reowned, scriptedEndpointId, spacePersonas, spacePractices, spaceUser, type PromptChange } from '../lib/check-space.js';
+import { TREE_TYPE_SEEDS, type TreeTypeSpec } from '../lib/tree-types.js';
+import { reowned, scriptedEndpointId, spacePersonas, spacePractices, spaceServers, spaceUser, worldServerId, type PromptChange } from '../lib/check-space.js';
 import { conversationRepoName, conversationWorkspaceRunId, treeWorkspaceRunId } from '../engine-host/sandboxes/workspace-repos.js';
 import { CONFLICT_TASK_TITLE } from '../lib/landing.js';
 import { encryptValue, type SecretKey } from '../lib/crypto.js';
 import type { ModelEndpointMetadata } from '../lib/types.js';
 import { randomBytes } from 'node:crypto';
-import { seededPersonas } from '../extensions/seeds.js';
+import { seededGrants, seededPersonas } from '../extensions/seeds.js';
 import { STEP_NODE, stepProcedure, stepProcedureId } from '../lib/step-check.js';
 import { platformCatalogue, platformGroups } from '../extensions/installed.js';
+import type { ReleaseE2E } from '../lib/release-e2e.js';
+import type { Slot } from '../lib/odoo-release.js';
 import { TURN_CALL_KIND, TURN_PROCEDURE_ID, turnProcedure, type TurnReply } from '../lib/turn-check.js';
+import { modelsOf } from '../lib/run-traces.js';
 
 export interface CheckSpaceArgs {
   spaceId: string;
@@ -55,6 +59,11 @@ export interface CheckRunStore {
   saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void>;
   getEnginePersonas(ownerId?: string): Promise<Persona[]>;
   saveEnginePersona(persona: never): Promise<void>;
+  getToolGrants(ownerId: string): Promise<ToolGrant[]>;
+  saveToolGrant(grant: ToolGrant & { ownerId: string }): Promise<void>;
+  deleteToolGrant(ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): Promise<void>;
+  getMcpServers(ownerId: string): Promise<McpServerRecord[]>;
+  saveMcpServer(server: McpServerRecord): Promise<void>;
   getProcedures(ownerId?: string): Promise<ProcedureSource[]>;
   saveProcedure(source: ProcedureSource): Promise<void>;
   getEngineTools(ownerId?: string): Promise<ToolRecord[]>;
@@ -80,9 +89,30 @@ export interface CheckRunDeps {
   reported: (args: { spaceId: string; runId: string; agent: string; modelId?: string | undefined }, says: string, answer: string) => Promise<boolean>;
   scripted: { base: string; dataKey: SecretKey };
   terminate: (runId: string, reason: string) => Promise<void>;
+  releases?: CheckReleases | undefined;
   leftovers: { records(ownerId: string): Promise<Record<string, number>>; workspaces(ownerId: string): Promise<string[]>; giteaUser(ownerId: string): Promise<boolean> };
   pollMs?: number;
+  releaseIdleMs?: number | undefined;
 }
+
+export interface CheckReleases {
+  browse(args: { ownerId: string; projectId: string; release: { slot: Slot; image: string; commit: string }; specs?: Record<string, string> | undefined; keepUnder: string }): Promise<ReleaseE2E>;
+  namespaceExists(args: { ownerId: string; projectId: string; at?: { clusterId: string; namespace: string } | undefined }): Promise<boolean>;
+}
+
+interface SeenRelease {
+  id: string;
+  state: string;
+  slot?: Slot | undefined;
+  image: string;
+  commit: string;
+  pipelineRunId: string;
+  reason?: string | undefined;
+  e2e?: ReleaseE2E | undefined;
+  startedAt: string;
+}
+
+const RELEASE_IDLE_MS = 3 * 60_000;
 
 export interface CheckRunActivities {
   CheckCreateSpaceActivity(args: CheckSpaceArgs): Promise<string>;
@@ -196,25 +226,48 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       }
 
       const personas = spacePersonas(await store.getEnginePersonas(person), person, spaceId, promptOverride);
-      const builtIn = [...(await store.getEnginePersonas()).filter((persona) => persona.ownerId === undefined), ...seededPersonas()];
+      const builtIn = seededPersonas();
+      for (const grant of reowned(await store.getToolGrants(person), person, spaceId)) await store.saveToolGrant(grant as ToolGrant & { ownerId: string });
       for (const [slug, settings] of Object.entries(scenario.world?.agents ?? {})) {
         const base = personas.find((persona) => persona.slug === slug) ?? builtIn.find((persona) => persona.slug === slug);
         if (!base) throw new Error(`the check's world changes the agent "${slug}", and there is no such agent`);
-        const changed = { ...base, ...settings, slug, ownerId: spaceId };
+        const { tools, servers, ...rest } = settings as Record<string, unknown> & { tools?: string[]; servers?: string[] };
+        const changed = { ...base, ...rest, slug, ownerId: spaceId };
         const at = personas.findIndex((persona) => persona.slug === slug);
         if (at >= 0) personas[at] = changed; else personas.push(changed);
+        if (tools) {
+          const changes = grantChanges(slug, tools, seededGrants(), await store.getToolGrants(spaceId));
+          for (const tool of changes.drop) await store.deleteToolGrant(spaceId, slug, tool);
+          for (const tool of changes.grant) await store.saveToolGrant({ ownerId: spaceId, agent: slug, tool, grantedAt: stamp, why: 'the check\'s world grants it' });
+          for (const tool of changes.revoke) await store.saveToolGrant({ ownerId: spaceId, agent: slug, tool, revoked: true, grantedAt: stamp, why: 'the check\'s world takes it away' });
+        }
+        if (servers) {
+          const changes = grantChanges(slug, servers, seededGrants(), await store.getToolGrants(spaceId), 'server');
+          for (const server of changes.drop) await store.deleteToolGrant(spaceId, slug, server, 'server');
+          for (const server of changes.grant) await store.saveToolGrant({ ownerId: spaceId, agent: slug, tool: server, kind: 'server', grantedAt: stamp, why: 'the check\'s world gives it this server' });
+        }
+      }
+      for (const server of spaceServers(await store.getMcpServers(person), spaceId)) await store.saveMcpServer(server);
+      for (const server of scenario.world?.mcpServers ?? []) {
+        await store.saveMcpServer({ ...server, id: worldServerId(server.name), ownerId: spaceId, createdAt: stamp, updatedAt: stamp });
       }
       for (const persona of personas) await store.saveEnginePersona(persona as never);
       for (const procedure of reowned(await store.getProcedures(person), person, spaceId)) await store.saveProcedure(procedure);
       for (const tool of reowned(await store.getEngineTools(person), person, spaceId)) await store.saveEngineTool(tool as never);
+      for (const tool of scenario.world?.tools ?? []) await store.saveEngineTool({ ...tool, ownerId: spaceId } as never);
       for (const treeType of reowned(await store.getTreeTypes(person), person, spaceId)) await store.saveTreeType(treeType);
+      for (const [id, settings] of Object.entries(scenario.world?.treeTypes ?? {})) {
+        const base = (await store.getTreeTypes(spaceId)).find((type) => type.id === id) ?? TREE_TYPE_SEEDS.find((type) => type.id === id);
+        if (!base) throw new Error(`the check's world changes the tree type "${id}", and there is no such type`);
+        await store.saveTreeType({ ...base, ...settings, id, ownerId: spaceId } as TreeTypeSpec);
+      }
       const settings = await store.getExtensionSettings(person);
       if (settings) await store.saveExtensionSettings({ ...settings, ownerId: spaceId });
       for (const extension of reowned(await store.getAuthoredExtensions(person), person, spaceId)) await store.saveAuthoredExtension(extension);
       for (const practice of spacePractices(await store.getMemories(person), person, spaceId, trialPractice)) await store.saveMemory(practice);
 
       for (const memory of scenario.world?.memories ?? []) {
-        await store.saveMemory({ id: `${spaceId}-${uuidv4()}`, ownerId: spaceId, title: memory.title, text: memory.text, category: (memory.category ?? 'lessons_learned') as MemoryItem['category'], createdAt: stamp, updatedAt: stamp });
+        await store.saveMemory({ id: `${spaceId}-${uuidv4()}`, ownerId: spaceId, title: memory.title, text: memory.text, category: (memory.category ?? 'lessons_learned') as MemoryItem['category'], ...(memory.model ? { model: memory.model } : {}), createdAt: stamp, updatedAt: stamp });
       }
       if (scenario.step) {
         const built = stepProcedure(scenario.id, scenario.step, platformCatalogue());
@@ -257,6 +310,19 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         await sleep(pollMs);
       };
 
+      for (const server of scenario.world?.mcpServers ?? []) {
+        const id = worldServerId(server.name);
+        const started = await http.post(`/mcp/catalogue/${id}/capture`, {}, { validateStatus: () => true });
+        if (started.status >= 300) return { result: failedResult(scenario, '', `the world's MCP server ${server.name} could not be captured: ${(started.data as { error?: string }).error ?? started.status}`, startedAt), runIds: [] };
+        for (;;) {
+          await stopIfCancelled();
+          const status = ((await http.get(`/mcp/catalogue/${id}`)).data as { status: { state: string; why?: string } }).status;
+          if (status.state === 'captured') break;
+          if (status.state === 'failed') return { result: failedResult(scenario, '', `the world's MCP server ${server.name} could not be captured: ${status.why}`, startedAt), runIds: [] };
+          await wait();
+        }
+      }
+
       const files = scenario.world?.files ?? {};
 
       const world: Record<string, unknown> = {};
@@ -268,6 +334,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       }
       const conversationId = ((await http.post('/conversations', typeof world.projectId === 'string' ? { projectId: world.projectId } : {})).data as { id: string }).id;
       world.conversationId = conversationId;
+      const talkingIn = conversationId;
       if (Object.keys(files).length > 0) await deps.seedFiles(spaceId, conversationRepoName(conversationId), files);
       const before = new Map((await store.getProcedures(spaceId)).filter((source) => source.ownerId === spaceId).map((source) => [source.id, source.updatedAt]));
       const fill = <T>(value: T): T => {
@@ -292,8 +359,23 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         for (const task of proposed) await http.post(`/engine/tasks/${encodeURIComponent(task.id)}/accept`, {});
       };
 
-      const chat = async (action: { message: string; agent?: string | undefined; inputs?: Record<string, unknown> | undefined; killAfterChars?: number | undefined }, first: boolean) => {
+      const channelId = async (): Promise<string> => {
+        const opened = await http.get(`/projects/${projectOf()}/channel`, { validateStatus: () => true });
+        if (opened.status >= 300) throw new Error(`the project's channel could not be opened: ${(opened.data as { error?: string }).error ?? opened.status}`);
+        return (opened.data as { channel: { id: string } }).channel.id;
+      };
+      const itemChatId = async (place: { story: string } | { feature: string }): Promise<string> => {
+        const kind = 'story' in place ? 'story' : 'feature';
+        const title = 'story' in place ? place.story : place.feature;
+        const items = ((await http.get(kind === 'story' ? '/leaves' : '/branches')).data as { id: string; title: string }[]).filter((entry) => entry.title === title);
+        if (items.length !== 1) throw new Error(`${items.length === 0 ? 'no' : 'more than one'} ${kind} is called "${title}"`);
+        const opened = await http.post(`/items/${kind}/${items[0]!.id}/chat`, {}, { validateStatus: () => true });
+        if (opened.status >= 300) throw new Error(`the ${kind}'s chat could not be opened: ${(opened.data as { error?: string }).error ?? opened.status}`);
+        return (opened.data as { id: string }).id;
+      };
+      const chat = async (action: { message: string; agent?: string | undefined; inputs?: Record<string, unknown> | undefined; killAfterChars?: number | undefined; in?: ChatPlace | undefined }, first: boolean) => {
         const agent = action.agent ?? scenario.agent;
+        const conversationId = action.in === 'channel' ? await channelId() : action.in ? await itemChatId(action.in) : talkingIn;
         const started = await http.post('/engine/runs', {
           agent,
           message: fill(action.message),
@@ -365,18 +447,115 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         return id;
       };
 
+      const projectOf = () => {
+        const id = world.projectId;
+        if (typeof id !== 'string') throw new Error('the check has no project to release');
+        return id;
+      };
+      const releasesOf = async (): Promise<SeenRelease[]> => {
+        const listed = await http.get(`/projects/${projectOf()}/releases`, { validateStatus: (status) => status < 300 || status === 404 });
+        if (listed.status === 404) return [];
+        return [...(listed.data as { releases: SeenRelease[] }).releases].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+      };
+      let seenApp: { clusterId: string; namespace: string } | undefined;
+      const releaseApp = async () => {
+        const app = ((await http.get('/deployments')).data as { id: string; gitappProjectId?: string; status?: string; clusterId?: string; namespace?: string }[])
+          .find((entry) => entry.gitappProjectId === projectOf() && entry.status !== 'destroyed');
+        if (app?.clusterId && app.namespace) seenApp = { clusterId: app.clusterId, namespace: app.namespace };
+        return app;
+      };
+      let browsed: ReleaseE2E | undefined;
+
+      const waitForRelease = async (state: 'preview' | 'live'): Promise<{ outcome: string; reason?: string | undefined }> => {
+        let idleSince: number | undefined;
+        for (;;) {
+          await stopIfCancelled();
+          const [newest] = await releasesOf();
+          if (newest?.state === 'failed') return { outcome: 'failed', reason: `the release of ${newest.commit.slice(0, 8)} failed: ${newest.reason ?? 'no reason given'}` };
+          const settled = state === 'live' ? newest?.state === 'live' : newest?.state === 'preview' && newest.e2e !== undefined && newest.e2e.state !== 'running';
+          if (newest && settled) {
+            await remember({ releaseId: newest.id });
+            return { outcome: 'ok' };
+          }
+          const builds = ((await http.get(`/projects/${projectOf()}/runs`)).data as { id: string; status: string; commitSha?: string; errorMessage?: string; releaseRefused?: string; startedAt: string }[]);
+          const build = builds[0];
+          const released = build && (await releasesOf()).some((release) => release.pipelineRunId === build.id);
+          if (build?.releaseRefused && !released) return { outcome: 'failed', reason: `the build of ${(build.commitSha ?? '').slice(0, 8)} was not released: ${build.releaseRefused}` };
+          if (build?.status === 'failed' && !released) return { outcome: 'failed', reason: `the build of ${(build.commitSha ?? '').slice(0, 8)} failed: ${build.errorMessage ?? 'no reason given'}` };
+          const moving = (build && (build.status === 'queued' || build.status === 'running')) || ['preparing', 'cutting-over'].includes(newest?.state ?? '') || (newest?.state === 'preview' && state === 'preview');
+          if (moving) idleSince = undefined;
+          else if (idleSince === undefined) idleSince = Date.now();
+          else if (Date.now() - idleSince > (deps.releaseIdleMs ?? RELEASE_IDLE_MS)) {
+            return { outcome: 'failed', reason: `nothing is building or releasing, and the newest release is ${newest ? `${newest.state}${newest.slot ? ` in slot ${newest.slot}` : ''}` : 'not there'}${build ? `; the newest build is ${build.status}` : '; there are no builds'}` };
+          }
+          await wait();
+        }
+      };
+
       const act = async (action: FlowAction): Promise<{ outcome: string; reason?: string | undefined }> => {
+        if ('waitRelease' in action) return waitForRelease(action.waitRelease.state);
+        if ('cutOver' in action) {
+          const waiting = (await releasesOf()).find((release) => release.state === 'preview');
+          if (!waiting) throw new Error('there is no release waiting in preview to cut over');
+          const cut = await http.post(`/projects/${projectOf()}/releases/${waiting.id}/cut-over`, {}, { validateStatus: () => true });
+          if (cut.status >= 300) return { outcome: 'failed', reason: `the cutover was refused: ${(cut.data as { error?: string }).error ?? cut.status}` };
+          for (;;) {
+            await stopIfCancelled();
+            const now = (await releasesOf()).find((release) => release.id === waiting.id);
+            if (now?.state === 'live') {
+              await remember({ releaseId: waiting.id });
+              return { outcome: 'ok' };
+            }
+            if (!now || !['preview', 'cutting-over'].includes(now.state)) return { outcome: 'failed', reason: `the cutover ended ${now?.state ?? 'with the release gone'}${now?.reason ? `: ${now.reason}` : ''}` };
+            await wait();
+          }
+        }
+        if ('browse' in action) {
+          if (!deps.releases) throw new Error('this check runner cannot reach releases to browse them');
+          const all = await releasesOf();
+          const release = action.browse.release === 'live' ? all.find((entry) => entry.state === 'live') : all.find((entry) => entry.state === 'preview');
+          if (!release?.slot) throw new Error(`the project has no ${action.browse.release === 'live' ? 'live release' : 'release in preview'} to browse`);
+          const keepUnder = first?.runId ?? [...runIds][0] ?? spaceId;
+          browsed = await deps.releases.browse({ ownerId: spaceId, projectId: projectOf(), release: { slot: release.slot, image: release.image, commit: release.commit }, ...(action.browse.specs ? { specs: action.browse.specs } : {}), keepUnder });
+          return browsed.state === 'unavailable' ? { outcome: 'unavailable', reason: browsed.reason } : { outcome: 'ok' };
+        }
+        if ('removeRelease' in action) {
+          const app = await releaseApp();
+          if (!app) throw new Error('the project has no app to remove');
+          const removed = await http.delete(`/deployments/${app.id}`, { validateStatus: () => true });
+          if (removed.status >= 300) return { outcome: 'failed', reason: `the app would not be removed: ${(removed.data as { error?: string }).error ?? removed.status}` };
+          for (;;) {
+            await stopIfCancelled();
+            const left = await releaseApp();
+            if (!left && !(await deps.releases?.namespaceExists({ ownerId: spaceId, projectId: projectOf(), at: seenApp }))) return { outcome: 'ok' };
+            if (left?.status === 'failed') return { outcome: 'failed', reason: 'removing the app failed' };
+            await wait();
+          }
+        }
         if ('approvePlan' in action) {
-          const proposals = (await http.get('/plans', { params: { conversationId } })).data as { id: string; status: string; createdAt: string }[];
+          const approvingIn = action.approvePlan === true ? conversationId : await itemChatId(action.approvePlan.in);
+          const proposals = (await http.get('/plans', { params: { conversationId: approvingIn } })).data as { id: string; status: string; createdAt: string }[];
           const proposal = [...proposals].filter((entry) => entry.status === 'proposed').sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1);
           if (!proposal) throw new Error(`the conversation has no plan waiting to be approved (${proposals.map((entry) => entry.status).join(', ') || 'no plans at all'})`);
           const approved = await http.post(`/plans/${proposal.id}/approve`, {}, { validateStatus: () => true });
           if (approved.status >= 300) throw new Error(`the plan would not be approved: ${(approved.data as { error?: string }).error ?? approved.status}`);
           for (;;) {
             await stopIfCancelled();
-            const found = (await http.get(`/plans/${proposal.id}`)).data as { status: string; reason?: string; adopted?: { treeId: string; leafIds: Record<string, string> } };
+            const found = (await http.get(`/plans/${proposal.id}`)).data as { status: string; reason?: string; change?: unknown; adopted?: { treeId: string; leafIds: Record<string, string> } };
+            if (found.status === 'adopted' && found.adopted && found.change) {
+              await remember({ leafIds: { ...(world.leafIds as Record<string, string> | undefined), ...found.adopted.leafIds } });
+              return { outcome: 'ok' };
+            }
             if (found.status === 'adopted' && found.adopted) {
-              await remember({ treeId: found.adopted.treeId, leafIds: found.adopted.leafIds, proposalId: proposal.id });
+              const adoptedTree = ((await http.get('/trees')).data as { id: string; projectIds?: string[] }[]).find((entry) => entry.id === found.adopted!.treeId);
+              const homeId = typeof world.projectId === 'string' ? undefined : adoptedTree?.projectIds?.[0];
+              const home = homeId ? ((await http.get('/projects')).data as { id: string; name: string; giteaOwner?: string; giteaRepo?: string }[]).find((entry) => entry.id === homeId) : undefined;
+              await remember({
+                treeId: found.adopted.treeId,
+                leafIds: found.adopted.leafIds,
+                proposalId: proposal.id,
+                ...(home ? { projectId: home.id, projectName: home.name, projectRepo: `${home.giteaOwner}/${home.giteaRepo}` } : {}),
+              });
               return { outcome: 'ok' };
             }
             if (found.status !== 'adopting' && found.status !== 'proposed') return { outcome: 'failed', reason: `adopting the plan ended ${found.status}${found.reason ? `: ${found.reason}` : ''}` };
@@ -395,6 +574,35 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
             await wait();
           }
         }
+        if ('settleTree' in action) {
+          const id = treeId();
+          for (;;) {
+            await stopIfCancelled();
+            const growing = ((await http.get(`/trees/${id}/run`)).data as { state: string }).state === 'running';
+            const leaves = (await http.get('/leaves')).data as { title: string; status: string; waitingFor?: { stuck?: string } }[];
+            const stuck = leaves.find((leaf) => leaf.waitingFor?.stuck);
+            if (!growing && stuck) return { outcome: 'failed', reason: `"${stuck.title}" waits for a workspace that is ${stuck.waitingFor!.stuck}` };
+            const settled = leaves.every((leaf) => ['succeeded', 'failed', 'cancelled'].includes(leaf.status) && !leaf.waitingFor);
+            if (!growing && settled) return { outcome: 'ok' };
+            await wait();
+          }
+        }
+        if ('editWorkspace' in action) {
+          const saved = await http.put(`/trees/${encodeURIComponent(treeId())}/workspace-file`, { file: action.editWorkspace, said: 'a check edits it' }, { validateStatus: () => true });
+          if (saved.status >= 300) return { outcome: 'failed', reason: `the workspace file would not save: ${(saved.data as { error?: string }).error ?? saved.status}` };
+          const { committed } = saved.data as { committed: boolean };
+          return committed ? { outcome: 'ok' } : { outcome: 'failed', reason: 'the edit changed nothing, so nothing was committed' };
+        }
+        if ('waitWorkspace' in action) {
+          const id = encodeURIComponent(treeId());
+          for (;;) {
+            await stopIfCancelled();
+            const view = (await http.get(`/trees/${id}/workspace-file`)).data as { pending: string[]; next?: { stage: string; text: string }; published?: unknown };
+            if (view.next && (view.next.stage === 'failed' || view.next.stage === 'declined')) return { outcome: 'failed', reason: `the workspace is ${view.next.text}` };
+            if (view.published && !view.next && view.pending.length === 0) return { outcome: 'ok' };
+            await wait();
+          }
+        }
         if ('waitQuiet' in action) {
           for (;;) {
             await stopIfCancelled();
@@ -402,6 +610,11 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
             if (state === 'none') return { outcome: 'ok' };
             await wait();
           }
+        }
+        if ('post' in action) {
+          const said = await http.post(`/conversations/${await channelId()}/messages`, { content: fill(action.post.message) }, { validateStatus: () => true });
+          if (said.status >= 300) return { outcome: 'failed', reason: `the message would not post: ${(said.data as { error?: string }).error ?? said.status}` };
+          return { outcome: 'ok' };
         }
         if ('deleteTree' in action) {
           const id = treeId();
@@ -431,11 +644,19 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         throw new Error(`a stage cannot do ${Object.keys(action).join(', ')}`);
       };
 
-      const openArtifacts = async (findings: string) => Promise.all([...findings.matchAll(/!?\[([^\]\n]+)\]\(\/api\/artifacts\/([0-9a-f-]+)\)/g)].map(async ([, name, id]) => {
+      const openArtifact = async ({ name, id }: { name: string; id: string }) => {
         const res = await http.get(`/artifacts/${id}`, { responseType: 'arraybuffer', validateStatus: () => true });
         const size = (res.data as ArrayBuffer | undefined)?.byteLength ?? 0;
-        return { name: name!, opens: res.status === 200 && size > 0, contentType: String(res.headers['content-type'] ?? ''), size };
-      }));
+        return { name, opens: res.status === 200 && size > 0, contentType: String(res.headers['content-type'] ?? ''), size };
+      };
+      const openArtifacts = async (findings: string) => Promise.all([...findings.matchAll(/!?\[([^\]\n]+)\]\(\/api\/artifacts\/([0-9a-f-]+)\)/g)].map(([, name, id]) => openArtifact({ name: name!, id: id! })));
+      const seenTests = async (e2e: ReleaseE2E | undefined): Promise<ObservedBrowserTests | undefined> => e2e && {
+        state: e2e.state,
+        ...(e2e.summary ? { summary: e2e.summary } : {}),
+        ...(e2e.reason ? { reason: e2e.reason } : {}),
+        ...(e2e.tests ? { tests: e2e.tests.map((test) => ({ title: test.title, status: test.status, ...(test.error ? { error: test.error } : {}) })) } : {}),
+        artifacts: await Promise.all((e2e.artifacts ?? []).map(openArtifact)),
+      };
       const workspaceOf = (of: 'tree' | 'conversation') => (of === 'tree' ? treeWorkspaceRunId(treeId()) : conversationWorkspaceRunId(conversationId));
 
       const readFile = async (workspace: string, candidates: string[], ref?: string): Promise<string | null> => {
@@ -474,21 +695,23 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           flow.turnLog = { entries: seqs.length, contiguous: seqs.every((seq, index) => seq === index + 1), savedMatches: Boolean(ran.saved) && logged.endsWith(ran.saved) };
         }
         if (expect.leaves) {
-          const leaves = (await http.get('/leaves')).data as { title: string; status: string; verified?: boolean; landed?: { outcome: string }; findings?: string }[];
+          const leaves = (await http.get('/leaves')).data as { title: string; status: string; verified?: boolean; landed?: { outcome: string }; findings?: string; attempts?: unknown[] }[];
           flow.leaves = await Promise.all(leaves.map(async (leaf) => ({
             title: leaf.title,
             status: leaf.status,
             verified: leaf.verified === true,
             ...(leaf.landed ? { landed: leaf.landed.outcome } : {}),
             ...(leaf.findings ? { findings: leaf.findings } : {}),
+            retried: leaf.attempts?.length ?? 0,
             ...(expect.leaves?.artifacts?.[leaf.title] !== undefined ? { artifacts: await openArtifacts(leaf.findings ?? '') } : {}),
           })));
-          flow.mergeTasks = ((await http.get('/engine/tasks')).data as { title: string }[]).filter((task) => task.title === CONFLICT_TASK_TITLE).length;
+          const tasks = (await http.get('/engine/tasks')).data as { title: string }[];
+          flow.mergeTasks = tasks.filter((task) => task.title === CONFLICT_TASK_TITLE).length;
         }
         if (expect.repository) {
           const workspace = workspaceOf(expect.repository.of);
           flow.repository = {};
-          for (const file of expect.repository.files) flow.repository[file.path] = await readFile(workspace, [file.path]);
+          for (const file of expect.repository.files) flow.repository[file.path] = await readFile(workspace, [fill(file.path)]);
         }
         if (expect.pullRequests) {
           const pulls = ((await http.get(`/trees/${treeId()}/pull-requests`)).data as { pullRequests: { state: string; merged: boolean }[] }).pullRequests;
@@ -512,6 +735,12 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           const id = world.projectId;
           flow.projectExists = typeof id === 'string' && (await http.get(`/projects/${id}/removal`, { validateStatus: () => true })).status === 200;
         }
+        if (expect.release) {
+          const [newest] = await releasesOf();
+          const exists = Boolean(await releaseApp()) || Boolean(await deps.releases?.namespaceExists({ ownerId: spaceId, projectId: projectOf(), at: seenApp }));
+          flow.release = { exists, ...(newest ? { state: newest.state, ...(newest.slot ? { slot: newest.slot } : {}), ...(newest.reason ? { reason: newest.reason } : {}), ...(newest.e2e ? { e2e: await seenTests(newest.e2e) } : {}) } : {}) };
+        }
+        if (expect.e2e) flow.e2e = await seenTests(browsed);
         if (expect.trees !== undefined) flow.trees = ((await http.get('/trees')).data as unknown[]).length;
         if (expect.workspace) {
           const path = expect.workspace.of === 'tree' ? `/trees/${treeId()}/workspace` : `/conversations/${conversationId}/workspace`;
@@ -526,7 +755,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         ...(scenario.then ?? []),
       ];
       const checks: Check[] = [];
-      let first: { runId: string; outcome: string; reason?: string | undefined; answer: string; calls: ToolCallLog[]; counters: Observed['counters']; procedure: { id: string; version: string } } | undefined;
+      let first: { runId: string; outcome: string; reason?: string | undefined; answer: string; calls: ToolCallLog[]; counters: Observed['counters']; procedure: { id: string; version: string }; model?: string | undefined } | undefined;
       let tasks: Task[] = [];
       let stopped: string | undefined;
 
@@ -564,7 +793,10 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
                 : [],
             };
             if (index === 0) {
+              const traced = ((await http.get(`/engine/runs/${ran.runId}/traces`)).data as { traces: { kind?: string; outputs?: unknown }[] }).traces;
+              const [model] = modelsOf(traced);
               first = {
+                ...(model ? { model } : {}),
                 runId: ran.runId, outcome: observed.outcome, ...(observed.reason ? { reason: observed.reason } : {}), answer: ran.answer, calls, counters: observed.counters,
                 procedure: { id: effort?.procedureId ?? scenario.procedure.id, version: effort?.procedureVersion ?? '' },
               };
@@ -573,7 +805,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
             const done = await act(stage.do);
             tasks = (await http.get('/engine/tasks')).data as Task[];
             observed = { outcome: done.outcome, ...(done.reason ? { reason: done.reason } : {}), calls: [], handOffs: [], files: {}, tasks, counters: { rounds: 0, toolCalls: 0, totalTokens: 0 }, answer: '', saved: [] };
-            if (done.outcome !== 'ok' && expect.outcome === undefined) checks.push({ what: `${label}finishes ok`, passed: false, detail: `it finished ${done.outcome}${done.reason ? `: ${done.reason}` : ''}` });
+            if (done.outcome !== 'ok' && expect.outcome === undefined && !(done.outcome === 'unavailable' && expect.e2e?.state === 'unavailable')) checks.push({ what: `${label}finishes ok`, passed: false, detail: `it finished ${done.outcome}${done.reason ? `: ${done.reason}` : ''}` });
           }
           observed.flow = await observeFlow(expect, requestsBefore, ran);
           const scored = await scoreScenario(expect, observed, {
@@ -597,6 +829,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           runId: firstRun.runId,
           conversationId,
           procedure: firstRun.procedure,
+          ...('model' in firstRun && firstRun.model ? { model: firstRun.model } : {}),
           passed: !stopped && checks.length > 0 && checks.every((check) => check.passed),
           outcome: firstRun.outcome,
           ...(firstRun.reason ? { reason: firstRun.reason } : {}),

@@ -4,39 +4,45 @@ import {
   isFork,
   LANGUAGE_IDS,
   planFor,
+  toRecord,
   visibleAgents,
   type Persona,
+  type PersonaRecord,
+  type SourcedTool,
   type ToolDefinition,
 } from '@koala/agent-engine';
+import type { AgentDirectory } from '../engine-host/registries/agent-directory.js';
+import { sameSeededRow } from '../lib/seed-diff.js';
 import { missingGrants, type Procedure } from '@koala/agent-engine/procedure';
 import type { ImageStanding } from '../engine-host/sandboxes/image-builder.js';
-import { seededPersonas } from '../extensions/seeds.js';
 import { platformGroups } from '../extensions/installed.js';
 import { usesNode } from '../lib/procedure-reach.js';
 import { agentUsage, type AgentUsage } from '../lib/agent-usage.js';
 import { planWorkspace } from '../extensions/workspace-bases.js';
+import type { McpServerRecord } from '../lib/mcp-servers.js';
 
 export interface EditableAgent extends Persona {
   mine: boolean;
   recallsMemories: boolean;
   usedBy: AgentUsage[];
+  toolSources: SourcedTool[];
+  serverSources: SourcedTool[];
   image?: ImageStanding | undefined;
 }
 
 export interface AgentServiceOptions {
-  personas: {
-    list(ownerId?: string): Promise<Persona[]>;
-    save(persona: Persona): Promise<void>;
+  agents: AgentDirectory;
+  records: {
+    save(record: PersonaRecord): Promise<void>;
     remove(ownerId: string | undefined, slug: string): Promise<void>;
   };
   tools(ownerId: string): Promise<ToolDefinition[]>;
   procedures(ownerId: string): Promise<readonly Procedure[]>;
-  mcpServers?: ((ownerId: string) => Promise<string[]>) | undefined;
+  servers?: ((ownerId: string) => Promise<readonly McpServerRecord[]>) | undefined;
   images?: {
     start(plan: NonNullable<ReturnType<typeof planFor>>): Promise<ImageStanding>;
     standing(plan: NonNullable<ReturnType<typeof planFor>>): Promise<ImageStanding>;
   } | undefined;
-  builtIn?: readonly Persona[] | undefined;
   treeTypes?: ((ownerId: string) => Promise<readonly { id: string; label: string; agent?: string | undefined }[]>) | undefined;
 }
 
@@ -53,7 +59,7 @@ export function agentProblems(
     procedures: readonly Procedure[];
     agents: ReadonlySet<string>;
     personas?: readonly Persona[] | undefined;
-    mcpServers?: readonly string[] | undefined;
+    servers?: readonly string[] | undefined;
   },
 ): string[] {
   if (typeof value !== 'object' || value === null) return ['an agent has to be an object'];
@@ -95,11 +101,11 @@ export function agentProblems(
     if (!known.agents.has(delegate)) problems.push(`it may hand work to "${delegate}", which is not an agent`);
   }
   if ((agent.agents ?? []).includes(agent.slug as string)) problems.push('an agent cannot hand work to itself');
-  if (agent.mcp !== undefined && (!Array.isArray(agent.mcp) || agent.mcp.some((name) => typeof name !== 'string'))) {
-    problems.push('the MCP servers it may use have to be a list of names');
+  if (agent.servers !== undefined && (!Array.isArray(agent.servers) || agent.servers.some((name) => typeof name !== 'string'))) {
+    problems.push('the MCP servers it holds have to be a list of names');
   } else {
-    for (const server of agent.mcp ?? []) {
-      if (!(known.mcpServers ?? []).includes(server)) problems.push(`it may use "${server}", which is not one of your MCP servers`);
+    for (const server of agent.servers ?? []) {
+      if (!(known.servers ?? []).includes(server)) problems.push(`it holds "${server}", which is not one of your MCP servers`);
     }
   }
 
@@ -155,12 +161,13 @@ export class AgentService {
     this.options = options;
   }
 
-  private get builtIn(): readonly Persona[] {
-    return this.options.builtIn ?? seededPersonas();
+  private async all(ownerId: string): Promise<{ agents: Persona[]; sources: Record<string, SourcedTool[]>; serverSources: Record<string, SourcedTool[]> }> {
+    const { agents, sources, serverSources } = await this.options.agents.sourced(ownerId, { withHidden: true });
+    return { agents: visibleAgents(agents, ownerId), sources, serverSources };
   }
 
-  private async all(ownerId: string): Promise<Persona[]> {
-    return visibleAgents([...this.builtIn, ...(await this.options.personas.list(ownerId))], ownerId);
+  private servers(ownerId: string): Promise<readonly McpServerRecord[]> {
+    return this.options.servers?.(ownerId) ?? Promise.resolve([]);
   }
 
   async grantable(ownerId: string): Promise<{ name: string; summary: string; binding: string; effect: ToolDefinition['effect']; needs: string[] }[]> {
@@ -176,21 +183,21 @@ export class AgentService {
   }
 
   async list(ownerId: string): Promise<EditableAgent[]> {
-    const [agents, tools, procedures, treeTypes] = await Promise.all([
-      this.all(ownerId), this.options.tools(ownerId), this.options.procedures(ownerId), this.options.treeTypes?.(ownerId) ?? [],
+    const [{ agents, sources, serverSources }, tools, procedures, treeTypes, servers] = await Promise.all([
+      this.all(ownerId), this.options.tools(ownerId), this.options.procedures(ownerId), this.options.treeTypes?.(ownerId) ?? [], this.servers(ownerId),
     ]);
     const usage = agentUsage({ agents, procedures, treeTypes, groups: platformGroups() });
     return Promise.all(agents
       .sort((a, b) => a.slug.localeCompare(b.slug))
-      .map(async (agent) => ({ ...agent, mine: isFork(agent), recallsMemories: recallsMemories(agent, procedures), usedBy: usage.get(agent.slug) ?? [], ...(await this.imageOf(agent, tools)) })));
+      .map(async (agent) => ({ ...agent, mine: isFork(agent), recallsMemories: recallsMemories(agent, procedures), usedBy: usage.get(agent.slug) ?? [], toolSources: sources[agent.slug] ?? [], serverSources: serverSources[agent.slug] ?? [], ...(await this.imageOf(agent, tools, servers)) })));
   }
 
   async get(ownerId: string, slug: string): Promise<EditableAgent | undefined> {
     return (await this.list(ownerId)).find((agent) => agent.slug === slug);
   }
 
-  private async imageOf(agent: Persona, tools: readonly ToolDefinition[]): Promise<{ image?: ImageStanding }> {
-    const plan = planWorkspace(agent, tools);
+  private async imageOf(agent: Persona, tools: readonly ToolDefinition[], servers: readonly McpServerRecord[]): Promise<{ image?: ImageStanding }> {
+    const plan = planWorkspace(agent, tools, servers);
     if (!plan || !this.options.images) return {};
 
     const image = await this.options.images.standing(plan).catch((err: Error) => ({
@@ -203,11 +210,11 @@ export class AgentService {
   }
 
   async save(ownerId: string, input: unknown): Promise<SaveAgentOutcome> {
-    const [tools, procedures, agents, mcpServers] = await Promise.all([
+    const [tools, procedures, { agents }, servers] = await Promise.all([
       this.options.tools(ownerId),
       this.options.procedures(ownerId),
       this.all(ownerId),
-      this.options.mcpServers?.(ownerId) ?? Promise.resolve([]),
+      this.servers(ownerId),
     ]);
 
     const problems = agentProblems(input, {
@@ -215,28 +222,38 @@ export class AgentService {
       procedures,
       agents: new Set(agents.map((agent) => agent.slug)),
       personas: agents,
-      mcpServers,
+      servers: servers.map((server) => server.name),
     });
     if (problems.length > 0) return { saved: false, problems };
 
-    const agent: Persona = { ...(input as Persona), ownerId };
-    await this.options.personas.save(agent);
+    const wanted: Persona = { ...(input as Persona), ownerId };
+    const builtIn = (await this.options.agents.agents(ownerId, { withHidden: true })).find((one) => one.slug === wanted.slug && one.ownerId === undefined);
+    if (builtIn && sameSeededRow({ ...toRecord(builtIn), ownerId: undefined }, { ...toRecord(wanted), ownerId: undefined })) {
+      await this.options.records.remove(ownerId, wanted.slug);
+    } else {
+      await this.options.records.save(toRecord(wanted));
+    }
+    await this.options.agents.setTools(ownerId, wanted.slug, wanted.tools ?? []);
+    await this.options.agents.setServers(ownerId, wanted.slug, wanted.servers ?? []);
+    const saved = await this.all(ownerId);
+    const agent = saved.agents.find((one) => one.slug === wanted.slug) ?? wanted;
 
-    const plan = planWorkspace(agent, tools);
+    const plan = planWorkspace(agent, tools, servers);
     const image = plan && this.options.images
       ? await this.options.images.start(plan).catch((err: Error) => ({ state: 'failed' as const, reference: '', detail: err.message }))
       : undefined;
 
     const treeTypes = await this.options.treeTypes?.(ownerId) ?? [];
     const usage = agentUsage({ agents: [...agents.filter((one) => one.slug !== agent.slug), agent], procedures, treeTypes, groups: platformGroups() });
-    return { saved: true, agent: { ...agent, mine: true, recallsMemories: recallsMemories(agent, procedures), usedBy: usage.get(agent.slug) ?? [], ...(image ? { image } : {}) } };
+    return { saved: true, agent: { ...agent, mine: isFork(agent), recallsMemories: recallsMemories(agent, procedures), usedBy: usage.get(agent.slug) ?? [], toolSources: saved.sources[agent.slug] ?? [], serverSources: saved.serverSources[agent.slug] ?? [], ...(image ? { image } : {}) } };
   }
 
   async remove(ownerId: string, slug: string): Promise<boolean> {
-    const mine = (await this.options.personas.list(ownerId)).find((agent) => agent.slug === slug && agent.ownerId === ownerId);
-    if (!mine) return false;
+    const { agents } = await this.options.agents.sourced(ownerId, { withHidden: true });
+    if (!agents.some((agent) => agent.slug === slug && agent.ownerId === ownerId)) return false;
 
-    await this.options.personas.remove(ownerId, slug);
+    await this.options.records.remove(ownerId, slug);
+    await this.options.agents.forgetAgent(ownerId, slug);
     return true;
   }
 }

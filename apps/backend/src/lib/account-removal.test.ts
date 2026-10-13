@@ -47,9 +47,10 @@ describe('who may remove an account', () => {
 });
 
 describe('what an account owns outside the records', () => {
-  it('names every workflow its runs, the memory keeper on each run, trees, conversations, plans and bench could have running', () => {
-    expect(ownedWorkflowIds('bo', { runIds: ['run-1'], treeIds: ['t1'], conversationIds: ['c1'], proposalIds: ['p1'] })).toEqual([
+  it('names every workflow its runs, the memory keeper on each run, trees, conversations, plans, releases, builds and bench could have running', () => {
+    expect(ownedWorkflowIds('bo', { runIds: ['run-1'], treeIds: ['t1'], conversationIds: ['c1'], proposalIds: ['p1'], projectIds: ['shop'], buildWorkflowIds: ['pipeline-r1'] })).toEqual([
       'bench-idle-bo', 'run-1', 'memory-run-run-1', 'grove-run-t1', 'conclude-workspace-tree-t1', 'conclude-conversation-c1', 'conclude-workspace-conversation-c1', 'adopt-plan-p1',
+      'odoo-release-shop', 'pipeline-r1',
     ]);
     expect(memoryWatermarkKeys({ conversationIds: ['c1'] })).toEqual(['conversation:c1']);
   });

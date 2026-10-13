@@ -1,4 +1,7 @@
 import { sanitiseNamespaceName } from './projects.js';
+import type { ReleaseE2E } from './release-e2e.js';
+import type { ClusterMetadata, ProjectMetadata } from './types.js';
+import type { TreeTypeSecret } from './tree-types.js';
 
 export type Slot = 'a' | 'b';
 
@@ -20,7 +23,7 @@ export interface SlotState {
 
 export const NOTHING_INSTALLED: SlotState = { installed: false, live: 'a', tags: { a: undefined, b: undefined } };
 
-export type ReleaseState = 'preparing' | 'preview' | 'cutting-over' | 'live' | 'discarded' | 'failed' | 'superseded';
+export type ReleaseState = 'preparing' | 'preview' | 'cutting-over' | 'live' | 'rolling-back' | 'rolled-back' | 'discarded' | 'failed' | 'superseded';
 
 export interface OdooRelease {
   id: string;
@@ -34,17 +37,75 @@ export interface OdooRelease {
   host: string;
   previewHost?: string | undefined;
   reason?: string | undefined;
+  e2e?: ReleaseE2E | undefined;
+  liveAt?: string | undefined;
+  replacedBy?: string | undefined;
+  restoredAt?: string | undefined;
   startedAt: string;
   updatedAt: string;
+}
+
+export function rollBackTarget(releases: readonly OdooRelease[], live: OdooRelease): { to: OdooRelease } | { problem: string } {
+  if (live.state !== 'live') return { problem: `the release is ${live.state}, not live` };
+  const to = releases.find((release) => release.replacedBy === live.id && release.state === 'superseded');
+  if (!to) return { problem: 'no earlier release is kept to go back to' };
+  const later = releases.find((release) => release.projectId === live.projectId && release.startedAt > live.startedAt);
+  if (later) return { problem: `the build of ${later.commit.slice(0, 8)} has taken the slot the earlier release was kept in` };
+  return { to };
 }
 
 export const releaseWorkflowId = (projectId: string): string => `odoo-release-${projectId}`;
 
 export const ODOO_PROJECT_APP = 'odoo-project';
 
-export function releasePlace(projectName: string, domain = 'apps.local'): { namespace: string; release: string; host: string; previewHost: string } {
-  const namespace = sanitiseNamespaceName(projectName) || 'odoo';
-  return { namespace, release: namespace, host: `${namespace}.${domain}`, previewHost: `${namespace}-preview.${domain}` };
+const RELEASE_BASE_MAX = 40;
+
+const shortHash = (text: string): string => {
+  let hash = 0x811c9dc5;
+  for (let at = 0; at < text.length; at += 1) {
+    hash ^= text.charCodeAt(at);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36).padStart(6, '0').slice(-6);
+};
+
+export function releaseNameOf(project: Pick<ProjectMetadata, 'name' | 'releaseName'>): string {
+  return project.releaseName || sanitiseNamespaceName(project.name) || 'odoo';
+}
+
+export function newReleaseName(project: Pick<ProjectMetadata, 'id' | 'name'>): string {
+  const base = (sanitiseNamespaceName(project.name) || 'odoo').slice(0, RELEASE_BASE_MAX).replace(/-+$/, '');
+  return `${base}-${shortHash(project.id)}`;
+}
+
+export function releasePlace(name: string, domain = 'apps.local'): { namespace: string; release: string; host: string; previewHost: string } {
+  return { namespace: name, release: name, host: `${name}.${domain}`, previewHost: `${name}-preview.${domain}` };
+}
+
+export interface ReleasePlaceOnCluster {
+  clusterName: string;
+  provider: string;
+  gpuEnabled?: boolean | undefined;
+  kubeconfigPath?: string | undefined;
+  namespace: string;
+  release: string;
+  owner?: { ownerId: string; projectId: string } | undefined;
+}
+
+export function releaseTargetOf(
+  cluster: Pick<ClusterMetadata, 'name' | 'provider' | 'gpuEnabled' | 'kubeconfigPath'>,
+  project: Pick<ProjectMetadata, 'id' | 'name' | 'releaseName' | 'ownerId'>,
+): ReleasePlaceOnCluster {
+  const place = releasePlace(releaseNameOf(project));
+  return {
+    clusterName: cluster.name,
+    provider: cluster.provider,
+    ...(cluster.gpuEnabled ? { gpuEnabled: true } : {}),
+    ...(cluster.kubeconfigPath ? { kubeconfigPath: cluster.kubeconfigPath } : {}),
+    namespace: place.namespace,
+    release: place.release,
+    ...(project.ownerId ? { owner: { ownerId: project.ownerId, projectId: project.id } } : {}),
+  };
 }
 
 export function splitImage(image: string): { repository: string; tag: string } {
@@ -86,7 +147,39 @@ export function modulesIn(paths: readonly string[]): string[] {
   return [...new Set(found)].sort();
 }
 
-const labels = (release: string) => ({ 'app.kubernetes.io/name': 'odoo-project', 'app.kubernetes.io/instance': release });
+export const releaseLabels = (release: string): Record<string, string> => ({ 'app.kubernetes.io/name': 'odoo-project', 'app.kubernetes.io/instance': release });
+
+export const ODOO_DATABASE_PASSWORD = 'POSTGRES_PASSWORD';
+
+export const ODOO_RELEASE_SECRETS: TreeTypeSecret[] = [
+  { key: ODOO_DATABASE_PASSWORD, source: 'generated', describe: 'The password Odoo uses to reach its own PostgreSQL.' },
+  { key: 'ODOO_ADMIN_PASSWORD', source: 'generated', describe: 'The password of Odoo\'s admin user, set on every release.', signInAs: 'admin' },
+];
+export const OWN_SECRET_FILE = `${CHART_DIR}/templates/secret.yaml`;
+
+export interface ReleaseVault {
+  projectId: string;
+  secret: string;
+  keys: string[];
+  database: { secret: string; key: string };
+  adminKey?: string | undefined;
+}
+
+export const chartDatabaseSecret = (release: string): { secret: string; key: string } => ({ secret: `${release}-secrets`, key: 'postgres-password' });
+
+export const vaultDatabaseSecret = (release: string): { secret: string; key: string } => ({ secret: `${release}-vault`, key: ODOO_DATABASE_PASSWORD });
+
+export function databaseSecretFrom(vaultKeys: readonly string[], release: string): { secret: string; key: string } {
+  return vaultKeys.includes(ODOO_DATABASE_PASSWORD) ? vaultDatabaseSecret(release) : chartDatabaseSecret(release);
+}
+
+export function setAdminPasswordScript(): string {
+  return [
+    'import os',
+    "env.ref('base.user_admin').password = os.environ['ADMIN_PASSWORD']",
+    'env.cr.commit()',
+  ].join('\n');
+}
 
 export function odooJob(input: {
   name: string;
@@ -95,6 +188,7 @@ export function odooJob(input: {
   database: string;
   install: readonly string[];
   update: readonly string[];
+  vault?: ReleaseVault | undefined;
 }): Record<string, unknown> {
   const args = [
     `--database=${input.database}`,
@@ -107,24 +201,43 @@ export function odooJob(input: {
     '--db_user=odoo',
     '--db_password=$(PASSWORD)',
   ];
+  const password = input.vault?.database ?? chartDatabaseSecret(input.release);
+  const admin = input.vault?.adminKey ? { secret: input.vault.secret, key: input.vault.adminKey } : undefined;
+  const shell = [
+    'shell',
+    `--database=${input.database}`,
+    `--db_host=${input.release}-postgres`,
+    '--db_user=odoo',
+    '--db_password="$PASSWORD"',
+    '--data-dir=/var/lib/odoo',
+    '--no-http',
+  ].join(' ');
+  const run = admin
+    ? { command: ['sh', '-c', `odoo "$@" && printf '%s\\n' "$SET_ADMIN" | odoo ${shell}`, 'odoo'], args }
+    : { command: ['odoo'], args };
   return {
     apiVersion: 'batch/v1',
     kind: 'Job',
-    metadata: { name: input.name, labels: labels(input.release) },
+    metadata: { name: input.name, labels: releaseLabels(input.release) },
     spec: {
       backoffLimit: 0,
       ttlSecondsAfterFinished: 3600,
       template: {
-        metadata: { labels: labels(input.release) },
+        metadata: { labels: releaseLabels(input.release) },
         spec: {
           restartPolicy: 'Never',
           securityContext: { fsGroup: 101 },
           containers: [{
             name: 'odoo',
             image: input.image,
-            command: ['odoo'],
-            args,
-            env: [{ name: 'PASSWORD', valueFrom: { secretKeyRef: { name: `${input.release}-secrets`, key: 'postgres-password' } } }],
+            ...run,
+            env: [
+              { name: 'PASSWORD', valueFrom: { secretKeyRef: { name: password.secret, key: password.key } } },
+              ...(admin ? [
+                { name: 'ADMIN_PASSWORD', valueFrom: { secretKeyRef: { name: admin.secret, key: admin.key } } },
+                { name: 'SET_ADMIN', value: setAdminPasswordScript() },
+              ] : []),
+            ],
             volumeMounts: [{ name: 'filestore', mountPath: '/var/lib/odoo' }],
           }],
           volumes: [{ name: 'filestore', persistentVolumeClaim: { claimName: `${input.release}-filestore` } }],
@@ -139,12 +252,12 @@ export function filestoreJob(input: { name: string; release: string; image: stri
   return {
     apiVersion: 'batch/v1',
     kind: 'Job',
-    metadata: { name: input.name, labels: labels(input.release) },
+    metadata: { name: input.name, labels: releaseLabels(input.release) },
     spec: {
       backoffLimit: 0,
       ttlSecondsAfterFinished: 3600,
       template: {
-        metadata: { labels: labels(input.release) },
+        metadata: { labels: releaseLabels(input.release) },
         spec: {
           restartPolicy: 'Never',
           securityContext: { fsGroup: 101 },

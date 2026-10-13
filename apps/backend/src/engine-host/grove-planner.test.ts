@@ -22,9 +22,9 @@ import type { Tree } from '../lib/trees.js';
 import type { PlanProposal } from '../lib/plan-proposals.js';
 import { createToolRuntime } from './tools/tool-runtime.js';
 import type { RunTicket } from './temporal/contracts.js';
-import { seededPersonas } from '../extensions/seeds.js';
+import { seededAgents } from '../extensions/seeds.js';
 
-const planner = seededPersonas().find((agent) => agent.slug === 'planner')!;
+const planner = seededAgents().find((agent) => agent.slug === 'planner')!;
 
 let trees: Tree[];
 let branches: Branch[];

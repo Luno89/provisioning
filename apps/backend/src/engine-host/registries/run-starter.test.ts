@@ -57,3 +57,18 @@ describe('an account being removed', () => {
     expect(start).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('a run whose workflow is kept for one run at a time', () => {
+  it('starts under the workflow its run id belongs to, remembers the run id, and is reached through that workflow', async () => {
+    const start = vi.fn(async (_type: string, options: { workflowId: string }) => ({ workflowId: options.workflowId }));
+    const signal = vi.fn(async () => undefined);
+    const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start, signal }) });
+
+    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'grow', runId: 'grove-run-t1~k2x9' });
+    expect(start).toHaveBeenCalledWith('AgentRunWorkflow', expect.objectContaining({ workflowId: 'grove-run-t1', memo: { runId: 'grove-run-t1~k2x9' } }));
+
+    await runs.cancel('grove-run-t1~k2x9');
+    await runs.cancel('grove-run-t1~k2x9-grove-leaf-1');
+    expect(signal.mock.calls.map((call) => (call as unknown[])[0])).toEqual(['grove-run-t1', 'grove-run-t1~k2x9-grove-leaf-1']);
+  });
+});

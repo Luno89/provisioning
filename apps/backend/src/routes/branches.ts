@@ -3,10 +3,12 @@ import { asyncRoute } from '../middleware/async-route.js';
 import { ownedBy } from '../lib/ownership.js';
 import type { Database } from '../lib/db-interface.js';
 import type { GroveDeletionService } from '../services/GroveDeletionService.js';
+import type { GroveOrderService } from '../services/GroveOrderService.js';
 
 export interface BranchesRouterDeps {
   db: Pick<Database, 'getBranches'>;
   deletion: Pick<GroveDeletionService, 'deleteBranch'>;
+  order: Pick<GroveOrderService, 'orderStories'>;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -20,6 +22,12 @@ export function branchesRouter(deps: BranchesRouterDeps): Router {
   router.get('/', asyncRoute(async (req, res) => {
     const branches = ownedBy(await deps.db.getBranches(), userOf(req).id);
     res.json([...branches].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+  }));
+
+  router.put('/:id/order', asyncRoute(async (req, res) => {
+    const outcome = await deps.order.orderStories(userOf(req).id, idOf(req), req.body?.leafIds);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json(outcome.value);
   }));
 
   router.delete('/:id', asyncRoute(async (req, res) => {

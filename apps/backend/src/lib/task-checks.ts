@@ -98,7 +98,7 @@ async function browserTests(environment: CheckEnvironment, request: E2ERequest):
   const outcomes: CheckOutcome[] = report.tests.map((test) => ({
     check: `browser test "${test.title}" (${test.file})`,
     passed: test.status !== 'failed',
-    says: test.status === 'failed' ? `it failed: ${test.error ?? 'Playwright gave no reason'}` : test.status === 'skipped' ? 'it was skipped' : test.status === 'flaky' ? 'it passed on a retry' : 'it passed',
+    says: test.status === 'failed' ? `it failed: ${test.error ?? 'Playwright gave no reason'}${test.page ? `\nWhat the page showed:\n${test.page}` : ''}` : test.status === 'skipped' ? 'it was skipped' : test.status === 'flaky' ? 'it passed on a retry' : 'it passed',
   }));
   const ranClean = outcome.exitCode === 0 && report.errors.length === 0 && report.tests.length > 0;
   const stray = report.failed === 0 && !ranClean;

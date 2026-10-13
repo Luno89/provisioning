@@ -3,6 +3,7 @@ import axios from 'axios';
 import type { ToolDefinition } from '@koala/agent-engine';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { engineToolsRouter } from './engine-tools.js';
+import { directoryFromDatabase } from '../engine-host/registries/agent-directory.js';
 import { EngineToolService } from '../services/EngineToolService.js';
 import { ENGINE_TOOL_SEEDS } from '../engine-host/tools/engine-tool-seeds.js';
 
@@ -39,7 +40,7 @@ const harness = (): Promise<Harness> => mountRouter({
         save: (tool) => db.saveEngineTool(tool),
         remove: (ownerId, name) => db.deleteEngineTool(ownerId, name),
       },
-      personas: { list: (ownerId?: string) => db.getEnginePersonas(ownerId) },
+      agents: directoryFromDatabase(db),
       implemented: new Set(ENGINE_TOOL_SEEDS.map((tool) => tool.name)),
       images: { start: async () => ({ state: 'building', reference: 'registry/koala:abc' }) },
     }),

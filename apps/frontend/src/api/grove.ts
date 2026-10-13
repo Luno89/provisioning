@@ -6,7 +6,9 @@ export const groveKeys = {
   branches: () => ['branches'] as const,
   leaves: () => ['leaves'] as const,
   treeTypes: () => ['tree-types'] as const,
+  treeTypeDescription: (id: string) => ['tree-types', id, 'description'] as const,
   workspace: (id: string) => ['tree-workspace', id] as const,
+  workspaceFile: (id: string) => ['tree-workspace-file', id] as const,
   run: (id: string) => ['tree-run', id] as const,
 }
 
@@ -17,6 +19,46 @@ export const getTreeWorkspace = (id: string): Promise<{ state: TreeWorkspaceStat
 export const releaseTreeWorkspace = (id: string): Promise<{ state: TreeWorkspaceState }> =>
   api.delete<{ state: TreeWorkspaceState }>(`/trees/${id}/workspace`).then((r) => r.data)
 
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Authority: `WorkspaceFile` in apps/backend/src/lib/workspace-file.ts.
+ */
+export interface WorkspaceFile {
+  packages?: Partial<Record<string, string[]>>
+  script?: string
+  languages?: string[]
+  env?: { name: string; value: string }[]
+}
+
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Authority: `TreeWorkspaceView` in apps/backend/src/services/TreeWorkspaceService.ts.
+ */
+export interface TreeWorkspaceView {
+  path: string
+  file?: WorkspaceFile
+  unreadable?: string
+  composed?: { lines: WorkspaceLine[]; env: { name: string; value: string }[] }
+  unbuildable?: string
+  published?: { image: string; commit?: string; publishedAt: string; lines: WorkspaceLine[]; env: { name: string; value: string }[] }
+  pending: string[]
+  next?: { runId: string; stage: 'building' | 'waiting' | 'failed' | 'declined'; text: string; commit?: string; at: string }
+  builds: { runId: string; outcome: string; reason?: string; finishedAt?: string; wallClockMs: number }[]
+  can: { managers: string[]; languages: string[] }
+}
+
+export interface WorkspaceLine {
+  what: string
+  from: string
+}
+
+export type WorkspaceBuildStart = { started: true; runId: string } | { started: false; reason: 'running' | 'switched-off' }
+
+export const getTreeWorkspaceFile = (id: string): Promise<TreeWorkspaceView> =>
+  api.get<TreeWorkspaceView>(`/trees/${id}/workspace-file`).then((r) => r.data)
+export const saveTreeWorkspaceFile = (id: string, file: WorkspaceFile, said?: string): Promise<TreeWorkspaceView & { committed: boolean; build?: WorkspaceBuildStart }> =>
+  api.put<TreeWorkspaceView & { committed: boolean; build?: WorkspaceBuildStart }>(`/trees/${id}/workspace-file`, { file, ...(said ? { said } : {}) }).then((r) => r.data)
+
 export interface TreeRunResult {
   outcome: 'quiet' | 'stopped'
   awaitingReview: string[]
@@ -25,9 +67,9 @@ export interface TreeRunResult {
 
 export type TreeRunStatus =
   | { state: 'none' | 'unavailable' }
-  | { state: 'running'; startedAt: string }
-  | { state: 'finished'; startedAt: string; closedAt?: string; result: TreeRunResult }
-  | { state: 'failed'; startedAt: string; closedAt?: string; reason: string }
+  | { state: 'running'; startedAt: string; turnId?: string }
+  | { state: 'finished'; startedAt: string; closedAt?: string; result: TreeRunResult; turnId?: string }
+  | { state: 'failed'; startedAt: string; closedAt?: string; reason: string; turnId?: string }
 
 export const getTreeRun = (id: string): Promise<TreeRunStatus> =>
   api.get<TreeRunStatus>(`/trees/${id}/run`).then((r) => r.data)
@@ -57,5 +99,14 @@ export const retryLeaf = (id: string) =>
 export const listTreeTypes = (): Promise<TreeType[]> =>
   api.get<TreeType[]>('/tree-types').then((r) => r.data)
 
+export const getTreeTypeDescription = (id: string): Promise<string> =>
+  api.get<{ text: string }>(`/tree-types/${encodeURIComponent(id)}/description`).then((r) => r.data.text)
+
 export const updateTreeType = (id: string, body: Partial<TreeType>): Promise<TreeType> =>
   api.put<TreeType>(`/tree-types/${id}`, body).then((r) => r.data)
+
+export const orderStories = (branchId: string, leafIds: readonly string[]): Promise<void> =>
+  api.put(`/branches/${branchId}/order`, { leafIds }).then(() => undefined)
+
+export const orderFeatures = (treeId: string, branchIds: readonly string[]): Promise<void> =>
+  api.put(`/trees/${treeId}/order`, { branchIds }).then(() => undefined)

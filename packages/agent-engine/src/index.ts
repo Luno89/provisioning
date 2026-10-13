@@ -52,8 +52,25 @@ export {
   capabilitiesFor,
   type AgentDefinition,
   type Persona,
+  type PersonaRecord,
   type EgressMode,
 } from './agent/agent.js';
+export {
+  sourcedTools,
+  toolsOf,
+  withTools,
+  withGrants,
+  grantChanges,
+  kindOfGrant,
+  grantsFrom,
+  toRecord,
+  type ToolGrant,
+  type GrantKind,
+  type ToolSource,
+  type SourcedTool,
+  type GrantChanges,
+  type GrantMap,
+} from './agent/grants.js';
 
 // Tool Catalogue & Contracts
 export {
@@ -121,6 +138,8 @@ export {
 } from './environment/workspace.js';
 export {
   BASES,
+  DEFAULT_BASE,
+  UnbuildableError,
   LANGUAGES,
   LANGUAGE_IDS,
   baseFor,
@@ -131,6 +150,8 @@ export {
   needsBuilding,
   renderDockerfile,
   type ImagePlan,
+  type PlanLine,
+  type Contribution,
   type BaseImage,
   type Language,
 } from './environment/image.js';
@@ -142,6 +163,7 @@ export { BUILDER_TOOLS } from './tools/builder-tools-catalogue.js';
 // Built-in Seeds
 export {
   SEEDED_AGENTS,
+  SEEDED_GRANTS,
   ALL_SEEDED_AGENTS,
   seededAgentSlugs,
   definedToolNames,

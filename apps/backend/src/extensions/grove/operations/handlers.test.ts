@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import type { Parking } from '../../../lib/published-workspace.js';
 import { PROCEDURE_SCHEMA, type NodeRequest, type Procedure } from '@koala/agent-engine/procedure';
 import { agentsReachable, createGroveOperations, type GroveOperationDeps } from './handlers.js';
 import type { Leaf, Branch } from '../../../lib/leaves.js';
@@ -49,6 +50,7 @@ const deps = (): GroveOperationDeps => ({
   plans: { list: async (ownerId) => plans.filter((entry) => entry.ownerId === ownerId) },
   treeWorkspaces: {
     describe: async (request) => { described.push(request); return SANDBOX as never; },
+    compose: async () => { throw new Error('composing is not used here'); },
     state: async () => 'running',
     save: async (treeId) => {
       saves.push(treeId);
@@ -207,6 +209,40 @@ describe('Start Leaf, Return Leaf', () => {
     leaves = [leaf('a', { status: 'claimed' })];
     await run('grove.return-leaf', { leaf: { leafId: 'a' } });
     expect(leaves[0]!.status).toBe('claimed');
+  });
+});
+
+describe('Return Leaf, parked for its workspace', () => {
+  const parkWith = (parking: Parking | undefined) =>
+    createGroveOperations({ ...deps(), ...(parking ? { parking: async () => parking } : {}) })['grove.return-leaf']!(request({ operation: 'grove.return-leaf', parked: true }, { leaf: { leafId: 'a' }, reason: 'waits for jq' })) as Promise<{ exit: string }>;
+
+  beforeEach(() => {
+    leaves = [leaf('a', { status: 'running' })];
+    tasks = [task('k', 'a', { status: 'waiting' })];
+  });
+
+  it('puts the story aside while what it waits for is still coming', async () => {
+    await parkWith({ state: 'coming' });
+    expect(leaves[0]).toMatchObject({ status: 'pending', waitingFor: { reason: 'waits for jq', since: 'now' } });
+    expect(leaves[0]!.waitingFor!.stuck).toBeUndefined();
+    expect(tasks[0]!.status).toBe('waiting');
+  });
+
+  it('puts it straight back in line when the workspace was published before it was put aside', async () => {
+    await parkWith({ state: 'here' });
+    expect(leaves[0]!.status).toBe('pending');
+    expect(leaves[0]!.waitingFor).toBeUndefined();
+    expect(tasks[0]!.status).toBe('accepted');
+  });
+
+  it('says it is stuck when the build it waits for already failed', async () => {
+    await parkWith({ state: 'stuck', why: 'not rebuilt: the build failed — pip: command not found' });
+    expect(leaves[0]!.waitingFor).toMatchObject({ reason: 'waits for jq', stuck: 'not rebuilt: the build failed — pip: command not found' });
+  });
+
+  it('puts it aside as coming when there is no workspace to ask', async () => {
+    await parkWith(undefined);
+    expect(leaves[0]!.waitingFor).toMatchObject({ reason: 'waits for jq' });
   });
 });
 
@@ -419,6 +455,15 @@ describe('Judge Checkouts', () => {
     const outcome = await run('grove.judge-checkouts', { tree: TREE, environment: SANDBOX, claims: [{ id: 'a', checks: 'missing.txt is not there' }] });
 
     expect(outcome).toMatchObject({ outputs: { items: [{ leafId: 'a', checks: 'missing.txt is not there' }] } });
+  });
+
+  it('tells the judge what done means for every leaf of the tree\'s type', async () => {
+    leaves = [leaf('a', { status: 'claimed', claim: { evidence: 'x', at: 'then', commit: 'c0ffee' } } as never)];
+    const withTypes: GroveOperationDeps = { ...deps(), treeTypes: async () => [{ id: 'application', doneMeans: 'it builds and answers' } as never] };
+
+    const outcome = await createGroveOperations(withTypes)['grove.judge-checkouts']!(request({ operation: 'grove.judge-checkouts' }, { tree: TREE, environment: SANDBOX, claims: [{ id: 'a' }] }));
+
+    expect(outcome).toMatchObject({ outputs: { items: [{ leafId: 'a', doneMeans: 'it builds and answers' }] } });
   });
 });
 

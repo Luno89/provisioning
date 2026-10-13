@@ -29,7 +29,7 @@ export {
   type ResolvedShape,
 } from './definition.js';
 export { HOST_OP_KIND, hostOpNode, operationProblems, fillSummary, type HostOperation } from './host-operations.js';
-export { catalogueFor, groupsFor, operationsOf, extensionProblems, type EngineExtension, type ExtensionCheckOptions } from './extensions.js';
+export { catalogueFor, groupsFor, operationsOf, shippedGrantsOf, extensionProblems, type EngineExtension, type ExtensionCheckOptions } from './extensions.js';
 export {
   PROCEDURE_SCHEMA,
   isGroupInstance,
@@ -59,6 +59,7 @@ export { fillTemplate } from './template.js';
 export { checkProcedure, procedureErrors, type ProcedureProblem, type CheckOptions } from './validate.js';
 export { requiredGrants, missingGrants, type RequiredGrant } from './required.js';
 export { handledSteps, handledTools, describeHandles, describeHandledSteps, type HandledStep, type HandledTools } from './handled.js';
+export { agentsHandedTo, outlineProcedure, describeOutline, type ProcedureOutline } from './outline.js';
 export { capForTrace, TRACE_TEXT_LIMIT } from './trace.js';
 export {
   ASK_CHARS,

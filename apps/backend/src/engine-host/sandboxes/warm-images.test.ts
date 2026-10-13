@@ -3,11 +3,11 @@ import { type Persona, type ToolDefinition } from '@koala/agent-engine';
 import { ENGINE_TOOL_SEEDS } from '../tools/engine-tool-seeds.js';
 import { createWorkspaceImages, sayWaiting } from './warm-images.js';
 import type { ImageStanding } from './image-builder.js';
-import { seededPersonas } from '../../extensions/seeds.js';
+import { seededAgents } from '../../extensions/seeds.js';
 
 const tools = (): ToolDefinition[] => [...ENGINE_TOOL_SEEDS];
 
-const personas = (): Persona[] => seededPersonas();
+const personas = (): Persona[] => seededAgents();
 
 function builder(over: { standing?: ImageStanding } = {}) {
   const started: string[] = [];

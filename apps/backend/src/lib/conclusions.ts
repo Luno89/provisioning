@@ -20,7 +20,12 @@ export const memoryRunId = (runId: string): string => `memory-run-${safeId(runId
 
 const line = (message: ConversationMessage, agent: string): string => {
   const calls = (message.toolCalls ?? []).map((call) => `  [${call.name} ${call.ok ? 'gave' : 'failed'}: ${call.digest}]`);
-  return [`${message.role === 'assistant' ? agent : 'person'}: ${message.content}`, ...calls].join('\n');
+  return [`${message.role === 'assistant' ? agent : message.role === 'notice' ? 'platform' : 'person'}: ${message.content}`, ...calls].join('\n');
+};
+
+const turnRuns = (messages: readonly ConversationMessage[]): string[] => {
+  const runs = [...new Set(messages.map((message) => message.runId).filter((runId): runId is string => Boolean(runId)))];
+  return runs.length > 0 ? ['', `The runs that answered, which read_run can open: ${runs.join(', ')}`] : [];
 };
 
 export interface FinishedRun {
@@ -56,6 +61,7 @@ export function conversationConclusion(
       `Conversation "${conversation.title}" between the person and the agent "${agent}", the part not yet remembered (messages ${rememberedThrough + 1} to ${through}):`,
       '',
       fresh.map((message) => line(message, agent)).join('\n\n'),
+      ...turnRuns(fresh),
     ].join('\n'),
   };
 }

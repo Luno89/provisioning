@@ -39,6 +39,16 @@ describe('a tree\'s workspace', () => {
     expect(await languageOf('cy', 't1')).toBeUndefined();
   });
 
+  it('asks for no language for a type that wants none in particular, so its workspace is the default one the planner can build', async () => {
+    const { planWorkspace } = await import('../../extensions/workspace-bases.js');
+    const freeform = treeLanguageFrom({ getTrees: async () => [{ id: 't4', ownerId: 'bo', type: 'freeform' }], getTreeTypes: async () => [{ id: 'freeform', language: 'base' }] as TreeTypeSpec[] });
+    const language = await freeform('bo', 't4');
+    expect(language).toBeUndefined();
+    const merged = mergeWorkspaceAgents([agent('executor')], 'grove-runner', language ? [language] : [])!;
+    expect(planWorkspace(merged, [])).toBeDefined();
+    expect(() => planWorkspace(mergeWorkspaceAgents([agent('executor')], 'grove-runner', ['base'])!, [])).toThrow(/no language called "base"/);
+  });
+
   it('asks for that language when it describes the shared workspace', async () => {
     const describeShared = vi.fn(async (_request: { languages?: string[] | undefined }) => ({}) as never);
     const workspaces = createTreeWorkspaces({ resolver: { describeShared } as unknown as EnvironmentResolver, kube: vi.fn() as never, languageOf: treeLanguageFrom(store) });

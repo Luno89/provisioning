@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, Play, Square } from 'lucide-react'
 import { getTreeRun, groveKeys, runTree, stopTreeRun, type TreeRunStatus } from '../../../api/grove.js'
 import { errorMessage } from '../../../api/client.js'
+import Reading from '../Reading'
 
 const RUNNING_POLL_MS = 5_000
 
@@ -53,7 +54,7 @@ export function TreeRunPanel({ treeId }: { treeId: string }) {
     onSuccess: () => void qc.invalidateQueries({ queryKey: groveKeys.run(treeId) }),
   })
 
-  if (!status) return null
+  if (!status) return error ? <p className="px-3 py-2 text-[12px] text-red-400">Could not read the tree's run.</p> : <Reading label="Reading the tree's run…" className="px-3 py-2" />
 
   return (
     <div className="px-3 py-2 text-[12px] text-slate-400 flex flex-col gap-2" data-testid="tree-run">

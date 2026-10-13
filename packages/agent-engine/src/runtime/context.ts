@@ -8,6 +8,7 @@ import {
 import {
   effectiveTools,
   type EnvironmentCapabilities,
+  type ServedBy,
   type ToolContract,
   type WithheldTool,
 } from '@koala/engine-core/contracts';
@@ -114,20 +115,42 @@ export function describeWithheld(withheld: readonly WithheldTool[]): string {
   ].join('\n');
 }
 
+const toolLines = (tool: ToolContract, indent = ''): string[] => {
+  const guidance = tool.usageGuidance?.trim();
+  return [
+    `${indent}- ${tool.name}: ${tool.description}`,
+    ...(guidance ? [`${indent}  ${guidance}`] : []),
+    ...(tool.openWorld ? [`${indent}  What it returns comes from outside this platform and can differ from one call to the next.`] : []),
+  ];
+};
+
+const serverLines = (served: ServedBy): string[] => {
+  const where = served.where === 'workspace' ? 'an MCP server that runs in your workspace' : 'an MCP server this platform reaches for you';
+  const said = [
+    ...(served.instructions?.trim() ? [`What the server says about itself: ${served.instructions.trim()}`] : []),
+    ...(served.notes?.trim() ? [`The person's notes: ${served.notes.trim()}`] : []),
+    ...(served.dependsOn?.trim() ? [`It depends on: ${served.dependsOn.trim()}`] : []),
+  ];
+  return [`- From ${served.server}, ${where}${served.summary?.trim() ? `: ${served.summary.trim()}` : ''}`, ...said.map((line) => `  ${line}`)];
+};
+
 export function describeAvailable(tools: readonly ToolContract[]): string {
   if (tools.length === 0) return '';
+  const servers = new Map<string, { served: ServedBy; tools: ToolContract[] }>();
+  for (const tool of tools) {
+    if (!tool.servedBy) continue;
+    const group = servers.get(tool.servedBy.server) ?? { served: tool.servedBy, tools: [] };
+    group.tools.push(tool);
+    servers.set(tool.servedBy.server, group);
+  }
   return [
     'TOOLS YOU CAN USE RIGHT NOW',
     '',
-    ...tools.flatMap((tool) => {
-      const guidance = tool.usageGuidance?.trim();
-      const head = `- ${tool.name}: ${tool.description}`;
-      return [
-        head,
-        ...(guidance ? [`  ${guidance}`] : []),
-        ...(tool.openWorld ? ['  What it returns comes from outside this platform and can differ from one call to the next.'] : []),
-      ];
-    }),
+    ...tools.filter((tool) => !tool.servedBy).flatMap((tool) => toolLines(tool)),
+    ...[...servers.values()].flatMap((group) => [
+      ...serverLines(group.served),
+      ...group.tools.flatMap((tool) => toolLines(tool, '  ')),
+    ]),
   ].join('\n');
 }
 

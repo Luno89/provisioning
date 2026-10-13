@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
-import type { StoredNodeTrace } from '../../lib/run-traces.js';
+import { modelsOf, type StoredNodeTrace } from '../../lib/run-traces.js';
 
 export interface RunReader {
   traces(ownerId: string, runId: string): Promise<StoredNodeTrace[]>;
@@ -22,6 +22,7 @@ const oneLine = (value: unknown): string => {
 
 export function runOverview(traces: readonly StoredNodeTrace[]): string {
   const first = traces[0]!;
+  const models = modelsOf(traces);
   const lines = traces.map((trace) => {
     const how = trace.error ? `error: ${oneLine(trace.error)}`
       : trace.interrupted ? `interrupted: ${oneLine(trace.interrupted)}`
@@ -30,7 +31,8 @@ export function runOverview(traces: readonly StoredNodeTrace[]): string {
     const produced = trace.outputs === undefined || trace.finish ? '' : `\n    ${oneLine(trace.outputs)}`;
     return `#${trace.sequence} ${trace.node} (${trace.kind}${trace.cleanup ? ', cleanup' : ''}) ${how}${produced}`;
   });
-  return [`run ${first.runId} — agent ${first.agentSlug}, procedure ${first.procedureId}@${first.procedureVersion}, ${traces.length} steps`, ...lines].join('\n');
+  const ranOn = models.length > 0 ? `, model ${models.join(' and ')}` : '';
+  return [`run ${first.runId} — agent ${first.agentSlug}${ranOn}, procedure ${first.procedureId}@${first.procedureVersion}, ${traces.length} steps`, ...lines].join('\n');
 }
 
 export function nodeInFull(traces: readonly StoredNodeTrace[], node: string): string | undefined {

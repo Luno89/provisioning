@@ -9,6 +9,7 @@ export function Scaffold({ value, onChange }: {
   onChange: (patch: Partial<TreeType>) => void;
 }) {
   const [open, setOpen] = useState<number | null>(null);
+  const [releaseText, setReleaseText] = useState((value.releaseWhen ?? []).join('\n'));
   const files = value.files;
 
   const patchFile = (index: number, patch: Partial<TreeTypeFile>) =>
@@ -79,6 +80,20 @@ export function Scaffold({ value, onChange }: {
       >
         <Plus size={13} /> Add file
       </button>
+
+      <label className="block">
+        <span className={label}>Released when these change</span>
+        <span className="block text-[11px] text-slate-500 mb-2">The paths the app is built from, one per line, like <code>src/**</code>. A push that changes none of them still builds, but nothing is released. Empty: every build is released.</span>
+        <textarea
+          className={`${field} font-mono text-[12px]`} rows={4} aria-label="Released when these change"
+          value={releaseText}
+          onChange={(e) => {
+            setReleaseText(e.target.value);
+            const paths = e.target.value.split('\n').map((line) => line.trim()).filter(Boolean);
+            onChange({ releaseWhen: paths.length ? paths : undefined });
+          }}
+        />
+      </label>
     </div>
   );
 }

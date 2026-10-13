@@ -1,6 +1,5 @@
-import { useState, useMemo, useEffect, type ReactNode } from 'react'
-import { useRouter } from '@tanstack/react-router'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState, useEffect, type ReactNode } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronDown, ChevronRight, AlertTriangle, MessageSquarePlus,
   PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
@@ -9,39 +8,29 @@ import {
 import ChatSurface from '../../ChatSurface.js'
 import Home from '../../Home.js'
 import LeafDetail from '../../LeafDetail.js'
-import { type Leaf } from '../../leaf-types.js'
-import type { Branch } from '../../../types/grove.js'
-import {
-  listTrees, listBranches, listLeaves, groveKeys,
-  deleteBranch as apiDeleteBranch,
-} from '../../../api/grove.js'
+import { deleteBranch as apiDeleteBranch } from '../../../api/grove.js'
 import { chatPackKeys, createChatConversation, type ConversationBinding } from '../../../api/chat-pack.js'
-import { listProjects, projectKeys } from '../../../api/projects.js'
 import { lastSeen, markSeenAfterDwell } from '../../../lib/seen.js'
-import { findLinkedProject } from '../../../lib/tree-project-link.js'
-import { parseHash, formatHash, shouldReplace } from '../../../lib/route.js'
 import { FileTree } from '../../ProjectEditor/FileTree.js'
 import { EditorPane } from '../../ProjectEditor/EditorPane.js'
 import { TabBar } from '../../ProjectEditor/TabBar.js'
 import { useOpenFiles } from '../../ProjectEditor/useOpenFiles.js'
 import { isDirty } from '../../ProjectEditor/shared.js'
-import { BuildsDeploysPanel, type LinkedProject } from './BuildsDeploysPanel.js'
+import { BuildsDeploysPanel } from './BuildsDeploysPanel.js'
 import { BranchesPanel } from './BranchesPanel.js'
 import { TreeSandboxPanel } from './TreeSandboxPanel.js'
+import { TreeWorkspaceFilePanel } from './TreeWorkspaceFilePanel.js'
 import { TreeRunPanel } from './TreeRunPanel.js'
 import { TreeProposalsPanel } from './TreeProposalsPanel.js'
 import { TreeConversationsPanel } from './TreeConversationsPanel.js'
 import { TreeDeletePanel } from './TreeDeletePanel.js'
 import { ProjectDeletePanel } from './ProjectDeletePanel.js'
+import { ProjectChannel } from './ProjectChannel.js'
+import { TreeStrip } from './TreeStrip.js'
 import { panel, resizeHandle, type SelectedEntity } from './shared.js'
+import { useProjectWork } from '../useProjectWork.js'
+import { useRouteSync } from '../useRouteSync.js'
 import { useResizableWidth } from './useResizableWidth.js'
-
-interface WorkspaceTree {
-  id: string
-  name: string
-  goal?: string
-  projectIds?: string[]
-}
 
 function CollapsibleSection({ title, defaultOpen = true, isOpen, onToggle, children }: {
   title: string
@@ -100,35 +89,9 @@ export function Workspace({
   const [seenAt] = useState<string | undefined>(() => lastSeen('grove-seen'))
   useEffect(() => markSeenAfterDwell('grove-seen'), [])
 
-  const { data: trees = [] } = useQuery<WorkspaceTree[]>({
-    queryKey: groveKeys.trees(),
-    queryFn: () => listTrees() as Promise<WorkspaceTree[]>,
-  })
-  const { data: branchRecords = [] } = useQuery<Branch[]>({
-    queryKey: groveKeys.branches(),
-    queryFn: listBranches,
-    refetchInterval: 10000,
-  })
-  const { data: leaves = [] } = useQuery<Leaf[]>({
-    queryKey: ['leaves'],
-    queryFn: listLeaves,
-    refetchInterval: 5000,
-  })
-  const { data: projects = [] } = useQuery<LinkedProject[]>({
-    queryKey: projectKeys.list(),
-    queryFn: () => listProjects<LinkedProject>(),
-    staleTime: 10_000,
-  })
-
-  const tree = treeId ? trees.find((t) => t.id === treeId) : undefined
-  const project = tree ? findLinkedProject(tree, projects) : projects.find((p) => p.id === projectId)
+  const { leaves, tree, project, treeBranches } = useProjectWork({ treeId, projectId })
   const hasTree = Boolean(tree)
   const hasProject = Boolean(project)
-
-  const treeBranches = useMemo(
-    () => (treeId ? branchRecords.filter((b) => b.treeId === treeId) : []),
-    [branchRecords, treeId],
-  )
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['leaves'] })
@@ -153,29 +116,7 @@ export function Workspace({
     },
   })
 
-  const router = useRouter({ warn: false })
-
-  useEffect(() => {
-    if (!treeId) return
-    const branchId = selectedLeaf?.branchId ?? ''
-    const leafId = selectedLeaf ? selectedLeaf.id : ''
-    const path = ['tree', treeId, branchId, leafId].filter(Boolean)
-    const hash = formatHash('projects', path)
-    if (window.location.hash === hash) return
-    const current = parseHash(window.location.hash)
-    const next = { view: 'projects', path }
-    const replace = shouldReplace(current, next)
-    if (replace) window.history.replaceState(null, '', hash)
-    else window.history.pushState(null, '', hash)
-
-    if (router) {
-      if (branchId && leafId) {
-        router.navigate({ to: '/projects/tree/$treeId/$branchId/$leafId', params: { treeId, branchId, leafId }, replace }).catch(() => {})
-      } else {
-        router.navigate({ to: '/projects/tree/$treeId', params: { treeId }, replace }).catch(() => {})
-      }
-    }
-  }, [treeId, selected, selectedLeaf, router])
+  useRouteSync(treeId ? { kind: 'tree', treeId, files: true } : projectId ? { kind: 'project', projectId, files: true } : undefined)
 
   const projectId_ = project?.id ?? ''
   const {
@@ -375,8 +316,13 @@ export function Workspace({
             <div className="flex items-center justify-between px-3 py-1.5 border-b border-[var(--bark-700)] shrink-0 bg-[var(--bark-900)]/40">
               <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 truncate">
                 <MessageSquare size={13} className="text-emerald-400 shrink-0" />
+                {selected.kind !== 'tree' && project && (
+                  <button type="button" onClick={() => setSelected({ kind: 'tree', id: treeId ?? '' })} className="normal-case tracking-normal font-medium text-emerald-300 hover:underline cursor-pointer shrink-0">
+                    ← Channel
+                  </button>
+                )}
                 <span className="truncate">
-                  {selectedLeaf ? 'Leaf Detail' : 'Conversation'}
+                  {selectedLeaf ? 'Leaf Detail' : selected.kind === 'conversation' ? 'Thread' : project ? 'Channel' : 'Conversation'}
                 </span>
               </div>
               <button
@@ -391,8 +337,28 @@ export function Workspace({
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto p-3 min-h-0">
-          {!hasTree && selected.kind === 'tree' ? (
+          <div className={`flex-1 min-h-0 ${selected.kind === 'tree' && project ? 'flex flex-col' : 'overflow-y-auto p-3'}`}>
+          {selected.kind === 'tree' && project ? (
+            <>
+              {tree && <TreeStrip tree={tree} branches={treeBranches} leaves={leaves} onOpenLeaf={(leaf) => setSelected({ kind: 'leaf', id: leaf.id })} />}
+              {!hasTree && (
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--bark-700)] text-[12px] text-slate-400 shrink-0">
+                  <MessageSquarePlus size={14} className="text-slate-500 shrink-0" aria-hidden="true" />
+                  <span className="flex-1">No tree yet. Plan one with Koala in its own conversation; once you approve the plan it becomes this project&apos;s tree.</span>
+                  <button
+                    onClick={() => openChat.mutate({})}
+                    disabled={openChat.isPending || !binding}
+                    className="shrink-0 text-[12px] px-3 py-1 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white cursor-pointer disabled:opacity-50"
+                  >
+                    Start a conversation
+                  </button>
+                </div>
+              )}
+              <div className="flex-1 min-h-0">
+                <ProjectChannel projectId={project.id} onOpenTree={(id) => { if (id !== treeId) onTreeReady?.(id) }} />
+              </div>
+            </>
+          ) : !hasTree && selected.kind === 'tree' ? (
             <div className="h-full flex flex-col items-center justify-center text-center gap-3 text-slate-400">
               <MessageSquarePlus size={28} className="text-slate-600" />
               <p className="text-[13px]">Talk to Koala about this project. A plan it proposes becomes this project's tree once you approve it.</p>
@@ -433,7 +399,7 @@ export function Workspace({
 
         {binding && (
           <CollapsibleSection
-            title="Conversations"
+            title={project ? 'Threads' : 'Conversations'}
             isOpen={conversationsOpen}
             onToggle={setConversationsOpen}
           >
@@ -477,6 +443,11 @@ export function Workspace({
             onToggle={setRunOpen}
           >
             <TreeRunPanel treeId={treeId} />
+          </CollapsibleSection>
+        )}
+        {hasTree && treeId && (
+          <CollapsibleSection title="Workspace">
+            <TreeWorkspaceFilePanel treeId={treeId} />
           </CollapsibleSection>
         )}
         {hasTree && treeId && (

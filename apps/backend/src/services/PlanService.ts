@@ -29,7 +29,7 @@ export class PlanService {
 
   async forTree(ownerId: string, treeId: string): Promise<PlanProposal[]> {
     return (await this.deps.store.getPlanProposals(ownerId)).filter((proposal) =>
-      proposal.leafPlan?.treeId === treeId || proposal.plan?.treeId === treeId || proposal.adopted?.treeId === treeId);
+      proposal.leafPlan?.treeId === treeId || proposal.change?.treeId === treeId || proposal.plan?.treeId === treeId || proposal.adopted?.treeId === treeId);
   }
 
   get(ownerId: string, id: string): Promise<PlanProposal | undefined> {

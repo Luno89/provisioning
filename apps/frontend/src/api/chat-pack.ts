@@ -5,12 +5,34 @@ import { api } from './client.js';
 export const chatPackKeys = {
   conversations: () => ['chat-pack-conversations'] as const,
   conversation: (id: string) => ['chat-pack-conversation', id] as const,
+  context: (id: string) => ['chat-pack-conversation', id, 'context'] as const,
 };
 
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Authority: `ConversationNotice` and `MessageAuthor` in apps/backend/src/lib/conversations.ts.
+ */
+export type NoticeKind = 'preview-ready' | 'release-live' | 'release-failed' | 'tree-quiet' | 'leaf-failed' | 'secret-needed' | 'workspace-ready' | 'workspace-waiting' | 'workspace-failed'
+export type NoticeAction = 'open-preview' | 'open-app' | 'cut-over' | 'open-tree' | 'open-story' | 'enter-secret' | 'open-workspace'
+
+export interface ConversationNotice {
+  key: string;
+  kind: NoticeKind;
+  text: string;
+  refs: { projectId?: string | undefined; releaseId?: string | undefined; treeId?: string | undefined; branchId?: string | undefined; leafId?: string | undefined; requestId?: string | undefined };
+  line?: string | undefined;
+  actions: NoticeAction[];
+}
+
+export type MessageAuthor = { kind: 'person'; id: string } | { kind: 'agent'; slug: string } | { kind: 'platform' }
+
 export interface ChatConversationMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'notice';
+  author?: MessageAuthor | undefined;
+  notice?: ConversationNotice | undefined;
   content: string;
   at?: string | undefined;
+  runId?: string | undefined;
   reasoning?: string | undefined;
   toolCalls?: Array<{
     id: string;
@@ -38,7 +60,10 @@ export interface ChatConversation {
    * Absent means the default agent. Patched by the chat surface; preserved across engine turns.
    */
   agentSlug?: string | null | undefined;
+  kind?: 'channel' | 'item' | undefined;
   treeId?: string | undefined;
+  leafId?: string | undefined;
+  branchId?: string | undefined;
   mcpServers?: string[] | undefined;
   projectId?: string | undefined;
   liveTurn?: { runId: string; startedAt: string } | undefined;
@@ -52,6 +77,14 @@ export const listChatConversations = (): Promise<ChatConversation[]> =>
 
 export const getChatConversation = (id: string): Promise<ChatConversation | null> =>
   api.get<ChatConversation>(`/conversations/${id}`).then((r) => r.data);
+
+export interface ConversationContext {
+  given: Record<string, string>
+  text: string
+}
+
+export const getConversationContext = (id: string): Promise<ConversationContext> =>
+  api.get<ConversationContext>(`/conversations/${encodeURIComponent(id)}/context`).then((r) => r.data);
 
 export interface ConversationBinding {
   treeId?: string | undefined;

@@ -85,6 +85,11 @@ describe('the session', () => {
     expect(await client.listTools()).toHaveLength(1);
   });
 
+  it('keeps what the server says about itself to whoever uses it', async () => {
+    const client = new McpClient('http://x/mcp', (async () => json({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18', serverInfo: { name: 'Playwright', version: '1.64' }, instructions: '  Use browser_snapshot before clicking.  ' } })) as any);
+    expect(await client.initialize()).toMatchObject({ serverName: 'Playwright', serverVersion: '1.64', instructions: 'Use browser_snapshot before clicking.' });
+  });
+
   it('initializes on its own if you go straight to listing tools', async () => {
     const methods: string[] = [];
     const fetchImpl = vi.fn(async (_u: string, init: RequestInit) => {

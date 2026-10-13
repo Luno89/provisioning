@@ -22,6 +22,7 @@ export function infisicalHostFor(target: SecretTarget): { hostAPI: string } | { 
 }
 
 export const managedSecretName = (namespace: string): string => `${namespace}-secrets`;
+export const vaultSecretName = (namespace: string): string => `${namespace}-vault`;
 
 const quoted = (value: string): string => JSON.stringify(value);
 
@@ -46,6 +47,7 @@ export function infisicalSecretManifest(args: {
   workspaceId: string;
   environment?: string | undefined;
   resyncSeconds?: number | undefined;
+  secretName?: string | undefined;
 }): string {
   return [
     'apiVersion: secrets.infisical.com/v1alpha1',
@@ -66,7 +68,7 @@ export function infisicalSecretManifest(args: {
     `        envSlug: ${quoted(args.environment ?? 'dev')}`,
     '        secretsPath: "/"',
     '  managedSecretReference:',
-    `    secretName: ${managedSecretName(args.namespace)}`,
+    `    secretName: ${args.secretName ?? managedSecretName(args.namespace)}`,
     `    secretNamespace: ${args.namespace}`,
     '    creationPolicy: Owner',
     '',

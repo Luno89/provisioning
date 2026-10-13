@@ -1,4 +1,5 @@
 import type { EnvironmentDriver, EnvironmentScope, EnvironmentSpec } from '@koala/engine-core';
+import { workspaceStamp } from '../../lib/published-workspace.js';
 import type { RunTicket } from '../temporal/contracts.js';
 import type { RunWorkspace } from './workspace.js';
 
@@ -47,6 +48,7 @@ interface Live {
   startedAt: number;
   owned: boolean;
   runId: string;
+  stamp?: string | undefined;
 }
 
 export function createRunEnvironments(options: RunEnvironmentOptions): RunEnvironments {
@@ -66,8 +68,10 @@ export function createRunEnvironments(options: RunEnvironmentOptions): RunEnviro
       const base = id ?? own;
       const key = scope?.worktree ? `${base}#${scope.worktree}` : base;
 
+      const stamp = workspace ? workspaceStamp(workspace) : undefined;
       const existing = live.get(key);
-      if (existing) return existing.driver;
+      if (existing && (stamp === undefined || existing.stamp === undefined || existing.stamp === stamp)) return existing.driver;
+      if (existing) live.delete(key);
 
       const inFlight = starting.get(key);
       if (inFlight) return inFlight;
@@ -79,7 +83,7 @@ export function createRunEnvironments(options: RunEnvironmentOptions): RunEnviro
         ...(workspace ? { workspace } : {}),
         ...(scope ? { scope } : {}),
       }).then((driver) => {
-        live.set(key, { driver, startedAt: now(), owned: base === own, runId: ticket.runId });
+        live.set(key, { driver, startedAt: now(), owned: base === own, runId: ticket.runId, ...(stamp ? { stamp } : {}) });
         starting.delete(key);
         return driver;
       }).catch((err: unknown) => {

@@ -39,6 +39,7 @@ function harness(runScenario: CheckRunActivities['CheckRunScenarioActivity'], le
   const removal: AccountRemovalActivities = {
     RemoveAccountWorkflowsActivity: async () => { log.push('stop'); return 0; },
     RemoveAccountKeepRunsActivity: async ({ keepRunsFor }) => { log.push(`keep for ${keepRunsFor}`); return 0; },
+    RemoveAccountAppsActivity: async () => [],
     RemoveAccountWorkspacesActivity: async () => '',
     RemoveAccountSecretsActivity: async () => 0,
     RemoveAccountMeshActivity: async () => ({ devices: 0, user: false }),

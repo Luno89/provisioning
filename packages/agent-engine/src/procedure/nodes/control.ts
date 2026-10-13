@@ -298,6 +298,7 @@ export const waitForPerson: BuiltInNode = {
       required: ['prompt'],
       properties: {
         prompt: { type: 'string', title: 'Message', minLength: 1, multiline: true },
+        choices: { type: 'array', title: 'Answers to choose from', describe: 'When set, the person picks one of these, and the answer is the one picked.', items: { type: 'string', minLength: 1 } },
         timeoutMinutes: { type: 'integer', title: 'Wait for (minutes)', minimum: 1, default: 10_080 },
       },
     },

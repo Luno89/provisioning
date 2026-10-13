@@ -5,7 +5,6 @@ import {
   resolveAgent,
   visibleAgents,
   type AgentDefinition,
-  type Persona,
   contractsFor,
   BUILDER_TOOLS,
 } from '@koala/agent-engine';
@@ -13,7 +12,8 @@ import type { Procedure } from '@koala/agent-engine/procedure';
 import { createStoredToolCatalogue, type ToolReader } from './tool-catalogue-store.js';
 import { createProcedureStore, type OwnedProcedure, type ProcedureReader, type ProcedureStore } from './procedure-store.js';
 import type { ToolContract } from '@koala/engine-core';
-import { seededPersonas } from '../../extensions/seeds.js';
+import { seededAgents } from '../../extensions/seeds.js';
+import type { AgentDirectory } from './agent-directory.js';
 
 export interface AgentStore {
   list(ownerId: string): Promise<AgentDefinition[]>;
@@ -53,7 +53,7 @@ export async function withPublished(procedure: Procedure, published: readonly Gr
 }
 
 export function createStoredAgentRegistry(options: {
-  personas: { list(ownerId?: string): Promise<Persona[]> };
+  agents: AgentDirectory;
   procedures: ProcedureReader;
   tools?: ToolReader | undefined;
   toolCatalogue?: ToolCatalogue | undefined;
@@ -63,15 +63,7 @@ export function createStoredAgentRegistry(options: {
   const hiddenFor = async (ownerId: string | undefined) => (ownerId && options.hidden ? options.hidden(ownerId) : undefined);
   const tools = catalogueFor(options);
   const registry = createAgentRegistry({
-    agentStore: {
-      list: async (ownerId) => {
-        const hidden = await hiddenFor(ownerId);
-        return [
-          ...seededPersonas().filter((persona) => !hidden?.agents.has(persona.slug)),
-          ...(await options.personas.list(ownerId)).filter((row) => row.ownerId !== undefined && !hidden?.agents.has(row.slug)),
-        ];
-      },
-    },
+    agentStore: { list: (ownerId) => options.agents.agents(ownerId) },
     procedureStore: createProcedureStore({ sources: options.procedures, ...(options.published ? { published: options.published } : {}) }),
     ...(tools ? {
       toolCatalogue: {
@@ -108,7 +100,7 @@ function catalogueFor(options: {
   return { list: async (ownerId: string) => contractsFor(await stored.list(ownerId)) };
 }
 
-const seededAgentStore: AgentStore = { list: async () => seededPersonas() };
+const seededAgentStore: AgentStore = { list: async () => seededAgents() };
 const seededToolCatalogue: ToolCatalogue = { list: async () => contractsFor(BUILDER_TOOLS) };
 
 export function createAgentRegistry(options: RegistryOptions = {}): AgentRegistry {

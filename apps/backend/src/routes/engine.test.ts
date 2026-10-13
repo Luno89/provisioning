@@ -11,6 +11,7 @@ import { MemoryDB } from '../lib/memory-db.js';
 import { ApprovalService } from '../services/ApprovalService.js';
 import { INSTALLED_EXTENSIONS, platformCatalogue, platformGroups } from '../extensions/installed.js';
 import { defineGroup } from '@koala/agent-engine/procedure';
+import { ConversationTurnService } from '../services/ConversationTurnService.js';
 
 let tasks: Task[] = [];
 
@@ -77,8 +78,12 @@ describe('engine routes', () => {
     const grove = res.data.find((extension: { id: string }) => extension.id === 'grove');
     expect(grove).toMatchObject({ requires: ['platform'], personas: expect.arrayContaining(['grove', 'grove-leaf']), procedures: expect.arrayContaining(['grove-run', 'grove-leaf']) });
     expect(grove.operations).toEqual(JSON.parse(JSON.stringify(INSTALLED_EXTENSIONS.find((extension) => extension.id === 'grove')!.operations)));
-    expect(res.data.map((extension: { id: string; enabled: boolean; alwaysOn: boolean }) => [extension.id, extension.enabled, extension.alwaysOn])).toEqual([['platform', true, true], ['grove', true, false]]);
+    expect(res.data.map((extension: { id: string; enabled: boolean; alwaysOn: boolean }) => [extension.id, extension.enabled, extension.alwaysOn])).toEqual([['platform', true, true], ['grove', true, false], ['workspace', true, false], ['mcp', true, false]]);
 
+    const needed = await axios.put(h.url('/api/engine/extensions/grove/enabled'), { enabled: false }, { validateStatus: () => true });
+    expect(needed.status).toBe(409);
+    expect(needed.data.error).toMatch(/Workspace needs Grove/);
+    await axios.put(h.url('/api/engine/extensions/workspace/enabled'), { enabled: false });
     const off = await axios.put(h.url('/api/engine/extensions/grove/enabled'), { enabled: false });
     expect(off.data.find((extension: { id: string }) => extension.id === 'grove').enabled).toBe(false);
     const refused = await axios.put(h.url('/api/engine/extensions/platform/enabled'), { enabled: false }, { validateStatus: () => true });
@@ -124,7 +129,7 @@ describe('engine routes', () => {
     const gone = await axios.delete(h.url('/api/engine/extensions/loud/operations/shout'));
     expect(gone.data.find((extension: { id: string }) => extension.id === 'loud').latest).toEqual([]);
     const deleted = await axios.delete(h.url('/api/engine/extensions/loud'));
-    expect(deleted.data.map((extension: { id: string }) => extension.id)).toEqual(['platform', 'grove']);
+    expect(deleted.data.map((extension: { id: string }) => extension.id)).toEqual(['platform', 'grove', 'workspace', 'mcp']);
     await h.close();
   });
 
@@ -136,7 +141,7 @@ describe('engine routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.data.map((a: { slug: string }) => a.slug).sort())
-      .toEqual(['agent-builder', 'check-writer', 'delivery', 'executor', 'grove', 'grove-leaf', 'grove-paper', 'grove-paper-leaf', 'judge', 'koala', 'leaf-judge', 'memory-keeper', 'paper-writer', 'planner', 'research']);
+      .toEqual(['agent-builder', 'check-writer', 'delivery', 'executor', 'grove', 'grove-leaf', 'grove-paper', 'grove-paper-leaf', 'judge', 'koala', 'leaf-judge', 'mcp-capture', 'memory-keeper', 'paper-writer', 'planner', 'research', 'workspace']);
     expect(res.data.find((a: { slug: string }) => a.slug === 'koala')).toMatchObject({ mine: false });
 
     await h.close();
@@ -220,6 +225,41 @@ describe('engine routes', () => {
     expect(project.projectId).toBe('proj-1');
     expect(project.project).toContain('Project "gateway" (proj-1)');
     expect(project.treeId).toBeUndefined();
+
+    await h.close();
+  });
+
+  it('asks Koala about a message already posted in a channel, answering it in place and only once', async () => {
+    const workflows = starter();
+    let db: Database | undefined;
+    const h: Harness = await mountRouter({
+      prefix: '/api/engine',
+      router: (database) => {
+        db = database;
+        const turns = new ConversationTurnService({ store: database, log: database, running: async () => true });
+        let n = 0;
+        const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => workflows, newRunId: () => `run-${(n += 1)}`, turns });
+        return engineRouter({ runs, registry: createAgentRegistry(), approvals: new ApprovalService({ store: { ownsRun: async () => true, allowToolInConversation: async () => true }, runs }) });
+      },
+    });
+    const stamp = '2026-10-11T17:59:09.231Z';
+    await db!.saveConversation({ id: 'channel-p1', ownerId: TEST_USER.id, title: 'Shop', kind: 'channel', projectId: 'p1', messages: [
+      { role: 'user', author: { kind: 'person', id: TEST_USER.id }, content: 'add an e2e test', at: stamp },
+    ], createdAt: stamp, updatedAt: stamp } as never);
+    const ask = (body: Record<string, unknown>) => axios.post(h.url('/api/engine/runs'), { agent: 'koala', message: 'add an e2e test', conversationId: 'channel-p1', ...body }, { validateStatus: () => true });
+
+    const asked = await ask({ asks: stamp });
+    expect(asked.status).toBe(201);
+    const after = await db!.getConversation(TEST_USER.id, 'channel-p1');
+    expect(after!.messages.map((one) => [one.content, one.runId])).toEqual([['add an e2e test', 'run-1']]);
+    expect(after!.liveTurn).toMatchObject({ runId: 'run-1' });
+
+    const again = await ask({ asks: stamp });
+    expect(again.status).toBe(409);
+    expect(again.data.error).toMatch(/not been asked about/);
+    expect(workflows.start).toHaveBeenCalledTimes(1);
+    expect((await ask({ asks: 7 })).status).toBe(400);
+    expect((await axios.post(h.url('/api/engine/runs'), { agent: 'koala', message: 'hi', asks: stamp }, { validateStatus: () => true })).status).toBe(400);
 
     await h.close();
   });

@@ -49,7 +49,6 @@ export function NewProjectDialog({ clusters, onClose, onCreated }: {
             const d = new FormData(e.currentTarget)
             createProject.mutate({
               name: d.get('name'),
-              targetNamespace: d.get('name'),
               executionApproval: d.get('requireApproval') === 'on' ? 'plan' : 'auto',
               ...(deviceId
                 ? {
@@ -127,7 +126,7 @@ export function NewProjectDialog({ clusters, onClose, onCreated }: {
                   name="targetClusterId"
                   className="w-full bg-[var(--bark-950)] border border-[var(--bark-700)] rounded-md px-3 py-2 text-slate-100 focus:outline-none focus:border-blue-500 transition-colors"
                 >
-                  <option value="">Default Management Cluster</option>
+                  <option value="">My own cluster (this machine)</option>
                   {clusters.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>

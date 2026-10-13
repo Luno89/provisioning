@@ -6,10 +6,11 @@ import {
   type Persona,
   type ToolDefinition,
 } from '@koala/agent-engine';
-import { seededPersonas } from '../extensions/seeds.js';
+import type { AgentDirectory } from '../engine-host/registries/agent-directory.js';
 import { withBuiltIns } from '../lib/ownership.js';
 import type { ImageStanding } from '../engine-host/sandboxes/image-builder.js';
 import { planWorkspace } from '../extensions/workspace-bases.js';
+import type { McpServerRecord } from '../lib/mcp-servers.js';
 
 export interface EditableTool extends ToolDefinition {
   mine: boolean;
@@ -22,9 +23,9 @@ export interface EngineToolServiceOptions {
     save(tool: ToolDefinition): Promise<void>;
     remove(ownerId: string | undefined, name: string): Promise<void>;
   };
-  personas: { list(ownerId?: string): Promise<Persona[]> };
+  agents: AgentDirectory;
   catalogue?: { list(ownerId: string): Promise<ToolDefinition[]> } | undefined;
-  builtInAgents?: readonly Persona[] | undefined;
+  servers?: ((ownerId: string) => Promise<readonly McpServerRecord[]>) | undefined;
   implemented: ReadonlySet<string>;
   images?: {
     start(plan: NonNullable<ReturnType<typeof planFor>>): Promise<ImageStanding>;
@@ -59,7 +60,7 @@ export function toolProblems(
   const problems = checkDefinition(whole).map((problem) => problem.message);
 
   if (!whole.command?.trim() && !known.implemented.has(whole.name)) {
-    problems.push('nothing here runs this tool, so it needs a command to run in the workspace');
+    problems.push('nothing here runs this tool, so it needs a command to run in the workspace; an MCP server is added to the catalogue of MCP servers instead');
   }
 
   if (whole.install && !VIA.includes(whole.install.via)) {
@@ -87,7 +88,7 @@ export class EngineToolService {
   }
 
   private async agents(ownerId: string): Promise<Persona[]> {
-    return visibleAgents([...(this.options.builtInAgents ?? seededPersonas()), ...(await this.options.personas.list(ownerId))], ownerId);
+    return visibleAgents(await this.options.agents.agents(ownerId, { withHidden: true }), ownerId);
   }
 
   private async visible(ownerId: string): Promise<ToolDefinition[]> {
@@ -102,7 +103,7 @@ export class EngineToolService {
       .map((tool) => ({
         ...tool,
         mine: tool.ownerId === ownerId,
-        grantedTo: personas.filter((persona) => persona.tools?.includes(tool.name)).map((persona) => persona.slug),
+        grantedTo: personas.filter((persona) => persona.tools.includes(tool.name)).map((persona) => persona.slug),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
@@ -133,21 +134,28 @@ export class EngineToolService {
     const mine = (await this.options.tools.list(ownerId)).find((tool) => tool.name === name && tool.ownerId === ownerId);
     if (!mine) return false;
 
+    const holders = await this.holders(ownerId, name);
     await this.options.tools.remove(ownerId, name);
-    await this.rebuild(ownerId, name);
+    if (!(await this.visible(ownerId)).some((tool) => tool.name === name)) await this.options.agents.forgetTool(ownerId, name);
+    await this.rebuild(ownerId, name, holders);
     return true;
   }
 
-  private async rebuild(ownerId: string, name: string): Promise<{ rebuilding: string[]; failed: WorkspaceBuildFailure[] }> {
+  private async holders(ownerId: string, name: string): Promise<string[]> {
+    return (await this.agents(ownerId)).filter((persona) => persona.tools.includes(name)).map((persona) => persona.slug);
+  }
+
+  private async rebuild(ownerId: string, name: string, held?: readonly string[]): Promise<{ rebuilding: string[]; failed: WorkspaceBuildFailure[] }> {
     if (!this.options.images) return { rebuilding: [], failed: [] };
 
-    const [tools, personas] = await Promise.all([this.visible(ownerId), this.agents(ownerId)]);
-    const affected = personas.filter((persona) => persona.tools?.includes(name));
+    const [tools, personas, servers] = await Promise.all([this.visible(ownerId), this.agents(ownerId), this.options.servers?.(ownerId) ?? Promise.resolve([])]);
+    const wanted = new Set(held ?? personas.filter((persona) => persona.tools.includes(name)).map((persona) => persona.slug));
+    const affected = personas.filter((persona) => wanted.has(persona.slug));
     const rebuilding: string[] = [];
     const failed: WorkspaceBuildFailure[] = [];
 
     for (const persona of affected) {
-      const plan = planWorkspace(persona, tools);
+      const plan = planWorkspace(persona, tools, servers);
       if (!plan) continue;
 
       // Taken the same way AgentService.save takes it: a workspace that cannot start building is

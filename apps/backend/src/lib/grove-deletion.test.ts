@@ -17,6 +17,9 @@ const world: GroveWorld = {
     { id: 'replan-l2', status: 'proposed', leafPlan: { treeId: 't1', leafId: 'l2', leafTitle: 'l2', mode: 'replan', why: 'w', brief: 'b', tasks: [] } },
     { id: 'chatted', status: 'rejected', conversationId: 'c1', plan: { tree: { name: 'N', type: 'x' }, planDoc: '', branches: [] } },
     { id: 'elsewhere', status: 'proposed', plan: { treeId: 'other', planDoc: '', branches: [] } },
+    { id: 'change-l3', status: 'proposed', change: { treeId: 't1', why: 'w', edit: { leafId: 'l3', title: 'T' }, before: [], outcome: [] } },
+    { id: 'cancel-l2', status: 'proposed', change: { treeId: 't1', why: 'w', cancel: ['l2'], before: [], outcome: [] } },
+    { id: 'add-b2', status: 'proposed', change: { treeId: 't1', why: 'w', add: { branchId: 'b2', branchTitle: 'B2', leaves: [] }, before: [], outcome: [] } },
   ],
   conversations: [{ id: 'c1', treeId: 't1' }, { id: 'c2', treeId: 'other' }, { id: 'c3' }],
 };
@@ -28,7 +31,7 @@ describe('deletionScope', () => {
     expect(scope.branchIds).toEqual(['b1', 'b2']);
     expect(scope.leafIds.sort()).toEqual(['l1', 'l2', 'l3']);
     expect(scope.taskIds.sort()).toEqual(['k1', 'k2', 'k3']);
-    expect(scope.proposalIds.sort()).toEqual(['chatted', 'grow', 'origin', 'replan-l1', 'replan-l2']);
+    expect(scope.proposalIds.sort()).toEqual(['add-b2', 'cancel-l2', 'change-l3', 'chatted', 'grow', 'origin', 'replan-l1', 'replan-l2']);
     expect(scope.adoptingProposalIds).toEqual(['replan-l1']);
     expect(scope.conversationIds).toEqual(['c1']);
   });
@@ -39,15 +42,16 @@ describe('deletionScope', () => {
     expect(scope.branchIds).toEqual(['b1']);
     expect(scope.leafIds.sort()).toEqual(['l1', 'l3']);
     expect(scope.taskIds.sort()).toEqual(['k1', 'k2']);
-    expect(scope.proposalIds).toEqual(['replan-l1']);
+    expect(scope.proposalIds).toEqual(['replan-l1', 'change-l3']);
     expect(scope.conversationIds).toEqual([]);
+    expect(deletionScope({ kind: 'branch', id: 'b2' }, world).proposalIds).toEqual(['replan-l2', 'cancel-l2', 'add-b2']);
   });
 
-  it('takes a leaf with its tasks and its leaf plans', () => {
+  it('takes a leaf with its tasks, its leaf plans and the changes proposed to it', () => {
     const scope = deletionScope({ kind: 'leaf', id: 'l3' }, world);
     expect(scope.branchIds).toEqual([]);
     expect(scope.leafIds).toEqual(['l3']);
     expect(scope.taskIds).toEqual(['k2']);
-    expect(scope.proposalIds).toEqual([]);
+    expect(scope.proposalIds).toEqual(['change-l3']);
   });
 });

@@ -1,6 +1,6 @@
 import type { WorkflowClient } from '@temporalio/client';
 import { EngineUnavailableError, type StartRunRequest, type StartedRun } from './registries/run-starter.js';
-import { groveRunWorkflowId, type AgentRunOutcome, type GroveRunResult } from './temporal/contracts.js';
+import { RUN_ID_MEMO, groveRunId, groveRunWorkflowId, runStamp, type AgentRunOutcome, type GroveRunResult } from './temporal/contracts.js';
 import { failureReason } from '../lib/temporal-failure.js';
 import type { GroveRunLauncher } from '../services/GroveRunService.js';
 import type { GroveRunStatus } from '../services/TemporalBridge.js';
@@ -50,7 +50,7 @@ export function createGroveLauncher(deps: GroveLauncherDeps): GroveRunLauncher {
           ownerId,
           agentSlug,
           message: 'Grow the tree.',
-          runId: workflowId,
+          runId: groveRunId(treeId, runStamp()),
           bound: { treeId },
         });
         return { started: true, workflowId };
@@ -73,17 +73,19 @@ export function createGroveLauncher(deps: GroveLauncherDeps): GroveRunLauncher {
         throw err;
       }
       const startedAt = described.startTime.toISOString();
+      const remembered = described.memo?.[RUN_ID_MEMO];
+      const turnId = typeof remembered === 'string' ? remembered : groveRunWorkflowId(treeId);
       const closedAt = described.closeTime?.toISOString();
       const status = described.status.name;
-      if (status === 'RUNNING') return { state: 'running', startedAt };
+      if (status === 'RUNNING') return { state: 'running', startedAt, turnId };
       if (status === 'COMPLETED') {
         const read = resultOf(treeId, await handle.result() as AgentRunOutcome);
         return 'result' in read
-          ? { state: 'finished', startedAt, ...(closedAt ? { closedAt } : {}), result: read.result }
-          : { state: 'failed', startedAt, ...(closedAt ? { closedAt } : {}), reason: read.reason };
+          ? { state: 'finished', startedAt, ...(closedAt ? { closedAt } : {}), result: read.result, turnId }
+          : { state: 'failed', startedAt, ...(closedAt ? { closedAt } : {}), reason: read.reason, turnId };
       }
       const said = await handle.result().then(() => undefined, (err: unknown) => err);
-      return { state: 'failed', startedAt, ...(closedAt ? { closedAt } : {}), reason: failureReason(status, said) };
+      return { state: 'failed', startedAt, ...(closedAt ? { closedAt } : {}), reason: failureReason(status, said), turnId };
     },
 
     async signalGroveRun(treeId, which, ...args) {

@@ -200,6 +200,15 @@ export function createTaskTools(options: TaskToolOptions): Record<string, ToolHa
       };
     },
 
+    async task_status({ parsed, caller }): Promise<ToolOutcome> {
+      if (!caller.ownerId) return refuse('this run has no owner');
+      const taskId = asString(parsed, 'taskId') ?? asString(parsed, 'id');
+      if (!taskId) return refuse('this call needs a "taskId"');
+      const task = (await options.store.list(caller.ownerId)).find((candidate) => candidate.id === taskId);
+      if (!task) return refuse(`there is no task called "${taskId}"`);
+      return { ok: true, digest: `${task.title} is ${task.status}`, content: task.status };
+    },
+
     async start_task({ parsed, caller }): Promise<ToolOutcome> {
       if (!caller.ownerId) return refuse('this run has no owner');
 

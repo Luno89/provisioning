@@ -28,7 +28,7 @@ import {
 import { canvasContextFor } from '../../lib/procedure-drafts'
 import type { CanvasContext } from '../../lib/procedure-canvas'
 import { agentKeys, deleteAgent, listAgents, listGrantableTools, saveAgent, type Agent } from '../../api/agents'
-import { listMcpServers, mcpKeys, setMcpToolHint, type McpHintChoice } from '../../api/mcp'
+import { addMcpServer, captureMcpServer, getMcpCatalogue, listMcpServers, mcpKeys, removeMcpServer, saveMcpServer, type McpServer, type McpServerChange } from '../../api/mcp'
 import { egressKeys, listEgressGrants, revokeEgress } from '../../api/egress'
 import {
   deleteEngineTool,
@@ -161,18 +161,37 @@ export function useMcpServerList() {
   return useQuery({ queryKey: mcpKeys.servers(), queryFn: listMcpServers })
 }
 
-export function useMcpToolHint() {
-  const qc = useQueryClient()
-  const mutation = useMutation({
-    mutationFn: ({ server, tool, choice }: { server: string; tool: string; choice: McpHintChoice }) => setMcpToolHint(server, tool, choice),
-    onSuccess: (servers) => { qc.setQueryData(mcpKeys.servers(), servers) },
+export function useMcpCatalogue(options: { polling?: boolean } = {}) {
+  return useQuery({
+    queryKey: mcpKeys.catalogue(),
+    queryFn: getMcpCatalogue,
+    refetchInterval: (query) => (options.polling && query.state.data?.servers.some((server) => server.status.state === 'capturing') ? 4_000 : false),
   })
-  return {
-    choose: (server: string, tool: string, choice: McpHintChoice) => mutation.mutate({ server, tool, choice }),
-    busy: mutation.isPending,
-    error: mutation.error,
-  }
 }
+
+function useCatalogueChange<T>(change: (input: T) => Promise<unknown>, onDone?: (result: unknown) => void) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: change,
+    onSuccess: (result) => {
+      void qc.invalidateQueries({ queryKey: mcpKeys.all })
+      void qc.invalidateQueries({ queryKey: agentKeys.all })
+      onDone?.(result)
+    },
+  })
+}
+
+export const useAddMcpServer = (onAdded?: (server: McpServer) => void) =>
+  useCatalogueChange(addMcpServer, (server) => onAdded?.(server as McpServer))
+
+export const useSaveMcpServer = (id: string) =>
+  useCatalogueChange((change: McpServerChange) => saveMcpServer(id, change))
+
+export const useCaptureMcpServer = () =>
+  useCatalogueChange(captureMcpServer)
+
+export const useRemoveMcpServer = (onRemoved?: () => void) =>
+  useCatalogueChange(removeMcpServer, () => onRemoved?.())
 
 export function useGrantableTools() {
   return useQuery({ queryKey: agentKeys.tools, queryFn: listGrantableTools })
@@ -293,10 +312,13 @@ export function useEngineAgents() {
   return useQuery({ queryKey: engineKeys.agents(), queryFn: listEngineAgents })
 }
 
+export const LIVE_TRACES_MS = 3000
+
 export function useRunTraces(runId: string | undefined, finished: boolean) {
   return useQuery({
     queryKey: engineKeys.traces(runId ?? ''),
     queryFn: () => listRunTraces(runId!),
-    enabled: Boolean(runId) && finished,
+    enabled: Boolean(runId),
+    refetchInterval: finished ? false : LIVE_TRACES_MS,
   })
 }

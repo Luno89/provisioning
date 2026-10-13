@@ -41,6 +41,12 @@ describe('a regression', () => {
     expect(regressionsIn([{ scenarioId: 'a', passed: false }, { scenarioId: 'b', passed: false }, { scenarioId: 'c', passed: false }, { scenarioId: 'd', passed: false }], earlier)).toEqual(['a', 'b']);
   });
 
+  it('compares a check only with earlier results on the same model, when both say which', () => {
+    const earlier = [{ results: [{ scenarioId: 'a', passed: true, model: 'old/m' }, { scenarioId: 'b', passed: true }, { scenarioId: 'c', passed: true, model: 'qwen/q' }] }];
+
+    expect(regressionsIn([{ scenarioId: 'a', passed: false, model: 'qwen/q' }, { scenarioId: 'b', passed: false, model: 'qwen/q' }, { scenarioId: 'c', passed: false, model: 'qwen/q' }], earlier)).toEqual(['b', 'c']);
+  });
+
   it('is never a scenario that passes now', () => {
     expect(regressionsIn([{ scenarioId: 'a', passed: true }], [{ results: [{ scenarioId: 'a', passed: true }] }])).toEqual([]);
   });

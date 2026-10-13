@@ -6,7 +6,7 @@ export type LeafState = 'todo' | 'blocked' | 'running' | 'claimed' | 'verified' 
 
 export const BOARD_COLUMNS: { id: LeafState; label: string; hint: string }[] = [
   { id: 'todo', label: 'To do', hint: 'Waiting to start' },
-  { id: 'blocked', label: 'Blocked', hint: 'Waiting on other work' },
+  { id: 'blocked', label: 'Blocked', hint: 'Waiting on other work, or on its workspace being rebuilt' },
   { id: 'running', label: 'Running', hint: 'In a sandbox now' },
   { id: 'claimed', label: 'Claimed', hint: 'The agent says it worked. Nothing checked it.' },
   { id: 'verified', label: 'Verified', hint: 'A check ran and passed' },
@@ -23,11 +23,11 @@ export function blockedBy<T extends { id: string; status: LeafStatus }>(
 }
 
 export function stateFor(
-  leaf: { status: LeafStatus; verified?: boolean; dependsOn?: string[] },
+  leaf: { status: LeafStatus; verified?: boolean; dependsOn?: string[]; waitingFor?: { reason: string; since: string; stuck?: string | undefined } | undefined },
   all: { id: string; status: LeafStatus }[],
 ): LeafState | undefined {
   switch (leaf.status) {
-    case 'pending': return blockedBy(leaf, all).length > 0 ? 'blocked' : 'todo';
+    case 'pending': return leaf.waitingFor || blockedBy(leaf, all).length > 0 ? 'blocked' : 'todo';
     case 'running': return 'running';
     case 'claimed': return 'claimed';
     case 'failed': return 'failed';
@@ -56,7 +56,10 @@ export interface Leaf {
   dependsOn?: string[];
   tasks?: string[];
   replans?: number;
+  priority?: number;
+  runId?: string;
   attempts?: LeafAttempt[];
+  waitingFor?: { reason: string; since: string; stuck?: string | undefined };
   findings?: string;
   claim?: { evidence: string; commit?: string; files?: string[]; findings?: string; runs?: string[]; at: string };
   verified?: boolean;

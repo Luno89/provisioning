@@ -14,6 +14,7 @@ const memory = (over: Partial<MemoryItem>): MemoryItem => ({
 
 const tools = () => createMemoryTools({
   agents: async () => ['koala', 'executor'],
+  models: async () => ['qwen/q', 'old/m'],
   store: {
     list: async (ownerId) => [...bank.values()].filter((item) => item.ownerId === ownerId),
     save: async (item) => { bank.set(item.id, item); },
@@ -74,6 +75,39 @@ describe('save_memory', () => {
   it('refuses to replace a memory that is not the person\'s, and saves nothing', async () => {
     expect((await call('save_memory', { text: 'x', replaces: 'm2' })).ok).toBe(false);
     expect(bank.size).toBe(2);
+  });
+});
+
+describe('a memory kept for one model', () => {
+  it('is saved for the model the keeper names, and found as such', async () => {
+    const out = await call('save_memory', { title: 'Arguments as objects', text: 'It sends nested arguments as JSON text; send them as objects.', category: 'lessons_learned', scope: 'global', model: 'qwen/q' });
+
+    expect(out.ok).toBe(true);
+    expect(out.digest).toBe('remembered Arguments as objects for qwen/q');
+    expect(bank.get('new-1')).toMatchObject({ model: 'qwen/q', scope: 'global' });
+    expect((await call('search_memories', { query: 'nested arguments' })).content).toContain('[lessons_learned, global, only for qwen/q] Arguments as objects');
+  });
+
+  it('is refused for a model the person does not have, saying which they do', async () => {
+    const out = await call('save_memory', { text: 'Something.', model: 'made/up' });
+
+    expect(out.ok).toBe(false);
+    expect(out.content).toBe('"made/up" is not one of the person\'s models; name the model exactly as read_run shows it, or leave model out');
+    expect(bank.has('new-1')).toBe(false);
+  });
+
+  it('is not the same memory as one that holds for every model', async () => {
+    await call('save_memory', { title: 'DNS lives at Cloudflare', text: 'The person manages DNS for their domain at Cloudflare.', model: 'qwen/q', scope: 'global' });
+
+    expect(bank.get('new-1')).toMatchObject({ model: 'qwen/q' });
+  });
+
+  it('can be a practice, tried and given on that model only', async () => {
+    const out = await call('propose_practice', { agent: 'executor', text: 'Quote paths with spaces.', why: 'run r-3', model: 'old/m' });
+
+    expect(out.content).toBe('Proposed new-1 for executor on old/m; it is on trial until the bench has run executor\'s scenarios with it on old/m.');
+    expect(bank.get('new-1')).toMatchObject({ category: 'practice', agent: 'executor', model: 'old/m', status: 'trial' });
+    expect((await call('propose_practice', { agent: 'executor', text: 'Quote paths with spaces.', why: 'run r-3', model: 'nope' })).ok).toBe(false);
   });
 });
 

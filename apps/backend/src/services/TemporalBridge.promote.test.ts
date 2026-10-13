@@ -53,4 +53,13 @@ describe('TemporalBridge.promoteProjectBuild', () => {
     expect(saved?.deploymentId).toBeUndefined();
     expect(saved?.promotedAt).toBeUndefined();
   });
+
+  it('deploys a build as the project\'s owner, so the person can see and remove the app it makes', async () => {
+    const deploy = vi.spyOn(bridge, 'deployApp').mockResolvedValue({ id: 'wf-1', resourceId: 'demo', event: 'app-deploy' });
+
+    await bridge.promoteProjectBuild({ ...project, ownerId: 'owner-7' }, run);
+
+    expect(deploy).toHaveBeenCalledWith(expect.objectContaining({ gitappProjectId: 'proj-1' }), 'owner-7');
+  });
 });
+

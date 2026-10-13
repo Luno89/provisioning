@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { type Persona } from '@koala/agent-engine';
 import { BUILT_IN_GROUPS, type Procedure } from '@koala/agent-engine/procedure';
-import { seededPersonas, seededProcedures } from '../../extensions/seeds.js';
+import { seededAgents, seededProcedures } from '../../extensions/seeds.js';
 
 const nodesOf = (procedure: Procedure) => {
   const groups = new Map([...BUILT_IN_GROUPS, ...procedure.groups].map((group) => [group.id, group]));
@@ -27,7 +27,7 @@ export function agentsHandedWorkBy(procedure: Procedure): string[] {
     .flatMap((node) => (textSetting(node, 'agent') ? [textSetting(node, 'agent')!] : [])))].sort();
 }
 
-const pairs = seededPersonas().flatMap((persona: Persona) => {
+const pairs = seededAgents().flatMap((persona: Persona) => {
   const procedure = seededProcedures().find((entry) => entry.id === persona.procedure);
   return procedure ? [{ persona, procedure }] : [];
 });

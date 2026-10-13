@@ -132,3 +132,55 @@ describe('what the model is told after changing a file', () => {
     expect(files).toEqual({ 'x.md': '' });
   });
 });
+
+describe('running a command', () => {
+  const recording = (result: { stdout: string; stderr: string; exitCode: number; stopped?: 'timeout' | 'cancelled' } = { stdout: 'out', stderr: '', exitCode: 0 }) => {
+    const seen: Record<string, unknown>[] = [];
+    const driver = {
+      handle: () => ({ id: 'sandbox-1', capabilities: { terminal: true, filesystem: true } }),
+      exec: async (request: Record<string, unknown>) => { seen.push(request); return result; },
+      readFile: async () => '',
+      writeFile: async () => undefined,
+      listDir: async () => [],
+      deleteFile: async () => undefined,
+    };
+    return { seen, driver: driver as never };
+  };
+  const run = (driver: never, args: Record<string, unknown>, signal?: AbortSignal) => executeTool({
+    name: 'run_command',
+    arguments: JSON.stringify(args),
+    granted: ['run_command'],
+    catalogue: [{ name: 'run_command', description: 'run', binding: 'environment' as const, requires: { terminal: true } }],
+    driver,
+    ...(signal ? { signal } : {}),
+  });
+
+  it('lets it run until it ends unless the call sets timeoutSeconds, and hands it the run\'s stop', async () => {
+    const { seen, driver } = recording();
+    const stop = new AbortController();
+    await run(driver, { command: 'npm test' }, stop.signal);
+    await run(driver, { command: 'npm test', timeoutSeconds: 90 });
+    await run(driver, { command: 'npm test', timeoutSeconds: '2.5' });
+
+    expect(seen[0]).toEqual({ command: 'npm test', untimed: true, signal: stop.signal });
+    expect(seen[1]).toEqual({ command: 'npm test', timeoutMs: 90_000 });
+    expect(seen[2]).toEqual({ command: 'npm test', timeoutMs: 3_000 });
+  });
+
+  it('refuses a timeout that is not a positive number of seconds', async () => {
+    const { seen, driver } = recording();
+    for (const timeoutSeconds of [0, -5, 'soon']) {
+      const outcome = await run(driver, { command: 'npm test', timeoutSeconds });
+      expect(outcome.ok).toBe(false);
+      expect(outcome.content).toContain('"timeoutSeconds" has to be a number of seconds above zero');
+    }
+    expect(seen).toEqual([]);
+  });
+
+  it('says when it was stopped, and why, and counts it as failed', async () => {
+    const timedOut = await run(recording({ stdout: 'half', stderr: '', exitCode: 137, stopped: 'timeout' }).driver, { command: 'serve', timeoutSeconds: 5 });
+    expect(timedOut).toMatchObject({ ok: false, content: 'half\n[stopped after 5s, the timeoutSeconds this call set; everything it started was stopped too]' });
+    const cancelled = await run(recording({ stdout: '', stderr: '', exitCode: 0, stopped: 'cancelled' }).driver, { command: 'serve' });
+    expect(cancelled).toMatchObject({ ok: false, content: '[stopped because the run was stopped; everything it started was stopped too]' });
+  });
+});

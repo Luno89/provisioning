@@ -384,6 +384,19 @@ describe('AgentRunWorkflow', () => {
     expect(published(acts)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'notice', message: 'Which database?' })]));
   }, 60_000);
 
+  it('takes only one of the answers it offered, and goes on waiting through any other', async () => {
+    const choosing: Procedure = { ...WAITING, nodes: WAITING.nodes.map((node) => (node.id === 'ask' ? { ...node, settings: { ...node.settings, choices: ['Install it', 'Do not install'] } } : node)) };
+    const acts = activities({ script: [{ content: 'unused' }] });
+
+    const result = await runWorkflow(input('koala', choosing), acts, async (handle) => {
+      await handle.signal(answerSignal, { nodeId: 'ask', value: 'rm -rf /' });
+      await handle.signal(answerSignal, { nodeId: 'ask', value: 'Do not install' });
+    });
+
+    expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'Do not install' } });
+    expect(published(acts)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'notice', message: 'Which database?', choices: ['Install it', 'Do not install'] })]));
+  }, 60_000);
+
   it('gives up when nobody answers in time', async () => {
     const result = await runWorkflow(input('koala', WAITING), activities({ script: [{ content: 'unused' }] }));
 

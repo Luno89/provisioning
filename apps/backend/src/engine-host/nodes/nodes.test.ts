@@ -23,7 +23,7 @@ import { procedureBuilder } from '@koala/agent-engine/procedure-builder';
 import { createProcedureExecutor, withTemperature, type HostNodeServices } from './index.js';
 import { inMemoryConversations } from './conversation-nodes.js';
 import { INTERACTIVE_CHAT_V4 } from '@koala/agent-engine/procedure';
-import { seededPersonas } from '../../extensions/seeds.js';
+import { seededAgents } from '../../extensions/seeds.js';
 
 const CATALOGUE: ToolContract[] = [
   { name: 'run_command', description: 'Run a shell command', binding: 'environment', requires: { terminal: true }, usageGuidance: 'Prefer a dedicated tool when one fits.' },
@@ -69,7 +69,7 @@ const CEILINGED: AgentDefinition = {
 
 const LONG_RUNNER: AgentDefinition = { ...SANDBOXED, slug: 'long-runner', name: 'Long runner', budget: { maxRounds: 40 }, tools: ['read_file'], agents: [] };
 
-const PERSONAS = [...seededPersonas(), SANDBOXED, CEILINGED, LONG_RUNNER];
+const PERSONAS = [...seededAgents(), SANDBOXED, CEILINGED, LONG_RUNNER];
 
 const PROVIDER = {
   id: 'tabby',
@@ -425,6 +425,22 @@ describe('running tool-rounds node by node', () => {
 
     expect(model.bodies()[0]!.messages[0]!.content).toContain('- Registry: Images are pushed to the in-cluster Gitea registry.');
   });
+
+  it('puts a memory kept for one model only in that model\'s prompt', async () => {
+    const kept = (id: string, title: string, model?: string): MemoryItem => ({
+      id, ownerId: 'user-1', category: 'lessons_learned', scope: 'global', status: 'active', ...(model ? { model } : {}),
+      title, text: `${title} applies.`, createdAt: '2026-09-01', updatedAt: '2026-09-01',
+    });
+    const { services } = world({ memories: [kept('m1', 'Everyone'), kept('m2', 'This model', PROVIDER.model), kept('m3', 'Another model', 'someone/else')] });
+    const model = stubModel(answer('ok'));
+
+    await runV2(services, 'research');
+
+    const system = model.bodies()[0]!.messages[0]!.content;
+    expect(system).toContain('- Everyone: Everyone applies.');
+    expect(system).toContain('- This model: This model applies.');
+    expect(system).not.toContain('Another model');
+  });
 });
 
 describe('host nodes', () => {
@@ -610,8 +626,20 @@ describe('doing one task', () => {
     expect(decided!.messages.at(-1)?.content).toContain('Verdict: met. The file holds the word.');
     expect(toolRuns.mock.calls.map(([call]) => [call!.name, JSON.parse(call!.arguments)])).toEqual([
       ['start_task', { taskId: 'task-1' }],
+      ['task_status', { taskId: 'task-1' }],
       ['mark_done', { taskId: 'task-1', evidence: 'I wrote hello.txt with the word hello in it.' }],
     ]);
+  });
+
+  it('stops when the model said the task waits, judging and recording nothing', async () => {
+    const { services, toolRuns } = world({ tools: async (call: { name: string }) => (call.name === 'task_status' ? { ok: true, digest: 'Write hello.txt is waiting', content: 'waiting' } : { ok: true, digest: 'done', content: 'done' }) });
+    const model = stubModel(answer('The workspace is being rebuilt with what I need; the task waits.'));
+
+    const result = await doTask(services);
+
+    expect(result).toMatchObject({ outcome: 'ok', reason: 'the task waits for something it asked for; it is taken up again when that is there' });
+    expect(model.bodies()).toHaveLength(1);
+    expect(toolRuns.mock.calls.map(([call]) => call!.name)).toEqual(['start_task', 'task_status']);
   });
 
   it('marks the task failed, saying why, when the verdict is not a pass', async () => {
@@ -623,6 +651,7 @@ describe('doing one task', () => {
     expect(result).toMatchObject({ outcome: 'failed', reason: 'the judge did not accept the work' });
     expect(toolRuns.mock.calls.map(([call]) => [call!.name, JSON.parse(call!.arguments)])).toEqual([
       ['start_task', { taskId: 'task-1' }],
+      ['task_status', { taskId: 'task-1' }],
       ['mark_failed', { taskId: 'task-1', reason: 'no\nThe judge found no evidence the file exists.' }],
     ]);
   });

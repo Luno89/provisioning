@@ -47,4 +47,11 @@ describe('retrying a failed leaf', () => {
     expect(reset.review).toBeUndefined();
     expect(reopened).toEqual([{ id: 'k1', status: 'accepted', updatedAt: 't2' }]);
   });
+
+  it('takes it out of waiting on its workspace too, its waiting tasks worked again', () => {
+    const waiting = leaf({ status: 'failed', updatedAt: 't1', waitingFor: { reason: 'waits for jq', since: 't0' } });
+    const { leaf: reset, tasks: reopened } = resetForRetry(waiting, [{ id: 'k1', status: 'waiting', updatedAt: 't1' }], 't2');
+    expect(reset.waitingFor).toBeUndefined();
+    expect(reopened).toEqual([{ id: 'k1', status: 'accepted', updatedAt: 't2' }]);
+  });
 });

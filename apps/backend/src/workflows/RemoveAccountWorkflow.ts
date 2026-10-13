@@ -1,4 +1,5 @@
-import { defineQuery, proxyActivities, setHandler, sleep } from '@temporalio/workflow';
+import { defineQuery, executeChild, proxyActivities, setHandler, sleep } from '@temporalio/workflow';
+import { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
 import { DESTROY_RETRY } from '../lib/activity-retry.js';
 import { ACTIVITY_STOP_GRACE_MS, REMOVAL_PROGRESS_QUERY, type RemovalStep } from '../lib/account-removal.js';
 import type { AccountRemovalActivities, RemoveAccountArgs } from '../activities/RemoveAccountActivities.js';
@@ -13,6 +14,7 @@ export const removalProgressQuery = defineQuery<RemovalStep[]>(REMOVAL_PROGRESS_
 
 export interface AccountRemoved {
   stoppedWorkflows: number;
+  apps: number;
   secrets: number;
   meshDevices: number;
   repositories: boolean;
@@ -27,6 +29,9 @@ export async function RemoveAccountWorkflow(args: RemoveAccountArgs): Promise<Ac
   if (stoppedWorkflows > 0) await sleep(ACTIVITY_STOP_GRACE_MS);
   if (args.keepRunsFor) await steps.RemoveAccountKeepRunsActivity({ ownerId: args.ownerId, keepRunsFor: args.keepRunsFor });
   done.push('workflows');
+  const apps = await steps.RemoveAccountAppsActivity(args);
+  for (const app of apps) await executeChild(executeDestroyAppWorkflow, { workflowId: app.workflowId, taskQueue: app.taskQueue, args: [app.args] });
+  done.push('apps');
   await steps.RemoveAccountWorkspacesActivity(args);
   done.push('workspaces');
   const secrets = await steps.RemoveAccountSecretsActivity(args);
@@ -38,5 +43,5 @@ export async function RemoveAccountWorkflow(args: RemoveAccountArgs): Promise<Ac
   const records = await steps.RemoveAccountRecordsActivity(args);
   done.push('records');
 
-  return { stoppedWorkflows, secrets, meshDevices: mesh.devices, repositories, records };
+  return { stoppedWorkflows, apps: apps.length, secrets, meshDevices: mesh.devices, repositories, records };
 }

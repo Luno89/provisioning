@@ -38,6 +38,7 @@ export interface ScenarioDraft {
   choosesArgs: string
   repeats: string
   passAt: string
+  onBench: boolean
 }
 
 const listOf = (text: string): string[] =>
@@ -85,6 +86,7 @@ export function emptyDraft(agent = ''): ScenarioDraft {
     choosesArgs: '',
     repeats: '',
     passAt: '',
+    onBench: true,
   }
 }
 
@@ -130,6 +132,7 @@ export function draftOf(scenario: Scenario): ScenarioDraft {
     choosesArgs: jsonOf(scenario.expect.chooses?.args?.length ? scenario.expect.chooses.args : undefined),
     repeats: scenario.repeats === undefined ? '' : String(scenario.repeats),
     passAt: scenario.passAt === undefined ? '' : String(scenario.passAt),
+    onBench: scenario.onBench !== false,
   }
 }
 
@@ -272,6 +275,7 @@ export function scenarioFromDraft(draft: ScenarioDraft): DraftOutcome {
       ...(draft.turn ? { turn: true } : {}),
       ...(repeats !== undefined ? { repeats } : {}),
       ...(passAt !== undefined ? { passAt } : {}),
+      ...(draft.onBench ? {} : { onBench: false }),
       expect,
       ...(stages?.length && !draft.turn ? { then: stages } : {}),
     },

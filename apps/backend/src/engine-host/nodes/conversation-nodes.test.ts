@@ -6,7 +6,7 @@ import type { ConversationStore } from './conversation-nodes.js';
 import { storesFromDatabase } from '../host.js';
 import { MemoryDB } from '../../lib/memory-db.js';
 import type { Conversation, ConversationMessage } from '../../lib/conversations.js';
-import { openTurn } from '../../lib/conversations.js';
+import { NoNoteToAskError, NOTICE_PREFIX, openTurn } from '../../lib/conversations.js';
 
 const said = (over: Partial<ConversationMessage> & Pick<ConversationMessage, 'role' | 'content'>): ConversationMessage => ({
   at: '2026-09-20T00:00:00.000Z',
@@ -197,6 +197,66 @@ describe('a turn opened before its run and closed by it', () => {
     expect(turn.messages.map((one) => [one.role, one.content, one.runId])).toEqual([['user', 'earlier', undefined], ['user', 'and now?', 'r']]);
     expect(turn.liveTurn).toEqual({ runId: 'r', startedAt: 'then' });
     expect(openTurn(turn, { ownerId: 'user-1', conversationId: 'c-1', runId: 'r', message: 'and now?', now: 'later' })).toBe(turn);
+  });
+
+  it('loads the thread without the message its own run is answering, which the opening already carries', async () => {
+    const { kept } = store([opened()]);
+
+    const outcome = await nodes(kept).load.run(request('load-conversation', { values: { conversationId: 'c-1' } }, { id: '{{values.conversationId}}' })) as { outputs: { messages: { content: string }[]; history: { ends: number[] } } };
+
+    expect(outcome.outputs.messages.map((one) => one.content)).toEqual(['earlier']);
+    expect(outcome.outputs.history.ends).toEqual([1, 1]);
+    expect(loadedMessages(opened(), 'another-run').messages.map((one) => one.content)).toEqual(['earlier', 'and now?']);
+    const { liveTurn: _answered, ...closed } = opened();
+    expect(loadedMessages(closed, 'r').messages.map((one) => one.content)).toEqual(['earlier', 'and now?']);
+  });
+
+  it('answers a message posted earlier in place, rather than saying it again', () => {
+    const posted = { id: 'c-1', ownerId: 'user-1', title: 'Shop', createdAt: 'x', updatedAt: 'x', messages: [
+      said({ role: 'user', content: 'a note', at: 'noted' }),
+      said({ role: 'notice', content: 'a preview is ready' }),
+    ] } as Conversation;
+
+    const turn = openTurn(posted, { ownerId: 'user-1', conversationId: 'c-1', runId: 'r', message: 'a note', now: 'then', asks: 'noted' });
+
+    expect(turn.messages.map((one) => [one.role, one.content, one.runId])).toEqual([['user', 'a note', 'r'], ['notice', 'a preview is ready', undefined]]);
+    expect(turn.liveTurn).toEqual({ runId: 'r', startedAt: 'then' });
+    expect(loadedMessages(turn, 'r').messages.map((one) => one.content)).toEqual([`${NOTICE_PREFIX}a preview is ready`]);
+  });
+
+  it('says who wrote each message in a channel, and which posts were not to Koala, so it reads them as the discussion rather than requests', async () => {
+    const channel = { id: 'channel-p', ownerId: 'user-1', title: 'Shop', kind: 'channel', createdAt: 'x', updatedAt: 'x', messages: [
+      said({ role: 'user', author: { kind: 'person', id: 'user-1' }, content: 'we need e2e tests', at: 'one' }),
+      said({ role: 'user', author: { kind: 'person', id: 'user-2' }, content: 'agreed', at: 'two' }),
+      said({ role: 'user', author: { kind: 'person', id: 'user-1' }, content: '@koala what is live?', at: 'three', runId: 'earlier' }),
+      said({ role: 'assistant', content: 'slot a', at: 'four', runId: 'earlier' }),
+      said({ role: 'notice', author: { kind: 'platform' }, content: 'a preview is ready', at: 'five' }),
+    ] } as Conversation;
+    const { kept } = store([channel]);
+    const asked: string[][] = [];
+    const named: ConversationStore = { ...kept, names: async (ids) => { asked.push([...ids]); return { 'user-1': 'bo@example.com' }; } };
+
+    const outcome = await nodes(named).load.run(request('load-conversation', { values: { conversationId: 'channel-p' } }, { id: '{{values.conversationId}}' })) as { outputs: { messages: { content: string }[] } };
+
+    expect(asked).toEqual([['user-1', 'user-2']]);
+    expect(outcome.outputs.messages.map((one) => one.content)).toEqual([
+      'bo@example.com posted, not to you: we need e2e tests',
+      'Someone posted, not to you: agreed',
+      'bo@example.com: @koala what is live?',
+      'slot a',
+      `${NOTICE_PREFIX}a preview is ready`,
+    ]);
+    expect(loadedMessages({ ...channel, kind: undefined }).messages[0]!.content).toBe('we need e2e tests');
+    expect(loadedMessages({ ...channel, kind: 'item' }, undefined, { 'user-1': 'bo@example.com' }).messages[0]!.content).toBe('bo@example.com: we need e2e tests');
+  });
+
+  it('refuses to answer a posted message that is not there, was already asked about, or says something else', () => {
+    const asked = openTurn({ id: 'c-1', ownerId: 'user-1', title: 'Shop', createdAt: 'x', updatedAt: 'x', messages: [said({ role: 'user', content: 'a note', at: 'noted' })] } as Conversation, { ownerId: 'user-1', conversationId: 'c-1', runId: 'r', message: 'a note', now: 'then', asks: 'noted' });
+    const again = { ownerId: 'user-1', conversationId: 'c-1', runId: 'r2', now: 'later' };
+
+    expect(() => openTurn(asked, { ...again, message: 'a note', asks: 'noted' })).toThrow(NoNoteToAskError);
+    expect(() => openTurn(asked, { ...again, message: 'a note', asks: 'never' })).toThrow(NoNoteToAskError);
+    expect(() => openTurn({ ...asked, messages: [said({ role: 'user', content: 'a note', at: 'noted' })] }, { ...again, message: 'something else', asks: 'noted' })).toThrow(NoNoteToAskError);
   });
 
   it('opens a conversation that does not exist yet, named after the message', () => {

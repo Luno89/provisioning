@@ -17,8 +17,8 @@ export function Bindings({ value, onChange }: {
   return (
     <div className="space-y-6">
       <section>
-        <label className={label}>Default service bindings</label>
-        <p className="text-[11px] text-slate-500 mb-2">Names of the bindings every tree of this type gets by default (e.g. "gitea").</p>
+        <label className={label}>Depends on</label>
+        <p className="text-[11px] text-slate-500 mb-2">Services the app needs, by the name they are deployed under. Every deploy binds them into the app with their credentials; the tree&apos;s workspaces can reach them over the network, never their credentials.</p>
         <div className="flex flex-wrap gap-2 mb-2">
           {bindings.map((b, i) => (
             <span key={i} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--bark-900)] border border-[var(--bark-600)] text-[12px] text-slate-300">
@@ -29,12 +29,12 @@ export function Bindings({ value, onChange }: {
             </span>
           ))}
         </div>
-        <AddRow placeholder="binding name" onAdd={(name) => onChange({ defaultBindings: [...bindings, name] })} />
+        <AddRow placeholder="service name" onAdd={(name) => onChange({ defaultBindings: [...bindings, name] })} />
       </section>
 
       <section>
-        <label className={label}>Extra egress</label>
-        <p className="text-[11px] text-slate-500 mb-2">Network reachability beyond what the default bindings already imply.</p>
+        <label className={label}>Network</label>
+        <p className="text-[11px] text-slate-500 mb-2">What the tree&apos;s workspaces may reach beyond the services above, by address range or namespace.</p>
         <div className="space-y-2">
           {egress.map((rule, i) => (
             <div key={i} className={`${card} p-3 flex items-center gap-2`}>
@@ -89,7 +89,7 @@ export function Bindings({ value, onChange }: {
 
       <section>
         <label className={label}>Environment variables</label>
-        <p className="text-[11px] text-slate-500 mb-2">Fixed env vars every leaf of this type runs with.</p>
+        <p className="text-[11px] text-slate-500 mb-2">Plain values every leaf of this type runs with. Never a secret: a model works in the workspace; secrets belong under Secrets.</p>
         <div className="space-y-2">
           {env.map((e, i) => (
             <div key={i} className="flex items-center gap-2">

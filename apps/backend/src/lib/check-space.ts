@@ -1,3 +1,4 @@
+import type { McpServerRecord } from './mcp-servers.js';
 import type { UserMetadata } from './types.js';
 import type { MemoryItem } from './memory-store.js';
 import type { CheckScript } from './check-script.js';
@@ -68,4 +69,15 @@ export function spacePractices(memories: readonly MemoryItem[], person: string, 
   return memories
     .filter((memory) => memory.ownerId === person && memory.category === 'practice' && !memory.invalidAt && (memory.status === 'active' || memory.id === trial))
     .map((memory) => ({ ...memory, id: `${space}-${memory.id}`, ownerId: space, ...(memory.id === trial ? { status: 'active' as const } : {}) }));
+}
+
+export const worldServerId = (name: string): string => `world-${name}`;
+
+export function spaceServers(servers: readonly McpServerRecord[], space: string): McpServerRecord[] {
+  return servers
+    .filter((server) => !(server.runs.where === 'hosted' && 'deploymentId' in server.runs))
+    .map((server) => {
+      const { capturing: _capturing, ...rest } = server;
+      return { ...rest, ownerId: space };
+    });
 }

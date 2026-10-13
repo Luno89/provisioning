@@ -12,7 +12,7 @@ import {
 import { scopedPath, scopeRoot } from '@koala/engine-core';
 
 export interface SandboxBackend {
-  exec(input: { sandboxId: string; command: string; cwd?: string | undefined; timeoutMs?: number | undefined }): Promise<ExecResult>;
+  exec(input: { sandboxId: string; command: string; cwd?: string | undefined; timeoutMs?: number | undefined; untimed?: boolean | undefined; signal?: AbortSignal | undefined }): Promise<ExecResult>;
   readFile(input: { sandboxId: string; path: string }): Promise<string>;
   writeFile(input: { sandboxId: string; path: string; content: string }): Promise<void>;
   listDir(input: { sandboxId: string; path: string }): Promise<DirEntry[]>;
@@ -60,6 +60,8 @@ export function createSandboxDriver(options: SandboxDriverOptions): EnvironmentD
         command: request.command,
         ...(cwd ? { cwd } : {}),
         ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {}),
+        ...(request.untimed ? { untimed: true } : {}),
+        ...(request.signal ? { signal: request.signal } : {}),
       });
     },
 

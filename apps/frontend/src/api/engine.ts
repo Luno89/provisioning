@@ -42,23 +42,25 @@ export type EngineEvent =
   | { type: 'run.finished'; runId: string; at: string; outcome: string; reason?: string }
   | { type: 'node.entered'; runId: string; at: string; nodeId: string }
   | { type: 'node.exited'; runId: string; at: string; nodeId: string; via?: string }
-  | { type: 'model.requested'; runId: string; at: string; nodeId: string; toolNames: string[] }
+  | { type: 'model.requested'; runId: string; at: string; nodeId: string; model?: string; toolNames: string[] }
   | { type: 'thinking'; runId: string; at: string; nodeId: string; delta: string }
   | { type: 'content'; runId: string; at: string; nodeId: string; delta: string }
   | { type: 'tool.called'; runId: string; at: string; nodeId: string; callId: string; name: string; args: string }
   | { type: 'tool.result'; runId: string; at: string; nodeId: string; callId: string; ok: boolean; digest: string; artifacts?: Artifact[] | undefined; child?: ChildSteps | undefined }
   | { type: 'usage'; runId: string; at: string; nodeId: string; usage: Record<string, unknown> }
-  | { type: 'notice'; runId: string; at: string; level: 'info' | 'warn'; message: string; nodeId?: string }
+  | { type: 'notice'; runId: string; at: string; level: 'info' | 'warn'; message: string; nodeId?: string; choices?: string[] }
   | { type: 'node.traced'; runId: string; at: string; nodeId: string; trace: Record<string, unknown> }
   | { type: 'interrupted'; runId: string; at: string; reason: string }
 
 
-export type TaskStatus = 'proposed' | 'accepted' | 'running' | 'done' | 'failed' | 'dropped'
+export type TaskStatus = 'proposed' | 'accepted' | 'running' | 'waiting' | 'done' | 'failed' | 'dropped'
 
 export interface EngineTask {
   id: string
+  leafId?: string
   title: string
   intent?: string
+  description?: string
   doneMeans: string
   status: TaskStatus
   dependsOn: string[]
@@ -177,6 +179,7 @@ export async function startRun(input: {
   conversationId?: string
   modelId?: string
   procedure?: string
+  asks?: string
 }): Promise<StartedRun> {
   const { data } = await api.post<StartedRun>('/engine/runs', input)
   return data

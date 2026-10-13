@@ -3,8 +3,8 @@ import { describe, it, expect, vi } from 'vitest'
 import McpServersMenu from './McpServersMenu'
 
 const servers = [
-  { name: 'Gitea MCP', tools: [{ name: 'list_repos', readOnly: true, kind: 'read-only' as const, declared: 'read-only' as const, choice: 'server' as const }] },
-  { name: 'Docs', tools: [], unreachable: 'timeout' },
+  { name: 'gitea', tools: [{ name: 'list_repos', readOnly: true, kind: 'read-only' as const, declared: 'read-only' as const }] },
+  { name: 'docs', tools: [] },
 ]
 
 describe('McpServersMenu', () => {
@@ -12,12 +12,12 @@ describe('McpServersMenu', () => {
     const onChoose = vi.fn()
     const { rerender } = render(<McpServersMenu servers={servers} enabled={[]} busy={false} onChoose={onChoose} />)
     fireEvent.click(screen.getByRole('button', { name: 'MCP servers for this conversation' }))
-    expect(screen.getByText('not answering — timeout')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('checkbox', { name: /Gitea MCP/ }))
-    expect(onChoose).toHaveBeenLastCalledWith(['Gitea MCP'])
+    expect(screen.getByText('1 tool')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: /gitea/ }))
+    expect(onChoose).toHaveBeenLastCalledWith(['gitea'])
 
-    rerender(<McpServersMenu servers={servers} enabled={['Gitea MCP']} busy={false} onChoose={onChoose} />)
-    fireEvent.click(screen.getByRole('checkbox', { name: /Gitea MCP/ }))
+    rerender(<McpServersMenu servers={servers} enabled={['gitea']} busy={false} onChoose={onChoose} />)
+    fireEvent.click(screen.getByRole('checkbox', { name: /gitea/ }))
     expect(onChoose).toHaveBeenLastCalledWith([])
   })
 

@@ -22,15 +22,18 @@ const recalled = (memory: MemoryItem): RecalledMemory => ({
   text: memory.text,
   category: memory.category,
   scope: memory.scope === 'project' ? 'project' : 'global',
+  ...(memory.model ? { model: memory.model } : {}),
 });
 
 export function createMemoryNodes(services: HostNodeServices): NodeImplementation[] {
   return [
-    valueImplementation('recall-memory', async ({ node, run }) => {
+    valueImplementation('recall-memory', async ({ node, inputs, run }) => {
+      const model = (inputs.binding as { model?: unknown } | undefined)?.model;
       const all = await services.memories.list(run.launch.ownerId);
       const { kept, dropped } = selectForContext(all.filter(inScope(node.settings.scope)), run.launch.projectId, {
         maxChars: typeof node.settings.maxChars === 'number' ? node.settings.maxChars : DEFAULT_MEMORY_CHARS,
         agent: run.identity.agentId,
+        model: typeof model === 'string' && model ? model : undefined,
       });
 
       return { outputs: { memories: kept.map(recalled), text: renderMemoryContext(kept, dropped) } };

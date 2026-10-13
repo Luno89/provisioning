@@ -3,6 +3,7 @@ import type { ImageBuilder, ImageStanding } from './image-builder.js';
 import { mergeWorkspaceAgents } from './environments.js';
 import { GROVE_WORKSPACE_AGENTS } from './tree-workspaces.js';
 import { planWorkspace } from '../../extensions/workspace-bases.js';
+import type { McpServerRecord } from '../../lib/mcp-servers.js';
 
 export interface WorkspaceImage extends ImageStanding {
   agent: string;
@@ -19,6 +20,7 @@ export interface WarmImagesOptions {
   images: Pick<ImageBuilder, 'start' | 'standing'>;
   personas(ownerId?: string): Promise<Persona[]>;
   tools(ownerId?: string): Promise<ToolDefinition[]>;
+  servers?: ((ownerId: string) => Promise<readonly McpServerRecord[]>) | undefined;
   /** Everyone whose agents could run. Without it, only the owners who have rows of their own. */
   owners?(): Promise<string[]>;
   onProblem?: ((agent: string, problem: string) => void) | undefined;
@@ -38,11 +40,12 @@ export function sayWaiting(image: WorkspaceImage | undefined): string | undefine
 }
 
 export function createWorkspaceImages(options: WarmImagesOptions): WorkspaceImages {
+  const serversOf = async (ownerId: string | undefined): Promise<readonly McpServerRecord[]> => (ownerId && options.servers ? options.servers(ownerId) : []);
   const planned = async (ownerId?: string) => {
-    const [personas, tools] = await Promise.all([options.personas(ownerId), options.tools(ownerId)]);
+    const [personas, tools, servers] = await Promise.all([options.personas(ownerId), options.tools(ownerId), serversOf(ownerId)]);
 
     return personas.flatMap((persona) => {
-      const plan = planWorkspace(persona, tools);
+      const plan = planWorkspace(persona, tools, servers);
       return plan ? [{ agent: persona.slug, plan }] : [];
     });
   };
@@ -75,7 +78,7 @@ export function createWorkspaceImages(options: WarmImagesOptions): WorkspaceImag
       const [persona] = (await options.personas(ownerId)).filter((candidate) => candidate.slug === agentSlug);
       if (!persona) return undefined;
 
-      const plan = planWorkspace(persona, await options.tools(ownerId));
+      const plan = planWorkspace(persona, await options.tools(ownerId), await serversOf(ownerId));
       if (!plan) return undefined;
 
       const state = await options.images.standing(plan);
@@ -103,10 +106,10 @@ export function createWorkspaceImages(options: WarmImagesOptions): WorkspaceImag
       };
 
       for (const ownerId of owners) {
-        const [personas, tools] = await Promise.all([options.personas(ownerId), options.tools(ownerId)]);
+        const [personas, tools, servers] = await Promise.all([options.personas(ownerId), options.tools(ownerId), serversOf(ownerId)]);
 
         for (const persona of personas) {
-          const plan = planWorkspace(persona, tools);
+          const plan = planWorkspace(persona, tools, servers);
           if (plan && needsBuilding(plan)) want(plan.fingerprint, persona.slug);
         }
 
@@ -115,7 +118,7 @@ export function createWorkspaceImages(options: WarmImagesOptions): WorkspaceImag
           GROVE_WORKSPACE_AGENTS.map((slug) => personas.find((persona) => persona.slug === slug)),
           'grove-runner',
         );
-        const plan = shared ? planWorkspace(shared, tools) : undefined;
+        const plan = shared ? planWorkspace(shared, tools, servers) : undefined;
         if (plan && needsBuilding(plan)) want(plan.fingerprint, 'tree workspaces');
       }
 

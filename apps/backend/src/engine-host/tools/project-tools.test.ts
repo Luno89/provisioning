@@ -101,3 +101,46 @@ describe('proposing an app spec', () => {
     expect(proposals).toEqual([]);
   });
 });
+
+describe('what happened to a project\'s work after it landed', () => {
+  const releasing = (deployments: DeploymentMetadata[], releases: { commit: string; slot?: 'a' | 'b'; state: string; startedAt: string; reason?: string; e2e?: { state: string; summary?: string } }[]) => {
+    const handlers = createProjectTools({
+      stores: {
+        projects: { list: async () => [PROJECT] },
+        trees: { list: async () => [] },
+        runs: async () => RUNS,
+        deployments: async () => deployments,
+        clusters: async () => CLUSTERS,
+        appTypes: async () => [],
+        readPath: async () => null,
+        bindingCheck: async () => ({ problem: 'none' }),
+        proposals: { list: async () => [], save: async () => undefined },
+        releases: async () => releases.map((release, i) => ({ id: `r${i}`, ownerId: 'u1', projectId: 'p1', pipelineRunId: 'x', image: 'i:t', host: 'h', updatedAt: 't', ...release }) as never),
+      },
+    });
+    return (name: string) => handlers[name]!({ name, parsed: { projectId: 'p1' }, driver: undefined, caller: { ownerId: 'u1' } });
+  };
+
+  it('says what is live, that a preview waits for the person on the card, and how each release\'s browser tests went', async () => {
+    const call = releasing([], [
+      { commit: 'aaaaaaaa1', slot: 'a', state: 'live', startedAt: '2026-10-09T01:00:00Z', e2e: { state: 'passed', summary: '2 passed, 0 failed' } },
+      { commit: 'bbbbbbbb2', slot: 'b', state: 'preview', startedAt: '2026-10-09T02:00:00Z', e2e: { state: 'failed', summary: '1 passed, 1 failed' } },
+    ]);
+    const out = await call('project_releases');
+    expect(out.digest).toBe('billing: live aaaaaaaa, a preview waits');
+    expect(out.content).toContain('Live: aaaaaaaa in slot a.');
+    expect(out.content).toContain('Waiting for the person: bbbbbbbb is ready to preview in slot b. Cutting over or discarding it is theirs');
+    expect(out.content).toContain('- bbbbbbbb in slot b: preview; browser tests failed (1 passed, 1 failed)');
+  });
+
+  it('says so when a project has no releases', async () => {
+    expect((await releasing([], [])('project_releases')).content).toContain('billing has no releases');
+  });
+
+  it('gives an app\'s real addresses, on this machine, publicly and in preview, or says how the person opens it', async () => {
+    const app = { id: 'd1', name: 'billing', clusterId: 'c', strategy: 'helm', status: 'running', ownerId: 'u1', gitappProjectId: 'p1' } as DeploymentMetadata;
+    expect((await releasing([{ ...app, localExposureUrl: 'http://billing.localhost:8000', previewLocalUrl: 'http://billing-preview.localhost:8000' }], [])('get_project_url')).content)
+      .toContain('It is reached on this machine at http://billing.localhost:8000; its preview on this machine at http://billing-preview.localhost:8000.');
+    expect((await releasing([app], [])('get_project_url')).content).toContain('It is not exposed yet: the person opens it with "Open app" on the project\'s card');
+  });
+});

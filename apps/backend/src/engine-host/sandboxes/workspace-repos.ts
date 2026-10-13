@@ -17,6 +17,9 @@ const CONVERSATION_PREFIX = 'conversation-';
 export const CONVERSATION_DOCUMENTS = '/work';
 
 export const treeWorkspaceRunId = (treeId: string): string => `${TREE_PREFIX}${treeId}`;
+
+export const treeOfWorkspace = (workspaceRunId: string): string | undefined =>
+  workspaceRunId.startsWith(TREE_PREFIX) ? workspaceRunId.slice(TREE_PREFIX.length) : undefined;
 export const treeRepoName = (treeId: string): string => sanitiseRepoName(`tree-${treeId}`);
 
 export const conversationWorkspaceRunId = (conversationId: string): string => `${CONVERSATION_PREFIX}${conversationId}`;

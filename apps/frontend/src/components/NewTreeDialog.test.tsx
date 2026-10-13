@@ -8,12 +8,14 @@ vi.mock('../api/grove', async (importOriginal) => ({
   ...(await importOriginal<typeof groveApi>()),
   listTreeTypes: vi.fn(),
   createTree: vi.fn(),
+  getTreeTypeDescription: vi.fn().mockResolvedValue('Freeform project (type-1): no assumptions'),
   patchBranch: vi.fn(),
   patchTree: vi.fn(),
 }))
 
 const TYPES = [
   { id: 'type-1', label: 'Freeform project', summary: 'no assumptions', doneMeans: 'whatever the plan says', produces: 'service' },
+  { id: 'type-2', label: 'Research paper', summary: 'a written answer', doneMeans: 'every claim cited', produces: 'artefact' },
 ]
 
 function renderDialog(props: Partial<Parameters<typeof NewTreeDialog>[0]> = {}) {
@@ -47,5 +49,13 @@ describe('NewTreeDialog — plain creation', () => {
     renderDialog()
     await screen.findByText('Freeform project')
     expect(screen.getByRole('button', { name: /create/i })).toBeDisabled()
+  });
+
+  it('says a service type gets a project that builds and deploys, and an answer type none', async () => {
+    renderDialog()
+    fireEvent.click(await screen.findByText('Freeform project'))
+    expect(screen.getByText(/gets a project of its own: a repository whose every push builds and deploys to your cluster/)).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Research paper'))
+    expect(screen.getByText(/gets no project: nothing is built or deployed/)).toBeInTheDocument()
   });
 });

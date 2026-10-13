@@ -32,6 +32,7 @@ export interface RunWorkspace {
   grantedHosts?: string[] | undefined;
   persistent?: boolean | undefined;
   sharedBy?: 'conversation' | undefined;
+  coming?: { what: string[]; stage: string } | undefined;
 }
 
 export const REGISTRY_MIRROR = 'http://verdaccio.koala-registry.svc.cluster.local:4873';
@@ -198,6 +199,13 @@ export function describeWorkspace(workspace: RunWorkspace, worktree?: string, se
       ]),
     `- Available: ${workspace.provides.join(', ')}.`,
     `- NOT installed: ${absentFrom(workspace.provides).join(', ')}. Do not plan around them.`,
+    ...(workspace.coming
+      ? [
+        `- NOT here yet: ${workspace.coming.what.join('; ')}. The tree asked for it, and its workspace is ${workspace.coming.stage}.`,
+        '  Until that is published it is not in this container: do what does not need it, and if nothing is left, say the task',
+        '  waits with mark_waiting. Your run moves onto the rebuilt workspace at its next command once it is published.',
+      ]
+      : []),
   ].join('\n');
 }
 

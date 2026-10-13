@@ -1,3 +1,4 @@
+import { Context } from '@temporalio/activity';
 import { Worker, NativeConnection } from '@temporalio/worker';
 import { executeTool, type ToolContract } from '@koala/engine-core';
 import { createLocalFsDriver } from './local-fs-driver.js';
@@ -21,7 +22,7 @@ export interface DeviceToolOutcome {
 }
 
 export const DEVICE_TOOLS: ToolContract[] = [
-  { name: 'run_command', description: 'Run a shell command', binding: 'environment', requires: { terminal: true } },
+  { name: 'run_command', description: 'Run a shell command; it runs until it ends unless timeoutSeconds is given', binding: 'environment', requires: { terminal: true } },
   { name: 'read_file', description: 'Read a file', binding: 'environment', requires: { filesystem: true } },
   { name: 'write_file', description: 'Write a file', binding: 'environment', requires: { filesystem: true } },
   { name: 'list_dir', description: 'List a directory', binding: 'environment', requires: { filesystem: true } },
@@ -33,6 +34,16 @@ export interface DeviceActivitiesOptions {
   deviceId: string;
   languages?: string[];
 }
+
+export const HEARTBEAT_MS = 10_000;
+
+const activityContext = (): Context | undefined => {
+  try {
+    return Context.current();
+  } catch {
+    return undefined;
+  }
+};
 
 export function createDeviceActivities(options: DeviceActivitiesOptions) {
   return {
@@ -53,13 +64,16 @@ export function createDeviceActivities(options: DeviceActivitiesOptions) {
           : {}),
       });
 
+      const context = activityContext();
+      const beating = context ? setInterval(() => context.heartbeat(), HEARTBEAT_MS) : undefined;
       const outcome = await executeTool({
         name: args.name,
         arguments: args.arguments,
         granted: args.granted ?? [],
         catalogue: DEVICE_TOOLS,
         driver,
-      });
+        ...(context ? { signal: context.cancellationSignal } : {}),
+      }).finally(() => { if (beating) clearInterval(beating); });
 
       return {
         ok: outcome.ok,

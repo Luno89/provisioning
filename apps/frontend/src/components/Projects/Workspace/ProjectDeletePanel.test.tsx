@@ -11,7 +11,7 @@ vi.mock('../../../api/projects', async (importOriginal) => ({
 }))
 
 const PREVIEW = {
-  name: 'shop', repository: 'koala-bo/shop', trees: [{ id: 't1', name: 'Shop features', leaves: 2, conversations: 1 }], keptConversations: 1, builds: 0, blockers: [], state: { state: 'none' as const },
+  name: 'shop', repository: 'koala-bo/shop', trees: [{ id: 't1', name: 'Shop features', leaves: 2, conversations: 1 }], keptConversations: 1, builds: 0, apps: [], state: { state: 'none' as const },
 }
 
 const renderPanel = (onDeleted = vi.fn()) => {
@@ -44,12 +44,12 @@ describe('deleting a project from its page', () => {
     expect(onDeleted).toHaveBeenCalled()
   }, 15_000)
 
-  it('names what stands in the way instead of offering to delete', async () => {
-    vi.mocked(projectsApi.getProjectRemoval).mockResolvedValue({ ...PREVIEW, blockers: ['the app "shop-web" built from it is still deployed; remove it first'] })
+  it('names the running app among what goes, and still offers to delete', async () => {
+    vi.mocked(projectsApi.getProjectRemoval).mockResolvedValue({ ...PREVIEW, apps: ['shop-web'] })
     renderPanel()
 
     fireEvent.click(screen.getByRole('button', { name: /Delete this project/ }))
-    expect(await screen.findByText('the app "shop-web" built from it is still deployed; remove it first')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Delete project' })).toBeNull()
+    expect(await screen.findByText('The app “shop-web” running on its cluster, with its databases and files')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete project' })).toBeInTheDocument()
   })
 })

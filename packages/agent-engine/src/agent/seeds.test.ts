@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   ALL_SEEDED_AGENTS,
+  SEEDED_GRANTS,
   seededAgentSlugs,
   definedToolNames,
 } from './seeds.js';
+import { grantsFrom, withGrants } from './grants.js';
 import { BUILDER_TOOLS } from '../tools/builder-tools-catalogue.js';
 import { BUILT_IN_PROCEDURES } from '../procedure/seeds/procedures.js';
 import { contractsFor } from '../tools/catalogue.js';
@@ -22,22 +24,17 @@ describe('seeded agents', () => {
     }
   });
 
-  it('each only grants tools that exist', () => {
-    const tools = definedToolNames();
-    for (const agent of ALL_SEEDED_AGENTS()) {
-      for (const tool of agent.tools) {
-        expect(tools.has(tool), `${agent.slug} grants ${tool}, which is not defined`).toBe(true);
-      }
+  it('grant only tools the catalogue declares, to agents that ship', () => {
+    const declared = definedToolNames();
+    const slugs = seededAgentSlugs();
+    for (const grant of grantsFrom(SEEDED_GRANTS)) {
+      expect(declared.has(grant.tool), `${grant.agent} is granted ${grant.tool}, which is not defined`).toBe(true);
+      expect(slugs.has(grant.agent), `${grant.tool} is granted to ${grant.agent}, which does not ship`).toBe(true);
     }
   });
 
-  it('grants a persona only tools the catalogue declares', () => {
-    const declared = definedToolNames();
-    for (const persona of ALL_SEEDED_AGENTS()) {
-      for (const tool of persona.tools) {
-        expect(declared.has(tool), `${persona.slug} is granted ${tool}`).toBe(true);
-      }
-    }
+  it('carry no tools of their own: what an agent holds is its grants', () => {
+    for (const agent of ALL_SEEDED_AGENTS()) expect('tools' in agent, agent.slug).toBe(false);
   });
 
   it('each only delegates to agents that exist', () => {
@@ -62,7 +59,7 @@ describe('seeded agents', () => {
 });
 
 describe('the builder composes a usable prompt', () => {
-  const builder = ALL_SEEDED_AGENTS().find((agent) => agent.slug === 'agent-builder')!;
+  const builder = withGrants(ALL_SEEDED_AGENTS(), grantsFrom(SEEDED_GRANTS), []).find((agent) => agent.slug === 'agent-builder')!;
   const agentBySlug = (_slug: string) => builder;
   const catalogue = contractsFor([...BUILDER_TOOLS]);
   const offered = (slug: string) => {

@@ -2,14 +2,27 @@ import crypto from 'crypto';
 import type { Database } from '../lib/db-interface.js';
 import type { GiteaService, RepoFileEntry } from './GiteaService.js';
 import type { ProjectMetadata } from '../lib/types.js';
-import { webhookUrlFor, DEFAULT_TARGET_CLUSTER } from '../lib/project-shipping.js';
 import { encryptValue, decryptValue, type SecretKey } from '../lib/crypto.js';
+import { DEFAULT_TARGET_CLUSTER } from '../lib/project-shipping.js';
 import {
   giteaUsernameFor,
   sanitiseRepoName,
   MAX_PROJECTS_PER_USER,
   type GiteaAccount,
 } from '../lib/projects.js';
+
+export interface NewProject {
+  id?: string | undefined;
+  name: string;
+  repo: string;
+  existingOwner?: string | undefined;
+  language?: string | undefined;
+  targetClusterId?: string | undefined;
+  autoDeployOnBuild: boolean;
+  description?: string | undefined;
+  starter?: { path: string; content: string }[] | undefined;
+  extra?: Partial<ProjectMetadata> | undefined;
+}
 
 const EDITOR_TOKEN_TTL_MS = 30 * 60 * 1000;
 
@@ -22,6 +35,7 @@ export class ProjectRepoService {
     private db: Database,
     private gitea: GiteaService,
     private masterKey: SecretKey,
+    private webhookUrl?: ((projectId: string) => Promise<string>) | undefined,
   ) {}
 
   async ensureAccountFor(ownerId: string): Promise<{ username: string }> {
@@ -70,41 +84,15 @@ export class ProjectRepoService {
   async register(
     ownerId: string,
     name: string,
-    opts: {
-      description?: string;
-      language?: string;
-      withRepo?: boolean;
-      executionTarget?: ProjectMetadata['executionTarget'];
-    } = {},
+    opts: { language?: string; executionTarget?: ProjectMetadata['executionTarget'] } = {},
   ): Promise<ProjectMetadata> {
-    const withRepo = opts.withRepo !== false;
-    const repoName = sanitiseRepoName(name);
-
-    const mine = (await this.db.getProjects()).filter((p) => p.ownerId === ownerId);
-    if (mine.length >= MAX_PROJECTS_PER_USER) {
-      throw new Error(`You already have ${mine.length} projects (limit ${MAX_PROJECTS_PER_USER}).`);
-    }
-
-    let repoFields: { giteaOwner: string; giteaRepo: string } | Record<string, never> = {};
-    if (withRepo) {
-      const clash = mine.find((p) => p.giteaRepo === repoName);
-      if (clash) throw new Error(`A project called "${repoName}" already exists.`);
-
-      const { username } = await this.ensureAccount(ownerId);
-      await this.gitea.createRepoForUser(username, repoName, {
-        private: true,
-        ...(opts.description ? { description: opts.description } : {}),
-      });
-      repoFields = { giteaOwner: username, giteaRepo: repoName };
-    }
-
+    await this.underLimit(ownerId);
     const project: ProjectMetadata = {
       id: crypto.randomUUID(),
-      name: name.trim() || repoName,
+      name: name.trim() || 'project',
       ownerId,
-      ...repoFields,
       ...(opts.language ? { language: opts.language } : {}),
-      appType: withRepo ? 'generic' : 'local',
+      appType: 'local',
       ...(opts.executionTarget ? { executionTarget: opts.executionTarget } : {}),
       createdAt: new Date().toISOString(),
     };
@@ -112,43 +100,59 @@ export class ProjectRepoService {
     return project;
   }
 
-  async ensureShippable(
-    project: ProjectMetadata,
-    nodeIp: string,
-    port: string | number,
-    secretKey: string,
-  ): Promise<{ project: ProjectMetadata; problems: string[] }> {
-    const problems: string[] = [];
-    let next = project;
+  private async underLimit(ownerId: string): Promise<void> {
+    const mine = (await this.db.getProjects()).filter((p) => p.ownerId === ownerId);
+    if (mine.length >= MAX_PROJECTS_PER_USER) {
+      throw new Error(`You already have ${mine.length} projects (limit ${MAX_PROJECTS_PER_USER}).`);
+    }
+  }
 
-    if (!next.giteaOwner || !next.giteaRepo) {
-      return { project: next, problems };
+  async createProject(ownerId: string, input: NewProject): Promise<ProjectMetadata> {
+    if (!this.webhookUrl) throw new Error('projects cannot be made here: nothing says where their pushes are sent');
+    const id = input.id ?? crypto.randomUUID();
+    const repo = sanitiseRepoName(input.repo);
+    const existing = (await this.db.getProjects()).find((p) => p.id === id);
+    if (existing && existing.ownerId !== ownerId) throw new Error(`project ${id} belongs to someone else`);
+    if (existing?.webhookSecretEnc && (!input.starter?.length)) return existing;
+
+    const creating = input.existingOwner === undefined;
+    let project = existing;
+    if (!project) {
+      await this.underLimit(ownerId);
+      const mine = (await this.db.getProjects()).filter((p) => p.ownerId === ownerId);
+      if (mine.some((p) => p.giteaRepo === repo)) throw new Error(`You already have a project whose repository is called "${repo}".`);
+      const giteaOwner = creating ? (await this.ensureAccount(ownerId)).username : input.existingOwner!;
+      project = await this.db.saveProjectInfo({
+        id,
+        name: input.name.trim() || repo,
+        ownerId,
+        giteaOwner,
+        giteaRepo: repo,
+        ...(input.language ? { language: input.language } : {}),
+        appType: 'gitapp',
+        targetClusterId: input.targetClusterId ?? DEFAULT_TARGET_CLUSTER,
+        autoDeployOnBuild: input.autoDeployOnBuild,
+        ...input.extra,
+        createdAt: new Date().toISOString(),
+      } as ProjectMetadata);
+    }
+    const owner = project.giteaOwner!;
+
+    if (creating) {
+      const there = await this.gitea.getRepo(owner, repo).then(() => true, () => false);
+      if (!there) await this.gitea.createRepoForUser(owner, repo, { private: true, ...(input.description ? { description: input.description } : {}) });
+    } else {
+      await this.gitea.getRepo(owner, repo);
     }
 
-    if (!next.webhookSecretEnc) {
-      const secret = crypto.randomBytes(24).toString('hex');
-      try {
-        await this.gitea.createWebhook(
-          next.giteaOwner,
-          next.giteaRepo,
-          webhookUrlFor(nodeIp, port, next.id),
-          secret,
-        );
-        next = await this.db.saveProjectInfo({ ...next, webhookSecretEnc: encryptValue(secret, secretKey) });
-      } catch (err) {
-        problems.push(`webhook: ${(err as Error).message}`);
-      }
+    if (!project.webhookSecretEnc) {
+      const secret = crypto.randomBytes(32).toString('hex');
+      await this.gitea.replaceWebhook(owner, repo, await this.webhookUrl(id), secret);
+      project = await this.db.saveProjectInfo({ ...project, webhookSecretEnc: encryptValue(secret, this.masterKey) });
     }
 
-    if (!next.targetClusterId) {
-      next = await this.db.saveProjectInfo({
-        ...next,
-        targetClusterId: DEFAULT_TARGET_CLUSTER,
-        autoDeployOnBuild: true,
-      });
-    }
-
-    return { project: next, problems };
+    if (input.starter?.length) await this.gitea.seedTemplate(owner, repo, input.starter);
+    return project;
   }
 
   /**
@@ -168,6 +172,12 @@ export class ProjectRepoService {
       throw new Error('This project has no repository to write a document to.');
     }
     return this.gitea.ensureFile(project.giteaOwner, project.giteaRepo, path, content, message);
+  }
+
+  async putDocument(ownerId: string, repo: string, path: string, content: string, message: string, branch: string): Promise<{ changed: boolean; commit?: string | undefined }> {
+    const { username } = await this.ensureAccount(ownerId);
+    if (!(await this.gitea.findRepo(username, repo))) throw new Error(`There is no repository "${repo}" to write ${path} to.`);
+    return this.gitea.putFile(username, repo, path, content, message, branch);
   }
 
   async readPath(

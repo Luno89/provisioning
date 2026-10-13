@@ -1,8 +1,8 @@
 import path from 'path';
+import { isCommitSha, type BuildPlan } from '../lib/build-plan.js'
 import { stopIfRunning } from '../lib/stop-workflow.js'
-import { McpRegistryService } from './McpRegistryService.js'
-import { looksLikeMcp } from '../lib/mcp-registry.js'
-import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js'
+import { looksLikeMcp, namespaceOfDeployment } from '../lib/mcp-registry.js'
+import { cachedProbes } from '../lib/mcp-probe-url.js'
 import { healthFromProbe } from '../lib/service-health.js'
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -16,11 +16,13 @@ import { DEFAULT_ENGINE_TASK_QUEUE, type GroveRunResult } from '../engine-host/t
 
 export type GroveRunStatus =
   | { state: 'none' | 'unavailable' }
-  | { state: 'running'; startedAt: string }
-  | { state: 'finished'; startedAt: string; closedAt?: string; result: GroveRunResult }
-  | { state: 'failed'; startedAt: string; closedAt?: string; reason: string }
+  | { state: 'running'; startedAt: string; turnId?: string | undefined }
+  | { state: 'finished'; startedAt: string; closedAt?: string; result: GroveRunResult; turnId?: string | undefined }
+  | { state: 'failed'; startedAt: string; closedAt?: string; reason: string; turnId?: string | undefined }
 import { reconcileRun, reconcileMissingWorkflow, LIVE_RUN_STATUSES, type RunStatus } from '../lib/run-reconcile.js'
 import { deploymentIdFor } from '../lib/deployment-id.js'
+import { deploymentForProject } from '../lib/project-status.js'
+import { destroyAppArgs, destroyAppWorkflowId } from '../lib/app-destroy.js'
 import { resolveCloudCredentials } from '../lib/credential-resolver.js'
 import { decryptValue, encryptValue, type SecretKey } from '../lib/crypto.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
@@ -204,6 +206,7 @@ function inferProgressFromLog(logPath: string): ClusterProgress | null {
 
 export class TemporalBridge {
   db!: Database
+  private readonly mcpProbes = cachedProbes()
   io: SocketServer | undefined
   client!: Client
   masterKey: SecretKey
@@ -227,6 +230,10 @@ export class TemporalBridge {
   }
 
   onBuilt?: (project: ProjectMetadata, run: PipelineRunMetadata) => Promise<boolean>
+
+  ensureSecrets?: (project: ProjectMetadata) => Promise<{ waiting: string[] }>
+  decideRelease?: (project: ProjectMetadata, since: string, commit: string) => Promise<{ release: true } | { release: false; reason: string }>
+  planBuild?: (project: ProjectMetadata, commitSha: string) => Promise<BuildPlan>
 
   isReady(): boolean {
     return !!this.client
@@ -398,7 +405,10 @@ export class TemporalBridge {
                 const project = run && projects.find((p: any) => p.id === run.projectId)
                 const released = project && run && this.onBuilt ? await this.onBuilt(project, run) : false
                 if (!released && project?.autoDeployOnBuild && run) {
-                  await this.promoteProjectBuild(project, run)
+                  const since = deploymentForProject(project, await this.db.getDeployments())?.gitappImageTag?.split(':').pop()
+                  const decision = since && this.decideRelease ? await this.decideRelease(project, since, run.commitSha) : { release: true as const }
+                  if (decision.release) await this.promoteProjectBuild(project, run)
+                  else await this.db.savePipelineRunInfo({ id: run.id, releaseSkipped: decision.reason })
                 }
               } catch (err: any) {
                 console.error(`[TemporalBridge] Auto-deploy-on-build failed for pipeline run ${resourceId}: ${err.message}`)
@@ -539,16 +549,14 @@ export class TemporalBridge {
           try {
             const kubeconfig = await resolveKubeconfig(dep.clusterId)
             if (!kubeconfig) continue
-            const namespace = sanitizeNamespace(dep.name)
+            const namespace = dep.namespace || sanitizeNamespace(dep.name)
             const raw = await new InfrastructureService().runKubectl(['get', 'pods', '-n', namespace, '-o', 'json'], kubeconfig)
             const { health, reason } = assessWorkload(JSON.parse(raw))
 
             let serviceReason = ''
             if (health === 'healthy' && looksLikeMcp(dep) && dep.ownerId) {
               try {
-                const registry = new McpRegistryService(this.db, dep.ownerId, (n: string) => resolveMcpProbeUrl(n))
-                const found = (await registry.listWithTools()).find((s) => s.id === dep.id)
-                const verdict = healthFromProbe(found ? { unreachable: found.unreachable, tools: found.tools.length } : undefined)
+                const verdict = healthFromProbe(await this.mcpProbes(namespaceOfDeployment(dep)))
                 if (verdict) serviceReason = verdict.reason
               } catch { /* ignored */ }
             }
@@ -1144,22 +1152,11 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     if (!dep) throw new Error('DeploymentMetadata not found (destroyApp)')
 
     const cluster = await this.getClusterById(dep.clusterId)
-    const wfId = `app-destroy-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const wfId = destroyAppWorkflowId(dep, Date.now(), Math.random().toString(36).slice(2, 8))
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-D4.log`
     const absoluteLogPath = path.join(LOG_DIR, logFileName)
 
-    const activityArgs = {
-      name: dep.name,
-      clusterId: dep.clusterId,
-      clusterName: cluster?.name || 'unknown',
-      provider: cluster?.provider || 'k3d',
-      strategy: dep.strategy || 'helm',
-      logFile: absoluteLogPath,
-      deploymentId: dep.deploymentId || 'default',
-      ...(dep.appType ? { appType: dep.appType } : {}),
-      ...(cluster?.gpuEnabled ? { gpuEnabled: true } : {}),
-      ...(cluster?.kubeconfigPath ? { kubeconfigPath: cluster.kubeconfigPath } : {}),
-    }
+    const activityArgs = destroyAppArgs(dep, cluster, absoluteLogPath)
 
      this.db.saveDeploymentInfo({
       ...dep,
@@ -1439,6 +1436,12 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     if (!project.giteaOwner || !project.giteaRepo) {
       throw new Error(`Project ${project.id} has no repository to run a pipeline for.`)
     }
+    if (!isCommitSha(commitSha)) throw new Error(`"${commitSha}" is not a commit to build`)
+    const plan = this.planBuild ? await this.planBuild(project, commitSha) : undefined
+    if (plan && !plan.build) {
+      console.log(`[pipeline] ${project.name}: ${plan.reason}; no build recorded`)
+      return { id: '', event: 'nothing-to-build' }
+    }
     const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const wfId = `pipeline-run-${project.giteaRepo}-${runId}`
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-A1.log`
@@ -1516,6 +1519,8 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   async promoteProjectBuild(project: ProjectMetadata, run: PipelineRunMetadata, userId?: string): Promise<WorkflowDeal> {
     if (!run.imageTag) throw new Error('Pipeline run has no built image to promote');
     if (!project.targetClusterId) throw new Error('Project has no target cluster configured');
+    const secrets = await this.ensureSecrets?.(project)
+    if (secrets?.waiting.length) throw new Error(`waiting for the person to enter ${secrets.waiting.join(', ')}`)
 
     const lastColon = run.imageTag.lastIndexOf(':');
     const odooRepo = run.imageTag.slice(0, lastColon);
@@ -1532,7 +1537,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       gitappProjectId: project.id,
       gitappImageTag: run.imageTag,
       ...(project.deployEnv ? { gitappEnv: project.deployEnv } : {}),
-    }, userId);
+    }, userId ?? project.ownerId);
 
     if (deal.resourceId) {
       await this.db.savePipelineRunInfo({

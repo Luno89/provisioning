@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Send, Square, Sliders, Cpu, Sparkles, Paperclip, X } from 'lucide-react';
+import { Send, Square, Sliders, Cpu, Sparkles, Paperclip, X, MessageSquare } from 'lucide-react';
+import { goesToKoala } from '../../lib/channel-asks.js';
 
 export interface PersonaPackOption {
   id: string;
@@ -34,6 +35,7 @@ export interface ChatComposerProps {
   className?: string;
   attachments?: ComposerAttachment[] | undefined;
   onRemoveAttachment?: ((path: string) => void) | undefined;
+  channelAsk?: { on: boolean; onToggle: () => void } | undefined;
 }
 
 export function ChatComposer({
@@ -50,6 +52,7 @@ export function ChatComposer({
   className = '',
   attachments,
   onRemoveAttachment,
+  channelAsk,
 }: ChatComposerProps) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -122,8 +125,8 @@ export function ChatComposer({
         className="w-full bg-transparent border-0 resize-none px-1.5 py-1 text-xs text-slate-100 placeholder-slate-500 focus:outline-none max-h-52 overflow-y-auto leading-relaxed font-sans"
       />
 
-      <div className="flex items-center justify-between pt-1 border-t border-[var(--bark-800,#1b2620)] px-0.5 select-none">
-        <div className="flex items-center gap-1.5 relative">
+      <div className="flex flex-wrap items-center justify-between gap-y-1 pt-1 border-t border-[var(--bark-800,#1b2620)] px-0.5 select-none">
+        <div className="flex flex-wrap items-center gap-1.5 relative min-w-0">
           {onOpenPersonaDrawer && (
             <button
               type="button"
@@ -145,11 +148,28 @@ export function ChatComposer({
             </button>
           )}
 
+          {channelAsk && (
+            <button
+              type="button"
+              onClick={channelAsk.onToggle}
+              aria-pressed={channelAsk.on}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded border text-xs transition-colors cursor-pointer ${
+                channelAsk.on
+                  ? 'bg-emerald-950/70 border-emerald-500/60 text-emerald-200'
+                  : 'bg-[var(--bark-950,#090d0b)] border-[var(--bark-700,#24332b)] text-slate-400 hover:text-white'
+              }`}
+              title={channelAsk.on ? 'Every message you send here goes to Koala. Click to only post to the channel.' : 'Messages are posted to the channel; only ones with @koala go to Koala. Click to ask Koala every time.'}
+            >
+              <Sparkles size={11} className={channelAsk.on ? 'text-emerald-400' : 'text-slate-500'} />
+              <span className="font-medium">{channelAsk.on ? 'Asking Koala' : 'Ask Koala: off'}</span>
+            </button>
+          )}
+
           {onOpenModelDrawer && (
             <button
               type="button"
               onClick={onOpenModelDrawer}
-              className="flex items-center gap-1.5 px-2 py-1 rounded bg-[var(--bark-950,#090d0b)] hover:bg-[var(--bark-800,#1b2620)] border border-[var(--bark-700,#24332b)] text-xs text-slate-300 hover:text-white transition-colors cursor-pointer max-w-[240px]"
+              className="flex items-center gap-1.5 px-2 py-1 rounded bg-[var(--bark-950,#090d0b)] hover:bg-[var(--bark-800,#1b2620)] border border-[var(--bark-700,#24332b)] text-xs text-slate-300 hover:text-white transition-colors cursor-pointer max-w-[240px] min-w-0"
               title="Which model answers in this conversation"
             >
               <Cpu size={11} className="text-emerald-400" />
@@ -158,8 +178,8 @@ export function ChatComposer({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="hidden sm:inline text-[11px] text-slate-500 font-sans">
+        <div className="flex items-center gap-2 ml-auto">
+          <span className="hidden sm:inline text-[11px] text-slate-500 font-sans whitespace-nowrap">
             ↵ send · shift+↵ newline
           </span>
 
@@ -182,8 +202,8 @@ export function ChatComposer({
               className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 text-white transition-colors cursor-pointer disabled:cursor-not-allowed flex items-center gap-1 text-xs font-medium"
               title="Send message (Enter)"
             >
-              <Send size={11} />
-              <span>Send</span>
+              {channelAsk && !goesToKoala(input, channelAsk.on) ? <MessageSquare size={11} /> : <Send size={11} />}
+              <span>{channelAsk ? (goesToKoala(input, channelAsk.on) ? 'Ask Koala' : 'Post') : 'Send'}</span>
             </button>
           )}
         </div>

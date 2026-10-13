@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { type Persona } from '@koala/agent-engine';
 import { BUILT_IN_GROUPS, type Procedure } from '@koala/agent-engine/procedure';
-import { seededPersonas, seededProcedures } from '../../extensions/seeds.js';
+import { seededAgents, seededProcedures } from '../../extensions/seeds.js';
 
 const TEMPLATE = /\{\{\s*([\w.]+)\s*\}\}/g;
 
@@ -43,7 +43,7 @@ const declaredOf = (persona: Persona): { names: string[]; required: string[] } =
 
 const rootOf = (path: string): string => path.split('.')[0]!;
 
-const pairs = seededPersonas().flatMap((persona) => {
+const pairs = seededAgents().flatMap((persona) => {
   const procedure = seededProcedures().find((entry) => entry.id === persona.procedure);
   return procedure ? [{ persona, procedure }] : [];
 });
@@ -51,7 +51,7 @@ const pairs = seededPersonas().flatMap((persona) => {
 describe('what a persona says it needs, and what its procedure actually reads', () => {
   it('pairs every seeded persona with a built-in procedure', () => {
     expect(pairs.map(({ persona }) => persona.slug).sort())
-      .toEqual(seededPersonas().map((persona) => persona.slug).sort());
+      .toEqual(seededAgents().map((persona) => persona.slug).sort());
   });
 
   for (const { persona, procedure } of pairs) {

@@ -7,6 +7,7 @@ import type { Database } from '../lib/db-interface.js';
 export interface TreeTypesRouterDeps {
   db: Pick<Database, 'getTreeTypes' | 'saveTreeType' | 'deleteTreeType' | 'getTrees' | 'getWorkspaceImages'>;
   agents: (ownerId: string) => Promise<string[]>;
+  describe?: ((ownerId: string, typeId: string) => Promise<string | undefined>) | undefined;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -46,9 +47,17 @@ export function treeTypesRouter(deps: TreeTypesRouterDeps): Router {
     res.json(candidate);
   }));
 
+  router.get('/:id/description', asyncRoute(async (req, res) => {
+    if (!deps.describe) return res.status(404).json({ error: 'Tree types are not described here' });
+    const text = await deps.describe(userOf(req).id, idOf(req));
+    if (!text) return res.status(404).json({ error: `There is no tree type "${idOf(req)}".` });
+    res.json({ text });
+  }));
+
   router.delete('/:id', asyncRoute(async (req, res) => {
     const userId = userOf(req).id;
-    const inUse = (await ownedTrees(userId)).filter((t) => t.type === idOf(req));
+    const shippedStays = (await db.getTreeTypes(userId)).some((type) => type.id === idOf(req) && type.ownerId === undefined);
+    const inUse = shippedStays ? [] : (await ownedTrees(userId)).filter((t) => t.type === idOf(req));
     if (inUse.length) {
       return res.status(409).json({
         error: `${inUse.length} tree(s) still use this type: ${inUse.map((t) => t.name).join(', ')}.`,

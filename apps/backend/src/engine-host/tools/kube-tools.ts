@@ -47,7 +47,7 @@ export function createKubeTools(options: { access: KubeAccess; now?: (() => stri
       .filter((deployment) => deployment.ownerId === ownerId)
       .map((deployment) => ({
         name: deployment.name,
-        namespace: namespaceOf(deployment.name),
+        namespace: deployment.namespace || namespaceOf(deployment.name),
         clusterId: deployment.clusterId,
         ownerId: deployment.ownerId,
         record: deployment,

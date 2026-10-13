@@ -6,7 +6,7 @@ import { WorkflowClient } from '@temporalio/client';
 import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import type { ModelProvider, Persona } from '@koala/agent-engine';
+import type { EngineEvent, ModelProvider, Persona } from '@koala/agent-engine';
 
 import {
   replyExit,
@@ -41,7 +41,7 @@ import type { Task } from '../../engine-host/tools/tasks.js';
 import type { Branch, Leaf } from '../../lib/leaves.js';
 import type { Tree } from '../../lib/trees.js';
 import type { PlanProposal } from '../../lib/plan-proposals.js';
-import { seededPersonas, seededProcedures } from '../seeds.js';
+import { seededAgents, seededProcedures } from '../seeds.js';
 import { extensionRuntimes, operationHandlers } from '../runtime.js';
 import type { HostOperationRun } from '../types.js';
 import { createProcedureStore } from '../../engine-host/registries/procedure-store.js';
@@ -287,19 +287,26 @@ async function runGroveWorld(options: {
   vanishTasksOf?: string;
   /** give this leaf's task a check that fails, so its claim is settled by code rather than judged */
   failChecksOf?: string;
+  /** this leaf's tasks wait for the workspace to be rebuilt, as mark_waiting leaves them */
+  waitingTasksOf?: string;
   /** the grove agent whose procedure grows the tree — `grove` unless a test names another */
   agent?: string;
   /** procedures and agents the world's owner has of their own, beside the seeded ones */
   ownProcedures?: Procedure[];
   ownAgents?: Persona[];
+  merges?: (head: string) => Promise<'merged' | 'conflict' | 'nothing' | 'failed'>;
 } = {}) {
+  const published: EngineEvent[] = [];
+  if (options.waitingTasksOf) {
+    tasks = tasks.map((task) => (task.leafId === options.waitingTasksOf ? { ...task, status: 'waiting', evidence: 'waits for the workspace to get dnf wkhtmltopdf' } : task));
+  }
   if (options.failChecksOf) {
     tasks = tasks.map((task) => (task.leafId === options.failChecksOf ? { ...task, checks: { fileExists: 'missing.txt' } } : task));
   }
   const client = options.drive ? new WorkflowClient({ connection: env.connection }) : env.client.workflow;
     const stores = worldStores();
     const rounds = new Map<string, number>();
-    const seeded = seededPersonas();
+    const seeded = seededAgents();
     const registry = createAgentRegistry({
       agentStore: { list: async () => [...seeded, ...(options.ownAgents ?? [])] },
       ...(options.ownProcedures ? { procedureStore: createProcedureStore({ builtIns: [...seededProcedures(), ...options.ownProcedures], sources: { list: async () => [] } }) } : {}),
@@ -366,6 +373,13 @@ async function runGroveWorld(options: {
     };
     const sharedWith: string[][] = [];
     const treeWorkspaces = createTreeWorkspaces({
+      ...(options.merges ? { documents: {
+        save: async () => ({ saved: true as const, owner: 'koala-user-1', repo: 'tree-1', commit: 'c0ffee' }),
+        restore: async () => ({ restored: false as const, why: 'not in this test' }),
+        catchUp: async () => undefined,
+        bring: async () => ({ brought: false as const, why: 'not in this test' }),
+        merge: async (request: { head: string }) => options.merges!(request.head),
+      } as never } : {}),
       resolver: {
         ...resolver,
         describeShared: async (request: Parameters<typeof resolver.describeShared>[0]) => {
@@ -463,7 +477,7 @@ async function runGroveWorld(options: {
         EngineRunLimitsActivity: vi.fn((args: RunLimitsArgs) => tracker.limits(args)),
         EngineRecordEffortActivity: vi.fn((effort: RunEffort) => tracker.record(effort)),
         EngineSettleClaimsActivity: vi.fn(async () => [] as string[]),
-        EngineNodeActivity: createNodeRunner(hostNodes, undefined),
+        EngineNodeActivity: createNodeRunner(hostNodes, undefined, { carryNotices: true }),
         EngineResolveAgentActivity: vi.fn(async ({ ownerId, agentSlug }) => {
           const runnable = await registry.runnable(ownerId, agentSlug);
           if (!runnable) return { found: false, callableAgents: [] };
@@ -507,7 +521,7 @@ async function runGroveWorld(options: {
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: {
         EngineStreamNodeActivity: createNodeRunner([scriptModel(rounds, options.hang), decideModel, createCompactContextNode({ models: noSummaries })], undefined, { runCancelled: runCancelledVia(async () => env.client) }),
-        EnginePublishActivity: vi.fn(async (_args: PublishArgs) => undefined),
+        EnginePublishActivity: vi.fn(async (args: PublishArgs) => { published.push(...args.events); }),
         EngineLifecycleActivity: vi.fn(async () => undefined),
       },
     });
@@ -531,7 +545,7 @@ async function runGroveWorld(options: {
         return handle.result();
       };
       const outcome = await engineWorker.runUntil(() => streamWorker.runUntil(startAgent));
-      return { result: outcome.outputs as unknown as GroveRunResult, outcome, parkedTrees, efforts, sandboxOfCall, worktreeOfCall, gitCommands, provisioned, describeRun, kubeCalls, sharedWith };
+      return { published, result: outcome.outputs as unknown as GroveRunResult, outcome, parkedTrees, efforts, sandboxOfCall, worktreeOfCall, gitCommands, provisioned, describeRun, kubeCalls, sharedWith };
     }
 }
 
@@ -554,6 +568,28 @@ describe('the grove agent\'s procedure', () => {
     }
     expect(worktreeOfCall.some((call) => call.startsWith('executor ') && call.endsWith('trees/leafA'))).toBe(true);
     expect(worktreeOfCall.some((call) => call.startsWith('leaf-judge settle_leaf'))).toBe(true);
+  }, 120_000);
+
+  it('lands what it verified, and a verified story an earlier run left unlanded once nothing else is left to do', async () => {
+    const merged: string[] = [];
+    const first = await runGroveWorld({ agent: 'grove', merges: async (head) => { merged.push(head); return 'merged'; } });
+    expect(first.outcome, JSON.stringify(first.outcome)).toMatchObject({ outcome: 'ok' });
+    expect(merged.sort()).toEqual(['leaf/leafA', 'leaf/leafB', 'leaf/leafC']);
+    expect(leaves.map((leaf) => [leaf.id, leaf.landed?.outcome])).toEqual([['leafA', 'merged'], ['leafB', 'merged'], ['leafC', 'merged']]);
+
+    leaves = leaves.map((leaf) => { if (leaf.id !== 'leafC') return leaf; const { landed: _landed, ...rest } = leaf; return rest; });
+    merged.length = 0;
+    const second = await runGroveWorld({ agent: 'grove', merges: async (head) => { merged.push(head); return 'merged'; } });
+    expect(second.outcome).toMatchObject({ outcome: 'ok' });
+    expect(merged).toEqual(['leaf/leafC']);
+    expect(leaves.find((leaf) => leaf.id === 'leafC')?.landed?.outcome).toBe('merged');
+  }, 120_000);
+
+  it('tells the run\'s turn log when a story did not land, rather than keeping it to the worker', async () => {
+    const { published } = await runGroveWorld({ agent: 'grove', merges: async () => 'failed' });
+    const notices = published.filter((event) => event.type === 'notice').map((event) => (event as { message: string; nodeId?: string }));
+    expect(notices.some((notice) => notice.nodeId === 'land' && /did not land this pass/.test(notice.message))).toBe(true);
+    expect(leaves.every((leaf) => !leaf.landed)).toBe(true);
   }, 120_000);
 
   it('plans a failed leaf again with its failure in its worktree, and reports the plan waiting for a person', async () => {
@@ -584,6 +620,19 @@ describe('the grove agent\'s procedure', () => {
     expect(plans.map((plan) => plan.leafPlan?.leafId)).toEqual(['leafA']);
   }, 120_000);
 
+  it('puts aside a leaf whose tasks wait for the workspace — not failed, not planned again — and leaves what depends on it waiting', async () => {
+    const { result, worktreeOfCall } = await runGroveWorld({ agent: 'grove', waitingTasksOf: 'leafA' });
+
+    const leafA = leaves.find((leaf) => leaf.id === 'leafA')!;
+    expect(leafA).toMatchObject({ status: 'pending', waitingFor: { reason: '"Build the /health endpoint" waits for the workspace to get dnf wkhtmltopdf' } });
+    expect(leafA.claim).toBeUndefined();
+    expect(leafA.attempts ?? []).toEqual([]);
+    expect(worktreeOfCall.filter((call) => call.startsWith('executor') && call.includes('leafA'))).toEqual([]);
+    expect(plans.map((plan) => plan.leafPlan?.leafId)).not.toContain('leafA');
+    expect(leaves.find((leaf) => leaf.id === 'leafB')).toMatchObject({ status: 'succeeded' });
+    expect(result).toMatchObject({ outcome: 'quiet' });
+  }, 120_000);
+
   it('honours a limit set on a copy of the procedure: no replans means a failed leaf is left for the person', async () => {
     judgeVerdicts = { leafB: 'failed' };
     const careful: Procedure = {
@@ -591,7 +640,7 @@ describe('the grove agent\'s procedure', () => {
       id: 'grove-run-careful',
     };
     careful.nodes = careful.nodes.map((node) => (node.id === 'needs' ? { ...node, settings: { ...node.settings, replans: 0 } } : node));
-    const grove = seededPersonas().find((persona) => persona.slug === 'grove')!;
+    const grove = seededAgents().find((persona) => persona.slug === 'grove')!;
 
     const { result } = await runGroveWorld({ agent: 'grove-careful', ownProcedures: [careful], ownAgents: [{ ...grove, slug: 'grove-careful', procedure: 'grove-run-careful' }] });
 
@@ -609,6 +658,7 @@ describe('the grove agent\'s procedure', () => {
     const leafA = leaves.find((entry) => entry.id === 'leafA')!;
     expect(worktreeOfCall.filter((call) => call.includes('leafA')), 'the failed task was worked again instead of going to the judge').toEqual([
       'executor start_task trees/leafA',
+      'executor task_status trees/leafA',
       'executor mark_failed trees/leafA',
       'leaf-judge settle_leaf judge/leafA',
       'planner propose_leaf_plan trees/leafA',

@@ -11,7 +11,7 @@ export const MCP_TOOLS: ToolDefinition[] = [
     openWorld: false,
     returns: 'that the person was asked, that it was already asked, or that the server is already on',
     failures: [
-      { when: 'no server by that name is running', says: 'the names of the servers that are' },
+      { when: 'no hosted server by that name is in the catalogue and captured', says: 'the names of the ones that are' },
       { when: 'no reason is given', says: 'to say why the conversation needs it' },
       { when: 'the run is not part of a conversation', says: 'that servers are switched on per conversation' },
     ],

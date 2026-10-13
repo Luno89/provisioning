@@ -3,8 +3,9 @@ import { confirmMatches, refusalBlockers, removalText } from './removal-text'
 
 describe('saying how a removal is going', () => {
   it('names the step under way, counting from the first', () => {
-    expect(removalText({ state: 'running', done: [] })).toBe('stopping its runs (1 of 6)')
-    expect(removalText({ state: 'running', done: ['workflows', 'workspaces', 'secrets'] })).toBe('removing its machines from the mesh (4 of 6)')
+    expect(removalText({ state: 'running', done: [] })).toBe('stopping its runs (1 of 7)')
+    expect(removalText({ state: 'running', done: ['workflows'] })).toBe('removing its apps from their clusters (2 of 7)')
+    expect(removalText({ state: 'running', done: ['workflows', 'apps', 'workspaces', 'secrets'] })).toBe('removing its machines from the mesh (5 of 7)')
   })
 
   it('says when it stopped and why, or that it is done', () => {

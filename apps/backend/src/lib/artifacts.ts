@@ -114,7 +114,7 @@ export const READ_PIECE_BYTES = 22_000;
 export const readPieceCommand = (path: string, offset: number, bytes = READ_PIECE_BYTES): string =>
   `tail -c +${offset + 1} '${path.replace(/'/g, `'\\''`)}' | head -c ${bytes} | base64 -w0`;
 
-async function readWhole(workspace: WorkspaceExec, path: string, size: number): Promise<Buffer | undefined> {
+export async function readWhole(workspace: WorkspaceExec, path: string, size: number): Promise<Buffer | undefined> {
   const pieces: Buffer[] = [];
   for (let offset = 0; offset < size; offset += READ_PIECE_BYTES) {
     const read = await workspace.exec(readPieceCommand(path, offset));

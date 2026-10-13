@@ -16,6 +16,7 @@ export interface ModelServiceLike {
     modelId?: string | null,
     packEndpointId?: string | null,
   ): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string }>;
+  list?(userId: string): Promise<ModelProvider[]>;
 }
 
 export interface EndpointResolverOptions {

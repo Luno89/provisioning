@@ -50,7 +50,7 @@ const leafIdOf = (adopted: AdoptedPlan, key: string): string => adopted.leafIds[
 const taskIdOf = (adopted: AdoptedPlan, leafKey: string, taskKey: string): string =>
   adopted.taskIds[`${leafKey}/${taskKey}`] ?? taskKey;
 
-function leafIndexLine(leaf: PlanLeaf, adopted: AdoptedPlan): string {
+export function leafIndexLine(leaf: PlanLeaf, adopted: AdoptedPlan): string {
   const id = leafIdOf(adopted, leaf.key);
   const waits = leaf.dependsOn.length > 0
     ? ` — waits on ${leaf.dependsOn.map((dependency) => `\`${leafIdOf(adopted, dependency)}\``).join(', ')}`

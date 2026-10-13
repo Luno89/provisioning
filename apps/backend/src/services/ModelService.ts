@@ -59,18 +59,18 @@ export class ModelService extends BaseService {
     }
   }
 
-  async resolveBaseUrl(
+  async route(
     userId: string,
     modelId?: string | null,
     packEndpointId?: string | null,
-  ): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string; source: EndpointSource }> {
-    userId = await this.modelOwner(userId);
-    const providers = await this.list(userId);
+  ): Promise<{ owner: string; provider: ModelProvider; source: EndpointSource }> {
+    const owner = await this.modelOwner(userId);
+    const providers = await this.list(owner);
     if (providers.length === 0) {
       throw new Error('No models available. Deploy a vLLM or TabbyAPI app, or register an OpenAI-compatible endpoint.');
     }
 
-    const user = await this.db.getUserById(userId);
+    const user = await this.db.getUserById(owner);
     const routed = routeProvider(providers, modelId, packEndpointId, user?.defaultModelId,
       { overrideGlobal: user?.globalModelOverride === true })
       /**
@@ -89,10 +89,18 @@ export class ModelService extends BaseService {
           + 'or name a model on the request.');
     }
 
-    const { provider, source } = routed;
+    return { owner, ...routed };
+  }
+
+  async resolveBaseUrl(
+    userId: string,
+    modelId?: string | null,
+    packEndpointId?: string | null,
+  ): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string; source: EndpointSource }> {
+    const { owner, provider, source } = await this.route(userId, modelId, packEndpointId);
     const resolved = provider.source === 'endpoint'
-      ? await this.resolveEndpoint(userId, provider)
-      : await this.resolveDeployment(userId, provider);
+      ? await this.resolveEndpoint(owner, provider)
+      : await this.resolveDeployment(owner, provider);
     return { ...resolved, source };
   }
 

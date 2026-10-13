@@ -15,7 +15,7 @@ const __dirname = path.dirname(__filename);
 
 const PROJECT_ROOT = path.resolve(__dirname, '../../../../');
 const CDKTF_DIR = path.join(PROJECT_ROOT, 'packages/cdktf-infra');
-const LOG_DIR = path.join(PROJECT_ROOT, 'apps/backend/data/logs');
+export const LOG_DIR = path.join(PROJECT_ROOT, 'apps/backend/data/logs');
 const BIN_DIR = path.join(PROJECT_ROOT, 'bin');
 const DEFAULT_KUBECONFIG = path.join(os.homedir(), '.kube/config');
 const K3D_STORAGE_ROOT = path.join(PROJECT_ROOT, '.k3d-storage');

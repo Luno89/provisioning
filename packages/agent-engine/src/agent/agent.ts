@@ -30,7 +30,7 @@ export interface Persona {
   procedure: string;
   tools: string[];
   maxEffect?: ToolEffect | undefined;
-  mcp?: string[] | undefined;
+  servers?: string[] | undefined;
   agents?: string[] | undefined;
   budget?: RunBudget | undefined;
   sampling?: SamplingConfig | undefined;
@@ -42,36 +42,38 @@ export interface Persona {
   concludeAfterMinutes?: number | undefined;
 }
 
-export function visibleAgents(all: readonly Persona[], ownerId: string): Persona[] {
+export type PersonaRecord = Omit<Persona, 'tools' | 'servers'>;
+
+export function visibleAgents<T extends PersonaRecord>(all: readonly T[], ownerId: string): T[] {
   return withBuiltIns(all, ownerId, (agent) => agent.slug);
 }
 
-export function resolveAgent(
-  all: readonly Persona[],
+export function resolveAgent<T extends PersonaRecord>(
+  all: readonly T[],
   ownerId: string,
   slug: string,
-): Persona | undefined {
+): T | undefined {
   return visibleAgents(all, ownerId).find((agent) => agent.slug === slug);
 }
 
-export function isFork(agent: Persona): boolean {
+export function isFork(agent: PersonaRecord): boolean {
   return agent.ownerId !== undefined;
 }
 
-export function needsWorkspace(agent: Persona): boolean {
+export function needsWorkspace(agent: PersonaRecord): boolean {
   return agent.interface?.workspace === true;
 }
 
-export function callableAgents(
-  agent: Persona,
-  all: readonly Persona[],
+export function callableAgents<T extends PersonaRecord>(
+  agent: PersonaRecord,
+  all: readonly T[],
   ownerId: string,
-): Persona[] {
+): T[] {
   const allowed = new Set(agent.agents ?? []);
   return visibleAgents(all, ownerId).filter((candidate) => allowed.has(candidate.slug));
 }
 
-export function agentTools(_agent: Persona, callable: readonly Persona[]): ToolContract[] {
+export function agentTools(_agent: PersonaRecord, callable: readonly PersonaRecord[]): ToolContract[] {
   return callable.map((callee) => agentAsTool({
     name: callee.slug,
     description: callee.description,
@@ -82,7 +84,7 @@ export function agentTools(_agent: Persona, callable: readonly Persona[]): ToolC
   }));
 }
 
-export function environmentFor(agent: Persona): EnvironmentSpec {
+export function environmentFor(agent: PersonaRecord): EnvironmentSpec {
   if (agent.environmentSpec) return agent.environmentSpec;
 
   const wantsMachine = agent.environment.terminal || agent.environment.filesystem || agent.environment.workspace;
@@ -102,7 +104,7 @@ export function environmentFor(agent: Persona): EnvironmentSpec {
   };
 }
 
-export function capabilitiesFor(agent: Persona): EnvironmentCapabilities {
+export function capabilitiesFor(agent: PersonaRecord): EnvironmentCapabilities {
   return capabilitiesOf(environmentFor(agent));
 }
 

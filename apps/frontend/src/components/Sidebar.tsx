@@ -3,14 +3,15 @@ import { useRouter, type NavigateOptions } from '@tanstack/react-router';
 import { useShellStore, type ViewName } from '../stores/shell';
 import {
   Trees, Trees as TreesIcon, ChevronDown, ChevronRight,
-  Plus, Trash2, GitBranch, Layers, Bot, Wrench, Network, Puzzle
+  Plus, Trash2, GitBranch, Layers, Bot, Wrench, Network, Puzzle, Server,
 } from 'lucide-react';
 import { Koala } from './Koala';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   listChatConversations, deleteChatConversation, chatPackKeys, type ChatConversation,
 } from '../api/chat-pack.js';
-import { listTrees, groveKeys } from '../api/grove.js';
+import { listLeaves, listTrees, groveKeys } from '../api/grove.js';
+import { itemChatAddress } from '../lib/item-chat-address.js';
 import { parseHash, formatHash } from '../lib/route.js';
 
 export interface ForestTab {
@@ -39,6 +40,7 @@ function useSafeRouter() {
 const STUDIO_SECTIONS = [
   { path: 'agents', label: 'Agents', icon: Bot },
   { path: 'tools', label: 'Tools', icon: Wrench },
+  { path: 'mcp-servers', label: 'MCP Servers', icon: Server },
   { path: 'procedures', label: 'Procedures', icon: Network },
   { path: 'tree-types', label: 'Tree Types', icon: GitBranch },
   { path: 'extensions', label: 'Extensions', icon: Puzzle },
@@ -102,6 +104,14 @@ export default function Sidebar({ forestTabs, onLogout }: {
     queryKey: groveKeys.trees(),
     queryFn: listTrees,
     staleTime: 30_000,
+  });
+
+  const recent = conversations.slice(0, 6);
+  const { data: leaves = [] } = useQuery({
+    queryKey: groveKeys.leaves(),
+    queryFn: listLeaves,
+    staleTime: 30_000,
+    enabled: recent.some((conversation) => conversation.kind === 'item' && Boolean(conversation.leafId)),
   });
 
   const navigateTo = (targetView: ViewName, hashOrPath?: string) => {
@@ -186,14 +196,15 @@ export default function Sidebar({ forestTabs, onLogout }: {
             <div className="px-2 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
               Recent Chats
             </div>
-            {conversations.slice(0, 6).map((c) => {
+            {recent.map((c) => {
               const isSelected = isCurrentView('chat') && activeConvId === c.id;
+              const itemAddress = itemChatAddress(c, leaves);
 
               return (
                 <button
                   key={c.id}
                   type="button"
-                  onClick={() => navigateTo('chat', `#/chat/${c.id}`)}
+                  onClick={() => (itemAddress ? navigateTo('projects', itemAddress) : navigateTo('chat', `#/chat/${c.id}`))}
                   className={`group w-full flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors truncate cursor-pointer ${
                     isSelected
                       ? 'bg-[var(--bark-600)] text-emerald-300 font-semibold'

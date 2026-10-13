@@ -39,7 +39,7 @@ const call = (method: 'get' | 'delete', path: string, data?: unknown) => axios.r
 describe('deleting a project', () => {
   it('previews what goes with it, and deletes it once its name is typed', async () => {
     expect((await call('get', '/api/projects/p1/removal')).data).toEqual({
-      name: 'shop', repository: 'koala-t/shop', trees: [{ id: 't1', name: 'Shop features', leaves: 0, conversations: 0 }], keptConversations: 0, builds: 0, blockers: [], state: { state: 'none' },
+      name: 'shop', repository: 'koala-t/shop', trees: [{ id: 't1', name: 'Shop features', leaves: 0, conversations: 0 }], keptConversations: 0, builds: 0, apps: [], state: { state: 'none' },
     });
     expect((await call('delete', '/api/projects/p1', { confirm: 'Shop' })).status).toBe(400);
 
@@ -49,11 +49,14 @@ describe('deleting a project', () => {
     expect((await harness.db.getProjects()).find((project) => project.id === 'p1')?.removal).toEqual({ startedAt: 'now', requestedBy: TEST_USER.id });
   });
 
-  it('is refused while an app built from it is deployed, and for someone else\'s project', async () => {
-    await harness.db.saveDeployment({ id: 'd1', name: 'shop-web', clusterId: 'c', strategy: 'helm', gitappProjectId: 'p1' } as never);
-    const refused = await call('delete', '/api/projects/p1', { confirm: 'shop' });
-    expect(refused.status).toBe(409);
-    expect(refused.data.blockers).toEqual(['the app "shop-web" built from it is still deployed; remove it first']);
+  it('lists the app built from it among what goes, and starts deleting it all the same', async () => {
+    await harness.db.saveDeployment({ id: 'd1', name: 'shop-web', clusterId: 'c', strategy: 'helm', gitappProjectId: 'p1', ownerId: TEST_USER.id } as never);
+    expect((await call('get', '/api/projects/p1/removal')).data.apps).toEqual(['shop-web']);
+    expect((await call('delete', '/api/projects/p1', { confirm: 'shop' })).status).toBe(202);
+    expect(started).toEqual(['remove-project-p1']);
+  });
+
+  it('is refused for someone else\'s project', async () => {
     expect((await call('get', '/api/projects/p2/removal')).status).toBe(404);
     expect((await call('delete', '/api/projects/p2', { confirm: 'theirs' })).status).toBe(404);
   });

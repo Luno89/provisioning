@@ -1,15 +1,18 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Lock, Plus, Search, X } from 'lucide-react'
-import type { Agent, GrantableTool } from '../../api/agents'
+import { Lock, Plus, RotateCcw, Search, X } from 'lucide-react'
+import type { Agent, GrantableTool, SourcedTool } from '../../api/agents'
 import type { RequiredGrant } from '../../api/procedures'
 import { requirementFor, toolProblem } from './agent-forms'
-import { toolChoices } from '../../lib/tool-grants'
+import { toolChoices, toolOrigins } from '../../lib/tool-grants'
 
 const groupTitle = 'px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500'
 
-export default function ToolGrants({ granted, grantable, requires, procedure, environment, onChange }: {
+const ORIGIN_WORDS = { 'built-in': 'built in', yours: 'granted by you' } as const
+
+export default function ToolGrants({ granted, sources, grantable, requires, procedure, environment, onChange }: {
   granted: readonly string[]
+  sources: readonly SourcedTool[]
   grantable: readonly GrantableTool[]
   requires: readonly RequiredGrant[]
   procedure: string
@@ -19,6 +22,7 @@ export default function ToolGrants({ granted, grantable, requires, procedure, en
   const [adding, setAdding] = useState(false)
   const [search, setSearch] = useState('')
   const choices = toolChoices(granted, grantable, search)
+  const origins = toolOrigins(granted, sources)
   const available = choices.available.reduce((count, group) => count + group.items.length, 0)
 
   const remove = (name: string) => onChange(granted.filter((one) => one !== name))
@@ -83,6 +87,7 @@ export default function ToolGrants({ granted, grantable, requires, procedure, en
                 <div key={tool.name} className="group flex items-center gap-2 px-3 py-1 text-xs hover:bg-[var(--bark-800)]/50">
                   <Link to="/studio/tools/$name" params={{ name: tool.name }} className="w-48 shrink-0 truncate font-mono text-slate-200 hover:text-sky-300 hover:underline">{tool.name}</Link>
                   <span className="min-w-0 flex-1 truncate text-slate-500">{tool.summary}</span>
+                  {origins.of[tool.name] && <span className={`shrink-0 text-[10px] ${origins.of[tool.name] === 'yours' ? 'text-sky-300' : 'text-slate-500'}`}>{ORIGIN_WORDS[origins.of[tool.name]!]}</span>}
                   {refusal && <span className="shrink-0 text-[11px] text-amber-300">{refusal}</span>}
                   {required ? (
                     <span title={`${procedure} needs it — ${required.why}`} className="flex shrink-0 items-center gap-1 text-[11px] text-emerald-300"><Lock size={11} /> {procedure} needs it</span>
@@ -96,6 +101,20 @@ export default function ToolGrants({ granted, grantable, requires, procedure, en
             })}
           </div>
         ))}
+        {origins.takenAway.length > 0 && (
+          <div className="pb-1" aria-label="Built-in tools taken away">
+            <p className={groupTitle}>Built in, taken away by you</p>
+            {origins.takenAway.map((name) => (
+              <div key={name} className="flex items-center gap-2 px-3 py-1 text-xs">
+                <span className="w-48 shrink-0 truncate font-mono text-slate-500 line-through">{name}</span>
+                <span className="min-w-0 flex-1 truncate text-slate-600">{grantable.find((tool) => tool.name === name)?.summary ?? ''}</span>
+                <button type="button" onClick={() => add(name)} aria-label={`Give back ${name}`} className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-slate-400 hover:bg-[var(--bark-700)] hover:text-emerald-300">
+                  <RotateCcw size={11} /> Give back
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         {choices.unknown.length > 0 && (
           <div className="pb-1">
             <p className={`${groupTitle} text-amber-300`}>No longer in the catalogue</p>

@@ -65,33 +65,24 @@ function DeleteProjectPopup({ projectId, onClose, onDeleted }: { projectId: stri
 
         {data && !started && (
           <>
-            {data.blockers.length > 0 ? (
-              <div className="space-y-2">
-                <p>It can't be deleted yet:</p>
-                <ul className="list-disc pl-5 text-amber-300 space-y-1">{data.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul>
-              </div>
-            ) : (
-              <>
-                <div className="space-y-1">
-                  <p>This deletes, and cannot be undone:</p>
-                  <ul className="list-disc pl-5 space-y-1">{projectRemovalLines(data).map((line) => <li key={line}>{line}</li>)}</ul>
-                  {data.keptConversations > 0 && (
-                    <p className="text-slate-400">{data.keptConversations === 1 ? 'One conversation' : `${data.keptConversations} conversations`} about the project {data.keptConversations === 1 ? 'is' : 'are'} kept, no longer linked to it.</p>
-                  )}
-                </div>
-                <label className="block text-[12px] text-slate-400">
-                  Type <span className="font-mono text-slate-200">{data.name}</span> to confirm
-                  <input value={typed} onChange={(event) => setTyped(event.target.value)} autoComplete="off" className="mt-1 w-full rounded-md bg-[var(--bark-950)] border border-[var(--bark-700)] px-2 py-1.5 text-slate-100" />
-                </label>
-                {remove.error && <p className="text-red-400">{errorMessage(remove.error)}</p>}
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => remove.mutate()} disabled={typed.trim() !== data.name || remove.isPending} className="px-3 py-1.5 rounded-md bg-red-700 hover:bg-red-600 text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-                    {remove.isPending ? 'Starting…' : 'Delete project'}
-                  </button>
-                  <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-md hover:bg-[var(--bark-700)] cursor-pointer">Keep it</button>
-                </div>
-              </>
-            )}
+            <div className="space-y-1">
+              <p>This deletes, and cannot be undone:</p>
+              <ul className="list-disc pl-5 space-y-1">{projectRemovalLines(data).map((line) => <li key={line}>{line}</li>)}</ul>
+              {data.keptConversations > 0 && (
+                <p className="text-slate-400">{data.keptConversations === 1 ? 'One conversation' : `${data.keptConversations} conversations`} about the project {data.keptConversations === 1 ? 'is' : 'are'} kept, no longer linked to it.</p>
+              )}
+            </div>
+            <label className="block text-[12px] text-slate-400">
+              Type <span className="font-mono text-slate-200">{data.name}</span> to confirm
+              <input value={typed} onChange={(event) => setTyped(event.target.value)} autoComplete="off" className="mt-1 w-full rounded-md bg-[var(--bark-950)] border border-[var(--bark-700)] px-2 py-1.5 text-slate-100" />
+            </label>
+            {remove.error && <p className="text-red-400">{errorMessage(remove.error)}</p>}
+            <div className="flex gap-2">
+              <button type="button" onClick={() => remove.mutate()} disabled={typed.trim() !== data.name || remove.isPending} className="px-3 py-1.5 rounded-md bg-red-700 hover:bg-red-600 text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                {remove.isPending ? 'Starting…' : 'Delete project'}
+              </button>
+              <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-md hover:bg-[var(--bark-700)] cursor-pointer">Keep it</button>
+            </div>
           </>
         )}
       </div>

@@ -6,6 +6,7 @@ export type LeafStep =
   | { kind: 'claim' }
   | { kind: 'stopped'; taskIds: string[]; reason: string }
   | { kind: 'fail'; reason: string }
+  | { kind: 'waiting'; taskIds: string[]; reason: string }
   | { kind: 'unbroken' };
 
 export type LeafTask = Pick<Task, 'id' | 'title' | 'status' | 'dependsOn' | 'evidence' | 'runs'>;
@@ -26,8 +27,14 @@ export function nextLeafStep(tasks: readonly LeafTask[]): LeafStep {
 
   const runnable = live.filter((task) =>
     !FINISHED.includes(task.status)
+    && task.status !== 'waiting'
     && task.dependsOn.every((id) => byId.get(id)?.status === undefined || FINISHED.includes(byId.get(id)!.status)));
   if (runnable.length > 0) return { kind: 'run', taskIds: runnable.map((task) => task.id) };
+
+  const waiting = live.filter((task) => task.status === 'waiting');
+  if (waiting.length > 0) {
+    return { kind: 'waiting', taskIds: waiting.map((task) => task.id), reason: waiting.map((task) => `"${task.title}" ${task.evidence ?? 'waits'}`).join('; ') };
+  }
 
   const stuck = live.filter((task) => !FINISHED.includes(task.status)).map((task) => `"${task.title}"`);
   return { kind: 'fail', reason: `${stuck.join(', ')} can never start: what they wait on did not finish` };

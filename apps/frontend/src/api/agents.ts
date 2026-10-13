@@ -28,7 +28,7 @@ export interface Agent {
   procedure: string
   tools: string[]
   maxEffect?: 'read' | 'propose' | 'write'
-  mcp?: string[]
+  servers?: string[]
   agents?: string[]
   environment: AgentEnvironment
   model?: { endpointId?: string | null; reasoningEffort?: string; replyCeiling?: number }
@@ -37,7 +37,18 @@ export interface Agent {
   mine: boolean
   recallsMemories?: boolean
   usedBy?: AgentUsage[]
+  toolSources?: SourcedTool[]
+  serverSources?: SourcedTool[]
   image?: AgentImage
+}
+
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Authority: `SourcedTool` in packages/agent-engine/src/agent/grants.ts.
+ */
+export interface SourcedTool {
+  tool: string
+  source: 'shipped' | 'granted' | 'revoked'
 }
 
 /**
