@@ -15,6 +15,7 @@ const memory = (over: Partial<MemoryItem>): MemoryItem => ({
 const tools = () => createMemoryTools({
   agents: async () => ['koala', 'executor'],
   models: async () => ['qwen/q', 'old/m'],
+  tools: async () => ({ tools: ['start_task', 'mark_done'], servers: [{ name: 'playwright', tools: ['browser_click', 'browser_snapshot'] }] }),
   store: {
     list: async (ownerId) => [...bank.values()].filter((item) => item.ownerId === ownerId),
     save: async (item) => { bank.set(item.id, item); },
@@ -142,12 +143,46 @@ describe('propose_practice', () => {
   });
 });
 
+describe('propose_tool_note', () => {
+  it('puts a note on a built-in tool on trial, kept for the model that misuses it, with what it was learned from', async () => {
+    const out = await call('propose_tool_note', { tool: 'start_task', text: 'It claims the task; task_status first is not needed.', why: 'runs r1 and r2 called task_status instead', model: 'qwen/q' });
+
+    expect(out.ok).toBe(true);
+    expect(out.content).toBe('Proposed new-1 for start_task on qwen/q; it is on trial until the bench has run the checks that use it on qwen/q.');
+    expect(bank.get('new-1')).toMatchObject({ category: 'tool_note', tool: 'start_task', model: 'qwen/q', status: 'trial', text: 'It claims the task; task_status first is not needed.', why: 'runs r1 and r2 called task_status instead', provenance: { experimentId: 'run-k' } });
+    expect(bank.get('new-1')).not.toHaveProperty('server');
+  });
+
+  it('keeps a note on one tool of a server, named as it is offered, under the server, and one on a whole server', async () => {
+    expect((await call('propose_tool_note', { tool: 'playwright__browser_click', text: 'Click by ref.', why: 'r3' })).ok).toBe(true);
+    expect(bank.get('new-1')).toMatchObject({ server: 'playwright', tool: 'browser_click' });
+
+    expect((await call('propose_tool_note', { server: 'playwright', text: 'Snapshot after every navigation.', why: 'r4' })).content).toContain('for the playwright server');
+    expect(bank.get('new-2')).toMatchObject({ server: 'playwright' });
+    expect(bank.get('new-2')).not.toHaveProperty('tool');
+  });
+
+  it('refuses a tool or server that does not exist, both at once, and the same note twice', async () => {
+    expect((await call('propose_tool_note', { tool: 'made_up', text: 'x', why: 'y' })).content).toBe('there is no tool called "made_up"; name it exactly as it is offered');
+    expect((await call('propose_tool_note', { tool: 'playwright__browser_fly', text: 'x', why: 'y' })).content).toBe('there is no tool called "playwright__browser_fly"; name it exactly as it is offered');
+    expect((await call('propose_tool_note', { server: 'gitea', text: 'x', why: 'y' })).content).toBe('there is no MCP server called "gitea"');
+    expect((await call('propose_tool_note', { tool: 'start_task', server: 'playwright', text: 'x', why: 'y' })).ok).toBe(false);
+    expect((await call('propose_tool_note', { tool: 'start_task', text: 'x' })).content).toBe('give the note and what it was learned from');
+
+    expect((await call('propose_tool_note', { tool: 'start_task', text: 'Claim first.', why: 'r1' })).ok).toBe(true);
+    const again = await call('propose_tool_note', { tool: 'start_task', text: 'claim  first.', why: 'r2' });
+    expect(again.content).toBe('start_task already has that note (new-1, trial); nothing was proposed');
+    expect((await call('propose_tool_note', { tool: 'start_task', text: 'Claim first.', why: 'r2', model: 'qwen/q' })).ok).toBe(true);
+  });
+});
+
 describe('the memory tools as declared', () => {
-  it('are a read, a proposal and two writes that destroy nothing, since a retired memory is kept', () => {
+  it('are a read, proposals and two writes that destroy nothing, since a retired memory is kept', () => {
     expect(MEMORY_TOOLS.map((tool) => [tool.name, tool.effect, tool.destructive ?? null])).toEqual([
       ['search_memories', 'read', null],
       ['save_memory', 'write', false],
       ['propose_practice', 'propose', null],
+      ['propose_tool_note', 'propose', null],
       ['forget_memory', 'write', false],
     ]);
   });

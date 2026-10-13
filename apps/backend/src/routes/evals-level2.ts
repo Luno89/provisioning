@@ -10,6 +10,7 @@ export interface Level2RouterDeps {
   level2: Level2Service;
   bench?: BenchService | undefined;
   practices?: PracticeService | undefined;
+  notes?: PracticeService | undefined;
   changes?: AgentChangeService | undefined;
 }
 
@@ -67,6 +68,21 @@ export function evalsLevel2Router(deps: Level2RouterDeps): Router {
 
   router.post('/practices/:id/retire', asyncRoute(async (req: Request, res: Response) => {
     if (!(await deps.practices?.retire(userOf(req).id, String(req.params.id)))) return res.status(404).json({ error: 'there is no practice with that id' });
+    res.json({ retired: true });
+  }));
+
+  router.get('/tool-notes', asyncRoute(async (req: Request, res: Response) => {
+    res.json({ notes: deps.notes ? await deps.notes.list(userOf(req).id) : [] });
+  }));
+
+  router.post('/tool-notes/:id/live', asyncRoute(async (req: Request, res: Response) => {
+    const live = await deps.notes?.makeLive(userOf(req).id, String(req.params.id));
+    if (!live) return res.status(404).json({ error: 'there is no tool note waiting with that id' });
+    res.json({ note: live });
+  }));
+
+  router.post('/tool-notes/:id/retire', asyncRoute(async (req: Request, res: Response) => {
+    if (!(await deps.notes?.retire(userOf(req).id, String(req.params.id)))) return res.status(404).json({ error: 'there is no tool note with that id' });
     res.json({ retired: true });
   }));
 

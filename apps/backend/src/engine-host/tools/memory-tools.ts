@@ -1,6 +1,13 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import { unreachableMemory, type MemoryItem } from '../drivers/memory-store.js';
+import { unqualify } from '../../lib/mcp-tools.js';
+import { noteSubject } from '../../lib/tool-notes.js';
+
+export interface KnownTools {
+  tools: readonly string[];
+  servers: readonly { name: string; tools: readonly string[] }[];
+}
 
 export interface MemoryToolStore {
   list(ownerId: string): Promise<MemoryItem[]>;
@@ -35,7 +42,22 @@ export function matchMemories(memories: readonly MemoryItem[], query: string): M
     .map((entry) => entry.memory);
 }
 
-export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((ownerId: string) => Promise<string[]>) | undefined; models?: ((ownerId: string) => Promise<string[]>) | undefined; now?: () => string; newId?: () => string }): Record<string, ToolHandler> {
+function noteTarget(parsed: Record<string, unknown>, known: KnownTools): { tool?: string; server?: string } | { refused: string } {
+  const tool = text(parsed, 'tool');
+  const server = text(parsed, 'server');
+  if (tool && server) return { refused: 'give tool or server, not both; for one tool of a server, name it as it is offered, <server>__<tool>' };
+  if (server) {
+    return known.servers.some((entry) => entry.name === server) ? { server } : { refused: `there is no MCP server called "${server}"` };
+  }
+  if (!tool) return { refused: 'name the tool the note is about, as it is offered, or the server' };
+  if (known.tools.includes(tool)) return { tool };
+  const served = unqualify(tool);
+  const host = served ? known.servers.find((entry) => entry.name === served.server) : undefined;
+  if (served && host?.tools.includes(served.tool)) return { server: host.name, tool: served.tool };
+  return { refused: `there is no tool called "${tool}"; name it exactly as it is offered` };
+}
+
+export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((ownerId: string) => Promise<string[]>) | undefined; models?: ((ownerId: string) => Promise<string[]>) | undefined; tools?: ((ownerId: string) => Promise<KnownTools>) | undefined; now?: () => string; newId?: () => string }): Record<string, ToolHandler> {
   const now = options.now ?? (() => new Date().toISOString());
   const newId = options.newId ?? uuidv4;
   const { store } = options;
@@ -144,6 +166,44 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       await store.save(item);
       const on = forModel.model ? ` on ${forModel.model}` : '';
       return { ok: true, digest: `practice on trial for ${agent}${on}: ${title}`, content: `Proposed ${item.id} for ${agent}${on}; it is on trial until the bench has run ${agent}'s scenarios with it${on}.` };
+    },
+
+    async propose_tool_note({ parsed, caller }): Promise<ToolOutcome> {
+      const ownerId = caller.ownerId;
+      if (!ownerId) return refuse('this run has no owner to propose a note for');
+      const body = text(parsed, 'text');
+      const why = text(parsed, 'why');
+      if (!body || !why) return refuse('give the note and what it was learned from');
+      const target = noteTarget(parsed, options.tools ? await options.tools(ownerId) : { tools: [], servers: [] });
+      if ('refused' in target) return refuse(target.refused);
+      const forModel = await modelOf(ownerId, parsed);
+      if ('refused' in forModel) return refuse(forModel.refused);
+      const about = noteSubject(target);
+      const on = forModel.model ? ` on ${forModel.model}` : '';
+      const known = (await store.list(ownerId)).find((memory) => !memory.invalidAt && memory.category === 'tool_note' && memory.tool === target.tool && memory.server === target.server && memory.model === forModel.model && same(memory.text, body));
+      if (known) return refuse(`${about} already has that note${on} (${known.id}, ${known.status ?? 'active'}); nothing was proposed`);
+
+      const at = now();
+      const item: MemoryItem = {
+        id: newId(),
+        ownerId,
+        category: 'tool_note',
+        ...(target.tool ? { tool: target.tool } : {}),
+        ...(target.server ? { server: target.server } : {}),
+        ...(forModel.model ? { model: forModel.model } : {}),
+        scope: 'global',
+        recommendedScope: 'global',
+        status: 'trial',
+        title: text(parsed, 'title') ?? body.split('\n')[0]!.slice(0, 60),
+        text: body,
+        why,
+        source: 'agent_tool',
+        ...(caller.runId ? { provenance: { experimentId: caller.runId } } : {}),
+        createdAt: at,
+        updatedAt: at,
+      };
+      await store.save(item);
+      return { ok: true, digest: `note on trial for ${about}${on}: ${item.title}`, content: `Proposed ${item.id} for ${about}${on}; it is on trial until the bench has run the checks that use it${on}.` };
     },
 
     async forget_memory({ parsed, caller }): Promise<ToolOutcome> {

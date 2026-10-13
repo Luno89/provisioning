@@ -67,7 +67,7 @@ export function spacePersonas<T extends { slug: string; ownerId?: string | undef
 
 export function spacePractices(memories: readonly MemoryItem[], person: string, space: string, trial?: string | undefined): MemoryItem[] {
   return memories
-    .filter((memory) => memory.ownerId === person && memory.category === 'practice' && !memory.invalidAt && (memory.status === 'active' || memory.id === trial))
+    .filter((memory) => memory.ownerId === person && (memory.category === 'practice' || memory.category === 'tool_note') && !memory.invalidAt && (memory.status === 'active' || memory.id === trial))
     .map((memory) => ({ ...memory, id: `${space}-${memory.id}`, ownerId: space, ...(memory.id === trial ? { status: 'active' as const } : {}) }));
 }
 

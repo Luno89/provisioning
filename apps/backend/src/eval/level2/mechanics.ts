@@ -207,6 +207,25 @@ const perModel: Scenario = {
   expect: { outcome: 'ok', modelSaw: { contains: ['Shared lesson: Holds whichever model works.', 'Scripted habit: Only the scripted model is told this.'], lacks: ['Other habit'] } },
 };
 
+const toolNotes: Scenario = {
+  id: 'mechanics-tool-notes',
+  name: 'A note learned about a tool is shown beside it',
+  describe: 'Mechanics, on a script: the space has a live note on a tool for every model, one on another tool for the scripted model and one for another model; the model is sent the first two beside their tools and not the third.',
+  agent: 'koala',
+  procedure: { id: 'interactive-chat' },
+  input: { message: 'What can you do?' },
+  world: { memories: [
+    { title: 'Search first', text: 'Search with the words the person used.', category: 'tool_note', tool: 'search_memories' },
+    { title: 'Scripted saving', text: 'Only the scripted model is told this about saving.', category: 'tool_note', tool: 'save_memory', model: 'scripted' },
+    { title: 'Other reading', text: 'Only another model is told this about reading.', category: 'tool_note', tool: 'read_file', model: 'other/model' },
+  ] },
+  script: { rules: [NOTHING] },
+  expect: { outcome: 'ok', modelSaw: {
+    contains: ['Learned from earlier runs: Search with the words the person used.', 'Learned from earlier runs: Only the scripted model is told this about saving.'],
+    lacks: ['Only another model is told this about reading.', 'Search first:'],
+  } },
+};
+
 const LEAVES = [
   { key: 'alpha', title: 'Alpha files', file: 'alpha.txt', line: 'alpha' },
   { key: 'beta', title: 'Beta files', file: 'beta.txt', line: 'beta' },
@@ -505,4 +524,4 @@ const odooBrowserFailure: Scenario = {
   ],
 };
 
-export const MECHANICS_CHECKS = (): Scenario[] => [judged, longCommand, servedInWorkspace, researched, compacted(), logged, perModel, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];
+export const MECHANICS_CHECKS = (): Scenario[] => [judged, longCommand, servedInWorkspace, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];

@@ -30,4 +30,10 @@ describe('a check space', () => {
     ], 'bo', 'space-1', 'p2');
     expect(copied.map((memory) => [memory.id, memory.ownerId, memory.status])).toEqual([['space-1-p1', 'space-1', 'active'], ['space-1-p2', 'space-1', 'active']]);
   });
+
+  it('carries the person\'s live tool notes too, and a note on trial as live', () => {
+    const note = (id: string, status: 'active' | 'trial'): MemoryItem => ({ id, ownerId: 'bo', title: id, text: id, category: 'tool_note', tool: 'start_task', status, createdAt: '', updatedAt: '' });
+    const copied = spacePractices([note('n1', 'active'), note('n2', 'trial'), note('n3', 'trial')], 'bo', 'space-1', 'n3');
+    expect(copied.map((memory) => [memory.id, memory.status, memory.tool])).toEqual([['space-1-n1', 'active', 'start_task'], ['space-1-n3', 'active', 'start_task']]);
+  });
 });

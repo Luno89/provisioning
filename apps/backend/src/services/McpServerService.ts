@@ -20,9 +20,15 @@ export interface McpServerDeps {
   finished: (runId: string) => Promise<{ outcome: string; reason?: string | undefined } | undefined>;
   deployments: () => Promise<readonly DeploymentMetadata[]>;
   names: (ownerId: string, deployment: DeploymentMetadata) => Promise<{ treeName?: string | undefined; projectName?: string | undefined; declared?: string | undefined }>;
-  grants?: { renameServer(ownerId: string, from: string, to: string): Promise<number>; forgetServer(ownerId: string, name: string): Promise<number> } | undefined;
+  grants?: ServerFollowers | undefined;
+  notes?: ServerFollowers | undefined;
   now?: (() => Date) | undefined;
   newId?: (() => string) | undefined;
+}
+
+export interface ServerFollowers {
+  renameServer(ownerId: string, from: string, to: string): Promise<number>;
+  forgetServer(ownerId: string, name: string): Promise<number>;
 }
 
 export interface McpServerView extends McpServerRecord {
@@ -129,6 +135,7 @@ export class McpServerService {
       if (deploymentId && !deployments.has(deploymentId)) {
         await this.deps.store.remove(ownerId, server.id);
         await this.deps.grants?.forgetServer(ownerId, server.name);
+        await this.deps.notes?.forgetServer(ownerId, server.name);
       } else kept.push(server);
     }
     return kept;
@@ -202,7 +209,10 @@ export class McpServerService {
     if (problems.length > 0) return { ok: false, status: problems.some((problem) => problem.startsWith('you already have')) ? 409 : 400, error: problems.join('; ') };
     const saved: McpServerRecord = { ...shaped, id, ownerId, createdAt: current.createdAt, updatedAt: this.now().toISOString() };
     await this.deps.store.save(saved);
-    if (saved.name !== current.name) await this.deps.grants?.renameServer(ownerId, current.name, saved.name);
+    if (saved.name !== current.name) {
+      await this.deps.grants?.renameServer(ownerId, current.name, saved.name);
+      await this.deps.notes?.renameServer(ownerId, current.name, saved.name);
+    }
     const changed = runsFingerprint(saved.runs) !== runsFingerprint(current.runs);
     return { ok: true, server: this.view(changed ? await this.capture(saved) : saved) };
   }
@@ -224,6 +234,7 @@ export class McpServerService {
     }
     await this.deps.store.remove(ownerId, id);
     await this.deps.grants?.forgetServer(ownerId, current.name);
+    await this.deps.notes?.forgetServer(ownerId, current.name);
     return { ok: true };
   }
 }

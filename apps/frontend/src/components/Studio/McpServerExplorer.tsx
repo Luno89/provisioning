@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { AlertTriangle, CheckCircle2, FileText, Loader2, NotebookPen, RefreshCw, Server, Wrench } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, FileText, Lightbulb, Loader2, NotebookPen, RefreshCw, Server, Wrench } from 'lucide-react'
 import type { McpServer, McpServerRuns, McpToolKind } from '../../api/mcp'
 import type { Agent } from '../../api/agents'
 import Explorer, { FileHeader, type ExplorerGroup } from './Explorer'
+import ToolNotesPanel from '../Checks/ToolNotesPanel'
 import { errorMessage, useAddMcpServer, useAgents, useCaptureMcpServer, useMcpCatalogue, useRemoveMcpServer, useSaveAgent, useSaveMcpServer } from './shared'
 import {
   MANAGERS, PLACE_TITLES, declaredKind, formOf, groupServers, isOffered, placeOf, runsOf, statusText, withOffered, withToolSaid, type WorkspaceForm,
@@ -13,6 +14,7 @@ const FILES = [
   { id: 'runs', title: 'How it runs', icon: Server, says: 'Where it runs, and for one in the workspace what installs it and the command that starts it. Saving a change here captures it again.' },
   { id: 'tools', title: 'Tools', icon: Wrench, says: 'What it serves, as it said when it was captured: which of them to offer, what each really does, and a note the model reads beside it.' },
   { id: 'notes', title: 'Notes', icon: NotebookPen, says: 'What you want every agent holding it to know, and what it depends on. The model reads both under the server\'s own instructions.' },
+  { id: 'learned', title: 'Learned notes', icon: Lightbulb, says: 'What runs taught about using it and its tools, shown to every agent holding it once the bench shows it breaks nothing.' },
 ] as const
 
 type ServerFile = 'overview' | typeof FILES[number]['id']
@@ -204,6 +206,7 @@ function ServerFileView({ server, file }: { server: McpServer; file: ServerFile 
       {file === 'runs' && <HowItRuns server={server} />}
       {file === 'tools' && <Tools server={server} />}
       {file === 'notes' && <Notes server={server} />}
+      {file === 'learned' && <ToolNotesPanel scope={{ server: server.name }} />}
     </div>
   )
 }

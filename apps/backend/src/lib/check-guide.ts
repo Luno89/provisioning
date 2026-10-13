@@ -34,7 +34,7 @@ export const SCENARIO_FIELDS: Record<Authored, Entry> = {
 export const WORLD_FIELDS: Record<keyof ScenarioWorld, Entry> = {
   tasks: { means: 'tasks on the board, accepted unless a status is given', example: '[{ "id": "write-greeting", "title": "Write the greeting", "doneMeans": "greeting.txt says hello" }]' },
   procedures: { means: 'procedures saved as the space\'s own before the run' },
-  memories: { means: 'memories the space has; a model keeps one for that model only (a scripted check runs on "scripted")', example: '[{ "title": "House style", "text": "Say hello, not hi." }]' },
+  memories: { means: 'memories the space has; a model keeps one for that model only (a scripted check runs on "scripted"); category "tool_note" with a tool (as it is offered) or server makes a live note shown beside that tool', example: '[{ "title": "House style", "text": "Say hello, not hi." }]' },
   files: { means: 'files in the run\'s workspace, by path', example: '{ "notes/todo.md": "check the indexes" }' },
   acceptProposedWork: { means: 'true: work the run proposes is accepted as if the person said yes' },
   agents: { means: 'settings laid over agents for this check only, by slug; "tools" is what the agent holds, granted in the space, and "servers" the world\'s MCP servers it holds', example: '{ "koala": { "concludeAfterMinutes": 0 }, "judge": { "tools": ["read_file"], "servers": ["echoes"] } }' },

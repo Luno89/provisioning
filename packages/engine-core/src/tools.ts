@@ -14,6 +14,7 @@ export interface ToolContract {
   requires?: EnvironmentRequirement | undefined;
   parameters?: Record<string, unknown> | undefined;
   usageGuidance?: string | undefined;
+  learned?: readonly string[] | undefined;
   command?: string | undefined;
   servedBy?: ServedBy | undefined;
 }
@@ -25,6 +26,7 @@ export interface ServedBy {
   instructions?: string | undefined;
   notes?: string | undefined;
   dependsOn?: string | undefined;
+  learned?: readonly string[] | undefined;
 }
 
 export interface WithheldTool {

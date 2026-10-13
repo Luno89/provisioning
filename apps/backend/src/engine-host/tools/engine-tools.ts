@@ -11,7 +11,7 @@ import { createProjectTools, type ProjectToolStores } from './project-tools.js';
 import { createEgressTools, type EgressToolStores } from './egress-tools.js';
 import { createCorpusTools, type CorpusAccess } from './corpus-tools.js';
 import { createRunTools, type RunReader } from './run-tools.js';
-import { createMemoryTools, type MemoryToolStore } from './memory-tools.js';
+import { createMemoryTools, type KnownTools, type MemoryToolStore } from './memory-tools.js';
 import { createScenarioTools, type ScenarioProposalAccess } from './scenario-tools.js';
 import { createCheckTools, type CheckAccess } from './check-tools.js';
 import { createAgentChangeTools, type AgentChangeAccess } from './agent-change-tools.js';
@@ -39,6 +39,7 @@ export interface EngineToolDeps {
   runs?: RunReader | undefined;
   memories?: MemoryToolStore | undefined;
   models?: ((ownerId: string) => Promise<string[]>) | undefined;
+  knownTools?: ((ownerId: string) => Promise<KnownTools>) | undefined;
   scenarios?: ScenarioProposalAccess | undefined;
   checks?: CheckAccess | undefined;
   agentChanges?: AgentChangeAccess | undefined;
@@ -58,7 +59,7 @@ export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, T
     ...(deps.egress ? createEgressTools({ stores: deps.egress }) : {}),
     ...(deps.corpus ? createCorpusTools({ access: deps.corpus }) : {}),
     ...(deps.runs ? createRunTools({ runs: deps.runs }) : {}),
-    ...(deps.memories ? createMemoryTools({ store: deps.memories, agents: async (ownerId) => (await deps.registry.agents(ownerId)).map((agent) => agent.slug), models: deps.models }) : {}),
+    ...(deps.memories ? createMemoryTools({ store: deps.memories, agents: async (ownerId) => (await deps.registry.agents(ownerId)).map((agent) => agent.slug), models: deps.models, tools: deps.knownTools }) : {}),
     ...(deps.scenarios ? createScenarioTools(deps.scenarios) : {}),
     ...(deps.checks ? createCheckTools(deps.checks) : {}),
     ...(deps.agentChanges ? createAgentChangeTools(deps.agentChanges) : {}),

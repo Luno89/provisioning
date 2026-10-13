@@ -19,6 +19,9 @@ import {
   dismissChange,
   makePracticeLive,
   retirePractice,
+  listToolNotes,
+  makeToolNoteLive,
+  retireToolNote,
   listModels,
   listScenarios,
   saveBench,
@@ -41,6 +44,7 @@ export const evalKeys = {
   bench: ['evals', 'level2', 'bench'] as const,
   proposals: ['evals', 'level2', 'proposals'] as const,
   practices: ['evals', 'level2', 'practices'] as const,
+  toolNotes: ['evals', 'level2', 'tool-notes'] as const,
   changes: ['evals', 'level2', 'changes'] as const,
 }
 
@@ -192,6 +196,7 @@ export function triggerLabel(trigger: Level2Run['trigger']): string {
     case 'full': return 'bench, everything'
     case 'changed': return `bench, changed ${trigger.agents.join(', ')}`
     case 'practice': return `bench, trying a practice for ${trigger.agent}`
+    case 'tool-note': return `bench, trying a note on ${trigger.about}`
     case 'prompt-change': return `bench, comparing a prompt for ${trigger.agent}`
   }
 }
@@ -205,6 +210,18 @@ export function useDecidePractice() {
   const settle = () => { void client.invalidateQueries({ queryKey: evalKeys.practices }) }
   const live = useMutation({ mutationFn: (id: string) => makePracticeLive(id), onSuccess: settle })
   const retire = useMutation({ mutationFn: (id: string) => retirePractice(id), onSuccess: settle })
+  return { live, retire }
+}
+
+export function useToolNotes() {
+  return useQuery({ queryKey: evalKeys.toolNotes, queryFn: listToolNotes })
+}
+
+export function useDecideToolNote() {
+  const client = useQueryClient()
+  const settle = () => { void client.invalidateQueries({ queryKey: evalKeys.toolNotes }) }
+  const live = useMutation({ mutationFn: (id: string) => makeToolNoteLive(id), onSuccess: settle })
+  const retire = useMutation({ mutationFn: (id: string) => retireToolNote(id), onSuccess: settle })
   return { live, retire }
 }
 

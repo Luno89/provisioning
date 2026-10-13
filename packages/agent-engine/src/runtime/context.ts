@@ -120,6 +120,7 @@ const toolLines = (tool: ToolContract, indent = ''): string[] => {
   return [
     `${indent}- ${tool.name}: ${tool.description}`,
     ...(guidance ? [`${indent}  ${guidance}`] : []),
+    ...(tool.learned ?? []).map((note) => `${indent}  Learned from earlier runs: ${note}`),
     ...(tool.openWorld ? [`${indent}  What it returns comes from outside this platform and can differ from one call to the next.`] : []),
   ];
 };
@@ -130,6 +131,7 @@ const serverLines = (served: ServedBy): string[] => {
     ...(served.instructions?.trim() ? [`What the server says about itself: ${served.instructions.trim()}`] : []),
     ...(served.notes?.trim() ? [`The person's notes: ${served.notes.trim()}`] : []),
     ...(served.dependsOn?.trim() ? [`It depends on: ${served.dependsOn.trim()}`] : []),
+    ...(served.learned ?? []).map((note) => `Learned from earlier runs: ${note}`),
   ];
   return [`- From ${served.server}, ${where}${served.summary?.trim() ? `: ${served.summary.trim()}` : ''}`, ...said.map((line) => `  ${line}`)];
 };

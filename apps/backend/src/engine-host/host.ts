@@ -356,6 +356,10 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       ...(stores.runs ? { runs: stores.runs } : {}),
       memories: stores.memories,
       ...(options.models.list ? { models: async (ownerId: string) => modelNames(await options.models.list!(ownerId)) } : {}),
+      knownTools: async (ownerId: string) => ({
+        tools: await catalogue.names(ownerId),
+        servers: (options.mcpServers ? await options.mcpServers.list(ownerId) : []).map((server) => ({ name: server.name, tools: (server.captured?.tools ?? []).map((tool) => tool.name) })),
+      }),
       ...(options.checks ? { checks: options.checks } : {}),
       ...(stores.proposals ? {
         scenarios: {

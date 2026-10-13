@@ -42,7 +42,7 @@ export const MEMORY_TOOLS: ToolDefinition[] = [
       { when: 'there is no text', says: 'what is missing' },
       { when: 'replaces names a memory that is not one of the person\'s current ones', says: 'so, and saves nothing' },
       { when: 'it is scoped to a project and there is no project', says: 'to scope it global instead' },
-      { when: 'model is not one of the person\'s models', says: 'which models there are' },
+      { when: 'model is not one of the person\'s models', says: 'to name it exactly as read_run shows it' },
     ],
     parameters: {
       type: 'object',
@@ -69,7 +69,7 @@ export const MEMORY_TOOLS: ToolDefinition[] = [
     failures: [
       { when: 'the agent does not exist', says: 'so' },
       { when: 'the agent already has that practice', says: 'so, and proposes nothing' },
-      { when: 'model is not one of the person\'s models', says: 'which models there are' },
+      { when: 'model is not one of the person\'s models', says: 'to name it exactly as read_run shows it' },
     ],
     parameters: {
       type: 'object',
@@ -81,6 +81,33 @@ export const MEMORY_TOOLS: ToolDefinition[] = [
         model: { ...MODEL, description: 'Only when the practice corrects a habit of the model that ran rather than how the agent should work on any model: that model\'s name, exactly as read_run shows it. The bench then tries it on that model, and it reaches the agent\'s prompt only on that model.' },
       },
       required: ['agent', 'text', 'why'],
+    },
+  },
+  {
+    name: 'propose_tool_note',
+    summary: 'Propose a note on how to use one tool, or the tools of one MCP server, which is shown beside it once the bench shows it breaks nothing',
+    guidance: 'Use this when runs show a tool being misused in the same way — called when another fits, called in the wrong order, given arguments it refuses, its result misread — and a sentence beside the tool would prevent it for every agent that holds it. Write it as advice about the tool, not about one agent\'s work: that is a practice. It starts on trial: the bench runs the checks that use the tool with it, and it goes live only if nothing regresses; otherwise it waits for the person.',
+    binding: 'platform',
+    effect: 'propose',
+    idempotent: false,
+    openWorld: false,
+    returns: 'that it is on trial, or why it was not proposed',
+    failures: [
+      { when: 'there is no such tool or server', says: 'so' },
+      { when: 'the tool already has that note', says: 'so, and proposes nothing' },
+      { when: 'model is not one of the person\'s models', says: 'to name it exactly as read_run shows it' },
+    ],
+    parameters: {
+      type: 'object',
+      properties: {
+        tool: { type: 'string', description: 'The tool, named exactly as it is offered (a server\'s tool as <server>__<tool>). Leave it out for a note on a whole server.' },
+        server: { type: 'string', description: 'Only for a note about every tool of one MCP server: the server\'s name.' },
+        title: { type: 'string', description: 'A short name for it.' },
+        text: { type: 'string', description: 'The note, as advice to whoever is offered the tool.' },
+        why: { type: 'string', description: 'What it was learned from, naming runs when there are some.' },
+        model: { ...MODEL, description: 'Only when the note corrects how the model that ran tends to use the tool, and would not hold for another model: that model\'s name, exactly as read_run shows it. The bench then tries it on that model, and it is shown only on that model.' },
+      },
+      required: ['text', 'why'],
     },
   },
   {

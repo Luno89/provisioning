@@ -24,6 +24,8 @@ export interface WorldMemory {
   text: string;
   category?: string | undefined;
   model?: string | undefined;
+  tool?: string | undefined;
+  server?: string | undefined;
 }
 
 export interface ScenarioWorld {
@@ -295,6 +297,7 @@ export function scenarioProblems(
   for (const memory of scenario.world?.memories ?? []) {
     if (typeof memory.title !== 'string' || !memory.title.trim() || typeof memory.text !== 'string' || !memory.text.trim()) problems.push('every memory in the world needs a title and a text');
     if (memory.model !== undefined && (typeof memory.model !== 'string' || !memory.model.trim())) problems.push(`the memory "${String(memory.title)}" names a model that is not a name`);
+    if (memory.category === 'tool_note' && !(typeof memory.tool === 'string' && memory.tool.trim()) && !(typeof memory.server === 'string' && memory.server.trim())) problems.push(`the tool note "${String(memory.title)}" names no tool or server`);
   }
   for (const [path, content] of Object.entries(scenario.world?.files ?? {})) {
     if (path.startsWith('/') || path.includes('..')) problems.push(`"${path}" has to be a path inside the workspace`);

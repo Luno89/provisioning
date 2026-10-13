@@ -276,4 +276,24 @@ describe('the tools an MCP server serves', () => {
       '  - docs__search: Search',
     ].join('\n'));
   });
+
+  it('carry what was learned from earlier runs, about the server and about each tool, under what the person wrote', () => {
+    const servedBy = { server: 'playwright', where: 'workspace' as const, notes: 'Odoo is on 8069.', learned: ['Wait for the page to settle before a snapshot.'] };
+    const text = describeAvailable([
+      { name: 'start_task', description: 'Claim a task', binding: 'platform', usageGuidance: 'Call it before working.', learned: ['It claims the task; task_status first is not needed.'] },
+      { name: 'playwright__browser_click', description: 'Click', binding: 'environment', servedBy, learned: ['Click by ref, not by text.'] },
+    ]);
+    expect(text).toBe([
+      'TOOLS YOU CAN USE RIGHT NOW',
+      '',
+      '- start_task: Claim a task',
+      '  Call it before working.',
+      '  Learned from earlier runs: It claims the task; task_status first is not needed.',
+      '- From playwright, an MCP server that runs in your workspace',
+      "  The person's notes: Odoo is on 8069.",
+      '  Learned from earlier runs: Wait for the page to settle before a snapshot.',
+      '  - playwright__browser_click: Click',
+      '    Learned from earlier runs: Click by ref, not by text.',
+    ].join('\n'));
+  });
 });

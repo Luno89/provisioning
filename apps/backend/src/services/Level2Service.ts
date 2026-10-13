@@ -273,7 +273,7 @@ export class Level2Service {
     const runs = await this.options.store.getEvalRecords<Level2Run>('evalScenarioRuns', run.ownerId, 100).catch(() => []);
     return runs
       .filter((other) => other.id !== run.id && other.startedAt < run.startedAt && other.state === 'done')
-      .filter((other) => other.trigger?.kind !== 'practice' && other.trigger?.kind !== 'prompt-change')
+      .filter((other) => other.trigger?.kind !== 'practice' && other.trigger?.kind !== 'tool-note' && other.trigger?.kind !== 'prompt-change')
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   }
 }

@@ -267,7 +267,12 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       for (const practice of spacePractices(await store.getMemories(person), person, spaceId, trialPractice)) await store.saveMemory(practice);
 
       for (const memory of scenario.world?.memories ?? []) {
-        await store.saveMemory({ id: `${spaceId}-${uuidv4()}`, ownerId: spaceId, title: memory.title, text: memory.text, category: (memory.category ?? 'lessons_learned') as MemoryItem['category'], ...(memory.model ? { model: memory.model } : {}), createdAt: stamp, updatedAt: stamp });
+        await store.saveMemory({
+          id: `${spaceId}-${uuidv4()}`, ownerId: spaceId, title: memory.title, text: memory.text, category: (memory.category ?? 'lessons_learned') as MemoryItem['category'],
+          ...(memory.category === 'tool_note' ? { status: 'active' as const } : {}),
+          ...(memory.model ? { model: memory.model } : {}), ...(memory.tool ? { tool: memory.tool } : {}), ...(memory.server ? { server: memory.server } : {}),
+          createdAt: stamp, updatedAt: stamp,
+        });
       }
       if (scenario.step) {
         const built = stepProcedure(scenario.id, scenario.step, platformCatalogue());

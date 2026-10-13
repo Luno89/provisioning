@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import axios from 'axios';
 import { BUILDER_TOOLS } from '@koala/agent-engine';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
+import { PracticeService } from '../services/PracticeService.js';
 import { evalsLevel2Router } from './evals-level2.js';
 import { Level2Service } from '../services/Level2Service.js';
 import { BenchService } from '../services/BenchService.js';
@@ -35,11 +36,13 @@ const level2Harness = (): Promise<Harness> => mountRouter({
       builtIn: [SCENARIO],
       newId: () => 'run-2',
     }),
+    notes: new PracticeService({ store: db, category: 'tool_note' }),
     bench: new BenchService({
       store: db,
       scenarios: async () => [],
       fingerprints: async () => ({}),
       practices: { trials: async () => [], settle: async () => undefined },
+      notes: { trials: async () => [], settle: async () => undefined },
       changes: { pending: async () => [], comparing: async () => undefined, settle: async () => undefined },
       earlier: async () => [],
       notifyChange: () => undefined,
@@ -54,6 +57,25 @@ const level2Harness = (): Promise<Harness> => mountRouter({
 });
 
 describe('level 2 eval routes', () => {
+  it('lists the person\'s tool notes, makes one held for them live, and retires one', async () => {
+    const harness = await level2Harness();
+    try {
+      const note = (id: string, status: 'pending_review' | 'active') => harness.db.saveMemory({ id, ownerId: TEST_USER.id, category: 'tool_note', tool: 'start_task', status, title: id, text: id, createdAt: 'a', updatedAt: id });
+      await note('held', 'pending_review');
+      await note('live', 'active');
+
+      const listed = await axios.get(harness.url('/api/evals/level2/tool-notes'));
+      expect(listed.data.notes.map((entry: { id: string }) => entry.id).sort()).toEqual(['held', 'live']);
+
+      expect((await axios.post(harness.url('/api/evals/level2/tool-notes/held/live'))).data.note).toMatchObject({ id: 'held', status: 'active' });
+      expect((await axios.post(harness.url('/api/evals/level2/tool-notes/held/live'), {}, { validateStatus: () => true })).status).toBe(404);
+      expect((await axios.post(harness.url('/api/evals/level2/tool-notes/live/retire'))).data).toEqual({ retired: true });
+      expect((await axios.get(harness.url('/api/evals/level2/tool-notes'))).data.notes.map((entry: { id: string }) => entry.id)).toEqual(['held']);
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('lists proposed tests, accepts one into the person\'s scenarios — edited or as proposed — and dismisses another', async () => {
     const harness = await level2Harness();
     try {

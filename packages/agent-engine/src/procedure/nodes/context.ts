@@ -44,12 +44,13 @@ export const resolveTools: BuiltInNode = {
     kind: 'resolve-tools',
     title: 'Resolve Tools',
     category: 'context',
-    describe: 'Works out which tools the model can use on this call: what the persona is granted, including the personas it may delegate to, narrowed to what the environment can support and what this step allows. Everything left out is listed with the reason.',
+    describe: 'Works out which tools the model can use on this call: what the persona is granted, including the personas it may delegate to, narrowed to what the environment can support and what this step allows. Everything left out is listed with the reason. Each tool carries what was learned about using it, for this model too when one is wired.',
     role: 'value',
     inputs: [
       { name: 'persona', type: 'persona', describe: 'Whose grants to start from.', required: true },
       { name: 'delegates', type: 'json', describe: 'The personas it may delegate to, offered as tools.' },
       { name: 'environment', type: 'environment', describe: 'What the run can reach. Nothing wired means no environment.' },
+      { name: 'binding', type: 'modelBinding', describe: 'The model the tools are offered to. Nothing wired means notes learned for one model are left out.' },
     ],
     outputs: [
       { name: 'offered', type: 'toolSet', describe: 'The tools to offer the model.' },

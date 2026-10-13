@@ -19,6 +19,7 @@ export type BenchTrigger =
   | { kind: 'full' }
   | { kind: 'changed'; agents: string[] }
   | { kind: 'practice'; agent: string; practiceId: string }
+  | { kind: 'tool-note'; about: string; noteId: string }
   | { kind: 'prompt-change'; agent: string; changeId: string };
 
 export interface BenchPlan {

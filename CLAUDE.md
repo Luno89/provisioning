@@ -266,6 +266,16 @@ while none does; every check result records the model it ran on, and regressions
 compare results on the same model (`sameModel` in `lib/bench.ts`). The Memories page and the agent's practices show
 and filter by model; `mechanics-memory-per-model` proves recall on a script (a scripted space's model is `scripted`).
 
+**A tool note is advice shown beside a tool** (`category: 'tool_note'`, with `tool` — a built-in's name, or a server's
+tool with `server` — or `server` alone for all of a server's tools; `lib/tool-notes.ts`). The keeper proposes one with
+`propose_tool_note` when runs misuse a tool rather than when one agent works badly (that is a practice), naming the
+tool as it is offered. It goes on trial: the bench runs the checks that use the tool (`scenarioSubjects(...).tools`,
+any of the server's for a server note) with it in the space, and it goes live only if nothing regressed, recording
+which checks it made pass (`trial.better`). Resolve Tools takes the turn's binding and puts each live note on its tool
+(`learned`) or server (`servedBy.learned`), shown as "Learned from earlier runs"; one kept for a model only on that
+model. Notes never reach the memory bank or the Memories page; they show on the tool's and the server's Studio pages
+(Learned notes), follow a server's rename and are retired with it. `mechanics-tool-notes` proves it on a script.
+
 ## Checks
 
 Level 2 scenarios — **checks** — run on the **check runner** (`CheckRunWorkflow`, engine worker), never in-process.

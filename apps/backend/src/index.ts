@@ -69,6 +69,7 @@ import { MemoryKeeperService } from './services/MemoryKeeperService.js';
 import { BENCH_IDLE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, conversationConclusionId, workflowOfRun } from './engine-host/temporal/contracts.js';
 import { BenchService } from './services/BenchService.js';
 import { PracticeService } from './services/PracticeService.js';
+import { scenarioSubjects } from './lib/check-subjects.js';
 import { randomUUID } from 'node:crypto';
 import { AgentChangeService } from './services/AgentChangeService.js';
 import { fingerprintOf } from './lib/bench.js';
@@ -898,6 +899,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   const practiceService = new PracticeService({ store: db });
+  const toolNoteService = new PracticeService({ store: db, category: 'tool_note' });
   const agentChanges = new AgentChangeService({
     store: db,
     savePrompt: async (ownerId, slug, prompt) => {
@@ -931,9 +933,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   bench.service = new BenchService({
     store: db,
-    scenarios: async (ownerId) => (await level2Service.scenarios(ownerId)).map((scenario) => ({ id: scenario.id, agent: scenario.agent, onBench: scenario.onBench })),
+    scenarios: async (ownerId) => (await level2Service.scenarios(ownerId)).map((scenario) => ({ id: scenario.id, agent: scenario.agent, onBench: scenario.onBench, tools: scenarioSubjects(scenario).tools })),
     fingerprints: agentFingerprints,
     practices: practiceService,
+    notes: toolNoteService,
     changes: agentChanges,
     earlier: (run) => level2Service.earlier(run),
     notifyChange: (ownerId, change) => {
@@ -1089,7 +1092,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }),
   }));
 
-  tenant.use('/api/evals/level2', evalsLevel2Router({ level2: level2Service, bench: bench.service!, practices: practiceService, changes: agentChanges }));
+  tenant.use('/api/evals/level2', evalsLevel2Router({ level2: level2Service, bench: bench.service!, practices: practiceService, notes: toolNoteService, changes: agentChanges }));
 
   tenant.use('/api/conversations', conversationsRouter({
     db,
@@ -1183,6 +1186,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     finished: async (runId) => db.findRunEffort(runId),
     deployments: () => db.getDeployments(),
     grants: agentDirectory,
+    notes: toolNoteService,
     names: async (ownerId, deployment) => {
       const project = deployment.gitappProjectId ? (await db.getProjects()).find((entry) => entry.id === deployment.gitappProjectId && entry.ownerId === ownerId) : undefined;
       const tree = project ? (await db.getTrees()).find((entry) => entry.ownerId === ownerId && (entry.projectIds ?? []).includes(project.id)) : undefined;

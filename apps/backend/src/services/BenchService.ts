@@ -10,6 +10,7 @@ import type { BenchIdleOutcome, LifecycleEvent } from '../engine-host/temporal/c
 import type { Level2Run } from './Level2Service.js';
 import type { MemoryItem, PracticeTrial } from '../lib/memory-store.js';
 import { compareWithEarlier, type PromptChange, type PromptComparison } from '../lib/agent-changes.js';
+import { checksForNote, noteSubject } from '../lib/tool-notes.js';
 
 export interface BenchStore {
   getBenchSettings(ownerId: string): Promise<BenchSettings | undefined>;
@@ -28,7 +29,7 @@ export interface BenchStartExtra {
 
 export interface BenchDeps {
   store: BenchStore;
-  scenarios: (ownerId: string) => Promise<{ id: string; agent: string; onBench?: boolean | undefined }[]>;
+  scenarios: (ownerId: string) => Promise<{ id: string; agent: string; onBench?: boolean | undefined; tools?: string[] | undefined }[]>;
   fingerprints: (ownerId: string, agents: readonly string[]) => Promise<Record<string, string>>;
   start: (ownerId: string, plan: BenchPlan, extra?: BenchStartExtra) => Promise<void>;
   serving: (ownerId: string, model: string) => Promise<{ modelId: string; modelLabel: string } | undefined>;
@@ -39,15 +40,18 @@ export interface BenchDeps {
   };
   earlier: (run: Level2Run) => Promise<Level2Run[]>;
   notifyChange: (ownerId: string, change: PromptChange) => void;
-  practices: {
-    trials(ownerId: string): Promise<MemoryItem[]>;
-    settle(ownerId: string, id: string, trial: PracticeTrial, live: boolean): Promise<void>;
-  };
+  practices: Trials;
+  notes?: Trials | undefined;
   benchRunning: (ownerId: string) => Promise<boolean>;
   agentsRunning: () => Promise<boolean>;
   idleTimer: (ownerId: string, idleMs: number) => Promise<void>;
   notify: (ownerId: string, run: Level2Run) => void;
   now?: () => number;
+}
+
+export interface Trials {
+  trials(ownerId: string): Promise<MemoryItem[]>;
+  settle(ownerId: string, id: string, trial: PracticeTrial, live: boolean): Promise<void>;
 }
 
 export type SaveBenchSettingsOutcome = { saved: true; settings: BenchSettings } | { saved: false; problems: string[] };
@@ -104,6 +108,19 @@ export class BenchService {
       return 'started';
     }
 
+    const notes = this.deps.notes ? (await this.deps.notes.trials(ownerId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)) : [];
+    for (const note of notes) {
+      const checks = checksForNote(scenarios, note);
+      if (checks.length === 0) {
+        await this.deps.notes!.settle(ownerId, note.id, { checkedAt: new Date(this.now()).toISOString(), unchecked: true }, true);
+        continue;
+      }
+      const on = note.model ? await this.deps.serving(ownerId, note.model) : undefined;
+      if (note.model && !on) continue;
+      await this.deps.start(ownerId, { trigger: { kind: 'tool-note', about: noteSubject(note), noteId: note.id }, scenarioIds: checks }, { trialPractice: note.id, ...(on ?? {}) });
+      return 'started';
+    }
+
     const changes = (await this.deps.changes.pending(ownerId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     for (const change of changes) {
       const checks = scenarios.filter((scenario) => scenario.agent === change.agent).map((scenario) => scenario.id);
@@ -132,13 +149,17 @@ export class BenchService {
   }
 
   async finished(run: Level2Run): Promise<void> {
-    if (run.trigger?.kind === 'practice' && run.state === 'done') {
+    const trial = run.trigger?.kind === 'practice' ? { trials: this.deps.practices, id: run.trigger.practiceId }
+      : run.trigger?.kind === 'tool-note' && this.deps.notes ? { trials: this.deps.notes, id: run.trigger.noteId }
+      : undefined;
+    if (trial && run.state === 'done') {
       const regressions = run.regressions ?? [];
-      await this.deps.practices.settle(run.ownerId, run.trigger.practiceId, {
+      await trial.trials.settle(run.ownerId, trial.id, {
         checkedAt: run.finishedAt ?? new Date(this.now()).toISOString(),
         runId: run.id,
         scenarios: run.scenarios,
         regressions,
+        better: compareWithEarlier(run.results, await this.deps.earlier(run)).better,
       }, regressions.length === 0);
     }
     if (run.trigger?.kind === 'prompt-change') {

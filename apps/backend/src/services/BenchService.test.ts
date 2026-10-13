@@ -23,12 +23,19 @@ let comparing: string[];
 let readyChanges: PromptChange[];
 let earlierRuns: Level2Run[];
 let changeNotices: string[];
+let noteTrials: MemoryItem[];
+let notesSettled: { id: string; trial: PracticeTrial; live: boolean }[];
 
 const bench = () => new BenchService({
   store: db,
-  scenarios: async () => [{ id: 'koala-cluster', agent: 'koala' }, { id: 'executor-hello', agent: 'executor' }, { id: 'koala-long-story', agent: 'koala', onBench: false }],
+  scenarios: async () => [
+    { id: 'koala-cluster', agent: 'koala', tools: ['list_infrastructure', 'playwright__browser_snapshot'] },
+    { id: 'executor-hello', agent: 'executor', tools: ['start_task', 'mark_done', 'playwright__browser_click'] },
+    { id: 'koala-long-story', agent: 'koala', onBench: false, tools: ['start_task'] },
+  ],
   fingerprints: async () => prints,
   practices: { trials: async () => trials, settle: async (_ownerId, id, trial, live) => { settled.push({ id, trial, live }); } },
+  notes: { trials: async () => noteTrials, settle: async (_ownerId, id, trial, live) => { notesSettled.push({ id, trial, live }); } },
   changes: {
     pending: async () => pendingChanges,
     comparing: async (_ownerId, id) => { comparing.push(id); },
@@ -62,6 +69,8 @@ beforeEach(async () => {
   readyChanges = [];
   earlierRuns = [];
   changeNotices = [];
+  noteTrials = [];
+  notesSettled = [];
 });
 
 describe('the bench', () => {
@@ -173,10 +182,37 @@ describe('the bench', () => {
     await bench().finished({ ...trialRun([]), state: 'failed' });
 
     expect(settled).toEqual([
-      { id: 'p1', trial: { checkedAt: 'b', runId: 'trial-1', scenarios: ['koala-cluster'], regressions: [] }, live: true },
-      { id: 'p1', trial: { checkedAt: 'b', runId: 'trial-1', scenarios: ['koala-cluster'], regressions: ['koala-cluster'] }, live: false },
+      { id: 'p1', trial: { checkedAt: 'b', runId: 'trial-1', scenarios: ['koala-cluster'], regressions: [], better: [] }, live: true },
+      { id: 'p1', trial: { checkedAt: 'b', runId: 'trial-1', scenarios: ['koala-cluster'], regressions: ['koala-cluster'], better: [] }, live: false },
     ]);
     expect(notified).toHaveLength(1);
+  });
+
+  it('tries a note on a tool on the checks that use the tool, after any practice, and on the server\'s tools for a note on a server', async () => {
+    const note = (id: string, over: Partial<MemoryItem>): MemoryItem => ({ id, ownerId: 'u1', category: 'tool_note', status: 'trial', title: id, text: id, createdAt: id, updatedAt: id, ...over });
+    noteTrials = [note('n1', { tool: 'start_task' }), note('n2', { server: 'playwright' })];
+
+    expect(await bench().idle('u1')).toBe('started');
+    expect(started).toEqual([{ trigger: { kind: 'tool-note', about: 'start_task', noteId: 'n1' }, scenarioIds: ['executor-hello'] }]);
+
+    noteTrials = [note('n2', { server: 'playwright' })];
+    await bench().idle('u1');
+    expect(started[1]).toEqual({ trigger: { kind: 'tool-note', about: 'the playwright server', noteId: 'n2' }, scenarioIds: ['koala-cluster', 'executor-hello'] });
+  });
+
+  it('puts a note live unchecked when no check uses its tool, and settles a trial with the checks it made pass', async () => {
+    noteTrials = [{ id: 'n3', ownerId: 'u1', category: 'tool_note', status: 'trial', tool: 'search_web', title: 'n3', text: 'n3', createdAt: 'a', updatedAt: 'a' }];
+    await bench().idle('u1');
+    expect(started.map((plan) => plan.trigger.kind)).not.toContain('tool-note');
+    expect(notesSettled).toEqual([{ id: 'n3', trial: { checkedAt: NOW_ISO, unchecked: true }, live: true }]);
+
+    earlierRuns = [{ id: 'before', ownerId: 'u1', state: 'done', startedAt: 'a', scenarios: ['executor-hello'], finished: 1, results: [{ scenarioId: 'executor-hello', passed: false }] } as unknown as Level2Run];
+    await bench().finished({
+      id: 'trial-n', ownerId: 'u1', state: 'done', startedAt: 'b', finishedAt: 'c', scenarios: ['executor-hello'], finished: 1,
+      results: [{ scenarioId: 'executor-hello', passed: true }] as Level2Run['results'], trigger: { kind: 'tool-note', about: 'start_task', noteId: 'n1' }, regressions: [],
+    });
+    expect(notesSettled[1]).toEqual({ id: 'n1', trial: { checkedAt: 'c', runId: 'trial-n', scenarios: ['executor-hello'], regressions: [], better: ['executor-hello'] }, live: true });
+    expect(settled).toEqual([]);
   });
 
   it('compares a proposed prompt change on its agent\'s scenarios after any practice trials, and never puts it live itself', async () => {

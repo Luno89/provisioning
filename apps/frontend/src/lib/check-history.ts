@@ -9,7 +9,7 @@ export interface CheckOutcome {
   regressed: boolean
 }
 
-const TRIALS = ['practice', 'prompt-change']
+const TRIALS = ['practice', 'tool-note', 'prompt-change']
 
 export function historyOf(runs: readonly Level2Run[], scenarioId: string, limit = 8): CheckOutcome[] {
   return runs

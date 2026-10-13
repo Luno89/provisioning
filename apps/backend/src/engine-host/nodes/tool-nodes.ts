@@ -6,6 +6,7 @@ import {
 } from '@koala/agent-engine/procedure';
 import { capabilitiesOf } from '@koala/engine-core';
 import { handleFor, ticketFor, type HostNodeServices } from './services.js';
+import { notesForRun, withLearned } from '../../lib/tool-notes.js';
 
 const allowedFrom = (settings: Readonly<Record<string, unknown>>): 'granted' | 'none' | string[] => {
   if (settings.offer === 'none') return 'none';
@@ -15,7 +16,7 @@ const allowedFrom = (settings: Readonly<Record<string, unknown>>): 'granted' | '
   return 'granted';
 };
 
-export function createToolNodes(services: Pick<HostNodeServices, 'registry' | 'serverTools'>): NodeImplementation[] {
+export function createToolNodes(services: Pick<HostNodeServices, 'registry' | 'serverTools'> & Partial<Pick<HostNodeServices, 'memories'>>): NodeImplementation[] {
   return [
     valueImplementation('resolve-tools', async ({ node, inputs, run }) => {
       const persona = inputs.persona as AgentDefinition;
@@ -37,7 +38,9 @@ export function createToolNodes(services: Pick<HostNodeServices, 'registry' | 's
         ? await services.serverTools.forRun({ ticket: ticketFor(run), environment: handleFor(environment), held, ceiling: persona.maxEffect })
         : { tools: [], withheld: [] };
       const chosen = Array.isArray(allowed) ? fromServers.tools.filter((tool) => allowed.includes(tool.name)) : allowed === 'none' ? [] : fromServers.tools;
-      const tools = [...resolved.tools, ...chosen];
+      const model = (inputs.binding as { model?: unknown } | undefined)?.model;
+      const notes = services.memories ? notesForRun(await services.memories.list(run.launch.ownerId), typeof model === 'string' && model ? model : undefined) : undefined;
+      const tools = notes ? withLearned([...resolved.tools, ...chosen], notes) : [...resolved.tools, ...chosen];
       const withheld = [...resolved.withheld, ...fromServers.withheld];
 
       const handled = run.handles ?? {};

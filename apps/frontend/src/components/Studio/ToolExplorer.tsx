@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { FileText, FlaskConical, ListChecks, Wrench } from 'lucide-react'
+import { FileText, FlaskConical, Lightbulb, ListChecks, Wrench } from 'lucide-react'
 import type { EngineTool } from '../../api/engineTools'
 import ToolEditor from './ToolEditor'
 import Explorer, { FileHeader, type ExplorerGroup } from './Explorer'
 import CheckList from '../Checks/CheckList'
 import Coverage from '../Checks/Coverage'
-import { useLevel2Runs, useScenarios } from '../Checks/shared'
+import ToolNotesPanel from '../Checks/ToolNotesPanel'
+import { describeNotes, notesIn } from '../Checks/tool-notes'
+import { useLevel2Runs, useScenarios, useToolNotes } from '../Checks/shared'
 import { errorMessage, useAgents, useEngineTools, useProcedureList } from './shared'
 import { blankTool } from './tool-forms'
 import { groupTools } from '../../lib/studio-groups'
@@ -16,6 +18,7 @@ const FILES = [
   { id: 'definition', title: 'Definition', icon: FileText, says: 'What it does, the arguments it takes, the command it runs, and what it needs installed.' },
   { id: 'checks', title: 'Checks', icon: FlaskConical, says: 'Every check that expects it to be called or chosen, or calls it as its step.' },
   { id: 'coverage', title: 'Coverage', icon: ListChecks, says: 'How reliably a model picks it when it should, and what no check covers yet.' },
+  { id: 'learned', title: 'Learned notes', icon: Lightbulb, says: 'What runs taught about using it, shown beside it to every agent offered it once the bench shows it breaks nothing.' },
 ] as const
 
 type ToolFile = 'overview' | typeof FILES[number]['id']
@@ -107,6 +110,7 @@ function ToolFileView({ tool, file }: { tool: EngineTool; file: ToolFile }) {
   const procedures = useProcedureList()
   const scenarios = useScenarios()
   const runs = useLevel2Runs()
+  const notes = useToolNotes()
   const slugs = (agents.data ?? []).map((one) => one.slug)
   const procedureIds = (procedures.data?.procedures ?? []).map((one) => one.id)
   const entry = FILES.find((one) => one.id === file)
@@ -133,6 +137,7 @@ function ToolFileView({ tool, file }: { tool: EngineTool; file: ToolFile }) {
             {[
               { id: 'definition', says: `${tool.effect === 'read' ? 'only reads' : tool.effect === 'propose' ? 'proposes, never changes' : 'changes things'} · ${tool.command ? `runs ${tool.command}` : `${tool.binding} tool`}` },
               { id: 'checks', says: describeChecks(checksSummary(scenarios.data ?? [], runs.data ?? [], { tool: tool.name })) },
+              { id: 'learned', says: describeNotes(notesIn(notes.data ?? [], { tool: tool.name })) },
             ].map((fact) => (
               <li key={fact.id}>
                 <Link to="/studio/tools/$name/$part" params={{ name: tool.name, part: fact.id }} className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--bark-800)]/50">
@@ -153,6 +158,7 @@ function ToolFileView({ tool, file }: { tool: EngineTool; file: ToolFile }) {
       {file === 'definition' && <ToolEditor key={`${tool.name}-${tool.mine}`} tool={tool} onDeleted={() => void navigate({ to: '/studio/tools' })} />}
       {file === 'checks' && <CheckList scope={{ tool: tool.name }} agents={tool.grantedTo.length > 0 ? tool.grantedTo : slugs} procedures={procedureIds} />}
       {file === 'coverage' && <Coverage scope={{ tool: tool.name }} />}
+      {file === 'learned' && <ToolNotesPanel scope={{ tool: tool.name }} />}
     </div>
   )
 }

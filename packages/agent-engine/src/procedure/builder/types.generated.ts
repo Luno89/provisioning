@@ -286,6 +286,8 @@ export interface ResolveToolsWires {
   delegates?: In<'json'>
   /** What the run can reach. Nothing wired means no environment. */
   environment?: In<'environment'>
+  /** The model the tools are offered to. Nothing wired means notes learned for one model are left out. */
+  binding?: In<'modelBinding'>
 }
 
 export type ResolveToolsSettings = {
@@ -1106,7 +1108,7 @@ export interface Nodes {
   handOffConversation(id: string, wires?: HandOffConversationWires, settings?: HandOffConversationSettings, meta?: NodeMeta): HandOffConversationNode
   /** Load Conversation: Reads a stored conversation and hands back what was said, so a run carries on where the last one stopped rather than starting cold. Nothing stored yet means an empty history, not a failure. */
   loadConversation(id: string, wires: LoadConversationWires, settings: LoadConversationSettings, meta?: NodeMeta): LoadConversationNode
-  /** Resolve Tools: Works out which tools the model can use on this call: what the persona is granted, including the personas it may delegate to, narrowed to what the environment can support and what this step allows. Everything left out is listed with the reason. */
+  /** Resolve Tools: Works out which tools the model can use on this call: what the persona is granted, including the personas it may delegate to, narrowed to what the environment can support and what this step allows. Everything left out is listed with the reason. Each tool carries what was learned about using it, for this model too when one is wired. */
   resolveTools(id: string, wires?: ResolveToolsWires, settings?: ResolveToolsSettings, meta?: NodeMeta): ResolveToolsNode
   /**
    * Save Conversation: Appends this turn to the stored conversation: what the person asked, what the model answered, what it was thinking and which tools it called. A conversation that does not exist yet is created. A retry of the same save finds the turn already written and does not append it again. Put it in the cleanup lane and a turn that was stopped part way is still recorded, rather than vanishing.

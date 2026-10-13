@@ -3,6 +3,7 @@ export interface PracticeTrial {
   runId?: string;
   scenarios?: string[];
   regressions?: string[];
+  better?: string[];
   unchecked?: boolean;
 }
 
@@ -10,9 +11,12 @@ export interface MemoryItem {
   id: string;
   ownerId: string;
   projectId?: string;
-  category: 'lessons_learned' | 'environment_facts' | 'prompt_guidance' | 'practice';
+  category: 'lessons_learned' | 'environment_facts' | 'prompt_guidance' | 'practice' | 'tool_note';
   agent?: string;
   model?: string;
+  tool?: string;
+  server?: string;
+  why?: string;
   scope?: 'project' | 'global';
   recommendedScope?: 'project' | 'global';
   status?: 'active' | 'pending_review' | 'trial';
@@ -68,6 +72,7 @@ export function selectForContext(
     if (m.status === 'pending_review' || m.status === 'trial') return false;
     if (m.invalidAt) return false;
     if (m.model && m.model !== opts.model) return false;
+    if (m.category === 'tool_note') return false;
     if (m.category === 'practice') return Boolean(opts.agent) && m.agent === opts.agent;
     if (!m.scope || m.scope === 'global') return true;
     if (m.scope === 'project') return Boolean(projectId) && m.projectId === projectId;

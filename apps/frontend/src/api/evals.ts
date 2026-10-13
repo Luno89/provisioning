@@ -228,6 +228,7 @@ export type BenchTrigger =
   | { kind: 'full' }
   | { kind: 'changed'; agents: string[] }
   | { kind: 'practice'; agent: string; practiceId: string }
+  | { kind: 'tool-note'; about: string; noteId: string }
   | { kind: 'prompt-change'; agent: string; changeId: string }
 
 export interface BenchSettings {
@@ -307,9 +308,15 @@ export interface Practice {
   title: string
   text: string
   status?: 'active' | 'pending_review' | 'trial'
-  trial?: { checkedAt: string; runId?: string; scenarios?: string[]; regressions?: string[]; unchecked?: boolean }
+  trial?: { checkedAt: string; runId?: string; scenarios?: string[]; regressions?: string[]; better?: string[]; unchecked?: boolean }
   createdAt: string
   updatedAt: string
+}
+
+export interface ToolNote extends Practice {
+  tool?: string
+  server?: string
+  why?: string
 }
 
 export async function listPractices(): Promise<Practice[]> {
@@ -323,6 +330,19 @@ export async function makePracticeLive(id: string): Promise<void> {
 
 export async function retirePractice(id: string): Promise<void> {
   await api.post(`/evals/level2/practices/${encodeURIComponent(id)}/retire`, {})
+}
+
+export async function listToolNotes(): Promise<ToolNote[]> {
+  const { data } = await api.get<{ notes: ToolNote[] }>('/evals/level2/tool-notes')
+  return data.notes
+}
+
+export async function makeToolNoteLive(id: string): Promise<void> {
+  await api.post(`/evals/level2/tool-notes/${encodeURIComponent(id)}/live`, {})
+}
+
+export async function retireToolNote(id: string): Promise<void> {
+  await api.post(`/evals/level2/tool-notes/${encodeURIComponent(id)}/retire`, {})
 }
 
 export interface ScenarioProposal {

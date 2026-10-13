@@ -37,3 +37,28 @@ describe('practices', () => {
     expect(await practices().list('u1')).toEqual([]);
   });
 });
+
+describe('tool notes', () => {
+  const notes = () => new PracticeService({ store: db, category: 'tool_note', now: () => 'now' });
+  const note = (over: Partial<MemoryItem>): MemoryItem => ({ id: 'n1', ownerId: 'u1', category: 'tool_note', status: 'trial', title: 'Note', text: 'A note.', createdAt: 'then', updatedAt: 'then', ...over });
+
+  beforeEach(async () => {
+    await db.saveMemory(note({ server: 'playwright', tool: 'browser_click' }));
+    await db.saveMemory(note({ id: 'n2', server: 'playwright', status: 'active' }));
+    await db.saveMemory(note({ id: 'n3', tool: 'start_task' }));
+  });
+
+  it('are kept apart from practices, and go through the same trial', async () => {
+    expect((await practices().list('u1')).map((entry) => entry.id)).toEqual(['p1']);
+    expect((await notes().trials('u1')).map((entry) => entry.id).sort()).toEqual(['n1', 'n3']);
+    await notes().settle('u1', 'n1', { checkedAt: 'now', runId: 'r1', regressions: [], better: ['claims'] }, true);
+    expect((await notes().list('u1')).find((entry) => entry.id === 'n1')).toMatchObject({ status: 'active', trial: { better: ['claims'] } });
+  });
+
+  it('follow their server when it is renamed, and are retired with it', async () => {
+    expect(await notes().renameServer('u1', 'playwright', 'browser')).toBe(2);
+    expect((await notes().list('u1')).filter((entry) => entry.server === 'browser').map((entry) => entry.id).sort()).toEqual(['n1', 'n2']);
+    expect(await notes().forgetServer('u1', 'browser')).toBe(2);
+    expect((await notes().list('u1')).map((entry) => entry.id)).toEqual(['n3']);
+  });
+});

@@ -19,7 +19,8 @@ const { stub } = vi.hoisted(() => ({
 vi.mock('./ToolEditor', () => stub('editor'))
 vi.mock('../Checks/CheckList', () => stub('checks'))
 vi.mock('../Checks/Coverage', () => stub('coverage'))
-vi.mock('../Checks/shared', () => ({ useScenarios: () => ({ data: [] }), useLevel2Runs: () => ({ data: [] }) }))
+vi.mock('../Checks/ToolNotesPanel', () => stub('learned'))
+vi.mock('../Checks/shared', () => ({ useScenarios: () => ({ data: [] }), useLevel2Runs: () => ({ data: [] }), useToolNotes: () => ({ data: [{ id: 'n1', tool: 'write_file', status: 'active', title: 'n1', text: 'n1', createdAt: 'a', updatedAt: 'a' }, { id: 'n2', tool: 'get_logs', status: 'trial', title: 'n2', text: 'n2', createdAt: 'a', updatedAt: 'a' }] }) }))
 
 const tool = (name: string, binding: string, effect: string, grantedTo: string[] = []) => ({ name, summary: `${name} does it`, binding, effect, grantedTo, mine: false })
 vi.mock('./shared', () => ({
@@ -58,6 +59,17 @@ describe('the tools explorer', () => {
     params.part = 'checks'
     render(<ToolExplorer />)
     expect(seen.props.checks).toMatchObject({ scope: { tool: 'write_file' }, agents: ['koala', 'executor'] })
+
+    params.part = 'learned'
+    render(<ToolExplorer />)
+    expect(seen.props.learned).toEqual({ scope: { tool: 'write_file' } })
+  })
+
+  it('says at a glance what was learned about using it', () => {
+    params.name = 'write_file'
+    params.part = undefined
+    render(<ToolExplorer />)
+    expect(screen.getByText('1 live')).toBeInTheDocument()
   })
 
   it('starts a new tool from a name, in the shape a tool has to have', async () => {
