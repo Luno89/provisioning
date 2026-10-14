@@ -7,6 +7,7 @@ export interface RunState {
   nodeId?: string | undefined;
   rounds: number;
   cancelled: boolean;
+  asking?: string[] | undefined;
 }
 
 export function runCancelledVia(client: () => Promise<Client>): (runId: string) => Promise<boolean> {
@@ -16,6 +17,17 @@ export function runCancelledVia(client: () => Promise<Client>): (runId: string) 
       return state.cancelled === true;
     } catch {
       return false;
+    }
+  };
+}
+
+export function runAskingVia(client: () => Promise<Client>): (runId: string) => Promise<string[]> {
+  return async (runId) => {
+    try {
+      const state = await (await client()).workflow.getHandle(workflowOfRun(runId)).query<RunState>(RUN_STATE_QUERY);
+      return state.asking ?? [];
+    } catch {
+      return [];
     }
   };
 }

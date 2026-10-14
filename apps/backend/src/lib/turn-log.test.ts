@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { EngineEvent } from '@koala/agent-engine';
-import { coalesce, replyFromLog, runsUnder, tracedSummary, type TurnLogEntry } from './turn-log.js';
+import { coalesce, replyFromLog, runsUnder, tracedSummary, unansweredAsks, type TurnLogEntry } from './turn-log.js';
 
 const at = '2026-10-05T00:00:00.000Z';
 const ev = (event: Record<string, unknown>): EngineEvent => ({ runId: 't1', at, ...event }) as unknown as EngineEvent;
@@ -69,5 +69,29 @@ describe('what a turn log carries of a step\'s trace', () => {
       { type: 'node.traced', runId: 'leaf', at: 't', nodeId: 'turn.call', trace: tracedSummary(trace) },
     ]);
     expect(read.through).toBe(1);
+  });
+});
+
+describe('calls a tree run is still asking about', () => {
+  const marks = [
+    { type: 'run.started', runId: 'tree', agentId: 'grove' },
+    { type: 'run.started', runId: 'tree-leaf-1', parentRunId: 'tree', agentId: 'grove-leaf' },
+    { type: 'run.started', runId: 'tree-leaf-1-executor-1', parentRunId: 'tree-leaf-1', agentId: 'executor' },
+    { type: 'notice', runId: 'tree-leaf-1-executor-1', level: 'warn', callId: 'c1', tool: 'delete_project', message: 'executor wants to run delete_project on this run: {}' },
+    { type: 'notice', runId: 'tree-leaf-1-executor-1', level: 'warn', callId: 'c2', message: 'executor wants to run run_command on Desk: {}' },
+    { type: 'tool.result', runId: 'tree-leaf-1-executor-1', callId: 'c2' },
+    { type: 'notice', runId: 'tree-leaf-1-executor-1', level: 'warn', message: 'Nothing landed this pass' },
+    { type: 'run.started', runId: 'tree-planner-2', parentRunId: 'tree', agentId: 'planner' },
+    { type: 'notice', runId: 'tree-planner-2', level: 'warn', callId: 'c3', message: 'planner wants to run run_command on Desk: {}' },
+    { type: 'run.started', runId: 'tree-old', parentRunId: 'tree', agentId: 'executor' },
+    { type: 'notice', runId: 'tree-old', level: 'warn', callId: 'c4', tool: 'run_command' },
+    { type: 'run.finished', runId: 'tree-old' },
+  ];
+
+  it('names each unanswered call, the agent asking, and the story whose run it is under', () => {
+    expect(unansweredAsks(marks, [{ id: 'l1', runId: 'tree-leaf-1' }, { id: 'l2' }])).toEqual([
+      { runId: 'tree-leaf-1-executor-1', callId: 'c1', tool: 'delete_project', message: 'executor wants to run delete_project on this run: {}', agent: 'executor', leafId: 'l1' },
+      { runId: 'tree-planner-2', callId: 'c3', tool: 'run_command', message: 'planner wants to run run_command on Desk: {}', agent: 'planner' },
+    ]);
   });
 });

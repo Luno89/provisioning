@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MemoryDB } from './memory-db.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
-import { dependencyNamespaceFrom, treeExtrasFrom, treeTypeOfProject, TREE_TYPE_SEEDS, validateTreeType, resolveTreeType, renderStarterFiles, seedTreeTypes, treeTypeChoices, treeTypesFor, type TreeTypeSpec, agentProblem, groveAgentOf } from './tree-types.js';
+import { dependencyNamespaceFrom, treeExtrasFrom, treeTypeOfProject, TREE_TYPE_SEEDS, validateTreeType, resolveTreeType, renderStarterFiles, seedTreeTypes, treeTypeChoices, treeTypesFor, type TreeTypeSpec, agentProblem, groveAgentOf, treeLanguage, treeVersion, versionForNewTree, stampTreeVersions, versionVars } from './tree-types.js';
 
 const spec = (over: Partial<TreeTypeSpec> = {}): TreeTypeSpec => ({
   id: 'custom-thing',
@@ -271,5 +271,70 @@ describe('the type a project is built as', () => {
     expect((await treeTypeOfProject(store, { id: 'p1', ownerId: 'u1' }))?.releaseWhen).toEqual(['src/**']);
     expect(await treeTypeOfProject(store, { id: 'p2', ownerId: 'u1' })).toBeUndefined();
     expect(await treeTypeOfProject(store, { id: 'p1', ownerId: 'u2' })).toBeUndefined();
+  });
+});
+
+describe('a tree type with versions', () => {
+  const odoo = { ...TREE_TYPE_SEEDS.find((type) => type.id === 'odoo-addons')!, ownerId: 'u1' };
+
+  it('ships Odoo 20 as the default for new trees, with 18 still offered', () => {
+    expect(odoo.versions).toMatchObject({ of: 'Odoo', choices: [{ version: '20', language: 'odoo-20' }, { version: '18', language: 'odoo' }], default: '20' });
+    expect(validateTreeType(IMAGES, odoo)).toBeNull();
+  });
+
+  it('refuses versions that cannot be worked or have no default among them', () => {
+    const versions = (over: object) => validateTreeType(IMAGES, spec({ versions: { of: 'Odoo', choices: [{ version: '20', language: 'odoo-20' }], default: '20', ...over } as never }));
+    expect(versions({})).toBeNull();
+    expect(versions({ choices: [{ version: '21', language: 'odoo-21' }], default: '21' })).toMatch(/Version 21 must work in one of/);
+    expect(versions({ default: '18' })).toBe('The default version must be one of the choices.');
+    expect(versions({ choices: [{ version: '20', language: 'odoo-20' }, { version: '20', language: 'odoo' }] })).toBe('Version 20 is listed twice.');
+    expect(versions({ choices: [] })).toBe('versions needs at least one choice.');
+  });
+
+  it('works a tree in its version\'s workspace, and a tree from before versions in the type\'s own', () => {
+    expect(treeLanguage(odoo, { version: '20' })).toBe('odoo-20');
+    expect(treeLanguage(odoo, { version: '18' })).toBe('odoo');
+    expect(treeLanguage(odoo, {})).toBe('odoo');
+    expect(treeVersion(odoo, {})).toBe('18');
+    expect(treeVersion(spec(), { version: '20' })).toBeUndefined();
+  });
+
+  it('gives a new tree the default, takes one it offers, and refuses one it does not', () => {
+    expect(versionForNewTree(odoo, undefined)).toEqual({ ok: true, version: '20' });
+    expect(versionForNewTree(odoo, '18')).toEqual({ ok: true, version: '18' });
+    expect(versionForNewTree(odoo, '19')).toEqual({ ok: false, error: 'Odoo 19 is not offered; choose 20 or 18.' });
+    expect(versionForNewTree(spec(), undefined)).toEqual({ ok: true });
+    expect(versionForNewTree(spec(), '2')).toEqual({ ok: false, error: 'This type has no versions to choose from.' });
+  });
+
+  it('starts a tree from files written for its version, with what that version does its own way', () => {
+    const starter = (version: string, path: string) => renderStarterFiles(odoo.files, { projectName: 'p', registryHost: '', ...versionVars(odoo, { version }) }).find((file) => file.path === path)?.content ?? '';
+    expect(starter('20', 'Dockerfile')).toMatch(/^FROM odoo:20$/m);
+    expect(starter('18', 'Dockerfile')).toMatch(/^FROM odoo:18$/m);
+    expect(starter('20', 'addons/README.md')).toContain('security/ir.access.csv  access rules for any new model');
+    expect(starter('20', 'addons/README.md')).toContain('## Odoo 20\n\nOdoo 20 changed things');
+    expect(starter('20', 'addons/README.md')).toContain('`ir.model.access` and `ir.rule` no longer exist');
+    expect(starter('18', 'addons/README.md')).toContain('security/ir.model.access.csv  access rules for any new model');
+    expect(starter('18', 'addons/README.md')).not.toMatch(/\{\{\w+\}\}/);
+    expect(versionVars(spec(), {})).toEqual({});
+  });
+
+  it('stamps the trees that predate versions with the one they already work in, and leaves the rest', async () => {
+    const db = new MemoryDB();
+    await db.init();
+    await seedTreeTypes(db);
+    const tree = (id: string, type: string, version?: string) => ({ id, ownerId: 'u1', name: id, type, ...(version ? { version } : {}), createdAt: 'a', updatedAt: 'a' });
+    await db.saveTree(tree('old', 'odoo-addons'));
+    await db.saveTree(tree('new', 'odoo-addons', '20'));
+    await db.saveTree(tree('api', 'api-service'));
+
+    expect(await stampTreeVersions(db as never)).toBe(1);
+    const trees = await db.getTrees();
+    expect(trees.map((entry) => [entry.id, entry.version, entry.updatedAt])).toEqual([['old', '18', 'a'], ['new', '20', 'a'], ['api', undefined, 'a']]);
+    expect(await stampTreeVersions(db as never)).toBe(0);
+  });
+
+  it('lists the versions with the type, so the planner can choose', () => {
+    expect(treeTypeChoices([odoo], 'u1')[0]?.versions).toEqual({ of: 'Odoo', choices: ['20', '18'], default: '20' });
   });
 });

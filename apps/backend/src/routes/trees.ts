@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import { ownedBy } from '../lib/ownership.js';
 import { v4 as uuidv4 } from 'uuid';
-import { resolveTreeType } from '../lib/tree-types.js';
+import { resolveTreeType, versionForNewTree } from '../lib/tree-types.js';
 import { normaliseTreeInput } from '../lib/trees.js';
 import type { Tree } from '../lib/trees.js';
 import type { Database } from '../lib/db-interface.js';
@@ -68,11 +68,16 @@ export function treesRouter(deps: TreesRouterDeps): Router {
       });
     }
 
+    const version = versionForNewTree(typeSpec, input.version);
+    if (!version.ok) return res.status(400).json({ error: version.error });
+
     const now = new Date().toISOString();
+    const { version: _asked, ...rest } = input;
     const tree: Tree = {
       id: uuidv4(),
       ownerId: userId,
-      ...input,
+      ...rest,
+      ...(version.version ? { version: version.version } : {}),
       projectIds: [],
       createdAt: now,
       updatedAt: now,

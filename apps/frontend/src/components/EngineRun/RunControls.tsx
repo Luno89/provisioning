@@ -41,7 +41,7 @@ const DECIDED: Record<Decision, string> = {
   'decline': 'Declined — the model is told it did not run.',
 }
 
-function ApprovalBox({ runId, approval }: { runId: string; approval: PendingApproval }) {
+export function ApprovalBox({ runId, approval }: { runId: string; approval: PendingApproval }) {
   const decide = useMutation({
     mutationFn: (decision: Decision) => approveRunCall(runId, {
       callId: approval.callId,

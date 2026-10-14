@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
+import { Fragment, useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, AlertTriangle, X } from 'lucide-react';
 import CollapsibleHistoryList from './CollapsibleHistoryList.js';
@@ -40,6 +40,9 @@ import { egressKeys, listEgressRequests } from '../api/egress.js';
 import AccessRequestCard from './Chat/AccessRequestCard.js';
 import { useAccessRequests } from './Chat/hooks/useAccessRequests.js';
 import { ChatHeader } from './Chat/ChatHeader.js';
+import { ChatCardMarker, ChatCards, type CardFocus } from './Chat/ChatCards.js';
+import { cardMarkers, chatCards, isWaiting, type ChatCard } from './Chat/chat-cards.js';
+import { useCardsLayout } from './Chat/hooks/useCardsLayout.js';
 
 export type { ChatMessageRecord };
 
@@ -173,6 +176,70 @@ export default function ChatSurface({
     if (conv.selectedConvId) rememberChannelAsks(conv.selectedConvId, next);
   };
   const localFrom = renderedMessages.length - conv.localMessages.length;
+
+  const rowRef = useRef<HTMLDivElement>(null);
+  const cardsLayout = useCardsLayout(rowRef);
+  const [cardsTab, setCardsTab] = useState<'chat' | 'cards'>('chat');
+  const [cardFocus, setCardFocus] = useState<CardFocus | undefined>(undefined);
+  const cards = useMemo(() => chatCards({
+    plans: planProposals.plans,
+    actions: actions.proposals,
+    secrets: secretRequests.requests,
+    mcp: mcp.requests,
+    egress: egress.requests,
+    access: access.requests,
+    approval: conv.pendingApproval,
+  }), [planProposals.plans, actions.proposals, secretRequests.requests, mcp.requests, egress.requests, access.requests, conv.pendingApproval]);
+  const cardsAt = useMemo(() => cardMarkers(renderedMessages, cards), [renderedMessages, cards]);
+  const waitingCards = cards.filter(isWaiting).length;
+  const showing = cardsLayout === 'tab' && cards.length > 0 ? cardsTab : 'chat';
+  const showCard = (id: string) => {
+    setCardsTab('cards');
+    setCardFocus((was) => ({ id, n: (was?.n ?? 0) + 1 }));
+  };
+
+  const renderCard = (card: ChatCard): ReactNode => {
+    switch (card.kind) {
+      case 'plan':
+        return (
+          <PlanProposalCard
+            proposal={card.item}
+            deciding={planProposals.deciding}
+            onApprove={() => planProposals.approve(card.id)}
+            onReject={(reason) => planProposals.reject(card.id, reason)}
+            onOpenTree={onOpenTree}
+            onOpenStory={onOpenStory}
+          />
+        );
+      case 'access':
+        return <AccessRequestCard request={card.item} busy={access.busy} error={access.error} onGrant={() => access.grant(card.id)} onDismiss={() => access.dismiss(card.id)} />;
+      case 'egress':
+        return <EgressRequestCard request={card.item} busy={egress.busy} error={egress.error} onAllow={() => egress.allow(card.id)} onDismiss={() => egress.dismiss(card.id)} />;
+      case 'action':
+        return <ActionProposalCard proposal={card.item} busy={actions.busy} error={actions.error} onApply={() => actions.apply(card.id)} onReject={() => actions.reject(card.id)} />;
+      case 'mcp':
+        return <McpRequestCard request={card.item} busy={mcp.busy} error={mcp.error} onEnable={() => mcp.enable(card.id)} onDismiss={() => mcp.dismiss(card.id)} />;
+      case 'secret':
+        return (
+          <SecretRequestCard
+            request={card.item}
+            busy={secretRequests.busy}
+            error={secretRequests.error}
+            onSubmit={(value, done) => secretRequests.submit(card.id, value, done)}
+            onDismiss={() => secretRequests.dismiss(card.id)}
+          />
+        );
+      case 'approval':
+        return conv.pendingApproval ? (
+          <ChatApprovalCard
+            reason={conv.pendingApproval.reason}
+            {...(conv.pendingApproval.toolName ? { toolName: conv.pendingApproval.toolName, args: conv.pendingApproval.args } : {})}
+            onAllow={() => void conv.decideApproval(true)}
+            onDeny={() => void conv.decideApproval(false)}
+          />
+        ) : null;
+    }
+  };
   const askKoalaAbout = (message: ChatMessageRecord) => {
     if (streaming || !message.at) return;
     setError(null);
@@ -256,7 +323,27 @@ export default function ChatSurface({
       />
       )}
 
-      <div className="flex-1 min-h-0 flex flex-col sm:flex-row overflow-hidden relative">
+      {cardsLayout === 'tab' && cards.length > 0 && (
+        <div role="tablist" className="flex gap-1 px-3 pt-2 border-b border-[var(--bark-800,#1b2620)] bg-[var(--bark-950,#090d0b)]">
+          {(['chat', 'cards'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={showing === tab}
+              onClick={() => setCardsTab(tab)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] border-b-2 -mb-px cursor-pointer ${showing === tab ? 'border-emerald-500 text-slate-100' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+            >
+              {tab === 'chat' ? 'Chat' : 'Cards'}
+              {tab === 'cards' && waitingCards > 0 && (
+                <span className="rounded-full bg-amber-500/20 text-amber-200 px-1.5 text-[10px]" aria-label={`${waitingCards} waiting for you`}>{waitingCards}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div ref={rowRef} className="flex-1 min-h-0 flex flex-col sm:flex-row overflow-hidden relative">
         {!hideSidebar && (
           <CollapsibleHistoryList
             conversations={conv.conversations}
@@ -272,7 +359,13 @@ export default function ChatSurface({
           />
         )}
 
-        <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden bg-[var(--bark-950,#090d0b)] relative">
+        {showing === 'cards' && (
+          <div className="flex-1 min-h-0 bg-[var(--bark-950,#090d0b)]">
+            <ChatCards cards={cards} focus={cardFocus} render={renderCard} />
+          </div>
+        )}
+
+        <div className={`flex-1 flex flex-col h-full min-h-0 overflow-hidden bg-[var(--bark-950,#090d0b)] relative ${showing === 'cards' ? 'hidden' : ''}`}>
           {isConversationEmpty ? (
             <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 flex flex-col justify-center items-center">
               <div className="w-full max-w-3xl space-y-6">
@@ -306,86 +399,25 @@ export default function ChatSurface({
 
                   {conv.selectedConvId && <ConversationContext conversationId={conv.selectedConvId} channel={channel} />}
 
-                  {renderedMessages.map((msg, idx) => (msg.role === 'notice' && msg.notice
-                    ? <ChatNotice key={idx} notice={msg.notice} at={msg.at} onOpenTree={onOpenTree} onOpenStory={onOpenStory} />
-                    : (
-                      <ChatMessageRow
-                        key={idx}
-                        message={msg}
-                        packLabel={activePack?.label ?? ''}
-                        onOpenDocument={showDocument}
-                        {...(channel ? {
-                          address: addressOf(msg, idx >= localFrom),
-                          ...(!streaming && msg.at && !msg.runId && idx < localFrom ? { onAskKoala: () => askKoalaAbout(msg) } : {}),
-                        } : {})}
-                      />
-                    )))}
+                  {renderedMessages.length > 0 && (cardsAt.get(-1) ?? []).map((card) => <ChatCardMarker key={`${card.kind} ${card.id}`} card={card} onShow={showCard} />)}
 
-                  {planProposals.plans.map((proposal) => (
-                    <PlanProposalCard
-                      key={proposal.id}
-                      proposal={proposal}
-                      deciding={planProposals.deciding}
-                      onApprove={() => planProposals.approve(proposal.id)}
-                      onReject={(reason) => planProposals.reject(proposal.id, reason)}
-                      onOpenTree={onOpenTree}
-                      onOpenStory={onOpenStory}
-                    />
-                  ))}
-
-                  {access.requests.map((request) => (
-                    <AccessRequestCard
-                      key={request.id}
-                      request={request}
-                      busy={access.busy}
-                      error={access.error}
-                      onGrant={() => access.grant(request.id)}
-                      onDismiss={() => access.dismiss(request.id)}
-                    />
-                  ))}
-
-                  {egress.requests.map((request) => (
-                    <EgressRequestCard
-                      key={request.id}
-                      request={request}
-                      busy={egress.busy}
-                      error={egress.error}
-                      onAllow={() => egress.allow(request.id)}
-                      onDismiss={() => egress.dismiss(request.id)}
-                    />
-                  ))}
-
-                  {actions.proposals.map((proposal) => (
-                    <ActionProposalCard
-                      key={proposal.id}
-                      proposal={proposal}
-                      busy={actions.busy}
-                      error={actions.error}
-                      onApply={() => actions.apply(proposal.id)}
-                      onReject={() => actions.reject(proposal.id)}
-                    />
-                  ))}
-
-                  {mcp.requests.map((request) => (
-                    <McpRequestCard
-                      key={request.id}
-                      request={request}
-                      busy={mcp.busy}
-                      error={mcp.error}
-                      onEnable={() => mcp.enable(request.id)}
-                      onDismiss={() => mcp.dismiss(request.id)}
-                    />
-                  ))}
-
-                  {secretRequests.requests.map((request) => (
-                    <SecretRequestCard
-                      key={request.id}
-                      request={request}
-                      busy={secretRequests.busy}
-                      error={secretRequests.error}
-                      onSubmit={(value, done) => secretRequests.submit(request.id, value, done)}
-                      onDismiss={() => secretRequests.dismiss(request.id)}
-                    />
+                  {renderedMessages.map((msg, idx) => (
+                    <Fragment key={idx}>
+                      {msg.role === 'notice' && msg.notice
+                        ? <ChatNotice notice={msg.notice} at={msg.at} onOpenTree={onOpenTree} onOpenStory={onOpenStory} />
+                        : (
+                          <ChatMessageRow
+                            message={msg}
+                            packLabel={activePack?.label ?? ''}
+                            onOpenDocument={showDocument}
+                            {...(channel ? {
+                              address: addressOf(msg, idx >= localFrom),
+                              ...(!streaming && msg.at && !msg.runId && idx < localFrom ? { onAskKoala: () => askKoalaAbout(msg) } : {}),
+                            } : {})}
+                          />
+                        )}
+                      {idx < renderedMessages.length - 1 && (cardsAt.get(idx) ?? []).map((card) => <ChatCardMarker key={`${card.kind} ${card.id}`} card={card} onShow={showCard} />)}
+                    </Fragment>
                   ))}
 
                   {streaming && (
@@ -402,14 +434,7 @@ export default function ChatSurface({
                     />
                   )}
 
-                  {conv.pendingApproval && (
-                    <ChatApprovalCard
-                      reason={conv.pendingApproval.reason}
-                      {...(conv.pendingApproval.toolName ? { toolName: conv.pendingApproval.toolName, args: conv.pendingApproval.args } : {})}
-                      onAllow={() => void conv.decideApproval(true)}
-                      onDeny={() => void conv.decideApproval(false)}
-                    />
-                  )}
+                  {(cardsAt.get(renderedMessages.length - 1) ?? []).map((card) => <ChatCardMarker key={`${card.kind} ${card.id}`} card={card} onShow={showCard} />)}
 
                   {error && (
                     <div className="w-full p-3 my-2 rounded-md bg-red-950/60 border border-red-500/50 text-red-300 font-sans text-xs flex items-center justify-between">
@@ -454,6 +479,17 @@ export default function ChatSurface({
           )}
         </div>
 
+        {cardsLayout === 'column' && cards.length > 0 && (
+          <aside className="w-[22rem] xl:w-[26rem] shrink-0 flex flex-col min-h-0 border-l border-[var(--bark-800,#1b2620)] bg-[var(--bark-950,#090d0b)]" aria-label="Cards">
+            <header className="flex items-center justify-between px-4 py-2 border-b border-[var(--bark-800,#1b2620)] text-[12px] text-slate-300">
+              <span>Cards</span>
+              {waitingCards > 0 && <span className="text-amber-200">{waitingCards} waiting for you</span>}
+            </header>
+            <div className="flex-1 min-h-0">
+              <ChatCards cards={cards} focus={cardFocus} render={renderCard} />
+            </div>
+          </aside>
+        )}
       </div>
 
       <ModelConfigDrawer

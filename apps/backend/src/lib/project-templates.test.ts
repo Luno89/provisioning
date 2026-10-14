@@ -73,8 +73,8 @@ describe('every shipped type\'s Dockerfile', () => {
 
   it('starts FROM an image a build can pull, whatever registry the install has', () => {
     for (const seed of TREE_TYPE_SEEDS) {
-      for (const registryHost of ['', '10.0.0.130:31737']) {
-        const dockerfile = renderStarterFiles(seed.files, { projectName: 'probe', registryHost }).find((file) => file.path === 'Dockerfile');
+      for (const [registryHost, version] of ['', '10.0.0.130:31737'].flatMap((host) => (seed.versions?.choices.map((choice) => choice.version) ?? [undefined]).map((v) => [host, v] as const))) {
+        const dockerfile = renderStarterFiles(seed.files, { projectName: 'probe', registryHost, version }).find((file) => file.path === 'Dockerfile');
         if (!dockerfile) continue;
         const froms = dockerfile.content.split('\n').filter((line) => line.startsWith('FROM'));
         expect(froms.length, seed.id).toBeGreaterThan(0);

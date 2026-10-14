@@ -4,7 +4,7 @@ export const ODOO_CHART_FILES: { path: string; content: string }[] = [
     content: [
       "apiVersion: v2",
       "name: odoo-project",
-      "description: An Odoo 18 project with two slots, A and B, on one PostgreSQL. One slot is live, the other is where the next version is prepared.",
+      "description: An Odoo project with two slots, A and B, on one PostgreSQL. One slot is live, the other is where the next version is prepared.",
       "type: application",
       "version: 0.1.0",
     ].join('\n') + '\n',
@@ -201,6 +201,7 @@ export const ODOO_CHART_FILES: { path: string; content: string }[] = [
       "            - --db-filter=^odoo_{{ $slot }}$",
       "            - --no-database-list",
       "            - --proxy-mode",
+      "            - --http-interface=0.0.0.0",
       "            - --workers={{ $root.Values.odoo.workers }}",
       "            - --data-dir=/var/lib/odoo",
       "          env:",

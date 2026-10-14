@@ -4,7 +4,7 @@ import { createDatabase } from '../lib/db-interface.js';
 import { seedBindingTypes } from '../lib/binding-type-seeds.js';
 import { seedAppSpecs, seedConstructBackedTypes } from '../lib/app-spec.js';
 import { seedClusterProviders } from '../lib/cluster-providers.js';
-import { seedTreeTypes } from '../lib/tree-types.js';
+import { seedTreeTypes, stampTreeVersions } from '../lib/tree-types.js';
 import { seedWorkspaceImages } from '../lib/workspace-image-seeds.js';
 import { retireStoredBuiltInProcedures } from '../lib/built-in-procedures.js';
 import { retireStoredBuiltInPersonas } from '../lib/built-in-personas.js';
@@ -19,6 +19,7 @@ export async function seedAll(db: Record<string, unknown>) {
   // Images before tree types: a tree type's language must name one that exists.
   counts.workspaceImages = await seedWorkspaceImages(db as never);
   counts.treeTypes = await seedTreeTypes(db as never);
+  counts.treeVersionsStamped = await stampTreeVersions(db as never);
   counts.appSpecs = await seedAppSpecs(db as never);
   counts.constructBackedTypes = await seedConstructBackedTypes(db as never);
   counts.clusterProviders = await seedClusterProviders(db as never);

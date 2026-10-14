@@ -3,7 +3,7 @@ import type { Task } from '../engine-host/tools/tasks.js';
 import type { Tree } from './trees.js';
 import { byRank } from './work-order.js';
 
-export type OutlineTree = Pick<Tree, 'id' | 'name' | 'type' | 'goal'>;
+export type OutlineTree = Pick<Tree, 'id' | 'name' | 'type' | 'goal'> & Partial<Pick<Tree, 'version'>>;
 export type OutlineBranch = Pick<Branch, 'id' | 'treeId' | 'title'> & Partial<Pick<Branch, 'priority' | 'createdAt'>>;
 export type OutlineLeaf = Pick<Leaf, 'id' | 'branchId' | 'title' | 'body' | 'status' | 'dependsOn'> & Partial<Pick<Leaf, 'priority' | 'createdAt'>>;
 export type OutlineTask = Pick<Task, 'leafId' | 'status'>;
@@ -18,7 +18,7 @@ export function treeOutline(
 ): string {
   const own = branches.filter((branch) => branch.treeId === tree.id).sort(byRank);
   const header = [
-    `Tree "${tree.name}" (${tree.id}), type ${tree.type}.`,
+    `Tree "${tree.name}" (${tree.id}), type ${tree.type}${tree.version ? `, version ${tree.version}` : ''}.`,
     tree.goal ? `Goal: ${tree.goal}` : 'Goal: not written down.',
   ];
 

@@ -9,6 +9,7 @@ import { useLiveTurnsStore, conversationTurnKey } from '../stores/live-turns.js'
 import { type EngineEvent } from '../api/engine.js';
 import { TURN_LOG_CHANNEL } from '../api/turns';
 import type { TurnLogEntry } from '../types/turns';
+import * as plansApi from '../api/plans';
 import { planKeys } from '../api/plans';
 import * as channelApi from '../api/project-channel.js';
 
@@ -22,6 +23,11 @@ vi.mock('../api/chat-pack', async (orig) => ({
   })),
   patchChatConversation: vi.fn().mockResolvedValue({ id: 'c1', title: 'Test Conversation', messages: [] }),
   getConversationContext: vi.fn().mockResolvedValue({ given: {}, text: '' }),
+}));
+
+vi.mock('../api/plans', async (orig) => ({
+  ...(await orig<typeof plansApi>()),
+  listPlans: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('../api/project-channel', async (orig) => ({
@@ -151,6 +157,7 @@ beforeEach(() => {
     messages: [],
   }) as never);
   vi.mocked(chatPackApi.getConversationContext).mockResolvedValue({ given: {}, text: '' });
+  vi.mocked(plansApi.listPlans).mockResolvedValue([]);
   try { localStorage.clear(); } catch { /* none */ }
 });
 
@@ -466,6 +473,11 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     );
 
     const allowText = 'Koala wants to run run_command on this run: {"command":"docker compose up"}';
+    const marker = await screen.findByTestId('chat-card-marker');
+    expect(marker).toHaveTextContent('Tool call: Run run_command · waits for you');
+    expect(screen.getByRole('tab', { name: /Cards/ })).toHaveTextContent('1');
+    fireEvent.click(marker);
+    expect(screen.getByRole('tab', { name: /Cards/ })).toHaveAttribute('aria-selected', 'true');
     await waitFor(() => expect(screen.getByText(/^Allow in this chat$/)).toBeInTheDocument());
     expect(screen.getByText(allowText)).toBeInTheDocument();
     expect(screen.getByText('run_command')).toBeInTheDocument();
@@ -475,6 +487,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
       expect(engineApi.approveRunCall).toHaveBeenCalledWith(RUN_ID, { callId: 'tc1', allowed: true, conversationId: 'c1', tool: 'run_command' }),
     );
     await waitFor(() => expect(screen.queryByText(/^Allow in this chat$/)).not.toBeInTheDocument());
+    expect(screen.queryByRole('tab', { name: /Cards/ })).not.toBeInTheDocument();
 
     emit(
       { type: 'tool.result', callId: 'tc1', ok: true, digest: 'compose up done' },
@@ -648,5 +661,84 @@ describe('a hand-off\'s run in the chat', () => {
 
     expect(screen.queryByText('search_web')).not.toBeInTheDocument();
     emit({ type: 'run.finished', outcome: 'ok' });
+  });
+});
+
+describe('ChatSurface cards', () => {
+  const plan = (id: string, status: 'proposed' | 'adopted', createdAt: string, name: string) => ({
+    id, ownerId: 'u1', conversationId: 'c1', status, createdAt, updatedAt: createdAt,
+    plan: { tree: { type: 'odoo-addons', name }, branches: [] },
+  });
+
+  beforeEach(() => {
+    vi.mocked(chatPackApi.getChatConversation).mockResolvedValue({
+      id: 'c1',
+      title: 'T',
+      messages: [
+        { role: 'user', content: 'make a label', at: '2026-10-14T10:00:00.000Z' },
+        { role: 'assistant', content: 'Here is a plan.', at: '2026-10-14T10:00:05.000Z' },
+        { role: 'user', content: 'and the dates', at: '2026-10-14T10:05:00.000Z' },
+        { role: 'assistant', content: 'Here is another.', at: '2026-10-14T10:05:05.000Z' },
+      ],
+    } as never);
+    vi.mocked(plansApi.listPlans).mockResolvedValue([
+      plan('p1', 'adopted', '2026-10-14T10:00:04.000Z', 'Labels'),
+      plan('p2', 'proposed', '2026-10-14T10:05:04.000Z', 'Dates'),
+    ] as never);
+  });
+
+  it('puts the cards in a column beside a wide chat, waiting ones first, with a marker where each was raised', async () => {
+    const wide = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 1400 } as DOMRect);
+    try {
+      renderWithProviders(<ChatSurface conversationId="c1" />);
+      const column = await screen.findByRole('complementary', { name: 'Cards' });
+      await waitFor(() => expect(column.querySelectorAll('[data-testid="chat-card"]')).toHaveLength(2));
+      expect(column).toHaveTextContent('1 waiting for you');
+      expect(Array.from(column.querySelectorAll('[data-testid="plan-proposal"]')).map((card) => card.textContent)).toEqual([
+        expect.stringContaining('“Dates”'),
+        expect.stringContaining('“Labels”'),
+      ]);
+      expect(screen.queryByRole('tab', { name: /Cards/ })).not.toBeInTheDocument();
+
+      const markers = screen.getAllByTestId('chat-card-marker');
+      expect(markers.map((marker) => marker.textContent)).toEqual([
+        'Plan: New odoo-addons tree “Labels” · approved',
+        'Plan: New odoo-addons tree “Dates” · waits for you',
+      ]);
+      expect(screen.getByText('make a label').compareDocumentPosition(markers[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(markers[0]!.compareDocumentPosition(screen.getByText('Here is a plan.')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      fireEvent.click(markers[0]!);
+      expect(column.querySelector('[data-focused="true"]')).toHaveTextContent('“Labels”');
+    } finally {
+      wide.mockRestore();
+    }
+  });
+
+  it('keeps them on a Cards tab in a narrow chat, counting the ones that wait for you', async () => {
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+    const tab = await screen.findByRole('tab', { name: /Cards/ });
+    expect(tab).toHaveTextContent('1');
+    expect(screen.queryByRole('complementary', { name: 'Cards' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('chat-cards')).not.toBeInTheDocument();
+
+    fireEvent.click(tab);
+    await waitFor(() => expect(screen.getAllByTestId('chat-card')).toHaveLength(2));
+    fireEvent.click(screen.getByRole('tab', { name: 'Chat' }));
+    expect(screen.queryByTestId('chat-cards')).not.toBeInTheDocument();
+  });
+});
+
+describe('ChatSurface following the address', () => {
+  it('stops showing a conversation once the address no longer names it', async () => {
+    vi.mocked(chatPackApi.listChatConversations).mockResolvedValue([{ id: 'c2', title: 'Latest', updatedAt: 'b' }] as never);
+    vi.mocked(chatPackApi.getChatConversation).mockImplementation(async (id: string) => ({ id, title: id, messages: [{ role: 'user', content: `said in ${id}`, at: '2026-10-14T10:00:00.000Z' }] }) as never);
+    const { rerender } = renderWithProviders(<ChatSurface conversationId="c1" />);
+    expect(await screen.findByText('said in c1')).toBeInTheDocument();
+
+    rerender(<QueryClientProvider client={queryClient}><ChatSurface /></QueryClientProvider>);
+    expect(await screen.findByText('said in c2')).toBeInTheDocument();
+    expect(screen.queryByText('said in c1')).not.toBeInTheDocument();
+    vi.mocked(chatPackApi.listChatConversations).mockResolvedValue([]);
   });
 });

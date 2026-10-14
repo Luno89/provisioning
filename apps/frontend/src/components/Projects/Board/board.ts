@@ -1,7 +1,10 @@
 import { BOARD_COLUMNS, blockedBy, stateFor, type Leaf, type LeafState } from '../../leaf-types'
 import type { EngineTask } from '../../../api/engine'
 import type { OdooRelease } from '../../../api/releases'
+import type { TreeAsk } from '../../../api/grove'
 import type { PipelineRun } from '../../PipelineRunRow'
+import type { TreeType } from '../../../types/grove'
+import { versionLabel } from '../../../lib/tree-version'
 
 export type Reached = 'live' | 'preview'
 
@@ -11,6 +14,7 @@ export interface Story {
   waitsOn: string[]
   waitsForWorkspace?: string
   workspaceStuck?: string
+  asks?: { tool: string; agent?: string | undefined }
   tasks: { done: number; total: number; proposed: number }
   attempts: number
   reached?: Reached | undefined
@@ -27,6 +31,7 @@ export interface Feature {
 export interface Epic {
   id: string
   name: string
+  version?: string | undefined
   features: Feature[]
   totals: Record<LeafState, number>
   total: number
@@ -95,6 +100,7 @@ export function storyOf(
   tasks: ReadonlyMap<string, Pick<EngineTask, 'status' | 'leafId'>>,
   releases: readonly Pick<OdooRelease, 'state' | 'startedAt'>[],
   runs: readonly Pick<PipelineRun, 'startedAt' | 'promotedAt'>[],
+  asked?: Pick<TreeAsk, 'tool' | 'agent'> | undefined,
 ): Story | undefined {
   const state = stateFor(leaf, all)
   if (!state) return undefined
@@ -106,6 +112,7 @@ export function storyOf(
     waitsOn: blockedBy(leaf, all).map((other) => other.title),
     ...(leaf.waitingFor ? { waitsForWorkspace: leaf.waitingFor.reason } : {}),
     ...(leaf.waitingFor?.stuck ? { workspaceStuck: leaf.waitingFor.stuck } : {}),
+    ...(asked ? { asks: { tool: asked.tool, ...(asked.agent ? { agent: asked.agent } : {}) } } : {}),
     tasks: { done: own.filter((task) => task.status === 'done').length, total: own.length, proposed },
     attempts: leaf.attempts?.length ?? 0,
     reached: reachedBy(leaf, releases, runs),
@@ -113,27 +120,31 @@ export function storyOf(
 }
 
 export function buildBoard(input: {
-  trees: readonly { id: string; name: string }[]
+  trees: readonly { id: string; name: string; type?: string | undefined; version?: string | undefined }[]
+  types?: readonly Pick<TreeType, 'id' | 'versions'>[] | undefined
   branches: readonly { id: string; title: string; treeId?: string | undefined; priority?: number | undefined; createdAt?: string | undefined }[]
   leaves: Leaf[]
   tasks?: readonly EngineTask[] | undefined
   releases?: readonly Pick<OdooRelease, 'state' | 'startedAt'>[] | undefined
   runs?: readonly Pick<PipelineRun, 'startedAt' | 'promotedAt'>[] | undefined
+  asking?: readonly TreeAsk[] | undefined
 }): Epic[] {
   const tasks = new Map((input.tasks ?? []).map((task) => [task.id, task]))
+  const asked = new Map((input.asking ?? []).filter((ask) => ask.leafId).map((ask) => [ask.leafId!, ask]))
   return input.trees.map((tree) => {
     const totals = zero()
     const features = input.branches.filter((branch) => branch.treeId === tree.id).sort(byRank).map((branch): Feature => {
       const columns = emptyColumns()
       for (const leaf of input.leaves.filter((candidate) => candidate.branchId === branch.id).sort(byRank)) {
-        const story = storyOf(leaf, input.leaves, tasks, input.releases ?? [], input.runs ?? [])
+        const story = storyOf(leaf, input.leaves, tasks, input.releases ?? [], input.runs ?? [], asked.get(leaf.id))
         if (!story) continue
         columns[story.state].push(story)
         totals[story.state] += 1
       }
       return { id: branch.id, title: branch.title, ...(branch.priority !== undefined ? { priority: branch.priority } : {}), columns, total: BOARD_COLUMNS.reduce((sum, column) => sum + columns[column.id].length, 0) }
     })
-    return { id: tree.id, name: tree.name, features, totals, total: features.reduce((sum, feature) => sum + feature.total, 0) }
+    const version = versionLabel(tree, input.types ?? [])
+    return { id: tree.id, name: tree.name, ...(version ? { version } : {}), features, totals, total: features.reduce((sum, feature) => sum + feature.total, 0) }
   })
 }
 

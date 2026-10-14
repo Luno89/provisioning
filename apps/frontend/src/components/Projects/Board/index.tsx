@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { MessageSquarePlus, PanelRightOpen } from 'lucide-react'
 import ChatSurface from '../../ChatSurface'
 import LeafDetail from '../../LeafDetail'
@@ -11,6 +11,8 @@ import type { PipelineRun } from '../../PipelineRunRow'
 import { ProjectChannel } from '../Workspace/ProjectChannel'
 import { TreeConversationsPanel } from '../Workspace/TreeConversationsPanel'
 import { TreeRunPanel } from '../Workspace/TreeRunPanel'
+import TreeAsks from '../Workspace/TreeAsks'
+import { getTreeRun, groveKeys, listTreeTypes, type TreeAsk, type TreeRunStatus } from '../../../api/grove'
 import type { LeafStatus } from '../../leaf-types'
 import { TreeProposalsPanel } from '../Workspace/TreeProposalsPanel'
 import { useResizableWidth } from '../Workspace/useResizableWidth'
@@ -37,6 +39,9 @@ const mainFrom = (branchId: string | undefined, leafId: string | undefined): Mai
   leafId ? { kind: 'story', id: leafId } : branchId ? { kind: 'feature', id: branchId } : { kind: 'board' }
 
 const tab = (on: boolean) => `px-2 py-1 rounded-md cursor-pointer whitespace-nowrap ${on ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-400 hover:text-slate-200'}`
+
+const askingOf = (runs: readonly { data?: TreeRunStatus | undefined }[]): TreeAsk[] =>
+  runs.flatMap((run) => (run.data?.state === 'running' ? run.data.asking ?? [] : []))
 
 export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId, onTreeReady }: {
   treeId?: string | undefined
@@ -70,14 +75,22 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
   const releases = useQuery({ queryKey: releaseKeys.list(project?.id ?? ''), queryFn: () => listReleases(project!.id), enabled: Boolean(project), refetchInterval: 10_000 })
   const runs = useQuery<PipelineRun[]>({ queryKey: ['project-runs', project?.id ?? ''], queryFn: () => listProjectRuns<PipelineRun>(project!.id), enabled: Boolean(project) })
 
+  const asking = useQueries({
+    queries: projectTrees.map((entry) => ({ queryKey: groveKeys.run(entry.id), queryFn: () => getTreeRun(entry.id), refetchInterval: 10_000 })),
+    combine: askingOf,
+  })
+
+  const treeTypes = useQuery({ queryKey: groveKeys.treeTypes(), queryFn: listTreeTypes, staleTime: Infinity })
   const epics = useMemo(() => buildBoard({
     trees: projectTrees,
+    types: treeTypes.data,
     branches,
     leaves,
     tasks: tasks.data,
     releases: releases.data?.releases,
     runs: runs.data,
-  }), [projectTrees, branches, leaves, tasks.data, releases.data, runs.data])
+    asking,
+  }), [projectTrees, treeTypes.data, branches, leaves, tasks.data, releases.data, runs.data, asking])
 
   const order = useBoardOrder()
   const openLeaf = main.kind === 'story' ? leaves.find((leaf) => leaf.id === main.id) : undefined
@@ -177,6 +190,7 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
               <section key={epic.id} data-epic={epic.id} className="rounded-lg border border-[var(--bark-700)] bg-[var(--bark-900)] p-3 space-y-2" aria-label={epic.name} data-testid="epic">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <h2 className="text-[13px] font-semibold text-slate-200 break-words">{epic.name}</h2>
+                  {epic.version && <span className="text-[11px] px-1.5 rounded bg-[var(--bark-800)] text-slate-300" data-testid="epic-version">{epic.version}</span>}
                   <span className="text-[11px] text-slate-500">
                     {epic.features.length} {epic.features.length === 1 ? 'feature' : 'features'}, {epic.total} {epic.total === 1 ? 'story' : 'stories'} · <span className="text-[var(--leaf)]">{epic.totals.verified} verified</span>
                   </span>
@@ -205,6 +219,7 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
         {main.kind === 'story' && openLeaf && (
           <article className="rounded-lg border border-[var(--bark-700)] bg-[var(--bark-900)] p-4" aria-label={openLeaf.title} data-testid="story-page">
             <LeafDetail key={openLeaf.id} leaf={openLeaf} all={leaves} treeId={openBranch?.treeId} />
+            {asking.some((ask) => ask.leafId === openLeaf.id) && <div className="mt-3"><TreeAsks asks={asking.filter((ask) => ask.leafId === openLeaf.id)} /></div>}
             {openBranch?.treeId && STARTABLE.has(openLeaf.status) && (
               <div className="mt-4 rounded-md border border-[var(--bark-700)]" data-testid="story-run-tree">
                 <TreeRunPanel treeId={openBranch.treeId} />

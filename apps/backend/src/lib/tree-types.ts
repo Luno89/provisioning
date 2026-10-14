@@ -18,6 +18,18 @@ export interface TreeTypeFile {
   executable?: boolean | undefined;
 }
 
+export interface TreeTypeVersion {
+  version: string;
+  language: WorkspaceLanguage;
+  vars?: Record<string, string> | undefined;
+}
+
+export interface TreeTypeVersions {
+  of: string;
+  choices: TreeTypeVersion[];
+  default: string;
+}
+
 export interface TreeTypeSecret {
   key: string;
   source: DeclaredSource;
@@ -41,6 +53,44 @@ export interface TreeTypeSpec {
   secrets?: TreeTypeSecret[] | undefined;
   releaseWhen?: string[] | undefined;
   agent?: string | undefined;
+  versions?: TreeTypeVersions | undefined;
+}
+
+type VersionedType = Pick<TreeTypeSpec, 'language' | 'versions'>;
+
+export function versionsProblem(images: readonly WorkspaceImageSpec[], versions: unknown): string | null {
+  if (versions === undefined) return null;
+  const candidate = versions as Partial<TreeTypeVersions> | null;
+  if (!candidate || typeof candidate !== 'object') return 'versions must be {of, choices, default}.';
+  if (typeof candidate.of !== 'string' || !candidate.of.trim()) return 'versions must say what they are versions of.';
+  if (!Array.isArray(candidate.choices) || candidate.choices.length === 0) return 'versions needs at least one choice.';
+  const seen = new Set<string>();
+  for (const choice of candidate.choices as Partial<TreeTypeVersion>[]) {
+    if (typeof choice?.version !== 'string' || !choice.version.trim()) return 'Each version needs a version.';
+    if (seen.has(choice.version)) return `Version ${choice.version} is listed twice.`;
+    seen.add(choice.version);
+    if (!images.some((image) => image.id === choice.language)) return `Version ${choice.version} must work in one of ${images.map((image) => image.id).join(', ')}.`;
+    if (choice.vars !== undefined && (typeof choice.vars !== 'object' || choice.vars === null || Object.values(choice.vars).some((value) => typeof value !== 'string'))) return `Version ${choice.version}'s vars must be names with text values.`;
+  }
+  if (typeof candidate.default !== 'string' || !seen.has(candidate.default)) return 'The default version must be one of the choices.';
+  return null;
+}
+
+export function treeVersion(type: VersionedType, tree: { version?: string | undefined } | undefined): string | undefined {
+  const choices = type.versions?.choices ?? [];
+  return choices.find((choice) => choice.version === tree?.version)?.version
+    ?? choices.find((choice) => choice.language === type.language)?.version;
+}
+
+export function treeLanguage(type: VersionedType, tree: { version?: string | undefined } | undefined): WorkspaceLanguage {
+  return type.versions?.choices.find((choice) => choice.version === tree?.version)?.language ?? type.language;
+}
+
+export function versionForNewTree(type: VersionedType, wanted: string | undefined): { ok: true; version?: string } | { ok: false; error: string } {
+  if (!type.versions) return wanted ? { ok: false, error: 'This type has no versions to choose from.' } : { ok: true };
+  if (!wanted) return { ok: true, version: type.versions.default };
+  if (type.versions.choices.some((choice) => choice.version === wanted)) return { ok: true, version: wanted };
+  return { ok: false, error: `${type.versions.of} ${wanted} is not offered; choose ${type.versions.choices.map((choice) => choice.version).join(' or ')}.` };
 }
 
 export function secretsProblem(secrets: unknown): string | null {
@@ -106,6 +156,9 @@ export function validateTreeType(
   const badPaths = releasePathsProblem(candidate.releaseWhen);
   if (badPaths) return badPaths;
 
+  const badVersions = versionsProblem(images, candidate.versions);
+  if (badVersions) return badVersions;
+
   if (candidate.env !== undefined) {
     if (!Array.isArray(candidate.env)) return 'env must be a list of {name, value} pairs.';
     for (const e of candidate.env) {
@@ -121,12 +174,20 @@ export function validateTreeType(
 export interface StarterVars {
   projectName: string;
   registryHost: string;
+  version?: string | undefined;
+  [name: string]: string | undefined;
+}
+
+export function versionVars(type: VersionedType, tree: { version?: string | undefined } | undefined): Record<string, string> {
+  const version = treeVersion(type, tree);
+  const choice = type.versions?.choices.find((entry) => entry.version === version);
+  return version ? { ...(choice?.vars ?? {}), version } : {};
 }
 
 export function renderStarterFiles(files: readonly TreeTypeFile[], vars: StarterVars): TreeTypeFile[] {
   const fill = (text: string) => text.replace(
     /\{\{(\w+)\}\}/g,
-    (whole, key: string) => (key in vars ? String(vars[key as keyof StarterVars]) : whole),
+    (whole, key: string) => { const value = vars[key]; return value === undefined ? whole : value; },
   );
   return files.map((f) => ({
     path: fill(f.path),
@@ -171,12 +232,13 @@ export async function resolveTreeType<T extends { id: string; ownerId?: string |
 export const NO_PARTICULAR_LANGUAGE = 'base';
 
 export function treeLanguageFrom(store: {
-  getTrees(): Promise<{ id: string; ownerId?: string | undefined; type?: string | undefined }[]>;
+  getTrees(): Promise<{ id: string; ownerId?: string | undefined; type?: string | undefined; version?: string | undefined }[]>;
   getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
 }): (ownerId: string, treeId: string) => Promise<string | undefined> {
   return async (ownerId, treeId) => {
     const tree = (await store.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
-    const language = (await resolveTreeType(store, ownerId, tree?.type))?.language;
+    const type = await resolveTreeType(store, ownerId, tree?.type);
+    const language = type ? treeLanguage(type, tree) : undefined;
     return language === NO_PARTICULAR_LANGUAGE ? undefined : language;
   };
 }
@@ -237,14 +299,27 @@ export type TreeTypeSeed = Omit<TreeTypeSpec, 'ownerId'>;
 export function treeTypeChoices(
   rows: readonly TreeTypeSpec[],
   ownerId: string,
-): { id: string; label: string; summary: string; agent?: string | undefined }[] {
+): { id: string; label: string; summary: string; agent?: string | undefined; versions?: VersionChoices | undefined }[] {
   return treeTypesFor(rows, ownerId).map((type) => ({
     id: type.id,
     label: type.label,
     summary: type.summary,
     ...(type.agent ? { agent: type.agent } : {}),
+    ...(type.versions ? { versions: versionChoices(type.versions) } : {}),
   }));
 }
+
+export interface VersionChoices {
+  of: string;
+  choices: string[];
+  default: string;
+}
+
+export const versionChoices = (versions: TreeTypeVersions): VersionChoices =>
+  ({ of: versions.of, choices: versions.choices.map((choice) => choice.version), default: versions.default });
+
+export const versionsLine = (versions: VersionChoices): string =>
+  `${versions.of} ${versions.choices.map((choice) => (choice === versions.default ? `${choice} (the default)` : choice)).join(' or ')}`;
 
 export { TREE_TYPE_SEEDS } from './tree-type-seeds.js';
 
@@ -268,4 +343,23 @@ export async function seedTreeTypes(store: TreeTypeSeedStore): Promise<number> {
     seeded++;
   }
   return seeded;
+}
+
+export interface TreeVersionStore {
+  getTrees(): Promise<{ id: string; ownerId: string; type: string; version?: string | undefined }[]>;
+  getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
+  saveTree(tree: never): Promise<void>;
+}
+
+export async function stampTreeVersions(store: TreeVersionStore): Promise<number> {
+  let stamped = 0;
+  for (const tree of await store.getTrees()) {
+    if (tree.version) continue;
+    const type = await resolveTreeType(store, tree.ownerId, tree.type);
+    const version = type ? treeVersion(type, tree) : undefined;
+    if (!version) continue;
+    await store.saveTree({ ...tree, version } as never);
+    stamped++;
+  }
+  return stamped;
 }

@@ -6,6 +6,7 @@ export interface Tree {
   id: string
   name: string
   type: string
+  version?: string
   goal?: string
   autoMode?: boolean
   branchCount: number
@@ -28,7 +29,7 @@ export interface TreeTypeFile {
   executable?: boolean | undefined
 }
 
-export type WorkspaceLanguage = 'node' | 'python' | 'go' | 'base' | 'odoo'
+export type WorkspaceLanguage = 'node' | 'python' | 'go' | 'base' | 'odoo' | 'odoo-20'
 
 export interface PersonaEgressRule {
   cidr?: string | undefined
@@ -66,4 +67,11 @@ export interface TreeType {
   secrets?: TreeTypeSecret[] | undefined
   releaseWhen?: string[] | undefined
   agent?: string | undefined
+  versions?: TreeTypeVersions | undefined
+}
+
+export interface TreeTypeVersions {
+  of: string
+  choices: { version: string; language: WorkspaceLanguage }[]
+  default: string
 }

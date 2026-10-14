@@ -65,9 +65,18 @@ export interface TreeRunResult {
   awaitingApproval?: string[]
 }
 
+export interface TreeAsk {
+  runId: string
+  callId: string
+  tool: string
+  message: string
+  agent?: string
+  leafId?: string
+}
+
 export type TreeRunStatus =
   | { state: 'none' | 'unavailable' }
-  | { state: 'running'; startedAt: string; turnId?: string }
+  | { state: 'running'; startedAt: string; turnId?: string; asking?: TreeAsk[] }
   | { state: 'finished'; startedAt: string; closedAt?: string; result: TreeRunResult; turnId?: string }
   | { state: 'failed'; startedAt: string; closedAt?: string; reason: string; turnId?: string }
 

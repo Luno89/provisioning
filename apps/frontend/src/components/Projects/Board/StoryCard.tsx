@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Boxes, CheckSquare, GripVertical, Link2, ListPlus, RotateCcw, Rocket, Eye } from 'lucide-react'
+import { Boxes, CheckSquare, GripVertical, Hand, Link2, ListPlus, RotateCcw, Rocket, Eye } from 'lucide-react'
 import { STATE_DOT } from '../../leaf-types'
 import { ago } from '../../home-summary'
 import type { Story } from './board'
@@ -47,6 +47,9 @@ export function StoryCard({ story, selected, onOpen, grip }: { story: Story; sel
           <span className="text-[12px] text-slate-200 leading-snug break-words">{leaf.title}</span>
         </span>
         <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
+          {story.asks && (
+            <span className="flex items-center gap-0.5 text-amber-300" title={`${story.asks.agent ?? 'Its run'} waits for you to allow ${story.asks.tool}`} data-testid="story-asks"><Hand size={10} aria-hidden="true" /> waits for you to allow {story.asks.tool}</span>
+          )}
           {story.tasks.total > 0 && (
             <span className="flex items-center gap-0.5" title="Tasks done"><CheckSquare size={10} aria-hidden="true" /> {story.tasks.done}/{story.tasks.total}</span>
           )}

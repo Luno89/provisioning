@@ -9,7 +9,11 @@ const image = (id: string) => WORKSPACE_IMAGE_SEEDS.find((entry) => entry.id ===
 describe('a tree type described from the parts that run it', () => {
   it('tells the planner what approval makes, what is installed, how it grows, what the platform releases, and what never to plan', () => {
     const odoo = seed('odoo-addons');
-    const text = describeTreeType({ type: odoo, image: image(odoo.language), growing: 'grove-run: Grows the tree.' });
+    const text = describeTreeType({ type: odoo, image: image('odoo-20'), growing: 'grove-run: Grows the tree.' });
+    expect(text).toContain('VERSIONS\nOdoo 20 (the default) or 18. A new tree is Odoo 20 unless the plan\'s tree sets version;');
+    expect(text).toContain('- 18: works in the odoo workspace.');
+    expect(text).toContain('  - Access rules are `ir.access` rows in `security/ir.access.csv`');
+    expect(text).toContain('Its own worktree in the odoo-20 workspace (Odoo 20): Odoo 20 Community');
     expect(text).toContain('The tree gets a project of its own');
     expect(text).toContain('- deploy/chart/Chart.yaml');
     expect(text).toContain('HOW THE TREE GROWS\ngrove-run: Grows the tree.');

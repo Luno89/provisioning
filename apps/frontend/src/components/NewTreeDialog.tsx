@@ -11,6 +11,7 @@ export default function NewTreeDialog({ onClose, onCreated }: {
 }) {
   const qc = useQueryClient();
   const [pickedType, setPickedType] = useState('');
+  const [pickedVersion, setPickedVersion] = useState<string | undefined>(undefined);
 
   const { data: types = [] } = useQuery<TreeType[]>({
     queryKey: groveKeys.treeTypes(),
@@ -19,7 +20,7 @@ export default function NewTreeDialog({ onClose, onCreated }: {
   });
 
   const create = useMutation({
-    mutationFn: (body: { name: string; type: string; goal: string }) => createTree<{ id: string }>(body),
+    mutationFn: (body: { name: string; type: string; goal: string; version?: string }) => createTree<{ id: string }>(body),
     onSuccess: (tree: { id: string }) => {
       qc.invalidateQueries({ queryKey: ['trees'] });
       onCreated?.(tree?.id ?? '');
@@ -28,6 +29,7 @@ export default function NewTreeDialog({ onClose, onCreated }: {
   });
 
   const chosen = types.find((t) => t.id === pickedType);
+  const version = chosen?.versions ? pickedVersion ?? chosen.versions.default : undefined;
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-6 z-50" onClick={onClose}>
@@ -48,6 +50,7 @@ export default function NewTreeDialog({ onClose, onCreated }: {
               name: String(data.get('name') ?? ''),
               type: pickedType,
               goal: String(data.get('goal') ?? ''),
+              ...(version ? { version } : {}),
             });
           }}
           className="flex flex-col gap-5"
@@ -67,7 +70,7 @@ export default function NewTreeDialog({ onClose, onCreated }: {
             <div className="grid gap-2 sm:grid-cols-2">
               {types.map((t) => (
                 <button
-                  key={t.id} type="button" onClick={() => setPickedType(t.id)}
+                  key={t.id} type="button" onClick={() => { setPickedType(t.id); setPickedVersion(undefined); }}
                   className={`text-left px-4 py-3 rounded-xl border transition-colors ${
                     pickedType === t.id
                       ? 'border-[var(--leaf)] bg-[var(--leaf-stem)]/20'
@@ -79,6 +82,22 @@ export default function NewTreeDialog({ onClose, onCreated }: {
                 </button>
               ))}
             </div>
+            {chosen?.versions && (
+              <div className="mt-3" role="radiogroup" aria-label={`${chosen.versions.of} version`}>
+                <div className="text-[11px] font-black uppercase tracking-widest text-slate-500 mb-2">{chosen.versions.of} version</div>
+                <div className="flex gap-2">
+                  {chosen.versions.choices.map((choice) => (
+                    <button
+                      key={choice.version} type="button" role="radio" aria-checked={version === choice.version}
+                      onClick={() => setPickedVersion(choice.version)}
+                      className={`px-3 py-1.5 rounded-lg border text-[12px] ${version === choice.version ? 'border-[var(--leaf)] bg-[var(--leaf-stem)]/20 text-slate-100' : 'border-[var(--bark-600)] text-slate-400 hover:bg-[var(--bark-700)]'}`}
+                    >
+                      {chosen.versions!.of} {choice.version}{choice.version === chosen.versions!.default ? ' (default)' : ''}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {chosen && (
               <>
               <p className="mt-3 text-[11px] text-slate-400 leading-relaxed border-l-2 border-[var(--leaf)] pl-3">

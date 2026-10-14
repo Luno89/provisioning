@@ -25,7 +25,7 @@ import type { SecretRequest } from './secret-requests.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
-import type { TurnLogEntry } from './turn-log.js';
+import { MARK_MESSAGE_CHARS, type RunMark, type TurnLogEntry } from './turn-log.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import { kindOfGrant, type GrantKind, type PersonaRecord as EnginePersona, type ToolDefinition as EngineTool, type ToolGrant } from '@koala/agent-engine';
 import type { PublishedWorkspace } from './published-workspace.js';
@@ -1036,6 +1036,16 @@ export class MemoryDB implements Database {
 
   async getTurnLog(ownerId: string, turnId: string, after: number): Promise<TurnLogEntry[]> {
     return this.turnLogs.filter((entry) => entry.ownerId === ownerId && entry.turnId === turnId && entry.seq > after).sort((a, b) => a.seq - b.seq).map((entry) => structuredClone(entry));
+  }
+
+  async getTurnLogMarks(ownerId: string, turnId: string, types: readonly string[]): Promise<RunMark[]> {
+    return (await this.getTurnLog(ownerId, turnId, 0))
+      .flatMap((entry) => entry.events)
+      .filter((event) => types.includes(event.type))
+      .map((event) => {
+        const { type, runId, parentRunId, agentId, callId, tool, level, message } = event as RunMark;
+        return { type, runId, ...(parentRunId ? { parentRunId } : {}), ...(agentId ? { agentId } : {}), ...(callId ? { callId } : {}), ...(tool ? { tool } : {}), ...(level ? { level } : {}), ...(message ? { message: message.slice(0, MARK_MESSAGE_CHARS) } : {}) };
+      });
   }
 
   async recentTurns(ownerId: string, since: string, limit: number): Promise<TurnLogEntry[]> {

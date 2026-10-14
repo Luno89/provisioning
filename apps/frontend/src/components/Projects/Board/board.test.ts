@@ -41,6 +41,21 @@ describe('the board of a project', () => {
     expect(epic!.features[0]!.columns.blocked[0]!.workspaceStuck).toBeUndefined()
   })
 
+  it('says which story waits for you to allow a call, and nothing for a call no story is under', () => {
+    const [epic] = buildBoard({
+      trees: [{ id: 't1', name: 'Shop' }],
+      branches: [{ id: 'b1', title: 'The field', treeId: 't1' }],
+      leaves: [leaf('a', { status: 'running' }), leaf('b', { status: 'running' })],
+      asking: [
+        { runId: 'r1', callId: 'c1', tool: 'delete_project', message: 'm', agent: 'executor', leafId: 'a' },
+        { runId: 'r2', callId: 'c2', tool: 'run_command', message: 'm', agent: 'planner' },
+      ],
+    })
+    const running = epic!.features[0]!.columns.running
+    expect(running.find((story) => story.leaf.id === 'a')?.asks).toEqual({ tool: 'delete_project', agent: 'executor' })
+    expect(running.find((story) => story.leaf.id === 'b')?.asks).toBeUndefined()
+  })
+
   it('says when the workspace a story waits for did not build', () => {
     const [epic] = buildBoard({ trees: [{ id: 't1', name: 'Shop' }], branches: [{ id: 'b1', title: 'The field', treeId: 't1' }], leaves: [leaf('a', { waitingFor: { reason: 'waits for jq', since: 't', stuck: 'not rebuilt: the build failed' } })] })
     expect(epic!.features[0]!.columns.blocked[0]).toMatchObject({ workspaceStuck: 'not rebuilt: the build failed' })
@@ -129,4 +144,12 @@ describe('what is going on with a project', () => {
     expect(projectStatus([], [run({ promotedAt: '2026-10-09T09:05:00Z' })]).live).toEqual({ commit: 'abc12345', since: '2026-10-09T09:05:00Z' })
     expect(projectStatus([], [])).toEqual({})
   })
+
+  it('names the version of a tree whose type has versions', () => {
+    const types = [{ id: 'odoo-addons', versions: { of: 'Odoo', choices: [{ version: '20', language: 'odoo-20' as const }], default: '20' } }]
+    const [odoo, plain] = buildBoard({ trees: [{ id: 't1', name: 'Shop', type: 'odoo-addons', version: '20' }, { id: 't2', name: 'API', type: 'api-service' }], types, branches: [], leaves: [] })
+    expect(odoo?.version).toBe('Odoo 20')
+    expect(plain).not.toHaveProperty('version')
+  })
 })
+

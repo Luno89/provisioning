@@ -64,7 +64,7 @@ import { userRoom } from './engine-host/temporal/stream-worker.js';
 import { createWorkspaceRepoResolver, treeWorkspaceRunId } from './engine-host/sandboxes/workspace-repos.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
-import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
+import { runAskingVia, runCancelledVia } from './engine-host/temporal/run-cancellation.js';
 import { getTemporalClient, resolveOwnersWith } from './lib/temporal-client.js';
 import { PayloadStorageService } from './services/PayloadStorageService.js';
 import { MemoryKeeperService } from './services/MemoryKeeperService.js';
@@ -138,7 +138,7 @@ import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { seedAll } from './scripts/seed-all.js';
 import type { SearchOutcome } from './lib/web-tools.js';
 import { createGroveLauncher } from './engine-host/grove-launcher.js';
-import { groveAgentOf, resolveTreeType, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, treeTypeOfProject, renderStarterFiles } from './lib/tree-types.js';
+import { groveAgentOf, resolveTreeType, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, treeTypeOfProject, renderStarterFiles, versionVars } from './lib/tree-types.js';
 import { TreeHomeService } from './services/TreeHomeService.js';
 import { ProjectAppService } from './services/ProjectAppService.js';
 import { projectAppRouter } from './routes/project-app.js';
@@ -299,7 +299,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     treeTypes: (ownerId) => db.getTreeTypes(ownerId),
     projects: () => db.getProjects(),
     createProject: (ownerId, project) => projectRepoService.createProject(ownerId, project),
-    starter: async (type, tree) => renderStarterFiles(type.files, { projectName: tree.name, registryHost: await giteaService.getRegistryHost() }),
+    starter: async (type, tree) => renderStarterFiles(type.files, { projectName: tree.name, registryHost: await giteaService.getRegistryHost(), ...versionVars(type, tree) }),
     saveTree: (tree) => db.saveTree(tree),
     secrets: projectSecrets,
     channel: (project) => channels.ensure(project),
@@ -1134,6 +1134,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.use('/api/binding-types', bindingTypesRouter({ db }));
   const groveRuns = new GroveRunService({
     store: db,
+    asking: runAskingVia(() => getTemporalClient()),
     launcher: createGroveLauncher({
       hidden: (ownerId: string) => extensions.hidden(ownerId),
       runs: engineRuns,

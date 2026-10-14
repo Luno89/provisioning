@@ -1,9 +1,12 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { CheckCircle2, ClipboardList, Loader2, XCircle } from 'lucide-react'
 import type { PlanProposal } from '@koala/harness-types'
-import { changeHeading } from '../../lib/item-change'
 import { ItemChangeDetails } from './ItemChangeDetails'
 import PlanProgress from './PlanProgress'
+import { planHeading } from './chat-cards'
+import { groveKeys, listTreeTypes } from '../../api/grove'
+import { versionLabel } from '../../lib/tree-version'
 import type { StoryAddress } from './ChatNotice'
 
 export interface PlanProposalCardProps {
@@ -17,7 +20,7 @@ export interface PlanProposalCardProps {
 
 const STATUS_WORD: Record<PlanProposal['status'], string> = {
   proposed: 'Waiting for your approval',
-  superseded: 'Replaced by a newer plan below',
+  superseded: 'Replaced by a newer plan',
   adopting: 'Building the tree, its sandbox and the plan documents…',
   adopted: 'Adopted',
   rejected: 'Rejected',
@@ -26,7 +29,7 @@ const STATUS_WORD: Record<PlanProposal['status'], string> = {
 
 const CHANGE_STATUS_WORD: Record<PlanProposal['status'], string> = {
   proposed: 'Waiting for your approval',
-  superseded: 'Replaced by a newer change below',
+  superseded: 'Replaced by a newer change',
   adopting: 'Applying the change and updating the plan documents…',
   adopted: 'Applied',
   rejected: 'Rejected',
@@ -38,11 +41,11 @@ export default function PlanProposalCard({ proposal, deciding, onApprove, onReje
   const [reason, setReason] = useState('')
   const [showDoc, setShowDoc] = useState(false)
   const { plan, leafPlan, change, status } = proposal
-  const where = change
-    ? changeHeading(change)
-    : leafPlan
-      ? `${leafPlan.mode === 'replan' ? 'Replan' : 'Break down'} “${leafPlan.leafTitle}”`
-      : plan?.tree ? `New ${plan.tree.type} tree “${plan.tree.name}”` : 'Grows the current tree'
+  const where = planHeading(proposal)
+  const newTree = plan?.tree
+  const treeTypes = useQuery({ queryKey: groveKeys.treeTypes(), queryFn: listTreeTypes, staleTime: Infinity, enabled: Boolean(newTree) })
+  const defaultVersion = treeTypes.data?.find((type) => type.id === newTree?.type)?.versions?.default
+  const version = newTree ? versionLabel({ type: newTree.type, version: newTree.version ?? defaultVersion }, treeTypes.data ?? []) : undefined
   const decidable = status === 'proposed' || status === 'failed'
 
   return (
@@ -50,7 +53,7 @@ export default function PlanProposalCard({ proposal, deciding, onApprove, onReje
       <div className="flex items-start gap-2">
         <ClipboardList size={14} className="text-emerald-400 shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
-          <div className="font-medium text-slate-100">{where}</div>
+          <div className="font-medium text-slate-100">{where}{version && <span className="ml-2 text-[11px] px-1.5 rounded bg-[var(--bark-900)] text-slate-300" data-testid="plan-version">{version}</span>}</div>
           <div className="text-slate-400">{change ? CHANGE_STATUS_WORD[status] : STATUS_WORD[status]}{proposal.reason ? ` — ${proposal.reason}` : ''}</div>
         </div>
         {status === 'adopting' && <Loader2 size={14} className="animate-spin text-slate-400 shrink-0" />}

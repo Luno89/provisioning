@@ -6,6 +6,7 @@ import { errorMessage } from '../../../api/client.js'
 import Reading from '../Reading'
 import AutoModeSwitch from '../../AutoMode/AutoModeSwitch'
 import { useTreeAutoMode } from '../../AutoMode/useAutoMode'
+import TreeAsks from './TreeAsks'
 
 const RUNNING_POLL_MS = 5_000
 const IDLE_POLL_MS = 15_000
@@ -66,6 +67,7 @@ export function TreeRunPanel({ treeId }: { treeId: string }) {
         {running && <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-emerald-400" />}
         <span>{error ? 'Could not read the tree\'s run.' : describe(status)}</span>
       </div>
+      {status.state === 'running' && <TreeAsks asks={status.asking ?? []} />}
       {!running && (
         <button
           type="button"

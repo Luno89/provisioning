@@ -202,3 +202,19 @@ describe('a new tree\'s service name', () => {
     expect(problemOf(plan({ tree: { name: 'X', type: 'api-service', serviceName: 'a very long service name here' } }))).toContain('serviceName is a short name');
   });
 });
+
+describe('a new tree\'s version', () => {
+  const versioned = { ...world, treeTypes: ['odoo-addons', 'api-service'], versions: { 'odoo-addons': { of: 'Odoo', choices: ['20', '18'] } } };
+
+  it('is kept when the type offers it, as text or a number, and left out for the default', () => {
+    expect(parsePlan(plan({ tree: { name: 'Shop', type: 'odoo-addons', version: '18' } }), versioned)).toMatchObject({ plan: { tree: { version: '18' } } });
+    expect(parsePlan(plan({ tree: { name: 'Shop', type: 'odoo-addons', version: 20 } }), versioned)).toMatchObject({ plan: { tree: { version: '20' } } });
+    const unset = parsePlan(plan({ tree: { name: 'Shop', type: 'odoo-addons' } }), versioned);
+    expect('plan' in unset && unset.plan.tree).not.toHaveProperty('version');
+  });
+
+  it('is refused when the type does not offer it, or has no versions', () => {
+    expect(parsePlan(plan({ tree: { name: 'Shop', type: 'odoo-addons', version: '19' } }), versioned)).toEqual({ problem: 'Odoo 19 is not offered by the odoo-addons type; choose 20 or 18, or leave version out for the default' });
+    expect(parsePlan(plan({ tree: { name: 'Widget', type: 'api-service', version: '2' } }), versioned)).toEqual({ problem: 'the api-service type has no versions to choose from; leave version out' });
+  });
+});

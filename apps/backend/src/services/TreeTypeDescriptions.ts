@@ -1,5 +1,5 @@
 import { agentsHandedTo, describeOutline, outlineProcedure, type Procedure } from '@koala/agent-engine/procedure';
-import { groveAgentOf, resolveTreeType, type TreeTypeSpec } from '../lib/tree-types.js';
+import { groveAgentOf, resolveTreeType, treeLanguage, type TreeTypeSpec } from '../lib/tree-types.js';
 import { describeTreeType } from '../lib/tree-type-description.js';
 import type { WorkspaceImageSpec } from '../lib/workspace-image-seeds.js';
 
@@ -16,7 +16,7 @@ export class TreeTypeDescriptions {
     const type = await resolveTreeType({ getTreeTypes: () => this.deps.treeTypes(ownerId) }, ownerId, typeId);
     if (!type) return undefined;
     const [images, growing] = await Promise.all([this.deps.images(ownerId), this.growing(ownerId, groveAgentOf(type))]);
-    return describeTreeType({ type, image: images.find((image) => image.id === type.language), growing });
+    return describeTreeType({ type, image: images.find((image) => image.id === treeLanguage(type, { version: type.versions?.default })), growing });
   }
 
   private async growing(ownerId: string, agent: string): Promise<string> {

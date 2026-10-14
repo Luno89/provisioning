@@ -8,7 +8,7 @@ import {
 import { Koala } from './Koala';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  listChatConversations, deleteChatConversation, chatPackKeys, type ChatConversation,
+  listChatConversations, deleteChatConversation, createChatConversation, chatPackKeys, type ChatConversation,
 } from '../api/chat-pack.js';
 import { listLeaves, listTrees, groveKeys } from '../api/grove.js';
 import { itemChatAddress } from '../lib/item-chat-address.js';
@@ -128,6 +128,14 @@ export default function Sidebar({ forestTabs, onLogout }: {
     });
   };
 
+  const newConversation = useMutation({
+    mutationFn: () => createChatConversation('New conversation'),
+    onSuccess: (created) => {
+      qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
+      navigateTo('chat', `#/chat/${created.id}`);
+    },
+  });
+
   const deleteConversation = useMutation({
     mutationFn: (id: string) => deleteChatConversation(id),
     onSuccess: (_, deletedId) => {
@@ -171,13 +179,13 @@ export default function Sidebar({ forestTabs, onLogout }: {
               tabIndex={0}
               onClick={(e) => {
                 e.stopPropagation();
-                navigateTo('chat', '#/chat');
+                if (!newConversation.isPending) newConversation.mutate();
               }}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter' && e.key !== ' ') return;
                 e.stopPropagation();
                 e.preventDefault();
-                navigateTo('chat', '#/chat');
+                if (!newConversation.isPending) newConversation.mutate();
               }}
               className="p-1 text-emerald-300 hover:text-white rounded hover:bg-emerald-800/40 transition-colors cursor-pointer"
               title="New chat"

@@ -153,6 +153,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   const approvals = new Map<string, boolean>(continued?.approvals ?? []);
   const answers = new Map<string, unknown>(continued?.answers ?? []);
   let approvedForRun = continued?.approvedForRun ?? false;
+  const asking = new Set<string>();
   let cancelled = false;
   let currentNode: string | undefined;
   let rounds = continued?.checkpoint.counters.rounds ?? 0;
@@ -199,7 +200,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   };
   setHandler(cancelSignal, cancelRun);
   CancellationScope.current().cancelRequested.catch(cancelRun);
-  setHandler(stateQuery, () => ({ ...(currentNode ? { nodeId: currentNode } : {}), rounds, cancelled }));
+  setHandler(stateQuery, () => ({ ...(currentNode ? { nodeId: currentNode } : {}), rounds, cancelled, ...(asking.size > 0 ? { asking: [...asking] } : {}) }));
 
   const pending: EngineEvent[] = [];
   const traces: NodeTrace[] = [];
@@ -334,10 +335,13 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         level: 'warn',
         nodeId,
         callId: call.id,
+        tool: call.name,
         message: `${ticket.agentSlug} wants to run ${call.name} on ${where}: ${call.arguments}`,
       } as never);
 
+      asking.add(call.id);
       const decided = await condition(() => approvals.has(call.id) || cancelled, '1 day');
+      asking.delete(call.id);
       if (cancelled || !decided) return false;
       return approvals.get(call.id) === true;
     },

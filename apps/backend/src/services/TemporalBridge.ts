@@ -16,7 +16,7 @@ import { DEFAULT_ENGINE_TASK_QUEUE, type GroveRunResult } from '../engine-host/t
 
 export type GroveRunStatus =
   | { state: 'none' | 'unavailable' }
-  | { state: 'running'; startedAt: string; turnId?: string | undefined }
+  | { state: 'running'; startedAt: string; turnId?: string | undefined; asking?: WaitingAsk[] | undefined }
   | { state: 'finished'; startedAt: string; closedAt?: string; result: GroveRunResult; turnId?: string | undefined }
   | { state: 'failed'; startedAt: string; closedAt?: string; reason: string; turnId?: string | undefined }
 import { reconcileRun, reconcileMissingWorkflow, LIVE_RUN_STATUSES, type RunStatus } from '../lib/run-reconcile.js'
@@ -33,6 +33,7 @@ import { assessWorkload, reconciledStatus } from '../lib/workload-health.js'
 import { InfrastructureService } from './InfrastructureService.js'
 import { sanitizeNamespace, isModelKind } from '../lib/model-registry.js'
 import type { Database } from '../lib/db-interface.js'
+import type { WaitingAsk } from '../lib/turn-log.js'
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata } from '../lib/types.js'
 import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-capacity.js'
 import type { ClusterService } from './ClusterService.js'

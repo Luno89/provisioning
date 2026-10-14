@@ -4,8 +4,6 @@ import { KOALA_E2E_SCRIPT, ODOO_E2E_HELPERS_AT, ODOO_E2E_SCRIPT } from './odoo-e
 import { ODOO_E2E_HELPERS } from '../../lib/odoo-e2e-helpers.js';
 import { PLAYWRIGHT_VERSION } from '../../lib/e2e.js';
 
-export const ODOO_VERSION = '18';
-export const ODOO_IMAGE = `odoo:${ODOO_VERSION}`;
 export const ODOO_CHECK = '/usr/local/bin/odoo-check';
 export const ODOO_E2E = '/usr/local/bin/odoo-e2e';
 export const KOALA_E2E = '/usr/local/bin/koala-e2e';
@@ -25,9 +23,9 @@ const base64 = (text: string): string => {
   return btoa(binary);
 };
 
-export const ODOO_BASE: BaseImage = {
-  id: 'odoo',
-  image: ODOO_IMAGE,
+export const odooBase = (id: string, version: string): BaseImage => ({
+  id,
+  image: `odoo:${version}`,
   provides: ['bash', 'git', 'python3', 'odoo', 'odoo-check', 'odoo-e2e', 'koala-e2e', 'postgres', 'psql', 'helm', 'node', 'npm', 'playwright', 'curl', 'tar'],
   env: [
     { name: 'PLAYWRIGHT_BROWSERS_PATH', value: PLAYWRIGHT_BROWSERS },
@@ -76,4 +74,7 @@ export const ODOO_BASE: BaseImage = {
       run: `echo ${base64(ODOO_CHECK_SCRIPT)} | base64 -d > ${ODOO_CHECK} && chmod 755 ${ODOO_CHECK}`,
     },
   ],
-};
+});
+
+export const ODOO_BASE = odooBase('odoo', '18');
+export const ODOO_20_BASE = odooBase('odoo-20', '20');

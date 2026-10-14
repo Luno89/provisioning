@@ -23,7 +23,7 @@ import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
 import type { ProcedureSource } from './procedure-source.js';
 import type { StoredNodeTrace } from './run-traces.js';
-import type { TurnLogEntry } from './turn-log.js';
+import type { RunMark, TurnLogEntry } from './turn-log.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { GrantKind, PersonaRecord as EnginePersona, ToolDefinition as EngineTool, ToolGrant } from '@koala/agent-engine';
 import type { PublishedWorkspace } from './published-workspace.js';
@@ -253,6 +253,7 @@ export interface Database {
   getRunTraces(ownerId: string, runId: string): Promise<StoredNodeTrace[]>;
   appendTurnLog(entry: TurnLogEntry): Promise<void>;
   getTurnLog(ownerId: string, turnId: string, after: number): Promise<TurnLogEntry[]>;
+  getTurnLogMarks(ownerId: string, turnId: string, types: readonly string[]): Promise<RunMark[]>;
   lastTurnLogSeq(turnId: string): Promise<number>;
   recentTurns(ownerId: string, since: string, limit: number): Promise<TurnLogEntry[]>;
   saveRunEffort(effort: RunEffort): Promise<void>;

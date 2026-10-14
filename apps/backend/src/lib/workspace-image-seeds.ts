@@ -1,5 +1,5 @@
 import { sameSeededRow } from './seed-diff.js';
-export type WorkspaceLanguage = 'node' | 'python' | 'go' | 'base' | 'odoo';
+export type WorkspaceLanguage = 'node' | 'python' | 'go' | 'base' | 'odoo' | 'odoo-20';
 
 export type EgressRule =
   | { cidr: string; namespace?: undefined; ports?: number[] }
@@ -29,6 +29,25 @@ const PROXY_ENV = [
   { name: 'HTTPS_PROXY', value: `http://${EGRESS_PROXY_HOST}` },
   { name: 'https_proxy', value: `http://${EGRESS_PROXY_HOST}` },
 ];
+
+const odooImage = (id: WorkspaceLanguage, version: string): WorkspaceImageSpec => ({
+  id,
+  image: `odoo:${version}`,
+  summary: `Odoo ${version} Community with its own PostgreSQL 18 and Playwright with Chromium, for building Odoo addons. \`odoo-check <module>[,<module>] [addons-dir]\` installs the modules into a throwaway database, runs their Python tests and says PASSED or FAILED; \`odoo-e2e <module>[,<module>] <specs>\` installs them into a throwaway Odoo it serves on localhost and runs the Playwright specs against it in a browser, printing what the page showed when a test fails; \`odoo-e2e --keep …\` leaves that Odoo served so the next run takes seconds (it upgrades the modules when addons/ changed; \`odoo-e2e --stop\` ends it), and \`e2e/odoo.ts\` holds helpers for Odoo ${version}'s web client (signIn, openAction, fill, choose, addLine, save, press, smartButton, reportHtml) that specs import from \`./odoo\`; \`koala-e2e [specs]\` does the same for every module under addons/, which is what browser test checks and the Run Browser Tests node use.`,
+  available: ['bash', 'git', 'python3 3.12', 'pip', `odoo ${version}`, 'odoo-check', 'odoo-e2e', 'koala-e2e', 'postgres 18', 'psql', 'helm 3.15', 'node', 'npm', 'playwright 1.48 (chromium)', 'curl', 'tar'],
+  absent: ['gcc', 'make', 'wget', 'jq', 'go'],
+  packageAccess: {
+    env: [
+      { name: 'PIP_INDEX_URL', value: 'https://pypi.org/simple' },
+      { name: 'PIP_TARGET', value: `${WORKSPACE_MOUNT}/.python-packages` },
+      { name: 'PYTHONPATH', value: `${WORKSPACE_MOUNT}/.python-packages` },
+      { name: 'PLAYWRIGHT_BROWSERS_PATH', value: '/ms-playwright' },
+      { name: 'NODE_PATH', value: '/usr/local/lib/node_modules' },
+      ...PROXY_ENV,
+    ],
+    egress: [EGRESS_PROXY_EGRESS],
+  },
+});
 
 export const WORKSPACE_IMAGE_SEEDS: WorkspaceImageSpec[] = [
   {
@@ -73,24 +92,8 @@ export const WORKSPACE_IMAGE_SEEDS: WorkspaceImageSpec[] = [
       egress: [EGRESS_PROXY_EGRESS],
     },
   },
-  {
-    id: 'odoo',
-    image: 'odoo:18',
-    summary: 'Odoo 18 Community with its own PostgreSQL 18 and Playwright with Chromium, for building Odoo addons. `odoo-check <module>[,<module>] [addons-dir]` installs the modules into a throwaway database, runs their Python tests and says PASSED or FAILED; `odoo-e2e <module>[,<module>] <specs>` installs them into a throwaway Odoo it serves on localhost and runs the Playwright specs against it in a browser, printing what the page showed when a test fails; `odoo-e2e --keep …` leaves that Odoo served so the next run takes seconds (it upgrades the modules when addons/ changed; `odoo-e2e --stop` ends it), and `e2e/odoo.ts` holds helpers for Odoo 18\'s web client (signIn, openAction, fill, choose, addLine, save, press, smartButton, reportHtml) that specs import from `./odoo`; `koala-e2e [specs]` does the same for every module under addons/, which is what browser test checks and the Run Browser Tests node use.',
-    available: ['bash', 'git', 'python3 3.12', 'pip', 'odoo 18', 'odoo-check', 'odoo-e2e', 'koala-e2e', 'postgres 18', 'psql', 'helm 3.15', 'node', 'npm', 'playwright 1.48 (chromium)', 'curl', 'tar'],
-    absent: ['gcc', 'make', 'wget', 'jq', 'go'],
-    packageAccess: {
-      env: [
-        { name: 'PIP_INDEX_URL', value: 'https://pypi.org/simple' },
-        { name: 'PIP_TARGET', value: `${WORKSPACE_MOUNT}/.python-packages` },
-        { name: 'PYTHONPATH', value: `${WORKSPACE_MOUNT}/.python-packages` },
-        { name: 'PLAYWRIGHT_BROWSERS_PATH', value: '/ms-playwright' },
-        { name: 'NODE_PATH', value: '/usr/local/lib/node_modules' },
-        ...PROXY_ENV,
-      ],
-      egress: [EGRESS_PROXY_EGRESS],
-    },
-  },
+  odooImage('odoo', '18'),
+  odooImage('odoo-20', '20'),
   {
     id: 'base',
     image: 'registry.access.redhat.com/ubi9/ubi',

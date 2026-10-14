@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react'
 import { CheckCircle2, CircleDashed, Hand, Loader2, XCircle } from 'lucide-react'
 import type { PlanProposal } from '@koala/harness-types'
 import { errorMessage } from '../../api/client'
@@ -5,7 +6,7 @@ import type { StoryAddress } from './ChatNotice'
 import { usePlanProgress } from './hooks/usePlanProgress'
 import type { PlanStepState } from './plan-progress'
 
-const ICONS: Record<PlanStepState, JSX.Element> = {
+const ICONS: Record<PlanStepState, ReactElement> = {
   done: <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-emerald-400" />,
   running: <Loader2 size={13} className="mt-0.5 shrink-0 animate-spin text-slate-400" />,
   waiting: <Hand size={13} className="mt-0.5 shrink-0 text-amber-300" />,

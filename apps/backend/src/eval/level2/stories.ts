@@ -21,7 +21,7 @@ test('${title}', async ({ page }) => {
 
 export const COLOUR_FILES: Record<string, string> = {
   [`addons/${COLOUR_MODULE}/__init__.py`]: 'from . import models\n',
-  [`addons/${COLOUR_MODULE}/__manifest__.py`]: "{\n    'name': 'Koala colour',\n    'version': '18.0.1.0.0',\n    'depends': ['base'],\n    'data': ['views/res_partner_views.xml'],\n    'license': 'LGPL-3',\n}\n",
+  [`addons/${COLOUR_MODULE}/__manifest__.py`]: "{\n    'name': 'Koala colour',\n    'version': '20.0.1.0.0',\n    'depends': ['base'],\n    'data': ['views/res_partner_views.xml'],\n    'license': 'LGPL-3',\n}\n",
   [`addons/${COLOUR_MODULE}/models/__init__.py`]: 'from . import res_partner\n',
   [`addons/${COLOUR_MODULE}/models/res_partner.py`]: `from odoo import fields, models\n\n\nclass ResPartner(models.Model):\n    _inherit = 'res.partner'\n\n    ${COLOUR_FIELD} = fields.Char('Koala colour')\n`,
   [`addons/${COLOUR_MODULE}/views/res_partner_views.xml`]: [
@@ -108,7 +108,7 @@ const modelled: Scenario = {
   procedure: { id: 'planning' },
   input: {
     message: [
-      'This Odoo 18 project needs a new text field on contacts.',
+      'This Odoo 20 project needs a new text field on contacts.',
       `Make a module named ${COLOUR_MODULE} in the project's addons that adds a Char field ${COLOUR_FIELD}, labelled "Koala colour", to res.partner, and shows it on the contact form (base.view_partner_form) right after the tax ID field (vat).`,
       'Keep it to one branch and one leaf. The leaf is done when the module installs and its tests pass, and when a browser test under e2e/ signs in, opens a new contact and sees the field.',
     ].join(' '),
@@ -124,7 +124,7 @@ const modelled: Scenario = {
   ],
 };
 
-const SHOP_GOAL = 'A new Odoo 18 shop whose contacts have a Koala colour field.';
+const SHOP_GOAL = 'A new Odoo 20 shop whose contacts have a Koala colour field.';
 
 const fromChat: Scenario = {
   id: 'story-odoo-new-project-scripted',
@@ -141,7 +141,7 @@ const fromChat: Scenario = {
     { when: { offered: ['describe_tree_type'], notCalled: ['describe_tree_type'] }, reply: { call: [{ tool: 'describe_tree_type', arguments: { type: ODOO_TREE_TYPE } }] } },
     { when: { offered: ['propose_plan'], called: ['describe_tree_type'], notCalled: ['propose_plan'] }, reply: { call: [{ tool: 'propose_plan', arguments: {
       tree: { name: 'Koala shop', type: ODOO_TREE_TYPE, goal: SHOP_GOAL },
-      planDoc: '# Koala shop\n\n## Destination\nAn Odoo 18 shop whose contact form shows a Koala colour field.\n\n## Not yet specified\nNothing.\n\n## Out of scope\nEverything else.\n',
+      planDoc: '# Koala shop\n\n## Destination\nAn Odoo 20 shop whose contact form shows a Koala colour field.\n\n## Not yet specified\nNothing.\n\n## Out of scope\nEverything else.\n',
       branches: [{ title: 'Contacts', leaves: [{
         key: 'colour', title: 'Colour field', body: 'the contact form shows Koala colour', brief: 'Add koala_colour to contacts.',
         tasks: [{ key: 'write', title: 'Write the koala_colour module', description: 'Write koala_colour under addons/.', role: 'The leaf.', doneMeans: 'odoo-check says PASSED for koala_colour', checks: { command: `odoo-check ${COLOUR_MODULE} addons`, expects: ['odoo-check: PASSED'] } }],

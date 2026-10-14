@@ -621,6 +621,7 @@ export interface PlanBranch {
 export interface NewTreeSpec {
   name: string;
   type: string;
+  version?: string | undefined;
   goal?: string | undefined;
   serviceName?: string | undefined;
   joins?: { treeId: string; treeName: string; projectId?: string | undefined } | undefined;

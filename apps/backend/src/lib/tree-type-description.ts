@@ -1,10 +1,10 @@
 import { deliveryFor } from './delivery.js';
 import { needsProject } from './tree-home.js';
-import type { TreeTypeSecret, TreeTypeSpec } from './tree-types.js';
+import { treeLanguage, versionChoices, versionsLine, type TreeTypeSecret, type TreeTypeSpec } from './tree-types.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 
 export interface TreeTypeParts {
-  type: Pick<TreeTypeSpec, 'id' | 'label' | 'summary' | 'produces' | 'files' | 'doneMeans' | 'language' | 'secrets' | 'defaultBindings' | 'env' | 'egress'>;
+  type: Pick<TreeTypeSpec, 'id' | 'label' | 'summary' | 'produces' | 'files' | 'doneMeans' | 'language' | 'secrets' | 'defaultBindings' | 'env' | 'egress' | 'versions'>;
   image?: Pick<WorkspaceImageSpec, 'summary' | 'available' | 'absent'> | undefined;
   growing?: string | undefined;
 }
@@ -23,15 +23,20 @@ const secretLine = (secret: TreeTypeSecret): string =>
 export function describeTreeType({ type, image, growing }: TreeTypeParts): string {
   const delivery = deliveryFor(type);
   const project = needsProject(type, {});
+  const language = treeLanguage(type, { version: type.versions?.default });
   return [
     `${type.label} (${type.id}): ${type.summary}`,
+    ...section('VERSIONS', type.versions ? [
+      `${versionsLine(versionChoices(type.versions))}. A new tree is ${type.versions.of} ${type.versions.default} unless the plan's tree sets version; the starter, the workspace and the checks all follow the tree's version, and it does not change once the tree exists.`,
+      ...type.versions.choices.flatMap((choice) => [`- ${choice.version}: works in the ${choice.language} workspace.`, ...(choice.vars?.versionNotes ? choice.vars.versionNotes.split('\n').map((line) => `  ${line}`) : [])]),
+    ] : []),
     ...section('WHEN THE PLAN IS APPROVED', [project
       ? 'The tree gets a project of its own: a repository on the person\'s Gitea holding the starter below and the plan, a build webhook, and the person\'s own cluster to deploy to.'
       : 'The tree gets a repository of its own holding the starter below and the plan; it gets no project, because it produces an answer rather than a running service.']),
     ...section('WHAT THE REPOSITORY STARTS WITH', type.files.length ? type.files.map((file) => `- ${file.path}`) : ['- nothing: the work makes every file']),
     ...section('WHERE EACH LEAF IS WORKED', image
-      ? [`Its own worktree in the ${type.language} workspace: ${image.summary}`, ...(image.available.length ? [`Installed: ${image.available.join(', ')}.`] : []), ...(image.absent.length ? [`Not there: ${image.absent.join(', ')}.`] : [])]
-      : [`A ${type.language} workspace, which this install does not describe.`]).concat(
+      ? [`Its own worktree in the ${language} workspace${type.versions ? ` (${type.versions.of} ${type.versions.default})` : ''}: ${image.summary}`, ...(image.available.length ? [`Installed: ${image.available.join(', ')}.`] : []), ...(image.absent.length ? [`Not there: ${image.absent.join(', ')}.`] : [])]
+      : [`A ${language} workspace, which this install does not describe.`]).concat(
       (type.env ?? []).length ? [`Every leaf runs with ${(type.env ?? []).map((entry) => `${entry.name}=${entry.value}`).join(', ')}.`] : [],
       (type.egress ?? []).length ? [`It may also reach ${(type.egress ?? []).map((rule) => `${rule.cidr ?? `namespace ${rule.namespace}`}${rule.ports?.length ? ` on ${rule.ports.join(', ')}` : ''}`).join('; ')}.`] : [],
     ),

@@ -569,7 +569,7 @@ echo "Reproducing failure case for {{projectName}}..."
   },
 ];
 
-const ODOO_DOCKERFILE = `FROM odoo:18
+const ODOO_DOCKERFILE = `FROM odoo:{{version}}
 USER root
 COPY ./addons /mnt/extra-addons
 RUN chown -R odoo:odoo /mnt/extra-addons
@@ -578,7 +578,7 @@ USER odoo
 
 const ODOO_README = (name: string) => `# ${name}
 
-Odoo 18 Community addons, built into an image \`FROM odoo:18\` with \`addons/\` copied to \`/mnt/extra-addons\`.
+Odoo {{version}} Community addons, built into an image \`FROM odoo:{{version}}\` with \`addons/\` copied to \`/mnt/extra-addons\`.
 
 - Every feature is a module, or a change to one, under \`addons/\` — see \`addons/README.md\`.
 - How a change is checked: \`CHECKS.md\`.
@@ -592,11 +592,11 @@ One folder per module. A module's folder name is its technical name: lower case,
 \`\`\`
 addons/sale_delivery_note/
   __init__.py                 from . import models
-  __manifest__.py             name, version '18.0.1.0.0', depends, data, license 'LGPL-3'
+  __manifest__.py             name, version '{{version}}.0.1.0.0', depends, data, license 'LGPL-3'
   models/__init__.py          from . import sale_order
   models/sale_order.py        class SaleOrder(models.Model): _inherit = 'sale.order'; a new field
   views/sale_order_views.xml  inherits the form view to show the field
-  security/ir.model.access.csv  access rules for any new model
+  {{accessFile}}  access rules for any new model
   tests/__init__.py           from . import test_sale_order
   tests/test_sale_order.py    TransactionCase tests of what the module adds
 \`\`\`
@@ -604,6 +604,12 @@ addons/sale_delivery_note/
 - Extend existing models with \`_inherit\`; never edit Odoo's own modules.
 - Every file listed under \`data\` in the manifest has to exist, and every new model needs an access rule.
 - Every module has tests in \`tests/\` for what it adds; \`odoo-check\` runs only the modules you name.
+- Odoo's own source is in the workspace at \`/usr/lib/python3/dist-packages/odoo\`; read the model or view you extend
+  there rather than trusting memory of another version.
+
+## Odoo {{version}}
+
+{{versionNotes}}
 `;
 
 const ODOO_CHECKS = `# How work on this project is checked
@@ -614,7 +620,7 @@ Run from the repository root:
 odoo-check <module>[,<module>] addons
 \`\`\`
 
-It installs the named modules into a fresh, throwaway Odoo 18 database, runs their tests, and ends with
+It installs the named modules into a fresh, throwaway Odoo {{version}} database, runs their tests, and ends with
 \`odoo-check: PASSED\` or \`odoo-check: FAILED\`. Name every module the work added or changed, and the modules that
 depend on them.
 
@@ -636,7 +642,7 @@ next run takes seconds rather than a fresh install. It upgrades the modules in p
 \`addons/\` changed, and starts over when the module list changes. \`odoo-e2e --stop\` ends it. Run once without
 \`--keep\` before you are done, since that is what the checks run.
 
-Write specs with the helpers in \`e2e/odoo.ts\` rather than guessing at Odoo 18's markup: \`signIn\`,
+Write specs with the helpers in \`e2e/odoo.ts\` rather than guessing at Odoo {{version}}'s markup: \`signIn\`,
 \`openAction(page, 'sale.action_quotations_with_onboarding', { newRecord: true })\`, \`fill\` and \`choose\` (a
 many2one, optionally creating the record) and \`tick\` and \`pick\` by field name, \`addLine\` for a one2many,
 \`save\` (returns the record id), \`press\` for a form button by its method name, \`smartButton\`, and \`reportHtml\`
@@ -701,6 +707,24 @@ test('a person signs in and reaches the Odoo home', async ({ page }) => {
   await expect(page.locator('.o_main_navbar')).toBeVisible();
 });
 `;
+
+export const ODOO_18_VARS = {
+  accessFile: 'security/ir.model.access.csv',
+  versionNotes: [
+    '- Access rules are `ir.model.access` rows: `id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink`, with `model_id:id` written `model_<model_with_underscores>`. Record rules are `ir.rule` records.',
+    '- SQL constraints are `_sql_constraints` on the model.',
+  ].join('\n'),
+};
+
+export const ODOO_20_VARS = {
+  accessFile: 'security/ir.access.csv',
+  versionNotes: [
+    'Odoo 20 changed things that Odoo 18 and older did differently; write it the Odoo 20 way:',
+    '- Access rules are `ir.access` rows in `security/ir.access.csv`: `id,name,model_id,group_id/id,operation,domain`. `model_id` is the model\'s name (`sale.order`), `operation` is letters of `crud` (`r`, `cru`, `crud`), and `domain` is empty or a domain limiting the records the rule allows. `ir.model.access` and `ir.rule` no longer exist: a record rule is an `ir.access` row with a domain.',
+    '- SQL constraints are `models.Constraint(\'unique(field)\', \'message\')` attributes on the model (`_name_unique = models.Constraint(...)`); `_sql_constraints` is ignored.',
+    '- A user\'s groups are `group_ids` (not `groups_id`).',
+  ].join('\n'),
+};
 
 export const ODOO_ADDONS_FILES = [
   { path: 'Dockerfile', content: ODOO_DOCKERFILE },

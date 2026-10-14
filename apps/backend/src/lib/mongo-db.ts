@@ -24,7 +24,7 @@ import type { SecretRequest } from './secret-requests.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
-import { TURN_LOG_RETENTION_SECONDS, type TurnLogEntry } from './turn-log.js';
+import { MARK_MESSAGE_CHARS, TURN_LOG_RETENTION_SECONDS, type RunMark, type TurnLogEntry } from './turn-log.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { PersonaRecord as EnginePersona, ToolDefinition as EngineTool, ToolGrant, GrantKind } from '@koala/agent-engine';
 import type { PublishedWorkspace } from './published-workspace.js';
@@ -1269,6 +1269,27 @@ export class MongoDB implements Database {
   async getTurnLog(ownerId: string, turnId: string, after: number): Promise<TurnLogEntry[]> {
     const docs = await this.turnLogs.find({ ownerId, turnId, seq: { $gt: after } }).sort({ seq: 1 }).toArray();
     return docs.map(({ _id, at, ...rest }) => ({ ...rest, at: (at as Date).toISOString() }) as unknown as TurnLogEntry);
+  }
+
+  async getTurnLogMarks(ownerId: string, turnId: string, types: readonly string[]): Promise<RunMark[]> {
+    const field = (name: string) => ({ $ifNull: [`$events.${name}`, '$$REMOVE'] });
+    return (await this.turnLogs.aggregate([
+      { $match: { ownerId, turnId } },
+      { $sort: { seq: 1 } },
+      { $unwind: '$events' },
+      { $match: { 'events.type': { $in: [...types] } } },
+      { $project: {
+        _id: 0,
+        type: '$events.type',
+        runId: '$events.runId',
+        parentRunId: field('parentRunId'),
+        agentId: field('agentId'),
+        callId: field('callId'),
+        tool: field('tool'),
+        level: field('level'),
+        message: { $cond: [{ $eq: [{ $type: '$events.message' }, 'string'] }, { $substrCP: ['$events.message', 0, MARK_MESSAGE_CHARS] }, '$$REMOVE'] },
+      } },
+    ]).toArray()) as unknown as RunMark[];
   }
 
   async recentTurns(ownerId: string, since: string, limit: number): Promise<TurnLogEntry[]> {

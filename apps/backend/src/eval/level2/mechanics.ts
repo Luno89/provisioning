@@ -469,10 +469,10 @@ const itemChats: Scenario = {
 export const PROBE = 'koala_probe';
 export const PROBE_FILES: Record<string, string> = {
   [`addons/${PROBE}/__init__.py`]: 'from . import models\n',
-  [`addons/${PROBE}/__manifest__.py`]: "{\n    'name': 'Koala probe',\n    'version': '18.0.1.0.0',\n    'depends': ['base'],\n    'data': ['security/ir.model.access.csv'],\n    'license': 'LGPL-3',\n}\n",
+  [`addons/${PROBE}/__manifest__.py`]: "{\n    'name': 'Koala probe',\n    'version': '20.0.1.0.0',\n    'depends': ['base'],\n    'data': ['security/ir.access.csv'],\n    'license': 'LGPL-3',\n}\n",
   [`addons/${PROBE}/models/__init__.py`]: 'from . import probe\n',
   [`addons/${PROBE}/models/probe.py`]: "from odoo import fields, models\n\n\nclass Probe(models.Model):\n    _name = 'koala.probe'\n    _description = 'Koala probe'\n\n    name = fields.Char(required=True)\n    size = fields.Integer(default=1)\n",
-  [`addons/${PROBE}/security/ir.model.access.csv`]: 'id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink\naccess_koala_probe,koala.probe,model_koala_probe,base.group_user,1,1,1,1\n',
+  [`addons/${PROBE}/security/ir.access.csv`]: 'id,name,model_id,group_id/id,operation,domain\naccess_koala_probe,koala.probe,koala.probe,base.group_user,crud,\n',
   [`addons/${PROBE}/tests/__init__.py`]: 'from . import test_probe\n',
   [`addons/${PROBE}/static/description/index.html`]: `<section>\n${'<p>Koala probe — a module Koala builds to check itself.</p>\n'.repeat(700)}<p>koala_probe ends here</p>\n</section>\n`,
   [`addons/${PROBE}/tests/test_probe.py`]: "from odoo.tests import TransactionCase\n\n\nclass TestProbe(TransactionCase):\n    def test_default_size(self):\n        self.assertEqual(self.env['koala.probe'].create({'name': 'p'}).size, 1)\n",
@@ -481,7 +481,7 @@ export const PROBE_FILES: Record<string, string> = {
 const odooModule: Scenario = {
   id: 'mechanics-odoo-module',
   name: 'An Odoo module is built and checked in its own Odoo',
-  describe: 'Mechanics, on a script: a plan for an Odoo addons tree is approved; the tree starts from the Odoo scaffold in an Odoo 18 workspace with its own Postgres and a browser; a leaf writes a module, its task checks install it into a throwaway database and run its tests, lint the chart, run its browser tests against a throwaway Odoo in Chromium, and read its description, longer than one command\'s output, to its last line; the workspace also has the value and the network rule its tree type gives it; and it lands on main.',
+  describe: 'Mechanics, on a script: a plan for an Odoo addons tree is approved; the tree starts from the Odoo scaffold in an Odoo 20 workspace with its own Postgres and a browser; a leaf writes a module, its task checks install it into a throwaway database and run its tests, lint the chart, run its browser tests against a throwaway Odoo in Chromium, and read its description, longer than one command\'s output, to its last line; the workspace also has the value and the network rule its tree type gives it; and it lands on main.',
   agent: 'planner',
   procedure: { id: 'planning' },
   world: { treeTypes: { [ODOO_TREE_TYPE]: { env: [{ name: 'KOALA_TREE_CHECK', value: 'from the tree type' }], egress: [{ namespace: 'gitea', ports: [3000] }] } } },
@@ -489,7 +489,7 @@ const odooModule: Scenario = {
   script: { rules: [
     { when: { offered: ['propose_plan'], notCalled: ['propose_plan'] }, reply: { call: [{ tool: 'propose_plan', arguments: {
       tree: { name: 'Odoo check', type: ODOO_TREE_TYPE, goal: 'A probe module that installs and passes its tests.' },
-      planDoc: '# Odoo check\n\n## Destination\nThe koala_probe module installs into Odoo 18 and its tests pass.\n\n## Not yet specified\nNothing.\n\n## Out of scope\nEverything else.\n',
+      planDoc: '# Odoo check\n\n## Destination\nThe koala_probe module installs into Odoo 20 and its tests pass.\n\n## Not yet specified\nNothing.\n\n## Out of scope\nEverything else.\n',
       branches: [{ title: 'Modules', leaves: [{
         key: 'probe', title: 'Probe module', body: 'koala_probe installs and its tests pass', brief: 'Write the koala_probe module with a test.',
         tasks: [
@@ -513,11 +513,11 @@ const odooModule: Scenario = {
   ] },
   expect: { outcome: 'ok', toolsSucceeded: ['propose_plan'] },
   then: [
-    { name: 'approving the plan', do: { approvePlan: true }, expect: { repository: { of: 'tree', files: [{ path: 'Dockerfile', contains: ['FROM odoo:18'] }, { path: 'CHECKS.md', contains: ['odoo-check'] }, { path: 'deploy/chart/values.yaml', contains: ['live: a'] }] } } },
+    { name: 'approving the plan', do: { approvePlan: true }, expect: { repository: { of: 'tree', files: [{ path: 'Dockerfile', contains: ['FROM odoo:20'] }, { path: 'CHECKS.md', contains: ['odoo-check'] }, { path: 'deploy/chart/values.yaml', contains: ['live: a'] }] } } },
     { name: 'the tree runs until quiet', do: { runTree: true }, expect: {
       outcome: 'ok',
       leaves: { verified: 1, landed: { 'Probe module': 'merged' } },
-      repository: { of: 'tree', files: [{ path: `addons/${PROBE}/__manifest__.py`, contains: ['18.0.1.0.0'] }] },
+      repository: { of: 'tree', files: [{ path: `addons/${PROBE}/__manifest__.py`, contains: ['20.0.1.0.0'] }] },
     } },
     { name: 'deleting the tree', do: { deleteTree: true }, expect: { workspace: { of: 'tree', exists: false } } },
   ],

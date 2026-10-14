@@ -19,7 +19,7 @@ import {
   type ModelReply,
   type Procedure,
 } from '@koala/agent-engine/procedure';
-import { AgentRunWorkflow, answerSignal, approveSignal, cancelSignal } from './AgentRunWorkflow.js';
+import { AgentRunWorkflow, answerSignal, approveSignal, cancelSignal, stateQuery } from './AgentRunWorkflow.js';
 import { createNodeRunner } from '../engine-host/temporal/activities.js';
 import { runCancelledVia } from '../engine-host/temporal/run-cancellation.js';
 import { createAgentRegistry } from '../engine-host/registries/registry.js';
@@ -341,15 +341,19 @@ describe('AgentRunWorkflow', () => {
   it('asks before running a call on someone\'s machine, and runs it there once allowed', async () => {
     const acts = activities({ environment: MACHINE, script: [callsATool('c1', 'run_command', '{"command":"ls"}'), { content: 'done' }] });
 
+    let waitedOn: string[] | undefined;
     const result = await runWorkflow(input('executor', TOOL_ROUNDS_V2), acts, async (handle) => {
+      while (!(await handle.query(stateQuery)).asking) await new Promise((resolve) => setTimeout(resolve, 50));
+      waitedOn = (await handle.query(stateQuery)).asking;
       await handle.signal(approveSignal, { callId: 'c1', allowed: true });
     });
 
+    expect(waitedOn).toEqual(['c1']);
     expect(result.outcome).toBe('ok');
     expect(acts.engine.EngineToolActivity).toHaveBeenCalledTimes(1);
     expect(published(acts)).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'tool.called', callId: 'c1' }),
-      expect.objectContaining({ type: 'notice', level: 'warn', callId: 'c1', message: expect.stringContaining('run_command on Desk') }),
+      expect.objectContaining({ type: 'notice', level: 'warn', callId: 'c1', tool: 'run_command', message: expect.stringContaining('run_command on Desk') }),
     ]));
   }, 60_000);
 

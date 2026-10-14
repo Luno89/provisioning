@@ -1,5 +1,5 @@
 import type { PlanProposal } from '@koala/harness-types'
-import type { TreeRunStatus } from '../../api/grove'
+import type { TreeAsk, TreeRunStatus } from '../../api/grove'
 import { blockedBy, isAwaitingReview, stateFor, type Leaf } from '../leaf-types'
 
 export type PlanStepState = 'done' | 'running' | 'waiting' | 'queued' | 'failed'
@@ -49,7 +49,7 @@ function madeLine(proposal: PlanProposal, count: number): string {
 
 const SETTLED = new Set(['verified', 'failed', 'cancelled'])
 
-function storyStep(leaf: Leaf, all: Leaf[], treeId: string, running: boolean, breakdownWaiting: boolean): PlanStep & { settled: string | undefined } {
+function storyStep(leaf: Leaf, all: Leaf[], treeId: string, running: boolean, breakdownWaiting: boolean, asked: TreeAsk | undefined): PlanStep & { settled: string | undefined } {
   const name = `“${leaf.title}”`
   const story = { treeId, branchId: leaf.branchId, leafId: leaf.id }
   if (leaf.status === 'cancelled') return { label: `${name} was cancelled`, state: 'done', settled: 'cancelled' }
@@ -59,6 +59,7 @@ function storyStep(leaf: Leaf, all: Leaf[], treeId: string, running: boolean, br
     const last = leaf.attempts?.at(-1)?.error
     return { label: `${name} failed`, state: 'failed', ...(last ? { detail: last } : {}), story, settled: 'failed' }
   }
+  if (asked) return { label: `${name} waits for you`, state: 'waiting', detail: `to allow ${asked.agent ?? 'its run'} to run ${asked.tool}`, story, settled: undefined }
   if (state === 'running') return { label: `${name} is being worked`, state: 'running', story, settled: undefined }
   if (state === 'claimed') {
     return isAwaitingReview(leaf)
@@ -95,7 +96,8 @@ export function planProgress(proposal: PlanProposal, { treeId, leaves, run, plan
   const running = run?.state === 'running'
   const waitingBreakdown = new Set(plans.filter((plan) => plan.status === 'proposed' && plan.leafPlan).map((plan) => plan.leafPlan!.leafId))
 
-  const stories = followed.map((leaf) => storyStep(leaf, leaves, treeId, running, waitingBreakdown.has(leaf.id)))
+  const asked = new Map((run?.state === 'running' ? run.asking ?? [] : []).filter((ask) => ask.leafId).map((ask) => [ask.leafId!, ask]))
+  const stories = followed.map((leaf) => storyStep(leaf, leaves, treeId, running, waitingBreakdown.has(leaf.id), asked.get(leaf.id)))
   const settled = stories.map((step) => step.settled)
   const done = followed.length === ids.length && settled.every((state) => state !== undefined && SETTLED.has(state))
   const steps: PlanStep[] = [

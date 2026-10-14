@@ -21,6 +21,7 @@ const hasSection = (doc: string, heading: string): boolean =>
 
 export interface PlanWorld {
   treeTypes: readonly string[];
+  versions?: Readonly<Record<string, { of: string; choices: readonly string[] } | undefined>> | undefined;
   existingLeafIds: ReadonlySet<string>;
   ownerId?: string | undefined;
   trees?: readonly { id: string; ownerId: string; name: string; serviceName?: string | undefined; projectIds?: string[] | undefined }[] | undefined;
@@ -212,6 +213,12 @@ export function parsePlan(raw: Record<string, unknown>, world: PlanWorld): Parse
     if (!world.treeTypes.includes(type)) {
       return { problem: `a new tree needs a type this person has: ${world.treeTypes.join(', ') || '(none are set up)'}${type ? ` — "${type}" is not one of them` : ''}` };
     }
+    const versions = world.versions?.[type];
+    const version = typeof treeRaw.version === 'number' ? String(treeRaw.version) : text(treeRaw, 'version');
+    if (version && !versions) return { problem: `the ${type} type has no versions to choose from; leave version out` };
+    if (version && versions && !versions.choices.includes(version)) {
+      return { problem: `${versions.of} ${version} is not offered by the ${type} type; choose ${versions.choices.join(' or ')}, or leave version out for the default` };
+    }
     const declared = treeRaw.serviceName;
     const serviceName = usableServiceName(declared);
     if (declared !== undefined && declared !== '' && !serviceName) {
@@ -223,6 +230,7 @@ export function parsePlan(raw: Record<string, unknown>, world: PlanWorld): Parse
     tree = {
       name,
       type,
+      ...(version ? { version } : {}),
       ...(goal ? { goal } : {}),
       ...(serviceName ? { serviceName } : {}),
       ...(claim.ownedBy ? { joins: { treeId: claim.ownedBy.treeId, treeName: claim.ownedBy.treeName, ...(claim.ownedBy.projectId ? { projectId: claim.ownedBy.projectId } : {}) } } : {}),

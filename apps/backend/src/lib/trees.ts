@@ -7,6 +7,7 @@ export interface Tree {
   ownerId: string;
   name: string;
   type: TreeType;
+  version?: string;
   goal?: string;
   /**
    * What Koala learned in the conversation that proposed this. The goal is one or two sentences;
@@ -30,6 +31,7 @@ export function primaryProjectId(tree: Pick<Tree, 'projectIds'>): string | undef
 
 const MAX_NAME = 120;
 const MAX_GOAL = 2000;
+const MAX_VERSION = 20;
 export const MAX_BRIEF = 6000;
 export const MAX_CONTEXT = 6000;
 export const MAX_OPEN_QUESTIONS = 2000;
@@ -37,6 +39,7 @@ export const MAX_OPEN_QUESTIONS = 2000;
 export interface TreeInput {
   name: string;
   type: TreeType;
+  version?: string;
   goal?: string;
   brief?: string;
   context?: string;
@@ -56,9 +59,11 @@ export function normaliseTreeInput(raw: Record<string, unknown>): TreeInput | un
   const brief = text(raw, 'brief', MAX_BRIEF);
   const context = text(raw, 'context', MAX_CONTEXT);
   const openQuestions = text(raw, 'openQuestions', MAX_OPEN_QUESTIONS);
+  const version = text(raw, 'version', MAX_VERSION);
   return {
     name,
     type,
+    ...(version ? { version } : {}),
     ...(goal ? { goal } : {}),
     ...(brief ? { brief } : {}),
     ...(context ? { context } : {}),

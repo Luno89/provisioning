@@ -83,3 +83,61 @@ export function runsUnder<T extends Pick<TurnLogEntry, 'seq' | 'events'>>(entrie
     .filter((entry) => entry.events.length > 0);
   return { entries: kept, through: entries.reduce((last, entry) => Math.max(last, entry.seq), 0) };
 }
+
+export const MARK_MESSAGE_CHARS = 300;
+
+export const ASK_MARKS = ['run.started', 'run.finished', 'notice', 'tool.result'] as const;
+
+export interface RunMark {
+  type: string;
+  runId: string;
+  parentRunId?: string | undefined;
+  agentId?: string | undefined;
+  callId?: string | undefined;
+  tool?: string | undefined;
+  level?: string | undefined;
+  message?: string | undefined;
+}
+
+export interface WaitingAsk {
+  runId: string;
+  callId: string;
+  tool: string;
+  message: string;
+  agent?: string | undefined;
+  leafId?: string | undefined;
+}
+
+const askedTool = (mark: RunMark): string => mark.tool ?? /wants to run (\S+) on /.exec(mark.message ?? '')?.[1] ?? 'a tool';
+
+export function unansweredAsks(marks: readonly RunMark[], leaves: readonly { id: string; runId?: string | undefined }[]): WaitingAsk[] {
+  const parents = new Map<string, string>();
+  const agents = new Map<string, string>();
+  const finished = new Set<string>();
+  const answered = new Set<string>();
+  const asked = new Map<string, RunMark>();
+  for (const mark of marks) {
+    if (mark.type === 'run.started') {
+      if (mark.parentRunId) parents.set(mark.runId, mark.parentRunId);
+      if (mark.agentId) agents.set(mark.runId, mark.agentId);
+    } else if (mark.type === 'run.finished') finished.add(mark.runId);
+    else if (mark.type === 'tool.result' && mark.callId) answered.add(`${mark.runId} ${mark.callId}`);
+    else if (mark.type === 'notice' && mark.level === 'warn' && mark.callId) asked.set(`${mark.runId} ${mark.callId}`, mark);
+  }
+  const leafOfRun = new Map(leaves.filter((leaf) => leaf.runId).map((leaf) => [leaf.runId!, leaf.id]));
+  const storyOf = (runId: string): string | undefined => {
+    for (let at: string | undefined = runId; at; at = parents.get(at)) {
+      const leafId = leafOfRun.get(at);
+      if (leafId) return leafId;
+    }
+    return undefined;
+  };
+  return [...asked.entries()]
+    .filter(([key, mark]) => !answered.has(key) && !finished.has(mark.runId))
+    .map(([, mark]) => {
+      const agent = agents.get(mark.runId);
+      const leafId = storyOf(mark.runId);
+      const tool = askedTool(mark);
+      return { runId: mark.runId, callId: mark.callId!, tool, message: mark.message ?? `${agent ?? 'A run'} wants to run ${tool}`, ...(agent ? { agent } : {}), ...(leafId ? { leafId } : {}) };
+    });
+}

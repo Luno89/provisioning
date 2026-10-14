@@ -157,6 +157,30 @@ describe('running a tree on the engine', () => {
     expect(status.data).toMatchObject({ state: 'running' });
   });
 
+  it('says which story waits for the person to allow a call, while its run still waits on it', async () => {
+    const asking = vi.fn(async (runId: string) => (runId === 'g~1-leaf-1-executor-1' ? ['c1'] : []));
+    const status = { state: 'running' as const, startedAt: 'then', turnId: 'g~1' };
+    const harness = await mountRouter({
+      prefix: '/api/trees',
+      router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher: { ...launcher, groveRunStatus: vi.fn(async () => status) }, asking }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db }), home: homeFor(db) }),
+    });
+    await harness.db.saveTree(tree() as never);
+    await harness.db.saveBranch(branch as never);
+    await harness.db.saveLeaf(leafOf({ runId: 'g~1-leaf-1' }) as never);
+    await harness.db.appendTurnLog({ turnId: 'g~1', ownerId: TEST_USER.id, seq: 1, at: 'now', events: [
+      { type: 'run.started', runId: 'g~1-leaf-1', parentRunId: 'g~1', agentId: 'grove-leaf', loopId: 'l', at: 'now' },
+      { type: 'run.started', runId: 'g~1-leaf-1-executor-1', parentRunId: 'g~1-leaf-1', agentId: 'executor', loopId: 'l', at: 'now' },
+      { type: 'notice', runId: 'g~1-leaf-1-executor-1', level: 'warn', callId: 'c1', tool: 'delete_project', message: 'executor wants to run delete_project on this run: {}', at: 'now' },
+      { type: 'notice', runId: 'g~1-leaf-1-executor-1', level: 'warn', callId: 'c0', tool: 'run_command', message: 'allowed already, still running', at: 'now' },
+    ] as never });
+
+    const read = await axios.get(harness.url('/api/trees/t1/run'));
+    await harness.close();
+
+    expect(read.data).toEqual({ ...status, asking: [{ runId: 'g~1-leaf-1-executor-1', callId: 'c1', tool: 'delete_project', message: 'executor wants to run delete_project on this run: {}', agent: 'executor', leafId: leafOf().id }] });
+    expect(asking).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses an empty tree and another owner\'s, and stops a running one', async () => {
     const harness = await mount();
     await harness.db.saveTree(tree() as never);
@@ -251,5 +275,24 @@ describe('a tree\'s workspace file', () => {
 
     await expect(axios.put(harness.url('/api/trees/t1/workspace-file'), { file: { env: [{ name: 'DB_PASSWORD', value: 'x' }] } })).rejects.toMatchObject({ response: { status: 400, data: { error: expect.stringContaining('looks like a secret') } } });
     await expect(axios.put(harness.url('/api/trees/t9/workspace-file'), { file: {} })).rejects.toMatchObject({ response: { status: 404 } });
+  });
+});
+
+describe('making a tree of a type with versions', () => {
+  it('makes it in the default version unless one it offers is asked for, and refuses one it does not offer', async () => {
+    const harness = await mount();
+    await seedTreeTypes(harness.db);
+    const make = (body: Record<string, unknown>) => axios.post(harness.url('/api/trees'), { name: 'Shop', type: 'odoo-addons', ...body }, { validateStatus: () => true });
+
+    const fresh = await make({});
+    expect(fresh.status).toBe(201);
+    expect(fresh.data.version).toBe('20');
+    expect((await make({ version: '18' })).data.version).toBe('18');
+
+    const refused = await make({ version: '19' });
+    expect(refused.status).toBe(400);
+    expect(refused.data.error).toBe('Odoo 19 is not offered; choose 20 or 18.');
+    expect((await make({ type: 'api-service', version: '20' })).status).toBe(400);
+    expect((await harness.db.getTrees()).map((made) => made.version).sort()).toEqual(['18', '20']);
   });
 });

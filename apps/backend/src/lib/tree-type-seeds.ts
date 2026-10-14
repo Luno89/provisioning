@@ -11,6 +11,8 @@ import {
   BENCHMARK_FILES,
   INVESTIGATION_FILES,
   ODOO_ADDONS_FILES,
+  ODOO_18_VARS,
+  ODOO_20_VARS,
 } from './project-templates.js';
 
 export const CATCH_ALL_TREE_TYPE = 'freeform';
@@ -143,10 +145,11 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
   {
     id: ODOO_TREE_TYPE,
     label: 'Odoo addons',
-    summary: 'Odoo 18 Community customisations: each feature is a module, or a change to one, in addons/, built into an Odoo image.',
+    summary: 'Odoo Community customisations: each feature is a module, or a change to one, in addons/, built into an Odoo image.',
     language: 'odoo',
+    versions: { of: 'Odoo', choices: [{ version: '20', language: 'odoo-20', vars: ODOO_20_VARS }, { version: '18', language: 'odoo', vars: ODOO_18_VARS }], default: '20' },
     produces: 'service',
-    doneMeans: 'Every module the work added or changed installs into a fresh Odoo 18 database and its own tests pass — `odoo-check <module>[,<module>] addons` says PASSED — following CHECKS.md.',
+    doneMeans: 'Every module the work added or changed installs into a fresh Odoo database and its own tests pass — `odoo-check <module>[,<module>] addons` says PASSED — following CHECKS.md.',
     files: ODOO_ADDONS_FILES,
     releaseWhen: ['Dockerfile', 'addons/**', 'deploy/chart/**', 'e2e/**', 'playwright.config.ts', 'requirements.txt'],
     secrets: ODOO_RELEASE_SECRETS,

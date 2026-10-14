@@ -62,7 +62,7 @@ vi.mock('../../api/procedures', async () => {
 vi.mock('../../api/auto-mode', async () => ({
   ...(await vi.importActual<typeof import('../../api/auto-mode')>('../../api/auto-mode')),
   listAutoModeAgents: vi.fn(async () => ['koala']),
-  setAgentAutoMode: vi.fn(async (slug: string, on: boolean) => (on ? ['executor', 'koala'] : ['koala'])),
+  setAgentAutoMode: vi.fn(async (_slug: string, on: boolean) => (on ? ['executor', 'koala'] : ['koala'])),
 }))
 
 const { listAgents, listGrantableTools, saveAgent, deleteAgent } = await import('../../api/agents')

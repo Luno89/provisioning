@@ -89,7 +89,7 @@ export function useConversationTurn({
   const [seenExternalConvId, setSeenExternalConvId] = useState(externalConvId);
   if (externalConvId !== seenExternalConvId) {
     setSeenExternalConvId(externalConvId);
-    if (externalConvId !== undefined) setSelectedConvId(externalConvId);
+    setSelectedConvId(externalConvId ?? null);
   }
 
   const { data: conversations = [] } = useQuery<ChatConversation[]>({

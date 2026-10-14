@@ -40,7 +40,7 @@ import { createSecretVault } from './services/SecretRequestService.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
 import { ClusterService } from './services/ClusterService.js';
 import { visibleAppSpecs } from './lib/app-spec.js';
-import { treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, renderStarterFiles, groveAgentOf, resolveTreeType } from './lib/tree-types.js';
+import { treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars } from './lib/tree-types.js';
 import { TreeHomeService } from './services/TreeHomeService.js';
 import { webhookAddress } from './services/webhook-address.js';
 import { resolveBindings } from './lib/binding-resolve.js';
@@ -114,7 +114,7 @@ async function buildActivities() {
     treeTypes: (ownerId) => db.getTreeTypes(ownerId),
     projects: () => db.getProjects(),
     createProject: (ownerId, project) => projectRepos.createProject(ownerId, project),
-    starter: async (type, tree) => renderStarterFiles(type.files, { projectName: tree.name, registryHost: await gitea.getRegistryHost() }),
+    starter: async (type, tree) => renderStarterFiles(type.files, { projectName: tree.name, registryHost: await gitea.getRegistryHost(), ...versionVars(type, tree) }),
     saveTree: (tree) => db.saveTree(tree),
     secrets: projectSecretsFor({ db, backend: infisical, readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token }),
     saveNeeds: (project, needs) => db.saveProjectInfo({ id: project.id, needs }),

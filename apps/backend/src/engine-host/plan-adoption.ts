@@ -4,7 +4,7 @@ import { primaryProjectId } from '../lib/trees.js';
 import { newTask, type Task } from './tools/tasks.js';
 import type { AdoptedPlan, PlanProposal, PlanStatus } from '../lib/plan-proposals.js';
 import { leafBriefPath, leafWorktree, PLAN_DOC_PATH, planDocuments, renderLeafBrief, TREE_REPO } from '../lib/plan-documents.js';
-import { renderStarterFiles, resolveTreeType, type TreeTypeSpec } from '../lib/tree-types.js';
+import { renderStarterFiles, resolveTreeType, versionForNewTree, versionVars, type TreeTypeSpec } from '../lib/tree-types.js';
 import { resetForRetry } from '../lib/leaves.js';
 import { applyChange, briefIn, renderChangeNote, runsToStop, withWaitsOn, type ChangeWorld } from '../lib/item-changes.js';
 import type { EnvironmentResolver } from './sandboxes/environments.js';
@@ -70,7 +70,17 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
     );
     if (!type?.files?.length) return [];
 
-    return renderStarterFiles(type.files, { projectName, registryHost: options.registryHost ?? '' });
+    return renderStarterFiles(type.files, { projectName, registryHost: options.registryHost ?? '', ...versionVars(type, tree) });
+  };
+
+  const versionOfNewTree = async (ownerId: string, spec: { type: string; version?: string | undefined }): Promise<string | undefined> => {
+    const treeTypes = options.treeTypes;
+    if (!treeTypes) return spec.version;
+    const type = await resolveTreeType({ getTreeTypes: async (who?: string) => treeTypes(who ?? ownerId) }, ownerId, spec.type);
+    if (!type) return spec.version;
+    const chosen = versionForNewTree(type, spec.version);
+    if (!chosen.ok) throw new Error(chosen.error);
+    return chosen.version;
   };
 
   const proposalOf = async (ownerId: string, id: string): Promise<PlanProposal> => {
@@ -171,11 +181,13 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
         if (!found) throw new Error(`the plan grows tree ${plan.treeId}, which no longer exists`);
         tree = found;
       } else if (plan.tree) {
+        const version = await versionOfNewTree(ownerId, plan.tree);
         tree = {
           id: idOf('tree'),
           ownerId,
           name: plan.tree.name,
           type: plan.tree.type,
+          ...(version ? { version } : {}),
           ...(plan.tree.goal ? { goal: plan.tree.goal } : {}),
           ...(plan.tree.serviceName ? { serviceName: plan.tree.serviceName } : {}),
           projectIds: proposal.projectId ? [proposal.projectId] : plan.tree.joins?.projectId ? [plan.tree.joins.projectId] : [],

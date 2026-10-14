@@ -13,6 +13,10 @@ vi.mock('../../api/grove', async (importOriginal) => ({
   ]),
   listBranches: vi.fn(async () => []),
   getTreeRun: vi.fn(async () => ({ state: 'running', startedAt: 'a' })),
+  listTreeTypes: vi.fn(async () => [
+    { id: 'odoo-addons', label: 'Odoo addons', versions: { of: 'Odoo', choices: [{ version: '20', language: 'odoo-20' }, { version: '18', language: 'odoo' }], default: '20' } },
+    { id: 'api-service', label: 'API service' },
+  ]),
 }))
 vi.mock('../../api/plans', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../api/plans')>()),
@@ -91,7 +95,7 @@ describe('PlanProposalCard', () => {
 
   it('shows a replaced plan without anything to decide', () => {
     renderCard({ status: 'superseded' })
-    expect(screen.getByText('Replaced by a newer plan below')).toBeTruthy()
+    expect(screen.getByText('Replaced by a newer plan')).toBeTruthy()
     expect(screen.queryByText('Approve')).toBeNull()
     expect(screen.queryByText('Reject')).toBeNull()
   })
@@ -184,5 +188,20 @@ describe('a plan that names its service', () => {
     expect(screen.getByText('“Slip” waits its turn')).toBeTruthy()
     fireEvent.click(screen.getByText('Watch it work ›'))
     expect(onOpenStory).toHaveBeenCalledWith({ treeId: 't1', branchId: 'b1', leafId: 'l1' })
+  })
+
+  it('says which version a new tree will be: the one the plan chose, else the type\'s default', async () => {
+    const odoo = (version?: string) => proposal({ plan: { ...proposal().plan!, tree: { name: 'Shop', type: 'odoo-addons', ...(version ? { version } : {}) } } })
+    const { unmount } = render(<PlanProposalCard proposal={odoo()} deciding={false} onApprove={() => {}} onReject={() => {}} />)
+    expect(await screen.findByTestId('plan-version')).toHaveTextContent('Odoo 20')
+    unmount()
+    render(<PlanProposalCard proposal={odoo('18')} deciding={false} onApprove={() => {}} onReject={() => {}} />)
+    expect(await screen.findByTestId('plan-version')).toHaveTextContent('Odoo 18')
+  })
+
+  it('names no version for a type that has none', async () => {
+    render(<PlanProposalCard proposal={proposal()} deciding={false} onApprove={() => {}} onReject={() => {}} />)
+    await screen.findByText(/Widget API/)
+    expect(screen.queryByTestId('plan-version')).toBeNull()
   })
 })

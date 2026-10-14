@@ -208,7 +208,7 @@ describe('the image catalogue', () => {
   });
 
   it('is Red Hat UBI throughout, except a product that has to be its own official image', () => {
-    const official: Record<string, string> = { odoo: 'odoo:18' };
+    const official: Record<string, string> = { odoo: 'odoo:18', 'odoo-20': 'odoo:20' };
     for (const entry of Object.values(BY_LANGUAGE)) {
       if (official[entry.id]) expect(entry.image).toBe(official[entry.id]);
       else expect(entry.image).toMatch(/^registry\.access\.redhat\.com\/ubi9\//);

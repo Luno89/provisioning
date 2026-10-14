@@ -2,6 +2,7 @@ import { resetForRetry, settleClaim, type Leaf, type Branch } from '../lib/leave
 import type { Tree } from '../lib/trees.js';
 import type { Task } from '../engine-host/tools/tasks.js';
 import type { GroveRunStatus } from './TemporalBridge.js';
+import { ASK_MARKS, unansweredAsks, type RunMark } from '../lib/turn-log.js';
 
 export interface GroveRunStore {
   getTrees(): Promise<Tree[]>;
@@ -10,6 +11,7 @@ export interface GroveRunStore {
   saveLeaf(leaf: Leaf): Promise<void>;
   getTasks(ownerId?: string): Promise<Task[]>;
   saveTask(task: Task): Promise<void>;
+  getTurnLogMarks(ownerId: string, turnId: string, types: readonly string[]): Promise<RunMark[]>;
 }
 
 export interface GroveRunLauncher {
@@ -23,7 +25,7 @@ const SWITCHED_OFF = 'The agent that grows this tree belongs to an extension you
 export type GroveRunOutcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 404 | 409 | 503; error: string };
 
 export class GroveRunService {
-  constructor(private readonly deps: { store: GroveRunStore; launcher: GroveRunLauncher; now?: () => string }) {}
+  constructor(private readonly deps: { store: GroveRunStore; launcher: GroveRunLauncher; asking?: ((runId: string) => Promise<string[]>) | undefined; now?: () => string }) {}
 
   private now(): string {
     return this.deps.now?.() ?? new Date().toISOString();
@@ -41,7 +43,14 @@ export class GroveRunService {
   async status(ownerId: string, treeId: string): Promise<GroveRunOutcome<GroveRunStatus>> {
     const found = await this.ownedTree(ownerId, treeId);
     if (!found.ok) return found;
-    return { ok: true, value: await this.deps.launcher.groveRunStatus(treeId) };
+    const status = await this.deps.launcher.groveRunStatus(treeId);
+    if (status.state !== 'running' || !status.turnId || !this.deps.asking) return { ok: true, value: status };
+    const asking = this.deps.asking;
+    const candidates = unansweredAsks(await this.deps.store.getTurnLogMarks(ownerId, status.turnId, ASK_MARKS), found.value.leaves);
+    const waiting = new Map<string, string[]>();
+    for (const runId of new Set(candidates.map((ask) => ask.runId))) waiting.set(runId, await asking(runId));
+    const asks = candidates.filter((ask) => waiting.get(ask.runId)?.includes(ask.callId));
+    return { ok: true, value: asks.length > 0 ? { ...status, asking: asks } : status };
   }
 
   async run(ownerId: string, treeId: string): Promise<GroveRunOutcome<GroveRunStatus>> {

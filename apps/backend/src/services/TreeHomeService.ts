@@ -1,6 +1,6 @@
 import type { ProjectMetadata } from '../lib/types.js';
 import type { Tree } from '../lib/trees.js';
-import { resolveTreeType, type TreeTypeSpec } from '../lib/tree-types.js';
+import { resolveTreeType, treeLanguage, type TreeTypeSpec } from '../lib/tree-types.js';
 import { needsProject, projectIdForTree, repoNameFor } from '../lib/tree-home.js';
 import type { NewProject } from './ProjectRepoService.js';
 
@@ -35,7 +35,7 @@ export class TreeHomeService {
       id,
       name: tree.name,
       repo: started?.giteaRepo ?? repoNameFor(tree.name, new Set(mine.map((entry) => entry.giteaRepo).filter((repo): repo is string => Boolean(repo)))),
-      language: type.language,
+      language: treeLanguage(type, tree),
       autoDeployOnBuild: true,
       description: `${tree.name} — the repository of tree ${tree.id}`,
       ...(options.starter === false ? {} : { starter: await this.deps.starter(type, tree) }),

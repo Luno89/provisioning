@@ -315,7 +315,7 @@ Plan: `~/.claude/plans/testing-levels.md`.
   `pullRequests`, `workspace`, `project`, `trees`. Check names say which stage they belong to.
 - **The mechanics checks** (`eval/level2/mechanics.ts`, built in, scripted, so they run in seconds and on the bench):
   the judge's verdict, the turn log (and a run killed mid-turn), research in one shared workspace through the quiet
-  time, compaction, landing, project deletion, and an Odoo module built and checked in an Odoo 18 workspace. They replaced the `*-live` scripts that tested the same plumbing.
+  time, compaction, landing, project deletion, and an Odoo module built and checked in an Odoo 20 workspace. They replaced the `*-live` scripts that tested the same plumbing.
 - **Turn checks** (`turn: true`, `lib/turn-check.ts`) are one model turn of an agent: its tools offered, nothing run
   (procedure `turn-check`). `chooses` names the tool it should pick (or `null` to answer without one) and checks its
   arguments, read from the model call's trace. They replaced Level 1; the built-in ones are `eval/level2/turns.ts`.
@@ -433,10 +433,19 @@ keeps as `E2ETest.page` (task checks and the release card show it). The image ca
 them into a repository that lacks them.
 
 **Workspace images can be product images.** A tree works in the image its type's `language` names. The engine's
-image planner takes the host's bases (`extensions/workspace-bases.ts`: the UBI ones plus `extensions/odoo/`'s Odoo 18
+image planner takes the host's bases (`extensions/workspace-bases.ts`: the UBI ones plus `extensions/odoo/`'s Odoo 18 and 20, each
 with PostgreSQL 18 and `odoo-check`); a base may carry setup steps, and a `dnf` install falls back to `apt-get`
 (`APT_NAMES` maps the names that differ). Workflow code must not import `workspace-bases.ts` — the engine's root export
 pulls in `crypto` and `path`, which Temporal's workflow bundle refuses.
+
+**A tree type can have versions** (`versions` on the type: what they are versions of, each choice's version and the
+workspace it works in, and the default; `lib/tree-types.ts`). The Odoo type offers Odoo 20 (`odoo-20`, the default)
+and 18 (`odoo`). A tree records its `version` when it is made (`versionForNewTree`: the plan's `tree.version`, the New
+Tree dialog's choice, or the default; one the type does not offer is refused), and it never changes. The tree works in
+that version's workspace (`treeLanguage`, through `treeLanguageFrom`), its starter is rendered with `{{version}}`
+(`FROM odoo:{{version}}`, manifest versions), and the planner reads the versions in `list_tree_types` and
+`describe_tree_type`. A tree from before versions works in the type's own `language`; startup stamps it with that
+version (`stampTreeVersions` in `seedAll`). The Studio keeps a type's versions when it is saved but cannot edit them.
 
 **A tree's workspace is composed, built and published.** Plan: `~/.claude/plans/workspace-tool-servers.md` (step 0).
 - A project says what its workspace needs in `.koala/workspace.json` on `main` (`lib/workspace-file.ts`: packages by

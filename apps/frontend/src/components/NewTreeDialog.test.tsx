@@ -18,11 +18,11 @@ const TYPES = [
   { id: 'type-2', label: 'Research paper', summary: 'a written answer', doneMeans: 'every claim cited', produces: 'artefact' },
 ]
 
-function renderDialog(props: Partial<Parameters<typeof NewTreeDialog>[0]> = {}) {
+function renderDialog(props: Partial<Parameters<typeof NewTreeDialog>[0]> = {}, types: readonly object[] = TYPES) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const onClose = vi.fn()
   const onCreated = vi.fn()
-  vi.mocked(groveApi.listTreeTypes).mockResolvedValue(TYPES as any)
+  vi.mocked(groveApi.listTreeTypes).mockResolvedValue(types as any)
   render(
     <QueryClientProvider client={qc}>
       <NewTreeDialog onClose={onClose} onCreated={onCreated} {...props} />
@@ -59,3 +59,30 @@ describe('NewTreeDialog — plain creation', () => {
     expect(screen.getByText(/gets no project: nothing is built or deployed/)).toBeInTheDocument()
   });
 });
+
+describe('NewTreeDialog — a type with versions', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+  const ODOO = { id: 'odoo-addons', label: 'Odoo addons', summary: 'modules', doneMeans: 'installs', produces: 'service', versions: { of: 'Odoo', choices: [{ version: '20', language: 'odoo-20' }, { version: '18', language: 'odoo' }], default: '20' } }
+
+  it('starts on the type\'s default version and sends the one picked', async () => {
+    vi.mocked(groveApi.createTree).mockResolvedValue({ id: 'tree-2' } as any)
+    renderDialog({}, [...TYPES, ODOO])
+    fireEvent.change(screen.getByPlaceholderText('Koala API'), { target: { value: 'Shop' } })
+    fireEvent.click(await screen.findByText('Odoo addons'))
+
+    expect(screen.getByRole('radio', { name: 'Odoo 20 (default)' })).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(screen.getByRole('radio', { name: 'Odoo 18' }))
+    fireEvent.click(screen.getByRole('button', { name: /create/i }))
+    await waitFor(() => expect(groveApi.createTree).toHaveBeenCalledWith({ name: 'Shop', type: 'odoo-addons', goal: '', version: '18' }))
+  })
+
+  it('offers no version for a type without versions, and sends none', async () => {
+    vi.mocked(groveApi.createTree).mockResolvedValue({ id: 'tree-3' } as any)
+    renderDialog({}, [...TYPES, ODOO])
+    fireEvent.change(screen.getByPlaceholderText('Koala API'), { target: { value: 'Paper' } })
+    fireEvent.click(await screen.findByText('Research paper'))
+    expect(screen.queryByRole('radiogroup')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /create/i }))
+    await waitFor(() => expect(groveApi.createTree).toHaveBeenCalledWith({ name: 'Paper', type: 'type-2', goal: '' }))
+  })
+})

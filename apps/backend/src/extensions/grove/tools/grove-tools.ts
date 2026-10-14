@@ -7,6 +7,7 @@ import { parseLeafPlan, parsePlan, planSummary, type PlanProposal } from '../../
 import { proposedPlanPath, renderProposedPlan } from '../../../lib/plan-documents.js';
 import { worktreeHead } from '../../../engine-host/grove-worktrees.js';
 import { treeOutline } from '../../../lib/tree-outline.js';
+import { versionsLine, type VersionChoices } from '../../../lib/tree-types.js';
 import { nextLeafStep, taskItem } from '../../../lib/grove-leaf.js';
 import { workOrder } from '../../../lib/work-order.js';
 import { changeSummary, parseCancel, parseNewStories, parseStoryEdit, type ChangeWorld } from '../../../lib/item-changes.js';
@@ -48,6 +49,7 @@ export interface TreeTypeChoice {
   label: string;
   summary: string;
   agent?: string | undefined;
+  versions?: VersionChoices | undefined;
 }
 
 export interface GroveToolOptions {
@@ -174,7 +176,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       if (!caller.ownerId) return refuse('this run has no owner whose tree types to list');
       const types = await treeTypesOf(caller.ownerId);
       if (types.length === 0) return refuse('this person has no tree types set up, so no new tree can be proposed');
-      const lines = types.map((type) => `- ${type.id} — ${type.label}: ${type.summary}`);
+      const lines = types.map((type) => `- ${type.id} — ${type.label}: ${type.summary}${type.versions ? ` Versions: ${versionsLine(type.versions)}.` : ''}`);
       return { ok: true, digest: `${types.length} tree types`, content: `The tree types a new tree can be:\n${lines.join('\n')}` };
     },
 
@@ -243,8 +245,10 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
         existingLeafIds = new Set(leaves.map((leaf) => leaf.id));
       }
 
+      const types = await treeTypesOf(caller.ownerId);
       const outcome = parsePlan(treeId && !named ? { ...parsed, treeId } : parsed, {
-        treeTypes: (await treeTypesOf(caller.ownerId)).map((type) => type.id),
+        treeTypes: types.map((type) => type.id),
+        versions: Object.fromEntries(types.map((type) => [type.id, type.versions])),
         existingLeafIds,
         ownerId: caller.ownerId,
         trees: (await options.stores.trees.list()).filter((candidate) => candidate.ownerId === caller.ownerId),

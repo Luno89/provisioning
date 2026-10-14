@@ -4,6 +4,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TreeRunPanel } from './TreeRunPanel.js'
 import * as groveApi from '../../../api/grove.js'
 import * as autoModeApi from '../../../api/auto-mode.js'
+import * as engineApi from '../../../api/engine.js'
+
+vi.mock('../../../api/engine.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof engineApi>()),
+  approveRunCall: vi.fn(async () => undefined),
+}))
 
 vi.mock('../../../api/auto-mode.js', async (importOriginal) => ({
   ...(await importOriginal<typeof autoModeApi>()),
@@ -36,6 +42,19 @@ describe('TreeRunPanel', () => {
     await waitFor(() => expect(groveApi.runTree).toHaveBeenCalledWith('t1'))
     expect(await screen.findByText(/Running since/)).toBeTruthy()
     expect(screen.queryByText('Run the tree')).toBeNull()
+  })
+
+  it('lets you allow a call a run in the tree waits on, and says it was allowed', async () => {
+    vi.mocked(groveApi.getTreeRun).mockResolvedValue({
+      state: 'running', startedAt: '2026-09-25T10:00:00.000Z',
+      asking: [{ runId: 'g~1-leaf-1-executor-1', callId: 'c1', tool: 'delete_project', message: 'executor wants to run delete_project on this run: {}', agent: 'executor', leafId: 'l1' }],
+    })
+    renderPanel()
+
+    expect(await screen.findByText(/executor wants to run delete_project/)).toBeTruthy()
+    fireEvent.click(screen.getByText('Allow'))
+    await waitFor(() => expect(engineApi.approveRunCall).toHaveBeenCalledWith('g~1-leaf-1-executor-1', { callId: 'c1', allowed: true }))
+    expect(await screen.findByTestId('approval-decided')).toBeTruthy()
   })
 
   it('notices a run started elsewhere, such as by approving a plan', async () => {
