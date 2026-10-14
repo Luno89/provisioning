@@ -736,11 +736,39 @@ export interface McpRequest {
 export type ActionKind = 'deploy_app' | 'deploy_project' | 'set_project_env' | 'add_project_dependency' | 'add_app_spec' | 'add_mcp_server';
 export type ActionStatus = 'proposed' | 'applying' | 'applied' | 'rejected' | 'failed';
 
+export type ProposalPart =
+  | { kind: 'text'; text: string }
+  | { kind: 'fields'; fields: { label: string; value: string; code?: boolean | undefined }[] }
+  | { kind: 'code'; label?: string | undefined; code: string };
+
+export interface ProposalSection {
+  title?: string | undefined;
+  folded?: string | undefined;
+  parts: ProposalPart[];
+}
+
+export interface ProposalStarted {
+  server?: { id: string; name: string; added: boolean } | undefined;
+  images?: string[] | undefined;
+}
+
+export type ProposalStepState = 'done' | 'running' | 'failed';
+
+export interface ProposalProgress {
+  steps: { label: string; state: ProposalStepState; detail?: string | undefined }[];
+  done: boolean;
+  ready?: string | undefined;
+  server?: { id: string; name: string } | undefined;
+}
+
 export interface ActionProposal {
   id: string;
   ownerId: string;
   kind: ActionKind;
   summary: string;
+  why?: string | undefined;
+  sections?: ProposalSection[] | undefined;
+  started?: ProposalStarted | undefined;
   detail: string[];
   params: Record<string, string>;
   status: ActionStatus;

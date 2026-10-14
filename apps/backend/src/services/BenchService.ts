@@ -112,7 +112,7 @@ export class BenchService {
     for (const note of notes) {
       const checks = checksForNote(scenarios, note);
       if (checks.length === 0) {
-        await this.deps.notes!.settle(ownerId, note.id, { checkedAt: new Date(this.now()).toISOString(), unchecked: true }, true);
+        await this.deps.notes!.settle(ownerId, note.id, { checkedAt: new Date(this.now()).toISOString(), unchecked: true }, false);
         continue;
       }
       const on = note.model ? await this.deps.serving(ownerId, note.model) : undefined;
@@ -149,18 +149,19 @@ export class BenchService {
   }
 
   async finished(run: Level2Run): Promise<void> {
-    const trial = run.trigger?.kind === 'practice' ? { trials: this.deps.practices, id: run.trigger.practiceId }
-      : run.trigger?.kind === 'tool-note' && this.deps.notes ? { trials: this.deps.notes, id: run.trigger.noteId }
+    const trial = run.trigger?.kind === 'practice' ? { trials: this.deps.practices, id: run.trigger.practiceId, mustHelp: false }
+      : run.trigger?.kind === 'tool-note' && this.deps.notes ? { trials: this.deps.notes, id: run.trigger.noteId, mustHelp: true }
       : undefined;
     if (trial && run.state === 'done') {
       const regressions = run.regressions ?? [];
+      const { better } = compareWithEarlier(run.results, await this.deps.earlier(run));
       await trial.trials.settle(run.ownerId, trial.id, {
         checkedAt: run.finishedAt ?? new Date(this.now()).toISOString(),
         runId: run.id,
         scenarios: run.scenarios,
         regressions,
-        better: compareWithEarlier(run.results, await this.deps.earlier(run)).better,
-      }, regressions.length === 0);
+        better,
+      }, regressions.length === 0 && (!trial.mustHelp || better.length > 0));
     }
     if (run.trigger?.kind === 'prompt-change') {
       if (run.state !== 'done') return;

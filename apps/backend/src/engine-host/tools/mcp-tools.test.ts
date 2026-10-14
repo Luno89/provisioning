@@ -142,8 +142,8 @@ describe('list_mcp_servers and propose_mcp_server', () => {
     const proposals: ActionProposal[] = [];
     const handlers = tools(proposals);
     const out = await call(handlers, 'propose_mcp_server', { template: 'playwright', agents: ['executor'], why: 'check Odoo pages' });
-    expect(out).toMatchObject({ ok: true, content: 'Proposed on a card: add the MCP server playwright and give it to executor. Nothing changes until the person applies it.' });
-    expect(proposals).toEqual([expect.objectContaining({ id: 'a1', kind: 'add_mcp_server', status: 'proposed', conversationId: 'c1', runId: 'r1', summary: 'add the MCP server playwright and give it to executor' })]);
+    expect(out).toMatchObject({ ok: true, content: 'Proposed on a card: add the MCP server playwright for executor. Nothing changes until the person applies it.' });
+    expect(proposals).toEqual([expect.objectContaining({ id: 'a1', kind: 'add_mcp_server', status: 'proposed', conversationId: 'c1', runId: 'r1', summary: 'add the MCP server playwright for executor' })]);
     expect(JSON.parse(proposals[0]!.params.spec!)).toEqual({ template: 'playwright', name: 'playwright', agents: ['executor'], why: 'check Odoo pages' });
 
     expect((await call(handlers, 'propose_mcp_server', { template: 'playwright', agents: ['executor'], why: 'check Odoo pages' })).content).toMatch(/^This is already waiting for the person on a card/);

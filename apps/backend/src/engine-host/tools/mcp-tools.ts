@@ -5,6 +5,7 @@ import { usable, type McpServerRecord, type McpServerTemplate } from '../../lib/
 import { slugify } from '../../lib/mcp-tools.js';
 import { draftServerProposal, runsLines, stateLine } from '../../lib/mcp-proposals.js';
 import { sameAction } from '../../lib/action-proposals.js';
+import { sectionLines } from '../../lib/proposal-sections.js';
 
 export interface McpToolStores {
   enabled(ownerId: string, conversationId: string): Promise<string[]>;
@@ -74,7 +75,9 @@ export function createMcpRequestTools(options: {
         ownerId: caller.ownerId,
         kind: 'add_mcp_server',
         summary: drafted.summary,
-        detail: drafted.detail,
+        why: drafted.proposal.why,
+        sections: drafted.sections,
+        detail: sectionLines(drafted.sections),
         params,
         status: 'proposed',
         ...(caller.conversationId ? { conversationId: caller.conversationId } : {}),

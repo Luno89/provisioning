@@ -2,6 +2,7 @@ import type { Conversation, ConversationMessage } from './conversations.js';
 import { hintKey, type McpToolHint } from './mcp-tool-hints.js';
 import type { BenchSettings, BenchState } from './bench.js';
 import type { ExtensionSettings } from './extension-settings.js';
+import type { AutoModeSettings } from './auto-mode.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
 import type { StoredAppSpec } from './app-spec.js';
@@ -72,6 +73,7 @@ export class MemoryDB implements Database {
   private actionProposals: ActionProposal[] = [];
   private egressGrants: EgressGrantRecord[] = [];
   private extensionSettings = new Map<string, ExtensionSettings>();
+  private autoModeSettings = new Map<string, AutoModeSettings>();
   private authoredExtensions = new Map<string, AuthoredExtension>();
   private handoffs = new Map<string, string>();
   private instances = new Map<string, InstanceRecord>();
@@ -359,6 +361,7 @@ export class MemoryDB implements Database {
     sweepMap('benchSettings', this.benchSettings, (key) => key === ownerId);
     sweepMap('benchStates', this.benchStates, (key) => key === ownerId);
     sweepMap('extensionSettings', this.extensionSettings, (key) => key === ownerId);
+    sweepMap('autoModeSettings', this.autoModeSettings, (key) => key === ownerId);
     this.giteaAccounts = sweep('giteaAccounts', this.giteaAccounts);
     this.users = sweep('users', this.users, (entry) => entry.id === ownerId);
     return removed;
@@ -909,6 +912,15 @@ export class MemoryDB implements Database {
 
   async saveExtensionSettings(settings: ExtensionSettings): Promise<void> {
     this.extensionSettings.set(settings.ownerId, { ...settings, disabled: [...settings.disabled] });
+  }
+
+  async getAutoModeSettings(ownerId: string): Promise<AutoModeSettings | undefined> {
+    const found = this.autoModeSettings.get(ownerId);
+    return found ? { ...found, agents: [...found.agents] } : undefined;
+  }
+
+  async saveAutoModeSettings(settings: AutoModeSettings): Promise<void> {
+    this.autoModeSettings.set(settings.ownerId, { ...settings, agents: [...settings.agents] });
   }
 
   async getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]> {

@@ -80,6 +80,31 @@ export const ECHOES_SERVER = (): WorldServer => ({
   },
 });
 
+const unaskedInSandbox: Scenario = {
+  id: 'mechanics-sandbox-unasked',
+  name: 'A destructive call inside the run\'s sandbox runs without asking anyone',
+  describe: 'Mechanics, on a script: the judge, working in its sandbox, writes a file and deletes it. Deleting is destructive, but it runs inside the sandbox, so nobody is asked and the run carries on; the check runner answers no approvals, so a call that asked would leave the run waiting.',
+  agent: 'judge',
+  procedure: { id: 'tool-rounds' },
+  input: { message: 'Judge this. Work: a scratch file, cleaned up. Expected: it is gone afterwards.', inputs: { work: 'a scratch file, cleaned up', expected: 'it is gone afterwards' } },
+  world: {
+    agents: { judge: { tools: ['write_file', 'delete_file', 'run_command', 'record_verdict'] } },
+  },
+  script: { rules: [
+    { when: { offered: ['record_verdict'], called: ['record_verdict'] }, reply: { say: 'Met.' } },
+    { when: { offered: ['record_verdict'], said: 'left-(\\w+)' }, reply: { call: [{ tool: 'record_verdict', arguments: { verdict: 'met', reasoning: 'the scratch file was deleted, and the check found it {{said.1}}' } }] } },
+    { when: { called: ['delete_file'], notCalled: ['run_command'] }, reply: { call: [{ tool: 'run_command', arguments: { command: 'test -e scratch.txt && echo "left""-there" || echo "left""-gone"' } }] } },
+    { when: { called: ['write_file'], notCalled: ['delete_file'] }, reply: { call: [{ tool: 'delete_file', arguments: { path: 'scratch.txt' } }] } },
+    { when: { offered: ['write_file'], notCalled: ['write_file'] }, reply: { call: [{ tool: 'write_file', arguments: { path: 'scratch.txt', content: 'temporary' } }] } },
+    NOTHING,
+  ] },
+  expect: {
+    outcome: 'ok',
+    toolsSucceeded: ['write_file', 'delete_file', 'run_command', 'record_verdict'],
+    modelSaw: { anyRequest: true, contains: ['left-gone'], lacks: ['left-there'] },
+  },
+};
+
 const servedInWorkspace: Scenario = {
   id: 'mechanics-workspace-server',
   name: 'An MCP server in the workspace is captured, offered from its record, started on first use and kept running',
@@ -124,7 +149,7 @@ const proposedServer: Scenario = {
   expect: {
     outcome: 'ok',
     toolsSucceeded: ['list_mcp_servers', 'propose_mcp_server'],
-    modelSaw: { anyRequest: true, contains: ['YOUR MCP SERVERS', 'KNOWN SERVERS YOU CAN ADD', 'Proposed on a card: add the MCP server echoes and give it to executor'] },
+    modelSaw: { anyRequest: true, contains: ['YOUR MCP SERVERS', 'KNOWN SERVERS YOU CAN ADD', 'Proposed on a card: add the MCP server echoes for executor'] },
   },
   then: [{
     name: 'the card is applied',
@@ -551,4 +576,4 @@ const odooBrowserFailure: Scenario = {
   ],
 };
 
-export const MECHANICS_CHECKS = (): Scenario[] => [judged, longCommand, servedInWorkspace, proposedServer, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];
+export const MECHANICS_CHECKS = (): Scenario[] => [judged, longCommand, unaskedInSandbox, servedInWorkspace, proposedServer, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];

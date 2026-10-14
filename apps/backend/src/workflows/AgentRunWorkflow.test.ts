@@ -23,6 +23,9 @@ import { AgentRunWorkflow, answerSignal, approveSignal, cancelSignal } from './A
 import { createNodeRunner } from '../engine-host/temporal/activities.js';
 import { runCancelledVia } from '../engine-host/temporal/run-cancellation.js';
 import { createAgentRegistry } from '../engine-host/registries/registry.js';
+import { BUILDER_TOOLS, contractsFor } from '@koala/agent-engine';
+import { WORKSPACE_TOOLS } from '../engine-host/tools/workspace-tools-catalogue.js';
+import { seededAgents } from '../extensions/seeds.js';
 import { createEffortTracker, type RunLimitsArgs } from '../engine-host/registries/effort.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import { createHostNodes, hostNodesFor } from '../engine-host/nodes/index.js';
@@ -69,8 +72,9 @@ function activities(options: {
   history?: RunEffort[];
   conversations?: ReturnType<typeof inMemoryConversations>;
   environments?: { describe: (ticket: RunTicket) => Promise<RunEnvironment>; release: (runId: string) => Promise<void> };
+  registry?: ReturnType<typeof createAgentRegistry>;
 }) {
-  const registry = createAgentRegistry();
+  const registry = options.registry ?? createAgentRegistry();
   const conversations = options.conversations ?? inMemoryConversations();
   const seen: ChatMessage[][] = [];
   const aborted: string[] = [];
@@ -131,6 +135,7 @@ function activities(options: {
       EngineRecordEffortActivity: vi.fn((effort: RunEffort) => tracker.record(effort)),
       EngineSettleClaimsActivity: vi.fn(async (_args: { ownerId: string; runId: string; outcome: string }) => [] as string[]),
       EngineToolAllowedActivity: vi.fn(async (_args: { ownerId: string; conversationId: string; tool: string }) => false),
+      EngineAutoModeActivity: vi.fn(async (_args: { ownerId: string; agentSlug: string; conversationId?: string; workspaceRunId?: string }) => false),
       EngineNodeActivity: createNodeRunner(hostNodes, undefined),
       EngineResolveAgentActivity: vi.fn(async ({ ownerId, agentSlug }: { ownerId: string; agentSlug: string }) => {
         const runnable = await registry.runnable(ownerId, agentSlug);
@@ -344,8 +349,21 @@ describe('AgentRunWorkflow', () => {
     expect(acts.engine.EngineToolActivity).toHaveBeenCalledTimes(1);
     expect(published(acts)).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'tool.called', callId: 'c1' }),
-      expect.objectContaining({ type: 'notice', level: 'warn', message: expect.stringContaining('run_command on Desk') }),
+      expect.objectContaining({ type: 'notice', level: 'warn', callId: 'c1', message: expect.stringContaining('run_command on Desk') }),
     ]));
+  }, 60_000);
+
+  it('does not ask when the run\'s agent or tree is in auto mode, even on someone\'s machine', async () => {
+    const acts = activities({ environment: MACHINE, script: [callsATool('c1', 'run_command', '{"command":"ls"}'), { content: 'done' }] });
+    acts.engine.EngineAutoModeActivity.mockImplementation(async ({ agentSlug }) => agentSlug === 'executor');
+    const asked = input('executor', TOOL_ROUNDS_V2);
+
+    const result = await runWorkflow({ ...asked, ticket: { ...asked.ticket, conversationId: 'chat-1' } }, acts);
+
+    expect(result.outcome).toBe('ok');
+    expect(acts.engine.EngineAutoModeActivity).toHaveBeenCalledWith({ ownerId: asked.ticket.ownerId, agentSlug: 'executor', conversationId: 'chat-1' });
+    expect(acts.engine.EngineToolActivity).toHaveBeenCalledTimes(1);
+    expect(published(acts)).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: 'notice', level: 'warn' })]));
   }, 60_000);
 
   it('does not ask again for a tool the person already allowed in this conversation', async () => {
@@ -358,6 +376,30 @@ describe('AgentRunWorkflow', () => {
     expect(result.outcome).toBe('ok');
     expect(acts.engine.EngineToolAllowedActivity).toHaveBeenCalledWith({ ownerId: asked.ticket.ownerId, conversationId: 'chat-1', tool: 'run_command' });
     expect(acts.engine.EngineToolActivity).toHaveBeenCalledTimes(1);
+    expect(published(acts)).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: 'notice', level: 'warn' })]));
+  }, 60_000);
+
+  it('runs a destructive call inside its sandbox without asking anyone', async () => {
+    const sandbox: RunEnvironment = {
+      kind: 'sandbox',
+      id: 'engine-tree-t1',
+      workspace: {
+        runId: 'tree-t1', ownerId: 'user-1', agent: 'executor', image: 'koala/base', provides: ['git'],
+        lifetimeMs: 60_000, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared',
+      },
+      capabilities: { kind: 'sandbox', lifecycle: 'persistent', languages: ['node20'] },
+    };
+    const registry = createAgentRegistry({
+      agentStore: { list: async () => seededAgents().map((agent) => (agent.slug === 'executor' ? { ...agent, tools: [...agent.tools, 'delete_file'] } : agent)) },
+      toolCatalogue: { list: async () => contractsFor([...BUILDER_TOOLS, ...WORKSPACE_TOOLS]) },
+    });
+    const acts = activities({ registry, environment: sandbox, script: [callsATool('c1', 'delete_file', '{"path":"stale.spec.ts"}'), { content: 'done' }] });
+
+    const result = await runWorkflow(input('executor', TOOL_ROUNDS_V2), acts);
+
+    expect(result.outcome).toBe('ok');
+    expect(acts.engine.EngineToolActivity).toHaveBeenCalledTimes(1);
+    expect(acts.engine.EngineAutoModeActivity).not.toHaveBeenCalled();
     expect(published(acts)).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: 'notice', level: 'warn' })]));
   }, 60_000);
 

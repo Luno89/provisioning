@@ -18,6 +18,7 @@ import type { PlanProposal } from './plan-proposals.js';
 import type { SecretRequest } from './secret-requests.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import type { ExtensionSettings } from './extension-settings.js';
+import type { AutoModeSettings } from './auto-mode.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
 import type { ProcedureSource } from './procedure-source.js';
@@ -230,6 +231,8 @@ export interface Database {
   saveAuthoredExtension(extension: AuthoredExtension): Promise<void>;
   deleteAuthoredExtension(ownerId: string, id: string): Promise<void>;
   saveExtensionSettings(settings: ExtensionSettings): Promise<void>;
+  getAutoModeSettings(ownerId: string): Promise<AutoModeSettings | undefined>;
+  saveAutoModeSettings(settings: AutoModeSettings): Promise<void>;
   getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]>;
   saveEgressGrant(grant: EgressGrantRecord): Promise<void>;
   getEgressRequests(ownerId: string, filter?: { conversationId?: string | undefined; treeId?: string | undefined }): Promise<EgressRequest[]>;

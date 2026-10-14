@@ -81,6 +81,9 @@ describe('building what does', () => {
     expect(applied).not.toContain('executor:latest');
     expect(applied).toContain(`--destination=${reference}`);
     expect(applied).toContain('pipeline-build-sa');
+    expect(applied).toContain('--compressed-caching=false');
+    expect(applied).toContain('--snapshot-mode=redo');
+    expect(applied).toContain('"requests":{"cpu":"250m","memory":"1Gi"},"limits":{"cpu":"2","memory":"10Gi"}');
   });
 
   it('ships the Dockerfile with the job rather than needing a checkout', async () => {

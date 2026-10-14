@@ -32,7 +32,7 @@ import type {
   ToolCallOutcome,
   ToolRuntime,
   SettleClaimsArgs,
-  ToolAllowedArgs,
+  ToolAllowedArgs, AutoModeArgs,
   ProcedureRunInput,
 } from './contracts.js';
 import { type LifecycleEvent, type BenchIdleOutcome, type ConcludeWorkspaceArgs, groveRunId, runStamp } from './contracts.js';
@@ -84,6 +84,7 @@ export interface EngineServices extends StreamServices {
   effort?: EffortTracker | undefined;
   tasks?: { list(ownerId: string): Promise<Task[]>; save(task: Task): Promise<void> } | undefined;
   allowedTools?: ((ownerId: string, conversationId: string) => Promise<readonly string[]>) | undefined;
+  autoMode?: ((args: AutoModeArgs) => Promise<boolean>) | undefined;
   /** the grove's tree stores (read-only use by the partition activity) */
   grove?: GroveStores | undefined;
   treeWorkspaces?: TreeWorkspaces | undefined;
@@ -194,6 +195,7 @@ export interface EngineActivities extends StreamActivities {
   EngineRecordEffortActivity(effort: RunEffort): Promise<void>;
   EngineSettleClaimsActivity(args: SettleClaimsArgs): Promise<string[]>;
   EngineToolAllowedActivity(args: ToolAllowedArgs): Promise<boolean>;
+  EngineAutoModeActivity(args: AutoModeArgs): Promise<boolean>;
 }
 
 export function createEngineActivities(services: EngineServices): EngineActivities {
@@ -312,6 +314,10 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
     async EngineToolAllowedActivity(args: ToolAllowedArgs): Promise<boolean> {
       if (!services.allowedTools) return false;
       return (await services.allowedTools(args.ownerId, args.conversationId)).includes(args.tool);
+    },
+
+    async EngineAutoModeActivity(args: AutoModeArgs): Promise<boolean> {
+      return services.autoMode ? services.autoMode(args) : false;
     },
 
     async EngineSettleClaimsActivity(args: SettleClaimsArgs): Promise<string[]> {

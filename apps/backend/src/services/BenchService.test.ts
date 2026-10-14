@@ -200,11 +200,11 @@ describe('the bench', () => {
     expect(started[1]).toEqual({ trigger: { kind: 'tool-note', about: 'the playwright server', noteId: 'n2' }, scenarioIds: ['koala-cluster', 'executor-hello'] });
   });
 
-  it('puts a note live unchecked when no check uses its tool, and settles a trial with the checks it made pass', async () => {
+  it('holds a note no check uses for the person, and puts one live only when it made a failing check pass and nothing worse', async () => {
     noteTrials = [{ id: 'n3', ownerId: 'u1', category: 'tool_note', status: 'trial', tool: 'search_web', title: 'n3', text: 'n3', createdAt: 'a', updatedAt: 'a' }];
     await bench().idle('u1');
     expect(started.map((plan) => plan.trigger.kind)).not.toContain('tool-note');
-    expect(notesSettled).toEqual([{ id: 'n3', trial: { checkedAt: NOW_ISO, unchecked: true }, live: true }]);
+    expect(notesSettled).toEqual([{ id: 'n3', trial: { checkedAt: NOW_ISO, unchecked: true }, live: false }]);
 
     earlierRuns = [{ id: 'before', ownerId: 'u1', state: 'done', startedAt: 'a', scenarios: ['executor-hello'], finished: 1, results: [{ scenarioId: 'executor-hello', passed: false }] } as unknown as Level2Run];
     await bench().finished({
@@ -213,6 +213,12 @@ describe('the bench', () => {
     });
     expect(notesSettled[1]).toEqual({ id: 'n1', trial: { checkedAt: 'c', runId: 'trial-n', scenarios: ['executor-hello'], regressions: [], better: ['executor-hello'] }, live: true });
     expect(settled).toEqual([]);
+
+    await bench().finished({
+      id: 'trial-m', ownerId: 'u1', state: 'done', startedAt: 'b', finishedAt: 'd', scenarios: ['executor-hello'], finished: 1,
+      results: [{ scenarioId: 'executor-hello', passed: false }] as Level2Run['results'], trigger: { kind: 'tool-note', about: 'start_task', noteId: 'n2' }, regressions: [],
+    });
+    expect(notesSettled[2]).toMatchObject({ id: 'n2', trial: { regressions: [], better: [] }, live: false });
   });
 
   it('compares a proposed prompt change on its agent\'s scenarios after any practice trials, and never puts it live itself', async () => {

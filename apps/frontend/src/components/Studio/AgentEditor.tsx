@@ -5,6 +5,8 @@ import { errorMessage, useDeleteAgent, useEgressGrants, useGrantableTools, useMc
 import { serverLine } from './mcp-server-forms'
 import { NEEDS, onlyToolsChanged, requirementFor, withRequired } from './agent-forms'
 import ToolGrants from './ToolGrants'
+import AutoModeSwitch from '../AutoMode/AutoModeSwitch'
+import { useAgentAutoMode } from '../AutoMode/useAutoMode'
 
 const field = 'w-full rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)] px-2 py-1 text-xs text-slate-200 outline-none focus:border-[var(--leaf-stem)]'
 
@@ -28,6 +30,8 @@ export default function AgentEditor({ agent, agents, onClose, onSaved, onDeleted
   const languages = grantable.data?.languages ?? []
   const procedures = useProcedureList()
   const [saved, setSaved] = useState(false)
+  const autoMode = useAgentAutoMode(agent.slug)
+  const exists = agents.some((candidate) => candidate.slug === agent.slug)
   const save = useSaveAgent((stored) => {
     setSaved(true)
     if (onSaved) onSaved(stored)
@@ -266,6 +270,14 @@ export default function AgentEditor({ agent, agents, onClose, onSaved, onDeleted
         />
         <span className="block text-[11px] text-slate-500">Then what it taught is remembered. A new message starts the count again.</span>
       </label>}
+
+      {show('settings') && exists && (
+        <AutoModeSwitch
+          state={autoMode}
+          label="Auto mode"
+          explain="Its runs never stop to ask you before a call, on your machine or on the platform. Calls inside a sandbox never ask anyway. This takes effect at once and is not part of saving the agent."
+        />
+      )}
 
       {problems.length > 0 && (
         <ul className="space-y-1 rounded-md border border-red-900 bg-red-950/30 p-2">

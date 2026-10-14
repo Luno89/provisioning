@@ -1,7 +1,9 @@
 import { useState } from 'react'
-import { Square } from 'lucide-react'
+import { useMutation } from '@tanstack/react-query'
+import { Check, Loader2, Square } from 'lucide-react'
+import { errorMessage } from '../../api/client'
 import { answerRun, approveRunCall, cancelRun } from '../../api/engine'
-import { pendingApproval, type EngineRunState } from '../../lib/engine-run-state'
+import { pendingApproval, type EngineRunState, type PendingApproval } from '../../lib/engine-run-state'
 
 export function StopRun({ run }: { run: Pick<EngineRunState, 'runId' | 'finished'> }) {
   if (run.finished) return null
@@ -22,39 +24,71 @@ export default function RunControls({ run }: { run: EngineRunState }) {
 
   return (
     <>
-      {approval && !run.finished && (
-        <div className="border border-amber-500/30 bg-amber-500/10 rounded-md p-3 space-y-2">
-          <p className="text-xs text-amber-300">{approval}</p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => void approveRunCall(run.runId, { callId: lastCallId(run), allowed: true })}
-              className="text-xs px-3 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors"
-            >
-              Allow
-            </button>
-            <button
-              type="button"
-              onClick={() => void approveRunCall(run.runId, { callId: lastCallId(run), allowed: true, forRun: true })}
-              className="text-xs px-3 py-1 rounded bg-emerald-500/10 text-emerald-300/80 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
-            >
-              Allow for this run
-            </button>
-            <button
-              type="button"
-              onClick={() => void approveRunCall(run.runId, { callId: lastCallId(run), allowed: false })}
-              className="text-xs px-3 py-1 rounded bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30 transition-colors"
-            >
-              Decline
-            </button>
-          </div>
-        </div>
-      )}
+      {approval && <ApprovalBox key={approval.callId} runId={run.runId} approval={approval} />}
 
       {waiting && !approval && !run.finished && run.currentNode && (
         <WaitingOnYou run={run} prompt={waiting.message} choices={waiting.choices} />
       )}
     </>
+  )
+}
+
+type Decision = 'allow' | 'allow-for-run' | 'decline'
+
+const DECIDED: Record<Decision, string> = {
+  'allow': 'Allowed — it runs now.',
+  'allow-for-run': 'Allowed for the rest of this run — it runs now.',
+  'decline': 'Declined — the model is told it did not run.',
+}
+
+function ApprovalBox({ runId, approval }: { runId: string; approval: PendingApproval }) {
+  const decide = useMutation({
+    mutationFn: (decision: Decision) => approveRunCall(runId, {
+      callId: approval.callId,
+      allowed: decision !== 'decline',
+      ...(decision === 'allow-for-run' ? { forRun: true } : {}),
+    }),
+  })
+  const button = 'text-xs px-3 py-1 rounded border transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default flex items-center gap-1.5'
+  const sending = (decision: Decision) => decide.isPending && decide.variables === decision ? <Loader2 size={11} className="animate-spin" /> : null
+
+  return (
+    <div className="border border-amber-500/30 bg-amber-500/10 rounded-md p-3 space-y-2" data-testid="approval">
+      <p className="text-xs text-amber-300">{approval.message}</p>
+      {decide.isSuccess ? (
+        <p className="flex items-center gap-1.5 text-xs text-emerald-300" data-testid="approval-decided">
+          <Check size={12} /> {DECIDED[decide.variables]}
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={decide.isPending}
+            onClick={() => decide.mutate('allow')}
+            className={`${button} bg-emerald-500/20 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/30`}
+          >
+            {sending('allow')}Allow
+          </button>
+          <button
+            type="button"
+            disabled={decide.isPending}
+            onClick={() => decide.mutate('allow-for-run')}
+            className={`${button} bg-emerald-500/10 text-emerald-300/80 border-emerald-500/20 hover:bg-emerald-500/20`}
+          >
+            {sending('allow-for-run')}Allow for this run
+          </button>
+          <button
+            type="button"
+            disabled={decide.isPending}
+            onClick={() => decide.mutate('decline')}
+            className={`${button} bg-red-500/20 text-red-300 border-red-500/30 hover:bg-red-500/30`}
+          >
+            {sending('decline')}Decline
+          </button>
+        </div>
+      )}
+      {decide.isError && <p className="text-xs text-rose-300">{errorMessage(decide.error)}</p>}
+    </div>
   )
 }
 
@@ -106,6 +140,3 @@ function WaitingOnYou({ run, prompt, choices }: { run: EngineRunState; prompt: s
     </div>
   )
 }
-
-const lastCallId = (run: EngineRunState): string =>
-  run.toolCalls.at(-1)?.callId ?? 'unknown'

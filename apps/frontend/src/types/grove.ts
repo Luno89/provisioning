@@ -7,6 +7,7 @@ export interface Tree {
   name: string
   type: string
   goal?: string
+  autoMode?: boolean
   branchCount: number
   updatedAt: string
 }

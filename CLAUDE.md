@@ -241,6 +241,16 @@ agents. Applying it (`ActionService`) adds and captures the server, then gives i
 `setServers`, which rebuilds a workspace server's holders' images. `mechanics-proposed-server` proves it (check stage
 `applyAction`, expectation `mcpServer`).
 
+**When a run asks before a call** (the `approve-tool-calls` step, `ports.approve` in `AgentRunWorkflow`): on someone's
+own machine every call asks; elsewhere a destructive tool asks (an MCP tool is destructive unless its server says
+otherwise). A call to a tool that runs inside the run's sandbox (`binding: 'environment'` while the environment is a
+sandbox) never asks, whatever it does (behind the `sandbox-calls-unasked` patch). **Auto mode** turns asking off for a
+whole run: a person switches it on per agent (Studio, the agent's settings; `autoModeSettings`, so a built-in stays
+built in) or per tree (the tree's run panel; `autoMode` on the tree), and a run goes unasked when its agent is on, or
+the tree it works on — its sandbox's `tree-<id>` workspace or its chat's tree — is (`AutoModeService.unasked`, read at
+each ask through `EngineAutoModeActivity`, behind the `auto-mode` patch). The approval box answers the call its notice
+names (`callId`) and says what was decided.
+
 ## Memory
 
 Memories are made by the `memory-keeper` agent, never by a hidden model call. It is driven by events,
@@ -275,8 +285,8 @@ and filter by model; `mechanics-memory-per-model` proves recall on a script (a s
 tool with `server` — or `server` alone for all of a server's tools; `lib/tool-notes.ts`). The keeper proposes one with
 `propose_tool_note` when runs misuse a tool rather than when one agent works badly (that is a practice), naming the
 tool as it is offered. It goes on trial: the bench runs the checks that use the tool (`scenarioSubjects(...).tools`,
-any of the server's for a server note) with it in the space, and it goes live only if nothing regressed, recording
-which checks it made pass (`trial.better`). Resolve Tools takes the turn's binding and puts each live note on its tool
+any of the server's for a server note) with it in the space, and it goes live only if a check that failed before now
+passes and nothing regressed (`trial.better`); otherwise, or when no check uses the tool, it waits for the person. Resolve Tools takes the turn's binding and puts each live note on its tool
 (`learned`) or server (`servedBy.learned`), shown as "Learned from earlier runs"; one kept for a model only on that
 model. Notes never reach the memory bank or the Memories page; they show on the tool's and the server's Studio pages
 (Learned notes), follow a server's rename and are retired with it. `mechanics-tool-notes` proves it on a script.

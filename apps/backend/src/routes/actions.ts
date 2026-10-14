@@ -24,7 +24,13 @@ export function actionsRouter(deps: ActionsRouterDeps): Router {
     answer(res, await deps.actions.apply(userOf(req).id, String(req.params.id ?? '')));
   }));
 
-  router.post('/:id/reject', asyncRoute(async (req, res) => {
+  router.get('/:id/progress', asyncRoute(async (req, res) => {
+    const progress = await deps.actions.progress(userOf(req).id, String(req.params.id ?? ''));
+    if (!progress) return res.status(404).json({ error: 'nothing that card started is being followed' });
+    res.json(progress);
+  }));
+
+    router.post('/:id/reject', asyncRoute(async (req, res) => {
     answer(res, await deps.actions.reject(userOf(req).id, String(req.params.id ?? '')));
   }));
 

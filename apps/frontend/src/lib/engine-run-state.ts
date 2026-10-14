@@ -9,6 +9,19 @@ export interface EngineToolCall {
   digest?: string
 }
 
+export interface EngineNotice {
+  level: 'info' | 'warn'
+  message: string
+  choices?: string[] | undefined
+  callId?: string | undefined
+  answered?: boolean | undefined
+}
+
+export interface PendingApproval {
+  message: string
+  callId: string
+}
+
 export interface EngineRunState {
   runId: string
   agentId?: string
@@ -19,7 +32,7 @@ export interface EngineRunState {
   thinking: string
   content: string
   toolCalls: EngineToolCall[]
-  notices: { level: 'info' | 'warn'; message: string; choices?: string[] | undefined }[]
+  notices: EngineNotice[]
   interruptedReason?: string
   outcome?: string
   outcomeReason?: string
@@ -52,6 +65,7 @@ export function reduceEngineEvent(state: EngineRunState, event: EngineEvent): En
   if (event.type === 'run.finished') {
     return {
       ...state,
+      notices: state.notices.map((notice) => (notice.level === 'warn' ? { ...notice, answered: true } : notice)),
       finished: true,
       outcome: event.outcome,
       ...(event.reason ? { outcomeReason: event.reason } : {}),
@@ -95,11 +109,13 @@ export function reduceEngineEvent(state: EngineRunState, event: EngineEvent): En
       toolCalls: state.toolCalls.map((call) => (call.callId === event.callId
         ? { ...call, running: false, ok: event.ok, digest: event.digest }
         : call)),
+      notices: state.notices.map((notice) => (notice.callId === event.callId ? { ...notice, answered: true } : notice)),
     }
   }
 
   if (event.type === 'notice') {
-    return { ...state, notices: [...state.notices, { level: event.level, message: event.message, ...(event.choices?.length ? { choices: event.choices } : {}) }] }
+    const callId = event.level === 'warn' ? event.callId ?? state.toolCalls.filter((call) => call.running).at(-1)?.callId : undefined
+    return { ...state, notices: [...state.notices, { level: event.level, message: event.message, ...(event.choices?.length ? { choices: event.choices } : {}), ...(callId ? { callId } : {}) }] }
   }
 
   if (event.type === 'interrupted') {
@@ -115,8 +131,11 @@ export function reduceEngineEvents(runId: string, events: EngineEvent[]): Engine
     .reduce(reduceEngineEvent, emptyRunState(runId))
 }
 
-export const pendingApproval = (state: EngineRunState): string | undefined =>
-  state.notices.filter((notice) => notice.level === 'warn').at(-1)?.message
+export function pendingApproval(state: EngineRunState): PendingApproval | undefined {
+  if (state.finished) return undefined
+  const notice = state.notices.filter((candidate) => candidate.level === 'warn' && !candidate.answered).at(-1)
+  return notice?.callId ? { message: notice.message, callId: notice.callId } : undefined
+}
 
 export function applyTurnEvents(runs: readonly EngineRunState[], events: readonly EngineEvent[]): EngineRunState[] {
   return events.reduce((all: EngineRunState[], event: EngineEvent) => {

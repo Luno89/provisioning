@@ -48,7 +48,7 @@ export type EngineEvent =
   | { type: 'tool.called'; runId: string; at: string; nodeId: string; callId: string; name: string; args: string }
   | { type: 'tool.result'; runId: string; at: string; nodeId: string; callId: string; ok: boolean; digest: string; artifacts?: Artifact[] | undefined; child?: ChildSteps | undefined }
   | { type: 'usage'; runId: string; at: string; nodeId: string; usage: Record<string, unknown> }
-  | { type: 'notice'; runId: string; at: string; level: 'info' | 'warn'; message: string; nodeId?: string; choices?: string[] }
+  | { type: 'notice'; runId: string; at: string; level: 'info' | 'warn'; message: string; nodeId?: string; choices?: string[]; callId?: string }
   | { type: 'node.traced'; runId: string; at: string; nodeId: string; trace: Record<string, unknown> }
   | { type: 'interrupted'; runId: string; at: string; reason: string }
 

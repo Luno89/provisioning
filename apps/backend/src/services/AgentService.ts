@@ -11,7 +11,7 @@ import {
   type SourcedTool,
   type ToolDefinition,
 } from '@koala/agent-engine';
-import type { AgentDirectory } from '../engine-host/registries/agent-directory.js';
+import type { AgentDirectory, GrantMeta } from '../engine-host/registries/agent-directory.js';
 import { sameSeededRow } from '../lib/seed-diff.js';
 import { missingGrants, type Procedure } from '@koala/agent-engine/procedure';
 import type { ImageStanding } from '../engine-host/sandboxes/image-builder.js';
@@ -207,6 +207,21 @@ export class AgentService {
     }));
 
     return { image };
+  }
+
+  async image(ownerId: string, slug: string): Promise<ImageStanding | undefined> {
+    return (await this.get(ownerId, slug))?.image;
+  }
+
+  async holdServer(ownerId: string, slug: string, server: string, meta?: GrantMeta): Promise<ImageStanding | undefined> {
+    const { agents } = await this.all(ownerId);
+    const agent = agents.find((one) => one.slug === slug);
+    if (!agent) throw new Error(`there is no agent called ${slug}`);
+    if (!(agent.servers ?? []).includes(server)) await this.options.agents.setServers(ownerId, slug, [...(agent.servers ?? []), server], meta);
+    const [tools, servers, { agents: after }] = await Promise.all([this.options.tools(ownerId), this.servers(ownerId), this.all(ownerId)]);
+    const plan = planWorkspace(after.find((one) => one.slug === slug) ?? agent, tools, servers);
+    if (!plan || !this.options.images) return undefined;
+    return this.options.images.start(plan).catch((err: Error) => ({ state: 'failed' as const, reference: '', detail: err.message }));
   }
 
   async save(ownerId: string, input: unknown): Promise<SaveAgentOutcome> {

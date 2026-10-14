@@ -68,6 +68,7 @@ export interface OrchestrationPorts {
   approve(request: ApprovalRequest): Promise<boolean>;
   ask(request: QuestionRequest): Promise<QuestionAnswer>;
   handOffsTogether?(): boolean;
+  sandboxCallsUnasked?(): boolean;
 }
 
 export const REFUSED_CALL = 'you did not approve that call, so it did not run';
@@ -147,10 +148,15 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const reply = inputs.reply as ModelReply;
       const environment = inputs.environment as EnvironmentValue | undefined;
       const ask = textOf(node.settings, 'ask', 'on-a-machine');
-      const destructive = new Set(((inputs.offered as ToolSet | undefined) ?? []).filter((tool) => tool.destructive === true).map((tool) => tool.name));
+      const offered = (inputs.offered as ToolSet | undefined) ?? [];
+      const destructive = new Set(offered.filter((tool) => tool.destructive === true).map((tool) => tool.name));
+      const inSandbox = environment?.kind === 'sandbox' && ports.sandboxCallsUnasked?.() === true
+        ? new Set(offered.filter((tool) => tool.binding === 'environment').map((tool) => tool.name))
+        : new Set<string>();
       const needsAsking = (call: ToolCallRequest): boolean => {
         if (ask === 'never') return false;
         if (ask === 'always') return true;
+        if (inSandbox.has(call.name)) return false;
         return environment?.kind === 'machine' || destructive.has(call.name);
       };
 

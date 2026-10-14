@@ -35,6 +35,7 @@ import { EgressService } from './services/EgressService.js';
 import { EgressProxyService } from './services/EgressProxyService.js';
 import { ActionService } from './services/ActionService.js';
 import { GroveOrderService } from './services/GroveOrderService.js';
+import { AutoModeService } from './services/AutoModeService.js';
 import { McpService } from './services/McpService.js';
 import { SecretRequestService } from './services/SecretRequestService.js';
 import { PlanService } from './services/PlanService.js';
@@ -51,6 +52,7 @@ import { ProcedureService } from './services/ProcedureService.js';
 import { createProcedureStore } from './engine-host/registries/procedure-store.js';
 import { createModelNodes, createProcedureExecutor, hostNodesFor } from './engine-host/nodes/index.js';
 import { agentsRouter } from './routes/agents.js';
+import { autoModeRouter } from './routes/auto-mode.js';
 import { engineToolsRouter } from './routes/engine-tools.js';
 import { EngineToolService } from './services/EngineToolService.js';
 import { AgentService } from './services/AgentService.js';
@@ -1150,6 +1152,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     workspaces: treeConclusions,
   });
   const groveOrder = new GroveOrderService({ store: db });
+  tenant.use('/api/auto-mode', autoModeRouter({
+    autoMode: new AutoModeService({ store: db, agentExists: async (ownerId, slug) => Boolean(await engineRegistry.agent(ownerId, slug)) }),
+  }));
   const treeWorkspace = evalHost.treeWorkspaceFiles ? new TreeWorkspaceService({
     trees: () => db.getTrees(),
     files: evalHost.treeWorkspaceFiles.files,
@@ -1198,7 +1203,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     store: db,
     deployer: temporalBridge,
     servers: { add: (ownerId, input) => mcpCatalogue.add(ownerId, input), list: (ownerId) => db.getMcpServers(ownerId) },
-    agents: { agents: (ownerId) => agentDirectory.agents(ownerId), setServers: (ownerId, slug, wanted, meta) => agentDirectory.setServers(ownerId, slug, wanted, meta) },
+    agents: {
+      agents: (ownerId) => agentDirectory.agents(ownerId),
+      holdServer: async (ownerId, slug, server, meta) => {
+        if (!agentsHolder.service) throw new Error('agents cannot be changed yet');
+        return agentsHolder.service.holdServer(ownerId, slug, server, meta);
+      },
+      image: async (ownerId, slug) => agentsHolder.service?.image(ownerId, slug),
+    },
     onSettled: concluded,
   }) }));
   const egressService = new EgressService({

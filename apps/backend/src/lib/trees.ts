@@ -19,6 +19,7 @@ export interface Tree {
   conversationId?: string;
   projectIds?: string[];
   serviceName?: string;
+  autoMode?: boolean;
   createdAt: string;
   updatedAt: string;
 }

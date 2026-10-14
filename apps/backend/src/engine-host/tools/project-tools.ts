@@ -8,6 +8,7 @@ import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectM
 import { projectFor, type ProjectScopeStores } from './project-scope.js';
 import { projectAppOf } from '../../lib/project-app.js';
 import type { OdooRelease } from '../../lib/odoo-release.js';
+import { code, fields, section, sectionLines, text, type ProposalSection } from '../../lib/proposal-sections.js';
 
 export interface ProjectToolStores extends ProjectScopeStores {
   runs(): Promise<PipelineRunMetadata[]>;
@@ -54,7 +55,7 @@ export function createProjectTools(options: {
     kind: ActionKind,
     params: Record<string, string>,
     summary: string,
-    detail: string[],
+    sections: ProposalSection[],
     treeId?: string,
   ): Promise<ToolOutcome> => {
     const ownerId = caller.ownerId!;
@@ -67,7 +68,8 @@ export function createProjectTools(options: {
       ownerId,
       kind,
       summary,
-      detail,
+      sections,
+      detail: sectionLines(sections),
       params,
       status: 'proposed',
       ...(caller.conversationId ? { conversationId: caller.conversationId } : {}),
@@ -194,10 +196,7 @@ export function createProjectTools(options: {
 
       const strategy = pickStrategy(type.strategies);
       return propose(caller, 'deploy_app', { appType, name, clusterId: cluster.id, strategy }, `deploy ${type.label ?? appType} as ${name} on ${cluster.name}`, [
-        `App: ${type.label ?? appType}`,
-        `Name: ${name}`,
-        `Cluster: ${cluster.name}`,
-        `Strategy: ${strategy}`,
+        section(undefined, [fields(['App', type.label ?? appType], ['Name', name], ['Cluster', cluster.name], ['Strategy', strategy])]),
       ]);
     },
 
@@ -213,10 +212,12 @@ export function createProjectTools(options: {
       if (!run?.imageTag) return refuse(`${project.name} has no successful build${wantedRun ? ` called ${wantedRun}` : ''} to deploy — get_project_pipeline says why`);
 
       return propose(caller, 'deploy_project', { projectId: project.id, runId: run.id }, `deploy ${project.name} from build ${run.id}`, [
-        `Project: ${project.name}`,
-        `Build: ${run.id}${run.commitSha ? ` (${run.commitSha.slice(0, 8)})` : ''}`,
-        `Image: ${run.imageTag}`,
-        `Cluster: ${project.targetClusterId}`,
+        section(undefined, [fields(
+          ['Project', project.name],
+          ['Build', `${run.id}${run.commitSha ? ` (${run.commitSha.slice(0, 8)})` : ''}`],
+          ['Image', run.imageTag, 'code'],
+          ['Cluster', project.targetClusterId],
+        )]),
       ], found.treeId);
     },
 
@@ -231,9 +232,8 @@ export function createProjectTools(options: {
       const change = envChanges(found.project.deployEnv, incoming as Record<string, unknown>);
       if ('problem' in change) return refuse(change.problem);
       return propose(caller, 'set_project_env', { projectId: found.project.id, env: change.merged }, `change ${change.changed.length} environment variable${change.changed.length === 1 ? '' : 's'} of ${found.project.name}`, [
-        `Project: ${found.project.name}`,
-        ...change.changed,
-        'Takes effect on the next deploy.',
+        section(undefined, [fields(['Project', found.project.name])]),
+        section('What changes', [code(change.changed.join('\n')), text('Takes effect on the next deploy.')]),
       ], found.treeId);
     },
 
@@ -248,12 +248,16 @@ export function createProjectTools(options: {
       if (existing?.builtIn) return refuse(`"${spec.id}" ships with the platform and cannot be replaced — pick another id`);
 
       return propose(caller, 'add_app_spec', { spec: JSON.stringify(raw) }, `${existing ? 'replace' : 'add'} the app "${spec.id}" in the catalogue`, [
-        `App: ${spec.id}${existing ? ' (replaces your earlier one)' : ''}`,
-        `Image: ${spec.image}`,
-        ...(spec.ports?.length ? [`Ports: ${spec.ports.map((port) => `${port.port}${port.name ? ` (${port.name})` : ''}`).join(', ')}`] : []),
-        ...(spec.env?.length ? [`Environment: ${spec.env.map((entry) => (entry.generate ? `${entry.name} (generated)` : entry.name)).join(', ')}`] : []),
-        ...(spec.volumes?.length ? [`Volumes: ${spec.volumes.map((volume) => `${volume.name ?? 'data'} ${volume.size ?? ''}`.trim()).join(', ')}`] : []),
-        'Deployable from the catalogue once added.',
+        section(undefined, [
+          fields(
+            ['App', `${spec.id}${existing ? ' (replaces your earlier one)' : ''}`],
+            ['Image', spec.image, 'code'],
+            ['Ports', spec.ports?.map((port) => `${port.port}${port.name ? ` (${port.name})` : ''}`).join(', ')],
+            ['Environment', spec.env?.map((entry) => (entry.generate ? `${entry.name} (generated)` : entry.name)).join(', ')],
+            ['Volumes', spec.volumes?.map((volume) => `${volume.name ?? 'data'} ${volume.size ?? ''}`.trim()).join(', ')],
+          ),
+          text('Deployable from the catalogue once added.'),
+        ]),
       ]);
     },
 
@@ -270,9 +274,10 @@ export function createProjectTools(options: {
       const check = await stores.bindingCheck(caller.ownerId, service, as);
       if ('problem' in check) return refuse(check.problem);
       return propose(caller, 'add_project_dependency', { projectId: found.project.id, service, ...(as ? { as } : {}) }, `let ${found.project.name} use ${service}`, [
-        `Project: ${found.project.name}`,
-        `Service: ${service} (${check.type})`,
-        `Mounted at $SERVICE_BINDING_ROOT/${check.name}/ on the next deploy`,
+        section(undefined, [
+          fields(['Project', found.project.name], ['Service', `${service} (${check.type})`], ['Mounted at', `$SERVICE_BINDING_ROOT/${check.name}/`, 'code']),
+          text('Takes effect on the next deploy.'),
+        ]),
       ], found.treeId);
     },
   };

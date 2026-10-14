@@ -6,6 +6,7 @@ import { ENGINE_TOOL_SEEDS } from '../engine-host/tools/engine-tool-seeds.js';
 import { AgentService, agentProblems } from './AgentService.js';
 import type { ImageStanding } from '../engine-host/sandboxes/image-builder.js';
 import { seededAgents, seededProcedures } from '../extensions/seeds.js';
+import type { McpServerRecord, ServerRuns } from '../lib/mcp-servers.js';
 
 const tools = () => [...ENGINE_TOOL_SEEDS];
 const PROCEDURES = seededProcedures();
@@ -28,7 +29,7 @@ const agent = (over: Partial<Persona> = {}): Persona => ({
 
 const known = () => ({ tools: tools(), procedures: PROCEDURES, agents: AGENTS });
 
-function service(over: { image?: ImageStanding; treeTypes?: { id: string; label: string; agent?: string }[] } = {}) {
+function service(over: { image?: ImageStanding; treeTypes?: { id: string; label: string; agent?: string }[]; servers?: McpServerRecord[] } = {}) {
   const db = new MemoryDB();
   const stored = () => db.getEnginePersonas();
   const started: string[] = [];
@@ -55,6 +56,7 @@ function service(over: { image?: ImageStanding; treeTypes?: { id: string; label:
       tools: async () => tools(),
       procedures: async () => [...PROCEDURES],
       treeTypes: async () => over.treeTypes ?? [],
+      ...(over.servers ? { servers: async () => over.servers! } : {}),
       images,
     }),
   };
@@ -223,6 +225,23 @@ describe('agents you can edit', () => {
     expect(images.start).toHaveBeenCalledOnce();
     expect(started).toHaveLength(1);
     expect(outcome).toMatchObject({ saved: true, agent: { image: { state: 'building' } } });
+  });
+
+  it('gives an agent a server, keeping what it held, and starts its image with the server in it', async () => {
+    const runs: ServerRuns = { where: 'workspace', install: [{ via: 'npm', packages: ['echoes'] }], start: 'echoes', port: 8931 };
+    const echoes: McpServerRecord = { id: 's1', ownerId: 'user-1', name: 'echoes', runs, createdAt: 't', updatedAt: 't' };
+    const { agents, images } = service({ servers: [echoes] });
+    await agents.save('user-1', agent({ tools: ['run_command', 'read_file'] }));
+    images.start.mockClear();
+
+    const image = await agents.holdServer('user-1', 'digger', 'echoes', { why: 'echo things', proposalId: 'a1' });
+
+    expect(image).toEqual({ state: 'building', reference: 'registry/koala:abc' });
+    expect(images.start).toHaveBeenCalledOnce();
+    expect(images.start.mock.calls[0]![0]).toMatchObject({ lines: expect.arrayContaining([expect.objectContaining({ from: 'server:echoes' })]) });
+    expect((await agents.get('user-1', 'digger'))?.servers).toEqual(['echoes']);
+    expect(await agents.image('user-1', 'digger')).toEqual({ state: 'ready', reference: 'registry/koala:abc' });
+    await expect(agents.holdServer('user-1', 'ghost', 'echoes')).rejects.toThrow('there is no agent called ghost');
   });
 
   it('starts no image for an agent that needs no machine', async () => {

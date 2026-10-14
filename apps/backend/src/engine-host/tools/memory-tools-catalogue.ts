@@ -86,7 +86,7 @@ export const MEMORY_TOOLS: ToolDefinition[] = [
   {
     name: 'propose_tool_note',
     summary: 'Propose a note on how to use one tool, or the tools of one MCP server, which is shown beside it once the bench shows it breaks nothing',
-    guidance: 'Use this when runs show a tool being misused in the same way — called when another fits, called in the wrong order, given arguments it refuses, its result misread — and a sentence beside the tool would prevent it for every agent that holds it. Write it as advice about the tool, not about one agent\'s work: that is a practice. It starts on trial: the bench runs the checks that use the tool with it, and it goes live only if nothing regresses; otherwise it waits for the person.',
+    guidance: 'Use this when runs show a tool being misused in the same way — called when another fits, called in the wrong order, given arguments it refuses, its result misread — and a sentence beside the tool would prevent it for every agent that holds it. Write it as advice about the tool, not about one agent\'s work: that is a practice. It starts on trial: the bench runs the checks that use the tool with it, and it goes live only if a check that failed before now passes and nothing regresses; otherwise it waits for the person.',
     binding: 'platform',
     effect: 'propose',
     idempotent: false,

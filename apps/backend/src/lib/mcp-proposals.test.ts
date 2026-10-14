@@ -21,14 +21,21 @@ describe('a proposed MCP server', () => {
     const drafted = draftServerProposal({ template: 'playwright', agents: ['executor'], notes: 'Odoo is at http://localhost:8069.', why: 'stories need to check pages in Odoo' }, known());
     if ('problem' in drafted) throw new Error(drafted.problem);
     expect(drafted.proposal).toEqual({ template: 'playwright', name: 'playwright', notes: 'Odoo is at http://localhost:8069.', agents: ['executor'], why: 'stories need to check pages in Odoo' });
-    expect(drafted.summary).toBe('add the MCP server playwright and give it to executor');
-    expect(drafted.detail).toEqual(expect.arrayContaining([
-      expect.stringMatching(/^Server: playwright, the known playwright server — A headless Chromium/),
-      'Runs in the workspace (node)',
-      expect.stringMatching(/^Install with npm: @playwright\/mcp@/),
-      'Notes: Odoo is at http://localhost:8069.',
-      'Given to: executor (each one\'s image rebuilds with it)',
-      'Why: stories need to check pages in Odoo',
+    expect(drafted.summary).toBe('add the MCP server playwright for executor');
+    expect(drafted.sections.map((entry) => [entry.title, entry.folded])).toEqual([
+      ['What it is', undefined],
+      ['Who gets it', undefined],
+      ['Notes for the agents', undefined],
+      ['How it runs', expect.stringMatching(/^npm @playwright\/mcp@[\d.]+, port 8931$/)],
+    ]);
+    expect(drafted.sections[0]!.parts[0]).toEqual({ kind: 'text', text: 'playwright · known server · runs in the workspace' });
+    expect(drafted.sections[1]!.parts).toEqual([{ kind: 'text', text: 'executor — its workspace image is rebuilt with it' }]);
+    expect(drafted.sections[2]!.parts).toEqual([{ kind: 'text', text: 'Odoo is at http://localhost:8069.' }]);
+    const running = drafted.sections[3]!.parts;
+    expect(running).toEqual(expect.arrayContaining([
+      { kind: 'code', label: 'start', code: expect.stringContaining('playwright-mcp --browser chromium') },
+      { kind: 'code', label: 'install script', code: expect.stringContaining('install chromium') },
+      { kind: 'fields', fields: [{ label: 'answers', value: '127.0.0.1:8931/mcp', code: true }] },
     ]));
   });
 
@@ -36,7 +43,10 @@ describe('a proposed MCP server', () => {
     const drafted = draftServerProposal({ server: 'docs', agents: ['executor', 'planner'], why: 'planning needs the docs' }, known());
     if ('problem' in drafted) throw new Error(drafted.problem);
     expect(drafted.proposal).toEqual({ server: 'docs', name: 'docs', agents: ['planner'], why: 'planning needs the docs' });
-    expect(drafted.detail).toEqual(['Server: docs — captured, 1 tool offered: search', 'Given to: planner', 'Why: planning needs the docs']);
+    expect(drafted.sections).toEqual([
+      { title: 'What it is', parts: [{ kind: 'text', text: 'docs · already yours · hosted' }, { kind: 'text', text: 'captured, 1 tool offered: search' }] },
+      { title: 'Who gets it', parts: [{ kind: 'text', text: 'planner' }] },
+    ]);
 
     expect(draftServerProposal({ server: 'docs', agents: ['executor'], why: 'w' }, known())).toEqual({ problem: 'executor already holds docs' });
     expect(draftServerProposal({ server: 'docs', agents: ['planner'], notes: 'n', why: 'w' }, known())).toEqual({ problem: 'a server you already have is changed on its page in the Studio; propose only who should hold it' });
@@ -45,7 +55,7 @@ describe('a proposed MCP server', () => {
   it('adds a new one only when it makes sense', () => {
     const runs = { where: 'hosted', url: 'http://tickets.test/mcp' };
     const drafted = draftServerProposal({ name: 'tickets', runs: JSON.stringify(runs), agents: '["koala"]', why: 'w' }, known());
-    expect(drafted).toMatchObject({ proposal: { name: 'tickets', runs, agents: ['koala'] }, detail: expect.arrayContaining(['Runs hosted at http://tickets.test/mcp']) });
+    expect(drafted).toMatchObject({ proposal: { name: 'tickets', runs, agents: ['koala'] }, sections: expect.arrayContaining([{ title: 'How it runs', parts: [{ kind: 'fields', fields: [{ label: 'At', value: 'http://tickets.test/mcp', code: true }] }] }]) });
 
     expect(draftServerProposal({ name: 'Tickets!', runs, why: 'w' }, known())).toMatchObject({ problem: expect.stringMatching(/^the name has to be/) });
     expect(draftServerProposal({ name: 'tickets', runs: { where: 'hosted', url: 'ftp://x' }, why: 'w' }, known())).toEqual({ problem: 'a hosted server\'s URL has to be http or https' });

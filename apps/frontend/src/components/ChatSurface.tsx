@@ -329,6 +329,7 @@ export default function ChatSurface({
                       onApprove={() => planProposals.approve(proposal.id)}
                       onReject={(reason) => planProposals.reject(proposal.id, reason)}
                       onOpenTree={onOpenTree}
+                      onOpenStory={onOpenStory}
                     />
                   ))}
 

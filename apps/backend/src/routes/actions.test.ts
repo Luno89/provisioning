@@ -4,6 +4,10 @@ import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { actionsRouter } from './actions.js';
 import { ActionService, type ActionDeployer } from '../services/ActionService.js';
 import type { ActionProposal } from '../lib/action-proposals.js';
+import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../lib/mcp-servers.js';
+import type { ImageNow } from '../lib/proposal-progress.js';
+
+const WORKSPACE: ServerRuns = { where: 'workspace', install: [{ via: 'npm', packages: ['@playwright/mcp'] }], start: 'playwright-mcp', port: 8931 };
 
 const post = (url: string) => axios.post(url, {}, { validateStatus: () => true });
 
@@ -77,14 +81,18 @@ describe('/api/actions', () => {
 describe('/api/actions adding an MCP server', () => {
   let harness: Harness;
   let added: Record<string, unknown>[];
-  let granted: [string, string[], unknown][];
+  let granted: [string, string, unknown][];
   let held: Record<string, string[]>;
-  const servers: { name: string; runs: { where: string } }[] = [{ name: 'docs', runs: { where: 'hosted' } }];
+  let images: Record<string, ImageNow>;
+  const captured = { tools: [{ name: 'browser_click' }, { name: 'browser_snapshot' }], at: 't', fingerprint: '' };
+  let servers: McpServerRecord[];
 
   beforeEach(async () => {
     added = [];
     granted = [];
     held = { executor: ['docs'], planner: [] };
+    images = {};
+    servers = [{ id: 'docs-id', ownerId: TEST_USER.id, name: 'docs', runs: { where: 'hosted', url: 'http://docs.test/mcp' }, createdAt: 't', updatedAt: 't' }];
     harness = await mountRouter({ prefix: '/api/actions', router: (db) => actionsRouter({ actions: new ActionService({
       store: db,
       deployer: { deployApp: vi.fn(), promoteProjectBuild: vi.fn() },
@@ -92,13 +100,22 @@ describe('/api/actions adding an MCP server', () => {
         add: async (_ownerId, input) => {
           added.push(input as Record<string, unknown>);
           if (input.template === 'nothing') return { ok: false, status: 404, error: 'there is no known server called "nothing"' };
-          return { ok: true, server: { name: (input.name as string) ?? 'playwright', runs: { where: 'workspace' } } as never };
+          const server: McpServerRecord = { id: 'pw-id', ownerId: TEST_USER.id, name: (input.name as string) ?? 'playwright', runs: WORKSPACE, capturing: { runId: 'c1', at: 't' }, createdAt: 't', updatedAt: 't' };
+          servers.push(server);
+          return { ok: true, server: { ...server, status: { state: 'capturing', runId: 'c1' } } };
         },
-        list: async () => servers as never,
+        list: async () => servers,
       },
       agents: {
         agents: async () => Object.entries(held).map(([slug, names]) => ({ slug, servers: names })),
-        setServers: async (_ownerId, slug, wanted, meta) => { granted.push([slug, [...wanted], meta]); return true; },
+        holdServer: async (_ownerId, slug, server, meta) => {
+          granted.push([slug, server, meta]);
+          held[slug] = [...(held[slug] ?? []), server];
+          if (server === 'docs') return undefined;
+          images[slug] = { state: 'building' };
+          return images[slug];
+        },
+        image: async (_ownerId, slug) => images[slug],
       },
     }) }) });
   });
@@ -107,24 +124,52 @@ describe('/api/actions adding an MCP server', () => {
 
   const spec = (over: Record<string, unknown>) => JSON.stringify({ name: 'playwright', agents: ['executor', 'planner'], why: 'check pages', ...over });
 
-  it('adds a known server with what the card said, then gives it to each agent named, keeping what they held', async () => {
+  it('adds a known server with what the card said, gives it to each agent named, and starts their images building', async () => {
     await harness.db.saveActionProposal(proposal({ kind: 'add_mcp_server', params: { spec: spec({ template: 'playwright', notes: 'Odoo on 8069' }) } }));
     const res = await post(harness.url('/api/actions/a1/apply'));
-    expect(res.data).toMatchObject({ status: 'applied', result: 'added playwright; its tools are being captured; given to executor, planner, whose images rebuild with it' });
+    expect(res.data).toMatchObject({
+      status: 'applied',
+      result: 'added playwright; its tools are being captured; given to executor, planner; building executor, planner\'s images',
+      started: { server: { id: 'pw-id', name: 'playwright', added: true }, images: ['executor', 'planner'] },
+    });
     expect(added).toEqual([expect.objectContaining({ template: 'playwright', name: 'playwright', notes: 'Odoo on 8069' })]);
     expect(granted).toEqual([
-      ['executor', ['docs', 'playwright'], { why: 'check pages', proposalId: 'a1' }],
-      ['planner', ['playwright'], { why: 'check pages', proposalId: 'a1' }],
+      ['executor', 'playwright', { why: 'check pages', proposalId: 'a1' }],
+      ['planner', 'playwright', { why: 'check pages', proposalId: 'a1' }],
     ]);
+  });
+
+  it('follows what it started until the tools are captured and every image is built', async () => {
+    await harness.db.saveActionProposal(proposal({ kind: 'add_mcp_server', params: { spec: spec({ template: 'playwright', agents: ['executor'] }) } }));
+    await post(harness.url('/api/actions/a1/apply'));
+
+    const first = (await axios.get(harness.url('/api/actions/a1/progress'))).data;
+    expect(first).toEqual({
+      steps: [
+        { label: 'Added playwright', state: 'done' },
+        { label: 'Capturing its tools', state: 'running' },
+        { label: 'Building executor\'s image', state: 'running' },
+      ],
+      done: false,
+      server: { id: 'pw-id', name: 'playwright' },
+    });
+
+    const server = servers.find((entry) => entry.id === 'pw-id')!;
+    delete server.capturing;
+    server.captured = { ...captured, fingerprint: runsFingerprint(WORKSPACE) };
+    images.executor = { state: 'ready' };
+    const last = (await axios.get(harness.url('/api/actions/a1/progress'))).data;
+    expect(last).toMatchObject({ done: true, ready: 'playwright is ready for executor', steps: [{ state: 'done' }, { label: 'Captured its tools', state: 'done', detail: '2, 2 offered' }, { label: 'executor\'s image is built', state: 'done' }] });
   });
 
   it('gives a server the person has without adding anything, and fails with the reason when it cannot add one', async () => {
     await harness.db.saveActionProposal(proposal({ kind: 'add_mcp_server', params: { spec: spec({ server: 'docs', name: 'docs', agents: ['planner'] }) } }));
-    expect((await post(harness.url('/api/actions/a1/apply'))).data).toMatchObject({ status: 'applied', result: 'given to planner' });
+    expect((await post(harness.url('/api/actions/a1/apply'))).data).toMatchObject({ status: 'applied', result: 'given to planner', started: { server: { id: 'docs-id', added: false } } });
     expect(added).toEqual([]);
 
     await harness.db.saveActionProposal(proposal({ id: 'a2', kind: 'add_mcp_server', params: { spec: spec({ template: 'nothing' }) } }));
     expect((await post(harness.url('/api/actions/a2/apply'))).data).toMatchObject({ status: 'failed', reason: 'there is no known server called "nothing"' });
     expect(granted.map(([slug]) => slug)).toEqual(['planner']);
+    expect((await axios.get(harness.url('/api/actions/a2/progress'), { validateStatus: () => true })).status).toBe(404);
   });
 });

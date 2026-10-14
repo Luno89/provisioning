@@ -9,6 +9,8 @@ import type { McpServerRecord } from '../lib/mcp-servers.js';
 import type { ServerProposal } from '../lib/mcp-proposals.js';
 import type { McpServerInput, McpServerOutcome } from './McpServerService.js';
 import type { GrantMeta } from '../engine-host/registries/agent-directory.js';
+import type { ProposalProgress, ProposalStarted } from '@koala/harness-types';
+import { serverProgress, type ImageNow } from '../lib/proposal-progress.js';
 
 export interface ActionServers {
   add(ownerId: string, input: McpServerInput & { template?: unknown }): Promise<McpServerOutcome>;
@@ -17,7 +19,13 @@ export interface ActionServers {
 
 export interface ActionAgents {
   agents(ownerId: string): Promise<readonly { slug: string; servers?: readonly string[] | undefined }[]>;
-  setServers(ownerId: string, slug: string, wanted: readonly string[], meta?: GrantMeta): Promise<boolean>;
+  holdServer(ownerId: string, slug: string, server: string, meta?: GrantMeta): Promise<ImageNow | undefined>;
+  image(ownerId: string, slug: string): Promise<ImageNow | undefined>;
+}
+
+interface Executed {
+  result: string;
+  started?: ProposalStarted | undefined;
 }
 
 export type ActionStore = Pick<Database,
@@ -65,8 +73,8 @@ export class ActionService {
 
     await this.deps.store.saveActionProposal({ ...proposal, status: 'applying', updatedAt: this.now() });
     try {
-      const result = await this.execute(ownerId, proposal);
-      const applied: ActionProposal = { ...proposal, status: 'applied', result, updatedAt: this.now() };
+      const { result, started } = await this.execute(ownerId, proposal);
+      const applied: ActionProposal = { ...proposal, status: 'applied', result, ...(started ? { started } : {}), updatedAt: this.now() };
       delete applied.reason;
       await this.deps.store.saveActionProposal(applied);
       this.deps.onSettled?.(ownerId, proposal.conversationId);
@@ -92,7 +100,16 @@ export class ActionService {
     return project;
   }
 
-  private async addServer(ownerId: string, proposalId: string, spec: ServerProposal): Promise<string> {
+  async progress(ownerId: string, id: string): Promise<ProposalProgress | undefined> {
+    const proposal = await this.deps.store.getActionProposal(ownerId, id);
+    if (!proposal?.started || !this.deps.servers || !this.deps.agents) return undefined;
+    const started = proposal.started;
+    const server = started.server ? (await this.deps.servers.list(ownerId)).find((entry) => entry.id === started.server!.id) : undefined;
+    const images = Object.fromEntries(await Promise.all((started.images ?? []).map(async (slug) => [slug, await this.deps.agents!.image(ownerId, slug)] as const)));
+    return serverProgress(started, server, images);
+  }
+
+  private async addServer(ownerId: string, proposalId: string, spec: ServerProposal): Promise<Executed> {
     const { servers, agents } = this.deps;
     if (!servers || !agents) throw new Error('MCP servers cannot be added from here');
     const holders = await agents.agents(ownerId);
@@ -111,20 +128,26 @@ export class ActionService {
     }
 
     const given: string[] = [];
+    const building: string[] = [];
     for (const slug of spec.agents) {
-      const held = holders.find((agent) => agent.slug === slug)?.servers ?? [];
-      if (held.includes(server.name)) continue;
-      await agents.setServers(ownerId, slug, [...held, server.name], { why: spec.why, proposalId });
+      if ((holders.find((agent) => agent.slug === slug)?.servers ?? []).includes(server.name)) continue;
+      const image = await agents.holdServer(ownerId, slug, server.name, { why: spec.why, proposalId });
       given.push(slug);
+      if (image) building.push(slug);
     }
-    const workspace = server.runs.where === 'workspace';
-    return [
+    const result = [
       ...(spec.server ? [] : [`added ${server.name}; its tools are being captured`]),
-      ...(given.length ? [`given to ${given.join(', ')}${workspace ? `, whose image${given.length === 1 ? '' : 's'} rebuild${given.length === 1 ? 's' : ''} with it` : ''}`] : []),
+      ...(given.length ? [`given to ${given.join(', ')}${building.length ? `; building ${building.join(', ')}'s image${building.length === 1 ? '' : 's'}` : ''}`] : []),
     ].join('; ') || `${server.name} was already held by everyone named`;
+    return { result, started: { server: { id: server.id, name: server.name, added: !spec.server }, ...(building.length ? { images: building } : {}) } };
   }
 
-  private async execute(ownerId: string, proposal: ActionProposal): Promise<string> {
+  private async execute(ownerId: string, proposal: ActionProposal): Promise<Executed> {
+    if (proposal.kind === 'add_mcp_server') return this.addServer(ownerId, proposal.id, JSON.parse(proposal.params.spec ?? '{}') as ServerProposal);
+    return { result: await this.carryOut(ownerId, proposal) };
+  }
+
+  private async carryOut(ownerId: string, proposal: ActionProposal): Promise<string> {
     const { params } = proposal;
     switch (proposal.kind) {
       case 'deploy_app': {
@@ -156,7 +179,7 @@ export class ActionService {
         return `"${spec.id}" is in your catalogue and can be deployed`;
       }
       case 'add_mcp_server':
-        return this.addServer(ownerId, proposal.id, JSON.parse(params.spec ?? '{}') as ServerProposal);
+        throw new Error('an MCP server is added by addServer');
       case 'add_project_dependency': {
         const out = await declareDependency(this.deps.store, ownerId, { projectId: params.projectId, service: params.service, as: params.as });
         if (out.error) throw new Error(out.error);

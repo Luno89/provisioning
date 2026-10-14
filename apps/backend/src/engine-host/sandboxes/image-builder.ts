@@ -177,14 +177,16 @@ function buildManifests(input: {
                   '--insecure',
                   '--insecure-pull',
                   '--skip-tls-verify',
+                  '--compressed-caching=false',
+                  '--snapshot-mode=redo',
                 ],
                 volumeMounts: [
                   { name: 'workspace', mountPath: '/workspace' },
                   ...(login ? [{ name: 'registry', mountPath: '/kaniko/.docker' }] : []),
                 ],
                 resources: {
-                  requests: { cpu: '250m', memory: '512Mi' },
-                  limits: { cpu: '2', memory: '2Gi' },
+                  requests: { cpu: '250m', memory: '1Gi' },
+                  limits: { cpu: '2', memory: '10Gi' },
                 },
               },
             ],

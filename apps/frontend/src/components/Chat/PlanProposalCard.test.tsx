@@ -1,7 +1,25 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { render as rtlRender, screen, fireEvent } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, it, expect, vi } from 'vitest'
 import type { PlanProposal } from '@koala/harness-types'
 import PlanProposalCard from './PlanProposalCard'
+
+vi.mock('../../api/grove', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/grove')>()),
+  listLeaves: vi.fn(async () => [
+    { id: 'l1', branchId: 'b1', title: 'Persists', status: 'running', tasks: ['t'], updatedAt: 'a' },
+    { id: 'l2', branchId: 'b1', title: 'Slip', status: 'pending', tasks: [], updatedAt: 'a' },
+  ]),
+  listBranches: vi.fn(async () => []),
+  getTreeRun: vi.fn(async () => ({ state: 'running', startedAt: 'a' })),
+}))
+vi.mock('../../api/plans', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/plans')>()),
+  listTreePlans: vi.fn(async () => []),
+}))
+
+const render = (ui: ReactNode) => rtlRender(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>)
 
 const proposal = (over: Partial<PlanProposal> = {}): PlanProposal => ({
   id: 'p1',
@@ -148,5 +166,23 @@ describe('a plan that names its service', () => {
     expect(screen.getByText(/after Note on screen/)).toBeTruthy()
     expect(screen.queryByText(/The tree is run/)).toBeNull()
     expect(screen.queryByRole('button', { name: 'Open the tree' })).toBeNull()
+  })
+
+  it('follows the stories it added once applied, and opens one', async () => {
+    const onOpenStory = vi.fn()
+    render(<PlanProposalCard
+      proposal={proposal({
+        status: 'adopted',
+        plan: undefined,
+        change: { treeId: 't1', why: 'w', add: { branchId: 'b1', branchTitle: 'The proof', leaves: [] }, before: [], outcome: [] },
+        adopted: { treeId: 't1', branchIds: ['b1'], leafIds: { persist: 'l1', slip: 'l2' }, taskIds: {} },
+      })}
+      deciding={false} onApprove={() => {}} onReject={() => {}} onOpenStory={onOpenStory}
+    />)
+    expect(await screen.findByText('Added 2 stories to “The proof”')).toBeTruthy()
+    expect(screen.getByText('“Persists” is being worked')).toBeTruthy()
+    expect(screen.getByText('“Slip” waits its turn')).toBeTruthy()
+    fireEvent.click(screen.getByText('Watch it work ›'))
+    expect(onOpenStory).toHaveBeenCalledWith({ treeId: 't1', branchId: 'b1', leafId: 'l1' })
   })
 })

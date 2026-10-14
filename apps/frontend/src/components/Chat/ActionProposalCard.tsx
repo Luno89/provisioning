@@ -1,5 +1,7 @@
 import { CheckCircle2, Loader2, Rocket, XCircle } from 'lucide-react'
 import type { ActionProposal } from '@koala/harness-types'
+import ProposalSections from './ProposalSections'
+import ProposalProgress from './ProposalProgress'
 
 export interface ActionProposalCardProps {
   proposal: ActionProposal
@@ -19,6 +21,7 @@ const STATUS_WORD: Record<ActionProposal['status'], string> = {
 
 export default function ActionProposalCard({ proposal, busy, error, onApply, onReject }: ActionProposalCardProps) {
   const decidable = proposal.status === 'proposed' || proposal.status === 'failed'
+  const following = proposal.status === 'applied' && Boolean(proposal.started)
   return (
     <div className="w-full p-3 my-2 rounded-md bg-[var(--bark-800)] border border-[var(--bark-700)] text-slate-200 text-xs flex flex-col gap-2" data-testid="action-proposal">
       <div className="flex items-start gap-2">
@@ -31,10 +34,13 @@ export default function ActionProposalCard({ proposal, busy, error, onApply, onR
         {proposal.status === 'applied' && <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />}
         {proposal.status === 'rejected' && <XCircle size={14} className="text-slate-500 shrink-0" />}
       </div>
-      <ul className="ml-1 flex flex-col gap-0.5 text-slate-300">
-        {proposal.detail.map((line) => <li key={line} className="font-mono break-all">{line}</li>)}
-      </ul>
-      {proposal.result && <div className="text-slate-400">{proposal.result}</div>}
+      {proposal.why && <p className="text-slate-300"><span className="text-slate-500">Why: </span>{proposal.why}</p>}
+      {following ? null : proposal.sections?.length ? <ProposalSections sections={proposal.sections} /> : (
+        <ul className="ml-1 flex flex-col gap-0.5 text-slate-300">
+          {proposal.detail.map((line) => <li key={line} className="font-mono break-all">{line}</li>)}
+        </ul>
+      )}
+      {following ? <ProposalProgress id={proposal.id} /> : proposal.result && <div className="text-slate-400">{proposal.result}</div>}
       {decidable && (
         <div className="flex gap-2">
           <button type="button" disabled={busy} onClick={onApply} className="px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 cursor-pointer">

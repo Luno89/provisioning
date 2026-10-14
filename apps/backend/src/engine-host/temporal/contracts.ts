@@ -311,6 +311,13 @@ export function handleFor(environment: EnvironmentValue | undefined): Environmen
   return undefined;
 }
 
+export interface AutoModeArgs {
+  ownerId: string;
+  agentSlug: string;
+  conversationId?: string | undefined;
+  workspaceRunId?: string | undefined;
+}
+
 export interface ToolAllowedArgs {
   ownerId: string;
   conversationId: string;

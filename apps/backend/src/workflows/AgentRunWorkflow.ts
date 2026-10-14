@@ -47,6 +47,7 @@ import {
   type RecordTracesArgs,
   type SettleClaimsArgs,
   type ToolAllowedArgs,
+  type AutoModeArgs,
   type RemoteNodeRequest,
   type RemoteNodeResult,
   type ResolveAgentArgs,
@@ -84,8 +85,9 @@ const engineNodesOnce = proxyActivities<EngineRemote>({ retry: { maximumAttempts
 const stream = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: ACTIVITY_RETRY, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: ABANDON });
 const streamOnce = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: { maximumAttempts: 1 }, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: ABANDON });
 
-const { EngineRecordTracesActivity, EngineRunLimitsActivity, EngineRecordEffortActivity, EngineSettleClaimsActivity, EngineToolAllowedActivity } = proxyActivities<{
+const { EngineRecordTracesActivity, EngineRunLimitsActivity, EngineRecordEffortActivity, EngineSettleClaimsActivity, EngineToolAllowedActivity, EngineAutoModeActivity } = proxyActivities<{
   EngineToolAllowedActivity(args: ToolAllowedArgs): Promise<boolean>;
+  EngineAutoModeActivity(args: AutoModeArgs): Promise<boolean>;
   EngineRecordTracesActivity(args: RecordTracesArgs): Promise<void>;
   EngineRunLimitsActivity(args: RunLimitsArgs): Promise<RunLimits>;
   EngineRecordEffortActivity(effort: RunEffort): Promise<void>;
@@ -108,6 +110,8 @@ const CONCLUSIONS = 'conclusion-events';
 const CONVERSATION_APPROVALS = 'conversation-approvals';
 const HAND_OFFS_TOGETHER = 'hand-offs-together';
 const TOOL_CALLS_HEAR_STOPS = 'tool-calls-hear-stops';
+const SANDBOX_CALLS_UNASKED = 'sandbox-calls-unasked';
+const AUTO_MODE = 'auto-mode';
 
 export const approveSignal = defineSignal<[{ callId: string; allowed: boolean; forRun?: boolean }]>('approve');
 export const answerSignal = defineSignal<[{ nodeId: string; value: unknown }]>('answer');
@@ -259,6 +263,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
     },
 
     handOffsTogether: () => patched(HAND_OFFS_TOGETHER),
+    sandboxCallsUnasked: () => patched(SANDBOX_CALLS_UNASKED),
 
     async runChild({ agent, inputs, environment, run, callId }): Promise<ChildOutcomeValue> {
       children += 1;
@@ -310,6 +315,15 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
 
     async approve({ nodeId, call, environment }) {
       if (approvedForRun) return true;
+      if (patched(AUTO_MODE)) {
+        const workspaceRunId = environment?.kind === 'sandbox' ? environment.workspace.runId : undefined;
+        if (await EngineAutoModeActivity({
+          ownerId: ticket.ownerId,
+          agentSlug: ticket.agentSlug,
+          ...(ticket.conversationId ? { conversationId: ticket.conversationId } : {}),
+          ...(workspaceRunId ? { workspaceRunId } : {}),
+        })) return true;
+      }
       if (ticket.conversationId && patched(CONVERSATION_APPROVALS)) {
         if (await EngineToolAllowedActivity({ ownerId: ticket.ownerId, conversationId: ticket.conversationId, tool: call.name })) return true;
       }
@@ -319,6 +333,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         type: 'notice',
         level: 'warn',
         nodeId,
+        callId: call.id,
         message: `${ticket.agentSlug} wants to run ${call.name} on ${where}: ${call.arguments}`,
       } as never);
 

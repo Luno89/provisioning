@@ -12,6 +12,7 @@ export const KOALA_E2E = '/usr/local/bin/koala-e2e';
 export const PLAYWRIGHT_BROWSERS = '/ms-playwright';
 
 export const HELM_VERSION = 'v3.15.1';
+export const NODE_VERSION = 'v22.23.3';
 
 const PGDG_KEY = 'https://www.postgresql.org/media/keys/ACCC4CF8.asc';
 const PGDG_LIST = 'deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt noble-pgdg main';
@@ -52,9 +53,7 @@ export const ODOO_BASE: BaseImage = {
     {
       via: 'script',
       run: [
-        'apt-get update',
-        'apt-get install -y --no-install-recommends nodejs npm',
-        'rm -rf /var/lib/apt/lists/*',
+        `curl -fsSL https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.xz | tar -xJ -C /usr/local --strip-components=1 --exclude CHANGELOG.md --exclude LICENSE --exclude README.md`,
         `npm install -g @playwright/test@${PLAYWRIGHT_VERSION}`,
         `PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS} npx -y playwright@${PLAYWRIGHT_VERSION} install --with-deps chromium`,
         `chmod -R a+rX ${PLAYWRIGHT_BROWSERS}`,

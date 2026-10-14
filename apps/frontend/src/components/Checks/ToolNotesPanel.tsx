@@ -4,8 +4,8 @@ import { panelClass, primaryButton, quietButton, useDecideToolNote, useToolNotes
 import { noteAbout, noteTrial, notesIn, type NoteScope } from './tool-notes'
 
 const GROUPS: { status: NonNullable<ToolNote['status']>; title: string; says: string }[] = [
-  { status: 'pending_review', title: 'Held for you', says: 'Something regressed when the bench tried these, so they wait for you.' },
-  { status: 'trial', title: 'On trial', says: 'The bench tries these on the checks that use the tool at the next idle moment.' },
+  { status: 'pending_review', title: 'Held for you', says: 'When the bench tried these, no check that failed before passed, or something got worse, so they wait for you.' },
+  { status: 'trial', title: 'On trial', says: 'The bench tries these on the checks that use the tool at the next idle moment. One goes live only if it makes a failing check pass and nothing gets worse.' },
   { status: 'active', title: 'Live', says: 'These are shown beside the tool to every agent offered it.' },
 ]
 
@@ -17,7 +17,7 @@ export default function ToolNotesPanel({ scope }: { scope: NoteScope }) {
 
   return (
     <section className={`flex flex-col gap-3 ${panelClass}`}>
-      <p className="text-xs text-slate-500">Notes the memory keeper learned from runs about using {'server' in scope ? `${scope.server}'s tools` : 'this tool'}. Each one is tried on the bench first and goes live only if nothing gets worse. One kept for a model is shown only on that model, and is tried on it.</p>
+      <p className="text-xs text-slate-500">Notes the memory keeper learned from runs about using {'server' in scope ? `${scope.server}'s tools` : 'this tool'}. Each one is tried on the bench first and goes live only if it makes a check pass that failed before, and nothing gets worse. One kept for a model is shown only on that model, and is tried on it.</p>
       {error && <p className="text-xs text-rose-300">{errorMessage(error)}</p>}
       {notes.isSuccess && mine.length === 0 && <p className="text-sm text-slate-400">Nothing learned yet.</p>}
       {GROUPS.map((group) => {

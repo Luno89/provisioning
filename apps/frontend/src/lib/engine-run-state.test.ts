@@ -98,14 +98,26 @@ describe('engine run state', () => {
     expect(state.interruptedReason).toContain('going in circles')
   })
 
-  it('collects notices, and surfaces the latest warning as a pending approval', () => {
+  it('collects notices, and surfaces the latest warning as a pending approval of the call it asks about', () => {
     const state = reduceEngineEvents('run-1', [
       { ...base, type: 'notice', level: 'info', message: 'Which database?' },
+      { ...base, type: 'tool.called', nodeId: 'approve', callId: 'c1', name: 'run_command', args: '{}' },
       { ...base, type: 'notice', level: 'warn', message: 'executor wants to run run_command on Tallgeese: {}' },
     ] as EngineEvent[])
 
     expect(state.notices).toHaveLength(2)
-    expect(pendingApproval(state)).toContain('Tallgeese')
+    expect(pendingApproval(state)).toEqual({ message: 'executor wants to run run_command on Tallgeese: {}', callId: 'c1' })
+  })
+
+  it('stops asking once the call it asked about has a result, or the run ended', () => {
+    const asked = [
+      { ...base, type: 'tool.called', nodeId: 'approve', callId: 'c1', name: 'playwright__browser_navigate', args: '{}' },
+      { ...base, type: 'notice', level: 'warn', message: 'executor wants to run playwright__browser_navigate on this run: {}', callId: 'c1' },
+    ] as EngineEvent[]
+    const answered = reduceEngineEvents('run-1', [...asked, { ...base, type: 'tool.result', nodeId: 'run', callId: 'c1', ok: true, digest: 'opened' }] as EngineEvent[])
+    expect(pendingApproval(answered)).toBeUndefined()
+    const ended = reduceEngineEvents('run-1', [...asked, { ...base, type: 'run.finished', outcome: 'cancelled' }] as EngineEvent[])
+    expect(pendingApproval(ended)).toBeUndefined()
   })
 
   it('has no pending approval when nothing is waiting', () => {

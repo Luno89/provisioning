@@ -3,7 +3,8 @@
 import path from 'path';
 import { DEFAULT_TARGET_CLUSTER } from './lib/project-shipping.js';
 import { stopIfRunning } from './lib/stop-workflow.js';
-import { createWorkspaceRepoResolver } from './engine-host/sandboxes/workspace-repos.js';
+import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
+import { AutoModeService } from './services/AutoModeService.js';
 import dotenv from 'dotenv';
 import { Worker, NativeConnection, Runtime } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
@@ -240,6 +241,7 @@ async function buildActivities() {
     },
   });
   const { registry, endpoints, environments, tools } = host;
+  const autoMode = new AutoModeService({ store: db, agentExists: async (ownerId, slug) => Boolean(await registry.agent(ownerId, slug)) });
   const runStarter = createRunStarter({
     registry,
     workflows: () => ({
@@ -292,6 +294,7 @@ async function buildActivities() {
     conversationWorkspaces: host.conversationWorkspaces,
     conversationAgent: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.agentSlug,
     allowedTools: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.allowedTools ?? [],
+    autoMode: (args) => autoMode.unasked({ ...args, treeId: args.workspaceRunId ? treeOfWorkspace(args.workspaceRunId) : undefined }),
     plans: { list: (ownerId) => db.getPlanProposals(ownerId) },
     planAdoption: createPlanAdoption({
       stores: {

@@ -29,10 +29,10 @@ export function describeNotes(notes: readonly Pick<ToolNote, 'status'>[]): strin
 export function noteTrial(note: Pick<ToolNote, 'trial'>): string {
   const trial = note.trial
   if (!trial) return ''
-  if (trial.unchecked) return 'went live unchecked — no check uses this tool yet'
+  if (trial.unchecked) return 'not tried — no check uses this tool yet'
   const regressions = trial.regressions ?? []
   if (regressions.length > 0) return `regressed ${regressions.join(', ')} in bench run ${trial.runId ?? ''}`
   const better = trial.better ?? []
   const checks = `${trial.scenarios?.length ?? 0} check${trial.scenarios?.length === 1 ? '' : 's'}`
-  return better.length > 0 ? `nothing regressed across ${checks}, and ${better.join(', ')} now pass${better.length === 1 ? 'es' : ''}` : `nothing regressed across ${checks}`
+  return better.length > 0 ? `nothing regressed across ${checks}, and ${better.join(', ')} now pass${better.length === 1 ? 'es' : ''}` : `nothing regressed across ${checks}, but no check that failed before passed`
 }

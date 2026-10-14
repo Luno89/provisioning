@@ -1,5 +1,6 @@
 import type { Install } from '@koala/agent-engine';
 import { serverNameFrom, serverProblems, serverState, type McpServerRecord, type McpServerTemplate, type ServerRuns } from './mcp-servers.js';
+import { code, fields, section, text, type ProposalSection } from './proposal-sections.js';
 
 export interface ServerProposal {
   template?: string | undefined;
@@ -21,9 +22,9 @@ export interface ProposalKnown {
   agents: readonly { slug: string; servers?: readonly string[] | undefined }[];
 }
 
-export type DraftedProposal = { proposal: ServerProposal; summary: string; detail: string[] } | { problem: string };
+export type DraftedProposal = { proposal: ServerProposal; summary: string; sections: ProposalSection[] } | { problem: string };
 
-const text = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() ? value.trim() : undefined);
+const trimmed = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() ? value.trim() : undefined);
 
 const list = (value: unknown): string[] | undefined | false => {
   if (value === undefined || value === null) return undefined;
@@ -41,6 +42,24 @@ const installLine = (install: Install): string => {
   if (install.via === 'base') return 'Install: what the base image has';
   return `Install with ${install.via}: ${install.packages.join(', ')}`;
 };
+
+const where = (runs: ServerRuns): string => (runs.where === 'workspace' ? 'runs in the workspace' : 'url' in runs ? 'hosted' : 'one of your deployments');
+
+export function howItRuns(runs: ServerRuns): ProposalSection {
+  if (runs.where === 'hosted') return section('How it runs', [fields('url' in runs ? ['At', runs.url, 'code'] : ['Deployment', runs.deploymentId])]);
+  const packages = runs.install.flatMap((install) => (install.via === 'script' || install.via === 'base' ? [] : [[install.via, install.packages.join(' ')] as const]));
+  const scripts = runs.install.flatMap((install) => (install.via === 'script' ? [install.run] : []));
+  const answers = `127.0.0.1:${runs.port}${runs.path ?? '/mcp'}`;
+  return section('How it runs', [
+    fields(...packages, ...(runs.languages?.length ? [['languages', runs.languages.join(', ')] as const] : [])),
+    ...scripts.map((script) => code(script, 'install script')),
+    code(runs.start, 'start'),
+    fields(['answers', answers, 'code']),
+  ], [...packages.map(([via, names]) => `${via} ${names}`), `port ${runs.port}`].join(', '));
+}
+
+const givenText = (to: readonly string[], workspace: boolean): string =>
+  to.map((slug) => (workspace ? `${slug} — its workspace image is rebuilt with it` : slug)).join('\n');
 
 export function runsLines(runs: ServerRuns): string[] {
   if (runs.where === 'hosted') return ['url' in runs ? `Runs hosted at ${runs.url}` : `Runs as your deployment ${runs.deploymentId}`];
@@ -62,7 +81,7 @@ export function stateLine(server: McpServerRecord): string {
 }
 
 export function draftServerProposal(parsed: Record<string, unknown>, known: ProposalKnown): DraftedProposal {
-  const why = text(parsed.why);
+  const why = trimmed(parsed.why);
   if (!why) return { problem: 'say why, shown to the person on the card' };
   const agents = list(parsed.agents);
   if (agents === false) return { problem: 'agents has to be a list of agent slugs' };
@@ -72,27 +91,25 @@ export function draftServerProposal(parsed: Record<string, unknown>, known: Prop
   const omit = list(parsed.omit);
   if (offer === false || omit === false) return { problem: 'offer and omit have to be lists of tool names' };
   const extras = {
-    ...(text(parsed.summary) ? { summary: text(parsed.summary) } : {}),
-    ...(text(parsed.notes) ? { notes: text(parsed.notes) } : {}),
-    ...(text(parsed.dependsOn) ? { dependsOn: text(parsed.dependsOn) } : {}),
+    ...(trimmed(parsed.summary) ? { summary: trimmed(parsed.summary) } : {}),
+    ...(trimmed(parsed.notes) ? { notes: trimmed(parsed.notes) } : {}),
+    ...(trimmed(parsed.dependsOn) ? { dependsOn: trimmed(parsed.dependsOn) } : {}),
     ...(offer ? { offer } : {}),
     ...(omit ? { omit } : {}),
   };
   const holders = (name: string) => known.agents.filter((agent) => (agent.servers ?? []).includes(name)).map((agent) => agent.slug);
   const given = (name: string) => (agents ?? []).filter((slug) => !holders(name).includes(slug));
-  const extraLines = [
-    ...(extras.notes ? [`Notes: ${extras.notes}`] : []),
-    ...(extras.dependsOn ? [`Depends on: ${extras.dependsOn}`] : []),
-    ...(extras.offer ? [`Offers only: ${extras.offer.join(', ')}`] : []),
-    ...(extras.omit ? [`Leaves out: ${extras.omit.join(', ')}`] : []),
+  const extraSections = [
+    ...(extras.notes ? [section('Notes for the agents', [text(extras.notes)])] : []),
+    ...(extras.dependsOn || extras.offer || extras.omit ? [section('Its tools', [fields(['Depends on', extras.dependsOn], ['Offers only', extras.offer?.join(', ')], ['Leaves out', extras.omit?.join(', ')])])] : []),
   ];
-  const givenLine = (name: string, workspace: boolean) => {
+  const whoGets = (name: string, workspace: boolean) => {
     const to = given(name);
-    return to.length === 0 ? [] : [`Given to: ${to.join(', ')}${workspace ? ' (each one\'s image rebuilds with it)' : ''}`];
+    return to.length === 0 ? [section('Who gets it', [text('No agent yet — give it to one from the server\'s page.')])] : [section('Who gets it', [text(givenText(to, workspace))])];
   };
 
-  const existing = text(parsed.server);
-  const templateId = text(parsed.template);
+  const existing = trimmed(parsed.server);
+  const templateId = trimmed(parsed.template);
   const sources = [existing, templateId, parsed.runs !== undefined ? 'runs' : undefined].filter(Boolean);
   if (sources.length !== 1) return { problem: 'propose one thing: a server you already have (server), a known one (template), or a new one (name and runs)' };
 
@@ -106,7 +123,10 @@ export function draftServerProposal(parsed: Record<string, unknown>, known: Prop
     return {
       proposal: { server: server.name, name: server.name, agents: to, why },
       summary: `give ${to.join(', ')} the MCP server ${server.name}`,
-      detail: [`Server: ${server.name} — ${stateLine(server)}`, ...givenLine(server.name, workspace), `Why: ${why}`],
+      sections: [
+        section('What it is', [text(`${server.name} · already yours · ${where(server.runs)}`), ...(server.summary ? [text(server.summary)] : []), text(stateLine(server))]),
+        ...whoGets(server.name, workspace),
+      ],
     };
   }
 
@@ -116,24 +136,34 @@ export function draftServerProposal(parsed: Record<string, unknown>, known: Prop
     const added = known.servers.find((server) => server.from && 'template' in server.from && server.from.template === template.id);
     if (added) return { problem: `${template.id} is already added, as ${added.name}; propose server: "${added.name}" to give it to agents` };
     const taken = new Set(known.servers.map((server) => server.name));
-    const name = text(parsed.name) ?? serverNameFrom(template.name, taken);
+    const name = trimmed(parsed.name) ?? serverNameFrom(template.name, taken);
     const problems = serverProblems({ name, runs: template.runs, offer: extras.offer, omit: extras.offer ? extras.omit : (extras.omit ?? template.omit) }, known.servers);
     if (problems.length > 0) return { problem: problems.join('; ') };
     return {
       proposal: { template: template.id, name, ...extras, agents: agents ?? [], why },
-      summary: `add the MCP server ${name}${agents?.length ? ` and give it to ${agents.join(', ')}` : ''}`,
-      detail: [`Server: ${name}, the known ${template.id} server — ${template.summary}`, ...runsLines(template.runs), ...extraLines, ...givenLine(name, template.runs.where === 'workspace'), 'Its tools are captured once it is added.', `Why: ${why}`],
+      summary: `add the MCP server ${name}${agents?.length ? ` for ${agents.join(', ')}` : ''}`,
+      sections: [
+        section('What it is', [text(`${name} · known server · ${where(template.runs)}`), text(template.summary), text('Its tools are captured as soon as it is added.')]),
+        ...whoGets(name, template.runs.where === 'workspace'),
+        ...extraSections,
+        howItRuns(template.runs),
+      ],
     };
   }
 
-  const name = text(parsed.name);
+  const name = trimmed(parsed.name);
   if (!name) return { problem: 'a new server needs a name' };
   const runs = object(parsed.runs) as ServerRuns;
   const problems = serverProblems({ name, runs, offer: extras.offer, omit: extras.omit }, known.servers);
   if (problems.length > 0) return { problem: problems.join('; ') };
   return {
     proposal: { name, runs, ...extras, agents: agents ?? [], why },
-    summary: `add the MCP server ${name}${agents?.length ? ` and give it to ${agents.join(', ')}` : ''}`,
-    detail: [`Server: ${name}${extras.summary ? ` — ${extras.summary}` : ''}`, ...runsLines(runs), ...extraLines, ...givenLine(name, runs.where === 'workspace'), 'Its tools are captured once it is added.', `Why: ${why}`],
+    summary: `add the MCP server ${name}${agents?.length ? ` for ${agents.join(', ')}` : ''}`,
+    sections: [
+      section('What it is', [text(`${name} · new server · ${where(runs)}`), ...(extras.summary ? [text(extras.summary)] : []), text('Its tools are captured as soon as it is added.')]),
+      ...whoGets(name, runs.where === 'workspace'),
+      ...extraSections,
+      howItRuns(runs),
+    ],
   };
 }

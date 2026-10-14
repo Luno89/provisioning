@@ -69,7 +69,11 @@ describe('proposing, never acting', () => {
   it('proposes env changes as a diff and keeps secrets out', async () => {
     const { call, proposals } = tools();
     await call('propose_project_env', { projectId: 'p1', env: { LOG_LEVEL: 'debug', FEATURE_X: 'on' } });
-    expect(proposals[0]!.detail).toEqual(['Project: billing', 'LOG_LEVEL: info → debug', 'FEATURE_X=on (new)', 'Takes effect on the next deploy.']);
+    expect(proposals[0]!.sections).toEqual([
+      { parts: [{ kind: 'fields', fields: [{ label: 'Project', value: 'billing' }] }] },
+      { title: 'What changes', parts: [{ kind: 'code', code: 'LOG_LEVEL: info → debug\nFEATURE_X=on (new)' }, { kind: 'text', text: 'Takes effect on the next deploy.' }] },
+    ]);
+    expect(proposals[0]!.detail).toEqual(['Project: billing', 'What changes — LOG_LEVEL: info → debug\nFEATURE_X=on (new)', 'What changes — Takes effect on the next deploy.']);
     expect(proposals[0]!.params.env).toBe('LOG_LEVEL=debug\nFEATURE_X=on');
     expect((await call('propose_project_env', { projectId: 'p1', env: 'x' })).digest).toContain('never a secret');
     expect((await call('propose_project_env', { projectId: 'p1', env: { LOG_LEVEL: 'debug', FEATURE_X: 'on' } })).content).toContain('already waiting');

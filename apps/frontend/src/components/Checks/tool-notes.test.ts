@@ -27,9 +27,9 @@ describe('tool notes', () => {
   })
 
   it('say how their trial went, and which checks they made pass', () => {
-    expect(noteTrial(note('n', { trial: { checkedAt: 'a', unchecked: true } }))).toBe('went live unchecked — no check uses this tool yet')
+    expect(noteTrial(note('n', { trial: { checkedAt: 'a', unchecked: true } }))).toBe('not tried — no check uses this tool yet')
     expect(noteTrial(note('n', { trial: { checkedAt: 'a', runId: 'r1', scenarios: ['x'], regressions: ['x'] } }))).toBe('regressed x in bench run r1')
     expect(noteTrial(note('n', { trial: { checkedAt: 'a', scenarios: ['x', 'y'], regressions: [], better: ['y'] } }))).toBe('nothing regressed across 2 checks, and y now passes')
-    expect(noteTrial(note('n', { trial: { checkedAt: 'a', scenarios: ['x'], regressions: [] } }))).toBe('nothing regressed across 1 check')
+    expect(noteTrial(note('n', { trial: { checkedAt: 'a', scenarios: ['x'], regressions: [] } }))).toBe('nothing regressed across 1 check, but no check that failed before passed')
   })
 })

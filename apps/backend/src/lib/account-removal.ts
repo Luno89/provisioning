@@ -100,7 +100,7 @@ export const ACCOUNT_DATA = {
     'modelEndpoints', 'mcpServers', 'odooReleases', 'pendingApprovals', 'planProposals', 'procedures', 'projects', 'publishedWorkspaces', 'secretRequests', 'tasks', 'toolGrants', 'treeTypes', 'trees',
     'scriptedRequests', 'turnLogs', 'workspaceImages',
   ],
-  byId: ['benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts'],
+  byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts'],
   related: { memoryWatermarks: 'the keys of its conversations', crawl_frontier: 'its ingests', pipelineRuns: 'its projects' },
   last: 'users',
   shared: ['clusterProviders', 'identityHandoffs', 'invites', 'model_thinking_profiles', 'temporal_payload_chunks'],

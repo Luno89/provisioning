@@ -2,6 +2,7 @@ import type { Conversation, ConversationMessage } from './conversations.js';
 import { hintKey, type McpToolHint } from './mcp-tool-hints.js';
 import type { BenchSettings, BenchState } from './bench.js';
 import type { ExtensionSettings } from './extension-settings.js';
+import type { AutoModeSettings } from './auto-mode.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
 import type { StoredAppSpec } from './app-spec.js';
@@ -255,6 +256,10 @@ export class MongoDB implements Database {
 
   private get extensionSettings(): Collection {
     return this.db!.collection('extensionSettings');
+  }
+
+  private get autoModeSettings(): Collection {
+    return this.db!.collection('autoModeSettings');
   }
 
   private get egressGrants(): Collection {
@@ -1107,6 +1112,18 @@ export class MongoDB implements Database {
   async saveExtensionSettings(settings: ExtensionSettings): Promise<void> {
     const { ownerId, ...rest } = settings;
     await this.extensionSettings.replaceOne({ _id: ownerId as never }, rest, { upsert: true });
+  }
+
+  async getAutoModeSettings(ownerId: string): Promise<AutoModeSettings | undefined> {
+    const doc = await this.autoModeSettings.findOne({ _id: ownerId as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc as Record<string, unknown>;
+    return { ...(rest as Omit<AutoModeSettings, 'ownerId'>), ownerId: String(_id) };
+  }
+
+  async saveAutoModeSettings(settings: AutoModeSettings): Promise<void> {
+    const { ownerId, ...rest } = settings;
+    await this.autoModeSettings.replaceOne({ _id: ownerId as never }, rest, { upsert: true });
   }
 
   async getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]> {

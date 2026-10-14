@@ -59,7 +59,14 @@ vi.mock('../../api/procedures', async () => {
   }
 })
 
+vi.mock('../../api/auto-mode', async () => ({
+  ...(await vi.importActual<typeof import('../../api/auto-mode')>('../../api/auto-mode')),
+  listAutoModeAgents: vi.fn(async () => ['koala']),
+  setAgentAutoMode: vi.fn(async (slug: string, on: boolean) => (on ? ['executor', 'koala'] : ['koala'])),
+}))
+
 const { listAgents, listGrantableTools, saveAgent, deleteAgent } = await import('../../api/agents')
+const { setAgentAutoMode } = await import('../../api/auto-mode')
 
 const TOOLS: GrantableTool[] = [
   { name: 'read_file', summary: 'Read a file', binding: 'environment', effect: 'read', needs: ['filesystem'] },
@@ -106,6 +113,19 @@ beforeEach(() => {
 })
 
 describe('editing an agent', () => {
+
+  it('puts a built-in agent in auto mode at once, without saving a copy of it', async () => {
+    await edit('executor', 'settings')
+
+    const box = await screen.findByLabelText('Auto mode')
+    await waitFor(() => expect(box).toBeEnabled())
+    expect(box).not.toBeChecked()
+    await userEvent.click(box)
+
+    await waitFor(() => expect(setAgentAutoMode).toHaveBeenCalledWith('executor', true))
+    await waitFor(() => expect(screen.getByLabelText('Auto mode')).toBeChecked())
+    expect(saveAgent).not.toHaveBeenCalled()
+  })
 
   it('keeps a built-in built in while only its tools change, and offers your own copy once anything else does', async () => {
     await edit('executor')

@@ -120,6 +120,31 @@ describe('approve tool calls', () => {
     expect((outcome.outputs.approved as ModelReply).toolCalls.map((call) => call.id)).toEqual(['a', 'b']);
   });
 
+  const sandbox = { kind: 'sandbox', id: 'pod', workspace: { runId: 'tree-t1' }, capabilities: { kind: 'sandbox' } };
+  const withPlatform = [...offered, { name: 'delete_tree', description: 'Delete a tree', binding: 'platform', effect: 'write', destructive: true }];
+  const inAndOut = reply([{ id: 'a', name: 'delete_file', arguments: '{"path":"notes.md"}' }, { id: 'c', name: 'delete_tree', arguments: '{"treeId":"t1"}' }]);
+
+  it('never asks about a call that runs inside the run\'s sandbox, destructive or not, but still asks about one that reaches outside it', async () => {
+    const p = ports({ approve: vi.fn(async () => true), sandboxCallsUnasked: vi.fn(() => true) });
+    await invoke(createOrchestrationNodes(p), approveToolCalls, { inputs: { reply: inAndOut, offered: withPlatform, environment: sandbox } });
+
+    expect(p.approve.mock.calls.map(([request]) => request.call.name)).toEqual(['delete_tree']);
+  });
+
+  it('keeps asking about destructive sandbox calls in a run that started before sandbox calls went unasked', async () => {
+    const p = ports({ approve: vi.fn(async () => true), sandboxCallsUnasked: vi.fn(() => false) });
+    await invoke(createOrchestrationNodes(p), approveToolCalls, { inputs: { reply: inAndOut, offered: withPlatform, environment: sandbox } });
+
+    expect(p.approve.mock.calls.map(([request]) => request.call.name)).toEqual(['delete_file', 'delete_tree']);
+  });
+
+  it('still asks about every sandbox call when told to always ask', async () => {
+    const p = ports({ approve: vi.fn(async () => true), sandboxCallsUnasked: vi.fn(() => true) });
+    await invoke(createOrchestrationNodes(p), approveToolCalls, { settings: { ask: 'always' }, inputs: { reply: inAndOut, offered: withPlatform, environment: sandbox } });
+
+    expect(p.approve).toHaveBeenCalledTimes(2);
+  });
+
   it('asks about nothing, destructive or not, when told never to', async () => {
     const p = ports();
     await invoke(createOrchestrationNodes(p), approveToolCalls, { settings: { ask: 'never' }, inputs: { reply: mixed, offered, environment: machine } });

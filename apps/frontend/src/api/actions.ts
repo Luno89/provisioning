@@ -1,10 +1,11 @@
-import type { ActionProposal } from '@koala/harness-types'
+import type { ActionProposal, ProposalProgress } from '@koala/harness-types'
 import { api } from './client'
 
 export const actionKeys = {
   all: ['actions'] as const,
   forConversation: (conversationId: string) => ['actions', 'conversation', conversationId] as const,
   forTree: (treeId: string) => ['actions', 'tree', treeId] as const,
+  progress: (id: string) => ['actions', 'progress', id] as const,
 }
 
 export const listConversationActions = (conversationId: string): Promise<ActionProposal[]> =>
@@ -18,3 +19,6 @@ export const applyAction = (id: string): Promise<ActionProposal> =>
 
 export const rejectAction = (id: string): Promise<ActionProposal> =>
   api.post<ActionProposal>(`/actions/${id}/reject`).then((r) => r.data)
+
+export const getActionProgress = (id: string): Promise<ProposalProgress> =>
+  api.get<ProposalProgress>(`/actions/${id}/progress`).then((r) => r.data)

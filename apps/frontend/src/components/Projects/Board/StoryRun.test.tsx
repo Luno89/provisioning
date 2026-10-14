@@ -1,8 +1,12 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { fireEvent, render as plainRender, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 import type { EngineEvent } from '../../../api/engine'
 import { applyInstanceEvents } from '../../../lib/engine-run-state'
 import { StoryRun } from './StoryRun'
+
+const render = (ui: ReactElement) => plainRender(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>)
 
 vi.mock('../../Studio/shared', () => ({
   useProcedure: (id: string) => ({ data: { procedure: { id, nodes: [] } }, isPending: false, isError: false }),
@@ -27,6 +31,7 @@ const events: EngineEvent[] = [
   { type: 'thinking', runId: 'exec-2', at: 't3', nodeId: 'turn.call', delta: 'The Save button has no text, so match it by class.' },
   { type: 'tool.called', runId: 'exec-2', at: 't3', nodeId: 'turn.call', callId: 'c1', name: 'run_command', args: '{"command":"odoo-e2e --keep delivery_instructions e2e/delivery-slip.spec.ts"}' },
   { type: 'tool.result', runId: 'exec-2', at: 't4', nodeId: 'turn.call', callId: 'c1', ok: false, digest: 'odoo-e2e: FAILED' },
+  { type: 'tool.called', runId: 'exec-2', at: 't5', nodeId: 'tools.approve', callId: 'c2', name: 'run_command', args: '{"command":"odoo-e2e --keep delivery_instructions e2e/delivery-slip.spec.ts"}' },
   { type: 'notice', runId: 'exec-2', at: 't5', level: 'warn', message: 'run_command wants to run; allow it?' },
 ]
 
@@ -59,8 +64,8 @@ describe('a run on a story\'s page', () => {
     const round = screen.getByTestId('story-run-round')
     expect(round.querySelector('details')!.hasAttribute('open')).toBe(true)
     expect(round.textContent).toContain('The Save button has no text, so match it by class.')
-    expect(screen.getByTestId('story-run-call').textContent).toContain('odoo-e2e --keep delivery_instructions e2e/delivery-slip.spec.ts')
-    expect(screen.getByTestId('story-run-call').textContent).toContain('· failed')
+    expect(screen.getAllByTestId('story-run-call')[0]!.textContent).toContain('odoo-e2e --keep delivery_instructions e2e/delivery-slip.spec.ts')
+    expect(screen.getAllByTestId('story-run-call')[0]!.textContent).toContain('· failed')
     expect(screen.getByText('What it gave back')).toBeTruthy()
     expect(screen.getByText('run_command wants to run; allow it?')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Allow' })).toBeTruthy()

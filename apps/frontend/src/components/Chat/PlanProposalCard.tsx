@@ -3,6 +3,8 @@ import { CheckCircle2, ClipboardList, Loader2, XCircle } from 'lucide-react'
 import type { PlanProposal } from '@koala/harness-types'
 import { changeHeading } from '../../lib/item-change'
 import { ItemChangeDetails } from './ItemChangeDetails'
+import PlanProgress from './PlanProgress'
+import type { StoryAddress } from './ChatNotice'
 
 export interface PlanProposalCardProps {
   proposal: PlanProposal
@@ -10,6 +12,7 @@ export interface PlanProposalCardProps {
   onApprove: () => void
   onReject: (reason?: string) => void
   onOpenTree?: ((treeId: string) => void) | undefined
+  onOpenStory?: ((story: StoryAddress) => void) | undefined
 }
 
 const STATUS_WORD: Record<PlanProposal['status'], string> = {
@@ -30,7 +33,7 @@ const CHANGE_STATUS_WORD: Record<PlanProposal['status'], string> = {
   failed: 'Applying it failed',
 }
 
-export default function PlanProposalCard({ proposal, deciding, onApprove, onReject, onOpenTree }: PlanProposalCardProps) {
+export default function PlanProposalCard({ proposal, deciding, onApprove, onReject, onOpenTree, onOpenStory }: PlanProposalCardProps) {
   const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState('')
   const [showDoc, setShowDoc] = useState(false)
@@ -145,6 +148,7 @@ export default function PlanProposalCard({ proposal, deciding, onApprove, onReje
           </button>
         </div>
       )}
+      {status === 'adopted' && <PlanProgress proposal={proposal} onOpenStory={onOpenStory} />}
       {status === 'adopted' && proposal.adopted && onOpenTree && !change && (
         <button type="button" onClick={() => onOpenTree(proposal.adopted!.treeId)} className="self-end px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white cursor-pointer">
           Open the tree
