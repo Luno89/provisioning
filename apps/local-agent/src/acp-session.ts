@@ -215,3 +215,54 @@ export async function openAcpSession(options: AcpSessionOptions): Promise<AcpSes
     exited,
   };
 }
+
+export interface AcpProbe {
+  identity: AgentIdentity;
+  signIn: string[];
+}
+
+export async function probeAcp(launch: AcpLaunch, cwd: string): Promise<AcpProbe> {
+  const child = spawn(launch.command, launch.args, { cwd, env: { ...process.env, ...(launch.env ?? {}) }, stdio: ['pipe', 'pipe', 'pipe'] });
+  const stderr: string[] = [];
+  child.stderr!.setEncoding('utf8').on('data', (chunk: string) => {
+    stderr.push(...chunk.split('\n').filter(Boolean));
+    if (stderr.length > STDERR_LINES) stderr.splice(0, stderr.length - STDERR_LINES);
+  });
+  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    child.once('exit', (code, signal) => resolve({ code, signal }));
+  });
+  const spawnFailed = new Promise<never>((_, reject) => {
+    child.once('error', (err) => reject(new AcpSessionError(`could not start ${launch.command}: ${err.message}`, '')));
+  });
+  const endedEarly = exited.then(({ code, signal }) => {
+    throw new AcpSessionError(`${launch.command} exited (${signal ?? code}) without answering as an ACP agent`, stderr.join('\n'));
+  });
+  const connection = new ClientSideConnection(() => ({
+    async sessionUpdate() {},
+    async requestPermission() { return { outcome: { outcome: 'cancelled' } }; },
+  }), ndJsonStream(
+    Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>,
+    Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>,
+  ));
+  try {
+    const init = await Promise.race([
+      connection.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false }, clientInfo: { name: 'koala-local-agent', version: '1.0.0' } }),
+      spawnFailed,
+      endedEarly,
+    ]);
+    const info = init.agentInfo;
+    return {
+      identity: { name: info?.name ?? path.basename(launch.command), ...(info?.title ? { title: info.title } : {}), ...(info?.version ? { version: info.version } : {}) },
+      signIn: (init.authMethods ?? []).map((method) => method.name),
+    };
+  } catch (err) {
+    if (err instanceof AcpSessionError) throw err;
+    const ended = await Promise.race([exited, new Promise<undefined>((resolve) => setTimeout(resolve, EXIT_WAIT_MS, undefined))]);
+    if (ended) throw new AcpSessionError(`${launch.command} exited (${ended.signal ?? ended.code}) without answering as an ACP agent`, stderr.join('\n'));
+    throw new AcpSessionError((err as Error).message, stderr.join('\n'));
+  } finally {
+    void spawnFailed.catch(() => {});
+    void endedEarly.catch(() => {});
+    await stopChild(child, exited);
+  }
+}

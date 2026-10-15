@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/index.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:machine": "node scripts/bundle-machine.mjs"
   },
   "keywords": [],
   "author": "",
@@ -23,6 +24,7 @@
   "devDependencies": {
     "@temporalio/testing": "^1.23.0",
     "@types/node": "^20.0.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.0.0",
     "vitest": "^4.1.9"
   }

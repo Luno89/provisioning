@@ -21,6 +21,7 @@ import type { ExtensionSettings } from './extension-settings.js';
 import type { AutoModeSettings } from './auto-mode.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
+import type { MachineJoinCode } from './machines.js';
 import type { ProcedureSource } from './procedure-source.js';
 import type { StoredNodeTrace } from './run-traces.js';
 import type { RunMark, TurnLogEntry } from './turn-log.js';
@@ -225,6 +226,8 @@ export interface Database {
   claimHandoff(jti: string, expiresAt: string): Promise<boolean>;
   saveJoinToken(token: JoinToken): Promise<void>;
   takeJoinToken(hash: string): Promise<JoinToken | undefined>;
+  saveMachineJoinCode(code: MachineJoinCode): Promise<void>;
+  takeMachineJoinCode(hash: string): Promise<MachineJoinCode | undefined>;
   getInstances(ownerId?: string): Promise<InstanceRecord[]>;
   saveInstance(instance: InstanceRecord): Promise<void>;
   deleteInstance(id: string): Promise<void>;

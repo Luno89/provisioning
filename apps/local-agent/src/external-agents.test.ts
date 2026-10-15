@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ExternalAgentSessions, koalaTools, launchesFrom, workingDirOf, workspaceLine } from './external-agents.js';
+import { ExternalAgentSessions, koalaTools, workingDirOf, workspaceLine } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
 import type { AgentScript } from './acp-script-agent.js';
 
@@ -27,10 +27,11 @@ const machine = async (script: AgentScript, segmentMs = 2000) => {
 };
 
 describe('external agents on a machine', () => {
-  it('reads which agents a machine has from its setting, and refuses one without a command', () => {
-    expect(launchesFrom('{"antigravity":{"command":"/opt/agy/agy_acp_server.par","args":["--uid="]}}')).toEqual({ antigravity: { command: '/opt/agy/agy_acp_server.par', args: ['--uid='] } });
-    expect(launchesFrom(undefined)).toEqual({});
-    expect(() => launchesFrom('{"claude":{}}')).toThrow('external agent claude needs a command');
+  it('runs only the agents it was last given', async () => {
+    const machineSessions = await machine({ name: 'scripted', version: '1', turns: [{ steps: [{ say: 'ok' }] }] });
+    expect(machineSessions.agents()).toEqual(['scripted']);
+    machineSessions.setLaunches({});
+    expect(await machineSessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'go' } })).toEqual({ state: 'failed', error: 'this machine has no agent called scripted', events: [] });
   });
 
   it('runs a turn in the folder it is given, telling the agent the context once, until the turn ends', async () => {

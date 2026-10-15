@@ -1,4 +1,5 @@
-import path from 'path';
+import { execFile } from 'child_process';
+import { mkdir } from 'fs/promises';
 import { io, type Socket } from 'socket.io-client';
 import {
   runCommand, readLocalFile, writeLocalFile, listLocalDir, deleteLocalFile, type ExecResult,
@@ -7,59 +8,67 @@ import {
   dockerAvailable, createContainer, destroyContainer, execInContainer, readFileInContainer,
   writeFileInContainer, type EgressRule,
 } from './docker-driver.js';
-
-const backendUrl = process.env.KOALA_BACKEND_URL;
-const token = process.env.KOALA_DEVICE_TOKEN;
-const rootDir = path.resolve(process.env.KOALA_ROOT_DIR ?? process.cwd());
-const deviceId = process.env.KOALA_DEVICE_ID;
-const temporalAddress = process.env.KOALA_TEMPORAL_ADDRESS;
-const temporalNamespace = process.env.KOALA_TEMPORAL_NAMESPACE;
-const externalAgents = process.env.KOALA_EXTERNAL_AGENTS;
-
-if (!backendUrl) throw new Error('KOALA_BACKEND_URL is required (e.g. http://localhost:3001)');
-if (!token) throw new Error('KOALA_DEVICE_TOKEN is required — mint one from the My Machines page');
+import { loadMachineConfig, type MachineConfig } from './machine-config.js';
+import { KNOWN_AGENTS, discoverAgents, manualAgentsFrom, systemDeps, type FoundAgent, type ManualAgent } from './agent-discovery.js';
+import { probeAcp } from './acp-session.js';
+import { ExternalAgentSessions, koalaTools } from './external-agents.js';
+import { LocalMcpServer } from './local-mcp.js';
 
 const activeContainers = new Set<string>();
 
-async function startEngineWorkerIfConfigured(socket: Socket): Promise<void> {
-  if (!deviceId || !temporalAddress) {
-    if (deviceId || temporalAddress) {
-      console.warn(
-        '[koala-local-agent] engine worker not started — it needs both KOALA_DEVICE_ID and KOALA_TEMPORAL_ADDRESS.',
-      );
+const searchMemoriesOver = (socket: Socket) => (query: string) => new Promise<string>((resolve, reject) => {
+  if (!socket.connected) return reject(new Error('this machine is not connected to Koala right now'));
+  const gone = () => reject(new Error('this machine lost its connection to Koala before the search answered'));
+  socket.once('disconnect', gone);
+  socket.emit('memories:search', { query }, (answer: { text: string }) => {
+    socket.off('disconnect', gone);
+    resolve(answer.text);
+  });
+});
+
+const manualOver = (socket: Socket) => new Promise<ManualAgent[]>((resolve) => {
+  socket.emit('agents:manual', {}, (answer: unknown) => resolve(manualAgentsFrom(answer)));
+});
+
+function watchAgents(socket: Socket, config: MachineConfig, sessions: ExternalAgentSessions): void {
+  const deps = systemDeps(config.rootDir, probeAcp);
+  const rediscover = async (): Promise<void> => {
+    const manual = await manualOver(socket);
+    const found = await discoverAgents(deps, manual, (agents: FoundAgent[]) => socket.emit('agents:found', { agents }));
+    sessions.setLaunches(found.launches);
+    const ready = found.agents.filter((agent) => agent.state === 'ready').map((agent) => agent.id);
+    console.log(`[koala-local-agent] external agents: ${ready.length ? ready.join(', ') : 'none ready'}`);
+  };
+  socket.on('connect', () => { void rediscover(); });
+  socket.on('agents:changed', () => { void rediscover(); });
+  socket.on('agents:install', ({ id }: { id?: string }, ack: (answer: { ok: boolean; output: string }) => void) => {
+    const known = KNOWN_AGENTS.find((agent) => agent.id === id);
+    if (!known?.adapter) return ack({ ok: false, output: `there is nothing to install for ${String(id)}` });
+    execFile('npm', ['install', '--global', known.adapter], { maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+      const output = `${stdout}${stderr}`.trim().split('\n').slice(-20).join('\n');
+      ack({ ok: !err, output: err ? `${err.message}\n${output}` : output });
+      void rediscover();
+    });
+  });
+}
+
+async function startEngineWorkerIfConfigured(config: MachineConfig, sessions: ExternalAgentSessions): Promise<void> {
+  if (!config.deviceId || !config.temporalAddress) {
+    if (config.deviceId || config.temporalAddress) {
+      console.warn('[koala-local-agent] engine worker not started — it needs both a device id and a Temporal address.');
     }
     return;
   }
-
   try {
     const { startDeviceWorker } = await import('./engine-worker.js');
-    const { ExternalAgentSessions, koalaTools, launchesFrom } = await import('./external-agents.js');
-    const { LocalMcpServer } = await import('./local-mcp.js');
-    const mcp = new LocalMcpServer();
-    await mcp.start();
-    const searchMemories = (query: string) => new Promise<string>((resolve, reject) => {
-      if (!socket.connected) return reject(new Error('this machine is not connected to Koala right now'));
-      const gone = () => reject(new Error('this machine lost its connection to Koala before the search answered'));
-      socket.once('disconnect', gone);
-      socket.emit('memories:search', { query }, (answer: { text: string }) => {
-        socket.off('disconnect', gone);
-        resolve(answer.text);
-      });
-    });
-    const sessions = new ExternalAgentSessions({ rootDir, launches: launchesFrom(externalAgents), mcp, tools: koalaTools(searchMemories) });
-    if (sessions.agents().length) console.log(`[koala-local-agent] external agents: ${sessions.agents().join(', ')}`);
-    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-      process.once(signal, () => { void sessions.closeAll().finally(() => process.exit(0)); });
-    }
     const worker = await startDeviceWorker({
-      rootDir,
-      deviceId,
+      rootDir: config.rootDir,
+      deviceId: config.deviceId,
       externalAgents: sessions,
-      address: temporalAddress,
-      ...(temporalNamespace ? { namespace: temporalNamespace } : {}),
-      onReady: (queue) => console.log(`[koala-local-agent] engine worker polling ${queue} at ${temporalAddress}`),
+      address: config.temporalAddress,
+      ...(config.temporalNamespace ? { namespace: config.temporalNamespace } : {}),
+      onReady: (queue) => console.log(`[koala-local-agent] engine worker polling ${queue} at ${config.temporalAddress}`),
     });
-
     void worker.run().catch((err: unknown) => {
       console.error(`[koala-local-agent] engine worker stopped: ${(err as Error).message}`);
     });
@@ -69,6 +78,9 @@ async function startEngineWorkerIfConfigured(socket: Socket): Promise<void> {
 }
 
 async function main() {
+  const config = await loadMachineConfig();
+  const { backendUrl, token, rootDir } = config;
+  await mkdir(rootDir, { recursive: true });
   const docker = await dockerAvailable();
   if (docker.ok) {
     console.log('[koala-local-agent] Docker detected — leaves will run in isolated containers.');
@@ -78,7 +90,14 @@ async function main() {
   const containerMode = docker.ok;
 
   const socket = io(`${backendUrl}/agent`, { auth: { token, containerMode }, reconnection: true });
-  await startEngineWorkerIfConfigured(socket);
+  const mcp = new LocalMcpServer();
+  await mcp.start();
+  const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp, tools: koalaTools(searchMemoriesOver(socket)) });
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => { void sessions.closeAll().finally(() => process.exit(0)); });
+  }
+  watchAgents(socket, config, sessions);
+  await startEngineWorkerIfConfigured(config, sessions);
 
   socket.on('connect', () => {
     console.log(`[koala-local-agent] connected to ${backendUrl} — root: ${rootDir}, containers: ${containerMode ? 'on' : 'off'}`);

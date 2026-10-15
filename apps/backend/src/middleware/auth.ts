@@ -68,6 +68,8 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
         '/instances/status',
       ]),
       ...(role === 'instance' ? ['/auth/handoff', '/auth/sign-in'] : []),
+      '/machines/join',
+      '/machines/agent.tgz',
     ];
     if (publicPaths.includes(req.path) || PUBLIC_PREFIXES.some((prefix) => req.path.startsWith(prefix))) {
       return next();

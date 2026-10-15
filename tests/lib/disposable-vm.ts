@@ -104,6 +104,7 @@ export interface DisposableVmOptions {
   cpus?: number;
   diskGB?: number;
   forwards?: Array<{ host: number; guest: number }>;
+  reboots?: boolean;
 }
 
 export async function createDisposableVm(name: string, options: DisposableVmOptions = {}): Promise<DisposableVm> {
@@ -177,7 +178,7 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
     '-smp', String(options.cpus ?? 2),
     '-display', 'none',
     '-serial', `file:${serialLogPath}`,
-    '-no-reboot',
+    ...(options.reboots ? [] : ['-no-reboot']),
     '-drive', `file=${overlayPath},if=virtio,format=qcow2`,
     '-drive', `file=${seedPath},if=virtio,format=raw,readonly=on`,
     '-nic', `user,hostfwd=tcp::${sshPort}-:22,hostfwd=tcp::${k3sApiPort}-:6443${(options.forwards ?? []).map((forward) => `,hostfwd=tcp::${forward.host}-:${forward.guest}`).join('')}`,

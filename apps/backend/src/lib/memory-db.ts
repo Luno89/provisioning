@@ -5,6 +5,7 @@ import type { ExtensionSettings } from './extension-settings.js';
 import type { AutoModeSettings } from './auto-mode.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
+import type { MachineJoinCode } from './machines.js';
 import type { StoredAppSpec } from './app-spec.js';
 import type { ClusterProviderSpec } from './cluster-providers.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -78,6 +79,7 @@ export class MemoryDB implements Database {
   private handoffs = new Map<string, string>();
   private instances = new Map<string, InstanceRecord>();
   private joinTokens = new Map<string, JoinToken>();
+  private machineJoinCodes = new Map<string, MachineJoinCode>();
   private egressRequests: EgressRequest[] = [];
   private accessRequests: AccessRequest[] = [];
   private procedures: ProcedureSource[] = [];
@@ -355,6 +357,7 @@ export class MemoryDB implements Database {
     sweepMap('authoredExtensions', this.authoredExtensions, (_, entry) => owned(entry));
     sweepMap('instances', this.instances, (_, entry) => owned(entry));
     sweepMap('instanceJoinTokens', this.joinTokens, (_, entry) => owned(entry));
+    sweepMap('machineJoinCodes', this.machineJoinCodes, (_, entry) => owned(entry));
     sweepMap('engineRunTraces', this.runTraces, (_, entry) => owned(entry));
     sweepMap('engineRunEffort', this.runEffort, (_, entry) => owned(entry));
     for (const [collection, records] of this.evalRecords) sweepMap(collection, records, (_, entry) => owned(entry));
@@ -884,6 +887,16 @@ export class MemoryDB implements Database {
     const token = this.joinTokens.get(hash);
     this.joinTokens.delete(hash);
     return token;
+  }
+
+  async saveMachineJoinCode(code: MachineJoinCode): Promise<void> {
+    this.machineJoinCodes.set(code.hash, { ...code });
+  }
+
+  async takeMachineJoinCode(hash: string): Promise<MachineJoinCode | undefined> {
+    const code = this.machineJoinCodes.get(hash);
+    this.machineJoinCodes.delete(hash);
+    return code;
   }
 
   async getInstances(ownerId?: string): Promise<InstanceRecord[]> {

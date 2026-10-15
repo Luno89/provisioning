@@ -1,3 +1,4 @@
+import type { MachineAgent, ManualMachineAgent } from './machines.js';
 export type ClusterProviderName = 'k3d' | 'aws' | 'gcp' | 'azure' | 'do' | 'remote' | 'hetzner';
 
 export interface ClusterProgress {
@@ -205,6 +206,10 @@ export interface LocalAgentDeviceMetadata {
   rootDir: string;
   createdAt: string;
   lastSeenAt?: string;
+  os?: string | undefined;
+  agents?: MachineAgent[] | undefined;
+  agentsAt?: string | undefined;
+  manualAgents?: ManualMachineAgent[] | undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }

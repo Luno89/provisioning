@@ -82,7 +82,11 @@ import { meshRouter } from './routes/mesh.js';
 import { localAgentsRouter } from './routes/local-agents.js';
 import { pendingApprovalsRouter } from './routes/pending-approvals.js';
 import { startedFor } from './lib/workflow-owner.js';
-import { findDeviceByToken, registerDevice, unregisterDevice } from './lib/local-agent-registry.js';
+import { askDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from './lib/local-agent-registry.js';
+import { MachineService } from './services/MachineService.js';
+import { MachineBundle } from './services/MachineBundle.js';
+import { machinesRouter } from './routes/machines.js';
+import { asyncRoute } from './middleware/async-route.js';
 import { searchAnswer } from './engine-host/tools/memory-tools.js';
 import { clusterProvidersRouter } from './routes/cluster-providers.js';
 import { vpsCatalogRouter } from './routes/vps-catalog.js';
@@ -307,6 +311,19 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     saveNeeds: (project, needs) => db.saveProjectInfo({ id: project.id, needs }),
   });
   const headscaleService = new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080');
+  const machineService = new MachineService({
+    store: db,
+    dataKey: keys.data,
+    settings: {
+      url: PUBLIC_URL,
+      temporalAddress: process.env.MACHINE_TEMPORAL_ADDRESS || (process.env.TEMPORAL_CONNECTION_ADDRESS || 'localhost:7233').replace(/^https?:\/\//, ''),
+      temporalNamespace: process.env.TEMPORAL_NAMESPACE || 'default',
+      meshLoginServer: process.env.MESH_LOGIN_SERVER,
+    },
+    devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice },
+    projects: projectRepoService,
+    mesh: headscaleService,
+  });
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, endpointRulesFromEnv(process.env));
 
 
@@ -546,6 +563,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       if (current) db.saveLocalAgentDevice({ ...current, lastSeenAt: new Date().toISOString() }).catch(() => undefined);
     }).catch(() => undefined);
     socket.on('disconnect', () => unregisterDevice(device.id, socket));
+    socket.on('agents:found', (report: { agents?: unknown } | undefined) => {
+      machineService.recordAgents(device.id, report?.agents).catch((err: Error) => console.warn(`[machines] ${device.id}: its agents could not be recorded: ${err.message}`));
+    });
+    socket.on('agents:manual', (_request: unknown, ack: (agents: unknown) => void) => {
+      machineService.manualAgents(device.id).then(ack, () => ack([]));
+    });
     socket.on('memories:search', (request: { query?: unknown } | undefined, ack: (answer: { text: string }) => void) => {
       const query = typeof request?.query === 'string' ? request.query.trim() : '';
       if (!query) return ack({ text: 'Give a query: words to look for.' });
@@ -829,7 +852,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   setInterval(sweepArtifacts, 24 * 60 * 60 * 1000).unref();
   void sweepArtifacts();
   tenant.use('/api/mesh', meshRouter({ headscaleService, db }));
-  tenant.use('/api/mesh/local-agents', localAgentsRouter({ db, dataKey: keys.data, projects: projectRepoService }));
+  tenant.use('/api/mesh/local-agents', localAgentsRouter({ machines: machineService }));
+  const machineRoot = path.join(__dirname, '../../..');
+  const machineBundle = new MachineBundle(machineRoot);
+  tenant.use('/api/machines', machinesRouter({ machines: machineService, bundle: () => machineBundle.path() }));
+  tenant.get('/machine.sh', asyncRoute(async (_req, res) => {
+    const installer = await fs.readFile(path.join(machineRoot, 'scripts/machine/machine.sh'), 'utf8');
+    res.type('text/x-shellscript').send(installer.replaceAll('__KOALA_URL__', PUBLIC_URL));
+  }));
   tenant.use('/api/pending-approvals', pendingApprovalsRouter({ db }));
   tenant.use('/api/cluster-providers', clusterProvidersRouter({ db }));
   tenant.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService }));

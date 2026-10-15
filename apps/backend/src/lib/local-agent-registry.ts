@@ -80,6 +80,17 @@ function connectionFor(deviceId: string, ownerId: string): DeviceConnection {
   return conn;
 }
 
+export function askDevice<T>(deviceId: string, ownerId: string, event: string, payload: unknown): Promise<T> {
+  return ask<T>(deviceId, connectionFor(deviceId, ownerId), event, payload);
+}
+
+export function tellDevice(deviceId: string, event: string): boolean {
+  const conn = devices.get(deviceId);
+  if (!conn?.socket.connected) return false;
+  conn.socket.emit(event, {});
+  return true;
+}
+
 export interface LocalExecResult {
   stdout: string;
   stderr: string;

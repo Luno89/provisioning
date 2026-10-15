@@ -50,19 +50,6 @@ export function workingDirOf(tool: { input?: unknown; output?: string | undefine
 
 export type ExternalAgentLaunches = Record<string, AcpLaunch>;
 
-export function launchesFrom(raw: string | undefined): ExternalAgentLaunches {
-  if (!raw?.trim()) return {};
-  const parsed = JSON.parse(raw) as Record<string, { command?: unknown; args?: unknown; env?: unknown }>;
-  const launches: ExternalAgentLaunches = {};
-  for (const [id, entry] of Object.entries(parsed)) {
-    if (typeof entry?.command !== 'string' || !entry.command) throw new Error(`external agent ${id} needs a command`);
-    const args = Array.isArray(entry.args) ? entry.args.filter((arg): arg is string => typeof arg === 'string') : [];
-    const env = entry.env && typeof entry.env === 'object' ? Object.fromEntries(Object.entries(entry.env as Record<string, unknown>).filter((pair): pair is [string, string] => typeof pair[1] === 'string')) : undefined;
-    launches[id] = { command: entry.command, args, ...(env ? { env } : {}) };
-  }
-  return launches;
-}
-
 interface Live {
   session: AcpSession;
   mounted?: Mounted | undefined;
@@ -82,11 +69,18 @@ export interface ExternalAgentSessionsOptions {
 
 export class ExternalAgentSessions {
   private readonly live = new Map<string, Live>();
+  private launches: ExternalAgentLaunches;
 
-  constructor(private readonly options: ExternalAgentSessionsOptions) {}
+  constructor(private readonly options: ExternalAgentSessionsOptions) {
+    this.launches = { ...options.launches };
+  }
 
   agents(): string[] {
-    return Object.keys(this.options.launches).sort();
+    return Object.keys(this.launches).sort();
+  }
+
+  setLaunches(launches: ExternalAgentLaunches): void {
+    this.launches = { ...launches };
   }
 
   openKeys(): string[] {
@@ -126,7 +120,7 @@ export class ExternalAgentSessions {
 
   private async open(key: string, agent: string, op: Extract<ExternalAgentStepArgs['op'], { kind: 'open' }>, beat: () => void): Promise<ExternalAgentStepResult> {
     if (this.live.has(key)) return { state: 'failed', error: 'that session is already open on this machine', events: [] };
-    const launch = this.options.launches[agent];
+    const launch = this.launches[agent];
     if (!launch) {
       const known = this.agents();
       return { state: 'failed', error: `this machine has no agent called ${agent}${known.length ? ` (it has ${known.join(', ')})` : ''}`, events: [] };

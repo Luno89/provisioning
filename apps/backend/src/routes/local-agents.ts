@@ -1,66 +1,40 @@
-import { Router, type Request } from 'express';
-import crypto from 'crypto';
-import path from 'path';
-import { v4 as uuidv4 } from 'uuid';
-import { encryptValue, type SecretKey } from '../lib/crypto.js';
-import { localAgentStatus } from '../lib/local-agent-registry.js';
-import type { Database } from '../lib/db-interface.js';
-import type { ProjectRepoService } from '../services/ProjectRepoService.js';
+import { Router, type Request, type Response } from 'express';
+import { asyncRoute } from '../middleware/async-route.js';
+import type { MachineService } from '../services/MachineService.js';
 
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
-export function localAgentsRouter(deps: { db: Database; dataKey: SecretKey; projects: ProjectRepoService }): Router {
-  const { db, dataKey, projects } = deps;
+const param = (req: Request, name: string): string => String(req.params[name] ?? '');
+
+export function localAgentsRouter(deps: { machines: Pick<MachineService, 'list' | 'createJoinCode' | 'setManualAgents' | 'installAdapter' | 'remove'> }): Router {
+  const { machines } = deps;
   const router = Router();
 
-  router.get('/', async (req, res) => {
-    const mine = (await db.getLocalAgentDevices()).filter((d) => d.ownerId === userOf(req).id);
-    res.json(mine.map((d) => ({
-      id: d.id,
-      name: d.name,
-      rootDir: d.rootDir,
-      createdAt: d.createdAt,
-      lastSeenAt: d.lastSeenAt,
-      ...localAgentStatus(d.id),
-    })));
-  });
+  router.get('/', asyncRoute(async (req: Request, res: Response) => {
+    res.json(await machines.list(userOf(req).id));
+  }));
 
-  router.post('/', async (req, res) => {
-    const { name, rootDir } = req.body ?? {};
-    if (!name || typeof name !== 'string') return res.status(400).json({ error: 'name is required' });
-    if (!rootDir || typeof rootDir !== 'string') return res.status(400).json({ error: 'rootDir is required' });
+  router.post('/join-code', asyncRoute(async (req: Request, res: Response) => {
+    res.status(201).json(await machines.createJoinCode(userOf(req).id));
+  }));
 
-    const id = uuidv4();
-    const token = crypto.randomBytes(32).toString('base64url');
-    await db.saveLocalAgentDevice({
-      id,
-      ownerId: userOf(req).id,
-      name,
-      rootDir,
-      tokenEnc: encryptValue(token, dataKey),
-      createdAt: new Date().toISOString(),
-    });
+  router.put('/:id/agents', asyncRoute(async (req: Request, res: Response) => {
+    const outcome = await machines.setManualAgents(userOf(req).id, param(req, 'id'), req.body?.agents);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json(outcome.value);
+  }));
 
-    let projectId: string | undefined;
-    try {
-      const folderName = path.basename(rootDir) || rootDir;
-      const project = await projects.register(userOf(req).id, `${name} - ${folderName}`, {
-        executionTarget: { kind: 'local-device', deviceId: id },
-      });
-      projectId = project.id;
-    } catch {}
+  router.post('/:id/agents/:agentId/install', asyncRoute(async (req: Request, res: Response) => {
+    const outcome = await machines.installAdapter(userOf(req).id, param(req, 'id'), param(req, 'agentId'));
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json(outcome.value);
+  }));
 
-    res.status(201).json({ id, name, rootDir, token, ...(projectId ? { projectId } : {}) });
-  });
-
-  router.delete('/:id', async (req, res) => {
-    const devices = await db.getLocalAgentDevices();
-    const device = devices.find((d) => d.id === req.params.id && d.ownerId === userOf(req).id);
-    if (!device) return res.status(404).json({ error: 'Device not found' });
-    await db.deleteLocalAgentDevice(device.id);
+  router.delete('/:id', asyncRoute(async (req: Request, res: Response) => {
+    if (!(await machines.remove(userOf(req).id, param(req, 'id')))) return res.status(404).json({ error: 'Device not found' });
     res.json({ success: true });
-  });
+  }));
 
   return router;
 }

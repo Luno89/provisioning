@@ -102,3 +102,4 @@ apps/*/src/test/setup.d.ts
 # Running the E2E suite otherwise leaves the working tree dirty.
 .test-e2e-state/
 .eval-browser-profile/
+apps/local-agent/dist/

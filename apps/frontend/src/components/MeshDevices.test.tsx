@@ -16,9 +16,15 @@ vi.mock('../api/mesh', async (importOriginal) => ({
 vi.mock('../api/local-agents', async (importOriginal) => ({
   ...(await importOriginal<typeof localAgentsApi>()),
   listLocalAgentDevices: vi.fn(),
-  createLocalAgentDevice: vi.fn(),
+  createMachineJoinCode: vi.fn(),
+  setMachineAgents: vi.fn(),
+  installMachineAdapter: vi.fn(),
   deleteLocalAgentDevice: vi.fn(),
 }));
+
+const machine = (overrides: Record<string, unknown> = {}) => ({
+  id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true, agents: [], manualAgents: [], ...overrides,
+});
 
 const renderPanel = (config: unknown, devices: unknown[], localAgents: unknown[] = []) => {
   vi.mocked(meshApi.getMeshConfig).mockResolvedValue(config as never);
@@ -52,91 +58,64 @@ describe('MeshDevices', () => {
     expect(screen.queryByText(/mesh isn't reachable yet/i)).toBeNull();
   });
 
-  it('builds a join command containing the login server and the issued key', async () => {
-    vi.mocked(meshApi.createPreauthKey).mockResolvedValue({ key: 'nodekey-abc123' });
-    renderPanel(CONFIGURED, []);
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /generate join command/i })).toHaveProperty('disabled', false),
-    );
-    (screen.getByRole('button', { name: /generate join command/i }) as HTMLButtonElement).click();
-
-    await waitFor(() => expect(screen.getByText(/--login-server=/)).toBeDefined());
-    const cmd = screen.getByText(/--login-server=/).textContent ?? '';
-    expect(cmd).toContain('--login-server=https://mesh.example.com');
-    expect(cmd).toContain('--authkey=nodekey-abc123');
-  });
-
-  it('renders devices with their mesh address, and marks offline ones', async () => {
-    renderPanel(CONFIGURED, [
-      { id: '1', name: 'gpu-box', ipAddresses: ['100.64.0.3'], online: true },
-      { id: '2', name: 'old-laptop', ipAddresses: ['100.64.0.9'], online: false, lastSeen: '2026-01-01T00:00:00Z' },
-    ]);
-    await waitFor(() => expect(screen.getByText('gpu-box')).toBeDefined());
-    expect(screen.getByText(/100\.64\.0\.3/)).toBeDefined();
-    expect(screen.getByText(/last seen/i)).toBeDefined();
-  });
-
-  it('tells the user what to do when they have no machines yet', async () => {
-    renderPanel(CONFIGURED, []);
-    await waitFor(() => expect(screen.getByText(/no machines yet/i)).toBeDefined());
-  });
-});
-
-describe('local execution agents', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
-
-  it('disables registering a machine until both fields are filled', async () => {
-    renderPanel(CONFIGURED, []);
-    await waitFor(() => expect(screen.getByPlaceholderText(/Name, e\.g\. My Laptop/)).toBeDefined());
-
-    const button = screen.getByRole('button', { name: /generate command/i });
-    expect(button).toHaveProperty('disabled', true);
-  });
-
-  it('registers a machine and shows the run command with its token once', async () => {
-    vi.mocked(localAgentsApi.createLocalAgentDevice).mockResolvedValue({
-      id: 'dev-1', name: 'My Laptop', rootDir: '/home/me/koala-work', token: 'secret-token-123',
+  it('gives the one-line command that adds a machine, and says how long it works', async () => {
+    vi.mocked(localAgentsApi.createMachineJoinCode).mockResolvedValue({
+      code: 'abc', command: 'curl -fsSL https://koala.example/machine.sh | sh -s -- abc', expiresAt: '2026-10-15T13:00:00Z',
     });
     renderPanel(CONFIGURED, []);
-
-    await waitFor(() => expect(screen.getByPlaceholderText(/Name, e\.g\. My Laptop/)).toBeDefined());
-
-    fireEvent.change(screen.getByPlaceholderText(/Name, e\.g\. My Laptop/), { target: { value: 'My Laptop' } });
-    fireEvent.change(screen.getByPlaceholderText(/Root directory/), { target: { value: '/home/me/koala-work' } });
-
-    const button = screen.getByRole('button', { name: /generate command/i });
-    await waitFor(() => expect(button).toHaveProperty('disabled', false));
-    fireEvent.click(button);
-
-    await waitFor(() => expect(screen.getByText(/secret-token-123/)).toBeDefined());
-    expect(screen.getByText(/KOALA_ROOT_DIR=\/home\/me\/koala-work/)).toBeDefined();
+    fireEvent.click(await screen.findByRole('button', { name: /get the command/i }));
+    expect(await screen.findByText('curl -fsSL https://koala.example/machine.sh | sh -s -- abc')).toBeDefined();
+    expect(screen.getByText(/It works once, until/)).toBeDefined();
   });
 
-  it('tells the user their project was already created, and links straight to it', async () => {
-    vi.mocked(localAgentsApi.createLocalAgentDevice).mockResolvedValue({
-      id: 'dev-1', name: 'My Laptop', rootDir: '/home/me/koala-work', token: 'secret-token-123', projectId: 'proj-1',
-    });
-    window.location.hash = '';
-    renderPanel(CONFIGURED, []);
+  it('shows the coding agents each machine found, and installs an adapter one needs', async () => {
+    vi.mocked(localAgentsApi.installMachineAdapter).mockResolvedValue({ ok: true, output: 'added 1 package' });
+    renderPanel(CONFIGURED, [], [machine({
+      agentsAt: '2026-10-15T12:00:00Z',
+      agents: [
+        { id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found', command: '/usr/bin/gemini', args: ['--acp'], name: 'Gemini CLI', version: '0.61.0', signIn: ['Log in with Google'] },
+        { id: 'claude', title: 'Claude Code', state: 'needs-adapter', source: 'found', adapter: '@zed-industries/claude-code-acp', reason: 'Claude Code is installed, but it speaks ACP through @zed-industries/claude-code-acp, which is not installed' },
+      ],
+    })]);
+    expect(await screen.findByText('Gemini CLI')).toBeDefined();
+    expect(screen.getByText('0.61.0')).toBeDefined();
+    expect(screen.getByText('/usr/bin/gemini --acp')).toBeDefined();
+    expect(screen.getByText(/Signs in with Log in with Google/)).toBeDefined();
+    expect(screen.getByText('needs its adapter')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: /install adapter/i }));
+    await waitFor(() => expect(localAgentsApi.installMachineAdapter).toHaveBeenCalledWith('dev-1', 'claude'));
+    expect(await screen.findByText(/added 1 package/)).toBeDefined();
+  });
 
-    await waitFor(() => expect(screen.getByPlaceholderText(/Name, e\.g\. My Laptop/)).toBeDefined());
-    fireEvent.change(screen.getByPlaceholderText(/Name, e\.g\. My Laptop/), { target: { value: 'My Laptop' } });
-    fireEvent.change(screen.getByPlaceholderText(/Root directory/), { target: { value: '/home/me/koala-work' } });
-    const registerButton = screen.getByRole('button', { name: /generate command/i });
-    await waitFor(() => expect(registerButton).toHaveProperty('disabled', false));
-    fireEvent.click(registerButton);
+  it('cannot install on a machine that is not connected', async () => {
+    renderPanel(CONFIGURED, [], [machine({ online: false, agentsAt: '2026-10-15T12:00:00Z', agents: [{ id: 'codex', title: 'Codex', state: 'needs-adapter', source: 'found', adapter: '@zed-industries/codex-acp' }] })]);
+    expect(await screen.findByRole('button', { name: /install adapter/i })).toHaveProperty('disabled', true);
+  });
 
-    expect(await screen.findByText(/already been created/i)).toBeDefined();
-    const openButton = screen.getByRole('button', { name: /open its project/i });
-    fireEvent.click(openButton);
+  it('adds an agent by hand to the ones the machine already has', async () => {
+    vi.mocked(localAgentsApi.setMachineAgents).mockResolvedValue(machine() as never);
+    renderPanel(CONFIGURED, [], [machine({ manualAgents: [{ id: 'goose', command: 'goose', args: ['acp'] }] })]);
+    fireEvent.click(await screen.findByText(/add an agent by hand/i));
+    fireEvent.change(screen.getByLabelText('Agent id'), { target: { value: 'antigravity' } });
+    fireEvent.change(screen.getByLabelText('Agent name'), { target: { value: 'Antigravity' } });
+    fireEvent.change(screen.getByLabelText('Command'), { target: { value: '/opt/agy/agy_acp_server.par' } });
+    fireEvent.change(screen.getByLabelText('Arguments'), { target: { value: '--uid=' } });
+    fireEvent.click(screen.getByRole('button', { name: /add it/i }));
+    await waitFor(() => expect(localAgentsApi.setMachineAgents).toHaveBeenCalledWith('dev-1', [
+      { id: 'goose', command: 'goose', args: ['acp'] },
+      { id: 'antigravity', title: 'Antigravity', command: '/opt/agy/agy_acp_server.par', args: ['--uid='] },
+    ]));
+  });
 
-    expect(window.location.hash).toBe('#/projects/project/proj-1');
+  it('says a machine found no agents, once it has looked', async () => {
+    renderPanel(CONFIGURED, [], [machine({ agentsAt: '2026-10-15T12:00:00Z' })]);
+    expect(await screen.findByText('None found on this machine.')).toBeDefined();
   });
 
   it('renders registered local agents with their online status', async () => {
     renderPanel(CONFIGURED, [], [
-      { id: 'dev-1', name: 'My Laptop', rootDir: '/home/me/work', createdAt: '2026-01-01T00:00:00Z', online: true },
-      { id: 'dev-2', name: 'Old Desktop', rootDir: '/home/me/other', createdAt: '2026-01-01T00:00:00Z', online: false, lastSeenAt: '2026-01-01T00:00:00Z' },
+      machine({ rootDir: '/home/me/work' }),
+      machine({ id: 'dev-2', name: 'Old Desktop', rootDir: '/home/me/other', online: false, lastSeenAt: '2026-01-01T00:00:00Z' }),
     ]);
 
     await waitFor(() => expect(screen.getByText('My Laptop')).toBeDefined());
@@ -146,7 +125,7 @@ describe('local execution agents', () => {
 
   it('badges an online device running in a Docker container as isolated', async () => {
     renderPanel(CONFIGURED, [], [
-      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true, containerMode: true },
+      machine({ containerMode: true }),
     ]);
 
     await waitFor(() => expect(screen.getByText('My Laptop')).toBeDefined());
@@ -156,7 +135,7 @@ describe('local execution agents', () => {
 
   it('badges an online device with no Docker as raw access', async () => {
     renderPanel(CONFIGURED, [], [
-      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true, containerMode: false },
+      machine({ containerMode: false }),
     ]);
 
     await waitFor(() => expect(screen.getByText('My Laptop')).toBeDefined());
@@ -165,7 +144,7 @@ describe('local execution agents', () => {
 
   it('shows no mode badge for an offline device', async () => {
     renderPanel(CONFIGURED, [], [
-      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: false },
+      machine({ online: false }),
     ]);
 
     await waitFor(() => expect(screen.getByText('My Laptop')).toBeDefined());

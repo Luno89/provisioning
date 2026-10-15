@@ -45,6 +45,7 @@ npm run test:worker  # tsx tests/worker-isolated.ts — runs real Temporal workf
 npm run test:e2e     # test:alive → Playwright (skips the unit preflight `npm test` does)
 npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
 npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
+npm run test:machine-live        # a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service and finds an ACP agent and a CLI missing its adapter → after a reboot with nobody logged in it connects again → Install adapter makes the CLI ready; removes the machine, its project and the VM, ~10 min
 npm run test:big-run-live         # real research run on your model, continuing as new each step; asserts every history event < 512 KB and that big payloads went to Mongo
 npm run test:memory-live          # Koala chat → a second message resets the countdown → keeper runs after the quiet time → a new chat recalls it, ~25 min
 npm run test:bench-live           # throwaway agent passes on an idle-started bench run, is broken, and the next idle bench names the regression, ~10 min
@@ -185,6 +186,20 @@ An app built from the project goes with it: once the project's workflows (its re
 `ACCOUNT_DATA` in `lib/account-removal.ts` classifies every Mongo collection as removed by owner, by id, through
 what it relates to, or shared; a test fails when a collection in `mongo-db.ts` is missing from it, so **a new
 collection has to say how it is removed**.
+
+## A person's own machines
+
+My Machines → Add a machine gives `curl -fsSL <koala>/machine.sh | sh -s -- <code>` (`scripts/machine/machine.sh`, served
+with the backend's `PUBLIC_URL`; the code is single-use and lasts an hour, `MachineService.createJoinCode`). Run as the
+person, it needs Node 20+, asks which folder Koala may work in, trades the code at the public `POST /api/machines/join`
+for the device's token and settings (kept in `~/.config/koala/machine.json`, mode 600, never printed), joins the mesh
+when `MESH_LOGIN_SERVER` is set, installs the machine agent (`GET /api/machines/agent.tgz`: `apps/local-agent` bundled by
+`scripts/bundle-machine.mjs`, with its four runtime packages installed by npm on the machine) and starts it as a user
+service (systemd `--user`, launchd). The device worker reaches Temporal at `MACHINE_TEMPORAL_ADDRESS` (default the
+backend's own). Each time it connects the agent looks for coding agents (`agent-discovery.ts`: Gemini CLI, Antigravity,
+Claude Code and Codex through their ACP adapters, Goose, and any the person added by hand on My Machines), confirms each
+by an ACP `initialize`, and reports them (`agents:found`); only confirmed ones run. A CLI whose adapter is missing shows
+with Install adapter, which asks the machine to `npm install --global` it.
 
 ## Roles: root, instance, combined
 

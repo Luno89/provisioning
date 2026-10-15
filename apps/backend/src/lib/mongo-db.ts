@@ -5,6 +5,7 @@ import type { ExtensionSettings } from './extension-settings.js';
 import type { AutoModeSettings } from './auto-mode.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
+import type { MachineJoinCode } from './machines.js';
 import type { StoredAppSpec } from './app-spec.js';
 import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
@@ -246,6 +247,10 @@ export class MongoDB implements Database {
     return this.db!.collection('instanceJoinTokens');
   }
 
+  private get machineJoinCodes(): Collection {
+    return this.db!.collection('machineJoinCodes');
+  }
+
   private get instanceRegistry(): Collection {
     return this.db!.collection('instances');
   }
@@ -308,6 +313,7 @@ export class MongoDB implements Database {
     await this.handoffs.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.instanceRegistry.createIndex({ ownerId: 1 });
     await this.joinTokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await this.machineJoinCodes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.planProposals.createIndex({ ownerId: 1, conversationId: 1, createdAt: 1 });
     await this.secretRequests.createIndex({ ownerId: 1, projectId: 1, key: 1 });
     await this.toolGrants.createIndex({ ownerId: 1, agent: 1 });
@@ -1078,6 +1084,16 @@ export class MongoDB implements Database {
     const doc = await this.joinTokens.findOneAndDelete({ _id: hash as never });
     if (!doc) return undefined;
     return { hash, ownerId: doc.ownerId as string, instanceId: doc.instanceId as string, expiresAt: (doc.expiresAt as Date).toISOString() };
+  }
+
+  async saveMachineJoinCode(code: MachineJoinCode): Promise<void> {
+    await this.machineJoinCodes.replaceOne({ _id: code.hash as never }, { ...code, expiresAt: new Date(code.expiresAt) }, { upsert: true });
+  }
+
+  async takeMachineJoinCode(hash: string): Promise<MachineJoinCode | undefined> {
+    const doc = await this.machineJoinCodes.findOneAndDelete({ _id: hash as never });
+    if (!doc) return undefined;
+    return { hash, ownerId: doc.ownerId as string, expiresAt: (doc.expiresAt as Date).toISOString() };
   }
 
   async getInstances(ownerId?: string): Promise<InstanceRecord[]> {
