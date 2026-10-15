@@ -4,8 +4,9 @@ import { GROVE } from './grove/manifest.js';
 import { WORKSPACE } from './workspace/manifest.js';
 import { MCP } from './mcp/manifest.js';
 import { EXTERNAL_AGENTS } from './external-agents/manifest.js';
+import { RELEASES } from './releases/manifest.js';
 
-export const INSTALLED_EXTENSIONS: readonly EngineExtension[] = [PLATFORM, GROVE, WORKSPACE, MCP, EXTERNAL_AGENTS];
+export const INSTALLED_EXTENSIONS: readonly EngineExtension[] = [PLATFORM, GROVE, WORKSPACE, MCP, EXTERNAL_AGENTS, RELEASES];
 
 export const HOST_OPERATIONS: readonly HostOperation[] = operationsOf(INSTALLED_EXTENSIONS);
 

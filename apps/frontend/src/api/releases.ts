@@ -6,7 +6,7 @@ import { api } from './client'
  * `RollBackOffer` in apps/backend/src/services/OdooReleaseService.ts,
  * `ReleaseE2E` in apps/backend/src/lib/release-e2e.ts, `E2ETest` in apps/backend/src/lib/e2e.ts.
  */
-export type ReleaseState = 'preparing' | 'preview' | 'cutting-over' | 'live' | 'rolling-back' | 'rolled-back' | 'discarded' | 'failed' | 'superseded'
+export type ReleaseState = 'queued' | 'preparing' | 'preview' | 'cutting-over' | 'live' | 'rolling-back' | 'rolled-back' | 'discarded' | 'failed' | 'superseded'
 
 export interface E2ETest {
   title: string

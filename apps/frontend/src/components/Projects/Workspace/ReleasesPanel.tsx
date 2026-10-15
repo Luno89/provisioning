@@ -8,6 +8,7 @@ import { ReleaseBrowserTests } from './ReleaseBrowserTests'
 import { OpenApp } from './OpenApp'
 
 const STATE: Record<ReleaseState, { label: string; tone: string }> = {
+  queued: { label: 'waiting its turn', tone: 'text-slate-300 bg-slate-500/10 border-slate-600/40' },
   preparing: { label: 'preparing', tone: 'text-sky-300 bg-sky-500/10 border-sky-500/30' },
   preview: { label: 'ready to preview', tone: 'text-amber-300 bg-amber-500/10 border-amber-500/30' },
   'cutting-over': { label: 'cutting over', tone: 'text-sky-300 bg-sky-500/10 border-sky-500/30' },

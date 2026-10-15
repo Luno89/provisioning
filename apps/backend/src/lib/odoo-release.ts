@@ -23,7 +23,7 @@ export interface SlotState {
 
 export const NOTHING_INSTALLED: SlotState = { installed: false, live: 'a', tags: { a: undefined, b: undefined } };
 
-export type ReleaseState = 'preparing' | 'preview' | 'cutting-over' | 'live' | 'rolling-back' | 'rolled-back' | 'discarded' | 'failed' | 'superseded';
+export type ReleaseState = 'queued' | 'preparing' | 'preview' | 'cutting-over' | 'live' | 'rolling-back' | 'rolled-back' | 'discarded' | 'failed' | 'superseded';
 
 export interface OdooRelease {
   id: string;

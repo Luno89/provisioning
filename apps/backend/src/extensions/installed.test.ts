@@ -11,7 +11,7 @@ describe('the installed extensions', () => {
   });
 
   it('have a handler on the worker for every operation they declare', () => {
-    const handlers = operationHandlers(extensionRuntimes({ platform: { operations: {} as never }, grove: { operations: {} as never }, workspace: { operations: {} as never }, mcp: { operations: {} as never } }));
+    const handlers = operationHandlers(extensionRuntimes({ platform: { operations: {} as never }, grove: { operations: {} as never }, workspace: { operations: {} as never }, mcp: { operations: {} as never }, releases: { operations: {} as never } }));
     expect(unhandledOperations(handlers)).toEqual([]);
   });
 });

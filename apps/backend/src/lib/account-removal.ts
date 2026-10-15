@@ -2,6 +2,7 @@ import type { ClusterMetadata, DeploymentMetadata, UserMetadata } from './types.
 import { adoptionWorkflowId, benchIdleId, concludeWorkspaceId, conversationConclusionId, groveRunWorkflowId } from '../engine-host/temporal/contracts.js';
 import { conversationWatermarkKey, memoryRunId } from './conclusions.js';
 import { releaseWorkflowId } from './odoo-release.js';
+import { releaseRunWorkflowId } from './release-run.js';
 
 export const removeAccountWorkflowId = (ownerId: string): string => `remove-account-${ownerId}`;
 export const REMOVE_ACCOUNT_WORKFLOW = 'RemoveAccountWorkflow';
@@ -75,6 +76,7 @@ export function ownedWorkflowIds(ownerId: string, owned: OwnedIds): string[] {
     ...owned.conversationIds.flatMap((id) => [conversationConclusionId(id), concludeWorkspaceId({ kind: 'conversation', id })]),
     ...owned.proposalIds.map(adoptionWorkflowId),
     ...owned.projectIds.map(releaseWorkflowId),
+    ...owned.projectIds.map(releaseRunWorkflowId),
     ...owned.buildWorkflowIds,
   ])];
 }

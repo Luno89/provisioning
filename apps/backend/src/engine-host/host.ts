@@ -106,6 +106,7 @@ export interface EngineHostOptions {
   treeLanguage?: ((ownerId: string, treeId: string) => Promise<string | undefined>) | undefined;
   treeExtras?: ((ownerId: string, treeId: string) => Promise<import('./sandboxes/environments.js').WorkspaceExtras | undefined>) | undefined;
   artifacts?: GroveOperationDeps['artifacts'];
+  releases?: import('../extensions/releases/operations/handlers.js').ReleaseOperationDeps | undefined;
   models: ModelServiceLike;
   stores: EngineHostStores;
   web?: WebTools | undefined;
@@ -286,6 +287,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     return runnable ? agentsReachable(runnable.procedure, async (agent) => (await registry.runnable(ownerId, agent))?.procedure) : [];
   };
   const runtimes = extensionRuntimes({
+    ...(options.releases ? { releases: { operations: options.releases } } : {}),
     platform: { operations: { environments, ...(options.artifacts ? { artifacts: options.artifacts } : {}) } },
     grove: {
       tools: { stores: { ...stores.grove, ...(treeTypeDescriptions ? { describeTreeType: (ownerId: string, typeId: string) => treeTypeDescriptions.describe(ownerId, typeId) } : {}) } },

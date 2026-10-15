@@ -13,7 +13,8 @@ import { InfrastructureService } from '../apps/backend/src/services/Infrastructu
 import { ODOO_ADDONS_FILES } from '../apps/backend/src/lib/project-templates.js';
 import { renderStarterFiles, versionVars } from '../apps/backend/src/lib/tree-types.js';
 import { ODOO_TREE_TYPE, TREE_TYPE_SEEDS } from '../apps/backend/src/lib/tree-type-seeds.js';
-import { newReleaseName, releasePlace, releaseWorkflowId } from '../apps/backend/src/lib/odoo-release.js';
+import { newReleaseName, releasePlace } from '../apps/backend/src/lib/odoo-release.js';
+import { releaseRunWorkflowId } from '../apps/backend/src/lib/release-run.js';
 import { getTemporalClient } from '../apps/backend/src/lib/temporal-client.js';
 import { labelValue } from '../apps/backend/src/engine-host/sandboxes/workspace.js';
 
@@ -239,9 +240,9 @@ async function main(): Promise<void> {
     projectId = undefined;
     assert.equal(await run(KUBECTL, ['get', 'namespace', place.namespace], { env: { ...process.env, KUBECONFIG } }).then(() => true, () => false), false, 'the app\'s namespace outlived the project');
     assert.equal((await db.getDeployments()).some((entry) => entry.gitappProjectId === gone), false, 'the app\'s record outlived the project');
-    const workflow = await (await getTemporalClient()).workflow.getHandle(releaseWorkflowId(gone)).describe();
-    assert.notEqual(workflow.status.name, 'RUNNING', 'the release workflow outlived the project');
-    console.log(`    the app, its namespace ${place.namespace} and its release workflow (${workflow.status.name.toLowerCase()}) went with the project`);
+    const workflow = await (await getTemporalClient()).workflow.getHandle(releaseRunWorkflowId(gone)).describe();
+    assert.notEqual(workflow.status.name, 'RUNNING', 'the release run outlived the project');
+    console.log(`    the app, its namespace ${place.namespace} and its release run (${workflow.status.name.toLowerCase()}) went with the project`);
     if (releaseIds.length > 0) {
       let left = -1;
       for (let tries = 0; tries < 60 && left !== 0; tries += 1) {

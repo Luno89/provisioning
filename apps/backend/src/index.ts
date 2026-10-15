@@ -180,7 +180,8 @@ import { handoffRouter } from './routes/handoff.js';
 import { InstanceService } from './services/InstanceService.js';
 import { InstanceChart } from './services/InstanceChart.js';
 import { instancesRouter } from './routes/instances.js';
-import { OdooReleaseService, temporalReleaseWorkflows } from './services/OdooReleaseService.js';
+import { OdooReleaseService } from './services/OdooReleaseService.js';
+import { engineReleaseRuns } from './engine-host/release-runs.js';
 import { releasesRouter } from './routes/releases.js';
 import { artifactsRouter } from './routes/artifacts.js';
 import { CHART_FILE, ODOO_RELEASE_SECRETS, OWN_SECRET_FILE } from './lib/odoo-release.js';
@@ -812,7 +813,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const odooReleases = new OdooReleaseService({
     store: db,
     decide: decideRelease,
-    workflows: temporalReleaseWorkflows(() => temporalBridge.client, process.env.TEMPORAL_TASK_QUEUE || 'cluster-ops-queue'),
+    runs: engineReleaseRuns({ runs: engineRuns, client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined) }),
     chartAt: async (owner, repo, commit) => (await giteaService.getRawFile(owner, repo, CHART_FILE, commit)) !== null,
     clusterById: async (id) => (id === 'provisioning-lunorica' ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
     notify: (ownerId, release) => {

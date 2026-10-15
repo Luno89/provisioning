@@ -24,6 +24,10 @@ import { createProjectRemovalActivities, type AppTeardown } from './activities/R
 import { projectSecretsFor } from './services/ProjectSecretsService.js';
 import { ProjectChannelService } from './services/ProjectChannelService.js';
 import { createCheckReleases, createReleaseBrowserTestActivities, namespacedCluster } from './activities/ReleaseBrowserTestsActivity.js';
+import { createSlotCluster } from './extensions/releases/slot-cluster.js';
+import { ODOO_RELEASE_ADAPTER } from './extensions/odoo/release-adapter.js';
+import { syncVaultFromProject } from './activities/OdooReleaseActivities.js';
+import { Context as ActivityContext } from '@temporalio/activity';
 import { createCheckProgressActivity, createCheckRunActivities } from './activities/CheckRunActivities.js';
 import { withSeedBundle } from './engine-host/sandboxes/seed-bundle.js';
 import { scriptedModelBase } from './lib/check-space.js';
@@ -147,8 +151,20 @@ async function buildActivities() {
     if (!growers.launcher) throw new Error('the grove launcher is not ready yet');
     return growers.launcher;
   };
+  const activityBeat = (detail?: unknown) => { try { ActivityContext.current().heartbeat(detail); } catch { return; } };
   const builders: { service?: WorkspaceBuildService } = {};
+  const releaseBrowser = createReleaseBrowserTestActivities({
+    cluster: namespacedCluster(kubeInfra),
+    specs: async () => gitea,
+    keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files),
+  });
   const host = createEngineHost({
+    releases: {
+      cluster: createSlotCluster({ infra: kubeInfra, repo: async () => gitea, syncVault: syncVaultFromProject(kubeInfra), beat: activityBeat }),
+      adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
+      releases: { list: (ownerId, projectId) => db.getOdooReleases(ownerId, projectId), save: (release) => db.saveOdooRelease(release) },
+      browserTests: (request) => releaseBrowser.ReleaseBrowserTestsActivity(request),
+    },
     publishedWorkspaces: { get: (ownerId: string, treeId: string) => db.getPublishedWorkspace(ownerId, treeId), save: (workspace) => db.savePublishedWorkspace(workspace) },
     readRepoFile: async (ownerId: string, repo: string, path: string, ref: string) => (await projectRepos.readDocument(ownerId, repo, path, ref))?.content,
     writeRepoFile: (ownerId, repo, path, content, message, branch) => projectRepos.putDocument(ownerId, repo, path, content, message, branch),
@@ -348,11 +364,6 @@ async function buildActivities() {
   const removalWorkflows = {
     stopIfRunning: async (workflowId: string, reason: string) => (await stopIfRunning(temporal.workflow.getHandle(workflowId), reason)) !== 'not-running',
   };
-  const releaseBrowser = createReleaseBrowserTestActivities({
-    cluster: namespacedCluster(kubeInfra),
-    specs: async () => gitea,
-    keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files),
-  });
   const appTeardown: AppTeardown = {
     clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
     logFile: () => path.join(LOG_DIR, `${Date.now()}-${Math.random().toString(36).slice(2)}-D4.log`),

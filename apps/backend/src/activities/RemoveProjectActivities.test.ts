@@ -50,7 +50,7 @@ beforeEach(async () => {
 describe('the steps that delete a project', () => {
   it('stops its running builds and its trees\' runs, and no other project\'s', async () => {
     await createProjectRemovalActivities(deps()).RemoveProjectWorkflowsActivity({ projectId: 'p1' });
-    expect(terminated).toEqual(['odoo-release-p1', 'pipeline-r1', 'grove-run-t1', 'conclude-workspace-tree-t1']);
+    expect(terminated).toEqual(['odoo-release-p1', 'release-p1', 'pipeline-r1', 'grove-run-t1', 'conclude-workspace-tree-t1']);
   });
 
   it('deletes its trees\' workspaces and those of their conversations, its secrets, and its repositories', async () => {

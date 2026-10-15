@@ -1,16 +1,20 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { Client } from '@temporalio/client';
 import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../lib/types.js';
-import { ODOO_DATABASE_PASSWORD, ODOO_PROJECT_APP, ODOO_RELEASE_SECRETS, chartDatabaseSecret, vaultDatabaseSecret, newReleaseName, type ReleaseVault, releaseNameOf, releasePlace, releaseTargetOf, releaseWorkflowId, rollBackTarget, type OdooRelease, type ReleaseState } from '../lib/odoo-release.js';
+import { ODOO_DATABASE_PASSWORD, ODOO_PROJECT_APP, ODOO_RELEASE_SECRETS, chartDatabaseSecret, vaultDatabaseSecret, newReleaseName, type ReleaseVault, releaseNameOf, releasePlace, releaseTargetOf, rollBackTarget, type OdooRelease, type ReleaseState } from '../lib/odoo-release.js';
 import type { ReleaseDecision } from '../lib/release-paths.js';
 import { vaultSecretName } from '../lib/infisical-sync.js';
 import type { TreeTypeSecret } from '../lib/tree-types.js';
-import { startedFor } from '../lib/workflow-owner.js';
-import type { ReleaseBuild, ReleaseProgress, ReleaseRollBack, OdooReleaseInput } from '../workflows/OdooReleaseWorkflow.js';
+import { isMockCloudProvider } from '../lib/cluster-topology.js';
+import { hasCloudCredentials } from '../lib/credential-resolver.js';
+import {
+  CUT_OVER, DEFAULT_RELEASE_APP, DISCARD, RELEASE_AGENT, RETEST, ROLL_BACK_AGENT, UNSETTLED_STATES,
+  type ReleaseBuildInput, type ReleaseRunInput, type RollBackRunInput,
+} from '../lib/release-run.js';
 
 export interface OdooReleaseStore {
   getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]>;
   saveOdooRelease(release: OdooRelease): Promise<void>;
+  getProjects(): Promise<ProjectMetadata[]>;
   getClusters(): Promise<ClusterMetadata[]>;
   getDeployments(): Promise<DeploymentMetadata[]>;
   saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
@@ -18,14 +22,11 @@ export interface OdooReleaseStore {
   saveProjectInfo(project: Partial<ProjectMetadata> & { id: string }): Promise<ProjectMetadata>;
 }
 
-export interface ReleaseWorkflows {
-  release(workflowId: string, input: OdooReleaseInput, build: ReleaseBuild, owner: string): Promise<void>;
-  progress(workflowId: string): Promise<Record<string, ReleaseProgress> | undefined>;
-  final(workflowId: string): Promise<Record<string, ReleaseProgress> | undefined>;
-  running(workflowId: string): Promise<boolean>;
-  decide(workflowId: string, releaseId: string, decision: 'cutOver' | 'discard'): Promise<void>;
-  retest(workflowId: string, releaseId: string): Promise<void>;
-  rollBack(workflowId: string, input: OdooReleaseInput, rollBack: ReleaseRollBack, owner: string): Promise<void>;
+export interface ReleaseRuns {
+  start(request: { projectId: string; ownerId: string; agent: string; inputs: ReleaseRunInput | RollBackRunInput }): Promise<void>;
+  running(projectId: string): Promise<boolean>;
+  answer(projectId: string, choice: string): Promise<void>;
+  stop(projectId: string): Promise<void>;
 }
 
 export interface ReleaseSecrets {
@@ -41,7 +42,7 @@ export interface OdooReleaseDeps {
   store: OdooReleaseStore;
   decide?: ReleaseDecider | undefined;
   secrets?: ReleaseSecrets | undefined;
-  workflows: ReleaseWorkflows;
+  runs: ReleaseRuns;
   chartAt: (owner: string, repo: string, commit: string) => Promise<boolean>;
   clusterById?: ((id: string) => Promise<ClusterMetadata | undefined>) | undefined;
   notify?: ((ownerId: string, release: OdooRelease) => void) | undefined;
@@ -59,8 +60,7 @@ export interface RollBackOffer {
   liveSince?: string | undefined;
 }
 
-const UNSETTLED: readonly ReleaseState[] = ['preparing', 'preview', 'cutting-over', 'rolling-back'];
-const FINAL: readonly ReleaseState[] = ['superseded', 'rolled-back', 'discarded', 'failed'];
+const IN_FLIGHT: readonly ReleaseState[] = UNSETTLED_STATES.filter((state) => state !== 'queued');
 
 export class OdooReleaseService {
   private readonly following = new Map<string, Promise<void>>();
@@ -90,7 +90,7 @@ export class OdooReleaseService {
     if (!cluster) return refuse('the project\'s cluster is gone');
 
     const since = this.deps.decide ? (await this.deps.store.getOdooReleases(ownerId, project.id))
-      .filter((entry) => entry.state !== 'failed' && entry.state !== 'discarded')
+      .filter((entry) => entry.state !== 'failed' && entry.state !== 'discarded' && entry.state !== 'queued')
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0]?.commit : undefined;
     if (since && this.deps.decide) {
       const decision = await this.deps.decide(project, since, run.commitSha);
@@ -103,6 +103,7 @@ export class OdooReleaseService {
     const named = await this.named(project, ownerId);
     const place = releasePlace(releaseNameOf(named));
     const stamp = this.now();
+    const busy = await this.deps.runs.running(project.id);
     const release: OdooRelease = {
       id: (this.deps.newId ?? uuidv4)(),
       ownerId,
@@ -110,7 +111,7 @@ export class OdooReleaseService {
       pipelineRunId: run.id,
       commit: run.commitSha,
       image: run.imageTag,
-      state: 'preparing',
+      state: busy ? 'queued' : 'preparing',
       host: place.host,
       previewHost: place.previewHost,
       startedAt: stamp,
@@ -119,18 +120,38 @@ export class OdooReleaseService {
     await this.deps.store.saveOdooRelease(release);
     await this.deploymentFor(named, ownerId, cluster, run);
 
-    let vault: ReleaseVault | undefined;
-    try {
-      vault = await this.vaultFor(named, cluster, run.commitSha);
-    } catch (err) {
-      const error = `the project's secrets could not be put in its vault: ${(err as Error).message}`;
-      await this.deps.store.saveOdooRelease({ ...release, state: 'failed', reason: error, updatedAt: this.now() });
-      return refuse(error);
+    if (busy) {
+      const waiting = (await this.deps.store.getOdooReleases(ownerId, project.id)).some((entry) => entry.state === 'preview');
+      if (waiting) await this.deps.runs.stop(project.id);
+    } else {
+      const started = await this.startRelease(named, cluster, release);
+      if ('error' in started) return refuse(started.error);
     }
-    await this.deps.workflows.release(releaseWorkflowId(project.id), this.inputFor(named, cluster, ownerId), { releaseId: release.id, image: run.imageTag, source: { owner: project.giteaOwner, repo: project.giteaRepo, commit: run.commitSha }, ...(vault ? { vault } : {}) }, ownerId);
-
     void this.follow(ownerId, project.id);
     return release;
+  }
+
+  private async startRelease(project: ProjectMetadata, cluster: ClusterMetadata, release: OdooRelease): Promise<{ ok: true } | { error: string }> {
+    let vault: ReleaseVault | undefined;
+    try {
+      vault = await this.vaultFor(project, cluster, release.commit);
+    } catch (err) {
+      const error = `the project's secrets could not be put in its vault: ${(err as Error).message}`;
+      await this.save({ ...release, state: 'failed', reason: error, updatedAt: this.now() });
+      return { error };
+    }
+    if (release.state !== 'preparing') await this.save({ ...release, state: 'preparing', updatedAt: this.now() });
+    await this.deps.runs.start({
+      projectId: project.id,
+      ownerId: release.ownerId,
+      agent: RELEASE_AGENT,
+      inputs: { ...this.inputFor(project, cluster, release.ownerId), build: this.buildOf(project, release, vault) },
+    });
+    return { ok: true };
+  }
+
+  private buildOf(project: ProjectMetadata, release: OdooRelease, vault?: ReleaseVault | undefined): ReleaseBuildInput {
+    return { releaseId: release.id, image: release.image, source: { owner: project.giteaOwner!, repo: project.giteaRepo!, commit: release.commit }, ...(vault ? { vault } : {}) };
   }
 
   private async vaultFor(project: ProjectMetadata, cluster: ClusterMetadata, commit: string): Promise<ReleaseVault | undefined> {
@@ -171,9 +192,18 @@ export class OdooReleaseService {
       : (await this.deps.store.getClusters()).find((entry) => entry.id === project.targetClusterId);
   }
 
-  private inputFor(project: ProjectMetadata, cluster: ClusterMetadata, ownerId: string): OdooReleaseInput {
+  private inputFor(project: ProjectMetadata, cluster: ClusterMetadata, ownerId: string): Omit<ReleaseRunInput, 'build'> {
     const place = releasePlace(releaseNameOf(project));
-    return { target: releaseTargetOf(cluster, project), host: place.host, previewHost: place.previewHost, ownerId };
+    const target = releaseTargetOf(cluster, project);
+    return {
+      ownerId,
+      projectId: project.id,
+      adapter: DEFAULT_RELEASE_APP,
+      target,
+      host: place.host,
+      previewHost: place.previewHost,
+      secretTarget: { clusterName: cluster.name, provider: cluster.provider, isMock: isMockCloudProvider(cluster.provider, hasCloudCredentials) },
+    };
   }
 
   async rollBackOffer(ownerId: string, projectId: string): Promise<RollBackOffer | undefined> {
@@ -191,14 +221,19 @@ export class OdooReleaseService {
     if (!live) return { status: 404, error: 'You have no release with that id' };
     const target = rollBackTarget(releases, live);
     if ('problem' in target) return { status: 409, error: target.problem };
+    if (await this.deps.runs.running(project.id)) {
+      const waiting = releases.some((entry) => entry.state === 'preview');
+      return { status: 409, error: waiting ? 'a preview is waiting: cut it over or discard it first' : 'a release is in progress: wait for it to finish' };
+    }
     const cluster = await this.clusterOf(project);
     if (!cluster) return { status: 409, error: 'the project\'s cluster is gone' };
     if (!project.giteaOwner || !project.giteaRepo) return { status: 409, error: 'the project has no repository' };
-    const { to } = target;
-    await this.deps.workflows.rollBack(releaseWorkflowId(project.id), this.inputFor(project, cluster, ownerId), {
-      from: live.id,
-      to: { releaseId: to.id, image: to.image, source: { owner: project.giteaOwner, repo: project.giteaRepo, commit: to.commit } },
-    }, ownerId);
+    await this.deps.runs.start({
+      projectId: project.id,
+      ownerId,
+      agent: ROLL_BACK_AGENT,
+      inputs: { ...this.inputFor(project, cluster, ownerId), from: live.id, to: this.buildOf(project, target.to) },
+    });
     void this.follow(ownerId, project.id);
     return live;
   }
@@ -231,20 +266,27 @@ export class OdooReleaseService {
     return { ...(live ? { live } : {}), ...(preview ? { preview } : {}) };
   }
 
-  async decide(ownerId: string, releaseId: string, decision: 'cutOver' | 'discard'): Promise<OdooRelease | ReleaseRefusal> {
+  private async waitingPreview(ownerId: string, releaseId: string, doing: string): Promise<OdooRelease | ReleaseRefusal> {
     const release = (await this.deps.store.getOdooReleases(ownerId)).find((entry) => entry.id === releaseId);
     if (!release) return { status: 404, error: 'You have no release with that id' };
-    if (release.state !== 'preview') return { status: 409, error: `the release is ${release.state}, not waiting in preview` };
-    await this.deps.workflows.decide(releaseWorkflowId(release.projectId), releaseId, decision);
+    if (release.state !== 'preview') return { status: 409, error: `the release is ${release.state}, so it cannot be ${doing}` };
+    if (release.e2e?.state === 'running') return { status: 409, error: `its browser tests are still running, so it cannot be ${doing} yet` };
+    if (!(await this.deps.runs.running(release.projectId))) return { status: 409, error: `no release is waiting for this preview, so it cannot be ${doing}: push again to release it` };
+    return release;
+  }
+
+  async decide(ownerId: string, releaseId: string, decision: 'cutOver' | 'discard'): Promise<OdooRelease | ReleaseRefusal> {
+    const release = await this.waitingPreview(ownerId, releaseId, decision === 'cutOver' ? 'cut over' : 'discarded');
+    if ('status' in release) return release;
+    await this.deps.runs.answer(release.projectId, decision === 'cutOver' ? CUT_OVER : DISCARD);
     void this.follow(ownerId, release.projectId);
     return release;
   }
 
   async retest(ownerId: string, releaseId: string): Promise<OdooRelease | ReleaseRefusal> {
-    const release = (await this.deps.store.getOdooReleases(ownerId)).find((entry) => entry.id === releaseId);
-    if (!release) return { status: 404, error: 'You have no release with that id' };
-    if (release.state !== 'preview') return { status: 409, error: `the release is ${release.state}, so its browser tests cannot run again` };
-    await this.deps.workflows.retest(releaseWorkflowId(release.projectId), releaseId);
+    const release = await this.waitingPreview(ownerId, releaseId, 'tested again');
+    if ('status' in release) return release;
+    await this.deps.runs.answer(release.projectId, RETEST);
     void this.follow(ownerId, release.projectId);
     return release;
   }
@@ -252,7 +294,7 @@ export class OdooReleaseService {
   async recover(ownerIds: readonly string[]): Promise<number> {
     let followed = 0;
     for (const ownerId of ownerIds) {
-      const projects = new Set((await this.deps.store.getOdooReleases(ownerId)).filter((release) => UNSETTLED.includes(release.state)).map((release) => release.projectId));
+      const projects = new Set((await this.deps.store.getOdooReleases(ownerId)).filter((release) => UNSETTLED_STATES.includes(release.state)).map((release) => release.projectId));
       for (const projectId of projects) {
         void this.follow(ownerId, projectId);
         followed += 1;
@@ -270,62 +312,47 @@ export class OdooReleaseService {
     return followed;
   }
 
+  private async save(release: OdooRelease): Promise<void> {
+    await this.deps.store.saveOdooRelease(release);
+    this.deps.notify?.(release.ownerId, release);
+  }
+
   private async watch(ownerId: string, projectId: string): Promise<void> {
-    const workflowId = releaseWorkflowId(projectId);
+    const seen = new Map((await this.deps.store.getOdooReleases(ownerId, projectId)).map((release) => [release.id, release.updatedAt]));
     for (;;) {
-      const running = await this.deps.workflows.running(workflowId).catch(() => false);
-      const progress = running
-        ? await this.deps.workflows.progress(workflowId).catch(() => undefined)
-        : await this.deps.workflows.final(workflowId).catch(() => undefined);
-      if (progress) await this.record(ownerId, projectId, progress);
+      const running = await this.deps.runs.running(projectId).catch(() => true);
+      const releases = await this.deps.store.getOdooReleases(ownerId, projectId);
+      for (const release of releases) {
+        if (seen.get(release.id) === release.updatedAt) continue;
+        seen.set(release.id, release.updatedAt);
+        this.deps.notify?.(ownerId, release);
+        if (release.state === 'live') await this.deploymentState(projectId, 'running', release.image);
+        if (release.state === 'failed' && !releases.some((other) => other.state === 'live' || other.state === 'superseded')) await this.deploymentState(projectId, 'failed');
+      }
       if (!running) {
-        await this.abandon(ownerId, projectId);
-        return;
+        for (const release of releases.filter((entry) => IN_FLIGHT.includes(entry.state))) {
+          const updated: OdooRelease = { ...release, state: 'failed', reason: 'the release stopped before it said how it went', updatedAt: this.now() };
+          await this.save(updated);
+          seen.set(updated.id, updated.updatedAt);
+        }
+        const queued = releases.filter((entry) => entry.state === 'queued').sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+        for (const older of queued.slice(1)) {
+          const updated: OdooRelease = { ...older, state: 'superseded', reason: 'a newer build took its place', updatedAt: this.now() };
+          await this.save(updated);
+          seen.set(updated.id, updated.updatedAt);
+        }
+        const next = queued[0];
+        if (!next) return;
+        const project = (await this.deps.store.getProjects()).find((entry) => entry.id === projectId);
+        const cluster = project ? await this.clusterOf(project) : undefined;
+        if (!project || !cluster) {
+          await this.save({ ...next, state: 'failed', reason: project ? 'the project\'s cluster is gone' : 'the project is gone', updatedAt: this.now() });
+          return;
+        }
+        const started = await this.startRelease(project, cluster, next);
+        if ('error' in started) return;
       }
       await new Promise((done) => setTimeout(done, this.deps.pollMs ?? 3_000));
-    }
-  }
-
-  private async record(ownerId: string, projectId: string, progress: Record<string, ReleaseProgress>): Promise<void> {
-    const releases = await this.deps.store.getOdooReleases(ownerId, projectId);
-    for (const release of releases) {
-      const seen = progress[release.id];
-      if (!seen) continue;
-      const restored = release.state === 'superseded' && seen.state === 'live' && Boolean(seen.restoredAt) && seen.restoredAt !== release.restoredAt;
-      if (FINAL.includes(release.state) && !restored) continue;
-      if (seen.state === release.state && seen.slot === release.slot && seen.reason === release.reason && JSON.stringify(seen.e2e) === JSON.stringify(release.e2e)) continue;
-      const { replacedBy: _replacedBy, reason: _reason, ...kept } = release;
-      const stamp = this.now();
-      const updated: OdooRelease = {
-        ...(restored ? kept : release),
-        state: seen.state,
-        ...(seen.slot ? { slot: seen.slot } : {}),
-        ...(seen.reason ? { reason: seen.reason } : {}),
-        ...(seen.e2e ? { e2e: seen.e2e } : {}),
-        ...(seen.state === 'live' && release.state !== 'live' ? { liveAt: stamp } : {}),
-        ...(restored ? { restoredAt: seen.restoredAt } : {}),
-        updatedAt: stamp,
-      };
-      await this.deps.store.saveOdooRelease(updated);
-      this.deps.notify?.(ownerId, updated);
-      if (seen.state === 'live') {
-        await this.deploymentState(projectId, 'running', release.image);
-        for (const earlier of releases.filter((other) => other.id !== release.id && other.state === 'live' && other.startedAt <= release.startedAt)) {
-          const replaced: OdooRelease = { ...earlier, state: 'superseded', reason: `replaced by the release of ${release.commit.slice(0, 8)}`, replacedBy: release.id, updatedAt: this.now() };
-          await this.deps.store.saveOdooRelease(replaced);
-          this.deps.notify?.(ownerId, replaced);
-        }
-      }
-      if (seen.state === 'failed' && !releases.some((other) => other.state === 'live' || other.state === 'superseded')) await this.deploymentState(projectId, 'failed');
-    }
-  }
-
-  private async abandon(ownerId: string, projectId: string): Promise<void> {
-    for (const release of await this.deps.store.getOdooReleases(ownerId, projectId)) {
-      if (!UNSETTLED.includes(release.state)) continue;
-      const updated: OdooRelease = { ...release, state: 'failed', reason: 'the release stopped being followed before it finished', updatedAt: this.now() };
-      await this.deps.store.saveOdooRelease(updated);
-      this.deps.notify?.(ownerId, updated);
     }
   }
 
@@ -336,33 +363,3 @@ export class OdooReleaseService {
   }
 }
 
-export function temporalReleaseWorkflows(client: () => Client | undefined | null, taskQueue: string): ReleaseWorkflows {
-  const connected = (): Client => {
-    const temporal = client();
-    if (!temporal) throw new Error('Temporal is not reachable');
-    return temporal;
-  };
-  return {
-    async release(workflowId, input, build, owner) {
-      await connected().workflow.signalWithStart('OdooReleaseWorkflow', { workflowId, taskQueue, args: [input], signal: 'releaseBuild', signalArgs: [build], ...startedFor(owner) });
-    },
-    async progress(workflowId) {
-      return connected().workflow.getHandle(workflowId).query<Record<string, ReleaseProgress>>('releases');
-    },
-    async final(workflowId) {
-      return connected().workflow.getHandle(workflowId).result() as Promise<Record<string, ReleaseProgress>>;
-    },
-    async running(workflowId) {
-      return (await connected().workflow.getHandle(workflowId).describe()).status.name === 'RUNNING';
-    },
-    async decide(workflowId, releaseId, decision) {
-      await connected().workflow.getHandle(workflowId).signal(decision, releaseId);
-    },
-    async retest(workflowId, releaseId) {
-      await connected().workflow.getHandle(workflowId).signal('retest', releaseId);
-    },
-    async rollBack(workflowId, input, rollBack, owner) {
-      await connected().workflow.signalWithStart('OdooReleaseWorkflow', { workflowId, taskQueue, args: [input], signal: 'rollBack', signalArgs: [rollBack], ...startedFor(owner) });
-    },
-  };
-}

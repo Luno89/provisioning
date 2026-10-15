@@ -463,6 +463,30 @@ describe('AgentRunWorkflow', () => {
     expect(published(acts)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'notice', message: 'Which database?', choices: ['Install it', 'Do not install'] })]));
   }, 60_000);
 
+  it('asks again when the procedure comes back to the same question, rather than reusing the answer it already took', async () => {
+    const asking: Procedure = {
+      ...WAITING,
+      nodes: [
+        place('ask', 'wait-for-person', { prompt: 'Run the tests again?', choices: ['Again', 'Done'] }),
+        place('again', 'condition', { expression: "value == 'Again'" }),
+        place('done', 'finish', { outcome: 'ok' }),
+        place('gaveUp', 'finish', { outcome: 'failed' }),
+      ],
+      wires: [...WAITING.wires, { from: { node: 'ask', socket: 'answer' }, to: { node: 'again', socket: 'value' } }],
+      flow: [{ from: 'ask', exit: 'answered', to: 'again' }, { from: 'again', exit: 'true', to: 'ask' }, { from: 'again', exit: 'false', to: 'done' }, { from: 'ask', exit: 'unanswered', to: 'gaveUp' }],
+    };
+    const acts = activities({ script: [{ content: 'unused' }] });
+
+    const result = await runWorkflow(input('koala', asking), acts, async (handle) => {
+      await handle.signal(answerSignal, { nodeId: 'ask', value: 'Again' });
+      await env.sleep('1 hour');
+      await handle.signal(answerSignal, { nodeId: 'ask', value: 'Done' });
+    });
+
+    expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'Done' } });
+    expect(published(acts).filter((event) => (event as { message?: string }).message === 'Run the tests again?')).toHaveLength(2);
+  }, 60_000);
+
   it('gives up only when the step itself set how long to wait, and nobody answered in that time', async () => {
     const result = await runWorkflow(input('koala', WAITING), activities({ script: [{ content: 'unused' }] }));
 

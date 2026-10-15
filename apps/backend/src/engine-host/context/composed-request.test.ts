@@ -135,8 +135,8 @@ describe('what each built-in procedure actually puts in front of the model', () 
   it('every built-in procedure says what its context has to carry', () => {
     const covered = Object.entries(MUST_CARRY).filter(([, carries]) => carries.procedureId === undefined).map(([id]) => id);
     // These run no model of their own; what reaches their children's models is pinned end to end by
-    // extensions/grove/grove-run.test.ts, extensions/workspace/build-workspace.test.ts and extensions/mcp/capture-mcp-server.test.ts.
-    const structural = ['grove-run', 'grove-paper-run', 'grove-leaf', 'grove-paper-leaf', 'build-workspace', 'capture-mcp-server', 'external-agent-task'];
+    // extensions/grove/grove-run.test.ts, extensions/workspace/build-workspace.test.ts, extensions/mcp/capture-mcp-server.test.ts and extensions/releases/slots.test.ts.
+    const structural = ['grove-run', 'grove-paper-run', 'grove-leaf', 'grove-paper-leaf', 'build-workspace', 'capture-mcp-server', 'external-agent-task', 'slots', 'slots-roll-back'];
     expect(seededProcedures().map((entry) => entry.id).filter((id) => !structural.includes(id)).sort()).toEqual(covered.sort());
   });
 });

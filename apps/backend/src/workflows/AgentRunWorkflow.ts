@@ -117,6 +117,7 @@ const HAND_OFFS_TOGETHER = 'hand-offs-together';
 const TOOL_CALLS_HEAR_STOPS = 'tool-calls-hear-stops';
 const SANDBOX_CALLS_UNASKED = 'sandbox-calls-unasked';
 const AUTO_MODE = 'auto-mode';
+const ANSWERS_TAKEN_ONCE = 'answers-taken-once';
 
 export const approveSignal = defineSignal<[{ callId: string; allowed: boolean; forRun?: boolean }]>('approve');
 export const answerSignal = defineSignal<[{ nodeId: string; value: unknown }]>('answer');
@@ -419,7 +420,9 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         : await condition(() => usable() || cancelled, timeoutMs);
       if (cancelled) return { answered: false, reason: 'the run was cancelled' };
       if (!answered) return { answered: false, reason: 'nobody answered in the time this step waits' };
-      return { answered: true, value: answers.get(nodeId) };
+      const value = answers.get(nodeId);
+      if (patched(ANSWERS_TAKEN_ONCE)) answers.delete(nodeId);
+      return { answered: true, value };
     },
   };
 

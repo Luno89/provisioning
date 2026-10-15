@@ -18,9 +18,9 @@ const NOT_SHOWN: Record<string, string[]> = {
 
 // The structural personas make no model rounds of their own, so what they are given reaches the model somewhere
 // else: on a child's prompt or in an operation's inputs (the grove agents run no model; their leaves, judges and
-// planners do). They are pinned end to end by extensions/grove/grove-run.test.ts, extensions/workspace/build-workspace.test.ts and
-// extensions/mcp/capture-mcp-server.test.ts.
-const STRUCTURAL = ['grove', 'grove-paper', 'grove-leaf', 'grove-paper-leaf', 'workspace', 'mcp-capture', 'antigravity'];
+// planners do). They are pinned end to end by extensions/grove/grove-run.test.ts, extensions/workspace/build-workspace.test.ts,
+// extensions/mcp/capture-mcp-server.test.ts and extensions/releases/slots.test.ts.
+const STRUCTURAL = ['grove', 'grove-paper', 'grove-leaf', 'grove-paper-leaf', 'workspace', 'mcp-capture', 'antigravity', 'release', 'release-roll-back'];
 
 function sentinelsFor(persona: Persona, procedure: Procedure): Sentinelled {
   const skip = new Set(NOT_SHOWN[persona.slug] ?? []);

@@ -3,6 +3,7 @@ import { PIPELINE_FILE } from './build-plan.js';
 import type { TreeTypeSpec } from './tree-types.js';
 
 export const RELEASE_STATES: Record<ReleaseState, string> = {
+  queued: 'it waits while an earlier build of the project is still being prepared or cut over; when that settles, the newest waiting build goes next and older waiting ones are set aside',
   preparing: 'the build is installed into the slot that is not live, on a copy of the live database and files: new modules installed, the rest upgraded, scheduled jobs and outgoing mail switched off on the copy',
   preview: 'it runs in that slot on its own preview address, the repository\'s e2e/ browser tests run against it signed in as a test user, and it waits for the person to cut over or discard it — a newer build takes its place',
   'cutting-over': 'the live slot goes into maintenance, the latest data is copied and upgraded once more, and live switches to the new slot',
@@ -14,7 +15,7 @@ export const RELEASE_STATES: Record<ReleaseState, string> = {
   failed: 'preparing or cutting over broke; the live slot kept serving and the reason is on the release',
 };
 
-const ORDER: ReleaseState[] = ['preparing', 'preview', 'cutting-over', 'live', 'rolling-back', 'rolled-back', 'discarded', 'superseded', 'failed'];
+const ORDER: ReleaseState[] = ['queued', 'preparing', 'preview', 'cutting-over', 'live', 'rolling-back', 'rolled-back', 'discarded', 'superseded', 'failed'];
 
 export type DeliveryPath = 'chart-release' | 'image-deploy' | 'waits-for-dockerfile' | 'none';
 

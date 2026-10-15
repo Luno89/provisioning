@@ -454,7 +454,8 @@ pieces that used to cut work off and no longer do:
 - **Sandboxes** last as long as their run (`sleep infinity`, no `activeDeadlineSeconds`) unless the run sets a time
   budget. The engine worker's sweep removes only sandboxes whose run has ended (`runEndedVia`), never by age.
 - **People.** Wait for Person and tool approvals wait until someone answers or the run is stopped; a step may still set
-  "Stop waiting after".
+  "Stop waiting after". A run takes each answer once (behind the `answers-taken-once` patch), so a procedure that
+  comes back to the same question asks it again.
 - **Builds and releases.** Workspace image builds, Odoo release jobs and rollouts, browser tests, pipeline builds and
   cluster provisioning wait for their work however long it takes.
 `mechanics-long-command` proves a command outliving any old limit.
