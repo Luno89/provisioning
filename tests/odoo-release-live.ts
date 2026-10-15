@@ -11,7 +11,8 @@ import { loadKeys } from '../apps/backend/src/lib/keys.js';
 import { GiteaService } from '../apps/backend/src/services/GiteaService.js';
 import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
 import { ODOO_ADDONS_FILES } from '../apps/backend/src/lib/project-templates.js';
-import { renderStarterFiles } from '../apps/backend/src/lib/tree-types.js';
+import { renderStarterFiles, versionVars } from '../apps/backend/src/lib/tree-types.js';
+import { ODOO_TREE_TYPE, TREE_TYPE_SEEDS } from '../apps/backend/src/lib/tree-type-seeds.js';
 import { newReleaseName, releasePlace, releaseWorkflowId } from '../apps/backend/src/lib/odoo-release.js';
 import { getTemporalClient } from '../apps/backend/src/lib/temporal-client.js';
 import { labelValue } from '../apps/backend/src/engine-host/sandboxes/workspace.js';
@@ -25,21 +26,23 @@ const KUBECTL = fileURLToPath(new URL('../bin/kubectl', import.meta.url));
 const NAME = `odoo-release-check-${Date.now().toString(36)}`;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const ODOO_TYPE = TREE_TYPE_SEEDS.find((type) => type.id === ODOO_TREE_TYPE)!;
+const ODOO_VERSION = versionVars(ODOO_TYPE, { version: ODOO_TYPE.versions?.default });
 const MODULE = 'koala_probe';
 const EXTRA = 'koala_probe_extra';
 const files = (entries: Record<string, string>) => Object.entries(entries).map(([path, content]) => ({ path, content }));
 
 const PROBE = files({
   [`addons/${MODULE}/__init__.py`]: 'from . import models\n',
-  [`addons/${MODULE}/__manifest__.py`]: "{\n    'name': 'Koala probe',\n    'version': '18.0.1.0.0',\n    'depends': ['base'],\n    'data': ['security/ir.model.access.csv'],\n    'license': 'LGPL-3',\n}\n",
+  [`addons/${MODULE}/__manifest__.py`]: `{\n    'name': 'Koala probe',\n    'version': '${ODOO_VERSION.version}.0.1.0.0',\n    'depends': ['base'],\n    'data': ['security/ir.access.csv'],\n    'license': 'LGPL-3',\n}\n`,
   [`addons/${MODULE}/models/__init__.py`]: 'from . import probe\n',
   [`addons/${MODULE}/models/probe.py`]: "from odoo import fields, models\n\n\nclass Probe(models.Model):\n    _name = 'koala.probe'\n    _description = 'Koala probe'\n\n    name = fields.Char(required=True)\n",
-  [`addons/${MODULE}/security/ir.model.access.csv`]: 'id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink\naccess_koala_probe,koala.probe,model_koala_probe,base.group_user,1,1,1,1\n',
+  [`addons/${MODULE}/security/ir.access.csv`]: 'id,name,model_id,group_id/id,operation,domain\naccess_koala_probe,koala.probe,koala.probe,base.group_user,crud,\n',
 });
 
 const COLOUR = files({
   [`addons/${EXTRA}/__init__.py`]: 'from . import models\n',
-  [`addons/${EXTRA}/__manifest__.py`]: `{\n    'name': 'Koala probe colour',\n    'version': '18.0.1.0.0',\n    'depends': ['${MODULE}'],\n    'license': 'LGPL-3',\n}\n`,
+  [`addons/${EXTRA}/__manifest__.py`]: `{\n    'name': 'Koala probe colour',\n    'version': '${ODOO_VERSION.version}.0.1.0.0',\n    'depends': ['${MODULE}'],\n    'license': 'LGPL-3',\n}\n`,
   [`addons/${EXTRA}/models/__init__.py`]: 'from . import probe\n',
   [`addons/${EXTRA}/models/probe.py`]: "from odoo import fields, models\n\n\nclass Probe(models.Model):\n    _inherit = 'koala.probe'\n\n    colour = fields.Char()\n",
 });
@@ -110,7 +113,7 @@ async function main(): Promise<void> {
     };
 
     console.log('[2] the Odoo starter and a module land on main in one commit: it builds and releases into slot a');
-    await gitea.seedTemplate(project.giteaOwner, project.giteaRepo, [...renderStarterFiles(ODOO_ADDONS_FILES, { projectName: NAME, registryHost: await gitea.getRegistryHost() }), ...PROBE]);
+    await gitea.seedTemplate(project.giteaOwner, project.giteaRepo, [...renderStarterFiles(ODOO_ADDONS_FILES, { projectName: NAME, registryHost: await gitea.getRegistryHost(), ...ODOO_VERSION }), ...PROBE]);
     const first = await waitFor('first release', (all) => all.find((release) => release.state === 'live'), 30);
     assert.equal(first.slot, 'a');
     assert.equal((await db.getProjects()).find((entry) => entry.id === projectId)?.releaseName, place.release, 'the project does not keep the name its release was given');

@@ -62,7 +62,7 @@ describe('the browser tests a release runs against its preview', () => {
     expect(container.command[2]).toContain('odoo shell --database=odoo_b --no-http --db_host=shop-postgres');
     expect(container.command.join(' ')).not.toMatch(/E2E_PASSWORD/);
     expect(container.env.find((entry) => entry.name === 'E2E_PASSWORD')).toEqual({ name: 'E2E_PASSWORD', valueFrom: { secretKeyRef: { name: 'shop-e2e-login', key: 'password' } } });
-    expect(container.env.find((entry) => entry.name === 'SCRIPT')?.value).toContain('admin.groups_id.ids');
+    expect(container.env.find((entry) => entry.name === 'SCRIPT')?.value).toContain('admin[groups].ids');
     expect(container.env.find((entry) => entry.name === 'PASSWORD')).toEqual({ name: 'PASSWORD', valueFrom: { secretKeyRef: { name: 'shop-vault', key: 'POSTGRES_PASSWORD' } } });
   });
 
