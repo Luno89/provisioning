@@ -8,6 +8,7 @@ import {
   EngineUnavailableError,
   UnknownAgentError,
   UnknownProcedureError,
+  MachineUnavailableError,
   type RunStarter,
   type AgentRegistry,
   blockedBy,
@@ -59,6 +60,7 @@ const fail = (res: Response, err: unknown): Response => {
   if (err instanceof AccountClosingError) return res.status(409).json({ error: err.message });
   if (err instanceof UnknownAgentError) return res.status(404).json({ error: err.message });
   if (err instanceof UnknownProcedureError) return res.status(404).json({ error: err.message });
+  if (err instanceof MachineUnavailableError) return res.status(409).json({ error: err.message, code: 'MACHINE_UNAVAILABLE' });
   if (err instanceof SwitchedOffError) return res.status(409).json({ error: err.message, code: 'SWITCHED_OFF' });
   if (err instanceof NoNoteToAskError) return res.status(409).json({ error: err.message });
   throw err;

@@ -62,7 +62,7 @@ function TryIt({ agent }: { agent: EngineAgent }) {
       <div className="space-y-3 rounded-xl border border-[var(--bark-800)] bg-[var(--bark-900)]/60 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-slate-400">Model</span>
-          <ModelSelector value={modelId} onChange={setModelId} className="w-64" placeholder="Account default model" />
+          <ModelSelector value={modelId} onChange={setModelId} className="w-64" placeholder="Account default model" machines />
         </div>
         <div className="flex gap-2">
           <input

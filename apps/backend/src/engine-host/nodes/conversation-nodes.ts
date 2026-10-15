@@ -154,6 +154,11 @@ function readRoundRecords(request: NodeRequest): { reply: ModelReply; results: T
     .filter((round) => round.reply && Array.isArray(round.reply.toolCalls));
 }
 
+function machineSession(value: unknown): { key: string; id: string } | undefined {
+  const { key, id } = (value ?? {}) as { key?: unknown; id?: unknown };
+  return typeof key === 'string' && key && typeof id === 'string' && id ? { key, id } : undefined;
+}
+
 export function createConversationNodes(store: ConversationStore): NodeImplementation[] {
   return [
     valueImplementation('load-conversation', async (request) => {
@@ -162,7 +167,7 @@ export function createConversationNodes(store: ConversationStore): NodeImplement
       const names = found?.kind && store.names ? await store.names(peopleIn(found.messages)) : undefined;
       const { messages, history } = loadedMessages(found, request.run.identity.runId, names);
 
-      return { outputs: { messages, found: Boolean(found), history } };
+      return { outputs: { messages, found: Boolean(found), history, sessions: found?.machineSessions ?? {} } };
     }),
 
     stepImplementation('save-conversation', async (request) => {
@@ -215,8 +220,10 @@ export function createConversationNodes(store: ConversationStore): NodeImplement
 
       const summarised = storedCompaction(request.inputs.compaction, request.inputs.history);
       const compacted = summarised && summarised.through > (closed.compaction?.through ?? 0) ? { ...closed, compaction: summarised } : closed;
+      const session = machineSession(request.inputs.session);
+      const kept = session ? { ...compacted, machineSessions: { ...(compacted.machineSessions ?? {}), [session.key]: session.id } } : compacted;
 
-      await store.save({ ...compacted, id, ownerId } as Conversation);
+      await store.save({ ...kept, id, ownerId } as Conversation);
 
       return { exit: 'saved', outputs: { conversation: id } };
     }),

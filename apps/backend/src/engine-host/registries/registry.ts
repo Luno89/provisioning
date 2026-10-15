@@ -8,7 +8,8 @@ import {
   contractsFor,
   BUILDER_TOOLS,
 } from '@koala/agent-engine';
-import type { Procedure } from '@koala/agent-engine/procedure';
+import type { MachineChoice, Procedure } from '@koala/agent-engine/procedure';
+import { machineRunFor, type RunOn } from '../../lib/machine-runs.js';
 import { createStoredToolCatalogue, type ToolReader } from './tool-catalogue-store.js';
 import { createProcedureStore, type OwnedProcedure, type ProcedureReader, type ProcedureStore } from './procedure-store.js';
 import type { ToolContract } from '@koala/engine-core';
@@ -26,6 +27,7 @@ export interface ToolCatalogue {
 export interface Runnable {
   agent: AgentDefinition;
   procedure: Procedure;
+  machine?: MachineChoice | undefined;
 }
 
 export interface AgentRegistry {
@@ -33,7 +35,7 @@ export interface AgentRegistry {
   agent(ownerId: string, slug: string): Promise<AgentDefinition | undefined>;
   procedure(ownerId: string, id: string): Promise<OwnedProcedure | undefined>;
   procedures(ownerId: string): Promise<OwnedProcedure[]>;
-  runnable(ownerId: string, slug: string, procedureId?: string): Promise<Runnable | undefined>;
+  runnable(ownerId: string, slug: string, procedureId?: string, on?: RunOn): Promise<Runnable | undefined>;
   tools(ownerId: string): Promise<ToolContract[]>;
   callable(ownerId: string, slug: string): Promise<AgentDefinition[]>;
 }
@@ -77,8 +79,8 @@ export function createStoredAgentRegistry(options: {
   if (!options.published && !options.hidden) return registry;
   return {
     ...registry,
-    async runnable(ownerId: string, slug: string, procedureId?: string) {
-      const found = await registry.runnable(ownerId, slug, procedureId);
+    async runnable(ownerId: string, slug: string, procedureId?: string, on?: RunOn) {
+      const found = await registry.runnable(ownerId, slug, procedureId, on);
       if (!found) return found;
       const hidden = await hiddenFor(ownerId);
       const refused = hidden ? switchedOffProblems(found.procedure, hidden) : [];
@@ -120,14 +122,15 @@ export function createAgentRegistry(options: RegistryOptions = {}): AgentRegistr
     procedure: (ownerId, id) => procedureStore.get(ownerId, id),
     procedures: (ownerId) => procedureStore.list(ownerId),
 
-    async runnable(ownerId: string, slug: string, procedureId?: string): Promise<Runnable | undefined> {
+    async runnable(ownerId: string, slug: string, procedureId?: string, on?: RunOn): Promise<Runnable | undefined> {
       const found = await agent(ownerId, slug);
       if (!found) return undefined;
 
-      const procedure = await procedureStore.get(ownerId, procedureId ?? found.procedure);
+      const onMachine = machineRunFor(on, found.model?.endpointId, procedureId);
+      const procedure = await procedureStore.get(ownerId, onMachine?.procedureId ?? procedureId ?? found.procedure);
       if (!procedure) return undefined;
 
-      return { agent: found, procedure };
+      return { agent: found, procedure, ...(onMachine ? { machine: onMachine.machine } : {}) };
     },
 
     async tools(ownerId: string): Promise<ToolContract[]> {

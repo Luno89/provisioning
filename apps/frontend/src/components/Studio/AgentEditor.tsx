@@ -5,6 +5,7 @@ import { errorMessage, useDeleteAgent, useEgressGrants, useGrantableTools, useMc
 import { serverLine } from './mcp-server-forms'
 import { NEEDS, onlyToolsChanged, requirementFor, withRequired } from './agent-forms'
 import ToolGrants from './ToolGrants'
+import ModelSelector from '../ModelSelector/ModelSelector'
 import AutoModeSwitch from '../AutoMode/AutoModeSwitch'
 import { useAgentAutoMode } from '../AutoMode/useAutoMode'
 
@@ -242,6 +243,20 @@ export default function AgentEditor({ agent, agents, onClose, onSaved, onDeleted
             )
           })}
         </div>
+      </div>}
+
+      {show('settings') && <div className="space-y-1">
+        <span className={label}>Runs on</span>
+        <ModelSelector
+          value={draft.model?.endpointId ?? ''}
+          onChange={(id) => {
+            const { endpointId: _was, ...rest } = draft.model ?? {}
+            set('model', id ? { ...rest, endpointId: id } : rest)
+          }}
+          className="w-72"
+          machines
+        />
+        <span className="block text-[11px] text-slate-500">A model runs in this agent's own procedure. An agent on one of your machines does the work with its own loop, tools and model, wherever this agent is handed work.</span>
       </div>}
 
       {show('settings') && <label className="block space-y-1 sm:w-64">

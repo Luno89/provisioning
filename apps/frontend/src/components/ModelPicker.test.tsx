@@ -4,11 +4,16 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ModelPicker } from './ModelPicker';
 import * as credentialsApi from '../api/credentials';
 import * as clustersApi from '../api/clusters';
+import * as localAgentsApi from '../api/local-agents';
 import type { ModelProvider } from '../api/models';
 
 vi.mock('../api/credentials', async (orig) => ({
   ...(await orig<typeof credentialsApi>()),
   listLlmProviders: vi.fn(),
+}));
+vi.mock('../api/local-agents', async (orig) => ({
+  ...(await orig<typeof localAgentsApi>()),
+  useLocalAgentDevices: vi.fn(),
 }));
 vi.mock('../api/clusters', async (orig) => ({
   ...(await orig<typeof clustersApi>()),
@@ -17,6 +22,7 @@ vi.mock('../api/clusters', async (orig) => ({
 
 const listLlmProviders = vi.mocked(credentialsApi.listLlmProviders);
 const listClusters = vi.mocked(clustersApi.listClusters);
+const useLocalAgentDevices = vi.mocked(localAgentsApi.useLocalAgentDevices);
 
 const priced = (p: number, c: number) => ({ pricing: { promptPerMTok: p, completionPerMTok: c } });
 
@@ -197,5 +203,39 @@ describe('filtering and choosing', () => {
     await screen.findByText('OpenRouter');
     fireEvent.change(screen.getByLabelText('Filter models'), { target: { value: 'zzz' } });
     expect(screen.getByText(/No model matches/)).toBeInTheDocument();
+  });
+});
+
+describe('ModelPicker — agents on your machines', () => {
+  beforeEach(() => {
+    listLlmProviders.mockResolvedValue([]);
+    listClusters.mockResolvedValue([]);
+    useLocalAgentDevices.mockReturnValue({ data: [{
+      id: 'd1', name: 'desk', rootDir: '/home/me/koala', createdAt: 't', online: true, manualAgents: [],
+      agents: [
+        { id: 'antigravity', title: 'Antigravity', state: 'ready', source: 'found' },
+        { id: 'claude-code', title: 'Claude Code', state: 'needs-adapter', source: 'found' },
+      ],
+    }] } as unknown as ReturnType<typeof localAgentsApi.useLocalAgentDevices>);
+  });
+
+  it('offers a ready agent by its machine, and shows one that is not ready without letting it be picked', async () => {
+    const onManage = vi.fn();
+    const { onSelect } = setup({ machines: { onManage } });
+
+    fireEvent.click(await screen.findByTitle('Antigravity answers on desk, with its own tools and model'));
+    expect(onSelect).toHaveBeenCalledWith('machine:d1:antigravity');
+
+    expect(screen.getByTitle('Claude Code on desk: needs its adapter')).toBeDisabled();
+    expect(screen.getByText('needs its adapter')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'manage' }));
+    expect(onManage).toHaveBeenCalled();
+  });
+
+  it('lists no machines where a machine cannot answer', async () => {
+    setup();
+    await screen.findByText('Local');
+    expect(screen.queryByText('My machines')).toBeNull();
+    expect(useLocalAgentDevices).not.toHaveBeenCalled();
   });
 });

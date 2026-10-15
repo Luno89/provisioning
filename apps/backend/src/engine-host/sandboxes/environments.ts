@@ -10,6 +10,7 @@ import {
   type ImagePlan,
   type ToolDefinition,
 } from '@koala/agent-engine';
+import { machineChoice } from '@koala/agent-engine/procedure';
 import { createNoneDriver } from '@koala/engine-core';
 import { createMachineDriver, type MachineBackend } from '../drivers/machine.js';
 import { environmentIdFor, type RunEnvironments } from './run-environments.js';
@@ -281,6 +282,12 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
 
       const { agent, spec, workspace } = resolved;
       const egressMode = agent.egressMode ?? 'declared';
+
+      if (machineChoice(ticket.modelId)) {
+        const chosen = await options.workspaces?.forRun(ticket);
+        if (chosen?.kind !== 'machine') throw new NoMachineAvailableError(`${ticket.agentSlug} was sent to a machine that is not one of yours any more`);
+        return { kind: 'machine', deviceId: chosen.deviceId, deviceName: chosen.deviceName, ...(chosen.path ? { path: chosen.path } : {}), egressMode };
+      }
 
       if (spec.kind === 'none') {
         return { kind: 'none', egress: spec.egress === true, bases: BASES.map((base: { id: string }) => base.id) };

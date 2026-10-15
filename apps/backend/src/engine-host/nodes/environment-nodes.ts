@@ -1,4 +1,5 @@
 import {
+  machineChoice,
   stepImplementation,
   type EnvironmentValue,
   type NodeImplementation,
@@ -11,7 +12,7 @@ export function createEnvironmentNodes(services: HostNodeServices): NodeImplemen
       const handed = run.launch.environment as EnvironmentValue | undefined;
       if (handed) return { exit: 'ready', outputs: { environment: { ...handed, handedOver: true } } };
 
-      const conversationId = run.identity.depth === 0 ? run.launch.conversationId : undefined;
+      const conversationId = run.identity.depth === 0 && !machineChoice(run.launch.modelId) ? run.launch.conversationId : undefined;
       if (conversationId && services.conversationWorkspaces) {
         try {
           const shared = await services.conversationWorkspaces.describe({ conversationId, ownerId: run.launch.ownerId, agentSlug: run.identity.agentId });

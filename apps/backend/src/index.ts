@@ -400,6 +400,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       : undefined),
     binding: conversationBinding(db),
     closing: async (ownerId: string) => ((await db.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
+    machines: (ownerId, choice) => machineService.choiceProblem(ownerId, choice),
   });
   const workspaceBuilds = new WorkspaceBuildService({
     runs: engineRuns,

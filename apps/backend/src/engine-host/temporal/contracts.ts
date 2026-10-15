@@ -162,6 +162,7 @@ export const deviceQueue = (deviceId: string): string => `device-${deviceId}`;
 export interface ResolveAgentArgs {
   ownerId: string;
   agentSlug: string;
+  modelId?: string | undefined;
 }
 
 export interface ResolvedAgentInfo {
@@ -169,6 +170,7 @@ export interface ResolvedAgentInfo {
   tools?: string[] | undefined;
   procedure?: Procedure | undefined;
   callableAgents: string[];
+  machine?: string | undefined;
 }
 
 export interface ToolRuntime {

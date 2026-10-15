@@ -8,7 +8,7 @@ import {
   type EventBus,
 } from '@koala/agent-engine';
 import { UNRESOLVED_MODEL, type EffortTracker, type RunLimits, type RunLimitsArgs } from '../registries/effort.js';
-import type { RunEffort } from '@koala/agent-engine/procedure';
+import { machineChoiceId, type RunEffort } from '@koala/agent-engine/procedure';
 import {
   type NodeCatalogue,
   type NodeImplementation,
@@ -216,7 +216,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
     },
 
     async EngineResolveAgentActivity(args: ResolveAgentArgs): Promise<ResolvedAgentInfo> {
-      const runnable = await services.registry.runnable(args.ownerId, args.agentSlug);
+      const runnable = await services.registry.runnable(args.ownerId, args.agentSlug, undefined, { modelId: args.modelId });
       if (!runnable) return { found: false, callableAgents: [] };
 
       const callable = await services.registry.callable(args.ownerId, args.agentSlug);
@@ -226,6 +226,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
         tools: runnable.agent.tools,
         procedure: runnable.procedure,
         callableAgents: callable.map((agent) => agent.slug),
+        ...(runnable.machine ? { machine: machineChoiceId(runnable.machine) } : {}),
       };
     },
 

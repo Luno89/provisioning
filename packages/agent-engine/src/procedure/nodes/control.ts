@@ -324,9 +324,13 @@ export const externalAgent: BuiltInNode = {
       { name: 'context', type: 'text', describe: 'What else it is told once, when its session starts: what it works on, what done means.' },
       { name: 'memories', type: 'text', describe: 'What was learned before, as recalled for this run. Told once, when its session starts.' },
       { name: 'environment', type: 'environment', describe: 'The machine and folder it works in. Nothing wired means the one this run was given.' },
+      { name: 'sessions', type: 'json', describe: 'The sessions a conversation already has with agents on machines, from Load Conversation. The one this agent and machine had is continued rather than started again, and then the prompt, context and memories are not told again.' },
+      { name: 'conversation', type: 'messages', describe: 'What was said before in the conversation, told once when a new session starts, so an agent picked part way through a conversation knows it.' },
     ],
     outputs: [
       { name: 'text', type: 'text', describe: 'What the agent said, its whole reply.' },
+      { name: 'reply', type: 'reply', describe: 'What the agent said as a reply, for Save Conversation.' },
+      { name: 'session', type: 'json', describe: 'This agent and machine\'s session, keyed as Load Conversation reads it back, for Save Conversation to keep.' },
       { name: 'stopReason', type: 'text', describe: 'How its turn ended: end_turn, cancelled, refusal, max_tokens or max_turn_requests.' },
       { name: 'identity', type: 'json', describe: 'Which agent ran: its name, title and version, as it reported them.' },
       { name: 'sessionId', type: 'text', describe: 'The agent\'s session, to continue it later.' },
@@ -340,7 +344,7 @@ export const externalAgent: BuiltInNode = {
     settings: {
       type: 'object',
       properties: {
-        agent: { type: 'string', title: 'Agent on the machine', describe: 'The external agent\'s id as the machine knows it, for example antigravity. Empty means the agent this run is: an agent called antigravity runs the machine\'s antigravity.', default: '' },
+        agent: { type: 'string', title: 'Agent on the machine', describe: 'The external agent\'s id as the machine knows it, for example antigravity. Empty means the one picked for this run (a machine picked in place of a model), or else the agent this run is: an agent called antigravity runs the machine\'s antigravity.', default: '' },
         mode: { type: 'string', title: 'Mode', describe: 'One of the agent\'s own modes (for Antigravity: default, auto_edit or yolo). Empty leaves its default.', default: '' },
       },
     },

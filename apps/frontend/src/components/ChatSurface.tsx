@@ -4,6 +4,7 @@ import { ArrowDown, AlertTriangle, X } from 'lucide-react';
 import CollapsibleHistoryList from './CollapsibleHistoryList.js';
 import AgentConfigDrawer from './AgentConfigDrawer.js';
 import ModelConfigDrawer from './ModelConfigDrawer.js';
+import { useMachineChoiceLabel } from '../api/local-agents';
 import KoalaLoading from './KoalaLoading.js';
 import ChatHero from './Chat/ChatHero.js';
 import { ConversationContext } from './Chat/ConversationContext.js';
@@ -153,15 +154,16 @@ export default function ChatSurface({
     ],
   });
 
+  const machineLabel = useMachineChoiceLabel(conv.pinnedModelId);
   const selectedAgent = agents.find((a) => a.slug === conv.selectedAgentSlug);
   const activePack: PersonaPackOption | undefined = selectedAgent
     ? { id: selectedAgent.slug, name: selectedAgent.name, label: selectedAgent.name.toUpperCase(), desc: selectedAgent.description ?? '' }
     : undefined;
 
   const effectiveModel = models.find((m) => m.id === (conv.pinnedModelId ?? accountDefaultId));
-  const modelLabel = effectiveModel
+  const modelLabel = machineLabel ?? (effectiveModel
     ? modelOptionLabel(effectiveModel)
-    : conv.pinnedModelId ?? 'No model';
+    : conv.pinnedModelId ?? 'No model');
 
   const toolCount = selectedAgent?.tools.length;
   const openPersonaDrawer = () => setShowPersonaDrawer(true);

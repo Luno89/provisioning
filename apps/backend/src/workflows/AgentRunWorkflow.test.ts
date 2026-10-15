@@ -27,7 +27,7 @@ import { BUILDER_TOOLS, contractsFor } from '@koala/agent-engine';
 import { WORKSPACE_TOOLS } from '../engine-host/tools/workspace-tools-catalogue.js';
 import { seededAgents } from '../extensions/seeds.js';
 import { createEffortTracker, type RunLimitsArgs } from '../engine-host/registries/effort.js';
-import type { RunEffort } from '@koala/agent-engine/procedure';
+import { machineChoiceId, type RunEffort } from '@koala/agent-engine/procedure';
 import { createHostNodes, hostNodesFor } from '../engine-host/nodes/index.js';
 import { inMemoryConversations } from '../engine-host/nodes/conversation-nodes.js';
 import { temporal } from '@temporalio/proto';
@@ -42,7 +42,7 @@ import { tmpdir } from 'node:os';
 import type { ExternalAgentStepArgs } from '@koala/engine-core';
 import { ExternalAgentSessions } from '../../../local-agent/src/external-agents.js';
 import type { AgentScript } from '../../../local-agent/src/acp-script-agent.js';
-import { EXTERNAL_AGENT_TASK } from '../extensions/external-agents/procedures.js';
+import { EXTERNAL_AGENT_CHAT, EXTERNAL_AGENT_TASK } from '../extensions/external-agents/procedures.js';
 import {
   DEFAULT_STREAM_TASK_QUEUE,
   type ProcedureRunInput,
@@ -144,10 +144,10 @@ function activities(options: {
       EngineToolAllowedActivity: vi.fn(async (_args: { ownerId: string; conversationId: string; tool: string }) => false),
       EngineAutoModeActivity: vi.fn(async (_args: { ownerId: string; agentSlug: string; conversationId?: string; workspaceRunId?: string }) => false),
       EngineNodeActivity: createNodeRunner(hostNodes, undefined),
-      EngineResolveAgentActivity: vi.fn(async ({ ownerId, agentSlug }: { ownerId: string; agentSlug: string }) => {
-        const runnable = await registry.runnable(ownerId, agentSlug);
+      EngineResolveAgentActivity: vi.fn(async ({ ownerId, agentSlug, modelId }: { ownerId: string; agentSlug: string; modelId?: string }) => {
+        const runnable = await registry.runnable(ownerId, agentSlug, undefined, { modelId });
         return runnable
-          ? { found: true, procedure: runnable.procedure, callableAgents: [] }
+          ? { found: true, procedure: runnable.procedure, callableAgents: [], ...(runnable.machine ? { machine: machineChoiceId(runnable.machine) } : {}) }
           : { found: false, callableAgents: [] };
       }),
       EngineToolActivity: vi.fn(async (args: ToolCallArgs) => ({ ok: true, digest: `ran ${args.name}`, content: `output of ${args.name}` })),
@@ -1036,6 +1036,54 @@ describe('an external agent working on someone\'s machine', () => {
     expect(told).toMatch(/^Your workspace is the folder .*machine\/projects\/thing\./);
     expect(told).toContain('You are working for Koala');
     expect(told.endsWith('Build the delivery labels.')).toBe(true);
+    expect(sessions.openKeys()).toEqual([]);
+  }, 60_000);
+
+  it('answers a chat turn with the agent picked on a machine, and the next turn continues the same session', async () => {
+    root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
+    const scriptPath = resolve(root, 'script.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [{ echo: true }] }] } satisfies AgentScript));
+    const sessions = new ExternalAgentSessions({ rootDir: resolve(root, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500 });
+    const conversations = inMemoryConversations();
+    const acts = activities({ script: [{ content: 'unused' }], external: sessions, environment: MACHINE, conversations });
+    const turn = (message: string): ProcedureRunInput => ({
+      ticket: { ...ticket('koala'), conversationId: 'c-ext', modelId: 'machine:desk:antigravity' },
+      procedure: EXTERNAL_AGENT_CHAT,
+      inputs: { message, conversationId: 'c-ext' },
+    });
+
+    const first = await runWorkflow(turn('What is in the labels module?'), acts);
+    expect(first.outcome).toBe('ok');
+    expect(String(first.outputs.result)).toContain((await createAgentRegistry().agent('user-1', 'koala'))!.prompt.slice(0, 60));
+    expect(String(first.outputs.result).endsWith('What is in the labels module?')).toBe(true);
+
+    const second = await runWorkflow(turn('And the tests?'), acts);
+    expect(second.outcome).toBe('ok');
+    expect(second.outputs.result).toBe('And the tests?');
+
+    const stored = await conversations.get('user-1', 'c-ext');
+    expect(stored?.machineSessions).toEqual({ 'desk:antigravity': 'scripted-1' });
+    expect(stored?.messages.map((message) => [message.role, message.content.slice(-14)])).toEqual([
+      ['user', 'labels module?'], ['assistant', 'labels module?'], ['user', 'And the tests?'], ['assistant', 'And the tests?'],
+    ]);
+    expect(sessions.openKeys()).toEqual([]);
+  }, 60_000);
+
+  it('hands a story to an agent set to work on a machine, whatever model the run that handed it over used', async () => {
+    root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
+    const scriptPath = resolve(root, 'script.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [{ echo: true }] }] } satisfies AgentScript));
+    const sessions = new ExternalAgentSessions({ rootDir: resolve(root, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500 });
+    const registry = createAgentRegistry({
+      agentStore: { list: async () => seededAgents().map((agent) => (agent.slug === 'executor' ? { ...agent, model: { endpointId: 'machine:desk:antigravity' } } : agent)) },
+    });
+    const acts = activities({ registry, script: [{ content: 'unused' }], external: sessions, environment: MACHINE });
+
+    const result = await runWorkflow({ ...input('koala', delegating('executor', '{"message":"Write the labels"}')), ticket: { ...ticket('koala'), modelId: 'tabby-qwen' } }, acts);
+
+    expect(result.outcome).toBe('ok');
+    expect(JSON.stringify(result.outputs)).toContain('Write the labels');
+    expect(acts.engine.EngineResolveAgentActivity).toHaveBeenCalledWith({ ownerId: 'user-1', agentSlug: 'executor', modelId: 'tabby-qwen' });
     expect(sessions.openKeys()).toEqual([]);
   }, 60_000);
 

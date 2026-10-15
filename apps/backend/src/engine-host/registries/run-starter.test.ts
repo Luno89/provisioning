@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { AccountClosingError, createRunStarter } from './run-starter.js';
+import { AccountClosingError, createRunStarter, MachineUnavailableError } from './run-starter.js';
+import type { ProcedureRunInput } from '../temporal/contracts.js';
 import { createAgentRegistry } from './registry.js';
 
 const turns = () => ({ open: vi.fn(async () => undefined), fail: vi.fn(async () => undefined) });
@@ -70,5 +71,40 @@ describe('a run whose workflow is kept for one run at a time', () => {
     await runs.cancel('grove-run-t1~k2x9');
     await runs.cancel('grove-run-t1~k2x9-grove-leaf-1');
     expect(signal.mock.calls.map((call) => (call as unknown[])[0])).toEqual(['grove-run-t1', 'grove-run-t1~k2x9-grove-leaf-1']);
+  });
+});
+
+describe('a run sent to an agent on the person\'s machine', () => {
+  const started = () => {
+    const runs: { args: unknown[] }[] = [];
+    return { runs, start: async (_type: string, options: { args: unknown[] }) => { runs.push(options); return { workflowId: 'x' }; } };
+  };
+
+  it('runs a chat turn through the chat procedure on that machine, after checking the machine can answer', async () => {
+    const { runs, start } = started();
+    const asked: unknown[] = [];
+    const starter = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), machines: async (ownerId, choice) => { asked.push([ownerId, choice]); return undefined; } });
+
+    const run = await starter.start({ ownerId: 'bo', agentSlug: 'koala', message: 'hi', conversationId: 'c1', modelId: 'machine:d1:antigravity' });
+
+    expect(run.loopId).toBe('external-agent-chat');
+    expect(asked).toEqual([['bo', { deviceId: 'd1', agent: 'antigravity' }]]);
+    expect((runs[0]!.args[0] as ProcedureRunInput).ticket.modelId).toBe('machine:d1:antigravity');
+  });
+
+  it('hands anything else to the task procedure', async () => {
+    const { start } = started();
+    const starter = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), machines: async () => undefined });
+    expect((await starter.start({ ownerId: 'bo', agentSlug: 'executor', message: 'do it', modelId: 'machine:d1:antigravity' })).loopId).toBe('external-agent-task');
+  });
+
+  it('starts nothing when the machine cannot answer, and says why', async () => {
+    const { runs, start } = started();
+    const starter = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), machines: async () => 'desk is not connected, so Antigravity cannot answer' });
+    await expect(starter.start({ ownerId: 'bo', agentSlug: 'koala', message: 'hi', conversationId: 'c1', modelId: 'machine:d1:antigravity' }))
+      .rejects.toThrow(new MachineUnavailableError('desk is not connected, so Antigravity cannot answer'));
+    await expect(createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }) }).start({ ownerId: 'bo', agentSlug: 'koala', message: 'hi', modelId: 'machine:d1:antigravity' }))
+      .rejects.toThrow(MachineUnavailableError);
+    expect(runs).toHaveLength(0);
   });
 });

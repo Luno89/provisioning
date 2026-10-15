@@ -14,6 +14,7 @@ import type {
   ToolSet,
 } from '../values.js';
 import { numberOf, textOf } from './read.js';
+import { machineChoice, machineSessionKey } from '../machine-choice.js';
 
 export interface ToolRunRequest {
   nodeId: string;
@@ -69,6 +70,7 @@ export interface ExternalAgentRequest {
   brief: string;
   context?: string | undefined;
   mode?: string | undefined;
+  resume?: string | undefined;
   environment: Extract<EnvironmentValue, { kind: 'machine' }>;
   run: RunContext;
 }
@@ -88,6 +90,18 @@ export const REFUSED_CALL = 'you did not approve that call, so it did not run';
 export const NOT_RUN_CALL = 'it did not run — the run ended before it got a result';
 
 const DEFAULT_DIGEST_CHARS = 2000;
+
+const replyOf = (id: string, text: string, finishReason: string): ModelReply => ({ id, content: text, thinking: '', finishReason, toolCalls: [] });
+
+function conversationText(messages: unknown): string | undefined {
+  if (!Array.isArray(messages)) return undefined;
+  const lines = messages.flatMap((message) => {
+    const { role, content } = (message ?? {}) as { role?: unknown; content?: unknown };
+    if ((role !== 'user' && role !== 'assistant') || typeof content !== 'string' || !content.trim()) return [];
+    return [`${role === 'user' ? 'The person' : 'You'}: ${content.trim()}`];
+  });
+  return lines.length ? `The conversation so far:\n\n${lines.join('\n\n')}` : undefined;
+}
 
 const parseJson = (text: string): unknown => {
   try {
@@ -328,25 +342,30 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
     }),
 
     stepImplementation('external-agent', async ({ node, inputs, run }) => {
-      const agent = textOf(node.settings, 'agent') || run.identity.agentId;
+      const agent = textOf(node.settings, 'agent') || machineChoice(run.launch.modelId)?.agent || run.identity.agentId;
       const mode = textOf(node.settings, 'mode');
       const environment = (inputs.environment as EnvironmentValue | undefined) ?? (run.launch.environment as EnvironmentValue | undefined);
       const brief = typeof inputs.brief === 'string' ? inputs.brief.trim() : '';
-      const context = [inputs.prompt, inputs.context, inputs.memories]
+      const said = conversationText(inputs.conversation);
+      const context = [inputs.prompt, inputs.context, inputs.memories, said]
         .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
         .map((part) => part.trim())
         .join('\n\n');
-      const failed = (reason: string) => ({ exit: 'failed', outputs: { text: '', reason } });
+      const failed = (reason: string) => ({ exit: 'failed', outputs: { text: '', reply: replyOf(node.id, '', 'error'), reason } });
       if (!ports.runExternal) return failed('this host cannot run an external agent');
       if (environment?.kind !== 'machine') return failed(`${agent} works on a person's machine, and this run has none`);
       if (!brief) return failed(`there was no task to hand ${agent}`);
 
+      const key = machineSessionKey({ deviceId: environment.deviceId, agent });
+      const sessions = inputs.sessions && typeof inputs.sessions === 'object' ? inputs.sessions as Record<string, unknown> : {};
+      const resume = typeof sessions[key] === 'string' && sessions[key] ? sessions[key] as string : undefined;
       const outcome = await ports.runExternal({
         nodeId: node.id,
         agent,
         brief,
         ...(context ? { context } : {}),
         ...(mode ? { mode } : {}),
+        ...(resume ? { resume } : {}),
         environment,
         run,
       });
@@ -354,6 +373,8 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         exit: outcome.outcome,
         outputs: {
           text: outcome.text,
+          reply: replyOf(node.id, outcome.text, 'stopReason' in outcome ? outcome.stopReason : 'error'),
+          ...(outcome.sessionId ? { session: { key, id: outcome.sessionId } } : {}),
           ...('stopReason' in outcome ? { stopReason: outcome.stopReason } : {}),
           ...(outcome.identity ? { identity: outcome.identity } : {}),
           ...(outcome.sessionId ? { sessionId: outcome.sessionId } : {}),

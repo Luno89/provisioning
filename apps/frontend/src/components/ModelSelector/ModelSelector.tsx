@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Check, ChevronDown, Cpu, Globe, Search, Server } from 'lucide-react'
+import { Check, ChevronDown, Cpu, Globe, Laptop, Search, Server } from 'lucide-react'
 import { listModels, providerKeys, useDefaultModel, type ModelProvider } from '../../api/models'
 import { isLocal, sourceOf } from '../../lib/model-groups'
+import { useMachineChoiceLabel } from '../../api/local-agents'
+import { MachineChoices } from '../MachineChoices'
 
 export interface ModelSelectorProps {
   value: string | null | undefined
@@ -12,6 +14,7 @@ export interface ModelSelectorProps {
   showAccountDefault?: boolean
   disabled?: boolean
   id?: string
+  machines?: boolean
 }
 
 export default function ModelSelector({
@@ -22,6 +25,7 @@ export default function ModelSelector({
   showAccountDefault = true,
   disabled = false,
   id,
+  machines = false,
 }: ModelSelectorProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -37,8 +41,8 @@ export default function ModelSelector({
   const defaultModelId = defaultSetting?.defaultModelId ?? null
   const defaultModel = models.find((m) => m.id === defaultModelId)
 
-  // Current selected model object
   const selectedModel = models.find((m) => m.id === value)
+  const machineLabel = useMachineChoiceLabel(value)
 
   const close = () => {
     setOpen(false)
@@ -108,11 +112,12 @@ export default function ModelSelector({
       }
       return placeholder
     }
+    if (machineLabel) return machineLabel
     if (selectedModel) {
       return `${selectedModel.name}${selectedModel.model ? ` · ${selectedModel.model}` : ''}`
     }
     return value
-  }, [value, selectedModel, defaultModel, showAccountDefault, placeholder])
+  }, [value, selectedModel, machineLabel, defaultModel, showAccountDefault, placeholder])
 
   const triggerBadge = selectedModel
     ? isLocal(selectedModel)
@@ -139,6 +144,8 @@ export default function ModelSelector({
             ) : (
               <Globe size={13} className="shrink-0 text-sky-400" />
             )
+          ) : machineLabel ? (
+            <Laptop size={13} className="shrink-0 text-amber-300" />
           ) : (
             <Cpu size={13} className="shrink-0 text-slate-400" />
           )}
@@ -209,6 +216,8 @@ export default function ModelSelector({
                 </button>
               </div>
             )}
+
+            {machines && <MachineChoices selectedId={value} onSelect={(id) => handleSelect(id, undefined)} query={search} />}
 
             {/* Local & Cluster Deployments */}
             {localDeployments.length > 0 && (

@@ -16,6 +16,7 @@ export const loadConversation: BuiltInNode = {
       { name: 'messages', type: 'messages', describe: 'What was said before, oldest first — after a compaction, its summary in place of the messages it covers.' },
       { name: 'found', type: 'json', describe: 'Whether a stored conversation was there to read.' },
       { name: 'history', type: 'json', describe: 'Where each stored message ends among those messages, so a later compaction can be saved against the messages it covers.' },
+      { name: 'sessions', type: 'json', describe: 'The sessions this conversation has with agents on the person\'s machines, for External Agent to continue.' },
     ],
     exits: [],
     settings: {
@@ -46,6 +47,7 @@ export const saveConversation: BuiltInNode = {
       { name: 'rounds', type: 'json', describe: 'The rounds the Conversation node accumulated, each a reply with the results its calls drew back. They carry the calls made in the middle of a multi-round turn, which the reply and results inputs, being the latest, cannot.' },
       { name: 'compaction', type: 'json', describe: 'The summary this turn ended up sending, from Compact Context, so the next turn starts from it rather than summarising again.' },
       { name: 'history', type: 'json', describe: 'Load Conversation\'s history, to tell which stored messages the summary covers.' },
+      { name: 'session', type: 'json', describe: 'An External Agent\'s session, kept with the conversation so its next turn continues it.' },
     ],
     outputs: [{ name: 'conversation', type: 'text', describe: 'The conversation that was written.' }],
     exits: [

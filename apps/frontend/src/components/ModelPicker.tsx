@@ -5,6 +5,7 @@ import { type ModelProvider } from '../api/models';
 import { listLlmProviders, credentialKeys, type LlmProviderStatus } from '../api/credentials';
 import { listClusters, clusterKeys } from '../api/clusters';
 import { modelOptionLabel } from '../lib/model-label';
+import { MachineChoices } from './MachineChoices';
 import {
   tierModels, modelRowLabel, formatPrice, formatContext, formatIntelligence, sourceOf,
   type ModelGroup,
@@ -21,6 +22,7 @@ interface ModelPickerProps {
   /** Where an unconfigured gateway sends you. Omit to list them without a click target. */
   onConfigure?: ((provider: string) => void) | undefined;
   autoFocus?: boolean;
+  machines?: { onManage?: (() => void) | undefined } | undefined;
 }
 
 const Tier = ({ label, children }: { label: string; children: React.ReactNode }) => (
@@ -40,7 +42,7 @@ const Tier = ({ label, children }: { label: string; children: React.ReactNode })
  * free models are collected ahead of the vendors.
  */
 export function ModelPicker({
-  models, selectedId, onSelect, defaultModelId, inheritOption, onConfigure, autoFocus = false,
+  models, selectedId, onSelect, defaultModelId, inheritOption, onConfigure, autoFocus = false, machines,
 }: ModelPickerProps) {
   const [filter, setFilter] = useState('');
   const [opened, setOpened] = useState<Set<string>>(new Set());
@@ -186,6 +188,12 @@ export function ModelPicker({
             {selectedId === null && <Check size={12} className="flex-shrink-0" />}
             <span className="truncate">{inheritOption.label}</span>
           </button>
+        )}
+
+        {machines && (
+          <div className="p-1">
+            <MachineChoices selectedId={selectedId} onSelect={onSelect} query={query} onManage={machines.onManage} />
+          </div>
         )}
 
         {local.length > 0 && (

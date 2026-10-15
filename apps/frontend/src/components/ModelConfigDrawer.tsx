@@ -5,6 +5,7 @@ import {
 } from '../api/models';
 import { modelOptionLabel } from '../lib/model-label';
 import { useShellStore } from '../stores/shell';
+import { useMachineChoiceLabel } from '../api/local-agents';
 import { ModelPicker } from './ModelPicker';
 
 /**
@@ -37,6 +38,7 @@ export function ModelConfigDrawer({
   const { data: setting } = useDefaultModel();
   const defaultModelId = setting?.defaultModelId ?? null;
   const setView = useShellStore((s) => s.setView);
+  const machineLabel = useMachineChoiceLabel(selectedModelId);
 
   if (!isOpen) return null;
 
@@ -71,7 +73,9 @@ export function ModelConfigDrawer({
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           <div className="text-[11px] text-slate-400">
             Using:{' '}
-            {selected
+            {machineLabel
+              ? <span className="font-mono text-amber-200">{machineLabel}<span className="text-slate-500 font-sans"> (its own loop, tools and model)</span></span>
+              : selected
               ? <span className="font-mono text-emerald-300">{modelOptionLabel(selected)}</span>
               : defaultModel
                 ? <span className="font-mono text-emerald-300">{modelOptionLabel(defaultModel)}<span className="text-slate-500 font-sans"> (account default)</span></span>
@@ -84,6 +88,7 @@ export function ModelConfigDrawer({
             selectedId={selectedModelId}
             defaultModelId={defaultModelId}
             onConfigure={() => { onClose(); setView('accounts'); }}
+            machines={{ onManage: () => { onClose(); setView('mesh'); } }}
             onSelect={(id) => { onSelectModel(id); onClose(); }}
             inheritOption={{
               label: defaultModel

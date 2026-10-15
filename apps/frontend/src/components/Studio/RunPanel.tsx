@@ -88,7 +88,7 @@ export default function RunPanel({ procedure, blockedBecause, runs, activeRunId,
               {agents.map((option) => <option key={option.slug} value={option.slug}>{option.name}</option>)}
             </select>
           </label>
-          <ModelSelector value={modelId} onChange={(id) => setModelId(id)} className="w-52" placeholder="Account default model" />
+          <ModelSelector value={modelId} onChange={(id) => setModelId(id)} className="w-52" placeholder="Account default model" machines />
         </div>
         <div className="flex gap-1.5">
           <input

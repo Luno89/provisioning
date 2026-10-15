@@ -276,6 +276,8 @@ export interface LoadConversationNode extends Value {
   readonly found: Out<'json'>
   /** Where each stored message ends among those messages, so a later compaction can be saved against the messages it covers. */
   readonly history: Out<'json'>
+  /** The sessions this conversation has with agents on the person's machines, for External Agent to continue. */
+  readonly sessions: Out<'json'>
   wire(wires: LoadConversationWires): void
 }
 
@@ -326,6 +328,8 @@ export interface SaveConversationWires {
   compaction?: In<'json'>
   /** Load Conversation's history, to tell which stored messages the summary covers. */
   history?: In<'json'>
+  /** An External Agent's session, kept with the conversation so its next turn continues it. */
+  session?: In<'json'>
 }
 
 export type SaveConversationSettings = {
@@ -543,12 +547,16 @@ export interface ExternalAgentWires {
   memories?: In<'text'>
   /** The machine and folder it works in. Nothing wired means the one this run was given. */
   environment?: In<'environment'>
+  /** The sessions a conversation already has with agents on machines, from Load Conversation. The one this agent and machine had is continued rather than started again, and then the prompt, context and memories are not told again. */
+  sessions?: In<'json'>
+  /** What was said before in the conversation, told once when a new session starts, so an agent picked part way through a conversation knows it. */
+  conversation?: In<'messages'>
 }
 
 export type ExternalAgentSettings = {
   /**
    * Agent on the machine
-   * The external agent's id as the machine knows it, for example antigravity. Empty means the agent this run is: an agent called antigravity runs the machine's antigravity.
+   * The external agent's id as the machine knows it, for example antigravity. Empty means the one picked for this run (a machine picked in place of a model), or else the agent this run is: an agent called antigravity runs the machine's antigravity.
    */
   agent?: string
   /**
@@ -561,6 +569,10 @@ export type ExternalAgentSettings = {
 export interface ExternalAgentNode extends Step<'finished' | 'stopped' | 'failed'> {
   /** What the agent said, its whole reply. */
   readonly text: Out<'text'>
+  /** What the agent said as a reply, for Save Conversation. */
+  readonly reply: Out<'reply'>
+  /** This agent and machine's session, keyed as Load Conversation reads it back, for Save Conversation to keep. */
+  readonly session: Out<'json'>
   /** How its turn ended: end_turn, cancelled, refusal, max_tokens or max_turn_requests. */
   readonly stopReason: Out<'text'>
   /** Which agent ran: its name, title and version, as it reported them. */

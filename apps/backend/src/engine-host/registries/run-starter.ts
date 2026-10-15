@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_ENGINE_TASK_QUEUE, RUN_ID_MEMO, workflowOfRun } from '../temporal/contracts.js';
 import type { SamplingConfig } from '@koala/harness-types';
 import type { AgentRegistry } from './registry.js';
+import { machineChoiceId, type MachineChoice } from '@koala/agent-engine/procedure';
 import type { ProcedureRunInput, RunTicket } from '../temporal/contracts.js';
 
 export interface WorkflowStarter {
@@ -53,6 +54,13 @@ export class AccountClosingError extends Error {
   }
 }
 
+export class MachineUnavailableError extends Error {
+  constructor(reason: string) {
+    super(`This run cannot go to that machine: ${reason}.`);
+    this.name = 'MachineUnavailableError';
+  }
+}
+
 export class EngineUnavailableError extends Error {
   constructor() {
     super('The engine is not connected to Temporal, so runs cannot be started right now.');
@@ -71,6 +79,7 @@ export interface RunStarterOptions {
   binding?: ((ownerId: string, conversationId: string) => Promise<Record<string, string> | undefined>) | undefined;
   continueAfterEvents?: number | undefined;
   closing?: ((ownerId: string) => Promise<string | undefined>) | undefined;
+  machines?: ((ownerId: string, choice: MachineChoice) => Promise<string | undefined>) | undefined;
   turns?: {
     open(turn: { ownerId: string; conversationId: string; runId: string; message: string; asks?: string | undefined }): Promise<void>;
     fail(turn: { ownerId: string; conversationId: string; runId: string }, why: string): Promise<void>;
@@ -95,8 +104,17 @@ export function createRunStarter(options: RunStarterOptions) {
       const agent = await options.registry.agent(request.ownerId, request.agentSlug);
       if (!agent) throw new UnknownAgentError(request.agentSlug);
 
-      const runnable = await options.registry.runnable(request.ownerId, request.agentSlug, request.procedureId);
+      const runnable = await options.registry.runnable(request.ownerId, request.agentSlug, request.procedureId, {
+        modelId: request.modelId,
+        chat: Boolean(request.conversationId),
+      });
       if (!runnable) throw new UnknownProcedureError(request.procedureId ?? agent.procedure);
+      if (runnable.machine) {
+        if (!options.machines) throw new MachineUnavailableError('this server cannot reach people\'s machines');
+        const problem = await options.machines(request.ownerId, runnable.machine);
+        if (problem) throw new MachineUnavailableError(problem);
+      }
+      const modelId = runnable.machine ? machineChoiceId(runnable.machine) : request.modelId;
 
       const runId = request.runId ?? newRunId();
 
@@ -107,7 +125,7 @@ export function createRunStarter(options: RunStarterOptions) {
         agentSlug: request.agentSlug,
         ...(request.conversationId ? { conversationId: request.conversationId } : {}),
         trigger: 'user',
-        ...(request.modelId ? { modelId: request.modelId } : {}),
+        ...(modelId ? { modelId } : {}),
         ...(request.sampling ? { sampling: request.sampling } : {}),
       };
 

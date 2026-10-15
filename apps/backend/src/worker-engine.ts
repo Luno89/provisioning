@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /* eslint-disable no-console */
+import { machineChoiceProblem } from './lib/machines.js';
 import path from 'path';
 import { DEFAULT_TARGET_CLUSTER } from './lib/project-shipping.js';
 import { stopIfRunning } from './lib/stop-workflow.js';
@@ -302,6 +303,10 @@ async function buildActivities() {
     }),
     binding: conversationBinding(db),
     closing: async (ownerId: string) => ((await db.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
+    machines: async (ownerId, choice) => {
+      const device = (await db.getLocalAgentDevices()).find((one) => one.id === choice.deviceId && one.ownerId === ownerId);
+      return machineChoiceProblem(device ? { name: device.name, online: false, agents: device.agents ?? [] } : undefined, choice.agent, { waitsToConnect: true });
+    },
   });
   builders.service = new WorkspaceBuildService({ runs: runStarter, trees: () => db.getTrees(), hidden: (ownerId: string) => extensions.hidden(ownerId) });
   growers.launcher = createGroveLauncher({

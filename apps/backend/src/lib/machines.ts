@@ -108,3 +108,18 @@ const quoted = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
 export function joinEnv(values: Record<string, string>): string {
   return `${Object.entries(values).map(([name, value]) => `${name}=${quoted(value)}`).join('\n')}\n`;
 }
+
+export interface ChosenMachine {
+  name: string;
+  online: boolean;
+  agents: readonly MachineAgent[];
+}
+
+export function machineChoiceProblem(machine: ChosenMachine | undefined, agent: string, opts: { waitsToConnect?: boolean } = {}): string | undefined {
+  if (!machine) return 'that machine is not one of yours any more; pick another on My Machines or in the model list';
+  const found = machine.agents.find((candidate) => candidate.id === agent);
+  if (!found) return `${machine.name} has no agent called ${agent}`;
+  if (found.state !== 'ready') return `${found.title} on ${machine.name} is not ready: ${found.reason ?? found.state}`;
+  if (!machine.online && !opts.waitsToConnect) return `${machine.name} is not connected, so ${found.title} cannot answer`;
+  return undefined;
+}

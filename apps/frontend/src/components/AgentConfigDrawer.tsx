@@ -4,6 +4,7 @@ import { Sliders, X, Loader2, ExternalLink, Check } from 'lucide-react';
 import { agentKeys, listAgents, type Agent } from '../api/agents';
 import { listModels, providerKeys, type ModelProvider } from '../api/models';
 import { modelOptionLabel } from '../lib/model-label';
+import { useMachineChoiceLabel } from '../api/local-agents';
 import { useShellStore } from '../stores/shell.js';
 
 /**
@@ -49,6 +50,7 @@ export function AgentConfigDrawer({
     agents.find((a) => a.slug === draftSlug)
     ?? agents.find((a) => a.slug === selectedAgentSlug);
 
+  const agentMachine = useMachineChoiceLabel(currentAgent?.model?.endpointId);
   const agentModel = currentAgent?.model?.endpointId
     ? models.find((m) => m.id === currentAgent.model?.endpointId)
     : undefined;
@@ -186,7 +188,9 @@ export function AgentConfigDrawer({
 
                   <div className="text-xs text-slate-300">
                     <span className="text-slate-400">Model</span>{' '}
-                    {agentModel
+                    {agentMachine
+                      ? <span className="font-mono text-amber-200">{agentMachine}</span>
+                      : agentModel
                       ? <span className="font-mono text-slate-200">{modelOptionLabel(agentModel)}</span>
                       : <span className="text-slate-400">follows this conversation's model pick</span>}
                     {currentAgent.model?.reasoningEffort && (

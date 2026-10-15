@@ -1,4 +1,7 @@
+import { useQuery } from '@tanstack/react-query'
+import { machineChoice } from '@koala/agent-engine/procedure'
 import { api } from './client'
+import { machineChoiceLabel } from '../lib/machine-rows'
 
 export const localAgentKeys = {
   list: () => ['local-agent-devices'] as const,
@@ -67,3 +70,12 @@ export const installMachineAdapter = (id: string, agentId: string): Promise<Adap
 
 export const deleteLocalAgentDevice = (id: string) =>
   api.delete(`/mesh/local-agents/${id}`).then((r) => r.data)
+
+export function useLocalAgentDevices(enabled = true) {
+  return useQuery({ queryKey: localAgentKeys.list(), queryFn: listLocalAgentDevices, enabled })
+}
+
+export function useMachineChoiceLabel(id: string | null | undefined): string | undefined {
+  const { data: devices = [] } = useLocalAgentDevices(Boolean(machineChoice(id)))
+  return machineChoiceLabel(id, devices)
+}

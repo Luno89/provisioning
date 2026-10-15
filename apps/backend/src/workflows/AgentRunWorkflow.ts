@@ -57,7 +57,7 @@ import {
 } from '../engine-host/temporal/contracts.js';
 import type { RunLimits, RunLimitsArgs } from '../engine-host/registries/effort.js';
 import { RUN_STATE_QUERY, type RunState } from '../engine-host/temporal/run-cancellation.js';
-import { ASK_CHARS, collectStep, type Artifact, type RunEffort, type RunStep } from '@koala/agent-engine/procedure';
+import { ASK_CHARS, collectStep, machineChoice, type Artifact, type RunEffort, type RunStep } from '@koala/agent-engine/procedure';
 import { platformCatalogue, platformGroups } from '../extensions/installed.js';
 import { ownerIn, startedFor } from '../lib/workflow-owner.js';
 import { tracedSummary } from '../lib/turn-log.js';
@@ -269,7 +269,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       return outcome;
     },
 
-    async runExternal({ nodeId, agent, brief, context, mode, environment, run }) {
+    async runExternal({ nodeId, agent, brief, context, mode, resume, environment, run }) {
       externals += 1;
       const key = `${ticket.runId}:${nodeId}:${externals}`;
       const device = proxyActivities<DeviceRemote>({
@@ -295,7 +295,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       };
       const step = (op: ExternalAgentStepArgs['op']) => device.ExternalAgentActivity({ key, agent, op });
 
-      let result = await step({ kind: 'open', brief, ...(context ? { context } : {}), ...(mode ? { mode } : {}), ...(environment.path ? { path: environment.path } : {}) });
+      let result = await step({ kind: 'open', brief, ...(context ? { context } : {}), ...(mode ? { mode } : {}), ...(resume ? { resume } : {}), ...(environment.path ? { path: environment.path } : {}) });
       for (;;) {
         await take(result);
         if (result.state === 'ended' || result.state === 'failed' || result.state === 'closed') break;
@@ -331,7 +331,9 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
     async runChild({ agent, inputs, environment, run, callId }): Promise<ChildOutcomeValue> {
       children += 1;
       const childRunId = `${ticket.runId}-${agent}-${children}`;
-      const resolved = await engine.EngineResolveAgentActivity({ ownerId: ticket.ownerId, agentSlug: agent });
+      const inherited = machineChoice(run.launch.modelId) ? undefined : run.launch.modelId;
+      const resolved = await engine.EngineResolveAgentActivity({ ownerId: ticket.ownerId, agentSlug: agent, ...(inherited ? { modelId: inherited } : {}) });
+      const childModel = resolved.machine ?? inherited;
 
       if (!resolved.found || !resolved.procedure) {
         return { runId: childRunId, agentId: agent, outcome: 'failed', reason: `there is no agent called "${agent}"`, outputs: {} };
@@ -352,11 +354,12 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
             depth: ticket.depth + 1,
             agentSlug: agent,
             trigger: 'agent',
+            modelId: childModel,
           },
           procedure: resolved.procedure,
           inputs: childInputs(inputs),
           ...(input.projectId ? { projectId: input.projectId } : {}),
-          ...(environment ? { environment } : {}),
+          ...(environment && !resolved.machine ? { environment } : {}),
           ...(input.continueAfterEvents ? { continueAfterEvents: input.continueAfterEvents } : {}),
         }],
       });

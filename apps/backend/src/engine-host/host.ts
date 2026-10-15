@@ -16,6 +16,7 @@ import { createImageBuilder, discoverRegistry, type ImageBuilder, type RegistryA
 import { createEnvironmentResolver, type EnvironmentResolver } from './sandboxes/environments.js';
 import { createTreeWorkspaces, LANDING_BASE, type TreeWorkspaces } from './sandboxes/tree-workspaces.js';
 import { createConversationWorkspaces, type ConversationWorkspaces } from './sandboxes/conversation-workspaces.js';
+import { createMachineWorkspaces, type KnownMachine } from './sandboxes/machine-workspaces.js';
 import { createMachineBackend } from './drivers/machine-backend.js';
 import { createToolRuntime } from './tools/tool-runtime.js';
 import { createEngineToolHandlers } from './tools/engine-tools.js';
@@ -53,6 +54,7 @@ import type { GroveOperationDeps } from '../extensions/grove/operations/handlers
 export interface EngineHostStores {
   actions?: { list(ownerId: string): Promise<import('@koala/harness-types').ActionProposal[]>; save(proposal: import('@koala/harness-types').ActionProposal): Promise<void> } | undefined;
   projectRecords?: (() => Promise<import('../lib/types.js').ProjectMetadata[]>) | undefined;
+  machines?: { list(): Promise<readonly KnownMachine[]> } | undefined;
   agentRecords: AgentRecordStore;
   toolGrants: ToolGrantStore;
   procedures: {
@@ -244,6 +246,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     tools: (ownerId: string) => catalogue.list(ownerId),
     ...(options.mcpServers ? { servers: options.mcpServers.list } : {}),
     machineBackend: createMachineBackend(),
+    ...(stores.machines ? { workspaces: createMachineWorkspaces(stores.machines) } : {}),
     ...(stores.egress && options.egressSecret
       ? {
         egress: {
@@ -558,6 +561,7 @@ export function storesFromDatabase(db: Database): EngineHostStores {
     runs: { traces: (ownerId: string, runId: string) => db.getRunTraces(ownerId, runId) },
     actions: { list: (ownerId: string) => db.getActionProposals(ownerId), save: (proposal) => db.saveActionProposal(proposal) },
     projectRecords: () => db.getProjects(),
+    machines: { list: () => db.getLocalAgentDevices() },
     proposals: {
       scenarioIds: async (ownerId: string) => [
         ...BUILT_IN_SCENARIOS.map((scenario) => scenario.id),

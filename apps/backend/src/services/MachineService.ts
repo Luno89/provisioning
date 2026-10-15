@@ -3,9 +3,10 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import { encryptValue, type SecretKey } from '../lib/crypto.js';
 import type { Database } from '../lib/db-interface.js';
+import type { MachineChoice } from '@koala/agent-engine/procedure';
 import type { LocalAgentDeviceMetadata, ProjectMetadata } from '../lib/types.js';
 import {
-  MACHINE_CODE_TTL_SECONDS, hashMachineCode, machineAgentsFrom, machineCommand, manualAgentsOf, manualAgentsProblem, newMachineCode,
+  MACHINE_CODE_TTL_SECONDS, hashMachineCode, machineAgentsFrom, machineChoiceProblem, machineCommand, manualAgentsOf, manualAgentsProblem, newMachineCode,
   type MachineAgent, type ManualMachineAgent,
 } from '../lib/machines.js';
 
@@ -88,6 +89,11 @@ export class MachineService {
       ...(device.agentsAt ? { agentsAt: device.agentsAt } : {}),
       manualAgents: device.manualAgents ?? [],
     };
+  }
+
+  async choiceProblem(ownerId: string, choice: MachineChoice): Promise<string | undefined> {
+    const device = await this.owned(ownerId, choice.deviceId);
+    return machineChoiceProblem(device ? this.view(device) : undefined, choice.agent);
   }
 
   async list(ownerId: string): Promise<MachineView[]> {

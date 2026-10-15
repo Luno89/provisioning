@@ -134,3 +134,4 @@ export { defineProcedure, defineGroup } from './seeds/define.js';
 export { agentLoop, type AgentLoopShape } from './seeds/procedures.js';
 export { BUILT_IN_PROCEDURES, TOOL_ROUNDS_V2, INTERACTIVE_CHAT_V4, PLANNING_V2, RESEARCH_V2, SINGLE_SHOT_V2, DO_ONE_TASK_V2, DELIVERY_V2 } from './seeds/procedures.js';
 export { readProcedure, readAndCheckProcedure, formatProcedureProblems, describeProcedureFormat, EXAMPLE_PROCEDURE, type ParsedProcedure } from './source.js';
+export * from './machine-choice.js';

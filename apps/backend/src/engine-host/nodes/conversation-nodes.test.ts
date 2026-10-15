@@ -174,7 +174,7 @@ describe('loading a conversation into a run', () => {
 
     const outcome = await nodes(kept).load.run(request('load-conversation', { values: { conversationId: 'fresh' } }, { id: '{{values.conversationId}}' })) as { outputs: Record<string, unknown> };
 
-    expect(outcome.outputs).toEqual({ messages: [], found: false, history: { base: 0, ends: [] } });
+    expect(outcome.outputs).toEqual({ messages: [], found: false, history: { base: 0, ends: [] }, sessions: {} });
   });
 
   it('will not read another owner’s conversation', async () => {
@@ -185,7 +185,7 @@ describe('loading a conversation into a run', () => {
 
     const outcome = await nodes(kept).load.run(request('load-conversation', { values: { conversationId: 'c-1' } }, { id: '{{values.conversationId}}' })) as { outputs: Record<string, unknown> };
 
-    expect(outcome.outputs).toEqual({ messages: [], found: false, history: { base: 0, ends: [] } });
+    expect(outcome.outputs).toEqual({ messages: [], found: false, history: { base: 0, ends: [] }, sessions: {} });
   });
 });
 
@@ -270,6 +270,16 @@ describe('a turn opened before its run and closed by it', () => {
 
     expect(rows[0]!.messages.map((one) => [one.role, one.content, one.runId])).toEqual([['user', 'earlier', undefined], ['user', 'and now?', 'r'], ['assistant', 'three of them', 'r']]);
     expect(rows[0]!.liveTurn).toBeUndefined();
+  });
+
+  it('keeps an agent\'s session on a machine with the conversation, and hands it back on the next load', async () => {
+    const { rows, kept } = store([{ ...opened(), machineSessions: { 'd1:gemini': 'old' } }]);
+
+    await nodes(kept).save.run(request('save-conversation', { values: { conversationId: 'c-1' }, asked: 'and now?', reply: reply(), session: { key: 'd1:antigravity', id: 'sess-7' } }, { id: '{{values.conversationId}}' }));
+    expect(rows[0]!.machineSessions).toEqual({ 'd1:gemini': 'old', 'd1:antigravity': 'sess-7' });
+
+    const loaded = await nodes(kept).load.run(request('load-conversation', { values: { conversationId: 'c-1' } }, { id: '{{values.conversationId}}' }, { launch: { ownerId: 'user-1' } })) as { outputs: Record<string, unknown> };
+    expect(loaded.outputs.sessions).toEqual({ 'd1:gemini': 'old', 'd1:antigravity': 'sess-7' });
   });
 
   it('saves the reply once however often the save is retried, and leaves another run\'s turn under way', async () => {
