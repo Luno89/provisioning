@@ -29,7 +29,7 @@ export function bundleAsEnv(bundle: JoinBundle): string {
 }
 
 export function instancesRouter(deps: {
-  instances: Pick<InstanceService, 'createJoinToken' | 'join' | 'release' | 'report' | 'mine'>;
+  instances: Pick<InstanceService, 'createJoinToken' | 'join' | 'release' | 'report' | 'mine' | 'machineKey'>;
   chart: () => Promise<string>;
 }): Router {
   const router = Router();
@@ -58,6 +58,14 @@ export function instancesRouter(deps: {
   router.get('/release', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
     const outcome = await deps.instances.release(instanceId, credential);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value);
+  }));
+
+  router.post('/machine-key', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    const outcome = await deps.instances.machineKey(instanceId, credential);
+    res.setHeader('Cache-Control', 'no-store');
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json(outcome.value);
   }));

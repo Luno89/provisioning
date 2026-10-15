@@ -136,6 +136,7 @@ helm upgrade --install "$RELEASE" /tmp/instance-chart.tgz --namespace "$NAMESPAC
   --set instance.id="$INSTANCE_ID" --set instance.ownerId="$INSTANCE_OWNER_ID" --set instance.rootUrl="$ROOT_URL" \
   --set-file instance.rootPublicKeys="$KEYS_FILE" --set instance.credential="$INSTANCE_CREDENTIAL" \
   --set publicUrl="$PUBLIC_URL" --set backend.nodePort="$NODE_PORT" --set hostDocker="$HOST_DOCKER" \
+  --set mesh.loginServer="$MESH_LOGIN_SERVER" --set mesh.address="$MESH_IP" \
   --wait --timeout 45m
 rm -f "$KEYS_FILE"
 report ready "Installed" "$PUBLIC_URL"

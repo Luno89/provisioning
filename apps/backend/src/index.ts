@@ -85,6 +85,7 @@ import { startedFor } from './lib/workflow-owner.js';
 import { askDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from './lib/local-agent-registry.js';
 import { MachineService } from './services/MachineService.js';
 import { MachineBundle } from './services/MachineBundle.js';
+import { RootMeshKeys } from './services/RootMeshKeys.js';
 import { machinesRouter } from './routes/machines.js';
 import { asyncRoute } from './middleware/async-route.js';
 import { searchAnswer } from './engine-host/tools/memory-tools.js';
@@ -322,7 +323,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     },
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice },
     projects: projectRepoService,
-    mesh: headscaleService,
+    mesh: role.instance
+      ? new RootMeshKeys({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: process.env.INSTANCE_CREDENTIAL ?? '' })
+      : headscaleService,
   });
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, endpointRulesFromEnv(process.env));
 

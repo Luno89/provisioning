@@ -16,6 +16,10 @@ selfUpgrade:
 
 publicUrl: ""
 
+mesh:
+  loginServer: ""
+  address: ""
+
 backend:
   nodePort: null
 

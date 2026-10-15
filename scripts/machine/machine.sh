@@ -76,8 +76,8 @@ if [ -n "${MESH_LOGIN_SERVER:-}" ]; then
     ask "Tailscale isn't installed. Koala reaches this machine through it, privately. Install it?" || die "stopped: this machine needs the private network to take work"
     curl -fsSL https://tailscale.com/install.sh | sh
   fi
-  sudo tailscale up --login-server="$MESH_LOGIN_SERVER" --authkey="$MESH_AUTH_KEY"
-  ok "on the private network"
+  sudo tailscale up --login-server="$MESH_LOGIN_SERVER" --authkey="$MESH_AUTH_KEY" --accept-dns=false
+  ok "on the private network as $(tailscale ip -4 | head -n1)"
 fi
 
 say "Installing the machine agent"

@@ -60,6 +60,15 @@ describe('bringing a user\'s own machine in as their instance', () => {
     expect(await service.release('inst-someone-else', joined.value.credential)).toMatchObject({ ok: false, status: 401 });
   });
 
+  it('mints a mesh key for a machine of the instance\'s owner, only for that instance', async () => {
+    const { token } = await service.createJoinToken('u1');
+    const joined = await service.join(token, 'm');
+    if (!joined.ok) throw new Error(joined.error);
+    expect(await service.machineKey(joined.value.instanceId, joined.value.credential)).toEqual({ ok: true, value: { preAuthKey: 'pre-u1', meshLoginServer: 'https://mesh.example.com' } });
+    expect(await service.machineKey(joined.value.instanceId, 'guess')).toMatchObject({ ok: false, status: 401 });
+    expect(await new InstanceService(db, { ...settings, meshLoginServer: undefined }, mesh, () => now).machineKey(joined.value.instanceId, joined.value.credential)).toMatchObject({ ok: false, status: 503 });
+  });
+
   it('records what the machine reports, and where the instance answers', async () => {
     const { token } = await service.createJoinToken('u1');
     const joined = await service.join(token, 'm');

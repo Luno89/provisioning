@@ -119,6 +119,14 @@ export class InstanceService {
     return { ok: true, value: { imageTag: this.settings.imageTag, chartVersion: this.settings.chartVersion, chartUrl: `${this.settings.rootUrl}/api/instances/chart.tgz` } };
   }
 
+  async machineKey(instanceId: unknown, credential: unknown): Promise<Outcome<{ preAuthKey: string; meshLoginServer: string }>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    if (!this.mesh || !this.settings.meshLoginServer) return { ok: false, status: 503, error: 'this root has no mesh configured (MESH_LOGIN_SERVER), so no machine can join it' };
+    const { key } = await this.mesh.createPreAuthKey(instance.ownerId, { reusable: false, expirySeconds: JOIN_TOKEN_TTL_SECONDS });
+    return { ok: true, value: { preAuthKey: key, meshLoginServer: this.settings.meshLoginServer } };
+  }
+
   async report(instanceId: unknown, credential: unknown, report: { status?: unknown; detail?: unknown; url?: unknown }): Promise<Outcome<InstanceRecord>> {
     const instance = await this.authenticated(instanceId, credential);
     if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };

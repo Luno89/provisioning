@@ -66,6 +66,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
         '/instances/chart.tgz',
         '/instances/release',
         '/instances/status',
+        '/instances/machine-key',
       ]),
       ...(role === 'instance' ? ['/auth/handoff', '/auth/sign-in'] : []),
       '/machines/join',

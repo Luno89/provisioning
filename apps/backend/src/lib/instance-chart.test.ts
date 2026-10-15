@@ -60,6 +60,18 @@ describe('the instance chart', () => {
     expect(find(docs, 'ConfigMap', 'luno-env').data!.TEMPORAL_CONNECTION_ADDRESS).toBe('luno-temporal:7233');
   });
 
+  it('offers its Temporal to the owner\'s machines on its mesh address only, and tells the app where that is', () => {
+    const meshed = render(['mesh.address=100.64.0.7', 'mesh.loginServer=https://mesh.example.com']);
+    const temporal = find(meshed, 'Deployment', 'luno-temporal');
+    expect(temporal.spec.strategy).toEqual({ type: 'Recreate' });
+    expect(temporal.spec.template.spec.containers[0].ports).toEqual([{ containerPort: 7233, hostIP: '100.64.0.7', hostPort: 7233 }]);
+    expect(find(meshed, 'ConfigMap', 'luno-env').data).toMatchObject({ MACHINE_TEMPORAL_ADDRESS: '100.64.0.7:7233', MESH_LOGIN_SERVER: 'https://mesh.example.com' });
+
+    const alone = render();
+    expect(find(alone, 'Deployment', 'luno-temporal').spec.template.spec.containers[0].ports).toEqual([{ containerPort: 7233 }]);
+    expect(find(alone, 'ConfigMap', 'luno-env').data!.MACHINE_TEMPORAL_ADDRESS).toBeUndefined();
+  });
+
   it('owns the cluster it is installed in, and sets up its services there after install and every upgrade', () => {
     const docs = render();
     expect(find(docs, 'ClusterRoleBinding', 'luno-nowrinkles-owns-cluster').roleRef?.name).toBe('cluster-admin');
