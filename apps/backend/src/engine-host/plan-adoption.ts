@@ -270,12 +270,12 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
       if (!driver) throw new Error('the tree sandbox could not be reached to write the plan');
 
       const run = async (command: string): Promise<string> => {
-        const outcome = await driver.exec({ command, timeoutMs: 60_000 });
+        const outcome = await driver.exec({ command });
         if (outcome.exitCode !== 0) throw new Error(`${command.split(' ')[0]} failed: ${(outcome.stderr || outcome.stdout).trim()}`);
         return outcome.stdout.trim();
       };
 
-      const fresh = (await driver.exec({ command: `test -d ${TREE_REPO}/.git`, timeoutMs: 30_000 })).exitCode !== 0;
+      const fresh = (await driver.exec({ command: `test -d ${TREE_REPO}/.git` })).exitCode !== 0;
 
       await run(`mkdir -p ${TREE_REPO} && cd ${TREE_REPO} && (git rev-parse --git-dir >/dev/null 2>&1 || git init -q -b main)`);
 
@@ -315,7 +315,7 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
 
         if (change.cancel) {
           const gone = new Set(change.cancel);
-          const mentioning = (await driver.exec({ command: `cd ${TREE_REPO} && grep -l -F ${[...gone].map((id) => `-e ${shell(`\`${id}\``)}`).join(' ')} leaves/*.md 2>/dev/null || true`, timeoutMs: 30_000 })).stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+          const mentioning = (await driver.exec({ command: `cd ${TREE_REPO} && grep -l -F ${[...gone].map((id) => `-e ${shell(`\`${id}\``)}`).join(' ')} leaves/*.md 2>/dev/null || true` })).stdout.split('\n').map((line) => line.trim()).filter(Boolean);
           for (const leaf of world.leaves.filter((entry) => !gone.has(entry.id) && entry.status !== 'cancelled' && mentioning.includes(leafBriefPath(entry.id)))) {
             const document = await read(leafBriefPath(leaf.id));
             const updated = withWaitsOn(document, leaf.dependsOn ?? []);
@@ -359,13 +359,13 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
 
       if (!proposal.plan) throw new Error('the proposal holds no plan');
       const earlier = proposal.plan.treeId
-        ? (await driver.exec({ command: `cat ${TREE_REPO}/${PLAN_DOC_PATH} 2>/dev/null || true`, timeoutMs: 30_000 })).stdout
+        ? (await driver.exec({ command: `cat ${TREE_REPO}/${PLAN_DOC_PATH} 2>/dev/null || true` })).stdout
         : '';
       if (proposal.conversationId) await options.treeWorkspaces.bring(adopted.treeId, ownerId, proposal.conversationId);
       const documents = planDocuments(proposal.plan, adopted, treeName, { earlier, proposalId });
       const starter = fresh || !proposal.plan.treeId ? await scaffoldFor(ownerId, adopted.treeId, treeName) : [];
       const present = starter.length > 0
-        ? new Set((await driver.exec({ command: `cd ${TREE_REPO} && for f in ${starter.map((file) => shell(file.path)).join(' ')}; do test -e "$f" && echo "$f"; done; true`, timeoutMs: 30_000 })).stdout.split('\n').map((line) => line.trim()).filter(Boolean))
+        ? new Set((await driver.exec({ command: `cd ${TREE_REPO} && for f in ${starter.map((file) => shell(file.path)).join(' ')}; do test -e "$f" && echo "$f"; done; true` })).stdout.split('\n').map((line) => line.trim()).filter(Boolean))
         : new Set<string>();
       const scaffold = starter.filter((file) => !present.has(file.path));
       const written = [...scaffold, ...documents];

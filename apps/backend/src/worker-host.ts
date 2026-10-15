@@ -13,6 +13,7 @@ import { buildDataConverter } from './lib/temporal-codec.js';
 import { sharedPayloadBlobs } from './lib/db-interface.js';
 import { loadKeys } from './lib/keys.js';
 import { healthPort, serveHealth } from './lib/worker-health.js';
+import { heartbeatWhileRunning } from '@koala/engine-core';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -46,6 +47,7 @@ async function main() {
         ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
+        interceptors: { activity: [heartbeatWhileRunning()] },
         activities: {
           ProvisionClusterActivity,
           DestroyClusterActivity,

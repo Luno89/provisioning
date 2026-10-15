@@ -4,7 +4,6 @@ import { McpClient, type Fetcher } from '../../lib/mcp-client.js';
 import { slugify } from '../../lib/mcp-tools.js';
 import type { EnvironmentHandleRef, RunTicket } from '../temporal/contracts.js';
 
-export const SERVER_START_SECONDS = 60;
 export const SERVER_LOGS = '/tmp/.koala-servers';
 const DEFAULT_PATH = '/mcp';
 
@@ -33,8 +32,10 @@ export function startScript(name: string, serves: Omit<ServedServer, 'name'>): s
     'answers && exit 0',
     `mkdir -p ${SERVER_LOGS}`,
     `setsid nohup sh -c ${quoteArgument(serves.start)} > ${log} 2>&1 < /dev/null &`,
-    `i=0; while [ $i -lt ${SERVER_START_SECONDS} ]; do answers && exit 0; sleep 1; i=$((i+1)); done`,
-    `echo "nothing answered on port ${serves.port} within ${SERVER_START_SECONDS} seconds of starting it; the end of its log:"`,
+    'started=$!',
+    'until answers; do kill -0 "$started" 2>/dev/null || break; sleep 1; done',
+    'answers && exit 0',
+    `echo "it stopped before anything answered on port ${serves.port}; the end of its log:"`,
     `tail -20 ${log}`,
     'exit 1',
   ].join('\n');
@@ -69,7 +70,7 @@ export function execFetch(driver: EnvironmentDriver, signal: () => AbortSignal |
     const body = Buffer.from(String(init?.body ?? ''), 'utf8').toString('base64');
     const command = `printf '%s' ${quoteArgument(body)} | base64 -d | curl -sS -i -X ${init?.method ?? 'POST'} ${headers} --data-binary @- ${quoteArgument(url)}`;
     const stop = signal();
-    const result = await driver.exec({ command, untimed: true, ...(stop ? { signal: stop } : {}) });
+    const result = await driver.exec({ command, ...(stop ? { signal: stop } : {}) });
     if (result.exitCode !== 0) throw new Error(`curl in the workspace failed: ${(result.stderr || result.stdout).trim().slice(0, 300)}`);
     const reply = parseCurlReply(result.stdout);
     return new Response(reply.body, { status: reply.status, headers: reply.headers });
@@ -83,7 +84,7 @@ export function createWorkspaceServers(options: { environments: ServingEnvironme
   const clients = new Map<string, { client: McpClient; stop: { signal?: AbortSignal | undefined } }>();
 
   const ensure = async (driver: EnvironmentDriver, server: ServedServer, signal?: AbortSignal): Promise<string | undefined> => {
-    const started = await driver.exec({ command: startScript(server.name, server), untimed: true, ...(signal ? { signal } : {}) });
+    const started = await driver.exec({ command: startScript(server.name, server), ...(signal ? { signal } : {}) });
     return started.exitCode === 0 ? undefined : (started.stdout + started.stderr).trim() || `it exited ${started.exitCode}`;
   };
 

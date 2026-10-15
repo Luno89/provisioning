@@ -61,8 +61,10 @@ import { ASK_CHARS, collectStep, type Artifact, type RunEffort, type RunStep } f
 import { platformCatalogue, platformGroups } from '../extensions/installed.js';
 import { ownerIn, startedFor } from '../lib/workflow-owner.js';
 import { tracedSummary } from '../lib/turn-log.js';
+import { externalCallId, externalRunEvents, externalToolName, permissionChoice, type ExternalToolSeen } from '../lib/external-agent-events.js';
+import type { ExternalAgentStepArgs, ExternalAgentStepResult } from '@koala/engine-core';
+import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
 
-const NODE_HEARTBEAT_TIMEOUT = '1 minute';
 export const CONTINUE_AFTER_EVENTS = 10_000;
 
 interface EngineRemote {
@@ -71,19 +73,22 @@ interface EngineRemote {
   EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome>;
 }
 
+interface DeviceRemote {
+  ExternalAgentActivity(args: ExternalAgentStepArgs): Promise<ExternalAgentStepResult>;
+}
+
 interface StreamRemote {
   EngineStreamNodeActivity(request: RemoteNodeRequest): Promise<RemoteNodeResult>;
 }
 
 const ABANDON = ActivityCancellationType.ABANDON;
 const TRY_CANCEL = ActivityCancellationType.TRY_CANCEL;
-export const TOOL_CALL_CEILING = '30 days';
-const toolCalls = proxyActivities<Pick<EngineRemote, 'EngineToolActivity'>>({ retry: ACTIVITY_RETRY, startToCloseTimeout: TOOL_CALL_CEILING, heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: TRY_CANCEL });
-const engine = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, startToCloseTimeout: '30 minutes', cancellationType: ABANDON });
-const engineNodes = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: ABANDON });
-const engineNodesOnce = proxyActivities<EngineRemote>({ retry: { maximumAttempts: 1 }, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: ABANDON });
-const stream = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: ACTIVITY_RETRY, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: ABANDON });
-const streamOnce = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: { maximumAttempts: 1 }, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: ABANDON });
+const toolCalls = proxyActivities<Pick<EngineRemote, 'EngineToolActivity'>>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY, cancellationType: TRY_CANCEL });
+const engine = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY, cancellationType: ABANDON });
+const engineNodes = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY, cancellationType: ABANDON });
+const engineNodesOnce = proxyActivities<EngineRemote>({ retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY, cancellationType: ABANDON });
+const stream = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY, cancellationType: ABANDON });
+const streamOnce = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY, cancellationType: ABANDON });
 
 const { EngineRecordTracesActivity, EngineRunLimitsActivity, EngineRecordEffortActivity, EngineSettleClaimsActivity, EngineToolAllowedActivity, EngineAutoModeActivity } = proxyActivities<{
   EngineToolAllowedActivity(args: ToolAllowedArgs): Promise<boolean>;
@@ -94,7 +99,7 @@ const { EngineRecordTracesActivity, EngineRunLimitsActivity, EngineRecordEffortA
   EngineSettleClaimsActivity(args: SettleClaimsArgs): Promise<string[]>;
 }>({
   retry: { maximumAttempts: 3 },
-  startToCloseTimeout: '1 minute',
+  ...LIVE_ACTIVITY,
 });
 
 const { EnginePublishActivity, EngineLifecycleActivity } = proxyActivities<{
@@ -103,7 +108,7 @@ const { EnginePublishActivity, EngineLifecycleActivity } = proxyActivities<{
 }>({
   taskQueue: DEFAULT_STREAM_TASK_QUEUE,
   retry: { maximumAttempts: 3 },
-  startToCloseTimeout: '1 minute',
+  ...LIVE_ACTIVITY,
 });
 
 const CONCLUSIONS = 'conclusion-events';
@@ -158,6 +163,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   let currentNode: string | undefined;
   let rounds = continued?.checkpoint.counters.rounds ?? 0;
   let children = continued?.children ?? 0;
+  let externals = 0;
   const produced: Artifact[] = [...(continued?.produced ?? [])];
   let steps: RunStep[] = [...(continued?.steps ?? [])];
   const placedOnly = <T extends { artifacts?: Artifact[] | undefined }>(outcome: T): T => {
@@ -250,8 +256,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
           cancellationType: hearsStops ? TRY_CANCEL : ABANDON,
           taskQueue: deviceQueue(environment.deviceId),
           retry: ACTIVITY_RETRY,
-          startToCloseTimeout: hearsStops ? TOOL_CALL_CEILING : '30 minutes',
-          scheduleToStartTimeout: '1 hour',
+          ...LIVE_ACTIVITY,
         });
         const outcome = placedOnly(await cancellable(() => onDevice.EngineToolActivity(args)));
         keep(outcome.artifacts);
@@ -261,6 +266,62 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       const outcome = await cancellable(() => (hearsStops ? toolCalls : engine).EngineToolActivity(args));
       keep(outcome.artifacts);
       return outcome;
+    },
+
+    async runExternal({ nodeId, agent, brief, context, mode, environment, run }) {
+      externals += 1;
+      const key = `${ticket.runId}:${nodeId}:${externals}`;
+      const device = proxyActivities<DeviceRemote>({
+        taskQueue: deviceQueue(environment.deviceId),
+        retry: { maximumAttempts: 1 },
+        ...LIVE_ACTIVITY,
+        cancellationType: ABANDON,
+      });
+      const seen: ExternalToolSeen = { called: new Set(), settled: new Set() };
+      let text = '';
+      const take = async (result: ExternalAgentStepResult): Promise<void> => {
+        const logged = externalRunEvents(agent, nodeId, result.events, seen);
+        text += logged.text;
+        const streamed = logged.events.filter((event) => event.type === 'content' || event.type === 'thinking');
+        if (streamed.length > 0) {
+          const at = new Date(Date.now()).toISOString();
+          await EnginePublishActivity({ ownerId: ticket.ownerId, turnId: turnOf(ticket), events: streamed.map((event) => ({ ...event, runId: ticket.runId, at })) as EngineEvent[] });
+        }
+        for (const event of logged.events) {
+          if (event.type !== 'content' && event.type !== 'thinking') bus.emit({ ...event, runId: ticket.runId, at: new Date(Date.now()).toISOString() } as EngineEvent);
+        }
+        await flush();
+      };
+      const step = (op: ExternalAgentStepArgs['op']) => device.ExternalAgentActivity({ key, agent, op });
+
+      let result = await step({ kind: 'open', brief, ...(context ? { context } : {}), ...(mode ? { mode } : {}), ...(environment.path ? { path: environment.path } : {}) });
+      for (;;) {
+        await take(result);
+        if (result.state === 'ended' || result.state === 'failed' || result.state === 'closed') break;
+        if (cancelled) {
+          result = await step({ kind: 'cancel' });
+          continue;
+        }
+        if (result.state === 'asks') {
+          const { ask } = result;
+          const allowed = await ports.approve({
+            nodeId,
+            call: { id: externalCallId(ask.tool.callId), name: externalToolName(agent, ask.tool), arguments: ask.tool.title },
+            environment,
+            run,
+          });
+          result = await step({ kind: 'answer', optionId: cancelled ? undefined : permissionChoice(ask, allowed) });
+        } else {
+          result = await step({ kind: 'continue' });
+        }
+      }
+      const { identity, sessionId } = result;
+      if (result.state !== 'failed') await take(await step({ kind: 'close' }));
+
+      if (result.state === 'failed') return { outcome: 'failed', text, reason: result.error, ...(identity ? { identity } : {}), ...(sessionId ? { sessionId } : {}) };
+      if (result.state !== 'ended' || !identity || !sessionId) return { outcome: 'failed', text, reason: 'the agent\'s session closed before its turn ended' };
+      if (result.stopReason === 'end_turn') return { outcome: 'finished', stopReason: result.stopReason, text, identity, sessionId };
+      return { outcome: 'stopped', stopReason: result.stopReason, text, identity, sessionId, reason: cancelled ? 'the run was cancelled' : `its turn ended: ${result.stopReason}` };
     },
 
     handOffsTogether: () => patched(HAND_OFFS_TOGETHER),
@@ -340,9 +401,9 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       } as never);
 
       asking.add(call.id);
-      const decided = await condition(() => approvals.has(call.id) || cancelled, '1 day');
+      await condition(() => approvals.has(call.id) || cancelled);
       asking.delete(call.id);
-      if (cancelled || !decided) return false;
+      if (cancelled) return false;
       return approvals.get(call.id) === true;
     },
 
@@ -353,9 +414,11 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         return !choices?.length || (typeof value === 'string' && choices.includes(value));
       };
       await flush();
-      const answered = await condition(() => usable() || cancelled, timeoutMs);
+      const answered = timeoutMs === undefined
+        ? await condition(() => usable() || cancelled).then(() => true)
+        : await condition(() => usable() || cancelled, timeoutMs);
       if (cancelled) return { answered: false, reason: 'the run was cancelled' };
-      if (!answered) return { answered: false, reason: 'nobody answered in time' };
+      if (!answered) return { answered: false, reason: 'nobody answered in the time this step waits' };
       return { answered: true, value: answers.get(nodeId) };
     },
   };

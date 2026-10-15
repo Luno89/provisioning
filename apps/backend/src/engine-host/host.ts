@@ -115,6 +115,7 @@ export interface EngineHostOptions {
   registryPushToken?: (() => Promise<{ username: string; password: string }>) | undefined;
   onSandbox?: ((driver: EnvironmentDriver, ticket: RunTicket) => Promise<void>) | undefined;
   onLeak?: ((runId: string, ageMs: number) => void) | undefined;
+  runEnded?: ((runId: string) => Promise<boolean>) | undefined;
   efforts?: EffortTrackerOptions['store'] | undefined;
   vault?: import('./tools/secret-tools.js').SecretVault | undefined;
   mcpServers?: {
@@ -202,6 +203,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       return driver;
     },
     ...(options.onLeak ? { onLeak: options.onLeak } : {}),
+    ...(options.runEnded ? { ended: options.runEnded } : {}),
   });
 
   const images = createImageBuilder({
@@ -396,13 +398,13 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
         ...(web
           ? {
             web: {
-              search: async (query: string) => {
-                const outcome = await web.search(query);
+              search: async (query: string, signal?: AbortSignal) => {
+                const outcome = await web.search(query, signal);
                 return outcome.unavailable
                   ? { error: 'Search is unavailable — no backend could be reached. Rephrasing will not help.' }
                   : { results: outcome.hits };
               },
-              fetchPage: (url: string) => web.readPage(url),
+              fetchPage: (url: string, signal?: AbortSignal) => web.readPage(url, signal),
             },
           }
           : {}),

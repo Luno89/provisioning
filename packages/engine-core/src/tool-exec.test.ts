@@ -162,7 +162,7 @@ describe('running a command', () => {
     await run(driver, { command: 'npm test', timeoutSeconds: 90 });
     await run(driver, { command: 'npm test', timeoutSeconds: '2.5' });
 
-    expect(seen[0]).toEqual({ command: 'npm test', untimed: true, signal: stop.signal });
+    expect(seen[0]).toEqual({ command: 'npm test', signal: stop.signal });
     expect(seen[1]).toEqual({ command: 'npm test', timeoutMs: 90_000 });
     expect(seen[2]).toEqual({ command: 'npm test', timeoutMs: 3_000 });
   });

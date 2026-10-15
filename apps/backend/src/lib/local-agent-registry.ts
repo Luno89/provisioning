@@ -13,8 +13,6 @@ interface DeviceConnection {
 
 const devices = new Map<string, DeviceConnection>();
 
-const DEFAULT_TIMEOUT_MS = 120_000;
-
 function tokensEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);
@@ -56,6 +54,25 @@ export function localAgentStatus(deviceId: string): { online: boolean; connected
     : { online: false };
 }
 
+export class DeviceGoneError extends Error {
+  constructor(deviceId: string) {
+    super(`Local device ${deviceId} disconnected before it answered`);
+    this.name = 'DeviceGoneError';
+  }
+}
+
+function ask<T>(deviceId: string, conn: DeviceConnection, event: string, payload: unknown): Promise<T> {
+  return new Promise((resolve, reject) => {
+    if (!conn.socket.connected) return reject(new DeviceGoneError(deviceId));
+    const gone = () => reject(new DeviceGoneError(deviceId));
+    conn.socket.once('disconnect', gone);
+    conn.socket.emit(event, payload, (response: T) => {
+      conn.socket.off('disconnect', gone);
+      resolve(response);
+    });
+  });
+}
+
 function connectionFor(deviceId: string, ownerId: string): DeviceConnection {
   const conn = devices.get(deviceId);
   if (!conn) throw new Error(`Local device ${deviceId} is not connected`);
@@ -75,66 +92,27 @@ export async function execOnDevice(
   ownerId: string,
   leafId: string,
   command: string,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
+  timeoutMs?: number,
   cwd?: string,
 ): Promise<LocalExecResult> {
   const conn = connectionFor(deviceId, ownerId);
-  return new Promise((resolve) => {
-    conn.socket.timeout(timeoutMs).emit(
-      'sandbox:exec',
-      { leafId, command, ...(cwd ? { cwd } : {}) },
-      (err: unknown, response: LocalExecResult) => {
-        if (err) {
-          resolve({ stdout: '', stderr: 'Local device did not respond in time', exitCode: -1, timedOut: true });
-          return;
-        }
-        resolve(response);
-      },
-    );
-  });
+  return ask<LocalExecResult>(deviceId, conn, 'sandbox:exec', { leafId, command, ...(cwd ? { cwd } : {}), ...(timeoutMs ? { timeoutMs } : {}) })
+    .catch((err: Error) => ({ stdout: '', stderr: err.message, exitCode: -1, timedOut: false }));
 }
 
-export async function readFileOnDevice(
-  deviceId: string,
-  ownerId: string,
-  leafId: string,
-  path: string,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-): Promise<string> {
+const answered = <T>(response: T | { error: string }): T => {
+  if (response && typeof response === 'object' && 'error' in response) throw new Error((response as { error: string }).error);
+  return response as T;
+};
+
+export async function readFileOnDevice(deviceId: string, ownerId: string, leafId: string, path: string): Promise<string> {
   const conn = connectionFor(deviceId, ownerId);
-  return new Promise((resolve, reject) => {
-    conn.socket.timeout(timeoutMs).emit(
-      'sandbox:readFile',
-      { leafId, path },
-      (err: unknown, response: { content: string } | { error: string }) => {
-        if (err) return reject(new Error(`Local device did not respond in time reading ${path}`));
-        if (response && 'error' in response) return reject(new Error(response.error));
-        resolve(response.content);
-      },
-    );
-  });
+  return answered(await ask<{ content: string } | { error: string }>(deviceId, conn, 'sandbox:readFile', { leafId, path })).content;
 }
 
-export async function writeFileOnDevice(
-  deviceId: string,
-  ownerId: string,
-  leafId: string,
-  path: string,
-  content: string,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-): Promise<void> {
+export async function writeFileOnDevice(deviceId: string, ownerId: string, leafId: string, path: string, content: string): Promise<void> {
   const conn = connectionFor(deviceId, ownerId);
-  return new Promise((resolve, reject) => {
-    conn.socket.timeout(timeoutMs).emit(
-      'sandbox:writeFile',
-      { leafId, path, content },
-      (err: unknown, response?: { error: string }) => {
-        if (err) return reject(new Error(`Local device did not respond in time writing ${path}`));
-        if (response && 'error' in response) return reject(new Error(response.error));
-        resolve();
-      },
-    );
-  });
+  answered(await ask<Record<string, never> | { error: string } | undefined>(deviceId, conn, 'sandbox:writeFile', { leafId, path, content }) ?? {});
 }
 
 export interface LocalDirEntry {
@@ -143,47 +121,15 @@ export interface LocalDirEntry {
   type: 'file' | 'dir';
 }
 
-export async function listDirOnDevice(
-  deviceId: string,
-  ownerId: string,
-  dirPath: string,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-): Promise<LocalDirEntry[]> {
+export async function listDirOnDevice(deviceId: string, ownerId: string, dirPath: string): Promise<LocalDirEntry[]> {
   const conn = connectionFor(deviceId, ownerId);
-  return new Promise((resolve, reject) => {
-    conn.socket.timeout(timeoutMs).emit(
-      'sandbox:listDir',
-      { path: dirPath },
-      (err: unknown, response: { entries: LocalDirEntry[] } | { error: string }) => {
-        if (err) return reject(new Error(`Local device did not respond in time listing ${dirPath || '.'}`));
-        if (response && 'error' in response) return reject(new Error(response.error));
-        resolve(response.entries);
-      },
-    );
-  });
+  return answered(await ask<{ entries: LocalDirEntry[] } | { error: string }>(deviceId, conn, 'sandbox:listDir', { path: dirPath })).entries;
 }
 
-export async function deleteFileOnDevice(
-  deviceId: string,
-  ownerId: string,
-  filePath: string,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-): Promise<void> {
+export async function deleteFileOnDevice(deviceId: string, ownerId: string, filePath: string): Promise<void> {
   const conn = connectionFor(deviceId, ownerId);
-  return new Promise((resolve, reject) => {
-    conn.socket.timeout(timeoutMs).emit(
-      'sandbox:deleteFile',
-      { path: filePath },
-      (err: unknown, response?: { error: string }) => {
-        if (err) return reject(new Error(`Local device did not respond in time deleting ${filePath}`));
-        if (response && 'error' in response) return reject(new Error(response.error));
-        resolve();
-      },
-    );
-  });
+  answered(await ask<Record<string, never> | { error: string } | undefined>(deviceId, conn, 'sandbox:deleteFile', { path: filePath }) ?? {});
 }
-
-const CONTAINER_TIMEOUT_MS = 60_000;
 
 export interface CreateContainerRequest {
   leafId: string;
@@ -193,38 +139,18 @@ export interface CreateContainerRequest {
   egress?: LocalEgressRule[];
 }
 
-/**
- * Always resolves, never rejects — an agent still on the raw-exec fallback path (no Docker) acks
- * `{ containerMode: false }` and this is a no-op; `exec`/`readFile`/`writeFile` keep working against
- * the bare host either way, so the caller does not need to branch on the result.
- */
 export async function createContainerOnDevice(
   deviceId: string,
   ownerId: string,
   request: CreateContainerRequest,
-  timeoutMs = CONTAINER_TIMEOUT_MS,
 ): Promise<{ containerMode: boolean; error?: string }> {
   const conn = connectionFor(deviceId, ownerId);
-  return new Promise((resolve) => {
-    conn.socket.timeout(timeoutMs).emit(
-      'sandbox:createContainer',
-      request,
-      (err: unknown, response?: { containerMode: boolean; error?: string }) => {
-        if (err) return resolve({ containerMode: false, error: 'Local device did not respond in time creating a container' });
-        resolve(response ?? { containerMode: false });
-      },
-    );
-  });
+  return ask<{ containerMode: boolean; error?: string } | undefined>(deviceId, conn, 'sandbox:createContainer', request)
+    .then((response) => response ?? { containerMode: false })
+    .catch((err: Error) => ({ containerMode: false, error: err.message }));
 }
 
-export async function destroyContainerOnDevice(
-  deviceId: string,
-  ownerId: string,
-  leafId: string,
-  timeoutMs = CONTAINER_TIMEOUT_MS,
-): Promise<void> {
+export async function destroyContainerOnDevice(deviceId: string, ownerId: string, leafId: string): Promise<void> {
   const conn = connectionFor(deviceId, ownerId);
-  return new Promise((resolve) => {
-    conn.socket.timeout(timeoutMs).emit('sandbox:destroyContainer', { leafId }, () => resolve());
-  });
+  await ask<unknown>(deviceId, conn, 'sandbox:destroyContainer', { leafId }).catch(() => undefined);
 }

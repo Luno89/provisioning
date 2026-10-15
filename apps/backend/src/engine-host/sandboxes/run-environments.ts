@@ -13,7 +13,7 @@ export interface ProvisionForRun {
 
 export interface RunEnvironmentOptions {
   provision: (request: ProvisionForRun) => Promise<EnvironmentDriver>;
-  maxAgeMs?: number | undefined;
+  ended?: ((runId: string) => Promise<boolean>) | undefined;
   now?: (() => number) | undefined;
   onLeak?: ((id: string, ageMs: number) => void) | undefined;
 }
@@ -30,8 +30,6 @@ export interface RunEnvironments {
   sweep(at?: number): Promise<string[]>;
   live(): number;
 }
-
-export const DEFAULT_MAX_AGE_MS = 6 * 60 * 60_000;
 
 export function environmentIdFor(runId: string): string {
   const cleaned = runId
@@ -53,7 +51,6 @@ interface Live {
 
 export function createRunEnvironments(options: RunEnvironmentOptions): RunEnvironments {
   const now = options.now ?? (() => Date.now());
-  const maxAge = options.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
   const live = new Map<string, Live>();
   const starting = new Map<string, Promise<EnvironmentDriver>>();
 
@@ -103,7 +100,11 @@ export function createRunEnvironments(options: RunEnvironmentOptions): RunEnviro
     },
 
     async sweep(at: number = now()): Promise<string[]> {
-      const stale = [...live.entries()].filter(([, entry]) => at - entry.startedAt >= maxAge);
+      const ended = options.ended;
+      if (!ended) return [];
+      const entries = [...live.entries()];
+      const gone = await Promise.all(entries.map(([, entry]) => ended(entry.runId)));
+      const stale = entries.filter((_, index) => gone[index]);
 
       for (const [id, entry] of stale) {
         if (entry.owned) options.onLeak?.(entry.runId, at - entry.startedAt);

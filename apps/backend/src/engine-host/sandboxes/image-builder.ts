@@ -1,11 +1,10 @@
 import { imageReference, needsBuilding, renderDockerfile, type ImagePlan } from '@koala/agent-engine';
 import type { KubeRunner } from './kube.js';
+import { assessWorkload } from '../../lib/workload-health.js';
 
 export const BUILD_NAMESPACE = 'pipeline-builds';
 
 export const BUILD_SERVICE_ACCOUNT = 'pipeline-build-sa';
-
-export const BUILD_TIMEOUT_MS = 20 * 60_000;
 
 /** How often a run waiting for its image asks the cluster what the build is doing. */
 export const BUILD_POLL_MS = 5_000;
@@ -20,17 +19,6 @@ export const BUILD_RESTARTS = 2;
 export const KANIKO_IMAGE = 'gcr.io/kaniko-project/executor:v1.24.0';
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, ms); });
-
-/** How long a build was given, said the way a person would say it. */
-export function sayDuration(ms: number): string {
-  if (ms >= 60_000) {
-    const minutes = Math.round(ms / 60_000);
-    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
-  }
-
-  const seconds = Math.max(1, Math.round(ms / 1000));
-  return `${seconds} second${seconds === 1 ? '' : 's'}`;
-}
 
 export class ImageBuildError extends Error {
   constructor(detail: string) {
@@ -50,7 +38,7 @@ export async function discoverRegistry(run: KubeRunner): Promise<string> {
   const port = await run([
     'get', 'svc', REGISTRY_SERVICE.service, '-n', REGISTRY_SERVICE.namespace,
     '-o', 'jsonpath={.spec.ports[0].nodePort}',
-  ], undefined, 15_000);
+  ]);
 
   if (port.exitCode !== 0 || !port.stdout.trim()) {
     throw new ImageBuildError(
@@ -62,7 +50,7 @@ export async function discoverRegistry(run: KubeRunner): Promise<string> {
   const address = await run([
     'get', 'nodes', '-o',
     'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}',
-  ], undefined, 15_000);
+  ]);
 
   const reachable = pickAddress(address.stdout);
   if (address.exitCode !== 0 || !reachable) {
@@ -82,7 +70,6 @@ export interface ImageBuilderOptions {
   run: KubeRunner;
   registry?: string | undefined;
   namespace?: string | undefined;
-  timeoutMs?: number | undefined;
   pollMs?: number | undefined;
   published?: ((reference: string) => Promise<boolean>) | undefined;
   account?: (() => Promise<RegistryAccount>) | undefined;
@@ -132,7 +119,6 @@ function buildManifests(input: {
   plan: ImagePlan;
   namespace: string;
   reference: string;
-  timeoutMs: number;
   dockerConfigJson?: string | undefined;
 }): Record<string, unknown>[] {
   const name = jobName(input.plan);
@@ -159,7 +145,6 @@ function buildManifests(input: {
       metadata: { name, namespace: input.namespace, labels: { 'koala.dev/image': input.plan.fingerprint } },
       spec: {
         backoffLimit: 0,
-        activeDeadlineSeconds: Math.ceil(input.timeoutMs / 1000),
         ttlSecondsAfterFinished: 600,
         template: {
           spec: {
@@ -209,7 +194,6 @@ function buildManifests(input: {
 
 export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
   const namespace = options.namespace ?? BUILD_NAMESPACE;
-  const timeoutMs = options.timeoutMs ?? BUILD_TIMEOUT_MS;
   const pollMs = options.pollMs ?? BUILD_POLL_MS;
   const { run } = options;
 
@@ -249,7 +233,7 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
     const push = await (options.pushToken ?? options.account)?.();
     const dockerConfigJson = push ? dockerConfigFor(await registry(), push) : undefined;
     const manifests = buildManifests({
-      plan, namespace, reference, timeoutMs, ...(dockerConfigJson ? { dockerConfigJson } : {}),
+      plan, namespace, reference, ...(dockerConfigJson ? { dockerConfigJson } : {}),
     });
     const doc = manifests.map((manifest) => JSON.stringify(manifest)).join('\n---\n');
     const applied = await run(['apply', '-f', '-'], doc);
@@ -263,24 +247,42 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
     const logs = await run(
       ['logs', `job/${jobName(plan)}`, '-n', namespace, '--tail=40'],
       undefined,
-      20_000,
+      undefined,
     ).catch(() => ({ stdout: '', stderr: '', exitCode: 1 }));
 
     return lastComplaint(logs.stdout) ?? 'the build job failed';
+  };
+
+  const stuckBecause = async (plan: ImagePlan): Promise<string | undefined> => {
+    const read = await run(
+      ['get', 'pods', '-l', `job-name=${jobName(plan)}`, '-n', namespace, '-o', 'json'],
+      undefined,
+      undefined,
+    ).catch(() => ({ stdout: '', stderr: '', exitCode: 1 }));
+    if (read.exitCode !== 0) return undefined;
+    try {
+      const health = assessWorkload(JSON.parse(read.stdout));
+      return health.health === 'unhealthy' ? health.reason : undefined;
+    } catch {
+      return undefined;
+    }
   };
 
   const jobStanding = async (plan: ImagePlan, reference: string): Promise<ImageStanding> => {
     const read = await run(
       ['get', 'job', jobName(plan), '-n', namespace, '-o', 'jsonpath={.status.active}|{.status.succeeded}|{.status.failed}'],
       undefined,
-      15_000,
+      undefined,
     ).catch(() => ({ stdout: '', stderr: '', exitCode: 1 }));
 
     if (read.exitCode !== 0) return { state: 'unbuilt', reference };
 
     const { active, succeeded, failed } = countsIn(read.stdout);
     if (failed) return { state: 'failed', reference, detail: await whyItFailed(plan) };
-    if (active) return { state: 'building', reference };
+    if (active) {
+      const stuck = await stuckBecause(plan);
+      return stuck ? { state: 'failed', reference, detail: stuck } : { state: 'building', reference };
+    }
     if (succeeded) return { state: 'building', reference, detail: 'built, waiting for the registry to serve it' };
 
     return { state: 'unbuilt', reference };
@@ -315,12 +317,6 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
 
       await apply(plan, reference);
 
-      /**
-       * Ask what the build is doing, rather than `kubectl wait --for=condition=complete`. A build
-       * that fails never becomes complete, so waiting out the timeout would leave the run hanging
-       * for twenty minutes over something as small as a package name that does not exist.
-       */
-      const deadline = Date.now() + timeoutMs;
       let restarted = 0;
 
       for (;;) {
@@ -331,20 +327,12 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
           throw new ImageBuildError(`The workspace image did not build: ${state.detail ?? 'no reason given'}`);
         }
         if (state.state === 'unbuilt') {
-          // The job is not there: deleted from under us, or a `get` that failed. Start it again,
-          // but not forever — a namespace that refuses jobs should say so, not spin to the deadline.
           if (restarted >= BUILD_RESTARTS) {
             throw new ImageBuildError('The workspace image build job disappeared, and starting it again did not stick');
           }
           restarted += 1;
           await apply(plan, reference);
         }
-        if (Date.now() >= deadline) {
-          throw new ImageBuildError(
-            `The workspace image did not build within ${sayDuration(timeoutMs)}: ${state.detail ?? state.state}`,
-          );
-        }
-
         await sleep(pollMs);
       }
     },

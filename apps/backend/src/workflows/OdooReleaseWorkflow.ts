@@ -4,6 +4,7 @@ import type { ReleaseBrowserTestActivities } from '../activities/ReleaseBrowserT
 import { DEFAULT_ENGINE_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import type { ReleaseE2E } from '../lib/release-e2e.js';
 import { databaseOf, filestoreJob, helmSets, idleOf, odooJob, splitImage, type ReleaseState, type ReleaseVault, type Slot, type SlotState } from '../lib/odoo-release.js';
+import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
 
 export interface ReleaseBuild {
   releaseId: string;
@@ -17,7 +18,6 @@ export interface OdooReleaseInput {
   host: string;
   previewHost: string;
   ownerId: string;
-  e2eMinutes: number;
 }
 
 export interface ReleaseProgress {
@@ -41,26 +41,21 @@ export const rollBackSignal = defineSignal<[ReleaseRollBack]>('rollBack');
 export const releasesQuery = defineQuery<Record<string, ReleaseProgress>>('releases');
 
 const quick = proxyActivities<Pick<OdooReleaseActivities, 'OdooReleaseStateActivity' | 'OdooReleaseModulesActivity' | 'OdooReleaseApplyActivity' | 'OdooReleaseInstalledActivity' | 'OdooReleaseScaleActivity' | 'OdooReleaseCopyDatabaseActivity' | 'OdooReleaseQuietActivity' | 'OdooReleaseVaultActivity'>>({
-  startToCloseTimeout: '15 minutes',
+  ...LIVE_ACTIVITY,
   retry: { maximumAttempts: 3 },
 });
 
 const long = proxyActivities<Pick<OdooReleaseActivities, 'OdooReleaseWaitActivity' | 'OdooReleaseJobActivity'>>({
-  startToCloseTimeout: '45 minutes',
-  heartbeatTimeout: '2 minutes',
+  ...LIVE_ACTIVITY,
   retry: { maximumAttempts: 1 },
 });
 
 const browser = proxyActivities<ReleaseBrowserTestActivities>({
   taskQueue: DEFAULT_ENGINE_TASK_QUEUE,
-  startToCloseTimeout: '2 hours',
-  heartbeatTimeout: '2 minutes',
+  ...LIVE_ACTIVITY,
   retry: { maximumAttempts: 1 },
 });
 
-const POSTGRES_READY_MS = 10 * 60_000;
-const SLOT_READY_MS = 15 * 60_000;
-const JOB_MS = 30 * 60_000;
 
 const reasonOf = (err: unknown): string => {
   let reason = 'the release failed';
@@ -96,9 +91,9 @@ export async function OdooReleaseWorkflow(input: OdooReleaseInput): Promise<Reco
   });
 
   const job = (kind: string, slot: Slot, manifest: Record<string, unknown>) =>
-    long.OdooReleaseJobActivity({ target, name: `${target.release}-${kind}-${slot}`, manifest, timeoutMs: JOB_MS });
+    long.OdooReleaseJobActivity({ target, name: `${target.release}-${kind}-${slot}`, manifest });
 
-  const slotReady = (slot: Slot) => long.OdooReleaseWaitActivity({ target, workload: `deployment/${target.release}-odoo-${slot}`, timeoutMs: SLOT_READY_MS });
+  const slotReady = (slot: Slot) => long.OdooReleaseWaitActivity({ target, workload: `deployment/${target.release}-odoo-${slot}` });
 
   const prepare = async (build: ReleaseBuild, slot: Slot, from: Slot, modules: string[], quiet: boolean) => {
     await quick.OdooReleaseCopyDatabaseActivity({ target, from: databaseOf(from), to: databaseOf(slot) });
@@ -128,7 +123,6 @@ export async function OdooReleaseWorkflow(input: OdooReleaseInput): Promise<Reco
       releaseId: build.releaseId,
       slot,
       image: build.image,
-      minutes: input.e2eMinutes,
     })).then(settle, (err: unknown) => settle(isCancellation(err)
       ? { state: 'stopped', reason: 'stopped before the tests finished', startedAt, finishedAt: new Date().toISOString() }
       : { state: 'unavailable', reason: reasonOf(err), startedAt, finishedAt: new Date().toISOString() }));
@@ -176,7 +170,7 @@ export async function OdooReleaseWorkflow(input: OdooReleaseInput): Promise<Reco
         const empty: SlotState = { installed: true, live: 'a', tags: { a: undefined, b: undefined } };
         mark(build.releaseId, 'preparing', { slot: 'a' });
         await apply(build, empty);
-        await long.OdooReleaseWaitActivity({ target, workload: `statefulset/${target.release}-postgres`, timeoutMs: POSTGRES_READY_MS });
+        await long.OdooReleaseWaitActivity({ target, workload: `statefulset/${target.release}-postgres` });
         await job('init', 'a', odooJob({ name: '', release: target.release, image: build.image, database: databaseOf('a'), install: ['base', ...modules], update: [], vault: build.vault }));
         await apply(build, { ...empty, tags: { a: tag, b: undefined } });
         await slotReady('a');

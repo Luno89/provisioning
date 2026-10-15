@@ -5,6 +5,7 @@ import {
   type SecretTarget,
 } from '../lib/infisical-sync.js';
 import type { ProjectMetadata } from '../lib/types.js';
+import { CLI_CEILING } from '../lib/activity-liveness.js';
 
 export const OPERATOR_VERSION = 'v0.11.10';
 
@@ -31,7 +32,7 @@ export async function ensureInfisicalOperator(infra: SecretSyncInfra, kubeconfig
     '--repo', OPERATOR_REPO,
     '--version', OPERATOR_VERSION,
     '-n', OPERATOR_NAMESPACE, '--create-namespace',
-    '--wait', '--timeout', '5m',
+    '--wait', '--timeout', CLI_CEILING,
   ], kubeconfig);
   return 'installed';
 }

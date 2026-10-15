@@ -69,7 +69,7 @@ describe('Run Browser Tests', () => {
 
     expect(result.exit).toBe('passed');
     expect(result.outputs).toMatchObject({ summary: '1 passed, 0 failed', artifacts: [], report: { passed: 1, failed: 0 } });
-    expect(ran[0]).toEqual({ command: `rm -rf e2e-results && mkdir -p e2e-results && koala-e2e 'e2e/a.spec.ts'`, timeoutMs: 15 * 60_000 });
+    expect(ran[0]).toEqual({ command: `rm -rf e2e-results && mkdir -p e2e-results && koala-e2e 'e2e/a.spec.ts'`, timeoutMs: undefined });
     expect(asked[0]).toMatchObject({ ticket: { runId: 'run-e', ownerId: 'user-1' } });
   });
 

@@ -1,4 +1,4 @@
-import { egressFor, lifetimeFor, packageAccessFor, type ImagePlan, type RunWorkspace } from '@koala/agent-engine';
+import { egressFor, packageAccessFor, type ImagePlan, type RunWorkspace } from '@koala/agent-engine';
 import type { NodeRequest, StepResult } from '@koala/agent-engine/procedure';
 import type { EnvironmentDriver } from '@koala/engine-core';
 import { McpClient, type Fetcher } from '../../../lib/mcp-client.js';
@@ -10,7 +10,6 @@ import type { HostOperationRun } from '../../types.js';
 
 export const CAPTURE_CPU = '1';
 export const CAPTURE_MEMORY = '2Gi';
-const CAPTURE_LIFETIME_MS = 30 * 60_000;
 
 export interface McpOperationDeps {
   servers: {
@@ -75,7 +74,6 @@ export function captureWorkspace(ticket: RunTicket, image: string, provides: rea
     agent: ticket.agentSlug,
     image,
     provides: [...provides],
-    lifetimeMs: lifetimeFor(CAPTURE_LIFETIME_MS),
     cpu: CAPTURE_CPU,
     memory: CAPTURE_MEMORY,
     egress: egressFor('declared', access),
@@ -143,7 +141,7 @@ export function createMcpOperations(deps: McpOperationDeps): Record<string, Host
         },
       });
       if (!driver) return { exit: 'failed', outputs: { reason: 'no sandbox could be started to run it in' } };
-      const started = await driver.exec({ command: startScript(server.name, { start: runs.start, port: runs.port, path: serverPath(runs) }), untimed: true });
+      const started = await driver.exec({ command: startScript(server.name, { start: runs.start, port: runs.port, path: serverPath(runs) }) });
       if (started.exitCode !== 0) return { exit: 'failed', outputs: { reason: `${server.name} did not start: ${(started.stdout + started.stderr).trim() || `it exited ${started.exitCode}`}` } };
       try {
         const client = new McpClient(`http://127.0.0.1:${runs.port}${serverPath(runs)}`, execFetch(driver), 0);

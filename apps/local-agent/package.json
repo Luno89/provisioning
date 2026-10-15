@@ -12,6 +12,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.8.0",
     "@koala/context-engine": "*",
     "@koala/engine-core": "*",
     "@temporalio/activity": "^1.23.0",

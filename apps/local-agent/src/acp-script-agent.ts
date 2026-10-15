@@ -1,0 +1,131 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { Readable, Writable } from 'node:stream';
+import {
+  AgentSideConnection, ndJsonStream, PROTOCOL_VERSION, RequestError,
+  type Agent, type StopReason, type ToolKind,
+} from '@agentclientprotocol/sdk';
+
+export type ScriptStep =
+  | { say: string }
+  | { echo: true }
+  | { mcp: { server: string; tool: string; args: Record<string, unknown> } }
+  | { think: string }
+  | { tool: { id: string; title: string; kind?: ToolKind; input?: unknown }; ask?: boolean; output?: string }
+  | { write: { path: string; content: string } }
+  | { read: { path: string } }
+  | { wait: number }
+  | { exit: number };
+
+export interface AgentScript {
+  name: string;
+  version: string;
+  modes?: { current: string; available: { id: string; name: string }[] };
+  turns: { steps: ScriptStep[]; stop?: StopReason }[];
+}
+
+const pause = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
+  const timer = setTimeout(resolve, ms);
+  signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+});
+
+export function scriptedAgent(script: AgentScript, connection: AgentSideConnection): Agent {
+  const sessions = new Map<string, { cwd: string; turn: number; abort?: AbortController; mode?: string; servers?: { name: string; url: string }[] }>();
+
+  return {
+    initialize: () => ({
+      protocolVersion: PROTOCOL_VERSION,
+      agentCapabilities: { loadSession: true, mcpCapabilities: { http: true } },
+      agentInfo: { name: script.name, version: script.version },
+      authMethods: [],
+    }),
+    authenticate: () => {},
+    newSession: ({ cwd, mcpServers }) => {
+      const sessionId = `scripted-${sessions.size + 1}`;
+      const servers = mcpServers.flatMap((server) => ('url' in server ? [{ name: server.name, url: server.url }] : []));
+      sessions.set(sessionId, { cwd, turn: 0, servers, ...(script.modes ? { mode: script.modes.current } : {}) });
+      return { sessionId, ...(script.modes ? { modes: { currentModeId: script.modes.current, availableModes: script.modes.available } } : {}) };
+    },
+    loadSession: async ({ sessionId, cwd }) => {
+      const known = sessions.get(sessionId);
+      sessions.set(sessionId, known ?? { cwd, turn: 0 });
+      await connection.sessionUpdate({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'replayed history' } } });
+      return {};
+    },
+    setSessionMode: async ({ sessionId, modeId }) => {
+      const session = sessions.get(sessionId);
+      if (!session) throw RequestError.resourceNotFound(sessionId);
+      session.mode = modeId;
+      await connection.sessionUpdate({ sessionId, update: { sessionUpdate: 'current_mode_update', currentModeId: modeId } });
+    },
+    cancel: ({ sessionId }) => {
+      sessions.get(sessionId)?.abort?.abort();
+    },
+    prompt: async ({ sessionId, prompt }) => {
+      const session = sessions.get(sessionId);
+      if (!session) throw RequestError.resourceNotFound(sessionId);
+      const turn = script.turns[session.turn];
+      session.turn += 1;
+      if (!turn) return { stopReason: 'end_turn' };
+      const abort = new AbortController();
+      session.abort = abort;
+      const send = (update: Parameters<AgentSideConnection['sessionUpdate']>[0]['update']) => connection.sessionUpdate({ sessionId, update });
+
+      for (const step of turn.steps) {
+        if (abort.signal.aborted) return { stopReason: 'cancelled' };
+        if ('say' in step) await send({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: step.say } });
+        else if ('echo' in step) await send({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: prompt.map((block) => (block.type === 'text' ? block.text : '')).join('') } });
+        else if ('think' in step) await send({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: step.think } });
+        else if ('wait' in step) await pause(step.wait, abort.signal);
+        else if ('mcp' in step) {
+          const server = session.servers?.find((candidate) => candidate.name === step.mcp.server);
+          if (!server) {
+            await send({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `no ${step.mcp.server} server` } });
+            continue;
+          }
+          const response = await fetch(server.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: step.mcp.tool, arguments: step.mcp.args } }) });
+          const answer = await response.json() as { result?: { content?: { text?: string }[] }; error?: { message: string } };
+          await send({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `${step.mcp.tool}: ${answer.result?.content?.[0]?.text ?? answer.error?.message ?? ''}` } });
+        }
+        else if ('exit' in step) process.exit(step.exit);
+        else if ('write' in step) await connection.writeTextFile({ sessionId, path: path.resolve(session.cwd, step.write.path), content: step.write.content });
+        else if ('read' in step) {
+          const { content } = await connection.readTextFile({ sessionId, path: path.resolve(session.cwd, step.read.path) });
+          await send({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `read: ${content}` } });
+        } else {
+          const { id, title, kind = 'other', input } = step.tool;
+          await send({ sessionUpdate: 'tool_call', toolCallId: id, title, kind, status: 'pending', ...(input === undefined ? {} : { rawInput: input }) });
+          if (step.ask) {
+            const answer = await connection.requestPermission({
+              sessionId,
+              toolCall: { toolCallId: id, title, kind },
+              options: [
+                { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
+                { optionId: 'always', name: 'Always allow', kind: 'allow_always' },
+                { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
+              ],
+            });
+            if (answer.outcome.outcome === 'cancelled') return { stopReason: 'cancelled' };
+            if (answer.outcome.optionId === 'reject') {
+              await send({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'failed', content: [{ type: 'content', content: { type: 'text', text: 'the person declined' } }] });
+              continue;
+            }
+          }
+          await send({ sessionUpdate: 'tool_call_update', toolCallId: id, status: 'completed', ...(step.output ? { content: [{ type: 'content', content: { type: 'text', text: step.output } }] } : {}) });
+        }
+      }
+      return { stopReason: abort.signal.aborted ? 'cancelled' : turn.stop ?? 'end_turn' };
+    },
+  };
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+  const scriptPath = process.argv[2];
+  if (!scriptPath) throw new Error('usage: acp-script-agent <script.json>');
+  const script = JSON.parse(readFileSync(scriptPath, 'utf8')) as AgentScript;
+  const stream = ndJsonStream(
+    Writable.toWeb(process.stdout) as WritableStream<Uint8Array>,
+    Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
+  );
+  new AgentSideConnection((connection) => scriptedAgent(script, connection), stream);
+}

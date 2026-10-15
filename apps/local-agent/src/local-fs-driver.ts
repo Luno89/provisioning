@@ -19,11 +19,9 @@ export interface LocalFsDriverOptions {
   deviceId: string;
   scope?: EnvironmentScope | undefined;
   languages?: string[] | undefined;
-  defaultTimeoutMs?: number | undefined;
   shell?: string | undefined;
 }
 
-export const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 export const STOP_GRACE_MS = 5_000;
 
 export function createLocalFsDriver(options: LocalFsDriverOptions): EnvironmentDriver {
@@ -53,7 +51,7 @@ export function createLocalFsDriver(options: LocalFsDriverOptions): EnvironmentD
 
     async exec(request: ExecRequest): Promise<ExecResult> {
       const cwd = workingDir(request.cwd);
-      const timeoutMs = request.untimed ? undefined : request.timeoutMs ?? options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
+      const timeoutMs = request.timeoutMs;
 
       return new Promise<ExecResult>((resolve) => {
         const child = spawn(options.shell ?? '/bin/bash', ['-lc', request.command], {

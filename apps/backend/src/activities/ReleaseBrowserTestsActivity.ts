@@ -1,3 +1,4 @@
+import { assessWorkload } from '../lib/workload-health.js';
 import { randomBytes } from 'crypto';
 import { Context } from '@temporalio/activity';
 import { CancelledFailure } from '@temporalio/common';
@@ -8,7 +9,6 @@ import { databaseOf, databaseSecretFrom, releaseTargetOf, vaultDatabaseSecret, t
 import type { ClusterMetadata, ProjectMetadata } from '../lib/types.js';
 import {
   E2E_DONE,
-  E2E_GATE_MINUTES,
   E2E_INSTALL_FAILED,
   E2E_WORKDIR,
   MAX_SPEC_BYTES,
@@ -44,7 +44,6 @@ export interface ReleaseBrowserTestsInput {
   releaseId: string;
   slot: Slot;
   image: string;
-  minutes: number;
 }
 
 export interface BrowserTestRun {
@@ -53,7 +52,6 @@ export interface BrowserTestRun {
   keepUnder: string;
   slot: Slot;
   image: string;
-  minutes: number;
   files: { path: string; content: string }[];
 }
 
@@ -73,7 +71,6 @@ export interface ReleaseBrowserTestDeps {
   cancelled?: (() => boolean) | undefined;
 }
 
-const LOGIN_JOB_MS = 10 * 60_000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const notFound = (err: unknown): boolean => /not found|NotFound/i.test(String((err as Error)?.message ?? err));
 
@@ -116,16 +113,18 @@ export function createReleaseBrowserTestActivities(deps: ReleaseBrowserTestDeps)
     }
   }
 
-  async function waitForDone(cluster: NamespacedCluster, name: string, deadline: number): Promise<{ pod: string; done: string } | { problem: string }> {
+  async function waitForDone(cluster: NamespacedCluster, name: string): Promise<{ pod: string; done: string } | { problem: string }> {
     let pod = '';
-    let last = '';
-    while (Date.now() < deadline) {
+    for (;;) {
       beat(name);
       stopped();
-      const seen = await cluster.kubectl(['get', 'pod', '-l', `job-name=${name}`, '-o', 'jsonpath={.items[0].metadata.name}|{.items[0].status.phase}|{.items[0].status.containerStatuses[0].state.waiting.reason}']).catch(() => '');
-      const [found = '', phase = '', waiting = ''] = seen.split('|');
-      pod = found || pod;
-      last = waiting ? `the browser's pod is waiting: ${waiting}` : phase ? `the browser's pod is ${phase}` : 'the browser\'s pod has not started';
+      const seen = await cluster.kubectl(['get', 'pod', '-l', `job-name=${name}`, '-o', 'json']).catch(() => '');
+      const pods = seen ? JSON.parse(seen) as { items?: { metadata?: { name?: string }; status?: { phase?: string } }[] } : { items: [] };
+      const first = pods.items?.[0];
+      const phase = first?.status?.phase ?? '';
+      pod = first?.metadata?.name || pod;
+      const health = assessWorkload(pods);
+      if (health.health === 'unhealthy') return { problem: `the browser's pod cannot run: ${health.reason}` };
       if (phase === 'Failed' || phase === 'Succeeded') {
         const logs = await cluster.kubectl(['logs', pod, '-c', 'playwright', '--tail=20']).catch(() => '');
         return { problem: `the browser's pod ended before the tests finished${logs ? `:\n${plain(logs).slice(-1200)}` : ''}` };
@@ -136,7 +135,6 @@ export function createReleaseBrowserTestActivities(deps: ReleaseBrowserTestDeps)
       }
       await sleep(deps.pollMs ?? 5_000);
     }
-    return { problem: `the browser tests did not finish in time; ${last}` };
   }
 
   async function reportOf(exec: WorkspaceExec): Promise<string | undefined> {
@@ -173,7 +171,6 @@ export function createReleaseBrowserTestActivities(deps: ReleaseBrowserTestDeps)
           name: releaseLoginJobName(release, input.slot),
           namespace,
           manifest: testLoginJob({ release, slot: input.slot, image: input.image, database: databaseOf(input.slot), password }),
-          timeoutMs: LOGIN_JOB_MS,
         }, { beat, stopped, pollMs: deps.pollMs });
       } catch (err) {
         if (err instanceof CancelledFailure) throw err;
@@ -183,10 +180,10 @@ export function createReleaseBrowserTestActivities(deps: ReleaseBrowserTestDeps)
       await cluster.kubectl(['delete', 'job', jobName, '--ignore-not-found', '--wait=true']);
       const map = specConfigMap(release, files);
       await cluster.apply({ ...map.manifest, metadata: { ...(map.manifest.metadata as object), namespace } });
-      const job = browserTestsJob({ release, slot: input.slot, items: map.items, minutes: input.minutes });
+      const job = browserTestsJob({ release, slot: input.slot, items: map.items });
       await cluster.apply({ ...job, metadata: { ...(job.metadata as object), namespace } });
 
-      const finished = await waitForDone(cluster, jobName, Date.now() + input.minutes * 60_000);
+      const finished = await waitForDone(cluster, jobName);
       if ('problem' in finished) return unavailable(finished.problem);
       const exec = podExec(cluster, finished.pod);
       if (finished.done === E2E_INSTALL_FAILED) {
@@ -221,7 +218,7 @@ export function createReleaseBrowserTestActivities(deps: ReleaseBrowserTestDeps)
       const startedAt = now();
       const specs = await readSpecs(input.source);
       if ('reason' in specs) return { state: 'unavailable', reason: specs.reason, startedAt, finishedAt: now() };
-      return runBrowserTests({ target: input.target, ownerId: input.ownerId, keepUnder: input.releaseId, slot: input.slot, image: input.image, minutes: input.minutes, files: specs.files });
+      return runBrowserTests({ target: input.target, ownerId: input.ownerId, keepUnder: input.releaseId, slot: input.slot, image: input.image, files: specs.files });
     },
   };
 }
@@ -234,7 +231,6 @@ export interface CheckReleaseDeps {
   cluster: (target: ReleaseTarget) => NamespacedCluster;
   project: (id: string) => Promise<Pick<ProjectMetadata, 'id' | 'name' | 'releaseName' | 'ownerId' | 'targetClusterId' | 'giteaOwner' | 'giteaRepo'> | undefined>;
   clusterById: (id: string) => Promise<ClusterMetadata | undefined>;
-  minutes?: number | undefined;
 }
 
 export function createCheckReleases(deps: CheckReleaseDeps) {
@@ -262,7 +258,7 @@ export function createCheckReleases(deps: CheckReleaseDeps) {
         if ('reason' in read) return { state: 'unavailable', reason: read.reason, startedAt, finishedAt: new Date().toISOString() };
         files = read.files;
       }
-      return deps.browser.runBrowserTests({ target, ownerId: args.ownerId, keepUnder: args.keepUnder, slot: args.release.slot, image: args.release.image, minutes: deps.minutes ?? E2E_GATE_MINUTES, files });
+      return deps.browser.runBrowserTests({ target, ownerId: args.ownerId, keepUnder: args.keepUnder, slot: args.release.slot, image: args.release.image, files });
     },
     async namespaceExists(args: { ownerId: string; projectId: string; at?: { clusterId: string; namespace: string } | undefined }): Promise<boolean> {
       const target = args.at ? await seenAt(args.at) : (await placeOf(args.ownerId, args.projectId)).target;

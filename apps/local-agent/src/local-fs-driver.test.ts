@@ -24,7 +24,6 @@ const driverFor = (scope?: { path?: string; worktree?: string }) =>
     rootDir,
     deviceId: 'tallgeese',
     ...(scope ? { scope } : {}),
-    defaultTimeoutMs: 10_000,
   });
 
 describe('local filesystem driver', () => {
@@ -89,19 +88,16 @@ describe('local filesystem driver', () => {
     expect(execSync('ps -eo args').toString()).not.toContain(`echo ${marker}`);
   });
 
-  it('lets an untimed command run past the default until it ends', async () => {
-    const result = await driverFor().exec({ command: 'sleep 0.6; echo done', untimed: true });
+  it('lets a command with no limit of its own run until it ends', async () => {
+    const result = await driverFor().exec({ command: 'sleep 0.6; echo done' });
 
     expect(result).toMatchObject({ stdout: 'done\n', exitCode: 0 });
     expect(result.stopped).toBeUndefined();
-    const short = createLocalFsDriver({ rootDir, deviceId: 'tallgeese', defaultTimeoutMs: 200 });
-    expect((await short.exec({ command: 'sleep 0.6; echo done', untimed: true })).stdout).toBe('done\n');
-    expect((await short.exec({ command: 'sleep 0.6; echo done' })).stopped).toBe('timeout');
   });
 
   it('stops a command, and what it started, when the run is stopped', async () => {
     const stop = new AbortController();
-    const running = driverFor().exec({ command: 'sleep 30 & sleep 30', untimed: true, signal: stop.signal });
+    const running = driverFor().exec({ command: 'sleep 30 & sleep 30', signal: stop.signal });
     setTimeout(() => stop.abort(), 200);
     const result = await running;
 

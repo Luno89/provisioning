@@ -2,7 +2,6 @@ const MAX_CONCURRENT_PER_BUCKET = 1;
 const DEFAULT_COOLDOWN_MS = 20_000;
 const MIN_COOLDOWN_MS = 2_000;
 const MAX_COOLDOWN_MS = 120_000;
-const MAX_QUEUE_WAIT_MS = 8 * 60_000;
 
 interface BucketState {
   ownerId: string;
@@ -43,48 +42,49 @@ function bucketFor(key: string, ownerId: string, label: string): BucketState {
   return b;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function stopped(signal: AbortSignal | undefined): Error {
+  return signal?.reason instanceof Error ? signal.reason : new Error(typeof signal?.reason === 'string' ? signal.reason : 'the call was stopped while it waited for the model');
 }
 
-async function waitForCooldown(b: BucketState, deadline: number): Promise<void> {
-  while (b.cooldownUntil && b.cooldownUntil > Date.now()) {
-    if (Date.now() >= deadline) throw new Error('Model endpoint rate-limit queue timed out waiting out a cooldown');
-    await sleep(Math.min(b.cooldownUntil - Date.now(), deadline - Date.now()));
-  }
-}
-
-async function waitForSlot(b: BucketState, deadline: number): Promise<void> {
-  await waitForCooldown(b, deadline);
-  if (b.inFlight < MAX_CONCURRENT_PER_BUCKET) {
-    b.inFlight += 1;
-    return;
-  }
-  if (Date.now() >= deadline) throw new Error('Model endpoint rate-limit queue timed out waiting for a free slot');
-  await new Promise<void>((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      const idx = b.queue.indexOf(wake);
-      if (idx >= 0) b.queue.splice(idx, 1);
-      reject(new Error('Model endpoint rate-limit queue timed out waiting for a free slot'));
-    }, Math.max(0, deadline - Date.now()));
-    function wake() {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve();
-    }
-    b.queue.push(wake);
+function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(stopped(signal));
+    const onAbort = () => { clearTimeout(timer); reject(stopped(signal)); };
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
-  return waitForSlot(b, deadline);
 }
 
-export async function acquireModelSlot(key: string, ownerId: string, label: string): Promise<() => void> {
+async function waitForCooldown(b: BucketState, signal: AbortSignal | undefined): Promise<void> {
+  while (b.cooldownUntil && b.cooldownUntil > Date.now()) {
+    await pause(b.cooldownUntil - Date.now(), signal);
+  }
+}
+
+async function waitForSlot(b: BucketState, signal: AbortSignal | undefined): Promise<void> {
+  for (;;) {
+    await waitForCooldown(b, signal);
+    if (b.inFlight < MAX_CONCURRENT_PER_BUCKET) {
+      b.inFlight += 1;
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      if (signal?.aborted) return reject(stopped(signal));
+      const wake = () => { signal?.removeEventListener('abort', onAbort); resolve(); };
+      const onAbort = () => {
+        const index = b.queue.indexOf(wake);
+        if (index >= 0) b.queue.splice(index, 1);
+        reject(stopped(signal));
+      };
+      b.queue.push(wake);
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+}
+
+export async function acquireModelSlot(key: string, ownerId: string, label: string, signal?: AbortSignal): Promise<() => void> {
   const b = bucketFor(key, ownerId, label);
-  const deadline = Date.now() + MAX_QUEUE_WAIT_MS;
-  await waitForSlot(b, deadline);
+  await waitForSlot(b, signal);
   let released = false;
   return () => {
     if (released) return;
@@ -134,7 +134,7 @@ export function rateLimitedFetch(
 ): typeof fetch {
   if (!key) return impl;
   const wrapped = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-    const release = await acquireModelSlot(key, ownerId, label);
+    const release = await acquireModelSlot(key, ownerId, label, init?.signal ?? undefined);
     try {
       const res = await impl(input, init);
       recordModelResponse(key, res.status, res.headers);

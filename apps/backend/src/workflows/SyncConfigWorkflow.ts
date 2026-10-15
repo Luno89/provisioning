@@ -1,10 +1,10 @@
 import { proxyActivities } from '@temporalio/workflow';
 import type { SyncConfigArgs, SyncConfigResult } from '../activities/SyncConfigActivity.js';
 import { awaitWorkload } from './await-workload.js';
-import { syncConfigActivityMeta } from '../lib/activity-timeouts.js';
+import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 
-const { SyncConfigActivity } = proxyActivities<{ SyncConfigActivity: (args: SyncConfigArgs) => Promise<SyncConfigResult> }>({ retry: ACTIVITY_RETRY, startToCloseTimeout: syncConfigActivityMeta.startToCloseTimeout });
+const { SyncConfigActivity } = proxyActivities<{ SyncConfigActivity: (args: SyncConfigArgs) => Promise<SyncConfigResult> }>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
 
 export async function executeSyncConfigWorkflow(args: SyncConfigArgs) {
   const result = await SyncConfigActivity(args);

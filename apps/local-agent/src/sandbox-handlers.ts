@@ -7,7 +7,6 @@ import { clampDualBoundary, DEFAULT_COMPACTION_CONFIG } from '@koala/context-eng
 
 const execAsync = promisify(execCallback);
 
-export const DEFAULT_TIMEOUT_MS = 120_000;
 export const MAX_OUTPUT_CHARS = DEFAULT_COMPACTION_CONFIG.maxOutputChars;
 
 export interface ExecResult {
@@ -45,7 +44,7 @@ export async function runCommand(
     ? { timeoutMs: timeoutMsOrOptions, ...(subPath !== undefined ? { subPath } : {}) }
     : (timeoutMsOrOptions ?? (subPath !== undefined ? { subPath } : {}));
 
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? 0;
   const maxOutputChars = options.maxOutputChars ?? MAX_OUTPUT_CHARS;
   const headRatio = options.headRatio ?? DEFAULT_COMPACTION_CONFIG.outputHeadRatio;
   const targetSubPath = options.subPath ?? subPath;

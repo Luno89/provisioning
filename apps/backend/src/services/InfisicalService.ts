@@ -28,23 +28,20 @@ export class InfisicalService {
     private readonly masterKey: SecretKey,
     private readonly kubeconfigPath: string,
     private readonly customBaseUrl?: string,
-    private readonly clusterProxy?: Pick<ClusterProxyService, 'ensurePortForward'>,
+    private readonly clusterProxy?: Pick<ClusterProxyService, 'serviceUrl'>,
   ) {}
 
   async resolveBaseUrl(): Promise<string> {
     if (this.customBaseUrl) return this.customBaseUrl;
     if (this.baseUrlCache) return this.baseUrlCache;
 
-    // The Helm-deployed Infisical service is ClusterIP-only (no NodePort) — confirmed live, the
-    // NodePort lookup below always fell through to a stale fallback address, so route through the
-    // same kubectl port-forward mechanism ClusterProxyService already uses successfully elsewhere.
     if (this.clusterProxy) {
       try {
-        const url = await this.clusterProxy.ensurePortForward('platform', 'infisical', this.kubeconfigPath);
+        const url = await this.clusterProxy.serviceUrl('platform', 'infisical', this.kubeconfigPath);
         this.baseUrlCache = url.replace(/\/$/, '');
         return this.baseUrlCache;
       } catch (err: any) {
-        console.warn(`[InfisicalService] port-forward failed, falling back to NodePort lookup: ${err.message}`);
+        console.warn(`[InfisicalService] could not reach Infisical inside the cluster, falling back to NodePort lookup: ${err.message}`);
       }
     }
 

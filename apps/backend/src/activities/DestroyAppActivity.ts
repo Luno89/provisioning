@@ -15,7 +15,6 @@ export interface DestroyAppResult {
   msg: string;
 }
 
-export { destroyAppActivityMeta } from '../lib/activity-timeouts.js';
 
 export async function DestroyAppActivity(
   args: DestroyAppArgs,

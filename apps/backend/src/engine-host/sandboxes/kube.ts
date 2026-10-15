@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { WORKSPACE_STAMP } from '../../lib/published-workspace.js';
+import { assessWorkload } from '../../lib/workload-health.js';
 import { createReadStream, createWriteStream } from 'fs';
 import path from 'path';
 
@@ -12,7 +13,6 @@ export interface KubeResult {
 
 export interface KubeRunOptions {
   outputChars?: number | undefined;
-  untimed?: boolean | undefined;
   signal?: AbortSignal | undefined;
   onStop?: ((why: 'timeout' | 'cancelled') => Promise<void>) | undefined;
 }
@@ -35,33 +35,33 @@ export function createKubeStreamer(options: { binDir?: string; kubeconfig?: stri
 
   const spawnWith = (
     args: string[],
-    timeoutMs: number,
+    timeoutMs: number | undefined,
     wire: (child: ReturnType<typeof spawn>) => (done: () => void) => void,
   ) => new Promise<{ exitCode: number; stderr: string }>((resolve, reject) => {
     const child = spawn(binary, args, {
       env: { ...process.env, ...(options.kubeconfig ? { KUBECONFIG: options.kubeconfig } : {}) },
     });
     let stderr = '';
-    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    const timer = timeoutMs ? setTimeout(() => child.kill('SIGKILL'), timeoutMs) : undefined;
     const finish = wire(child);
 
     child.stderr!.on('data', (chunk) => { stderr += chunk.toString(); });
-    child.on('error', (err) => { clearTimeout(timer); reject(err); });
+    child.on('error', (err) => { if (timer) clearTimeout(timer); reject(err); });
     child.on('close', (code) => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       finish(() => resolve({ exitCode: code ?? -1, stderr: stderr.slice(0, MAX_OUTPUT_CHARS) }));
     });
   });
 
   return {
-    toFile: (args, destination, timeoutMs = 300_000) => spawnWith(args, timeoutMs, (child) => {
+    toFile: (args, destination, timeoutMs) => spawnWith(args, timeoutMs, (child) => {
       const out = createWriteStream(destination);
       child.stdout!.pipe(out);
       child.stdin!.end();
       return (done) => out.end(done);
     }),
 
-    fromFile: (args, source, timeoutMs = 300_000) => spawnWith(args, timeoutMs, (child) => {
+    fromFile: (args, source, timeoutMs) => spawnWith(args, timeoutMs, (child) => {
       child.stdout!.resume();
       createReadStream(source).pipe(child.stdin!);
       return (done) => done();
@@ -72,7 +72,7 @@ export function createKubeStreamer(options: { binDir?: string; kubeconfig?: stri
 export function createKubeRunner(options: { binDir?: string; kubeconfig?: string | undefined } = {}): KubeRunner {
   const binary = kubectlAt(options.binDir);
 
-  return (args, input, timeoutMs = 120_000, runOptions = {}) => new Promise<KubeResult>((resolve, reject) => {
+  return (args, input, timeoutMs, runOptions = {}) => new Promise<KubeResult>((resolve, reject) => {
     const child = spawn(binary, args, {
       env: { ...process.env, ...(options.kubeconfig ? { KUBECONFIG: options.kubeconfig } : {}) },
     });
@@ -88,7 +88,7 @@ export function createKubeRunner(options: { binDir?: string; kubeconfig?: string
       const ended = runOptions.onStop ? runOptions.onStop(why).catch(() => undefined) : Promise.resolve();
       void ended.finally(() => child.kill('SIGKILL'));
     };
-    const timer = runOptions.untimed ? undefined : setTimeout(() => stop('timeout'), timeoutMs);
+    const timer = timeoutMs ? setTimeout(() => stop('timeout'), timeoutMs) : undefined;
     const onAbort = (): void => stop('cancelled');
     if (runOptions.signal?.aborted) onAbort();
     else runOptions.signal?.addEventListener('abort', onAbort, { once: true });
@@ -119,7 +119,7 @@ export interface ApplyRequest {
   manifests: Record<string, unknown>[];
   namespace: string;
   pod: string;
-  readyTimeoutMs: number;
+  pollMs?: number | undefined;
 }
 
 export class WorkspaceUnavailableError extends Error {
@@ -128,6 +128,14 @@ export class WorkspaceUnavailableError extends Error {
     this.name = 'WorkspaceUnavailableError';
   }
 }
+
+const podOf = (text: string): { status?: { phase?: string } } | undefined => {
+  try {
+    return JSON.parse(text) as { status?: { phase?: string } };
+  } catch {
+    return undefined;
+  }
+};
 
 export async function applyWorkspace(run: KubeRunner, request: ApplyRequest): Promise<void> {
   const doc = request.manifests.map((manifest) => JSON.stringify(manifest)).join('\n---\n');
@@ -142,17 +150,18 @@ export async function applyWorkspace(run: KubeRunner, request: ApplyRequest): Pr
     );
   }
 
-  const seconds = Math.ceil(request.readyTimeoutMs / 1000);
-  const ready = await run(
-    ['wait', '--for=condition=Ready', `pod/${request.pod}`, '-n', request.namespace, `--timeout=${seconds}s`],
-    undefined,
-    request.readyTimeoutMs + 10_000,
-  );
-
-  if (ready.exitCode !== 0) {
-    throw new WorkspaceUnavailableError(
-      `The workspace never became ready: ${ready.stderr || ready.stdout}`,
-    );
+  for (;;) {
+    const read = await run(['get', 'pod', request.pod, '-n', request.namespace, '-o', 'json'], undefined, undefined, { outputChars: Infinity });
+    const pod = read.exitCode === 0 ? podOf(read.stdout) : undefined;
+    if (pod) {
+      if (pod.status?.phase === 'Failed' || pod.status?.phase === 'Succeeded') {
+        throw new WorkspaceUnavailableError(`The workspace stopped before it was ready: its pod is ${pod.status.phase}`);
+      }
+      const health = assessWorkload({ items: [pod] });
+      if (health.health === 'healthy') return;
+      if (health.health === 'unhealthy') throw new WorkspaceUnavailableError(`The workspace cannot start: ${health.reason}`);
+    }
+    await new Promise((settle) => setTimeout(settle, request.pollMs ?? 2_000));
   }
 }
 
@@ -161,14 +170,12 @@ export async function destroyWorkspace(run: KubeRunner, namespace: string): Prom
 }
 
 export async function retirePod(run: KubeRunner, namespace: string, pod: string): Promise<void> {
-  await run(['delete', 'pod', pod, '-n', namespace, '--ignore-not-found', '--wait=true'], undefined, 60_000);
+  await run(['delete', 'pod', pod, '-n', namespace, '--ignore-not-found', '--wait=true']);
 }
 
 export async function workspaceStampOf(run: KubeRunner, namespace: string, pod: string): Promise<{ running: boolean; stamp?: string | undefined }> {
   const got = await run(
     ['get', 'pod', pod, '-n', namespace, '-o', `jsonpath={.status.phase}{"\\t"}{.metadata.annotations.${WORKSPACE_STAMP.replaceAll('.', '\\.')}}`],
-    undefined,
-    15_000,
   );
   if (got.exitCode !== 0) return { running: false };
   const [phase = '', stamp = ''] = got.stdout.trim().split('\t');
@@ -178,8 +185,6 @@ export async function workspaceStampOf(run: KubeRunner, namespace: string, pod: 
 export async function workspaceRunning(run: KubeRunner, namespace: string, pod: string): Promise<boolean> {
   const got = await run(
     ['get', 'pod', pod, '-n', namespace, '-o', 'jsonpath={.status.phase}'],
-    undefined,
-    15_000,
   );
 
   return got.exitCode === 0 && got.stdout.trim() === 'Running';

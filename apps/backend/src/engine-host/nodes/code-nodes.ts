@@ -28,7 +28,8 @@ export function createCodeNodes(services: Pick<HostNodeServices, 'code'>): NodeI
       nodeId: node.id,
       body: String(node.settings.body ?? ''),
       inputs: given,
-      timeoutMs: codeTimeout(node.settings),
+      ...(codeTimeout(node.settings) ? { timeoutMs: codeTimeout(node.settings) } : {}),
+      ...(identity.signal ? { signal: identity.signal } : {}),
     });
     if (!outcome.ok) return { ok: false, error: outcome.error };
 

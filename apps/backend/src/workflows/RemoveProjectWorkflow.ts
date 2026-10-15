@@ -4,11 +4,11 @@ import { ACTIVITY_STOP_GRACE_MS } from '../lib/account-removal.js';
 import { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../lib/project-removal.js';
 import type { ProjectRemovalActivities, RemoveProjectArgs } from '../activities/RemoveProjectActivities.js';
+import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
 
 const steps = proxyActivities<ProjectRemovalActivities>({
   retry: DESTROY_RETRY,
-  startToCloseTimeout: '10 minutes',
-  heartbeatTimeout: '2 minutes',
+  ...LIVE_ACTIVITY,
 });
 
 export const projectRemovalProgressQuery = defineQuery<ProjectRemovalStep[]>(PROJECT_REMOVAL_PROGRESS_QUERY);

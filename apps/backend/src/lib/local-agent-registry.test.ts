@@ -18,12 +18,18 @@ function device(over: Partial<LocalAgentDeviceMetadata> = {}): LocalAgentDeviceM
   };
 }
 
-function fakeSocket(handler: (event: string, payload: unknown, ack: (...args: any[]) => void) => void): Socket {
-  return {
-    timeout: () => ({
-      emit: (event: string, payload: unknown, ack: (...args: any[]) => void) => handler(event, payload, ack),
+function fakeSocket(handler: (event: string, payload: unknown, ack: (...args: any[]) => void, disconnect: () => void) => void): Socket {
+  const gone = new Set<() => void>();
+  const socket = {
+    connected: true,
+    once: (event: string, listener: () => void) => { if (event === 'disconnect') gone.add(listener); },
+    off: (event: string, listener: () => void) => { if (event === 'disconnect') gone.delete(listener); },
+    emit: (event: string, payload: unknown, ack: (...args: any[]) => void) => handler(event, payload, ack, () => {
+      socket.connected = false;
+      for (const listener of gone) listener();
     }),
-  } as unknown as Socket;
+  };
+  return socket as unknown as Socket;
 }
 
 describe('findDeviceByToken', () => {
@@ -80,7 +86,7 @@ describe('execOnDevice', () => {
     const socket = fakeSocket((event, payload, ack) => {
       expect(event).toBe('sandbox:exec');
       expect(payload).toEqual({ leafId: 'leaf-1', command: 'echo hi' });
-      ack(null, { stdout: 'hi', stderr: '', exitCode: 0, timedOut: false });
+      ack({ stdout: 'hi', stderr: '', exitCode: 0, timedOut: false });
     });
     registerDevice('dev-exec', 'owner-1', '/root', socket);
 
@@ -88,15 +94,26 @@ describe('execOnDevice', () => {
     expect(result).toEqual({ stdout: 'hi', stderr: '', exitCode: 0, timedOut: false });
   });
 
-  it('resolves with a timedOut result instead of throwing when the ack times out', async () => {
-    const socket = fakeSocket((_event, _payload, ack) => {
-      ack(new Error('operation has timed out'));
+  it('waits for a command however long it runs, and hands the device only the limit the caller set', async () => {
+    let sent: unknown;
+    const socket = fakeSocket((_event, payload, ack) => {
+      sent = payload;
+      setTimeout(() => ack({ stdout: 'done', stderr: '', exitCode: 0, timedOut: false }), 50);
     });
-    registerDevice('dev-timeout', 'owner-1', '/root', socket);
+    registerDevice('dev-long', 'owner-1', '/root', socket);
 
-    const result = await execOnDevice('dev-timeout', 'owner-1', 'leaf-1', 'sleep 999');
-    expect(result.timedOut).toBe(true);
-    expect(result.exitCode).toBe(-1);
+    expect(await execOnDevice('dev-long', 'owner-1', 'leaf-1', 'sleep 999')).toMatchObject({ stdout: 'done', exitCode: 0 });
+    expect(sent).toEqual({ leafId: 'leaf-1', command: 'sleep 999' });
+    await execOnDevice('dev-long', 'owner-1', 'leaf-1', 'make', 90_000);
+    expect(sent).toEqual({ leafId: 'leaf-1', command: 'make', timeoutMs: 90_000 });
+  });
+
+  it('ends a command when the device disconnects before answering, rather than waiting forever', async () => {
+    const socket = fakeSocket((_event, _payload, _ack, disconnect) => { setTimeout(disconnect, 10); });
+    registerDevice('dev-gone', 'owner-1', '/root', socket);
+
+    const result = await execOnDevice('dev-gone', 'owner-1', 'leaf-1', 'sleep 999');
+    expect(result).toMatchObject({ exitCode: -1, stderr: 'Local device dev-gone disconnected before it answered' });
   });
 });
 
@@ -104,7 +121,7 @@ describe('readFileOnDevice / writeFileOnDevice', () => {
   it('reads a file back from the device', async () => {
     const socket = fakeSocket((event, _payload, ack) => {
       expect(event).toBe('sandbox:readFile');
-      ack(null, { content: 'file contents' });
+      ack({ content: 'file contents' });
     });
     registerDevice('dev-read', 'owner-1', '/root', socket);
 
@@ -113,7 +130,7 @@ describe('readFileOnDevice / writeFileOnDevice', () => {
 
   it('rejects when the device reports an error reading', async () => {
     const socket = fakeSocket((_event, _payload, ack) => {
-      ack(null, { error: 'ENOENT' });
+      ack({ error: 'ENOENT' });
     });
     registerDevice('dev-read-err', 'owner-1', '/root', socket);
 
@@ -133,7 +150,7 @@ describe('readFileOnDevice / writeFileOnDevice', () => {
 
   it('rejects when the device reports an error writing', async () => {
     const socket = fakeSocket((_event, _payload, ack) => {
-      ack(null, { error: 'disk full' });
+      ack({ error: 'disk full' });
     });
     registerDevice('dev-write-err', 'owner-1', '/root', socket);
 
@@ -146,7 +163,7 @@ describe('listDirOnDevice / deleteFileOnDevice', () => {
     const socket = fakeSocket((event, payload, ack) => {
       expect(event).toBe('sandbox:listDir');
       expect(payload).toEqual({ path: 'src' });
-      ack(null, { entries: [{ name: 'index.ts', path: 'src/index.ts', type: 'file' }] });
+      ack({ entries: [{ name: 'index.ts', path: 'src/index.ts', type: 'file' }] });
     });
     registerDevice('dev-list', 'owner-1', '/root', socket);
 
@@ -156,7 +173,7 @@ describe('listDirOnDevice / deleteFileOnDevice', () => {
 
   it('rejects when the device reports an error listing', async () => {
     const socket = fakeSocket((_event, _payload, ack) => {
-      ack(null, { error: 'ENOENT' });
+      ack({ error: 'ENOENT' });
     });
     registerDevice('dev-list-err', 'owner-1', '/root', socket);
 
@@ -176,7 +193,7 @@ describe('listDirOnDevice / deleteFileOnDevice', () => {
 
   it('rejects when the device reports an error deleting', async () => {
     const socket = fakeSocket((_event, _payload, ack) => {
-      ack(null, { error: 'permission denied' });
+      ack({ error: 'permission denied' });
     });
     registerDevice('dev-delete-err', 'owner-1', '/root', socket);
 
@@ -189,7 +206,7 @@ describe('createContainerOnDevice / destroyContainerOnDevice', () => {
     const socket = fakeSocket((event, payload, ack) => {
       expect(event).toBe('sandbox:createContainer');
       expect(payload).toEqual({ leafId: 'leaf-1', image: 'ubi9/nodejs-22' });
-      ack(null, { containerMode: true });
+      ack({ containerMode: true });
     });
     registerDevice('dev-create', 'owner-1', '/root', socket);
 
@@ -197,10 +214,8 @@ describe('createContainerOnDevice / destroyContainerOnDevice', () => {
     expect(result).toEqual({ containerMode: true });
   });
 
-  it('resolves containerMode: false instead of throwing when the ack times out', async () => {
-    const socket = fakeSocket((_event, _payload, ack) => {
-      ack(new Error('operation has timed out'));
-    });
+  it('resolves containerMode: false instead of throwing when the device goes away', async () => {
+    const socket = fakeSocket((_event, _payload, _ack, disconnect) => { disconnect(); });
     registerDevice('dev-create-timeout', 'owner-1', '/root', socket);
 
     const result = await createContainerOnDevice('dev-create-timeout', 'owner-1', { leafId: 'leaf-1', image: 'x' });
@@ -210,7 +225,7 @@ describe('createContainerOnDevice / destroyContainerOnDevice', () => {
 
   it('passes through a reported error alongside containerMode: false', async () => {
     const socket = fakeSocket((_event, _payload, ack) => {
-      ack(null, { containerMode: false, error: 'Docker is not running' });
+      ack({ containerMode: false, error: 'Docker is not running' });
     });
     registerDevice('dev-create-err', 'owner-1', '/root', socket);
 

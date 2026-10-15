@@ -1,9 +1,9 @@
 import { proxyActivities } from '@temporalio/workflow';
 import type { DestroyClusterArgs, DestroyClusterResult } from '../activities/DestroyClusterActivity.js';
-import { destroyClusterActivityMeta } from '../lib/activity-timeouts.js';
+import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
 
 const { DestroyClusterActivity } = proxyActivities<{ DestroyClusterActivity: (args: DestroyClusterArgs) => Promise<DestroyClusterResult> }>({
-  startToCloseTimeout: destroyClusterActivityMeta.startToCloseTimeout,
+  ...LIVE_ACTIVITY,
   retry: { maximumAttempts: 5 },
 });
 

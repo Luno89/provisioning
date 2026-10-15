@@ -4,13 +4,13 @@ import type { ServiceTarget } from '../services/ClusterProxyService.js';
 import { createWebTools, type WebTools } from './web-tools.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { ClusterService } from '../services/ClusterService.js';
-import { ClusterProxyService } from '../services/ClusterProxyService.js';
+import { sharedClusterProxy } from '../services/ClusterProxyService.js';
 
 const sanitize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
 export interface WebToolsDeps {
   db: Pick<Database, 'getDeployments'>;
-  ensurePortForward: (clusterId: string, serviceKey: string, kubeconfigPath: string, target: ServiceTarget) => Promise<string>;
+  serviceUrl: (clusterId: string, serviceKey: string, kubeconfigPath: string, target: ServiceTarget) => Promise<string>;
   kubeconfigFor: (clusterId: string) => Promise<string | undefined>;
   env?: NodeJS.ProcessEnv;
 }
@@ -36,7 +36,7 @@ async function baseUrlFor(
       return undefined;
     }
     const ns = sanitize(dep.name);
-    const url = await deps.ensurePortForward(dep.clusterId!, `${service}-${dep.id}`, kubeconfig, {
+    const url = await deps.serviceUrl(dep.clusterId!, `${service}-${dep.id}`, kubeconfig, {
       service, namespace: ns, remotePort,
     });
     return url.replace(/\/$/, '');
@@ -80,7 +80,7 @@ export async function crawlEndpoint(
 ): Promise<{ base: string; token: string } | undefined> {
   const infra = new InfrastructureService();
   const clusters = new ClusterService(db as never, infra);
-  const proxy = new ClusterProxyService();
+  const proxy = sharedClusterProxy();
   const deployments = await db.getDeployments().catch(() => [] as DeploymentMetadata[]);
   const dep = liveDeployment(deployments, 'crawl4ai', ownerId);
   if (!dep?.crawl4aiApiToken) return undefined;
@@ -88,8 +88,8 @@ export async function crawlEndpoint(
   const url = await baseUrlFor(
     {
       db,
-      ensurePortForward: (clusterId, serviceKey, kubeconfigPath, target) =>
-        proxy.ensurePortForward(clusterId, serviceKey, kubeconfigPath, target),
+      serviceUrl: (clusterId, serviceKey, kubeconfigPath, target) =>
+        proxy.serviceUrl(clusterId, serviceKey, kubeconfigPath, target),
       kubeconfigFor: async (clusterId: string) => {
         const cluster = await clusters.getByIdUnscoped(clusterId);
         return cluster ? clusters.getKubeconfigPath(cluster) : undefined;
@@ -115,13 +115,13 @@ export async function corpusEndpoints(
 ): Promise<CorpusEndpoints> {
   const infra = new InfrastructureService();
   const clusters = new ClusterService(db as never, infra);
-  const proxy = new ClusterProxyService();
+  const proxy = sharedClusterProxy();
   const deployments = await db.getDeployments().catch(() => [] as DeploymentMetadata[]);
 
   const deps: WebToolsDeps = {
     db,
-    ensurePortForward: (clusterId, serviceKey, kubeconfigPath, target) =>
-      proxy.ensurePortForward(clusterId, serviceKey, kubeconfigPath, target),
+    serviceUrl: (clusterId, serviceKey, kubeconfigPath, target) =>
+      proxy.serviceUrl(clusterId, serviceKey, kubeconfigPath, target),
     kubeconfigFor: async (clusterId: string) => {
       const cluster = await clusters.getByIdUnscoped(clusterId);
       return cluster ? clusters.getKubeconfigPath(cluster) : undefined;

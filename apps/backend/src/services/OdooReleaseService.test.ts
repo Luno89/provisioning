@@ -59,7 +59,7 @@ describe('releasing an Odoo project\'s build', () => {
     const name = newReleaseName(project);
     const release = await service().release(project, run('b1', 'abc'));
     expect(release).toMatchObject({ id: 'r1', state: 'preparing', host: `${name}.apps.local`, previewHost: `${name}-preview.apps.local`, image: 'reg/bo/shop:abc' });
-    expect(started).toEqual([{ workflowId: 'odoo-release-p1', owner: 'bo', input: { target: { clusterName: 'dev', provider: 'k3d', namespace: name, release: name, owner: { ownerId: 'bo', projectId: 'p1' } }, host: `${name}.apps.local`, previewHost: `${name}-preview.apps.local`, ownerId: 'bo', e2eMinutes: 20 }, build: { releaseId: 'r1', image: 'reg/bo/shop:abc', source: { owner: 'bo', repo: 'shop', commit: 'abc' } } }]);
+    expect(started).toEqual([{ workflowId: 'odoo-release-p1', owner: 'bo', input: { target: { clusterName: 'dev', provider: 'k3d', namespace: name, release: name, owner: { ownerId: 'bo', projectId: 'p1' } }, host: `${name}.apps.local`, previewHost: `${name}-preview.apps.local`, ownerId: 'bo' }, build: { releaseId: 'r1', image: 'reg/bo/shop:abc', source: { owner: 'bo', repo: 'shop', commit: 'abc' } } }]);
     expect((await db.getDeployments())[0]).toMatchObject({ name: 'Shop', appType: 'odoo-project', namespace: name, gitappProjectId: 'p1', status: 'deploying', ownerId: 'bo', clusterId: 'c1' });
     expect((await db.getProjects()).find((entry) => entry.id === 'p1')?.releaseName).toBe(name);
   });

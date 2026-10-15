@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { assessWorkload } from './workload-health.js';
-import { checkWorkloadActivityMeta, deployAppActivityMeta } from './activity-timeouts.js';
+import { LIVE_ACTIVITY } from './activity-liveness.js';
 
 const podsWith = (c: object) => ({ items: [{ metadata: { name: 'p' }, status: { phase: 'Running', containerStatuses: [c] } }] });
 
@@ -24,12 +24,8 @@ describe('what ends the wait', () => {
   });
 });
 
-describe('the wait is not shorter than the deploy', () => {
-  it('checks briefly and often, rather than holding one long activity open', () => {
-    expect(checkWorkloadActivityMeta.startToCloseTimeout).toBe('2 minutes');
-  });
-
-  it('gives the rollout a window comparable to the deploy itself', () => {
-    expect(deployAppActivityMeta.startToCloseTimeout).toBe('80 minutes');
+describe('how long an activity may take', () => {
+  it('is bounded by nothing but the ceiling Temporal requires, while a heartbeat says the worker is alive', () => {
+    expect(LIVE_ACTIVITY).toEqual({ startToCloseTimeout: '30 days', heartbeatTimeout: '1 minute' });
   });
 });

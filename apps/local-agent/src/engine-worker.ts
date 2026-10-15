@@ -1,7 +1,8 @@
 import { Context } from '@temporalio/activity';
 import { Worker, NativeConnection } from '@temporalio/worker';
-import { executeTool, type ToolContract } from '@koala/engine-core';
+import { executeTool, heartbeatWhileRunning, type ExternalAgentStepArgs, type ExternalAgentStepResult, type ToolContract } from '@koala/engine-core';
 import { createLocalFsDriver } from './local-fs-driver.js';
+import type { ExternalAgentSessions } from './external-agents.js';
 
 export interface DeviceToolCall {
   ticket: { runId: string; ownerId: string; agentSlug: string };
@@ -33,6 +34,7 @@ export interface DeviceActivitiesOptions {
   rootDir: string;
   deviceId: string;
   languages?: string[];
+  externalAgents?: ExternalAgentSessions | undefined;
 }
 
 export const HEARTBEAT_MS = 10_000;
@@ -47,6 +49,12 @@ const activityContext = (): Context | undefined => {
 
 export function createDeviceActivities(options: DeviceActivitiesOptions) {
   return {
+    async ExternalAgentActivity(args: ExternalAgentStepArgs): Promise<ExternalAgentStepResult> {
+      if (!options.externalAgents) return { state: 'failed', error: 'this machine runs no external agents', events: [] };
+      const context = activityContext();
+      return options.externalAgents.step(args, () => context?.heartbeat());
+    },
+
     async EngineToolActivity(args: DeviceToolCall): Promise<DeviceToolOutcome> {
       const scope = args.environment?.scope;
 
@@ -99,6 +107,7 @@ export async function startDeviceWorker(options: DeviceWorkerOptions): Promise<W
   const worker = await Worker.create({
     connection,
     taskQueue,
+    interceptors: { activity: [heartbeatWhileRunning()] },
     ...(options.namespace ? { namespace: options.namespace } : {}),
     activities: createDeviceActivities(options),
   });

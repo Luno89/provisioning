@@ -105,6 +105,7 @@ export {
 } from './model/sampling.js';
 export { resolveSampling } from './model/pack-sampling.js';
 export { getModelRateLimiterSnapshot, type ModelRateLimitBucketSnapshot } from './model/model-rate-limiter.js';
+export { patientFetch } from './model/patient-fetch.js';
 
 // Stream Parser
 export {

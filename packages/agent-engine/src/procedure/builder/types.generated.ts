@@ -103,8 +103,8 @@ export type CodeSettings = {
     describe?: string
   })[]
   /**
-   * Give up after
-   * Milliseconds before the body is stopped.
+   * Stop after
+   * Milliseconds before the body is stopped. Leave it empty to let it run until it ends.
    */
   timeoutMs?: number
 }
@@ -532,6 +532,46 @@ export interface DelegateNode extends Step<'ok' | 'failed'> {
   wire(wires: DelegateWires): void
 }
 
+export interface ExternalAgentWires {
+  /** The task, as the agent is given it. */
+  brief?: In<'text'>
+  /** The persona's own prompt: who the agent is here and how it works. Told once, when its session starts. */
+  prompt?: In<'text'>
+  /** What else it is told once, when its session starts: what it works on, what done means. */
+  context?: In<'text'>
+  /** What was learned before, as recalled for this run. Told once, when its session starts. */
+  memories?: In<'text'>
+  /** The machine and folder it works in. Nothing wired means the one this run was given. */
+  environment?: In<'environment'>
+}
+
+export type ExternalAgentSettings = {
+  /**
+   * Agent on the machine
+   * The external agent's id as the machine knows it, for example antigravity. Empty means the agent this run is: an agent called antigravity runs the machine's antigravity.
+   */
+  agent?: string
+  /**
+   * Mode
+   * One of the agent's own modes (for Antigravity: default, auto_edit or yolo). Empty leaves its default.
+   */
+  mode?: string
+}
+
+export interface ExternalAgentNode extends Step<'finished' | 'stopped' | 'failed'> {
+  /** What the agent said, its whole reply. */
+  readonly text: Out<'text'>
+  /** How its turn ended: end_turn, cancelled, refusal, max_tokens or max_turn_requests. */
+  readonly stopReason: Out<'text'>
+  /** Which agent ran: its name, title and version, as it reported them. */
+  readonly identity: Out<'json'>
+  /** The agent's session, to continue it later. */
+  readonly sessionId: Out<'text'>
+  /** Why it did not finish, when it did not. */
+  readonly reason: Out<'text'>
+  wire(wires: ExternalAgentWires): void
+}
+
 export interface FanOutWires {
   /** The list to fan out over. Superseded when the settings carry an items reference. */
   items?: In<'json'>
@@ -615,7 +655,10 @@ export type WaitForPersonSettings = {
    * When set, the person picks one of these, and the answer is the one picked.
    */
   choices?: readonly (string)[]
-  /** Wait for (minutes) */
+  /**
+   * Stop waiting after (minutes)
+   * Leave it empty to wait until the person answers.
+   */
   timeoutMinutes?: number
 }
 
@@ -683,8 +726,8 @@ export type RunCodeSettings = {
     describe?: string
   })[]
   /**
-   * Give up after
-   * Milliseconds before the body is stopped.
+   * Stop after
+   * Milliseconds before the body is stopped. Leave it empty to let it run until it ends.
    */
   timeoutMs?: number
 }
@@ -1146,6 +1189,13 @@ export interface Nodes {
    */
   delegate(id: string, wires: DelegateWires, settings: DelegateSettings, meta?: NodeMeta): DelegateNode
   /**
+   * External Agent: Hands a task to an agent that runs its own loop on the person's machine (Antigravity, Claude Code, any agent that speaks ACP), follows what it does, asks the person before anything it wants permission for, and leaves by how its turn ended. It edits and runs things in the machine's folder; it never records, claims or judges anything here.
+   * Leaves through finished: Its turn ended normally.
+   * Leaves through stopped: It was cancelled, refused, or ran out of room before finishing.
+   * Leaves through failed: It could not be started, or died, or this run has no machine for it.
+   */
+  externalAgent(id: string, wires?: ExternalAgentWires, settings?: ExternalAgentSettings, meta?: NodeMeta): ExternalAgentNode
+  /**
    * Fan Out: Starts one child run of a persona per item in a list, a few at a time, and waits for all of them. Each child gets { item, index }, and works in the workspace wired in (or this run's) — narrowed to item.worktree when the item names one. Every outcome is handed on, successes and failures alike — use Merge to keep the ones you want.
    * Leaves through done: Every child has finished.
    */
@@ -1158,9 +1208,9 @@ export interface Nodes {
    */
   merge(id: string, wires?: MergeWires, settings?: MergeSettings, meta?: NodeMeta): MergeNode
   /**
-   * Wait for Person: Shows a person a message and pauses the run until they answer or the time runs out.
+   * Wait for Person: Shows a person a message and pauses the run until they answer, however long that takes, unless the step sets how long to wait.
    * Leaves through answered: The person answered.
-   * Leaves through unanswered: Nobody answered in time, or the run was cancelled.
+   * Leaves through unanswered: The run was stopped, or the wait this step set ran out.
    */
   waitForPerson(id: string, wires: WaitForPersonWires, settings: WaitForPersonSettings, meta?: NodeMeta): WaitForPersonNode
   /**

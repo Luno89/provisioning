@@ -9,6 +9,7 @@ vi.mock('node:url', () => ({
 const mockSpawn = vi.fn();
 vi.mock('child_process', () => ({
   spawn: mockSpawn,
+  execFile: vi.fn(),
 }));
 
 let ClusterProxyService: any;
@@ -285,6 +286,43 @@ describe('ClusterProxyService', () => {
     it('is safe to call when no forwards exist', () => {
       const svc = new ClusterProxyService();
       expect(() => svc.stopAll()).not.toThrow();
+    });
+  });
+
+  describe('directServiceUrl', () => {
+    const target = { service: 'tabbyapi', namespace: 'tabbyapi-production', remotePort: 5000 };
+    const access = (ip: string | undefined, reachable: boolean) => ({
+      clusterIp: vi.fn(async () => ip),
+      reachable: vi.fn(async () => reachable),
+    });
+
+    it('reaches a service at its cluster address when this machine can, with no port-forward', async () => {
+      const direct = access('10.43.100.81', true);
+      const svc = new ClusterProxyService(direct);
+      expect(await svc.directServiceUrl('c1', 'model:tabby', '/kube', target)).toBe('http://10.43.100.81:5000/');
+      expect(direct.clusterIp).toHaveBeenCalledWith('/kube', 'tabbyapi-production', 'tabbyapi');
+      expect(direct.reachable).toHaveBeenCalledWith('10.43.100.81', 5000, 1000);
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it('remembers the address, so a model call does not look it up each time', async () => {
+      const direct = access('10.43.100.81', true);
+      const svc = new ClusterProxyService(direct);
+      await svc.directServiceUrl('c1', 'model:tabby', '/kube', target);
+      await svc.directServiceUrl('c1', 'model:tabby', '/kube', target);
+      expect(direct.clusterIp).toHaveBeenCalledTimes(1);
+    });
+
+    it('says no when the service has no cluster address or this machine cannot reach it, and asks again after a while', async () => {
+      expect(await new ClusterProxyService(access(undefined, true)).directServiceUrl('c1', 'model:tabby', '/kube', target)).toBeUndefined();
+      const unreachable = access('10.43.0.9', false);
+      const svc = new ClusterProxyService(unreachable);
+      expect(await svc.directServiceUrl('c2', 'model:tabby', '/kube', target)).toBeUndefined();
+      await svc.directServiceUrl('c2', 'model:tabby', '/kube', target);
+      expect(unreachable.clusterIp).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(60_000);
+      await svc.directServiceUrl('c2', 'model:tabby', '/kube', target);
+      expect(unreachable.clusterIp).toHaveBeenCalledTimes(2);
     });
   });
 });

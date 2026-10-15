@@ -42,6 +42,12 @@ export function matchMemories(memories: readonly MemoryItem[], query: string): M
     .map((entry) => entry.memory);
 }
 
+export function searchAnswer(memories: readonly MemoryItem[], query: string): { found: number; text: string } {
+  const found = matchMemories(memories, query);
+  if (found.length === 0) return { found: 0, text: `Nothing remembered matches "${query}".` };
+  return { found: found.length, text: found.map(describe).join('\n') };
+}
+
 function noteTarget(parsed: Record<string, unknown>, known: KnownTools): { tool?: string; server?: string } | { refused: string } {
   const tool = text(parsed, 'tool');
   const server = text(parsed, 'server');
@@ -77,9 +83,8 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       if (!caller.ownerId) return refuse('this run has no owner whose memories to search');
       const query = text(parsed, 'query');
       if (!query) return refuse('give a query: words to look for');
-      const found = matchMemories(await store.list(caller.ownerId), query);
-      if (found.length === 0) return { ok: true, digest: 'nothing remembered matches', content: `Nothing remembered matches "${query}".` };
-      return { ok: true, digest: `${found.length} memories match`, content: found.map(describe).join('\n') };
+      const answer = searchAnswer(await store.list(caller.ownerId), query);
+      return { ok: true, digest: answer.found ? `${answer.found} memories match` : 'nothing remembered matches', content: answer.text };
     },
 
     async save_memory({ parsed, caller }): Promise<ToolOutcome> {

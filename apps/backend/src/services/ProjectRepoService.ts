@@ -26,8 +26,6 @@ export interface NewProject {
 
 const EDITOR_TOKEN_TTL_MS = 30 * 60 * 1000;
 
-const DOCUMENTS_SERVED_WITHIN_MS = 30_000;
-
 export class ProjectRepoService {
   private editorTokens = new Map<string, { token: string; username: string; mintedAt: number }>();
 
@@ -257,9 +255,7 @@ export class ProjectRepoService {
   }
 
   private async untilServed(owner: string, repo: string): Promise<void> {
-    const deadline = Date.now() + DOCUMENTS_SERVED_WITHIN_MS;
     while (!(await this.gitea.repoServesFiles(owner, repo))) {
-      if (Date.now() > deadline) throw new Error(`${owner}/${repo} was pushed, but Gitea was still not serving its files after ${DOCUMENTS_SERVED_WITHIN_MS / 1000}s`);
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }

@@ -10,7 +10,6 @@ export const RUN_CODE_KIND = 'run-code';
 
 export const CODE_KINDS: readonly string[] = [CODE_KIND, RUN_CODE_KIND];
 
-export const DEFAULT_CODE_TIMEOUT_MS = 30_000;
 
 const NAME = /^[a-zA-Z][a-zA-Z0-9]*$/;
 
@@ -104,11 +103,9 @@ const CODE_SETTINGS: GroupSetting = {
     outputs: SOCKET_LIST('Values it hands back', 'Each one becomes a socket you can wire out of, and a key on what the body returns.'),
     timeoutMs: {
       type: 'integer',
-      title: 'Give up after',
-      describe: 'Milliseconds before the body is stopped.',
+      title: 'Stop after',
+      describe: 'Milliseconds before the body is stopped. Leave it empty to let it run until it ends.',
       minimum: 100,
-      maximum: 600_000,
-      default: DEFAULT_CODE_TIMEOUT_MS,
     },
   },
 };
@@ -138,8 +135,8 @@ export const code: BuiltInNode = {
   }),
 };
 
-export const codeTimeout = (settings: Readonly<Record<string, unknown>>): number =>
-  numberOf(settings, 'timeoutMs', DEFAULT_CODE_TIMEOUT_MS);
+export const codeTimeout = (settings: Readonly<Record<string, unknown>>): number | undefined =>
+  settings.timeoutMs === undefined ? undefined : numberOf(settings, 'timeoutMs', 0) || undefined;
 
 const RUN_CODE_ERROR: SocketSpec = { name: 'error', type: 'text', describe: 'What went wrong, when the code threw or ran out of time.' };
 

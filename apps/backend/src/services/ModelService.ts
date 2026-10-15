@@ -138,13 +138,9 @@ export class ModelService extends BaseService {
     if (!cluster) throw new Error(`Cluster for model ${provider.name} not found`);
     const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
 
-    const forwardUrl = await this.proxy.ensurePortForward(
-      clusterId,
-      `model:${provider.id}`,
-      kubeconfigPath,
-      { service, namespace, remotePort: port },
-    );
+    const target = { service, namespace, remotePort: port };
+    const url = await this.proxy.serviceUrl(clusterId, `model:${provider.id}`, kubeconfigPath, target);
 
-    return { provider, baseUrl: `${forwardUrl.replace(/\/$/, '')}/v1` };
+    return { provider, baseUrl: `${url.replace(/\/$/, '')}/v1` };
   }
 }

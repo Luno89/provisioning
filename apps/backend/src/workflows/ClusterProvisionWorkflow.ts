@@ -1,13 +1,13 @@
 import { log, proxyActivities } from '@temporalio/workflow';
 import type { ProvisionClusterArgs, ProvisionClusterResult } from '../activities/ProvisionClusterActivity.js';
 import type { ClusterCapacity } from '../lib/cluster-capacity.js';
-import { provisionClusterActivityMeta } from '../lib/activity-timeouts.js';
+import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
 
 const logger = log;
 const { ProvisionClusterActivity } = proxyActivities<{
   ProvisionClusterActivity: (args: ProvisionClusterArgs) => Promise<ProvisionClusterResult>;
 }>({
-  startToCloseTimeout: provisionClusterActivityMeta.startToCloseTimeout,
+  ...LIVE_ACTIVITY,
   retry: { maximumAttempts: 3 },
 });
 

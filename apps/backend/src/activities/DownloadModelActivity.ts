@@ -18,7 +18,6 @@ export interface DownloadModelResult {
   modelDir: string;
 }
 
-export { downloadModelActivityMeta } from '../lib/activity-timeouts.js';
 
 const gib = (bytes: number) => (bytes / 1e9).toFixed(1);
 

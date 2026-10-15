@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createOrchestrationNodes, REFUSED_CALL, type OrchestrationPorts } from './orchestration.js';
 import { approveToolCalls, callTool, runToolCalls } from './tools.js';
-import { delegate, fanOut, waitForPerson } from './control.js';
+import { delegate, externalAgent, fanOut, waitForPerson } from './control.js';
 import type { BuiltInNode, NodeImplementation } from '../implementation.js';
 import type { NodeRequest, RunContext, StepResult } from '../interpreter.js';
 import { defaultSettings } from '../settings-schema.js';
@@ -449,5 +449,48 @@ describe('children work where their parent works', () => {
     await invoke(createOrchestrationNodes(p), fanOut, { settings: { agent: 'leaf-judge' }, inputs: { items: ['l1'] } });
 
     expect(handedTo(p)).toEqual([undefined]);
+  });
+});
+
+describe('handing a task to an external agent', () => {
+  const machine = { kind: 'machine', deviceId: 'laptop', deviceName: 'Laptop', path: 'shop', egressMode: 'open' } as const;
+  const identity = { name: 'antigravity-acp', title: 'Google Antigravity', version: '1.4.0' };
+
+  it('gives it the brief, the context and its mode on the run\'s machine, and leaves by how its turn ended', async () => {
+    const runExternal = vi.fn(async () => ({ outcome: 'finished' as const, stopReason: 'end_turn', text: 'Built the module.', identity, sessionId: 's-1' }));
+    const p = ports({ runExternal } as never);
+    const outcome = await invoke(createOrchestrationNodes(p), externalAgent, {
+      settings: { agent: 'antigravity', mode: 'auto_edit' },
+      inputs: { brief: ' Build delivery_labels. ', prompt: 'You build Odoo modules.', context: 'Odoo 20.', memories: ' ' },
+      run: { launch: { ownerId: 'owner-1', environment: machine } },
+    });
+    expect(runExternal).toHaveBeenCalledWith(expect.objectContaining({ nodeId: 'here', agent: 'antigravity', brief: 'Build delivery_labels.', context: 'You build Odoo modules.\n\nOdoo 20.', mode: 'auto_edit', environment: machine }));
+    expect(outcome).toMatchObject({ exit: 'finished', outputs: { text: 'Built the module.', stopReason: 'end_turn', identity, sessionId: 's-1' }, usage: { childRuns: 1 } });
+  });
+
+  it('runs the machine\'s agent of the same name as the run when none is set', async () => {
+    const runExternal = vi.fn(async () => ({ outcome: 'finished' as const, stopReason: 'end_turn', text: 'ok', identity, sessionId: 's' }));
+    await invoke(createOrchestrationNodes(ports({ runExternal } as never)), externalAgent, { inputs: { brief: 'go', environment: machine } });
+    expect(runExternal).toHaveBeenCalledWith(expect.objectContaining({ agent: 'worker' }));
+  });
+
+  it('says why it stopped or failed', async () => {
+    const stopped = ports({ runExternal: vi.fn(async () => ({ outcome: 'stopped' as const, stopReason: 'cancelled', text: 'Half', identity, sessionId: 's-2', reason: 'the run was cancelled' })) } as never);
+    expect(await invoke(createOrchestrationNodes(stopped), externalAgent, { settings: { agent: 'antigravity' }, inputs: { brief: 'go', environment: machine } }))
+      .toMatchObject({ exit: 'stopped', outputs: { stopReason: 'cancelled', reason: 'the run was cancelled' } });
+    const died = ports({ runExternal: vi.fn(async () => ({ outcome: 'failed' as const, text: '', reason: 'antigravity exited (1) during the turn' })) } as never);
+    expect(await invoke(createOrchestrationNodes(died), externalAgent, { settings: { agent: 'antigravity' }, inputs: { brief: 'go', environment: machine } }))
+      .toMatchObject({ exit: 'failed', outputs: { reason: 'antigravity exited (1) during the turn' } });
+  });
+
+  it('fails without starting anything when the host cannot, the run has no machine, or there is no task', async () => {
+    const runExternal = vi.fn();
+    expect(await invoke(createOrchestrationNodes(ports()), externalAgent, { settings: { agent: 'antigravity' }, inputs: { brief: 'go', environment: machine } }))
+      .toMatchObject({ exit: 'failed', outputs: { reason: 'this host cannot run an external agent' } });
+    expect(await invoke(createOrchestrationNodes(ports({ runExternal } as never)), externalAgent, { settings: { agent: 'antigravity' }, inputs: { brief: 'go', environment: { kind: 'none', egress: false } } }))
+      .toMatchObject({ exit: 'failed', outputs: { reason: 'antigravity works on a person\'s machine, and this run has none' } });
+    expect(await invoke(createOrchestrationNodes(ports({ runExternal } as never)), externalAgent, { settings: { agent: 'antigravity' }, inputs: { brief: '  ', environment: machine } }))
+      .toMatchObject({ exit: 'failed', outputs: { reason: 'there was no task to hand antigravity' } });
+    expect(runExternal).not.toHaveBeenCalled();
   });
 });

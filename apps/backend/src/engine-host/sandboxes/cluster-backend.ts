@@ -17,7 +17,7 @@ export type ClusterBackend = SandboxBackend;
 export interface ClusterBackendOptions {
   run: KubeRunner;
   workspace: RunWorkspace;
-  readyTimeoutMs?: number | undefined;
+  readyPollMs?: number | undefined;
   onStarted?: (() => Promise<void>) | undefined;
 }
 
@@ -63,7 +63,7 @@ export function createClusterBackend(options: ClusterBackendOptions): SandboxBac
       manifests: buildManifests(options.workspace),
       namespace,
       pod: POD,
-      readyTimeoutMs: options.readyTimeoutMs ?? 120_000,
+      ...(options.readyPollMs ? { pollMs: options.readyPollMs } : {}),
     });
     await options.onStarted?.();
   };
@@ -89,7 +89,7 @@ export function createClusterBackend(options: ClusterBackendOptions): SandboxBac
     return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
   };
 
-  const execStoppable = async (command: string, request: { timeoutMs?: number | undefined; untimed?: boolean | undefined; signal?: AbortSignal | undefined }): Promise<ExecResult> => {
+  const execStoppable = async (command: string, request: { timeoutMs?: number | undefined; signal?: AbortSignal | undefined }): Promise<ExecResult> => {
     await ensure();
     const id = randomUUID();
     const result = await run(
@@ -97,19 +97,17 @@ export function createClusterBackend(options: ClusterBackendOptions): SandboxBac
       undefined,
       request.timeoutMs,
       {
-        ...(request.untimed ? { untimed: true } : {}),
         ...(request.signal ? { signal: request.signal } : {}),
-        onStop: async () => { await run(['exec', POD, '-n', namespace, '--', 'sh', '-c', STOP_GROUPED_EXEC, 'sh', id], undefined, 30_000); },
+        onStop: async () => { await run(['exec', POD, '-n', namespace, '--', 'sh', '-c', STOP_GROUPED_EXEC, 'sh', id]); },
       },
     );
     return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.stopped ? { stopped: result.stopped } : {}) };
   };
 
   return {
-    async exec({ command, cwd, timeoutMs, untimed, signal }): Promise<ExecResult> {
+    async exec({ command, cwd, timeoutMs, signal }): Promise<ExecResult> {
       const full = cwd ? `cd ${shellQuote(cwd)} && ${command}` : command;
-      if (untimed || signal) return execStoppable(full, { timeoutMs, untimed, signal });
-      return exec(full, timeoutMs);
+      return execStoppable(full, { timeoutMs, signal });
     },
 
     async readFile({ path }): Promise<string> {

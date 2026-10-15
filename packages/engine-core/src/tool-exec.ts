@@ -89,7 +89,7 @@ export const environmentHandlers: Record<string, ToolHandler> = {
     const result = await driver.exec({
       command: stringArg(ctx.parsed, 'command'),
       ...(typeof ctx.parsed.cwd === 'string' ? { cwd: ctx.parsed.cwd } : {}),
-      ...(seconds === undefined ? { untimed: true } : { timeoutMs: seconds * 1000 }),
+      ...(seconds === undefined ? {} : { timeoutMs: seconds * 1000 }),
       ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 

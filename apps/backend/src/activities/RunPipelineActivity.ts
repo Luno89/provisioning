@@ -1,3 +1,4 @@
+import { assessWorkload } from '../lib/workload-health.js';
 import fs from 'fs/promises';
 import { spawn } from 'child_process';
 import os from 'os';
@@ -29,7 +30,6 @@ export interface RunPipelineResult {
   imageTag: string;
 }
 
-export { runPipelineActivityMeta } from '../lib/activity-timeouts.js';
 
 const MGMT_CLUSTER = 'provisioning-lunorica';
 const MGMT_CONTEXT = `k3d-${MGMT_CLUSTER}`;
@@ -185,18 +185,15 @@ spec:
       logTail.stderr?.on('data', (chunk) => fs.appendFile(args.logFile, chunk).catch(() => {}));
     }
 
-    let status: 'succeeded' | 'failed' | 'timeout' = 'timeout';
-    const deadline = Date.now() + 30 * 60 * 1000;
-    while (Date.now() < deadline) {
+    for (;;) {
       const out = await infra.runKubectl(['get', 'job', jobName, '-n', BUILD_NAMESPACE, '-o', 'json'], kubeconfig);
       const job = JSON.parse(out);
-      if ((job.status?.succeeded || 0) > 0) { status = 'succeeded'; break; }
-      if ((job.status?.failed || 0) > 0) { status = 'failed'; break; }
+      if ((job.status?.succeeded || 0) > 0) break;
+      if ((job.status?.failed || 0) > 0) throw new Error('Pipeline build failed — see log for details');
+      const pods = await infra.runKubectl(['get', 'pods', '-l', `job-name=${jobName}`, '-n', BUILD_NAMESPACE, '-o', 'json'], kubeconfig).catch(() => '');
+      const health = pods ? assessWorkload(JSON.parse(pods)) : undefined;
+      if (health?.health === 'unhealthy') throw new Error(`Pipeline build cannot run: ${health.reason}`);
       await new Promise(r => setTimeout(r, 5000));
-    }
-
-    if (status !== 'succeeded') {
-      throw new Error(`Pipeline build ${status === 'timeout' ? 'timed out' : 'failed'} — see log for details`);
     }
 
     await log(args.logFile, `Build succeeded: ${imageTag}`);

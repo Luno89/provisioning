@@ -2,7 +2,6 @@ import { spawn } from 'child_process';
 import { clampDualBoundary, DEFAULT_COMPACTION_CONFIG } from '@koala/context-engine';
 
 export const MAX_OUTPUT_CHARS = DEFAULT_COMPACTION_CONFIG.maxOutputChars;
-export const DEFAULT_TIMEOUT_MS = 60_000;
 
 export interface DockerResult {
   stdout: string;
@@ -18,9 +17,8 @@ export interface RunDockerOptions {
   headRatio?: number | undefined;
 }
 
-/** Mirrors `WorkspaceService.run()`'s exact shape (spawn, no shell, single timeout → SIGKILL). */
 export function runDocker(args: string[], opts: RunDockerOptions = {}): Promise<DockerResult> {
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const { timeoutMs } = opts;
   const maxChars = opts.maxOutputChars ?? MAX_OUTPUT_CHARS;
   const headRatio = opts.headRatio ?? DEFAULT_COMPACTION_CONFIG.outputHeadRatio;
 
@@ -31,10 +29,10 @@ export function runDocker(args: string[], opts: RunDockerOptions = {}): Promise<
     let stderr = '';
     let timedOut = false;
 
-    const timer = setTimeout(() => {
+    const timer = timeoutMs ? setTimeout(() => {
       timedOut = true;
       child.kill('SIGKILL');
-    }, timeoutMs);
+    }, timeoutMs) : undefined;
 
     child.stdout.on('data', (d) => { stdout += d.toString(); });
     child.stderr.on('data', (d) => { stderr += d.toString(); });

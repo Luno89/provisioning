@@ -39,7 +39,7 @@ export function createMachineBackend(calls: LocalAgentCalls = defaultCalls): Mac
 
       return {
         stdout: result.stdout,
-        stderr: result.timedOut ? `${result.stderr}\n[the machine stopped responding]`.trim() : result.stderr,
+        stderr: result.timedOut ? `${result.stderr}\n[stopped after the time this call set]`.trim() : result.stderr,
         exitCode: result.exitCode,
       };
     },

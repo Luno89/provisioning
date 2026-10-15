@@ -12,8 +12,8 @@ export interface SearchOutcomeLike {
 }
 
 export interface WebTools {
-  search(query: string): Promise<SearchOutcomeLike>;
-  fetchPage(url: string): Promise<{ ok: boolean; text: string; declined?: boolean }>;
+  search(query: string, signal?: AbortSignal): Promise<SearchOutcomeLike>;
+  fetchPage(url: string, signal?: AbortSignal): Promise<{ ok: boolean; text: string; declined?: boolean }>;
 }
 
 export interface PlatformToolOptions {
@@ -43,11 +43,11 @@ export function createPlatformTools(options: PlatformToolOptions): Record<string
   if (options.web) {
     const web = options.web;
 
-    handlers.search_web = async ({ parsed }): Promise<ToolOutcome> => {
+    handlers.search_web = async ({ parsed, signal }): Promise<ToolOutcome> => {
       const query = asString(parsed, 'query') ?? asString(parsed, 'q');
       if (!query) return { ok: false, digest: 'this call needs a "query"', content: '' };
 
-      const outcome = await web.search(query);
+      const outcome = await web.search(query, signal);
       if (outcome.error) return { ok: false, digest: outcome.error, content: outcome.error };
 
       const hits = outcome.results ?? [];
@@ -59,11 +59,11 @@ export function createPlatformTools(options: PlatformToolOptions): Record<string
       return { ok: true, digest: rendered, content: rendered };
     };
 
-    handlers.fetch_web_page = async ({ parsed }): Promise<ToolOutcome> => {
+    handlers.fetch_web_page = async ({ parsed, signal }): Promise<ToolOutcome> => {
       const url = asString(parsed, 'url');
       if (!url) return { ok: false, digest: 'this call needs a "url"', content: '' };
 
-      const page = await web.fetchPage(url);
+      const page = await web.fetchPage(url, signal);
       return { ok: page.ok, digest: page.text, content: page.text, ...(page.declined ? { declined: page.declined } : {}) };
     };
   }

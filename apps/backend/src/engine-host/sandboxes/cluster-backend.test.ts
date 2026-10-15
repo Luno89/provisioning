@@ -27,13 +27,15 @@ function kube(script: Partial<Record<string, KubeResult>> = {}, fallback?: KubeR
 
   const run: KubeRunner = vi.fn(async (args, input) => {
     calls.push({ args, ...(input === undefined ? {} : { input }) });
-    const verb = args[0] ?? '';
-    return script[verb] ?? fallback ?? { stdout: '', stderr: '', exitCode: 0 };
+    const verb = args[0] === 'get' && args.includes('json') ? 'ready' : args[0] ?? '';
+    return script[verb] ?? (verb === 'ready' ? readyPod : undefined) ?? fallback ?? { stdout: '', stderr: '', exitCode: 0 };
   });
 
   return { run, calls };
 }
 
+const podSaying = (status: object): KubeResult => ({ stdout: JSON.stringify({ metadata: { name: 'workspace' }, status }), stderr: '', exitCode: 0 });
+const readyPod = podSaying({ phase: 'Running', containerStatuses: [{ ready: true, restartCount: 0, state: {} }] });
 const notRunning: KubeResult = { stdout: '', stderr: 'NotFound', exitCode: 1 };
 const running: KubeResult = { stdout: 'Running', stderr: '', exitCode: 0 };
 
@@ -54,7 +56,7 @@ describe('standing a workspace up', () => {
 
     const verbs = calls.map((call) => call.args[0]);
     expect(verbs.filter((verb) => verb === 'apply')).toHaveLength(1);
-    expect(verbs.filter((verb) => verb === 'wait')).toHaveLength(1);
+    expect(calls.filter((call) => call.args[0] === 'get' && call.args.includes('json'))).toHaveLength(1);
     expect(verbs.filter((verb) => verb === 'exec')).toHaveLength(2);
   });
 
@@ -88,6 +90,31 @@ describe('standing a workspace up', () => {
     expect(applied).not.toContain('"activeDeadlineSeconds":3600');
   });
 
+  it('gives a pod no deadline at all when the run sets no time budget, so it lasts as long as the run', async () => {
+    const { run, calls } = kube({ get: notRunning });
+    const { lifetimeMs: _none, ...open } = workspace;
+    await createClusterBackend({ run, workspace: open }).exec({ sandboxId: 'x', command: 'echo' });
+
+    const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
+    expect(applied).not.toContain('activeDeadlineSeconds');
+    expect(applied).toContain('"command":["sleep","infinity"]');
+  });
+
+  it('keeps waiting for a pod that is still pulling its image, however long that takes', async () => {
+    let asked = 0;
+    const run: KubeRunner = vi.fn(async (args) => {
+      if (args[0] === 'get' && args.includes('json')) {
+        asked += 1;
+        return asked < 4 ? podSaying({ phase: 'Pending', containerStatuses: [{ ready: false, state: { waiting: { reason: 'ContainerCreating' } } }] }) : readyPod;
+      }
+      if (args[0] === 'get') return args.includes('json') ? readyPod : notRunning;
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+    await createClusterBackend({ run, workspace, readyPollMs: 1 }).exec({ sandboxId: 'x', command: 'echo' });
+
+    expect(asked).toBe(4);
+  });
+
   it('adopts a pod that is already up rather than applying again', async () => {
     const { run, calls } = kube({ get: running });
     await createClusterBackend({ run, workspace }).exec({ sandboxId: 'x', command: 'echo' });
@@ -102,11 +129,11 @@ describe('standing a workspace up', () => {
       .rejects.toThrow(WorkspaceUnavailableError);
   });
 
-  it('explains a pod that never becomes ready', async () => {
-    const { run } = kube({ get: notRunning, wait: { stdout: '', stderr: 'timed out', exitCode: 1 } });
+  it('explains a pod that can never start, rather than waiting on it', async () => {
+    const { run } = kube({ get: notRunning, ready: podSaying({ phase: 'Pending', containerStatuses: [{ ready: false, state: { waiting: { reason: 'ImagePullBackOff' } } }] }) });
 
     await expect(createClusterBackend({ run, workspace }).exec({ sandboxId: 'x', command: 'echo' }))
-      .rejects.toThrow(/never became ready/);
+      .rejects.toThrow(/cannot start: workspace: ImagePullBackOff/);
   });
 });
 
@@ -215,8 +242,8 @@ describe('a workspace that outlives its pod', () => {
     const calls: string[][] = [];
     const run: KubeRunner = vi.fn(async (args) => {
       calls.push(args);
+      if (args[0] === 'get' && args.includes('json')) { phase = running; return readyPod; }
       if (args[0] === 'get') return phase;
-      if (args[0] === 'wait') phase = running;
       return { stdout: '', stderr: '', exitCode: 0 };
     });
     const backend = createClusterBackend({ run, workspace: kept });
@@ -269,7 +296,7 @@ describe('a workspace several runs share', () => {
     let applied = 0;
     const run: KubeRunner = vi.fn(async (args) => {
       if (args[0] === 'apply') { applied += 1; await new Promise((resolve) => setTimeout(resolve, 30)); }
-      if (args[0] === 'get') return applied > 0 ? running : notRunning;
+      if (args[0] === 'get') return args.includes('json') ? readyPod : applied > 0 ? running : notRunning;
       return { stdout: '', stderr: '', exitCode: 0 };
     });
     let restored = 0;
@@ -289,7 +316,7 @@ describe('a workspace several runs share', () => {
         attempts += 1;
         return attempts === 1 ? { stdout: '', stderr: 'Error from server (AlreadyExists): persistentvolumeclaims "work" already exists', exitCode: 1 } : { stdout: 'configured', stderr: '', exitCode: 0 };
       }
-      if (args[0] === 'get') return attempts > 1 ? running : notRunning;
+      if (args[0] === 'get') return args.includes('json') ? readyPod : attempts > 1 ? running : notRunning;
       return { stdout: '', stderr: '', exitCode: 0 };
     });
     await createClusterBackend({ run, workspace: { ...workspace, runId: 'conversation-c2', persistent: true } }).writeFile({ sandboxId: 's', path: 'a.md', content: 'x' });
@@ -303,7 +330,7 @@ describe('a command that may run long', () => {
     const stop = new AbortController();
     const run: KubeRunner = vi.fn(async (args, _input, timeoutMs, options) => {
       calls.push({ args, timeoutMs, options: options as never });
-      if (args[0] === 'get') return running;
+      if (args[0] === 'get') return args.includes('json') ? readyPod : running;
       if (args.includes(GROUPED_EXEC)) {
         await (options as { onStop: (why: string) => Promise<void> }).onStop('cancelled');
         return { stdout: 'partial', stderr: '', exitCode: 143, stopped: 'cancelled' as const };
@@ -311,20 +338,21 @@ describe('a command that may run long', () => {
       return { stdout: '', stderr: '', exitCode: 0 };
     });
 
-    const result = await createClusterBackend({ run, workspace }).exec({ sandboxId: 'x', command: 'npm run e2e', cwd: 'app', untimed: true, signal: stop.signal });
+    const result = await createClusterBackend({ run, workspace }).exec({ sandboxId: 'x', command: 'npm run e2e', cwd: 'app', signal: stop.signal });
 
     expect(result).toEqual({ stdout: 'partial', stderr: '', exitCode: 143, stopped: 'cancelled' });
     const grouped = calls.find((call) => call.args.includes(GROUPED_EXEC))!;
     const id = grouped.args.at(-2)!;
     expect(grouped.args.at(-1)).toBe("cd 'app' && npm run e2e");
-    expect(grouped.options).toMatchObject({ untimed: true, signal: stop.signal });
+    expect(grouped.options).toMatchObject({ signal: stop.signal });
+    expect(grouped.timeoutMs).toBeUndefined();
     expect(calls.find((call) => call.args.includes(STOP_GROUPED_EXEC))!.args).toEqual(['exec', 'workspace', '-n', NAMESPACE, '--', 'sh', '-c', STOP_GROUPED_EXEC, 'sh', id]);
   });
 
-  it('keeps the old path for a plain call', async () => {
+  it('runs every call in its own process group, so a limit the call set reaches what it started too', async () => {
     const { run, calls } = kube({ get: running });
     await createClusterBackend({ run, workspace }).exec({ sandboxId: 'x', command: 'ls', timeoutMs: 5_000 });
-    expect(calls.at(-1)?.args).toEqual(['exec', 'workspace', '-n', NAMESPACE, '-i', '--', 'sh', '-c', 'ls']);
+    expect(calls.at(-1)?.args).toEqual(['exec', 'workspace', '-n', NAMESPACE, '-i', '--', 'sh', '-c', GROUPED_EXEC, 'sh', expect.any(String), 'ls']);
   });
 
   it('really stops what a command started when the stop script runs, and leaves the exit code of one that ends on its own', async () => {

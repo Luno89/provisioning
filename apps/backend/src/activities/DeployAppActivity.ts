@@ -25,7 +25,7 @@ import { sanitiseNamespaceName } from '../lib/projects.js';
 import { infisicalHostFor } from '../lib/infisical-sync.js';
 import { syncProjectSecrets } from '../services/ProjectSecretSync.js';
 import { InfisicalService } from '../services/InfisicalService.js';
-import { ClusterProxyService } from '../services/ClusterProxyService.js';
+import { sharedClusterProxy } from '../services/ClusterProxyService.js';
 import { loadKeys } from '../lib/keys.js';
 
 async function nodeAllocatableBytes(
@@ -125,7 +125,6 @@ export interface DeployAppResult {
   displayUrl: string;
 }
 
-export { deployAppActivityMeta } from '../lib/activity-timeouts.js';
 
 const SANITIZE = sanitiseNamespaceName;
 const LIVE_ROOT = process.cwd();
@@ -508,7 +507,7 @@ export async function DeployAppActivity(
           console.warn(`[DeployAppActivity] ${project.name} declares no secrets; ${reachable.problem}`);
         } else {
           const masterKey = loadKeys(process.env).data;
-          const infisical = new InfisicalService(infra, masterKey, '/tmp/kubeconfig-provisioning-lunorica', undefined, new ClusterProxyService());
+          const infisical = new InfisicalService(infra, masterKey, '/tmp/kubeconfig-provisioning-lunorica', undefined, sharedClusterProxy());
           const synced = await syncProjectSecrets(
             { infra, vault: infisical, projects: secretDb, masterKey },
             { project, namespace: sanitizedName, kubeconfig: kubeconfigPath, target },

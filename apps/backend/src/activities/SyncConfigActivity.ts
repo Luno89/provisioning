@@ -4,6 +4,8 @@ import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { buildAppEnv } from '../lib/app-env.js';
 import { pushOpenWebUiWebSearchConfig } from '../lib/openwebui-admin.js';
+import { waitUntilRolledOut } from './cluster-jobs.js';
+import { Context } from '@temporalio/activity';
 
 export interface SyncConfigArgs {
   name: string;
@@ -64,7 +66,6 @@ export interface SyncConfigResult {
   msg: string;
 }
 
-export { syncConfigActivityMeta } from '../lib/activity-timeouts.js';
 
 const SANITIZE = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
@@ -153,9 +154,12 @@ export async function SyncConfigActivity(
 
   if (args.appType === 'openwebui') {
     try {
-      await infra.runKubectl(['rollout', 'status', 'deployment/open-webui', '-n', sanitizedName, '--timeout=120s'], kubeconfigPath);
+      await waitUntilRolledOut({
+        kubectl: (kubectlArgs) => infra.runKubectl(['-n', sanitizedName, ...kubectlArgs], kubeconfigPath),
+        apply: async () => undefined,
+      }, 'deployment/open-webui', { beat: () => { try { Context.current().heartbeat(); } catch { return; } } });
     } catch (err: any) {
-      console.warn(`[SyncConfigActivity] open-webui rollout didn't report ready within 120s: ${err.message} — attempting the config push anyway`);
+      console.warn(`[SyncConfigActivity] open-webui cannot become ready: ${err.message} — attempting the config push anyway`);
     }
     await pushOpenWebUiWebSearchConfig(infra, kubeconfigPath, sanitizedName, {
       ...(args.webuiEnableWebSearch !== undefined ? { enableWebSearch: args.webuiEnableWebSearch } : {}),

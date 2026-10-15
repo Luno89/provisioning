@@ -13,10 +13,10 @@ import { isMockCloudProvider } from '../lib/cluster-topology.js';
 import type { ClusterMetadata } from '../lib/types.js';
 import type { SecretTarget } from '../lib/infisical-sync.js';
 import { InfisicalService } from '../services/InfisicalService.js';
-import { ClusterProxyService } from '../services/ClusterProxyService.js';
+import { sharedClusterProxy } from '../services/ClusterProxyService.js';
 import { syncProjectSecrets } from '../services/ProjectSecretSync.js';
 import { reachCluster, type ClusterRef } from './cluster-access.js';
-import { inNamespace, runClusterJob, type NamespacedCluster } from './cluster-jobs.js';
+import { inNamespace, runClusterJob, waitUntilRolledOut, type NamespacedCluster } from './cluster-jobs.js';
 import { QUIET_PREVIEW_SQL } from '../lib/release-e2e.js';
 import { resolveKubeconfig } from './RunPipelineActivity.js';
 import { labelValue } from '../engine-host/sandboxes/workspace.js';
@@ -63,8 +63,6 @@ export interface VaultSyncArgs {
 
 export type VaultSync = (args: VaultSyncArgs) => Promise<void>;
 
-const VAULT_WAIT_MS = 3 * 60_000;
-
 export const syncVaultFromProject = (infra: InfrastructureService): VaultSync => async (args) => {
   const db = createDatabase();
   await db.init();
@@ -72,7 +70,7 @@ export const syncVaultFromProject = (infra: InfrastructureService): VaultSync =>
     const project = (await db.getProjects()).find((entry) => entry.id === args.projectId);
     if (!project) throw ApplicationFailure.nonRetryable(`the project ${args.projectId} is gone, so its vault cannot be synced`);
     const masterKey = loadKeys(process.env).data;
-    const vault = new InfisicalService(infra, masterKey, '/tmp/kubeconfig-provisioning-lunorica', undefined, new ClusterProxyService());
+    const vault = new InfisicalService(infra, masterKey, '/tmp/kubeconfig-provisioning-lunorica', undefined, sharedClusterProxy());
     await syncProjectSecrets({ infra, vault, projects: db, masterKey }, { project, namespace: args.namespace, kubeconfig: args.kubeconfig, target: args.target, secretName: args.secretName });
   } finally {
     await db.close().catch(() => undefined);
@@ -138,9 +136,8 @@ export function createOdooReleaseActivities(infra: InfrastructureService = new I
         kubeconfig,
         target: { clusterName: input.target.clusterName, provider: input.target.provider, isMock: isMockCloudProvider(input.target.provider as ClusterMetadata['provider'], hasCloudCredentials) },
       });
-      const until = Date.now() + VAULT_WAIT_MS;
       let missing = input.vault.keys;
-      while (Date.now() < until) {
+      for (;;) {
         beat(missing);
         const data = await kubectl(input.target, ['get', 'secret', input.vault.secret, '-o', 'jsonpath={.data}']).catch(() => '');
         const present = new Set(Object.keys(data ? JSON.parse(data) as Record<string, string> : {}));
@@ -148,23 +145,10 @@ export function createOdooReleaseActivities(infra: InfrastructureService = new I
         if (missing.length === 0) return;
         await sleep(POLL_MS);
       }
-      throw ApplicationFailure.nonRetryable(`the vault did not reach ${input.vault.secret} within ${VAULT_WAIT_MS / 60_000} minutes; still missing ${missing.join(', ')}`);
     },
 
-    async OdooReleaseWaitActivity(input: { target: ReleaseTarget; workload: string; timeoutMs: number }): Promise<void> {
-      const until = Date.now() + input.timeoutMs;
-      let last = '';
-      while (Date.now() < until) {
-        beat(input.workload);
-        try {
-          await kubectl(input.target, ['rollout', 'status', input.workload, '--timeout=30s']);
-          return;
-        } catch (err) {
-          last = (err as Error).message;
-          await sleep(POLL_MS);
-        }
-      }
-      throw ApplicationFailure.nonRetryable(`${input.workload} did not become ready in ${Math.round(input.timeoutMs / 60_000)} minutes: ${last.slice(-400)}`);
+    async OdooReleaseWaitActivity(input: { target: ReleaseTarget; workload: string }): Promise<void> {
+      await waitUntilRolledOut(namespaced(input.target), input.workload, { beat, pollMs: POLL_MS });
     },
 
     async OdooReleaseCopyDatabaseActivity(input: { target: ReleaseTarget; from: string; to: string }): Promise<void> {
@@ -180,8 +164,8 @@ export function createOdooReleaseActivities(infra: InfrastructureService = new I
       return out.split('\n').map((line) => line.trim()).filter(Boolean).sort();
     },
 
-    async OdooReleaseJobActivity(input: { target: ReleaseTarget; name: string; manifest: Record<string, unknown>; timeoutMs: number }): Promise<void> {
-      await runClusterJob(namespaced(input.target), { name: input.name, namespace: input.target.namespace, manifest: input.manifest, timeoutMs: input.timeoutMs }, { beat });
+    async OdooReleaseJobActivity(input: { target: ReleaseTarget; name: string; manifest: Record<string, unknown> }): Promise<void> {
+      await runClusterJob(namespaced(input.target), { name: input.name, namespace: input.target.namespace, manifest: input.manifest }, { beat });
     },
 
     async OdooReleaseQuietActivity(input: { target: ReleaseTarget; database: string }): Promise<void> {

@@ -7,7 +7,8 @@ import { fileURLToPath } from 'url';
 import { Server as SocketServer } from 'socket.io';
 
 import os from 'os';
-import { CommandFailedError, CommandTimedOutError } from '../lib/command-error.js';
+import { CommandFailedError } from '../lib/command-error.js';
+import { assessWorkload } from '../lib/workload-health.js';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -27,7 +28,6 @@ export interface ExecuteOptions {
   logFile?: string | undefined;
   resourceId?: string | undefined;
   io?: SocketServer | undefined;
-  timeout?: number | undefined;
   outputsFile?: string | undefined;
 }
 
@@ -73,14 +73,13 @@ export class InfrastructureService {
     await this.importImage(clusterName, imageTag, options);
   }
 
-  async waitForNamespaceDeletion(namespace: string, kubeconfigPath?: string, maxWaitMs: number = 180000): Promise<void> {
+  async waitForNamespaceDeletion(namespace: string, kubeconfigPath?: string): Promise<void> {
     try {
-      const args = ['delete', 'namespace', namespace, '--ignore-not-found=true', '--timeout=3m'];
-      await this.runKubectl(args, kubeconfigPath);
+      await this.runKubectl(['delete', 'namespace', namespace, '--ignore-not-found=true', '--wait=false'], kubeconfigPath);
     } catch {}
 
     const startTime = Date.now();
-    while (Date.now() - startTime < maxWaitMs) {
+    for (;;) {
       try {
         const output = await this.runKubectl(['get', 'namespace', namespace, '-o', 'json'], kubeconfigPath);
         const nsObj = JSON.parse(output);
@@ -472,8 +471,7 @@ export class InfrastructureService {
         `--overrides={"spec":{"runtimeClassName":"${vendor}"}}`,
       ], kubeconfigPath);
 
-      const deadline = Date.now() + 15000;
-      while (Date.now() < deadline) {
+      for (;;) {
         await new Promise((r) => setTimeout(r, 1500));
         const eventsRaw = await this.runKubectl(
           ['get', 'events', '--field-selector', `involvedObject.name=${probeName}`, '-o', 'json'],
@@ -494,15 +492,13 @@ export class InfrastructureService {
 
         const podRaw = await this.runKubectl(['get', 'pod', probeName, '-o', 'json'], kubeconfigPath).catch(() => null) as string | null;
         if (podRaw) {
-          const phase = JSON.parse(podRaw).status?.phase;
+          const pod = JSON.parse(podRaw);
+          const phase = pod.status?.phase;
           if (phase === 'Running' || phase === 'Succeeded') return;
+          const health = assessWorkload({ items: [pod] });
+          if (health.health === 'unhealthy') throw new Error(`The "${vendor}" GPU runtime probe cannot start: ${health.reason}`);
         }
       }
-      throw new Error(
-        `Timed out waiting to confirm the "${vendor}" GPU runtime is schedulable (probe pod never reached ` +
-        `Running within 15s, but also reported no specific runtime error — check "kubectl describe pod ` +
-        `${probeName}" manually).`
-      );
     } finally {
       await this.runKubectl(['delete', 'pod', probeName, '--ignore-not-found', '--wait=false'], kubeconfigPath).catch(() => {});
     }
@@ -590,30 +586,11 @@ export class InfrastructureService {
     return new Promise((resolve, reject) => {
       const child = spawn(cmd, args, { cwd, env });
       let stdout = '', stderr = '';
-      let timedOut = false;
-
       const broadcast = (data: string) => {
         if (options.io && options.resourceId) {
             options.io.to(options.resourceId).emit('log', data);
         }
       };
-
-      if (options.timeout) {
-        const timer = setTimeout(() => {
-          timedOut = true;
-          const timeoutMsg = `\n--- COMMAND TIMED OUT after ${options.timeout}ms ---\n`;
-          broadcast(timeoutMsg);
-          fs.appendFile(logFile, timeoutMsg).catch(console.error);
-          child.kill('SIGTERM');
-          setTimeout(() => {
-            if (!child.killed) child.kill('SIGKILL');
-          }, 5000);
-          reject(new CommandTimedOutError(cmd, options.timeout!, stdout, stderr, logFile));
-        }, options.timeout);
-
-        child.on('close', () => clearTimeout(timer));
-        child.on('error', () => clearTimeout(timer));
-      }
 
       child.stdout.on('data', (data) => {
         const chunk = data.toString();
@@ -630,7 +607,6 @@ export class InfrastructureService {
       });
 
       child.on('close', (code) => {
-        if (timedOut) return;
         if (code === 0) {
             resolve({ stdout, logFile });
         } else {
@@ -641,7 +617,6 @@ export class InfrastructureService {
         }
       });
       child.on('error', (err) => {
-        if (timedOut) return;
           const errorMsg = `\n--- SPAWN ERROR: ${err.message} ---\n`;
           broadcast(errorMsg);
           reject(err);

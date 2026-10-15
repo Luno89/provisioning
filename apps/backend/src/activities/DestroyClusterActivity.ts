@@ -28,7 +28,6 @@ export interface DestroyClusterResult {
   msg: string;
 }
 
-export { destroyClusterActivityMeta } from '../lib/activity-timeouts.js';
 
 export async function DestroyClusterActivity(
   args: DestroyClusterArgs,

@@ -282,7 +282,7 @@ export const waitForPerson: BuiltInNode = {
     kind: 'wait-for-person',
     title: 'Wait for Person',
     category: 'control',
-    describe: 'Shows a person a message and pauses the run until they answer or the time runs out.',
+    describe: 'Shows a person a message and pauses the run until they answer, however long that takes, unless the step sets how long to wait.',
     role: 'step',
     inputs: [{ name: 'details', type: 'text', describe: 'Shown under the message — for example the plan the person is asked to review.' }],
     outputs: [
@@ -291,7 +291,7 @@ export const waitForPerson: BuiltInNode = {
     ],
     exits: [
       { name: 'answered', describe: 'The person answered.' },
-      { name: 'unanswered', describe: 'Nobody answered in time, or the run was cancelled.' },
+      { name: 'unanswered', describe: 'The run was stopped, or the wait this step set ran out.' },
     ],
     settings: {
       type: 'object',
@@ -299,7 +299,7 @@ export const waitForPerson: BuiltInNode = {
       properties: {
         prompt: { type: 'string', title: 'Message', minLength: 1, multiline: true },
         choices: { type: 'array', title: 'Answers to choose from', describe: 'When set, the person picks one of these, and the answer is the one picked.', items: { type: 'string', minLength: 1 } },
-        timeoutMinutes: { type: 'integer', title: 'Wait for (minutes)', minimum: 1, default: 10_080 },
+        timeoutMinutes: { type: 'integer', title: 'Stop waiting after (minutes)', describe: 'Leave it empty to wait until the person answers.', minimum: 1 },
       },
     },
     runs: 'orchestration',
@@ -311,4 +311,44 @@ export const waitForPerson: BuiltInNode = {
   }),
 };
 
-export const CONTROL_NODES = [condition, merge, collect, finish, delegate, fanOut, waitForPerson];
+export const externalAgent: BuiltInNode = {
+  definition: defineNode({
+    kind: 'external-agent',
+    title: 'External Agent',
+    category: 'control',
+    describe: 'Hands a task to an agent that runs its own loop on the person\'s machine (Antigravity, Claude Code, any agent that speaks ACP), follows what it does, asks the person before anything it wants permission for, and leaves by how its turn ended. It edits and runs things in the machine\'s folder; it never records, claims or judges anything here.',
+    role: 'step',
+    inputs: [
+      { name: 'brief', type: 'text', describe: 'The task, as the agent is given it.' },
+      { name: 'prompt', type: 'text', describe: 'The persona\'s own prompt: who the agent is here and how it works. Told once, when its session starts.' },
+      { name: 'context', type: 'text', describe: 'What else it is told once, when its session starts: what it works on, what done means.' },
+      { name: 'memories', type: 'text', describe: 'What was learned before, as recalled for this run. Told once, when its session starts.' },
+      { name: 'environment', type: 'environment', describe: 'The machine and folder it works in. Nothing wired means the one this run was given.' },
+    ],
+    outputs: [
+      { name: 'text', type: 'text', describe: 'What the agent said, its whole reply.' },
+      { name: 'stopReason', type: 'text', describe: 'How its turn ended: end_turn, cancelled, refusal, max_tokens or max_turn_requests.' },
+      { name: 'identity', type: 'json', describe: 'Which agent ran: its name, title and version, as it reported them.' },
+      { name: 'sessionId', type: 'text', describe: 'The agent\'s session, to continue it later.' },
+      { name: 'reason', type: 'text', describe: 'Why it did not finish, when it did not.' },
+    ],
+    exits: [
+      { name: 'finished', describe: 'Its turn ended normally.' },
+      { name: 'stopped', describe: 'It was cancelled, refused, or ran out of room before finishing.' },
+      { name: 'failed', describe: 'It could not be started, or died, or this run has no machine for it.' },
+    ],
+    settings: {
+      type: 'object',
+      properties: {
+        agent: { type: 'string', title: 'Agent on the machine', describe: 'The external agent\'s id as the machine knows it, for example antigravity. Empty means the agent this run is: an agent called antigravity runs the machine\'s antigravity.', default: '' },
+        mode: { type: 'string', title: 'Mode', describe: 'One of the agent\'s own modes (for Antigravity: default, auto_edit or yolo). Empty leaves its default.', default: '' },
+      },
+    },
+    runs: 'orchestration',
+    spends: ['childRuns'],
+    idempotent: false,
+    summarize: (settings) => `hands the task to ${textOf(settings, 'agent') || 'the agent of the same name on the machine'}${textOf(settings, 'mode') ? ` in ${textOf(settings, 'mode')} mode` : ''}`,
+  }),
+};
+
+export const CONTROL_NODES = [condition, merge, collect, finish, delegate, fanOut, waitForPerson, externalAgent];

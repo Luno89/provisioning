@@ -20,7 +20,7 @@ const NOT_SHOWN: Record<string, string[]> = {
 // else: on a child's prompt or in an operation's inputs (the grove agents run no model; their leaves, judges and
 // planners do). They are pinned end to end by extensions/grove/grove-run.test.ts, extensions/workspace/build-workspace.test.ts and
 // extensions/mcp/capture-mcp-server.test.ts.
-const STRUCTURAL = ['grove', 'grove-paper', 'grove-leaf', 'grove-paper-leaf', 'workspace', 'mcp-capture'];
+const STRUCTURAL = ['grove', 'grove-paper', 'grove-leaf', 'grove-paper-leaf', 'workspace', 'mcp-capture', 'antigravity'];
 
 function sentinelsFor(persona: Persona, procedure: Procedure): Sentinelled {
   const skip = new Set(NOT_SHOWN[persona.slug] ?? []);

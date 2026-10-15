@@ -12,6 +12,7 @@ import { JoinMeshActivity } from './JoinMeshActivity.js';
 import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
 import { infisicalHostFor } from '../lib/infisical-sync.js';
 import { ensureInfisicalOperator } from '../services/ProjectSecretSync.js';
+import { CLI_CEILING } from '../lib/activity-liveness.js';
 
 export interface ProvisionClusterArgs {
   name: string;
@@ -52,7 +53,6 @@ export interface ProvisionClusterResult {
   capacity?: ClusterCapacity;
 }
 
-export { provisionClusterActivityMeta } from '../lib/activity-timeouts.js';
 
 export async function ProvisionClusterActivity(
   args: ProvisionClusterArgs,
@@ -258,13 +258,13 @@ export async function ProvisionClusterActivity(
   }
 
   try {
-    await infra.runHelm(['uninstall', 'traefik', '-n', 'traefik', '--wait', '--timeout', '5m'], kubeconfigPath);
+    await infra.runHelm(['uninstall', 'traefik', '-n', 'traefik', '--wait', '--timeout', CLI_CEILING], kubeconfigPath);
   } catch { /* ignored */ }
   try {
-    await infra.runHelm(['uninstall', 'traefik', '-n', 'kube-system', '--wait', '--timeout', '5m'], kubeconfigPath);
+    await infra.runHelm(['uninstall', 'traefik', '-n', 'kube-system', '--wait', '--timeout', CLI_CEILING], kubeconfigPath);
   } catch { /* ignored */ }
   try {
-    await infra.runHelm(['uninstall', 'kube-prometheus-stack', '-n', 'monitoring', '--wait', '--timeout', '5m'], kubeconfigPath);
+    await infra.runHelm(['uninstall', 'kube-prometheus-stack', '-n', 'monitoring', '--wait', '--timeout', CLI_CEILING], kubeconfigPath);
   } catch { /* ignored */ }
   try {
     await infra.runKubectl(['delete', 'ingressclass', 'traefik', '--ignore-not-found'], kubeconfigPath);
@@ -292,9 +292,8 @@ export async function ProvisionClusterActivity(
     await infra.destroy(physicalName, { logFile, env: clusterEnv });
   } catch { /* ignored */ }
 
-  const deployTimeout = (args.provider === 'k3d' || isMock) ? 10 * 60 * 1000 : 25 * 60 * 1000;
-  await infra.deploy(physicalName, { logFile, env: clusterEnv, timeout: deployTimeout });
-  await infra.deploy(`${physicalName}-observability`, { logFile, env: clusterEnv, timeout: deployTimeout });
+  await infra.deploy(physicalName, { logFile, env: clusterEnv });
+  await infra.deploy(`${physicalName}-observability`, { logFile, env: clusterEnv });
 
   if (!('problem' in infisicalHostFor({ clusterName: args.name, provider: args.provider, isMock }))) {
     await fs.appendFile(logFile, '[secrets] installing the Infisical secrets operator\n').catch(() => {});

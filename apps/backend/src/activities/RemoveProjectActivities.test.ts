@@ -56,7 +56,7 @@ describe('the steps that delete a project', () => {
   it('deletes its trees\' workspaces and those of their conversations, its secrets, and its repositories', async () => {
     const steps = createProjectRemovalActivities(deps());
     expect(await steps.RemoveProjectWorkspacesActivity({ projectId: 'p1' })).toBe(2);
-    expect(kubectl[0]).toEqual(['delete', 'namespace', 'koala-run-tree-t1', 'koala-run-conversation-c1', '--ignore-not-found', '--wait=true', '--timeout=300s']);
+    expect(kubectl[0]).toEqual(['delete', 'namespace', 'koala-run-tree-t1', 'koala-run-conversation-c1', '--ignore-not-found', '--wait=true', '--timeout=720h']);
     await steps.RemoveProjectSecretsActivity({ projectId: 'p1' });
     expect(secrets).toEqual(['p1']);
     expect(await steps.RemoveProjectRepositoriesActivity({ projectId: 'p1' })).toEqual(['koala-bo/shop-p1', 'koala-bo/tree-t1', 'koala-bo/research-c1']);

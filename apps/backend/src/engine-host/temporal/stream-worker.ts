@@ -8,6 +8,7 @@ import type { SecretKey } from '../../lib/crypto.js';
 import { loadKeys } from '../../lib/keys.js';
 import { TurnLogWriter } from '../../services/TurnLogWriter.js';
 import type { TurnLogEntry } from '../../lib/turn-log.js';
+import { heartbeatWhileRunning } from '@koala/engine-core';
 
 export interface SocketLike {
   to(room: string): { emit(event: string, ...args: unknown[]): unknown };
@@ -55,6 +56,7 @@ export async function startStreamWorker(options: StreamWorkerOptions): Promise<W
     connection,
     ...(dataConverter ? { dataConverter } : {}),
     taskQueue: options.taskQueue ?? DEFAULT_STREAM_TASK_QUEUE,
+    interceptors: { activity: [heartbeatWhileRunning()] },
     ...(options.namespace ? { namespace: options.namespace } : {}),
     activities: createStreamActivities({ ...options.services, bus }),
   });

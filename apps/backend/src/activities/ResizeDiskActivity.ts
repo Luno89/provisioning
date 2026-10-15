@@ -24,7 +24,6 @@ export interface ResizeDiskResult {
   msg: string;
 }
 
-export { resizeDiskActivityMeta } from '../lib/activity-timeouts.js';
 
 export async function ResizeDiskActivity(
   args: ResizeDiskArgs,

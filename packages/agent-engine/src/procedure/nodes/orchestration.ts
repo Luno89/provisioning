@@ -7,6 +7,7 @@ import type {
   ChildSteps,
   ChildOutcomeValue,
   EnvironmentValue,
+  ExternalAgentOutcome,
   ModelReply,
   ToolCallRequest,
   ToolResult,
@@ -52,7 +53,7 @@ export interface QuestionRequest {
   nodeId: string;
   prompt: string;
   choices?: readonly string[] | undefined;
-  timeoutMs: number;
+  timeoutMs?: number | undefined;
   run: RunContext;
 }
 
@@ -62,11 +63,22 @@ export interface QuestionAnswer {
   reason?: string | undefined;
 }
 
+export interface ExternalAgentRequest {
+  nodeId: string;
+  agent: string;
+  brief: string;
+  context?: string | undefined;
+  mode?: string | undefined;
+  environment: Extract<EnvironmentValue, { kind: 'machine' }>;
+  run: RunContext;
+}
+
 export interface OrchestrationPorts {
   runTool(request: ToolRunRequest): Promise<ToolRunOutcome>;
   runChild(request: ChildRunRequest): Promise<ChildOutcomeValue>;
   approve(request: ApprovalRequest): Promise<boolean>;
   ask(request: QuestionRequest): Promise<QuestionAnswer>;
+  runExternal?(request: ExternalAgentRequest): Promise<ExternalAgentOutcome>;
   handOffsTogether?(): boolean;
   sandboxCallsUnasked?(): boolean;
 }
@@ -301,17 +313,54 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const choices = Array.isArray(node.settings.choices) ? node.settings.choices.filter((choice): choice is string => typeof choice === 'string' && choice.length > 0) : [];
       run.emit({ type: 'notice', level: 'info', nodeId: node.id, message: prompt, ...(choices.length ? { choices } : {}) } as never);
 
+      const waitFor = node.settings.timeoutMinutes === undefined ? undefined : numberOf(node.settings, 'timeoutMinutes', 0);
       const answer = await ports.ask({
         nodeId: node.id,
         prompt,
         ...(choices.length ? { choices } : {}),
-        timeoutMs: numberOf(node.settings, 'timeoutMinutes', 10_080) * 60_000,
+        ...(waitFor ? { timeoutMs: waitFor * 60_000 } : {}),
         run,
       });
 
       return answer.answered
         ? { exit: 'answered', outputs: { answer: answer.value } }
-        : { exit: 'unanswered', outputs: { reason: answer.reason ?? 'nobody answered in time' } };
+        : { exit: 'unanswered', outputs: { reason: answer.reason ?? 'nobody answered in the time this step waits' } };
+    }),
+
+    stepImplementation('external-agent', async ({ node, inputs, run }) => {
+      const agent = textOf(node.settings, 'agent') || run.identity.agentId;
+      const mode = textOf(node.settings, 'mode');
+      const environment = (inputs.environment as EnvironmentValue | undefined) ?? (run.launch.environment as EnvironmentValue | undefined);
+      const brief = typeof inputs.brief === 'string' ? inputs.brief.trim() : '';
+      const context = [inputs.prompt, inputs.context, inputs.memories]
+        .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+        .map((part) => part.trim())
+        .join('\n\n');
+      const failed = (reason: string) => ({ exit: 'failed', outputs: { text: '', reason } });
+      if (!ports.runExternal) return failed('this host cannot run an external agent');
+      if (environment?.kind !== 'machine') return failed(`${agent} works on a person's machine, and this run has none`);
+      if (!brief) return failed(`there was no task to hand ${agent}`);
+
+      const outcome = await ports.runExternal({
+        nodeId: node.id,
+        agent,
+        brief,
+        ...(context ? { context } : {}),
+        ...(mode ? { mode } : {}),
+        environment,
+        run,
+      });
+      return {
+        exit: outcome.outcome,
+        outputs: {
+          text: outcome.text,
+          ...('stopReason' in outcome ? { stopReason: outcome.stopReason } : {}),
+          ...(outcome.identity ? { identity: outcome.identity } : {}),
+          ...(outcome.sessionId ? { sessionId: outcome.sessionId } : {}),
+          ...('reason' in outcome ? { reason: outcome.reason } : {}),
+        },
+        usage: { childRuns: 1 },
+      };
     }),
   ];
 }

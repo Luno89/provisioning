@@ -35,11 +35,11 @@ function world() {
     remove: async (_owner, id) => scenarios.some((one) => one.id === id && one.mine),
     start: async (_owner, input) => { started.push(input); return { runId: 'r3' }; },
   };
-  return { tools: createCheckTools(access, { waitMs: 0, pollMs: 1 }), saved, started, runs, access };
+  return { tools: createCheckTools(access, { pollMs: 1 }), saved, started, runs, access };
 }
 
-const call = (tools: ReturnType<typeof createCheckTools>, name: string, parsed: Record<string, unknown>) =>
-  tools[name]!({ parsed, caller: { ownerId: 'bo', runId: 'run-1' } } as never);
+const call = (tools: ReturnType<typeof createCheckTools>, name: string, parsed: Record<string, unknown>, signal?: AbortSignal) =>
+  tools[name]!({ parsed, caller: { ownerId: 'bo', runId: 'run-1' }, ...(signal ? { signal } : {}) } as never);
 
 describe('the check writer\'s tools', () => {
   it('lists the checks of one agent or tool, with level, model, whose it is and how it last went', async () => {
@@ -80,7 +80,9 @@ describe('the check writer\'s tools', () => {
     expect((await call(tools, 'run_check', { id: 'mine-writes', modelId: 'tabby' })).content).toContain('started run r3 of mine-writes with no model — it takes seconds');
     expect((await call(tools, 'run_check', { id: 'executor-does-one-task' })).content).toContain('on the person\'s model — it can take minutes');
     expect(started).toEqual([{ only: ['mine-writes'], modelId: 'tabby' }, { only: ['executor-does-one-task'] }]);
-    expect((await call(tools, 'read_check_result', { runId: 'r2' })).content).toBe('still running after 0s (0 of 1 finished) — read it again to keep waiting');
+    const stop = new AbortController();
+    setTimeout(() => stop.abort(), 20);
+    expect(await call(tools, 'read_check_result', { runId: 'r2' }, stop.signal)).toMatchObject({ ok: false, content: 'stopped while waiting for r2 (0 of 1 finished)' });
     expect(String((await call(tools, 'read_check_result', { runId: 'r1' })).content)).toContain('executor-does-one-task: failed — run run-executor-does-one-task');
     expect(await call(tools, 'run_check', { id: 'ghost' })).toMatchObject({ ok: false });
   });
@@ -99,7 +101,7 @@ function tools() {
 describe('waiting for a check run', () => {
   it('waits for the run to finish before answering, rather than saying it is still running', async () => {
     const { runs, access } = world();
-    const tools = createCheckTools(access, { waitMs: 1_000, pollMs: 5 });
+    const tools = createCheckTools(access, { pollMs: 5 });
     setTimeout(() => {
       runs[1]!.state = 'done';
       runs[1]!.results = [result('mine-writes', true)];

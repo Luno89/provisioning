@@ -66,7 +66,7 @@ describe('the steps that remove an account', () => {
   it('deletes its workspaces by their owner label, and takes "none left" as done', async () => {
     const steps = createAccountRemovalActivities(deps());
     await steps.RemoveAccountWorkspacesActivity({ ownerId: 'bo' });
-    expect(kubectl[0]).toEqual(['delete', 'namespace', '-l', 'koala.dev/owner=bo', '--wait=true', '--timeout=300s']);
+    expect(kubectl[0]).toEqual(['delete', 'namespace', '-l', 'koala.dev/owner=bo', '--wait=true', '--timeout=720h']);
 
     const none = createAccountRemovalActivities(deps({ kube: async () => ({ stdout: '', stderr: 'No resources found', exitCode: 1 }) }));
     await expect(none.RemoveAccountWorkspacesActivity({ ownerId: 'bo' })).resolves.toBe('');

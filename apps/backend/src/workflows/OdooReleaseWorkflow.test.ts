@@ -19,7 +19,7 @@ beforeAll(async () => { env = await temporalTestEnvironment(); }, 120_000);
 afterAll(async () => { await env?.teardown(); });
 
 const target: ReleaseTarget = { clusterName: 'dev', provider: 'k3d', namespace: 'shop', release: 'shop' };
-const input = { target, host: 'shop.apps.local', previewHost: 'shop-preview.apps.local', ownerId: 'bo', e2eMinutes: 20 };
+const input = { target, host: 'shop.apps.local', previewHost: 'shop-preview.apps.local', ownerId: 'bo' };
 const PASSED: ReleaseE2E = { state: 'passed', summary: '1 passed, 0 failed', startedAt: 't0', finishedAt: 't1' };
 const build = (id: string, tag: string): ReleaseBuild => ({ releaseId: id, image: `reg/bo/shop:${tag}`, source: { owner: 'bo', repo: 'shop', commit: tag } });
 
@@ -133,7 +133,7 @@ describe('releasing an Odoo project', () => {
       await handle.signal('cutOver', 'r2');
       expect(await handle.result()).toEqual({ r2: { state: 'live', slot: 'b', e2e: PASSED } });
     });
-    expect(made.gates).toEqual([{ target, source: { owner: 'bo', repo: 'shop', commit: 'two' }, ownerId: 'bo', releaseId: 'r2', slot: 'b', image: 'reg/bo/shop:two', minutes: 20 }]);
+    expect(made.gates).toEqual([{ target, source: { owner: 'bo', repo: 'shop', commit: 'two' }, ownerId: 'bo', releaseId: 'r2', slot: 'b', image: 'reg/bo/shop:two' }]);
     expect(log).toEqual([
       'helm live=a a=one b=-', 'copy odoo_a>odoo_b', 'quiet odoo_b', 'job shop-filestore-b', 'job shop-upgrade-b', 'helm live=a a=one b=two preview', 'ready deployment/shop-odoo-b',
       'browser r2 slot b',

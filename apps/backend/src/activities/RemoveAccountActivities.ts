@@ -5,6 +5,7 @@ import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { labelValue } from '../engine-host/sandboxes/workspace.js';
 import type { DeploymentMetadata } from '../lib/types.js';
 import { planAppDestroys, type AppTeardown, type AppToDestroy } from './RemoveProjectActivities.js';
+import { CLI_CEILING } from '../lib/activity-liveness.js';
 
 export interface RemoveAccountArgs {
   ownerId: string;
@@ -77,7 +78,7 @@ export function createAccountRemovalActivities(deps: AccountRemovalDeps): Accoun
     },
 
     async RemoveAccountWorkspacesActivity({ ownerId }) {
-      const result = await deps.kube(['delete', 'namespace', '-l', `koala.dev/owner=${labelValue(ownerId)}`, '--wait=true', '--timeout=300s'], undefined, 330_000);
+      const result = await deps.kube(['delete', 'namespace', '-l', `koala.dev/owner=${labelValue(ownerId)}`, '--wait=true', `--timeout=${CLI_CEILING}`]);
       if (result.exitCode !== 0 && !/no resources found/i.test(`${result.stdout}${result.stderr}`)) {
         throw new Error(`the account's workspaces could not be deleted: ${result.stderr.trim() || result.stdout.trim()}`);
       }

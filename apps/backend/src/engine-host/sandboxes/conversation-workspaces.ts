@@ -71,7 +71,7 @@ export function createConversationWorkspaces(options: {
 
     async state(conversationId) {
       const namespace = workspaceName(conversationWorkspaceRunId(conversationId));
-      if ((await options.kube(['get', 'namespace', namespace, '-o', 'name'], undefined, 15_000)).exitCode !== 0) return 'none';
+      if ((await options.kube(['get', 'namespace', namespace, '-o', 'name'])).exitCode !== 0) return 'none';
       return (await workspaceRunning(options.kube, namespace, POD).catch(() => false)) ? 'running' : 'parked';
     },
 
@@ -83,7 +83,7 @@ export function createConversationWorkspaces(options: {
     async conclude(request) {
       const workspaceRunId = conversationWorkspaceRunId(request.conversationId);
       const namespace = workspaceName(workspaceRunId);
-      const exists = (await options.kube(['get', 'namespace', namespace, '-o', 'name'], undefined, 15_000)).exitCode === 0;
+      const exists = (await options.kube(['get', 'namespace', namespace, '-o', 'name'])).exitCode === 0;
       if (!exists) return { saved: false, why: 'nothing ever ran in this conversation\'s workspace' };
 
       if (!(await workspaceRunning(options.kube, namespace, POD).catch(() => false))) {
@@ -93,7 +93,7 @@ export function createConversationWorkspaces(options: {
           ticket: ticketFor(request),
           environment: { id: shared.id, spec: shared.capabilities, workspace: shared.workspace },
         });
-        await driver?.exec({ command: 'true', timeoutMs: 60_000 });
+        await driver?.exec({ command: 'true' });
       }
 
       const saved = await options.documents.save({ ownerId: request.ownerId, workspaceRunId, ...repoForWorkspace(workspaceRunId)! });

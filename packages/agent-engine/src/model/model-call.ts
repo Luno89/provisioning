@@ -1,6 +1,7 @@
 import type { ModelKind, SamplingConfig } from '@koala/harness-types';
 import { buildModelRequest } from './model-request.js';
 import { rateLimitedFetch } from './model-rate-limiter.js';
+import { patientFetch } from './patient-fetch.js';
 import { createStreamParser, type StreamEvent, type StreamToolCall } from '../runtime/stream.js';
 
 export interface EngineEndpoint {
@@ -93,7 +94,7 @@ export async function callModel(spec: ModelCallSpec, sink: StreamSink = () => un
     endpoint.rateLimitKey,
     endpoint.ownerId,
     endpoint.label,
-    spec.fetchImpl ?? fetch,
+    spec.fetchImpl ?? patientFetch,
   );
 
   const response = await doFetch(`${endpoint.baseUrl}/chat/completions`, {

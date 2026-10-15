@@ -96,7 +96,6 @@ export async function ProvisionHetznerVmActivity(
         ...(args.location ? { HETZNER_LOCATION: args.location } : {}),
         ...(args.image ? { HETZNER_IMAGE: args.image } : {}),
       },
-      timeout: 15 * 60 * 1000,
     });
 
     const raw = await fs.readFile(outputsFile, 'utf-8');
@@ -143,7 +142,6 @@ export async function DestroyHetznerVmActivity(args: DestroyHetznerVmArgs): Prom
       HCLOUD_TOKEN: args.hcloudToken,
       VM_SSH_PUBLIC_KEY: 'ssh-ed25519 AAAA placeholder',
     },
-    timeout: 15 * 60 * 1000,
   });
 
   if (!args.serverId) {

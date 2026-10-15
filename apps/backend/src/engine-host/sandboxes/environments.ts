@@ -145,7 +145,7 @@ export async function composeRunWorkspace(input: {
     image: reference,
     provides,
     egressMode: input.egressMode,
-    lifetimeMs: lifetimeFor(input.wallClockLimitMs),
+    ...(lifetimeFor(input.wallClockLimitMs) ? { lifetimeMs: lifetimeFor(input.wallClockLimitMs) } : {}),
     cpu: DEFAULT_CPU,
     memory: DEFAULT_MEMORY,
     egress: egressFor(input.egressMode, access, granted.length > 0 ? [EGRESS_PROXY] : []),

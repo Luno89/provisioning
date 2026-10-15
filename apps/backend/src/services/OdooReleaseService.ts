@@ -2,7 +2,6 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Client } from '@temporalio/client';
 import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../lib/types.js';
 import { ODOO_DATABASE_PASSWORD, ODOO_PROJECT_APP, ODOO_RELEASE_SECRETS, chartDatabaseSecret, vaultDatabaseSecret, newReleaseName, type ReleaseVault, releaseNameOf, releasePlace, releaseTargetOf, releaseWorkflowId, rollBackTarget, type OdooRelease, type ReleaseState } from '../lib/odoo-release.js';
-import { E2E_GATE_MINUTES } from '../lib/release-e2e.js';
 import type { ReleaseDecision } from '../lib/release-paths.js';
 import { vaultSecretName } from '../lib/infisical-sync.js';
 import type { TreeTypeSecret } from '../lib/tree-types.js';
@@ -174,7 +173,7 @@ export class OdooReleaseService {
 
   private inputFor(project: ProjectMetadata, cluster: ClusterMetadata, ownerId: string): OdooReleaseInput {
     const place = releasePlace(releaseNameOf(project));
-    return { target: releaseTargetOf(cluster, project), host: place.host, previewHost: place.previewHost, ownerId, e2eMinutes: E2E_GATE_MINUTES };
+    return { target: releaseTargetOf(cluster, project), host: place.host, previewHost: place.previewHost, ownerId };
   }
 
   async rollBackOffer(ownerId: string, projectId: string): Promise<RollBackOffer | undefined> {

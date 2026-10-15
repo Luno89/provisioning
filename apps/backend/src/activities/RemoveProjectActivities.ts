@@ -11,6 +11,7 @@ import { loadProjectScope } from '../services/ProjectRemovalService.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { workspaceName } from '../engine-host/sandboxes/workspace.js';
 import { conversationRepoName, conversationWorkspaceRunId, treeRepoName, treeWorkspaceRunId } from '../engine-host/sandboxes/workspace-repos.js';
+import { CLI_CEILING } from '../lib/activity-liveness.js';
 
 export interface RemoveProjectArgs {
   projectId: string;
@@ -125,7 +126,7 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
         ...found.scope.trees.flatMap((tree) => tree.scope.conversationIds.map(conversationWorkspaceRunId)),
       ];
       if (runIds.length === 0) return 0;
-      const result = await deps.kube(['delete', 'namespace', ...runIds.map(workspaceName), '--ignore-not-found', '--wait=true', '--timeout=300s'], undefined, 330_000);
+      const result = await deps.kube(['delete', 'namespace', ...runIds.map(workspaceName), '--ignore-not-found', '--wait=true', `--timeout=${CLI_CEILING}`]);
       if (result.exitCode !== 0) throw new Error(`the project's workspaces could not be deleted: ${result.stderr.trim() || result.stdout.trim()}`);
       return runIds.length;
     },

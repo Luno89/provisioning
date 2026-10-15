@@ -3,12 +3,12 @@ import type { DeployAppArgs, DeployAppResult } from '../activities/DeployAppActi
 import type { DownloadModelArgs } from '../activities/DownloadModelActivity.js';
 import type { VerifyGpuRuntimeArgs } from '../activities/VerifyGpuRuntimeActivity.js';
 import { awaitWorkload } from './await-workload.js';
-import { deployAppActivityMeta, downloadModelActivityMeta, verifyGpuRuntimeActivityMeta } from '../lib/activity-timeouts.js';
+import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 
-const { DeployAppActivity } = proxyActivities<{ DeployAppActivity: (args: DeployAppArgs) => Promise<DeployAppResult> }>({ retry: ACTIVITY_RETRY, startToCloseTimeout: deployAppActivityMeta.startToCloseTimeout });
-const { DownloadModelActivity } = proxyActivities<{ DownloadModelActivity: (args: DownloadModelArgs) => Promise<unknown> }>({ retry: ACTIVITY_RETRY, startToCloseTimeout: downloadModelActivityMeta.startToCloseTimeout });
-const { VerifyGpuRuntimeActivity } = proxyActivities<{ VerifyGpuRuntimeActivity: (args: VerifyGpuRuntimeArgs) => Promise<void> }>({ retry: { maximumAttempts: 1 }, startToCloseTimeout: verifyGpuRuntimeActivityMeta.startToCloseTimeout });
+const { DeployAppActivity } = proxyActivities<{ DeployAppActivity: (args: DeployAppArgs) => Promise<DeployAppResult> }>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
+const { DownloadModelActivity } = proxyActivities<{ DownloadModelActivity: (args: DownloadModelArgs) => Promise<unknown> }>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
+const { VerifyGpuRuntimeActivity } = proxyActivities<{ VerifyGpuRuntimeActivity: (args: VerifyGpuRuntimeArgs) => Promise<void> }>({ retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY });
 
 export async function executeDeployAppWorkflow(args: DeployAppArgs) {
   if (args.appType === 'tabbyapi' && (args.tabbyGpuCount === undefined || args.tabbyGpuCount > 0)) {

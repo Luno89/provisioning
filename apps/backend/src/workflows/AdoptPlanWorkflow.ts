@@ -6,6 +6,7 @@ import type { AdoptedRecords } from '../engine-host/plan-adoption.js';
 import type { AdoptedPlan } from '../lib/plan-proposals.js';
 import { RUN_ID_MEMO, groveRunWorkflowId, type AdoptPlanArgs, type AdoptPlanResult, type ProcedureRunInput } from '../engine-host/temporal/contracts.js';
 import { ownerIn, startedFor } from '../lib/workflow-owner.js';
+import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
 
 const { PlanAdoptStopActivity, PlanAdoptRecordsActivity, PlanAdoptDocumentsActivity, PlanAdoptSettleActivity, GroveRunInputActivity } = proxyActivities<{
   GroveRunInputActivity(args: { treeId: string; ownerId: string }): Promise<ProcedureRunInput>;
@@ -15,7 +16,7 @@ const { PlanAdoptStopActivity, PlanAdoptRecordsActivity, PlanAdoptDocumentsActiv
   PlanAdoptSettleActivity(args: AdoptPlanArgs & { status: 'adopted' | 'failed'; adopted?: AdoptedPlan | undefined; reason?: string | undefined }): Promise<void>;
 }>({
   retry: { ...ACTIVITY_RETRY, maximumAttempts: 3 },
-  startToCloseTimeout: '15 minutes',
+  ...LIVE_ACTIVITY,
 });
 
 const reasonOf = (err: unknown): string => {

@@ -10,8 +10,6 @@ export const E2E_LOGIN = 'koala-e2e';
 export const E2E_WORKDIR = '/work';
 export const E2E_DONE = 'done';
 export const E2E_INSTALL_FAILED = 'install';
-export const E2E_HOLD_SECONDS = 600;
-export const E2E_GATE_MINUTES = 20;
 export const MAX_SPEC_BYTES = 900 * 1024;
 
 export type ReleaseE2EState = 'running' | 'passed' | 'failed' | 'unavailable' | 'stopped';
@@ -66,15 +64,15 @@ export const RUNNER_SCRIPT = [
   `cp -rL /specs/${E2E_DIR} /specs/${E2E_CONFIG} ${E2E_WORKDIR}/`,
   `if ! npm install --no-save --no-audit --no-fund --loglevel=error @playwright/test@${PLAYWRIGHT_VERSION} > npm.log 2>&1; then`,
   `  echo ${E2E_INSTALL_FAILED} > ${E2E_DONE}.tmp && mv ${E2E_DONE}.tmp ${E2E_DONE}`,
-  '  sleep "$HOLD_SECONDS"; exit 0',
+  '  exec sleep infinity',
   'fi',
   'mkdir -p e2e-results',
   `PLAYWRIGHT_JSON_OUTPUT_NAME=${E2E_WORKDIR}/e2e-results/report.json npx playwright test --reporter=line,json --output=${E2E_WORKDIR}/${E2E_RESULTS_DIR} > run.log 2>&1`,
   `echo $? > ${E2E_DONE}.tmp && mv ${E2E_DONE}.tmp ${E2E_DONE}`,
-  'sleep "$HOLD_SECONDS"',
+  'exec sleep infinity',
 ].join('\n');
 
-export function browserTestsJob(input: { release: string; slot: Slot; items: readonly { key: string; path: string }[]; minutes: number }): Record<string, unknown> {
+export function browserTestsJob(input: { release: string; slot: Slot; items: readonly { key: string; path: string }[] }): Record<string, unknown> {
   const labels = { ...releaseLabels(input.release), 'app.kubernetes.io/component': 'e2e' };
   return {
     apiVersion: 'batch/v1',
@@ -82,7 +80,6 @@ export function browserTestsJob(input: { release: string; slot: Slot; items: rea
     metadata: { name: releaseE2EName(input.release), labels },
     spec: {
       backoffLimit: 0,
-      activeDeadlineSeconds: input.minutes * 60 + E2E_HOLD_SECONDS,
       ttlSecondsAfterFinished: 600,
       template: {
         metadata: { labels },
@@ -96,7 +93,6 @@ export function browserTestsJob(input: { release: string; slot: Slot; items: rea
               { name: 'BASE_URL', value: previewAddress(input.release, input.slot) },
               { name: 'ODOO_LOGIN', value: E2E_LOGIN },
               { name: 'ODOO_PASSWORD', valueFrom: { secretKeyRef: { name: releaseLoginSecret(input.release), key: 'password' } } },
-              { name: 'HOLD_SECONDS', value: String(E2E_HOLD_SECONDS) },
               { name: 'CI', value: '1' },
             ],
             resources: { requests: { cpu: '250m', memory: '512Mi' }, limits: { memory: '2Gi' } },

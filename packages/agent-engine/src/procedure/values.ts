@@ -100,6 +100,17 @@ export type EnvironmentValue =
   | { kind: 'sandbox'; id: string; workspace: RunWorkspace; capabilities: EnvironmentSpec; worktree?: string | undefined }
   | { kind: 'machine'; deviceId: string; deviceName: string; path?: string | undefined; egressMode: EgressMode };
 
+export interface ExternalAgentIdentity {
+  name: string;
+  title?: string | undefined;
+  version?: string | undefined;
+}
+
+export type ExternalAgentOutcome =
+  | { outcome: 'finished'; stopReason: string; text: string; identity: ExternalAgentIdentity; sessionId: string }
+  | { outcome: 'stopped'; stopReason: string; text: string; identity: ExternalAgentIdentity; sessionId: string; reason: string }
+  | { outcome: 'failed'; text: string; reason: string; identity?: ExternalAgentIdentity | undefined; sessionId?: string | undefined };
+
 export interface RecalledMemory {
   id: string;
   title: string;

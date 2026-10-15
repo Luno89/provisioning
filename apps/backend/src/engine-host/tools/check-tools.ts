@@ -14,7 +14,6 @@ export interface CheckRunView {
   error?: string | undefined;
 }
 
-export const READ_RESULT_WAIT_MS = 60_000;
 const POLL_MS = 3_000;
 
 export interface CheckAccess {
@@ -60,8 +59,7 @@ const pace = (scenario: Scenario): string => {
   return `on the person's model${times} — it can take minutes`;
 };
 
-export function createCheckTools(access: CheckAccess, options: { waitMs?: number | undefined; pollMs?: number | undefined } = {}): Record<string, ToolHandler> {
-  const waitMs = options.waitMs ?? READ_RESULT_WAIT_MS;
+export function createCheckTools(access: CheckAccess, options: { pollMs?: number | undefined } = {}): Record<string, ToolHandler> {
   const pollMs = options.pollMs ?? POLL_MS;
   const save = async (parsed: Record<string, unknown>, ownerId: string | undefined, how: 'new' | 'replace'): Promise<ToolOutcome> => {
     if (!ownerId) return refuse('this run has no owner to save a check for');
@@ -136,17 +134,17 @@ export function createCheckTools(access: CheckAccess, options: { waitMs?: number
       return done(`started run ${started.runId} of ${id} ${pace(scenario)}; read it with read_check_result, which waits for it`);
     },
 
-    async read_check_result({ parsed, caller }) {
+    async read_check_result({ parsed, caller, signal }) {
       const ownerId = caller.ownerId;
       const runId = text(parsed, 'runId');
       if (!ownerId || !runId) return refuse('give the run id run_check returned');
       let run = await access.run(ownerId, runId);
       if (!run) return refuse(`there is no check run called "${runId}"`);
-      for (let waited = 0; run.state === 'running' && waited < waitMs; waited += pollMs) {
+      while (run.state === 'running' && !signal?.aborted) {
         await new Promise((settle) => setTimeout(settle, pollMs));
         run = (await access.run(ownerId, runId)) ?? run;
       }
-      if (run.state === 'running') return done(`still running after ${Math.round(waitMs / 1000)}s (${run.results.length} of ${run.scenarios.length} finished) — read it again to keep waiting`);
+      if (run.state === 'running') return refuse(`stopped while waiting for ${runId} (${run.results.length} of ${run.scenarios.length} finished)`);
       if (run.results.length === 0) return done(`it ended ${run.state} without a result${run.error ? `: ${run.error}` : ''}`);
       return done(run.results.map((result) => `${result.scenarioId}: ${describeResult(result)}`).join('\n'));
     },

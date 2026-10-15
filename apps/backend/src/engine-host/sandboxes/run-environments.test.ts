@@ -145,19 +145,37 @@ describe('run-owned environments', () => {
     await expect(environments.forRun({ ticket: ticket('run-1'), spec })).resolves.toBeDefined();
   });
 
-  it('sweeps an environment whose run never released it, and says so', async () => {
-    const onLeak = vi.fn();
-    const { environments, disposed, clock } = harness({ maxAgeMs: 60_000, onLeak });
+  it('never sweeps an environment while its run goes on, however old it is', async () => {
+    const { environments, disposed, clock } = harness({ ended: async () => false });
 
     await environments.forRun({ ticket: ticket('run-1'), spec });
-    clock.now = 30_000;
+    clock.now = 30 * 24 * 60 * 60_000;
+    expect(await environments.sweep()).toEqual([]);
+    expect(disposed).toEqual([]);
+  });
+
+  it('sweeps an environment whose run ended without releasing it, and says so', async () => {
+    const onLeak = vi.fn();
+    let over = false;
+    const { environments, disposed, clock } = harness({ ended: async () => over, onLeak });
+
+    await environments.forRun({ ticket: ticket('run-1'), spec });
+    clock.now = 60_000;
     expect(await environments.sweep()).toEqual([]);
 
-    clock.now = 60_000;
+    over = true;
     expect(await environments.sweep()).toEqual(['run-1']);
-
     expect(disposed).toHaveLength(1);
     expect(onLeak).toHaveBeenCalledWith('run-1', 60_000);
+  });
+
+  it('sweeps nothing when it cannot tell whether runs have ended', async () => {
+    const { environments, disposed, clock } = harness();
+
+    await environments.forRun({ ticket: ticket('run-1'), spec });
+    clock.now = 30 * 24 * 60 * 60_000;
+    expect(await environments.sweep()).toEqual([]);
+    expect(disposed).toEqual([]);
   });
 
   it('passes the run through so the pod can be owned by whoever started it', async () => {
@@ -196,7 +214,7 @@ describe('handed environments', () => {
 
   it('re-attaches to a handed pod it has not seen, and the sweep forgets it without tearing it down', async () => {
     const onLeak = vi.fn();
-    const { environments, disposed, provisioned, clock } = harness({ maxAgeMs: 60_000, onLeak });
+    const { environments, disposed, provisioned, clock } = harness({ ended: async () => true, onLeak });
 
     await environments.forRun({ ticket: ticket('run-1-executor-1'), id: environmentIdFor('tree-abc'), spec });
     expect(provisioned[0]?.id).toBe(environmentIdFor('tree-abc'));

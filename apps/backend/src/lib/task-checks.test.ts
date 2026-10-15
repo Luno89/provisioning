@@ -164,7 +164,7 @@ describe('browser tests a task carries', () => {
     const outcomes = await runTaskChecks({ ...world, exec: (command, timeoutMs) => { timeouts.push(timeoutMs); return world.exec(command); } }, { e2e: { specs: ['e2e/a.spec.ts'] } });
 
     expect(world.ran[0]).toBe(`rm -rf e2e-results && mkdir -p e2e-results && koala-e2e 'e2e/a.spec.ts'`);
-    expect(timeouts).toEqual([15 * 60_000]);
+    expect(timeouts).toEqual([undefined]);
     expect(outcomes).toEqual([
       { check: 'the browser tests in e2e/a.spec.ts pass against the workspace\'s own app', passed: true, says: '1 passed, 0 failed' },
       { check: 'browser test "signs in" (a.spec.ts)', passed: true, says: 'it passed' },

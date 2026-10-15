@@ -1,3 +1,4 @@
+import { patientFetch } from '@koala/agent-engine';
 
 export interface SearchHit {
   title: string;
@@ -49,39 +50,33 @@ export interface PageOutcome {
 }
 
 export interface WebTools {
-  search: (query: string) => Promise<SearchOutcome>;
-  fetchPage: (url: string) => Promise<string>;
-  readPage: (url: string) => Promise<PageOutcome>;
+  search: (query: string, signal?: AbortSignal) => Promise<SearchOutcome>;
+  fetchPage: (url: string, signal?: AbortSignal) => Promise<string>;
+  readPage: (url: string, signal?: AbortSignal) => Promise<PageOutcome>;
   sources: { search: 'searxng' | 'duckduckgo'; fetch: 'crawl4ai' | 'strip-tags' };
 }
 
-const SEARCH_TIMEOUT_MS = 15_000;
-const FETCH_TIMEOUT_MS = 60_000;
 const MAX_PAGE_CHARS = 8000;
 
 async function tryFetch(
   doFetch: typeof fetch,
   url: string,
   init: RequestInit,
-  timeoutMs: number,
+  signal: AbortSignal | undefined,
 ): Promise<Response | undefined> {
-  const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), timeoutMs);
   try {
-    return await doFetch(url, { ...init, signal: abort.signal });
+    return await doFetch(url, { ...init, ...(signal ? { signal } : {}) });
   } catch {
     return undefined;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
-async function duckduckgo(doFetch: typeof fetch, query: string): Promise<SearchHit[] | undefined> {
+async function duckduckgo(doFetch: typeof fetch, query: string, signal?: AbortSignal): Promise<SearchHit[] | undefined> {
   const res = await tryFetch(doFetch, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     },
-  }, SEARCH_TIMEOUT_MS);
+  }, signal);
   if (!res?.ok) return undefined;
 
   const html = await res.text().catch(() => '');
@@ -102,9 +97,9 @@ async function duckduckgo(doFetch: typeof fetch, query: string): Promise<SearchH
   return hits;
 }
 
-async function searxng(doFetch: typeof fetch, base: string, query: string): Promise<SearchHit[] | undefined> {
+async function searxng(doFetch: typeof fetch, base: string, query: string, signal?: AbortSignal): Promise<SearchHit[] | undefined> {
   const url = `${base.replace(/\/$/, '')}/search?q=${encodeURIComponent(query)}&format=json`;
-  const res = await tryFetch(doFetch, url, { headers: { accept: 'application/json' } }, SEARCH_TIMEOUT_MS);
+  const res = await tryFetch(doFetch, url, { headers: { accept: 'application/json' } }, signal);
   if (!res?.ok) return undefined;
 
   const body = await res.json().catch(() => undefined) as { results?: unknown[] } | undefined;
@@ -120,12 +115,12 @@ async function searxng(doFetch: typeof fetch, base: string, query: string): Prom
   }).filter((h) => h.url);
 }
 
-async function stripTags(doFetch: typeof fetch, url: string): Promise<PageOutcome> {
+async function stripTags(doFetch: typeof fetch, url: string, signal?: AbortSignal): Promise<PageOutcome> {
   const res = await tryFetch(doFetch, url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     },
-  }, FETCH_TIMEOUT_MS);
+  }, signal);
   if (!res) return { ok: false, text: 'Failed to fetch page.' };
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) {
@@ -153,12 +148,12 @@ async function stripTags(doFetch: typeof fetch, url: string): Promise<PageOutcom
 function crawl4ai(doFetch: typeof fetch, base: string, token: string) {
   const root = base.replace(/\/$/, '');
 
-  return async (url: string): Promise<string | undefined> => {
+  return async (url: string, signal?: AbortSignal): Promise<string | undefined> => {
     const res = await tryFetch(doFetch, `${root}/md`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
       body: JSON.stringify({ url }),
-    }, FETCH_TIMEOUT_MS);
+    }, signal);
     if (!res?.ok) return undefined;
 
     const body = await res.json().catch(() => undefined) as { markdown?: unknown } | undefined;
@@ -168,7 +163,7 @@ function crawl4ai(doFetch: typeof fetch, base: string, token: string) {
 }
 
 export function createWebTools(config: WebToolsConfig = {}): WebTools {
-  const doFetch = config.fetchImpl ?? fetch;
+  const doFetch = config.fetchImpl ?? patientFetch;
   const scrape = config.crawl4aiUrl && config.crawl4aiToken
     ? crawl4ai(doFetch, config.crawl4aiUrl, config.crawl4aiToken)
     : undefined;
@@ -179,31 +174,31 @@ export function createWebTools(config: WebToolsConfig = {}): WebTools {
       fetch: scrape ? 'crawl4ai' : 'strip-tags',
     },
 
-    async search(query: string): Promise<SearchOutcome> {
+    async search(query: string, signal?: AbortSignal): Promise<SearchOutcome> {
       if (!query.trim()) return { hits: [], unavailable: false };
 
       if (config.searxngUrl) {
-        const hits = await searxng(doFetch, config.searxngUrl, query);
+        const hits = await searxng(doFetch, config.searxngUrl, query, signal);
         if (hits) return { hits, answeredBy: 'searxng', unavailable: false };
       }
 
-      const hits = await duckduckgo(doFetch, query);
+      const hits = await duckduckgo(doFetch, query, signal);
       if (hits) return { hits, answeredBy: 'duckduckgo', unavailable: false };
 
       return { hits: [], unavailable: true };
     },
 
-    async readPage(url: string): Promise<PageOutcome> {
+    async readPage(url: string, signal?: AbortSignal): Promise<PageOutcome> {
       if (!/^https?:\/\//i.test(url)) return { ok: false, text: 'Only http and https URLs can be fetched.' };
       if (scrape) {
-        const markdown = await scrape(url);
+        const markdown = await scrape(url, signal);
         if (markdown) return { ok: true, text: markdown };
       }
-      return stripTags(doFetch, url);
+      return stripTags(doFetch, url, signal);
     },
 
-    async fetchPage(url: string): Promise<string> {
-      return (await this.readPage(url)).text;
+    async fetchPage(url: string, signal?: AbortSignal): Promise<string> {
+      return (await this.readPage(url, signal)).text;
     },
   };
 }

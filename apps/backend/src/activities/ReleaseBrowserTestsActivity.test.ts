@@ -14,7 +14,6 @@ const input: ReleaseBrowserTestsInput = {
   releaseId: 'r2',
   slot: 'b',
   image: 'reg/bo/shop:two',
-  minutes: 1,
 };
 
 function repo(files: Record<string, string>): SpecSource {
@@ -60,7 +59,7 @@ function cluster(options: { done?: string; report?: string; files?: Record<strin
       }
       if (args[0] === 'get' && args[1] === 'job') return options.loginFails ? '|1' : '1|';
       if (args[0] === 'logs') return 'Traceback (most recent call last):\nKeyError: base.user_admin';
-      if (args[0] === 'get' && args[1] === 'pod') return `shop-e2e-x1|${options.podPhase ?? 'Running'}|`;
+      if (args[0] === 'get' && args[1] === 'pod') return JSON.stringify({ items: [{ metadata: { name: 'shop-e2e-x1' }, status: { phase: options.podPhase ?? 'Running', containerStatuses: [{ ready: true, restartCount: 0, state: {} }] } }] });
       if (args[0] === 'exec') return run(args.at(-1)!.replace(/^cd \/work && /, ''));
       return '';
     },
@@ -181,7 +180,7 @@ describe('a check browsing its project\'s release', () => {
     await releases.browse({ ownerId: 'space-1', projectId: 'p1', release, specs: { 'e2e/live.spec.ts': 'test()' }, keepUnder: 'run-1' });
     expect(runs).toEqual([expect.objectContaining({
       target: { clusterName: 'provisioning-lunorica', provider: 'k3d', namespace: 'shop', release: 'shop', owner: { ownerId: 'space-1', projectId: 'p1' } },
-      ownerId: 'space-1', keepUnder: 'run-1', slot: 'a', image: 'reg/shop:2', minutes: 20,
+      ownerId: 'space-1', keepUnder: 'run-1', slot: 'a', image: 'reg/shop:2',
       files: [expect.objectContaining({ path: 'playwright.config.ts' }), { path: 'e2e/live.spec.ts', content: 'test()' }],
     })]);
   });

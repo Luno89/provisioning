@@ -17,7 +17,7 @@ const quote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
 const at = (relative: string): string => `/work/${relative}`;
 
 async function run(driver: EnvironmentDriver, command: string): Promise<{ ok: boolean; out: string }> {
-  const outcome = await driver.exec({ command, timeoutMs: 120_000 });
+  const outcome = await driver.exec({ command });
   return { ok: outcome.exitCode === 0, out: (outcome.stdout || outcome.stderr).trim() };
 }
 

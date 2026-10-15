@@ -1,4 +1,5 @@
 import { ApplicationFailure } from '@temporalio/common';
+import { assessWorkload } from '../lib/workload-health.js';
 
 export interface NamespacedCluster {
   kubectl(args: string[]): Promise<string>;
@@ -16,11 +17,29 @@ export const inNamespace = (manifest: Record<string, unknown>, namespace: string
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export async function runClusterJob(cluster: NamespacedCluster, input: { name: string; namespace: string; manifest: Record<string, unknown>; timeoutMs: number }, watch: JobWatch): Promise<void> {
+export const rolledOut = (said: string): boolean => /successfully rolled out|roll out complete|rolling update complete/i.test(said);
+
+export async function waitUntilRolledOut(cluster: NamespacedCluster, workload: string, watch: JobWatch): Promise<void> {
+  const prefix = `${workload.slice(workload.indexOf('/') + 1)}-`;
+  for (;;) {
+    watch.beat(workload);
+    watch.stopped?.();
+    const said = await cluster.kubectl(['rollout', 'status', workload, '--watch=false']).catch(() => '');
+    if (rolledOut(said)) return;
+    const pods = await cluster.kubectl(['get', 'pods', '-o', 'json']).catch(() => '');
+    if (pods) {
+      const mine = { items: ((JSON.parse(pods) as { items?: { metadata?: { name?: string } }[] }).items ?? []).filter((pod) => pod.metadata?.name?.startsWith(prefix)) };
+      const health = assessWorkload(mine);
+      if (health.health === 'unhealthy') throw ApplicationFailure.nonRetryable(`${workload} cannot become ready: ${health.reason}`);
+    }
+    await sleep(watch.pollMs ?? 5_000);
+  }
+}
+
+export async function runClusterJob(cluster: NamespacedCluster, input: { name: string; namespace: string; manifest: Record<string, unknown> }, watch: JobWatch): Promise<void> {
   await cluster.kubectl(['delete', 'job', input.name, '--ignore-not-found', '--wait=true']);
   await cluster.apply({ ...input.manifest, metadata: { ...(input.manifest.metadata as object), name: input.name, namespace: input.namespace } });
-  const until = Date.now() + input.timeoutMs;
-  while (Date.now() < until) {
+  for (;;) {
     watch.beat(input.name);
     watch.stopped?.();
     const status = await cluster.kubectl(['get', 'job', input.name, '-o', 'jsonpath={.status.succeeded}|{.status.failed}']);
@@ -31,8 +50,9 @@ export async function runClusterJob(cluster: NamespacedCluster, input: { name: s
       const said = logs.split('\n').filter((line) => /ERROR|CRITICAL|Traceback|Error/.test(line)).slice(-6).join('\n') || logs.split('\n').slice(-8).join('\n');
       throw ApplicationFailure.nonRetryable(`${input.name} failed:\n${said.slice(-1500)}`);
     }
+    const pods = await cluster.kubectl(['get', 'pods', '-l', `job-name=${input.name}`, '-o', 'json']).catch(() => '');
+    const health = pods ? assessWorkload(JSON.parse(pods)) : undefined;
+    if (health?.health === 'unhealthy') throw ApplicationFailure.nonRetryable(`${input.name} cannot run: ${health.reason}`);
     await sleep(watch.pollMs ?? 5_000);
   }
-  const pod = await cluster.kubectl(['get', 'pod', '-l', `job-name=${input.name}`, '-o', 'jsonpath={.items[0].status.phase} {.items[0].status.containerStatuses[0].state.waiting.reason} {.items[0].status.containerStatuses[0].state.waiting.message}']).catch(() => '');
-  throw ApplicationFailure.nonRetryable(`${input.name} did not finish in ${Math.round(input.timeoutMs / 60_000)} minutes${pod.trim() ? `; its pod: ${pod.trim().slice(0, 400)}` : ''}`);
 }

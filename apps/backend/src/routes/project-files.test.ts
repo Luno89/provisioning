@@ -53,9 +53,10 @@ async function mount(gitea: Record<string, unknown>, opts: { seedProject?: boole
 
 function fakeSocket(handler: (event: string, payload: unknown, ack: (...args: any[]) => void) => void): Socket {
   return {
-    timeout: () => ({
-      emit: (event: string, payload: unknown, ack: (...args: any[]) => void) => handler(event, payload, ack),
-    }),
+    connected: true,
+    once: () => undefined,
+    off: () => undefined,
+    emit: (event: string, payload: unknown, ack: (...args: any[]) => void) => handler(event, payload, ack),
   } as unknown as Socket;
 }
 
@@ -171,7 +172,7 @@ describe('a project scoped to a local machine', () => {
     registerDevice('dev-1', TEST_USER.id, '/x', fakeSocket((event, payload, ack) => {
       expect(event).toBe('sandbox:listDir');
       expect(payload).toEqual({ path: 'src' });
-      ack(null, { entries: [{ name: 'index.ts', path: 'src/index.ts', type: 'file' }] });
+      ack({ entries: [{ name: 'index.ts', path: 'src/index.ts', type: 'file' }] });
     }));
     const harness = await mountForDevice();
 
@@ -181,7 +182,7 @@ describe('a project scoped to a local machine', () => {
 
   it('reads file content and derives a sha from it', async () => {
     registerDevice('dev-1', TEST_USER.id, '/x', fakeSocket((_event, _payload, ack) => {
-      ack(null, { content: '# hi' });
+      ack({ content: '# hi' });
     }));
     const harness = await mountForDevice();
 
@@ -193,7 +194,7 @@ describe('a project scoped to a local machine', () => {
 
   it('404s a file that does not exist on the device', async () => {
     registerDevice('dev-1', TEST_USER.id, '/x', fakeSocket((_event, _payload, ack) => {
-      ack(null, { error: 'ENOENT: no such file or directory' });
+      ack({ error: 'ENOENT: no such file or directory' });
     }));
     const harness = await mountForDevice();
 
@@ -204,9 +205,9 @@ describe('a project scoped to a local machine', () => {
   it('writes a file over the local-agent connection when the sha matches', async () => {
     let wrote: unknown;
     registerDevice('dev-1', TEST_USER.id, '/x', fakeSocket((event, payload: any, ack) => {
-      if (event === 'sandbox:readFile') return ack(null, { content: 'old' });
+      if (event === 'sandbox:readFile') return ack({ content: 'old' });
       wrote = { event, payload };
-      ack(null);
+      ack();
     }));
     const harness = await mountForDevice();
 
@@ -220,7 +221,7 @@ describe('a project scoped to a local machine', () => {
 
   it('refuses to write with a stale sha, 409', async () => {
     registerDevice('dev-1', TEST_USER.id, '/x', fakeSocket((_event, _payload, ack) => {
-      ack(null, { content: 'changed on disk' });
+      ack({ content: 'changed on disk' });
     }));
     const harness = await mountForDevice();
 
@@ -233,9 +234,9 @@ describe('a project scoped to a local machine', () => {
   it('deletes a file when the sha matches', async () => {
     let deleted: unknown;
     registerDevice('dev-1', TEST_USER.id, '/x', fakeSocket((event, payload: any, ack) => {
-      if (event === 'sandbox:readFile') return ack(null, { content: 'bye' });
+      if (event === 'sandbox:readFile') return ack({ content: 'bye' });
       deleted = { event, payload };
-      ack(null);
+      ack();
     }));
     const harness = await mountForDevice();
 
@@ -247,7 +248,7 @@ describe('a project scoped to a local machine', () => {
 
   it('refuses to delete a file that no longer exists, 409', async () => {
     registerDevice('dev-1', TEST_USER.id, '/x', fakeSocket((_event, _payload, ack) => {
-      ack(null, { error: 'ENOENT: no such file or directory' });
+      ack({ error: 'ENOENT: no such file or directory' });
     }));
     const harness = await mountForDevice();
 

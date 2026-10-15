@@ -1,5 +1,5 @@
 import type { HostOperation } from '@koala/agent-engine/procedure';
-import { E2E_DEFAULT_SPECS, E2E_TIMEOUT_MS } from '../../../lib/e2e.js';
+import { E2E_DEFAULT_SPECS } from '../../../lib/e2e.js';
 
 export const PLATFORM_OPERATIONS: readonly HostOperation[] = [
   {
@@ -24,7 +24,7 @@ export const PLATFORM_OPERATIONS: readonly HostOperation[] = [
       properties: {
         specs: { type: 'array', title: 'Specs', describe: 'Playwright spec files or folders, relative to the workspace.', items: { type: 'string', minLength: 1 }, default: E2E_DEFAULT_SPECS, minItems: 1 },
         url: { type: 'string', title: 'Address', describe: 'Leave empty to test the app the workspace serves. Otherwise an http or https address that needs no login, since the workspace\'s agent can read anything given to it.' },
-        minutes: { type: 'integer', title: 'Time limit (minutes)', minimum: 1, maximum: 120, default: E2E_TIMEOUT_MS / 60_000 },
+        minutes: { type: 'integer', title: 'Stop after (minutes)', describe: 'Leave it empty to let the tests run until they end.', minimum: 1 },
       },
     },
     summary: 'runs browser tests',

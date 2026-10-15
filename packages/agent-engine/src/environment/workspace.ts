@@ -11,10 +11,6 @@ export const POD = 'workspace';
 export const DEFAULT_CPU = '2';
 export const DEFAULT_MEMORY = '2Gi';
 
-export const DEFAULT_LIFETIME_MS = 30 * 60_000;
-
-export const MAX_LIFETIME_MS = 12 * 60 * 60_000;
-
 export const EGRESS_PROXY: EgressRule = { namespace: 'koala-egress', ports: [8888] };
 
 export interface RunWorkspace {
@@ -23,7 +19,7 @@ export interface RunWorkspace {
   agent: string;
   image: string;
   provides: string[];
-  lifetimeMs: number;
+  lifetimeMs?: number | undefined;
   cpu: string;
   memory: string;
   egress: EgressRule[];
@@ -95,9 +91,8 @@ export function workspaceName(runId: string): string {
   return `koala-run-${slug}`.slice(0, 63).replace(/-+$/, '');
 }
 
-export function lifetimeFor(budgetMs: number | undefined): number {
-  const wanted = budgetMs && budgetMs > 0 ? budgetMs * 1.25 : DEFAULT_LIFETIME_MS;
-  return Math.min(Math.ceil(wanted), MAX_LIFETIME_MS);
+export function lifetimeFor(budgetMs: number | undefined): number | undefined {
+  return budgetMs && budgetMs > 0 ? Math.ceil(budgetMs * 1.25) : undefined;
 }
 
 export function egressFor(
@@ -146,7 +141,7 @@ function packageNote(workspace: RunWorkspace): string {
 }
 
 export function describeWorkspace(workspace: RunWorkspace, worktree?: string, self?: { agent: string; runId: string }): string {
-  const minutes = Math.round(workspace.lifetimeMs / 60_000);
+  const minutes = workspace.lifetimeMs ? Math.round(workspace.lifetimeMs / 60_000) : undefined;
   const open = workspace.egressMode === 'auto';
   const hosts = reachable(workspace);
 
@@ -193,9 +188,14 @@ export function describeWorkspace(workspace: RunWorkspace, worktree?: string, se
         `- This container belongs to the tree, not to this run: ${WORK_DIR} is kept between runs and other runs of the tree`,
         '  work in it too, each in its own worktree. Commit your work on your branch — that is what is judged.',
       ]
-      : [
+      : minutes
+      ? [
         `- This container belongs to this run alone and is destroyed when the run ends, or after`,
         `  ${minutes} minutes, whichever comes first. Anything not committed or returned as an output is lost.`,
+      ]
+      : [
+        '- This container belongs to this run alone and lasts as long as the run. It is destroyed when',
+        '  the run ends, and anything not committed or returned as an output is lost with it.',
       ]),
     `- Available: ${workspace.provides.join(', ')}.`,
     `- NOT installed: ${absentFrom(workspace.provides).join(', ')}. Do not plan around them.`,

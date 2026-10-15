@@ -16,14 +16,14 @@ afterEach(async () => {
 });
 
 describe('running kubectl', () => {
-  it('still stops a call at its limit by default, and says it was the limit', async () => {
+  it('stops a call at the limit its caller set, and says it was the limit', async () => {
     const result = await createKubeRunner({ binDir })(['5'], undefined, 200);
     expect(result.stopped).toBe('timeout');
     expect(result.stdout).toBe('started 5\n');
   });
 
-  it('lets an untimed call run past any limit until it ends', async () => {
-    const result = await createKubeRunner({ binDir })(['0.4'], undefined, 100, { untimed: true });
+  it('lets a call with no limit run until it ends', async () => {
+    const result = await createKubeRunner({ binDir })(['0.4']);
     expect(result).toEqual({ stdout: 'started 0.4\n', stderr: '', exitCode: 0 });
   });
 
@@ -31,7 +31,6 @@ describe('running kubectl', () => {
     const order: string[] = [];
     const stop = new AbortController();
     const running = createKubeRunner({ binDir })(['30'], undefined, undefined, {
-      untimed: true,
       signal: stop.signal,
       onStop: async (why) => { order.push(`clean-up for ${why}`); await new Promise((resolve) => setTimeout(resolve, 100)); order.push('cleaned'); },
     });

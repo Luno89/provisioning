@@ -39,7 +39,7 @@ describe('the browser tests a release runs against its preview', () => {
   });
 
   it('runs Playwright against the preview slot inside the cluster, signed in as the test login from the release\'s secret', () => {
-    const job = browserTestsJob({ release: 'shop', slot: 'b', items: [{ key: 'f0', path: 'e2e/a.spec.ts' }], minutes: 20 }) as { spec: { activeDeadlineSeconds: number; template: { spec: { containers: { image: string; env: { name: string; value?: string; valueFrom?: unknown }[] }[]; volumes: unknown[] } } } };
+    const job = browserTestsJob({ release: 'shop', slot: 'b', items: [{ key: 'f0', path: 'e2e/a.spec.ts' }] }) as { spec: { activeDeadlineSeconds?: number; template: { spec: { containers: { image: string; env: { name: string; value?: string; valueFrom?: unknown }[] }[]; volumes: unknown[] } } } };
     const container = job.spec.template.spec.containers[0]!;
     expect(container.image).toBe('mcr.microsoft.com/playwright:v1.48.2-noble');
     expect(container.env).toEqual(expect.arrayContaining([
@@ -48,7 +48,7 @@ describe('the browser tests a release runs against its preview', () => {
       { name: 'ODOO_PASSWORD', valueFrom: { secretKeyRef: { name: 'shop-e2e-login', key: 'password' } } },
     ]));
     expect(job.spec.template.spec.volumes).toEqual([{ name: 'specs', configMap: { name: 'shop-e2e', items: [{ key: 'f0', path: 'e2e/a.spec.ts' }] } }]);
-    expect(job.spec.activeDeadlineSeconds).toBe(20 * 60 + 600);
+    expect(job.spec.activeDeadlineSeconds).toBeUndefined();
     expect(previewAddress('shop', 'a')).toBe('http://shop-odoo-a:8069');
     expect(RUNNER_SCRIPT).toContain('npm install --no-save --no-audit --no-fund --loglevel=error @playwright/test@1.48.2');
     expect(RUNNER_SCRIPT).toContain('PLAYWRIGHT_JSON_OUTPUT_NAME=/work/e2e-results/report.json npx playwright test --reporter=line,json --output=/work/e2e-results/artifacts');

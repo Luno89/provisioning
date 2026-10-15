@@ -1,4 +1,4 @@
-import { BUILD_TIMEOUT_MS, countsIn, lastComplaint, pickAddress } from './image-builder.js';
+import { countsIn, lastComplaint, pickAddress } from './image-builder.js';
 import { describe, it, expect, vi } from 'vitest';
 import { createImageBuilder, discoverRegistry, ImageBuildError } from './image-builder.js';
 import { imageReference, planImage, type ToolDefinition } from '@koala/agent-engine';
@@ -109,29 +109,38 @@ describe('building what does', () => {
     await expect(build.ensure(CUSTOM)).rejects.toThrow(/no such package/);
   });
 
-  it('says a build failed when it fails, rather than waiting out the build timeout', async () => {
+  it('says a build failed as soon as it fails', async () => {
     const { run } = kube({
       get: { stdout: '||1', stderr: '', exitCode: 0 },
       logs: { stdout: 'No match for argument: ripgrep', stderr: '', exitCode: 0 },
     });
 
-    // Twenty minutes is what a run would otherwise sit through over a package name that does not exist.
-    const build = createImageBuilder({
-      run, registry: REGISTRY, published: async () => false, pollMs: 1, timeoutMs: BUILD_TIMEOUT_MS,
-    });
+    const build = createImageBuilder({ run, registry: REGISTRY, published: async () => false, pollMs: 1 });
 
     const started = Date.now();
     await expect(build.ensure(CUSTOM)).rejects.toThrow(/did not build: No match for argument: ripgrep/);
     expect(Date.now() - started).toBeLessThan(5_000);
   });
 
-  it('gives up on a job that never finishes, saying what it was still doing', async () => {
+  it('keeps waiting on a build that is still going, however long it takes, and finishes when it is published', async () => {
+    let polls = 0;
     const { run } = kube({ get: { stdout: '1||', stderr: '', exitCode: 0 } });
     const build = createImageBuilder({
-      run, registry: REGISTRY, published: async () => false, pollMs: 20, timeoutMs: 1_200,
+      run, registry: REGISTRY, pollMs: 1, published: async () => { polls += 1; return polls > 30; },
     });
 
-    await expect(build.ensure(CUSTOM)).rejects.toThrow(/did not build within 1 second: building/);
+    await expect(build.ensure(CUSTOM)).resolves.toContain(REGISTRY);
+    expect(polls).toBeGreaterThan(30);
+  });
+
+  it('fails a build whose pod can never start, with the reason, rather than waiting on it', async () => {
+    const { run } = kube({ get: { stdout: '1||', stderr: '', exitCode: 0 } });
+    const stuck = vi.fn(async (args: string[]) => (args[0] === 'get' && args[1] === 'pods'
+      ? { stdout: JSON.stringify({ items: [{ metadata: { name: 'build-x' }, status: { phase: 'Pending', containerStatuses: [{ ready: false, state: { waiting: { reason: 'ImagePullBackOff' } } }] } }] }), stderr: '', exitCode: 0 }
+      : run(args)));
+    const build = createImageBuilder({ run: stuck as never, registry: REGISTRY, published: async () => false, pollMs: 1 });
+
+    await expect(build.ensure(CUSTOM)).rejects.toThrow(/did not build: build-x: ImagePullBackOff/);
   });
 
   it('says so when the job cannot even be created', async () => {

@@ -1,4 +1,5 @@
-import { spawn, type ChildProcess } from 'child_process';
+import { execFile, spawn, type ChildProcess } from 'child_process';
+import { connect } from 'net';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -57,8 +58,63 @@ const SERVICE_TARGETS: Record<string, ServiceTarget> = {
   },
 };
 
+export const DIRECT_PROBE_MS = 1000;
+export const DIRECT_RETRY_MS = 60_000;
+
+const running = new Set<ChildProcess>();
+let reaping = false;
+const reapOnExit = () => {
+  if (reaping) return;
+  reaping = true;
+  process.once('exit', () => { for (const child of running) child.kill(); });
+};
+
+export interface DirectAccess {
+  clusterIp(kubeconfigPath: string, namespace: string, service: string): Promise<string | undefined>;
+  reachable(host: string, port: number, timeoutMs: number): Promise<boolean>;
+}
+
+const kubectlClusterIp: DirectAccess['clusterIp'] = (kubeconfigPath, namespace, service) => new Promise((resolve) => {
+  execFile(KUBECTL, ['--kubeconfig', kubeconfigPath, '-n', namespace, 'get', 'svc', service, '-o', 'jsonpath={.spec.clusterIP}'], { timeout: 10_000 }, (err, stdout) => {
+    const ip = String(stdout ?? '').trim();
+    resolve(err || !ip || ip === 'None' ? undefined : ip);
+  });
+});
+
+const tcpReachable: DirectAccess['reachable'] = (host, port, timeoutMs) => new Promise((resolve) => {
+  const socket = connect({ host, port });
+  const done = (ok: boolean) => { socket.destroy(); resolve(ok); };
+  socket.setTimeout(timeoutMs, () => done(false));
+  socket.once('connect', () => done(true));
+  socket.once('error', () => done(false));
+});
+
 export class ClusterProxyService {
   private forwards: Map<string, Map<string, PortForwardEntry>> = new Map();
+  private readonly direct = new Map<string, Promise<string | undefined>>();
+
+  constructor(private readonly access: DirectAccess = { clusterIp: kubectlClusterIp, reachable: tcpReachable }) {}
+
+  async directServiceUrl(clusterId: string, serviceKey: string, kubeconfigPath: string, target: ServiceTarget): Promise<string | undefined> {
+    const key = this.key(clusterId, serviceKey);
+    const known = this.direct.get(key);
+    if (known) return known;
+    const found = (async () => {
+      const ip = await this.access.clusterIp(kubeconfigPath, target.namespace, target.service);
+      if (!ip || !(await this.access.reachable(ip, target.remotePort, DIRECT_PROBE_MS))) return undefined;
+      return `http://${ip}:${target.remotePort}${target.dashboardPath ?? '/'}`;
+    })();
+    this.direct.set(key, found);
+    if (!(await found)) setTimeout(() => { if (this.direct.get(key) === found) this.direct.delete(key); }, DIRECT_RETRY_MS).unref();
+    return found;
+  }
+
+  async serviceUrl(clusterId: string, serviceKey: string, kubeconfigPath: string, explicitTarget?: ServiceTarget): Promise<string> {
+    const target = explicitTarget ?? SERVICE_TARGETS[serviceKey];
+    if (!target) throw new Error(`Unknown service: ${serviceKey}`);
+    return (await this.directServiceUrl(clusterId, serviceKey, kubeconfigPath, target))
+      ?? this.ensurePortForward(clusterId, serviceKey, kubeconfigPath, target);
+  }
 
   private key(clusterId: string, serviceKey: string) {
     return `${clusterId}::${serviceKey}`;
@@ -96,6 +152,8 @@ export class ClusterProxyService {
       ],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
+    running.add(child);
+    reapOnExit();
 
     let resolvePort: (port: number) => void;
     let rejectPort: (err: Error) => void;
@@ -128,6 +186,7 @@ export class ClusterProxyService {
     });
 
     child.on('close', (code) => {
+      running.delete(child);
       clusterForwards.delete(serviceKey);
       if (!resolved) {
         resolved = true;
@@ -209,3 +268,10 @@ export class ClusterProxyService {
     }
   }
 }
+
+let shared: ClusterProxyService | undefined;
+
+export const sharedClusterProxy = (): ClusterProxyService => {
+  shared ??= new ClusterProxyService();
+  return shared;
+};

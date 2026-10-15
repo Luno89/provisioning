@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { ToolHandlerContext } from '@koala/engine-core';
 import type { MemoryItem } from '../drivers/memory-store.js';
-import { createMemoryTools, matchMemories } from './memory-tools.js';
+import { createMemoryTools, matchMemories, searchAnswer } from './memory-tools.js';
 import { MEMORY_TOOLS } from './memory-tools-catalogue.js';
 
 let bank: Map<string, MemoryItem>;
@@ -185,5 +185,16 @@ describe('the memory tools as declared', () => {
       ['propose_tool_note', 'propose', null],
       ['forget_memory', 'write', false],
     ]);
+  });
+});
+
+describe('the answer to a memory search, as an agent on a machine gets it', () => {
+  it('lists what matches, says when nothing does, and leaves out what is retired', () => {
+    const memories = [
+      memory({ id: 'a', title: 'Odoo 20 access', text: 'Access rules are ir.access rows.' }),
+      memory({ id: 'b', title: 'Old access note', text: 'Access rules are ir.model.access rows.', invalidAt: '2026-10-01T00:00:00Z' }),
+    ];
+    expect(searchAnswer(memories, 'access rules')).toEqual({ found: 1, text: expect.stringContaining('Odoo 20 access: Access rules are ir.access rows.') });
+    expect(searchAnswer(memories, 'payroll')).toEqual({ found: 0, text: 'Nothing remembered matches "payroll".' });
   });
 });

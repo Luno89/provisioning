@@ -212,7 +212,6 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
             await scoped.writeFile(path, renderLeafFailure({ leafId, leafTitle: leaf.title, failure }));
             await scoped.exec({
               command: `git add ${path} && git -c user.name=koala -c user.email=koala@grove.local commit -q -m 'why this leaf is being replanned'`,
-              timeoutMs: 60_000,
             });
             items.push({ ...rest, leafId, worktree, leafFailure: path });
           } else {
@@ -272,10 +271,10 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
       const driver = await driverFor(request, environment, branch?.treeId ?? leafId, leafWorktree(leafId));
 
       if (result === 'claimed') {
-        const left = await driver.exec({ command: 'git status --porcelain', timeoutMs: 60_000 });
+        const left = await driver.exec({ command: 'git status --porcelain' });
         if (left.exitCode === 0 && left.stdout.trim()) {
           const message = `leaf ${leaf.title}: work its tasks left uncommitted`;
-          await driver.exec({ command: `git add -A && git commit -q -m '${message.replace(/'/g, `'\\''`)}'`, timeoutMs: 60_000 });
+          await driver.exec({ command: `git add -A && git commit -q -m '${message.replace(/'/g, `'\\''`)}'` });
         }
       }
 
@@ -344,7 +343,7 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
         const checkout = commit ? await prepareJudgeCheckout(await driverFor(request, environment, tree.id), leafId, commit) : undefined;
         const driver = await driverFor(request, environment, tree.id, checkout ? judgeCheckout(leafId) : leafWorktree(leafId));
         const sandbox = {
-          exec: async (command: string, timeoutMs = 60_000) => driver.exec({ command, timeoutMs }),
+          exec: async (command: string, timeoutMs?: number) => driver.exec({ command, ...(timeoutMs ? { timeoutMs } : {}) }),
           readFile: (path: string) => driver.readFile(path).catch(() => undefined),
         };
         const outcomes: CheckOutcome[] = [];

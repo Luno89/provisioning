@@ -10,21 +10,21 @@ import type { ToolDefinition } from '@koala/agent-engine';
 import { RemoveAccountWorkflow } from './RemoveAccountWorkflow.js';
 import { combineAttempts } from '../lib/check-attempts.js';
 import { ownerIn, startedFor } from '../lib/workflow-owner.js';
+import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
 
 const space = proxyActivities<Pick<CheckRunActivities, 'CheckCreateSpaceActivity' | 'CheckSpaceGoneActivity'>>({
   retry: DESTROY_RETRY,
-  startToCloseTimeout: '5 minutes',
+  ...LIVE_ACTIVITY,
 });
 
 const runs = proxyActivities<Pick<CheckRunActivities, 'CheckRunScenarioActivity'>>({
   retry: { maximumAttempts: 1 },
-  startToCloseTimeout: '30 days',
-  heartbeatTimeout: '2 minutes',
+  ...LIVE_ACTIVITY,
 });
 
 const progress = proxyActivities<{ CheckProgressActivity(args: CheckProgressArgs): Promise<void> }>({
   retry: DESTROY_RETRY,
-  startToCloseTimeout: '1 minute',
+  ...LIVE_ACTIVITY,
 });
 
 export const cancelCheckSignal = defineSignal<[]>('cancelCheck');

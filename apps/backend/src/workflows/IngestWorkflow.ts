@@ -3,24 +3,24 @@ import type {
   SeedFrontierArgs, NextBatchArgs, NextBatchResult, CrawlBatchArgs, CrawlBatchResult,
 } from '../activities/CrawlActivity.js';
 import type { IngestReceipt } from '../lib/corpus.js';
-import { crawlActivityMeta } from '../lib/activity-timeouts.js';
+import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
 import { canonical, hostOf } from '../lib/crawl-client.js';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 
 const { CrawlBatchActivity } = proxyActivities<{ CrawlBatchActivity: (a: CrawlBatchArgs) => Promise<CrawlBatchResult> }>({
-  retry: ACTIVITY_RETRY, startToCloseTimeout: crawlActivityMeta.startToCloseTimeout,
+  retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY,
 });
 const { NextBatchActivity } = proxyActivities<{ NextBatchActivity: (a: NextBatchArgs) => Promise<NextBatchResult> }>({
-  retry: ACTIVITY_RETRY, startToCloseTimeout: crawlActivityMeta.storeTimeout,
+  retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY,
 });
 const { SeedFrontierActivity } = proxyActivities<{ SeedFrontierActivity: (a: SeedFrontierArgs) => Promise<{ queued: number }> }>({
-  retry: ACTIVITY_RETRY, startToCloseTimeout: crawlActivityMeta.storeTimeout,
+  retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY,
 });
 const { DiscardFrontierActivity } = proxyActivities<{ DiscardFrontierActivity: (a: { ingestId: string }) => Promise<void> }>({
-  retry: ACTIVITY_RETRY, startToCloseTimeout: crawlActivityMeta.storeTimeout,
+  retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY,
 });
 const { NewIngestIdActivity } = proxyActivities<{ NewIngestIdActivity: () => Promise<{ ingestId: string }> }>({
-  retry: ACTIVITY_RETRY, startToCloseTimeout: '1 minute',
+  retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY,
 });
 
 const BATCH = 8;

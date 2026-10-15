@@ -34,6 +34,7 @@
     "@koala/engine-core": "*",
     "@koala/harness-types": "*",
     "axios": "^1.17.0",
+    "undici": "^7.27.2",
     "uuid": "^14.0.0"
   },
   "devDependencies": {

@@ -13,8 +13,6 @@ export const DEFAULT_CPU = '2';
 export const DEFAULT_MEMORY = '2Gi';
 
 
-export const MAX_LIFETIME_MS = 12 * 60 * 60_000;
-
 export const WORK_VOLUME = 'work';
 export const WORK_VOLUME_SIZE = '10Gi';
 
@@ -26,7 +24,7 @@ export interface RunWorkspace {
   agent: string;
   image: string;
   provides: string[];
-  lifetimeMs: number;
+  lifetimeMs?: number | undefined;
   cpu: string;
   memory: string;
   egress: EgressRule[];
@@ -119,9 +117,8 @@ export function labelValue(text: string): string {
   return shorten(slug, text, NAME_LIMIT);
 }
 
-export function lifetimeFor(wallClockLimitMs: number | undefined): number {
-  const wanted = wallClockLimitMs && wallClockLimitMs > 0 ? wallClockLimitMs * 1.25 : MAX_LIFETIME_MS;
-  return Math.min(Math.ceil(wanted), MAX_LIFETIME_MS);
+export function lifetimeFor(wallClockLimitMs: number | undefined): number | undefined {
+  return wallClockLimitMs && wallClockLimitMs > 0 ? Math.ceil(wallClockLimitMs * 1.25) : undefined;
 }
 
 export function egressFor(
@@ -140,7 +137,7 @@ export function egressFor(
 
 export function buildManifests(workspace: RunWorkspace): Record<string, unknown>[] {
   const namespace = workspaceName(workspace.runId);
-  const seconds = Math.ceil(workspace.lifetimeMs / 1000);
+  const seconds = workspace.lifetimeMs ? Math.ceil(workspace.lifetimeMs / 1000) : undefined;
 
   const labels = {
     'koala.dev/run': labelValue(workspace.runId),
@@ -194,7 +191,7 @@ export function buildManifests(workspace: RunWorkspace): Record<string, unknown>
         automountServiceAccountToken: false,
         restartPolicy: 'Never',
         terminationGracePeriodSeconds: 1,
-        activeDeadlineSeconds: seconds,
+        ...(seconds ? { activeDeadlineSeconds: seconds } : {}),
         securityContext: {
           runAsNonRoot: true,
           runAsUser: 1000,
@@ -206,7 +203,7 @@ export function buildManifests(workspace: RunWorkspace): Record<string, unknown>
           {
             name: POD,
             image: workspace.image,
-            command: ['sleep', String(seconds)],
+            command: ['sleep', seconds ? String(seconds) : 'infinity'],
             workingDir: WORK_DIR,
             env: [
               { name: 'HOME', value: WORK_DIR },
@@ -276,7 +273,7 @@ function packageNote(workspace: RunWorkspace): string {
 }
 
 export function describeWorkspace(workspace: RunWorkspace): string {
-  const minutes = Math.round(workspace.lifetimeMs / 60_000);
+  const minutes = workspace.lifetimeMs ? Math.round(workspace.lifetimeMs / 60_000) : undefined;
   const open = workspace.egressMode === 'auto';
   const hosts = reachable(workspace);
 
@@ -300,8 +297,9 @@ export function describeWorkspace(workspace: RunWorkspace): string {
     `- ${network}`,
     `- You have ${workspace.cpu} CPUs and ${workspace.memory} of memory. IGNORE \`nproc\` and \`free\` —`,
     '  they report the host machine, not your limits, and building as if they were true gets you killed.',
-    `- This container belongs to this run alone and is destroyed when the run ends, or after`,
-    `  ${minutes} minutes, whichever comes first. Anything not committed or returned as an output is lost.`,
+    minutes
+      ? `- This container belongs to this run alone and is destroyed when the run ends, or after ${minutes} minutes, whichever comes first. Anything not committed or returned as an output is lost.`
+      : '- This container belongs to this run alone and lasts as long as the run. It is destroyed when the run ends, and anything not committed or returned as an output is lost with it.',
     `- Available: ${workspace.provides.join(', ')}.`,
     `- NOT installed: ${absentFrom(workspace.provides).join(', ')}. Do not plan around them.`,
   ].join('\n');

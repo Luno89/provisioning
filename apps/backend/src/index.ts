@@ -83,6 +83,7 @@ import { localAgentsRouter } from './routes/local-agents.js';
 import { pendingApprovalsRouter } from './routes/pending-approvals.js';
 import { startedFor } from './lib/workflow-owner.js';
 import { findDeviceByToken, registerDevice, unregisterDevice } from './lib/local-agent-registry.js';
+import { searchAnswer } from './engine-host/tools/memory-tools.js';
 import { clusterProvidersRouter } from './routes/cluster-providers.js';
 import { vpsCatalogRouter } from './routes/vps-catalog.js';
 import { adminRouter } from './routes/admin.js';
@@ -109,7 +110,7 @@ import type { ProjectMetadata, UserMetadata } from './lib/types.js';
 import { VpsCatalogService } from './services/VpsCatalogService.js';
 import { TemporalBridge } from './services/TemporalBridge.js';
 import WorkerService from './services/WorkerService.js';
-import { ClusterProxyService } from './services/ClusterProxyService.js';
+import { sharedClusterProxy } from './services/ClusterProxyService.js';
 import net from 'net';
 import crypto from 'crypto';
 import { spawn } from 'child_process';
@@ -250,7 +251,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
   const appExposureService = new AppExposureService(db, infraService, clusterService, io);
-  const clusterProxyService = new ClusterProxyService();
+  const clusterProxyService = sharedClusterProxy();
   const giteaService = new GiteaService(infraService, keys.data, '/tmp/kubeconfig-provisioning-lunorica');
   await giteaService.ensureClusterSecret().catch((err: Error) =>
     console.warn(`[gitea] could not ensure cluster secret: ${err.message}`),
@@ -545,6 +546,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       if (current) db.saveLocalAgentDevice({ ...current, lastSeenAt: new Date().toISOString() }).catch(() => undefined);
     }).catch(() => undefined);
     socket.on('disconnect', () => unregisterDevice(device.id, socket));
+    socket.on('memories:search', (request: { query?: unknown } | undefined, ack: (answer: { text: string }) => void) => {
+      const query = typeof request?.query === 'string' ? request.query.trim() : '';
+      if (!query) return ack({ text: 'Give a query: words to look for.' });
+      db.getMemories(device.ownerId).then(
+        (memories) => ack({ text: searchAnswer(memories, query).text }),
+        () => ack({ text: 'The memories could not be read just now.' }),
+      );
+    });
   });
 
   async function authorizeRoom(user: UserMetadata | undefined, id: string): Promise<any | undefined> {
@@ -716,8 +725,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   async function webTools() {
     return resolveWebTools({
       db,
-      ensurePortForward: (clusterId, serviceKey, kubeconfigPath, target) =>
-        clusterProxyService.ensurePortForward(clusterId, serviceKey, kubeconfigPath, target),
+      serviceUrl: (clusterId, serviceKey, kubeconfigPath, target) =>
+        clusterProxyService.serviceUrl(clusterId, serviceKey, kubeconfigPath, target),
       kubeconfigFor: async (clusterId: string) => {
         const cluster = await clusterService.getByIdUnscoped(clusterId);
         return cluster ? clusterService.getKubeconfigPath(cluster) : undefined;

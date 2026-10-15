@@ -7,19 +7,19 @@ const dep = (over: Record<string, unknown> = {}) => ({
 
 const deps = (deployments: any[], over: Record<string, unknown> = {}) => ({
   db: { getDeployments: vi.fn(async () => deployments) },
-  ensurePortForward: vi.fn(async (_c: string, _k: string, _kc: string, t: any) => `http://localhost:4${t.remotePort}/`),
+  serviceUrl: vi.fn(async (_c: string, _k: string, _kc: string, t: any) => `http://localhost:4${t.remotePort}/`),
   kubeconfigFor: vi.fn(async () => '/tmp/kubeconfig'),
   env: {},
   ...over,
 } as any);
 
 describe('resolving a deployed service', () => {
-  it('port-forwards into the deployment and uses it', async () => {
+  it('reaches into the deployment and uses it', async () => {
     const d = deps([dep()]);
     const tools = await resolveWebTools(d);
 
     expect(tools.sources.search).toBe('searxng');
-    expect(d.ensurePortForward).toHaveBeenCalledWith('c1', 'searxng-d1', '/tmp/kubeconfig',
+    expect(d.serviceUrl).toHaveBeenCalledWith('c1', 'searxng-d1', '/tmp/kubeconfig',
       { service: 'searxng', namespace: 'koala-search', remotePort: 8080 });
   });
 
@@ -29,7 +29,7 @@ describe('resolving a deployed service', () => {
   });
 
   it('falls back rather than throwing when the forward cannot be established', async () => {
-    const d = deps([dep()], { ensurePortForward: vi.fn(async () => { throw new Error('no such service'); }) });
+    const d = deps([dep()], { serviceUrl: vi.fn(async () => { throw new Error('no such service'); }) });
 
     await expect(resolveWebTools(d)).resolves.toMatchObject({ sources: { search: 'duckduckgo' } });
   });
@@ -77,7 +77,7 @@ describe('precedence', () => {
     const d = deps([dep()], { env: { SEARXNG_URL: 'http://elsewhere:8080' } });
     await resolveWebTools(d);
 
-    expect(d.ensurePortForward).toHaveBeenCalled();
+    expect(d.serviceUrl).toHaveBeenCalled();
   });
 
   it('survives the database being unavailable', async () => {

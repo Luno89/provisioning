@@ -7,7 +7,6 @@ import {
   E2E_REPORT,
   E2E_RUNNER,
   E2E_RUNNER_MISSING,
-  E2E_TIMEOUT_MS,
   e2eCommand,
   e2ePassed,
   e2eRequestOf,
@@ -39,7 +38,7 @@ export function createPlatformOperations(deps: PlatformOperationDeps): Record<st
       const url = typeof settings.url === 'string' ? settings.url.trim() : '';
       if (url && e2eUrlProblem(url)) return unavailable(e2eUrlProblem(url)!);
       const asked = e2eRequestOf({ specs: settings.specs, ...(url ? { url } : {}) })!;
-      const minutes = typeof settings.minutes === 'number' && settings.minutes > 0 ? settings.minutes : E2E_TIMEOUT_MS / 60_000;
+      const minutes = typeof settings.minutes === 'number' && settings.minutes > 0 ? settings.minutes : undefined;
 
       const environment = handleFor(request.inputs.environment as RunEnvironment | undefined);
       let driver: EnvironmentDriver | undefined;
@@ -50,7 +49,7 @@ export function createPlatformOperations(deps: PlatformOperationDeps): Record<st
       }
       if (!driver) return unavailable('this run has no workspace to run browser tests in');
 
-      const ran = await driver.exec({ command: e2eCommand(asked), timeoutMs: minutes * 60_000 });
+      const ran = await driver.exec({ command: e2eCommand(asked), ...(minutes ? { timeoutMs: minutes * 60_000 } : {}) });
       if (ran.exitCode === E2E_RUNNER_MISSING) {
         return unavailable(asked.url ? 'this workspace has no Playwright to run them with' : `this workspace's image has no ${E2E_RUNNER}, so it cannot serve its app to a browser`);
       }
@@ -64,7 +63,7 @@ export function createPlatformOperations(deps: PlatformOperationDeps): Record<st
         return { exit: 'passed', outputs: { report, summary: e2eSummary(report), artifacts: [] } };
       }
 
-      const workspace = { exec: (command: string) => driver.exec({ command, timeoutMs: 60_000 }) };
+      const workspace = { exec: (command: string) => driver.exec({ command }) };
       const kept = deps.artifacts
         ? await keepFailureArtifacts(workspace, deps.artifacts.keep, request.run.launch.ownerId, request.run.identity.runId)
         : { lines: '', stored: [] };

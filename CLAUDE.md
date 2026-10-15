@@ -419,11 +419,29 @@ MongoDB stays in sync with Temporal via two mechanisms:
 1. **`trackWorkflow()` polling** — every 5s per workflow; retries transient Temporal errors up to 12 times before giving up (avoids clusters getting stuck "provisioning" during brief Temporal outages).
 2. **Background reconciliation loop** — every 30s, scans clusters in intermediate states (`provisioning`, `destroying`), checks Temporal directly, and updates MongoDB if the workflow finished but the DB missed it. Also parses log files to update `ClusterMetadata.progress` (e.g. `creating-cluster`, `patching-storage`, `deploying-cdktf`, `installing-traefik`).
 
-**A command runs until it ends.** `run_command` has no time limit unless the call sets `timeoutSeconds`. In a cluster
-workspace it runs in its own process group (`GROUPED_EXEC` in `cluster-backend.ts`), so a timeout or a stopped run
-kills everything it started in the pod (`STOP_GROUPED_EXEC`), not only kubectl. Tool calls heartbeat and are cancelled
-with `TRY_CANCEL` (behind the `tool-calls-hear-stops` patch); the activity also polls `runCancelled`. Their only ceiling
-is Temporal's required `startToCloseTimeout` (`TOOL_CALL_CEILING`, 30 days). `mechanics-long-command` proves it.
+**Nothing has a deadline; things end when they finish, fail, or are stopped.** Every activity takes `LIVE_ACTIVITY`
+(`lib/activity-liveness.ts`): the 30-day `startToCloseTimeout` Temporal requires, and a one-minute `heartbeatTimeout`.
+Every worker (host, cluster, engine, stream, a machine's device worker) heartbeats every activity while it runs
+(`heartbeatWhileRunning` in `@koala/engine-core`), so a dead worker is noticed in a minute and the activity runs again
+elsewhere, while a slow one is never cut off. Helm and `kubectl --wait` take `CLI_CEILING` (720h) for the same reason.
+No wait inside an activity watches a clock: it ends on the thing it waits for, on a state that will never recover
+(`assessWorkload` in `lib/workload-health.ts` — `ImagePullBackOff`, `CrashLoopBackOff` and the like), or on a stop. The
+pieces that used to cut work off and no longer do:
+- **Model calls** go out through `patientFetch` (`agent-engine/src/model/patient-fetch.ts`): Node's `fetch` with an
+  undici `Agent` that has no header or body timeout, so a long prefill or a slow stream is never dropped at 300 s. The
+  per-endpoint queue (`model-rate-limiter.ts`) waits for its turn with no deadline and leaves when the run is stopped.
+- **Commands.** `run_command`, Code steps, task checks, browser tests and every `kubectl` the engine runs have no time
+  limit unless the caller sets one (`timeoutSeconds`, a step's "Stop after"). In a cluster workspace every command runs
+  in its own process group (`GROUPED_EXEC` in `cluster-backend.ts`), so a limit or a stopped run kills everything it
+  started (`STOP_GROUPED_EXEC`). Commands on a person's machine wait until the machine answers or disconnects
+  (`local-agent-registry.ts`).
+- **Sandboxes** last as long as their run (`sleep infinity`, no `activeDeadlineSeconds`) unless the run sets a time
+  budget. The engine worker's sweep removes only sandboxes whose run has ended (`runEndedVia`), never by age.
+- **People.** Wait for Person and tool approvals wait until someone answers or the run is stopped; a step may still set
+  "Stop waiting after".
+- **Builds and releases.** Workspace image builds, Odoo release jobs and rollouts, browser tests, pipeline builds and
+  cluster provisioning wait for their work however long it takes.
+`mechanics-long-command` proves a command outliving any old limit.
 
 **Odoo browser tests.** `odoo-e2e --keep` leaves the throwaway Odoo served between runs (reused while `addons/` is
 unchanged, upgraded in place when it changed, `--stop` ends it). Specs use `e2e/odoo.ts` (`lib/odoo-e2e-helpers.ts`:
@@ -666,7 +684,7 @@ on every push. Each rule below is here because something in this repo broke with
 
 - **One-way arrow: `index.ts → routes/ → services/ → lib/`**, with `middleware/` feeding routes.
   `lib/` is pure and imports nothing above it. `lib/leaves.ts` (38 pure functions, no I/O) is the
-  target shape; `lib/activity-timeouts.ts` documents why the direction matters.
+  target shape.
 - **A route handler does four things**: read the request, authorize, call one service method, shape
   the response. A loop, a prompt or arithmetic belongs in a service or `lib/`.
 - **No `db.*` in a route.**

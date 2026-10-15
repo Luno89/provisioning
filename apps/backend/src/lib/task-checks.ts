@@ -1,5 +1,5 @@
 import type { TaskChecks } from '../engine-host/tools/tasks.js';
-import { E2E_REPORT, E2E_RUNNER, E2E_RUNNER_MISSING, E2E_TIMEOUT_MS, e2eCommand, e2eSummary, e2eTarget, printedTail, readE2EReport, type E2ERequest } from './e2e.js';
+import { E2E_REPORT, E2E_RUNNER, E2E_RUNNER_MISSING, e2eCommand, e2eSummary, e2eTarget, printedTail, readE2EReport, type E2ERequest } from './e2e.js';
 
 /**
  * The checks a task carries, run where the claim says the work is.
@@ -88,7 +88,7 @@ async function httpProbe(environment: CheckEnvironment, url: string, status: num
 
 async function browserTests(environment: CheckEnvironment, request: E2ERequest): Promise<CheckOutcome[]> {
   const check = `the browser tests in ${request.specs.join(', ')} pass against ${e2eTarget(request)}`;
-  const outcome = await environment.exec(e2eCommand(request), E2E_TIMEOUT_MS);
+  const outcome = await environment.exec(e2eCommand(request));
   if (outcome.exitCode === E2E_RUNNER_MISSING) {
     return [{ check, passed: false, says: request.url ? 'this workspace has no Playwright to run them with' : `this workspace's image has no ${E2E_RUNNER}, so it cannot serve its app to a browser` }];
   }

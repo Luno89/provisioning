@@ -37,6 +37,12 @@ import { inMemoryPayloadBlobs } from '../lib/payload-storage.js';
 import { loadKeys } from '../lib/keys.js';
 import { PAPER_WRITING } from '../extensions/grove/procedures.js';
 import { timeSkippingTestEnvironment } from './temporal-test-env.js';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import type { ExternalAgentStepArgs } from '@koala/engine-core';
+import { ExternalAgentSessions } from '../../../local-agent/src/external-agents.js';
+import type { AgentScript } from '../../../local-agent/src/acp-script-agent.js';
+import { EXTERNAL_AGENT_TASK } from '../extensions/external-agents/procedures.js';
 import {
   DEFAULT_STREAM_TASK_QUEUE,
   type ProcedureRunInput,
@@ -73,6 +79,7 @@ function activities(options: {
   conversations?: ReturnType<typeof inMemoryConversations>;
   environments?: { describe: (ticket: RunTicket) => Promise<RunEnvironment>; release: (runId: string) => Promise<void> };
   registry?: ReturnType<typeof createAgentRegistry>;
+  external?: ExternalAgentSessions;
 }) {
   const registry = options.registry ?? createAgentRegistry();
   const conversations = options.conversations ?? inMemoryConversations();
@@ -146,6 +153,7 @@ function activities(options: {
       EngineToolActivity: vi.fn(async (args: ToolCallArgs) => ({ ok: true, digest: `ran ${args.name}`, content: `output of ${args.name}` })),
       EngineRecordTracesActivity: vi.fn(async (_args: RecordTracesArgs) => undefined),
     },
+    device: options.external ? { ExternalAgentActivity: (args: ExternalAgentStepArgs) => options.external!.step(args) } : {},
     stream: {
       EngineStreamNodeActivity: createNodeRunner([scriptedModel, createCompactContextNode({ models: noSummaries })], undefined, { runCancelled: runCancelledVia(async () => env.client) }),
       EnginePublishActivity: vi.fn(async (_args: PublishArgs) => undefined),
@@ -194,7 +202,7 @@ async function runWorkflow(
   const deviceWorker = await Worker.create({
     connection: env.nativeConnection,
     taskQueue: 'device-desk',
-    activities: { EngineToolActivity: acts.engine.EngineToolActivity },
+    activities: { EngineToolActivity: acts.engine.EngineToolActivity, ...acts.device },
     ...converted,
   });
 
@@ -430,6 +438,18 @@ describe('AgentRunWorkflow', () => {
     expect(published(acts)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'notice', message: 'Which database?' })]));
   }, 60_000);
 
+  it('waits for a person however long they take when the step sets no time of its own', async () => {
+    const patient: Procedure = { ...WAITING, nodes: WAITING.nodes.map((node) => (node.id === 'ask' ? { ...node, settings: { prompt: 'Which database?' } } : node)) };
+    const acts = activities({ script: [{ content: 'unused' }] });
+
+    const result = await runWorkflow(input('koala', patient), acts, async (handle) => {
+      await env.sleep('8 days');
+      await handle.signal(answerSignal, { nodeId: 'ask', value: 'the staging one' });
+    });
+
+    expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'the staging one' } });
+  }, 60_000);
+
   it('takes only one of the answers it offered, and goes on waiting through any other', async () => {
     const choosing: Procedure = { ...WAITING, nodes: WAITING.nodes.map((node) => (node.id === 'ask' ? { ...node, settings: { ...node.settings, choices: ['Install it', 'Do not install'] } } : node)) };
     const acts = activities({ script: [{ content: 'unused' }] });
@@ -443,10 +463,10 @@ describe('AgentRunWorkflow', () => {
     expect(published(acts)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'notice', message: 'Which database?', choices: ['Install it', 'Do not install'] })]));
   }, 60_000);
 
-  it('gives up when nobody answers in time', async () => {
+  it('gives up only when the step itself set how long to wait, and nobody answered in that time', async () => {
     const result = await runWorkflow(input('koala', WAITING), activities({ script: [{ content: 'unused' }] }));
 
-    expect(result).toMatchObject({ outcome: 'failed', reason: 'nobody answered in time' });
+    expect(result).toMatchObject({ outcome: 'failed', reason: 'nobody answered in the time this step waits' });
   }, 60_000);
 
   it('ends interrupted and hands its claimed tasks back when Temporal cancels it, as a removal does', async () => {
@@ -874,4 +894,131 @@ describe('when the model call fails', () => {
     const saved = await acts.conversations.get('user-1', 'c-retried');
     expect(saved?.messages.at(-1)?.content).toBe('second attempt got through');
   });
+});
+
+
+const EXTERNAL: Procedure = {
+  schema: PROCEDURE_SCHEMA,
+  id: 'external',
+  version: '1',
+  name: 'External',
+  describe: 'hands the task to an agent on the machine',
+  budget: { maxRounds: 2 },
+  start: 'agent',
+  nodes: [
+    place('input', 'run-input', {}),
+    place('agent', 'external-agent', { agent: 'scripted' }),
+    place('done', 'finish', { outcome: 'ok' }),
+    place('stopped', 'finish', { outcome: 'failed' }),
+    place('failed', 'finish', { outcome: 'failed' }),
+  ],
+  wires: [
+    { from: { node: 'input', socket: 'message' }, to: { node: 'agent', socket: 'brief' } },
+    { from: { node: 'agent', socket: 'text' }, to: { node: 'done', socket: 'result' } },
+    { from: { node: 'agent', socket: 'reason' }, to: { node: 'stopped', socket: 'reason' } },
+    { from: { node: 'agent', socket: 'reason' }, to: { node: 'failed', socket: 'reason' } },
+  ],
+  flow: [{ from: 'agent', exit: 'finished', to: 'done' }, { from: 'agent', exit: 'stopped', to: 'stopped' }, { from: 'agent', exit: 'failed', to: 'failed' }],
+  groups: [],
+};
+
+describe('an external agent working on someone\'s machine', () => {
+  const AGENT = fileURLToPath(new URL('../../../local-agent/src/acp-script-agent.ts', import.meta.url));
+  let root: string;
+
+  const machine = async (script: AgentScript) => {
+    root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
+    const scriptPath = resolve(root, 'script.json');
+    await writeFile(scriptPath, JSON.stringify(script));
+    return new ExternalAgentSessions({ rootDir: resolve(root, 'machine'), launches: { scripted: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500 });
+  };
+
+  afterAll(async () => { if (root) await rm(root, { recursive: true, force: true }); });
+
+  it('hands it the task in the run\'s folder, asks the person before what it wants permission for, and ends with its reply', async () => {
+    const sessions = await machine({ name: 'scripted', version: '3.1', turns: [{ steps: [
+      { think: 'Plan: write, then push.' },
+      { write: { path: 'labels.py', content: 'print("labels")\n' } },
+      { tool: { id: 'push', title: 'git push', kind: 'execute' }, ask: true, output: 'pushed' },
+      { say: 'Wrote and pushed the labels.' },
+    ] }] });
+    const acts = activities({ script: [{ content: 'unused' }], external: sessions });
+
+    let waitedOn: string[] | undefined;
+    const result = await runWorkflow({ ...input('executor', EXTERNAL, 'Write the labels'), environment: MACHINE }, acts, async (handle) => {
+      while (!(await handle.query(stateQuery)).asking) await new Promise((wait) => setTimeout(wait, 50));
+      waitedOn = (await handle.query(stateQuery)).asking;
+      await handle.signal(approveSignal, { callId: 'ext-push', allowed: true });
+    });
+
+    expect(waitedOn).toEqual(['ext-push']);
+    expect(result.outcome).toBe('ok');
+    expect(result.outputs.result).toBe('Wrote and pushed the labels.');
+    expect(sessions.openKeys()).toEqual([]);
+    expect(await readFile(resolve(root, 'machine', 'projects/thing', 'labels.py'), 'utf8')).toBe('print("labels")\n');
+    expect(published(acts)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'thinking', nodeId: 'agent', delta: 'Plan: write, then push.' }),
+      expect.objectContaining({ type: 'notice', level: 'warn', callId: 'ext-push', tool: 'scripted.execute', message: 'executor wants to run scripted.execute on Desk: git push' }),
+      expect.objectContaining({ type: 'tool.called', callId: 'ext-push', name: 'scripted.execute', args: 'git push' }),
+      expect.objectContaining({ type: 'tool.result', callId: 'ext-push', ok: true, digest: 'pushed' }),
+      expect.objectContaining({ type: 'content', nodeId: 'agent', delta: 'Wrote and pushed the labels.' }),
+    ]));
+    await sessions.closeAll();
+  }, 60_000);
+
+  it('tells the agent no when the person declines, and the agent carries on without it', async () => {
+    const sessions = await machine({ name: 'scripted', version: '1', turns: [{ steps: [
+      { tool: { id: 'wipe', title: 'rm -rf build', kind: 'delete' }, ask: true },
+      { say: 'Left the build alone.' },
+    ] }] });
+    const acts = activities({ script: [{ content: 'unused' }], external: sessions });
+
+    const result = await runWorkflow({ ...input('executor', EXTERNAL, 'Clean up'), environment: MACHINE }, acts, async (handle) => {
+      while (!(await handle.query(stateQuery)).asking) await new Promise((wait) => setTimeout(wait, 50));
+      await handle.signal(approveSignal, { callId: 'ext-wipe', allowed: false });
+    });
+
+    expect(result.outcome).toBe('ok');
+    expect(result.outputs.result).toBe('Left the build alone.');
+    expect(published(acts)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'tool.result', callId: 'ext-wipe', ok: false, digest: 'the person declined' })]));
+    await sessions.closeAll();
+  }, 60_000);
+
+  it('stops the agent\'s turn when the run is cancelled, and closes its session', async () => {
+    const sessions = await machine({ name: 'scripted', version: '1', turns: [{ steps: [{ say: 'Starting a long job.' }, { wait: 120_000 }, { say: 'never' }] }] });
+    const acts = activities({ script: [{ content: 'unused' }], external: sessions });
+
+    const result = await runWorkflow({ ...input('executor', EXTERNAL, 'Do the long job'), environment: MACHINE }, acts, async (handle) => {
+      await new Promise((wait) => setTimeout(wait, 1500));
+      await handle.signal(cancelSignal);
+    });
+
+    expect(result.outcome).toBe('interrupted');
+    expect(sessions.openKeys()).toEqual([]);
+    expect(published(acts)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'content', delta: 'Starting a long job.' })]));
+  }, 60_000);
+
+  it('runs the shipped procedure as the Antigravity agent: the machine\'s antigravity is told its prompt and folder once, then given the task', async () => {
+    root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
+    const scriptPath = resolve(root, 'script.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [{ echo: true }] }] } satisfies AgentScript));
+    const sessions = new ExternalAgentSessions({ rootDir: resolve(root, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500 });
+    const acts = activities({ script: [{ content: 'unused' }], external: sessions, environment: MACHINE });
+
+    const result = await runWorkflow(input('antigravity', EXTERNAL_AGENT_TASK, 'Build the delivery labels.'), acts);
+
+    expect(result.outcome).toBe('ok');
+    const told = String(result.outputs.result);
+    expect(told).toMatch(/^Your workspace is the folder .*machine\/projects\/thing\./);
+    expect(told).toContain('You are working for Koala');
+    expect(told.endsWith('Build the delivery labels.')).toBe(true);
+    expect(sessions.openKeys()).toEqual([]);
+  }, 60_000);
+
+  it('fails readably when the run has no machine for it', async () => {
+    const acts = activities({ script: [{ content: 'unused' }] });
+    const result = await runWorkflow(input('executor', EXTERNAL, 'Do it'), acts);
+    expect(result.outcome).toBe('failed');
+    expect(result.reason).toBe('scripted works on a person\'s machine, and this run has none');
+  }, 60_000);
 });

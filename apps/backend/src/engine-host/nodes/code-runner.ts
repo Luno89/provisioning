@@ -6,7 +6,8 @@ export interface CodeRunRequest {
   nodeId: string;
   body: string;
   inputs: Record<string, unknown>;
-  timeoutMs: number;
+  timeoutMs?: number | undefined;
+  signal?: AbortSignal | undefined;
   environment?: EnvironmentHandleRef | undefined;
 }
 
@@ -73,7 +74,11 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
       await driver.writeFile(script, wrapBody(request.body, inputsPath, outputsPath));
       await driver.writeFile(outputsPath, '');
 
-      const outcome = await driver.exec({ command: `node ${script}`, timeoutMs: request.timeoutMs });
+      const outcome = await driver.exec({
+        command: `node ${script}`,
+        ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {}),
+        ...(request.signal ? { signal: request.signal } : {}),
+      });
       if (outcome.exitCode !== 0) {
         const said = (outcome.stderr || outcome.stdout || '').trim();
         return { ok: false, error: said ? `the code failed: ${said}` : `the code exited ${outcome.exitCode} without saying why` };

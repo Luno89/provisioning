@@ -55,12 +55,9 @@ export function __resetForTests(): void {
   leafContainerIps.clear();
 }
 
-async function containerIpOnNetwork(name: string, network: string, timeoutMs = 15_000): Promise<string> {
-  // Docker network names contain hyphens, which Go's text/template can't parse as a bare `.Field`
-  // selector — `index` is the standard workaround for a map key with special characters.
+async function containerIpOnNetwork(name: string, network: string): Promise<string> {
   const result = await runDocker(
     ['inspect', name, '--format', `{{index .NetworkSettings.Networks "${network}" "IPAddress"}}`],
-    { timeoutMs },
   );
   const ip = result.stdout.trim();
   if (result.exitCode !== 0 || !ip) {
@@ -72,7 +69,7 @@ async function containerIpOnNetwork(name: string, network: string, timeoutMs = 1
 async function ensureProxyContainer(): Promise<void> {
   if (!proxyReady) {
     proxyReady = (async () => {
-      const running = await runDocker(['inspect', '-f', '{{.State.Running}}', PROXY_CONTAINER_NAME], { timeoutMs: 10_000 });
+      const running = await runDocker(['inspect', '-f', '{{.State.Running}}', PROXY_CONTAINER_NAME]);
       if (running.exitCode === 0 && running.stdout.trim() === 'true') return;
 
       const { hostDir, scriptPath } = resolveAgentMount();
@@ -85,18 +82,19 @@ async function ensureProxyContainer(): Promise<void> {
         '-e', `CONTROL_PORT=${CONTROL_PORT}`,
         'node:20-alpine',
         'node_modules/.bin/tsx', scriptPath,
-      ], { timeoutMs: 30_000 });
+      ]);
       if (started.exitCode !== 0) {
         throw new Error(`Could not start the local egress proxy: ${started.stderr || started.stdout}`);
       }
 
-      const deadline = Date.now() + 15_000;
       for (;;) {
         try {
           const res = await fetch(`http://127.0.0.1:${CONTROL_PORT}/allowlist/probe`, { method: 'DELETE' });
           if (res.ok) return;
-        } catch { /* not up yet */ }
-        if (Date.now() > deadline) throw new Error('The local egress proxy never became reachable');
+        } catch {
+          const still = await runDocker(['inspect', '-f', '{{.State.Running}}', PROXY_CONTAINER_NAME]);
+          if (still.exitCode !== 0 || still.stdout.trim() !== 'true') throw new Error('The local egress proxy stopped before it became reachable');
+        }
         await new Promise((r) => setTimeout(r, 300));
       }
     })().catch((err) => { proxyReady = undefined; throw err; });
@@ -125,10 +123,10 @@ export async function createContainer(opts: CreateContainerOptions): Promise<voi
   const net = networkName(opts.leafId);
   const name = containerName(opts.leafId);
 
-  const netCreate = await runDocker(['network', 'create', '--internal', net], { timeoutMs: 15_000 });
+  const netCreate = await runDocker(['network', 'create', '--internal', net]);
   if (netCreate.exitCode !== 0) throw new Error(`Could not create network ${net}: ${netCreate.stderr}`);
 
-  const connect = await runDocker(['network', 'connect', net, PROXY_CONTAINER_NAME], { timeoutMs: 15_000 });
+  const connect = await runDocker(['network', 'connect', net, PROXY_CONTAINER_NAME]);
   if (connect.exitCode !== 0) throw new Error(`Could not attach the egress proxy to ${net}: ${connect.stderr}`);
 
   const proxyIp = await containerIpOnNetwork(PROXY_CONTAINER_NAME, net);
@@ -152,7 +150,7 @@ export async function createContainer(opts: CreateContainerOptions): Promise<voi
     '-e', `https_proxy=${proxyUrl}`,
     opts.image,
     'sleep', 'infinity',
-  ], { timeoutMs: 60_000 });
+  ]);
   if (run.exitCode !== 0) throw new Error(`Could not start container ${name}: ${run.stderr}`);
 
   const containerIp = await containerIpOnNetwork(name, net);
@@ -161,9 +159,9 @@ export async function createContainer(opts: CreateContainerOptions): Promise<voi
 }
 
 export async function execInContainer(
-  leafId: string, command: string, timeoutMs: number, subPath?: string, maxOutputChars?: number,
+  leafId: string, command: string, timeoutMs: number | undefined, subPath?: string, maxOutputChars?: number,
 ): Promise<DockerResult> {
-  const opts: { timeoutMs: number; maxOutputChars?: number | undefined } = { timeoutMs };
+  const opts: { timeoutMs?: number | undefined; maxOutputChars?: number | undefined } = timeoutMs ? { timeoutMs } : {};
   if (maxOutputChars !== undefined) opts.maxOutputChars = maxOutputChars;
   return runDocker(
     ['exec', ...(subPath ? ['-w', `/work/${subPath}`] : []), containerName(leafId), 'sh', '-c', command],
@@ -189,11 +187,11 @@ export async function destroyContainer(leafId: string): Promise<void> {
   const net = networkName(leafId);
   const containerIp = leafContainerIps.get(leafId);
 
-  await runDocker(['stop', containerName(leafId)], { timeoutMs: 20_000 }).catch(() => undefined);
+  await runDocker(['stop', containerName(leafId)]).catch(() => undefined);
   if (containerIp) {
     await clearProxyAllowlist(containerIp);
     leafContainerIps.delete(leafId);
   }
-  await runDocker(['network', 'disconnect', '-f', net, PROXY_CONTAINER_NAME], { timeoutMs: 10_000 }).catch(() => undefined);
-  await runDocker(['network', 'rm', net], { timeoutMs: 10_000 }).catch(() => undefined);
+  await runDocker(['network', 'disconnect', '-f', net, PROXY_CONTAINER_NAME]).catch(() => undefined);
+  await runDocker(['network', 'rm', net]).catch(() => undefined);
 }

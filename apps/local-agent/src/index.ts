@@ -1,7 +1,7 @@
 import path from 'path';
-import { io } from 'socket.io-client';
+import { io, type Socket } from 'socket.io-client';
 import {
-  runCommand, readLocalFile, writeLocalFile, listLocalDir, deleteLocalFile, DEFAULT_TIMEOUT_MS, type ExecResult,
+  runCommand, readLocalFile, writeLocalFile, listLocalDir, deleteLocalFile, type ExecResult,
 } from './sandbox-handlers.js';
 import {
   dockerAvailable, createContainer, destroyContainer, execInContainer, readFileInContainer,
@@ -14,13 +14,14 @@ const rootDir = path.resolve(process.env.KOALA_ROOT_DIR ?? process.cwd());
 const deviceId = process.env.KOALA_DEVICE_ID;
 const temporalAddress = process.env.KOALA_TEMPORAL_ADDRESS;
 const temporalNamespace = process.env.KOALA_TEMPORAL_NAMESPACE;
+const externalAgents = process.env.KOALA_EXTERNAL_AGENTS;
 
 if (!backendUrl) throw new Error('KOALA_BACKEND_URL is required (e.g. http://localhost:3001)');
 if (!token) throw new Error('KOALA_DEVICE_TOKEN is required — mint one from the My Machines page');
 
 const activeContainers = new Set<string>();
 
-async function startEngineWorkerIfConfigured(): Promise<void> {
+async function startEngineWorkerIfConfigured(socket: Socket): Promise<void> {
   if (!deviceId || !temporalAddress) {
     if (deviceId || temporalAddress) {
       console.warn(
@@ -32,9 +33,28 @@ async function startEngineWorkerIfConfigured(): Promise<void> {
 
   try {
     const { startDeviceWorker } = await import('./engine-worker.js');
+    const { ExternalAgentSessions, koalaTools, launchesFrom } = await import('./external-agents.js');
+    const { LocalMcpServer } = await import('./local-mcp.js');
+    const mcp = new LocalMcpServer();
+    await mcp.start();
+    const searchMemories = (query: string) => new Promise<string>((resolve, reject) => {
+      if (!socket.connected) return reject(new Error('this machine is not connected to Koala right now'));
+      const gone = () => reject(new Error('this machine lost its connection to Koala before the search answered'));
+      socket.once('disconnect', gone);
+      socket.emit('memories:search', { query }, (answer: { text: string }) => {
+        socket.off('disconnect', gone);
+        resolve(answer.text);
+      });
+    });
+    const sessions = new ExternalAgentSessions({ rootDir, launches: launchesFrom(externalAgents), mcp, tools: koalaTools(searchMemories) });
+    if (sessions.agents().length) console.log(`[koala-local-agent] external agents: ${sessions.agents().join(', ')}`);
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+      process.once(signal, () => { void sessions.closeAll().finally(() => process.exit(0)); });
+    }
     const worker = await startDeviceWorker({
       rootDir,
       deviceId,
+      externalAgents: sessions,
       address: temporalAddress,
       ...(temporalNamespace ? { namespace: temporalNamespace } : {}),
       onReady: (queue) => console.log(`[koala-local-agent] engine worker polling ${queue} at ${temporalAddress}`),
@@ -57,9 +77,8 @@ async function main() {
   }
   const containerMode = docker.ok;
 
-  await startEngineWorkerIfConfigured();
-
   const socket = io(`${backendUrl}/agent`, { auth: { token, containerMode }, reconnection: true });
+  await startEngineWorkerIfConfigured(socket);
 
   socket.on('connect', () => {
     console.log(`[koala-local-agent] connected to ${backendUrl} — root: ${rootDir}, containers: ${containerMode ? 'on' : 'off'}`);
@@ -101,14 +120,14 @@ async function main() {
   });
 
   socket.on('sandbox:exec', (
-    { leafId, command, cwd, maxOutputChars }: { leafId: string; command: string; cwd?: string; maxOutputChars?: number },
+    { leafId, command, cwd, maxOutputChars, timeoutMs }: { leafId: string; command: string; cwd?: string; maxOutputChars?: number; timeoutMs?: number },
     ack: (result: ExecResult) => void,
   ) => {
     if (activeContainers.has(leafId)) {
-      execInContainer(leafId, command, DEFAULT_TIMEOUT_MS, cwd, maxOutputChars).then(ack);
+      execInContainer(leafId, command, timeoutMs, cwd, maxOutputChars).then(ack);
     } else {
-      const options: { timeoutMs: number; subPath?: string | undefined; maxOutputChars?: number | undefined } = {
-        timeoutMs: DEFAULT_TIMEOUT_MS,
+      const options: { timeoutMs?: number | undefined; subPath?: string | undefined; maxOutputChars?: number | undefined } = {
+        ...(timeoutMs ? { timeoutMs } : {}),
       };
       if (cwd !== undefined) options.subPath = cwd;
       if (maxOutputChars !== undefined) options.maxOutputChars = maxOutputChars;

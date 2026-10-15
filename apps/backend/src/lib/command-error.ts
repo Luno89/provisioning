@@ -53,26 +53,3 @@ export class CommandFailedError extends Error {
     this.logFile = logFile;
   }
 }
-
-export class CommandTimedOutError extends Error {
-  override readonly name = 'CommandTimedOutError';
-  readonly command: string;
-  readonly timeoutMs: number;
-  readonly stdout: string;
-  readonly stderr: string;
-  readonly logFile: string;
-
-  constructor(command: string, timeoutMs: number, stdout: string, stderr: string, logFile: string) {
-    const cause = salientFailure(stdout, stderr);
-    super([
-      `Command timed out: ${command} after ${timeoutMs}ms`,
-      cause,
-      logFile ? `Full output: ${logFile}` : '',
-    ].filter(Boolean).join('\n'));
-    this.command = command;
-    this.timeoutMs = timeoutMs;
-    this.stdout = stdout;
-    this.stderr = stderr;
-    this.logFile = logFile;
-  }
-}

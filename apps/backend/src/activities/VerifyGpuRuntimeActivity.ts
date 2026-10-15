@@ -7,7 +7,6 @@ export interface VerifyGpuRuntimeArgs {
   vendor: 'nvidia' | 'amd';
 }
 
-export { verifyGpuRuntimeActivityMeta } from '../lib/activity-timeouts.js';
 
 export async function VerifyGpuRuntimeActivity(args: VerifyGpuRuntimeArgs): Promise<void> {
   const db = createDatabase();

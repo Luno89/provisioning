@@ -34,7 +34,7 @@ import { createProcedureExecutor } from './engine-host/nodes/index.js';
 import { signJWT } from './lib/auth.js';
 import axios from 'axios';
 import { httpCheckAccess } from './services/CheckToolAccess.js';
-import { ClusterProxyService } from './services/ClusterProxyService.js';
+import { sharedClusterProxy } from './services/ClusterProxyService.js';
 import { ProjectRepoService } from './services/ProjectRepoService.js';
 import { createSecretVault } from './services/SecretRequestService.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
@@ -44,7 +44,7 @@ import { treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceF
 import { TreeHomeService } from './services/TreeHomeService.js';
 import { webhookAddress } from './services/webhook-address.js';
 import { resolveBindings } from './lib/binding-resolve.js';
-import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
+import { runCancelledVia, runEndedVia } from './engine-host/temporal/run-cancellation.js';
 import { getTemporalClient, resolveOwnersWith } from './lib/temporal-client.js';
 import { createKubeRunner } from './engine-host/sandboxes/kube.js';
 
@@ -73,6 +73,7 @@ import type { GroveRunLauncher } from './services/GroveRunService.js';
 import { createArtifactService } from './services/artifact-service-factory.js';
 import { workflowOfRun } from './engine-host/temporal/contracts.js';
 import { hostedMcpUrl } from './lib/mcp-hosted-url.js';
+import { heartbeatWhileRunning } from '@koala/engine-core';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -107,7 +108,7 @@ async function buildActivities() {
     keys.data,
     '/tmp/kubeconfig-provisioning-lunorica',
     undefined,
-    new ClusterProxyService(),
+    sharedClusterProxy(),
   );
   const projectRepos = new ProjectRepoService(db, gitea, keys.data, webhookAddress(new InfrastructureService(), '/tmp/kubeconfig-provisioning-lunorica', process.env.PORT || 3001));
   const treeHome = new TreeHomeService({
@@ -237,8 +238,9 @@ async function buildActivities() {
     registryAccount: async () => ({ owner: gitea.adminUsername, ...(await gitea.getAdminCredentials()) }),
     registryPushToken: async () => ({ username: gitea.adminUsername, password: (await gitea.createDeployToken()).token }),
     onLeak: (runId, ageMs) => {
-      logger.warn(`[engine] sandbox for ${runId} outlived its run by ${Math.round(ageMs / 60_000)}m — tearing it down`);
+      logger.warn(`[engine] sandbox for ${runId} was still up ${Math.round(ageMs / 60_000)}m after it started, though its run has ended — tearing it down`);
     },
+    runEnded: runEndedVia(() => getTemporalClient()),
   });
   const { registry, endpoints, environments, tools } = host;
   const autoMode = new AutoModeService({ store: db, agentExists: async (ownerId, slug) => Boolean(await registry.agent(ownerId, slug)) });
@@ -426,6 +428,7 @@ async function main() {
         ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
+        interceptors: { activity: [heartbeatWhileRunning()] },
         activities,
       });
       current = worker;

@@ -1,5 +1,4 @@
 import type { ToolDefinition } from '@koala/agent-engine';
-import { MAX_LIFETIME_MS } from './workspace.js';
 import { describe, it, expect, vi } from 'vitest';
 import {
   createEnvironmentResolver, NoMachineAvailableError, type WorkspaceSource,
@@ -187,12 +186,12 @@ describe('describing a run environment', () => {
     await expect(resolver.describe(ticket('needy'))).rejects.toThrow(/query_db needs psql/);
   });
 
-  it('keeps a sandbox alive a quarter longer than the run may take, and as long as allowed when the run has no time limit', async () => {
+  it('keeps a sandbox alive a quarter longer than the run may take, and for as long as the run when it has no time limit', async () => {
     const workspaces: WorkspaceSource = { forRun: async () => ({ kind: 'sandbox', spec: { languages: ['node'] } }) };
     const { resolver } = setup({ workspaces });
 
     expect(await resolver.describe(ticket('executor'), 60 * 60_000)).toMatchObject({ workspace: { lifetimeMs: 75 * 60_000 } });
-    expect(await resolver.describe(ticket('executor'))).toMatchObject({ workspace: { lifetimeMs: MAX_LIFETIME_MS } });
+    expect(await resolver.describe(ticket('executor'))).toMatchObject({ workspace: expect.not.objectContaining({ lifetimeMs: expect.anything() }) });
   });
 
   it('carries the package-registry env and egress that make installs work at all', async () => {
@@ -347,7 +346,8 @@ describe('a sandbox shared by several agents', () => {
     const shared = await resolver.describeShared({ ticket: treeTicket(), agents: ['executor', 'judge', 'leaf-judge'] });
 
     expect(shared.id).toBe(environmentIdFor('tree-t1'));
-    expect(shared.workspace).toMatchObject({ runId: 'tree-t1', persistent: true, lifetimeMs: MAX_LIFETIME_MS });
+    expect(shared.workspace).toMatchObject({ runId: 'tree-t1', persistent: true });
+    expect(shared.workspace).not.toHaveProperty('lifetimeMs');
     expect(shared.capabilities).toMatchObject({ kind: 'sandbox', lifecycle: 'persistent' });
   });
 

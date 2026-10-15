@@ -5,7 +5,6 @@ export const E2E_RUNNER = 'koala-e2e';
 export const E2E_ROOT = 'e2e-results';
 export const E2E_REPORT = `${E2E_ROOT}/report.json`;
 export const E2E_DEFAULT_SPECS = ['e2e'];
-export const E2E_TIMEOUT_MS = 15 * 60_000;
 export const E2E_RUNNER_MISSING = 127;
 
 export type E2ETestStatus = 'passed' | 'failed' | 'flaky' | 'skipped';
