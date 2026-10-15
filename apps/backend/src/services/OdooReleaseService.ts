@@ -8,7 +8,7 @@ import { isMockCloudProvider } from '../lib/cluster-topology.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import {
   CUT_OVER, DEFAULT_RELEASE_APP, DISCARD, RELEASE_AGENT, RETEST, ROLL_BACK_AGENT, UNSETTLED_STATES,
-  type ReleaseBuildInput, type ReleaseRunInput, type RollBackRunInput,
+  type ReleaseBuildInput, type ReleaseHow, type ReleaseRunInput, type RollBackRunInput,
 } from '../lib/release-run.js';
 
 export interface OdooReleaseStore {
@@ -43,6 +43,7 @@ export interface OdooReleaseDeps {
   decide?: ReleaseDecider | undefined;
   secrets?: ReleaseSecrets | undefined;
   runs: ReleaseRuns;
+  how?: ((project: ProjectMetadata) => Promise<ReleaseHow>) | undefined;
   chartAt: (owner: string, repo: string, commit: string) => Promise<boolean>;
   clusterById?: ((id: string) => Promise<ClusterMetadata | undefined>) | undefined;
   notify?: ((ownerId: string, release: OdooRelease) => void) | undefined;
@@ -141,11 +142,12 @@ export class OdooReleaseService {
       return { error };
     }
     if (release.state !== 'preparing') await this.save({ ...release, state: 'preparing', updatedAt: this.now() });
+    const how = await this.howOf(project);
     await this.deps.runs.start({
       projectId: project.id,
       ownerId: release.ownerId,
-      agent: RELEASE_AGENT,
-      inputs: { ...this.inputFor(project, cluster, release.ownerId), build: this.buildOf(project, release, vault) },
+      agent: how.agent,
+      inputs: { ...this.inputFor(project, cluster, release.ownerId, how.app), build: this.buildOf(project, release, vault) },
     });
     return { ok: true };
   }
@@ -192,13 +194,17 @@ export class OdooReleaseService {
       : (await this.deps.store.getClusters()).find((entry) => entry.id === project.targetClusterId);
   }
 
-  private inputFor(project: ProjectMetadata, cluster: ClusterMetadata, ownerId: string): Omit<ReleaseRunInput, 'build'> {
+  private async howOf(project: ProjectMetadata): Promise<ReleaseHow> {
+    return (await this.deps.how?.(project)) ?? { agent: RELEASE_AGENT, app: DEFAULT_RELEASE_APP };
+  }
+
+  private inputFor(project: ProjectMetadata, cluster: ClusterMetadata, ownerId: string, app: string = DEFAULT_RELEASE_APP): Omit<ReleaseRunInput, 'build'> {
     const place = releasePlace(releaseNameOf(project));
     const target = releaseTargetOf(cluster, project);
     return {
       ownerId,
       projectId: project.id,
-      adapter: DEFAULT_RELEASE_APP,
+      adapter: app,
       target,
       host: place.host,
       previewHost: place.previewHost,
@@ -232,7 +238,7 @@ export class OdooReleaseService {
       projectId: project.id,
       ownerId,
       agent: ROLL_BACK_AGENT,
-      inputs: { ...this.inputFor(project, cluster, ownerId), from: live.id, to: this.buildOf(project, target.to) },
+      inputs: { ...this.inputFor(project, cluster, ownerId, (await this.howOf(project)).app), from: live.id, to: this.buildOf(project, target.to) },
     });
     void this.follow(ownerId, project.id);
     return live;

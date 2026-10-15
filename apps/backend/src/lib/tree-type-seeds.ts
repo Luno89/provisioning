@@ -1,5 +1,6 @@
 import type { TreeTypeSeed } from './tree-types.js';
 import { ODOO_RELEASE_SECRETS } from './odoo-release.js';
+import { DEFAULT_RELEASE_APP, RELEASE_AGENT } from './release-run.js';
 import {
   NODE_SERVICE_FILES,
   MCP_SERVER_FILES,
@@ -152,6 +153,7 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     doneMeans: 'Every module the work added or changed installs into a fresh Odoo database and its own tests pass — `odoo-check <module>[,<module>] addons` says PASSED — following CHECKS.md.',
     files: ODOO_ADDONS_FILES,
     releaseWhen: ['Dockerfile', 'addons/**', 'deploy/chart/**', 'e2e/**', 'playwright.config.ts', 'requirements.txt'],
+    release: { agent: RELEASE_AGENT, app: DEFAULT_RELEASE_APP },
     secrets: ODOO_RELEASE_SECRETS,
   },
   {

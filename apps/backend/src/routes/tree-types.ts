@@ -5,6 +5,7 @@ import { agentProblem, validateTreeType } from '../lib/tree-types.js';
 import type { Database } from '../lib/db-interface.js';
 
 export interface TreeTypesRouterDeps {
+  releaseProblem?: ((ownerId: string, how: unknown) => Promise<string | null>) | undefined;
   db: Pick<Database, 'getTreeTypes' | 'saveTreeType' | 'deleteTreeType' | 'getTrees' | 'getWorkspaceImages'>;
   agents: (ownerId: string) => Promise<string[]>;
   describe?: ((ownerId: string, typeId: string) => Promise<string | undefined>) | undefined;
@@ -40,7 +41,8 @@ export function treeTypesRouter(deps: TreeTypesRouterDeps): Router {
     const candidate = { ...(req.body ?? {}), id: idOf(req), ownerId: userId };
 
     const invalid = validateTreeType(await db.getWorkspaceImages(userId), candidate)
-      ?? agentProblem(candidate.agent, await deps.agents(userId));
+      ?? agentProblem(candidate.agent, await deps.agents(userId))
+      ?? (candidate.release !== undefined && deps.releaseProblem ? await deps.releaseProblem(userId, candidate.release) : null);
     if (invalid) return res.status(400).json({ error: invalid });
 
     await db.saveTreeType(candidate);

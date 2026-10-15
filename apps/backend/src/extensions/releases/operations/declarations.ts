@@ -115,6 +115,18 @@ export const RELEASE_OPERATIONS: readonly HostOperation[] = [
     idempotent: true,
   },
   {
+    name: 'releases.deploy-image',
+    title: 'Deploy Image',
+    group: 'Releases',
+    describe: 'Deploys the build\'s image as the project\'s app, replacing the one running, and waits until the app answers or will never come up. There is no preview and no way back but the next build.',
+    inputs: [],
+    outputs: [REASON_OUT],
+    exits: [DONE, FAILED],
+    settings: NONE,
+    summary: 'deploys the build\'s image',
+    idempotent: false,
+  },
+  {
     name: 'releases.roll-back',
     title: 'Roll Back',
     group: 'Releases',

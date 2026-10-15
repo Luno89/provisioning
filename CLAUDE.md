@@ -527,18 +527,28 @@ version (`stampTreeVersions` in `seedAll`). The Studio keeps a type's versions w
 
 ## Odoo projects: A/B releases
 
-A project whose repository has `deploy/chart/Chart.yaml` (the `odoo-addons` tree type scaffolds it) is released by
-chart instead of the generic image promote (`TemporalBridge.onBuilt` → `OdooReleaseService`). One
-`OdooReleaseWorkflow` per project (`odoo-release-<projectId>`, cluster worker, `activities/OdooReleaseActivities.ts`)
-takes builds in order: the first goes into slot `a` (the init job creates `odoo_a` before slot a's Odoo exists — an
-Odoo started with `--database X` initialises X itself, so a slot's Deployment must never exist while its database is
-prepared); each later build is prepared in the idle slot from a copy of the live database and filestore, upgraded
-(`-i` new modules, `-u` the rest), and waits in preview until the person cuts over or discards
-(`/api/projects/:id/releases`). A newer build takes the place of a waiting preview. Cutting over puts the live slot in
-maintenance, copies and upgrades again, then switches `live`; the old slot is stopped with its database untouched as the
-way back. Rolling back (`roll-back`, offered on the live release until a later build reuses that slot) starts it,
-waits for it, then switches `live` to it — the app returns to the snapshot taken at the cutover, so anything entered
-since is lost, and the confirm says so. The cluster is the
+**How a project's builds are released is a procedure.** A tree type says it in `release: { agent, app }`, and a
+project may override it (`releaseHowOf` in `lib/release-run.ts`: the project's setting, then its type's, then a chart in
+the repo means `slots`, otherwise `replace`). The `releases` extension (`extensions/releases/`) holds the steps and three
+procedures, run by agents with no model:
+- **`slots`** (agent `release`, the Odoo type's): the first build goes into slot `a` (the init job creates `odoo_a` before
+  slot a's Odoo exists — an Odoo started with `--database X` initialises X itself, so a slot's Deployment must never exist
+  while its database is prepared); each later build is prepared in the idle slot from a copy of the live database and
+  filestore, quieted, upgraded (`-i` new modules, `-u` the rest), its browser tests run, and it waits on Wait for Person
+  (`decide`: Cut over / Discard / Run tests again), answered by the release card (`/api/projects/:id/releases`). Cutting
+  over puts the live slot in maintenance, copies and upgrades again, then switches `live`; the old slot is stopped with its
+  database untouched as the way back. What is Odoo about it is the app's adapter (`extensions/odoo/release-adapter.ts`).
+- **`slots-roll-back`** (agent `release-roll-back`): offered on the live release until a later build reuses that slot,
+  it starts the kept slot, waits for it, then switches `live` to it — the app returns to the snapshot taken at the
+  cutover, so anything entered since is lost, and the confirm says so.
+- **`replace`** (agent `release-replace`): an image project's build deployed in place of the running app through the
+  same deploy the backend uses (`services/AppDeploy.ts`); the backend's reconcile loop follows a deployment whichever
+  side started it.
+
+`OdooReleaseService` starts one release run per build (`release-<projectId>~<stamp>`, bound to the project), one at a
+time per project: a build arriving while a preview waits stops that run, whose cleanup (Settle Stopped) clears and sets
+the preview aside; one arriving while a release is prepared waits as `queued`, and the newest queued build goes next.
+The steps write the release records; the service follows them and the run, and tells the person. The cluster is the
 truth for which slot is live (`helm get values`); releases are records (`odooReleases`). Each project's release has
 a deployment record (`appType: odoo-project`, with its `namespace`), so it shows among apps, goes with the project, and destroying it
 uninstalls the release and its namespace. A release is named once, at its project's first release: the project's name plus a

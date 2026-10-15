@@ -158,6 +158,32 @@ const proposedServer: Scenario = {
   }],
 };
 
+const proposedRelease: Scenario = {
+  id: 'mechanics-proposed-release',
+  name: 'How a project releases its builds changes only when Koala\'s card is applied',
+  describe: 'Mechanics, on a script: the project releases the default way (replacing the running app, since its repository holds no chart); Koala proposes releasing it beside the live app with the Odoo adapter, and nothing changes until the card is applied; applying it sets the project\'s own release.',
+  agent: 'koala',
+  procedure: { id: 'interactive-chat' },
+  input: { message: 'Release this project with previews I can cut over.' },
+  world: { project: { name: 'release-check' } },
+  script: { rules: [
+    { when: { called: ['propose_release_change'] }, reply: { say: 'It waits for you on a card.' } },
+    { when: { offered: ['propose_release_change'] }, reply: { call: [{ tool: 'propose_release_change', arguments: { project: '{{world.projectId}}', agent: 'release', app: 'odoo', why: 'the person wants previews to cut over' } }] } },
+    NOTHING,
+  ] },
+  expect: {
+    outcome: 'ok',
+    toolsSucceeded: ['propose_release_change'],
+    modelSaw: { anyRequest: true, contains: ['with the release agent with the odoo adapter. Nothing changes until the person applies it'] },
+    releasedBy: { project: true, agent: 'release-replace' },
+  },
+  then: [{
+    name: 'the card is applied',
+    do: { applyAction: true },
+    expect: { releasedBy: { project: true, agent: 'release', app: 'odoo' } },
+  }],
+};
+
 const researched: Scenario = {
   id: 'mechanics-research-workspace',
   name: 'Research shares one workspace that outlives its pod',
@@ -576,4 +602,4 @@ const odooBrowserFailure: Scenario = {
   ],
 };
 
-export const MECHANICS_CHECKS = (): Scenario[] => [judged, longCommand, unaskedInSandbox, servedInWorkspace, proposedServer, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];
+export const MECHANICS_CHECKS = (): Scenario[] => [judged, longCommand, unaskedInSandbox, servedInWorkspace, proposedServer, proposedRelease, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];

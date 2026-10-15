@@ -8,6 +8,7 @@ import { listProjectRuns, listProjects, patchProject, projectKeys } from '../../
 import { listLocalAgentDevices, localAgentKeys, type LocalAgentDevice } from '../../../api/local-agents.js'
 import { ProjectStatusBadge } from '../StatusBadge.js'
 import { ReleasesPanel } from './ReleasesPanel.js'
+import { ProjectRelease } from './ProjectRelease.js'
 import { SignInReveal } from './SignInReveal.js'
 import { OpenApp } from './OpenApp.js'
 
@@ -123,6 +124,8 @@ export function BuildsDeploysPanel({ project }: { project: LinkedProject }) {
           )}
         </div>
       </div>
+
+      <ProjectRelease projectId={project.id} />
 
       <ReleasesPanel projectId={project.id} />
 

@@ -30,6 +30,7 @@ import type { TaskStore } from './tools/task-tools.js';
 import type { MemoryItem } from './drivers/memory-store.js';
 import type { HostNodeServices } from './nodes/services.js';
 import { extensionRuntimes, operationHandlers, toolHandlers } from '../extensions/runtime.js';
+import { releaseProblemOf } from '../services/ReleaseSettings.js';
 import type { RunTicket, ToolRuntime } from './temporal/contracts.js';
 import type { WebTools } from '../lib/web-tools.js';
 import type { Database } from '../lib/db-interface.js';
@@ -50,6 +51,8 @@ import { modelNames } from '../lib/model-registry.js';
 import type { GroveOperationDeps } from '../extensions/grove/operations/handlers.js';
 
 export interface EngineHostStores {
+  actions?: { list(ownerId: string): Promise<import('@koala/harness-types').ActionProposal[]>; save(proposal: import('@koala/harness-types').ActionProposal): Promise<void> } | undefined;
+  projectRecords?: (() => Promise<import('../lib/types.js').ProjectMetadata[]>) | undefined;
   agentRecords: AgentRecordStore;
   toolGrants: ToolGrantStore;
   procedures: {
@@ -287,7 +290,18 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     return runnable ? agentsReachable(runnable.procedure, async (agent) => (await registry.runnable(ownerId, agent))?.procedure) : [];
   };
   const runtimes = extensionRuntimes({
-    ...(options.releases ? { releases: { operations: options.releases } } : {}),
+    releases: {
+      ...(options.releases ? { operations: options.releases } : {}),
+      ...(stores.actions && stores.projectRecords ? { tools: {
+        problem: (ownerId: string, how: unknown) => releaseProblemOf({
+          agents: async (owner: string) => (await registry.agents(owner)).map((agent) => ({ slug: agent.slug, name: agent.name, ...(agent.description ? { description: agent.description } : {}) })),
+          procedureOf: async (owner: string, slug: string) => (await registry.runnable(owner, slug))?.procedure,
+        }, ownerId, how),
+        treeTypes: async (ownerId: string) => (await stores.grove.treeTypeSpecs?.(ownerId)) ?? [],
+        projects: async (ownerId: string) => (await stores.projectRecords!()).filter((project) => project.ownerId === ownerId),
+        proposals: stores.actions,
+      } } : {}),
+    },
     platform: { operations: { environments, ...(options.artifacts ? { artifacts: options.artifacts } : {}) } },
     grove: {
       tools: { stores: { ...stores.grove, ...(treeTypeDescriptions ? { describeTreeType: (ownerId: string, typeId: string) => treeTypeDescriptions.describe(ownerId, typeId) } : {}) } },
@@ -542,6 +556,8 @@ export function storesFromDatabase(db: Database): EngineHostStores {
       },
     },
     runs: { traces: (ownerId: string, runId: string) => db.getRunTraces(ownerId, runId) },
+    actions: { list: (ownerId: string) => db.getActionProposals(ownerId), save: (proposal) => db.saveActionProposal(proposal) },
+    projectRecords: () => db.getProjects(),
     proposals: {
       scenarioIds: async (ownerId: string) => [
         ...BUILT_IN_SCENARIOS.map((scenario) => scenario.id),

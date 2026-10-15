@@ -6,6 +6,7 @@ import { TREE_TYPE_SEEDS as TREE_TYPE_SEEDS_VALUE } from './tree-type-seeds.js';
 import { sameSeededRow } from './seed-diff.js';
 import { validateEgressRules } from './egress-rules.js';
 import { releasePathsProblem } from './release-paths.js';
+import { releaseHowProblem, type ReleaseHow } from './release-run.js';
 import { DECLARED_SOURCES, descriptionProblem, keyProblem, type DeclaredSource } from './secret-requests.js';
 
 export const DEFAULT_GROVE_AGENT = 'grove';
@@ -52,6 +53,7 @@ export interface TreeTypeSpec {
   env?: { name: string; value: string }[] | undefined;
   secrets?: TreeTypeSecret[] | undefined;
   releaseWhen?: string[] | undefined;
+  release?: ReleaseHow | undefined;
   agent?: string | undefined;
   versions?: TreeTypeVersions | undefined;
 }
@@ -155,6 +157,9 @@ export function validateTreeType(
 
   const badPaths = releasePathsProblem(candidate.releaseWhen);
   if (badPaths) return badPaths;
+
+  const badRelease = releaseHowProblem(candidate.release);
+  if (badRelease) return badRelease;
 
   const badVersions = versionsProblem(images, candidate.versions);
   if (badVersions) return badVersions;

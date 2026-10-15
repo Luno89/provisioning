@@ -1,5 +1,5 @@
 import { BUILT_IN_GROUPS, builtInCatalogue, defineProcedure, type Procedure } from '@koala/agent-engine/procedure';
-import { CUT_OVER, DECISION_NODE, DISCARD, RELEASE_PROCEDURE, RETEST, ROLL_BACK_PROCEDURE } from '../../lib/release-run.js';
+import { CUT_OVER, DECISION_NODE, DISCARD, RELEASE_PROCEDURE, REPLACE_PROCEDURE, RETEST, ROLL_BACK_PROCEDURE } from '../../lib/release-run.js';
 import { RELEASE_OPERATIONS } from './operations/declarations.js';
 
 function out<T extends { readonly [socket: string]: unknown }>(node: T, socket: string): NonNullable<T[string]> {
@@ -110,4 +110,20 @@ export const SLOTS_ROLL_BACK: Procedure = defineProcedure(BUILT_IN_GROUPS, {
   rollBack.on('done', done);
   rollBack.on('failed', broke);
   p.layout({ rollBack: [0, 0], done: [260, -80], broke: [260, 80] });
+}, CATALOGUE);
+
+export const REPLACE: Procedure = defineProcedure(BUILT_IN_GROUPS, {
+  id: REPLACE_PROCEDURE,
+  name: 'Replace the running app',
+  describe: 'A build released by replacing the app that runs: its image is deployed and the release ends when the app answers, or fails with why it never will. There is no preview to look at first.',
+  version: '1',
+  budget: {},
+}, (p) => {
+  const deploy = p.hostOp('deploy', {}, op('releases.deploy-image'));
+  const done = p.finish('done', {}, { outcome: 'ok', reason: 'the build is deployed' });
+  const broke = p.finish('broke', { reason: out(deploy, 'reason') }, { outcome: 'failed' });
+  p.start(deploy);
+  deploy.on('done', done);
+  deploy.on('failed', broke);
+  p.layout({ deploy: [0, 0], done: [260, -80], broke: [260, 80] });
 }, CATALOGUE);

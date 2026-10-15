@@ -9,8 +9,9 @@ import { GroveAgent } from './GroveAgent.js';
 import { Scaffold } from './Scaffold.js';
 import { Bindings } from './Bindings.js';
 import { Secrets } from './Secrets.js';
+import { Release } from './Release.js';
 
-export type TreeTypeSection = 'overview' | 'grown-by' | 'scaffold' | 'bindings' | 'secrets' | 'becomes';
+export type TreeTypeSection = 'overview' | 'grown-by' | 'scaffold' | 'bindings' | 'secrets' | 'release' | 'becomes';
 
 function Section({ title, hint, alone, children }: { title: string; hint?: string; alone: boolean; children: ReactNode }) {
   if (alone) return <section className="py-5">{children}</section>;
@@ -117,6 +118,11 @@ export function TreeTypeEditor({ type, types, only, onSaved, initialLabel }: {
         {show('secrets') && (
           <Section alone={Boolean(only)} title="Secrets" hint="What the app needs from the project's vault, and where each value comes from.">
             <Secrets value={draft} onChange={patch} />
+          </Section>
+        )}
+        {show('release') && (
+          <Section alone={Boolean(only)} title="Release" hint="How a build of a project of this type becomes its running app.">
+            <Release value={draft} onChange={patch} />
           </Section>
         )}
       </div>

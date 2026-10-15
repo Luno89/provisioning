@@ -38,6 +38,7 @@ export interface ObservedFlow {
   workspaceExists?: boolean | undefined;
   projectExists?: boolean | undefined;
   mcpServer?: { exists: boolean; state?: string | undefined; why?: string | undefined; heldBy: string[] } | undefined;
+  releasedBy?: { agent?: string | undefined; app?: string | undefined; from?: string | undefined } | undefined;
   trees?: number | undefined;
   step?: { exit?: string | undefined; outputs?: Record<string, unknown> | undefined; error?: string | undefined } | undefined;
   turn?: TurnReply | undefined;
@@ -323,6 +324,12 @@ export async function scoreScenario(expect: ScenarioExpectations, observed: Obse
       const missing = wanted.heldBy.filter((slug) => !(seen?.heldBy ?? []).includes(slug));
       add(`${wanted.name} is held by ${wanted.heldBy.join(', ')}`, missing.length === 0, `held by ${(seen?.heldBy ?? []).join(', ') || 'no agent'}`);
     }
+  }
+  if (expect.releasedBy) {
+    const wanted = expect.releasedBy;
+    const seen = flow.releasedBy;
+    const said = (how: { agent?: string | undefined; app?: string | undefined } | undefined) => (how?.agent ? `${how.agent}${how.app ? ` with ${how.app}` : ''}` : 'nothing');
+    add(`${wanted.project ? 'the project\'s' : `the ${wanted.treeType} tree type's`} builds are released by ${said(wanted)}`, seen?.agent === wanted.agent && (seen?.app ?? undefined) === (wanted.app ?? undefined), `they are released by ${said(seen)}${seen?.from ? `, from its ${seen.from}` : ''}`);
   }
   if (expect.trees !== undefined) add(`${expect.trees} trees`, flow.trees === expect.trees, `there ${flow.trees === 1 ? 'is' : 'are'} ${flow.trees ?? 0}`);
 

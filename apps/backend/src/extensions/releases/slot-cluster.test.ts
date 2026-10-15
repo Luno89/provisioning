@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { releaseNamespace } from './OdooReleaseActivities.js';
+import { releaseNamespace } from './slot-cluster.js';
 
 describe('the namespace a release is installed in', () => {
   it('carries its owner and project, so removing either finds it', () => {

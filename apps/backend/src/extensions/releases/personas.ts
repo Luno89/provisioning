@@ -1,5 +1,5 @@
 import type { PersonaRecord } from '@koala/agent-engine';
-import { RELEASE_AGENT, RELEASE_PROCEDURE, ROLL_BACK_AGENT, ROLL_BACK_PROCEDURE } from '../../lib/release-run.js';
+import { RELEASE_AGENT, RELEASE_PROCEDURE, REPLACE_AGENT, REPLACE_PROCEDURE, ROLL_BACK_AGENT, ROLL_BACK_PROCEDURE } from '../../lib/release-run.js';
 
 const RELEASE_PLACE = {
   ownerId: { type: 'string', description: 'Whose project it is.' },
@@ -26,6 +26,31 @@ const ROLL_BACK_INPUTS = {
 } as const;
 
 export const RELEASE_PERSONAS: PersonaRecord[] = [
+  {
+    slug: REPLACE_AGENT,
+    name: 'Release by replacing',
+    description: 'Releases a project\'s build by deploying its image in place of the running app',
+    version: '1',
+    guidance: 'Started by the platform when a project\'s build is ready and its tree type releases by replacing. It runs no model.',
+    returns: 'Whether the app is deployed, or why it never came up.',
+    failures: [{ when: 'the image will not start', says: 'why, from the app\'s pods' }],
+    procedure: REPLACE_PROCEDURE,
+    maxEffect: 'write',
+    environment: {},
+    interface: {
+      inputs: {
+        type: 'object',
+        properties: {
+          ownerId: { type: 'string', description: 'Whose project it is.' },
+          projectId: { type: 'string', description: 'The project being released.' },
+          pipelineRunId: { type: 'string', description: 'The build whose image is deployed.' },
+        },
+        required: ['ownerId', 'projectId', 'pipelineRunId'],
+      },
+      outputs: ['result'],
+    },
+    prompt: 'You are the structure of a release, not a thinker in it. The procedure decides every step.',
+  },
   {
     slug: RELEASE_AGENT,
     name: 'Release',

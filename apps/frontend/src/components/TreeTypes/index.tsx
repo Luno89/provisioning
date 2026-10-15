@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { BookOpen, Bot, FolderTree, GitBranch, KeyRound, Network } from 'lucide-react';
+import { BookOpen, Bot, FolderTree, GitBranch, KeyRound, Network, Rocket } from 'lucide-react';
 import { listTreeTypes, groveKeys } from '../../api/grove.js';
 import { errorMessage } from '../../api/client.js';
 import Explorer, { FileHeader, type ExplorerGroup } from '../Studio/Explorer';
@@ -15,6 +15,7 @@ const FILES: readonly { id: Exclude<TreeTypeSection, 'overview'>; title: string;
   { id: 'scaffold', title: 'Scaffold', icon: FolderTree, says: 'Starter files rendered into a fresh repository when a tree of this type is created.' },
   { id: 'bindings', title: 'Depends on', icon: Network, says: 'The services the app needs, what its workspaces may reach, and the plain values every leaf runs with.' },
   { id: 'secrets', title: 'Secrets', icon: KeyRound, says: 'What the app needs from the project\'s vault, and where each value comes from.' },
+  { id: 'release', title: 'Release', icon: Rocket, says: 'How a build of a project of this type becomes its running app.' },
   { id: 'becomes', title: 'What it becomes', icon: BookOpen, says: 'Put together from what runs a tree of this type, and what the planner reads before it plans one. Change it by changing those parts.' },
 ];
 

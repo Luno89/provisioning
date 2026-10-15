@@ -51,7 +51,7 @@ describe('the steps that remove an account', () => {
     await db.savePipelineRun({ id: 'r1', projectId: 'bo-shop', status: 'running', temporalWorkflowId: 'pipeline-r1', startedAt: 'then' } as never);
     await db.savePipelineRun({ id: 'r2', projectId: 'bo-shop', status: 'succeeded', temporalWorkflowId: 'pipeline-r2', startedAt: 'then' } as never);
     await createAccountRemovalActivities(deps()).RemoveAccountWorkflowsActivity({ ownerId: 'bo' });
-    expect(terminated).toEqual(expect.arrayContaining(['odoo-release-bo-shop', 'pipeline-r1']));
+    expect(terminated).toEqual(expect.arrayContaining(['release-bo-shop', 'pipeline-r1']));
     expect(terminated).not.toContain('pipeline-r2');
   });
 

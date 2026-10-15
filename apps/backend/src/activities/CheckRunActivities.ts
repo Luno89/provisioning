@@ -770,6 +770,16 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
             break;
           }
         }
+        if (expect.releasedBy) {
+          if (expect.releasedBy.project) {
+            const answer = await http.get(`/release-settings/projects/${projectOf()}`, { validateStatus: () => true });
+            const setting = answer.status === 200 ? answer.data as { how: { agent: string; app?: string }; from: string } : undefined;
+            flow.releasedBy = setting ? { agent: setting.how.agent, ...(setting.how.app ? { app: setting.how.app } : {}), from: setting.from } : {};
+          } else {
+            const type = ((await http.get('/tree-types')).data as { id: string; release?: { agent: string; app?: string } }[]).find((entry) => entry.id === expect.releasedBy!.treeType);
+            flow.releasedBy = type?.release ? { agent: type.release.agent, ...(type.release.app ? { app: type.release.app } : {}) } : {};
+          }
+        }
         if (expect.workspace) {
           const path = expect.workspace.of === 'tree' ? `/trees/${treeId()}/workspace` : `/conversations/${conversationId}/workspace`;
           const state = await http.get(path, { validateStatus: () => true });

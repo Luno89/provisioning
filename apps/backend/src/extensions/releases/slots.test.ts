@@ -15,7 +15,7 @@ import { CUT_OVER, DISCARD, RETEST, type ReleaseRunInput, type RollBackRunInput 
 import { platformCatalogue } from '../installed.js';
 import type { SlotAdapter } from './adapter.js';
 import { createReleaseOperations } from './operations/handlers.js';
-import { SLOTS, SLOTS_ROLL_BACK } from './procedures.js';
+import { REPLACE, SLOTS, SLOTS_ROLL_BACK } from './procedures.js';
 import type { SlotCluster } from './slot-cluster.js';
 
 const INPUT: ReleaseRunInput = {
@@ -28,7 +28,7 @@ const INPUT: ReleaseRunInput = {
 
 const record = (id: string, extra: Partial<OdooRelease> = {}): OdooRelease => ({ id, ownerId: 'bo', projectId: 'p1', pipelineRunId: id, commit: id === 'r1' ? 'one' : 'two', image: `reg/shop:${id === 'r1' ? 'one' : 'two'}`, state: 'preparing', host: 'h', startedAt: id, updatedAt: id, ...extra });
 
-function world(over: { state: SlotState; records: OdooRelease[]; answers?: string[]; breakOn?: string }) {
+function world(over: { state: SlotState; records: OdooRelease[]; answers?: string[]; breakOn?: string; deploy?: { ok: true } | { ok: false; reason: string } }) {
   let state = over.state;
   let records = over.records;
   const actions: string[] = [];
@@ -70,6 +70,10 @@ function world(over: { state: SlotState; records: OdooRelease[]; answers?: strin
       save: async (saved) => { records = [...records.filter((entry) => entry.id !== saved.id), saved]; },
     },
     browserTests: async () => { actions.push('tests'); return { state: 'passed', summary: '1 passed', startedAt: 't0', finishedAt: 't1' }; },
+    images: {
+      deploy: async (projectId, pipelineRunId) => { actions.push(`deploy ${projectId} ${pipelineRunId}`); return { workflowId: 'app-deploy-1' }; },
+      settled: async (workflowId) => { actions.push(`settled ${workflowId}`); return over.deploy ?? { ok: true }; },
+    },
     now: () => '2026-10-15T00:00:00Z',
   });
   const local = new Map<string, NodeImplementation>([
@@ -98,7 +102,7 @@ function world(over: { state: SlotState; records: OdooRelease[]; answers?: strin
       return implementation.run(request) as never;
     },
   };
-  const run = (procedure: Procedure, inputs: ReleaseRunInput | RollBackRunInput) => runProcedure({
+  const run = (procedure: Procedure, inputs: ReleaseRunInput | RollBackRunInput | Record<string, unknown>) => runProcedure({
     procedure,
     catalogue: platformCatalogue(),
     groups: BUILT_IN_GROUPS,
@@ -166,5 +170,18 @@ describe('rolling back', () => {
     expect(stateOf(w.records(), 'r1')).toMatchObject({ state: 'live', slot: 'a' });
     expect(stateOf(w.records(), 'r2')).toMatchObject({ state: 'rolled-back' });
     expect(w.state()).toEqual({ installed: true, live: 'a', tags: { a: 'one', b: undefined } });
+  });
+});
+
+describe('releasing by replacing the running app', () => {
+  it('deploys the build\'s image and ends when the app answers', async () => {
+    const w = world({ state: { installed: false, live: 'a', tags: { a: undefined, b: undefined } }, records: [] });
+    expect(await w.run(REPLACE, { ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b2' })).toMatchObject({ outcome: 'ok', reason: 'the build is deployed' });
+    expect(w.actions).toEqual(['deploy p1 b2', 'settled app-deploy-1']);
+  });
+
+  it('fails with why when the app never comes up', async () => {
+    const w = world({ state: { installed: false, live: 'a', tags: { a: undefined, b: undefined } }, records: [], deploy: { ok: false, reason: 'ImagePullBackOff: reg/api:def not found' } });
+    expect(await w.run(REPLACE, { ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b2' })).toMatchObject({ outcome: 'failed', reason: 'ImagePullBackOff: reg/api:def not found' });
   });
 });

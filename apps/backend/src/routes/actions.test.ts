@@ -173,3 +173,50 @@ describe('/api/actions adding an MCP server', () => {
     expect((await axios.get(harness.url('/api/actions/a2/progress'), { validateStatus: () => true })).status).toBe(404);
   });
 });
+
+describe('/api/actions: how builds are released', () => {
+  let harness: Harness;
+
+  beforeEach(async () => {
+    const { ReleaseSettings } = await import('../services/ReleaseSettings.js');
+    const { REPLACE, SLOTS } = await import('../extensions/releases/procedures.js');
+    const procedures: Record<string, typeof SLOTS> = { release: SLOTS, 'release-replace': REPLACE };
+    harness = await mountRouter({
+      prefix: '/api/actions',
+      router: (db) => actionsRouter({ actions: new ActionService({
+        store: db,
+        deployer: { deployApp: vi.fn(), promoteProjectBuild: vi.fn() },
+        releases: new ReleaseSettings({
+          agents: async () => [{ slug: 'release', name: 'Release' }, { slug: 'release-replace', name: 'Release by replacing' }],
+          procedureOf: async (_owner, slug) => procedures[slug],
+          treeTypes: (ownerId) => db.getTreeTypes(ownerId),
+          saveTreeType: (type) => db.saveTreeType(type),
+          projects: () => db.getProjects(),
+          saveProject: (project) => db.saveProject(project),
+          typeOfProject: async () => undefined,
+          hasChart: async () => false,
+        }),
+      }) }),
+    });
+    await harness.db.saveProject({ id: 'p1', name: 'billing', ownerId: TEST_USER.id, appType: 'gitapp', createdAt: 'x' });
+  });
+
+  afterEach(() => harness.close());
+
+  it('changes how a project\'s builds are released only when the card is applied, and clears it the same way', async () => {
+    await harness.db.saveActionProposal(proposal({ kind: 'set_release', params: { target: 'project', id: 'p1', agent: 'release', app: 'odoo' } }));
+    expect((await harness.db.getProjects()).find((p) => p.id === 'p1')?.release).toBeUndefined();
+    const applied = await post(harness.url('/api/actions/a1/apply'));
+    expect(applied.data).toMatchObject({ status: 'applied', result: 'builds are released by the release agent with the odoo adapter from the next build' });
+    expect((await harness.db.getProjects()).find((p) => p.id === 'p1')?.release).toEqual({ agent: 'release', app: 'odoo' });
+
+    await harness.db.saveActionProposal(proposal({ id: 'a2', kind: 'set_release', params: { target: 'project', id: 'p1', clear: 'true' } }));
+    await post(harness.url('/api/actions/a2/apply'));
+    expect((await harness.db.getProjects()).find((p) => p.id === 'p1')?.release).toBeUndefined();
+  });
+
+  it('fails a card whose release no longer fits, saying why', async () => {
+    await harness.db.saveActionProposal(proposal({ kind: 'set_release', params: { target: 'project', id: 'p1', agent: 'release' } }));
+    expect((await post(harness.url('/api/actions/a1/apply'))).data).toMatchObject({ status: 'failed', reason: 'release releases beside the live app, so it needs the app\'s adapter (odoo)' });
+  });
+});

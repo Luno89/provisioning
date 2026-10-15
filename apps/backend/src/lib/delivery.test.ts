@@ -12,6 +12,14 @@ describe('what happens to work that lands, by tree type', () => {
     expect(odoo.owns).toEqual(expect.arrayContaining(['deploying or releasing', 'creating, copying or upgrading databases']));
   });
 
+  it('says which agent releases a type\'s builds when the type names one, and goes by that rather than the starter', () => {
+    expect(deliveryFor(seed('odoo-addons')).says).toContain('Builds are released by the release agent\'s procedure, with the odoo adapter; a project can be set to release another way.');
+    const replaced = deliveryFor({ ...seed('odoo-addons'), release: { agent: 'release-replace' } });
+    expect(replaced.path).toBe('image-deploy');
+    expect(replaced.says).toContain('Builds are released by the release-replace agent\'s procedure; a project can be set to release another way.');
+    expect(deliveryFor({ produces: 'service', files: [], release: { agent: 'release', app: 'odoo' } }).path).toBe('chart-release');
+  });
+
   it('builds and deploys a service whose starter has a Dockerfile', () => {
     for (const id of ['api-service', 'mcp-server', 'ui-app']) expect(deliveryFor(seed(id)).path, id).toBe('image-deploy');
   });

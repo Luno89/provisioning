@@ -107,6 +107,7 @@ export interface FlowExpectations {
   workspace?: { of: 'tree' | 'conversation'; exists: boolean } | undefined;
   project?: { exists: boolean } | undefined;
   mcpServer?: { name: string; state?: 'captured' | 'failed' | undefined; heldBy?: string[] | undefined } | undefined;
+  releasedBy?: { project?: boolean | undefined; treeType?: string | undefined; agent: string; app?: string | undefined } | undefined;
   trees?: number | undefined;
   exit?: string | undefined;
   outputs?: Record<string, { equals?: unknown; contains?: string | undefined }> | undefined;
@@ -199,6 +200,12 @@ function expectationProblems(
     if (typeof server.name !== 'string' || !server.name.trim()) problems.push(`${where}it expects an MCP server, but names none`);
     if (server.state !== undefined && server.state !== 'captured' && server.state !== 'failed') problems.push(`${where}an MCP server is expected captured or failed`);
     if (server.heldBy !== undefined && (!Array.isArray(server.heldBy) || server.heldBy.some((slug) => typeof slug !== 'string' || !known.agents.has(slug)))) problems.push(`${where}the MCP server is expected held by agents there are`);
+  }
+  if (expect.releasedBy !== undefined) {
+    const released = expect.releasedBy as { project?: unknown; treeType?: unknown; agent?: unknown; app?: unknown };
+    if ((released.project === true) === (typeof released.treeType === 'string')) problems.push(`${where}how builds are released is expected of either the world's project or a tree type`);
+    if (typeof released.agent !== 'string' || !released.agent.trim()) problems.push(`${where}it expects builds released by an agent, but names none`);
+    if (released.app !== undefined && typeof released.app !== 'string') problems.push(`${where}the release's app adapter is a name`);
   }
   for (const handOff of expect.handOffs ?? []) {
     if (typeof handOff?.agent !== 'string' || !known.agents.has(handOff.agent)) problems.push(`${where}it expects hand-offs to "${String(handOff?.agent)}", which is not an agent`);

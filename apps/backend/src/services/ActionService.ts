@@ -1,3 +1,4 @@
+import type { ReleaseSettings } from './ReleaseSettings.js';
 import type { ActionProposal } from '../lib/action-proposals.js';
 import { DECIDABLE } from '../lib/action-proposals.js';
 import { declareDependency } from '../lib/declare-dependency.js';
@@ -47,6 +48,7 @@ export class ActionService {
     deployer: ActionDeployer;
     servers?: ActionServers | undefined;
     agents?: ActionAgents | undefined;
+    releases?: Pick<ReleaseSettings, 'setForType' | 'setForProject'> | undefined;
     now?: () => string;
     onSettled?: ((ownerId: string, conversationId: string | undefined) => void) | undefined;
   }) {}
@@ -180,6 +182,16 @@ export class ActionService {
       }
       case 'add_mcp_server':
         throw new Error('an MCP server is added by addServer');
+      case 'set_release': {
+        if (!this.deps.releases) throw new Error('release settings cannot be changed here');
+        const how = params.clear === 'true' ? undefined : { agent: params.agent ?? '', ...(params.app ? { app: params.app } : {}) };
+        const target = params.id ?? '';
+        const outcome = params.target === 'treeType'
+          ? await this.deps.releases.setForType(ownerId, target, how)
+          : await this.deps.releases.setForProject(ownerId, target, how);
+        if (!outcome.ok) throw new Error(outcome.error);
+        return how ? `builds are released by the ${how.agent} agent${how.app ? ` with the ${how.app} adapter` : ''} from the next build` : 'the setting is cleared; the next build is released the default way';
+      }
       case 'add_project_dependency': {
         const out = await declareDependency(this.deps.store, ownerId, { projectId: params.projectId, service: params.service, as: params.as });
         if (out.error) throw new Error(out.error);

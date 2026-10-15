@@ -13,7 +13,6 @@ import { SyncConfigActivity } from './activities/SyncConfigActivity.js';
 import { DownloadModelActivity } from './activities/DownloadModelActivity.js';
 import { VerifyGpuRuntimeActivity } from './activities/VerifyGpuRuntimeActivity.js';
 import { RunPipelineActivity } from './activities/RunPipelineActivity.js';
-import { createOdooReleaseActivities } from './activities/OdooReleaseActivities.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
 import { sharedPayloadBlobs } from './lib/db-interface.js';
@@ -74,7 +73,6 @@ async function main() {
         workflowsPath: resolve(__dirname, 'workflows'),
         interceptors: { activity: [heartbeatWhileRunning()] },
         activities: {
-          ...createOdooReleaseActivities(),
           DeployAppActivity,
           CheckWorkloadActivity,
           DestroyAppActivity,

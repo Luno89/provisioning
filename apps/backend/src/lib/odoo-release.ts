@@ -54,8 +54,6 @@ export function rollBackTarget(releases: readonly OdooRelease[], live: OdooRelea
   return { to };
 }
 
-export const releaseWorkflowId = (projectId: string): string => `odoo-release-${projectId}`;
-
 export const ODOO_PROJECT_APP = 'odoo-project';
 
 const RELEASE_BASE_MAX = 40;

@@ -27,8 +27,13 @@ export interface Delivery {
 
 const BUILD = 'Every push to main builds the repository\'s Dockerfile into an image, from exactly the commit that was pushed; a commit with no Dockerfile builds nothing.';
 
-export function deliveryFor(type: Pick<TreeTypeSpec, 'produces' | 'files'>): Delivery {
+const releasedBy = (release: TreeTypeSpec['release']): string[] =>
+  release?.agent ? [`Builds are released by the ${release.agent} agent's procedure${release.app ? `, with the ${release.app} adapter` : ''}; a project can be set to release another way.`] : [];
+
+export function deliveryFor(type: Pick<TreeTypeSpec, 'produces' | 'files' | 'release'>): Delivery {
   const paths = new Set(type.files.map((file) => file.path));
+  const beside = type.release?.agent ? Boolean(type.release.app) : paths.has(CHART_FILE);
+  const replaced = type.release?.agent ? !type.release.app : false;
   if (type.produces === 'artefact') {
     return {
       path: 'none',
@@ -36,21 +41,22 @@ export function deliveryFor(type: Pick<TreeTypeSpec, 'produces' | 'files'>): Del
       owns: [],
     };
   }
-  if (paths.has(CHART_FILE)) {
+  if (beside) {
     return {
       path: 'chart-release',
       says: [
         BUILD,
+        ...releasedBy(type.release),
         `The repository's ${CHART_FILE} is released by the platform, two slots on one PostgreSQL. The first build is installed into slot a, its database created and initialised, and goes live.`,
         ...ORDER.map((state) => `${state}: ${RELEASE_STATES[state]}.`),
       ],
       owns: ['installing the app or its database', 'creating, copying or upgrading databases', 'building or pushing images', 'deploying or releasing', 'exposing the app or its preview', 'cutting over or rolling back', 'recording addresses or URLs', 'the test user the browser tests sign in as'],
     };
   }
-  if (paths.has('Dockerfile') || paths.has(PIPELINE_FILE)) {
+  if (replaced || paths.has('Dockerfile') || paths.has(PIPELINE_FILE)) {
     return {
       path: 'image-deploy',
-      says: [BUILD, 'Each image is deployed to the project\'s cluster as an app, replacing the one before; it is reached from outside once the person exposes it.'],
+      says: [BUILD, ...releasedBy(type.release), 'Each image is deployed to the project\'s cluster as an app, replacing the one before; it is reached from outside once the person exposes it.'],
       owns: ['building or pushing images', 'deploying', 'the cluster and the app\'s namespace'],
     };
   }

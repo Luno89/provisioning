@@ -182,6 +182,11 @@ import { InstanceChart } from './services/InstanceChart.js';
 import { instancesRouter } from './routes/instances.js';
 import { OdooReleaseService } from './services/OdooReleaseService.js';
 import { engineReleaseRuns } from './engine-host/release-runs.js';
+import { ImageReleases } from './services/ImageReleases.js';
+import { ReleaseSettings } from './services/ReleaseSettings.js';
+import { releaseSettingsRouter } from './routes/release-settings.js';
+import { releaseHowOf } from './lib/release-run.js';
+import { deploymentForProject } from './lib/project-status.js';
 import { releasesRouter } from './routes/releases.js';
 import { artifactsRouter } from './routes/artifacts.js';
 import { CHART_FILE, ODOO_RELEASE_SECRETS, OWN_SECRET_FILE } from './lib/odoo-release.js';
@@ -814,6 +819,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     store: db,
     decide: decideRelease,
     runs: engineReleaseRuns({ runs: engineRuns, client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined) }),
+    how: async (project) => releaseHowOf(project, await treeTypeOfProject(db, project), true),
     chartAt: async (owner, repo, commit) => (await giteaService.getRawFile(owner, repo, CHART_FILE, commit)) !== null,
     clusterById: async (id) => (id === 'provisioning-lunorica' ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
     notify: (ownerId, release) => {
@@ -836,8 +842,31 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   temporalBridge.ensureSecrets = (project) => projectSecrets.ensure(project, {});
   temporalBridge.planBuild = (project, commitSha) => buildPlanAt((file) => giteaService.getRawFile(project.giteaOwner!, project.giteaRepo!, file, commitSha).catch(() => null), commitSha);
+  const releaseSettings = new ReleaseSettings({
+    agents: async (ownerId) => (await agentDirectory.agents(ownerId)).map((agent) => ({ slug: agent.slug, name: agent.name, description: agent.description })),
+    procedureOf: async (ownerId, slug) => (await engineRegistry.runnable(ownerId, slug))?.procedure,
+    treeTypes: (ownerId) => db.getTreeTypes(ownerId),
+    saveTreeType: (type) => db.saveTreeType(type),
+    projects: () => db.getProjects(),
+    saveProject: (project) => db.saveProject(project),
+    typeOfProject: (project) => treeTypeOfProject(db, project),
+    hasChart: async (project) => Boolean(project.giteaOwner && project.giteaRepo && (await giteaService.getRawFile(project.giteaOwner, project.giteaRepo, CHART_FILE, 'main')) !== null),
+  });
+  tenant.use('/api/release-settings', releaseSettingsRouter({ settings: releaseSettings }));
+  const imageReleases = new ImageReleases({
+    runs: engineRuns,
+    deployedTag: async (project) => deploymentForProject(project, await db.getDeployments())?.gitappImageTag?.split(':').pop(),
+    decide: decideRelease,
+    ensureSecrets: (project) => projectSecrets.ensure(project, {}),
+    noteOnBuild: (run) => db.savePipelineRunInfo(run),
+  });
   temporalBridge.onBuilt = async (project, run) => {
-    if (!(await odooReleases.releasesByChart(project, run.commitSha))) return false;
+    const how = releaseHowOf(project, await treeTypeOfProject(db, project), await odooReleases.releasesByChart(project, run.commitSha));
+    if (!how.app) {
+      const outcome = await imageReleases.release(project, run, how.agent);
+      if (typeof outcome === 'object') console.log(`[releases] ${project.name}: the build of ${run.commitSha.slice(0, 8)} was not deployed: ${'skipped' in outcome ? outcome.skipped : outcome.refused}`);
+      return true;
+    }
     const started = await odooReleases.release(project, run);
     if ('error' in started) console.error(`[releases] ${project.name}: the build of ${run.commitSha} was not released: ${started.error}`);
     if ('skipped' in started) console.log(`[releases] ${project.name}: the build of ${run.commitSha.slice(0, 8)} has nothing to release: ${started.skipped}`);
@@ -1173,7 +1202,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       return runnable && { describe: runnable.agent.description, procedure: runnable.procedure };
     },
   });
-  tenant.use('/api/tree-types', treeTypesRouter({ db, agents: async (ownerId: string) => (await engineRegistry.agents(ownerId)).map((agent) => agent.slug), describe: (ownerId, typeId) => treeTypeDescriptions.describe(ownerId, typeId) }));
+  tenant.use('/api/tree-types', treeTypesRouter({ db, agents: async (ownerId: string) => (await engineRegistry.agents(ownerId)).map((agent) => agent.slug), describe: (ownerId, typeId) => treeTypeDescriptions.describe(ownerId, typeId), releaseProblem: (ownerId, how) => releaseSettings.problem(ownerId, how) }));
   tenant.use('/api/binding-types', bindingTypesRouter({ db }));
   const groveRuns = new GroveRunService({
     store: db,
@@ -1246,6 +1275,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.use('/api/actions', actionsRouter({ actions: new ActionService({
     store: db,
     deployer: temporalBridge,
+    releases: releaseSettings,
     servers: { add: (ownerId, input) => mcpCatalogue.add(ownerId, input), list: (ownerId) => db.getMcpServers(ownerId) },
     agents: {
       agents: (ownerId) => agentDirectory.agents(ownerId),

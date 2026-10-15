@@ -179,6 +179,15 @@ describe('rolling back', () => {
     expect(stateOf('r2')).toMatchObject({ state: 'rolled-back', reason: 'rolled back to the release of one' });
   });
 
+  it('stops the kept slot again when it never comes up, and keeps the current one live', async () => {
+    records = [release('r1', { state: 'superseded', slot: 'a' }), release('r2', { state: 'live', slot: 'b' })];
+    state = { installed: true, live: 'b', tags: { a: 'one', b: 'two' } };
+    breakOn = 'wait app-a';
+    expect(await ops()['releases.roll-back']!(request({}, {}, back))).toEqual({ exit: 'failed', outputs: { reason: 'wait app-a broke' } });
+    expect(actions).toEqual(['scale app-a 1', 'wait app-a', 'scale app-a 0']);
+    expect(stateOf('r2')).toMatchObject({ state: 'live', reason: 'the rollback failed: wait app-a broke' });
+  });
+
   it('refuses when the kept slot no longer holds that release, and keeps the current one live', async () => {
     records = [release('r1', { state: 'superseded', slot: 'a' }), release('r2', { state: 'live', slot: 'b' })];
     state = { installed: true, live: 'b', tags: { a: 'three', b: 'two' } };

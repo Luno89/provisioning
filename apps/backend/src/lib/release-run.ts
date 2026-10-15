@@ -45,6 +45,8 @@ export const RELEASE_PROCEDURE = 'slots';
 export const ROLL_BACK_PROCEDURE = 'slots-roll-back';
 export const RELEASE_AGENT = 'release';
 export const ROLL_BACK_AGENT = 'release-roll-back';
+export const REPLACE_AGENT = 'release-replace';
+export const REPLACE_PROCEDURE = 'replace';
 export const CUT_OVER = 'Cut over';
 export const DISCARD = 'Discard';
 export const RETEST = 'Run tests again';
@@ -88,3 +90,42 @@ export function marked(releases: readonly OdooRelease[], releaseId: string, mark
   }
   return changes;
 }
+
+export interface ReleaseHow {
+  agent: string;
+  app?: string | undefined;
+}
+
+export interface ReplaceRunInput {
+  ownerId: string;
+  projectId: string;
+  pipelineRunId: string;
+}
+
+export const replaceRunId = (projectId: string, pipelineRunId: string, stamp: string): string => `release-${projectId}-${pipelineRunId}~${stamp}`;
+
+export function releaseHowOf(project: { release?: ReleaseHow | undefined }, type: { release?: ReleaseHow | undefined } | undefined, hasChart: boolean): ReleaseHow {
+  if (project.release?.agent) return project.release;
+  if (type?.release?.agent) return type.release;
+  return hasChart ? { agent: RELEASE_AGENT, app: DEFAULT_RELEASE_APP } : { agent: REPLACE_AGENT };
+}
+
+export function releaseHowProblem(value: unknown): string | null {
+  if (value === undefined) return null;
+  const how = value as Partial<ReleaseHow> | null;
+  if (!how || typeof how !== 'object') return 'release must be { agent, app }';
+  if (typeof how.agent !== 'string' || !how.agent.trim()) return 'release must name the agent that releases a build';
+  if (how.app !== undefined && (typeof how.app !== 'string' || !how.app.trim())) return 'release.app names the app adapter (like odoo)';
+  return null;
+}
+
+export interface ReleaseApp {
+  id: string;
+  title: string;
+}
+
+export const RELEASE_APPS: readonly ReleaseApp[] = [{ id: 'odoo', title: 'Odoo' }];
+
+export const RELEASE_STEP = 'releases.';
+export const IMAGE_ONLY_STEPS: readonly string[] = ['releases.deploy-image'];
+export const OPEN_STEP = 'releases.open';

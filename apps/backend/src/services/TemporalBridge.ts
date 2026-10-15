@@ -39,7 +39,7 @@ import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-
 import type { ClusterService } from './ClusterService.js'
 import { ClusterProvisionWorkflow } from '../workflows/ClusterProvisionWorkflow.js'
 import { executeDestroyClusterWorkflow } from '../workflows/DestroyClusterWorkflow.js'
-import { executeDeployAppWorkflow } from '../workflows/AppDeployWorkflow.js'
+import { deployProjectBuild, startAppDeploy, resolveOpenaiApiBaseUrl, type AppDeployDeps } from './AppDeploy.js'
 import { executeDestroyAppWorkflow } from '../workflows/DestroyAppWorkflow.js'
 import { executeResizeDiskWorkflow } from '../workflows/ResizeDiskWorkflow.js'
 import { executeSyncConfigWorkflow } from '../workflows/SyncConfigWorkflow.js'
@@ -211,6 +211,7 @@ export class TemporalBridge {
   io: SocketServer | undefined
   client!: Client
   masterKey: SecretKey
+  private readonly following = new Set<string>()
   clusterService?: ClusterService
   headscale?: { createPreAuthKey(userId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }> }
 
@@ -286,6 +287,8 @@ export class TemporalBridge {
     provider: ClusterMetadata['provider'] | '',
     meta?: any
   ) {
+    if (this.following.has(wfId)) return
+    this.following.add(wfId)
     let consecutiveFailures = 0
     const timer = setInterval(async () => {
       try {
@@ -294,6 +297,7 @@ export class TemporalBridge {
 
         if (status && status.status?.name !== 'RUNNING') {
           clearInterval(timer)
+          this.following.delete(wfId)
           const name = status.status?.name
           let kubeconfig: string | undefined
           if (name === 'COMPLETED' && action === 'cluster-provision') {
@@ -422,6 +426,7 @@ export class TemporalBridge {
         consecutiveFailures++
         if (consecutiveFailures >= MAX_POLL_FAILURES) {
           clearInterval(timer)
+          this.following.delete(wfId)
           console.error(`[TemporalBridge] Workflow ${wfId} polling failed ${consecutiveFailures} times — giving up`)
         } else {
           console.warn(`[TemporalBridge] Failed polling workflow ${wfId} (${consecutiveFailures}/${MAX_POLL_FAILURES}): ${err.message}`)
@@ -532,6 +537,11 @@ export class TemporalBridge {
         }
 
         const deployments = await this.db.getDeployments()
+        for (const dep of deployments) {
+          if ((dep.status === 'deploying' || dep.status === 'destroying') && dep.temporalWorkflowId) {
+            this.trackWorkflow(dep.temporalWorkflowId, dep.status === 'deploying' ? 'app-deploy' : 'app-destroy', dep.id, dep.name, '', dep)
+          }
+        }
 
         const kubeconfigForCluster = new Map<string, string | undefined>()
         const resolveKubeconfig = async (clusterId: string): Promise<string | undefined> => {
@@ -892,259 +902,19 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     }
   }
 
-  private resolveOpenaiApiBaseUrl(dep: DeploymentMetadata, allDeployments: DeploymentMetadata[]): string | undefined {
-    const targetId = dep.appType === 'hermes' ? dep.hermesTargetId : (dep.appType === 'openwebui' ? dep.openWebuiTargetId : undefined);
-    if (!targetId) return undefined;
-    const target = allDeployments.find((d) => d.id === targetId);
-    if (!target) return undefined;
-    if (target.clusterId !== dep.clusterId) {
-      console.warn(`[TemporalBridge] Open WebUI deployment "${dep.name}" targets "${target.name}" on a different cluster — skipping OPENAI_API_BASE_URL, it must be configured manually.`);
-      return undefined;
-    }
-    if (target.appType !== 'vllm' && target.appType !== 'tabbyapi') return undefined;
-    const sanitize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-    const targetNs = sanitize(target.name);
-    return target.appType === 'tabbyapi'
-      ? `http://${targetNs}-tabbyapi.${targetNs}.svc.cluster.local:5000/v1`
-      : `http://${targetNs}-vllm.${targetNs}.svc.cluster.local:8000/v1`;
-  }
 
   async deployApp(config: any, userId?: string): Promise<WorkflowDeal> {
-    if (userId) {
-      const cluster = (await this.db.getClusters()).find((c: ClusterMetadata) => c.id === config.clusterId)
-      const appType = config.appType || 'odoo'
-      const problem = checkCapacity(appType, cluster?.capacity, requestedGpuCount(appType, config))
-      if (problem) throw new CapacityError(problem)
-    }
-
-    const unresolved = await this.db.getDeployments()
-    let [dep] = unresolved.filter((d: DeploymentMetadata) => {
-      if (config.name && d.name === config.name && d.clusterId === config.clusterId) return true
-      if (config.id && d.id === config.id) return true
-      return false
-    })
-    if (!dep) {
-      dep = {
-        status: 'deploying',
-        id: config.id || config.name,
-        name: config.name,
-        clusterId: config.clusterId,
-        strategy: config.strategy || 'helm',
-        appType: config.appType || 'odoo',
-        modules: config.modules || [],
-        storage: config.storage || {},
-        webRepo: config.webRepo || config.odooRepo,
-        webTag: config.webTag || config.odooTag,
-        dbRepo: config.dbRepo || config.pgRepo,
-        dbTag: config.dbTag || config.pgTag,
-        url: config.url,
-        vllmModel: config.vllmModel,
-        vllmGpuCount: config.vllmGpuCount,
-        vllmGpuVendor: config.vllmGpuVendor,
-        vllmCachePvc: config.vllmCachePvc,
-        vllmHfToken: config.vllmHfToken?.trim(),
-        vllmMaxModelLen: config.vllmMaxModelLen,
-        vllmGpuMemUtil: config.vllmGpuMemUtil,
-        vllmExtraArgs: config.vllmExtraArgs,
-        vllmToolCallingEnabled: config.vllmToolCallingEnabled,
-        vllmToolCallParser: config.vllmToolCallParser,
-        vllmServedModelName: config.vllmServedModelName,
-        vllmMaxNumSeqs: config.vllmMaxNumSeqs,
-        vllmDtype: config.vllmDtype,
-        vllmEnablePrefixCaching: config.vllmEnablePrefixCaching,
-        tabbyModel: config.tabbyModel,
-        tabbyRevision: config.tabbyRevision,
-        tabbyGpuCount: config.tabbyGpuCount,
-        tabbyHfToken: config.tabbyHfToken?.trim(),
-        tabbyCachePvc: config.tabbyCachePvc,
-        tabbyImageTag: config.tabbyImageTag,
-        tabbyCacheMode: config.tabbyCacheMode,
-        tabbyMaxSeqLen: config.tabbyMaxSeqLen,
-        tabbyMaxBatchSize: config.tabbyMaxBatchSize,
-        tabbyReasoning: config.tabbyReasoning,
-        tabbyToolFormat: config.tabbyToolFormat,
-        tabbyInlineModelLoading: config.tabbyInlineModelLoading,
-        tabbyDisableAuth: config.tabbyDisableAuth,
-        tabbyMemoryLimit: config.tabbyMemoryLimit,
-        tabbyShmSize: config.tabbyShmSize,
-        tabbyCpuLimit: config.tabbyCpuLimit,
-        tabbyExtraEnv: config.tabbyExtraEnv,
-        searxngSecretKey: config.searxngSecretKey,
-        searxngEngines: config.searxngEngines,
-        crawl4aiApiToken: config.crawl4aiApiToken,
-        crawl4aiMemoryLimit: config.crawl4aiMemoryLimit,
-        crawl4aiShmSize: config.crawl4aiShmSize,
-        openWebuiTargetId: config.openWebuiTargetId,
-        hermesTargetId: config.hermesTargetId,
-        webuiEnableWebSearch: config.webuiEnableWebSearch,
-        webuiWebSearchEngine: config.webuiWebSearchEngine,
-        webuiWebSearchApiKey: config.webuiWebSearchApiKey,
-        appSettings: config.appSettings,
-        ...(userId !== undefined ? { ownerId: userId } : {}),
-      }
-      dep = resolveVllmDefaults(dep as DeploymentMetadata)
-      dep = resolveTabbyDefaults(dep as DeploymentMetadata)
-      dep = resolveCrawl4aiDefaults(dep as DeploymentMetadata)
-      dep = resolveSearxngDefaults(dep as DeploymentMetadata)
-      dep = resolveMinioDefaults(dep as DeploymentMetadata)
-      dep = resolveQdrantDefaults(dep as DeploymentMetadata)
-      dep = resolveQuickwitDefaults(dep as DeploymentMetadata, await this.db.getDeployments())
-      dep = resolveAppSettingsDefaults(dep as DeploymentMetadata)
-    }
-
-    if (config.gitappProjectId) dep.gitappProjectId = config.gitappProjectId
-    if (config.gitappImageTag) dep.gitappImageTag = config.gitappImageTag
-
-    if (config.gitappImageTag) {
-      const at = String(config.gitappImageTag).lastIndexOf(':')
-      if (at > 0) {
-        dep.webRepo = String(config.gitappImageTag).slice(0, at)
-        dep.webTag = String(config.gitappImageTag).slice(at + 1)
-      }
-    } else {
-      const repo = config.webRepo || config.odooRepo
-      const tag = config.webTag || config.odooTag
-      const placeholder = dep.appType !== 'odoo' && repo === 'library/odoo'
-      if (repo && tag && !placeholder) {
-        dep.webRepo = repo
-        dep.webTag = tag
-      }
-    }
-    if (config.gitappEnv) dep.gitappEnv = config.gitappEnv
-
-    const openaiApiBaseUrl = this.resolveOpenaiApiBaseUrl(dep, unresolved);
-
-    if (!dep.vllmHfToken && !dep.tabbyHfToken && (dep.appType === 'vllm' || config.appType === 'vllm' || dep.appType === 'tabbyapi' || config.appType === 'tabbyapi')) {
-      let userCreds;
-      if (userId) {
-        const user = await this.db.getUserById(userId);
-        const encryptedToken = user?.credentials?.huggingface?.hfToken;
-        if (encryptedToken) {
-          try {
-            userCreds = { huggingface: { hfToken: decryptValue(encryptedToken, this.masterKey) } };
-          } catch { /* ignored */ }
-        }
-      }
-      const resolved = resolveCloudCredentials('huggingface', userCreds);
-      if (resolved.env.HF_TOKEN) {
-        if (dep.appType === 'tabbyapi') {
-          dep.tabbyHfToken = resolved.env.HF_TOKEN;
-        } else {
-          dep.vllmHfToken = resolved.env.HF_TOKEN;
-        }
-      }
-    }
-
-  const targetCluster = await this.getClusterById(dep.clusterId)
-  const wfId = `app-deploy-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-C3.log`
-  const absoluteLogPath = path.join(LOG_DIR, logFileName)
-  const deploymentId = deploymentIdFor(dep.deploymentId, dep.id || dep.name);
-  dep.deploymentId = deploymentId;
-
-    const activityArgs = {
-      name: dep.name,
-      clusterId: dep.clusterId,
-      clusterName: targetCluster?.name || 'unknown',
-      provider: targetCluster?.provider || 'k3d',
-      ...(dep.appType === 'tabbyapi' && targetCluster?.isSystem
-        ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) }
-        : {}),
-      ...(dep.appType === 'vllm' && targetCluster?.isSystem
-        ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) }
-        : {}),
-      ...(targetCluster?.gpuEnabled !== undefined ? { clusterGpuEnabled: targetCluster.gpuEnabled } : {}),
-      strategy: dep.strategy || 'helm',
-      appType: dep.appType || 'odoo',
-      modules: dep.modules || [],
-      odooRepo: (dep.webRepo as string) || '',
-      odooTag: (dep.webTag as string) || '',
-      dbRepo: (dep.dbRepo as string) || '',
-      dbTag: (dep.dbTag as string) || '',
-      logFile: absoluteLogPath,
-      deploymentId,
-      vllmModel: dep.vllmModel,
-      vllmGpuCount: dep.vllmGpuCount,
-      vllmGpuVendor: dep.vllmGpuVendor,
-      vllmCachePvc: dep.vllmCachePvc,
-      vllmHfToken: dep.vllmHfToken,
-      vllmMaxModelLen: dep.vllmMaxModelLen,
-      vllmGpuMemUtil: dep.vllmGpuMemUtil,
-      vllmExtraArgs: dep.vllmExtraArgs,
-      vllmToolCallingEnabled: dep.vllmToolCallingEnabled,
-      vllmToolCallParser: dep.vllmToolCallParser,
-      vllmServedModelName: dep.vllmServedModelName,
-      vllmMaxNumSeqs: dep.vllmMaxNumSeqs,
-      vllmDtype: dep.vllmDtype,
-      vllmEnablePrefixCaching: dep.vllmEnablePrefixCaching,
-      tabbyModel: dep.tabbyModel,
-      tabbyRevision: dep.tabbyRevision,
-      tabbyGpuCount: dep.tabbyGpuCount,
-      tabbyHfToken: dep.tabbyHfToken,
-      tabbyCachePvc: dep.tabbyCachePvc,
-      tabbyImageTag: dep.tabbyImageTag,
-      tabbyCacheMode: dep.tabbyCacheMode,
-      tabbyMaxSeqLen: dep.tabbyMaxSeqLen,
-      tabbyMaxBatchSize: dep.tabbyMaxBatchSize,
-      tabbyReasoning: dep.tabbyReasoning,
-      tabbyToolFormat: dep.tabbyToolFormat,
-      tabbyInlineModelLoading: dep.tabbyInlineModelLoading,
-      tabbyDisableAuth: dep.tabbyDisableAuth,
-      tabbyMemoryLimit: dep.tabbyMemoryLimit,
-      tabbyShmSize: dep.tabbyShmSize,
-      tabbyCpuLimit: dep.tabbyCpuLimit,
-      tabbyExtraEnv: dep.tabbyExtraEnv,
-      searxngSecretKey: dep.searxngSecretKey,
-      searxngEngines: dep.searxngEngines,
-      crawl4aiApiToken: dep.crawl4aiApiToken,
-      crawl4aiMemoryLimit: dep.crawl4aiMemoryLimit,
-      crawl4aiShmSize: dep.crawl4aiShmSize,
-      minioRootUser: dep.minioRootUser,
-      minioRootPassword: dep.minioRootPassword,
-      minioStorage: dep.minioStorage,
-      qdrantApiKey: dep.qdrantApiKey,
-      qdrantStorage: dep.qdrantStorage,
-      qdrantMemoryLimit: dep.qdrantMemoryLimit,
-      quickwitS3Endpoint: dep.quickwitS3Endpoint,
-      quickwitS3AccessKey: dep.quickwitS3AccessKey,
-      quickwitS3SecretKey: dep.quickwitS3SecretKey,
-      quickwitBucket: dep.quickwitBucket,
-      teiModelId: dep.teiModelId,
-      teiUseGpu: dep.teiUseGpu,
-      teiMemoryLimit: dep.teiMemoryLimit,
-      verdaccioUpstream: dep.verdaccioUpstream,
-      verdaccioStorage: dep.verdaccioStorage,
-      gitappEnv: dep.gitappEnv,
-      ...(openaiApiBaseUrl ? { openaiApiBaseUrl } : {}),
-      webuiEnableWebSearch: dep.webuiEnableWebSearch,
-      webuiWebSearchEngine: dep.webuiWebSearchEngine,
-      webuiWebSearchApiKey: dep.webuiWebSearchApiKey,
-      appSettings: dep.appSettings,
-    }
-
-    this.db.saveDeploymentInfo({
-      ...dep,
-      id: dep.id || dep.name,
-      status: 'deploying',
-      healthReason: '',
-      temporalWorkflowId: wfId,
-      lastLogPath: absoluteLogPath,
-    })
-
-    const handle = await this.client.workflow.start(executeDeployAppWorkflow, {
-      workflowId: wfId,
-      taskQueue: CLUSTER_QUEUE,
-      args: [activityArgs],
-      ...startedFor(dep.ownerId ?? userId ?? PLATFORM_OWNER),
-    })
-
-    this.trackWorkflow(wfId, 'app-deploy', dep.id, dep.name, '', dep)
-
+    const { workflowId, deployment } = await startAppDeploy(this.appDeployDeps(), config, userId)
+    this.trackWorkflow(workflowId, 'app-deploy', deployment.id, deployment.name, '', deployment)
     return {
-      id: wfId,
-      resourceId: dep.id,
+      id: workflowId,
+      resourceId: deployment.id,
       event: 'app-deploy',
     }
+  }
+
+  appDeployDeps(): AppDeployDeps {
+    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), logDir: LOG_DIR }
   }
 
   async destroyApp(deploymentId: string): Promise<WorkflowDeal> {
@@ -1240,7 +1010,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     dep = resolveQuickwitDefaults(dep, deployments)
     dep = resolveAppSettingsDefaults(dep)
 
-    const openaiApiBaseUrl = this.resolveOpenaiApiBaseUrl(dep, deployments);
+    const openaiApiBaseUrl = resolveOpenaiApiBaseUrl(dep, deployments);
 
     const cluster = await this.getClusterById(dep.clusterId)
     const wfId = `sync-config-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -1518,36 +1288,10 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   }
 
   async promoteProjectBuild(project: ProjectMetadata, run: PipelineRunMetadata, userId?: string): Promise<WorkflowDeal> {
-    if (!run.imageTag) throw new Error('Pipeline run has no built image to promote');
-    if (!project.targetClusterId) throw new Error('Project has no target cluster configured');
     const secrets = await this.ensureSecrets?.(project)
     if (secrets?.waiting.length) throw new Error(`waiting for the person to enter ${secrets.waiting.join(', ')}`)
-
-    const lastColon = run.imageTag.lastIndexOf(':');
-    const odooRepo = run.imageTag.slice(0, lastColon);
-    const odooTag = run.imageTag.slice(lastColon + 1);
-
-    const deal = await this.deployApp({
-      name: project.name,
-      clusterId: project.targetClusterId,
-      strategy: 'native',
-      appType: 'gitapp',
-      odooRepo,
-      odooTag,
-      storage: {},
-      gitappProjectId: project.id,
-      gitappImageTag: run.imageTag,
-      ...(project.deployEnv ? { gitappEnv: project.deployEnv } : {}),
-    }, userId ?? project.ownerId);
-
-    if (deal.resourceId) {
-      await this.db.savePipelineRunInfo({
-        id: run.id,
-        promotedAt: new Date().toISOString(),
-        deploymentId: deal.resourceId,
-      });
-    }
-
-    return deal;
+    const { workflowId, deployment } = await deployProjectBuild(this.appDeployDeps(), project, run, userId)
+    this.trackWorkflow(workflowId, 'app-deploy', deployment.id, deployment.name, '', deployment)
+    return { id: workflowId, resourceId: deployment.id, event: 'app-deploy' }
   }
 }

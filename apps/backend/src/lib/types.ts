@@ -178,6 +178,7 @@ export interface ProjectMetadata {
   infisicalReaderEnc?: string;
   removal?: { startedAt: string; requestedBy: string } | undefined;
   releaseName?: string | undefined;
+  release?: import('./release-run.js').ReleaseHow | undefined;
   channelId?: string | undefined;
   createdAt: string;
   /**

@@ -27,7 +27,7 @@ describe('what deleting a project takes with it', () => {
     expect(scope.unlinkedTreeIds).toEqual(['t2']);
     expect(scope.keptConversationIds).toEqual(['c2']);
     expect(scope.repository).toBe('koala-bo/shop');
-    expect(projectWorkflowIds(scope)).toEqual(['odoo-release-p1', 'release-p1', 'pipeline-r1', 'grove-run-t1', 'conclude-workspace-tree-t1']);
+    expect(projectWorkflowIds(scope)).toEqual(['release-p1', 'pipeline-r1', 'grove-run-t1', 'conclude-workspace-tree-t1']);
   });
 
   it('says what it will do, for the person to read before agreeing', () => {

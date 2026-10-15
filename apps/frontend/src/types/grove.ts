@@ -68,6 +68,7 @@ export interface TreeType {
   releaseWhen?: string[] | undefined
   agent?: string | undefined
   versions?: TreeTypeVersions | undefined
+  release?: { agent: string; app?: string | undefined } | undefined
 }
 
 export interface TreeTypeVersions {

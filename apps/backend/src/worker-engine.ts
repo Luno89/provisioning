@@ -25,8 +25,10 @@ import { projectSecretsFor } from './services/ProjectSecretsService.js';
 import { ProjectChannelService } from './services/ProjectChannelService.js';
 import { createCheckReleases, createReleaseBrowserTestActivities, namespacedCluster } from './activities/ReleaseBrowserTestsActivity.js';
 import { createSlotCluster } from './extensions/releases/slot-cluster.js';
+import { deployProjectBuild } from './services/AppDeploy.js';
+import { failureReason } from './lib/temporal-failure.js';
 import { ODOO_RELEASE_ADAPTER } from './extensions/odoo/release-adapter.js';
-import { syncVaultFromProject } from './activities/OdooReleaseActivities.js';
+import { syncVaultFromProject } from './extensions/releases/vault-sync.js';
 import { Context as ActivityContext } from '@temporalio/activity';
 import { createCheckProgressActivity, createCheckRunActivities } from './activities/CheckRunActivities.js';
 import { withSeedBundle } from './engine-host/sandboxes/seed-bundle.js';
@@ -164,6 +166,35 @@ async function buildActivities() {
       adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
       releases: { list: (ownerId, projectId) => db.getOdooReleases(ownerId, projectId), save: (release) => db.saveOdooRelease(release) },
       browserTests: (request) => releaseBrowser.ReleaseBrowserTestsActivity(request),
+      images: {
+        deploy: async (projectId, pipelineRunId) => {
+          const project = (await db.getProjects()).find((entry) => entry.id === projectId);
+          const run = (await db.getPipelineRuns()).find((entry) => entry.id === pipelineRunId);
+          if (!project || !run) throw new Error(project ? `the build ${pipelineRunId} is gone` : `the project ${projectId} is gone`);
+          const client = await getTemporalClient();
+          const started = await deployProjectBuild({
+            db,
+            client: () => client,
+            masterKey: keys.data,
+            clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
+            logDir: LOG_DIR,
+          }, project, run);
+          return { workflowId: started.workflowId };
+        },
+        settled: async (workflowId) => {
+          const handle = (await getTemporalClient()).workflow.getHandle(workflowId);
+          for (;;) {
+            activityBeat();
+            const status = (await handle.describe()).status.name;
+            if (status !== 'RUNNING') {
+              const verdict = await handle.result().then((value) => value as { workload?: string; workloadReason?: string }, (err: unknown) => ({ failed: failureReason(status, err) }));
+              if ('failed' in verdict) return { ok: false, reason: verdict.failed };
+              return verdict.workload === 'unhealthy' ? { ok: false, reason: verdict.workloadReason || 'the app never became healthy' } : { ok: true };
+            }
+            await new Promise((done) => setTimeout(done, 5_000));
+          }
+        },
+      },
     },
     publishedWorkspaces: { get: (ownerId: string, treeId: string) => db.getPublishedWorkspace(ownerId, treeId), save: (workspace) => db.savePublishedWorkspace(workspace) },
     readRepoFile: async (ownerId: string, repo: string, path: string, ref: string) => (await projectRepos.readDocument(ownerId, repo, path, ref))?.content,

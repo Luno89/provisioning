@@ -27,7 +27,7 @@ import {
 } from '../lib/release-e2e.js';
 import { reachCluster } from './cluster-access.js';
 import { inNamespace, runClusterJob, type NamespacedCluster } from './cluster-jobs.js';
-import type { ReleaseSource, ReleaseTarget } from './OdooReleaseActivities.js';
+import type { ReleaseSource, ReleaseTarget } from '../lib/release-run.js';
 
 const vaultKeys = (data: string): string[] => {
   try {

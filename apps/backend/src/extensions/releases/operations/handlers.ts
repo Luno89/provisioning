@@ -1,6 +1,6 @@
 import type { NodeRequest, StepResult } from '@koala/agent-engine/procedure';
 import { idleOf, splitImage, type OdooRelease, type ReleaseState, type Slot, type SlotState } from '../../../lib/odoo-release.js';
-import { marked, type ReleaseMark, type ReleaseRunInput, type RollBackRunInput } from '../../../lib/release-run.js';
+import { marked, type ReleaseMark, type ReleaseRunInput, type ReplaceRunInput, type RollBackRunInput } from '../../../lib/release-run.js';
 import type { ReleaseE2E } from '../../../lib/release-e2e.js';
 import type { HostOperationRun } from '../../types.js';
 import { adapterOf, type SlotAdapter, type SlotAdapters, type SlotBuild } from '../adapter.js';
@@ -24,7 +24,13 @@ export interface ReleaseOperationDeps {
     save(release: OdooRelease): Promise<void>;
   };
   browserTests?: ((request: BrowserTestsRequest) => Promise<ReleaseE2E>) | undefined;
+  images?: ImageDeploys | undefined;
   now?: (() => string) | undefined;
+}
+
+export interface ImageDeploys {
+  deploy(projectId: string, pipelineRunId: string): Promise<{ workflowId: string }>;
+  settled(workflowId: string): Promise<{ ok: true } | { ok: false; reason: string }>;
 }
 
 interface OpenRelease extends ReleaseRunInput {
@@ -207,6 +213,19 @@ export function createReleaseOperations(deps: ReleaseOperationDeps): Record<stri
         await mark(release, record.id, { state: 'failed', reason: 'the cut-over was stopped; the slot that was live serves again' });
       }
       return { exit: 'done', outputs: {} };
+    },
+
+    async 'releases.deploy-image'(request) {
+      const input = request.run.inputs as Partial<ReplaceRunInput>;
+      if (!input.projectId || !input.pipelineRunId) throw new Error('this run was not started for a build to deploy');
+      if (!deps.images) throw new Error('image deploys are not set up on this worker');
+      try {
+        const { workflowId } = await deps.images.deploy(input.projectId, input.pipelineRunId);
+        const settled = await deps.images.settled(workflowId);
+        return settled.ok ? { exit: 'done', outputs: {} } : { exit: 'failed', outputs: { reason: settled.reason } };
+      } catch (err) {
+        return failed(err);
+      }
     },
 
     async 'releases.roll-back'(request) {

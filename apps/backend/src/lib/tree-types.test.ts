@@ -33,6 +33,11 @@ describe('what a tree type must declare', () => {
     expect(validateTreeType(IMAGES, spec({ produces: 'vibes' as never }))).toMatch(/produces/i);
   });
 
+  it('accepts how its builds are released, and says what is wrong with a release it cannot use', () => {
+    expect(validateTreeType(IMAGES, spec({ release: { agent: 'release', app: 'odoo' } }))).toBeNull();
+    expect(validateTreeType(IMAGES, spec({ release: { agent: '' } }))).toBe('release must name the agent that releases a build');
+  });
+
   it('names the agent that grows its trees, one of the person\'s own, or the grove agent when it names none', () => {
     expect(agentProblem(undefined, ['grove'])).toBeNull();
     expect(agentProblem('grove-paper', ['grove', 'grove-paper'])).toBeNull();
