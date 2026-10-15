@@ -29,7 +29,7 @@ describe('NewProjectDialog — where leaves run', () => {
 
   it('offers registered local machines as an execution-target option, alongside the sandboxed default', async () => {
     vi.mocked(localAgentsApi.listLocalAgentDevices).mockResolvedValue([
-      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true },
+      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true, agents: [], manualAgents: [] },
     ]);
 
     renderDialog();
@@ -40,7 +40,7 @@ describe('NewProjectDialog — where leaves run', () => {
 
   it('marks an offline device in its option label', async () => {
     vi.mocked(localAgentsApi.listLocalAgentDevices).mockResolvedValue([
-      { id: 'dev-1', name: 'Old Desktop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: false },
+      { id: 'dev-1', name: 'Old Desktop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: false, agents: [], manualAgents: [] },
     ]);
 
     renderDialog();
@@ -50,7 +50,7 @@ describe('NewProjectDialog — where leaves run', () => {
 
   it('submits the chosen device as executionTargetDeviceId', async () => {
     vi.mocked(localAgentsApi.listLocalAgentDevices).mockResolvedValue([
-      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true },
+      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true, agents: [], manualAgents: [] },
     ]);
     vi.mocked(projectsApi.createProject).mockResolvedValue({ id: 'p1' });
 
@@ -71,7 +71,7 @@ describe('NewProjectDialog — where leaves run', () => {
 
   it('submits auto approval when the "require my approval" box is unchecked', async () => {
     vi.mocked(localAgentsApi.listLocalAgentDevices).mockResolvedValue([
-      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true },
+      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true, agents: [], manualAgents: [] },
     ]);
     vi.mocked(projectsApi.createProject).mockResolvedValue({ id: 'p1' });
 
@@ -91,7 +91,7 @@ describe('NewProjectDialog — where leaves run', () => {
 
   it('hides the Gitea repository field once a local machine is chosen', async () => {
     vi.mocked(localAgentsApi.listLocalAgentDevices).mockResolvedValue([
-      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true },
+      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true, agents: [], manualAgents: [] },
     ]);
 
     renderDialog();
@@ -106,7 +106,7 @@ describe('NewProjectDialog — where leaves run', () => {
 
   it('does not require a Gitea repo when creating a project scoped to a local machine', async () => {
     vi.mocked(localAgentsApi.listLocalAgentDevices).mockResolvedValue([
-      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true },
+      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true, agents: [], manualAgents: [] },
     ]);
     vi.mocked(projectsApi.createProject).mockResolvedValue({ id: 'p1' });
 

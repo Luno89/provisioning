@@ -37,7 +37,7 @@ describe('BuildsDeploysPanel — execution target', () => {
     vi.mocked(projectsApi.listProjectRuns).mockResolvedValue([])
     vi.mocked(projectsApi.listProjects).mockResolvedValue([project])
     vi.mocked(localAgentsApi.listLocalAgentDevices).mockResolvedValue([
-      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true },
+      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true, agents: [], manualAgents: [] },
     ])
 
     renderPanel()
@@ -60,7 +60,7 @@ describe('BuildsDeploysPanel — execution target', () => {
     vi.mocked(projectsApi.listProjectRuns).mockResolvedValue([])
     vi.mocked(projectsApi.listProjects).mockResolvedValue([project])
     vi.mocked(localAgentsApi.listLocalAgentDevices).mockResolvedValue([
-      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true },
+      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true, agents: [], manualAgents: [] },
     ])
     vi.mocked(projectsApi.patchProject).mockResolvedValue({})
 
@@ -79,7 +79,7 @@ describe('BuildsDeploysPanel — execution target', () => {
       { id: 'p2', name: 'other-project', executionTarget: { kind: 'local-device', deviceId: 'dev-1' } },
     ])
     vi.mocked(localAgentsApi.listLocalAgentDevices).mockResolvedValue([
-      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true },
+      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true, agents: [], manualAgents: [] },
     ])
 
     renderPanel()
@@ -95,7 +95,7 @@ describe('BuildsDeploysPanel — execution target', () => {
       { id: 'p2', name: 'other-project', executionTarget: { kind: 'local-device', deviceId: 'dev-1', path: 'apps/one' } },
     ])
     vi.mocked(localAgentsApi.listLocalAgentDevices).mockResolvedValue([
-      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true },
+      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true, agents: [], manualAgents: [] },
     ])
 
     renderPanel()
@@ -110,7 +110,7 @@ describe('BuildsDeploysPanel — execution target', () => {
       { ...project, executionTarget: { kind: 'local-device', deviceId: 'dev-1' } },
     ])
     vi.mocked(localAgentsApi.listLocalAgentDevices).mockResolvedValue([
-      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true },
+      { id: 'dev-1', name: 'My Laptop', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', online: true, agents: [], manualAgents: [] },
     ])
     vi.mocked(projectsApi.patchProject).mockResolvedValue({})
 
