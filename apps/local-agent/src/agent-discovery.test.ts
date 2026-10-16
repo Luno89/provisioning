@@ -52,6 +52,12 @@ describe('finding the agents on a machine', () => {
     expect(reports[0]).toMatchObject([{ id: 'gemini', state: 'checking' }]);
   });
 
+  it('reads the models an agent offers by opening a session without prompting it, and reports the one it starts on', async () => {
+    await acpAgent('gemini', { name: 'gemini-cli', version: '0.9.1', models: { current: 'flash', available: [{ id: 'flash', name: 'Gemini 3.8 Flash' }, { id: 'pro', name: 'Gemini 3.8 Pro' }] }, turns: [] });
+    const found = await discoverAgents(deps(), []);
+    expect(found.agents[0]).toMatchObject({ id: 'gemini', state: 'ready', model: 'flash', models: [{ id: 'flash', name: 'Gemini 3.8 Flash' }, { id: 'pro', name: 'Gemini 3.8 Pro' }] });
+  });
+
   it('says a CLI needs its ACP adapter when only the CLI is installed, and offers nothing to run', async () => {
     await executable('claude', 'exit 0');
     const found = await discoverAgents(deps(), []);
