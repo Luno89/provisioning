@@ -6,7 +6,7 @@ import type { HostOperationRun } from '../../types.js';
 import { adapterOf, type SlotAdapter, type SlotAdapters, type SlotBuild } from '../adapter.js';
 import type { SlotCluster } from '../slot-cluster.js';
 import { droppedCounts, snapshot } from '../postgres-compare.js';
-import { itemChanges, newLosses, releaseChanges, removedFields, schemaChanges, type ReleaseChanges } from '../../../lib/release-compare.js';
+import { itemChanges, newLosses, releaseChanges, schemaChanges, type ReleaseChanges } from '../../../lib/release-compare.js';
 import { RELEASE_STATES_MARKED } from './declarations.js';
 
 export interface BrowserTestsRequest {
@@ -68,13 +68,11 @@ const cleared = (state: SlotState, slot: Slot): SlotState => ({ ...state, tags: 
 
 export async function compareSlots(cluster: SlotCluster, adapter: SlotAdapter, target: ReleaseRunInput['target'], live: Slot, prepared: Slot, at: string): Promise<ReleaseChanges> {
   const liveDb = adapter.database(target, live);
-  const schemas = { live: await snapshot(cluster, target, liveDb), preview: await snapshot(cluster, target, adapter.database(target, prepared)) };
-  const diff = schemaChanges(schemas.live, schemas.preview);
-  const fields = adapter.fields ? removedFields(await adapter.fields(cluster, target, live), await adapter.fields(cluster, target, prepared), schemas) : [];
-  const counts = await droppedCounts(cluster, target, liveDb, { ...diff, columns: [...diff.columns, ...fields] });
+  const diff = schemaChanges(await snapshot(cluster, target, liveDb), await snapshot(cluster, target, adapter.database(target, prepared)));
+  const counts = await droppedCounts(cluster, target, liveDb, diff);
   const before = adapter.inventory ? await adapter.inventory(cluster, target, live) : [];
   const after = adapter.inventory && before.length ? await adapter.inventory(cluster, target, prepared, before) : [];
-  return releaseChanges(diff, counts, itemChanges(before, after), at, fields);
+  return releaseChanges(diff, counts, itemChanges(before, after), at);
 }
 
 export function createReleaseOperations(deps: ReleaseOperationDeps): Record<string, HostOperationRun> {

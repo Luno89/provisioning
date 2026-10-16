@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { changesSentence, itemChanges, lossLines, removedFields, newLosses, releaseChanges, schemaChanges, type InventoryItem } from './release-compare.js';
+import { changesSentence, itemChanges, lossLines, newLosses, releaseChanges, schemaChanges, type InventoryItem } from './release-compare.js';
 
 const live = {
   koala_probe: { id: 'integer', name: 'character varying', note: 'text', amount: 'integer', empty: 'text' },
@@ -60,15 +60,5 @@ describe('what a release changes', () => {
     const lost = releaseChanges({ tables: ['old'], columns: [], retyped: [] }, { tables: { old: 3 }, columns: {} }, [], 'now');
     expect(changesSentence(lost)).toBe('Cutting it over would lose one thing: the table old is dropped, with its 3 rows. The person confirms that loss to cut over.');
     expect(changesSentence(undefined)).toBe('');
-  });
-
-  it('finds a field the release stops defining while its column keeps data the app will no longer show', () => {
-    const field = (model: string, name: string) => ({ model, field: name, table: model.replace('.', '_'), column: name });
-    const schemas = { live: { koala_probe: { note: 'character varying', name: 'character varying' }, sale_order: {} }, preview: { koala_probe: { note: 'character varying', name: 'character varying' } } };
-    const removed = removedFields([field('koala.probe', 'note'), field('koala.probe', 'name'), field('sale.order', 'gone'), field('abstract.thing', 'x')], [field('koala.probe', 'name')], schemas);
-    expect(removed).toEqual([field('koala.probe', 'note')]);
-    const changes = releaseChanges({ tables: [], columns: [], retyped: [] }, { tables: {}, columns: { 'koala_probe.note': 2 } }, [], 'now', removed);
-    expect(changes.losing).toBe(true);
-    expect(changes.lost).toEqual(['the field koala.probe.note is removed; 2 rows keep a value in it that the app will no longer show']);
   });
 });

@@ -87,8 +87,3 @@ export function inventoryFrom(rows: readonly Partial<InventoryItem>[]): Inventor
     .filter((row): row is InventoryItem => typeof row.kind === 'string' && typeof row.key === 'string')
     .map((row) => ({ kind: row.kind, key: row.key, name: row.name ?? `${row.kind} ${row.key}`, fingerprint: row.fingerprint ?? '', active: row.active !== false }));
 }
-
-export const STORED_FIELDS_SQL = [
-  "select coalesce(json_agg(json_build_object('model', f.model, 'field', f.name, 'table', replace(f.model, '.', '_'), 'column', f.name) order by f.model, f.name), '[]')",
-  "from ir_model_fields f where f.store and f.state = 'base' and f.ttype not in ('one2many', 'many2many')",
-].join(' ');

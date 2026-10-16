@@ -4,8 +4,8 @@ import type { SlotAdapter, SlotBuild } from '../releases/adapter.js';
 import type { ReleaseTarget } from '../../lib/release-run.js';
 import type { SlotCluster } from '../releases/slot-cluster.js';
 import { query, type PostgresAccess } from '../releases/postgres-compare.js';
-import type { InventoryItem, StoredField } from '../../lib/release-compare.js';
-import { inventoryFrom, inventorySql, presentTablesSql, STORED_FIELDS_SQL } from './inventory.js';
+import type { InventoryItem } from '../../lib/release-compare.js';
+import { inventoryFrom, inventorySql, presentTablesSql } from './inventory.js';
 
 export const ODOO_ADAPTER_ID = 'odoo';
 
@@ -55,8 +55,6 @@ export const ODOO_RELEASE_ADAPTER: SlotAdapter = {
     const sql = inventorySql(await query<string[]>(cluster, target, db, presentTablesSql()), of);
     return sql ? inventoryFrom(await query<Partial<InventoryItem>[]>(cluster, target, db, sql)) : [];
   },
-
-  fields: (cluster, target, slot) => query<StoredField[]>(cluster, target, access(target, slot), STORED_FIELDS_SQL),
 
   async upgrade(cluster, target, slot, build) {
     const present = await installed(cluster, target, slot);

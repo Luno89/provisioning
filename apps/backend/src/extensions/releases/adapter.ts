@@ -1,6 +1,6 @@
 import type { ReleaseVault, Slot, SlotState } from '../../lib/odoo-release.js';
 import type { ReleaseSource, ReleaseTarget } from '../../lib/release-run.js';
-import type { InventoryItem, StoredField } from '../../lib/release-compare.js';
+import type { InventoryItem } from '../../lib/release-compare.js';
 import type { PostgresAccess } from './postgres-compare.js';
 import type { SlotCluster } from './slot-cluster.js';
 
@@ -22,7 +22,6 @@ export interface SlotAdapter {
   upgrade(cluster: SlotCluster, target: ReleaseTarget, slot: Slot, build: SlotBuild): Promise<void>;
   database(target: ReleaseTarget, slot: Slot): PostgresAccess;
   inventory?(cluster: SlotCluster, target: ReleaseTarget, slot: Slot, of?: readonly InventoryItem[]): Promise<InventoryItem[]>;
-  fields?(cluster: SlotCluster, target: ReleaseTarget, slot: Slot): Promise<StoredField[]>;
 }
 
 export type SlotAdapters = Readonly<Record<string, SlotAdapter>>;
