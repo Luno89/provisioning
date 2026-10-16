@@ -85,9 +85,13 @@ fi
 
 say "Installing the machine agent"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/koala/machine"
-mkdir -p "$DATA_DIR"
-curl -fsSL "${KOALA_URL}/api/machines/agent.tgz" | tar -xzf - -C "$DATA_DIR"
-(cd "$DATA_DIR" && npm install --omit=dev --no-audit --no-fund --loglevel=error >/dev/null)
+NEXT_DIR="$DATA_DIR.next"
+rm -rf "$NEXT_DIR"
+mkdir -p "$NEXT_DIR"
+curl -fsSL "${KOALA_URL}/api/machines/agent.tgz" | tar -xzf - -C "$NEXT_DIR"
+(cd "$NEXT_DIR" && npm install --omit=dev --no-audit --no-fund --loglevel=error >/dev/null)
+rm -rf "$DATA_DIR"
+mv "$NEXT_DIR" "$DATA_DIR"
 ok "installed in $DATA_DIR"
 
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/koala"
