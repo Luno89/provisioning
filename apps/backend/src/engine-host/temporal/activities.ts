@@ -85,6 +85,7 @@ export interface EngineServices extends StreamServices {
   tasks?: { list(ownerId: string): Promise<Task[]>; save(task: Task): Promise<void> } | undefined;
   allowedTools?: ((ownerId: string, conversationId: string) => Promise<readonly string[]>) | undefined;
   autoMode?: ((args: AutoModeArgs) => Promise<boolean>) | undefined;
+  treeModel?: ((ownerId: string, turnId: string, agentSlug: string) => Promise<{ modelId?: string | undefined } | undefined>) | undefined;
   /** the grove's tree stores (read-only use by the partition activity) */
   grove?: GroveStores | undefined;
   treeWorkspaces?: TreeWorkspaces | undefined;
@@ -216,7 +217,8 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
     },
 
     async EngineResolveAgentActivity(args: ResolveAgentArgs): Promise<ResolvedAgentInfo> {
-      const runnable = await services.registry.runnable(args.ownerId, args.agentSlug, undefined, { modelId: args.modelId });
+      const tree = args.turnId && services.treeModel ? await services.treeModel(args.ownerId, args.turnId, args.agentSlug) : undefined;
+      const runnable = await services.registry.runnable(args.ownerId, args.agentSlug, undefined, { modelId: tree ? tree.modelId : args.modelId });
       if (!runnable) return { found: false, callableAgents: [] };
 
       const callable = await services.registry.callable(args.ownerId, args.agentSlug);
@@ -227,6 +229,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
         procedure: runnable.procedure,
         callableAgents: callable.map((agent) => agent.slug),
         ...(runnable.machine ? { machine: machineChoiceId(runnable.machine) } : {}),
+        ...(tree ? { tree } : {}),
       };
     },
 

@@ -10,6 +10,7 @@ export const groveKeys = {
   workspace: (id: string) => ['tree-workspace', id] as const,
   workspaceFile: (id: string) => ['tree-workspace-file', id] as const,
   run: (id: string) => ['tree-run', id] as const,
+  models: (id: string) => ['tree-models', id] as const,
 }
 
 export type TreeWorkspaceState = 'none' | 'parked' | 'running'
@@ -86,6 +87,25 @@ export const runTree = (id: string): Promise<TreeRunStatus> =>
   api.post<TreeRunStatus>(`/trees/${id}/run`).then((r) => r.data)
 export const stopTreeRun = (id: string): Promise<TreeRunStatus> =>
   api.post<TreeRunStatus>(`/trees/${id}/run/stop`).then((r) => r.data)
+
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Authority: `TreeModelRow` and `AgentOwnModel` in apps/backend/src/services/TreeModelsService.ts.
+ */
+export type AgentOwnModel = { modelId: string } | { machine: string } | { problem: string }
+
+export interface TreeModelRow {
+  agent: string
+  name: string
+  describe?: string
+  chosen?: { modelId: string; gone?: true }
+  own: AgentOwnModel
+}
+
+export const getTreeModels = (id: string): Promise<TreeModelRow[]> =>
+  api.get<{ rows: TreeModelRow[] }>(`/trees/${id}/models`).then((r) => r.data.rows)
+export const setTreeModel = (id: string, agent: string, modelId: string | null): Promise<TreeModelRow[]> =>
+  api.put<{ rows: TreeModelRow[] }>(`/trees/${id}/models`, { agent, modelId }).then((r) => r.data.rows)
 
 export const listTrees = (): Promise<Tree[]> => api.get<Tree[]>('/trees').then((r) => r.data)
 export const createTree = <T,>(body: unknown): Promise<T> =>

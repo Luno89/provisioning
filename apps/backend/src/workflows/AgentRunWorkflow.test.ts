@@ -88,6 +88,7 @@ function activities(options: {
   const seen: ChatMessage[][] = [];
   const aborted: string[] = [];
   let turn = 0;
+  const launched: { runId: string; modelId?: string | undefined }[] = [];
 
   const models = {
     resolveBaseUrl: async () => ({
@@ -107,6 +108,7 @@ function activities(options: {
 
   const scriptedModel = stepImplementation('call-model', async ({ node, execution, inputs, run }) => {
     seen.push(structuredClone(inputs.messages as ChatMessage[]));
+    launched.push({ runId: run.identity.runId, modelId: run.launch.modelId });
     const next = options.script[Math.min(turn, options.script.length - 1)]!;
     turn += 1;
     if (next instanceof Error) throw next;
@@ -136,6 +138,7 @@ function activities(options: {
 
   return {
     seen,
+    launched,
     aborted,
     efforts,
     conversations,
@@ -1139,8 +1142,23 @@ describe('an external agent working on someone\'s machine', () => {
 
     expect(result.outcome).toBe('ok');
     expect(JSON.stringify(result.outputs)).toContain('Write the labels');
-    expect(acts.engine.EngineResolveAgentActivity).toHaveBeenCalledWith({ ownerId: 'user-1', agentSlug: 'executor', modelId: 'tabby-qwen' });
+    expect(acts.engine.EngineResolveAgentActivity).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 'user-1', agentSlug: 'executor', modelId: 'tabby-qwen' }));
     expect(sessions.openKeys()).toEqual([]);
+  }, 60_000);
+
+  it('gives each agent in a tree\'s run the model the tree chose for it, or its own, never the one the run above it used', async () => {
+    const chosen: Record<string, { modelId?: string }> = { 'grove-run-t1~abc': { modelId: 'vllm-big' }, 'grove-run-t2~abc': {} };
+    for (const [runId, tree] of Object.entries(chosen)) {
+      const acts = activities({ script: [{ content: 'because it was' }] });
+      const resolve = acts.engine.EngineResolveAgentActivity;
+      acts.engine.EngineResolveAgentActivity = vi.fn(async (args: { ownerId: string; agentSlug: string; modelId?: string; turnId?: string }) =>
+        ({ ...(await resolve(args)), ...(args.turnId === runId && args.agentSlug === 'research' ? { tree } : {}) }));
+
+      const result = await runWorkflow({ ...input('koala', delegating('research')), ticket: { ...ticket('koala'), runId, modelId: 'tabby-qwen' } }, acts);
+
+      expect(result.outcome).toBe('ok');
+      expect(acts.launched).toEqual([{ runId: `${runId}-research-1`, modelId: tree.modelId }]);
+    }
   }, 60_000);
 
   it('fails readably when the run has no machine for it', async () => {

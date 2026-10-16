@@ -152,6 +152,30 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'propose_tree_model',
+    summary: 'Propose which model one agent works on in a tree, for the person to apply on a card',
+    guidance: 'Use this when the person wants a tree\'s work done on a different model: the stories on one, the judging on another. read_tree lists each agent in the tree\'s work with the model it uses now and the ids to name. The choice is for that tree only; clear it to put the agent back on its own model. A machine cannot do a tree\'s work yet. Nothing changes until the person applies the card.',
+    binding: 'platform',
+    effect: 'propose',
+    idempotent: true,
+    openWorld: false,
+    returns: 'that it is on a card for the person, or that the same card is already waiting',
+    failures: [
+      { when: 'the tree is not yours, the agent asks no model in its work or always runs on its machine, or the model is not one of the person\'s', says: 'which' },
+    ],
+    parameters: {
+      type: 'object',
+      properties: {
+        treeId: { type: 'string', description: 'The tree. Optional in a conversation about one tree.' },
+        agent: { type: 'string', description: 'The agent, by slug, as read_tree lists it (executor, leaf-judge, planner).' },
+        model: { type: 'string', description: 'The model id to use, as read_tree lists it.' },
+        clear: { type: 'boolean', description: 'Put the agent back on its own model instead.' },
+        why: { type: 'string', description: 'Why, shown to the person on the card.' },
+      },
+      required: ['agent', 'why'],
+    },
+  },
+  {
     name: 'run_tree',
     summary: 'Start a Grove tree growing: its ready leaves are worked, checked and judged, and what lands is built and released',
     guidance: 'Approving a plan already starts its tree, so use this when a tree has work waiting and is not growing — read_tree says whether it is. In a conversation about one tree, treeId may be left out. It only starts the work; say that it has started, not that it is done.',

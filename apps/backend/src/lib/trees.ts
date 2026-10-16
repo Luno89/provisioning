@@ -21,6 +21,7 @@ export interface Tree {
   projectIds?: string[];
   serviceName?: string;
   autoMode?: boolean;
+  models?: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 }

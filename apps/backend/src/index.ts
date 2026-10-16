@@ -146,6 +146,7 @@ import type { SearchOutcome } from './lib/web-tools.js';
 import { createGroveLauncher } from './engine-host/grove-launcher.js';
 import { groveAgentOf, resolveTreeType, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, treeTypeOfProject, renderStarterFiles, versionVars } from './lib/tree-types.js';
 import { TreeHomeService } from './services/TreeHomeService.js';
+import { TreeModelsService, treeAgentsFrom } from './services/TreeModelsService.js';
 import { ProjectAppService } from './services/ProjectAppService.js';
 import { projectAppRouter } from './routes/project-app.js';
 import { projectSecretsFor } from './services/ProjectSecretsService.js';
@@ -939,6 +940,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const evalWeb = await buildWebTools(db).catch(() => undefined);
   const evalHost = createEngineHost({
+    treeModels: {
+      describe: (ownerId, treeId) => treeModels.describe(ownerId, treeId),
+      problem: (ownerId, treeId, agent, modelId) => treeModels.problem(ownerId, treeId, agent, modelId),
+    },
     mcpServers: {
       list: (ownerId) => db.getMcpServers(ownerId),
       get: async (ownerId, id) => (await db.getMcpServers(ownerId)).find((server) => server.id === id),
@@ -1210,6 +1215,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   tenant.use('/api/tree-types', treeTypesRouter({ db, agents: async (ownerId: string) => (await engineRegistry.agents(ownerId)).map((agent) => agent.slug), describe: (ownerId, typeId) => treeTypeDescriptions.describe(ownerId, typeId), releaseProblem: (ownerId, how) => releaseSettings.problem(ownerId, how) }));
   tenant.use('/api/binding-types', bindingTypesRouter({ db }));
+  const treeModels = new TreeModelsService({ store: db, models: modelService, agentOf: treeAgentsFrom(engineRegistry) });
   const groveRuns = new GroveRunService({
     store: db,
     asking: runAskingVia(() => getTemporalClient()),
@@ -1222,6 +1228,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         return groveAgentOf(await resolveTreeType(db, ownerId, tree?.type));
       },
       leafRun: async (leafId: string) => (await db.getLeaves()).find((leaf) => leaf.id === leafId)?.runId,
+      modelFor: (ownerId, treeId, agentSlug) => treeModels.modelFor(ownerId, treeId, agentSlug),
     }),
   });
   const treeConclusions = { release: (treeId: string, ownerId: string) => workspaceConclusions.conclude(ownerId, { kind: 'tree', id: treeId }) };
@@ -1249,6 +1256,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     home: treeHome,
     workspaces: { state: (treeId) => evalHost.treeWorkspaces.state(treeId), ...treeConclusions },
     runs: groveRuns,
+    models: treeModels,
     deletion: groveDeletion,
     landings: {
       pullRequests: async (ownerId, treeId) => {
@@ -1282,6 +1290,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     store: db,
     deployer: temporalBridge,
     releases: releaseSettings,
+    treeModels,
     servers: { add: (ownerId, input) => mcpCatalogue.add(ownerId, input), list: (ownerId) => db.getMcpServers(ownerId) },
     agents: {
       agents: (ownerId) => agentDirectory.agents(ownerId),

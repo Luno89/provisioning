@@ -32,15 +32,20 @@ const newRound = (index: number, nodeId: string, at?: string, model?: string, by
 })
 
 export const PROCEDURE_CALL_KIND = 'call-tool'
+const CHOOSE_MODEL_KIND = 'choose-model'
+
+const modelOf = (trace: Readonly<Record<string, unknown>>): string | undefined =>
+  trace.kind === CHOOSE_MODEL_KIND && typeof trace.model === 'string' ? trace.model : undefined
 
 export function roundsFrom(events: readonly EngineEvent[]): Round[] {
   const steps = new Set(events.flatMap((event) => (event.type === 'node.traced' && event.trace.kind === PROCEDURE_CALL_KIND ? [event.nodeId] : [])))
   const rounds: Round[] = []
   const entered = new Set<string>()
   let spoken = 0
+  let chosen = events.flatMap((event) => (event.type === 'node.traced' ? [modelOf(event.trace)] : [])).find(Boolean)
   const open = (nodeId: string, at?: string, model?: string): Round => {
     spoken += 1
-    const round = newRound(spoken, nodeId, at, model)
+    const round = newRound(spoken, nodeId, at, model ?? chosen)
     rounds.push(round)
     entered.delete(nodeId)
     return round
@@ -53,7 +58,9 @@ export function roundsFrom(events: readonly EngineEvent[]): Round[] {
   }
 
   for (const event of events) {
-    if (event.type === 'node.entered') {
+    if (event.type === 'node.traced') {
+      chosen = modelOf(event.trace) ?? chosen
+    } else if (event.type === 'node.entered') {
       entered.add(event.nodeId)
     } else if (event.type === 'model.requested') {
       open(event.nodeId, event.at, event.model)
@@ -107,8 +114,8 @@ export function keptForStory(events: readonly EngineEvent[], family: Set<string>
       kept.push(event)
       continue
     }
-    const { kind, error } = event.trace as { kind?: unknown; error?: unknown }
-    kept.push({ ...event, trace: { ...(kind !== undefined ? { kind } : {}), ...(error !== undefined ? { error } : {}) } })
+    const { kind, error, model } = event.trace as { kind?: unknown; error?: unknown; model?: unknown }
+    kept.push({ ...event, trace: { ...(kind !== undefined ? { kind } : {}), ...(error !== undefined ? { error } : {}), ...(model !== undefined ? { model } : {}) } })
   }
   return kept
 }

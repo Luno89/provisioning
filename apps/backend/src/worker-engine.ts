@@ -78,7 +78,8 @@ import { WorkspaceBuildService } from './services/WorkspaceBuildService.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
 import type { GroveRunLauncher } from './services/GroveRunService.js';
 import { createArtifactService } from './services/artifact-service-factory.js';
-import { workflowOfRun } from './engine-host/temporal/contracts.js';
+import { treeOfGroveRun, workflowOfRun } from './engine-host/temporal/contracts.js';
+import { TreeModelsService, treeAgentsFrom } from './services/TreeModelsService.js';
 import { hostedMcpUrl } from './lib/mcp-hosted-url.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
 
@@ -162,6 +163,10 @@ async function buildActivities() {
     keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files),
   });
   const host = createEngineHost({
+    treeModels: {
+      describe: (ownerId, treeId) => treeModels.describe(ownerId, treeId),
+      problem: (ownerId, treeId, agent, modelId) => treeModels.problem(ownerId, treeId, agent, modelId),
+    },
     releases: {
       cluster: createSlotCluster({ infra: kubeInfra, repo: async () => gitea, syncVault: syncVaultFromProject(kubeInfra), beat: activityBeat }),
       adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
@@ -292,6 +297,7 @@ async function buildActivities() {
   });
   const { registry, endpoints, environments, tools } = host;
   const autoMode = new AutoModeService({ store: db, agentExists: async (ownerId, slug) => Boolean(await registry.agent(ownerId, slug)) });
+  const treeModels = new TreeModelsService({ store: db, models, agentOf: treeAgentsFrom(registry) });
   const runStarter = createRunStarter({
     registry,
     workflows: () => ({
@@ -318,6 +324,7 @@ async function buildActivities() {
       return groveAgentOf(await resolveTreeType(db, ownerId, tree?.type));
     },
     leafRun: async (leafId: string) => (await db.getLeaves()).find((leaf) => leaf.id === leafId)?.runId,
+    modelFor: (ownerId, treeId, agentSlug) => treeModels.modelFor(ownerId, treeId, agentSlug),
   });
 
   const sweeper = setInterval(() => {
@@ -349,6 +356,10 @@ async function buildActivities() {
     conversationAgent: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.agentSlug,
     allowedTools: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.allowedTools ?? [],
     autoMode: (args) => autoMode.unasked({ ...args, treeId: args.workspaceRunId ? treeOfWorkspace(args.workspaceRunId) : undefined }),
+    treeModel: async (ownerId, turnId, agentSlug) => {
+      const treeId = treeOfGroveRun(turnId);
+      return treeId ? treeModels.modelFor(ownerId, treeId, agentSlug) : undefined;
+    },
     plans: { list: (ownerId) => db.getPlanProposals(ownerId) },
     planAdoption: createPlanAdoption({
       stores: {

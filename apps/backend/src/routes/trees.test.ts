@@ -8,6 +8,8 @@ import { GroveOrderService } from '../services/GroveOrderService.js';
 import { TreeHomeService } from '../services/TreeHomeService.js';
 import { TreeWorkspaceService } from '../services/TreeWorkspaceService.js';
 import { WorkspaceFileService } from '../services/WorkspaceFileService.js';
+import { TreeModelsService } from '../services/TreeModelsService.js';
+import type { ModelProvider } from '../lib/model-registry.js';
 import { seedTreeTypes } from '../lib/tree-types.js';
 import type { Database } from '../lib/db-interface.js';
 import type { ProjectMetadata } from '../lib/types.js';
@@ -44,6 +46,14 @@ const homeFor = (db: Database) => new TreeHomeService({
   saveTree: (made) => db.saveTree(made),
 });
 
+const executor = { slug: 'executor', name: 'Executor', procedure: { nodes: [{ id: 'm', kind: 'call-model', settings: {} }], groups: [] } } as never;
+const grower = { slug: 'grove', name: 'Grove', procedure: { nodes: [{ id: 'w', kind: 'fan-out', settings: { agent: 'executor' } }], groups: [] } } as never;
+const modelsFor = (db: Database) => new TreeModelsService({
+  store: db,
+  models: { list: async () => [{ id: 'tabby' }] as ModelProvider[], route: async () => ({ provider: { id: 'tabby' } as ModelProvider }) },
+  agentOf: async (_owner, slug) => (slug === 'executor' ? executor : slug === 'grove' ? grower : undefined),
+});
+
 const mount = async (): Promise<Harness> => {
   workspaces.state.mockClear();
   workspaces.release.mockClear();
@@ -51,7 +61,7 @@ const mount = async (): Promise<Harness> => {
   running = false;
   h = await mountRouter({
     prefix: '/api/trees',
-    router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db }), home: homeFor(db) }),
+    router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db }), home: homeFor(db), models: modelsFor(db) }),
   });
   return h!;
 };
@@ -162,7 +172,7 @@ describe('running a tree on the engine', () => {
     const status = { state: 'running' as const, startedAt: 'then', turnId: 'g~1' };
     const harness = await mountRouter({
       prefix: '/api/trees',
-      router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher: { ...launcher, groveRunStatus: vi.fn(async () => status) }, asking }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db }), home: homeFor(db) }),
+      router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher: { ...launcher, groveRunStatus: vi.fn(async () => status) }, asking }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db }), home: homeFor(db), models: modelsFor(db) }),
     });
     await harness.db.saveTree(tree() as never);
     await harness.db.saveBranch(branch as never);
@@ -199,6 +209,25 @@ describe('running a tree on the engine', () => {
     await axios.post(harness.url('/api/trees/t1/run'));
     await axios.post(harness.url('/api/trees/t1/run/stop'));
     expect(launcher.signalGroveRun).toHaveBeenCalledWith('t1', 'stopRun');
+  });
+});
+
+describe('the models a tree works with', () => {
+  it('lists them, keeps a choice for one agent, refuses one that is not yours, and never shows another owner\'s', async () => {
+    const harness = await mount();
+    await seedTreeTypes(harness.db);
+    await harness.db.saveTree(tree() as never);
+    await harness.db.saveTree(tree({ id: 't2', ownerId: 'someone-else' }) as never);
+
+    expect((await axios.get(harness.url('/api/trees/t1/models'))).data).toEqual({ rows: [{ agent: 'executor', name: 'Executor', own: { modelId: 'tabby' } }] });
+    const chosen = await axios.put(harness.url('/api/trees/t1/models'), { agent: 'executor', modelId: 'tabby' });
+    expect(chosen.data.rows[0].chosen).toEqual({ modelId: 'tabby' });
+    expect((await harness.db.getTrees()).find((entry) => entry.id === 't1')?.models).toEqual({ executor: 'tabby' });
+
+    const refused = await axios.put(harness.url('/api/trees/t1/models'), { agent: 'executor', modelId: 'nope' }, { validateStatus: () => true });
+    expect(refused.status).toBe(400);
+    expect(refused.data.error).toBe('There is no model nope among yours');
+    expect((await axios.get(harness.url('/api/trees/t2/models'), { validateStatus: () => true })).status).toBe(404);
   });
 });
 
@@ -254,7 +283,7 @@ describe('a tree\'s workspace file', () => {
           builds: async () => [],
           startBuild: async (_ownerId, treeId, commit) => { builds.push(`${treeId}@${commit}`); return { started: true, runId: `workspace-build-${treeId}-${commit.slice(0, 12)}` }; },
         });
-        return treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db }), home: homeFor(db), workspaceFile });
+        return treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db }), home: homeFor(db), models: modelsFor(db), workspaceFile });
       },
     });
     return { harness: h!, repo, builds };

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agentsHandedTo, describeOutline, outlineProcedure } from './outline.js';
+import { agentsHandedTo, callsModel, describeOutline, outlineProcedure } from './outline.js';
 import type { PlacedNode, Procedure } from './schema.js';
 
 const node = (id: string, kind: string, settings: Record<string, unknown> = {}): PlacedNode =>
@@ -27,6 +27,12 @@ const agentOf = (agent: string) => (agents[agent] || procedures[agent] ? { descr
 describe('a procedure describing itself', () => {
   it('names each agent it hands work to once, in order, including inside its groups', () => {
     expect(agentsHandedTo(grow)).toEqual(['worker', 'judge', 'planner']);
+  });
+
+  it('says whether it asks a model anything, inside its groups too', () => {
+    expect(callsModel(grow)).toBe(false);
+    expect(callsModel(proc('chat', '', [node('m', 'call-model')]))).toBe(true);
+    expect(callsModel(proc('rounds', '', [], [{ id: 'r', nodes: [node('pick', 'choose-model')] }]))).toBe(true);
   });
 
   it('outlines itself from its own words and the words of the procedures it hands work to', () => {

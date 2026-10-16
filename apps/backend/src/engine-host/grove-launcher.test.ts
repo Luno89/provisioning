@@ -39,6 +39,16 @@ describe('the grove launcher', () => {
     expect(start).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 'u1', agentSlug: 'grove-paper', runId: expect.stringMatching(/^grove-run-t1~[0-9a-z]+$/), bound: { treeId: 't1' } }));
   });
 
+  it('starts the grove agent on the model the tree chose for it, and on its own when the tree chose none', async () => {
+    const start = vi.fn(async (request: StartRunRequest) => ({ runId: request.runId!, agentSlug: 'grower', loopId: 'grow' }));
+    const { client } = fakeClient({});
+    const chosen: Record<string, { modelId?: string }> = { t1: { modelId: 'tabby' }, t2: {} };
+    const launcher = createGroveLauncher({ runs: { start }, client: () => client, agentFor: async () => 'grower', leafRun: async () => undefined, modelFor: async (_owner, treeId, agent) => (agent === 'grower' ? chosen[treeId] : undefined) });
+    await launcher.startGroveRun('u1', 't1');
+    await launcher.startGroveRun('u1', 't2');
+    expect(start.mock.calls.map(([request]) => request.modelId)).toEqual(['tabby', undefined]);
+  });
+
   it('gives every run of a tree its own run id, under the one workflow that keeps it to one run at a time', async () => {
     const ids: string[] = [];
     const start = vi.fn(async (request: StartRunRequest) => { ids.push(request.runId!); return { runId: request.runId!, agentSlug: 'grove', loopId: 'grove-run' }; });

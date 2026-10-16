@@ -41,6 +41,17 @@ describe('the rounds of a run', () => {
     ])
   })
 
+  it('names each round after the model the run chose, even when that choice is logged after the round began', () => {
+    const logged: EngineEvent[] = [
+      { type: 'node.entered', runId: 'r', at: 'a1', nodeId: 'turn.call' },
+      { type: 'content', runId: 'r', at: 'a2', nodeId: 'turn.call', delta: 'One.' },
+      { type: 'node.traced', runId: 'r', at: 'a3', nodeId: 'turn.model', trace: { kind: 'choose-model', model: 'Qwen3.8-27B' } },
+      { type: 'node.entered', runId: 'r', at: 'a4', nodeId: 'turn.call' },
+      { type: 'content', runId: 'r', at: 'a5', nodeId: 'turn.call', delta: 'Two.' },
+    ]
+    expect(roundsFrom(logged).map((round) => round.model)).toEqual(['Qwen3.8-27B', 'Qwen3.8-27B'])
+  })
+
   it('shows a call the procedure makes itself as its own step, apart from the model\'s rounds', () => {
     const logged: EngineEvent[] = [
       { type: 'node.entered', runId: 'r', at: 'b1', nodeId: 'claim' },
@@ -92,13 +103,14 @@ describe('each run\'s own events', () => {
 })
 
 describe('what a story keeps of its tree\'s log', () => {
-  it('keeps the runs it started and theirs, and of each trace only its kind and error, never the conversation it carried', () => {
+  it('keeps the runs it started and theirs, and of each trace only its kind, error and model, never the conversation it carried', () => {
     const family = new Set(['leaf'])
     const kept = keptForStory([
       { type: 'run.started', runId: 'task', at, agentId: 'executor', loopId: 'l', parentRunId: 'leaf' },
       { type: 'run.started', runId: 'other', at, agentId: 'leaf-worker', loopId: 'l', parentRunId: 'tree' },
       { type: 'node.traced', runId: 'task', at, nodeId: 'turn.compact', trace: { kind: 'compact-context', inputs: { messages: ['a long conversation'] }, outputs: { messages: [] } } },
       { type: 'node.traced', runId: 'task', at, nodeId: 'turn.call', trace: { kind: 'call-model', error: 'refused', inputs: {} } },
+      { type: 'node.traced', runId: 'task', at, nodeId: 'turn.model', trace: { kind: 'choose-model', model: 'Qwen3.8-27B', inputs: {} } },
       { type: 'thinking', runId: 'other', at, nodeId: 'turn.call', delta: 'not this story' },
     ], family)
 
@@ -106,6 +118,7 @@ describe('what a story keeps of its tree\'s log', () => {
       { type: 'run.started', runId: 'task', at, agentId: 'executor', loopId: 'l', parentRunId: 'leaf' },
       { type: 'node.traced', runId: 'task', at, nodeId: 'turn.compact', trace: { kind: 'compact-context' } },
       { type: 'node.traced', runId: 'task', at, nodeId: 'turn.call', trace: { kind: 'call-model', error: 'refused' } },
+      { type: 'node.traced', runId: 'task', at, nodeId: 'turn.model', trace: { kind: 'choose-model', model: 'Qwen3.8-27B' } },
     ])
     expect([...family]).toEqual(['leaf', 'task'])
   })

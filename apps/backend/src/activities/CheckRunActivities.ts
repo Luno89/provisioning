@@ -780,6 +780,10 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
             flow.releasedBy = type?.release ? { agent: type.release.agent, ...(type.release.app ? { app: type.release.app } : {}) } : {};
           }
         }
+        if (expect.treeModels) {
+          const rows = ((await http.get(`/trees/${treeId()}/models`)).data as { rows: { agent: string; chosen?: { modelId: string } }[] }).rows;
+          flow.treeModels = rows.map((row) => ({ agent: row.agent, ...(row.chosen ? { chosen: row.chosen.modelId } : {}) }));
+        }
         if (expect.workspace) {
           const path = expect.workspace.of === 'tree' ? `/trees/${treeId()}/workspace` : `/conversations/${conversationId}/workspace`;
           const state = await http.get(path, { validateStatus: () => true });

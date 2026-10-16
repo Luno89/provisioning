@@ -662,6 +662,17 @@ never runs twice at once, and Stop and deletion find it), but each run's id is `
 traces, turn logs and a task's `runs` derive from the run id, so a tree's second run never overwrites its first.
 Anything that reaches a workflow by a run id goes through `workflowOfRun`.
 
+**A tree chooses a model per agent** (`models` on the tree, agent slug → model id; `TreeModelsService`, rules in
+`lib/tree-models.ts`). The tree's run panel lists each agent in its type's work that asks a model (walked from the grove
+agent's procedure, `modelAgentsOf`), with what it would use on its own; a choice there is for that tree only, and is
+read when each of the tree's runs starts: the grove agent's by the launcher (`modelFor`), every run under it by
+`EngineResolveAgentActivity` from the run's root id (`treeOfGroveRun`), so in a tree's run an agent gets the tree's choice
+or its own model, never one handed down from the run above it (the judge stays on its own while the executor is moved).
+A machine is not offered yet, and an agent whose "Runs on" is a machine keeps it. A chosen model that is gone shows on
+the panel and fails the agent's runs with its name. Koala reads the models in `read_tree` and `run_tree` and proposes a
+change with `propose_tree_model` (card `set_tree_model`); `mechanics-tree-model` proves it (expectation `treeModels`).
+A `choose-model` trace keeps the model's name in its summary, so a story's run shows the model each round ran on.
+
 **Every workflow says whose it is.** Each start carries the `KoalaOwner` search attribute (`startedFor(owner)` in
 `lib/workflow-owner.ts`; `platform` for platform work). The shared client (`lib/temporal-client.ts`) registers the
 attribute on connect, refuses a start without it (`UnownedWorkflowError`), and stamps a check space's workflows as its

@@ -13,8 +13,9 @@ export interface TurnLogEntry {
 export const TURN_LOG_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 
 export function tracedSummary(trace: Readonly<Record<string, unknown>>): Record<string, unknown> {
-  const { inputs: _inputs, outputs: _outputs, ...summary } = trace;
-  return summary;
+  const { inputs: _inputs, outputs, ...summary } = trace;
+  const chose = trace.kind === 'choose-model' ? (outputs as { binding?: { label?: unknown } } | undefined)?.binding?.label : undefined;
+  return typeof chose === 'string' ? { ...summary, model: chose } : summary;
 }
 
 export function withTraceSummaries(events: readonly EngineEvent[]): EngineEvent[] {

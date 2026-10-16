@@ -220,3 +220,44 @@ describe('/api/actions: how builds are released', () => {
     expect((await post(harness.url('/api/actions/a1/apply'))).data).toMatchObject({ status: 'failed', reason: 'release releases beside the live app, so it needs the app\'s adapter (odoo)' });
   });
 });
+
+describe('a card choosing a tree\'s model', () => {
+  let harness: Harness;
+
+  beforeEach(async () => {
+    const { TreeModelsService } = await import('../services/TreeModelsService.js');
+    const { seedTreeTypes } = await import('../lib/tree-types.js');
+    const executor = { slug: 'executor', name: 'Executor', procedure: { nodes: [{ id: 'm', kind: 'call-model', settings: {} }], groups: [] } } as never;
+    const grove = { slug: 'grove', name: 'Grove', procedure: { nodes: [{ id: 'w', kind: 'fan-out', settings: { agent: 'executor' } }], groups: [] } } as never;
+    harness = await mountRouter({
+      prefix: '/api/actions',
+      router: (db) => actionsRouter({ actions: new ActionService({
+        store: db,
+        deployer: { deployApp: vi.fn(), promoteProjectBuild: vi.fn() },
+        treeModels: new TreeModelsService({
+          store: db,
+          models: { list: async () => [{ id: 'tabby' }, { id: 'vllm' }] as never, route: async () => ({ provider: { id: 'tabby' } as never }) },
+          agentOf: async (_owner, slug) => (slug === 'executor' ? executor : slug === 'grove' ? grove : undefined),
+        }),
+      }) }),
+    });
+    await seedTreeTypes(harness.db);
+    await harness.db.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'shop', type: 'api-service', createdAt: 'x', updatedAt: 'x' } as never);
+  });
+
+  afterEach(() => harness.close());
+
+  it('sets the agent\'s model for the tree only when applied, clears it the same way, and fails one whose model is gone', async () => {
+    await harness.db.saveActionProposal(proposal({ kind: 'set_tree_model', params: { treeId: 't1', agent: 'executor', modelId: 'vllm' } }));
+    expect((await harness.db.getTrees()).find((tree) => tree.id === 't1')?.models).toBeUndefined();
+    expect((await post(harness.url('/api/actions/a1/apply'))).data).toMatchObject({ status: 'applied', result: 'executor works on vllm in this tree from its next run' });
+    expect((await harness.db.getTrees()).find((tree) => tree.id === 't1')?.models).toEqual({ executor: 'vllm' });
+
+    await harness.db.saveActionProposal(proposal({ id: 'a2', kind: 'set_tree_model', params: { treeId: 't1', agent: 'executor', clear: 'true' } }));
+    expect((await post(harness.url('/api/actions/a2/apply'))).data).toMatchObject({ status: 'applied', result: 'executor is back on its own model in this tree' });
+    expect((await harness.db.getTrees()).find((tree) => tree.id === 't1')?.models).toBeUndefined();
+
+    await harness.db.saveActionProposal(proposal({ id: 'a3', kind: 'set_tree_model', params: { treeId: 't1', agent: 'executor', modelId: 'gone' } }));
+    expect((await post(harness.url('/api/actions/a3/apply'))).data).toMatchObject({ status: 'failed', reason: 'There is no model gone among yours' });
+  });
+});

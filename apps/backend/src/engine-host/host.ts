@@ -101,6 +101,7 @@ export interface EngineHostStores {
 }
 
 export interface EngineHostOptions {
+  treeModels?: import('../extensions/grove/tools/grove-tools.js').TreeModelChoices | undefined;
   publishedWorkspaces?: {
     get(ownerId: string, treeId: string): Promise<PublishedWorkspace | undefined>;
     save(workspace: PublishedWorkspace): Promise<void>;
@@ -307,7 +308,12 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     },
     platform: { operations: { environments, ...(options.artifacts ? { artifacts: options.artifacts } : {}) } },
     grove: {
-      tools: { stores: { ...stores.grove, ...(treeTypeDescriptions ? { describeTreeType: (ownerId: string, typeId: string) => treeTypeDescriptions.describe(ownerId, typeId) } : {}) } },
+      tools: { stores: {
+        ...stores.grove,
+        ...(treeTypeDescriptions ? { describeTreeType: (ownerId: string, typeId: string) => treeTypeDescriptions.describe(ownerId, typeId) } : {}),
+        ...(options.treeModels ? { models: options.treeModels } : {}),
+        ...(stores.actions ? { actions: stores.actions } : {}),
+      } },
       operations: {
         trees: stores.grove.trees,
         branches: stores.grove.branches,

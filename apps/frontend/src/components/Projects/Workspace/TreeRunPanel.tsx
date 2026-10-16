@@ -7,6 +7,7 @@ import Reading from '../Reading'
 import AutoModeSwitch from '../../AutoMode/AutoModeSwitch'
 import { useTreeAutoMode } from '../../AutoMode/useAutoMode'
 import TreeAsks from './TreeAsks'
+import { TreeModels } from './TreeModels'
 
 const RUNNING_POLL_MS = 5_000
 const IDLE_POLL_MS = 15_000
@@ -97,6 +98,7 @@ export function TreeRunPanel({ treeId }: { treeId: string }) {
         label="Auto mode"
         explain="Runs working on this tree never stop to ask you before a call. Calls inside its sandbox never ask anyway."
       />
+      <TreeModels treeId={treeId} />
     </div>
   )
 }

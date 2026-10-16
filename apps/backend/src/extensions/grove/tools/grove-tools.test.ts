@@ -1,3 +1,4 @@
+import type { ActionProposal } from '../../../lib/action-proposals.js';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createGroveTools } from './grove-tools.js';
 import type { Branch, Leaf, LeafStatus } from '../../../lib/leaves.js';
@@ -719,6 +720,46 @@ describe('growing a tree from a conversation', () => {
     leaves = [leaf('l1', 'running')];
     expect((await growing(async () => ({ started: true }), 'running').call('read_tree', { treeId: 'tree-1' })).content).toContain('It is growing now, since 2026-10-09T20:00:00Z.');
     expect((await growing(async () => ({ started: true }), 'none').call('read_tree', { treeId: 'tree-1' })).content).toContain('It is not growing.');
+  });
+});
+
+describe('choosing a tree\'s models from a conversation', () => {
+  const choosing = () => {
+    const saved: ActionProposal[] = [];
+    const made = createGroveTools({
+      stores: {
+        trees: { list: async () => trees, save: async () => undefined },
+        branches: { list: async () => branches, save: async () => undefined },
+        leaves: { list: async () => leaves, save: async () => undefined },
+        models: {
+          describe: async () => 'Models in this tree\'s work:\n- Executor (executor): its own, Tabby (id tabby)',
+          problem: async (_owner, _tree, agent, modelId) => (agent !== 'executor' ? { error: `${agent} asks no model anything in this tree's work, so it has no model to choose` } : modelId === 'nope' ? { error: 'There is no model nope among yours' } : undefined),
+        },
+        actions: { list: async () => saved, save: async (proposal) => { saved.push(proposal); } },
+      },
+      newId: () => 'card-1',
+      now: () => 'now',
+    });
+    const call = (name: string, parsed: Record<string, unknown>) => made[name]!({ name, parsed, driver: undefined, caller });
+    return { call, saved };
+  };
+
+  it('lists the tree\'s models in read_tree, and puts a choice on a card once', async () => {
+    const { call, saved } = choosing();
+    expect((await call('read_tree', { treeId: 'tree-1' })).content).toContain('- Executor (executor): its own, Tabby (id tabby)');
+    expect(await call('propose_tree_model', { treeId: 'tree-1', agent: 'executor', model: 'vllm', why: 'faster' })).toMatchObject({ ok: true, content: 'Proposed on a card: Work executor\'s part of The app on vllm. Nothing changes until the person applies it.' });
+    expect(saved).toMatchObject([{ id: 'card-1', kind: 'set_tree_model', params: { treeId: 'tree-1', agent: 'executor', modelId: 'vllm' }, why: 'faster', status: 'proposed' }]);
+    expect((await call('propose_tree_model', { treeId: 'tree-1', agent: 'executor', model: 'vllm', why: 'faster' })).content).toContain('already waiting');
+    expect(saved).toHaveLength(1);
+  });
+
+  it('refuses what cannot be chosen, and proposes nothing', async () => {
+    const { call, saved } = choosing();
+    expect((await call('propose_tree_model', { treeId: 'tree-1', agent: 'grove', model: 'vllm', why: 'x' })).digest).toBe('grove asks no model anything in this tree\'s work, so it has no model to choose; nothing was proposed');
+    expect((await call('propose_tree_model', { treeId: 'tree-1', agent: 'executor', model: 'nope', why: 'x' })).digest).toBe('There is no model nope among yours; nothing was proposed');
+    expect((await call('propose_tree_model', { treeId: 'tree-1', agent: 'executor', why: 'x' })).digest).toBe('name the model, or set clear to put the agent back on its own');
+    expect((await call('propose_tree_model', { treeId: 'tree-x', agent: 'executor', model: 'vllm', why: 'x' })).digest).toBe('no such tree: tree-x');
+    expect(saved).toEqual([]);
   });
 });
 

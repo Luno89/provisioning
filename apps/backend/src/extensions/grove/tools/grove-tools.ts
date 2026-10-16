@@ -12,6 +12,7 @@ import { nextLeafStep, taskItem } from '../../../lib/grove-leaf.js';
 import { workOrder } from '../../../lib/work-order.js';
 import { changeSummary, parseCancel, parseNewStories, parseStoryEdit, type ChangeWorld } from '../../../lib/item-changes.js';
 import type { ItemChange } from '../../../lib/plan-proposals.js';
+import { sameAction, type ActionProposal } from '../../../lib/action-proposals.js';
 
 export interface GroveStores {
   trees: { list(): Promise<Tree[]>; save(tree: Tree): Promise<void> };
@@ -27,6 +28,13 @@ export interface GroveStores {
   describeTreeType?: (ownerId: string, typeId: string) => Promise<string | undefined>;
   binding?: (ownerId: string, conversationId: string) => Promise<{ treeId?: string | undefined; projectId?: string | undefined; leafId?: string | undefined; branchId?: string | undefined } | undefined>;
   growing?: TreeGrowing | undefined;
+  models?: TreeModelChoices | undefined;
+  actions?: { list(ownerId: string): Promise<ActionProposal[]>; save(proposal: ActionProposal): Promise<void> } | undefined;
+}
+
+export interface TreeModelChoices {
+  describe(ownerId: string, treeId: string): Promise<string | undefined>;
+  problem(ownerId: string, treeId: string, agent: string, modelId: string | null): Promise<{ error: string } | undefined>;
 }
 
 export interface TreeGrowing {
@@ -203,7 +211,8 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       const leafIds = new Set(leaves.map((leaf) => leaf.id));
       const tasks = options.stores.tasks ? (await options.stores.tasks.list()).filter((task) => task.leafId && leafIds.has(task.leafId)) : [];
       const growing = options.stores.growing ? `\n\n${growingLine(await options.stores.growing.status(tree.id))}` : '';
-      return { ok: true, digest: `tree ${tree.name}: ${branches.length} branches, ${leaves.length} leaves`, content: `${treeOutline(tree, branches, leaves, tasks)}${growing}` };
+      const models = await options.stores.models?.describe(caller.ownerId, tree.id);
+      return { ok: true, digest: `tree ${tree.name}: ${branches.length} branches, ${leaves.length} leaves`, content: `${treeOutline(tree, branches, leaves, tasks)}${growing}${models ? `\n\n${models}` : ''}` };
     },
 
     async run_tree({ parsed, caller }): Promise<ToolOutcome> {
@@ -219,10 +228,51 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       if (leaves.length === 0) return refuse(`${tree.name} has nothing planned yet: propose a plan for it and let the person approve it first`);
       if (!leaves.some((leaf) => UNFINISHED.includes(leaf.status))) return refuse(`${tree.name} has nothing left to work: every leaf has landed, failed or been cancelled. Plan more for it, or ask the planner to replan what failed`);
       const started = await options.stores.growing.start(caller.ownerId, tree.id);
-      if (started.started) return { ok: true, digest: `${tree.name} is growing`, content: `${tree.name} started growing: its ready leaves are being worked and judged. read_tree shows how it goes; when work lands, project_releases shows the preview it makes.` };
+      const models = await options.stores.models?.describe(caller.ownerId, tree.id);
+      if (started.started) return { ok: true, digest: `${tree.name} is growing`, content: `${tree.name} started growing: its ready leaves are being worked and judged. read_tree shows how it goes; when work lands, project_releases shows the preview it makes.${models ? `\n\n${models}` : ''}` };
       if (started.reason === 'running') return { ok: true, digest: `${tree.name} was already growing`, content: `${tree.name} is already growing; nothing new was started.` };
       if (started.reason === 'switched-off') return refuse(`the agent that grows ${tree.name} is switched off for this person, so it cannot be started`);
       return refuse('the engine is not reachable right now, so the tree cannot be started');
+    },
+
+    async propose_tree_model({ parsed, caller }): Promise<ToolOutcome> {
+      if (!caller.ownerId) return refuse('this run has no owner to propose for');
+      if (!options.stores.models || !options.stores.actions) return refuse('a tree\'s models cannot be proposed here');
+      const bound = (await bindingOf(caller.ownerId, caller.conversationId))?.treeId;
+      const treeId = asString(parsed, 'treeId') ?? asString(parsed, 'tree_id') ?? bound;
+      if (!treeId) return refuse('propose_tree_model needs the treeId of the tree');
+      const tree = (await options.stores.trees.list()).find((candidate) => candidate.id === treeId && candidate.ownerId === caller.ownerId);
+      if (!tree) return refuse(`no such tree: ${treeId}`);
+      const agent = asString(parsed, 'agent');
+      const why = asString(parsed, 'why');
+      const clear = (parsed as { clear?: unknown } | undefined)?.clear === true;
+      const modelId = clear ? null : asString(parsed, 'model') ?? null;
+      if (!agent) return refuse('name the agent, as read_tree lists it');
+      if (!why) return refuse('say why, for the person to read on the card');
+      if (!clear && !modelId) return refuse('name the model, or set clear to put the agent back on its own');
+      const problem = await options.stores.models.problem(caller.ownerId, tree.id, agent, modelId);
+      if (problem) return refuse(`${problem.error}; nothing was proposed`);
+
+      const params: Record<string, string> = { treeId: tree.id, agent, ...(modelId ? { modelId } : { clear: 'true' }) };
+      const open = (await options.stores.actions.list(caller.ownerId)).find((entry) => entry.status === 'proposed' && sameAction(entry, 'set_tree_model', params));
+      if (open) return { ok: true, digest: `already proposed: ${open.summary}`, content: `This is already waiting for the person on a card (${open.summary}); nothing new was proposed.` };
+      const summary = modelId ? `Work ${agent}'s part of ${tree.name} on ${modelId}` : `Put ${agent} back on its own model in ${tree.name}`;
+      const stamp = now();
+      await options.stores.actions.save({
+        id: newId(),
+        ownerId: caller.ownerId,
+        kind: 'set_tree_model',
+        summary,
+        why,
+        detail: [summary, 'Runs already going keep the model they started on; the next run of each agent uses this.'],
+        params,
+        status: 'proposed',
+        ...(caller.conversationId ? { conversationId: caller.conversationId } : {}),
+        ...(caller.runId ? { runId: caller.runId } : {}),
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+      return { ok: true, digest: `proposed: ${summary}`, content: `Proposed on a card: ${summary}. Nothing changes until the person applies it.` };
     },
 
     async propose_plan({ parsed, caller, driver }): Promise<ToolOutcome> {

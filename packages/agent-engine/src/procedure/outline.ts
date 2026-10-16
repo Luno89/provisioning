@@ -1,6 +1,7 @@
 import type { PlacedNode, Procedure } from './schema.js';
 
 const HANDS_OFF = new Set(['delegate', 'fan-out']);
+const MODEL_STEPS = new Set(['choose-model', 'call-model']);
 
 type Outlined = Pick<Procedure, 'id' | 'name' | 'describe' | 'nodes' | 'groups'>;
 
@@ -22,6 +23,10 @@ export function agentsHandedTo(procedure: Pick<Procedure, 'nodes' | 'groups'>): 
     if (typeof agent === 'string' && agent && !agents.includes(agent)) agents.push(agent);
   }
   return agents;
+}
+
+export function callsModel(procedure: Pick<Procedure, 'nodes' | 'groups'>): boolean {
+  return nodesOf(procedure).some((node) => MODEL_STEPS.has(node.kind));
 }
 
 export function outlineProcedure(

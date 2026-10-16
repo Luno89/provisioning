@@ -108,6 +108,7 @@ export interface FlowExpectations {
   project?: { exists: boolean } | undefined;
   mcpServer?: { name: string; state?: 'captured' | 'failed' | undefined; heldBy?: string[] | undefined } | undefined;
   releasedBy?: { project?: boolean | undefined; treeType?: string | undefined; agent: string; app?: string | undefined } | undefined;
+  treeModels?: { chosen?: string[] | undefined; own?: string[] | undefined } | undefined;
   trees?: number | undefined;
   exit?: string | undefined;
   outputs?: Record<string, { equals?: unknown; contains?: string | undefined }> | undefined;
@@ -206,6 +207,13 @@ function expectationProblems(
     if ((released.project === true) === (typeof released.treeType === 'string')) problems.push(`${where}how builds are released is expected of either the world's project or a tree type`);
     if (typeof released.agent !== 'string' || !released.agent.trim()) problems.push(`${where}it expects builds released by an agent, but names none`);
     if (released.app !== undefined && typeof released.app !== 'string') problems.push(`${where}the release's app adapter is a name`);
+  }
+  if (expect.treeModels !== undefined) {
+    const models = expect.treeModels as { chosen?: unknown; own?: unknown };
+    for (const [which, list] of [['chosen', models.chosen], ['own', models.own]] as const) {
+      if (list !== undefined && (!Array.isArray(list) || list.some((slug) => typeof slug !== 'string' || !known.agents.has(slug)))) problems.push(`${where}the tree's models name agents there are, as ${which}`);
+    }
+    if (models.chosen === undefined && models.own === undefined) problems.push(`${where}it expects the tree's models, but names no agent`);
   }
   for (const handOff of expect.handOffs ?? []) {
     if (typeof handOff?.agent !== 'string' || !known.agents.has(handOff.agent)) problems.push(`${where}it expects hand-offs to "${String(handOff?.agent)}", which is not an agent`);

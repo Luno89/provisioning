@@ -163,6 +163,7 @@ export interface ResolveAgentArgs {
   ownerId: string;
   agentSlug: string;
   modelId?: string | undefined;
+  turnId?: string | undefined;
 }
 
 export interface ResolvedAgentInfo {
@@ -171,6 +172,7 @@ export interface ResolvedAgentInfo {
   procedure?: Procedure | undefined;
   callableAgents: string[];
   machine?: string | undefined;
+  tree?: { modelId?: string | undefined } | undefined;
 }
 
 export interface ToolRuntime {
@@ -187,6 +189,7 @@ export const groveRunWorkflowId = (treeId: string): string => `grove-run-${treeI
 export const RUN_ID_MEMO = 'runId';
 export const runStamp = (at: number = Date.now()): string => at.toString(36);
 export const groveRunId = (treeId: string, stamp: string): string => `${groveRunWorkflowId(treeId)}~${stamp}`;
+export const treeOfGroveRun = (runId: string): string | undefined => /^grove-run-([^~]+)~[0-9a-z]+$/.exec(runId)?.[1];
 export const workflowOfRun = (runId: string): string => runId.replace(/~[0-9a-z]+$/, '');
 export const adoptionWorkflowId = (proposalId: string): string => `adopt-plan-${proposalId}`;
 

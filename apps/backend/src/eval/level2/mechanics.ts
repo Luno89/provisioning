@@ -184,6 +184,40 @@ const proposedRelease: Scenario = {
   }],
 };
 
+const treeModel: Scenario = {
+  id: 'mechanics-tree-model',
+  name: 'A tree works its stories on the model chosen for it only once Koala\'s card is applied',
+  describe: 'Mechanics, on a script: a plan is approved into a tree; Koala reads the tree, which lists each agent in its work with the model it uses, and proposes working the executor\'s part on a model of the person\'s; nothing changes until the card is applied, and then only the executor has a model chosen for the tree.',
+  agent: 'planner',
+  procedure: { id: 'planning' },
+  input: { message: 'Plan the tree model check.', inputs: { goal: 'tree model check' } },
+  script: { rules: [
+    { when: { asked: 'Which models', offered: ['read_tree'], notCalled: ['read_tree'] }, reply: { call: [{ tool: 'read_tree', arguments: { treeId: '{{world.treeId}}' } }] } },
+    { when: { asked: 'Which models', called: ['read_tree'], notCalled: ['propose_tree_model'], said: 'executor\\): its own, [^\\n]*\\(id ([^)\\s]+)\\)' }, reply: { call: [{ tool: 'propose_tree_model', arguments: { treeId: '{{world.treeId}}', agent: 'executor', model: '{{said.1}}', why: 'the person wants the stories worked on this model' } }] } },
+    { when: { asked: 'Which models', called: ['propose_tree_model'] }, reply: { say: 'It waits for you on a card.' } },
+    { when: { offered: ['propose_plan'], notCalled: ['propose_plan'] }, reply: { call: [{ tool: 'propose_plan', arguments: {
+      tree: { name: 'Tree model check', type: CATCH_ALL_TREE_TYPE, goal: 'A tree whose models are chosen.' },
+      planDoc: '# Tree model check\n\n## Destination\nnote.txt.\n\n## Not yet specified\nNothing.\n\n## Out of scope\nEverything else.\n',
+      branches: [{ title: 'Note', leaves: [
+        { key: 'write', title: 'Write the note', body: 'note.txt exists', brief: 'Write note.txt.', tasks: [{ key: 'w', title: 'Write note.txt', description: 'Write it.', role: 'All of it.', doneMeans: 'note.txt exists' }] },
+      ] }],
+    } }] } },
+    { when: { offered: ['propose_plan'] }, reply: { say: 'Proposed.' } },
+    NOTHING,
+  ] },
+  expect: { outcome: 'ok', toolsSucceeded: ['propose_plan'] },
+  then: [
+    { name: 'approving the plan', do: { approvePlan: true }, expect: { trees: 1, treeModels: { own: ['executor', 'leaf-judge', 'planner'] } } },
+    { name: 'asking Koala to work the stories on another model', do: { chat: { message: 'Which models does this tree use? Work the stories on another one.', agent: 'koala' } }, expect: {
+      outcome: 'ok',
+      toolsSucceeded: ['read_tree', 'propose_tree_model'],
+      modelSaw: { anyRequest: true, contains: ['Models in this tree\'s work:', '- Executor (executor): its own', 'Proposed on a card: Work executor\'s part of Tree model check on'] },
+      treeModels: { own: ['executor', 'leaf-judge', 'planner'] },
+    } },
+    { name: 'the card is applied', do: { applyAction: true }, expect: { treeModels: { chosen: ['executor'], own: ['leaf-judge', 'planner'] } } },
+  ],
+};
+
 const researched: Scenario = {
   id: 'mechanics-research-workspace',
   name: 'Research shares one workspace that outlives its pod',
@@ -602,4 +636,4 @@ const odooBrowserFailure: Scenario = {
   ],
 };
 
-export const MECHANICS_CHECKS = (): Scenario[] => [judged, longCommand, unaskedInSandbox, servedInWorkspace, proposedServer, proposedRelease, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];
+export const MECHANICS_CHECKS = (): Scenario[] => [judged, longCommand, unaskedInSandbox, servedInWorkspace, proposedServer, proposedRelease, treeModel, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];

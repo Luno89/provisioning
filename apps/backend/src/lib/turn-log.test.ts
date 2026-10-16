@@ -57,6 +57,7 @@ describe('what a turn log carries of a step\'s trace', () => {
   it('keeps what the step was and how it went, never its inputs and outputs, which the run\'s stored traces hold', () => {
     expect(tracedSummary(trace)).toEqual({ sequence: 4, node: 'turn.call', kind: 'call-model', role: 'step', durationMs: 900, exit: 'answered' });
     expect(tracedSummary({ ...trace, error: 'refused' })).toMatchObject({ error: 'refused' });
+    expect(tracedSummary({ ...trace, kind: 'choose-model', role: 'value', outputs: { binding: { label: 'Qwen3.8-27B', contextTokens: 32_000 } } })).toEqual({ sequence: 4, node: 'turn.call', kind: 'choose-model', role: 'value', durationMs: 900, exit: 'answered', model: 'Qwen3.8-27B' });
   });
 
   it('cuts traces written before that down when a story reads its runs', () => {

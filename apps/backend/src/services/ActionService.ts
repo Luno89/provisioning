@@ -12,6 +12,7 @@ import type { McpServerInput, McpServerOutcome } from './McpServerService.js';
 import type { GrantMeta } from '../engine-host/registries/agent-directory.js';
 import type { ProposalProgress, ProposalStarted } from '@koala/harness-types';
 import { serverProgress, type ImageNow } from '../lib/proposal-progress.js';
+import type { TreeModelsService } from './TreeModelsService.js';
 
 export interface ActionServers {
   add(ownerId: string, input: McpServerInput & { template?: unknown }): Promise<McpServerOutcome>;
@@ -49,6 +50,7 @@ export class ActionService {
     servers?: ActionServers | undefined;
     agents?: ActionAgents | undefined;
     releases?: Pick<ReleaseSettings, 'setForType' | 'setForProject'> | undefined;
+    treeModels?: Pick<TreeModelsService, 'set'> | undefined;
     now?: () => string;
     onSettled?: ((ownerId: string, conversationId: string | undefined) => void) | undefined;
   }) {}
@@ -191,6 +193,12 @@ export class ActionService {
           : await this.deps.releases.setForProject(ownerId, target, how);
         if (!outcome.ok) throw new Error(outcome.error);
         return how ? `builds are released by the ${how.agent} agent${how.app ? ` with the ${how.app} adapter` : ''} from the next build` : 'the setting is cleared; the next build is released the default way';
+      }
+      case 'set_tree_model': {
+        if (!this.deps.treeModels) throw new Error('a tree\'s models cannot be changed here');
+        const outcome = await this.deps.treeModels.set(ownerId, params.treeId ?? '', { agent: params.agent, modelId: params.clear === 'true' ? null : params.modelId });
+        if (!outcome.ok) throw new Error(outcome.error);
+        return params.clear === 'true' ? `${params.agent} is back on its own model in this tree` : `${params.agent} works on ${params.modelId} in this tree from its next run`;
       }
       case 'add_project_dependency': {
         const out = await declareDependency(this.deps.store, ownerId, { projectId: params.projectId, service: params.service, as: params.as });

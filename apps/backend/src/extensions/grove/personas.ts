@@ -104,4 +104,5 @@ export const GROVE_PERSONAS: PersonaRecord[] = [
 export const GROVE_GRANTS: GrantMap = {
   'paper-writer': ['search_web', 'fetch_web_page', 'search_corpus', 'read_file', 'write_file', 'list_dir'],
   'leaf-judge': ['read_file', 'list_dir', 'run_command', 'settle_leaf', 'read_run'],
+  koala: ['propose_tree_model'],
 };

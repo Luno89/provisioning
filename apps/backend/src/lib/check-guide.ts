@@ -68,6 +68,7 @@ export const EXPECTATIONS: Record<keyof ScenarioExpectations, Entry> = {
   project: { means: 'plumbing: whether the world\'s project still exists', example: '{ "exists": false }' },
   mcpServer: { means: 'plumbing: an MCP server in the space\'s catalogue — once its capture has finished when a state is expected — and which agents hold it', example: '{ "name": "echoes", "state": "captured", "heldBy": ["executor"] }' },
   releasedBy: { means: 'plumbing: how the world\'s project, or a tree type, has its builds released — the agent and app adapter', example: '{ "project": true, "agent": "release-replace" }' },
+  treeModels: { means: 'plumbing: which agents in the world\'s tree have a model chosen for that tree, and which work on their own', example: '{ "chosen": ["executor"], "own": ["leaf-judge"] }' },
   trees: { means: 'plumbing: how many trees the space has' },
   exit: { means: 'step checks: the exit the node leaves by', example: '"yes"' },
   outputs: { means: 'step checks: a node output, equal to or containing a value', example: '{ "text": { "contains": "wrote" } }' },

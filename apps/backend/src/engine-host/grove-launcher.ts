@@ -9,6 +9,7 @@ export interface GroveLauncherDeps {
   runs: { start(request: StartRunRequest): Promise<StartedRun> };
   client: () => Pick<WorkflowClient, 'getHandle'> | undefined;
   agentFor: (ownerId: string, treeId: string) => Promise<string>;
+  modelFor?: ((ownerId: string, treeId: string, agentSlug: string) => Promise<{ modelId?: string | undefined } | undefined>) | undefined;
   leafRun: (leafId: string) => Promise<string | undefined>;
   hidden?: ((ownerId: string) => Promise<{ agents: ReadonlySet<string> }>) | undefined;
 }
@@ -45,10 +46,12 @@ export function createGroveLauncher(deps: GroveLauncherDeps): GroveRunLauncher {
       const workflowId = groveRunWorkflowId(treeId);
       const agentSlug = await deps.agentFor(ownerId, treeId);
       if ((await deps.hidden?.(ownerId))?.agents.has(agentSlug)) return { started: false, reason: 'switched-off' };
+      const modelId = (await deps.modelFor?.(ownerId, treeId, agentSlug))?.modelId;
       try {
         await deps.runs.start({
           ownerId,
           agentSlug,
+          ...(modelId ? { modelId } : {}),
           message: 'Grow the tree.',
           runId: groveRunId(treeId, runStamp()),
           bound: { treeId },

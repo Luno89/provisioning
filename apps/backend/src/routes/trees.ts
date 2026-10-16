@@ -12,6 +12,7 @@ import type { GroveRunService } from '../services/GroveRunService.js';
 import type { TreeHomeService } from '../services/TreeHomeService.js';
 import type { GroveOrderService } from '../services/GroveOrderService.js';
 import type { TreeWorkspaceService } from '../services/TreeWorkspaceService.js';
+import type { TreeModelsService } from '../services/TreeModelsService.js';
 
 export interface TreesRouterDeps {
   db: Database;
@@ -22,6 +23,7 @@ export interface TreesRouterDeps {
   home: Pick<TreeHomeService, 'home'>;
   landings?: { pullRequests(ownerId: string, treeId: string): Promise<TreePullRequest[]> } | undefined;
   workspaceFile?: Pick<TreeWorkspaceService, 'view' | 'save'> | undefined;
+  models: Pick<TreeModelsService, 'view' | 'set'>;
 }
 
 export interface TreePullRequest {
@@ -93,6 +95,18 @@ export function treesRouter(deps: TreesRouterDeps): Router {
 
   router.get('/:id/run', asyncRoute(async (req, res) => {
     const outcome = await runs.status(userOf(req).id, idOf(req));
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json(outcome.value);
+  }));
+
+  router.get('/:id/models', asyncRoute(async (req, res) => {
+    const outcome = await deps.models.view(userOf(req).id, idOf(req));
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json(outcome.value);
+  }));
+
+  router.put('/:id/models', asyncRoute(async (req, res) => {
+    const outcome = await deps.models.set(userOf(req).id, idOf(req), req.body);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     res.json(outcome.value);
   }));
