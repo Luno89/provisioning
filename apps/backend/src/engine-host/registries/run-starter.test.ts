@@ -24,13 +24,13 @@ describe('starting a run that is a conversation turn', () => {
   });
 
   it('hands the run the conversation its turn was opened in, whatever the inputs said', async () => {
-    const start = vi.fn(async (_type: string, _options: { args: [ProcedureRunInput] }) => ({ workflowId: 'run-1' }));
+    const start = vi.fn(async (_type: string, _options: { args: unknown[] }) => ({ workflowId: 'run-1' }));
     const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), newRunId: () => 'run-1', turns: turns() });
 
     await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', conversationId: 'c1' });
     await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', conversationId: 'c1', inputs: { conversationId: 'c2' } });
 
-    expect(start.mock.calls.map(([, options]) => options.args[0].inputs.conversationId)).toEqual(['c1', 'c1']);
+    expect(start.mock.calls.map(([, options]) => (options.args[0] as ProcedureRunInput).inputs.conversationId)).toEqual(['c1', 'c1']);
   });
 
   it('opens nothing for a run that does not save a conversation, or has none', async () => {
