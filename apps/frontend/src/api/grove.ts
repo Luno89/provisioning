@@ -1,6 +1,12 @@
 import { api } from './client'
 import type { Tree, Branch, Leaf, TreeType } from '../types/grove'
 
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Authority: `GROVE_CHANGED` in apps/backend/src/engine-host/temporal/stream-worker.ts.
+ */
+export const GROVE_CHANGED = 'grove-changed'
+
 export const groveKeys = {
   trees: () => ['trees'] as const,
   branches: () => ['branches'] as const,

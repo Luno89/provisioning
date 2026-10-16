@@ -1,3 +1,4 @@
+import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
@@ -46,7 +47,14 @@ describe('deleting a project through Temporal', () => {
     const taskQueue = `remove-project-test-${Math.random().toString(36).slice(2, 8)}`;
     const worker = await Worker.create({ connection: env.nativeConnection, taskQueue, workflowsPath: resolve(__dirname, 'RemoveProjectWorkflow.ts'), activities });
 
-    await clusterWorker.runUntil(worker.runUntil(async () => {
+    const told: string[] = [];
+    const streamWorker = await Worker.create({
+      connection: env.nativeConnection,
+      taskQueue: DEFAULT_STREAM_TASK_QUEUE,
+      activities: { EngineGroveChangedActivity: async ({ ownerId }: { ownerId: string }) => { told.push(ownerId); } },
+    });
+
+    await streamWorker.runUntil(clusterWorker.runUntil(worker.runUntil(async () => {
       const workflows = temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => env.client, taskQueue, PROJECT_REMOVAL_PROGRESS_QUERY);
       await workflows.start(REMOVE_PROJECT_WORKFLOW, removeProjectWorkflowId('p1'), [{ projectId: 'p1' }], 'bo');
       for (let tries = 0; tries < 100; tries += 1) {
@@ -59,7 +67,8 @@ describe('deleting a project through Temporal', () => {
       expect(await env.client.workflow.getHandle(removeProjectWorkflowId('p1')).result()).toEqual({
         stoppedWorkflows: 0, apps: 1, workspaces: 2, secrets: { workspace: true, readers: 1 }, repositories: ['koala-bo/shop'], records: { projects: 1 },
       });
-    }));
+    })));
     expect(seen).toEqual(['workflows', 'apps', 'destroy shop in shop-1a2b3c', 'workspaces', 'secrets', 'repositories', 'records']);
+    expect(told, 'the owner\'s browsers are told the grove changed').toEqual(['bo']);
   }, 60_000);
 });

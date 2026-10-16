@@ -69,6 +69,7 @@ export interface StreamServices {
   conclude?: ((event: LifecycleEvent) => Promise<void>) | undefined;
   benchIdle?: ((ownerId: string) => Promise<BenchIdleOutcome>) | undefined;
   post?: ((ownerId: string, notice: Readonly<Record<string, unknown>>) => Promise<void>) | undefined;
+  groveChanged?: ((ownerId: string) => void) | undefined;
 }
 
 export interface TraceRecorder {
@@ -110,6 +111,7 @@ export interface StreamActivities {
   EngineStreamNodeActivity(request: RemoteNodeRequest): Promise<RemoteNodeResult>;
   EngineLifecycleActivity(event: LifecycleEvent): Promise<void>;
   EngineBenchIdleActivity(args: { ownerId: string }): Promise<BenchIdleOutcome>;
+  EngineGroveChangedActivity(args: { ownerId: string }): Promise<void>;
 }
 
 export const NODE_HEARTBEAT_MS = 10_000;
@@ -353,6 +355,10 @@ export function createStreamActivities(services: StreamServices): StreamActiviti
 
     async EngineBenchIdleActivity({ ownerId }: { ownerId: string }): Promise<BenchIdleOutcome> {
       return (await services.benchIdle?.(ownerId)) ?? 'nothing';
+    },
+
+    async EngineGroveChangedActivity({ ownerId }: { ownerId: string }): Promise<void> {
+      services.groveChanged?.(ownerId);
     },
   };
 }

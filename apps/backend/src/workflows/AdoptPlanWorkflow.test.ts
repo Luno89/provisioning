@@ -1,3 +1,4 @@
+import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
@@ -196,7 +197,8 @@ function world(start: PlanProposal[], options: { saved?: string[]; homes?: boole
 
   const activities = createEngineActivities({ planAdoption } as never);
 
-  return { stopped, proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, brought, bound, markRepoExists: (...present: string[]) => { repoExists = true; repoFiles.push(...present); } };
+  const told: string[] = [];
+  return { told, stopped, proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, brought, bound, markRepoExists: (...present: string[]) => { repoExists = true; repoFiles.push(...present); } };
 }
 
 async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: () => never): Promise<AdoptPlanResult> {
@@ -217,11 +219,16 @@ async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: (
       }),
     },
   });
-  return worker.runUntil(() => env.client.workflow.execute(AdoptPlanWorkflow, {
+  const streamWorker = await Worker.create({
+    connection: env.nativeConnection,
+    taskQueue: DEFAULT_STREAM_TASK_QUEUE,
+    activities: { EngineGroveChangedActivity: async ({ ownerId }: { ownerId: string }) => { w.told.push(ownerId); } },
+  });
+  return streamWorker.runUntil(worker.runUntil(() => env.client.workflow.execute(AdoptPlanWorkflow, {
     args: [{ ownerId: 'user-1', proposalId }],
     taskQueue,
     workflowId: `adopt-${Math.random().toString(36).slice(2, 8)}`,
-  }));
+  })));
 }
 
 describe('AdoptPlanWorkflow', () => {
@@ -232,6 +239,7 @@ describe('AdoptPlanWorkflow', () => {
 
     expect(result).toMatchObject({ status: 'adopted', treeId: 'plan-p1-tree', commit: 'c0ffee' });
     expect(result.growing).toEqual({ started: true });
+    expect(w.told, 'the owner\'s browsers are told the grove changed').toEqual(['user-1']);
     expect((await env.client.workflow.getHandle('grove-run-plan-p1-tree').describe()).type).toBe('AgentRunWorkflow');
     await env.client.workflow.getHandle('grove-run-plan-p1-tree').terminate('test over').catch(() => undefined);
     expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', ownerId: 'user-1', name: 'Widget API', type: 'api-service', projectIds: [] })]);

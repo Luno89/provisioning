@@ -195,6 +195,7 @@ export const adoptionWorkflowId = (proposalId: string): string => `adopt-plan-${
 
 
 export const DEFAULT_STREAM_TASK_QUEUE = 'engine-stream-queue';
+export const GROVE_CHANGED_PATCH = 'grove-changed';
 
 export type TerminalOutcome = RunOutcome;
 

@@ -60,7 +60,7 @@ import { evalsLevel2Router } from './routes/evals-level2.js';
 import { buildWebTools } from './lib/web-tools-wiring.js';
 import { Level2Service, temporalCheckRunner } from './services/Level2Service.js';
 import { createStoredToolCatalogue, createEngineHost, storesFromDatabase, createStoredAgentRegistry, directoryFromDatabase, createEndpointResolver, createRunStarter, startStreamWorker } from './engine-host/index.js';
-import { userRoom } from './engine-host/temporal/stream-worker.js';
+import { notifyGroveChanged, userRoom } from './engine-host/temporal/stream-worker.js';
 import { createWorkspaceRepoResolver, treeWorkspaceRunId } from './engine-host/sandboxes/workspace-repos.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
@@ -1258,6 +1258,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     workspaces: { state: (treeId) => evalHost.treeWorkspaces.state(treeId), ...treeConclusions },
     runs: groveRuns,
     models: treeModels,
+    changed: notifyGroveChanged(io),
     deletion: groveDeletion,
     landings: {
       pullRequests: async (ownerId, treeId) => {

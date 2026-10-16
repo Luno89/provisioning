@@ -54,14 +54,17 @@ const modelsFor = (db: Database) => new TreeModelsService({
   agentOf: async (_owner, slug) => (slug === 'executor' ? executor : slug === 'grove' ? grower : undefined),
 });
 
+const changed: string[] = [];
+
 const mount = async (): Promise<Harness> => {
+  changed.length = 0;
   workspaces.state.mockClear();
   workspaces.release.mockClear();
   launcher.startGroveRun.mockClear();
   running = false;
   h = await mountRouter({
     prefix: '/api/trees',
-    router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db }), home: homeFor(db), models: modelsFor(db) }),
+    router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db }), home: homeFor(db), models: modelsFor(db), changed: (ownerId) => { changed.push(ownerId); } }),
   });
   return h!;
 };
@@ -110,6 +113,7 @@ describe('a tree\'s workspace', () => {
     const res = await axios.delete(harness.url('/api/trees/t1'));
 
     expect(res.data).toMatchObject({ success: true, stoppedRun: true });
+    expect(changed).toEqual([TEST_USER.id]);
     expect(terminate.mock.calls.map(([id]) => id)).toEqual(['grove-run-t1', 'adopt-plan-p1']);
     expect(workspaces.release.mock.calls).toEqual([['t1', TEST_USER.id]]);
     expect((await db.getTrees()).map((t) => t.id)).toEqual(['keep']);
@@ -246,6 +250,7 @@ describe('making a tree', () => {
     expect(paper.status).toBe(201);
     expect(paper.data.projectIds).toEqual([]);
     expect(await harness.db.getProjects()).toHaveLength(1);
+    expect(changed, 'the owner\'s browsers are told about each new tree').toEqual([TEST_USER.id, TEST_USER.id]);
   });
 
   it('makes no tree when its project cannot be made, and says why', async () => {
@@ -256,6 +261,7 @@ describe('making a tree', () => {
     expect(res.status).toBe(502);
     expect(res.data.error).toBe('The tree could not be given its project, so it was not made: Gitea is down');
     expect(await harness.db.getTrees()).toEqual([]);
+    expect(changed).toEqual([]);
     homeFails = false;
   });
 });

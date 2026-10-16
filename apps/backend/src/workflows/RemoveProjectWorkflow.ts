@@ -1,13 +1,21 @@
-import { defineQuery, executeChild, proxyActivities, setHandler, sleep } from '@temporalio/workflow';
+import { defineQuery, executeChild, patched, proxyActivities, setHandler, sleep, workflowInfo } from '@temporalio/workflow';
 import { DESTROY_RETRY } from '../lib/activity-retry.js';
 import { ACTIVITY_STOP_GRACE_MS } from '../lib/account-removal.js';
 import { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../lib/project-removal.js';
 import type { ProjectRemovalActivities, RemoveProjectArgs } from '../activities/RemoveProjectActivities.js';
 import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
+import { DEFAULT_STREAM_TASK_QUEUE, GROVE_CHANGED_PATCH } from '../engine-host/temporal/contracts.js';
+import { ownerIn } from '../lib/workflow-owner.js';
 
 const steps = proxyActivities<ProjectRemovalActivities>({
   retry: DESTROY_RETRY,
+  ...LIVE_ACTIVITY,
+});
+
+const told = proxyActivities<{ EngineGroveChangedActivity(args: { ownerId: string }): Promise<void> }>({
+  taskQueue: DEFAULT_STREAM_TASK_QUEUE,
+  retry: { maximumAttempts: 3 },
   ...LIVE_ACTIVITY,
 });
 
@@ -40,6 +48,8 @@ export async function RemoveProjectWorkflow(args: RemoveProjectArgs): Promise<Pr
   done.push('repositories');
   const records = await steps.RemoveProjectRecordsActivity(args);
   done.push('records');
+  const owner = ownerIn(workflowInfo().typedSearchAttributes);
+  if (owner && patched(GROVE_CHANGED_PATCH)) await told.EngineGroveChangedActivity({ ownerId: owner }).catch(() => undefined);
 
   return { stoppedWorkflows, apps: apps.length, workspaces, secrets, repositories, records };
 }

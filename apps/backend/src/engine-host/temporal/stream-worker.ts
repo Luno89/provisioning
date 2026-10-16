@@ -27,6 +27,11 @@ export interface StreamWorkerOptions {
 }
 
 export const TURN_LOG_CHANNEL = 'turn-log';
+export const GROVE_CHANGED = 'grove-changed';
+
+export const notifyGroveChanged = (io: SocketLike) => (ownerId: string): void => {
+  io.to(userRoom(ownerId)).emit(GROVE_CHANGED, {});
+};
 
 export const notifyTurnLog = (io: SocketLike) => (entry: TurnLogEntry): void => {
   const { ownerId, ...rest } = entry;
@@ -58,6 +63,6 @@ export async function startStreamWorker(options: StreamWorkerOptions): Promise<W
     taskQueue: options.taskQueue ?? DEFAULT_STREAM_TASK_QUEUE,
     interceptors: { activity: [heartbeatWhileRunning()] },
     ...(options.namespace ? { namespace: options.namespace } : {}),
-    activities: createStreamActivities({ ...options.services, bus }),
+    activities: createStreamActivities({ ...options.services, bus, groveChanged: notifyGroveChanged(options.io) }),
   });
 }

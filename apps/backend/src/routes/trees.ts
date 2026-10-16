@@ -24,6 +24,7 @@ export interface TreesRouterDeps {
   landings?: { pullRequests(ownerId: string, treeId: string): Promise<TreePullRequest[]> } | undefined;
   workspaceFile?: Pick<TreeWorkspaceService, 'view' | 'save'> | undefined;
   models: Pick<TreeModelsService, 'view' | 'set'>;
+  changed?: ((ownerId: string) => void) | undefined;
 }
 
 export interface TreePullRequest {
@@ -86,7 +87,9 @@ export function treesRouter(deps: TreesRouterDeps): Router {
     };
     await db.saveTree(tree);
     try {
-      res.status(201).json(await deps.home.home(tree));
+      const homed = await deps.home.home(tree);
+      deps.changed?.(userId);
+      res.status(201).json(homed);
     } catch (err) {
       await db.deleteTree(tree.id);
       res.status(502).json({ error: `The tree could not be given its project, so it was not made: ${(err as Error).message}` });
@@ -168,6 +171,7 @@ export function treesRouter(deps: TreesRouterDeps): Router {
   router.delete('/:id', asyncRoute(async (req, res) => {
     const outcome = await deps.deletion.deleteTree(userOf(req).id, idOf(req));
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    deps.changed?.(userOf(req).id);
     res.json({ success: true, stoppedRun: outcome.value.stoppedRun, deleted: outcome.value.scope });
   }));
 

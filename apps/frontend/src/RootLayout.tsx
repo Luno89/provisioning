@@ -32,6 +32,7 @@ import {
 } from './api/deployments';
 import { listProviders, credentialKeys } from './api/credentials';
 import { getNginxConfig, saveNginxConfig, nginxKeys } from './api/nginx';
+import { useGroveChanges } from './components/Projects/useGroveChanges';
 
 const TOAST_TONE: Record<ToastKind, { border: string; icon: string }> = {
   destroyed: { border: 'border-green-500', icon: 'text-green-500' },
@@ -139,6 +140,8 @@ export function RootLayout() {
     const notice = releaseNotice(releasesNoticed, release);
     if (notice) pushNotification(notice);
   });
+
+  useGroveChanges();
 
   useSocketEvent('deployment-updated', () => {
     queryClient.invalidateQueries({ queryKey: ['deployments'] });
