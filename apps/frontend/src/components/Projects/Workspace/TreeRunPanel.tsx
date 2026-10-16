@@ -4,10 +4,7 @@ import { Loader2, Play, Square } from 'lucide-react'
 import { getTreeRun, groveKeys, runTree, stopTreeRun, type TreeRunStatus } from '../../../api/grove.js'
 import { errorMessage } from '../../../api/client.js'
 import Reading from '../Reading'
-import AutoModeSwitch from '../../AutoMode/AutoModeSwitch'
-import { useTreeAutoMode } from '../../AutoMode/useAutoMode'
 import TreeAsks from './TreeAsks'
-import { TreeModels } from './TreeModels'
 
 const RUNNING_POLL_MS = 5_000
 const IDLE_POLL_MS = 15_000
@@ -38,7 +35,6 @@ export function TreeRunPanel({ treeId }: { treeId: string }) {
     refetchInterval: (query) => (query.state.data?.state === 'running' ? RUNNING_POLL_MS : IDLE_POLL_MS),
   })
 
-  const autoMode = useTreeAutoMode(treeId)
   const running = status?.state === 'running'
   const wasRunning = useRef(running)
   useEffect(() => {
@@ -93,12 +89,6 @@ export function TreeRunPanel({ treeId }: { treeId: string }) {
       )}
       {run.error && <span className="text-red-400">{errorMessage(run.error) || 'The tree did not start.'}</span>}
       {stop.error && <span className="text-red-400">{errorMessage(stop.error) || 'The run could not be stopped.'}</span>}
-      <AutoModeSwitch
-        state={autoMode}
-        label="Auto mode"
-        explain="Runs working on this tree never stop to ask you before a call. Calls inside its sandbox never ask anyway."
-      />
-      <TreeModels treeId={treeId} />
     </div>
   )
 }

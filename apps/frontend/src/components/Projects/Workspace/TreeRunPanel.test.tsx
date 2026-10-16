@@ -108,19 +108,4 @@ describe('TreeRunPanel', () => {
     expect(await screen.findByText(/You stopped the last run; the leaves it was working are back to waiting/)).toBeTruthy()
     expect(screen.getByText('Run it again')).toBeTruthy()
   })
-
-  it('puts the tree in auto mode, and shows it on once the tree says so', async () => {
-    vi.mocked(groveApi.getTreeRun).mockResolvedValue({ state: 'none' })
-    vi.mocked(groveApi.listTrees)
-      .mockResolvedValueOnce([{ id: 't1', name: 'Shop', type: 'odoo-addons', branchCount: 1, updatedAt: 'a' }])
-      .mockResolvedValue([{ id: 't1', name: 'Shop', type: 'odoo-addons', branchCount: 1, updatedAt: 'b', autoMode: true }])
-    renderPanel()
-
-    const box = await screen.findByLabelText('Auto mode')
-    await waitFor(() => expect(box).toBeEnabled())
-    expect(box).not.toBeChecked()
-    fireEvent.click(box)
-    await waitFor(() => expect(autoModeApi.setTreeAutoMode).toHaveBeenCalledWith('t1', true))
-    await waitFor(() => expect(screen.getByLabelText('Auto mode')).toBeChecked())
-  })
 })

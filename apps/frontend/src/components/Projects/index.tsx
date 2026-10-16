@@ -5,9 +5,11 @@ import NewTreeDialog from '../NewTreeDialog.js'
 import { NewProjectDialog } from './NewProjectDialog.js'
 import { ProjectList } from './ProjectList.js'
 import { parseHash, formatHash } from '../../lib/route.js'
+import { pageOf, type ProjectPage } from './useRouteSync.js'
 
 const Workspace = lazy(() => import('./Workspace/index.js'))
 const ProjectBoard = lazy(() => import('./Board/index.js'))
+const ProjectSettings = lazy(() => import('./Settings/index.js'))
 
 class WorkspaceErrorBoundary extends Component<{ onBack: () => void; children: ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null }
@@ -36,13 +38,14 @@ class WorkspaceErrorBoundary extends Component<{ onBack: () => void; children: R
   }
 }
 
-export type Open = { kind: 'tree'; id: string; branchId?: string; leafId?: string; files?: boolean } | { kind: 'project'; id: string; files?: boolean }
+export type Open = { kind: 'tree'; id: string; branchId?: string; leafId?: string; page?: ProjectPage } | { kind: 'project'; id: string; page?: ProjectPage }
 
 function parseOpenFromHash(): Open | null {
   if (typeof window === 'undefined') return null
   const route = parseHash(window.location.hash)
   if (route?.view !== 'projects') return null
-  if (route.path[0] === 'tree' && route.path[1] && route.path[2] === 'files') return { kind: 'tree', id: route.path[1], files: true }
+  const page = pageOf(route.path[2])
+  if (route.path[0] === 'tree' && route.path[1] && page) return { kind: 'tree', id: route.path[1], page }
   if (route.path[0] === 'tree' && route.path[1]) {
     return {
       kind: 'tree', id: route.path[1],
@@ -50,7 +53,7 @@ function parseOpenFromHash(): Open | null {
       ...(route.path[3] ? { leafId: route.path[3] } : {}),
     }
   }
-  if (route.path[0] === 'project' && route.path[1]) return { kind: 'project', id: route.path[1], ...(route.path[2] === 'files' ? { files: true } : {}) }
+  if (route.path[0] === 'project' && route.path[1]) return { kind: 'project', id: route.path[1], ...(page ? { page } : {}) }
   return null
 }
 
@@ -62,12 +65,13 @@ interface Cluster {
 function useSafeProjectsRoute() {
   const router = useRouter({ warn: false });
 
-  type RouteParams = { treeId?: string; branchId?: string | undefined; leafId?: string | undefined; projectId?: string; files?: boolean };
+  type RouteParams = { treeId?: string; branchId?: string | undefined; leafId?: string | undefined; projectId?: string; page?: ProjectPage };
   const getParams = (pathname = router?.state?.location?.pathname): RouteParams | null => {
     if (!pathname) return null;
     const parts = pathname.split('/').filter(Boolean);
     if (parts[0] !== 'projects') return null;
-    if (parts[1] === 'tree' && parts[2] && parts[3] === 'files') return { treeId: parts[2], files: true };
+    const page = pageOf(parts[3]);
+    if (parts[1] === 'tree' && parts[2] && page) return { treeId: parts[2], page };
     if (parts[1] === 'tree' && parts[2]) {
       return {
         treeId: parts[2],
@@ -78,7 +82,7 @@ function useSafeProjectsRoute() {
     if (parts[1] === 'project' && parts[2]) {
       return {
         projectId: parts[2],
-        ...(parts[3] === 'files' ? { files: true } : {}),
+        ...(page ? { page } : {}),
       };
     }
     return null;
@@ -111,14 +115,14 @@ export function Projects({ clusters }: {
         id: routerParams.treeId,
         ...(routerParams.branchId ? { branchId: routerParams.branchId } : {}),
         ...(routerParams.leafId ? { leafId: routerParams.leafId } : {}),
-        ...(routerParams.files ? { files: true } : {}),
+        ...(routerParams.page ? { page: routerParams.page } : {}),
       }
     }
     if (routerParams?.projectId) {
       return {
         kind: 'project',
         id: routerParams.projectId,
-        ...(routerParams.files ? { files: true } : {}),
+        ...(routerParams.page ? { page: routerParams.page } : {}),
       }
     }
     return parseOpenFromHash()
@@ -128,7 +132,7 @@ export function Projects({ clusters }: {
   const [showNewTree, setShowNewTree] = useState(false)
   const [showNewProject, setShowNewProject] = useState(false)
 
-  const routeKey = [routerParams?.treeId, routerParams?.branchId, routerParams?.leafId, routerParams?.projectId, routerParams?.files ? 'files' : ''].join('|')
+  const routeKey = [routerParams?.treeId, routerParams?.branchId, routerParams?.leafId, routerParams?.projectId, routerParams?.page ?? ''].join('|')
   const [seenRouteKey, setSeenRouteKey] = useState(routeKey)
   if (routeKey !== seenRouteKey) {
     setSeenRouteKey(routeKey)
@@ -148,15 +152,19 @@ export function Projects({ clusters }: {
   }, [])
 
   const openEntity = (next: Open) => {
-    window.location.assign(formatHash('projects', [next.kind, next.id, ...(next.files ? ['files'] : [])]))
+    window.location.assign(formatHash('projects', [next.kind, next.id, ...(next.page ? [next.page] : [])]))
     if (navigate) {
       const go = next.kind === 'tree'
-        ? next.files
+        ? next.page === 'files'
           ? navigate({ to: '/projects/tree/$treeId/files', params: { treeId: next.id } })
-          : navigate({ to: '/projects/tree/$treeId', params: { treeId: next.id } })
-        : next.files
+          : next.page === 'settings'
+            ? navigate({ to: '/projects/tree/$treeId/settings', params: { treeId: next.id } })
+            : navigate({ to: '/projects/tree/$treeId', params: { treeId: next.id } })
+        : next.page === 'files'
           ? navigate({ to: '/projects/project/$projectId/files', params: { projectId: next.id } })
-          : navigate({ to: '/projects/project/$projectId', params: { projectId: next.id } })
+          : next.page === 'settings'
+            ? navigate({ to: '/projects/project/$projectId/settings', params: { projectId: next.id } })
+            : navigate({ to: '/projects/project/$projectId', params: { projectId: next.id } })
       go.catch(() => {})
     }
     setOpen(next)
@@ -181,15 +189,15 @@ export function Projects({ clusters }: {
             <ChevronLeft size={14} /> Back to Projects
           </button>
           <div role="tablist" aria-label="Project view" className="flex rounded-md border border-[var(--bark-700)] overflow-hidden text-[12px]">
-            {([['board', 'Board'], ['files', 'Files']] as const).map(([id, label]) => {
-              const on = id === 'files' ? Boolean(open.files) : !open.files
+            {([['board', 'Board'], ['files', 'Files'], ['settings', 'Settings']] as const).map(([id, label]) => {
+              const on = id === 'board' ? !open.page : open.page === id
               return (
                 <button
                   key={id}
                   type="button"
                   role="tab"
                   aria-selected={on}
-                  onClick={() => { if (!on) openEntity({ kind: open.kind, id: open.id, ...(id === 'files' ? { files: true } : {}) }) }}
+                  onClick={() => { if (!on) openEntity({ kind: open.kind, id: open.id, ...(id === 'board' ? {} : { page: id }) }) }}
                   className={`px-3 py-1 cursor-pointer ${on ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-400 hover:text-slate-200'}`}
                 >
                   {label}
@@ -200,7 +208,13 @@ export function Projects({ clusters }: {
         </div>
         <WorkspaceErrorBoundary onBack={closeEntity}>
           <Suspense fallback={<div className="text-slate-400 text-sm py-10 text-center">Loading workspace…</div>}>
-            {!open.files ? (
+            {open.page === 'settings' ? (
+              <ProjectSettings
+                key={open.kind === 'tree' ? `settings-tree-${open.id}` : `settings-project-${open.id}`}
+                {...(open.kind === 'tree' ? { treeId: open.id } : { projectId: open.id })}
+                onDeleted={closeEntity}
+              />
+            ) : !open.page ? (
               <ProjectBoard
                 key={open.kind === 'tree' ? `board-tree-${open.id}` : `board-project-${open.id}`}
                 {...(open.kind === 'tree' ? { treeId: open.id } : { projectId: open.id })}
@@ -214,7 +228,6 @@ export function Projects({ clusters }: {
               {...(open.kind === 'tree' ? { treeId: open.id } : { projectId: open.id })}
               {...(open.kind === 'tree' && open.leafId ? { initialLeafId: open.leafId } : {})}
               onTreeReady={(treeId) => openEntity({ kind: 'tree', id: treeId })}
-              onTreeDeleted={closeEntity}
             />
             )}
           </Suspense>

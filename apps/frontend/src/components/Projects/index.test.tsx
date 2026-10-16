@@ -26,6 +26,12 @@ vi.mock('./Workspace/index.js', () => ({
   ),
 }))
 
+vi.mock('./Settings/index.js', () => ({
+  default: ({ treeId, projectId }: { treeId?: string; projectId?: string }) => (
+    <div data-testid="settings">Settings for {treeId ? `tree:${treeId}` : `project:${projectId}`}</div>
+  ),
+}))
+
 vi.mock('./Board/index.js', () => ({
   default: ({ treeId, projectId, initialBranchId, initialLeafId }: { treeId?: string; projectId?: string; initialBranchId?: string; initialLeafId?: string }) => (
     <div data-testid="board">
@@ -68,6 +74,19 @@ describe('Projects component routing and hash synchronization', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Board' }))
     expect(window.location.hash).toBe('#/projects/tree/tree-1')
     expect(await screen.findByText('Board for tree:tree-1')).toBeInTheDocument()
+  })
+
+  it('opens a tree\'s settings under /settings, and a project\'s straight from its address', async () => {
+    window.location.hash = '#/projects/tree/tree-1'
+    const { unmount } = renderProjects()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Settings' }))
+    expect(window.location.hash).toBe('#/projects/tree/tree-1/settings')
+    expect(await screen.findByText('Settings for tree:tree-1')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Settings' })).toHaveAttribute('aria-selected', 'true')
+    unmount()
+    window.location.hash = '#/projects/project/p1/settings'
+    renderProjects()
+    expect(await screen.findByText('Settings for project:p1')).toBeInTheDocument()
   })
 
   it('opens a project\'s files straight from its address, and a story on the board from a link to it', async () => {

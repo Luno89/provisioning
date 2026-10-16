@@ -94,6 +94,18 @@ export const treeFilesRoute = createRoute({
   component: ProjectsRoute,
 });
 
+export const projectSettingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/projects/project/$projectId/settings',
+  component: ProjectsRoute,
+});
+
+export const treeSettingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/projects/tree/$treeId/settings',
+  component: ProjectsRoute,
+});
+
 export const clustersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/clusters',
@@ -310,6 +322,8 @@ export const routeTree = rootRoute.addChildren([
   projectDetailRoute,
   projectFilesRoute,
   treeFilesRoute,
+  projectSettingsRoute,
+  treeSettingsRoute,
   treeDetailRoute,
   treeBranchRoute,
   treeLeafRoute,

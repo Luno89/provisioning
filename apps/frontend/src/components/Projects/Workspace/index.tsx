@@ -23,8 +23,6 @@ import { TreeWorkspaceFilePanel } from './TreeWorkspaceFilePanel.js'
 import { TreeRunPanel } from './TreeRunPanel.js'
 import { TreeProposalsPanel } from './TreeProposalsPanel.js'
 import { TreeConversationsPanel } from './TreeConversationsPanel.js'
-import { TreeDeletePanel } from './TreeDeletePanel.js'
-import { ProjectDeletePanel } from './ProjectDeletePanel.js'
 import { ProjectChannel } from './ProjectChannel.js'
 import { TreeStrip } from './TreeStrip.js'
 import { panel, resizeHandle, type SelectedEntity } from './shared.js'
@@ -61,13 +59,12 @@ function CollapsibleSection({ title, defaultOpen = true, isOpen, onToggle, child
 }
 
 export function Workspace({
-  treeId, projectId, initialLeafId, onTreeReady, onTreeDeleted,
+  treeId, projectId, initialLeafId, onTreeReady,
 }: {
   treeId?: string | undefined
   projectId?: string | undefined
   initialLeafId?: string | undefined
   onTreeReady?: ((treeId: string) => void) | undefined
-  onTreeDeleted?: (() => void) | undefined
 }) {
   const qc = useQueryClient()
 
@@ -82,7 +79,6 @@ export function Workspace({
   const [openingChat, setOpeningChat] = useState<{ conversationId: string; prompt: string } | undefined>()
   const [conversationsOpen, setConversationsOpen] = useState(true)
   const [sandboxOpen, setSandboxOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
   const [runOpen, setRunOpen] = useState(true)
   const [proposalsOpen, setProposalsOpen] = useState(true)
 
@@ -116,7 +112,7 @@ export function Workspace({
     },
   })
 
-  useRouteSync(treeId ? { kind: 'tree', treeId, files: true } : projectId ? { kind: 'project', projectId, files: true } : undefined)
+  useRouteSync(treeId ? { kind: 'tree', treeId, page: 'files' } : projectId ? { kind: 'project', projectId, page: 'files' } : undefined)
 
   const projectId_ = project?.id ?? ''
   const {
@@ -185,9 +181,6 @@ export function Workspace({
             </div>
             <CollapsibleSection title="Builds & Deploys">
               <BuildsDeploysPanel project={project} />
-            </CollapsibleSection>
-            <CollapsibleSection title="Delete project">
-              <ProjectDeletePanel projectId={project.id} onDeleted={() => onTreeDeleted?.()} />
             </CollapsibleSection>
           </div>
         )
@@ -457,15 +450,6 @@ export function Workspace({
             onToggle={setSandboxOpen}
           >
             <TreeSandboxPanel treeId={treeId} />
-          </CollapsibleSection>
-        )}
-        {hasTree && treeId && tree && (
-          <CollapsibleSection
-            title="Delete"
-            isOpen={deleteOpen}
-            onToggle={setDeleteOpen}
-          >
-            <TreeDeletePanel treeId={treeId} treeName={tree.name} onDeleted={() => onTreeDeleted?.()} />
           </CollapsibleSection>
         )}
       </div>
