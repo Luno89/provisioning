@@ -891,7 +891,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }));
   const customizations = new CustomizationsService({
     projects: () => db.getProjects(),
-    clusterById: async (id) => (await db.getClusters()).find((entry) => entry.id === id),
+    clusterById: async (id) => (id === 'provisioning-lunorica' ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
     how: async (project) => releaseHowOf(project, await treeTypeOfProject(db, project), true),
     cluster: createSlotCluster({ infra: infraService, repo: async () => giteaService, syncVault: syncVaultFromProject(infraService) }),
     adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },

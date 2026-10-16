@@ -169,7 +169,7 @@ async function buildActivities() {
   });
   const customizations = new CustomizationsService({
     projects: () => db.getProjects(),
-    clusterById: async (id) => (await db.getClusters()).find((entry) => entry.id === id),
+    clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
     how: async (project) => releaseHowOf(project, await treeTypeOfProject(db, project), true),
     cluster: createSlotCluster({ infra: kubeInfra, repo: async () => gitea, syncVault: syncVaultFromProject(kubeInfra) }),
     adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
