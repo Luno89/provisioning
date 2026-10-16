@@ -1,4 +1,4 @@
-import { agentsHandedTo, callsModel, machineChoice, type Procedure } from '@koala/agent-engine/procedure';
+import { agentsHandedTo, callsModel, machineChoice, type GroupDefinition, type Procedure } from '@koala/agent-engine/procedure';
 
 export type TreeModels = Record<string, string>;
 
@@ -7,10 +7,10 @@ export interface TreeAgent {
   name: string;
   describe?: string | undefined;
   endpointId?: string | null | undefined;
-  procedure?: Pick<Procedure, 'nodes' | 'groups'> | undefined;
+  procedure?: Pick<Procedure, 'nodes' | 'groups' | 'wires' | 'flow' | 'start'> | undefined;
 }
 
-export async function modelAgentsOf(grower: string, agentOf: (slug: string) => Promise<TreeAgent | undefined>): Promise<TreeAgent[]> {
+export async function modelAgentsOf(grower: string, agentOf: (slug: string) => Promise<TreeAgent | undefined>, shared: readonly GroupDefinition[] = []): Promise<TreeAgent[]> {
   const seen = new Set<string>();
   const found: TreeAgent[] = [];
   let next = [grower];
@@ -18,7 +18,7 @@ export async function modelAgentsOf(grower: string, agentOf: (slug: string) => P
     const fresh = next.filter((slug) => !seen.has(slug));
     for (const slug of fresh) seen.add(slug);
     const agents = (await Promise.all(fresh.map(agentOf))).filter((agent): agent is TreeAgent => Boolean(agent));
-    for (const agent of agents) if (agent.procedure && callsModel(agent.procedure)) found.push(agent);
+    for (const agent of agents) if (agent.procedure && callsModel(agent.procedure, shared)) found.push(agent);
     next = agents.flatMap((agent) => (agent.procedure ? agentsHandedTo(agent.procedure) : []));
   }
   return found;

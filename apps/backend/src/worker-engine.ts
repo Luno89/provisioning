@@ -80,6 +80,7 @@ import type { GroveRunLauncher } from './services/GroveRunService.js';
 import { createArtifactService } from './services/artifact-service-factory.js';
 import { treeOfGroveRun, workflowOfRun } from './engine-host/temporal/contracts.js';
 import { TreeModelsService, treeAgentsFrom } from './services/TreeModelsService.js';
+import { platformGroups } from './extensions/installed.js';
 import { hostedMcpUrl } from './lib/mcp-hosted-url.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
 
@@ -297,7 +298,7 @@ async function buildActivities() {
   });
   const { registry, endpoints, environments, tools } = host;
   const autoMode = new AutoModeService({ store: db, agentExists: async (ownerId, slug) => Boolean(await registry.agent(ownerId, slug)) });
-  const treeModels = new TreeModelsService({ store: db, models, agentOf: treeAgentsFrom(registry) });
+  const treeModels = new TreeModelsService({ store: db, models, agentOf: treeAgentsFrom(registry), groups: platformGroups });
   const runStarter = createRunStarter({
     registry,
     workflows: () => ({

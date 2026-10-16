@@ -1,4 +1,4 @@
-import { machineChoice } from '@koala/agent-engine/procedure';
+import { machineChoice, type GroupDefinition } from '@koala/agent-engine/procedure';
 import type { Database } from '../lib/db-interface.js';
 import type { ModelProvider } from '../lib/model-registry.js';
 import { groveAgentOf, resolveTreeType } from '../lib/tree-types.js';
@@ -25,6 +25,7 @@ export interface TreeModelsDeps {
     route(ownerId: string, modelId?: string | null, endpointId?: string | null): Promise<{ provider: ModelProvider }>;
   };
   agentOf(ownerId: string, slug: string): Promise<TreeAgent | undefined>;
+  groups?: (() => readonly GroupDefinition[]) | undefined;
   now?: (() => string) | undefined;
 }
 
@@ -37,7 +38,7 @@ export class TreeModelsService {
 
   private async agents(ownerId: string, type: string): Promise<TreeAgent[]> {
     const spec = await resolveTreeType(this.deps.store, ownerId, type);
-    return modelAgentsOf(groveAgentOf(spec), (slug) => this.deps.agentOf(ownerId, slug));
+    return modelAgentsOf(groveAgentOf(spec), (slug) => this.deps.agentOf(ownerId, slug), this.deps.groups?.() ?? []);
   }
 
   private async own(ownerId: string, agent: TreeAgent): Promise<AgentOwnModel> {

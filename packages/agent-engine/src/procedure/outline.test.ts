@@ -6,7 +6,7 @@ const node = (id: string, kind: string, settings: Record<string, unknown> = {}):
   ({ id, kind, settings, position: [0, 0] }) as unknown as PlacedNode;
 
 const proc = (id: string, describe: string, nodes: PlacedNode[], groups: unknown[] = []) =>
-  ({ id, name: id, describe, nodes, groups }) as unknown as Procedure;
+  ({ id, name: id, describe, nodes, groups, wires: [], flow: [], start: nodes[0]?.id ?? 'none' }) as unknown as Procedure;
 
 const grow = proc('grow', 'Grows the tree until quiet.', [
   node('open', 'host-op'),
@@ -32,7 +32,12 @@ describe('a procedure describing itself', () => {
   it('says whether it asks a model anything, inside its groups too', () => {
     expect(callsModel(grow)).toBe(false);
     expect(callsModel(proc('chat', '', [node('m', 'call-model')]))).toBe(true);
-    expect(callsModel(proc('rounds', '', [], [{ id: 'r', nodes: [node('pick', 'choose-model')] }]))).toBe(true);
+    expect(callsModel(proc('rounds', '', [{ ...node('r1', 'group'), group: 'r' } as PlacedNode], [{ id: 'r', nodes: [node('pick', 'choose-model')], wires: [], flow: [] }]))).toBe(true);
+    expect(callsModel(proc('unused', '', [node('x', 'finish')], [{ id: 'r', nodes: [node('pick', 'choose-model')], wires: [], flow: [] }]))).toBe(false);
+    const turn = { id: 'turn', nodes: [node('call', 'call-model')], wires: [], flow: [] } as never;
+    const usesTurn = proc('chat', '', [{ ...node('t', 'group'), group: 'turn' } as PlacedNode]);
+    expect(callsModel(usesTurn)).toBe(false);
+    expect(callsModel(usesTurn, [turn])).toBe(true);
   });
 
   it('outlines itself from its own words and the words of the procedures it hands work to', () => {

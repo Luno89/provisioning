@@ -147,6 +147,7 @@ import { createGroveLauncher } from './engine-host/grove-launcher.js';
 import { groveAgentOf, resolveTreeType, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, treeTypeOfProject, renderStarterFiles, versionVars } from './lib/tree-types.js';
 import { TreeHomeService } from './services/TreeHomeService.js';
 import { TreeModelsService, treeAgentsFrom } from './services/TreeModelsService.js';
+import { platformGroups } from './extensions/installed.js';
 import { ProjectAppService } from './services/ProjectAppService.js';
 import { projectAppRouter } from './routes/project-app.js';
 import { projectSecretsFor } from './services/ProjectSecretsService.js';
@@ -1215,7 +1216,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   tenant.use('/api/tree-types', treeTypesRouter({ db, agents: async (ownerId: string) => (await engineRegistry.agents(ownerId)).map((agent) => agent.slug), describe: (ownerId, typeId) => treeTypeDescriptions.describe(ownerId, typeId), releaseProblem: (ownerId, how) => releaseSettings.problem(ownerId, how) }));
   tenant.use('/api/binding-types', bindingTypesRouter({ db }));
-  const treeModels = new TreeModelsService({ store: db, models: modelService, agentOf: treeAgentsFrom(engineRegistry) });
+  const treeModels = new TreeModelsService({ store: db, models: modelService, agentOf: treeAgentsFrom(engineRegistry), groups: platformGroups });
   const groveRuns = new GroveRunService({
     store: db,
     asking: runAskingVia(() => getTemporalClient()),

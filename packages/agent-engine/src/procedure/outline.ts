@@ -1,4 +1,5 @@
-import type { PlacedNode, Procedure } from './schema.js';
+import { expandGroups, groupLibrary } from './groups.js';
+import type { GroupDefinition, PlacedNode, Procedure } from './schema.js';
 
 const HANDS_OFF = new Set(['delegate', 'fan-out']);
 const MODEL_STEPS = new Set(['choose-model', 'call-model']);
@@ -25,8 +26,14 @@ export function agentsHandedTo(procedure: Pick<Procedure, 'nodes' | 'groups'>): 
   return agents;
 }
 
-export function callsModel(procedure: Pick<Procedure, 'nodes' | 'groups'>): boolean {
-  return nodesOf(procedure).some((node) => MODEL_STEPS.has(node.kind));
+export function callsModel(procedure: Pick<Procedure, 'nodes' | 'groups' | 'wires' | 'flow' | 'start'>, shared: readonly GroupDefinition[] = []): boolean {
+  let nodes: PlacedNode[];
+  try {
+    nodes = expandGroups(procedure, groupLibrary(procedure, shared)).body.nodes;
+  } catch {
+    nodes = nodesOf(procedure);
+  }
+  return nodes.some((node) => MODEL_STEPS.has(node.kind));
 }
 
 export function outlineProcedure(
