@@ -22,6 +22,8 @@ export interface MachineAgent {
   signIn?: string[] | undefined;
   reason?: string | undefined;
   adapter?: string | undefined;
+  models?: { id: string; name: string }[] | undefined;
+  model?: string | undefined;
 }
 
 export interface ManualMachineAgent {
@@ -62,18 +64,27 @@ export function machineAgentsFrom(raw: unknown): MachineAgent[] {
     if (!id || !AGENT_ID.test(id) || !title || !state || !source) return [];
     const args = words(candidate.args);
     const signIn = words(candidate.signIn);
+    const models = Array.isArray(candidate.models)
+      ? candidate.models.slice(0, 40).flatMap((model: unknown) => {
+        const entry = model as Record<string, unknown> | null;
+        const modelId = short(entry?.id, 120);
+        return modelId && !modelId.includes(':') ? [{ id: modelId, name: short(entry?.name, 120) ?? modelId }] : [];
+      })
+      : [];
     const optional = {
       command: short(candidate.command, 500),
       name: short(candidate.name, 80),
       version: short(candidate.version, 40),
       reason: short(candidate.reason, 1000),
       adapter: short(candidate.adapter, 120),
+      model: models.length ? short(candidate.model, 120) : undefined,
     };
     return [{
       id, title, state, source,
       ...Object.fromEntries(Object.entries(optional).filter(([, value]) => value !== undefined)),
       ...(args ? { args } : {}),
       ...(signIn?.length ? { signIn } : {}),
+      ...(models.length ? { models } : {}),
     }];
   });
 }
@@ -115,11 +126,14 @@ export interface ChosenMachine {
   agents: readonly MachineAgent[];
 }
 
-export function machineChoiceProblem(machine: ChosenMachine | undefined, agent: string, opts: { waitsToConnect?: boolean } = {}): string | undefined {
+export function machineChoiceProblem(machine: ChosenMachine | undefined, agent: string, opts: { waitsToConnect?: boolean; model?: string | undefined } = {}): string | undefined {
   if (!machine) return 'that machine is not one of yours any more; pick another on My Machines or in the model list';
   const found = machine.agents.find((candidate) => candidate.id === agent);
   if (!found) return `${machine.name} has no agent called ${agent}`;
   if (found.state !== 'ready') return `${found.title} on ${machine.name} is not ready: ${found.reason ?? found.state}`;
+  if (opts.model && found.models && !found.models.some((model) => model.id === opts.model)) {
+    return `${found.title} on ${machine.name} no longer offers the model ${opts.model} (it offers ${found.models.map((model) => model.name).join(', ')}); pick another in the model list`;
+  }
   if (!machine.online && !opts.waitsToConnect) return `${machine.name} is not connected, so ${found.title} cannot answer`;
   return undefined;
 }

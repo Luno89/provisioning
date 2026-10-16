@@ -57,6 +57,8 @@ export interface FoundAgent {
   signIn?: string[] | undefined;
   reason?: string | undefined;
   adapter?: string | undefined;
+  models?: { id: string; name: string }[] | undefined;
+  model?: string | undefined;
 }
 
 export interface ManualAgent {
@@ -147,6 +149,7 @@ async function confirm(candidate: Candidate, deps: DiscoveryDeps): Promise<{ age
           name: probed.identity.title ?? probed.identity.name,
           ...(probed.identity.version ? { version: probed.identity.version } : {}),
           ...(probed.signIn.length ? { signIn: probed.signIn } : {}),
+          ...(probed.models?.available.length ? { models: probed.models.available, model: probed.models.current } : {}),
           reason: undefined,
         },
         launch,

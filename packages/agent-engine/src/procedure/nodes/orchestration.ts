@@ -64,13 +64,28 @@ export interface QuestionAnswer {
   reason?: string | undefined;
 }
 
+export interface ExternalServedToolValue {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface ExternalToolCallValue {
+  callId: string;
+  name: string;
+  arguments: string;
+}
+
 export interface ExternalAgentRequest {
   nodeId: string;
   agent: string;
   brief: string;
   context?: string | undefined;
   mode?: string | undefined;
+  model?: string | undefined;
   resume?: string | undefined;
+  tools?: ExternalServedToolValue[] | undefined;
+  callTool?: ((call: ExternalToolCallValue) => Promise<{ ok: boolean; content: string }>) | undefined;
   environment: Extract<EnvironmentValue, { kind: 'machine' }>;
   run: RunContext;
 }
@@ -341,8 +356,19 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         : { exit: 'unanswered', outputs: { reason: answer.reason ?? 'nobody answered in the time this step waits' } };
     }),
 
-    stepImplementation('external-agent', async ({ node, inputs, run }) => {
-      const agent = textOf(node.settings, 'agent') || machineChoice(run.launch.modelId)?.agent || run.identity.agentId;
+    stepImplementation('external-agent', async (request) => {
+      const { node, inputs, run } = request;
+      const picked = machineChoice(run.launch.modelId);
+      const agent = textOf(node.settings, 'agent') || picked?.agent || run.identity.agentId;
+      const model = textOf(node.settings, 'model') || (picked?.agent === agent ? picked.model : undefined);
+      const persona = inputs.persona as AgentDefinition | undefined;
+      const offered = ((inputs.tools as ToolSet | undefined) ?? []).filter((tool) => tool.binding !== 'environment');
+      const destructive = new Set(offered.filter((tool) => tool.destructive === true).map((tool) => tool.name));
+      const tools = offered.map((tool) => ({
+        name: tool.name,
+        description: [tool.description, tool.usageGuidance].filter(Boolean).join('\n\n'),
+        inputSchema: tool.parameters ?? { type: 'object', properties: {} },
+      }));
       const mode = textOf(node.settings, 'mode');
       const environment = (inputs.environment as EnvironmentValue | undefined) ?? (run.launch.environment as EnvironmentValue | undefined);
       const brief = typeof inputs.brief === 'string' ? inputs.brief.trim() : '';
@@ -356,7 +382,20 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       if (environment?.kind !== 'machine') return failed(`${agent} works on a person's machine, and this run has none`);
       if (!brief) return failed(`there was no task to hand ${agent}`);
 
-      const key = machineSessionKey({ deviceId: environment.deviceId, agent });
+      const key = machineSessionKey({ deviceId: environment.deviceId, agent, ...(model ? { model } : {}) });
+      const callTool = async (asked: { callId: string; name: string; arguments: string }): Promise<{ ok: boolean; content: string }> => {
+        const call: ToolCallRequest = { id: asked.callId, name: asked.name, arguments: asked.arguments };
+        if (!persona || !offered.some((tool) => tool.name === call.name)) return { ok: false, content: `${call.name} is not one of the tools offered here` };
+        if (destructive.has(call.name)) {
+          run.emit({ type: 'tool.called', nodeId: node.id, callId: call.id, name: call.name, args: call.arguments } as never);
+          if (!(await ports.approve({ nodeId: node.id, call, environment, run }))) {
+            run.emit({ type: 'tool.result', nodeId: node.id, callId: call.id, ok: false, digest: REFUSED_CALL } as never);
+            return { ok: false, content: REFUSED_CALL };
+          }
+        }
+        const { outcome } = await runOne(request, call, persona, undefined);
+        return { ok: outcome.ok, content: outcome.content ?? outcome.digest };
+      };
       const sessions = inputs.sessions && typeof inputs.sessions === 'object' ? inputs.sessions as Record<string, unknown> : {};
       const resume = typeof sessions[key] === 'string' && sessions[key] ? sessions[key] as string : undefined;
       const outcome = await ports.runExternal({
@@ -365,7 +404,9 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         brief,
         ...(context ? { context } : {}),
         ...(mode ? { mode } : {}),
+        ...(model ? { model } : {}),
         ...(resume ? { resume } : {}),
+        ...(tools.length ? { tools, callTool } : {}),
         environment,
         run,
       });
@@ -376,7 +417,8 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
           reply: replyOf(node.id, outcome.text, 'stopReason' in outcome ? outcome.stopReason : 'error'),
           ...(outcome.sessionId ? { session: { key, id: outcome.sessionId } } : {}),
           ...('stopReason' in outcome ? { stopReason: outcome.stopReason } : {}),
-          ...(outcome.identity ? { identity: outcome.identity } : {}),
+          ...(outcome.identity ? { identity: { ...outcome.identity, ...(outcome.model ? { model: outcome.model } : {}) } } : {}),
+          ...(outcome.model ? { model: outcome.model } : {}),
           ...(outcome.sessionId ? { sessionId: outcome.sessionId } : {}),
           ...('reason' in outcome ? { reason: outcome.reason } : {}),
         },

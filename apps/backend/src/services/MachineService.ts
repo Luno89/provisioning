@@ -94,7 +94,7 @@ export class MachineService {
 
   async choiceProblem(ownerId: string, choice: MachineChoice): Promise<string | undefined> {
     const device = await this.owned(ownerId, choice.deviceId);
-    return machineChoiceProblem(device ? this.view(device) : undefined, choice.agent);
+    return machineChoiceProblem(device ? this.view(device) : undefined, choice.agent, { model: choice.model });
   }
 
   async list(ownerId: string): Promise<MachineView[]> {

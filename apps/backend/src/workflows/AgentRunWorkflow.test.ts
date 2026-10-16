@@ -41,6 +41,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import type { ExternalAgentStepArgs } from '@koala/engine-core';
 import { ExternalAgentSessions } from '../../../local-agent/src/external-agents.js';
+import { LocalMcpServer } from '../../../local-agent/src/local-mcp.js';
 import type { AgentScript } from '../../../local-agent/src/acp-script-agent.js';
 import { EXTERNAL_AGENT_CHAT, EXTERNAL_AGENT_TASK } from '../extensions/external-agents/procedures.js';
 import { payloadRingOver, remoteBlobs, type AskingSocket } from '../../../local-agent/src/remote-blobs.js';
@@ -1073,6 +1074,52 @@ describe('an external agent working on someone\'s machine', () => {
       ['user', 'labels module?'], ['assistant', 'labels module?'], ['user', 'And the tests?'], ['assistant', 'And the tests?'],
     ]);
     expect(sessions.openKeys()).toEqual([]);
+  }, 60_000);
+
+  it('serves the agent its persona\'s own tools, runs each call through the run (asking before one that changes something), and starts it on the model picked', async () => {
+    root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
+    const scriptPath = resolve(root, 'script.json');
+    const models = { current: 'flash', available: [{ id: 'flash', name: 'Gemini 3.8 Flash' }, { id: 'pro', name: 'Gemini 3.8 Pro' }] };
+    await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', models, turns: [{ steps: [
+      { tellModel: true },
+      { mcp: { server: 'koala', tool: 'list_references', args: {} } },
+      { mcp: { server: 'koala', tool: 'save_procedure', args: { procedure: '{}' } } },
+    ] }] } satisfies AgentScript));
+    const mcp = new LocalMcpServer();
+    await mcp.start();
+    const sessions = new ExternalAgentSessions({ rootDir: resolve(root, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500, mcp });
+    const conversations = inMemoryConversations();
+    const registry = createAgentRegistry({
+      agentStore: { list: async () => seededAgents().map((agent) => (agent.slug === 'koala' ? { ...agent, tools: ['list_references', 'save_procedure'] } : agent)) },
+      toolCatalogue: { list: async () => contractsFor(BUILDER_TOOLS) },
+    });
+    const acts = activities({ registry, script: [{ content: 'unused' }], external: sessions, environment: MACHINE, conversations });
+    let asked: string[] | undefined;
+    try {
+      const result = await runWorkflow({
+        ticket: { ...ticket('koala'), conversationId: 'c-tools', modelId: 'machine:desk:antigravity:pro' },
+        procedure: EXTERNAL_AGENT_CHAT,
+        inputs: { message: 'What can you reach?', conversationId: 'c-tools' },
+      }, acts, async (handle) => {
+        while (!(await handle.query(stateQuery)).asking?.length) await new Promise((settle) => setTimeout(settle, 50));
+        asked = (await handle.query(stateQuery)).asking;
+        await handle.signal(approveSignal, { callId: asked![0]!, allowed: false });
+      });
+
+      expect(result.outcome).toBe('ok');
+      const said = String(result.outputs.result);
+      expect(said).toContain('on pro');
+      expect(said).toContain('list_references: output of list_references');
+      expect(said).toContain('save_procedure: you did not approve that call, so it did not run');
+      expect(asked).toHaveLength(1);
+      expect(acts.engine.EngineToolActivity.mock.calls.map(([call]) => call.name)).toEqual(['list_references']);
+      const stored = await conversations.get('user-1', 'c-tools');
+      expect(stored?.machineSessions).toEqual({ 'desk:antigravity:pro': 'scripted-1' });
+      expect(sessions.openKeys()).toEqual([]);
+    } finally {
+      await sessions.closeAll();
+      await mcp.close();
+    }
   }, 60_000);
 
   it('runs on a machine that reads its instance\'s payloads: encrypted, and fetched or stored over its socket when they are large', async () => {

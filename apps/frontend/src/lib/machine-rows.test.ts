@@ -19,6 +19,15 @@ describe('the agents on your machines, as choices', () => {
     expect(machineRows([{ ...desk, online: false }])[0]).toMatchObject({ ready: false, note: 'machine not connected' })
   })
 
+  it('offers each model an agent has, and names the picked one by its model', () => {
+    const withModels: LocalAgentDevice = { ...desk, agents: [{ ...desk.agents[0]!, models: [{ id: 'flash', name: 'Gemini 3.8 Flash' }, { id: 'pro', name: 'Gemini 3.8 Pro' }], model: 'flash' }] }
+    expect(machineRows([withModels]).map((row) => [row.id, row.label])).toEqual([
+      ['machine:d1:antigravity:flash', 'Antigravity · Gemini 3.8 Flash · desk'],
+      ['machine:d1:antigravity:pro', 'Antigravity · Gemini 3.8 Pro · desk'],
+    ])
+    expect(machineChoiceLabel('machine:d1:antigravity:pro', [withModels])).toBe('Antigravity · Gemini 3.8 Pro · desk')
+  })
+
   it('narrows to what the search matches', () => {
     expect(machineRows([desk], 'claude').map((row) => row.id)).toEqual(['machine:d1:claude-code'])
   })

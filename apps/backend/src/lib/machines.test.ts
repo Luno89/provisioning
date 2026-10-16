@@ -22,6 +22,11 @@ describe('what a machine reports about its agents', () => {
     expect(agents).toEqual([{ id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found', version: '0.61.0', args: ['--acp'], reason: 'x'.repeat(1000) }]);
     expect(machineAgentsFrom('nonsense')).toEqual([]);
   });
+
+  it('keeps the models an agent offers and the one it starts on, without ids a choice cannot carry', () => {
+    expect(machineAgentsFrom([{ id: 'antigravity', title: 'Antigravity', state: 'ready', source: 'found', model: 'flash', models: [{ id: 'flash', name: 'Gemini 3.8 Flash' }, { id: 'a:b', name: 'bad' }, { name: 'no id' }] }]))
+      .toEqual([{ id: 'antigravity', title: 'Antigravity', state: 'ready', source: 'found', model: 'flash', models: [{ id: 'flash', name: 'Gemini 3.8 Flash' }] }]);
+  });
 });
 
 describe('agents a person adds by hand', () => {
@@ -53,6 +58,9 @@ describe('picking an agent on a machine', () => {
     expect(machineChoiceProblem(machine, 'goose')).toBe('desk has no agent called goose');
     expect(machineChoiceProblem(machine, 'claude-code')).toBe('Claude Code on desk is not ready: its ACP adapter is not installed');
     expect(machineChoiceProblem({ ...machine, online: false }, 'antigravity')).toBe('desk is not connected, so Antigravity cannot answer');
+    const withModels = { ...machine, agents: machine.agents.map((agent) => ({ ...agent, models: [{ id: 'g38f', name: 'Gemini 3.8 Flash' }] })) };
+    expect(machineChoiceProblem(withModels, 'antigravity', { model: 'g38f' })).toBeUndefined();
+    expect(machineChoiceProblem(withModels, 'antigravity', { model: 'g9' })).toBe('Antigravity on desk no longer offers the model g9 (it offers Gemini 3.8 Flash); pick another in the model list');
     expect(machineChoiceProblem({ ...machine, online: false }, 'antigravity', { waitsToConnect: true })).toBeUndefined();
   });
 });

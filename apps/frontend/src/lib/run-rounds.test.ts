@@ -50,6 +50,10 @@ describe('the rounds of a run', () => {
       { type: 'content', runId: 'r', at: 'a5', nodeId: 'turn.call', delta: 'Two.' },
     ]
     expect(roundsFrom(logged).map((round) => round.model)).toEqual(['Qwen3.8-27B', 'Qwen3.8-27B'])
+    expect(roundsFrom([
+      { type: 'content', runId: 'r', at: 'b1', nodeId: 'agent', delta: 'Done.' },
+      { type: 'node.traced', runId: 'r', at: 'b2', nodeId: 'agent', trace: { kind: 'external-agent', model: 'Antigravity · Gemini 3.8 Flash' } },
+    ]).map((round) => round.model)).toEqual(['Antigravity · Gemini 3.8 Flash'])
   })
 
   it('shows a call the procedure makes itself as its own step, apart from the model\'s rounds', () => {

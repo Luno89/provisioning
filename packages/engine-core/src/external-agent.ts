@@ -23,8 +23,26 @@ export interface ExternalAgentAsk {
   options: { optionId: string; name: string; kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always' }[];
 }
 
+export interface ExternalServedTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface ExternalToolCall {
+  callId: string;
+  name: string;
+  arguments: string;
+}
+
+export interface ExternalAgentModel {
+  id: string;
+  name: string;
+}
+
 export type ExternalAgentOp =
-  | { kind: 'open'; brief: string; context?: string | undefined; mode?: string | undefined; path?: string | undefined; resume?: string | undefined }
+  | { kind: 'open'; brief: string; context?: string | undefined; mode?: string | undefined; path?: string | undefined; resume?: string | undefined; tools?: ExternalServedTool[] | undefined; model?: string | undefined }
+  | { kind: 'result'; callId: string; ok: boolean; content: string }
   | { kind: 'continue' }
   | { kind: 'answer'; optionId?: string | undefined }
   | { kind: 'cancel' }
@@ -40,9 +58,11 @@ export type ExternalAgentStepResult = {
   events: ExternalAgentWireEvent[];
   identity?: { name: string; title?: string | undefined; version?: string | undefined } | undefined;
   sessionId?: string | undefined;
+  model?: ExternalAgentModel | undefined;
 } & (
   | { state: 'running' }
   | { state: 'asks'; ask: ExternalAgentAsk }
+  | { state: 'calls'; call: ExternalToolCall }
   | { state: 'ended'; stopReason: string }
   | { state: 'failed'; error: string }
   | { state: 'closed' }

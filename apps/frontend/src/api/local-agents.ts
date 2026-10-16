@@ -21,6 +21,8 @@ export interface MachineAgent {
   signIn?: string[]
   reason?: string
   adapter?: string
+  models?: { id: string; name: string }[]
+  model?: string
 }
 
 export interface ManualMachineAgent {

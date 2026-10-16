@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ExternalAgentSessions, koalaTools, workingDirOf, workspaceLine } from './external-agents.js';
+import { ExternalAgentSessions, TOOLS_LINE, workingDirOf, workspaceLine } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
 import type { AgentScript } from './acp-script-agent.js';
 
@@ -97,26 +97,74 @@ describe('external agents on a machine', () => {
   });
 });
 
-describe('Koala\'s tools for an external agent', () => {
-  it('lets the agent search what was learned before, through the machine, and takes the tools away when the session closes', async () => {
+describe('the run\'s tools for an external agent', () => {
+  const READ_TREE = { name: 'read_tree', description: 'Read a tree.', inputSchema: { type: 'object', properties: { treeId: { type: 'string' } } } };
+
+  it('serves the tools the run hands it, hands each call back to the run, and gives the agent the run\'s answer', async () => {
     const scriptPath = path.join(dir, 'script.json');
-    await writeFile(scriptPath, JSON.stringify({ name: 'scripted', version: '1', turns: [{ steps: [{ mcp: { server: 'koala', tool: 'search_memories', args: { query: 'odoo 20 access rules' } } }] }] } satisfies AgentScript));
+    await writeFile(scriptPath, JSON.stringify({ name: 'scripted', version: '1', turns: [{ steps: [{ echo: true }, { mcp: { server: 'koala', tool: 'read_tree', args: { treeId: 't1' } } }, { mcp: { server: 'koala', tool: 'read_tree', args: { treeId: 'gone' } } }] }] } satisfies AgentScript));
     const mcp = new LocalMcpServer();
     await mcp.start();
-    const asked: string[] = [];
-    sessions = new ExternalAgentSessions({
-      rootDir: path.join(dir, 'root'),
-      launches: { scripted: { command: process.execPath, args: ['--import', TSX, AGENT, scriptPath] } },
-      mcp,
-      tools: koalaTools(async (query) => { asked.push(query); return '- Odoo 20 access rules are ir.access rows'; }),
-    });
+    sessions = new ExternalAgentSessions({ rootDir: path.join(dir, 'root'), launches: { scripted: { command: process.execPath, args: ['--import', TSX, AGENT, scriptPath] } }, mcp });
     try {
-      const result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'look it up' } });
-      expect(result.events).toContainEqual({ type: 'text', delta: 'search_memories: - Odoo 20 access rules are ir.access rows' });
-      expect(asked).toEqual(['odoo 20 access rules']);
+      let result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'look it up', tools: [READ_TREE] } });
+      const opening = result.events.filter((event) => event.type === 'text').map((event) => (event as { delta: string }).delta).join('');
+      expect(opening).toContain(TOOLS_LINE);
+      expect(result).toMatchObject({ state: 'calls', call: { name: 'read_tree', arguments: '{"treeId":"t1"}' } });
+      result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'result', callId: (result as { call: { callId: string } }).call.callId, ok: true, content: 'Tree "Shop": 2 stories' } });
+      expect(result).toMatchObject({ state: 'calls', call: { arguments: '{"treeId":"gone"}' } });
+      expect(result.events).toContainEqual({ type: 'text', delta: 'read_tree: Tree "Shop": 2 stories' });
+      result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'result', callId: (result as { call: { callId: string } }).call.callId, ok: false, content: 'no such tree: gone' } });
+      while (result.state === 'running') result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'continue' } });
+      expect(result.state).toBe('ended');
+      expect(result.events).toContainEqual({ type: 'text', delta: 'read_tree: no such tree: gone' });
     } finally {
       await sessions.closeAll();
       await mcp.close();
+    }
+  });
+
+  it('answers a call the run never will when the session is cancelled, and serves nothing when the run offers nothing', async () => {
+    const scriptPath = path.join(dir, 'script.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'scripted', version: '1', turns: [{ steps: [{ mcp: { server: 'koala', tool: 'read_tree', args: {} } }] }] } satisfies AgentScript));
+    const mcp = new LocalMcpServer();
+    await mcp.start();
+    sessions = new ExternalAgentSessions({ rootDir: path.join(dir, 'root'), launches: { scripted: { command: process.execPath, args: ['--import', TSX, AGENT, scriptPath] } }, mcp });
+    try {
+      const asked = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'go', tools: [READ_TREE] } });
+      expect(asked.state).toBe('calls');
+      let result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'cancel' } });
+      while (result.state === 'running') result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'continue' } });
+      expect(result.events).toContainEqual({ type: 'text', delta: 'read_tree: the run was cancelled' });
+      await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'close' } });
+
+      let bare = await sessions.step({ key: 'k2', agent: 'scripted', op: { kind: 'open', brief: 'go' } });
+      while (bare.state === 'running') bare = await sessions.step({ key: 'k2', agent: 'scripted', op: { kind: 'continue' } });
+      expect(bare.events).toContainEqual({ type: 'text', delta: 'no koala server' });
+    } finally {
+      await sessions.closeAll();
+      await mcp.close();
+    }
+  });
+});
+
+describe('the agent\'s model', () => {
+  it('starts the session on the model picked, says which it ran on, and refuses one the agent does not offer', async () => {
+    const scriptPath = path.join(dir, 'script.json');
+    const models = { current: 'flash', available: [{ id: 'flash', name: 'Gemini 3.8 Flash' }, { id: 'pro', name: 'Gemini 3.8 Pro' }] };
+    await writeFile(scriptPath, JSON.stringify({ name: 'scripted', version: '1', models, turns: [{ steps: [{ tellModel: true }] }] } satisfies AgentScript));
+    sessions = new ExternalAgentSessions({ rootDir: path.join(dir, 'root'), launches: { scripted: { command: process.execPath, args: ['--import', TSX, AGENT, scriptPath] } } });
+    try {
+      let result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'which?', model: 'pro' } });
+      while (result.state === 'running') result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'continue' } });
+      expect(result.events).toContainEqual({ type: 'text', delta: 'on pro' });
+      expect(result.model).toEqual({ id: 'pro', name: 'Gemini 3.8 Pro' });
+      await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'close' } });
+
+      const refused = await sessions.step({ key: 'k3', agent: 'scripted', op: { kind: 'open', brief: 'which?', model: 'ultra' } });
+      expect(refused).toMatchObject({ state: 'failed', error: expect.stringContaining('has no model ultra (it has Gemini 3.8 Flash, Gemini 3.8 Pro)') });
+    } finally {
+      await sessions.closeAll();
     }
   });
 });

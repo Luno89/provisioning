@@ -13,15 +13,12 @@ import { probeAcp } from './acp-session.js';
 import { installAgent } from './agent-install.js';
 import { ADAPTER_CHOICES, setUpAgents, type AdapterChoice } from './agent-setup.js';
 import { askOnTerminal } from './terminal-ask.js';
-import { ExternalAgentSessions, koalaTools } from './external-agents.js';
+import { ExternalAgentSessions } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
-import { askOver, payloadRingOver, remoteBlobs } from './remote-blobs.js';
+import { payloadRingOver, remoteBlobs } from './remote-blobs.js';
 import { DeviceWorkerHost } from './device-worker-host.js';
 
 const activeContainers = new Set<string>();
-
-const searchMemoriesOver = (socket: Socket) => async (query: string): Promise<string> =>
-  (await askOver<{ text: string }>(socket, 'memories:search', { query })).text;
 
 const manualOver = (socket: Socket) => new Promise<ManualAgent[]>((resolve) => {
   socket.emit('agents:manual', {}, (answer: unknown) => resolve(manualAgentsFrom(answer)));
@@ -87,7 +84,7 @@ async function main() {
   const socket = io(`${backendUrl}/agent`, { auth: { token, containerMode }, reconnection: true });
   const mcp = new LocalMcpServer();
   await mcp.start();
-  const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp, tools: koalaTools(searchMemoriesOver(socket)) });
+  const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp });
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => { void sessions.closeAll().finally(() => process.exit(0)); });
   }

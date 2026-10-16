@@ -88,7 +88,6 @@ import { MachineBundle } from './services/MachineBundle.js';
 import { RootMeshKeys } from './services/RootMeshKeys.js';
 import { machinesRouter } from './routes/machines.js';
 import { asyncRoute } from './middleware/async-route.js';
-import { searchAnswer } from './engine-host/tools/memory-tools.js';
 import { clusterProvidersRouter } from './routes/cluster-providers.js';
 import { vpsCatalogRouter } from './routes/vps-catalog.js';
 import { adminRouter } from './routes/admin.js';
@@ -586,14 +585,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     socket.on('machine:payloads', (_request: unknown, ack: (answer: RingAnswer) => void) => ack(forMachines.ring()));
     socket.on('payloads:put', (request: unknown, ack: (answer: PutAnswer) => void) => { void forMachines.put(request).then(ack); });
     socket.on('payloads:get', (request: unknown, ack: (answer: GetAnswer) => void) => { void forMachines.get(request).then(ack); });
-    socket.on('memories:search', (request: { query?: unknown } | undefined, ack: (answer: { text: string }) => void) => {
-      const query = typeof request?.query === 'string' ? request.query.trim() : '';
-      if (!query) return ack({ text: 'Give a query: words to look for.' });
-      db.getMemories(device.ownerId).then(
-        (memories) => ack({ text: searchAnswer(memories, query).text }),
-        () => ack({ text: 'The memories could not be read just now.' }),
-      );
-    });
   });
 
   async function authorizeRoom(user: UserMetadata | undefined, id: string): Promise<any | undefined> {

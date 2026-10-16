@@ -15,12 +15,14 @@ export type ScriptStep =
   | { write: { path: string; content: string } }
   | { read: { path: string } }
   | { wait: number }
-  | { exit: number };
+  | { exit: number }
+  | { tellModel: true };
 
 export interface AgentScript {
   name: string;
   version: string;
   modes?: { current: string; available: { id: string; name: string }[] };
+  models?: { current: string; available: { id: string; name: string }[] };
   turns: { steps: ScriptStep[]; stop?: StopReason }[];
 }
 
@@ -30,7 +32,10 @@ const pause = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) =
 });
 
 export function scriptedAgent(script: AgentScript, connection: AgentSideConnection): Agent {
-  const sessions = new Map<string, { cwd: string; turn: number; abort?: AbortController; mode?: string; servers?: { name: string; url: string }[] }>();
+  const sessions = new Map<string, { cwd: string; turn: number; abort?: AbortController; mode?: string; model?: string; servers?: { name: string; url: string }[] }>();
+  const configOptions = (model: string | undefined) => (script.models
+    ? [{ id: 'model', name: 'Model', category: 'model' as const, type: 'select' as const, currentValue: model ?? script.models.current, options: script.models.available.map((entry) => ({ value: entry.id, name: entry.name })) }]
+    : undefined);
 
   return {
     initialize: () => ({
@@ -43,14 +48,24 @@ export function scriptedAgent(script: AgentScript, connection: AgentSideConnecti
     newSession: ({ cwd, mcpServers }) => {
       const sessionId = `scripted-${sessions.size + 1}`;
       const servers = mcpServers.flatMap((server) => ('url' in server ? [{ name: server.name, url: server.url }] : []));
-      sessions.set(sessionId, { cwd, turn: 0, servers, ...(script.modes ? { mode: script.modes.current } : {}) });
-      return { sessionId, ...(script.modes ? { modes: { currentModeId: script.modes.current, availableModes: script.modes.available } } : {}) };
+      sessions.set(sessionId, { cwd, turn: 0, servers, ...(script.modes ? { mode: script.modes.current } : {}), ...(script.models ? { model: script.models.current } : {}) });
+      const options = configOptions(script.models?.current);
+      return { sessionId, ...(script.modes ? { modes: { currentModeId: script.modes.current, availableModes: script.modes.available } } : {}), ...(options ? { configOptions: options } : {}) };
     },
-    loadSession: async ({ sessionId, cwd }) => {
+    loadSession: async ({ sessionId, cwd, mcpServers }) => {
       const known = sessions.get(sessionId);
-      sessions.set(sessionId, known ?? { cwd, turn: 0 });
+      const servers = mcpServers.flatMap((server) => ('url' in server ? [{ name: server.name, url: server.url }] : []));
+      sessions.set(sessionId, known ? { ...known, servers } : { cwd, turn: 0, servers });
       await connection.sessionUpdate({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'replayed history' } } });
-      return {};
+      const options = configOptions(sessions.get(sessionId)?.model);
+      return options ? { configOptions: options } : {};
+    },
+    setSessionConfigOption: async ({ sessionId, configId, value }) => {
+      const session = sessions.get(sessionId);
+      if (!session) throw RequestError.resourceNotFound(sessionId);
+      if (configId !== 'model' || !script.models?.available.some((entry) => entry.id === value)) throw RequestError.invalidParams({ configId, value }, 'no such option');
+      session.model = String(value);
+      return { configOptions: configOptions(session.model) ?? [] };
     },
     setSessionMode: async ({ sessionId, modeId }) => {
       const session = sessions.get(sessionId);
@@ -88,6 +103,7 @@ export function scriptedAgent(script: AgentScript, connection: AgentSideConnecti
           await send({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `${step.mcp.tool}: ${answer.result?.content?.[0]?.text ?? answer.error?.message ?? ''}` } });
         }
         else if ('exit' in step) process.exit(step.exit);
+        else if ('tellModel' in step) await send({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `on ${session.model ?? 'no model'}` } });
         else if ('write' in step) await connection.writeTextFile({ sessionId, path: path.resolve(session.cwd, step.write.path), content: step.write.content });
         else if ('read' in step) {
           const { content } = await connection.readTextFile({ sessionId, path: path.resolve(session.cwd, step.read.path) });

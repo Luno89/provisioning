@@ -312,7 +312,7 @@ async function buildActivities() {
     closing: async (ownerId: string) => ((await db.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
     machines: async (ownerId, choice) => {
       const device = (await db.getLocalAgentDevices()).find((one) => one.id === choice.deviceId && one.ownerId === ownerId);
-      return machineChoiceProblem(device ? { name: device.name, online: false, agents: device.agents ?? [] } : undefined, choice.agent, { waitsToConnect: true });
+      return machineChoiceProblem(device ? { name: device.name, online: false, agents: device.agents ?? [] } : undefined, choice.agent, { waitsToConnect: true, model: choice.model });
     },
   });
   builders.service = new WorkspaceBuildService({ runs: runStarter, trees: () => db.getTrees(), hidden: (ownerId: string) => extensions.hidden(ownerId) });

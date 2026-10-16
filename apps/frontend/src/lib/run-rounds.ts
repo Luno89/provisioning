@@ -32,10 +32,10 @@ const newRound = (index: number, nodeId: string, at?: string, model?: string, by
 })
 
 export const PROCEDURE_CALL_KIND = 'call-tool'
-const CHOOSE_MODEL_KIND = 'choose-model'
+const NAMES_MODEL = new Set(['choose-model', 'external-agent'])
 
 const modelOf = (trace: Readonly<Record<string, unknown>>): string | undefined =>
-  trace.kind === CHOOSE_MODEL_KIND && typeof trace.model === 'string' ? trace.model : undefined
+  NAMES_MODEL.has(String(trace.kind)) && typeof trace.model === 'string' ? trace.model : undefined
 
 export function roundsFrom(events: readonly EngineEvent[]): Round[] {
   const steps = new Set(events.flatMap((event) => (event.type === 'node.traced' && event.trace.kind === PROCEDURE_CALL_KIND ? [event.nodeId] : [])))

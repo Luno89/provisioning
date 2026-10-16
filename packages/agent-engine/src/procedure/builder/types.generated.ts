@@ -553,6 +553,10 @@ export interface ExternalAgentWires {
   sessions?: In<'json'>
   /** What was said before in the conversation, told once when a new session starts, so an agent picked part way through a conversation knows it. */
   conversation?: In<'messages'>
+  /** Whose tools it is offered, and as whom they run. */
+  persona?: In<'persona'>
+  /** The tools served to the agent for its session, from Resolve Tools. Those bound to an environment are left out, since the agent has its own on the machine. Each call it makes runs here, as the persona's would, and one that changes something waits for the person first. */
+  tools?: In<'toolSet'>
 }
 
 export type ExternalAgentSettings = {
@@ -566,6 +570,11 @@ export type ExternalAgentSettings = {
    * One of the agent's own modes (for Antigravity: default, auto_edit or yolo). Empty leaves its default.
    */
   mode?: string
+  /**
+   * Model
+   * One of the agent's own models, by id. Empty means the one picked for this run, or else the agent's default.
+   */
+  model?: string
 }
 
 export interface ExternalAgentNode extends Step<'finished' | 'stopped' | 'failed'> {
@@ -577,8 +586,10 @@ export interface ExternalAgentNode extends Step<'finished' | 'stopped' | 'failed
   readonly session: Out<'json'>
   /** How its turn ended: end_turn, cancelled, refusal, max_tokens or max_turn_requests. */
   readonly stopReason: Out<'text'>
-  /** Which agent ran: its name, title and version, as it reported them. */
+  /** Which agent ran: its name, title and version, as it reported them, and the model it ran on. */
   readonly identity: Out<'json'>
+  /** The model the agent ran on, when it offers a choice: its id and name. */
+  readonly model: Out<'json'>
   /** The agent's session, to continue it later. */
   readonly sessionId: Out<'text'>
   /** Why it did not finish, when it did not. */

@@ -106,10 +106,10 @@ export interface ExternalAgentIdentity {
   version?: string | undefined;
 }
 
-export type ExternalAgentOutcome =
+export type ExternalAgentOutcome = { model?: { id: string; name: string } | undefined } & (
   | { outcome: 'finished'; stopReason: string; text: string; identity: ExternalAgentIdentity; sessionId: string }
   | { outcome: 'stopped'; stopReason: string; text: string; identity: ExternalAgentIdentity; sessionId: string; reason: string }
-  | { outcome: 'failed'; text: string; reason: string; identity?: ExternalAgentIdentity | undefined; sessionId?: string | undefined };
+  | { outcome: 'failed'; text: string; reason: string; identity?: ExternalAgentIdentity | undefined; sessionId?: string | undefined });
 
 export interface RecalledMemory {
   id: string;

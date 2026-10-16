@@ -14,7 +14,11 @@ export const TURN_LOG_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 
 export function tracedSummary(trace: Readonly<Record<string, unknown>>): Record<string, unknown> {
   const { inputs: _inputs, outputs, ...summary } = trace;
-  const chose = trace.kind === 'choose-model' ? (outputs as { binding?: { label?: unknown } } | undefined)?.binding?.label : undefined;
+  const external = trace.kind === 'external-agent' ? outputs as { identity?: { title?: unknown; name?: unknown }; model?: { name?: unknown } } | undefined : undefined;
+  const agentName = external?.identity?.title ?? external?.identity?.name;
+  const chose = trace.kind === 'choose-model'
+    ? (outputs as { binding?: { label?: unknown } } | undefined)?.binding?.label
+    : typeof external?.model?.name === 'string' ? `${typeof agentName === 'string' ? `${agentName} · ` : ''}${external.model.name}` : undefined;
   return typeof chose === 'string' ? { ...summary, model: chose } : summary;
 }
 

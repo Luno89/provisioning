@@ -18,17 +18,21 @@ const STATE_NOTES: Record<string, string> = {
 
 export function machineRows(devices: readonly LocalAgentDevice[], query = ''): MachineRow[] {
   const wanted = query.trim().toLowerCase()
-  return devices.flatMap((device) => device.agents.map((agent): MachineRow => {
+  return devices.flatMap((device) => device.agents.flatMap((agent): MachineRow[] => {
     const ready = agent.state === 'ready' && device.online
     const note = agent.state !== 'ready' ? STATE_NOTES[agent.state] ?? agent.state : device.online ? undefined : 'machine not connected'
-    return {
-      id: machineChoiceId({ deviceId: device.id, agent: agent.id }),
-      agentTitle: agent.title,
-      deviceName: device.name,
-      label: `${agent.title} · ${device.name}`,
-      ready,
-      ...(note ? { note } : {}),
-    }
+    const models = agent.models?.length ? agent.models : [undefined]
+    return models.map((model) => {
+      const agentTitle = model ? `${agent.title} · ${model.name}` : agent.title
+      return {
+        id: machineChoiceId({ deviceId: device.id, agent: agent.id, ...(model ? { model: model.id } : {}) }),
+        agentTitle,
+        deviceName: device.name,
+        label: `${agentTitle} · ${device.name}`,
+        ready,
+        ...(note ? { note } : {}),
+      }
+    })
   })).filter((row) => !wanted || row.label.toLowerCase().includes(wanted))
 }
 
@@ -37,5 +41,6 @@ export function machineChoiceLabel(id: string | null | undefined, devices: reado
   if (!chosen) return undefined
   const device = devices.find((one) => one.id === chosen.deviceId)
   const agent = device?.agents.find((one) => one.id === chosen.agent)
-  return device ? `${agent?.title ?? chosen.agent} · ${device.name}` : `${chosen.agent} · a machine that is gone`
+  const model = chosen.model ? ` · ${agent?.models?.find((one) => one.id === chosen.model)?.name ?? chosen.model}` : ''
+  return device ? `${agent?.title ?? chosen.agent}${model} · ${device.name}` : `${chosen.agent}${model} · a machine that is gone`
 }

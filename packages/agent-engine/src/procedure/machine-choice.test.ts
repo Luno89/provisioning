@@ -19,4 +19,13 @@ describe('a machine choice', () => {
     expect(effectiveMachineChoice('tabby-qwen', 'openrouter-x')).toBeUndefined();
     expect(effectiveMachineChoice(undefined, undefined)).toBeUndefined();
   });
+
+  it('carries the agent\'s model when one was picked, and keeps a session per model', () => {
+    const choice = { deviceId: 'dev-1', agent: 'antigravity', model: 'gemini-3.8-flash:thinking' };
+    expect(machineChoiceId(choice)).toBe('machine:dev-1:antigravity:gemini-3.8-flash%3Athinking');
+    expect(machineChoice(machineChoiceId(choice))).toEqual(choice);
+    expect(machineSessionKey(choice)).not.toBe(machineSessionKey({ deviceId: 'dev-1', agent: 'antigravity' }));
+    expect(machineChoice('machine:dev-1:antigravity:')).toBeUndefined();
+    expect(machineChoice('machine:dev-1:antigravity:a:b')).toBeUndefined();
+  });
 });

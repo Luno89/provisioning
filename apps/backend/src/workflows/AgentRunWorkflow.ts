@@ -270,7 +270,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       return outcome;
     },
 
-    async runExternal({ nodeId, agent, brief, context, mode, resume, environment, run }) {
+    async runExternal({ nodeId, agent, brief, context, mode, model, resume, tools, callTool, environment, run }) {
       externals += 1;
       const key = `${ticket.runId}:${nodeId}:${externals}`;
       const device = proxyActivities<DeviceRemote>({
@@ -299,7 +299,12 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         return { state: 'failed', error: `${environment.deviceName} could not run ${agent}: ${err.cause?.message ?? err.message}`, events: [] };
       });
 
-      let result = await step({ kind: 'open', brief, ...(context ? { context } : {}), ...(mode ? { mode } : {}), ...(resume ? { resume } : {}), ...(environment.path ? { path: environment.path } : {}) });
+      let result = await step({
+        kind: 'open', brief,
+        ...(context ? { context } : {}), ...(mode ? { mode } : {}), ...(model ? { model } : {}), ...(resume ? { resume } : {}),
+        ...(environment.path ? { path: environment.path } : {}), ...(tools?.length ? { tools } : {}),
+      });
+      let ranOn = result.model;
       for (;;) {
         await take(result);
         if (result.state === 'ended' || result.state === 'failed' || result.state === 'closed') break;
@@ -307,8 +312,18 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
           result = await step({ kind: 'cancel' });
           continue;
         }
+        if (result.state === 'calls') {
+          const { call } = result;
+          const answered = cancelled || !callTool
+            ? { ok: false, content: cancelled ? 'the run was cancelled' : 'no tools are offered here' }
+            : await callTool(call);
+          result = await step({ kind: 'result', callId: call.callId, ok: answered.ok, content: answered.content });
+          ranOn = result.model ?? ranOn;
+          continue;
+        }
         if (result.state === 'asks') {
           const { ask } = result;
+          ranOn = result.model ?? ranOn;
           const allowed = await ports.approve({
             nodeId,
             call: { id: externalCallId(ask.tool.callId), name: externalToolName(agent, ask.tool), arguments: ask.tool.title },
@@ -321,12 +336,14 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         }
       }
       const { identity, sessionId } = result;
+      const on = result.model ?? ranOn;
+      const withModel = on ? { model: on } : {};
       if (result.state !== 'failed') await take(await step({ kind: 'close' }));
 
-      if (result.state === 'failed') return { outcome: 'failed', text, reason: result.error, ...(identity ? { identity } : {}), ...(sessionId ? { sessionId } : {}) };
-      if (result.state !== 'ended' || !identity || !sessionId) return { outcome: 'failed', text, reason: 'the agent\'s session closed before its turn ended' };
-      if (result.stopReason === 'end_turn') return { outcome: 'finished', stopReason: result.stopReason, text, identity, sessionId };
-      return { outcome: 'stopped', stopReason: result.stopReason, text, identity, sessionId, reason: cancelled ? 'the run was cancelled' : `its turn ended: ${result.stopReason}` };
+      if (result.state === 'failed') return { outcome: 'failed', text, reason: result.error, ...(identity ? { identity } : {}), ...(sessionId ? { sessionId } : {}), ...withModel };
+      if (result.state !== 'ended' || !identity || !sessionId) return { outcome: 'failed', text, reason: 'the agent\'s session closed before its turn ended', ...withModel };
+      if (result.state === 'ended' && result.stopReason === 'end_turn') return { outcome: 'finished', stopReason: result.stopReason, text, identity, sessionId, ...withModel };
+      return { outcome: 'stopped', stopReason: result.stopReason, text, identity, sessionId, reason: cancelled ? 'the run was cancelled' : `its turn ended: ${result.stopReason}`, ...withModel };
     },
 
     handOffsTogether: () => patched(HAND_OFFS_TOGETHER),

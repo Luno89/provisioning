@@ -4,7 +4,7 @@ import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import {
   ClientSideConnection, ndJsonStream, PROTOCOL_VERSION, RequestError,
-  type McpServer, type PermissionOptionKind, type RequestPermissionResponse, type StopReason,
+  type McpServer, type PermissionOptionKind, type RequestPermissionResponse, type SessionConfigOption, type StopReason,
 } from '@agentclientprotocol/sdk';
 import { AgentEvents, type AgentEvent, type ToolState } from './acp-events.js';
 
@@ -36,6 +36,22 @@ export interface SessionModes {
   available: { id: string; name: string; description?: string | undefined }[];
 }
 
+export interface AgentModels {
+  configId: string;
+  current: string;
+  available: { id: string; name: string }[];
+}
+
+export function modelsOf(options: readonly SessionConfigOption[] | null | undefined): AgentModels | undefined {
+  const option = (options ?? []).find((entry) => entry.type === 'select' && (entry.category === 'model' || entry.id === 'model'));
+  if (!option || option.type !== 'select') return undefined;
+  const flat = option.options.flatMap((entry) => ('options' in entry ? entry.options : [entry]));
+  return { configId: option.id, current: option.currentValue, available: flat.map((entry) => ({ id: entry.value, name: entry.name })) };
+}
+
+export const modelName = (models: AgentModels | undefined): string | undefined =>
+  models ? models.available.find((entry) => entry.id === models.current)?.name ?? models.current : undefined;
+
 export interface AcpSessionOptions {
   launch: AcpLaunch;
   cwd: string;
@@ -50,8 +66,10 @@ export interface AcpSession {
   sessionId: string;
   resumed: boolean;
   modes: SessionModes | undefined;
+  models: AgentModels | undefined;
   prompt(text: string): Promise<{ stopReason: StopReason }>;
   setMode(modeId: string): Promise<void>;
+  setModel(modelId: string): Promise<AgentModels>;
   cancel(): Promise<void>;
   close(): Promise<void>;
   exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
@@ -161,11 +179,11 @@ export async function openAcpSession(options: AcpSessionOptions): Promise<AcpSes
       sessionId = options.resume;
       replaying = true;
       const loaded = await connection.loadSession({ sessionId: options.resume, cwd: options.cwd, mcpServers }).finally(() => { replaying = false; });
-      return { init, sessionId: options.resume, modes: loaded?.modes, resumed: true };
+      return { init, sessionId: options.resume, modes: loaded?.modes, configOptions: loaded?.configOptions, resumed: true };
     }
     const created = await connection.newSession({ cwd: options.cwd, mcpServers });
     sessionId = created.sessionId;
-    return { init, sessionId: created.sessionId, modes: created.modes, resumed: false };
+    return { init, sessionId: created.sessionId, modes: created.modes, configOptions: created.configOptions, resumed: false };
   };
 
   let opened: Awaited<ReturnType<typeof open>>;
@@ -184,6 +202,7 @@ export async function openAcpSession(options: AcpSessionOptions): Promise<AcpSes
     for (const settle of [...pending]) settle({ outcome: { outcome: 'cancelled' } });
   };
 
+  let models = modelsOf(opened.configOptions);
   return {
     identity: { name: info?.name ?? options.launch.command, ...(info?.title ? { title: info.title } : {}), ...(info?.version ? { version: info.version } : {}) },
     sessionId: opened.sessionId,
@@ -200,6 +219,18 @@ export async function openAcpSession(options: AcpSessionOptions): Promise<AcpSes
         if (ended) throw new AcpSessionError(`${options.launch.command} exited (${ended.signal ?? ended.code}) during the turn`, stderr.join('\n'));
         throw err;
       }
+    },
+    get models() {
+      return models;
+    },
+    async setModel(modelId) {
+      if (!models) throw new Error(`${options.launch.command} offers no choice of model`);
+      if (!models.available.some((entry) => entry.id === modelId)) throw new Error(`${options.launch.command} has no model ${modelId} (it has ${models.available.map((entry) => entry.name).join(', ')})`);
+      if (models.current !== modelId) {
+        const answer = await connection.setSessionConfigOption({ sessionId, configId: models.configId, value: modelId });
+        models = modelsOf(answer.configOptions) ?? { ...models, current: modelId };
+      }
+      return models;
     },
     async setMode(modeId) {
       await connection.setSessionMode({ sessionId, modeId });
@@ -219,6 +250,7 @@ export async function openAcpSession(options: AcpSessionOptions): Promise<AcpSes
 export interface AcpProbe {
   identity: AgentIdentity;
   signIn: string[];
+  models?: AgentModels | undefined;
 }
 
 export async function probeAcp(launch: AcpLaunch, cwd: string): Promise<AcpProbe> {
@@ -251,7 +283,10 @@ export async function probeAcp(launch: AcpLaunch, cwd: string): Promise<AcpProbe
       endedEarly,
     ]);
     const info = init.agentInfo;
+    const opened = await Promise.race([connection.newSession({ cwd, mcpServers: [] }), spawnFailed, endedEarly]).catch(() => undefined);
+    const models = modelsOf(opened?.configOptions);
     return {
+      ...(models ? { models } : {}),
       identity: { name: info?.name ?? path.basename(launch.command), ...(info?.title ? { title: info.title } : {}), ...(info?.version ? { version: info.version } : {}) },
       signIn: (init.authMethods ?? []).map((method) => method.name),
     };

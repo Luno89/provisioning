@@ -225,7 +225,18 @@ one row per ready agent per machine, `machine:<deviceId>:<agent>` (`machine-choi
 `external-agent-chat` procedure (chat) or `external-agent-task`, on that machine (`machineRunFor`, refused with
 `MACHINE_UNAVAILABLE` when the machine is gone, offline or its agent is not ready). An agent whose "Runs on" (Studio) is a
 machine always runs there; a machine picked for one run is never inherited by the runs it starts. A conversation keeps one
-session per machine and agent (`machineSessions`), so the next turn resumes it; a failed turn is saved with its reason.
+session per machine, agent and model (`machineSessions`), so the next turn resumes it; a failed turn is saved with its reason.
+
+**An agent on a machine gets its persona's tools, and runs on the model picked.** The external-agent procedures resolve the
+persona's tools (Resolve Tools) and hand them to the `external-agent` step, which serves every one not bound to an
+environment (the agent has its own shell and files) through the machine's local MCP server, named `koala`, and tells the
+agent to call them there. A call the agent makes is held on the machine and handed back to the run (`state: 'calls'`):
+`runExternal` runs it the way a model's call runs (`runOne`: the turn log, cards, hand-offs), asking the person first when
+the tool is destructive, then answers the machine (`op: 'result'`); a cancelled run answers held calls as cancelled. Discovery
+opens a session (no prompt) to read each agent's `model` config option (ACP `configOptions`), reported as `models` with
+`agents:found`; the picker offers one row per model (`machine:<device>:<agent>:<model>`), a run sets it with
+`setSessionConfigOption` before its first prompt (a model the agent no longer offers is refused), and the model it ran on
+comes back on the step (`model`), in the trace summary and so on the run's rounds.
 
 ## Roles: root, instance, combined
 

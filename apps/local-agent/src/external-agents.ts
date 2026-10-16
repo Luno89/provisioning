@@ -1,27 +1,17 @@
 import { mkdir } from 'node:fs/promises';
 import {
   EXTERNAL_SEGMENT_MS,
-  type ExternalAgentAsk, type ExternalAgentStepArgs, type ExternalAgentStepResult, type ExternalAgentWireEvent,
+  type ExternalAgentAsk, type ExternalAgentStepArgs, type ExternalAgentStepResult, type ExternalAgentWireEvent, type ExternalServedTool, type ExternalToolCall,
 } from '@koala/engine-core';
-import { insideRoot, openAcpSession, type AcpLaunch, type AcpSession, type PermissionAnswer } from './acp-session.js';
+import { randomUUID } from 'node:crypto';
+import { insideRoot, modelName, openAcpSession, type AcpLaunch, type AcpSession, type PermissionAnswer } from './acp-session.js';
 import type { LocalMcpServer, LocalTool, Mounted } from './local-mcp.js';
 
-export const KOALA_TOOLS_INSTRUCTIONS = 'Koala\'s own tools, read-only. search_memories finds what Koala has learned before about this person\'s work; search it before guessing how something here is done.';
+export const KOALA_TOOLS_INSTRUCTIONS = 'Koala\'s own tools, served to you for this session. Each runs in Koala exactly as it would for Koala itself, so a proposal becomes a card for the person, and a call that changes something may wait for the person to allow it.';
+
+export const TOOLS_LINE = 'Koala\'s tools are served to you through the MCP server named koala. When your instructions name one of Koala\'s tools, call it there; do not describe calling it, and do not do its work another way.';
 
 export const HEARTBEAT_EVERY_MS = 5000;
-
-export function koalaTools(searchMemories: (query: string) => Promise<string>): LocalTool[] {
-  return [{
-    name: 'search_memories',
-    description: 'Search what Koala has learned before about this person\'s projects and how their work is done: facts about their environment, lessons from earlier runs, guidance they gave. Read-only.',
-    inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Words to look for.' } }, required: ['query'] },
-    run: async (args) => {
-      const query = typeof args.query === 'string' ? args.query.trim() : '';
-      if (!query) return 'Give a query: words to look for.';
-      return searchMemories(query);
-    },
-  }];
-}
 
 const WORKING_DIR_FIELDS = ['workingDir', 'working_dir', 'WorkingDirectory', 'cwd', 'Cwd'];
 
@@ -55,6 +45,8 @@ interface Live {
   mounted?: Mounted | undefined;
   events: ExternalAgentWireEvent[];
   ask?: { ask: ExternalAgentAsk; answer: (answer: PermissionAnswer) => void } | undefined;
+  calls: ExternalToolCall[];
+  held: Map<string, { resolve: (content: string) => void; reject: (err: Error) => void }>;
   ended?: { stopReason: string } | { error: string } | undefined;
   wake: () => void;
 }
@@ -64,7 +56,14 @@ export interface ExternalAgentSessionsOptions {
   launches: ExternalAgentLaunches;
   segmentMs?: number | undefined;
   mcp?: LocalMcpServer | undefined;
-  tools?: LocalTool[] | undefined;
+}
+
+const NOT_ANSWERED = 'the run that offered this tool stopped before it answered';
+
+function releaseHeld(live: Pick<Live, 'held' | 'calls'>, why: string): void {
+  for (const held of live.held.values()) held.reject(new Error(why));
+  live.held.clear();
+  live.calls.splice(0);
 }
 
 export class ExternalAgentSessions {
@@ -94,11 +93,21 @@ export class ExternalAgentSessions {
     if (!live) return { state: 'failed', error: 'that session is no longer open on this machine', events: [] };
     if (op.kind === 'close') {
       this.live.delete(args.key);
+      releaseHeld(live, NOT_ANSWERED);
       live.mounted?.unmount();
       await live.session.close();
       return { ...this.about(live), state: 'closed', events: live.events.splice(0) };
     }
+    if (op.kind === 'result') {
+      const held = live.held.get(op.callId);
+      live.held.delete(op.callId);
+      if (held) {
+        if (op.ok) held.resolve(op.content);
+        else held.reject(new Error(op.content));
+      }
+    }
     if (op.kind === 'cancel') {
+      releaseHeld(live, 'the run was cancelled');
       live.ask?.answer({ cancelled: true });
       live.ask = undefined;
       await live.session.cancel();
@@ -114,7 +123,10 @@ export class ExternalAgentSessions {
   async closeAll(): Promise<void> {
     const open = [...this.live.values()];
     this.live.clear();
-    for (const live of open) live.mounted?.unmount();
+    for (const live of open) {
+      releaseHeld(live, NOT_ANSWERED);
+      live.mounted?.unmount();
+    }
     await Promise.all(open.map((live) => live.session.close()));
   }
 
@@ -129,7 +141,7 @@ export class ExternalAgentSessions {
     if (!cwd) return { state: 'failed', error: `${op.path} is outside this machine's folder`, events: [] };
     await mkdir(cwd, { recursive: true });
 
-    const live: Partial<Live> & { events: ExternalAgentWireEvent[]; wake: () => void } = { events: [], wake: () => {} };
+    const live: Partial<Live> & Pick<Live, 'events' | 'wake' | 'calls' | 'held'> = { events: [], calls: [], held: new Map(), wake: () => {} };
     const strays = new Set<string>();
     const watch = (event: ExternalAgentWireEvent) => {
       live.events.push(event);
@@ -139,7 +151,8 @@ export class ExternalAgentSessions {
       strays.add(event.tool.callId);
       live.events.push({ type: 'stray', callId: event.tool.callId, title: event.tool.title, workingDir, folder: cwd });
     };
-    const mounted = this.options.mcp && this.options.tools?.length ? this.options.mcp.mount(this.options.tools, KOALA_TOOLS_INSTRUCTIONS) : undefined;
+    const served = (op.tools ?? []).map((tool): LocalTool => this.serve(live, tool));
+    const mounted = this.options.mcp && served.length ? this.options.mcp.mount(served, KOALA_TOOLS_INSTRUCTIONS) : undefined;
     let session: AcpSession;
     try {
       session = await openAcpSession({
@@ -159,6 +172,16 @@ export class ExternalAgentSessions {
     }
     const opened = Object.assign(live, { session, mounted }) as Live;
 
+    if (op.model) {
+      try {
+        await session.setModel(op.model);
+      } catch (err) {
+        mounted?.unmount();
+        await session.close();
+        return { state: 'failed', error: (err as Error).message, events: [] };
+      }
+    }
+
     if (op.mode && session.modes && op.mode !== session.modes.current) {
       if (!session.modes.available.some((mode) => mode.id === op.mode)) {
         mounted?.unmount();
@@ -169,7 +192,7 @@ export class ExternalAgentSessions {
     }
 
     this.live.set(key, opened);
-    const opening = [workspaceLine(cwd), op.context].filter(Boolean).join('\n\n');
+    const opening = [workspaceLine(cwd), mounted ? TOOLS_LINE : '', op.context].filter(Boolean).join('\n\n');
     const text = session.resumed ? op.brief : `${opening}\n\n${op.brief}`;
     session.prompt(text).then(
       (reply) => { opened.ended = { stopReason: reply.stopReason }; },
@@ -187,7 +210,7 @@ export class ExternalAgentSessions {
         live.wake = () => {};
         resolve(this.result(live));
       };
-      const ready = () => Boolean(live.ask || live.ended);
+      const ready = () => Boolean(live.ask || live.calls.length || live.ended);
       const timer = setTimeout(done, limit);
       const beating = setInterval(beat, Math.min(HEARTBEAT_EVERY_MS, limit / 2));
       live.wake = () => { if (ready()) done(); };
@@ -198,12 +221,33 @@ export class ExternalAgentSessions {
   private result(live: Live): ExternalAgentStepResult {
     const base = { ...this.about(live), events: live.events.splice(0) };
     if (live.ask) return { ...base, state: 'asks', ask: live.ask.ask };
+    const call = live.calls.shift();
+    if (call) return { ...base, state: 'calls', call };
     if (live.ended && 'error' in live.ended) return { ...base, state: 'failed', error: live.ended.error };
     if (live.ended) return { ...base, state: 'ended', stopReason: live.ended.stopReason };
     return { ...base, state: 'running' };
   }
 
   private about(live: Live) {
-    return { identity: live.session.identity, sessionId: live.session.sessionId };
+    const models = live.session.models;
+    return {
+      identity: live.session.identity,
+      sessionId: live.session.sessionId,
+      ...(models ? { model: { id: models.current, name: modelName(models) ?? models.current } } : {}),
+    };
+  }
+
+  private serve(live: Pick<Live, 'calls' | 'held' | 'wake'>, tool: ExternalServedTool): LocalTool {
+    return {
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      run: (args) => new Promise<string>((resolve, reject) => {
+        const callId = randomUUID();
+        live.held.set(callId, { resolve, reject });
+        live.calls.push({ callId, name: tool.name, arguments: JSON.stringify(args) });
+        live.wake();
+      }),
+    };
   }
 }
