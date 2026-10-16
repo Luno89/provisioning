@@ -8,6 +8,7 @@ export interface MachineRow {
   label: string
   ready: boolean
   note?: string
+  modelName?: string
 }
 
 const STATE_NOTES: Record<string, string> = {
@@ -31,9 +32,39 @@ export function machineRows(devices: readonly LocalAgentDevice[], query = ''): M
         label: `${agentTitle} · ${device.name}`,
         ready,
         ...(note ? { note } : {}),
+        ...(model ? { modelName: model.name } : {}),
       }
     })
   })).filter((row) => !wanted || row.label.toLowerCase().includes(wanted))
+}
+
+export interface MachineAgentGroup {
+  agentId: string
+  title: string
+  ready: boolean
+  note?: string
+  rows: MachineRow[]
+}
+
+export interface MachineGroup {
+  deviceId: string
+  deviceName: string
+  online: boolean
+  agents: MachineAgentGroup[]
+}
+
+export function machineGroups(devices: readonly LocalAgentDevice[], query = ''): MachineGroup[] {
+  const rows = machineRows(devices, query)
+  return devices.flatMap((device): MachineGroup[] => {
+    const agents = device.agents.flatMap((agent): MachineAgentGroup[] => {
+      const prefix = machineChoiceId({ deviceId: device.id, agent: agent.id })
+      const own = rows.filter((row) => row.id === prefix || row.id.startsWith(`${prefix}:`))
+      if (own.length === 0) return []
+      const first = own[0]!
+      return [{ agentId: agent.id, title: agent.title, ready: first.ready, ...(first.note ? { note: first.note } : {}), rows: own }]
+    })
+    return agents.length ? [{ deviceId: device.id, deviceName: device.name, online: device.online, agents }] : []
+  })
 }
 
 export function machineChoiceLabel(id: string | null | undefined, devices: readonly LocalAgentDevice[]): string | undefined {

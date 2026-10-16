@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ModelPicker } from './ModelPicker';
@@ -219,17 +219,38 @@ describe('ModelPicker — agents on your machines', () => {
     }] } as unknown as ReturnType<typeof localAgentsApi.useLocalAgentDevices>);
   });
 
-  it('offers a ready agent by its machine, and shows one that is not ready without letting it be picked', async () => {
+  it('keeps each machine folded like a gateway, offers its ready agents inside, and shows one that is not ready without letting it be picked', async () => {
     const onManage = vi.fn();
     const { onSelect } = setup({ machines: { onManage } });
 
-    fireEvent.click(await screen.findByTitle('Antigravity answers on desk, with its own tools and model'));
+    expect(screen.queryByTitle('Antigravity answers on desk, with its own tools')).toBeNull();
+    fireEvent.click(await screen.findByLabelText('Expand desk'));
+    fireEvent.click(screen.getByTitle('Antigravity answers on desk, with its own tools'));
     expect(onSelect).toHaveBeenCalledWith('machine:d1:antigravity');
 
     expect(screen.getByTitle('Claude Code on desk: needs its adapter')).toBeDisabled();
     expect(screen.getByText('needs its adapter')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'manage' }));
     expect(onManage).toHaveBeenCalled();
+  });
+
+  it('opens an agent with models into one choice per model, and keeps the machine and agent open around the one picked', async () => {
+    useLocalAgentDevices.mockReturnValue({ data: [{
+      id: 'd1', name: 'desk', rootDir: '/home/me/koala', createdAt: 't', online: true, manualAgents: [],
+      agents: [{ id: 'antigravity', title: 'Antigravity', state: 'ready', source: 'found', model: 'flash', models: [{ id: 'flash', name: 'Gemini 3.8 Flash' }, { id: 'argon', name: 'Gemini 4 Argon' }] }],
+    }] } as unknown as ReturnType<typeof localAgentsApi.useLocalAgentDevices>);
+    const { onSelect } = setup({ machines: {} });
+
+    fireEvent.click(await screen.findByLabelText('Expand desk'));
+    expect(screen.queryByText('Gemini 4 Argon')).toBeNull();
+    fireEvent.click(screen.getByLabelText('Expand Antigravity on desk'));
+    fireEvent.click(screen.getByText('Gemini 4 Argon'));
+    expect(onSelect).toHaveBeenCalledWith('machine:d1:antigravity:argon');
+
+    cleanup();
+    setup({ machines: {}, selectedId: 'machine:d1:antigravity:argon' });
+    expect(await screen.findByText('Gemini 4 Argon')).toBeInTheDocument();
+    expect(screen.getByLabelText('Collapse desk')).toBeInTheDocument();
   });
 
   it('lists no machines where a machine cannot answer', async () => {
