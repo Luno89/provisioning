@@ -35,6 +35,7 @@ export interface ReleaseChanges {
   tables: { table: string; rows: number }[]
   columns: { table: string; column: string; filled: number }[]
   retyped: { table: string; column: string; from: string; to: string; filled: number; keptIn?: string }[]
+  removedFields?: { model: string; field: string; table: string; column: string; filled: number }[]
   items: { kind: string; key: string; name: string; state: 'kept' | 'reset' | 'switched-off' | 'gone' }[]
   losing: boolean
   lost: string[]

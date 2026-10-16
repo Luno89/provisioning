@@ -25,6 +25,7 @@ const CLUSTER = 'provisioning-lunorica';
 const KUBECONFIG = `/tmp/kubeconfig-${CLUSTER}`;
 const KUBECTL = fileURLToPath(new URL('../bin/kubectl', import.meta.url));
 const NAME = `odoo-release-check-${Date.now().toString(36)}`;
+const NOTE_LOST = 'the field koala.probe.note is removed; 2 rows keep a value in it that the app will no longer show';
 const APP_PORT = 18069 + Math.floor(Math.random() * 500);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -70,7 +71,7 @@ const FAILING = files({
 });
 
 interface BrowserTests { state: string; summary?: string; reason?: string; tests?: { title: string; status: string; error?: string }[]; artifacts?: { id: string; name: string }[] }
-interface Changes { losing: boolean; lost: string[]; columns: { table: string; column: string; filled: number }[]; items: { kind: string; name: string; state: string }[] }
+interface Changes { losing: boolean; lost: string[]; columns: { table: string; column: string; filled: number }[]; removedFields?: { model: string; field: string; filled: number }[]; items: { kind: string; name: string; state: string }[] }
 interface Release { id: string; state: string; slot?: string; reason?: string; previewHost?: string; e2e?: BrowserTests; changes?: Changes }
 
 async function main(): Promise<void> {
@@ -175,8 +176,8 @@ async function main(): Promise<void> {
     assert.ok(compared.changes, 'the preview was not compared with live');
     console.log(`    ${JSON.stringify({ lost: compared.changes.lost, items: compared.changes.items.map((item) => `${item.kind}: ${item.state}`) })}`);
     assert.equal(compared.changes.losing, true);
-    assert.deepEqual(compared.changes.columns.find((entry) => entry.column === 'note'), { table: 'koala_probe', column: 'note', filled: 2 });
-    assert.ok(compared.changes.lost.includes('the column koala_probe.note is dropped; 2 rows held a value in it'), JSON.stringify(compared.changes.lost));
+    assert.deepEqual(compared.changes.removedFields?.map((entry) => [entry.model, entry.field, entry.filled]), [['koala.probe', 'note', 2]], JSON.stringify(compared.changes));
+    assert.ok(compared.changes.lost.includes(NOTE_LOST), JSON.stringify(compared.changes.lost));
     assert.deepEqual(compared.changes.items.filter((item) => item.kind === 'edited-view').map((item) => item.state), ['reset']);
     assert.deepEqual(compared.changes.items.filter((item) => item.kind === 'field').map((item) => [item.name, item.state]), [['The field Koala note (x_koala_note) on koala.probe, made in the app,', 'kept']]);
     assert.equal(compared.changes.items.filter((item) => item.state !== 'kept' && item.kind !== 'edited-view').length, 0, `something else was flagged: ${JSON.stringify(compared.changes.items)}`);
@@ -246,7 +247,7 @@ async function main(): Promise<void> {
     console.log('[4] cutting over waits for the loss to be confirmed, then moves the project to slot b');
     const refused = await http.post(`/projects/${projectId}/releases/${failing.id}/cut-over`, {});
     assert.equal(refused.status, 409, JSON.stringify(refused.data));
-    assert.ok((refused.data as { losing?: string[] }).losing?.includes('the column koala_probe.note is dropped; 2 rows held a value in it'), JSON.stringify(refused.data));
+    assert.ok((refused.data as { losing?: string[] }).losing?.includes(NOTE_LOST), JSON.stringify(refused.data));
     console.log(`    refused without a confirm: ${(refused.data as { error: string }).error}`);
     const cut = await http.post(`/projects/${projectId}/releases/${failing.id}/cut-over`, { confirm: true });
     assert.equal(cut.status, 202, JSON.stringify(cut.data));
@@ -256,7 +257,7 @@ async function main(): Promise<void> {
     assert.notEqual(await psql('odoo_b', 'select count(*) from ir_cron where active'), '0', 'the live database came over quiet');
     assert.equal(await kubectl('get', 'svc', `${place.release}-live`, '-o', 'jsonpath={.spec.selector.koala\\.dev/slot}'), 'b');
     assert.match(await columns('odoo_b'), /colour/);
-    assert.doesNotMatch(await columns('odoo_b'), /\bnote\b/, 'the confirmed loss did not happen');
+    assert.equal(await psql('odoo_b', "select count(*) from ir_model_fields where model = 'koala.probe' and name = 'note'"), '0', 'the confirmed loss did not happen: the note field is still defined');
     assert.match(await columns('odoo_b'), /x_koala_note/, 'the field made in the app did not come along');
     assert.equal(await health(`${place.release}-live`), '200', 'the live slot does not answer after the cutover');
     assert.equal(await kubectl('get', 'deployment', `${place.release}-odoo-a`, '-o', 'jsonpath={.spec.replicas}'), '0', 'the old slot kept running, so its snapshot drifts');

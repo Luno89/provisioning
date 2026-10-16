@@ -27,6 +27,17 @@ export interface RetypedColumn extends ColumnRef {
   keptIn?: string | undefined;
 }
 
+export interface StoredField {
+  model: string;
+  field: string;
+  table: string;
+  column: string;
+}
+
+export interface RemovedField extends StoredField {
+  filled: number;
+}
+
 export type ItemState = 'kept' | 'reset' | 'switched-off' | 'gone';
 
 export interface InventoryItem {
@@ -49,6 +60,7 @@ export interface ReleaseChanges {
   tables: DroppedTable[];
   columns: DroppedColumn[];
   retyped: RetypedColumn[];
+  removedFields?: RemovedField[] | undefined;
   items: ItemChange[];
   losing: boolean;
   lost: string[];
@@ -84,6 +96,14 @@ export function schemaChanges(live: SchemaSnapshot, preview: SchemaSnapshot): Sc
   return { tables, columns: columns.sort(order), retyped: retyped.sort(order) };
 }
 
+export function removedFields(live: readonly StoredField[], preview: readonly StoredField[], schemas: { live: SchemaSnapshot; preview: SchemaSnapshot }): StoredField[] {
+  const kept = new Set(preview.map((entry) => `${entry.model}.${entry.field}`));
+  return live
+    .filter((entry) => !kept.has(`${entry.model}.${entry.field}`))
+    .filter((entry) => Boolean(schemas.live[entry.table]?.[entry.column]) && Boolean(schemas.preview[entry.table]?.[entry.column]))
+    .sort((a, b) => `${a.model}.${a.field}`.localeCompare(`${b.model}.${b.field}`));
+}
+
 export function itemChanges(live: readonly InventoryItem[], preview: readonly InventoryItem[]): ItemChange[] {
   const after = new Map(preview.map((item) => [`${item.kind}:${item.key}`, item]));
   return live.map((item) => {
@@ -93,15 +113,17 @@ export function itemChanges(live: readonly InventoryItem[], preview: readonly In
   });
 }
 
-export function releaseChanges(diff: SchemaDiff, counts: DroppedCounts, items: readonly ItemChange[], checkedAt: string): ReleaseChanges {
+export function releaseChanges(diff: SchemaDiff, counts: DroppedCounts, items: readonly ItemChange[], checkedAt: string, fields: readonly StoredField[] = []): ReleaseChanges {
   const tables = diff.tables.map((table) => ({ table, rows: counts.tables[table] ?? 0 }));
   const columns = diff.columns.map((ref) => ({ ...ref, filled: counts.columns[columnKey(ref)] ?? 0 }));
   const retyped = diff.retyped.map((ref) => ({ ...ref, filled: counts.columns[columnKey(ref)] ?? 0 }));
+  const removed = fields.map((entry) => ({ ...entry, filled: counts.columns[columnKey(entry)] ?? 0 }));
   const losing = tables.some((entry) => entry.rows > 0)
     || columns.some((entry) => entry.filled > 0)
     || retyped.some((entry) => entry.filled > 0)
+    || removed.some((entry) => entry.filled > 0)
     || items.some((item) => item.state !== 'kept');
-  const changes = { checkedAt, tables, columns, retyped, items: [...items], losing, lost: [] as string[] };
+  const changes = { checkedAt, tables, columns, retyped, ...(removed.length ? { removedFields: removed } : {}), items: [...items], losing, lost: [] as string[] };
   return { ...changes, lost: lossLines(changes) };
 }
 
@@ -121,6 +143,10 @@ function lossesOf(changes: ReleaseChanges): Loss[] {
     ...changes.retyped.filter((entry) => entry.filled > 0).map((entry) => ({
       key: `retyped:${columnKey(entry)}`,
       says: `${columnKey(entry)} changes from ${entry.from} to ${entry.to}; ${plural(entry.filled, 'row')} held a value${entry.keptIn ? `, kept aside in ${entry.keptIn}` : ''}`,
+    })),
+    ...(changes.removedFields ?? []).filter((entry) => entry.filled > 0).map((entry) => ({
+      key: `field:${entry.model}.${entry.field}`,
+      says: `the field ${entry.model}.${entry.field} is removed; ${plural(entry.filled, 'row')} keep a value in it that the app will no longer show`,
     })),
     ...changes.items.filter((item) => item.state !== 'kept').map((item) => ({ key: `item:${item.kind}:${item.key}:${item.state}`, says: `${item.name} ${ITEM_STATES[item.state as Exclude<ItemState, 'kept'>]}` })),
   ];
