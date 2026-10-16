@@ -4,7 +4,7 @@ import { inventoryFrom, inventorySql } from './inventory.js';
 describe('the Odoo inventory query', () => {
   it('lists what was made or edited in the app from the tables there are, and nothing from the others', () => {
     const sql = inventorySql(['ir_model_fields', 'ir_ui_view'])!;
-    expect(sql).toContain("from ir_model_fields r where r.state = 'manual'");
+    expect(sql).toContain("from ir_model_fields r where r.state = 'manual' and not exists (select 1 from ir_model_data d where d.model = 'ir.model.fields' and d.res_id = r.id and d.module not in ('__export__', '__import__', 'studio_customization') and d.module not in (select m.module from ir_model_data m join ir_model o on o.id = m.res_id where m.model = 'ir.model' and o.model = r.model))");
     expect(sql).toContain('r.arch_updated and exists (select 1 from ir_model_data d');
     expect(sql).toContain("d.module not in ('__export__', '__import__', 'studio_customization')");
     expect(sql).not.toContain('mail_template');

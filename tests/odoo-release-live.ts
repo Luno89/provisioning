@@ -299,7 +299,7 @@ async function main(): Promise<void> {
     console.log(`    the card made tree ${treeId} for the project, with the story that brings them in`);
     const storyEnded = async () => {
       const branches = ((await http.get('/branches')).data as { id: string; treeId: string }[]).filter((branch) => branch.treeId === treeId).map((branch) => branch.id);
-      return ((await http.get('/leaves')).data as { branchId: string; status: string; findings?: string }[]).find((leaf) => branches.includes(leaf.branchId) && ['succeeded', 'failed', 'cancelled'].includes(leaf.status));
+      return ((await http.get('/leaves')).data as { branchId: string; status: string; findings?: string; landed?: { outcome: string } }[]).find((leaf) => branches.includes(leaf.branchId) && (['failed', 'cancelled'].includes(leaf.status) || (leaf.status === 'succeeded' && leaf.landed)));
     };
     let story: Awaited<ReturnType<typeof storyEnded>>;
     for (let tries = 0; tries < 720 && !story; tries += 1) {
@@ -307,6 +307,7 @@ async function main(): Promise<void> {
       if (!story) await sleep(10_000);
     }
     assert.equal(story?.status, 'succeeded', `the story did not ship: ${JSON.stringify(story)}`);
+    assert.equal(story?.landed?.outcome, 'merged', `the story did not land: ${JSON.stringify(story?.landed)}`);
     assert.ok((await gitea.listPaths(project.giteaOwner, project.giteaRepo, 'main')).includes(`addons/${drift.module}/adopt.json`), 'the module did not land on main');
     console.log(`    the story shipped: addons/${drift.module} is on main`);
     const adopted = await waitFor('the release that brings them in', (all) => all.find((release) => release.state === 'preview' && release.e2e && release.e2e.state !== 'running' && release.changes !== undefined && !releaseIds.includes(release.id) && release.id !== first.id), 40);
@@ -318,8 +319,8 @@ async function main(): Promise<void> {
     releaseIds.push(adopted.id);
     const liveSlot = adopted.slot === 'a' ? 'odoo_a' : 'odoo_b';
     assert.equal(await psql(liveSlot, "select count(*) from ir_model_fields where model = 'koala.probe' and name = 'x_koala_note'"), '1', 'the field made in the app is not there exactly once');
-    assert.equal(await psql(liveSlot, `select module from ir_model_data where model = 'ir.model.fields' and res_id = (select id from ir_model_fields where model = 'koala.probe' and name = 'x_koala_note')`), drift.module, 'the field is not owned by the customizations module');
-    assert.equal((await http.get(`/projects/${projectId}/customizations`)).data.items.filter((item: { kind: string }) => item.kind === 'field').length, 0, 'the field still shows as made in the app');
+    assert.equal(await psql(liveSlot, `select count(*) from ir_model_data where model = 'ir.model.fields' and module = '${drift.module}' and res_id = (select id from ir_model_fields where model = 'koala.probe' and name = 'x_koala_note')`), '1', 'the field is not owned by the customizations module');
+    assert.deepEqual((await http.get(`/projects/${projectId}/customizations`)).data.items, [], 'something brought into git still shows as made in the app');
     console.log(`    live with the field made in the app now owned by ${drift.module}, once, and no longer outside git`);
 
     console.log('[5] deleting the project while its app is live takes the app with it');

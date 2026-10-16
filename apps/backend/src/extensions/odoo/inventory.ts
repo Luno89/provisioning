@@ -18,19 +18,21 @@ const text = (column: string): string => `coalesce(to_jsonb(${column})->>'en_US'
 const fromModule = (model: string): string =>
   `exists (select 1 from ir_model_data d where d.model = ${literal(model)} and d.res_id = r.id and d.module not in ${MODULE_RECORDS})`;
 const settled = `md5((to_jsonb(r) - ${VOLATILE})::text)`;
+const ownModules = "(select m.module from ir_model_data m join ir_model o on o.id = m.res_id where m.model = 'ir.model' and o.model = r.model)";
+const inGit = `exists (select 1 from ir_model_data d where d.model = 'ir.model.fields' and d.res_id = r.id and d.module not in ${MODULE_RECORDS} and d.module not in ${ownModules})`;
 
 export const ODOO_KINDS: readonly Kind[] = [
   {
     kind: 'field', table: 'ir_model_fields', model: 'ir.model.fields',
     key: "r.model || '.' || r.name",
     name: `'The field ' || ${text('r.field_description')} || ' (' || r.name || ') on ' || r.model || ', made in the app,'`,
-    made: "r.state = 'manual'", fingerprint: settled,
+    made: `r.state = 'manual' and not ${inGit}`, fingerprint: settled,
   },
   {
     kind: 'model', table: 'ir_model', model: 'ir.model',
     key: 'r.model',
     name: `'The model ' || ${text('r.name')} || ' (' || r.model || '), made in the app,'`,
-    made: "r.state = 'manual'", fingerprint: settled,
+    made: `r.state = 'manual' and not ${fromModule('ir.model')}`, fingerprint: settled,
   },
   {
     kind: 'view', table: 'ir_ui_view', model: 'ir.ui.view',
