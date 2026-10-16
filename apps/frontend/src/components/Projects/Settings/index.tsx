@@ -6,6 +6,7 @@ import { useProjectWork } from '../useProjectWork'
 import { useRouteSync } from '../useRouteSync'
 import { TreeModels } from '../Workspace/TreeModels'
 import { ProjectRelease } from '../Workspace/ProjectRelease'
+import { LiveCustomizations } from './LiveCustomizations'
 import { TreeDeletePanel } from '../Workspace/TreeDeletePanel'
 import { ProjectDeletePanel } from '../Workspace/ProjectDeletePanel'
 
@@ -55,6 +56,11 @@ export default function ProjectSettings({ treeId, projectId, onDeleted }: {
         {project && (
           <Section title="Releases">
             <ProjectRelease projectId={project.id} />
+          </Section>
+        )}
+        {project && (
+          <Section title="Made in the live app">
+            <LiveCustomizations projectId={project.id} />
           </Section>
         )}
         {tree && (

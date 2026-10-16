@@ -117,6 +117,9 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
         const tree = (await options.stores.trees.list()).find((entry) => entry.id === change.treeId && entry.ownerId === ownerId);
         if (!tree) throw new Error(`the change's tree ${change.treeId} no longer exists`);
         const projectId = primaryProjectId(tree);
+        if (change.add?.newBranch && !(await options.stores.branches.list()).some((entry) => entry.id === change.add!.branchId)) {
+          await options.stores.branches.save({ id: change.add.branchId, ownerId, treeId: tree.id, title: change.add.branchTitle, createdAt: stamp, updatedAt: stamp });
+        }
         const applied = applyChange(change, await changeWorld(ownerId, tree.id), { proposalId, at: stamp, ...(projectId ? { projectId } : {}) });
         for (const task of applied.tasks) await options.stores.tasks.save(task);
         for (const leaf of applied.leaves) await options.stores.leaves.save(leaf);

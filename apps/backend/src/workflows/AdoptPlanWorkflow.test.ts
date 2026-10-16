@@ -451,6 +451,25 @@ describe('AdoptPlanWorkflow', () => {
     await env.client.workflow.getHandle('grove-run-tree-c').terminate('test over');
   }, 60_000);
 
+  it('adds stories in a feature the change opens, making the feature only once it is approved', async () => {
+    const w = changeWorld({
+      treeId: 'tree-c', why: 'keep what the client made',
+      add: {
+        branchId: 'tree-c-customizations', branchTitle: 'Customizations from the live app', newBranch: true,
+        leaves: [{ key: 'adopt', title: 'Bring 1 customization made in the app into git', body: 'addons/shop_customizations installs', brief: 'Export it.', dependsOn: [], tasks: [{ key: 'export', title: 'Export it', description: 'Call export_customizations.', role: 'All of it.', doneMeans: 'it installs', dependsOn: [] }] }],
+      },
+      before: [], outcome: [],
+    });
+    expect(w.branches.has('tree-c-customizations')).toBe(false);
+
+    const result = await adopt(w, 'p3');
+
+    expect(result).toMatchObject({ status: 'adopted', growing: { started: true } });
+    expect(w.branches.get('tree-c-customizations')).toMatchObject({ treeId: 'tree-c', title: 'Customizations from the live app', ownerId: 'user-1' });
+    expect([...w.leaves.values()].find((leaf) => leaf.branchId === 'tree-c-customizations')).toMatchObject({ title: 'Bring 1 customization made in the app into git', status: 'pending' });
+    await env.client.workflow.getHandle('grove-run-tree-c').terminate('test over');
+  }, 60_000);
+
   it('applies a cancel: stops the worker, frees what waited on it in the records and its brief, and does not run the tree', async () => {
     const w = changeWorld({ treeId: 'tree-c', why: 'not wanted', cancel: ['leaf-a'], before: [], outcome: [] });
 

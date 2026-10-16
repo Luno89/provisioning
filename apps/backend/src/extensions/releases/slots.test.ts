@@ -51,6 +51,7 @@ function world(over: { state: SlotState; records: OdooRelease[]; answers?: strin
   const cluster = {
     state: async () => state,
     files: async () => [],
+    file: async () => null,
     apply: async (_target, source, sets) => {
       await act(`apply ${source.commit} ${sets.join(' ')}`);
       const [live, a, b] = sets.map((entry) => entry.split('=')[1]);

@@ -620,6 +620,19 @@ the name it has. Its namespace is labelled `koala.dev/owner` and `koala.dev/proj
 the project's builds panel shows the releases with a card to cut over or discard a waiting one. `npm run test:odoo-release-live` proves it on the system cluster with
 a throwaway project, ~4 min, and removes everything.
 
+**What was made in the live app can be brought into git** (`CustomizationsService`, `lib/app-drift.ts`). The project's
+Settings lists it under "Made in the live app" (`GET /api/projects/:id/customizations`, the adapter's `inventory` on the
+live slot), and Koala reads the same with `app_drift`. "Bring into git" (`POST …/customizations/adopt`) or Koala's
+`propose_adopt_customizations` puts a card in the project's channel: a story in the tree's feature "Customizations from
+the live app" (opened on approval: `newBranch` on the change), or for a project with no tree, a plan for one holding that
+story. Its worker calls `export_customizations` (granted to the executor), which reads the items from the live slot and
+writes `addons/<project>_customizations` exactly (`extensions/odoo/export.ts`: each record with its stored fields, every
+reference by XML id, an edited module view kept under its original XML id, refused whole when something cannot be named),
+with `adopt.json`; then `odoo-check` and the story lands. When a build first installs that module, the Odoo adapter's
+`upgrade` links each record in `adopt.json` to its XML id in the slot's copy before `-i`, so Odoo takes the live records
+over rather than making them twice; the release's comparison then shows them kept, and they no longer count as made in
+the app.
+
 **A new tree that produces a service gets its own project** (`TreeHomeService`, rule in `lib/tree-home.ts`): plan
 approval (`homeTree` in plan adoption) and `POST /api/trees` both call it, so it does not matter whether the tree came
 from chat, a check or the New Tree dialog. The project (`project-<treeId>`, so a retry finishes rather than doubles it)

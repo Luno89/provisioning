@@ -7,11 +7,12 @@ const target: ReleaseTarget = { clusterName: 'dev', provider: 'k3d', namespace: 
 const vault = { projectId: 'p1', secret: 'shop-vault', keys: ['POSTGRES_PASSWORD', 'ODOO_ADMIN_PASSWORD'], database: { secret: 'shop-vault', key: 'POSTGRES_PASSWORD' }, adminKey: 'ODOO_ADMIN_PASSWORD' };
 const build = { image: 'reg/shop:two', source: { owner: 'bo', repo: 'shop', commit: 'two' }, vault };
 
-function cluster(installed: string) {
+function cluster(installed: string, adopt: Record<string, string> = {}) {
   const jobs: { name: string; manifest: Record<string, unknown> }[] = [];
   const execs: string[][] = [];
   const fake = {
     files: async () => ['addons/sale_note/__manifest__.py', 'addons/new_mod/__manifest__.py', 'README.md'],
+    file: async (_s: unknown, path: string) => adopt[path] ?? null,
     exec: async (_t: unknown, pod: string, command: string[]) => { execs.push([pod, ...command]); return installed; },
     job: async (_t: unknown, name: string, manifest: Record<string, unknown>) => { jobs.push({ name, manifest }); },
   } as unknown as SlotCluster;
@@ -26,6 +27,16 @@ describe('the Odoo release adapter', () => {
     await ODOO_RELEASE_ADAPTER.upgrade(fake, target, 'b', build);
     expect(jobs.map((job) => job.name)).toEqual(['shop-upgrade-b']);
     expect(argsOf(jobs[0]!.manifest)).toEqual(expect.arrayContaining(['--database=odoo_b', '--init=new_mod', '--update=sale_note']));
+  });
+
+  it('links the records a new module takes over to its XML ids before installing it, so they are updated and never made twice', async () => {
+    const { fake, jobs, execs } = cluster('base\nsale_note\n', { 'addons/new_mod/adopt.json': JSON.stringify({ view_shop_form_7: { model: 'ir.ui.view', res_id: 7 }, odd: { model: 'res.partner', res_id: 3 } }) });
+    await ODOO_RELEASE_ADAPTER.upgrade(fake, target, 'b', build);
+    const takeover = execs.filter((command) => command.join(' ').includes('insert into ir_model_data'));
+    expect(takeover).toHaveLength(1);
+    expect(takeover[0]!.join(' ')).toContain("select 'new_mod', 'view_shop_form_7', 'ir.ui.view', 7, false");
+    expect(takeover[0]).toContain('odoo_b');
+    expect(jobs.map((job) => job.name)).toEqual(['shop-upgrade-b']);
   });
 
   it('creates a first slot\'s database with base and every module, reading the passwords from the vault', async () => {

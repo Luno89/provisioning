@@ -20,6 +20,7 @@ const act = async (what: string) => {
 const cluster: SlotCluster = {
   state: async () => state,
   files: async () => [],
+  file: async () => null,
   apply: async (_target, source, sets) => { await act(`apply ${source.commit} ${sets.join(' ')}`); },
   vault: async () => { await act('vault'); },
   waitReady: async (_target, workload) => { await act(`wait ${workload}`); },

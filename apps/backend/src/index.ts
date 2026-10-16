@@ -151,6 +151,12 @@ import { runningRouter } from './routes/running.js';
 import type { RunningWorkflow } from './lib/running.js';
 import { TreeHomeService } from './services/TreeHomeService.js';
 import { TreeModelsService, treeAgentsFrom } from './services/TreeModelsService.js';
+import { CustomizationsService } from './services/CustomizationsService.js';
+import { ODOO_TREE_TYPE } from './lib/tree-type-seeds.js';
+import { customizationsRouter } from './routes/customizations.js';
+import { createSlotCluster } from './extensions/releases/slot-cluster.js';
+import { syncVaultFromProject } from './extensions/releases/vault-sync.js';
+import { ODOO_RELEASE_ADAPTER } from './extensions/odoo/release-adapter.js';
 import { platformGroups } from './extensions/installed.js';
 import { ProjectAppService } from './services/ProjectAppService.js';
 import { projectAppRouter } from './routes/project-app.js';
@@ -883,6 +889,20 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }),
     getOwnedProject,
   }));
+  const customizations = new CustomizationsService({
+    projects: () => db.getProjects(),
+    clusterById: async (id) => (await db.getClusters()).find((entry) => entry.id === id),
+    how: async (project) => releaseHowOf(project, await treeTypeOfProject(db, project), true),
+    cluster: createSlotCluster({ infra: infraService, repo: async () => giteaService, syncVault: syncVaultFromProject(infraService) }),
+    adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
+    trees: () => db.getTrees(),
+    branches: () => db.getBranches(),
+    leaves: () => db.getLeaves(),
+    tasks: (ownerId) => db.getTasks(ownerId),
+    savePlan: (proposal) => db.savePlanProposal(proposal),
+    treeTypeOf: async (project) => (await treeTypeOfProject(db, project))?.id ?? ODOO_TREE_TYPE,
+  });
+  tenant.use('/api/projects', customizationsRouter({ customizations, getOwnedProject, channelOf: async (project) => (await channels.ensure(project))?.id }));
   tenant.use('/api/projects', releasesRouter({ releases: odooReleases, getOwnedProject, signIns: (project) => projectSecrets.signIns(project, ODOO_RELEASE_SECRETS) }));
   tenant.use('/api/artifacts', artifactsRouter({ artifacts: artifactStore.artifacts, hasMinio: (ownerId) => artifactStore.minio.hasMinio(ownerId) }));
   const sweepArtifacts = () => artifactStore.artifacts.sweep().catch((err: Error) => console.warn(`[artifacts] the sweep failed: ${err.message}`));
@@ -937,6 +957,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const evalWeb = await buildWebTools(db).catch(() => undefined);
   const evalHost = createEngineHost({
+    customizations: { drift: (...args) => customizations.drift(...args), propose: (...args) => customizations.propose(...args), exportItems: (...args) => customizations.exportItems(...args) },
     treeModels: {
       describe: (ownerId, treeId) => treeModels.describe(ownerId, treeId),
       problem: (ownerId, treeId, agent, modelId) => treeModels.problem(ownerId, treeId, agent, modelId),

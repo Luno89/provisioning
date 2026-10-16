@@ -1,7 +1,7 @@
 import type { InventoryItem } from '../../lib/release-compare.js';
 import { literal } from '../releases/postgres-compare.js';
 
-interface Kind {
+export interface Kind {
   kind: string;
   table: string;
   model: string;

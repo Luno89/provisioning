@@ -28,6 +28,7 @@ export interface RepoFiles {
 export interface SlotCluster {
   state(target: ReleaseTarget): Promise<SlotState>;
   files(source: ReleaseSource): Promise<string[]>;
+  file(source: ReleaseSource, path: string): Promise<string | null>;
   apply(target: ReleaseTarget, source: ReleaseSource, sets: string[]): Promise<void>;
   vault(target: ReleaseTarget, vault: ReleaseVault, secretTarget: SecretTarget): Promise<void>;
   waitReady(target: ReleaseTarget, workload: string): Promise<void>;
@@ -74,6 +75,10 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
 
     async files(source) {
       return (await deps.repo()).listPaths(source.owner, source.repo, source.commit);
+    },
+
+    async file(source, path) {
+      return (await deps.repo()).getRawFile(source.owner, source.repo, path, source.commit);
     },
 
     async apply(target, source, sets) {

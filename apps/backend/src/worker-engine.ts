@@ -26,6 +26,10 @@ import { projectSecretsFor } from './services/ProjectSecretsService.js';
 import { ProjectChannelService } from './services/ProjectChannelService.js';
 import { createCheckReleases, createReleaseBrowserTestActivities, namespacedCluster } from './activities/ReleaseBrowserTestsActivity.js';
 import { createSlotCluster } from './extensions/releases/slot-cluster.js';
+import { CustomizationsService } from './services/CustomizationsService.js';
+import { ODOO_TREE_TYPE } from './lib/tree-type-seeds.js';
+import { releaseHowOf } from './lib/release-run.js';
+import { treeTypeOfProject } from './lib/tree-types.js';
 import { deployProjectBuild } from './services/AppDeploy.js';
 import { failureReason } from './lib/temporal-failure.js';
 import { ODOO_RELEASE_ADAPTER } from './extensions/odoo/release-adapter.js';
@@ -163,7 +167,21 @@ async function buildActivities() {
     specs: async () => gitea,
     keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files),
   });
+  const customizations = new CustomizationsService({
+    projects: () => db.getProjects(),
+    clusterById: async (id) => (await db.getClusters()).find((entry) => entry.id === id),
+    how: async (project) => releaseHowOf(project, await treeTypeOfProject(db, project), true),
+    cluster: createSlotCluster({ infra: kubeInfra, repo: async () => gitea, syncVault: syncVaultFromProject(kubeInfra) }),
+    adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
+    trees: () => db.getTrees(),
+    branches: () => db.getBranches(),
+    leaves: () => db.getLeaves(),
+    tasks: (ownerId) => db.getTasks(ownerId),
+    savePlan: (proposal) => db.savePlanProposal(proposal),
+    treeTypeOf: async (project) => (await treeTypeOfProject(db, project))?.id ?? ODOO_TREE_TYPE,
+  });
   const host = createEngineHost({
+    customizations,
     treeModels: {
       describe: (ownerId, treeId) => treeModels.describe(ownerId, treeId),
       problem: (ownerId, treeId, agent, modelId) => treeModels.problem(ownerId, treeId, agent, modelId),

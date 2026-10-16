@@ -29,6 +29,7 @@ vi.mock('../../../api/release-settings', async (orig) => ({
   getProjectRelease: vi.fn(async () => ({ how: { agent: 'release', app: 'odoo' }, from: 'tree type' })),
   getReleaseOptions: vi.fn(async () => ({ agents: [{ slug: 'release', name: 'Release', needsApp: true }], apps: [{ id: 'odoo', title: 'Odoo' }] })),
 }))
+vi.mock('./LiveCustomizations', () => ({ LiveCustomizations: () => <div>live customizations</div> }))
 vi.mock('../../../api/models', async (orig) => ({
   ...(await orig<typeof modelsApi>()),
   listModels: vi.fn(async () => [{ id: 'tabby', name: 'Tabby', source: 'deployment', kind: 'tabbyapi', model: 'Qwen3.8-27B' }]),
@@ -54,6 +55,7 @@ describe('a tree\'s settings', () => {
     expect(await screen.findByText('Models')).toBeInTheDocument()
     expect(screen.getByText('Auto mode', { selector: 'h2' })).toBeInTheDocument()
     expect(screen.getByText('Releases')).toBeInTheDocument()
+    expect(screen.getByText('Made in the live app')).toBeInTheDocument()
     expect(screen.getByText('Delete the tree')).toBeInTheDocument()
     expect(screen.getByText('Delete the project')).toBeInTheDocument()
     expect(await screen.findByText('Its own: [TabbyAPI] Qwen3.8-27B')).toBeInTheDocument()

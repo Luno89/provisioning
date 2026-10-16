@@ -280,6 +280,48 @@ async function main(): Promise<void> {
     assert.equal((await http.get(`/projects/${projectId}/releases`)).data.rollBack, undefined, 'a second rollback is still offered');
     console.log('    live on slot a again, without the colour field or what was entered since the cutover; slot b is stopped and nothing more is offered');
 
+    console.log('[4b] what was made in the live app is listed, brought into git by a story on the person\'s model, and kept by the next release');
+    const drift = (await http.get(`/projects/${projectId}/customizations`)).data as { module: string; items: { kind: string; key: string; name: string }[] };
+    assert.deepEqual(drift.items.map((item) => item.kind).sort(), ['edited-view', 'field'], JSON.stringify(drift));
+    console.log(`    the live app holds ${drift.items.length} things outside git, for ${drift.module}`);
+    const card = await http.post(`/projects/${projectId}/customizations/adopt`, { why: 'keep what was made in the live app' });
+    assert.equal(card.status, 201, JSON.stringify(card.data));
+    const approved = await http.post(`/plans/${card.data.id}/approve`, {});
+    assert.ok(approved.status < 300, JSON.stringify(approved.data));
+    let treeId: string | undefined;
+    for (let tries = 0; tries < 120 && !treeId; tries += 1) {
+      const plan = (await http.get(`/plans/${card.data.id}`)).data as { status: string; reason?: string; adopted?: { treeId: string } };
+      if (plan.status === 'failed') throw new Error(`the card's plan failed: ${plan.reason}`);
+      treeId = plan.adopted?.treeId;
+      if (!treeId) await sleep(5_000);
+    }
+    assert.ok(treeId, 'the card was never adopted');
+    console.log(`    the card made tree ${treeId} for the project, with the story that brings them in`);
+    const storyEnded = async () => {
+      const branches = ((await http.get('/branches')).data as { id: string; treeId: string }[]).filter((branch) => branch.treeId === treeId).map((branch) => branch.id);
+      return ((await http.get('/leaves')).data as { branchId: string; status: string; findings?: string }[]).find((leaf) => branches.includes(leaf.branchId) && ['succeeded', 'failed', 'cancelled'].includes(leaf.status));
+    };
+    let story: Awaited<ReturnType<typeof storyEnded>>;
+    for (let tries = 0; tries < 720 && !story; tries += 1) {
+      story = await storyEnded();
+      if (!story) await sleep(10_000);
+    }
+    assert.equal(story?.status, 'succeeded', `the story did not ship: ${JSON.stringify(story)}`);
+    assert.ok((await gitea.listPaths(project.giteaOwner, project.giteaRepo, 'main')).includes(`addons/${drift.module}/adopt.json`), 'the module did not land on main');
+    console.log(`    the story shipped: addons/${drift.module} is on main`);
+    const adopted = await waitFor('the release that brings them in', (all) => all.find((release) => release.state === 'preview' && release.e2e && release.e2e.state !== 'running' && release.changes !== undefined && !releaseIds.includes(release.id) && release.id !== first.id), 40);
+    console.log(`    ${JSON.stringify({ lost: adopted.changes!.lost, items: adopted.changes!.items.map((item) => `${item.kind}: ${item.state}`) })}`);
+    assert.deepEqual(adopted.changes!.items.map((item) => `${item.kind}: ${item.state}`).sort(), ['edited-view: kept', 'field: kept']);
+    const adoptCut = await http.post(`/projects/${projectId}/releases/${adopted.id}/cut-over`, { confirm: true });
+    assert.equal(adoptCut.status, 202, JSON.stringify(adoptCut.data));
+    await waitFor('the cut-over that keeps them', (all) => all.find((release) => release.id === adopted.id && release.state === 'live'), 20);
+    releaseIds.push(adopted.id);
+    const liveSlot = adopted.slot === 'a' ? 'odoo_a' : 'odoo_b';
+    assert.equal(await psql(liveSlot, "select count(*) from ir_model_fields where model = 'koala.probe' and name = 'x_koala_note'"), '1', 'the field made in the app is not there exactly once');
+    assert.equal(await psql(liveSlot, `select module from ir_model_data where model = 'ir.model.fields' and res_id = (select id from ir_model_fields where model = 'koala.probe' and name = 'x_koala_note')`), drift.module, 'the field is not owned by the customizations module');
+    assert.equal((await http.get(`/projects/${projectId}/customizations`)).data.items.filter((item: { kind: string }) => item.kind === 'field').length, 0, 'the field still shows as made in the app');
+    console.log(`    live with the field made in the app now owned by ${drift.module}, once, and no longer outside git`);
+
     console.log('[5] deleting the project while its app is live takes the app with it');
     const removal = (await http.get(`/projects/${projectId}/removal`)).data as { apps: string[] };
     assert.deepEqual(removal.apps, [NAME], `the deletion does not say the app goes with it: ${JSON.stringify(removal)}`);

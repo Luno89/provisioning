@@ -671,7 +671,7 @@ export interface ItemChange {
   treeId: string;
   why: string;
   edit?: StoryEdit | undefined;
-  add?: { branchId: string; branchTitle: string; leaves: PlanLeaf[] } | undefined;
+  add?: { branchId: string; branchTitle: string; leaves: PlanLeaf[]; newBranch?: boolean | undefined } | undefined;
   cancel?: string[] | undefined;
   before: StorySnapshot[];
   outcome: string[];

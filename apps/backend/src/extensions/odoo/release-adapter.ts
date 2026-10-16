@@ -6,6 +6,8 @@ import type { SlotCluster } from '../releases/slot-cluster.js';
 import { query, type PostgresAccess } from '../releases/postgres-compare.js';
 import type { InventoryItem } from '../../lib/release-compare.js';
 import { inventoryFrom, inventorySql, presentTablesSql } from './inventory.js';
+import { exportCustomizations, moduleNameFor, MODEL_TABLES, takeOverSql } from './export.js';
+import { ADOPT_FILE } from '../../lib/customizations.js';
 
 export const ODOO_ADAPTER_ID = 'odoo';
 
@@ -56,9 +58,25 @@ export const ODOO_RELEASE_ADAPTER: SlotAdapter = {
     return sql ? inventoryFrom(await query<Partial<InventoryItem>[]>(cluster, target, db, sql)) : [];
   },
 
+  customizationsModule: (target) => moduleNameFor(target.release),
+
+  async exportItems(cluster, target, slot, items, module) {
+    const db = access(target, slot);
+    const base = (await query<string[]>(cluster, target, db, "select coalesce(json_agg(latest_version), '[]') from ir_module_module where name = 'base'"))[0] ?? '';
+    const version = base.split('.').slice(0, 2).join('.') || '20.0';
+    return exportCustomizations({ query: (sql) => query(cluster, target, db, sql) }, items, module, version);
+  },
+
   async upgrade(cluster, target, slot, build) {
     const present = await installed(cluster, target, slot);
     const wanted = await modules(cluster, build);
+    for (const module of wanted.filter((name) => !present.has(name))) {
+      const adopt = await cluster.file(build.source, `addons/${module}/${ADOPT_FILE}`);
+      if (!adopt) continue;
+      for (const sql of takeOverSql(module, JSON.parse(adopt) as Record<string, { model: string; res_id: number }>, MODEL_TABLES)) {
+        await cluster.exec(target, postgres(target), ['psql', '-U', 'odoo', '-d', databaseOf(slot), '-v', 'ON_ERROR_STOP=1', '-qc', sql]);
+      }
+    }
     await cluster.job(target, `${target.release}-upgrade-${slot}`, odooJob({
       name: '', release: target.release, image: build.image, database: databaseOf(slot),
       install: wanted.filter((module) => !present.has(module)),
