@@ -195,7 +195,8 @@ with the backend's `PUBLIC_URL`; the code is single-use and lasts an hour, `Mach
 person, it needs Node 20+, asks which folder Koala may work in, trades the code at the public `POST /api/machines/join`
 for the device's token and settings (kept in `~/.config/koala/machine.json`, mode 600, never printed), joins the mesh
 when `MESH_LOGIN_SERVER` is set, installs the machine agent (`GET /api/machines/agent.tgz`: `apps/local-agent` bundled by
-`scripts/bundle-machine.mjs`, with its four runtime packages installed by npm on the machine) and starts it as a user
+`scripts/bundle-machine.mjs`, with its runtime packages installed by npm on the machine, protobufjs 8 among them so Temporal's packages share one copy
+and an offloaded payload can be read) and starts it as a user
 service (systemd `--user`, launchd). The device worker reaches Temporal at `MACHINE_TEMPORAL_ADDRESS` (default the
 backend's own). Each time it connects the agent looks for coding agents (`agent-discovery.ts`: Gemini CLI, Antigravity,
 Claude Code and Codex through their ACP adapters, Goose, and any the person added by hand on My Machines), confirms each
