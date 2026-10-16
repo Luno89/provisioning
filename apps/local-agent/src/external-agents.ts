@@ -13,6 +13,13 @@ export const TOOLS_LINE = 'Koala\'s tools are served to you through the MCP serv
 
 export const HEARTBEAT_EVERY_MS = 5000;
 
+export const KOALA_SERVER = 'koala';
+
+export function servesCall(served: readonly { name: string }[], title: string): boolean {
+  const called = title.trim().split(/\s/)[0] ?? '';
+  return served.some((tool) => [`${KOALA_SERVER}_${tool.name}`, `mcp__${KOALA_SERVER}__${tool.name}`, `${KOALA_SERVER}.${tool.name}`, `${KOALA_SERVER}/${tool.name}`].includes(called));
+}
+
 const WORKING_DIR_FIELDS = ['workingDir', 'working_dir', 'WorkingDirectory', 'cwd', 'Cwd'];
 
 export const workspaceLine = (folder: string): string =>
@@ -158,13 +165,17 @@ export class ExternalAgentSessions {
       session = await openAcpSession({
         launch,
         cwd,
-        ...(mounted ? { mcpServers: [{ type: 'http', name: 'koala', url: mounted.url, headers: [] }] } : {}),
+        ...(mounted ? { mcpServers: [{ type: 'http', name: KOALA_SERVER, url: mounted.url, headers: [] }] } : {}),
         ...(op.resume ? { resume: op.resume } : {}),
         onEvent: watch,
-        onPermission: (ask) => new Promise<PermissionAnswer>((resolve) => {
-          live.ask = { ask, answer: resolve };
-          live.wake();
-        }),
+        onPermission: (ask) => {
+          const allow = ask.options.find((option) => option.kind === 'allow_once');
+          if (allow && servesCall(served, ask.tool.title)) return Promise.resolve({ optionId: allow.optionId });
+          return new Promise<PermissionAnswer>((resolve) => {
+            live.ask = { ask, answer: resolve };
+            live.wake();
+          });
+        },
       });
     } catch (err) {
       mounted?.unmount();

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ExternalAgentSessions, TOOLS_LINE, workingDirOf, workspaceLine } from './external-agents.js';
+import { ExternalAgentSessions, TOOLS_LINE, servesCall, workingDirOf, workspaceLine } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
 import type { AgentScript } from './acp-script-agent.js';
 
@@ -141,6 +141,32 @@ describe('the run\'s tools for an external agent', () => {
       let bare = await sessions.step({ key: 'k2', agent: 'scripted', op: { kind: 'open', brief: 'go' } });
       while (bare.state === 'running') bare = await sessions.step({ key: 'k2', agent: 'scripted', op: { kind: 'continue' } });
       expect(bare.events).toContainEqual({ type: 'text', delta: 'no koala server' });
+    } finally {
+      await sessions.closeAll();
+      await mcp.close();
+    }
+  });
+});
+
+describe('an agent asking leave to call a tool served from the run', () => {
+  it('is answered on the machine, since the run decides whether the call needs the person, and anything else still asks', async () => {
+    expect(servesCall([{ name: 'read_tree' }], 'koala_read_tree {"treeId":"t1"}')).toBe(true);
+    expect(servesCall([{ name: 'read_tree' }], 'mcp__koala__read_tree')).toBe(true);
+    expect(servesCall([{ name: 'read_tree' }], 'koala_propose_plan {}')).toBe(false);
+    expect(servesCall([{ name: 'read_tree' }], 'Running rm -rf /')).toBe(false);
+
+    const scriptPath = path.join(dir, 'script.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'scripted', version: '1', turns: [{ steps: [
+      { tool: { id: 'p1', title: 'koala_read_tree {"treeId":"t1"}' }, ask: true },
+      { tool: { id: 'p2', title: 'Running rm stale.txt' }, ask: true },
+    ] }] } satisfies AgentScript));
+    const mcp = new LocalMcpServer();
+    await mcp.start();
+    sessions = new ExternalAgentSessions({ rootDir: path.join(dir, 'root'), launches: { scripted: { command: process.execPath, args: ['--import', TSX, AGENT, scriptPath] } }, mcp });
+    try {
+      let result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'go', tools: [{ name: 'read_tree', description: 'Read a tree.', inputSchema: { type: 'object' } }] } });
+      while (result.state === 'running') result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'continue' } });
+      expect(result).toMatchObject({ state: 'asks', ask: { tool: { title: 'Running rm stale.txt' } } });
     } finally {
       await sessions.closeAll();
       await mcp.close();
