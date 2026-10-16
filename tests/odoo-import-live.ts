@@ -94,8 +94,12 @@ async function main(): Promise<void> {
     }
     throw new Error(`no ${what} within ${minutes} minutes`);
   };
-  const live = (entry: Made) => waitFor(`live release of ${entry.name}`, async () => {
-    const all = await releases(entry);
+  const live = async (entry: Made) => {
+    const before = new Set((await releases(entry)).map((release) => release.id));
+    return liveAfter(entry, before);
+  };
+  const liveAfter = (entry: Made, before: ReadonlySet<string>) => waitFor(`live release of ${entry.name}`, async () => {
+    const all = (await releases(entry)).filter((release) => !before.has(release.id));
     const failed = all.find((release) => release.state === 'failed');
     if (failed) throw new Error(`${entry.name}'s release failed: ${failed.reason}`);
     return all.find((release) => release.state === 'live');
@@ -174,11 +178,12 @@ async function main(): Promise<void> {
     console.log(`    ${refused.reason}`);
 
     console.log('[5] the real backup, as a copy: restored into slot a with its records and files, neutralized, and its customizations listed');
+    const refusedReleases = new Set((await releases(copy)).map((release) => release.id));
     const accepted = await upload(copy, backup, 'copy');
     assert.equal(accepted.status, 201, JSON.stringify(accepted.data));
     assert.equal(accepted.data.version, `${ODOO_VERSION.version}.0`);
     assert.ok((accepted.data.modules as string[]).includes(MODULE));
-    const restored = await live(copy);
+    const restored = await liveAfter(copy, refusedReleases);
     assert.equal(restored.slot, 'a');
     assert.equal((await importOf(copy)).import?.state, 'imported');
     assert.equal(await psql(copy, "select string_agg(name || ':' || note, ',' order by name) from koala_probe"), 'first:leave at the back door,second:ring twice');
