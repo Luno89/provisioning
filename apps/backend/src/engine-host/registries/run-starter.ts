@@ -142,6 +142,7 @@ export function createRunStarter(options: RunStarterOptions) {
           ...asked,
           ...(bound ?? {}),
           ...(request.bound ?? {}),
+          ...(request.conversationId ? { conversationId: request.conversationId } : {}),
           message: request.message,
         },
         ...(options.continueAfterEvents ? { continueAfterEvents: options.continueAfterEvents } : {}),
