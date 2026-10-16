@@ -140,7 +140,7 @@ async function main(): Promise<void> {
     const remade = await http.post('/mesh/local-agents/join-code', {});
     assert.equal(remade.status, 201, JSON.stringify(remade.data));
     const again = (await ssh(vm, `${(remade.data as { command: string }).command} --yes`)).replace(/\x1b\[[0-9;]*m/g, '');
-    assert.match(again, /✓ Codex \([^)]*\) [^\n]*, through @agentclientprotocol\/codex-acp/, again);
+    assert.match(again, /✓ Codex[^\n]*, through @agentclientprotocol\/codex-acp/, again);
     const rejoined = await until('the machine connecting again', 3, async () => {
       const found = (await machines()).filter((machine) => machine.name === NAME);
       return found.length === 1 && found[0]!.online && found[0]!.connectedAt !== back.connectedAt ? found[0] : undefined;
