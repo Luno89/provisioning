@@ -181,7 +181,7 @@ async function main(): Promise<void> {
     assert.deepEqual(compared.changes.items.filter((item) => item.kind === 'field').map((item) => [item.name, item.state]), [['The field Koala note (x_koala_note) on koala.probe, made in the app,', 'kept']]);
     assert.equal(compared.changes.items.filter((item) => item.state !== 'kept' && item.kind !== 'edited-view').length, 0, `something else was flagged: ${JSON.stringify(compared.changes.items)}`);
     assert.match(await columns('odoo_a'), /\bnote\b/, 'the live slot lost its note column before any cut-over');
-    assert.match(await psql('odoo_b', "select count(*) from koala_probe where note is not null"), /^2$/, 'the preview copy lost the notes rather than leaving them behind');
+    assert.doesNotMatch(await columns('odoo_b'), /\bnote\b/, 'the preview still has the note column the release drops');
 
     console.log('[3a] the preview is quiet, and passes the project\'s browser tests signed in as its own test user');
     assert.equal(await psql('odoo_b', 'select count(*) from ir_cron where active'), '0', 'the preview still runs scheduled jobs');
