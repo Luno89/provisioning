@@ -7,6 +7,8 @@ import { useRouteSync } from '../useRouteSync'
 import { TreeModels } from '../Workspace/TreeModels'
 import { ProjectRelease } from '../Workspace/ProjectRelease'
 import { LiveCustomizations } from './LiveCustomizations'
+import { ClientImport } from './ClientImport'
+import { useClientImport } from './useClientImport'
 import { TreeDeletePanel } from '../Workspace/TreeDeletePanel'
 import { ProjectDeletePanel } from '../Workspace/ProjectDeletePanel'
 
@@ -35,6 +37,7 @@ export default function ProjectSettings({ treeId, projectId, onDeleted }: {
   onDeleted: () => void
 }) {
   const { tree, project, reading } = useProjectWork({ treeId, projectId })
+  const imported = useClientImport(project?.id)
   useRouteSync(treeId ? { kind: 'tree', treeId, page: 'settings' } : projectId ? { kind: 'project', projectId, page: 'settings' } : undefined)
 
   if (reading) return <Reading label="Reading its settings…" className="px-3 py-6" />
@@ -56,6 +59,11 @@ export default function ProjectSettings({ treeId, projectId, onDeleted }: {
         {project && (
           <Section title="Releases">
             <ProjectRelease projectId={project.id} />
+          </Section>
+        )}
+        {project && imported.data && (imported.data.open || imported.data.import) && (
+          <Section title="Start from a client's database">
+            <ClientImport projectId={project.id} view={imported.data} />
           </Section>
         )}
         {project && (

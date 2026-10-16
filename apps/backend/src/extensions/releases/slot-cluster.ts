@@ -8,6 +8,7 @@ import { reachCluster } from '../../activities/cluster-access.js';
 import type { ReleaseSource, ReleaseTarget } from '../../lib/release-run.js';
 import { inNamespace, runClusterJob, waitUntilRolledOut, type NamespacedCluster } from '../../activities/cluster-jobs.js';
 import { labelValue } from '../../engine-host/sandboxes/workspace.js';
+import { assessWorkload } from '../../lib/workload-health.js';
 import type { SecretTarget } from '../../lib/infisical-sync.js';
 
 export interface VaultSyncArgs {
@@ -35,6 +36,10 @@ export interface SlotCluster {
   exec(target: ReleaseTarget, pod: string, command: string[]): Promise<string>;
   job(target: ReleaseTarget, name: string, manifest: Record<string, unknown>): Promise<void>;
   scale(target: ReleaseTarget, workload: string, replicas: number): Promise<void>;
+  put(target: ReleaseTarget, manifest: Record<string, unknown>): Promise<void>;
+  remove(target: ReleaseTarget, kind: string, name: string, wait?: boolean): Promise<void>;
+  running(target: ReleaseTarget, pod: string): Promise<void>;
+  pipe(target: ReleaseTarget, pod: string, command: string[], input: NodeJS.ReadableStream): Promise<string>;
 }
 
 const POLL_MS = 5_000;
@@ -136,6 +141,34 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
 
     async scale(target, workload, replicas) {
       await kubectl(target, ['scale', workload, `--replicas=${replicas}`]);
+    },
+
+    async put(target, manifest) {
+      const kubeconfig = await kubeconfigOf(target);
+      await infra.applyManifest(JSON.stringify(releaseNamespace(target)), kubeconfig);
+      await infra.applyManifest(JSON.stringify(inNamespace(manifest, target.namespace)), kubeconfig);
+    },
+
+    async remove(target, kind, name, wait = false) {
+      beat(name);
+      await kubectl(target, ['delete', kind, name, '--ignore-not-found', `--wait=${wait}`]);
+    },
+
+    async running(target, pod) {
+      for (;;) {
+        beat(pod);
+        const phase = await kubectl(target, ['get', 'pod', pod, '-o', 'jsonpath={.status.phase}']).catch(() => '');
+        if (phase === 'Running') return;
+        if (phase === 'Failed' || phase === 'Succeeded') throw ApplicationFailure.nonRetryable(`${pod} stopped (${phase}) before it could be used`);
+        const listed = await kubectl(target, ['get', 'pod', pod, '-o', 'json']).catch(() => '');
+        const health = listed ? assessWorkload({ items: [JSON.parse(listed)] }) : undefined;
+        if (health?.health === 'unhealthy') throw ApplicationFailure.nonRetryable(`${pod} cannot run: ${health.reason}`);
+        await sleep(POLL_MS);
+      }
+    },
+
+    async pipe(target, pod, command, input) {
+      return infra.pipeKubectl(['-n', target.namespace, 'exec', '-i', pod, '--', ...command], await kubeconfigOf(target), input);
     },
   };
 }

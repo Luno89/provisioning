@@ -17,6 +17,13 @@ describe('what a release says in the chat', () => {
   it('says what went live, and why a release failed with what kept running', () => {
     expect(releaseNotice({ ...release, state: 'live' }, undefined)).toMatchObject({ key: 'release:r2:live', text: '57fce1a0 is live in slot b.', actions: ['open-app'] });
     expect(releaseNotice({ ...release, state: 'failed', reason: 'the upgrade job failed' }, 't1')?.text).toBe('The release of 57fce1a0 failed: the upgrade job failed. What was live keeps running.');
+    const restored = { ...release, slot: 'a' as const, restore: { mode: 'copy' as const, version: '20.0', modules: 41 } };
+    expect(releaseNotice({ ...restored, state: 'live' }, 't1', 3)).toMatchObject({
+      text: 'The client\'s database (Odoo 20.0, 41 modules) is live in slot a, as a copy to work on, with its mail, scheduled jobs and payments switched off; 3 things were made in their app, which Settings lists and can bring into git.',
+      actions: ['open-app', 'open-settings'],
+    });
+    expect(releaseNotice({ ...restored, state: 'live', restore: { ...restored.restore, mode: 'live' } }, 't1', 0)?.text).toContain('as your live system, with its mail and scheduled jobs running; nothing in it was made in their app outside git.');
+    expect(releaseNotice({ ...restored, state: 'failed', reason: 'it has modules this project does not' }, 't1')).toMatchObject({ text: 'Starting from the client\'s database failed: it has modules this project does not. Nothing is live yet; Settings says what to do next.', actions: ['open-settings'] });
   });
 
   it('says nothing while a release is only being prepared or was replaced', () => {

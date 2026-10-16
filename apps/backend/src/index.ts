@@ -154,6 +154,9 @@ import { TreeModelsService, treeAgentsFrom } from './services/TreeModelsService.
 import { CustomizationsService } from './services/CustomizationsService.js';
 import { ODOO_TREE_TYPE } from './lib/tree-type-seeds.js';
 import { customizationsRouter } from './routes/customizations.js';
+import { clientImportRouter } from './routes/client-import.js';
+import { ClientImportService } from './services/ClientImportService.js';
+import { latestBuildOf, odooVersionOfDockerfile, projectMajor } from './lib/client-import.js';
 import { createSlotCluster } from './extensions/releases/slot-cluster.js';
 import { syncVaultFromProject } from './extensions/releases/vault-sync.js';
 import { ODOO_RELEASE_ADAPTER } from './extensions/odoo/release-adapter.js';
@@ -239,6 +242,7 @@ const DEFAULT_LOG_LEVEL = 50;
 export async function bootstrap(): Promise<{ app: express.Application; io: SocketServer; temporalBridge?: TemporalBridge; db: Database }> {
   const app = express();
   const httpServer = createServer(app);
+  httpServer.requestTimeout = 0;
   const port = process.env.PORT || 3001;
 
   const PUBLIC_URL = (process.env.PUBLIC_URL || `http://localhost:${port}`).replace(/\/$/, '');
@@ -834,8 +838,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     clusterById: async (id) => (id === 'provisioning-lunorica' ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
     notify: (ownerId, release) => {
       io.to(`user:${ownerId}`).emit('odoo-release-updated', release);
-      postNotice('a release changed', treeOfProject(release.projectId).then((tree) => {
-        const notice = releaseNotice(release, tree?.id);
+      postNotice('a release changed', treeOfProject(release.projectId).then(async (tree) => {
+        const made = release.restore && release.state === 'live' ? await customizations.drift(ownerId, release.projectId).then((drift) => (drift.ok ? drift.value.items.length : undefined), () => undefined) : undefined;
+        const notice = releaseNotice(release, tree?.id, made);
         return notice ? notices.post(ownerId, { projectId: release.projectId, treeId: tree?.id }, notice) : [];
       }));
     },
@@ -903,6 +908,24 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     treeTypeOf: async (project) => (await treeTypeOfProject(db, project))?.id ?? ODOO_TREE_TYPE,
   });
   tenant.use('/api/projects', customizationsRouter({ customizations, getOwnedProject, channelOf: async (project) => (await channels.ensure(project))?.id }));
+  const clientImports = new ClientImportService({
+    projects: () => db.getProjects(),
+    saveProject: (patch) => db.saveProjectInfo(patch),
+    clusterById: async (id) => (id === 'provisioning-lunorica' ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
+    adapterOf: async (project) => {
+      const how = await releaseHowOf(project, await treeTypeOfProject(db, project), true);
+      return how.app === ODOO_RELEASE_ADAPTER.id ? ODOO_RELEASE_ADAPTER : undefined;
+    },
+    cluster: createSlotCluster({ infra: infraService, repo: async () => giteaService, syncVault: syncVaultFromProject(infraService) }),
+    odooVersion: async (project) => {
+      const tree = (await db.getTrees()).find((entry) => entry.ownerId === project.ownerId && entry.projectIds?.[0] === project.id);
+      if (tree?.version) return projectMajor(tree.version);
+      return project.giteaOwner && project.giteaRepo ? odooVersionOfDockerfile(await giteaService.getRawFile(project.giteaOwner, project.giteaRepo, 'Dockerfile', 'main')) : undefined;
+    },
+    latestBuild: async (project) => latestBuildOf(await db.getPipelineRuns(), project.id),
+    releases: odooReleases,
+  });
+  tenant.use('/api/projects', clientImportRouter({ imports: clientImports, getOwnedProject }));
   tenant.use('/api/projects', releasesRouter({ releases: odooReleases, getOwnedProject, signIns: (project) => projectSecrets.signIns(project, ODOO_RELEASE_SECRETS) }));
   tenant.use('/api/artifacts', artifactsRouter({ artifacts: artifactStore.artifacts, hasMinio: (ownerId) => artifactStore.minio.hasMinio(ownerId) }));
   const sweepArtifacts = () => artifactStore.artifacts.sweep().catch((err: Error) => console.warn(`[artifacts] the sweep failed: ${err.message}`));

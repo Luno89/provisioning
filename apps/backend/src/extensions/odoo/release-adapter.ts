@@ -8,6 +8,7 @@ import type { InventoryItem } from '../../lib/release-compare.js';
 import { inventoryFrom, inventorySql, presentTablesSql } from './inventory.js';
 import { exportCustomizations, moduleNameFor, MODEL_TABLES, takeOverSql } from './export.js';
 import { ADOPT_FILE } from '../../lib/customizations.js';
+import { restoreJob } from '../../lib/client-import.js';
 
 export const ODOO_ADAPTER_ID = 'odoo';
 
@@ -39,6 +40,10 @@ export const ODOO_RELEASE_ADAPTER: SlotAdapter = {
     await cluster.job(target, `${target.release}-init-${slot}`, odooJob({
       name: '', release: target.release, image: build.image, database: databaseOf(slot), install: ['base', ...await modules(cluster, build)], update: [], vault: build.vault,
     }));
+  },
+
+  async restore(cluster, target, slot, build, mode) {
+    await cluster.job(target, `${target.release}-restore-${slot}`, restoreJob({ release: target.release, image: build.image, database: databaseOf(slot), mode, vault: build.vault }));
   },
 
   async copy(cluster, target, from, to, build) {

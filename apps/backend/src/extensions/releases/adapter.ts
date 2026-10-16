@@ -4,6 +4,7 @@ import type { InventoryItem } from '../../lib/release-compare.js';
 import type { PostgresAccess } from './postgres-compare.js';
 import type { ExportResult } from '../../lib/customizations.js';
 import type { SlotCluster } from './slot-cluster.js';
+import type { ImportMode } from '../../lib/client-import.js';
 
 export interface SlotBuild {
   image: string;
@@ -18,6 +19,7 @@ export interface SlotAdapter {
   dataStore(target: ReleaseTarget): string;
   sets(input: { image: string; state: SlotState; host: string; previewHost?: string | undefined }): string[];
   init(cluster: SlotCluster, target: ReleaseTarget, slot: Slot, build: SlotBuild): Promise<void>;
+  restore?(cluster: SlotCluster, target: ReleaseTarget, slot: Slot, build: SlotBuild, mode: ImportMode): Promise<void>;
   copy(cluster: SlotCluster, target: ReleaseTarget, from: Slot, to: Slot, build: SlotBuild): Promise<void>;
   quiet(cluster: SlotCluster, target: ReleaseTarget, slot: Slot): Promise<void>;
   upgrade(cluster: SlotCluster, target: ReleaseTarget, slot: Slot, build: SlotBuild): Promise<void>;

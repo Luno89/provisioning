@@ -54,6 +54,11 @@ export function ChatNotice({ notice, at, onOpenTree, onOpenStory }: {
             Open the workspace
           </button>
         )}
+        {(treeId || projectId) && goes('open-settings') && (
+          <button type="button" onClick={() => { window.location.hash = formatHash('projects', treeId ? ['tree', treeId, 'settings'] : ['project', projectId!, 'settings']) }} className="rounded border border-[var(--bark-600)] px-2 py-0.5 text-[11px] text-slate-200 hover:bg-[var(--bark-700)] cursor-pointer">
+            Open settings
+          </button>
+        )}
         {treeId && branchId && leafId && onOpenStory && goes('open-story') && (
           <button type="button" onClick={() => onOpenStory({ treeId, branchId, leafId })} className="rounded border border-[var(--bark-600)] px-2 py-0.5 text-[11px] text-slate-200 hover:bg-[var(--bark-700)] cursor-pointer">
             Open the story

@@ -23,3 +23,11 @@ describe('a notice about the tree\'s workspace', () => {
     expect(window.location.hash).toBe('#/projects/tree/t1/files')
   })
 })
+
+describe('a notice about a client\'s database', () => {
+  it('opens the project\'s Settings, under its tree when it has one', () => {
+    render(<ChatNotice notice={{ key: 'release:r1:failed', kind: 'release-failed', text: 'Starting from the client\'s database failed.', refs: { projectId: 'p1' }, actions: ['open-settings'] }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
+    expect(window.location.hash).toBe('#/projects/project/p1/settings')
+  })
+})

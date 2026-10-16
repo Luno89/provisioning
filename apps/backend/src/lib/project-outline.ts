@@ -1,8 +1,9 @@
 import type { OdooRelease } from './odoo-release.js';
 import type { PipelineRunMetadata } from './types.js';
 import { changesSentence } from './release-compare.js';
+import { importLine, type ClientImport } from './client-import.js';
 
-export type StatusProject = { id: string; name: string };
+export type StatusProject = { id: string; name: string; clientImport?: ClientImport | undefined };
 export type StatusRelease = Pick<OdooRelease, 'commit' | 'slot' | 'state' | 'reason' | 'liveAt' | 'startedAt' | 'updatedAt' | 'changes'>;
 export type StatusRun = Pick<PipelineRunMetadata, 'commitSha' | 'status' | 'startedAt' | 'finishedAt' | 'promotedAt' | 'errorMessage' | 'releaseSkipped' | 'releaseRefused'>;
 
@@ -34,6 +35,7 @@ export function projectOutline(project: StatusProject, releases: readonly Status
     build
       ? `Last build: ${build.status}, ${short(build.commitSha)}, ${when(build.finishedAt ?? build.startedAt)}${build.errorMessage ? `: ${build.errorMessage}` : ''}${build.releaseSkipped ? `; not released: ${build.releaseSkipped}` : ''}${build.releaseRefused ? `; release refused: ${build.releaseRefused}` : ''}.`
       : 'Last build: none yet.',
+    importLine(project.clientImport),
     'Earlier releases: project_releases.',
   ];
   return lines.filter(Boolean).join('\n');

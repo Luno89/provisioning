@@ -27,6 +27,10 @@ const cluster: SlotCluster = {
   exec: async () => '{}',
   job: async () => undefined,
   scale: async (_target, workload, replicas) => { await act(`scale ${workload} ${replicas}`); },
+  put: async () => undefined,
+  remove: async (_target, kind, name) => { await act(`remove ${kind} ${name}`); },
+  running: async () => undefined,
+  pipe: async () => '',
 } as SlotCluster;
 
 const adapter: SlotAdapter = {
@@ -89,6 +93,22 @@ describe('opening a release', () => {
   it('says when the release is gone', async () => {
     records = [];
     expect(await ops()['releases.open']!(request())).toEqual({ exit: 'gone', outputs: { reason: 'the release is no longer recorded' } });
+  });
+});
+
+describe('installing the first release', () => {
+  it('installs a fresh app into slot a', async () => {
+    expect(await ops()['releases.install-first']!(request({ release: input }))).toMatchObject({ exit: 'done', outputs: { release: { slot: 'a' } } });
+    expect(actions).toEqual(['apply two live=a a=- b=-', 'wait data', 'init a', 'apply two live=a a=two b=-', 'wait app-a']);
+  });
+
+  it('restores a client\'s database instead, brings the repository\'s modules in, then lets the upload go', async () => {
+    const restoring: SlotAdapter = { ...adapter, restore: async (_c, _t, slot, _b, mode) => { await act(`restore ${slot} ${mode}`); } };
+    const withRestore = createReleaseOperations({ cluster, adapters: { fake: restoring }, releases: { list: async () => records, save: async () => undefined }, now: () => 'now' });
+    const restored = { ...input, build: { ...input.build, restore: { mode: 'copy' as const } } };
+    expect(await withRestore['releases.install-first']!(request({ release: restored }))).toMatchObject({ exit: 'done' });
+    expect(actions).toEqual(['apply two live=a a=- b=-', 'wait data', 'restore a copy', 'upgrade a', 'apply two live=a a=two b=-', 'wait app-a', 'remove pvc shop-import']);
+    expect(await ops()['releases.install-first']!(request({ release: restored }))).toEqual({ exit: 'failed', outputs: { reason: 'Fake cannot start from a client\'s database' } });
   });
 });
 

@@ -207,6 +207,42 @@ describe('one release at a time per project', () => {
   });
 });
 
+describe('a project that starts from a client\'s database', () => {
+  const uploaded = { state: 'uploaded', mode: 'copy', bytes: 10, version: '20.0', modules: ['base', 'sale'], at: 't' };
+  const importOf = async () => (await db.getProjects()).find((entry) => entry.id === 'p1')?.clientImport;
+
+  it('restores it in the first release, and records it imported once that release is live', async () => {
+    const svc = service();
+    await svc.release({ ...project, clientImport: uploaded } as ProjectMetadata, run('b1', 'abc'));
+    expect((started[0]!.inputs as ReleaseRunInput).build.restore).toEqual({ mode: 'copy' });
+    expect(await stateOf('r1')).toMatchObject({ restore: { mode: 'copy', version: '20.0', modules: 2 } });
+    expect(await importOf()).toMatchObject({ state: 'importing', releaseId: 'r1' });
+    await engineMarks('r1', { state: 'live', slot: 'a' } as ReleaseMark);
+    await runEnds(svc);
+    expect(await importOf()).toMatchObject({ state: 'imported', releaseId: 'r1' });
+  });
+
+  it('records it refused with the modules the restore found missing, and restores it again with the next build', async () => {
+    const svc = service();
+    await svc.release({ ...project, clientImport: uploaded } as ProjectMetadata, run('b1', 'abc'));
+    await engineMarks('r1', { state: 'failed', reason: 'shop-restore-a failed:\nERROR missing modules: web_studio' } as ReleaseMark);
+    await runEnds(svc);
+    expect(await importOf()).toMatchObject({ state: 'refused', missing: ['web_studio'], reason: expect.stringContaining('this project does not: web_studio') });
+    const stored = (await db.getProjects()).find((entry) => entry.id === 'p1')!;
+    await svc.release(stored, run('b2', 'def'));
+    expect((started.at(-1)!.inputs as ReleaseRunInput).build.restore).toEqual({ mode: 'copy' });
+  });
+
+  it('never restores over a project that has released', async () => {
+    const svc = service();
+    await svc.release(project, run('b1', 'abc'));
+    await engineMarks('r1', { state: 'live', slot: 'a' } as ReleaseMark);
+    await runEnds(svc);
+    await svc.release({ ...project, clientImport: uploaded } as ProjectMetadata, run('b2', 'def'));
+    expect((started.at(-1)!.inputs as ReleaseRunInput).build.restore).toBeUndefined();
+  });
+});
+
 describe('the person\'s decisions', () => {
   it('cuts over a release that would lose something only when the person confirms the loss, answering the losing choice', async () => {
     const svc = service();

@@ -633,6 +633,24 @@ with `adopt.json`; then `odoo-check` and the story lands. When a build first ins
 over rather than making them twice; the release's comparison then shows them kept, and they no longer count as made in
 the app.
 
+**A project can start from a client's own Odoo database** (`ClientImportService`, rules in `lib/client-import.ts`).
+While nothing is released, the project's Settings offers "Start from a client's database": the zip Odoo's database
+manager makes (`dump.sql`, `filestore/`, `manifest.json`), as a neutralized copy (the default) or as their live system.
+`PUT /api/projects/:id/import?mode=copy|live` streams the body (never buffered; the HTTP server has no request
+timeout) through `kubectl exec -i` into a volume claim `<release>-import` in the release's namespace, via a busybox holder
+pod, then reads `manifest.json`: a backup from another Odoo version (or hosted Odoo's `saas~` versions) is refused there
+and deleted. The upload is recorded on the project (`clientImport`) and the newest build released, or the first build
+when it comes. That first release (`restore` on the build input, carried by `OdooReleaseService` while nothing is
+established) runs the adapter's `restore` in place of `init`: one job in the build's image checks every module in the
+manifest exists in the image (refusing with the list, `missing modules: …`), loads `dump.sql` into `odoo_a`, unpacks
+the files, and for a copy runs `odoo neutralize` with a fresh database uuid and secret; then the ordinary `upgrade`
+brings in the repository's modules (with step 4's takeover). `admin`'s password is then Koala's sign-in. The service
+settles `clientImport` from the release (imported, refused with the missing modules, failed), and the channel's notice
+says how it started and how many things were made in the client's app (Settings → Made in the live app, Open settings).
+`npm run test:odoo-import-live` proves it: a backup made with `odoo db dump` from one project's live app, refused for
+another version and for a missing module, restored as a copy and as live, ~25 min, removes everything. Importing from
+hosted Odoo (Online, Odoo.sh, Enterprise) is a later step.
+
 **A new tree that produces a service gets its own project** (`TreeHomeService`, rule in `lib/tree-home.ts`): plan
 approval (`homeTree` in plan adoption) and `POST /api/trees` both call it, so it does not matter whether the tree came
 from chat, a check or the New Tree dialog. The project (`project-<treeId>`, so a retry finishes rather than doubles it)

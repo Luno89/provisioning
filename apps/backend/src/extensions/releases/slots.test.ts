@@ -67,6 +67,10 @@ function world(over: { state: SlotState; records: OdooRelease[]; answers?: strin
     },
     job: async () => undefined,
     scale: async (_target, workload, replicas) => { await act(`scale ${workload} ${replicas}`); },
+    put: async () => undefined,
+    remove: async (_target, kind, name) => { await act(`remove ${kind} ${name}`); },
+    running: async () => undefined,
+    pipe: async () => '',
   } as SlotCluster;
   const adapter: SlotAdapter = {
     id: 'fake', title: 'Fake',

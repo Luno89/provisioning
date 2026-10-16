@@ -1,3 +1,5 @@
+import { importClaim } from '../../../lib/client-import.js';
+import { ApplicationFailure } from '@temporalio/common';
 import type { NodeRequest, StepResult } from '@koala/agent-engine/procedure';
 import { idleOf, splitImage, type OdooRelease, type ReleaseState, type Slot, type SlotState } from '../../../lib/odoo-release.js';
 import { marked, type ReleaseMark, type ReleaseRunInput, type ReplaceRunInput, type RollBackRunInput } from '../../../lib/release-run.js';
@@ -117,9 +119,17 @@ export function createReleaseOperations(deps: ReleaseOperationDeps): Record<stri
         const empty: SlotState = { installed: true, live: 'a', tags: { a: undefined, b: undefined } };
         await apply(adapter, release, empty);
         await cluster.waitReady(release.target, adapter.dataStore(release.target));
-        await adapter.init(cluster, release.target, 'a', buildOf(release));
+        const restore = release.build.restore;
+        if (restore) {
+          if (!adapter.restore) throw ApplicationFailure.nonRetryable(`${adapter.title} cannot start from a client's database`);
+          await adapter.restore(cluster, release.target, 'a', buildOf(release), restore.mode);
+          await adapter.upgrade(cluster, release.target, 'a', buildOf(release));
+        } else {
+          await adapter.init(cluster, release.target, 'a', buildOf(release));
+        }
         await apply(adapter, release, { ...empty, tags: { a: splitImage(release.build.image).tag, b: undefined } });
         await cluster.waitReady(release.target, adapter.workload(release.target, 'a'));
+        if (restore) await cluster.remove(release.target, 'pvc', importClaim(release.target.release));
         return { exit: 'done', outputs: { release: { ...release, slot: 'a' } } };
       } catch (err) {
         return failed(err);

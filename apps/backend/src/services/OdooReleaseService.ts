@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../lib/types.js';
 import { ODOO_DATABASE_PASSWORD, ODOO_PROJECT_APP, ODOO_RELEASE_SECRETS, chartDatabaseSecret, vaultDatabaseSecret, newReleaseName, type ReleaseVault, releaseNameOf, releasePlace, releaseTargetOf, rollBackTarget, type OdooRelease, type ReleaseState } from '../lib/odoo-release.js';
 import type { ReleaseDecision } from '../lib/release-paths.js';
+import { missingFrom, missingSentence, restorable, type ClientImport } from '../lib/client-import.js';
 import { vaultSecretName } from '../lib/infisical-sync.js';
 import type { TreeTypeSecret } from '../lib/tree-types.js';
 import { isMockCloudProvider } from '../lib/cluster-topology.js';
@@ -63,6 +64,7 @@ export interface RollBackOffer {
 }
 
 const IN_FLIGHT: readonly ReleaseState[] = UNSETTLED_STATES.filter((state) => state !== 'queued');
+const ESTABLISHED: readonly ReleaseState[] = ['live', 'superseded', 'rolled-back', 'cutting-over', 'rolling-back'];
 
 export class OdooReleaseService {
   private readonly following = new Map<string, Promise<void>>();
@@ -106,6 +108,9 @@ export class OdooReleaseService {
     const place = releasePlace(releaseNameOf(named));
     const stamp = this.now();
     const busy = await this.deps.runs.running(project.id);
+    const fromClient = restorable(named.clientImport as ClientImport | undefined) && !(await this.deps.store.getOdooReleases(ownerId, project.id)).some((entry) => ESTABLISHED.includes(entry.state))
+      ? named.clientImport as ClientImport
+      : undefined;
     const release: OdooRelease = {
       id: (this.deps.newId ?? uuidv4)(),
       ownerId,
@@ -116,10 +121,12 @@ export class OdooReleaseService {
       state: busy ? 'queued' : 'preparing',
       host: place.host,
       previewHost: place.previewHost,
+      ...(fromClient ? { restore: { mode: fromClient.mode, version: fromClient.version, modules: fromClient.modules?.length ?? 0 } } : {}),
       startedAt: stamp,
       updatedAt: stamp,
     };
     await this.deps.store.saveOdooRelease(release);
+    if (fromClient) await this.deps.store.saveProjectInfo({ id: project.id, clientImport: { ...fromClient, state: 'importing', releaseId: release.id, reason: undefined, missing: undefined, at: stamp } });
     await this.deploymentFor(named, ownerId, cluster, run);
 
     if (busy) {
@@ -154,7 +161,13 @@ export class OdooReleaseService {
   }
 
   private buildOf(project: ProjectMetadata, release: OdooRelease, vault?: ReleaseVault | undefined): ReleaseBuildInput {
-    return { releaseId: release.id, image: release.image, source: { owner: project.giteaOwner!, repo: project.giteaRepo!, commit: release.commit }, ...(vault ? { vault } : {}) };
+    return {
+      releaseId: release.id,
+      image: release.image,
+      source: { owner: project.giteaOwner!, repo: project.giteaRepo!, commit: release.commit },
+      ...(vault ? { vault } : {}),
+      ...(release.restore ? { restore: { mode: release.restore.mode } } : {}),
+    };
   }
 
   private async vaultFor(project: ProjectMetadata, cluster: ClusterMetadata, commit: string): Promise<ReleaseVault | undefined> {
@@ -177,6 +190,33 @@ export class OdooReleaseService {
       database: carried ?? vaultDatabaseSecret(release),
       ...(admin ? { adminKey: admin.key } : {}),
     };
+  }
+
+  async nameRelease(project: ProjectMetadata): Promise<ProjectMetadata> {
+    return this.named(project, project.ownerId!);
+  }
+
+  async established(ownerId: string, projectId: string): Promise<OdooRelease | undefined> {
+    return (await this.deps.store.getOdooReleases(ownerId, projectId)).find((entry) => ESTABLISHED.includes(entry.state) || IN_FLIGHT.includes(entry.state));
+  }
+
+  private async settleImport(release: OdooRelease): Promise<void> {
+    if (!release.restore || (release.state !== 'live' && release.state !== 'failed')) return;
+    const project = (await this.deps.store.getProjects()).find((entry) => entry.id === release.projectId);
+    const entry = project?.clientImport as ClientImport | undefined;
+    if (!project || !entry || entry.releaseId !== release.id || entry.state !== 'importing') return;
+    const at = this.now();
+    if (release.state === 'live') {
+      await this.deps.store.saveProjectInfo({ id: project.id, clientImport: { ...entry, state: 'imported', at } });
+      return;
+    }
+    const missing = missingFrom(release.reason ?? '');
+    await this.deps.store.saveProjectInfo({
+      id: project.id,
+      clientImport: missing
+        ? { ...entry, state: 'refused', missing, reason: missingSentence(missing), at }
+        : { ...entry, state: 'failed', reason: release.reason ?? 'the release failed without saying why', at },
+    });
   }
 
   private async named(project: ProjectMetadata, ownerId: string): Promise<ProjectMetadata> {
@@ -326,6 +366,7 @@ export class OdooReleaseService {
 
   private async save(release: OdooRelease): Promise<void> {
     await this.deps.store.saveOdooRelease(release);
+    await this.settleImport(release);
     this.deps.notify?.(release.ownerId, release);
   }
 
@@ -337,6 +378,7 @@ export class OdooReleaseService {
       for (const release of releases) {
         if (seen.get(release.id) === release.updatedAt) continue;
         seen.set(release.id, release.updatedAt);
+        await this.settleImport(release);
         this.deps.notify?.(ownerId, release);
         if (release.state === 'live') await this.deploymentState(projectId, 'running', release.image);
         if (release.state === 'failed' && !releases.some((other) => other.state === 'live' || other.state === 'superseded')) await this.deploymentState(projectId, 'failed');

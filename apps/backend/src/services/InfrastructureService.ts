@@ -159,6 +159,27 @@ export class InfrastructureService {
     });
   }
 
+  async pipeKubectl(args: string[], kubeconfig: string | undefined, input: NodeJS.ReadableStream): Promise<string> {
+    const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
+    const containerName = match ? `k3d-${match[1] ?? 'unknown'}-server-0` : undefined;
+    const inContainer = containerName ? await this.dockerContainerExists(containerName) : false;
+    const [command, argv, env] = inContainer
+      ? ['docker', ['exec', '-i', containerName!, 'kubectl', ...args], process.env]
+      : [path.join(BIN_DIR, 'kubectl'), args, { ...process.env, KUBECONFIG: kubeconfig || DEFAULT_KUBECONFIG }];
+    return new Promise((resolve, reject) => {
+      const child = spawn(command, argv, { env, stdio: ['pipe', 'pipe', 'pipe'] });
+      let out = '';
+      let err = '';
+      child.stdout.on('data', (chunk) => { out += chunk; });
+      child.stderr.on('data', (chunk) => { err += chunk; });
+      child.on('error', reject);
+      child.stdin.on('error', () => {});
+      input.on('error', (error) => { child.kill(); reject(error); });
+      child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`kubectl ${args[0] ?? ''} failed: ${err.trim() || `exit ${code}`}`))));
+      input.pipe(child.stdin);
+    });
+  }
+
   async runHelm(args: string[], kubeconfig?: string) {
     const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
     if (match) {

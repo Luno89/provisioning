@@ -2,11 +2,12 @@ import type { ConversationNotice, NoticeAction, NoticeKind } from './conversatio
 import { workflowOfRun } from '../engine-host/temporal/contracts.js';
 import type { OdooRelease } from './odoo-release.js';
 import { changesSentence } from './release-compare.js';
+import { importedSentence } from './client-import.js';
 import type { Leaf } from './leaves.js';
 
 const short = (commit: string): string => commit.slice(0, 8);
 
-export function releaseNotice(release: Pick<OdooRelease, 'id' | 'projectId' | 'commit' | 'slot' | 'state' | 'reason' | 'e2e' | 'changes'>, treeId: string | undefined): ConversationNotice | undefined {
+export function releaseNotice(release: Pick<OdooRelease, 'id' | 'projectId' | 'commit' | 'slot' | 'state' | 'reason' | 'e2e' | 'changes' | 'restore'>, treeId: string | undefined, made?: number | undefined): ConversationNotice | undefined {
   const refs = { projectId: release.projectId, releaseId: release.id, ...(treeId ? { treeId } : {}) };
   const slot = release.slot ? ` in slot ${release.slot}` : '';
   if (release.state === 'preview') {
@@ -21,6 +22,16 @@ export function releaseNotice(release: Pick<OdooRelease, 'id' | 'projectId' | 'c
       actions: ['open-preview', 'cut-over'],
     };
   }
+  if (release.state === 'live' && release.restore) {
+    const things = made === undefined ? 'Settings shows what was made in their app' : made === 0 ? 'nothing in it was made in their app outside git' : `${count(made, 'thing was', 'things were')} made in their app, which Settings lists and can bring into git`;
+    return {
+      key: `release:${release.id}:live`,
+      kind: 'release-live',
+      text: `${importedSentence(release.restore)}; ${things}.`,
+      refs,
+      actions: ['open-app', 'open-settings'],
+    };
+  }
   if (release.state === 'live') {
     return { key: `release:${release.id}:live`, kind: 'release-live', text: `${short(release.commit)} is live${slot}.`, refs, actions: ['open-app'] };
   }
@@ -28,9 +39,11 @@ export function releaseNotice(release: Pick<OdooRelease, 'id' | 'projectId' | 'c
     return {
       key: `release:${release.id}:failed`,
       kind: 'release-failed',
-      text: `The release of ${short(release.commit)} failed${release.reason ? `: ${release.reason}` : ''}. What was live keeps running.`,
+      text: release.restore
+        ? `Starting from the client's database failed${release.reason ? `: ${release.reason}` : ''}. Nothing is live yet; Settings says what to do next.`
+        : `The release of ${short(release.commit)} failed${release.reason ? `: ${release.reason}` : ''}. What was live keeps running.`,
       refs,
-      actions: ['open-tree'],
+      actions: release.restore ? ['open-settings'] : ['open-tree'],
     };
   }
   return undefined;
@@ -99,7 +112,7 @@ export function workspaceNotice(
 }
 
 const NOTICE_KINDS: readonly NoticeKind[] = ['preview-ready', 'release-live', 'release-failed', 'tree-quiet', 'leaf-failed', 'secret-needed', 'workspace-ready', 'workspace-waiting', 'workspace-failed'];
-const NOTICE_ACTIONS: readonly NoticeAction[] = ['open-preview', 'open-app', 'cut-over', 'open-tree', 'open-story', 'enter-secret', 'open-workspace'];
+const NOTICE_ACTIONS: readonly NoticeAction[] = ['open-preview', 'open-app', 'cut-over', 'open-tree', 'open-story', 'enter-secret', 'open-workspace', 'open-settings'];
 
 export function postedNotice(value: Readonly<Record<string, unknown>>): ConversationNotice | undefined {
   const refs = value.refs as Record<string, unknown> | undefined;
