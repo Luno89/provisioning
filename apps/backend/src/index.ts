@@ -174,6 +174,7 @@ import { extensionServiceFor } from './services/ExtensionService.js';
 import { loadKeys } from './lib/keys.js';
 import { signJWT } from './lib/auth.js';
 import { roleFromEnv, servesTenants, holdsAccounts } from './lib/platform-role.js';
+import { machinePayloads, type GetAnswer, type PutAnswer, type RingAnswer } from './lib/machine-payloads.js';
 import { IdentityService } from './services/IdentityService.js';
 import { identityRouter } from './routes/identity.js';
 import { handoffRouter } from './routes/handoff.js';
@@ -556,6 +557,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   const agentNamespace = io.of('/agent');
+  const forMachines = machinePayloads({ ring: servesTenants(role) ? keys.payload : undefined, blobs: sharedPayloadBlobs() });
   agentNamespace.use(async (socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) return next(new Error('Missing device token'));
@@ -579,6 +581,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     socket.on('agents:manual', (_request: unknown, ack: (agents: unknown) => void) => {
       machineService.manualAgents(device.id).then(ack, () => ack([]));
     });
+    socket.on('machine:payloads', (_request: unknown, ack: (answer: RingAnswer) => void) => ack(forMachines.ring()));
+    socket.on('payloads:put', (request: unknown, ack: (answer: PutAnswer) => void) => { void forMachines.put(request).then(ack); });
+    socket.on('payloads:get', (request: unknown, ack: (answer: GetAnswer) => void) => { void forMachines.get(request).then(ack); });
     socket.on('memories:search', (request: { query?: unknown } | undefined, ack: (answer: { text: string }) => void) => {
       const query = typeof request?.query === 'string' ? request.query.trim() : '';
       if (!query) return ack({ text: 'Give a query: words to look for.' });

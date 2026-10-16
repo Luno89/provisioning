@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
 import { signJWT } from '../apps/backend/src/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/lib/keys.js';
+import { ACP_STUB, chatsOnTheMachine } from './lib/machine-chat.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
@@ -21,17 +22,6 @@ const IMAGE = 'nowrinkles/app:dev';
 const ROOT_CONTAINER = 'nw-mesh-root';
 const OTHER_USER = `mesh-live-other-${STAMP}`;
 const SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-auth-secret', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
-
-const ACP_STUB = `#!/usr/bin/env node
-const rl = require('readline').createInterface({ input: process.stdin });
-rl.on('line', (line) => {
-  let message;
-  try { message = JSON.parse(line); } catch { return; }
-  if (message.method === 'initialize') {
-    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [], agentInfo: { name: 'stub-agent', version: '1.2.3' } } }) + '\\n');
-  }
-});
-`;
 
 const run = (cmd: string, args: string[], input?: string) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', input, stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
 const headscale = (...args: string[]) => run('docker', ['exec', 'provisioning-headscale', 'headscale', ...args]);
@@ -167,6 +157,14 @@ async function main(): Promise<void> {
     return described.includes(`mesh-mach-${STAMP}`) ? described : undefined;
   });
   console.log(`  ${machineMeshIp} polls device-${machine.id} on ${instanceMeshIp}:7233; the instance's Temporal lists it:\n    ${pollers.trim().split('\n').join('\n    ')}`);
+
+  step('a chat on the machine\'s agent runs there, through the instance\'s Temporal over the mesh, with the instance\'s payload key');
+  const said = await chatsOnTheMachine(async (method, path, body) => {
+    const answer = await onInstance(`/api${path}`, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    const text = await answer.text();
+    return { status: answer.status, data: text ? JSON.parse(text) : undefined };
+  }, machine.id);
+  console.log(said.map((line) => `  ${line}`).join('\n'));
 
   step('someone else\'s machine on the same mesh reaches neither of them, and neither reaches it');
   headscale('users', 'create', OTHER_USER);

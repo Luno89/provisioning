@@ -6,13 +6,16 @@ const KEY = 'test-master-key-for-codec';
 const te = new TextEncoder();
 const td = new TextDecoder();
 
+type Loose = { encode(payloads: any[]): Promise<any[]>; decode(payloads: any[]): Promise<any[]> };
+const loose = (codec: Loose): Loose => codec;
+
 const plainPayload = (value: unknown) => ({
   metadata: { encoding: te.encode('json/plain') },
   data: te.encode(JSON.stringify(value)),
 });
 
 describe('EncryptionCodec', () => {
-  const codec = new EncryptionCodec(KEY);
+  const codec = loose(new EncryptionCodec(KEY));
 
   it('round-trips a payload', async () => {
     const original = plainPayload({ hcloudToken: 'super-secret', name: 'my-cluster' });
@@ -52,13 +55,13 @@ describe('EncryptionCodec', () => {
 
   it('fails loudly on a wrong key rather than returning garbage', async () => {
     const [encoded] = await codec.encode([plainPayload({ a: 1 })]);
-    const other = new EncryptionCodec('a-different-key');
+    const other = loose(new EncryptionCodec('a-different-key'));
     await expect(other.decode([encoded])).rejects.toThrow(/written with a key this worker does not hold/);
   });
 
   it('reads history written under the old key while writing everything new under the current one', async () => {
-    const [old] = await new EncryptionCodec('the-old-jwt-secret').encode([plainPayload({ a: 1 })]);
-    const rotated = new EncryptionCodec({ current: 'the-new-payload-key', previous: ['the-old-jwt-secret'] });
+    const [old] = await loose(new EncryptionCodec('the-old-jwt-secret')).encode([plainPayload({ a: 1 })]);
+    const rotated = loose(new EncryptionCodec({ current: 'the-new-payload-key', previous: ['the-old-jwt-secret'] }));
 
     const [decoded] = await rotated.decode([old]);
     expect(JSON.parse(td.decode(decoded.data))).toEqual({ a: 1 });

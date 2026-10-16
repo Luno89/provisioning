@@ -61,9 +61,12 @@ say "Joining ${KOALA_URL}"
 JOIN_ENV=$(mktemp)
 trap 'rm -f "$JOIN_ENV"' EXIT
 HOST=$(hostname 2>/dev/null || uname -n)
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/koala/machine.json"
+REPLACES=""
+[ -f "$CONFIG" ] && REPLACES=$(node -e 'try { process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).token || "")) } catch {}' "$CONFIG")
 OS="$(uname -s) $(uname -m)"
-HTTP_CODE=$(curl -sS -o "$JOIN_ENV" -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
-  -d "{\"code\":\"$(json "$CODE")\",\"hostname\":\"$(json "$HOST")\",\"rootDir\":\"$(json "$FOLDER")\",\"os\":\"$(json "$OS")\"}" \
+HTTP_CODE=$(printf '%s' "{\"code\":\"$(json "$CODE")\",\"hostname\":\"$(json "$HOST")\",\"rootDir\":\"$(json "$FOLDER")\",\"os\":\"$(json "$OS")\",\"replaces\":\"$(json "$REPLACES")\"}" \
+  | curl -sS -o "$JOIN_ENV" -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary @- \
   "${KOALA_URL}/api/machines/join?format=env")
 [ "$HTTP_CODE" = 200 ] || die "Koala refused this machine (${HTTP_CODE}): $(cat "$JOIN_ENV")"
 . "$JOIN_ENV"

@@ -43,6 +43,8 @@ import type { ExternalAgentStepArgs } from '@koala/engine-core';
 import { ExternalAgentSessions } from '../../../local-agent/src/external-agents.js';
 import type { AgentScript } from '../../../local-agent/src/acp-script-agent.js';
 import { EXTERNAL_AGENT_CHAT, EXTERNAL_AGENT_TASK } from '../extensions/external-agents/procedures.js';
+import { payloadRingOver, remoteBlobs, type AskingSocket } from '../../../local-agent/src/remote-blobs.js';
+import { machinePayloads } from '../lib/machine-payloads.js';
 import {
   DEFAULT_STREAM_TASK_QUEUE,
   type ProcedureRunInput,
@@ -188,6 +190,7 @@ async function runWorkflow(
   acts: Activities,
   drive?: (handle: WorkflowHandle) => Promise<void>,
   dataConverter?: DataConverter,
+  deviceConverter?: DataConverter,
 ) {
   const taskQueue = `engine-test-${Math.random().toString(36).slice(2, 8)}`;
   const converted = dataConverter ? { dataConverter } : {};
@@ -203,7 +206,7 @@ async function runWorkflow(
     connection: env.nativeConnection,
     taskQueue: 'device-desk',
     activities: { EngineToolActivity: acts.engine.EngineToolActivity, ...acts.device },
-    ...converted,
+    ...(deviceConverter ? { dataConverter: deviceConverter } : converted),
   });
 
   const client = drive || dataConverter ? new WorkflowClient({ connection: env.connection, ...converted }) : env.client.workflow;
@@ -1067,6 +1070,59 @@ describe('an external agent working on someone\'s machine', () => {
       ['user', 'labels module?'], ['assistant', 'labels module?'], ['user', 'And the tests?'], ['assistant', 'And the tests?'],
     ]);
     expect(sessions.openKeys()).toEqual([]);
+  }, 60_000);
+
+  it('runs on a machine that reads its instance\'s payloads: encrypted, and fetched or stored over its socket when they are large', async () => {
+    root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
+    const scriptPath = resolve(root, 'script.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [{ echo: true }] }] } satisfies AgentScript));
+    const sessions = new ExternalAgentSessions({ rootDir: resolve(root, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500 });
+    const acts = activities({ script: [{ content: 'unused' }], external: sessions, environment: MACHINE, conversations: inMemoryConversations() });
+    const ring = loadKeys({ JWT_SECRET: 'machine-payloads-test' }).payload;
+    const blobs = inMemoryPayloadBlobs();
+    const instance = machinePayloads({ ring, blobs });
+    const asked: string[] = [];
+    const socket: AskingSocket = {
+      connected: true,
+      once: () => undefined,
+      off: () => undefined,
+      emit(event, payload, ack) {
+        asked.push(event);
+        const answer = event === 'machine:payloads' ? Promise.resolve(instance.ring()) : event === 'payloads:put' ? instance.put(payload) : instance.get(payload);
+        void answer.then((value) => (ack as (answer: unknown) => void)(value));
+        return true;
+      },
+    };
+    const onMachine = buildDataConverter(await payloadRingOver(socket), remoteBlobs(socket));
+    const pasted = `Read this checksum list: ${randomBytes(200_000).toString('hex')}`;
+
+    const result = await runWorkflow({
+      ticket: { ...ticket('koala'), conversationId: 'c-big', modelId: 'machine:desk:antigravity' },
+      procedure: EXTERNAL_AGENT_CHAT,
+      inputs: { message: pasted, conversationId: 'c-big' },
+    }, acts, undefined, buildDataConverter(ring, blobs), onMachine);
+
+    expect(result.outcome).toBe('ok');
+    expect(String(result.outputs.result).endsWith(pasted)).toBe(true);
+    expect(asked).toEqual(expect.arrayContaining(['machine:payloads', 'payloads:get', 'payloads:put']));
+    expect(blobs.stored.size).toBeGreaterThan(1);
+    await sessions.closeAll();
+  }, 60_000);
+
+  it('says in the chat why the machine could not take the turn, instead of an empty reply', async () => {
+    const conversations = inMemoryConversations();
+    const acts = activities({ script: [{ content: 'unused' }], environment: MACHINE, conversations });
+    acts.device = { ExternalAgentActivity: async () => { throw new Error('Unknown encoding: binary/encrypted-aes-256-gcm'); } };
+
+    const result = await runWorkflow({
+      ticket: { ...ticket('koala'), conversationId: 'c-broken', modelId: 'machine:desk:antigravity' },
+      procedure: EXTERNAL_AGENT_CHAT,
+      inputs: { message: 'Hello?', conversationId: 'c-broken' },
+    }, acts);
+
+    expect(result.outcome).toBe('failed');
+    const stored = await conversations.get('user-1', 'c-broken');
+    expect(stored?.messages.at(-1)).toMatchObject({ role: 'assistant', content: '', interruptedReason: 'Desk could not run antigravity: Unknown encoding: binary/encrypted-aes-256-gcm' });
   }, 60_000);
 
   it('hands a story to an agent set to work on a machine, whatever model the run that handed it over used', async () => {

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import { encryptValue, type SecretKey } from '../lib/crypto.js';
+import { findDeviceByToken } from '../lib/local-agent-registry.js';
 import type { Database } from '../lib/db-interface.js';
 import type { MachineChoice } from '@koala/agent-engine/procedure';
 import type { LocalAgentDeviceMetadata, ProjectMetadata } from '../lib/types.js';
@@ -107,7 +108,7 @@ export class MachineService {
     return { code, expiresAt, command: machineCommand(this.deps.settings.url, code) };
   }
 
-  async join(code: unknown, machine: { hostname?: unknown; rootDir?: unknown; os?: unknown }): Promise<Outcome<JoinedMachine>> {
+  async join(code: unknown, machine: { hostname?: unknown; rootDir?: unknown; os?: unknown; replaces?: unknown }): Promise<Outcome<JoinedMachine>> {
     if (typeof code !== 'string' || !code) return { ok: false, status: 400, error: 'send the code from My Machines as "code"' };
     const rootDir = text(machine.rootDir, 500);
     if (!rootDir || !path.isAbsolute(rootDir)) return { ok: false, status: 400, error: 'send the folder Koala may work in as "rootDir", a full path' };
@@ -117,21 +118,28 @@ export class MachineService {
     const found = await this.deps.store.takeMachineJoinCode(hashMachineCode(code));
     if (!found || found.expiresAt <= this.now().toISOString()) return { ok: false, status: 401, error: 'that command has expired or was already used: make a new one on My Machines' };
 
-    const id = uuidv4();
+    const replaced = typeof machine.replaces === 'string' && machine.replaces
+      ? findDeviceByToken((await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === found.ownerId), machine.replaces, this.deps.dataKey)
+      : undefined;
+    const id = replaced?.id ?? uuidv4();
     const token = crypto.randomBytes(32).toString('base64url');
     const name = text(machine.hostname, 80) ?? 'machine';
     const os = text(machine.os, 80);
+    const { os: _formerOs, ...kept } = replaced ?? { os: undefined };
     await this.deps.store.saveLocalAgentDevice({
+      ...kept,
       id,
       ownerId: found.ownerId,
       name,
       rootDir,
       tokenEnc: encryptValue(token, this.deps.dataKey),
-      createdAt: this.now().toISOString(),
+      createdAt: replaced?.createdAt ?? this.now().toISOString(),
       ...(os ? { os } : {}),
     });
-    await this.deps.projects.register(found.ownerId, `${name} - ${path.basename(rootDir) || rootDir}`, { executionTarget: { kind: 'local-device', deviceId: id } })
-      .catch((err: Error) => console.warn(`[machines] ${name} joined, but its project could not be made: ${err.message}`));
+    if (!replaced) {
+      await this.deps.projects.register(found.ownerId, `${name} - ${path.basename(rootDir) || rootDir}`, { executionTarget: { kind: 'local-device', deviceId: id } })
+        .catch((err: Error) => console.warn(`[machines] ${name} joined, but its project could not be made: ${err.message}`));
+    }
     const preAuthKey = mesh ? (await this.deps.mesh!.createPreAuthKey(found.ownerId, { reusable: false, expirySeconds: MACHINE_CODE_TTL_SECONDS })).key : '';
     return {
       ok: true,

@@ -14,7 +14,14 @@
     "./contracts": {
       "types": "./src/contracts.ts",
       "default": "./src/contracts.ts"
+    },
+    "./payloads": {
+      "types": "./src/payload-codec.ts",
+      "default": "./src/payload-codec.ts"
     }
+  },
+  "dependencies": {
+    "@temporalio/common": "^1.23.0"
   },
   "scripts": {
     "test": "vitest run"

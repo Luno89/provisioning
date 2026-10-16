@@ -1,5 +1,6 @@
 import { Context } from '@temporalio/activity';
 import { Worker, NativeConnection } from '@temporalio/worker';
+import { buildDataConverter, type BlobReach, type Keyring } from '@koala/engine-core/payloads';
 import { executeTool, heartbeatWhileRunning, type ExternalAgentStepArgs, type ExternalAgentStepResult, type ToolContract } from '@koala/engine-core';
 import { createLocalFsDriver } from './local-fs-driver.js';
 import type { ExternalAgentSessions } from './external-agents.js';
@@ -94,6 +95,7 @@ export function createDeviceActivities(options: DeviceActivitiesOptions) {
 
 export interface DeviceWorkerOptions extends DeviceActivitiesOptions {
   address: string;
+  payloads: { ring: Keyring; blobs: BlobReach };
   namespace?: string | undefined;
   onReady?: ((queue: string) => void) | undefined;
 }
@@ -107,6 +109,7 @@ export async function startDeviceWorker(options: DeviceWorkerOptions): Promise<W
   const worker = await Worker.create({
     connection,
     taskQueue,
+    dataConverter: buildDataConverter(options.payloads.ring, options.payloads.blobs),
     interceptors: { activity: [heartbeatWhileRunning()] },
     ...(options.namespace ? { namespace: options.namespace } : {}),
     activities: createDeviceActivities(options),

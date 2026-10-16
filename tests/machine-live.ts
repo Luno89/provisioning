@@ -8,26 +8,13 @@ import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
 import { signJWT } from '../apps/backend/src/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/lib/keys.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
+import { ACP_STUB, chatsOnTheMachine, type Api } from './lib/machine-chat.js';
 
 const BASE = process.env.MACHINE_LIVE_URL ?? 'http://localhost:3001/api';
 const OWNER = process.env.MACHINE_LIVE_OWNER ?? process.env.CHECKS_LIVE_OWNER;
 const NAME = `machine-live-${Date.now().toString(36)}`;
 const NODE = process.version;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const ACP_STUB = `#!/usr/bin/env node
-const rl = require('readline').createInterface({ input: process.stdin });
-rl.on('line', (line) => {
-  let message;
-  try { message = JSON.parse(line); } catch { return; }
-  if (message.method === 'initialize') {
-    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {
-      protocolVersion: 1, agentCapabilities: {}, authMethods: [{ id: 'stub', name: 'Stub sign-in' }],
-      agentInfo: { name: 'stub-agent', title: 'Stub Agent', version: '1.2.3' },
-    } }) + '\\n');
-  }
-});
-`;
 
 const LOOPBACK = `#!/bin/sh
 sysctl -qw net.ipv4.conf.all.route_localnet=1
@@ -146,9 +133,28 @@ async function main(): Promise<void> {
     assert.equal(claude.state, 'ready', `the adapter installed but ${claude.state}: ${claude.reason ?? ''}`);
     console.log(`    claude ready through its adapter${claude.version ? ` (${claude.version})` : ''}`);
 
+    console.log('[6] running the command again on the same machine replaces it rather than adding a second');
+    const remade = await http.post('/mesh/local-agents/join-code', {});
+    assert.equal(remade.status, 201, JSON.stringify(remade.data));
+    await ssh(vm, `${(remade.data as { command: string }).command} --yes`);
+    const rejoined = await until('the machine connecting again', 3, async () => {
+      const found = (await machines()).filter((machine) => machine.name === NAME);
+      return found.length === 1 && found[0]!.online && found[0]!.connectedAt !== back.connectedAt ? found[0] : undefined;
+    });
+    assert.equal(rejoined.id, back.id);
+    console.log(`    still one machine, ${rejoined.id}`);
+
+    console.log('[7] a chat on its gemini runs on the machine: the large message reaches it through the encrypted, offloaded payloads, and the next turn continues the session');
+    const api: Api = async (method, path, body) => {
+      const answer = await http.request({ method, url: path, ...(body === undefined ? {} : { data: body }) });
+      return { status: answer.status, data: answer.data };
+    };
+    const said = await chatsOnTheMachine(api, rejoined.id);
+    console.log(said.map((line) => `    ${line}`).join('\n'));
+
     console.log('machine live — PASS');
   } finally {
-    console.log('[6] removing the machine, its project and the VM');
+    console.log('[8] removing the machine, its project and the VM');
     const found = await mine().catch(() => undefined);
     if (found) {
       const removed = await http.delete(`/mesh/local-agents/${found.id}`);

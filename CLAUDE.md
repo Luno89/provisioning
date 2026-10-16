@@ -200,7 +200,25 @@ service (systemd `--user`, launchd). The device worker reaches Temporal at `MACH
 backend's own). Each time it connects the agent looks for coding agents (`agent-discovery.ts`: Gemini CLI, Antigravity,
 Claude Code and Codex through their ACP adapters, Goose, and any the person added by hand on My Machines), confirms each
 by an ACP `initialize`, and reports them (`agents:found`); only confirmed ones run. A CLI whose adapter is missing shows
-with Install adapter, which asks the machine to `npm install --global` it.
+with Install adapter, which asks the machine to install it (`agent-install.ts`): `npm install --global` for an npm adapter,
+or, for Antigravity (found by its sign-in in `~/.gemini/antigravity-acp` or the IDE), Google's ACP server downloaded from the
+ACP registry's listing into `~/.local/share/koala/agents/antigravity-acp`. Running the command again on a machine already
+added replaces that machine (the script sends the old token from `machine.json`, on stdin) instead of adding a second.
+
+**A machine's worker reads its instance's payloads like any other worker.** The machine is inside its owner's instance,
+so on every connect the agent asks for the payload keyring over its socket (`machine:payloads`, only where tenants are
+served; `lib/machine-payloads.ts`), holds it in memory only, and starts its device worker with the same converter as
+every platform worker (`buildDataConverter` in `@koala/engine-core/payloads`, one codec shared by the backend and the
+machine). Payloads over 128 KB go through the backend over that socket (`payloads:put`/`payloads:get`, `remote-blobs.ts`),
+since a machine never reaches Mongo. A new keyring restarts the worker (`DeviceWorkerHost`). Without this nothing sent to
+`device-<id>` could be read; `machine-live` and `mesh-live` now run a two-turn chat on the machine to prove it.
+
+**Picking an agent on a machine.** Every model picker except the account default and Checks has a "My machines" section:
+one row per ready agent per machine, `machine:<deviceId>:<agent>` (`machine-choice.ts`). A run picked that way runs the
+`external-agent-chat` procedure (chat) or `external-agent-task`, on that machine (`machineRunFor`, refused with
+`MACHINE_UNAVAILABLE` when the machine is gone, offline or its agent is not ready). An agent whose "Runs on" (Studio) is a
+machine always runs there; a machine picked for one run is never inherited by the runs it starts. A conversation keeps one
+session per machine and agent (`machineSessions`), so the next turn resumes it; a failed turn is saved with its reason.
 
 ## Roles: root, instance, combined
 

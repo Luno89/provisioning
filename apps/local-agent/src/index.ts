@@ -13,18 +13,13 @@ import { probeAcp } from './acp-session.js';
 import { installAgent } from './agent-install.js';
 import { ExternalAgentSessions, koalaTools } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
+import { askOver, payloadRingOver, remoteBlobs } from './remote-blobs.js';
+import { DeviceWorkerHost } from './device-worker-host.js';
 
 const activeContainers = new Set<string>();
 
-const searchMemoriesOver = (socket: Socket) => (query: string) => new Promise<string>((resolve, reject) => {
-  if (!socket.connected) return reject(new Error('this machine is not connected to Koala right now'));
-  const gone = () => reject(new Error('this machine lost its connection to Koala before the search answered'));
-  socket.once('disconnect', gone);
-  socket.emit('memories:search', { query }, (answer: { text: string }) => {
-    socket.off('disconnect', gone);
-    resolve(answer.text);
-  });
-});
+const searchMemoriesOver = (socket: Socket) => async (query: string): Promise<string> =>
+  (await askOver<{ text: string }>(socket, 'memories:search', { query })).text;
 
 const manualOver = (socket: Socket) => new Promise<ManualAgent[]>((resolve) => {
   socket.emit('agents:manual', {}, (answer: unknown) => resolve(manualAgentsFrom(answer)));
@@ -51,29 +46,28 @@ function watchAgents(socket: Socket, config: MachineConfig, sessions: ExternalAg
   });
 }
 
-async function startEngineWorkerIfConfigured(config: MachineConfig, sessions: ExternalAgentSessions): Promise<void> {
+function followEngineWorker(socket: Socket, config: MachineConfig, sessions: ExternalAgentSessions): DeviceWorkerHost | undefined {
   if (!config.deviceId || !config.temporalAddress) {
     if (config.deviceId || config.temporalAddress) {
       console.warn('[koala-local-agent] engine worker not started — it needs both a device id and a Temporal address.');
     }
-    return;
+    return undefined;
   }
-  try {
+  const { deviceId, temporalAddress } = config;
+  const host = new DeviceWorkerHost(async (ring) => {
     const { startDeviceWorker } = await import('./engine-worker.js');
-    const worker = await startDeviceWorker({
+    return startDeviceWorker({
       rootDir: config.rootDir,
-      deviceId: config.deviceId,
+      deviceId,
       externalAgents: sessions,
-      address: config.temporalAddress,
+      address: temporalAddress,
+      payloads: { ring, blobs: remoteBlobs(socket) },
       ...(config.temporalNamespace ? { namespace: config.temporalNamespace } : {}),
-      onReady: (queue) => console.log(`[koala-local-agent] engine worker polling ${queue} at ${config.temporalAddress}`),
+      onReady: (queue) => console.log(`[koala-local-agent] engine worker polling ${queue} at ${temporalAddress}`),
     });
-    void worker.run().catch((err: unknown) => {
-      console.error(`[koala-local-agent] engine worker stopped: ${(err as Error).message}`);
-    });
-  } catch (err) {
-    console.error(`[koala-local-agent] could not start the engine worker: ${(err as Error).message}`);
-  }
+  });
+  socket.on('connect', () => { void host.connected(() => payloadRingOver(socket)); });
+  return host;
 }
 
 async function main() {
@@ -96,7 +90,7 @@ async function main() {
     process.once(signal, () => { void sessions.closeAll().finally(() => process.exit(0)); });
   }
   watchAgents(socket, config, sessions);
-  await startEngineWorkerIfConfigured(config, sessions);
+  followEngineWorker(socket, config, sessions);
 
   socket.on('connect', () => {
     console.log(`[koala-local-agent] connected to ${backendUrl} — root: ${rootDir}, containers: ${containerMode ? 'on' : 'off'}`);

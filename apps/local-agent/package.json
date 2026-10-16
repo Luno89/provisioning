@@ -16,6 +16,7 @@
     "@agentclientprotocol/sdk": "^1.8.0",
     "@koala/context-engine": "*",
     "@koala/engine-core": "*",
+    "@temporalio/common": "^1.23.0",
     "@temporalio/activity": "^1.23.0",
     "@temporalio/worker": "^1.23.0",
     "socket.io-client": "^4.8.3",

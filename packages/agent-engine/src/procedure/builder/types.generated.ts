@@ -330,6 +330,8 @@ export interface SaveConversationWires {
   history?: In<'json'>
   /** An External Agent's session, kept with the conversation so its next turn continues it. */
   session?: In<'json'>
+  /** Why the turn ended without an answer, shown with the reply in its place. */
+  reason?: In<'text'>
 }
 
 export type SaveConversationSettings = {

@@ -34,9 +34,11 @@ const acpAgent = async (name: string, script: AgentScript) => {
   return executable(name, `exec "${process.execPath}" --import "${TSX}" "${AGENT}" "${scriptPath}"`);
 };
 
+const inHome = (place: string) => (place.startsWith('~/') ? path.join(dir, 'home', place.slice(2)) : place);
+
 const deps = (): DiscoveryDeps => ({
-  which: (command) => onPath(command, bin),
-  exists: (place) => access(path.join(dir, 'home', place.replace(/^~\//, ''))).then(() => true, () => false),
+  which: (command) => onPath(inHome(command), bin),
+  exists: (place) => access(inHome(place)).then(() => true, () => false),
   probe: (launch) => probeAcp(launch, dir),
 });
 
@@ -62,6 +64,17 @@ describe('finding the agents on a machine', () => {
     const found = await discoverAgents(deps(), []);
     expect(found.agents).toEqual([{ id: 'antigravity', title: 'Antigravity', state: 'needs-adapter', source: 'found', adapter: "Google's Antigravity ACP server", reason: "Antigravity is set up here, but Koala reaches it through Google's Antigravity ACP server, which is not installed" }]);
     expect(found.launches).toEqual({});
+  });
+
+  it('runs Antigravity from where Install adapter put Google\'s server', async () => {
+    const home = path.join(dir, 'home', '.local', 'share', 'koala', 'agents', 'antigravity-acp');
+    await mkdir(home, { recursive: true });
+    const scriptPath = path.join(dir, 'agy.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'antigravity', version: '1.4.0', turns: [] }));
+    await writeFile(path.join(home, 'agy_acp_server.par'), `#!/bin/sh\nexec "${process.execPath}" --import "${TSX}" "${AGENT}" "${scriptPath}"\n`);
+    await chmod(path.join(home, 'agy_acp_server.par'), 0o755);
+    const found = await discoverAgents(deps(), []);
+    expect(found.agents).toMatchObject([{ id: 'antigravity', state: 'ready', command: path.join(home, 'agy_acp_server.par') }]);
   });
 
   it('keeps a program that does not answer as an ACP agent out of what runs, saying why', async () => {

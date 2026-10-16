@@ -48,6 +48,7 @@ export const saveConversation: BuiltInNode = {
       { name: 'compaction', type: 'json', describe: 'The summary this turn ended up sending, from Compact Context, so the next turn starts from it rather than summarising again.' },
       { name: 'history', type: 'json', describe: 'Load Conversation\'s history, to tell which stored messages the summary covers.' },
       { name: 'session', type: 'json', describe: 'An External Agent\'s session, kept with the conversation so its next turn continues it.' },
+      { name: 'reason', type: 'text', describe: 'Why the turn ended without an answer, shown with the reply in its place.' },
     ],
     outputs: [{ name: 'conversation', type: 'text', describe: 'The conversation that was written.' }],
     exits: [

@@ -11,6 +11,7 @@ import {
   continueAsNew,
   workflowInfo,
   patched,
+  ActivityFailure,
 } from '@temporalio/workflow';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 import { childInputs } from '../engine-host/nodes/child-inputs.js';
@@ -293,7 +294,10 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         }
         await flush();
       };
-      const step = (op: ExternalAgentStepArgs['op']) => device.ExternalAgentActivity({ key, agent, op });
+      const step = (op: ExternalAgentStepArgs['op']): Promise<ExternalAgentStepResult> => device.ExternalAgentActivity({ key, agent, op }).catch((err: unknown) => {
+        if (!(err instanceof ActivityFailure)) throw err;
+        return { state: 'failed', error: `${environment.deviceName} could not run ${agent}: ${err.cause?.message ?? err.message}`, events: [] };
+      });
 
       let result = await step({ kind: 'open', brief, ...(context ? { context } : {}), ...(mode ? { mode } : {}), ...(resume ? { resume } : {}), ...(environment.path ? { path: environment.path } : {}) });
       for (;;) {

@@ -200,9 +200,10 @@ export function createConversationNodes(store: ConversationStore): NodeImplement
         : asStoredToolCalls(reply, results);
 
       const ending = request.run.ending;
-      const stopped = !reply.content.trim() && ending && ending.outcome !== 'ok'
-        ? ending.reason ?? `the turn ended ${ending.outcome} before it answered`
-        : undefined;
+      const given = typeof request.inputs.reason === 'string' ? request.inputs.reason.trim() : '';
+      const stopped = reply.content.trim()
+        ? undefined
+        : given || (ending && ending.outcome !== 'ok' ? ending.reason ?? `the turn ended ${ending.outcome} before it answered` : undefined);
 
       const nodeTitle = String(request.node.settings.title ?? '').trim();
       const base = asked.trim()

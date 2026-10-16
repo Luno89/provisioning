@@ -88,6 +88,27 @@ describe('adding a machine with the command from My Machines', () => {
     expect(await again.text()).toBe('that command has expired or was already used: make a new one on My Machines');
   });
 
+  it('replaces the machine it ran on before when the command runs there again, keeping what was set on it', async () => {
+    const codeOf = async () => (await (await post('/api/mesh/local-agents/join-code', {})).json() as { code: string }).code;
+    const first = await (await post('/api/machines/join', { code: await codeOf(), hostname: 'desk', rootDir: '/home/me/koala' })).json() as { deviceId: string; env: Record<string, string> };
+    const before = (await harness.db.getLocalAgentDevices()).find((device) => device.id === first.deviceId)!;
+    await harness.db.saveLocalAgentDevice({ ...before, manualAgents: [{ id: 'pi', command: 'pi', args: ['--rpc'] }] });
+    const projects = (await harness.db.getProjects()).length;
+
+    const again = await (await post('/api/machines/join', { code: await codeOf(), hostname: 'desk', rootDir: '/home/me/work', replaces: first.env.KOALA_DEVICE_TOKEN })).json() as { deviceId: string; env: Record<string, string> };
+
+    expect(again.deviceId).toBe(first.deviceId);
+    const devices = (await harness.db.getLocalAgentDevices()).filter((device) => device.name === 'desk');
+    expect(devices).toHaveLength(1);
+    expect(devices[0]).toMatchObject({ rootDir: '/home/me/work', createdAt: before.createdAt, manualAgents: [{ id: 'pi', command: 'pi', args: ['--rpc'] }] });
+    expect(decryptValue(devices[0]!.tokenEnc, DATA_KEY)).toBe(again.env.KOALA_DEVICE_TOKEN);
+    expect(again.env.KOALA_DEVICE_TOKEN).not.toBe(first.env.KOALA_DEVICE_TOKEN);
+    expect((await harness.db.getProjects()).length).toBe(projects);
+
+    const stranger = await (await post('/api/machines/join', { code: await codeOf(), hostname: 'desk', rootDir: '/home/me/koala', replaces: 'not-a-token-of-yours' })).json() as { deviceId: string };
+    expect(stranger.deviceId).not.toBe(first.deviceId);
+  });
+
   it('refuses a code it never gave, and a folder that is not a full path', async () => {
     expect((await post('/api/machines/join', { code: 'made-up', rootDir: '/x' })).status).toBe(401);
     const { code } = await (await post('/api/mesh/local-agents/join-code', {})).json() as { code: string };
