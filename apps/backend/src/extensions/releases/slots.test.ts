@@ -11,7 +11,9 @@ import {
   type QuestionRequest,
 } from '@koala/agent-engine/procedure';
 import type { OdooRelease, SlotState } from '../../lib/odoo-release.js';
-import { CUT_OVER, DISCARD, RETEST, type ReleaseRunInput, type RollBackRunInput } from '../../lib/release-run.js';
+import { CUT_OVER, CUT_OVER_LOSING, DISCARD, RETEST, type ReleaseRunInput, type RollBackRunInput } from '../../lib/release-run.js';
+import type { SchemaSnapshot } from '../../lib/release-compare.js';
+import { SNAPSHOT_SQL } from './postgres-compare.js';
 import { platformCatalogue } from '../installed.js';
 import type { SlotAdapter } from './adapter.js';
 import { createReleaseOperations } from './operations/handlers.js';
@@ -28,7 +30,15 @@ const INPUT: ReleaseRunInput = {
 
 const record = (id: string, extra: Partial<OdooRelease> = {}): OdooRelease => ({ id, ownerId: 'bo', projectId: 'p1', pipelineRunId: id, commit: id === 'r1' ? 'one' : 'two', image: `reg/shop:${id === 'r1' ? 'one' : 'two'}`, state: 'preparing', host: 'h', startedAt: id, updatedAt: id, ...extra });
 
-function world(over: { state: SlotState; records: OdooRelease[]; answers?: string[]; breakOn?: string; deploy?: { ok: true } | { ok: false; reason: string } }) {
+interface Compared {
+  live: SchemaSnapshot;
+  prepared: SchemaSnapshot;
+  counts: Record<string, number>[];
+}
+
+function world(over: { state: SlotState; records: OdooRelease[]; answers?: string[]; breakOn?: string; deploy?: { ok: true } | { ok: false; reason: string }; compared?: Compared }) {
+  const compared = over.compared ?? { live: {}, prepared: {}, counts: [] };
+  const counted = [...compared.counts];
   let state = over.state;
   let records = over.records;
   const actions: string[] = [];
@@ -48,7 +58,12 @@ function world(over: { state: SlotState; records: OdooRelease[]; answers?: strin
     },
     vault: async () => { await act('vault'); },
     waitReady: async (_target, workload) => { await act(`wait ${workload}`); },
-    exec: async () => '',
+    exec: async (_target, _pod, command) => {
+      const sql = command.at(-1)!;
+      const database = command[command.indexOf('-d') + 1];
+      if (sql === SNAPSHOT_SQL) return JSON.stringify(database === `db_${state.live}` ? compared.live : compared.prepared);
+      return JSON.stringify(counted.length > 1 ? counted.shift() : counted[0] ?? {});
+    },
     job: async () => undefined,
     scale: async (_target, workload, replicas) => { await act(`scale ${workload} ${replicas}`); },
   } as SlotCluster;
@@ -61,6 +76,7 @@ function world(over: { state: SlotState; records: OdooRelease[]; answers?: strin
     copy: async (_c, _t, from, to) => { await act(`copy ${from}->${to}`); },
     quiet: async (_c, _t, slot) => { await act(`quiet ${slot}`); },
     upgrade: async (_c, _t, slot) => { await act(`upgrade ${slot}`); },
+    database: (_t, slot) => ({ pod: 'db-0', user: 'app', database: `db_${slot}` }),
   };
   const operations = createReleaseOperations({
     cluster,
@@ -137,6 +153,29 @@ describe('releasing beside the live slot', () => {
     expect(stateOf(w.records(), 'r2')).toMatchObject({ state: 'live', slot: 'b', e2e: { state: 'passed' } });
     expect(stateOf(w.records(), 'r1')).toMatchObject({ state: 'superseded', replacedBy: 'r2' });
     expect(w.state()).toEqual({ installed: true, live: 'b', tags: { a: 'one', b: 'two' } });
+  });
+
+  it('asks the person to confirm what a release would lose, records it, and cuts over only on that answer', async () => {
+    const w = world({
+      state: { installed: true, live: 'a', tags: { a: 'one', b: undefined } }, records: [record('r1', { state: 'live', slot: 'a' }), record('r2')], answers: [CUT_OVER_LOSING],
+      compared: { live: { shop_order: { id: 'integer', note: 'text' } }, prepared: { shop_order: { id: 'integer' } }, counts: [{ 'columns|shop_order.note': 3 }] },
+    });
+    expect(await w.run(SLOTS, INPUT)).toMatchObject({ outcome: 'ok', reason: 'the release is live' });
+    expect(w.asked.map((question) => question.choices)).toEqual([[CUT_OVER_LOSING, DISCARD, RETEST]]);
+    expect(stateOf(w.records(), 'r2')).toMatchObject({ state: 'live', changes: { losing: true, columns: [{ table: 'shop_order', column: 'note', filled: 3 }] } });
+  });
+
+  it('stops the cut-over and serves the live slot again when the final copy would lose what the preview did not show', async () => {
+    const w = world({
+      state: { installed: true, live: 'a', tags: { a: 'one', b: undefined } }, records: [record('r1', { state: 'live', slot: 'a' }), record('r2')], answers: [CUT_OVER],
+      compared: { live: { shop_order: { id: 'integer', note: 'text' } }, prepared: { shop_order: { id: 'integer' } }, counts: [{ 'columns|shop_order.note': 0 }, { 'columns|shop_order.note': 2 }] },
+    });
+    expect(await w.run(SLOTS, INPUT)).toMatchObject({ outcome: 'failed' });
+    expect(w.asked.map((question) => question.choices)).toEqual([[CUT_OVER, DISCARD, RETEST]]);
+    expect(w.actions.slice(-1)).toEqual(['scale app-a 1']);
+    expect(stateOf(w.records(), 'r2')?.reason).toContain('the column shop_order.note is dropped; 2 rows held a value in it');
+    expect(stateOf(w.records(), 'r2')).toMatchObject({ state: 'failed', changes: { losing: false } });
+    expect(w.state().live).toBe('a');
   });
 
   it('clears the preview when the person discards it, leaving the live slot as it was', async () => {

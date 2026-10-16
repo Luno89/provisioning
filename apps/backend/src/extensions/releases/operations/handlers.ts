@@ -5,6 +5,8 @@ import type { ReleaseE2E } from '../../../lib/release-e2e.js';
 import type { HostOperationRun } from '../../types.js';
 import { adapterOf, type SlotAdapter, type SlotAdapters, type SlotBuild } from '../adapter.js';
 import type { SlotCluster } from '../slot-cluster.js';
+import { droppedCounts, snapshot } from '../postgres-compare.js';
+import { itemChanges, newLosses, releaseChanges, schemaChanges, type ReleaseChanges } from '../../../lib/release-compare.js';
 import { RELEASE_STATES_MARKED } from './declarations.js';
 
 export interface BrowserTestsRequest {
@@ -63,6 +65,15 @@ function releaseOf(request: NodeRequest): OpenRelease {
 const buildOf = (release: ReleaseRunInput): SlotBuild => ({ image: release.build.image, source: release.build.source, ...(release.build.vault ? { vault: release.build.vault } : {}) });
 
 const cleared = (state: SlotState, slot: Slot): SlotState => ({ ...state, tags: { ...state.tags, [slot]: undefined } });
+
+export async function compareSlots(cluster: SlotCluster, adapter: SlotAdapter, target: ReleaseRunInput['target'], live: Slot, prepared: Slot, at: string): Promise<ReleaseChanges> {
+  const liveDb = adapter.database(target, live);
+  const diff = schemaChanges(await snapshot(cluster, target, liveDb), await snapshot(cluster, target, adapter.database(target, prepared)));
+  const counts = await droppedCounts(cluster, target, liveDb, diff);
+  const before = adapter.inventory ? await adapter.inventory(cluster, target, live) : [];
+  const after = adapter.inventory && before.length ? await adapter.inventory(cluster, target, prepared, before) : [];
+  return releaseChanges(diff, counts, itemChanges(before, after), at);
+}
 
 export function createReleaseOperations(deps: ReleaseOperationDeps): Record<string, HostOperationRun> {
   const now = deps.now ?? (() => new Date().toISOString());
@@ -135,6 +146,20 @@ export function createReleaseOperations(deps: ReleaseOperationDeps): Record<stri
       }
     },
 
+    async 'releases.compare'(request) {
+      const release = releaseOf(request);
+      const adapter = adapterOf(deps.adapters, release.adapter);
+      try {
+        const current = await cluster.state(release.target);
+        const prepared = release.slot ?? idleOf(current.live);
+        const changes = await compareSlots(cluster, adapter, release.target, current.live, prepared, now());
+        await mark(release, release.build.releaseId, { state: 'preparing', slot: prepared, changes });
+        return { exit: 'done', outputs: { release: { ...release, slot: prepared }, changes, losing: changes.losing } };
+      } catch (err) {
+        return failed(err);
+      }
+    },
+
     async 'releases.browser-tests'(request) {
       const release = releaseOf(request);
       const slot = release.slot ?? (await recordOf(release, release.build.releaseId))?.slot;
@@ -164,6 +189,9 @@ export function createReleaseOperations(deps: ReleaseOperationDeps): Record<stri
         await apply(adapter, release, cleared(current, idle));
         await adapter.copy(cluster, release.target, current.live, idle, buildOf(release));
         await adapter.upgrade(cluster, release.target, idle, buildOf(release));
+        const shown = (await recordOf(release, release.build.releaseId))?.changes;
+        const appeared = newLosses(shown, await compareSlots(cluster, adapter, release.target, current.live, idle, now()));
+        if (appeared.length) throw new Error(`the cut-over was stopped, because the final copy would also lose what the preview did not show: ${appeared.join('; ')}. The live slot serves again; push again to prepare a new preview`);
         await apply(adapter, release, { ...ready, live: idle });
         maintenance = undefined;
         await cluster.scale(release.target, adapter.workload(release.target, current.live), 0);

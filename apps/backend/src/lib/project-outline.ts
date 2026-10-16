@@ -1,8 +1,9 @@
 import type { OdooRelease } from './odoo-release.js';
 import type { PipelineRunMetadata } from './types.js';
+import { changesSentence } from './release-compare.js';
 
 export type StatusProject = { id: string; name: string };
-export type StatusRelease = Pick<OdooRelease, 'commit' | 'slot' | 'state' | 'reason' | 'liveAt' | 'startedAt' | 'updatedAt'>;
+export type StatusRelease = Pick<OdooRelease, 'commit' | 'slot' | 'state' | 'reason' | 'liveAt' | 'startedAt' | 'updatedAt' | 'changes'>;
 export type StatusRun = Pick<PipelineRunMetadata, 'commitSha' | 'status' | 'startedAt' | 'finishedAt' | 'promotedAt' | 'errorMessage' | 'releaseSkipped' | 'releaseRefused'>;
 
 const PREPARING: ReadonlySet<OdooRelease['state']> = new Set(['preparing', 'cutting-over', 'rolling-back']);
@@ -27,7 +28,7 @@ export function projectOutline(project: StatusProject, releases: readonly Status
         ? `Live: ${short(deployed.commitSha)}, deployed ${when(deployed.promotedAt!)}.`
         : 'Live: nothing yet.',
     preview
-      ? `Waiting for the person: ${short(preview.commit)} is ready to preview${preview.slot ? ` in slot ${preview.slot}` : ''}. Cutting over or discarding it is theirs, on the project's board; tell them it is there rather than doing it.`
+      ? `Waiting for the person: ${short(preview.commit)} is ready to preview${preview.slot ? ` in slot ${preview.slot}` : ''}.${preview.changes ? ` ${changesSentence(preview.changes)}` : ''} Cutting over or discarding it is theirs, on the project's board; tell them it is there rather than doing it.`
       : '',
     preparing ? `In progress: ${short(preparing.commit)} is ${preparing.state}.` : '',
     build

@@ -44,8 +44,8 @@ export function releasesRouter(deps: ReleasesRouterDeps): Router {
     router.post(`/:id/releases/:releaseId/${path}`, asyncRoute(async (req: Request, res: Response) => {
       const project = await owned(req, res);
       if (!project) return;
-      const outcome = await deps.releases.decide(project.ownerId ?? userOf(req).id, String(req.params.releaseId), decision);
-      if ('error' in outcome) return res.status(outcome.status).json({ error: outcome.error });
+      const outcome = await deps.releases.decide(project.ownerId ?? userOf(req).id, String(req.params.releaseId), decision, req.body?.confirm === true);
+      if ('error' in outcome) return res.status(outcome.status).json({ error: outcome.error, ...(outcome.losing ? { losing: outcome.losing } : {}) });
       return res.status(202).json({ release: outcome });
     }));
   }

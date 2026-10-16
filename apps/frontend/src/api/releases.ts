@@ -4,7 +4,8 @@ import { api } from './client'
  * ── DUPLICATED, KNOWINGLY ──
  * Authority: `OdooRelease` and `ReleaseState` in apps/backend/src/lib/odoo-release.ts,
  * `RollBackOffer` in apps/backend/src/services/OdooReleaseService.ts,
- * `ReleaseE2E` in apps/backend/src/lib/release-e2e.ts, `E2ETest` in apps/backend/src/lib/e2e.ts.
+ * `ReleaseE2E` in apps/backend/src/lib/release-e2e.ts, `E2ETest` in apps/backend/src/lib/e2e.ts,
+ * `ReleaseChanges` in apps/backend/src/lib/release-compare.ts.
  */
 export type ReleaseState = 'queued' | 'preparing' | 'preview' | 'cutting-over' | 'live' | 'rolling-back' | 'rolled-back' | 'discarded' | 'failed' | 'superseded'
 
@@ -29,6 +30,16 @@ export interface ReleaseE2E {
   finishedAt?: string
 }
 
+export interface ReleaseChanges {
+  checkedAt: string
+  tables: { table: string; rows: number }[]
+  columns: { table: string; column: string; filled: number }[]
+  retyped: { table: string; column: string; from: string; to: string; filled: number; keptIn?: string }[]
+  items: { kind: string; key: string; name: string; state: 'kept' | 'reset' | 'switched-off' | 'gone' }[]
+  losing: boolean
+  lost: string[]
+}
+
 export interface OdooRelease {
   id: string
   projectId: string
@@ -41,6 +52,7 @@ export interface OdooRelease {
   previewHost?: string
   reason?: string
   e2e?: ReleaseE2E
+  changes?: ReleaseChanges
   liveAt?: string
   restoredAt?: string
   startedAt: string
@@ -81,8 +93,8 @@ export const getSignIn = (projectId: string): Promise<SignIn[]> =>
 export const listReleases = (projectId: string): Promise<ReleaseList> =>
   api.get<ReleaseList>(`/projects/${encodeURIComponent(projectId)}/releases`).then((r) => r.data)
 
-export const decideRelease = (projectId: string, releaseId: string, decision: 'cut-over' | 'discard'): Promise<void> =>
-  api.post(`/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(releaseId)}/${decision}`, {}).then(() => undefined)
+export const decideRelease = (projectId: string, releaseId: string, decision: 'cut-over' | 'discard', confirm = false): Promise<void> =>
+  api.post(`/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(releaseId)}/${decision}`, confirm ? { confirm } : {}).then(() => undefined)
 
 export const rollBackRelease = (projectId: string, releaseId: string): Promise<void> =>
   api.post(`/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(releaseId)}/roll-back`, {}).then(() => undefined)

@@ -1,3 +1,4 @@
+import { lossLines } from '../lib/release-compare.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../lib/types.js';
 import { ODOO_DATABASE_PASSWORD, ODOO_PROJECT_APP, ODOO_RELEASE_SECRETS, chartDatabaseSecret, vaultDatabaseSecret, newReleaseName, type ReleaseVault, releaseNameOf, releasePlace, releaseTargetOf, rollBackTarget, type OdooRelease, type ReleaseState } from '../lib/odoo-release.js';
@@ -7,7 +8,7 @@ import type { TreeTypeSecret } from '../lib/tree-types.js';
 import { isMockCloudProvider } from '../lib/cluster-topology.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import {
-  CUT_OVER, DEFAULT_RELEASE_APP, DISCARD, RELEASE_AGENT, RETEST, ROLL_BACK_AGENT, UNSETTLED_STATES,
+  CUT_OVER, CUT_OVER_LOSING, DECISION_NODE, DEFAULT_RELEASE_APP, DISCARD, LOSING_DECISION_NODE, RELEASE_AGENT, RETEST, ROLL_BACK_AGENT, UNSETTLED_STATES,
   type ReleaseBuildInput, type ReleaseHow, type ReleaseRunInput, type RollBackRunInput,
 } from '../lib/release-run.js';
 
@@ -25,7 +26,7 @@ export interface OdooReleaseStore {
 export interface ReleaseRuns {
   start(request: { projectId: string; ownerId: string; agent: string; inputs: ReleaseRunInput | RollBackRunInput }): Promise<void>;
   running(projectId: string): Promise<boolean>;
-  answer(projectId: string, choice: string): Promise<void>;
+  answer(projectId: string, choice: string, nodeId?: string): Promise<void>;
   stop(projectId: string): Promise<void>;
 }
 
@@ -52,7 +53,7 @@ export interface OdooReleaseDeps {
   pollMs?: number | undefined;
 }
 
-export type ReleaseRefusal = { status: number; error: string };
+export type ReleaseRefusal = { status: number; error: string; losing?: string[] | undefined };
 
 export interface RollBackOffer {
   from: string;
@@ -281,10 +282,15 @@ export class OdooReleaseService {
     return release;
   }
 
-  async decide(ownerId: string, releaseId: string, decision: 'cutOver' | 'discard'): Promise<OdooRelease | ReleaseRefusal> {
+  async decide(ownerId: string, releaseId: string, decision: 'cutOver' | 'discard', confirmed = false): Promise<OdooRelease | ReleaseRefusal> {
     const release = await this.waitingPreview(ownerId, releaseId, decision === 'cutOver' ? 'cut over' : 'discarded');
     if ('status' in release) return release;
-    await this.deps.runs.answer(release.projectId, decision === 'cutOver' ? CUT_OVER : DISCARD);
+    const losing = release.changes?.losing === true;
+    if (decision === 'cutOver' && losing && !confirmed) {
+      return { status: 409, error: `cutting this release over would lose: ${lossLines(release.changes!).join('; ')}. Confirm the loss to cut over anyway`, losing: lossLines(release.changes!) };
+    }
+    const node = losing ? LOSING_DECISION_NODE : DECISION_NODE;
+    await this.deps.runs.answer(release.projectId, decision === 'discard' ? DISCARD : losing ? CUT_OVER_LOSING : CUT_OVER, node);
     void this.follow(ownerId, release.projectId);
     return release;
   }
@@ -292,7 +298,7 @@ export class OdooReleaseService {
   async retest(ownerId: string, releaseId: string): Promise<OdooRelease | ReleaseRefusal> {
     const release = await this.waitingPreview(ownerId, releaseId, 'tested again');
     if ('status' in release) return release;
-    await this.deps.runs.answer(release.projectId, RETEST);
+    await this.deps.runs.answer(release.projectId, RETEST, release.changes?.losing ? LOSING_DECISION_NODE : DECISION_NODE);
     void this.follow(ownerId, release.projectId);
     return release;
   }

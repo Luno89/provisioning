@@ -9,6 +9,7 @@ import { projectFor, type ProjectScopeStores } from './project-scope.js';
 import { projectAppOf } from '../../lib/project-app.js';
 import type { OdooRelease } from '../../lib/odoo-release.js';
 import { code, fields, section, sectionLines, text, type ProposalSection } from '../../lib/proposal-sections.js';
+import { changesSentence } from '../../lib/release-compare.js';
 
 export interface ProjectToolStores extends ProjectScopeStores {
   runs(): Promise<PipelineRunMetadata[]>;
@@ -141,7 +142,7 @@ export function createProjectTools(options: {
       const lines = [
         live ? `Live: ${live.commit.slice(0, 8)} in slot ${live.slot ?? '?'}.` : 'Nothing is live yet.',
         waiting
-          ? `Waiting for the person: ${waiting.commit.slice(0, 8)} is ready to preview in slot ${waiting.slot ?? '?'}. Cutting over or discarding it is theirs, on the project's Builds & Deploys card; tell them it is there rather than doing it.`
+          ? `Waiting for the person: ${waiting.commit.slice(0, 8)} is ready to preview in slot ${waiting.slot ?? '?'}.${waiting.changes ? ` ${changesSentence(waiting.changes)}` : ''} Cutting over or discarding it is theirs, on the project's Builds & Deploys card; tell them it is there rather than doing it.`
           : '',
         'Newest first:',
         ...releases.slice(0, 6).map(line),

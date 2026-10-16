@@ -51,3 +51,21 @@ describe('the Odoo release adapter', () => {
     expect(ODOO_RELEASE_ADAPTER.dataStore(target)).toBe('statefulset/shop-postgres');
   });
 });
+
+describe('what the Odoo app holds that is not in its repository', () => {
+  it('asks only the tables the database has, and reads each item back by its key on the other slot', async () => {
+    const asked: string[] = [];
+    const fake = {
+      exec: async (_t: unknown, pod: string, command: string[]) => {
+        const sql = command.at(-1)!;
+        asked.push(`${pod} ${command[command.indexOf('-d') + 1]} ${sql.slice(0, 40)}`);
+        if (sql.includes('pg_class')) return '["ir_model_fields","ir_ui_view"]';
+        return JSON.stringify([{ kind: 'field', key: 'res.partner.x_note', name: 'The field Note (x_note) on res.partner, made in the app,', fingerprint: 'f1', active: true }]);
+      },
+    } as unknown as SlotCluster;
+    const items = await ODOO_RELEASE_ADAPTER.inventory!(fake, target, 'a');
+    expect(items).toEqual([{ kind: 'field', key: 'res.partner.x_note', name: 'The field Note (x_note) on res.partner, made in the app,', fingerprint: 'f1', active: true }]);
+    expect(asked.map((line) => line.split(' ').slice(0, 2).join(' '))).toEqual(['shop-postgres-0 odoo_a', 'shop-postgres-0 odoo_a']);
+    expect(ODOO_RELEASE_ADAPTER.database(target, 'b')).toEqual({ pod: 'shop-postgres-0', user: 'odoo', database: 'odoo_b' });
+  });
+});

@@ -10,9 +10,10 @@ function harness(state: string) {
   const releases = {
     list: async (ownerId: string, projectId: string) => [{ id: 'r1', ownerId, projectId, state }] as never,
     addresses: async () => ({ live: 'http://shop.localhost:8000', preview: 'http://shop-preview.localhost:8000' }),
-    decide: async (_ownerId: string, releaseId: string, decision: 'cutOver' | 'discard') => {
+    decide: async (_ownerId: string, releaseId: string, decision: 'cutOver' | 'discard', confirmed?: boolean) => {
       if (state !== 'preview') return { status: 409, error: `the release is ${state}, not waiting in preview` };
-      decided.push(`${decision} ${releaseId}`);
+      if (state === 'preview' && decision === 'cutOver' && releaseId === 'losing' && !confirmed) return { status: 409, error: 'it would lose things', losing: ['the column shop_order.note is dropped'] };
+      decided.push(`${decision} ${releaseId}${confirmed ? ' confirmed' : ''}`);
       return { id: releaseId } as never;
     },
     rollBackOffer: async () => (state === 'live' ? { from: 'r1', to: 'r0', commit: 'aaaaaaaaaa', liveSince: '2026-10-09T12:00:00Z' } : undefined),
@@ -59,6 +60,9 @@ describe('a project\'s releases', () => {
     expect((await axios.post(h.url('/api/projects/p1/releases/r1/discard'), {}, quiet)).status).toBe(202);
     expect((await axios.post(h.url('/api/projects/p1/releases/r1/retest'), {}, quiet)).status).toBe(202);
     expect(waiting.decided).toEqual(['cutOver r1', 'discard r1', 'retest r1']);
+    expect((await axios.post(h.url('/api/projects/p1/releases/losing/cut-over'), {}, quiet)).data).toEqual({ error: 'it would lose things', losing: ['the column shop_order.note is dropped'] });
+    expect((await axios.post(h.url('/api/projects/p1/releases/losing/cut-over'), { confirm: true }, quiet)).status).toBe(202);
+    expect(waiting.decided.at(-1)).toBe('cutOver losing confirmed');
     expect((await axios.post(h.url('/api/projects/p2/releases/r1/retest'), {}, quiet)).status).toBe(404);
     expect((await axios.post(h.url('/api/projects/p2/releases/r1/cut-over'), {}, quiet)).status).toBe(404);
     await h.close();

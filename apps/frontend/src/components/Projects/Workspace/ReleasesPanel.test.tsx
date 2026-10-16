@@ -60,7 +60,39 @@ describe('a project\'s releases', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Cut over$/ }))
     expect(decideRelease).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: /Yes, cut over/ }))
-    await waitFor(() => expect(decideRelease).toHaveBeenCalledWith('p1', 'r2', 'cut-over'))
+    await waitFor(() => expect(decideRelease).toHaveBeenCalledWith('p1', 'r2', 'cut-over', false))
+  })
+
+  it('shows what a preview would lose, and cuts it over only after a confirm that names the loss', async () => {
+    vi.mocked(listReleases).mockResolvedValue({
+      releases: [release('r2', 'preview', { slot: 'b', changes: {
+        checkedAt: 't', tables: [], columns: [{ table: 'shop_order', column: 'note', filled: 3 }, { table: 'shop_order', column: 'unused', filled: 0 }], retyped: [],
+        items: [{ kind: 'edited-view', key: 'id:7', name: 'The view Order form, edited in the app,', state: 'reset' }, { kind: 'field', key: 'x', name: 'The field Note (x_note) on sale.order, made in the app,', state: 'kept' }],
+        losing: true, lost: ['the column shop_order.note is dropped; 3 rows held a value in it', 'The view Order form, edited in the app, is reset'],
+      } }), release('r1', 'live', { slot: 'a' })],
+      addresses: { preview: 'http://shop-preview.localhost:8000' },
+    })
+    vi.mocked(decideRelease).mockResolvedValue(undefined)
+    show()
+
+    expect(await screen.findByText('the column shop_order.note is dropped; 3 rows held a value in it')).toBeInTheDocument()
+    expect(screen.getByText(/it drops 1 empty table or column; nothing in them is lost/)).toBeInTheDocument()
+    expect(screen.getByText('Made or changed in the app: 2 things')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Cut over, losing these/ }))
+    expect(screen.getByText(/Cutting over loses for good: the column shop_order.note is dropped/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Yes, cut over and lose them/ }))
+    await waitFor(() => expect(decideRelease).toHaveBeenCalledWith('p1', 'r2', 'cut-over', true))
+  })
+
+  it('says when a preview was not compared with live, and when it loses nothing', async () => {
+    vi.mocked(listReleases).mockResolvedValue({ releases: [release('r2', 'preview', { slot: 'b' })], addresses: {} })
+    const { unmount } = show()
+    expect(await screen.findByText(/was not compared with live/)).toBeInTheDocument()
+    unmount()
+    vi.mocked(listReleases).mockResolvedValue({ releases: [release('r2', 'preview', { slot: 'b', changes: { checkedAt: 't', tables: [], columns: [], retyped: [], items: [], losing: false, lost: [] } })], addresses: {} })
+    show()
+    expect(await screen.findByText('Compared with live, nothing is lost.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Cut over$/ })).toBeInTheDocument()
   })
 
   it('offers to roll the live release back after a confirm that says what is lost, and only when one is kept', async () => {
@@ -93,7 +125,7 @@ describe('a project\'s releases', () => {
 
     expect(await screen.findByRole('button', { name: /open preview/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Discard/ }))
-    await waitFor(() => expect(decideRelease).toHaveBeenCalledWith('p1', 'r2', 'discard'))
+    await waitFor(() => expect(decideRelease).toHaveBeenCalledWith('p1', 'r2', 'discard', false))
   })
 
   it('shows the preview\'s browser tests on its card: each failure with why, what the browser saw, and a way to run them again', async () => {

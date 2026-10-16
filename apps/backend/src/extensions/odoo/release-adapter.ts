@@ -3,10 +3,15 @@ import { QUIET_PREVIEW_SQL } from '../../lib/release-e2e.js';
 import type { SlotAdapter, SlotBuild } from '../releases/adapter.js';
 import type { ReleaseTarget } from '../../lib/release-run.js';
 import type { SlotCluster } from '../releases/slot-cluster.js';
+import { query, type PostgresAccess } from '../releases/postgres-compare.js';
+import type { InventoryItem } from '../../lib/release-compare.js';
+import { inventoryFrom, inventorySql, presentTablesSql } from './inventory.js';
 
 export const ODOO_ADAPTER_ID = 'odoo';
 
 const postgres = (target: ReleaseTarget): string => `${target.release}-postgres-0`;
+
+const access = (target: ReleaseTarget, slot: Slot): PostgresAccess => ({ pod: postgres(target), user: 'odoo', database: databaseOf(slot) });
 
 async function installed(cluster: SlotCluster, target: ReleaseTarget, slot: Slot): Promise<Set<string>> {
   const out = await cluster.exec(target, postgres(target), ['psql', '-U', 'odoo', '-d', databaseOf(slot), '-tAc', "select name from ir_module_module where state = 'installed'"]).catch((err: Error) => {
@@ -41,6 +46,14 @@ export const ODOO_RELEASE_ADAPTER: SlotAdapter = {
 
   async quiet(cluster, target, slot) {
     await cluster.exec(target, postgres(target), ['psql', '-U', 'odoo', '-d', databaseOf(slot), '-v', 'ON_ERROR_STOP=1', '-qc', QUIET_PREVIEW_SQL]);
+  },
+
+  database: access,
+
+  async inventory(cluster, target, slot, of) {
+    const db = access(target, slot);
+    const sql = inventorySql(await query<string[]>(cluster, target, db, presentTablesSql()), of);
+    return sql ? inventoryFrom(await query<Partial<InventoryItem>[]>(cluster, target, db, sql)) : [];
   },
 
   async upgrade(cluster, target, slot, build) {

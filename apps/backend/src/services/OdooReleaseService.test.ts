@@ -14,7 +14,7 @@ let stopped: string[];
 const runs: ReleaseRuns = {
   start: async (request) => { started.push(request); running = true; },
   running: async () => running,
-  answer: async (projectId, choice) => { answered.push(`${projectId}: ${choice}`); },
+  answer: async (projectId, choice, nodeId) => { answered.push(`${projectId}: ${choice}${nodeId && nodeId !== 'decide' ? ` (${nodeId})` : ''}`); },
   stop: async (projectId) => { stopped.push(projectId); },
 };
 
@@ -208,6 +208,23 @@ describe('one release at a time per project', () => {
 });
 
 describe('the person\'s decisions', () => {
+  it('cuts over a release that would lose something only when the person confirms the loss, answering the losing choice', async () => {
+    const svc = service();
+    await svc.release(project, run('b1', 'abc'));
+    const changes = { checkedAt: 't', tables: [], columns: [{ table: 'shop_order', column: 'note', filled: 3 }], retyped: [], items: [{ kind: 'edited-view', key: 'id:7', name: 'The view Order form, edited in the app,', state: 'reset' as const }], losing: true, lost: [] };
+    await engineMarks('r1', { state: 'preview', slot: 'b', changes, e2e: { state: 'passed', summary: '1 passed', startedAt: 't0', finishedAt: 't1' } });
+    expect(await svc.decide('bo', 'r1', 'cutOver')).toEqual({
+      status: 409,
+      error: 'cutting this release over would lose: the column shop_order.note is dropped; 3 rows held a value in it; The view Order form, edited in the app, is reset. Confirm the loss to cut over anyway',
+      losing: ['the column shop_order.note is dropped; 3 rows held a value in it', 'The view Order form, edited in the app, is reset'],
+    });
+    expect(answered).toEqual([]);
+    expect(await svc.retest('bo', 'r1')).toMatchObject({ id: 'r1' });
+    expect(await svc.decide('bo', 'r1', 'cutOver', true)).toMatchObject({ id: 'r1' });
+    expect(await svc.decide('bo', 'r1', 'discard')).toMatchObject({ id: 'r1' });
+    expect(answered).toEqual(['p1: Run tests again (decideLosing)', 'p1: Cut over, losing what is listed (decideLosing)', 'p1: Discard (decideLosing)']);
+  });
+
   it('answers the run with the person\'s decision on a preview whose tests have run, and refuses one that is not waiting', async () => {
     const svc = service();
     await svc.release(project, run('b1', 'abc'));

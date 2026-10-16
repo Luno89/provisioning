@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
@@ -25,6 +25,7 @@ const CLUSTER = 'provisioning-lunorica';
 const KUBECONFIG = `/tmp/kubeconfig-${CLUSTER}`;
 const KUBECTL = fileURLToPath(new URL('../bin/kubectl', import.meta.url));
 const NAME = `odoo-release-check-${Date.now().toString(36)}`;
+const APP_PORT = 18069 + Math.floor(Math.random() * 500);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const ODOO_TYPE = TREE_TYPE_SEEDS.find((type) => type.id === ODOO_TREE_TYPE)!;
@@ -33,13 +34,17 @@ const MODULE = 'koala_probe';
 const EXTRA = 'koala_probe_extra';
 const files = (entries: Record<string, string>) => Object.entries(entries).map(([path, content]) => ({ path, content }));
 
-const PROBE = files({
+const probeFiles = (withNote: boolean) => files({
   [`addons/${MODULE}/__init__.py`]: 'from . import models\n',
-  [`addons/${MODULE}/__manifest__.py`]: `{\n    'name': 'Koala probe',\n    'version': '${ODOO_VERSION.version}.0.1.0.0',\n    'depends': ['base'],\n    'data': ['security/ir.access.csv'],\n    'license': 'LGPL-3',\n}\n`,
+  [`addons/${MODULE}/__manifest__.py`]: `{\n    'name': 'Koala probe',\n    'version': '${ODOO_VERSION.version}.0.1.0.0',\n    'depends': ['base'],\n    'data': ['security/ir.access.csv', 'views/probe.xml'],\n    'license': 'LGPL-3',\n}\n`,
   [`addons/${MODULE}/models/__init__.py`]: 'from . import probe\n',
-  [`addons/${MODULE}/models/probe.py`]: "from odoo import fields, models\n\n\nclass Probe(models.Model):\n    _name = 'koala.probe'\n    _description = 'Koala probe'\n\n    name = fields.Char(required=True)\n",
+  [`addons/${MODULE}/models/probe.py`]: `from odoo import fields, models\n\n\nclass Probe(models.Model):\n    _name = 'koala.probe'\n    _description = 'Koala probe'\n\n    name = fields.Char(required=True)\n${withNote ? '    note = fields.Char()\n' : ''}`,
   [`addons/${MODULE}/security/ir.access.csv`]: 'id,name,model_id,group_id/id,operation,domain\naccess_koala_probe,koala.probe,koala.probe,base.group_user,crud,\n',
+  [`addons/${MODULE}/views/probe.xml`]: '<odoo>\n  <record id="probe_form" model="ir.ui.view">\n    <field name="name">koala.probe.form</field>\n    <field name="model">koala.probe</field>\n    <field name="arch" type="xml">\n      <form><sheet><field name="name"/></sheet></form>\n    </field>\n  </record>\n</odoo>\n',
 });
+
+const PROBE = probeFiles(true);
+const PROBE_WITHOUT_NOTE = probeFiles(false);
 
 const COLOUR = files({
   [`addons/${EXTRA}/__init__.py`]: 'from . import models\n',
@@ -65,7 +70,8 @@ const FAILING = files({
 });
 
 interface BrowserTests { state: string; summary?: string; reason?: string; tests?: { title: string; status: string; error?: string }[]; artifacts?: { id: string; name: string }[] }
-interface Release { id: string; state: string; slot?: string; reason?: string; previewHost?: string; e2e?: BrowserTests }
+interface Changes { losing: boolean; lost: string[]; columns: { table: string; column: string; filled: number }[]; items: { kind: string; name: string; state: string }[] }
+interface Release { id: string; state: string; slot?: string; reason?: string; previewHost?: string; e2e?: BrowserTests; changes?: Changes }
 
 async function main(): Promise<void> {
   assert.ok(OWNER, 'set ODOO_RELEASE_LIVE_OWNER (or CHECKS_LIVE_OWNER) to the person the project is made for');
@@ -127,8 +133,34 @@ async function main(): Promise<void> {
     assert.doesNotMatch(await columns('odoo_a'), /colour/);
     console.log('    live on slot a: Odoo answers, koala_probe is installed');
 
-    console.log('[3] a new module adds a field: the next build is prepared in slot b and waits in preview');
-    await gitea.seedTemplate(project.giteaOwner, project.giteaRepo, COLOUR);
+    console.log('[2a] someone works in the live app: a field made in the app, the probe form edited in the app, and probes with notes');
+    const signIn = ((await http.get(`/projects/${projectId}/sign-in`)).data as { signIns: { login: string; password: string }[] }).signIns[0];
+    assert.ok(signIn, 'the project has no sign-in for its app');
+    const forward = spawn(KUBECTL, ['-n', place.namespace, 'port-forward', `svc/${place.release}-live`, `${APP_PORT}:8069`], { env: { ...process.env, KUBECONFIG }, stdio: 'ignore' });
+    try {
+      for (let tries = 0; tries < 30 && !(await axios.get(`http://127.0.0.1:${APP_PORT}/web/health`, { proxy: false, timeout: 2_000, validateStatus: () => true }).then((answer) => answer.status === 200, () => false)); tries += 1) await sleep(1_000);
+      const rpc = async (service: string, method: string, args: unknown[]): Promise<unknown> => {
+        const answer = (await axios.post(`http://127.0.0.1:${APP_PORT}/jsonrpc`, { jsonrpc: '2.0', method: 'call', params: { service, method, args } }, { proxy: false, timeout: 60_000 })).data as { result?: unknown; error?: { data?: { message?: string } } };
+        if (answer.error) throw new Error(`Odoo refused ${method}: ${answer.error.data?.message ?? JSON.stringify(answer.error)}`);
+        return answer.result;
+      };
+      const uid = await rpc('common', 'login', ['odoo_a', signIn.login, signIn.password]);
+      assert.ok(uid, 'the app\'s sign-in does not sign in');
+      const call = (model: string, method: string, args: unknown[], kwargs: Record<string, unknown> = {}) => rpc('object', 'execute_kw', ['odoo_a', uid, signIn.password, model, method, args, kwargs]);
+      const [probeModel] = await call('ir.model', 'search', [[['model', '=', 'koala.probe']]]) as number[];
+      await call('ir.model.fields', 'create', [{ name: 'x_koala_note', field_description: 'Koala note', model_id: probeModel, ttype: 'char', state: 'manual' }]);
+      const [form] = await call('ir.model.data', 'search_read', [[['module', '=', MODULE], ['name', '=', 'probe_form']]], { fields: ['res_id'] }) as { res_id: number }[];
+      await call('ir.ui.view', 'write', [[form!.res_id], { arch: '<form><sheet><field name="name"/><field name="x_koala_note"/></sheet></form>' }]);
+      await call('koala.probe', 'create', [[{ name: 'first', note: 'leave at the back door' }, { name: 'second', note: 'ring twice' }, { name: 'third' }]]);
+    } finally {
+      forward.kill();
+    }
+    assert.equal(await psql('odoo_a', "select count(*) from koala_probe where note is not null"), '2');
+    assert.equal(await psql('odoo_a', "select arch_updated from ir_ui_view where id = (select res_id from ir_model_data where module = 'koala_probe' and name = 'probe_form')"), 't', 'the edit did not mark the view edited in the app');
+    console.log('    made through Odoo\'s own API, signed in with the project\'s sign-in');
+
+    console.log('[3] a new module adds a field and the probe loses its note: the next build is prepared in slot b, compared with live, and waits in preview');
+    await gitea.seedTemplate(project.giteaOwner, project.giteaRepo, [...COLOUR, ...PROBE_WITHOUT_NOTE]);
     const preview = await waitFor('preview', (all) => all.find((release) => release.state === 'preview'), 30);
     assert.equal(preview.slot, 'b');
     assert.match(await columns('odoo_b'), /colour/, 'slot b\'s copy has no colour column');
@@ -137,6 +169,18 @@ async function main(): Promise<void> {
     assert.equal(await health(`${place.release}-odoo-b`), '200', 'the preview slot does not answer');
     assert.match(await kubectl('get', 'ingress', 'app', '-o', 'jsonpath={.spec.rules[*].host}'), new RegExp(place.previewHost.replace(/\./g, '\\.')));
     console.log('    preview on slot b: it has the colour field, the live slot does not');
+
+    console.log('[3e] the preview says what cutting over would lose, and keeps what was made in the app');
+    const compared = (await releases()).find((release) => release.id === preview.id)!;
+    assert.ok(compared.changes, 'the preview was not compared with live');
+    console.log(`    ${JSON.stringify({ lost: compared.changes.lost, items: compared.changes.items.map((item) => `${item.kind}: ${item.state}`) })}`);
+    assert.equal(compared.changes.losing, true);
+    assert.deepEqual(compared.changes.columns.find((entry) => entry.column === 'note'), { table: 'koala_probe', column: 'note', filled: 2 });
+    assert.ok(compared.changes.lost.includes('the column koala_probe.note is dropped; 2 rows held a value in it'), JSON.stringify(compared.changes.lost));
+    assert.deepEqual(compared.changes.items.filter((item) => item.kind === 'edited-view').map((item) => item.state), ['reset']);
+    assert.deepEqual(compared.changes.items.filter((item) => item.kind === 'field').map((item) => [item.name, item.state]), [['The field Koala note (x_koala_note) on koala.probe, made in the app,', 'kept']]);
+    assert.equal(compared.changes.items.filter((item) => item.state !== 'kept' && item.kind !== 'edited-view').length, 0, `something else was flagged: ${JSON.stringify(compared.changes.items)}`);
+    assert.match(await columns('odoo_a'), /\bnote\b/, 'the live slot lost its note column before any cut-over');
 
     console.log('[3a] the preview is quiet, and passes the project\'s browser tests signed in as its own test user');
     assert.equal(await psql('odoo_b', 'select count(*) from ir_cron where active'), '0', 'the preview still runs scheduled jobs');
@@ -199,8 +243,12 @@ async function main(): Promise<void> {
     assert.deepEqual(listed.addresses, { live: exposed.data.localExposureUrl, preview: exposed.data.previewLocalUrl });
     console.log('    both addresses reach an Odoo through the proxy: the live one, and the preview the Ingress sends to slot b');
 
-    console.log('[4] cutting over moves the project to slot b');
-    const cut = await http.post(`/projects/${projectId}/releases/${failing.id}/cut-over`, {});
+    console.log('[4] cutting over waits for the loss to be confirmed, then moves the project to slot b');
+    const refused = await http.post(`/projects/${projectId}/releases/${failing.id}/cut-over`, {});
+    assert.equal(refused.status, 409, JSON.stringify(refused.data));
+    assert.ok((refused.data as { losing?: string[] }).losing?.includes('the column koala_probe.note is dropped; 2 rows held a value in it'), JSON.stringify(refused.data));
+    console.log(`    refused without a confirm: ${(refused.data as { error: string }).error}`);
+    const cut = await http.post(`/projects/${projectId}/releases/${failing.id}/cut-over`, { confirm: true });
     assert.equal(cut.status, 202, JSON.stringify(cut.data));
     await waitFor('cutover', (all) => all.find((release) => release.id === failing.id && release.state === 'live'), 20);
     releaseIds.push(preview.id, failing.id);
@@ -208,6 +256,8 @@ async function main(): Promise<void> {
     assert.notEqual(await psql('odoo_b', 'select count(*) from ir_cron where active'), '0', 'the live database came over quiet');
     assert.equal(await kubectl('get', 'svc', `${place.release}-live`, '-o', 'jsonpath={.spec.selector.koala\\.dev/slot}'), 'b');
     assert.match(await columns('odoo_b'), /colour/);
+    assert.doesNotMatch(await columns('odoo_b'), /\bnote\b/, 'the confirmed loss did not happen');
+    assert.match(await columns('odoo_b'), /x_koala_note/, 'the field made in the app did not come along');
     assert.equal(await health(`${place.release}-live`), '200', 'the live slot does not answer after the cutover');
     assert.equal(await kubectl('get', 'deployment', `${place.release}-odoo-a`, '-o', 'jsonpath={.spec.replicas}'), '0', 'the old slot kept running, so its snapshot drifts');
     assert.match(await psql('odoo_a', `select state from ir_module_module where name = '${MODULE}'`), /installed/, 'the old slot\'s database was not kept');

@@ -1,11 +1,12 @@
 import type { ConversationNotice, NoticeAction, NoticeKind } from './conversations.js';
 import { workflowOfRun } from '../engine-host/temporal/contracts.js';
 import type { OdooRelease } from './odoo-release.js';
+import { changesSentence } from './release-compare.js';
 import type { Leaf } from './leaves.js';
 
 const short = (commit: string): string => commit.slice(0, 8);
 
-export function releaseNotice(release: Pick<OdooRelease, 'id' | 'projectId' | 'commit' | 'slot' | 'state' | 'reason' | 'e2e'>, treeId: string | undefined): ConversationNotice | undefined {
+export function releaseNotice(release: Pick<OdooRelease, 'id' | 'projectId' | 'commit' | 'slot' | 'state' | 'reason' | 'e2e' | 'changes'>, treeId: string | undefined): ConversationNotice | undefined {
   const refs = { projectId: release.projectId, releaseId: release.id, ...(treeId ? { treeId } : {}) };
   const slot = release.slot ? ` in slot ${release.slot}` : '';
   if (release.state === 'preview') {
@@ -15,7 +16,7 @@ export function releaseNotice(release: Pick<OdooRelease, 'id' | 'projectId' | 'c
     return {
       key: `release:${release.id}:preview`,
       kind: 'preview-ready',
-      text: `A preview of ${short(release.commit)} is ready${slot}${tests}. Look it over, then cut over or discard it on the project's card.`,
+      text: `A preview of ${short(release.commit)} is ready${slot}${tests}. ${release.changes ? `${changesSentence(release.changes)} ` : ''}Look it over, then cut over or discard it on the project's card.`,
       refs,
       actions: ['open-preview', 'cut-over'],
     };

@@ -23,7 +23,7 @@ const cluster: SlotCluster = {
   apply: async (_target, source, sets) => { await act(`apply ${source.commit} ${sets.join(' ')}`); },
   vault: async () => { await act('vault'); },
   waitReady: async (_target, workload) => { await act(`wait ${workload}`); },
-  exec: async () => '',
+  exec: async () => '{}',
   job: async () => undefined,
   scale: async (_target, workload, replicas) => { await act(`scale ${workload} ${replicas}`); },
 } as SlotCluster;
@@ -38,6 +38,7 @@ const adapter: SlotAdapter = {
   copy: async (_c, _t, from, to) => { await act(`copy ${from}->${to}`); },
   quiet: async (_c, _t, slot) => { await act(`quiet ${slot}`); },
   upgrade: async (_c, _t, slot) => { await act(`upgrade ${slot}`); },
+  database: (_t, slot) => ({ pod: 'db-0', user: 'app', database: `db_${slot}` }),
 };
 
 const input: ReleaseRunInput = {

@@ -559,8 +559,19 @@ procedures, run by agents with no model:
 - **`slots`** (agent `release`, the Odoo type's): the first build goes into slot `a` (the init job creates `odoo_a` before
   slot a's Odoo exists — an Odoo started with `--database X` initialises X itself, so a slot's Deployment must never exist
   while its database is prepared); each later build is prepared in the idle slot from a copy of the live database and
-  filestore, quieted, upgraded (`-i` new modules, `-u` the rest), its browser tests run, and it waits on Wait for Person
-  (`decide`: Cut over / Discard / Run tests again), answered by the release card (`/api/projects/:id/releases`). Cutting
+  filestore, quieted, upgraded (`-i` new modules, `-u` the rest), **compared with live** (Compare With Live,
+  `releases.compare`), its browser tests run, and it waits on Wait for Person (`decide`: Cut over / Discard / Run tests
+  again), answered by the release card (`/api/projects/:id/releases`). The comparison (`lib/release-compare.ts`, kept as
+  `changes` on the release) reads both slots' schemas through the adapter's `database`
+  (`extensions/releases/postgres-compare.ts`): tables and columns the upgrade drops with how many rows held data, and
+  columns whose type changes (Odoo keeps the old values in `<column>_moved0`); and the adapter's `inventory` of what was
+  made or edited in the app (Odoo, `extensions/odoo/inventory.ts`: fields and models made in the app, views made or
+  edited in it, server actions, automations, reports, email templates), each kept, reset, switched off or gone. Names,
+  counts and hashes only, never business rows. **When it would lose something the run waits on `decideLosing`
+  instead** (Cut over, losing what is listed / Discard / Run tests again), the API refuses a cut over without
+  `confirm: true`, naming the losses, and the card shows them under "What this release changes". Switch Slots compares
+  once more on the final copy and stops the cut-over, serving the live slot again, if anything the person was not shown
+  would be lost. Cutting
   over puts the live slot in maintenance, copies and upgrades again, then switches `live`; the old slot is stopped with its
   database untouched as the way back. What is Odoo about it is the app's adapter (`extensions/odoo/release-adapter.ts`).
 - **`slots-roll-back`** (agent `release-roll-back`): offered on the live release until a later build reuses that slot,

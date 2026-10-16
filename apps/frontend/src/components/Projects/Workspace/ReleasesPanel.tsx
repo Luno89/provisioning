@@ -5,6 +5,7 @@ import { decideRelease, listReleases, releaseKeys, rollBackRelease, type OdooRel
 import { ago } from '../../home-summary'
 import { errorMessage } from '../../../api/client'
 import { ReleaseBrowserTests } from './ReleaseBrowserTests'
+import { ReleaseChanges } from './ReleaseChanges'
 import { OpenApp } from './OpenApp'
 
 const STATE: Record<ReleaseState, { label: string; tone: string }> = {
@@ -25,8 +26,9 @@ const when = (iso: string) => new Date(iso).toLocaleString([], { month: 'short',
 export function Decision({ projectId, release, preview }: { projectId: string; release: OdooRelease; preview?: string | undefined }) {
   const client = useQueryClient()
   const [confirming, setConfirming] = useState(false)
+  const losing = release.changes?.losing === true
   const decide = useMutation({
-    mutationFn: (decision: 'cut-over' | 'discard') => decideRelease(projectId, release.id, decision),
+    mutationFn: (decision: 'cut-over' | 'discard') => decideRelease(projectId, release.id, decision, decision === 'cut-over' && losing),
     onSuccess: () => { setConfirming(false); void client.invalidateQueries({ queryKey: releaseKeys.list(projectId) }) },
   })
 
@@ -35,6 +37,7 @@ export function Decision({ projectId, release, preview }: { projectId: string; r
       <p className="text-[11px] text-slate-300">
         This build is running in slot {release.slot?.toUpperCase()} on a copy of the live data. Look it over, then make it live.
       </p>
+      <ReleaseChanges changes={release.changes} />
       <div className="flex flex-wrap items-center gap-2">
         {preview
           ? <a href={preview} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded border border-amber-500/40 px-2 py-1 text-[11px] text-amber-200 hover:bg-amber-500/10"><ExternalLink size={11} /> Open preview</a>
@@ -42,7 +45,7 @@ export function Decision({ projectId, release, preview }: { projectId: string; r
         {!confirming ? (
           <>
             <button type="button" onClick={() => setConfirming(true)} disabled={decide.isPending} className="flex items-center gap-1 rounded bg-emerald-600/80 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-600 disabled:opacity-50">
-              <ArrowRightLeft size={11} /> Cut over
+              <ArrowRightLeft size={11} /> {losing ? 'Cut over, losing these' : 'Cut over'}
             </button>
             <button type="button" onClick={() => decide.mutate('discard')} disabled={decide.isPending} className="flex items-center gap-1 rounded border border-slate-600 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-700 disabled:opacity-50">
               <Trash2 size={11} /> Discard
@@ -50,9 +53,11 @@ export function Decision({ projectId, release, preview }: { projectId: string; r
           </>
         ) : (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] text-slate-300">The app is down while the latest data is copied over and upgraded — usually under a minute. Cut over now?</span>
-            <button type="button" onClick={() => decide.mutate('cut-over')} disabled={decide.isPending} className="flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50">
-              {decide.isPending ? <Loader2 size={11} className="animate-spin" /> : <ArrowRightLeft size={11} />} Yes, cut over
+            <span className="text-[11px] text-slate-300">
+              {losing ? `Cutting over loses for good: ${release.changes!.lost.join('; ')}. ` : ''}The app is down while the latest data is copied over and upgraded — usually under a minute. Cut over now?
+            </span>
+            <button type="button" onClick={() => decide.mutate('cut-over')} disabled={decide.isPending} className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50 ${losing ? 'bg-rose-600' : 'bg-emerald-600'}`}>
+              {decide.isPending ? <Loader2 size={11} className="animate-spin" /> : <ArrowRightLeft size={11} />} {losing ? 'Yes, cut over and lose them' : 'Yes, cut over'}
             </button>
             <button type="button" onClick={() => setConfirming(false)} className="rounded border border-slate-600 px-2 py-1 text-[11px] text-slate-300">Not yet</button>
           </div>

@@ -1,6 +1,7 @@
 import type { SecretTarget } from './infisical-sync.js';
 import type { OdooRelease, ReleaseState, ReleaseVault, Slot } from './odoo-release.js';
 import type { ReleaseE2E } from './release-e2e.js';
+import type { ReleaseChanges } from './release-compare.js';
 
 export interface ReleaseTarget {
   clusterName: string;
@@ -51,6 +52,8 @@ export const CUT_OVER = 'Cut over';
 export const DISCARD = 'Discard';
 export const RETEST = 'Run tests again';
 export const DECISION_NODE = 'decide';
+export const CUT_OVER_LOSING = 'Cut over, losing what is listed';
+export const LOSING_DECISION_NODE = 'decideLosing';
 export const DEFAULT_RELEASE_APP = 'odoo';
 
 export const releaseRunWorkflowId = (projectId: string): string => `release-${projectId}`;
@@ -65,6 +68,7 @@ export interface ReleaseMark {
   reason?: string | undefined;
   e2e?: ReleaseE2E | undefined;
   restoredAt?: string | undefined;
+  changes?: ReleaseChanges | undefined;
 }
 
 export function marked(releases: readonly OdooRelease[], releaseId: string, mark: ReleaseMark, now: string): OdooRelease[] {
@@ -78,6 +82,7 @@ export function marked(releases: readonly OdooRelease[], releaseId: string, mark
     ...(mark.slot ? { slot: mark.slot } : {}),
     ...(mark.reason ? { reason: mark.reason } : {}),
     ...(mark.e2e ? { e2e: mark.e2e } : {}),
+    ...(mark.changes ? { changes: mark.changes } : {}),
     ...(mark.state === 'live' && release.state !== 'live' ? { liveAt: now } : {}),
     ...(restored ? { restoredAt: mark.restoredAt } : {}),
     updatedAt: now,

@@ -37,8 +37,8 @@ export function engineReleaseRuns(deps: {
       }
     },
 
-    async answer(projectId, choice) {
-      await handle(projectId).signal('answer', { nodeId: DECISION_NODE, value: choice });
+    async answer(projectId, choice, nodeId = DECISION_NODE) {
+      await handle(projectId).signal('answer', { nodeId, value: choice });
     },
 
     async stop(projectId) {

@@ -1,5 +1,6 @@
 import { sanitiseNamespaceName } from './projects.js';
 import type { ReleaseE2E } from './release-e2e.js';
+import type { ReleaseChanges } from './release-compare.js';
 import type { ClusterMetadata, ProjectMetadata } from './types.js';
 import type { TreeTypeSecret } from './tree-types.js';
 
@@ -38,6 +39,7 @@ export interface OdooRelease {
   previewHost?: string | undefined;
   reason?: string | undefined;
   e2e?: ReleaseE2E | undefined;
+  changes?: ReleaseChanges | undefined;
   liveAt?: string | undefined;
   replacedBy?: string | undefined;
   restoredAt?: string | undefined;
