@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,7 +34,11 @@ const acpAgent = async (name: string, script: AgentScript) => {
   return executable(name, `exec "${process.execPath}" --import "${TSX}" "${AGENT}" "${scriptPath}"`);
 };
 
-const deps = (): DiscoveryDeps => ({ which: (command) => onPath(command, bin), probe: (launch) => probeAcp(launch, dir) });
+const deps = (): DiscoveryDeps => ({
+  which: (command) => onPath(command, bin),
+  exists: (place) => access(path.join(dir, 'home', place.replace(/^~\//, ''))).then(() => true, () => false),
+  probe: (launch) => probeAcp(launch, dir),
+});
 
 describe('finding the agents on a machine', () => {
   it('confirms an agent by asking it over ACP, and names it as it names itself', async () => {
@@ -50,6 +54,13 @@ describe('finding the agents on a machine', () => {
     await executable('claude', 'exit 0');
     const found = await discoverAgents(deps(), []);
     expect(found.agents).toEqual([{ id: 'claude', title: 'Claude Code', state: 'needs-adapter', source: 'found', adapter: '@zed-industries/claude-code-acp', reason: 'Claude Code is installed, but it speaks ACP through @zed-industries/claude-code-acp, which is not installed' }]);
+    expect(found.launches).toEqual({});
+  });
+
+  it('says Antigravity needs Google\'s ACP server when it is set up here but the server is not installed', async () => {
+    await mkdir(path.join(dir, 'home', '.gemini', 'antigravity-acp'), { recursive: true });
+    const found = await discoverAgents(deps(), []);
+    expect(found.agents).toEqual([{ id: 'antigravity', title: 'Antigravity', state: 'needs-adapter', source: 'found', adapter: "Google's Antigravity ACP server", reason: "Antigravity is set up here, but Koala reaches it through Google's Antigravity ACP server, which is not installed" }]);
     expect(found.launches).toEqual({});
   });
 

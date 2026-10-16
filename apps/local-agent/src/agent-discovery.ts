@@ -3,19 +3,33 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AcpLaunch, AcpProbe } from './acp-session.js';
 
+export type AgentInstall = { npm: string } | { registry: string; into: string };
+
 export interface KnownAgent {
   id: string;
   title: string;
   launches: AcpLaunch[];
   cli?: string | undefined;
+  setUp?: string[] | undefined;
   adapter?: string | undefined;
+  install?: AgentInstall | undefined;
 }
+
+export const ANTIGRAVITY_HOME = '~/.local/share/koala/agents/antigravity-acp';
+const ANTIGRAVITY_ARGS = process.platform === 'linux' ? ['--uid='] : [];
 
 export const KNOWN_AGENTS: readonly KnownAgent[] = [
   { id: 'gemini', title: 'Gemini CLI', launches: [{ command: 'gemini', args: ['--acp'] }, { command: 'gemini', args: ['--experimental-acp'] }] },
-  { id: 'antigravity', title: 'Antigravity', launches: [{ command: 'agy_acp_server.par', args: ['--uid='] }] },
-  { id: 'claude', title: 'Claude Code', launches: [{ command: 'claude-code-acp', args: [] }], cli: 'claude', adapter: '@zed-industries/claude-code-acp' },
-  { id: 'codex', title: 'Codex', launches: [{ command: 'codex-acp', args: [] }], cli: 'codex', adapter: '@zed-industries/codex-acp' },
+  {
+    id: 'antigravity',
+    title: 'Antigravity',
+    launches: [{ command: 'agy_acp_server.par', args: ANTIGRAVITY_ARGS }, { command: `${ANTIGRAVITY_HOME}/agy_acp_server.par`, args: ANTIGRAVITY_ARGS }],
+    setUp: ['~/.gemini/antigravity-acp', '~/.antigravity-ide', '~/.antigravity'],
+    adapter: "Google's Antigravity ACP server",
+    install: { registry: 'antigravity-acp', into: ANTIGRAVITY_HOME },
+  },
+  { id: 'claude', title: 'Claude Code', launches: [{ command: 'claude-code-acp', args: [] }], cli: 'claude', adapter: '@zed-industries/claude-code-acp', install: { npm: '@zed-industries/claude-code-acp' } },
+  { id: 'codex', title: 'Codex', launches: [{ command: 'codex-acp', args: [] }], cli: 'codex', adapter: '@zed-industries/codex-acp', install: { npm: '@zed-industries/codex-acp' } },
   { id: 'goose', title: 'Goose', launches: [{ command: 'goose', args: ['acp'] }] },
 ];
 
@@ -44,6 +58,7 @@ export interface ManualAgent {
 
 export interface DiscoveryDeps {
   which(command: string): Promise<string | undefined>;
+  exists(place: string): Promise<boolean>;
   probe(launch: AcpLaunch): Promise<AcpProbe>;
 }
 
@@ -60,7 +75,7 @@ export function manualAgentsFrom(raw: unknown): ManualAgent[] {
   });
 }
 
-const expandHome = (command: string): string => (command === '~' || command.startsWith('~/') ? path.join(os.homedir(), command.slice(1)) : command);
+export const expandHome = (command: string): string => (command === '~' || command.startsWith('~/') ? path.join(os.homedir(), command.slice(1)) : command);
 
 const executable = async (file: string): Promise<boolean> => access(file, constants.X_OK).then(() => true, () => false);
 
@@ -76,6 +91,7 @@ export async function onPath(command: string, envPath: string | undefined = proc
 
 export const systemDeps = (cwd: string, probe: (launch: AcpLaunch, cwd: string) => Promise<AcpProbe>): DiscoveryDeps => ({
   which: (command) => onPath(command),
+  exists: (place) => access(expandHome(place)).then(() => true, () => false),
   probe: (launch) => probe(launch, cwd),
 });
 
@@ -91,8 +107,11 @@ async function candidateOf(known: KnownAgent, deps: DiscoveryDeps): Promise<Cand
     if (found) launches.push({ ...launch, command: found });
   }
   if (launches.length) return { agent: { id: known.id, title: known.title, state: 'checking', source: 'found', command: launches[0]!.command, args: launches[0]!.args }, launches };
-  if (known.cli && known.adapter && await deps.which(known.cli)) {
-    return { agent: { id: known.id, title: known.title, state: 'needs-adapter', source: 'found', adapter: known.adapter, reason: `${known.title} is installed, but it speaks ACP through ${known.adapter}, which is not installed` }, launches: [] };
+  if (!known.adapter || !known.install) return undefined;
+  const needs = (reason: string): Candidate => ({ agent: { id: known.id, title: known.title, state: 'needs-adapter', source: 'found', adapter: known.adapter, reason }, launches: [] });
+  if (known.cli && await deps.which(known.cli)) return needs(`${known.title} is installed, but it speaks ACP through ${known.adapter}, which is not installed`);
+  for (const place of known.setUp ?? []) {
+    if (await deps.exists(place)) return needs(`${known.title} is set up here, but Koala reaches it through ${known.adapter}, which is not installed`);
   }
   return undefined;
 }

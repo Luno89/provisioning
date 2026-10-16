@@ -1,4 +1,3 @@
-import { execFile } from 'child_process';
 import { mkdir } from 'fs/promises';
 import { io, type Socket } from 'socket.io-client';
 import {
@@ -11,6 +10,7 @@ import {
 import { loadMachineConfig, type MachineConfig } from './machine-config.js';
 import { KNOWN_AGENTS, discoverAgents, manualAgentsFrom, systemDeps, type FoundAgent, type ManualAgent } from './agent-discovery.js';
 import { probeAcp } from './acp-session.js';
+import { installAgent } from './agent-install.js';
 import { ExternalAgentSessions, koalaTools } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
 
@@ -43,10 +43,9 @@ function watchAgents(socket: Socket, config: MachineConfig, sessions: ExternalAg
   socket.on('agents:changed', () => { void rediscover(); });
   socket.on('agents:install', ({ id }: { id?: string }, ack: (answer: { ok: boolean; output: string }) => void) => {
     const known = KNOWN_AGENTS.find((agent) => agent.id === id);
-    if (!known?.adapter) return ack({ ok: false, output: `there is nothing to install for ${String(id)}` });
-    execFile('npm', ['install', '--global', known.adapter], { maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
-      const output = `${stdout}${stderr}`.trim().split('\n').slice(-20).join('\n');
-      ack({ ok: !err, output: err ? `${err.message}\n${output}` : output });
+    if (!known?.install) return ack({ ok: false, output: `there is nothing to install for ${String(id)}` });
+    void installAgent(known.install).then((outcome) => {
+      ack(outcome);
       void rediscover();
     });
   });
