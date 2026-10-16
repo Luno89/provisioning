@@ -132,7 +132,7 @@ describe('a machine\'s agents on My Machines', () => {
     const mineSocket = connect('dev-mine').socket;
     await service!.recordAgents('dev-mine', [
       { id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found', command: '/usr/bin/gemini', args: ['--acp'], name: 'Gemini CLI', version: '0.61.0', signIn: ['Log in with Google'] },
-      { id: 'claude', title: 'Claude Code', state: 'needs-adapter', source: 'found', adapter: '@zed-industries/claude-code-acp' },
+      { id: 'claude', title: 'Claude Code', state: 'needs-adapter', source: 'found', adapter: '@agentclientprotocol/claude-agent-acp' },
       { id: 'Not An Id', title: 'x', state: 'ready', source: 'found' },
     ]);
 
@@ -167,7 +167,7 @@ describe('a machine\'s agents on My Machines', () => {
   it('installs an adapter only for an agent that needs one, by asking the machine', async () => {
     await harness.db.saveLocalAgentDevice({ id: 'dev-adapter', ownerId: TEST_USER.id, name: 'Adapter', rootDir: '/x', tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
     await service!.recordAgents('dev-adapter', [
-      { id: 'claude', title: 'Claude Code', state: 'needs-adapter', source: 'found', adapter: '@zed-industries/claude-code-acp' },
+      { id: 'claude', title: 'Claude Code', state: 'needs-adapter', source: 'found', adapter: '@agentclientprotocol/claude-agent-acp' },
       { id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found' },
     ]);
     const install = (agent: string) => fetch(harness.url(`/api/mesh/local-agents/dev-adapter/agents/${agent}/install`), { method: 'POST' });

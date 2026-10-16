@@ -45,7 +45,7 @@ npm run test:worker  # tsx tests/worker-isolated.ts — runs real Temporal workf
 npm run test:e2e     # test:alive → Playwright (skips the unit preflight `npm test` does)
 npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
 npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
-npm run test:machine-live        # a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service and finds an ACP agent and a CLI missing its adapter → after a reboot with nobody logged in it connects again → Install adapter makes the CLI ready; removes the machine, its project and the VM, ~10 min
+npm run test:machine-live        # a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service and finds an ACP agent and two CLIs missing their adapters (`--adapters none`) → after a reboot with nobody logged in it connects again → Install adapter makes Claude Code ready → the command run again with `--yes` installs Codex's adapter; removes the machine, its project and the VM, ~10 min
 npm run test:mesh-live           # the image is built; root starts; the owner's instance installs in a VM and joins the mesh, its Temporal answering only on its mesh address → a second VM runs the command from the instance's My Machines, joins the mesh with a key root mints for the instance, and its worker polls the instance's Temporal over the mesh → a third VM, another person's, reaches neither and neither reaches it; ~30 min, removes everything
 npm run test:big-run-live         # real research run on your model, continuing as new each step; asserts every history event < 512 KB and that big payloads went to Mongo
 npm run test:memory-live          # Koala chat → a second message resets the countdown → keeper runs after the quiet time → a new chat recalls it, ~25 min
@@ -201,9 +201,15 @@ service (systemd `--user`, launchd). The device worker reaches Temporal at `MACH
 backend's own). Each time it connects the agent looks for coding agents (`agent-discovery.ts`: Gemini CLI, Antigravity,
 Claude Code and Codex through their ACP adapters, Goose, and any the person added by hand on My Machines), confirms each
 by an ACP `initialize`, and reports them (`agents:found`); only confirmed ones run. A CLI whose adapter is missing shows
-with Install adapter, which asks the machine to install it (`agent-install.ts`): `npm install --global` for an npm adapter,
-or, for Antigravity (found by its sign-in in `~/.gemini/antigravity-acp` or the IDE), Google's ACP server downloaded from the
-ACP registry's listing into `~/.local/share/koala/agents/antigravity-acp`. Running the command again on a machine already
+with Install adapter, which asks the machine to install it (`agent-install.ts`) as the ACP registry lists it now
+(`claude-acp`, `codex-acp`, `antigravity-acp`; the adapters moved from `@zed-industries` to `@agentclientprotocol`, and
+an adapter under its old name is still found): its build for this machine when it has one, otherwise its npm package with
+`npm install --global --engine-strict` (the current Claude and Codex adapters need Node 22, and a refusal says so). For
+Antigravity (found by its sign-in in `~/.gemini/antigravity-acp` or the IDE), that is Google's ACP server, downloaded from the
+ACP registry's listing into `~/.local/share/koala/agents/antigravity-acp`. The script offers the same before it starts
+the service (`agent.mjs agents`, `agent-setup.ts`): it lists what it found and asks, on the terminal, whether to install
+each missing adapter; `--adapters all|none` answers for every one (`--yes` means all), and with no terminal it installs
+nothing. Running the command again on a machine already
 added replaces that machine (the script sends the old token from `machine.json`, on stdin) instead of adding a second.
 
 **A machine's worker reads its instance's payloads like any other worker.** The machine is inside its owner's instance,

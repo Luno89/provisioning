@@ -55,8 +55,16 @@ describe('finding the agents on a machine', () => {
   it('says a CLI needs its ACP adapter when only the CLI is installed, and offers nothing to run', async () => {
     await executable('claude', 'exit 0');
     const found = await discoverAgents(deps(), []);
-    expect(found.agents).toEqual([{ id: 'claude', title: 'Claude Code', state: 'needs-adapter', source: 'found', adapter: '@zed-industries/claude-code-acp', reason: 'Claude Code is installed, but it speaks ACP through @zed-industries/claude-code-acp, which is not installed' }]);
+    expect(found.agents).toEqual([{ id: 'claude', title: 'Claude Code', state: 'needs-adapter', source: 'found', adapter: '@agentclientprotocol/claude-agent-acp', reason: 'Claude Code is installed, but it speaks ACP through @agentclientprotocol/claude-agent-acp, which is not installed' }]);
     expect(found.launches).toEqual({});
+  });
+
+  it('still runs Claude Code through the adapter under its old name, and prefers the current one', async () => {
+    await executable('claude', 'exit 0');
+    await acpAgent('claude-code-acp', { name: 'claude-code-acp', version: '0.16.2', turns: [] });
+    expect((await discoverAgents(deps(), [])).agents).toMatchObject([{ id: 'claude', state: 'ready', version: '0.16.2' }]);
+    await acpAgent('claude-agent-acp', { name: 'claude-agent-acp', version: '0.91.0', turns: [] });
+    expect((await discoverAgents(deps(), [])).agents).toMatchObject([{ id: 'claude', state: 'ready', version: '0.91.0', command: path.join(bin, 'claude-agent-acp') }]);
   });
 
   it('says Antigravity needs Google\'s ACP server when it is set up here but the server is not installed', async () => {

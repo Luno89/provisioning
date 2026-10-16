@@ -3,7 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AcpLaunch, AcpProbe } from './acp-session.js';
 
-export type AgentInstall = { npm: string } | { registry: string; into: string };
+export interface AgentInstall {
+  registry: string;
+  into?: string | undefined;
+}
 
 export interface KnownAgent {
   id: string;
@@ -28,8 +31,15 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
     adapter: "Google's Antigravity ACP server",
     install: { registry: 'antigravity-acp', into: ANTIGRAVITY_HOME },
   },
-  { id: 'claude', title: 'Claude Code', launches: [{ command: 'claude-code-acp', args: [] }], cli: 'claude', adapter: '@zed-industries/claude-code-acp', install: { npm: '@zed-industries/claude-code-acp' } },
-  { id: 'codex', title: 'Codex', launches: [{ command: 'codex-acp', args: [] }], cli: 'codex', adapter: '@zed-industries/codex-acp', install: { npm: '@zed-industries/codex-acp' } },
+  {
+    id: 'claude',
+    title: 'Claude Code',
+    launches: [{ command: 'claude-agent-acp', args: [] }, { command: 'claude-code-acp', args: [] }],
+    cli: 'claude',
+    adapter: '@agentclientprotocol/claude-agent-acp',
+    install: { registry: 'claude-acp' },
+  },
+  { id: 'codex', title: 'Codex', launches: [{ command: 'codex-acp', args: [] }], cli: 'codex', adapter: '@agentclientprotocol/codex-acp', install: { registry: 'codex-acp' } },
   { id: 'goose', title: 'Goose', launches: [{ command: 'goose', args: ['acp'] }] },
 ];
 

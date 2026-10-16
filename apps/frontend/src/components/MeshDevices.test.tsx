@@ -74,7 +74,7 @@ describe('MeshDevices', () => {
       agentsAt: '2026-10-15T12:00:00Z',
       agents: [
         { id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found', command: '/usr/bin/gemini', args: ['--acp'], name: 'Gemini CLI', version: '0.61.0', signIn: ['Log in with Google'] },
-        { id: 'claude', title: 'Claude Code', state: 'needs-adapter', source: 'found', adapter: '@zed-industries/claude-code-acp', reason: 'Claude Code is installed, but it speaks ACP through @zed-industries/claude-code-acp, which is not installed' },
+        { id: 'claude', title: 'Claude Code', state: 'needs-adapter', source: 'found', adapter: '@agentclientprotocol/claude-agent-acp', reason: 'Claude Code is installed, but it speaks ACP through @agentclientprotocol/claude-agent-acp, which is not installed' },
       ],
     })]);
     expect(await screen.findByText('Gemini CLI')).toBeDefined();
@@ -88,7 +88,7 @@ describe('MeshDevices', () => {
   });
 
   it('cannot install on a machine that is not connected', async () => {
-    renderPanel(CONFIGURED, [], [machine({ online: false, agentsAt: '2026-10-15T12:00:00Z', agents: [{ id: 'codex', title: 'Codex', state: 'needs-adapter', source: 'found', adapter: '@zed-industries/codex-acp' }] })]);
+    renderPanel(CONFIGURED, [], [machine({ online: false, agentsAt: '2026-10-15T12:00:00Z', agents: [{ id: 'codex', title: 'Codex', state: 'needs-adapter', source: 'found', adapter: '@agentclientprotocol/codex-acp' }] })]);
     expect(await screen.findByRole('button', { name: /install adapter/i })).toHaveProperty('disabled', true);
   });
 

@@ -6,12 +6,14 @@ CODE=""
 YES=0
 FOLDER=""
 SERVICE=1
+ADAPTERS=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1 ;;
     --folder) FOLDER="$2"; shift ;;
     --no-service) SERVICE=0 ;;
+    --adapters) ADAPTERS="$2"; shift ;;
     --url) KOALA_URL="$2"; shift ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) CODE="$1" ;;
@@ -31,6 +33,11 @@ ask() {
 }
 json() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
+case "$ADAPTERS" in
+  "") if [ "$YES" = 1 ]; then ADAPTERS=all; else ADAPTERS=ask; fi ;;
+  ask|all|none) ;;
+  *) die "--adapters takes ask, all or none" ;;
+esac
 [ -n "$CODE" ] || die "usage: curl -fsSL ${KOALA_URL}/machine.sh | sh -s -- <code from My Machines>"
 [ "$(id -u)" != 0 ] || die "run this as yourself, not root: the agents it finds are yours"
 have curl || die "curl is needed"
@@ -112,6 +119,9 @@ EOF
 )
 chmod 600 "$CONFIG"
 ok "its settings are in $CONFIG, readable only by you"
+
+say "Coding agents on this machine"
+(cd "$FOLDER" && "$NODE_BIN" "$DATA_DIR/agent.mjs" agents --adapters "$ADAPTERS") || echo "  Koala could not look for coding agents now; it looks again each time this machine connects."
 
 START="\"$NODE_BIN\" \"$DATA_DIR/agent.mjs\""
 if [ "$SERVICE" = 1 ] && [ "$(uname -s)" = Linux ] && have systemctl && systemctl --user show-environment >/dev/null 2>&1; then

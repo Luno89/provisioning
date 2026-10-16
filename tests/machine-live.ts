@@ -81,36 +81,39 @@ async function main(): Promise<void> {
     console.log(`[1] a fresh Ubuntu machine with nothing of Koala's on it: ${NAME}`);
     vm = await createDisposableVm(NAME, { memoryMB: 2048, cpus: 2, diskGB: 10, reboots: true });
 
-    console.log(`[2] it has Node ${NODE}, a coding agent that speaks ACP (gemini), and Claude Code without its adapter; this computer is its localhost`);
+    console.log(`[2] it has Node ${NODE}, a coding agent that speaks ACP (gemini), and Claude Code and Codex without their adapters; this computer is its localhost`);
     await ssh(vm, `mkdir -p ~/.local/node ~/agents && curl -fsSL https://nodejs.org/dist/${NODE}/node-${NODE}-linux-x64.tar.xz | tar -xJf - -C ~/.local/node --strip-components=1`);
     await ssh(vm, `printf '%s\\n' 'export PATH="$HOME/.local/node/bin:$HOME/agents:$PATH"' >> ~/.profile`);
     await write(vm, '~/agents/gemini', ACP_STUB, '755');
     await write(vm, '~/agents/claude', '#!/bin/sh\necho "claude 2.0.0"\n', '755');
+    await write(vm, '~/agents/codex', '#!/bin/sh\necho "codex-cli 0.50.0"\n', '755');
     await write(vm, '/usr/local/sbin/koala-loopback', LOOPBACK, '755', true);
     await write(vm, '/etc/systemd/system/koala-loopback.service', LOOPBACK_UNIT, '644', true);
     await ssh(vm, 'sudo systemctl daemon-reload && sudo systemctl enable --now koala-loopback.service');
     assert.match(await ssh(vm, 'node --version && command -v gemini && curl -fsS -o /dev/null -w "%{http_code}" http://localhost:3001/machine.sh'), /200$/);
 
-    console.log('[3] the command from My Machines installs it, starts it as a service, and keeps it starting with the machine');
+    console.log('[3] the command from My Machines installs it, lists the agents it found without installing an adapter (--adapters none), starts it as a service, and keeps it starting with the machine');
     const made = await http.post('/mesh/local-agents/join-code', {});
     assert.equal(made.status, 201, JSON.stringify(made.data));
     const command = (made.data as { command: string }).command;
     assert.match(command, /^curl -fsSL http:\/\/localhost:3001\/machine\.sh \| sh -s -- \S+$/);
-    const installed = (await ssh(vm, `${command} --yes`)).replace(/\x1b\[[0-9;]*m/g, '');
+    const installed = (await ssh(vm, `${command} --yes --adapters none`)).replace(/\x1b\[[0-9;]*m/g, '');
     console.log(installed.split('\n').filter((line) => line.trim()).map((line) => `    ${line.trim()}`).join('\n'));
     assert.match(installed, /running as the koala-machine service/);
     assert.match(installed, /it starts when this machine starts, without you logging in/);
     assert.equal((await ssh(vm, 'stat -c %a ~/.config/koala/machine.json')).trim(), '600');
     assert.doesNotMatch(installed, /KOALA_DEVICE_TOKEN|"token"/);
+    assert.match(installed, /✓ Gemini CLI \(Stub Agent\) 1\.2\.3/);
+    assert.match(installed, /Install Claude Code, Codex later with Install adapter on My Machines\./);
 
     const joined = await until('the machine connecting', 3, async () => {
       const found = await mine();
-      return found?.online && found.agents.some((agent) => agent.state !== 'checking') && found.agents.length >= 2 ? found : undefined;
+      return found?.online && found.agents.some((agent) => agent.state !== 'checking') && found.agents.length >= 3 ? found : undefined;
     });
     assert.equal(joined.os, 'Linux x86_64');
-    assert.deepEqual(joined.agents.map((agent) => [agent.id, agent.state]).sort(), [['claude', 'needs-adapter'], ['gemini', 'ready']]);
+    assert.deepEqual(joined.agents.map((agent) => [agent.id, agent.state]).sort(), [['claude', 'needs-adapter'], ['codex', 'needs-adapter'], ['gemini', 'ready']]);
     assert.equal(joined.agents.find((agent) => agent.id === 'gemini')?.version, '1.2.3');
-    console.log('    connected: gemini ready (1.2.3, confirmed over ACP), claude needs its adapter');
+    console.log('    connected: gemini ready (1.2.3, confirmed over ACP), claude and codex need their adapters');
 
     console.log('[4] after the machine restarts, nobody logs in, and it connects again on its own');
     const before = joined.connectedAt;
@@ -122,7 +125,7 @@ async function main(): Promise<void> {
     });
     console.log(`    back at ${back.connectedAt}, with nobody signed in`);
 
-    console.log('[5] Install adapter installs Claude Code\'s ACP adapter on the machine, which then finds it');
+    console.log('[5] Install adapter installs Claude Code\'s ACP adapter, the package the ACP registry names, on the machine, which then finds it');
     const answer = await http.post(`/mesh/local-agents/${back.id}/agents/claude/install`, {});
     assert.equal(answer.status, 200, JSON.stringify(answer.data));
     assert.equal((answer.data as { ok: boolean; output: string }).ok, true, (answer.data as { output: string }).output);
@@ -133,16 +136,18 @@ async function main(): Promise<void> {
     assert.equal(claude.state, 'ready', `the adapter installed but ${claude.state}: ${claude.reason ?? ''}`);
     console.log(`    claude ready through its adapter${claude.version ? ` (${claude.version})` : ''}`);
 
-    console.log('[6] running the command again on the same machine replaces it rather than adding a second');
+    console.log('[6] running the command again with --yes installs Codex\'s adapter from the script, and replaces the machine rather than adding a second');
     const remade = await http.post('/mesh/local-agents/join-code', {});
     assert.equal(remade.status, 201, JSON.stringify(remade.data));
-    await ssh(vm, `${(remade.data as { command: string }).command} --yes`);
+    const again = (await ssh(vm, `${(remade.data as { command: string }).command} --yes`)).replace(/\x1b\[[0-9;]*m/g, '');
+    assert.match(again, /✓ Codex \([^)]*\) [^\n]*, through @agentclientprotocol\/codex-acp/, again);
     const rejoined = await until('the machine connecting again', 3, async () => {
       const found = (await machines()).filter((machine) => machine.name === NAME);
       return found.length === 1 && found[0]!.online && found[0]!.connectedAt !== back.connectedAt ? found[0] : undefined;
     });
     assert.equal(rejoined.id, back.id);
-    console.log(`    still one machine, ${rejoined.id}`);
+    const codex = await until('codex showing ready', 3, async () => (await mine())?.agents.find((agent) => agent.id === 'codex' && agent.state === 'ready'));
+    console.log(`    codex ready through its adapter${codex.version ? ` (${codex.version})` : ''}; still one machine, ${rejoined.id}`);
 
     console.log('[7] a chat on its gemini runs on the machine: the large message reaches it through the encrypted, offloaded payloads, and the next turn continues the session');
     const api: Api = async (method, path, body) => {

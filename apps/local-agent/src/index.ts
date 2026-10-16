@@ -11,6 +11,8 @@ import { loadMachineConfig, type MachineConfig } from './machine-config.js';
 import { KNOWN_AGENTS, discoverAgents, manualAgentsFrom, systemDeps, type FoundAgent, type ManualAgent } from './agent-discovery.js';
 import { probeAcp } from './acp-session.js';
 import { installAgent } from './agent-install.js';
+import { ADAPTER_CHOICES, setUpAgents, type AdapterChoice } from './agent-setup.js';
+import { askOnTerminal } from './terminal-ask.js';
 import { ExternalAgentSessions, koalaTools } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
 import { askOver, payloadRingOver, remoteBlobs } from './remote-blobs.js';
@@ -190,7 +192,24 @@ async function main() {
   });
 }
 
-main().catch((err) => {
+async function setUpAgentsHere(args: string[]): Promise<void> {
+  const flag = args.indexOf('--adapters');
+  const choice = (flag >= 0 ? args[flag + 1] : 'ask') as AdapterChoice;
+  if (!ADAPTER_CHOICES.includes(choice)) throw new Error(`--adapters takes ${ADAPTER_CHOICES.join(', ')}`);
+  const config = await loadMachineConfig();
+  await mkdir(config.rootDir, { recursive: true });
+  await setUpAgents(choice, { discovery: systemDeps(config.rootDir, probeAcp), install: (install) => installAgent(install) }, {
+    ok: (line) => console.log(`  \x1b[32m✓\x1b[0m ${line}`),
+    note: (line) => console.log(`  • ${line}`),
+    fail: (line) => console.log(`  \x1b[31m✗\x1b[0m ${line}`),
+    ask: askOnTerminal,
+  });
+}
+
+const started = process.argv[2] === 'agents' ? setUpAgentsHere(process.argv.slice(3)) : main();
+started.then(() => {
+  if (process.argv[2] === 'agents') process.exit(0);
+}, (err: Error) => {
   console.error(`[koala-local-agent] fatal: ${err.message}`);
   process.exit(1);
 });

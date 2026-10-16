@@ -22,11 +22,18 @@ export interface InstallDeps {
   arch: string;
   unzip(archive: string, into: string): Promise<void>;
   npm(pkg: string): Promise<string>;
+  nodeVersion: string;
 }
 
 interface RegistryBinary {
   archive?: unknown;
   cmd?: unknown;
+}
+
+interface RegistryEntry {
+  name?: unknown;
+  version?: unknown;
+  distribution?: { binary?: Record<string, RegistryBinary>; npx?: { package?: unknown } };
 }
 
 const PLATFORMS: Record<string, string> = { linux: 'linux', darwin: 'darwin', win32: 'windows' };
@@ -44,26 +51,22 @@ export const systemInstallDeps = (): InstallDeps => ({
   fetch: globalThis.fetch,
   platform: process.platform,
   arch: process.arch,
+  nodeVersion: process.version,
   unzip: async (archive, into) => {
     await run('unzip', ['-o', '-q', archive, '-d', into]).catch((err: NodeJS.ErrnoException) => {
       throw new Error(err.code === 'ENOENT' ? 'unzip is not installed on this machine' : err.message);
     });
   },
   npm: async (pkg) => {
-    const { stdout, stderr } = await run('npm', ['install', '--global', pkg], { maxBuffer: 16 * 1024 * 1024 });
+    const { stdout, stderr } = await run('npm', ['install', '--global', '--engine-strict', pkg], { maxBuffer: 16 * 1024 * 1024 });
     return `${stdout}${stderr}`;
   },
 });
 
-async function fromRegistry(id: string, into: string, deps: InstallDeps): Promise<InstallOutcome> {
-  const listed = await deps.fetch(`${ACP_REGISTRY}/${id}/agent.json`);
-  if (!listed.ok) return { ok: false, output: `the ACP registry has no ${id} (${listed.status})` };
-  const entry = await listed.json() as { name?: unknown; version?: unknown; distribution?: { binary?: Record<string, RegistryBinary> } };
-  const target = registryTarget(deps.platform, deps.arch);
-  const binary = target ? entry.distribution?.binary?.[target] : undefined;
-  if (!target || typeof binary?.archive !== 'string' || typeof binary.cmd !== 'string') {
-    return { ok: false, output: `${String(entry.name ?? id)} has no build for ${deps.platform} on ${deps.arch}` };
-  }
+const titleOf = (entry: RegistryEntry, id: string): string => String(entry.name ?? id);
+
+async function binaryFrom(entry: RegistryEntry, binary: RegistryBinary, id: string, into: string, deps: InstallDeps): Promise<InstallOutcome> {
+  if (typeof binary.archive !== 'string' || typeof binary.cmd !== 'string') return { ok: false, output: `the registry lists ${id} without an archive and command` };
   if (!binary.archive.startsWith('https://')) return { ok: false, output: `the registry lists ${id} at an address that is not https` };
   const home = expandHome(into);
   const next = `${home}.next`;
@@ -82,7 +85,7 @@ async function fromRegistry(id: string, into: string, deps: InstallDeps): Promis
     await rename(next, home);
   } catch (err) {
     await rm(next, { recursive: true, force: true });
-    return { ok: false, output: `installing ${String(entry.name ?? id)} failed: ${(err as Error).message}` };
+    return { ok: false, output: `installing ${titleOf(entry, id)} failed: ${(err as Error).message}` };
   } finally {
     await rm(archive, { force: true });
   }
@@ -90,14 +93,33 @@ async function fromRegistry(id: string, into: string, deps: InstallDeps): Promis
   return { ok: true, output: `Installed ${named} in ${into}` };
 }
 
-export async function installAgent(install: AgentInstall, deps: InstallDeps = systemInstallDeps()): Promise<InstallOutcome> {
-  if ('npm' in install) {
-    try {
-      return { ok: true, output: tail(await deps.npm(install.npm)) };
-    } catch (err) {
-      const failed = err as Error & { stdout?: string; stderr?: string };
-      return { ok: false, output: `${failed.message}\n${tail(`${failed.stdout ?? ''}${failed.stderr ?? ''}`)}`.trim() };
-    }
+async function npmFrom(entry: RegistryEntry, pkg: string, id: string, deps: InstallDeps): Promise<InstallOutcome> {
+  try {
+    const said = tail(await deps.npm(pkg));
+    return { ok: true, output: `Installed ${pkg}${said ? `\n${said}` : ''}` };
+  } catch (err) {
+    const failed = err as Error & { stdout?: string; stderr?: string };
+    const said = tail(`${failed.stdout ?? ''}${failed.stderr ?? ''}`);
+    const engine = /EBADENGINE|Unsupported engine/.test(`${failed.message}${said}`)
+      ? `${titleOf(entry, id)} needs a newer Node.js than this machine's ${deps.nodeVersion}\n`
+      : '';
+    return { ok: false, output: `${engine}${failed.message}\n${said}`.trim() };
   }
-  return fromRegistry(install.registry, install.into, deps);
+}
+
+async function fromRegistry(install: AgentInstall, deps: InstallDeps): Promise<InstallOutcome> {
+  const id = install.registry;
+  const listed = await deps.fetch(`${ACP_REGISTRY}/${id}/agent.json`);
+  if (!listed.ok) return { ok: false, output: `the ACP registry has no ${id} (${listed.status})` };
+  const entry = await listed.json() as RegistryEntry;
+  const target = registryTarget(deps.platform, deps.arch);
+  const binary = target ? entry.distribution?.binary?.[target] : undefined;
+  if (binary && install.into) return binaryFrom(entry, binary, id, install.into, deps);
+  const pkg = entry.distribution?.npx?.package;
+  if (typeof pkg === 'string' && pkg) return npmFrom(entry, pkg, id, deps);
+  return { ok: false, output: `${titleOf(entry, id)} has no build for ${deps.platform} on ${deps.arch}` };
+}
+
+export async function installAgent(install: AgentInstall, deps: InstallDeps = systemInstallDeps()): Promise<InstallOutcome> {
+  return fromRegistry(install, deps);
 }

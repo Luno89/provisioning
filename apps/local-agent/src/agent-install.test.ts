@@ -21,10 +21,10 @@ const zipped = async (): Promise<Buffer> => {
   return readFile(archive);
 };
 
-const registryFetch = (entry: unknown, archive: Buffer | undefined, asked: string[]): typeof fetch => (async (input: string | URL | Request) => {
+const registryFetch = (entry: unknown, archive: Buffer | undefined, asked: string[], id = 'antigravity-acp'): typeof fetch => (async (input: string | URL | Request) => {
   const url = String(input);
   asked.push(url);
-  if (url === `${ACP_REGISTRY}/antigravity-acp/agent.json`) return new Response(JSON.stringify(entry));
+  if (url === `${ACP_REGISTRY}/${id}/agent.json`) return new Response(JSON.stringify(entry));
   if (url === ARCHIVE && archive) return new Response(new Uint8Array(archive));
   return new Response('missing', { status: 404 });
 }) as typeof fetch;
@@ -40,6 +40,7 @@ const deps = (fetchFn: typeof fetch, platform = 'linux', arch = 'x64'): InstallD
   fetch: fetchFn,
   platform,
   arch,
+  nodeVersion: 'v20.11.0',
   npm: async () => { throw new Error('npm must not be asked'); },
 });
 
@@ -76,10 +77,29 @@ describe('installing an agent a machine lacks', () => {
     expect(asked).toHaveLength(1);
   });
 
-  it('installs an npm adapter through npm and reports what it said', async () => {
+  const claudeEntry = { name: 'Claude Agent', version: '0.91.0', distribution: { npx: { package: '@agentclientprotocol/claude-agent-acp@0.91.0' } } };
+
+  it('installs the npm package the registry names now, so a renamed adapter is never installed under its old name', async () => {
     const installed: string[] = [];
-    const outcome = await installAgent({ npm: '@zed-industries/claude-code-acp' }, { ...deps(registryFetch(entry, undefined, [])), npm: async (pkg) => { installed.push(pkg); return 'added 12 packages\n'; } });
-    expect(outcome).toEqual({ ok: true, output: 'added 12 packages' });
-    expect(installed).toEqual(['@zed-industries/claude-code-acp']);
+    const asked: string[] = [];
+    const outcome = await installAgent({ registry: 'claude-acp' }, { ...deps(registryFetch(claudeEntry, undefined, asked, 'claude-acp')), npm: async (pkg) => { installed.push(pkg); return 'added 12 packages\n'; } });
+    expect(outcome).toEqual({ ok: true, output: 'Installed @agentclientprotocol/claude-agent-acp@0.91.0\nadded 12 packages' });
+    expect(installed).toEqual(['@agentclientprotocol/claude-agent-acp@0.91.0']);
+    expect(asked).toEqual([`${ACP_REGISTRY}/claude-acp/agent.json`]);
+  });
+
+  it('says the adapter needs a newer Node.js when npm refuses it for its engine', async () => {
+    const refused = Object.assign(new Error('Command failed: npm install --global --engine-strict'), { stderr: 'npm error code EBADENGINE\nnpm error engine Not compatible with your version of node/npm' });
+    const outcome = await installAgent({ registry: 'claude-acp' }, { ...deps(registryFetch(claudeEntry, undefined, [], 'claude-acp')), npm: async () => { throw refused; } });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.output.split('\n')[0]).toBe("Claude Agent needs a newer Node.js than this machine's v20.11.0");
+  });
+
+  it('takes the build for this machine over npm when the registry lists both', async () => {
+    const both = { ...entry, distribution: { ...entry.distribution, npx: { package: 'agy@1.4.0' } } };
+    const into = path.join(dir, 'agents', 'antigravity-acp');
+    const outcome = await installAgent({ registry: 'antigravity-acp', into }, deps(registryFetch(both, await zipped(), [])));
+    expect(outcome.ok).toBe(true);
+    await access(path.join(into, 'agy_acp_server.par'), constants.X_OK);
   });
 });
