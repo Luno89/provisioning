@@ -144,6 +144,11 @@ import { seedAll } from './scripts/seed-all.js';
 import type { SearchOutcome } from './lib/web-tools.js';
 import { createGroveLauncher } from './engine-host/grove-launcher.js';
 import { groveAgentOf, resolveTreeType, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, treeTypeOfProject, renderStarterFiles, versionVars } from './lib/tree-types.js';
+import { RunningService } from './services/RunningService.js';
+import { ownedQuery } from './lib/workflow-owner.js';
+import { DEFAULT_BENCH_SETTINGS } from './lib/bench.js';
+import { runningRouter } from './routes/running.js';
+import type { RunningWorkflow } from './lib/running.js';
 import { TreeHomeService } from './services/TreeHomeService.js';
 import { TreeModelsService, treeAgentsFrom } from './services/TreeModelsService.js';
 import { platformGroups } from './extensions/installed.js';
@@ -1241,6 +1246,49 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     builds: (ownerId) => db.getRunEffort(ownerId, BUILD_WORKSPACE.id),
     startBuild: (ownerId, treeId, commit) => workspaceBuilds.start(ownerId, treeId, commit),
   }) : undefined;
+  const askingOf = runAskingVia(() => getTemporalClient());
+  const running = new RunningService({
+    workflows: {
+      list: async (ownerId) => {
+        if (!temporalBridge.isReady()) return undefined;
+        const found: RunningWorkflow[] = [];
+        for await (const workflow of temporalBridge.client.workflow.list({ query: `${ownedQuery(ownerId)} AND ExecutionStatus = "Running"` })) {
+          found.push({
+            workflowId: workflow.workflowId,
+            type: workflow.type,
+            startedAt: workflow.startTime.toISOString(),
+            ...(workflow.parentExecution?.workflowId ? { parent: workflow.parentExecution.workflowId } : {}),
+            ...(workflow.memo ? { memo: workflow.memo } : {}),
+          });
+        }
+        return found;
+      },
+      asking: (workflowId) => askingOf(workflowId),
+      cancel: (workflowId) => temporalBridge.cancelWorkflow(workflowId),
+    },
+    records: async (ownerId) => {
+      const [trees, projects, conversations, checkRuns, releases, agents] = await Promise.all([
+        db.getTrees(), db.getProjects(), db.getConversations(), level2Service.list(ownerId), db.getOdooReleases(ownerId), agentDirectory.agents(ownerId),
+      ]);
+      return {
+        trees: trees.filter((entry) => entry.ownerId === ownerId),
+        projects: projects.filter((entry) => entry.ownerId === ownerId),
+        conversations: conversations.filter((entry) => entry.ownerId === ownerId),
+        checkRuns: checkRuns.map((run) => ({ id: run.id, trigger: run.trigger as { kind?: string; agents?: string[] } | undefined, finished: run.finished, scenarios: run.scenarios })),
+        releases,
+        agentName: (slug) => agents.find((agent) => agent.slug === slug)?.name,
+      };
+    },
+    checks: { cancel: (ownerId, id) => level2Service.cancel(ownerId, id) },
+    trees: { stop: async (ownerId, treeId) => { const outcome = await groveRuns.stop(ownerId, treeId); return outcome.ok ? { ok: true } : { ok: false, error: outcome.error }; } },
+    runs: { cancel: (runId) => engineRuns.cancel(runId) },
+    bench: {
+      settings: async (ownerId) => (bench.service ? bench.service.settings(ownerId) : { ...DEFAULT_BENCH_SETTINGS }),
+      saveSettings: async (ownerId, value) => (bench.service ? bench.service.saveSettings(ownerId, value) : { saved: false, problems: ['the bench is not set up here'] }),
+    },
+    keeper: memoryKeeper,
+  });
+  tenant.use('/api/running', runningRouter({ running }));
   tenant.use('/api/trees', treesRouter({
     db,
     ...(treeWorkspace ? { workspaceFile: treeWorkspace } : {}),

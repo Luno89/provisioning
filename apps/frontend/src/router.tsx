@@ -10,6 +10,7 @@ import { RootLayout } from './RootLayout';
 import { AppsRoute, ClustersRoute, NginxRoute, ProjectsRoute, VpsCatalogRoute } from './components/ShellRoutes';
 import ChatPage from './components/ChatPage';
 import TemporalPanel from './components/TemporalPanel';
+import RunningView from './components/Running/RunningView';
 import ServicesPanel from './components/ServicesPanel';
 import CloudAccounts from './components/CloudAccounts.js';
 import MeshDevices from './components/MeshDevices.js';
@@ -128,6 +129,12 @@ export const temporalRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/temporal',
   component: TemporalPanel,
+});
+
+export const runningRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/running',
+  component: RunningView,
 });
 
 export const servicesRoute = createRoute({
@@ -331,6 +338,7 @@ export const routeTree = rootRoute.addChildren([
   appsRoute,
   nginxRoute,
   temporalRoute,
+  runningRoute,
   servicesRoute,
   accountsRoute,
   meshRoute,

@@ -80,6 +80,24 @@ describe('the memory keeper, driven by what the engine reports', () => {
     expect(started[1]!.message).not.toContain('Cloudflare');
   });
 
+  it('holds what it would read while paused, in order, and reads it all once resumed, saying what it is about', async () => {
+    const paused = keeper();
+    await paused.setPaused('u1', true);
+    await say('We use Cloudflare for DNS.');
+    expect(await paused.handle(quiet)).toEqual({ started: [], deferred: ['memory-conversation-c1-1'] });
+    await say('Trials last 7 days.');
+    expect((await paused.handle(quiet)).deferred).toEqual(['memory-conversation-c1-2']);
+    expect(started).toEqual([]);
+    expect(await paused.state('u1')).toEqual({ paused: true, held: 2 });
+
+    expect(await paused.setPaused('u1', false)).toEqual({ paused: false, held: 0, started: ['memory-conversation-c1-1', 'memory-conversation-c1-2'] });
+    expect(started.map((request) => [request.runId, request.about])).toEqual([
+      ['memory-conversation-c1-1', 'the conversation "chat"'],
+      ['memory-conversation-c1-2', 'the conversation "chat"'],
+    ]);
+    expect(started[1]!.message).toContain('Trials last 7 days.');
+  });
+
   it('remembers a conversation at once when something is settled in it', async () => {
     await say('Deploy it.');
     expect((await keeper().settled('u1', 'c1')).started).toEqual(['memory-conversation-c1-1']);

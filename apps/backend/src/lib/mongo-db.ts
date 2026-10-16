@@ -40,6 +40,7 @@ import type { AccountIds, ScriptedRequestRecord } from './db-interface.js';
 import type { OdooRelease } from './odoo-release.js';
 import type { StoredArtifact } from './artifacts.js';
 import type { ArtifactChunk } from '../services/ArtifactService.js';
+import type { DeferredConclusion, KeeperSettings } from './conclusions.js';
 
 export const databaseOf = (uri: string): string => {
   const name = uri.replace(/^mongodb(\+srv)?:\/\/[^/]+\/?/, '').split('?')[0]?.trim();
@@ -1128,6 +1129,32 @@ export class MongoDB implements Database {
   async saveExtensionSettings(settings: ExtensionSettings): Promise<void> {
     const { ownerId, ...rest } = settings;
     await this.extensionSettings.replaceOne({ _id: ownerId as never }, rest, { upsert: true });
+  }
+
+  async getKeeperSettings(ownerId: string): Promise<KeeperSettings | undefined> {
+    const doc = await this.db!.collection('keeperSettings').findOne({ _id: ownerId as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc as Record<string, unknown>;
+    return { ...(rest as Omit<KeeperSettings, 'ownerId'>), ownerId: String(_id) };
+  }
+
+  async saveKeeperSettings(settings: KeeperSettings): Promise<void> {
+    const { ownerId, ...rest } = settings;
+    await this.db!.collection('keeperSettings').replaceOne({ _id: ownerId as never }, rest, { upsert: true });
+  }
+
+  async getDeferredConclusions(ownerId: string): Promise<DeferredConclusion[]> {
+    const docs = await this.db!.collection('deferredConclusions').find({ ownerId }).sort({ at: 1 }).toArray();
+    return docs.map(({ _id, ...rest }) => ({ ...(rest as Omit<DeferredConclusion, 'id'>), id: String(_id) }));
+  }
+
+  async saveDeferredConclusion(deferred: DeferredConclusion): Promise<void> {
+    const { id, ...rest } = deferred;
+    await this.db!.collection('deferredConclusions').replaceOne({ _id: id as never }, rest, { upsert: true });
+  }
+
+  async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
+    await this.db!.collection('deferredConclusions').deleteOne({ _id: id as never, ownerId });
   }
 
   async getAutoModeSettings(ownerId: string): Promise<AutoModeSettings | undefined> {

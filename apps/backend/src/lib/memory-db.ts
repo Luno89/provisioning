@@ -39,6 +39,7 @@ import type { AccountIds, ScriptedRequestRecord } from './db-interface.js';
 import type { OdooRelease } from './odoo-release.js';
 import type { StoredArtifact } from './artifacts.js';
 import type { ArtifactChunk } from '../services/ArtifactService.js';
+import type { DeferredConclusion, KeeperSettings } from './conclusions.js';
 
 export class MemoryDB implements Database {
   private clusters: ClusterMetadata[] = [];
@@ -75,6 +76,8 @@ export class MemoryDB implements Database {
   private egressGrants: EgressGrantRecord[] = [];
   private extensionSettings = new Map<string, ExtensionSettings>();
   private autoModeSettings = new Map<string, AutoModeSettings>();
+  private keeperSettings = new Map<string, KeeperSettings>();
+  private deferredConclusions: DeferredConclusion[] = [];
   private authoredExtensions = new Map<string, AuthoredExtension>();
   private handoffs = new Map<string, string>();
   private instances = new Map<string, InstanceRecord>();
@@ -365,6 +368,8 @@ export class MemoryDB implements Database {
     sweepMap('benchStates', this.benchStates, (key) => key === ownerId);
     sweepMap('extensionSettings', this.extensionSettings, (key) => key === ownerId);
     sweepMap('autoModeSettings', this.autoModeSettings, (key) => key === ownerId);
+    sweepMap('keeperSettings', this.keeperSettings, (key) => key === ownerId);
+    this.deferredConclusions = sweep('deferredConclusions', this.deferredConclusions);
     this.giteaAccounts = sweep('giteaAccounts', this.giteaAccounts);
     this.users = sweep('users', this.users, (entry) => entry.id === ownerId);
     return removed;
@@ -925,6 +930,27 @@ export class MemoryDB implements Database {
 
   async saveExtensionSettings(settings: ExtensionSettings): Promise<void> {
     this.extensionSettings.set(settings.ownerId, { ...settings, disabled: [...settings.disabled] });
+  }
+
+  async getKeeperSettings(ownerId: string): Promise<KeeperSettings | undefined> {
+    const found = this.keeperSettings.get(ownerId);
+    return found ? { ...found } : undefined;
+  }
+
+  async saveKeeperSettings(settings: KeeperSettings): Promise<void> {
+    this.keeperSettings.set(settings.ownerId, { ...settings });
+  }
+
+  async getDeferredConclusions(ownerId: string): Promise<DeferredConclusion[]> {
+    return this.deferredConclusions.filter((entry) => entry.ownerId === ownerId).sort((a, b) => a.at.localeCompare(b.at)).map((entry) => structuredClone(entry));
+  }
+
+  async saveDeferredConclusion(deferred: DeferredConclusion): Promise<void> {
+    this.deferredConclusions = [...this.deferredConclusions.filter((entry) => entry.id !== deferred.id), structuredClone(deferred)];
+  }
+
+  async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
+    this.deferredConclusions = this.deferredConclusions.filter((entry) => !(entry.id === id && entry.ownerId === ownerId));
   }
 
   async getAutoModeSettings(ownerId: string): Promise<AutoModeSettings | undefined> {

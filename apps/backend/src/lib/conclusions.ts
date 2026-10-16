@@ -10,8 +10,22 @@ export interface Conclusion {
   ownerId: string;
   runId: string;
   message: string;
+  about?: string | undefined;
   projectId?: string | undefined;
   treeId?: string | undefined;
+}
+
+export interface KeeperSettings {
+  ownerId: string;
+  paused: boolean;
+  updatedAt: string;
+}
+
+export interface DeferredConclusion {
+  id: string;
+  ownerId: string;
+  conclusion: Conclusion;
+  at: string;
 }
 
 const safeId = (value: string): string => value.replace(/[^A-Za-z0-9_-]+/g, '-');
@@ -51,6 +65,7 @@ export function conversationConclusion(
   return {
     ownerId: conversation.ownerId,
     runId: `memory-conversation-${safeId(conversation.id)}-${through}`,
+    about: `the conversation "${conversation.title || 'untitled'}"`,
     ...(conversation.projectId ? { projectId: conversation.projectId } : {}),
     ...(conversation.treeId ? { treeId: conversation.treeId } : {}),
     message: [
@@ -73,6 +88,7 @@ export function leafConclusion(leaf: Leaf, treeId: string | undefined): Conclusi
   return {
     ownerId: leaf.ownerId,
     runId: `memory-leaf-${safeId(leaf.id)}-${safeId(review.at)}`,
+    about: `the story "${leaf.title}"`,
     ...(treeId ? { treeId } : {}),
     message: [
       `A judge has settled a piece of work: the leaf "${leaf.title}" was ${verdict}. `
@@ -93,6 +109,7 @@ export function runConclusion(run: FinishedRun): Conclusion | undefined {
   return {
     ownerId: run.ownerId,
     runId: memoryRunId(run.runId),
+    about: `a ${run.agentSlug} run that ${run.outcome === 'ok' ? 'finished' : 'did not finish'}`,
     message: run.outcome === 'ok'
       ? [
         `A research run has finished (run ${run.runId}). Remember the durable facts it established — `

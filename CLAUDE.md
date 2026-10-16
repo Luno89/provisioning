@@ -392,6 +392,20 @@ otherwise only the scenarios of agents whose fingerprint changed. A scenario tha
 fails now is a regression: it is recorded on the run, shown as a toast, and marked in that check's history. Settings
 live on Settings → The bench.
 
+## What runs (the Running page)
+
+Sidebar → **Running** (`components/Running/`, a count badge while anything runs) lists the person's running work in
+plain words, from Temporal (their `KoalaOwner` workflows, top-level only; the conversation countdowns and the bench's
+idle timer are left out) mapped by `lib/running.ts`: the bench and checks (progress from the check run), the memory
+keeper (what it reads, from the run's memo `about`), tree runs, releases (and whether one waits on the card), chat turns
+(the memo's `agent` and `conversation`, written by the run starter), workspace builds, deletions and deploys; an unknown
+type is listed by its type. Each opens where it lives and is cancelled its own way (`RunningService`: a check run's
+`cancelCheck`, a tree's `stopRun`, a run's `cancelRun`, otherwise a Temporal cancel); what cannot stop part way
+(deletions, an approved plan, saving a workspace) says why. Two switches pause **the bench** (its own `enabled`) and **the
+memory keeper** (`keeperSettings`): a paused keeper holds each conclusion in `deferredConclusions`, in order, and hands
+them all over when resumed (`MemoryKeeperService.setPaused`). API: `GET /api/running`, `POST /api/running/:id/cancel`,
+`PUT /api/running/bench|keeper`.
+
 ## Platform keys
 
 Four keys, one per purpose, loaded once by `lib/keys.ts`'s `loadKeys(process.env)`:

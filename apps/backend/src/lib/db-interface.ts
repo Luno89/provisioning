@@ -39,6 +39,7 @@ import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata
 import type { OdooRelease } from './odoo-release.js';
 import type { StoredArtifact } from './artifacts.js';
 import type { ArtifactChunk } from '../services/ArtifactService.js';
+import type { DeferredConclusion, KeeperSettings } from './conclusions.js';
 
 export type PartialInfo<T> = { [K in keyof T]?: T[K] | undefined };
 
@@ -209,6 +210,11 @@ export interface Database {
   getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined>;
   saveMcpRequest(request: McpRequest): Promise<void>;
   getMcpToolHints(ownerId: string): Promise<McpToolHint[]>;
+  getKeeperSettings(ownerId: string): Promise<KeeperSettings | undefined>;
+  saveKeeperSettings(settings: KeeperSettings): Promise<void>;
+  getDeferredConclusions(ownerId: string): Promise<DeferredConclusion[]>;
+  saveDeferredConclusion(deferred: DeferredConclusion): Promise<void>;
+  deleteDeferredConclusion(ownerId: string, id: string): Promise<void>;
   getMemoryWatermark(key: string): Promise<string | undefined>;
   getBenchSettings(ownerId: string): Promise<BenchSettings | undefined>;
   saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void>;

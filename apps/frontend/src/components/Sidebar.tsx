@@ -3,7 +3,7 @@ import { useRouter, type NavigateOptions } from '@tanstack/react-router';
 import { useShellStore, type ViewName } from '../stores/shell';
 import {
   Trees, Trees as TreesIcon, ChevronDown, ChevronRight,
-  Plus, Trash2, GitBranch, Layers, Bot, Wrench, Network, Puzzle, Server,
+  Plus, Trash2, GitBranch, Layers, Bot, Wrench, Network, Puzzle, Server, Activity,
 } from 'lucide-react';
 import { Koala } from './Koala';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -13,6 +13,7 @@ import {
 import { listLeaves, listTrees, groveKeys } from '../api/grove.js';
 import { itemChatAddress } from '../lib/item-chat-address.js';
 import { parseHash, formatHash } from '../lib/route.js';
+import { useRunning } from './Running/useRunning';
 
 export interface ForestTab {
   id: string;
@@ -113,6 +114,8 @@ export default function Sidebar({ forestTabs, onLogout }: {
     staleTime: 30_000,
     enabled: recent.some((conversation) => conversation.kind === 'item' && Boolean(conversation.leafId)),
   });
+
+  const running = useRunning().data?.items.length ?? 0
 
   const navigateTo = (targetView: ViewName, hashOrPath?: string) => {
     startTransition(() => {
@@ -314,6 +317,16 @@ export default function Sidebar({ forestTabs, onLogout }: {
             </button>
           ))}
         </div>
+
+        <button
+          type="button"
+          onClick={() => navigateTo('running')}
+          className={groupHeader(isCurrentView('running'))}
+        >
+          <Activity size={16} />
+          <span className="flex-1 text-left">Running</span>
+          {running > 0 && <span className="rounded-full bg-[var(--bark-600)] px-1.5 text-[10px] text-slate-200" aria-label={`${running} running`}>{running}</span>}
+        </button>
 
         <button
           type="button"

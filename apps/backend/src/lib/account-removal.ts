@@ -94,13 +94,13 @@ export interface RemovalProgress {
 export const ACCOUNT_DATA = {
   byOwner: [
     'accessRequests', 'actionProposals', 'appSpecs', 'artifactChunks', 'artifacts', 'authoredExtensions', 'bindingTypes', 'branches', 'clusters', 'conversations',
-    'corpus', 'deployments', 'egressGrants', 'egressRequests', 'enginePersonas', 'engineRunEffort', 'engineRunTraces', 'engineTools',
+    'corpus', 'deferredConclusions', 'deployments', 'egressGrants', 'egressRequests', 'enginePersonas', 'engineRunEffort', 'engineRunTraces', 'engineTools',
     'evalAgentChanges', 'evalCases', 'evalLevel1Runs', 'evalPrompts', 'evalRuns', 'evalScenarioProposals', 'evalScenarioRuns',
     'evalScenarios', 'instanceJoinTokens', 'instances', 'leaves', 'localAgentDevices', 'machineJoinCodes', 'mcpRequests', 'mcpToolHints', 'memories',
     'modelEndpoints', 'mcpServers', 'odooReleases', 'pendingApprovals', 'planProposals', 'procedures', 'projects', 'publishedWorkspaces', 'secretRequests', 'tasks', 'toolGrants', 'treeTypes', 'trees',
     'scriptedRequests', 'turnLogs', 'workspaceImages',
   ],
-  byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts'],
+  byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts', 'keeperSettings'],
   related: { memoryWatermarks: 'the keys of its conversations', crawl_frontier: 'its ingests', pipelineRuns: 'its projects' },
   last: 'users',
   shared: ['clusterProviders', 'identityHandoffs', 'invites', 'model_thinking_profiles', 'temporal_payload_chunks'],

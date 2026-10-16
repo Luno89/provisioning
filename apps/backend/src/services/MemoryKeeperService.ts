@@ -9,6 +9,8 @@ import {
   leafConclusion,
   runConclusion,
   type Conclusion,
+  type DeferredConclusion,
+  type KeeperSettings,
 } from '../lib/conclusions.js';
 import type { LifecycleEvent } from '../engine-host/temporal/contracts.js';
 
@@ -18,6 +20,11 @@ export interface MemoryKeeperStore {
   getBranches(): Promise<Branch[]>;
   getMemoryWatermark(key: string): Promise<string | undefined>;
   saveMemoryWatermark(key: string, value: string): Promise<void>;
+  getKeeperSettings(ownerId: string): Promise<KeeperSettings | undefined>;
+  saveKeeperSettings(settings: KeeperSettings): Promise<void>;
+  getDeferredConclusions(ownerId: string): Promise<DeferredConclusion[]>;
+  saveDeferredConclusion(deferred: DeferredConclusion): Promise<void>;
+  deleteDeferredConclusion(ownerId: string, id: string): Promise<void>;
 }
 
 export type StartMemoryRun = (request: {
@@ -25,6 +32,7 @@ export type StartMemoryRun = (request: {
   agentSlug: string;
   message: string;
   runId: string;
+  about?: string | undefined;
   bound?: Record<string, string> | undefined;
 }) => Promise<void>;
 
@@ -37,6 +45,12 @@ export type ConversationTimer = (request: {
 
 export interface ConclusionReport {
   started: string[];
+  deferred?: string[] | undefined;
+}
+
+export interface KeeperState {
+  paused: boolean;
+  held: number;
 }
 
 
@@ -47,7 +61,29 @@ export class MemoryKeeperService {
     timer: ConversationTimer;
     concludeAfterMinutes: (ownerId: string, agentSlug: string) => Promise<number | undefined>;
     remembersFor?: ((ownerId: string) => Promise<boolean>) | undefined;
+    now?: (() => string) | undefined;
   }) {}
+
+  private now(): string {
+    return this.deps.now?.() ?? new Date().toISOString();
+  }
+
+  async state(ownerId: string): Promise<KeeperState> {
+    const [settings, held] = await Promise.all([this.deps.store.getKeeperSettings(ownerId), this.deps.store.getDeferredConclusions(ownerId)]);
+    return { paused: settings?.paused === true, held: held.length };
+  }
+
+  async setPaused(ownerId: string, paused: boolean): Promise<KeeperState & { started: string[] }> {
+    await this.deps.store.saveKeeperSettings({ ownerId, paused, updatedAt: this.now() });
+    const report: ConclusionReport = { started: [] };
+    if (!paused) {
+      for (const deferred of await this.deps.store.getDeferredConclusions(ownerId)) {
+        await this.startNow(deferred.conclusion, report);
+        await this.deps.store.deleteDeferredConclusion(ownerId, deferred.id);
+      }
+    }
+    return { ...(await this.state(ownerId)), started: report.started };
+  }
 
   async handle(event: LifecycleEvent): Promise<ConclusionReport> {
     const report: ConclusionReport = { started: [] };
@@ -101,12 +137,22 @@ export class MemoryKeeperService {
 
   private async begin(conclusion: Conclusion, report: ConclusionReport): Promise<void> {
     if (this.deps.remembersFor && !(await this.deps.remembersFor(conclusion.ownerId))) return;
+    if ((await this.deps.store.getKeeperSettings(conclusion.ownerId))?.paused) {
+      await this.deps.store.saveDeferredConclusion({ id: conclusion.runId, ownerId: conclusion.ownerId, conclusion, at: this.now() });
+      report.deferred = [...(report.deferred ?? []), conclusion.runId];
+      return;
+    }
+    await this.startNow(conclusion, report);
+  }
+
+  private async startNow(conclusion: Conclusion, report: ConclusionReport): Promise<void> {
     try {
       await this.deps.start({
         ownerId: conclusion.ownerId,
         agentSlug: MEMORY_KEEPER,
         message: conclusion.message,
         runId: conclusion.runId,
+        ...(conclusion.about ? { about: conclusion.about } : {}),
         bound: {
           ...(conclusion.projectId ? { projectId: conclusion.projectId } : {}),
           ...(conclusion.treeId ? { treeId: conclusion.treeId } : {}),

@@ -6,7 +6,7 @@ export const FOREST_VIEWS = [
   'accounts', 'services', 'nginx', 'temporal', 'settings',
 ] as const
 
-export const KOALA_VIEWS = ['chat', 'studio'] as const
+export const KOALA_VIEWS = ['chat', 'studio', 'running'] as const
 
 export const KNOWN_VIEWS = [...FOREST_VIEWS, ...KOALA_VIEWS] as const
 

@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { DEFAULT_ENGINE_TASK_QUEUE, RUN_ID_MEMO, workflowOfRun } from '../temporal/contracts.js';
+import { DEFAULT_ENGINE_TASK_QUEUE, RUN_ABOUT_MEMO, RUN_AGENT_MEMO, RUN_CONVERSATION_MEMO, RUN_ID_MEMO, workflowOfRun } from '../temporal/contracts.js';
 import type { SamplingConfig } from '@koala/harness-types';
 import type { AgentRegistry } from './registry.js';
 import { machineChoiceId, type MachineChoice } from '@koala/agent-engine/procedure';
@@ -32,6 +32,7 @@ export interface StartRunRequest {
   runId?: string | undefined;
   bound?: Record<string, string> | undefined;
   asks?: string | undefined;
+  about?: string | undefined;
 }
 
 export interface StartedRun {
@@ -159,7 +160,12 @@ export function createRunStarter(options: RunStarterOptions) {
           taskQueue: queue,
           args: [input],
           owner: request.ownerId,
-          memo: { [RUN_ID_MEMO]: runId },
+          memo: {
+            [RUN_ID_MEMO]: runId,
+            [RUN_AGENT_MEMO]: request.agentSlug,
+            ...(request.conversationId ? { [RUN_CONVERSATION_MEMO]: request.conversationId } : {}),
+            ...(request.about ? { [RUN_ABOUT_MEMO]: request.about } : {}),
+          },
         });
       } catch (err) {
         if (turn) await options.turns!.fail(turn, `the run could not start: ${(err as Error).message}`).catch(() => undefined);
