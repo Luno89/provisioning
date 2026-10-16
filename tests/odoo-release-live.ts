@@ -161,7 +161,7 @@ async function main(): Promise<void> {
     console.log('    made through Odoo\'s own API, signed in with the project\'s sign-in');
 
     console.log('[3] a new module adds a field and the probe loses its note: the next build is prepared in slot b, compared with live, and waits in preview');
-    await gitea.seedTemplate(project.giteaOwner, project.giteaRepo, [...COLOUR, ...PROBE_WITHOUT_NOTE]);
+    await gitea.commitFiles(project.giteaOwner, project.giteaRepo, [...COLOUR, ...PROBE_WITHOUT_NOTE], 'Add the colour module, and the probe no longer keeps a note');
     const preview = await waitFor('preview', (all) => all.find((release) => release.state === 'preview'), 30);
     assert.equal(preview.slot, 'b');
     assert.match(await columns('odoo_b'), /colour/, 'slot b\'s copy has no colour column');
@@ -182,6 +182,7 @@ async function main(): Promise<void> {
     assert.deepEqual(compared.changes.items.filter((item) => item.kind === 'field').map((item) => [item.name, item.state]), [['The field Koala note (x_koala_note) on koala.probe, made in the app,', 'kept']]);
     assert.equal(compared.changes.items.filter((item) => item.state !== 'kept' && item.kind !== 'edited-view').length, 0, `something else was flagged: ${JSON.stringify(compared.changes.items)}`);
     assert.match(await columns('odoo_a'), /\bnote\b/, 'the live slot lost its note column before any cut-over');
+    assert.match(await psql('odoo_b', "select count(*) from koala_probe where note is not null"), /^2$/, 'the preview copy lost the notes rather than leaving them behind');
 
     console.log('[3a] the preview is quiet, and passes the project\'s browser tests signed in as its own test user');
     assert.equal(await psql('odoo_b', 'select count(*) from ir_cron where active'), '0', 'the preview still runs scheduled jobs');
@@ -305,7 +306,9 @@ async function main(): Promise<void> {
     }
     console.log('odoo release live — PASS');
   } finally {
-    if (projectId) {
+    if (projectId && process.env.ODOO_RELEASE_LIVE_KEEP === '1') {
+      console.log(`[6] the run stopped early, and ODOO_RELEASE_LIVE_KEEP keeps what it made: project ${projectId}, namespace ${place.namespace}`);
+    } else if (projectId) {
       console.log('[6] the run stopped early: removing what it made');
       const removed = await http.delete(`/projects/${projectId}`, { data: { confirm: NAME } });
       console.log(`    deleting the project, its app with it: ${removed.status} ${removed.status >= 300 ? JSON.stringify(removed.data) : ''}`);

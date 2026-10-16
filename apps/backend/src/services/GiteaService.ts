@@ -440,6 +440,25 @@ export class GiteaService {
     return written;
   }
 
+  async commitFiles(username: string, name: string, files: { path: string; content: string }[], message: string): Promise<void> {
+    if (!files.length) return;
+    const baseUrl = await this.resolveBaseUrl();
+    const adminPassword = await this.readAdminPassword();
+    const auth = `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`;
+    const repo = `${baseUrl}/api/v1/repos/${encodeURIComponent(username)}/${encodeURIComponent(name)}`;
+    const operations = await Promise.all(files.map(async (file) => {
+      const existing = await fetch(`${repo}/contents/${file.path}`, { headers: { Authorization: auth } }).catch(() => undefined);
+      const sha = existing?.ok ? ((await existing.json()) as { sha?: string }).sha : undefined;
+      return { operation: sha ? 'update' : 'create', path: file.path, content: Buffer.from(file.content).toString('base64'), ...(sha ? { sha } : {}) };
+    }));
+    const res = await fetch(`${repo}/contents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: auth },
+      body: JSON.stringify({ message, files: operations }),
+    });
+    if (!res.ok) throw new Error(`Gitea refused the commit: ${res.status} ${(await res.text()).slice(0, 300)}`);
+  }
+
   async repoServesFiles(owner: string, name: string): Promise<boolean> {
     const res = await this.apiFetch(`/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
     if (!res.ok) return false;
