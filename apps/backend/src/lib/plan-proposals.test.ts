@@ -78,6 +78,18 @@ describe('parsePlan', () => {
     expect('plan' in withLogin && withLogin.plan.branches[0]!.leaves[0]!.tasks[0]!.checks).toBeUndefined();
   });
 
+  it('carries how the tree is released and that it starts from the client\'s database, only as its type allows', () => {
+    const ways = { own: { slug: 'release', name: 'Release', app: 'odoo' }, others: [{ slug: 'release-careful', name: 'Careful', app: 'odoo' }], restores: { title: 'Odoo' } };
+    const odoo = { ...world, releasing: { 'api-service': ways } };
+    const tree = (extra: Record<string, unknown>) => plan({ tree: { name: 'Shop', type: 'api-service', goal: 'g', ...extra } });
+    expect(parsePlan(tree({ release: { agent: 'release-careful' }, startsFrom: 'client-database' }), odoo)).toMatchObject({ plan: { tree: { release: { agent: 'release-careful', app: 'odoo' }, startsFrom: 'client-database' } } });
+    expect((parsePlan(tree({ release: { agent: 'release' } }), odoo) as unknown as { plan: { tree: Record<string, unknown> } }).plan.tree.release).toBeUndefined();
+    expect(parsePlan(tree({ release: { agent: 'yolo' } }), odoo)).toEqual({ problem: 'a api-service tree is released by release unless the plan chooses release-careful; "yolo" is none of them' });
+    expect(parsePlan(tree({ release: { agent: 'yolo' } }), { ...world, releasing: { 'api-service': { ...ways, others: [] } } })).toEqual({ problem: 'a api-service tree has only one way to be released; leave release out' });
+    expect(parsePlan(tree({ startsFrom: 'client-database' }), world)).toEqual({ problem: 'a api-service tree cannot start from a client\'s database; leave startsFrom out' });
+    expect(parsePlan(tree({ startsFrom: 'somewhere' }), odoo)).toEqual({ problem: 'startsFrom is client-database, or left out for a project that starts from the starter' });
+  });
+
   it('extends an existing tree by id', () => {
     const parsed = parsePlan(plan({ tree: undefined, treeId: 'tree-1' }), world);
     expect(parsed).toMatchObject({ plan: { treeId: 'tree-1' } });

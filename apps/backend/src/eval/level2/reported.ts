@@ -26,28 +26,40 @@ const DECIDE = procedureBuilder({ catalogue, groups: platformGroups() })({
   p.layout({ persona: [0, 0], model: [260, 0], said: [0, 140], decide: [520, 0], yes: [780, 0], no: [780, 140] });
 }).procedure;
 
-export function askedWhetherReported(says: string, answer: string): Procedure {
+export function askedWhether(question: string, answer: string): Procedure {
   return {
     ...DECIDE,
     nodes: DECIDE.nodes.map((node) => {
       if (node.id === 'said') return { ...node, settings: { text: answer } };
-      if (node.id === 'decide') {
-        return { ...node, settings: { question: `Does this answer tell the person that this went wrong: "${says}"? Answer yes only if the answer says what failed.` } };
-      }
+      if (node.id === 'decide') return { ...node, settings: { question } };
       return node;
     }),
   };
 }
 
-export async function wasReported(executor: NodeExecutor, run: { runId: string; ownerId: string; agent: string; modelId?: string | undefined }, says: string, answer: string): Promise<boolean> {
+export const askedWhetherReported = (says: string, answer: string): Procedure =>
+  askedWhether(`Does this answer tell the person that this went wrong: "${says}"? Answer yes only if the answer says what failed.`, answer);
+
+export const askedWhetherItSays = (means: string, answer: string): Procedure =>
+  askedWhether(`Does this answer ${means}? Answer yes only if it plainly does; something it only hints at is no.`, answer);
+
+type JudgedRun = { runId: string; ownerId: string; agent: string; modelId?: string | undefined };
+
+async function judged(executor: NodeExecutor, run: JudgedRun, procedure: Procedure, suffix: string): Promise<boolean> {
   const decided = await runProcedure({
-    procedure: askedWhetherReported(says, answer),
+    procedure,
     catalogue,
     groups: platformGroups(),
     executor,
-    identity: { runId: `${run.runId}-reported`, depth: 0, agentId: run.agent, loopId: DECIDE.id, loopVersion: DECIDE.version, trigger: 'agent' },
+    identity: { runId: `${run.runId}-${suffix}`, depth: 0, agentId: run.agent, loopId: DECIDE.id, loopVersion: DECIDE.version, trigger: 'agent' },
     launch: { ownerId: run.ownerId, ...(run.modelId ? { modelId: run.modelId } : {}) },
     inputs: {},
   });
   return readDecision(decided.reason ?? '') === 'yes';
 }
+
+export const wasReported = (executor: NodeExecutor, run: JudgedRun, says: string, answer: string): Promise<boolean> =>
+  judged(executor, run, askedWhetherReported(says, answer), 'reported');
+
+export const itSays = (executor: NodeExecutor, run: JudgedRun, means: string, answer: string, index: number): Promise<boolean> =>
+  judged(executor, run, askedWhetherItSays(means, answer), `says-${index}`);

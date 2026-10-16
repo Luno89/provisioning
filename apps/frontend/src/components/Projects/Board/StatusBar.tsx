@@ -50,9 +50,10 @@ export function StatusBar({ projectId }: { projectId: string }) {
           </span>
         )}
         {build && (
-          <span className="flex items-center gap-1.5 text-slate-400" title={build.error ?? build.skipped}>
+          <span className="flex items-center gap-1.5 text-slate-400" title={build.error ?? build.held ?? build.skipped}>
             <Hammer size={12} aria-hidden="true" /> Last build <span className={BUILD_TONE[build.status]}>{build.status}</span>
             <span className="font-mono">{build.commit.slice(0, 8)}</span> {ago(build.at)}
+            {build.held && <span className="text-amber-300">· waits for the client&apos;s database</span>}
             {build.skipped && <span className="text-slate-500">· not released</span>}
           </span>
         )}

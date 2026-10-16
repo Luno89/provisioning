@@ -77,6 +77,7 @@ function world(start: PlanProposal[], options: { saved?: string[]; homes?: boole
   const provisioned: string[] = [];
   const kubeCalls: string[][] = [];
   const bound: string[] = [];
+  const chosen: unknown[] = [];
   const alreadyBound = new Set<string>(options.bound ?? []);
 
   const registry = createAgentRegistry();
@@ -192,13 +193,14 @@ function world(start: PlanProposal[], options: { saved?: string[]; homes?: boole
       },
     } : {}),
     stopRun: async (workflowId: string) => { stopped.push(workflowId); },
+    projectChoices: async (ownerId: string, projectId: string, choices: unknown) => { chosen.push({ ownerId, projectId, choices }); },
     now: () => 'now',
   });
 
   const activities = createEngineActivities({ planAdoption } as never);
 
   const told: string[] = [];
-  return { told, stopped, proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, brought, bound, markRepoExists: (...present: string[]) => { repoExists = true; repoFiles.push(...present); } };
+  return { told, chosen, stopped, proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, brought, bound, markRepoExists: (...present: string[]) => { repoExists = true; repoFiles.push(...present); } };
 }
 
 async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: () => never): Promise<AdoptPlanResult> {
@@ -316,6 +318,16 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', projectIds: ['project-plan-p1-tree'] })]);
     expect([...w.tasks.values()].map((task) => task.projectId)).toEqual([...w.tasks.values()].map(() => 'project-plan-p1-tree'));
     expect(w.tasks.size).toBeGreaterThan(0);
+  }, 60_000);
+
+  it('gives the new tree\'s project how it is released and that it waits for the client\'s database, when the plan says so', async () => {
+    const plain = world([proposal()], { homes: true });
+    await adopt(plain);
+    expect(plain.chosen).toEqual([]);
+    const base = proposal();
+    const w = world([{ ...base, plan: { ...base.plan!, tree: { ...base.plan!.tree!, release: { agent: 'release-careful', app: 'odoo' }, startsFrom: 'client-database' } } } as never], { homes: true });
+    await adopt(w);
+    expect(w.chosen).toEqual([{ ownerId: 'user-1', projectId: 'project-plan-p1-tree', choices: { release: { agent: 'release-careful', app: 'odoo' }, startsFrom: 'client-database' } }]);
   }, 60_000);
 
   it('keeps the project a new tree was planned into', async () => {

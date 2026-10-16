@@ -31,7 +31,8 @@ import type { TaskStore } from './tools/task-tools.js';
 import type { MemoryItem } from './drivers/memory-store.js';
 import type { HostNodeServices } from './nodes/services.js';
 import { extensionRuntimes, operationHandlers, toolHandlers } from '../extensions/runtime.js';
-import { releaseProblemOf } from '../services/ReleaseSettings.js';
+import { releaseAgentsOf, releaseProblemOf } from '../services/ReleaseSettings.js';
+import { restoringApp } from '../lib/release-run.js';
 import type { RunTicket, ToolRuntime } from './temporal/contracts.js';
 import type { WebTools } from '../lib/web-tools.js';
 import type { Database } from '../lib/db-interface.js';
@@ -273,6 +274,11 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     ? new TreeTypeDescriptions({
       treeTypes: stores.grove.treeTypeSpecs,
       images: stores.grove.workspaceImages,
+      releaseAgents: (ownerId) => releaseAgentsOf({
+        agents: async (owner: string) => (await registry.agents(owner)).map((agent) => ({ slug: agent.slug, name: agent.name, ...(agent.description ? { description: agent.description } : {}) })),
+        procedureOf: async (owner: string, slug: string) => (await registry.runnable(owner, slug))?.procedure,
+      }, ownerId),
+      restores: restoringApp,
       agentOf: async (ownerId, slug) => {
         const runnable = await registry.runnable(ownerId, slug);
         return runnable && { describe: runnable.agent.description, procedure: runnable.procedure };
@@ -313,7 +319,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     grove: {
       tools: { stores: {
         ...stores.grove,
-        ...(treeTypeDescriptions ? { describeTreeType: (ownerId: string, typeId: string) => treeTypeDescriptions.describe(ownerId, typeId) } : {}),
+        ...(treeTypeDescriptions ? { describeTreeType: (ownerId: string, typeId: string) => treeTypeDescriptions.describe(ownerId, typeId), releasingOf: (ownerId: string, typeId: string) => treeTypeDescriptions.releasingOf(ownerId, typeId) } : {}),
         ...(options.treeModels ? { models: options.treeModels } : {}),
         ...(stores.actions ? { actions: stores.actions } : {}),
       } },

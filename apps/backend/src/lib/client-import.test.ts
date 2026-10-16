@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { claimSize, importLine, wrongVersionFrom, latestBuildOf, majorOf, missingFrom, missingSentence, odooVersionOfDockerfile, projectMajor, restorable, restoreJob, versionProblem } from './client-import.js';
+import { claimSize, importLine, projectChoicesPatch, wrongVersionFrom, latestBuildOf, majorOf, missingFrom, missingSentence, odooVersionOfDockerfile, projectMajor, restorable, restoreJob, versionProblem } from './client-import.js';
 
 describe('a client\'s Odoo backup', () => {
   it('is taken only from the project\'s own Odoo version, and never from hosted Odoo', () => {
@@ -63,5 +63,11 @@ describe('a client\'s Odoo backup', () => {
   it('tells Koala how the project started', () => {
     expect(importLine({ state: 'imported', mode: 'copy', bytes: 1, version: '20.0', modules: ['base', 'sale'], at: 'x' })).toBe('Started from the client\'s database (Odoo 20.0, 2 modules, as a neutralized copy). What was made in their app is listed by app_drift.');
     expect(importLine(undefined)).toBe('');
+  });
+
+  it('makes a planned project wait for the client\'s database, unless one is already on its way', () => {
+    expect(projectChoicesPatch({ id: 'p1' }, { startsFrom: 'client-database', release: { agent: 'release' } }, 'now')).toEqual({ id: 'p1', release: { agent: 'release' }, clientImport: { state: 'awaited', mode: 'copy', bytes: 0, at: 'now' } });
+    expect(projectChoicesPatch({ id: 'p1', clientImport: { state: 'imported', mode: 'copy', bytes: 1, at: 'x' } }, { startsFrom: 'client-database' }, 'now')).toEqual({ id: 'p1' });
+    expect(projectChoicesPatch({ id: 'p1', clientImport: { state: 'refused', mode: 'copy', bytes: 1, at: 'x' } }, { startsFrom: 'client-database' }, 'now')).toMatchObject({ clientImport: { state: 'awaited' } });
   });
 });

@@ -128,10 +128,16 @@ export function releaseHowProblem(value: unknown): string | null {
 
 export interface ReleaseApp {
   id: string;
+  restores?: boolean | undefined;
   title: string;
 }
 
-export const RELEASE_APPS: readonly ReleaseApp[] = [{ id: 'odoo', title: 'Odoo' }];
+export const RELEASE_APPS: readonly ReleaseApp[] = [{ id: 'odoo', title: 'Odoo', restores: true }];
+
+export const restoringApp = (app: string): { title: string } | undefined => {
+  const found = RELEASE_APPS.find((entry) => entry.id === app && entry.restores);
+  return found ? { title: found.title } : undefined;
+};
 
 export const RELEASE_STEP = 'releases.';
 export const IMAGE_ONLY_STEPS: readonly string[] = ['releases.deploy-image'];

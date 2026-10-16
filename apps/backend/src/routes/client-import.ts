@@ -4,7 +4,7 @@ import type { ClientImportService, ImportOutcome } from '../services/ClientImpor
 import type { ProjectMetadata } from '../lib/types.js';
 
 export interface ClientImportRouterDeps {
-  imports: Pick<ClientImportService, 'view' | 'upload'>;
+  imports: Pick<ClientImportService, 'view' | 'upload' | 'startFresh'>;
   getOwnedProject(id: string, user: { id: string }): Promise<ProjectMetadata | undefined>;
 }
 
@@ -31,6 +31,12 @@ export function clientImportRouter(deps: ClientImportRouterDeps): Router {
     const outcome = await deps.imports.upload(project.ownerId ?? userOf(req).id, project.id, { mode: req.query.mode ?? 'copy', bytes: Number(req.headers['content-length']), body: req });
     if (!outcome.ok && !req.readableEnded) req.resume();
     return answer(res, outcome, 201);
+  }));
+
+  router.delete('/:id/import', asyncRoute(async (req, res) => {
+    const project = await deps.getOwnedProject(String(req.params.id), userOf(req));
+    if (!project) return res.status(404).json({ error: 'You have no project with that id' });
+    return answer(res, await deps.imports.startFresh(project.ownerId ?? userOf(req).id, project.id));
   }));
 
   return router;

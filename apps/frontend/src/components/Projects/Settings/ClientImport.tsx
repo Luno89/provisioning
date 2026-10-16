@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Loader2, Upload } from 'lucide-react'
-import { clientImportKeys, uploadImport, type ClientImport as Imported, type ImportMode, type ImportView } from '../../../api/client-import'
+import { clientImportKeys, startFresh, uploadImport, type ClientImport as Imported, type ImportMode, type ImportView } from '../../../api/client-import'
 import { errorMessage } from '../../../api/client'
 
 const what = (entry: Imported) =>
@@ -9,6 +9,8 @@ const what = (entry: Imported) =>
 
 function Status({ entry }: { entry: Imported }) {
   switch (entry.state) {
+    case 'awaited':
+      return <p className="text-amber-300">This project starts from the client&apos;s database: its first release waits for their backup.</p>
     case 'uploading':
       return <p className="text-slate-300">Uploading the backup…</p>
     case 'uploaded':
@@ -42,6 +44,12 @@ export function ClientImport({ projectId, view }: { projectId: string; view: Imp
     onSettled: () => queryClient.invalidateQueries({ queryKey: clientImportKeys.view(projectId) }),
   })
 
+  const fresh = useMutation({
+    mutationFn: () => startFresh(projectId),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: clientImportKeys.view(projectId) }),
+  })
+  const setAside = view.open && view.import && ['awaited', 'uploaded', 'refused', 'failed'].includes(view.import.state)
+
   return (
     <div className="space-y-3" data-testid="client-import">
       {view.import && <Status entry={view.import} />}
@@ -72,6 +80,20 @@ export function ClientImport({ projectId, view }: { projectId: string; view: Imp
             {upload.isPending ? `Uploading ${Math.round(progress * 100)}%` : 'Start from this backup'}
           </button>
           {upload.isError && <p className="text-[11px] text-rose-400">{errorMessage(upload.error)}</p>}
+          {setAside && (
+            <div className="border-t border-[var(--bark-700)] pt-2">
+              <button
+                type="button"
+                onClick={() => fresh.mutate()}
+                disabled={fresh.isPending}
+                className="rounded border border-[var(--bark-600)] px-2.5 py-1 text-[11px] text-slate-200 hover:bg-[var(--bark-700)] disabled:opacity-50"
+              >
+                Start without their database
+              </button>
+              <p className="mt-1 text-[11px] text-slate-500">Releases the project&apos;s own starter instead; the client&apos;s database can no longer be brought in once it is live.</p>
+              {fresh.isError && <p className="text-[11px] text-rose-400">{errorMessage(fresh.error)}</p>}
+            </div>
+          )}
         </div>
       ) : (
         !view.import && view.why && <p className="text-[11px] text-slate-400">{view.why}</p>

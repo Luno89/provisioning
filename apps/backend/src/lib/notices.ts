@@ -49,6 +49,16 @@ export function releaseNotice(release: Pick<OdooRelease, 'id' | 'projectId' | 'c
   return undefined;
 }
 
+export function awaitedNotice(project: { id: string; name: string }, commit: string, treeId: string | undefined): ConversationNotice {
+  return {
+    key: `client-database:${project.id}:awaited`,
+    kind: 'client-database-awaited',
+    text: `${project.name} is built (${short(commit)}) and waits for the client's database before its first release. Upload their backup on the project's Settings, or start without it there.`,
+    refs: { projectId: project.id, ...(treeId ? { treeId } : {}) },
+    actions: ['open-settings'],
+  };
+}
+
 const count = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 
 export function treeNotices(

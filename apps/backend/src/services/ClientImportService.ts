@@ -32,6 +32,7 @@ export interface ClientImportDeps {
 }
 
 const BUSY: readonly ClientImport['state'][] = ['uploading', 'importing'];
+const SET_ASIDE: readonly ClientImport['state'][] = ['awaited', 'uploaded', 'refused', 'failed'];
 
 export class ClientImportService {
   constructor(private readonly deps: ClientImportDeps) {}
@@ -61,6 +62,21 @@ export class ClientImportService {
     const closed = await this.closed(project);
     const entry = project.clientImport as ClientImport | undefined;
     return { ok: true, value: { ...(entry ? { import: entry } : {}), open: !closed, ...(closed ? { why: closed.why } : {}) } };
+  }
+
+  async startFresh(ownerId: string, projectId: string): Promise<ImportOutcome<{ released: boolean }>> {
+    const project = await this.mine(ownerId, projectId);
+    if (!project) return { ok: false, status: 404, error: 'You have no project with that id' };
+    const entry = project.clientImport as ClientImport | undefined;
+    if (!entry || !SET_ASIDE.includes(entry.state)) return { ok: false, status: 409, error: entry ? `the client's database is ${entry.state}, so there is nothing to start without` : `${project.name} is not waiting for a client's database` };
+    const established = await this.deps.releases.established(ownerId, projectId);
+    if (established) return { ok: false, status: 409, error: `${project.name} has already released` };
+    await this.deps.saveProject({ id: project.id, clientImport: null });
+    const cluster = project.targetClusterId ? await this.deps.clusterById(project.targetClusterId) : undefined;
+    if (cluster && project.releaseName) await this.deps.cluster.remove(releaseTargetOf(cluster, project), 'pvc', importClaim(project.releaseName)).catch(() => undefined);
+    const build = await this.deps.latestBuild(project);
+    if (build) await this.deps.releases.release({ ...project, clientImport: undefined }, build);
+    return { ok: true, value: { released: Boolean(build) } };
   }
 
   async upload(ownerId: string, projectId: string, input: { mode: unknown; bytes: number; body: NodeJS.ReadableStream }): Promise<ImportOutcome<ClientImport>> {

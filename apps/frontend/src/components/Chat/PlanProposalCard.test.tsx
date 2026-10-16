@@ -205,3 +205,17 @@ describe('a plan that names its service', () => {
     expect(screen.queryByTestId('plan-version')).toBeNull()
   })
 })
+
+describe('a plan that chooses how its project starts and is released', () => {
+  it('says it starts from the client\'s database and how it is released', () => {
+    const base = proposal()
+    render(<PlanProposalCard proposal={{ ...base, plan: { ...base.plan!, tree: { name: 'Shop', type: 'odoo-addons', release: { agent: 'release-careful', app: 'odoo' }, startsFrom: 'client-database' } } }} deciding={false} onApprove={() => {}} onReject={() => {}} />)
+    expect(screen.getByTestId('plan-project-choices')).toHaveTextContent('Released: by release-careful with the odoo adapter')
+    expect(screen.getByTestId('plan-project-choices')).toHaveTextContent('Starts from the client\'s database: its first release waits until you upload their backup on the project\'s Settings.')
+  })
+
+  it('says nothing about either when the plan leaves them to its type', () => {
+    renderCard()
+    expect(screen.queryByTestId('plan-project-choices')).toBeNull()
+  })
+})

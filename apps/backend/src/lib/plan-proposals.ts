@@ -1,3 +1,4 @@
+import type { ReleaseWays } from './tree-type-description.js';
 import { describeProblem, MAX_TASK_DESCRIPTION, MAX_TASK_ROLE } from '../engine-host/tools/tasks.js';
 import { usableServiceName } from './service-name.js';
 import { claimService } from './service-claim.js';
@@ -25,6 +26,7 @@ export interface PlanWorld {
   existingLeafIds: ReadonlySet<string>;
   ownerId?: string | undefined;
   trees?: readonly { id: string; ownerId: string; name: string; serviceName?: string | undefined; projectIds?: string[] | undefined }[] | undefined;
+  releasing?: Readonly<Record<string, ReleaseWays | undefined>> | undefined;
 }
 
 type Parsed = { plan: Plan } | { problem: string };
@@ -219,6 +221,23 @@ export function parsePlan(raw: Record<string, unknown>, world: PlanWorld): Parse
     if (version && versions && !versions.choices.includes(version)) {
       return { problem: `${versions.of} ${version} is not offered by the ${type} type; choose ${versions.choices.join(' or ')}, or leave version out for the default` };
     }
+    const ways = world.releasing?.[type];
+    const releaseRaw = record(treeRaw.release);
+    let release: NewTreeSpec['release'];
+    if (releaseRaw) {
+      const agent = text(releaseRaw, 'agent');
+      const way = ways?.others.find((entry) => entry.slug === agent);
+      if (ways && agent !== ways.own.slug && !way) {
+        return { problem: ways.others.length
+          ? `a ${type} tree is released by ${ways.own.slug} unless the plan chooses ${ways.others.map((entry) => entry.slug).join(' or ')}; "${agent}" is none of them`
+          : `a ${type} tree has only one way to be released; leave release out` };
+      }
+      if (!ways) return { problem: `how a ${type} tree is released cannot be chosen here; leave release out` };
+      if (way) release = { agent: way.slug, ...(way.app ? { app: way.app } : {}) };
+    }
+    const startsFrom = text(treeRaw, 'startsFrom') || text(treeRaw, 'starts_from');
+    if (startsFrom && startsFrom !== 'client-database') return { problem: 'startsFrom is client-database, or left out for a project that starts from the starter' };
+    if (startsFrom && !ways?.restores) return { problem: `a ${type} tree cannot start from a client's database; leave startsFrom out` };
     const declared = treeRaw.serviceName;
     const serviceName = usableServiceName(declared);
     if (declared !== undefined && declared !== '' && !serviceName) {
@@ -233,6 +252,8 @@ export function parsePlan(raw: Record<string, unknown>, world: PlanWorld): Parse
       ...(version ? { version } : {}),
       ...(goal ? { goal } : {}),
       ...(serviceName ? { serviceName } : {}),
+      ...(release ? { release } : {}),
+      ...(startsFrom ? { startsFrom: 'client-database' as const } : {}),
       ...(claim.ownedBy ? { joins: { treeId: claim.ownedBy.treeId, treeName: claim.ownedBy.treeName, ...(claim.ownedBy.projectId ? { projectId: claim.ownedBy.projectId } : {}) } } : {}),
     };
   }

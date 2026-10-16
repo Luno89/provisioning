@@ -37,4 +37,17 @@ describe('a tree type described from the parts that run it', () => {
     expect(text).toContain('Nothing is built, deployed or exposed');
     expect(text).not.toContain('NEVER PLAN');
   });
+
+  it('says how a type is released, whether there is another way, and that it can start from the client\'s own app', () => {
+    const odoo = seed('odoo-addons');
+    const only = describeTreeType({ type: odoo, releasing: { own: { slug: 'release', name: 'Release', description: 'prepares each build beside the live app', app: 'odoo' }, others: [], restores: { title: 'Odoo' } } });
+    expect(only).toContain('HOW IT IS RELEASED\nIts own way: the release agent (prepares each build beside the live app), with the odoo adapter.');
+    expect(only).toContain('This is the only way that fits it, so there is nothing to ask the person about releasing; never set release in the plan.');
+    expect(only).toContain('STARTING FROM THE CLIENT\'S OWN APP\nWhen the client already runs this app, the plan\'s tree sets startsFrom: \'client-database\'.');
+    expect(only).toContain('the zip Odoo\'s database manager makes');
+    const two = describeTreeType({ type: odoo, releasing: { own: { slug: 'release', name: 'Release', app: 'odoo' }, others: [{ slug: 'release-careful', name: 'Careful', app: 'odoo' }] } });
+    expect(two).toContain('- the release-careful agent, with the odoo adapter: release: { agent: \'release-careful\', app: \'odoo\' }.');
+    expect(two).not.toContain('STARTING FROM THE CLIENT');
+    expect(describeTreeType({ type: seed('research-paper'), releasing: { own: { slug: 'release', name: 'Release' }, others: [] } })).not.toContain('HOW IT IS RELEASED');
+  });
 });

@@ -257,3 +257,31 @@ describe('checks on the plumbing a flow goes through', () => {
     ]);
   });
 });
+
+describe('what an agent said, and the plan it led to', () => {
+  const tools = BUILDER_TOOLS;
+  it('checks exact words for a script, and asks the run\'s model what the answer means', async () => {
+    const asked: string[] = [];
+    const checks = await scoreScenario(
+      { said: { contains: ['Which Odoo version'], means: ['asks whether the client already runs Odoo'] } },
+      observed({ answer: 'Which Odoo version do they run? And do they already run Odoo?' }),
+      { tools, says: async (means) => { asked.push(means); return true; } },
+    );
+    expect(checks.map((check) => [check.what, check.passed])).toEqual([['it says "Which Odoo version"', true], ['its answer asks whether the client already runs Odoo', true]]);
+    expect(asked).toEqual(['asks whether the client already runs Odoo']);
+    const silent = await scoreScenario({ said: { means: ['asks anything'] } }, observed({ answer: '' }), { tools, says: async () => true });
+    expect(silent.map((check) => check.passed)).toEqual([false]);
+  });
+
+  it('reads the plan\'s type, version, release and start, and the project\'s waiting', async () => {
+    const checks = await scoreScenario(
+      { plan: { type: 'odoo-addons', version: '20', release: null, startsFrom: 'client-database' }, clientImport: { state: 'awaited' }, build: { held: true }, noticed: ['waits for the client'] },
+      observed({ flow: { plan: { type: 'odoo-addons', version: '18', startsFrom: 'client-database' }, clientImport: 'awaited', build: { status: 'succeeded', held: 'waiting for the client\'s database' }, notices: ['Shop waits for the client\'s database'] } }),
+      { tools },
+    );
+    expect(checks.filter((check) => !check.passed).map((check) => [check.what, check.detail])).toEqual([['the plan\'s tree is version 20', 'it is 18']]);
+    expect(checks).toHaveLength(7);
+    const none = await scoreScenario({ plan: { type: 'odoo-addons' } }, observed({ flow: {} }), { tools });
+    expect(none.map((check) => [check.passed, check.detail])).toEqual([[false, 'no plan for a new tree was proposed in the conversation']]);
+  });
+});

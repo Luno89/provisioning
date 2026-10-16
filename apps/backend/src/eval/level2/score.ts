@@ -26,6 +26,10 @@ export interface ObservedHandOff {
 }
 
 export interface ObservedFlow {
+  plan?: { type?: string | undefined; version?: string | undefined; release?: string | undefined; startsFrom?: string | undefined } | undefined;
+  clientImport?: string | undefined;
+  build?: { status: string; held?: string | undefined } | undefined;
+  notices?: string[] | undefined;
   modelRequests?: string[] | undefined;
   compacted?: boolean | undefined;
   summary?: { through: number } | undefined;
@@ -96,6 +100,7 @@ const list = (names: readonly string[]): string => names.join(', ') || 'nothing'
 export interface ScoreOptions {
   tools: readonly ToolDefinition[];
   reported?: ((says: string, answer: string) => Promise<boolean>) | undefined;
+  says?: ((means: string, answer: string, index: number) => Promise<boolean>) | undefined;
 }
 
 export async function scoreScenario(expect: ScenarioExpectations, observed: Observed, options: ScoreOptions): Promise<Check[]> {
@@ -283,6 +288,38 @@ export async function scoreScenario(expect: ScenarioExpectations, observed: Obse
   }
   if (expect.workspace) {
     add(`the ${expect.workspace.of}'s workspace ${expect.workspace.exists ? 'is there' : 'is gone'}`, flow.workspaceExists === expect.workspace.exists, flow.workspaceExists ? 'it is there' : 'it is gone');
+  }
+
+  if (expect.said) {
+    const answer = observed.answer;
+    const quoted = `it said: "${answer.slice(0, 200)}${answer.length > 200 ? '…' : ''}"`;
+    for (const words of expect.said.contains ?? []) add(`it says "${words}"`, answer.toLowerCase().includes(words.toLowerCase()), quoted);
+    for (const [index, means] of (expect.said.means ?? []).entries()) {
+      const yes = answer.trim() ? await (options.says?.(means, answer, index) ?? Promise.resolve(false)) : false;
+      add(`its answer ${means}`, yes, quoted);
+    }
+  }
+  if (expect.plan) {
+    const plan = flow.plan;
+    if (!plan) add('it proposes a plan for a new tree', false, 'no plan for a new tree was proposed in the conversation');
+    else {
+      if (expect.plan.type !== undefined) add(`the plan's tree is a ${expect.plan.type} tree`, plan.type === expect.plan.type, `it is ${plan.type ?? 'of no type'}`);
+      if (expect.plan.version !== undefined) add(`the plan's tree is version ${expect.plan.version}`, plan.version === expect.plan.version, `it is ${plan.version ?? 'the default version'}`);
+      if (expect.plan.release !== undefined) add(expect.plan.release === null ? 'the plan leaves releasing to its type' : `the plan releases it by ${expect.plan.release}`, (plan.release ?? null) === expect.plan.release, plan.release ? `it releases by ${plan.release}` : 'it leaves releasing to its type');
+      if (expect.plan.startsFrom !== undefined) add(expect.plan.startsFrom === null ? 'the plan starts from its starter' : 'the plan starts from the client\'s database', (plan.startsFrom ?? null) === expect.plan.startsFrom, plan.startsFrom ? `it starts from ${plan.startsFrom}` : 'it starts from the starter');
+    }
+  }
+  if (expect.clientImport) {
+    const state = flow.clientImport ?? null;
+    add(expect.clientImport.state === null ? 'the project waits for no client\'s database' : `the client's database is ${expect.clientImport.state}`, state === expect.clientImport.state, state ? `it is ${state}` : 'there is none');
+  }
+  if (expect.build?.held !== undefined) {
+    const held = Boolean(flow.build?.held);
+    add(expect.build.held ? 'its build is held' : 'its build is not held', held === expect.build.held, flow.build ? (flow.build.held ? `held: ${flow.build.held}` : `it is ${flow.build.status}, not held`) : 'there is no build');
+  }
+  for (const words of expect.noticed ?? []) {
+    const notices = flow.notices ?? [];
+    add(`the channel is told "${words}"`, notices.some((notice) => notice.includes(words)), notices.length ? `it was told: ${notices.map((notice) => `"${notice.slice(0, 120)}"`).join('; ')}` : 'it was told nothing');
   }
 
   if (expect.exit !== undefined) {

@@ -158,7 +158,7 @@ export interface ProjectStatus {
   live?: { commit: string; slot?: 'a' | 'b' | undefined; since?: string | undefined } | undefined
   preview?: OdooRelease | undefined
   preparing?: { commit: string } | undefined
-  lastBuild?: { status: PipelineRun['status']; commit: string; at: string; skipped?: string | undefined; error?: string | undefined } | undefined
+  lastBuild?: { status: PipelineRun['status']; commit: string; at: string; skipped?: string | undefined; held?: string | undefined; error?: string | undefined } | undefined
 }
 
 export function projectStatus(releases: readonly OdooRelease[], runs: readonly PipelineRun[]): ProjectStatus {
@@ -174,7 +174,7 @@ export function projectStatus(releases: readonly OdooRelease[], runs: readonly P
       : deployed ? { live: { commit: deployed.commitSha, since: deployed.promotedAt } } : {}),
     ...(preview ? { preview } : {}),
     ...(preparing ? { preparing: { commit: preparing.commit } } : {}),
-    ...(build ? { lastBuild: { status: build.status, commit: build.commitSha, at: build.finishedAt ?? build.startedAt, skipped: build.releaseSkipped, error: build.errorMessage } } : {}),
+    ...(build ? { lastBuild: { status: build.status, commit: build.commitSha, at: build.finishedAt ?? build.startedAt, skipped: build.releaseSkipped, held: build.releaseHeld, error: build.errorMessage } } : {}),
   }
 }
 

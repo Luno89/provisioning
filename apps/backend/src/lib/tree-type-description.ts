@@ -3,10 +3,43 @@ import { needsProject } from './tree-home.js';
 import { treeLanguage, versionChoices, versionsLine, type TreeTypeSecret, type TreeTypeSpec } from './tree-types.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 
+export interface ReleaseWay {
+  slug: string;
+  name: string;
+  description?: string | undefined;
+  app?: string | undefined;
+}
+
+export interface ReleaseWays {
+  own: ReleaseWay;
+  others: ReleaseWay[];
+  restores?: { title: string } | undefined;
+}
+
 export interface TreeTypeParts {
   type: Pick<TreeTypeSpec, 'id' | 'label' | 'summary' | 'produces' | 'files' | 'doneMeans' | 'language' | 'secrets' | 'defaultBindings' | 'env' | 'egress' | 'versions'>;
   image?: Pick<WorkspaceImageSpec, 'summary' | 'available' | 'absent'> | undefined;
   growing?: string | undefined;
+  releasing?: ReleaseWays | undefined;
+}
+
+const wayOf = (way: ReleaseWay): string => `the ${way.slug} agent${way.description ? ` (${way.description})` : ''}${way.app ? `, with the ${way.app} adapter` : ''}`;
+const releaseField = (way: ReleaseWay): string => `release: { agent: '${way.slug}'${way.app ? `, app: '${way.app}'` : ''} }`;
+
+export function releasingLines(ways: ReleaseWays): string[] {
+  return [
+    `Its own way: ${wayOf(ways.own)}. A plan that leaves release out is released this way; tell the person what that means for them in a sentence.`,
+    ...(ways.others.length
+      ? ['It can also be released another way, which the plan\'s tree sets when the person chooses it:', ...ways.others.map((way) => `- ${wayOf(way)}: ${releaseField(way)}.`)]
+      : ['This is the only way that fits it, so there is nothing to ask the person about releasing; never set release in the plan.']),
+  ];
+}
+
+export function clientStartLines(restores: { title: string }): string[] {
+  return [
+    `When the client already runs this app, the plan's tree sets startsFrom: 'client-database'. Approving the plan then makes the project wait: its first release holds until the person uploads the client's backup (the zip ${restores.title}'s database manager makes) on the project's Settings. That backup is restored into slot a, as a neutralized copy unless the person says it is their live system, and what was made in the client's app is listed to be brought into git.`,
+    'Without startsFrom the starter goes live on its own, and the client\'s database can no longer be brought in. So ask whether the client already runs it before planning, unless the person has said.',
+  ];
 }
 
 const section = (title: string, lines: string[]): string[] => (lines.length ? ['', title, ...lines] : []);
@@ -20,7 +53,7 @@ const FROM: Record<TreeTypeSecret['source'], string> = {
 const secretLine = (secret: TreeTypeSecret): string =>
   `- ${secret.key}: ${secret.describe} Put in the project's vault when the project is made (${FROM[secret.source]}); the app reads it as an environment variable${secret.signInAs ? `, and the person can see it to sign in as ${secret.signInAs}` : ''}.`;
 
-export function describeTreeType({ type, image, growing }: TreeTypeParts): string {
+export function describeTreeType({ type, image, growing, releasing }: TreeTypeParts): string {
   const delivery = deliveryFor(type);
   const project = needsProject(type, {});
   const language = treeLanguage(type, { version: type.versions?.default });
@@ -42,6 +75,8 @@ export function describeTreeType({ type, image, growing }: TreeTypeParts): strin
     ),
     ...section('HOW THE TREE GROWS', growing ? [growing] : []),
     ...section('WHAT HAPPENS TO WORK THAT LANDS ON MAIN', delivery.says),
+    ...section('HOW IT IS RELEASED', releasing && delivery.path !== 'none' ? releasingLines(releasing) : []),
+    ...section('STARTING FROM THE CLIENT\'S OWN APP', releasing?.restores && delivery.path !== 'none' ? clientStartLines(releasing.restores) : []),
     ...section('THE PLATFORM DOES THESE, SO NEVER PLAN THEM', delivery.owns.map((owned) => `- ${owned}`)),
     ...section('WHAT THE APP DEPENDS ON, SO NEVER PLAN DEPLOYING IT', (type.defaultBindings ?? []).map((service) => `- ${service}: the platform binds it into every deploy of the app with its credentials; the leaves' workspaces can reach it over the network but never see its credentials.`)),
     ...section('SECRETS THE PLATFORM PROVIDES, SO NEVER PLAN MAKING OR STORING THEM', (type.secrets ?? []).map(secretLine)),

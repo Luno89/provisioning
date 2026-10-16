@@ -87,6 +87,7 @@ export interface CheckRunDeps {
   api: (space: { id: string; email: string }) => AxiosInstance;
   seedFiles: (ownerId: string, repo: string, files: Record<string, string>) => Promise<void>;
   reported: (args: { spaceId: string; runId: string; agent: string; modelId?: string | undefined }, says: string, answer: string) => Promise<boolean>;
+  says?: ((args: { spaceId: string; runId: string; agent: string; modelId?: string | undefined }, means: string, answer: string, index: number) => Promise<boolean>) | undefined;
   scripted: { base: string; dataKey: SecretKey };
   terminate: (runId: string, reason: string) => Promise<void>;
   releases?: CheckReleases | undefined;
@@ -497,8 +498,22 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         }
       };
 
+      type SeenBuild = { id: string; status: string; commitSha?: string; errorMessage?: string; releaseRefused?: string; releaseSkipped?: string; releaseHeld?: string; startedAt: string };
+      const newestBuild = async (): Promise<SeenBuild | undefined> => ((await http.get(`/projects/${projectOf()}/runs`)).data as SeenBuild[])[0];
+      const waitForBuild = async (): Promise<{ outcome: string; reason?: string | undefined }> => {
+        for (;;) {
+          await stopIfCancelled();
+          const build = await newestBuild();
+          if (build?.status === 'failed') return { outcome: 'failed', reason: `the build of ${(build.commitSha ?? '').slice(0, 8)} failed: ${build.errorMessage ?? 'no reason given'}` };
+          const released = build && (await releasesOf()).some((release) => release.pipelineRunId === build.id);
+          if (build?.status === 'succeeded' && (released || build.releaseHeld || build.releaseSkipped || build.releaseRefused)) return { outcome: 'ok' };
+          await wait();
+        }
+      };
+
       const act = async (action: FlowAction): Promise<{ outcome: string; reason?: string | undefined }> => {
         if ('waitRelease' in action) return waitForRelease(action.waitRelease.state);
+        if ('waitBuild' in action) return waitForBuild();
         if ('cutOver' in action) {
           const waiting = (await releasesOf()).find((release) => release.state === 'preview');
           if (!waiting) throw new Error('there is no release waiting in preview to cut over');
@@ -755,6 +770,23 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           flow.release = { exists, ...(newest ? { state: newest.state, ...(newest.slot ? { slot: newest.slot } : {}), ...(newest.reason ? { reason: newest.reason } : {}), ...(newest.e2e ? { e2e: await seenTests(newest.e2e) } : {}) } : {}) };
         }
         if (expect.e2e) flow.e2e = await seenTests(browsed);
+        if (expect.plan) {
+          const proposals = (await http.get('/plans', { params: { conversationId } })).data as { status: string; createdAt: string; plan?: { tree?: { type?: string; version?: string; release?: { agent: string }; startsFrom?: string } } }[];
+          const tree = [...proposals].filter((entry) => entry.plan?.tree).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1)?.plan?.tree;
+          if (tree) flow.plan = { ...(tree.type ? { type: tree.type } : {}), ...(tree.version ? { version: tree.version } : {}), ...(tree.release ? { release: tree.release.agent } : {}), ...(tree.startsFrom ? { startsFrom: tree.startsFrom } : {}) };
+        }
+        if (expect.clientImport) {
+          const seen = (await http.get(`/projects/${projectOf()}/import`)).data as { import?: { state: string } | null };
+          if (seen.import?.state) flow.clientImport = seen.import.state;
+        }
+        if (expect.build) {
+          const build = await newestBuild();
+          if (build) flow.build = { status: build.status, ...(build.releaseHeld ? { held: build.releaseHeld } : {}) };
+        }
+        if (expect.noticed) {
+          const channel = (await http.get(`/conversations/${await channelId()}`)).data as { messages?: { role: string; content: string }[] };
+          flow.notices = (channel.messages ?? []).filter((message) => message.role === 'notice').map((message) => message.content);
+        }
         if (expect.trees !== undefined) flow.trees = ((await http.get('/trees')).data as unknown[]).length;
         if (expect.mcpServer) {
           for (;;) {
@@ -853,6 +885,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           const scored = await scoreScenario(expect, observed, {
             tools: args.tools,
             reported: (says, said) => deps.reported({ spaceId, runId: ran?.runId ?? first?.runId ?? spaceId, agent: scenario.agent, modelId: args.modelId }, says, said),
+            ...(deps.says ? { says: (means: string, said: string, at: number) => deps.says!({ spaceId, runId: `${ran?.runId ?? first?.runId ?? spaceId}-${index}`, agent: stage.do && 'chat' in stage.do ? stage.do.chat.agent ?? scenario.agent : scenario.agent, modelId: args.modelId }, means, said, at) } : {}),
           });
           checks.push(...scored.map((check) => ({ ...check, what: `${label}${check.what}` })));
         } catch (err) {

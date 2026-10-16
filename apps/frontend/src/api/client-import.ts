@@ -7,7 +7,7 @@ import { api } from './client'
 export type ImportMode = 'copy' | 'live'
 
 export interface ClientImport {
-  state: 'uploading' | 'uploaded' | 'refused' | 'importing' | 'imported' | 'failed'
+  state: 'awaited' | 'uploading' | 'uploaded' | 'refused' | 'importing' | 'imported' | 'failed'
   mode: ImportMode
   bytes: number
   version?: string
@@ -38,3 +38,6 @@ export const uploadImport = (projectId: string, file: File, mode: ImportMode, on
     maxBodyLength: Infinity,
     onUploadProgress: (event) => onProgress(event.total ? event.loaded / event.total : 0),
   }).then((r) => r.data)
+
+export const startFresh = (projectId: string): Promise<{ released: boolean }> =>
+  api.delete<{ released: boolean }>(`/projects/${encodeURIComponent(projectId)}/import`).then((r) => r.data)

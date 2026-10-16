@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../lib/types.js';
 import { ODOO_DATABASE_PASSWORD, ODOO_PROJECT_APP, ODOO_RELEASE_SECRETS, chartDatabaseSecret, vaultDatabaseSecret, newReleaseName, type ReleaseVault, releaseNameOf, releasePlace, releaseTargetOf, rollBackTarget, type OdooRelease, type ReleaseState } from '../lib/odoo-release.js';
 import type { ReleaseDecision } from '../lib/release-paths.js';
-import { missingFrom, missingSentence, restorable, wrongVersionFrom, type ClientImport } from '../lib/client-import.js';
+import { HELD_FOR_CLIENT, awaits, missingFrom, missingSentence, restorable, wrongVersionFrom, type ClientImport } from '../lib/client-import.js';
 import { vaultSecretName } from '../lib/infisical-sync.js';
 import type { TreeTypeSecret } from '../lib/tree-types.js';
 import { isMockCloudProvider } from '../lib/cluster-topology.js';
@@ -49,6 +49,7 @@ export interface OdooReleaseDeps {
   chartAt: (owner: string, repo: string, commit: string) => Promise<boolean>;
   clusterById?: ((id: string) => Promise<ClusterMetadata | undefined>) | undefined;
   notify?: ((ownerId: string, release: OdooRelease) => void) | undefined;
+  awaiting?: ((ownerId: string, project: ProjectMetadata, run: PipelineRunMetadata) => void) | undefined;
   now?: (() => string) | undefined;
   newId?: (() => string) | undefined;
   pollMs?: number | undefined;
@@ -92,6 +93,12 @@ export class OdooReleaseService {
     if (!project.giteaOwner || !project.giteaRepo) return refuse('the project has no repository');
     const cluster = await this.clusterOf(project);
     if (!cluster) return refuse('the project\'s cluster is gone');
+
+    if (awaits(project.clientImport as ClientImport | undefined) && !(await this.established(ownerId, project.id))) {
+      await this.deps.store.savePipelineRunInfo({ id: run.id, releaseHeld: HELD_FOR_CLIENT });
+      this.deps.awaiting?.(ownerId, project, run);
+      return { skipped: HELD_FOR_CLIENT };
+    }
 
     const since = this.deps.decide ? (await this.deps.store.getOdooReleases(ownerId, project.id))
       .filter((entry) => entry.state !== 'failed' && entry.state !== 'discarded' && entry.state !== 'queued')

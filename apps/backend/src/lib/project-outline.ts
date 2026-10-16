@@ -5,7 +5,7 @@ import { importLine, type ClientImport } from './client-import.js';
 
 export type StatusProject = { id: string; name: string; clientImport?: ClientImport | undefined };
 export type StatusRelease = Pick<OdooRelease, 'commit' | 'slot' | 'state' | 'reason' | 'liveAt' | 'startedAt' | 'updatedAt' | 'changes'>;
-export type StatusRun = Pick<PipelineRunMetadata, 'commitSha' | 'status' | 'startedAt' | 'finishedAt' | 'promotedAt' | 'errorMessage' | 'releaseSkipped' | 'releaseRefused'>;
+export type StatusRun = Pick<PipelineRunMetadata, 'commitSha' | 'status' | 'startedAt' | 'finishedAt' | 'promotedAt' | 'errorMessage' | 'releaseSkipped' | 'releaseRefused' | 'releaseHeld'>;
 
 const PREPARING: ReadonlySet<OdooRelease['state']> = new Set(['preparing', 'cutting-over', 'rolling-back']);
 
@@ -33,7 +33,7 @@ export function projectOutline(project: StatusProject, releases: readonly Status
       : '',
     preparing ? `In progress: ${short(preparing.commit)} is ${preparing.state}.` : '',
     build
-      ? `Last build: ${build.status}, ${short(build.commitSha)}, ${when(build.finishedAt ?? build.startedAt)}${build.errorMessage ? `: ${build.errorMessage}` : ''}${build.releaseSkipped ? `; not released: ${build.releaseSkipped}` : ''}${build.releaseRefused ? `; release refused: ${build.releaseRefused}` : ''}.`
+      ? `Last build: ${build.status}, ${short(build.commitSha)}, ${when(build.finishedAt ?? build.startedAt)}${build.errorMessage ? `: ${build.errorMessage}` : ''}${build.releaseSkipped ? `; not released: ${build.releaseSkipped}` : ''}${build.releaseRefused ? `; release refused: ${build.releaseRefused}` : ''}${build.releaseHeld ? `; held: ${build.releaseHeld}` : ''}.`
       : 'Last build: none yet.',
     importLine(project.clientImport),
     'Earlier releases: project_releases.',

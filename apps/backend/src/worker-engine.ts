@@ -33,6 +33,7 @@ import { treeTypeOfProject } from './lib/tree-types.js';
 import { deployProjectBuild } from './services/AppDeploy.js';
 import { failureReason } from './lib/temporal-failure.js';
 import { ODOO_RELEASE_ADAPTER } from './extensions/odoo/release-adapter.js';
+import { projectChoicesPatch, type ClientImport } from './lib/client-import.js';
 import { syncVaultFromProject } from './extensions/releases/vault-sync.js';
 import { Context as ActivityContext } from '@temporalio/activity';
 import { createCheckProgressActivity, createCheckRunActivities } from './activities/CheckRunActivities.js';
@@ -40,7 +41,7 @@ import { withSeedBundle } from './engine-host/sandboxes/seed-bundle.js';
 import { scriptedModelBase } from './lib/check-space.js';
 import { labelValue } from './engine-host/sandboxes/workspace.js';
 import { giteaUsernameFor } from './lib/projects.js';
-import { wasReported } from './eval/level2/reported.js';
+import { itSays, wasReported } from './eval/level2/reported.js';
 import { createProcedureExecutor } from './engine-host/nodes/index.js';
 import { signJWT } from './lib/auth.js';
 import axios from 'axios';
@@ -395,6 +396,10 @@ async function buildActivities() {
       treeTypes: (ownerId: string) => db.getTreeTypes(ownerId),
       registryHost: process.env.KOALA_REGISTRY,
       homeTree: (tree) => treeHome.home(tree, { starter: false }),
+      projectChoices: async (_ownerId, projectId, choices) => {
+        const project = (await db.getProjects()).find((entry) => entry.id === projectId);
+        if (project) await db.saveProjectInfo(projectChoicesPatch(project as { id: string; clientImport?: ClientImport }, choices, new Date().toISOString()));
+      },
       stopRun: async (workflowId: string) => { await stopIfRunning(temporal.workflow.getHandle(workflowId), 'the story it was working changed'); },
     }),
     grove: {
@@ -480,6 +485,7 @@ async function buildActivities() {
         giteaUser: (ownerId) => gitea.userExists(giteaUsernameFor(ownerId)),
       },
       reported: (run, says, answer) => wasReported(createProcedureExecutor(host.services, { registry: host.registry }), { runId: run.runId, ownerId: run.spaceId, agent: run.agent, modelId: run.modelId }, says, answer),
+      says: (run, means, answer, index) => itSays(createProcedureExecutor(host.services, { registry: host.registry }), { runId: run.runId, ownerId: run.spaceId, agent: run.agent, modelId: run.modelId }, means, answer, index),
     }),
     ...createCheckProgressActivity(db as never),
   };

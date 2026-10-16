@@ -7,7 +7,7 @@ const quiet = { validateStatus: () => true };
 
 function harness() {
   const got: { owner: string; project: string; mode: unknown; bytes: number; size: number }[] = [];
-  const imports = {
+  const imports: { view: unknown; upload: unknown; startFresh?: unknown } & Record<string, unknown> = {
     view: async (ownerId: string, projectId: string) => ({ ok: true as const, value: { open: true, ownerId, projectId } as never }),
     upload: async (owner: string, project: string, input: { mode: unknown; bytes: number; body: NodeJS.ReadableStream }) => {
       let size = 0;
@@ -16,8 +16,9 @@ function harness() {
       return input.mode === 'live' ? { ok: false as const, status: 409 as const, error: 'the backup is from Odoo 17.0' } : { ok: true as const, value: { state: 'uploaded', mode: 'copy', bytes: size, at: 'now' } as never };
     },
   };
+  imports.startFresh = async (_owner: string, project: string) => (project === 'p1' ? { ok: true as const, value: { released: true } } : { ok: false as const, status: 409 as const, error: 'not waiting' });
   const getOwnedProject = async (id: string, user: { id: string }) => (id === 'p1' ? { id, ownerId: user.id } as never : undefined);
-  return { got, mounted: mountRouter({ prefix: '/api/projects', router: () => clientImportRouter({ imports, getOwnedProject }) }) };
+  return { got, mounted: mountRouter({ prefix: '/api/projects', router: () => clientImportRouter({ imports: imports as never, getOwnedProject }) }) };
 }
 
 describe('a client\'s database for a project', () => {
@@ -32,6 +33,7 @@ describe('a client\'s database for a project', () => {
     expect([refused.status, refused.data]).toEqual([409, { error: 'the backup is from Odoo 17.0' }]);
     expect((await axios.put(h.url('/api/projects/p2/import'), Buffer.from('PK'), { headers: { 'Content-Type': 'application/zip' }, ...quiet })).status).toBe(404);
     expect((await axios.get(h.url('/api/projects/p1/import'))).data).toEqual({ open: true, ownerId: TEST_USER.id, projectId: 'p1' });
+    expect((await axios.delete(h.url('/api/projects/p1/import'))).data).toEqual({ released: true });
     await h.close();
   });
 });

@@ -36,7 +36,7 @@ describe('what can release a build', () => {
         { slug: 'release', name: 'Release', needsApp: true },
         { slug: 'release-replace', name: 'Release by replacing', needsApp: false },
       ],
-      apps: [{ id: 'odoo', title: 'Odoo' }],
+      apps: [{ id: 'odoo', title: 'Odoo', restores: true }],
     });
   });
 

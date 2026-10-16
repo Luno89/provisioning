@@ -79,6 +79,17 @@ export default function PlanProposalCard({ proposal, deciding, onApprove, onReje
         </>
       )}
 
+      {plan?.tree && (plan.tree.release || plan.tree.startsFrom) && (
+        <div className="space-y-0.5 text-slate-300" data-testid="plan-project-choices">
+          {plan.tree.release && (
+            <div><span className="text-slate-500">Released: </span>by <span className="font-mono">{plan.tree.release.agent}</span>{plan.tree.release.app ? <> with the <span className="font-mono">{plan.tree.release.app}</span> adapter</> : null}</div>
+          )}
+          {plan.tree.startsFrom === 'client-database' && (
+            <div><span className="text-slate-500">Starts from the client&apos;s database: </span>its first release waits until you upload their backup on the project&apos;s Settings.</div>
+          )}
+        </div>
+      )}
+
       {plan?.tree?.serviceName && (
         <div className="text-slate-300" data-testid="plan-service">
           <span className="text-slate-500">Service: </span><span className="font-mono">{plan.tree.serviceName}</span>

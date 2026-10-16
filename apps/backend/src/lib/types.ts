@@ -255,6 +255,7 @@ export interface PipelineRunMetadata {
   deploymentId?: string;
   releaseRefused?: string;
   releaseSkipped?: string;
+  releaseHeld?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }

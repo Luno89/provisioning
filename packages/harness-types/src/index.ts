@@ -625,6 +625,8 @@ export interface NewTreeSpec {
   goal?: string | undefined;
   serviceName?: string | undefined;
   joins?: { treeId: string; treeName: string; projectId?: string | undefined } | undefined;
+  release?: { agent: string; app?: string | undefined } | undefined;
+  startsFrom?: 'client-database' | undefined;
 }
 
 export interface Plan {

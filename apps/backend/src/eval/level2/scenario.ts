@@ -79,6 +79,7 @@ export interface ScenarioExpectations extends FlowExpectations {
   within?: { rounds?: number | undefined; toolCalls?: number | undefined; totalTokens?: number | undefined } | undefined;
   provokes?: ProvokedFailure | undefined;
   saved?: SavedProcedure | undefined;
+  said?: { contains?: string[] | undefined; means?: string[] | undefined } | undefined;
 }
 
 export type BrowserTestStatus = 'passed' | 'failed' | 'flaky' | 'skipped';
@@ -115,6 +116,10 @@ export interface FlowExpectations {
   chooses?: TurnChoice | undefined;
   release?: ExpectedRelease | undefined;
   e2e?: ExpectedBrowserTests | undefined;
+  plan?: { type?: string | undefined; version?: string | undefined; release?: string | null | undefined; startsFrom?: 'client-database' | null | undefined } | undefined;
+  clientImport?: { state: string | null } | undefined;
+  build?: { held?: boolean | undefined } | undefined;
+  noticed?: string[] | undefined;
 }
 
 export type ChatPlace = 'channel' | { story: string } | { feature: string };
@@ -132,6 +137,7 @@ export type FlowAction =
   | { deleteTree: true }
   | { deleteProject: true }
   | { waitRelease: { state: 'preview' | 'live' } }
+  | { waitBuild: true }
   | { cutOver: true }
   | { browse: { release: 'preview' | 'live'; specs?: Record<string, string> | undefined } }
   | { removeRelease: true };
@@ -167,8 +173,8 @@ export interface Scenario {
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 export const MAX_REPEATS = 25;
 const TURN_EXPECTATIONS: readonly (keyof ScenarioExpectations)[] = ['chooses', 'modelSaw'];
-const ACTIONS = ['chat', 'post', 'approvePlan', 'applyAction', 'runTree', 'waitQuiet', 'settleTree', 'editWorkspace', 'waitWorkspace', 'deleteTree', 'deleteProject', 'waitRelease', 'cutOver', 'browse', 'removeRelease'];
-const RELEASE_ACTIONS = ['waitRelease', 'cutOver', 'browse', 'removeRelease'];
+const ACTIONS = ['chat', 'post', 'approvePlan', 'applyAction', 'runTree', 'waitQuiet', 'settleTree', 'editWorkspace', 'waitWorkspace', 'deleteTree', 'deleteProject', 'waitRelease', 'waitBuild', 'cutOver', 'browse', 'removeRelease'];
+const RELEASE_ACTIONS = ['waitRelease', 'waitBuild', 'cutOver', 'browse', 'removeRelease'];
 const RELEASE_STATES: ReleaseState[] = ['preparing', 'preview', 'cutting-over', 'live', 'discarded', 'failed', 'superseded'];
 const TEST_STATUSES: BrowserTestStatus[] = ['passed', 'failed', 'flaky', 'skipped'];
 const SPEC_PATH = /^e2e\/(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.spec\.ts$/;
@@ -215,6 +221,21 @@ function expectationProblems(
     }
     if (models.chosen === undefined && models.own === undefined) problems.push(`${where}it expects the tree's models, but names no agent`);
   }
+  const said = expect.said as { contains?: unknown; means?: unknown } | undefined;
+  if (said !== undefined) {
+    for (const [which, list] of [['contains', said.contains], ['means', said.means]] as const) {
+      if (list !== undefined && (!Array.isArray(list) || list.some((text) => typeof text !== 'string' || !text.trim()))) problems.push(`${where}what it should have said (${which}) has to be a list of sentences`);
+    }
+    if (said.contains === undefined && said.means === undefined) problems.push(`${where}it expects something said, but names nothing`);
+  }
+  if (expect.plan !== undefined) {
+    const plan = expect.plan as Record<string, unknown>;
+    for (const key of ['type', 'version'] as const) if (plan[key] !== undefined && typeof plan[key] !== 'string') problems.push(`${where}the plan's ${key} is a name`);
+    if (plan.release !== undefined && plan.release !== null && typeof plan.release !== 'string') problems.push(`${where}the plan's release is the agent that releases it, or null for its type's own way`);
+    if (plan.startsFrom !== undefined && plan.startsFrom !== null && plan.startsFrom !== 'client-database') problems.push(`${where}the plan starts from client-database, or null for the starter`);
+  }
+  if (expect.clientImport !== undefined && expect.clientImport.state !== null && !['awaited', 'uploading', 'uploaded', 'refused', 'importing', 'imported', 'failed'].includes(String(expect.clientImport.state))) problems.push(`${where}"${String(expect.clientImport.state)}" is not a state of a client's database`);
+  if (expect.noticed !== undefined && (!Array.isArray(expect.noticed) || expect.noticed.some((text) => typeof text !== 'string' || !text.trim()))) problems.push(`${where}what the channel should have been told has to be a list of words`);
   for (const handOff of expect.handOffs ?? []) {
     if (typeof handOff?.agent !== 'string' || !known.agents.has(handOff.agent)) problems.push(`${where}it expects hand-offs to "${String(handOff?.agent)}", which is not an agent`);
     for (const bound of [handOff?.atLeast, handOff?.atMost]) {
@@ -357,7 +378,7 @@ export function scenarioProblems(
   const approvedAt = stages.findIndex((stage) => stage?.do && typeof stage.do === 'object' && 'approvePlan' in stage.do);
   const hasProject = (index: number) => scenario.world?.project !== undefined || (approvedAt >= 0 && index >= approvedAt);
   if (stages.some((stage, index) => stage?.do && typeof stage.do === 'object' && 'deleteProject' in stage.do && !hasProject(index))) problems.push('a check can only delete a project its world declares or an approved plan made');
-  const releasingAt = (stage: FlowStage | undefined) => Boolean(stage?.do && typeof stage.do === 'object' && RELEASE_ACTIONS.some((kind) => kind in stage.do)) || stage?.expect?.release !== undefined;
+  const releasingAt = (stage: FlowStage | undefined) => Boolean(stage?.do && typeof stage.do === 'object' && RELEASE_ACTIONS.some((kind) => kind in stage.do)) || stage?.expect?.release !== undefined || stage?.expect?.clientImport !== undefined || stage?.expect?.build !== undefined || stage?.expect?.noticed !== undefined;
   if (scenario.expect?.release !== undefined && !scenario.world?.project) problems.push('a check can only release a project its world declares or an approved plan made');
   else if (stages.some((stage, index) => releasingAt(stage) && !hasProject(index))) problems.push('a check can only release a project its world declares or an approved plan made');
   if (scenario.expect?.e2e !== undefined) problems.push('the first run does not browse, so it has no browser tests of its own — browse in a later stage');

@@ -1,7 +1,7 @@
 import { odooJob, releaseLabels, type ReleaseVault } from './odoo-release.js';
 
 export type ImportMode = 'copy' | 'live';
-export type ImportState = 'uploading' | 'uploaded' | 'refused' | 'importing' | 'imported' | 'failed';
+export type ImportState = 'awaited' | 'uploading' | 'uploaded' | 'refused' | 'importing' | 'imported' | 'failed';
 
 export interface ClientImport {
   state: ImportState;
@@ -65,6 +65,29 @@ export function parseManifest(text: string): BackupManifest | undefined {
   } catch {
     return undefined;
   }
+}
+
+export const HELD_FOR_CLIENT = 'waiting for the client\'s database: upload their backup on the project\'s Settings, or start without it there';
+
+export function awaitedImport(at: string): ClientImport {
+  return { state: 'awaited', mode: 'copy', bytes: 0, at };
+}
+
+export const awaits = (entry: ClientImport | undefined): boolean => entry?.state === 'awaited';
+
+const UNDER_WAY: readonly ImportState[] = ['uploading', 'uploaded', 'importing', 'imported'];
+
+export function projectChoicesPatch(
+  project: { id: string; clientImport?: ClientImport | null | undefined },
+  choices: { release?: { agent: string; app?: string | undefined } | undefined; startsFrom?: 'client-database' | undefined },
+  at: string,
+): { id: string; release?: { agent: string; app?: string | undefined }; clientImport?: ClientImport } {
+  const underWay = project.clientImport && UNDER_WAY.includes(project.clientImport.state);
+  return {
+    id: project.id,
+    ...(choices.release ? { release: choices.release } : {}),
+    ...(choices.startsFrom && !underWay ? { clientImport: awaitedImport(at) } : {}),
+  };
 }
 
 export function claimSize(bytes: number): string {
@@ -201,6 +224,7 @@ export function importLine(entry: ClientImport | undefined): string {
   if (!entry) return '';
   const what = `the client's database (Odoo ${entry.version ?? '?'}, ${entry.modules?.length ?? 0} modules, ${entry.mode === 'copy' ? 'as a neutralized copy' : 'as their live system'})`;
   switch (entry.state) {
+    case 'awaited': return 'Starts from the client\'s database: its first release waits until the person uploads their backup on the project\'s Settings (or starts without it there).';
     case 'uploading': return `Started from a client's database: it is being uploaded.`;
     case 'uploaded': return `Starts from ${what}: uploaded, and restored into slot a by the project's first release.`;
     case 'importing': return `Starts from ${what}: being restored into slot a.`;

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { restoringApp } from '../../lib/release-run.js';
 import { ODOO_RELEASE_ADAPTER } from './release-adapter.js';
 import type { SlotCluster } from '../releases/slot-cluster.js';
 import type { ReleaseTarget } from '../../lib/release-run.js';
@@ -78,5 +79,10 @@ describe('what the Odoo app holds that is not in its repository', () => {
     expect(items).toEqual([{ kind: 'field', key: 'res.partner.x_note', name: 'The field Note (x_note) on res.partner, made in the app,', fingerprint: 'f1', active: true }]);
     expect(asked.map((line) => line.split(' ').slice(0, 2).join(' '))).toEqual(['shop-postgres-0 odoo_a', 'shop-postgres-0 odoo_a']);
     expect(ODOO_RELEASE_ADAPTER.database(target, 'b')).toEqual({ pod: 'shop-postgres-0', user: 'odoo', database: 'odoo_b' });
+  });
+
+  it('restores a client\'s database, as the list of release apps says it does', () => {
+    expect(typeof ODOO_RELEASE_ADAPTER.restore).toBe('function');
+    expect(restoringApp(ODOO_RELEASE_ADAPTER.id)).toEqual({ title: 'Odoo' });
   });
 });

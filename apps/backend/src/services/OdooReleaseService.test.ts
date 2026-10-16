@@ -241,6 +241,16 @@ describe('a project that starts from a client\'s database', () => {
     expect(await importOf()).toMatchObject({ state: 'refused', reason: 'the backup is from Odoo 20.0, and this project\'s image runs Odoo 18.0' });
   });
 
+  it('holds the first release while the client\'s database is awaited, saying so on the build and to the channel', async () => {
+    const waited: string[] = [];
+    const svc = new OdooReleaseService({ store: db as never, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`, pollMs: 5, awaiting: (_owner, entry, built) => { waited.push(`${entry.id} ${built.commitSha}`); } });
+    await db.savePipelineRunInfo({ ...run('b1', 'abc'), startedAt: 't' } as never);
+    expect(await svc.release({ ...project, clientImport: { state: 'awaited', mode: 'copy', bytes: 0, at: 't' } } as ProjectMetadata, run('b1', 'abc'))).toEqual({ skipped: 'waiting for the client\'s database: upload their backup on the project\'s Settings, or start without it there' });
+    expect(started).toEqual([]);
+    expect(waited).toEqual(['p1 abc']);
+    expect((await db.getPipelineRuns()).find((entry) => entry.id === 'b1')?.releaseHeld).toContain('waiting for the client\'s database');
+  });
+
   it('never restores over a project that has released', async () => {
     const svc = service();
     await svc.release(project, run('b1', 'abc'));

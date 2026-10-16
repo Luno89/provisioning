@@ -16,6 +16,7 @@ export interface PipelineRun {
   deploymentId?: string;
   releaseRefused?: string;
   releaseSkipped?: string;
+  releaseHeld?: string;
 }
 
 const STATUS_STYLE: Record<string, { icon: LucideIcon; className: string; label: string }> = {
@@ -76,6 +77,9 @@ export function PipelineRunRow({
         <div className="text-[11px] text-rose-400 break-words">{run.errorMessage}</div>
       )}
 
+      {run.releaseHeld && (
+        <div className="text-[11px] text-amber-300 break-words">Built; held: {run.releaseHeld}</div>
+      )}
       {run.releaseSkipped && (
         <div className="text-[11px] text-slate-400 break-words">Built; nothing to release: {run.releaseSkipped}</div>
       )}

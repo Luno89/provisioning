@@ -160,4 +160,70 @@ const fromChat: Scenario = {
   ],
 };
 
-export const STORY_CHECKS = (): Scenario[] => [scripted, fromChat, modelled];
+const CLIENT_ASK = 'My client runs a small Odoo shop and wants their delivery notes printed on the shipping labels.';
+const CLIENT_ANSWER = 'Odoo 20. And yes, they run it themselves today, and made a couple of fields in the app.';
+const CLIENT_GOAL = 'Print the client\'s delivery notes on their shipping labels, in their Odoo 20, starting from the database they run today';
+
+const clientStages = (approved: FlowStage['expect']): FlowStage[] => [
+  { name: 'approving the plan makes a project that waits for the client\'s database', do: { approvePlan: true }, expect: { project: { exists: true }, clientImport: { state: 'awaited' }, ...approved } },
+  { name: 'its first build is held for the client\'s database', do: { waitBuild: true }, expect: { build: { held: true }, release: { exists: false }, clientImport: { state: 'awaited' }, noticed: ['waits for the client\'s database'] } },
+  { name: 'deleting the project', do: { deleteProject: true }, expect: { outcome: 'ok', project: { exists: false } } },
+];
+
+const clientScripted: Scenario = {
+  id: 'story-odoo-client-project-scripted',
+  name: 'A client\'s Odoo project starts from their own database',
+  describe: 'On a script: told about a client\'s Odoo shop in a fresh chat, Koala reads what an Odoo tree is and asks which version, says how it is released, and asks whether the client already runs Odoo, before planning anything; answered, it hands the work to the planner, whose plan names the version and starts from the client\'s database; approving it makes a project whose first build is held until the client\'s backup is uploaded, and the project\'s channel is told so; deleting the project removes it.',
+  agent: 'koala',
+  procedure: { id: 'interactive-chat' },
+  input: { message: CLIENT_ASK },
+  script: { rules: [
+    { when: { asked: 'small Odoo shop', offered: ['describe_tree_type'], notCalled: ['describe_tree_type'] }, reply: { call: [{ tool: 'describe_tree_type', arguments: { type: ODOO_TREE_TYPE } }] } },
+    { when: { asked: 'small Odoo shop', called: ['describe_tree_type'] }, reply: { say: 'Which Odoo version does the client run? Each change is released as a preview beside the live app, and you cut over when it looks right. Does the client already run Odoo, with things made in the app?' } },
+    { when: { asked: 'they run it themselves', offered: ['planner'], notCalled: ['planner'] }, reply: { call: [{ tool: 'planner', arguments: { goal: CLIENT_GOAL } }] } },
+    { when: { asked: 'they run it themselves', called: ['planner'] }, reply: { say: 'The plan is on the card: approve it, then upload their backup on the project\'s Settings.' } },
+    { when: { offered: ['propose_plan'], notCalled: ['propose_plan'] }, reply: { call: [{ tool: 'propose_plan', arguments: {
+      tree: { name: 'Client labels', type: ODOO_TREE_TYPE, version: '20', goal: CLIENT_GOAL, startsFrom: 'client-database' },
+      planDoc: '# Client labels\n\n## Destination\nThe client\'s shipping labels carry their delivery notes.\n\n## Not yet specified\nWhat was made in their app, until their database is in.\n\n## Out of scope\nEverything else.\n',
+      branches: [{ title: 'Labels', leaves: [{ key: 'notes', title: 'Notes on labels', body: 'a shipping label shows the delivery note', brief: 'Inherit the label report.', tasks: [] }] }],
+    } }] } },
+    { when: { offered: ['propose_plan'] }, reply: { say: 'Proposed; it waits for your approval.' } },
+    NOTHING,
+  ] },
+  expect: {
+    outcome: 'ok',
+    toolsCalled: ['describe_tree_type'],
+    handOffs: [{ agent: 'planner', atMost: 0 }],
+    said: { contains: ['Which Odoo version', 'preview', 'already run Odoo'] },
+    modelSaw: { anyRequest: true, contains: ['HOW IT IS RELEASED', 'This is the only way that fits it', 'STARTING FROM THE CLIENT\'S OWN APP', 'startsFrom: \'client-database\''] },
+  },
+  then: [
+    { name: 'answered, Koala hands it to the planner, whose plan starts from the client\'s database', do: { chat: { message: CLIENT_ANSWER } }, expect: { outcome: 'ok', handOffs: [{ agent: 'planner' }], plan: { type: ODOO_TREE_TYPE, version: '20', release: null, startsFrom: 'client-database' } } },
+    ...clientStages({}),
+  ],
+};
+
+const clientModelled: Scenario = {
+  id: 'story-odoo-client-project',
+  onBench: false,
+  name: 'Koala takes on a client\'s Odoo project, on your model',
+  describe: 'On your model: told about a client\'s Odoo shop in a fresh chat, Koala asks which version and whether the client already runs Odoo, and says how changes are released, before planning anything; answered, its plan is an Odoo tree of that version that starts from the client\'s database, with no other way of releasing; approving it makes a project whose first build waits for the client\'s backup; deleting the project removes it.',
+  agent: 'koala',
+  procedure: { id: 'interactive-chat' },
+  input: { message: CLIENT_ASK },
+  expect: {
+    outcome: 'ok',
+    handOffs: [{ agent: 'planner', atMost: 0 }],
+    said: { means: [
+      'ask which version of Odoo the client runs',
+      'say that changes are released as a preview that the person cuts over to',
+      'ask whether the client already runs Odoo, or has things made in it',
+    ] },
+  },
+  then: [
+    { name: 'answered, it plans an Odoo 20 tree that starts from the client\'s database', do: { chat: { message: CLIENT_ANSWER } }, expect: { outcome: 'ok', handOffs: [{ agent: 'planner' }], plan: { type: ODOO_TREE_TYPE, version: '20', release: null, startsFrom: 'client-database' } } },
+    ...clientStages({}),
+  ],
+};
+
+export const STORY_CHECKS = (): Scenario[] => [scripted, fromChat, modelled, clientScripted, clientModelled];

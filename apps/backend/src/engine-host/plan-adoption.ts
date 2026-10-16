@@ -1,5 +1,6 @@
 import type { Branch, Leaf } from '../lib/leaves.js';
 import type { Tree } from '../lib/trees.js';
+import type { NewTreeSpec } from '@koala/harness-types';
 import { primaryProjectId } from '../lib/trees.js';
 import { newTask, type Task } from './tools/tasks.js';
 import type { AdoptedPlan, PlanProposal, PlanStatus } from '../lib/plan-proposals.js';
@@ -31,6 +32,7 @@ export interface PlanAdoptionOptions {
   /** Where the project's registry is reached, which a scaffold file may name. */
   registryHost?: string | undefined;
   homeTree?: ((tree: Tree) => Promise<Tree>) | undefined;
+  projectChoices?: ((ownerId: string, projectId: string, choices: Pick<NewTreeSpec, 'release' | 'startsFrom'>) => Promise<void>) | undefined;
   stopRun?: ((workflowId: string) => Promise<void>) | undefined;
   now?: (() => string) | undefined;
 }
@@ -203,6 +205,9 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
         throw new Error('the plan names no tree');
       }
       const projectId = primaryProjectId(tree);
+      if (projectId && plan.tree && (plan.tree.release || plan.tree.startsFrom) && options.projectChoices) {
+        await options.projectChoices(ownerId, projectId, { ...(plan.tree.release ? { release: plan.tree.release } : {}), ...(plan.tree.startsFrom ? { startsFrom: plan.tree.startsFrom } : {}) });
+      }
 
       const leafIds: Record<string, string> = {};
       const taskIds: Record<string, string> = {};

@@ -651,6 +651,23 @@ says how it started and how many things were made in the client's app (Settings 
 another version and for a missing module, restored as a copy and as live, ~25 min, removes everything. Importing from
 hosted Odoo (Online, Odoo.sh, Enterprise) is a later step.
 
+**Koala settles a new client project before planning it** (release patterns step 5). Koala holds `list_tree_types`
+and `describe_tree_type`; for something new (no tree or project bound) it asks, in one message, only what the person
+has not said: the type's version, says in a sentence how the type is released (and asks only when its HOW IT IS
+RELEASED section offers another way), and, when the type has a STARTING FROM THE CLIENT'S OWN APP section, whether
+the client already runs it. Both sections are written from what runs them (`TreeTypeDescriptions.releasing`: the
+release agents from `releaseAgentsOf` that fit the type, and `restoringApp` from `RELEASE_APPS`). The plan's tree
+carries `release` (one of those other ways; the type's own is dropped) and `startsFrom: 'client-database'` (refused
+unless the type's app restores), checked by `parsePlan` against `PlanWorld.releasing`; the card shows both. Approving
+applies them to the tree's project (`projectChoices` → `projectChoicesPatch`): its `release`, and `clientImport:
+awaited`. While a project awaits its client's database, a finished build is held, not released (`releaseHeld`,
+`HELD_FOR_CLIENT`), and the channel is told once (`awaitedNotice`, Open settings); uploading the backup releases the
+newest build with the restore, and "Start without their database" (`DELETE /api/projects/:id/import`) sets the import
+aside and releases it fresh. Checks can now assert what an agent said (`said`: `contains` exact, `means` judged by the
+run's own model through `itSays`), the conversation's plan (`plan`), `clientImport`, `build.held` and `noticed`, and
+wait with `waitBuild`; `story-odoo-client-project-scripted` proves the plumbing, `story-odoo-client-project` runs it on
+the person's model (off the bench).
+
 **A new tree that produces a service gets its own project** (`TreeHomeService`, rule in `lib/tree-home.ts`): plan
 approval (`homeTree` in plan adoption) and `POST /api/trees` both call it, so it does not matter whether the tree came
 from chat, a check or the New Tree dialog. The project (`project-<treeId>`, so a retry finishes rather than doubles it)

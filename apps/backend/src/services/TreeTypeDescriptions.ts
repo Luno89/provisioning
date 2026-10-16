@@ -1,12 +1,17 @@
 import { agentsHandedTo, describeOutline, outlineProcedure, type Procedure } from '@koala/agent-engine/procedure';
 import { groveAgentOf, resolveTreeType, treeLanguage, type TreeTypeSpec } from '../lib/tree-types.js';
-import { describeTreeType } from '../lib/tree-type-description.js';
+import { describeTreeType, type ReleaseWay, type ReleaseWays } from '../lib/tree-type-description.js';
+import { releaseHowOf } from '../lib/release-run.js';
+import { CHART_FILE } from '../lib/odoo-release.js';
+import type { ReleaseAgent } from './ReleaseSettings.js';
 import type { WorkspaceImageSpec } from '../lib/workspace-image-seeds.js';
 
 export interface TreeTypeDescriptionDeps {
   treeTypes: (ownerId: string) => Promise<TreeTypeSpec[]>;
   images: (ownerId: string) => Promise<WorkspaceImageSpec[]>;
   agentOf: (ownerId: string, agent: string) => Promise<{ describe?: string | undefined; procedure?: Procedure | undefined } | undefined>;
+  releaseAgents?: ((ownerId: string) => Promise<ReleaseAgent[]>) | undefined;
+  restores?: ((app: string) => { title: string } | undefined) | undefined;
 }
 
 export class TreeTypeDescriptions {
@@ -15,8 +20,29 @@ export class TreeTypeDescriptions {
   async describe(ownerId: string, typeId: string): Promise<string | undefined> {
     const type = await resolveTreeType({ getTreeTypes: () => this.deps.treeTypes(ownerId) }, ownerId, typeId);
     if (!type) return undefined;
-    const [images, growing] = await Promise.all([this.deps.images(ownerId), this.growing(ownerId, groveAgentOf(type))]);
-    return describeTreeType({ type, image: images.find((image) => image.id === treeLanguage(type, { version: type.versions?.default })), growing });
+    const [images, growing, releasing] = await Promise.all([this.deps.images(ownerId), this.growing(ownerId, groveAgentOf(type)), this.releasing(ownerId, type)]);
+    return describeTreeType({ type, image: images.find((image) => image.id === treeLanguage(type, { version: type.versions?.default })), growing, releasing });
+  }
+
+  async releasingOf(ownerId: string, typeId: string): Promise<ReleaseWays | undefined> {
+    const type = await resolveTreeType({ getTreeTypes: () => this.deps.treeTypes(ownerId) }, ownerId, typeId);
+    return type ? this.releasing(ownerId, type) : undefined;
+  }
+
+  async releasing(ownerId: string, type: TreeTypeSpec): Promise<ReleaseWays | undefined> {
+    if (!this.deps.releaseAgents || type.produces === 'artefact') return undefined;
+    const own = releaseHowOf({}, type, type.files.some((file) => file.path === CHART_FILE));
+    const agents = await this.deps.releaseAgents(ownerId);
+    const beside = Boolean(own.app);
+    const named = (slug: string, app?: string | undefined): ReleaseWay => {
+      const agent = agents.find((entry) => entry.slug === slug);
+      return { slug, name: agent?.name ?? slug, ...(agent?.description ? { description: agent.description } : {}), ...(app ? { app } : {}) };
+    };
+    return {
+      own: named(own.agent, own.app),
+      others: agents.filter((agent) => agent.slug !== own.agent && agent.needsApp === beside).map((agent) => named(agent.slug, beside ? own.app : undefined)),
+      ...(own.app && this.deps.restores?.(own.app) ? { restores: this.deps.restores(own.app)! } : {}),
+    };
   }
 
   private async growing(ownerId: string, agent: string): Promise<string> {

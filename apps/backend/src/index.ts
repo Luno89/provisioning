@@ -155,6 +155,7 @@ import { CustomizationsService } from './services/CustomizationsService.js';
 import { ODOO_TREE_TYPE } from './lib/tree-type-seeds.js';
 import { customizationsRouter } from './routes/customizations.js';
 import { clientImportRouter } from './routes/client-import.js';
+import { restoringApp } from './lib/release-run.js';
 import { ClientImportService } from './services/ClientImportService.js';
 import { latestBuildOf, odooVersionOfDockerfile, projectMajor } from './lib/client-import.js';
 import { createSlotCluster } from './extensions/releases/slot-cluster.js';
@@ -172,7 +173,7 @@ import { ProjectChannelService } from './services/ProjectChannelService.js';
 import { projectChannelRouter } from './routes/project-channel.js';
 import { itemChatsRouter } from './routes/item-chats.js';
 import { ItemChatService } from './services/ItemChatService.js';
-import { grovedTree, releaseNotice, secretNotice, treeNotices, postedNotice } from './lib/notices.js';
+import { awaitedNotice, grovedTree, releaseNotice, secretNotice, treeNotices, postedNotice } from './lib/notices.js';
 import { changedPaths, releaseDecision, type ReleaseDecision } from './lib/release-paths.js';
 import { TreeTypeDescriptions } from './services/TreeTypeDescriptions.js';
 import { WorkspaceImageService } from './services/WorkspaceImageService.js';
@@ -836,6 +837,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     how: async (project) => releaseHowOf(project, await treeTypeOfProject(db, project), true),
     chartAt: async (owner, repo, commit) => (await giteaService.getRawFile(owner, repo, CHART_FILE, commit)) !== null,
     clusterById: async (id) => (id === 'provisioning-lunorica' ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
+    awaiting: (ownerId, project, run) => {
+      postNotice('a project waits for its client\'s database', treeOfProject(project.id).then((tree) => notices.post(ownerId, { projectId: project.id, treeId: tree?.id }, awaitedNotice(project, run.commitSha, tree?.id))));
+    },
     notify: (ownerId, release) => {
       io.to(`user:${ownerId}`).emit('odoo-release-updated', release);
       postNotice('a release changed', treeOfProject(release.projectId).then(async (tree) => {
@@ -1250,6 +1254,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.use('/api/memories', memoriesRouter({ db, temporalBridge }));
 
   const treeTypeDescriptions = new TreeTypeDescriptions({
+    releaseAgents: (ownerId) => releaseSettings.agents(ownerId),
+    restores: restoringApp,
     treeTypes: (ownerId) => db.getTreeTypes(ownerId),
     images: (ownerId) => new WorkspaceImageService(db).list(ownerId),
     agentOf: async (ownerId, slug) => {

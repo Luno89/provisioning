@@ -37,7 +37,7 @@ function setUp(over: { manifest?: unknown; established?: boolean; restore?: bool
     releases: {
       established: async () => (over.established ? { commit: 'abcdef1234', state: 'live' } as never : undefined),
       nameRelease: async (entry) => entry,
-      release: async (entry, run) => { released.push([(entry.clientImport as { state: string }).state, run.id]); },
+      release: async (entry, run) => { released.push([(entry.clientImport as { state: string } | undefined)?.state, run.id]); },
     },
     now: () => 'now',
   };
@@ -95,5 +95,19 @@ describe('starting a project from a client\'s database', () => {
     expect(await setUp().service.upload('u1', 'p1', { mode: 'other', bytes: 11, body: body() })).toMatchObject({ status: 400 });
     expect(await setUp().service.upload('u1', 'p1', { mode: 'copy', bytes: Number.NaN, body: body() })).toMatchObject({ status: 411 });
     expect(await setUp({ established: true }).service.view('u1', 'p1')).toEqual({ ok: true, value: { open: false, why: 'Shop has already released (abcdef12 is live); a client\'s database can only start a project' } });
+  });
+
+  it('starts without the client\'s database: the import is set aside and the newest build released fresh', async () => {
+    const { service, did, released, project } = setUp({ clientImport: { state: 'awaited', mode: 'copy', bytes: 0, at: 'x' } });
+    expect(await service.startFresh('u1', 'p1')).toEqual({ ok: true, value: { released: true } });
+    expect(project().clientImport).toBeNull();
+    expect(did).toContain('remove pvc shop-1a2b3c-import');
+    expect(released).toEqual([[undefined, 'run-1']].map(([state, id]) => [state, id]));
+    expect(await setUp().service.startFresh('u1', 'p1')).toEqual({ ok: false, status: 409, error: 'Shop is not waiting for a client\'s database' });
+    expect(await setUp({ established: true, clientImport: { state: 'awaited', mode: 'copy', bytes: 0, at: 'x' } }).service.startFresh('u1', 'p1')).toEqual({ ok: false, status: 409, error: 'Shop has already released' });
+  });
+
+  it('takes an upload for a project that awaits one', async () => {
+    expect((await setUp({ clientImport: { state: 'awaited', mode: 'copy', bytes: 0, at: 'x' } }).service.upload('u1', 'p1', { mode: 'copy', bytes: 11, body: body() })).ok).toBe(true);
   });
 });

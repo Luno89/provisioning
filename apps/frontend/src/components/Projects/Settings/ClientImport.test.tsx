@@ -7,6 +7,7 @@ import type { ImportView } from '../../../api/client-import'
 
 vi.mock('../../../api/client-import', async (orig) => ({
   ...(await orig<typeof api>()),
+  startFresh: vi.fn(async () => ({ released: true })),
   uploadImport: vi.fn(async (_p: string, _f: File, mode: api.ImportMode, progress: (n: number) => void) => { progress(1); return { state: 'uploaded', mode, bytes: 2, at: 'now' } }),
 }))
 
@@ -40,5 +41,12 @@ describe('starting a project from a client\'s database', () => {
     show({ open: false, why: 'Shop has already released', import: { state: 'imported', mode: 'copy', bytes: 2, version: '20.0', modules: ['base', 'sale'], at: 'x' } })
     expect(screen.getByText(/Started from the client's database \(Odoo 20.0, 2 modules, as a copy to work on\)/)).toBeInTheDocument()
     expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('waits for the client\'s backup, and can start without it', async () => {
+    show({ open: true, import: { state: 'awaited', mode: 'copy', bytes: 0, at: 'x' } })
+    expect(screen.getByText(/its first release waits for their backup/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Start without their database' }))
+    await waitFor(() => expect(api.startFresh).toHaveBeenCalledWith('p1'))
   })
 })

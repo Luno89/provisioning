@@ -1,3 +1,4 @@
+import type { ReleaseWays } from '../../../lib/tree-type-description.js';
 import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import { awaitingReview, settleClaim, type Branch, type Leaf } from '../../../lib/leaves.js';
@@ -26,6 +27,7 @@ export interface GroveStores {
   };
   treeTypes?: (ownerId: string) => Promise<TreeTypeChoice[]>;
   describeTreeType?: (ownerId: string, typeId: string) => Promise<string | undefined>;
+  releasingOf?: ((ownerId: string, typeId: string) => Promise<ReleaseWays | undefined>) | undefined;
   binding?: (ownerId: string, conversationId: string) => Promise<{ treeId?: string | undefined; projectId?: string | undefined; leafId?: string | undefined; branchId?: string | undefined } | undefined>;
   growing?: TreeGrowing | undefined;
   models?: TreeModelChoices | undefined;
@@ -296,7 +298,10 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       }
 
       const types = await treeTypesOf(caller.ownerId);
+      const planned = (parsed.tree && typeof parsed.tree === 'object' ? (parsed.tree as { type?: unknown }).type : undefined);
+      const releasing = typeof planned === 'string' && options.stores.releasingOf ? { [planned]: await options.stores.releasingOf(caller.ownerId, planned) } : undefined;
       const outcome = parsePlan(treeId && !named ? { ...parsed, treeId } : parsed, {
+        ...(releasing ? { releasing } : {}),
         treeTypes: types.map((type) => type.id),
         versions: Object.fromEntries(types.map((type) => [type.id, type.versions])),
         existingLeafIds,
