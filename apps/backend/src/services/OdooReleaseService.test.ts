@@ -233,6 +233,14 @@ describe('a project that starts from a client\'s database', () => {
     expect((started.at(-1)!.inputs as ReleaseRunInput).build.restore).toEqual({ mode: 'copy' });
   });
 
+  it('records it refused when the build\'s Odoo is another version than the backup\'s', async () => {
+    const svc = service();
+    await svc.release({ ...project, clientImport: uploaded } as ProjectMetadata, run('b1', 'abc'));
+    await engineMarks('r1', { state: 'failed', reason: 'shop-restore-a failed:\nERROR wrong version: the backup is from Odoo 20.0, and this project\'s image runs Odoo 18.0' } as ReleaseMark);
+    await runEnds(svc);
+    expect(await importOf()).toMatchObject({ state: 'refused', reason: 'the backup is from Odoo 20.0, and this project\'s image runs Odoo 18.0' });
+  });
+
   it('never restores over a project that has released', async () => {
     const svc = service();
     await svc.release(project, run('b1', 'abc'));

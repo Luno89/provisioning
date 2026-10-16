@@ -25,6 +25,7 @@ export const IMPORT_MOUNT = '/import';
 export const IMPORT_FILE = `${IMPORT_MOUNT}/backup.zip`;
 export const HOLDER_IMAGE = 'busybox:1.36.1';
 export const MISSING_MARK = 'missing modules: ';
+export const VERSION_MARK = 'wrong version: ';
 
 export const importClaim = (release: string): string => `${release}-import`;
 export const importHolder = (release: string): string => `${release}-import-holder`;
@@ -102,6 +103,11 @@ export function missingFrom(message: string): string[] | undefined {
   return message.slice(at + MISSING_MARK.length).split('\n')[0]!.split(',').map((name) => name.trim()).filter(Boolean);
 }
 
+export function wrongVersionFrom(message: string): string | undefined {
+  const at = message.indexOf(VERSION_MARK);
+  return at < 0 ? undefined : message.slice(at + VERSION_MARK.length).split('\n')[0]!.trim();
+}
+
 export function missingSentence(missing: readonly string[]): string {
   return `the client's database has ${missing.length === 1 ? 'a module' : 'modules'} installed that this project does not: ${missing.join(', ')}. Put ${missing.length === 1 ? 'its' : 'their'} code in the project's addons, or uninstall ${missing.length === 1 ? 'it' : 'them'} in the client's Odoo and make a new backup`;
 }
@@ -116,6 +122,12 @@ host = os.environ['PGHOST']
 env = dict(os.environ, PGUSER='odoo', PGPASSWORD=os.environ['PASSWORD'])
 backup = zipfile.ZipFile('${IMPORT_FILE}')
 manifest = json.loads(backup.read('manifest.json'))
+import odoo.release
+image_major = odoo.release.major_version
+backup_major = manifest.get('major_version') or '.'.join(str(manifest.get('version', '')).split('.')[:2])
+if backup_major != image_major:
+    print('ERROR ${VERSION_MARK}the backup is from Odoo %s, and this project\'s image runs Odoo %s' % (backup_major, image_major), flush=True)
+    sys.exit(6)
 config.parse_config(['-c', os.environ.get('ODOO_RC', '/etc/odoo/odoo.conf')])
 configured = config.get('addons_path') or []
 roots = [str(path).strip() for path in (configured.split(',') if isinstance(configured, str) else configured) if str(path).strip()] + list(odoo.addons.__path__)

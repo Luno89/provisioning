@@ -920,7 +920,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     odooVersion: async (project) => {
       const tree = (await db.getTrees()).find((entry) => entry.ownerId === project.ownerId && entry.projectIds?.[0] === project.id);
       if (tree?.version) return projectMajor(tree.version);
-      return project.giteaOwner && project.giteaRepo ? odooVersionOfDockerfile(await giteaService.getRawFile(project.giteaOwner, project.giteaRepo, 'Dockerfile', 'main')) : undefined;
+      const declared = project.giteaOwner && project.giteaRepo ? odooVersionOfDockerfile(await giteaService.getRawFile(project.giteaOwner, project.giteaRepo, 'Dockerfile', 'main').catch(() => null)) : undefined;
+      if (declared) return declared;
+      const type = await treeTypeOfProject(db, project) ?? (await db.getTreeTypes(project.ownerId)).find((entry) => entry.id === ODOO_TREE_TYPE);
+      return type?.versions?.default ? projectMajor(type.versions.default) : undefined;
     },
     latestBuild: async (project) => latestBuildOf(await db.getPipelineRuns(), project.id),
     releases: odooReleases,

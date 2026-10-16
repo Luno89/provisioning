@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { claimSize, importLine, latestBuildOf, majorOf, missingFrom, missingSentence, odooVersionOfDockerfile, projectMajor, restorable, restoreJob, versionProblem } from './client-import.js';
+import { claimSize, importLine, wrongVersionFrom, latestBuildOf, majorOf, missingFrom, missingSentence, odooVersionOfDockerfile, projectMajor, restorable, restoreJob, versionProblem } from './client-import.js';
 
 describe('a client\'s Odoo backup', () => {
   it('is taken only from the project\'s own Odoo version, and never from hosted Odoo', () => {
@@ -29,6 +29,7 @@ describe('a client\'s Odoo backup', () => {
     expect(missing).toEqual(['web_studio', 'sale_subscription']);
     expect(missingSentence(missing!)).toBe('the client\'s database has modules installed that this project does not: web_studio, sale_subscription. Put their code in the project\'s addons, or uninstall them in the client\'s Odoo and make a new backup');
     expect(missingFrom('psql broke')).toBeUndefined();
+    expect(wrongVersionFrom('shop-restore-a failed:\nERROR wrong version: the backup is from Odoo 18.0, and this project\'s image runs Odoo 20.0\n')).toBe('the backup is from Odoo 18.0, and this project\'s image runs Odoo 20.0');
   });
 
   it('restores in the build\'s image with the upload mounted read-only, and neutralizes only a copy', () => {

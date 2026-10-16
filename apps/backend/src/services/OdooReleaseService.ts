@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../lib/types.js';
 import { ODOO_DATABASE_PASSWORD, ODOO_PROJECT_APP, ODOO_RELEASE_SECRETS, chartDatabaseSecret, vaultDatabaseSecret, newReleaseName, type ReleaseVault, releaseNameOf, releasePlace, releaseTargetOf, rollBackTarget, type OdooRelease, type ReleaseState } from '../lib/odoo-release.js';
 import type { ReleaseDecision } from '../lib/release-paths.js';
-import { missingFrom, missingSentence, restorable, type ClientImport } from '../lib/client-import.js';
+import { missingFrom, missingSentence, restorable, wrongVersionFrom, type ClientImport } from '../lib/client-import.js';
 import { vaultSecretName } from '../lib/infisical-sync.js';
 import type { TreeTypeSecret } from '../lib/tree-types.js';
 import { isMockCloudProvider } from '../lib/cluster-topology.js';
@@ -211,11 +211,14 @@ export class OdooReleaseService {
       return;
     }
     const missing = missingFrom(release.reason ?? '');
+    const wrong = wrongVersionFrom(release.reason ?? '');
     await this.deps.store.saveProjectInfo({
       id: project.id,
       clientImport: missing
         ? { ...entry, state: 'refused', missing, reason: missingSentence(missing), at }
-        : { ...entry, state: 'failed', reason: release.reason ?? 'the release failed without saying why', at },
+        : wrong
+          ? { ...entry, state: 'refused', reason: wrong, at }
+          : { ...entry, state: 'failed', reason: release.reason ?? 'the release failed without saying why', at },
     });
   }
 
