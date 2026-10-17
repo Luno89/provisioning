@@ -35,6 +35,7 @@ npm workspaces: `apps/*`, `packages/*`.
 ```bash
 npm run setup        # bootstrap: deps, CDKTF bindings, pre-bundled binaries, k3d cluster, worker pod, env
 npm run dev          # ensure k3d+temporal+mongo → concurrently: backend, frontend, host-worker, cluster-worker
+npm run dev:split    # the same stack as root and your instance: root at http://koala.localhost:5175 (sign in there), your instance at http://dev.localhost:5173
 npm run clean-dev    # kill all dev processes, delete k3d clusters, clean DBs (scripts/cleanup-all.sh)
 
 npm run test         # test:unit → test:e2e:sync (alive check → unit → tests/e2e.spec.ts via Playwright)
@@ -48,6 +49,7 @@ npm run test:routing-live         # root's Caddy on the mesh (local CA, koala.lo
 npm run test:mail-live            # the send-only mail server is built and run beside a test mailbox → the backend's mailer sends an alert through it → it arrives DKIM-signed and the signature verifies against the key the DNS script publishes → a host it does not trust is refused, ~2 min
 npm run test:monitoring-live      # a throwaway app on the system cluster → Monitoring calls it healthy → Koala, on your model, proposes an alert for when it stops answering → the card sets it → the app is stopped until the alert fires and the conversation hears it, started until it resolves → the alert is removed and the app destroyed, ~10 min
 npm run test:infrastructure-live   # Infrastructure reads the system cluster → a workload that cannot pull its image, put there by hand, shows in Needs attention and on the cluster page as not deployed through Koala, then leaves once removed → a Koala chat turn on a model that does not exist shows as failed work, opens its chat and clears → whatever the memory keeper keeps from the run and the quiet conversation is retired, ~15 min
+npm run test:dev-split-live        # against a running `npm run dev:split`: the instance sends a signed-out person to root → root's Google sign-in (the dev mock) → root knows the instance and serves none of its routes → its one-time token signs you into the instance, and not twice → your work is there and the instance makes no accounts → the instance's credential is taken by root and a wrong one refused, ~10 s
 npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
 npm run test:machine-live        # a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service and finds an ACP agent and two CLIs missing their adapters (`--adapters none`) → after a reboot with nobody logged in it connects again → Install adapter makes Claude Code ready → the command run again with `--yes` installs Codex's adapter; removes the machine, its project and the VM, ~10 min
 npm run test:mesh-live           # the image is built; root starts; the owner's instance installs in a VM and joins the mesh, its Temporal answering only on its mesh address → a second VM runs the command from the instance's My Machines, joins the mesh with a key root mints for the instance, and its worker polls the instance's Temporal over the mesh → a third VM, another person's, reaches neither and neither reaches it; ~30 min, removes everything
@@ -250,6 +252,15 @@ comes back on the step (`model`), in the trace summary and so on the run's round
   route — every tenant router is mounted on `tenant` in `bootstrap()`, which is the app except on root;
 - **`instance`** serves one owner (`INSTANCE_ID`, `INSTANCE_OWNER_ID`, `ROOT_URL`, `ROOT_PUBLIC_KEYS`),
   has no account routes, and signs people in only through root.
+
+**Both on one machine: `npm run dev:split`** (`scripts/dev.sh --split`, setup in `src/scripts/dev-split.ts`, rules in
+`lib/dev-split.ts`). Your usual stack becomes the instance: same database, Temporal, workers, port 3001, at
+`http://<DEV_INSTANCE_NAME, default dev>.localhost:5173`. Root is one more backend (port 3002) with its own database
+`koala_root`, holding only your account (identity fields, never your credentials or settings) and the instance's
+registration with a credential, at `http://koala.localhost:5175`. Each has its own Vite forwarding `/api` and
+`/socket.io` to its backend (`KOALA_BACKEND`), so each host keeps its own session cookie; port 5174 is avoided because
+the app treats it as the E2E port and signs everyone in. The env each process gets is written to
+`apps/backend/data/dev-split/` (gitignored); the owner is the first admin, or `DEV_INSTANCE_OWNER`.
 
 Sign-in on an instance: the instance sends you to root's `/api/identity/go`, which issues a 60-second,
 single-use token for your instance and redirects to `<instance>/#/handoff?token=…`. The instance
