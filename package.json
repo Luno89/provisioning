@@ -79,7 +79,8 @@
     "test:test:e2e:setup": "bash scripts/test-e2e-setup.sh",
     "test:test:e2e:teardown": "bash scripts/test-e2e-teardown.sh",
     "test:hetzner-integration": "tsx tests/hetzner-integration.ts",
-    "test:monitoring-live": "cd apps/backend && tsx ../../tests/monitoring-live.ts"
+    "test:monitoring-live": "cd apps/backend && tsx ../../tests/monitoring-live.ts",
+    "test:mail-live": "cd apps/backend && tsx ../../tests/mail-live.ts"
   },
   "workspaces": [
     "apps/*",

@@ -160,6 +160,9 @@ step "Updating Caddy"
 docker compose -f docker-compose.caddy.yml up -d --build
 docker exec nowrinkles-caddy caddy reload --config /etc/caddy/Caddyfile --force || warn "Caddy did not take the new Caddyfile: docker logs nowrinkles-caddy"
 
+step "Updating the mail server"
+docker compose -f docker-compose.mail.yml up -d --build
+
 # ── 7. Health check ────────────────────────────────────────────────────────────────────────────
 # A 401 counts as healthy: /api is session-gated, so anything other than a connection failure
 # proves the server is up and routing. Checking for 200 would fail on a perfectly good deploy.

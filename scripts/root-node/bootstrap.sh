@@ -80,10 +80,10 @@ else
   ok "Node $(node -v) already present"
 fi
 
-for pkg in git curl dnsutils; do
+for pkg in git curl dnsutils netcat-openbsd; do
   dpkg -s "$pkg" &>/dev/null || apt-get install -y "$pkg"
 done
-ok "git, curl, dnsutils present"
+ok "git, curl, dnsutils, netcat present"
 
 # ── 3. Repo ────────────────────────────────────────────────────────────────────────────────────
 step "Fetching the platform"
@@ -163,6 +163,8 @@ set_env PUBLIC_URL "https://${APP_DOMAIN}"
 ok "MESH_LOGIN_SERVER=https://${MESH_DOMAIN} — this is what activates mesh join"
 ok "INGRESS_DOMAIN=${DOMAIN} — this is what activates public app URLs"
 ok "PUBLIC_URL=https://${APP_DOMAIN} — OAuth redirects and Secure cookies key off this"
+set_env MAIL_SMTP_URL "smtp://127.0.0.1:2525"
+ok "MAIL_SMTP_URL — alerts are emailed from alerts@${DOMAIN} through this host's own mail server"
 
 # ── 5. Headscale ───────────────────────────────────────────────────────────────────────────────
 # The one-line change that makes every already-written piece of the mesh live.
@@ -191,14 +193,26 @@ docker compose -f docker-compose.mongo.yml up -d
 docker compose -f docker-compose.temporal.yml up -d
 docker compose -f docker-compose.headscale.yml up -d
 docker compose -f docker-compose.caddy.yml up -d --build
-ok "Mongo, Temporal, Headscale and Caddy running"
+docker compose -f docker-compose.mail.yml up -d --build
+ok "Mongo, Temporal, Headscale, Caddy and the mail server running"
 
-for port in 27017 7233 8233 8080 9090 50443; do
+for port in 27017 7233 8233 8080 9090 50443 2525; do
   if ss -ltnH "( sport = :$port )" | awk '{print $4}' | grep -qv '^127\.0\.0\.1:'; then
     die "port $port is listening beyond 127.0.0.1 — check PLATFORM_BIND in $COMPOSE_ENV before going further"
   fi
 done
 ok "Mongo, Temporal and Headscale listen on 127.0.0.1 only"
+
+step "Setting up email"
+until docker exec nowrinkles-mail test -s /var/lib/dkim/koala.txt; do sleep 1; done
+docker exec nowrinkles-mail cat /var/lib/dkim/koala.txt \
+  | CLOUDFLARE_API_TOKEN="$(grep '^CLOUDFLARE_API_TOKEN=' "$COMPOSE_ENV" | cut -d= -f2-)" npx tsx scripts/root-node/mail-dns.ts "$DOMAIN" "$PUBLIC_IP" \
+  || die "The mail DNS records could not be set; see above."
+if nc -z -w 5 gmail-smtp-in.l.google.com 25 2>/dev/null; then
+  ok "Outbound port 25 is open, so mail goes straight to recipients"
+else
+  warn "Outbound port 25 looks blocked (Hetzner blocks it on new servers until you ask). Ask your host to open it, or set MAIL_RELAYHOST=[host]:587 in ${COMPOSE_ENV} and run: docker compose -f docker-compose.mail.yml up -d"
+fi
 
 step "Joining this node to its own mesh"
 command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh

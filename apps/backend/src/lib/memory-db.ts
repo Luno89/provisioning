@@ -5,6 +5,7 @@ import type { ExtensionSettings } from './extension-settings.js';
 import type { AutoModeSettings } from './auto-mode.js';
 import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
 import type { AlertRuleRecord } from './monitoring-alerts.js';
+import type { NotificationSettings } from './mail.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
 import type { MachineJoinCode } from './machines.js';
@@ -79,6 +80,7 @@ export class MemoryDB implements Database {
   private extensionSettings = new Map<string, ExtensionSettings>();
   private autoModeSettings = new Map<string, AutoModeSettings>();
   private monitoringSettings = new Map<string, MonitoringSetting>();
+  private notificationSettings = new Map<string, NotificationSettings>();
   private alertRules = new Map<string, AlertRuleRecord>();
   private alertEpisodes = new Map<string, AlertEpisode>();
   private keeperSettings = new Map<string, KeeperSettings>();
@@ -373,6 +375,7 @@ export class MemoryDB implements Database {
     sweepMap('benchStates', this.benchStates, (key) => key === ownerId);
     sweepMap('extensionSettings', this.extensionSettings, (key) => key === ownerId);
     sweepMap('autoModeSettings', this.autoModeSettings, (key) => key === ownerId);
+    sweepMap('notificationSettings', this.notificationSettings, (key) => key === ownerId);
     sweepMap('monitoringSettings', this.monitoringSettings, (_, entry) => owned(entry));
     sweepMap('monitoringAlertRules', this.alertRules, (_, entry) => owned(entry));
     sweepMap('monitoringAlertEpisodes', this.alertEpisodes, (_, entry) => owned(entry));
@@ -959,6 +962,15 @@ export class MemoryDB implements Database {
 
   async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
     this.deferredConclusions = this.deferredConclusions.filter((entry) => !(entry.id === id && entry.ownerId === ownerId));
+  }
+
+  async getNotificationSettings(ownerId: string): Promise<NotificationSettings | undefined> {
+    const found = this.notificationSettings.get(ownerId);
+    return found ? { ...found } : undefined;
+  }
+
+  async saveNotificationSettings(settings: NotificationSettings): Promise<void> {
+    this.notificationSettings.set(settings.ownerId, { ...settings });
   }
 
   async getMonitoringSettings(): Promise<MonitoringSetting[]> {

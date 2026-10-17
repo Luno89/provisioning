@@ -5,6 +5,7 @@ import type { ExtensionSettings } from './extension-settings.js';
 import type { AutoModeSettings } from './auto-mode.js';
 import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
 import type { AlertRuleRecord } from './monitoring-alerts.js';
+import type { NotificationSettings } from './mail.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
 import type { MachineJoinCode } from './machines.js';
@@ -1158,6 +1159,18 @@ export class MongoDB implements Database {
 
   async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
     await this.db!.collection('deferredConclusions').deleteOne({ _id: id as never, ownerId });
+  }
+
+  async getNotificationSettings(ownerId: string): Promise<NotificationSettings | undefined> {
+    const doc = await this.db!.collection('notificationSettings').findOne({ _id: ownerId as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc as Record<string, unknown>;
+    return { ...(rest as Omit<NotificationSettings, 'ownerId'>), ownerId: String(_id) };
+  }
+
+  async saveNotificationSettings(settings: NotificationSettings): Promise<void> {
+    const { ownerId, ...rest } = settings;
+    await this.db!.collection('notificationSettings').replaceOne({ _id: ownerId as never }, rest, { upsert: true });
   }
 
   async getMonitoringSettings(): Promise<MonitoringSetting[]> {

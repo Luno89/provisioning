@@ -68,6 +68,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
         '/instances/status',
         '/instances/machine-key',
         '/instances/addresses',
+        '/instances/mail',
       ]),
       ...(role === 'instance' ? ['/auth/handoff', '/auth/sign-in'] : []),
       '/machines/join',

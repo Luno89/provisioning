@@ -45,6 +45,7 @@ npm run test:worker  # tsx tests/worker-isolated.ts — runs real Temporal workf
 npm run test:e2e     # test:alive → Playwright (skips the unit preflight `npm test` does)
 npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
 npm run test:routing-live         # root's Caddy on the mesh (local CA, koala.localhost) → a named instance installs on a VM → <name>.<domain> answers through Caddy and sign-in lands there → an app on the instance at <app>-<name>.<domain> → nested addresses issued and shown, the flat ones still answering, ~30 min, cleans up
+npm run test:mail-live            # the send-only mail server is built and run beside a test mailbox → the backend's mailer sends an alert through it → it arrives DKIM-signed and the signature verifies against the key the DNS script publishes → a host it does not trust is refused, ~2 min
 npm run test:monitoring-live      # a throwaway app on the system cluster → Monitoring calls it healthy → Koala, on your model, proposes an alert for when it stops answering → the card sets it → the app is stopped until the alert fires and the conversation hears it, started until it resolves → the alert is removed and the app destroyed, ~10 min
 npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
 npm run test:machine-live        # a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service and finds an ACP agent and two CLIs missing their adapters (`--adapters none`) → after a reboot with nobody logged in it connects again → Install adapter makes Claude Code ready → the command run again with `--yes` installs Codex's adapter; removes the machine, its project and the VM, ~10 min
@@ -457,6 +458,33 @@ channel, or the conversation the rule was proposed in. Its resolution is told th
 `mechanics-monitoring` (off the bench) proves the read → card → rule path with a real app deployed for the check's space
 (`world.apps`, expectation `alertRules`); `npm run test:monitoring-live` proves an alert of the person's own firing and
 resolving, on their own model.
+
+## Email (alerts by email, self-hosted)
+
+Root sends its own mail. `docker/mail` is a send-only Postfix with OpenDKIM (`docker-compose.mail.yml`, host network,
+listening on `127.0.0.1:2525`, trusting only loopback):
+- It signs as `<domain>` with selector `koala`; the key is kept in a volume.
+- `MAIL_RELAYHOST` sends through a smarthost instead, for a host that blocks port 25.
+
+`bootstrap.sh` sets `MAIL_SMTP_URL=smtp://127.0.0.1:2525`. `scripts/root-node/mail-dns.ts` (rules in `lib/mail-dns.ts`)
+makes the A, SPF, DKIM and DMARC records through Cloudflare. It never rewrites a record the person made, and says what is
+left to do by hand: PTR, and their own SPF. `update.sh` keeps the container current.
+
+**Who sends** (`emailWayFrom` in `lib/email-way.ts`, `MailService`):
+- **Root or combined:** Nodemailer to `MAIL_SMTP_URL`, from `MAIL_FROM` or `alerts@<INGRESS_DOMAIN>`.
+- **An instance** never sends itself. It posts to root's `POST /api/instances/mail` with its credential, and root sends
+  only to the instance owner's address. Subjects are one line.
+- **Without either,** email is off and Settings says why.
+
+**Settings → Notifications** (`NotificationService`, `/api/notifications`, `notificationSettings`): every alert (the
+default), only "down" ones, or none, plus "Send a test email". `AlertWatchService` emails each alert as it fires and as
+it resolves, alongside its notice.
+
+In dev, `docker compose -f docker-compose.mailpit.yml up -d` and `MAIL_SMTP_URL=smtp://127.0.0.1:1025` in
+`apps/backend/.env` catch every email at http://localhost:8025.
+
+`npm run test:mail-live` proves the container signs mail that verifies (DKIM checked with `mailauth`) and refuses to
+relay for anyone else. `test:routing-live` proves an instance's email reaching its owner through root.
 
 ## What runs (the Running page)
 

@@ -23,8 +23,11 @@ const IMAGE = 'nowrinkles/app:dev';
 const CADDY_IMAGE = 'nowrinkles/caddy:2.10.2';
 const TAILSCALE_IMAGE = 'tailscale/tailscale:v1.88.2';
 const SOCAT_IMAGE = 'alpine/socat:1.8.0.3';
+const MAILPIT_IMAGE = 'axllent/mailpit:v1.21.0';
+const MAILPIT_SMTP = 11025;
+const MAILPIT_API = 18026;
 const NAME = `rt${Date.now().toString(36)}`;
-const CONTAINERS = { root: 'nw-route-root', caddy: 'nw-route-caddy', mesh: 'nw-route-ts', relay: 'nw-route-relay' };
+const CONTAINERS = { root: 'nw-route-root', caddy: 'nw-route-caddy', mesh: 'nw-route-ts', relay: 'nw-route-relay', mailbox: 'nw-route-mailbox' };
 const SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-auth-secret', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
 
 const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -133,14 +136,15 @@ async function main(): Promise<void> {
   });
   await until('Caddy answering a name nobody has with nothing', async () => (https(`nobody-${NAME}.${DOMAIN}`, '/').status === 404 ? true : undefined));
 
-  step('root starts with the domain, writing its routes where Caddy reads them');
+  step('root starts with the domain, writing its routes where Caddy reads them, and sending email to a test mailbox');
+  run('docker', ['run', '-d', '--name', CONTAINERS.mailbox, '-p', `127.0.0.1:${MAILPIT_SMTP}:1025`, '-p', `127.0.0.1:${MAILPIT_API}:8025`, MAILPIT_IMAGE]);
   run('docker', ['run', '-d', '--name', CONTAINERS.root, '--network', 'host', '--env-file', 'apps/backend/.env', '--group-add', String(statSync('/var/run/docker.sock').gid),
     ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
     '-v', '/var/run/docker.sock:/var/run/docker.sock', '-v', `${caddyDir}:/app/apps/backend/data/caddy`,
     '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`,
     '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${DOMAIN}`,
     '-e', `CADDY_CONTAINER=${CONTAINERS.caddy}`, '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`,
-    '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', 'INSTANCE_IMAGE_TAG=dev', IMAGE, 'backend']);
+    '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', 'INSTANCE_IMAGE_TAG=dev', '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, IMAGE, 'backend']);
   await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
   const session = signJWT({ userId: OWNER, email: 'live' }, loadKeys(process.env).session, 3600);
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });
@@ -183,6 +187,21 @@ async function main(): Promise<void> {
   assert.equal(exchange.status, 200, `the instance refused the token: ${exchange.body}`);
   const cookie = (exchange.headers['set-cookie'] ?? '').split(';')[0]!;
   const onInstance = (path: string, init: { method?: string; body?: unknown } = {}) => https(`${NAME}.${DOMAIN}`, path, { ...init, cookie });
+
+  step('the instance emails its owner through root, which sends only to the owner\'s address');
+  const ownerEmail = ((await (await asOwner('/api/auth/me')).json()) as { email?: string; user?: { email?: string } });
+  const address = ownerEmail.email ?? ownerEmail.user?.email;
+  assert.ok(address, 'root does not know the owner\'s address');
+  const notifications = json<{ email: string; available: { ok: boolean } }>(onInstance('/api/notifications'));
+  assert.equal(notifications.available.ok, true, 'the instance says it cannot send email');
+  const tested = onInstance('/api/notifications/test-email', { method: 'POST' });
+  assert.equal(tested.status, 200, tested.body);
+  const delivered = await until('the email at the test mailbox', async () => {
+    const listed = await (await fetch(`http://127.0.0.1:${MAILPIT_API}/api/v1/messages`)).json() as { messages: Array<{ Subject: string; To: Array<{ Address: string }> }> };
+    return listed.messages.find((message) => message.Subject === 'Koala can email you');
+  });
+  assert.equal(delivered.To[0]?.Address, address);
+  console.log(`  delivered to ${address}`);
 
   step('an app deployed on the instance\'s own cluster is published at its flat address');
   const deployed = onInstance('/api/deployments', { method: 'POST', body: { name: 'books', clusterId: 'provisioning-lunorica', appType: 'audiobookshelf', strategy: 'native' } });

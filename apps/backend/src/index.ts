@@ -199,6 +199,10 @@ import { InstanceRoutes, dockerCaddy } from './services/InstanceRoutes.js';
 import { InstanceAddresses, adminEdge } from './services/InstanceAddresses.js';
 import { instanceAddressesRouter } from './routes/instance-addresses.js';
 import { monitoringRouter } from './routes/monitoring.js';
+import { notificationsRouter } from './routes/notifications.js';
+import { MailService } from './services/MailService.js';
+import { NotificationService } from './services/NotificationService.js';
+import { emailWayFrom } from './lib/email-way.js';
 import { MonitoringService, prometheusAt } from './services/MonitoringService.js';
 import { AlertWatchService } from './services/AlertWatchService.js';
 import { alertNotice, alertWhere } from './lib/alert-notices.js';
@@ -276,6 +280,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const keys = loadKeys(process.env);
   const role = roleFromEnv(process.env);
+  const mail = new MailService({
+    way: emailWayFrom(process.env, role),
+    emailOf: async (ownerId) => (await db.getUserById(ownerId))?.email,
+  });
+  const notifications = new NotificationService({ store: db, mail, publicUrl: PUBLIC_URL, log: (message) => console.warn(message) });
   const tenant: express.Router = servesTenants(role) ? (app as unknown as express.Router) : express.Router();
   const identity = new IdentityService(role, db);
   console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);
@@ -762,7 +771,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       siteNames,
     }, headscaleService, () => new Date(), () => instanceRoutes?.changed());
     instanceRoutes?.start();
-    app.use('/api/instances', instancesRouter({ instances: instanceService, chart: () => instanceChart.path() }));
+    app.use('/api/instances', instancesRouter({ instances: instanceService, chart: () => instanceChart.path(), mail }));
     const installer = (await fs.readFile(path.join(repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', PUBLIC_URL);
     app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
     app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(repoRoot, 'scripts/setup-gpu.sh')));
@@ -791,6 +800,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     helm: async (cluster, args) => String(await infraService.runHelm(args, await clusterService.getKubeconfigPath(cluster))),
   });
   tenant.use('/api/monitoring', monitoringRouter({ monitoring }));
+  tenant.use('/api/notifications', notificationsRouter({ notifications, mail }));
   if (servesTenants(role)) {
     new AlertWatchService({
       monitoring,
@@ -802,6 +812,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         const notice = alertNotice(episode, change);
         if (where.projectId) await notices.post(episode.ownerId, { projectId: where.projectId }, { ...notice, refs: { ...notice.refs, projectId: where.projectId } });
         else if (where.conversationId) await notices.postTo(episode.ownerId, where.conversationId, notice);
+        await notifications.alert(episode, change).catch((err: Error) => console.warn(`[alerts] could not email ${episode.ownerId}: ${err.message}`));
       },
       log: (message) => console.warn(message),
     }).start();

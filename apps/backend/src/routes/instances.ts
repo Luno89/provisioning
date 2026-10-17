@@ -1,4 +1,6 @@
 import { Router, type Request, type Response } from 'express';
+import { mailProblem } from '../lib/mail.js';
+import { MailError, type MailService } from '../services/MailService.js';
 import { asyncRoute } from '../middleware/async-route.js';
 import type { InstanceService, JoinBundle } from '../services/InstanceService.js';
 
@@ -31,8 +33,9 @@ export function bundleAsEnv(bundle: JoinBundle): string {
 }
 
 export function instancesRouter(deps: {
-  instances: Pick<InstanceService, 'createJoinToken' | 'join' | 'release' | 'report' | 'mine' | 'machineKey' | 'nameCheck' | 'addresses' | 'setAddresses'>;
+  instances: Pick<InstanceService, 'createJoinToken' | 'join' | 'release' | 'report' | 'mine' | 'machineKey' | 'nameCheck' | 'addresses' | 'setAddresses' | 'ownerOf'>;
   chart: () => Promise<string>;
+  mail?: Pick<MailService, 'toOwner'> | undefined;
 }): Router {
   const router = Router();
 
@@ -90,6 +93,23 @@ export function instancesRouter(deps: {
     const outcome = await deps.instances.setAddresses(instanceId, credential, ((req.body ?? {}) as { nested?: unknown }).nested);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json(outcome.value);
+  }));
+
+  router.post('/mail', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    const owner = await deps.instances.ownerOf(instanceId, credential);
+    if (!owner.ok) return res.status(owner.status).json({ error: owner.error });
+    const body = (req.body ?? {}) as { subject?: unknown; text?: unknown };
+    const problem = mailProblem(body);
+    if (problem) return res.status(400).json({ error: problem });
+    if (!deps.mail) return res.status(503).json({ error: 'this root sends no email' });
+    try {
+      await deps.mail.toOwner(owner.value.ownerId, { subject: body.subject as string, text: body.text as string });
+      return res.json({ sent: true });
+    } catch (err) {
+      if (err instanceof MailError) return res.status(err.status).json({ error: err.message });
+      return res.status(502).json({ error: `it could not be sent: ${(err as Error).message}` });
+    }
   }));
 
   router.post('/status', asyncRoute(async (req: Request, res: Response) => {

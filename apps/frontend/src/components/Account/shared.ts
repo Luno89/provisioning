@@ -1,3 +1,4 @@
+import { getNotifications, notificationKeys, sendTestEmail, setEmailChoice, type EmailChoice, type NotificationView } from '../../api/notifications'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { accountKeys, getPersonRemoval, getRemovalPreview, listPeople, removeMyAccount, removePerson } from '../../api/account'
 import { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '../../api/instance-addresses'
@@ -56,3 +57,20 @@ export function useSetNestedAddresses() {
     },
   })
 }
+
+export function useNotifications() {
+  return useQuery({ queryKey: notificationKeys.mine(), queryFn: getNotifications })
+}
+
+export function useSetEmailChoice() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (email: EmailChoice) => setEmailChoice(email),
+    onSuccess: (view) => { client.setQueryData(notificationKeys.mine(), (old: NotificationView | undefined) => ({ ...old, ...view })) },
+  })
+}
+
+export function useSendTestEmail() {
+  return useMutation({ mutationFn: () => sendTestEmail() })
+}
+
