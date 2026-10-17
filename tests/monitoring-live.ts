@@ -43,6 +43,7 @@ interface Notice { role: string; content: string; notice?: { kind: string; refs:
 const kubectl = async (...args: string[]) => (await run(KUBECTL, args, { env: { ...process.env, KUBECONFIG } })).stdout.trim();
 
 let http: AxiosInstance | undefined;
+let closeDb: (() => Promise<void>) | undefined;
 let deploymentId: string | undefined;
 let conversationId: string | undefined;
 const runIds = new Set<string>();
@@ -51,6 +52,7 @@ async function main(): Promise<void> {
   assert.ok(OWNER, 'set MONITORING_LIVE_OWNER (or CHECKS_LIVE_OWNER) to the person whose throwaway app this is');
   const db = createDatabase();
   await db.init();
+  closeDb = async () => { await db.close?.(); };
   const user = await db.getUserById(OWNER);
   assert.ok(user, 'no such user');
   http = axios.create({ baseURL: BASE, proxy: false, validateStatus: () => true, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 4 * 3600)}` } });
@@ -166,4 +168,5 @@ main()
   })
   .finally(async () => {
     await teardown();
+    await closeDb?.();
   });
