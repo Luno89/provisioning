@@ -133,7 +133,7 @@ export default function SettingsView() {
         <p className="text-xs text-slate-400 mb-4">
           How each auto-provisioned service on your clusters is secured. No credentials are ever shown here —
           Grafana, Gitea, and Infisical log you in automatically (a real session, password never sent to your browser) when
-          you click "Open Dashboard" on the Cluster Services page.
+          you click "Open dashboard" on a cluster's page in Infrastructure.
         </p>
         <div className="space-y-2">
           {[

@@ -6,7 +6,7 @@ import { dangerPanel, quietButton, useNotifications, useSendTestEmail, useSetEma
 const CHOICES: Array<{ value: EmailChoice; label: string; explain: string }> = [
   { value: 'all', label: 'Every alert', explain: 'When any alert fires and when it resolves.' },
   { value: 'down', label: 'Only when something is down', explain: 'An app not answering, or a machine not ready.' },
-  { value: 'off', label: 'No email', explain: 'Alerts still show as notices and on the Monitoring page.' },
+  { value: 'off', label: 'No email', explain: 'Alerts still show as notices and on the Infrastructure page.' },
 ]
 
 export function Notifications() {
@@ -20,7 +20,7 @@ export function Notifications() {
     <div className={dangerPanel} data-testid="notifications">
       <h4 className="text-lg font-bold text-white mb-1">Notifications</h4>
       <p className="text-xs text-slate-400">
-        Alerts reach you as a notice in the chat they belong to and on the Monitoring page.
+        Alerts reach you as a notice in the chat they belong to and on the Infrastructure page.
         {view.address ? <> They can also be emailed to <span className="font-mono text-slate-200">{view.address}</span>.</> : ' They can also be emailed to your account\'s address.'}
       </p>
       {!view.available.ok && <p className="mt-2 text-xs text-amber-300">Email cannot be sent from here: {view.available.why}.</p>}
