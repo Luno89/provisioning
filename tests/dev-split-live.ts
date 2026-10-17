@@ -78,7 +78,8 @@ async function main(): Promise<void> {
   assert.equal(infrastructure.status, 200, JSON.stringify(infrastructure.body).slice(0, 300));
   console.log(`  ${(conversations.body as unknown[]).length} conversations; Infrastructure reads ${(infrastructure.body as { monitoring: { clusters: unknown[] } }).monitoring.clusters.length} cluster(s)`);
   for (const path of ['/api/auth/register', '/api/auth/login']) {
-    const answer = await call(`${instanceUrl}${path}`, { method: 'POST', body: '{}' });
+    assert.equal((await call(`${instanceUrl}${path}`, { method: 'POST', body: '{}' })).status, 401, `the instance let a signed-out request reach ${path}`);
+    const answer = await call(`${instanceUrl}${path}`, { method: 'POST', body: '{}', cookie: atInstance });
     assert.equal(answer.status, 404, `the instance answered ${path} with ${answer.status}`);
   }
   console.log('  and it makes no accounts of its own');
