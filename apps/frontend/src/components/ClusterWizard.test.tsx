@@ -8,7 +8,8 @@ vi.mock('../api/credentials', async (importOriginal) => ({
   saveCredentials: vi.fn(),
 }));
 
-vi.mock('../api/vps-catalog', () => ({
+vi.mock('../api/vps-catalog', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/vps-catalog')>()),
   getVpsCatalog: vi.fn().mockResolvedValue({ offers: [], sources: [], fetchedAt: '' }),
 }));
 
@@ -101,5 +102,26 @@ describe('ClusterWizard credentials step', () => {
     await waitFor(() => {
       expect(screen.getByText(/validation failed: 401 unauthorized/i)).toBeInTheDocument();
     });
+  });
+});
+
+describe('ClusterWizard plan comparison', () => {
+  it('compares plans across providers, and a chosen plan fills in the provider, server and location', async () => {
+    const { getVpsCatalog } = await import('../api/vps-catalog');
+    const offer = {
+      id: 'hetzner:cx53', provider: 'hetzner', planId: 'cx43', provisionable: true, arch: 'x86', cpuType: 'shared', cpuVendor: 'amd',
+      locations: ['hel1'], vcpu: 8, ramGb: 16, diskGb: 160, bandwidthTb: 20, currency: 'EUR', pricePerGbRam: 0.6, priceMonthly: 9.49, priceHourly: 0.015, taxIncluded: false,
+    };
+    vi.mocked(getVpsCatalog).mockResolvedValue({ offers: [offer], sources: [], fetchedAt: '' } as never);
+    renderWizard({ configuredProviders: [{ provider: 'hetzner', configured: true }] });
+    await screen.findByDisplayValue(/local datacenter/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Compare plans across providers' }));
+    expect(await screen.findByText('Compare plans')).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Use this plan' }));
+    expect(await screen.findByDisplayValue(/Hetzner Cloud/)).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText(/production-omega/i), { target: { value: 'test-cluster' } });
+    fireEvent.click(screen.getByRole('button', { name: /^next/i }));
+    await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('cx43'));
+    expect((screen.getAllByRole('combobox')[1] as HTMLSelectElement).value).toBe('hel1');
   });
 });

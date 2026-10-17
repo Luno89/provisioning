@@ -87,7 +87,7 @@ export function ModelConfigDrawer({
             models={models}
             selectedId={selectedModelId}
             defaultModelId={defaultModelId}
-            onConfigure={() => { onClose(); setView('accounts'); }}
+            onConfigure={() => { onClose(); setView('studio', ['models']); }}
             machines={{ onManage: () => { onClose(); setView('mesh'); } }}
             onSelect={(id) => { onSelectModel(id); onClose(); }}
             inheritOption={{

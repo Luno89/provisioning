@@ -4,6 +4,7 @@ import { listMeshDevices } from '../api/mesh';
 import { listClusterProviders, type ClusterProviderSpec } from '../api/cluster-providers';
 import { useQuery } from '@tanstack/react-query';
 import { getVpsCatalog } from '../api/vps-catalog';
+import VpsCatalog from './VpsCatalog';
 import { validateCredentials, saveCredentials } from '../api/credentials';
 
 const catalogQueryFor = (providerValue: string) =>
@@ -76,6 +77,7 @@ export default function ClusterWizard({
 
   const [serverType, setServerType] = useState(preset?.serverType ?? 'cx53');
   const [location, setLocation] = useState(preset?.location ?? 'nbg1');
+  const [comparing, setComparing] = useState(false);
 
   const [offers, setOffers] = useState<CatalogOffer[] | null>(null);
   const [catalogFailed, setCatalogFailed] = useState(false);
@@ -223,6 +225,34 @@ export default function ClusterWizard({
     : step === 4 ? remoteHost.trim().length > 0
     : true;
 
+  if (comparing) {
+    return (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div className="bg-slate-800 border border-slate-700 rounded-3xl p-8 w-full max-w-6xl max-h-[90vh] overflow-y-auto shadow-2xl">
+          <div className="flex items-center justify-between gap-4 mb-6">
+            <div>
+              <h3 className="text-2xl font-bold">Compare plans</h3>
+              <p className="text-slate-400 text-sm mt-1">Live plans and prices from each provider's own API. Pick one this platform can provision to use it for the cluster.</p>
+            </div>
+            <button type="button" onClick={() => setComparing(false)} className="px-5 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm font-bold flex items-center gap-2 shrink-0">
+              <ArrowLeft size={16} /> Back
+            </button>
+          </div>
+          <VpsCatalog
+            embedded
+            chooseLabel="Use this plan"
+            onDeploy={(offer) => {
+              setProvider(offer.provider);
+              setServerType(offer.planId);
+              if (offer.location) setLocation(offer.location);
+              setComparing(false);
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
       <div className="bg-slate-800 border border-slate-700 rounded-3xl p-10 w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-200">
@@ -296,6 +326,13 @@ export default function ClusterWizard({
                 </p>
               )}
             </div>
+            <button
+              type="button"
+              onClick={() => setComparing(true)}
+              className="text-[12px] text-blue-300 hover:text-blue-200 underline underline-offset-2 px-1"
+            >
+              Compare plans across providers
+            </button>
             <p className="text-[11px] text-slate-500 px-1">
               GPU/LLM workloads (vLLM) run on the built-in System cluster — no separate GPU-enabled
               cluster to provision here.

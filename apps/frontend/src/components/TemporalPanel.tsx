@@ -178,6 +178,7 @@ export default function TemporalPanel() {
     <section className="animate-in fade-in slide-in-from-bottom-4 duration-300 max-w-6xl">
       <header className="flex justify-between items-center mb-8">
         <div>
+          <a href="#/infrastructure/running" className="text-[11px] text-slate-500 hover:text-slate-300">← Running</a>
           <h2 className="text-3xl font-bold">Temporal Workflows</h2>
           <p className="text-slate-400">{showing === 'all' ? 'Every workflow on this platform, yours and everyone else\'s.' : 'The workflows started for you: your runs, deploys, machines and checks.'}</p>
         </div>

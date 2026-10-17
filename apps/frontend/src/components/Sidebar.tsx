@@ -2,8 +2,8 @@ import React, { useState, useEffect, startTransition } from 'react';
 import { useRouter, type NavigateOptions } from '@tanstack/react-router';
 import { useShellStore, type ViewName } from '../stores/shell';
 import {
-  Trees, Trees as TreesIcon, ChevronDown, ChevronRight,
-  Plus, Trash2, GitBranch, Layers, Bot, Wrench, Network, Puzzle, Server,
+  Trees as TreesIcon, ChevronDown, ChevronRight,
+  Plus, Trash2, GitBranch, Layers, Bot, Wrench, Network, Puzzle, Server, Cpu,
 } from 'lucide-react';
 import { Koala } from './Koala';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -15,7 +15,7 @@ import { itemChatAddress } from '../lib/item-chat-address.js';
 import { parseHash, formatHash } from '../lib/route.js';
 import { useRunning } from './Infrastructure/useRunning';
 
-export interface ForestTab {
+export interface SidebarPage {
   id: string;
   label: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
@@ -45,16 +45,15 @@ const STUDIO_SECTIONS = [
   { path: 'procedures', label: 'Procedures', icon: Network },
   { path: 'tree-types', label: 'Tree Types', icon: GitBranch },
   { path: 'extensions', label: 'Extensions', icon: Puzzle },
+  { path: 'models', label: 'Models', icon: Cpu },
 ] as const;
 
-export default function Sidebar({ forestTabs, onLogout }: {
-  forestTabs: readonly ForestTab[];
+export default function Sidebar({ pages, onLogout }: {
+  pages: readonly SidebarPage[];
   onLogout: () => void;
 }) {
   const view = useShellStore((s) => s.view);
   const setView = useShellStore((s) => s.setView);
-  const forestOpen = useShellStore((s) => s.forestOpen);
-  const setForestOpen = useShellStore((s) => s.setForestOpen);
   const koalaOpen = useShellStore((s) => s.koalaOpen);
   const setKoalaOpen = useShellStore((s) => s.setKoalaOpen);
   const projectsOpen = useShellStore((s) => s.projectsOpen);
@@ -328,36 +327,17 @@ export default function Sidebar({ forestTabs, onLogout }: {
           {running > 0 && <span className="rounded-full bg-[var(--bark-600)] px-1.5 text-[10px] text-slate-200" aria-label={`${running} running`}>{running}</span>}
         </button>
 
-        <button
-          type="button"
-          onClick={() => setForestOpen((o) => !o)}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs text-slate-300 hover:bg-[var(--bark-700)] transition-colors cursor-pointer"
-        >
-          <Trees size={16} className="text-[var(--leaf)]" />
-          <span className="flex-1 text-left">Forest</span>
-          {forestOpen
-            ? <ChevronDown size={13} className="text-slate-400" />
-            : <ChevronRight size={13} className="text-slate-400" />}
-        </button>
-
-        {forestOpen && (
-          <div className="ml-3 pl-3 border-l border-[var(--bark-600)] space-y-0.5">
-            {forestTabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => navigateTo(tab.id as ViewName)}
-                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${
-                  isCurrentView(tab.id)
-                    ? 'bg-[var(--bark-600)] text-slate-100 font-medium'
-                    : 'text-slate-400 hover:bg-[var(--bark-700)] hover:text-slate-200'
-                }`}
-              >
-                <tab.icon size={14} /> {tab.label}
-              </button>
-            ))}
-          </div>
-        )}
+        {pages.map((page) => (
+          <button
+            key={page.id}
+            type="button"
+            onClick={() => navigateTo(page.id as ViewName)}
+            className={groupHeader(isCurrentView(page.id))}
+          >
+            <page.icon size={16} />
+            <span className="flex-1 text-left">{page.label}</span>
+          </button>
+        ))}
       </nav>
 
       <div className="pt-3 border-t border-[var(--bark-600)] space-y-2">

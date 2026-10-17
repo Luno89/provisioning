@@ -13,13 +13,14 @@ import TemporalPanel from './components/TemporalPanel';
 import InfrastructureView from './components/Infrastructure/InfrastructureView';
 import MonitoringDetailRedirect from './components/Infrastructure/MonitoringDetailRedirect';
 import CloudAccounts from './components/CloudAccounts.js';
-import MeshDevices from './components/MeshDevices.js';
-import { Puzzle } from 'lucide-react';
+import MyMachines from './components/MyMachines.js';
+import { Cpu, Puzzle } from 'lucide-react';
 import ProcedureExplorer from './components/Studio/ProcedureExplorer';
 import AgentExplorer from './components/Studio/AgentExplorer';
 import ToolExplorer from './components/Studio/ToolExplorer';
 import McpServerExplorer from './components/Studio/McpServerExplorer';
 import ExtensionsView from './components/Studio/ExtensionsView';
+import ModelsView from './components/Studio/ModelsView';
 import StudioFrame from './components/Studio/StudioFrame';
 import TreeTypes from './components/TreeTypes/index.js';
 import SettingsView from './components/SettingsView';
@@ -156,7 +157,7 @@ export const accountsRoute = createRoute({
 export const meshRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/mesh',
-  component: MeshDevices,
+  component: MyMachines,
 });
 
 export const engineRedirect = createRoute({
@@ -285,6 +286,12 @@ export const studioExtensionsRoute = createRoute({
   component: () => <StudioFrame title="Extensions" icon={Puzzle}><ExtensionsView /></StudioFrame>,
 });
 
+export const studioModelsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/studio/models',
+  component: () => <StudioFrame title="Models" icon={Cpu}><ModelsView /></StudioFrame>,
+});
+
 export const oldProcedureRedirect = createRoute({
   getParentRoute: () => rootRoute,
   path: '/studio/$procedureId',
@@ -372,6 +379,7 @@ export const routeTree = rootRoute.addChildren([
   studioTreeTypePartRoute,
   studioProcedurePartRoute,
   studioExtensionsRoute,
+  studioModelsRoute,
   oldProcedureRedirect,
   vpsCatalogRoute,
   settingsRoute,

@@ -47,7 +47,7 @@ describe('what is on a cluster', () => {
       ['apps', 'theirs-0', 'down'], ['apps', 'shop', 'ok'], ['platform', 'kube-prometheus-stack-grafana', 'ok'],
     ]);
     expect(contents.workloads.find((workload) => workload.name === 'shop')?.memoryBytes).toBe(1024);
-    expect(contents.services?.find((service) => service.key === 'grafana')).toMatchObject({ installed: true, state: 'ok', pods: { total: 1, ready: 1 }, dashboard: true, release: { version: 'v0.86.0' } });
+    expect(contents.services?.find((service) => service.key === 'grafana')).toMatchObject({ installed: true, state: 'ok', pods: { total: 1, ready: 1 }, dashboard: true, access: 'Opens signed in as admin.', release: { version: 'v0.86.0' } });
     expect(contents.services?.find((service) => service.key === 'gitea')).toMatchObject({ installed: false, state: 'absent', dashboard: false });
     expect(contents.nodes).toEqual([{ name: 'n1', ready: true, roles: ['control-plane'], version: 'v1.33.1+k3s1', cpuCores: 16, memoryBytes: 65536 * 1024 ** 2, gpus: 2 }]);
     expect(contents.releases).toHaveLength(1);

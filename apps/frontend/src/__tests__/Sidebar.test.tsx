@@ -22,9 +22,9 @@ afterEach(() => {
   window.location.hash = '';
 });
 
-const TABS = [
-  { id: 'accounts', label: 'Cloud Accounts', icon: Server },
-  { id: 'nginx', label: 'Nginx Router', icon: Box },
+const PAGES = [
+  { id: 'mesh', label: 'My Machines', icon: Server },
+  { id: 'accounts', label: 'Cloud providers', icon: Box },
 ];
 
 const createTestQueryClient = () =>
@@ -35,11 +35,10 @@ const createTestQueryClient = () =>
   });
 
 const setup = (init: {
-  view?: ViewName; forestOpen?: boolean; koalaOpen?: boolean; projectsOpen?: boolean;
+  view?: ViewName; koalaOpen?: boolean; projectsOpen?: boolean;
 } = {}) => {
   useShellStore.setState({
     view: init.view ?? 'chat',
-    forestOpen: init.forestOpen ?? false,
     koalaOpen: init.koalaOpen ?? true,
     projectsOpen: init.projectsOpen ?? true,
   });
@@ -47,13 +46,12 @@ const setup = (init: {
   const qc = createTestQueryClient();
   render(
     <QueryClientProvider client={qc}>
-      <Sidebar forestTabs={TABS} onLogout={onLogout} />
+      <Sidebar pages={PAGES} onLogout={onLogout} />
     </QueryClientProvider>
   );
   return {
     onLogout,
     view: () => useShellStore.getState().view,
-    forestOpen: () => useShellStore.getState().forestOpen,
     koalaOpen: () => useShellStore.getState().koalaOpen,
     projectsOpen: () => useShellStore.getState().projectsOpen,
   };
@@ -62,21 +60,14 @@ const setup = (init: {
 describe('what the nav offers', () => {
   it('renders the Koala entries', () => {
     setup();
-    for (const label of ['Koala', 'Projects', 'Studio', 'Agents', 'Tools', 'Procedures', 'Tree Types', 'Extensions', 'Forest']) {
+    for (const label of ['Koala', 'Projects', 'Studio', 'Agents', 'Tools', 'Procedures', 'Tree Types', 'Extensions', 'Models', 'Infrastructure', 'My Machines', 'Cloud providers']) {
       expect(screen.getByText(label), label).toBeInTheDocument();
     }
   });
 
-  it('keeps the Forest tabs hidden until it is opened', () => {
+  it('has no Forest group, and no entries for the pages folded elsewhere', () => {
     setup();
-    expect(screen.queryByText('Clusters')).not.toBeInTheDocument();
-    expect(screen.getByText('Agents')).toBeInTheDocument();
-  });
-
-  it('shows them when it is open', () => {
-    setup({ forestOpen: true });
-    expect(screen.getByText('Cloud Accounts')).toBeInTheDocument();
-    expect(screen.getByText('Nginx Router')).toBeInTheDocument();
+    for (const gone of ['Forest', 'VPS Catalog', 'Nginx Router', 'Temporal', 'Cloud Accounts', 'Security']) expect(screen.queryByText(gone), gone).toBeNull();
   });
 
   it('keeps Recent Chats hidden when Koala is collapsed, but leaves Studio\'s entries visible — they are not nested under Koala', async () => {
@@ -105,25 +96,17 @@ describe('what clicking does', () => {
     const { view } = setup();
     fireEvent.click(screen.getByText('Projects'));
     expect(view()).toBe('projects');
-    for (const [label, path] of [['Agents', 'agents'], ['Tools', 'tools'], ['Procedures', 'procedures'], ['Tree Types', 'tree-types'], ['Extensions', 'extensions']]) {
+    for (const [label, path] of [['Agents', 'agents'], ['Tools', 'tools'], ['Procedures', 'procedures'], ['Tree Types', 'tree-types'], ['Extensions', 'extensions'], ['Models', 'models']]) {
       fireEvent.click(screen.getByText(label!));
       expect(view(), label).toBe('studio');
       expect(window.location.hash, label).toBe(`#/studio/${path}`);
     }
   });
 
-  it('navigates to a Forest tab by its id', () => {
-    const { view } = setup({ forestOpen: true });
-    fireEvent.click(screen.getByText('Nginx Router'));
-    expect(view()).toBe('nginx');
-  });
-
-  it('toggles Forest rather than setting it', () => {
-    const { forestOpen } = setup({ forestOpen: false });
-    fireEvent.click(screen.getByText('Forest'));
-    expect(forestOpen()).toBe(true);
-    fireEvent.click(screen.getByText('Forest'));
-    expect(forestOpen()).toBe(false);
+  it('navigates to a page by its id', () => {
+    const { view } = setup();
+    fireEvent.click(screen.getByText('Cloud providers'));
+    expect(view()).toBe('accounts');
   });
 
   it('logs out', () => {
@@ -133,7 +116,7 @@ describe('what clicking does', () => {
   });
 
   it('navigating into Koala from elsewhere lands on chat with the group open', () => {
-    const { view, koalaOpen } = setup({ view: 'nginx', koalaOpen: false });
+    const { view, koalaOpen } = setup({ view: 'accounts', koalaOpen: false });
     fireEvent.click(screen.getByText('Koala'));
     expect(view()).toBe('chat');
     expect(koalaOpen()).toBe(true);
@@ -149,7 +132,7 @@ describe('what clicking does', () => {
   });
 
   it('navigating into Projects from elsewhere lands on projects with the group open', () => {
-    const { view, projectsOpen } = setup({ view: 'nginx', projectsOpen: false });
+    const { view, projectsOpen } = setup({ view: 'accounts', projectsOpen: false });
     fireEvent.click(screen.getByText('Projects'));
     expect(view()).toBe('projects');
     expect(projectsOpen()).toBe(true);
@@ -179,9 +162,10 @@ describe('what the current view looks like', () => {
     expect(window.location.hash).toBe('#/infrastructure');
   });
 
-  it('marks the active Forest tab too', () => {
-    setup({ view: 'accounts', forestOpen: true });
-    expect(screen.getByText('Cloud Accounts').className).toMatch(/bg-\[var\(--bark-600\)\]/);
+  it('marks the active page too', () => {
+    setup({ view: 'accounts' });
+    expect(screen.getByText('Cloud providers').closest('button')?.className).toMatch(/bg-\[var\(--leaf-stem\)\]/);
+    expect(screen.getByText('My Machines').closest('button')?.className).not.toMatch(/bg-\[var\(--leaf-stem\)\]/);
   });
 
   it('renders recent chat conversations under Koala when on chat view', async () => {

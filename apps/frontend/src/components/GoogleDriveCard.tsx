@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Trash2, Loader2, AlertTriangle, HardDriveDownload, PlayCircle } from 'lucide-react';
 import {
@@ -18,6 +18,10 @@ export default function GoogleDriveCard() {
   const refresh = () => qc.invalidateQueries({ queryKey: credentialKeys.all });
 
   const [driveNotice, setDriveNotice] = useState(() => driveNoticeFrom(window.location.search));
+
+  useEffect(() => {
+    if (driveNoticeFrom(window.location.search)) window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
+  }, []);
   const [backupPasswordInput, setBackupPasswordInput] = useState('');
   const [driveTestResult, setDriveTestResult] = useState<ValidationResult | null>(null);
   const [confirmDisconnectDrive, setConfirmDisconnectDrive] = useState(false);
@@ -65,20 +69,20 @@ export default function GoogleDriveCard() {
   const handleRunBackupNow = () => { setBackupOutput(null); backup.mutate(); };
 
   return (
-    <>
-    <header className="mt-14 mb-6 max-w-4xl">
-      <h2 className="text-2xl font-bold flex items-center gap-3">
-        <HardDriveDownload className="text-blue-500" size={24} />
-        Backup Destinations
-      </h2>
-      <p className="text-slate-400 mt-2 text-sm">
+    <div className="pt-6 border-t border-slate-700">
+    <header className="mb-4">
+      <h4 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+        <HardDriveDownload className="text-blue-500" size={18} />
+        Backups
+      </h4>
+      <p className="text-xs text-slate-400">
         Where MongoDB, deployed apps' persistent data, and encrypted secrets get backed up.
         Runs daily via a systemd timer, or on demand below.
       </p>
     </header>
 
     {driveNotice && (
-      <div className={`max-w-4xl mb-4 p-4 rounded-2xl text-sm font-semibold flex items-center gap-2 ${
+      <div className={`mb-4 p-4 rounded-2xl text-sm font-semibold flex items-center gap-2 ${
         driveNotice.kind === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'
       }`}>
         {driveNotice.kind === 'success' ? <Check size={16} /> : <AlertTriangle size={16} />}
@@ -86,7 +90,7 @@ export default function GoogleDriveCard() {
       </div>
     )}
 
-    <div className="max-w-4xl bg-slate-800 border border-slate-700/50 rounded-3xl overflow-hidden relative">
+    <div className="bg-slate-900/40 border border-white/5 rounded-2xl overflow-hidden relative">
       <div className="h-1 w-full" style={{ backgroundColor: driveStatus?.email ? '#4285F4' : 'transparent' }} />
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">
@@ -226,6 +230,6 @@ export default function GoogleDriveCard() {
         </div>
       )}
     </div>
-    </>
+    </div>
   );
 }

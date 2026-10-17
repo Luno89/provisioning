@@ -8,7 +8,6 @@ const setHash = (hash: string) => {
 const reset = () => {
   useShellStore.setState({
     view: 'chat',
-    forestOpen: true,
     notifications: [],
     confirmDestroy: null,
   })
@@ -36,6 +35,13 @@ describe('changing the view', () => {
     useShellStore.setState({ view: 'chat' })
     useShellStore.getState().setView('projects')
     expect(window.location.hash).toBe('#/projects/tree-1/branch-2')
+  })
+
+  it('goes to a path within a view, even from that view', () => {
+    setHash('#/studio/agents')
+    useShellStore.setState({ view: 'studio' })
+    useShellStore.getState().setView('studio', ['models'])
+    expect(window.location.hash).toBe('#/studio/models')
   })
 
   it('accepts every view the shell knows about', () => {

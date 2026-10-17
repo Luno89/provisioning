@@ -112,8 +112,8 @@ const contents: ClusterContents = {
     { namespace: 'searxng', kind: 'Deployment', name: 'searxng', group: 'other', about: { kind: 'other' }, pods: { total: 1, ready: 0 }, state: 'down', reasons: ['it keeps crashing'], restarts: 12 },
   ],
   services: [
-    { key: 'grafana', label: 'Grafana', does: 'dashboards over the same measurements', installed: true, release: { name: 'kube-prometheus-stack', chart: 'kube-prometheus-stack-79.0.0', version: 'v0.86.0', status: 'deployed' }, state: 'ok', reasons: [], pods: { total: 1, ready: 1 }, dashboard: true },
-    { key: 'gitea', label: 'Gitea', does: 'keeps every project\'s repository and builds', installed: false, state: 'absent', reasons: [], pods: { total: 0, ready: 0 }, dashboard: false },
+    { key: 'grafana', label: 'Grafana', does: 'dashboards over the same measurements', installed: true, release: { name: 'kube-prometheus-stack', chart: 'kube-prometheus-stack-79.0.0', version: 'v0.86.0', status: 'deployed' }, state: 'ok', reasons: [], pods: { total: 1, ready: 1 }, dashboard: true, access: 'Opens signed in as admin.' },
+    { key: 'gitea', label: 'Gitea', does: 'keeps every project\'s repository and builds', installed: false, state: 'absent', reasons: [], pods: { total: 0, ready: 0 }, dashboard: false, access: 'Opens signed in as provisioning-bot.' },
   ],
   releases: [{ name: 'kube-prometheus-stack', namespace: 'monitoring', status: 'deployed', chart: 'kube-prometheus-stack-79.0.0' }, { name: 'loki', namespace: 'monitoring', status: 'failed', chart: 'loki-6.0.0' }],
   nodes: [{ name: 'lunorica', ready: true, roles: ['control-plane'], version: 'v1.33.1+k3s1', cpuCores: 16, memoryBytes: 64 * 1024 ** 3, gpus: 2 }],
@@ -150,7 +150,7 @@ describe('the Infrastructure page', () => {
     show()
     expect(await screen.findByRole('list', { name: 'Needs attention' })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Running · 1' })).toBeInTheDocument()
-    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['Needs attention', 'Apps · 3', 'Clusters · 2', 'Running · 1', 'Model traffic', 'Alerts set', 'Alert history'])
+    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['Needs attention', 'Apps · 3', 'Clusters · 2', 'Your own hardware', 'Running · 1', 'Model traffic', 'Alerts set', 'Alert history'])
     expect(screen.getAllByTestId('app-row')).toHaveLength(3)
     expect(screen.getAllByTestId('cluster-card')).toHaveLength(2)
     expect(await screen.findByRole('link', { name: 'Koala answering' })).toHaveAttribute('href', '#/chat/c1')
@@ -249,6 +249,8 @@ describe('the Infrastructure page', () => {
     const services = screen.getAllByTestId('platform-service')
     expect(within(services[0]!).getByRole('link', { name: /Open dashboard/ })).toHaveAttribute('href', expect.stringContaining('/clusters/provisioning-lunorica/proxy/grafana/'))
     expect(services[1]).toHaveTextContent('Not installed')
+    expect(services[0]).toHaveTextContent('Opens signed in as admin.')
+    expect(screen.getByRole('link', { name: 'Local router (Nginx)' })).toHaveAttribute('href', '#/nginx')
     expect(screen.getByTestId('node-row')).toHaveTextContent('Readylunorica')
     expect(screen.getByTestId('node-row')).toHaveTextContent('16 CPU · 64 GB · 2 GPU')
     expect(screen.getByTestId('gpu-panel')).toHaveTextContent('1 of 2 free')

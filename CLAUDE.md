@@ -418,7 +418,17 @@ Top-level runs report start and end; `BenchIdleWorkflow` counts the owner's idle
 the last event. When the time is up, everything runs if the last full run is older than the setting,
 otherwise only the scenarios of agents whose fingerprint changed. A scenario that passed last time and
 fails now is a regression: it is recorded on the run, shown as a toast, and marked in that check's history. Settings
-live on Settings → The bench.
+live on Infrastructure → Running, beside the bench's Pause switch (when it starts after the model goes idle, and how
+often everything runs).
+
+## The sidebar
+
+Koala (chats), Projects, Studio (Agents, Tools, MCP Servers, Procedures, Tree Types, Extensions, and **Models**: the LLM
+providers and the default model, `Studio/ModelsView.tsx`), Infrastructure, My Machines (machines Koala works on),
+Cloud providers (cloud credentials) and Settings (account, 2FA, addresses, notifications, backups, people and invites).
+Three pages are off it and reached where they are used: the VPS catalog through Compare plans in Provision a cluster,
+Nginx through Local router on the system cluster's page, and Temporal through All workflows on Running. Each still
+answers at its old address.
 
 ## Infrastructure (one page for clusters, apps, services, monitoring and running work)
 
@@ -433,7 +443,9 @@ scroll to the matching section:
 - **Apps**: every deployment with its health numbers, its addresses, Manage (the app's dashboard) and Destroy; Deploy an app.
 - **Clusters**: every cluster as a card (health, use, apps, history kept), Logs and Destroy (the system cluster
   read-only); Provision a cluster.
-- **Running**: what runs, cancel, and the bench and memory keeper switches (below).
+- **Running**: what runs, cancel, the bench and memory keeper switches (below), and All workflows (the Temporal page).
+- **Your own hardware**: a machine joining the mesh (a single-use key and the join command), to become a cluster
+  through Provision a cluster, and the machines on the mesh.
 - **Model traffic**: each model's queue, whether it is answering or paused because its server said it is busy, and its totals.
 - **Alerts set** and **Alert history**.
 
@@ -442,7 +454,7 @@ plus **everything on it** (`ClusterContentsService`, `GET /api/infrastructure/cl
 kubectl and judged by `lib/cluster-workloads.ts` (crash loops, image pulls, waiting for room, restarts in the last hour,
 failed jobs; finished jobs left out; memory and CPU from Prometheus when it answers), grouped as the person's apps,
 Koala's work (sandboxes, release slots, builds; a namespace a check's space left is marked so), the platform, and
-anything put there another way; then the platform services (`lib/platform-services.ts`, with Open dashboard), nodes,
+anything put there another way; then the platform services (`lib/platform-services.ts`, with Open dashboard and how each signs you in), nodes,
 GPUs and Helm releases. Whoever owns the cluster sees all of it; anyone else sees only their own namespaces (their apps,
 `koala.dev/owner`), and no services, nodes or releases. Reads are cached per cluster for 20 s.
 

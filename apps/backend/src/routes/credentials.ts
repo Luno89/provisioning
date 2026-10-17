@@ -69,7 +69,7 @@ export function credentialsRouter(deps: CredentialsRouterDeps): Router {
   router.get('/googledrive/connect', (_req, res) => {
     const googleId = process.env.GOOGLE_CLIENT_ID;
     if (!googleId) {
-      return res.redirect(`${appUrl}/?driveError=missing_client_id`);
+      return res.redirect(`${appUrl}/?driveError=missing_client_id#/settings`);
     }
     const redirectUri = encodeURIComponent(`${publicUrl}/api/credentials/googledrive/callback`);
     res.redirect(
@@ -86,7 +86,7 @@ export function credentialsRouter(deps: CredentialsRouterDeps): Router {
       const googleId = process.env.GOOGLE_CLIENT_ID;
       const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
       if (!googleId || !googleSecret) {
-        return res.redirect(`${appUrl}/?driveError=missing_client_id`);
+        return res.redirect(`${appUrl}/?driveError=missing_client_id#/settings`);
       }
 
       const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
@@ -100,7 +100,7 @@ export function credentialsRouter(deps: CredentialsRouterDeps): Router {
       const refreshToken = tokenRes.data.refresh_token;
       const accessToken = tokenRes.data.access_token;
       if (!refreshToken) {
-        return res.redirect(`${appUrl}/?driveError=no_refresh_token`);
+        return res.redirect(`${appUrl}/?driveError=no_refresh_token#/settings`);
       }
 
       const aboutRes = await axios.get('https://www.googleapis.com/drive/v3/about?fields=user', {
@@ -109,9 +109,9 @@ export function credentialsRouter(deps: CredentialsRouterDeps): Router {
       const email = aboutRes.data.user?.emailAddress || '';
 
       await credentialService.saveCredentials(userOf(req).id, 'googledrive', { refreshToken, email });
-      res.redirect(`${appUrl}/?driveConnected=1`);
+      res.redirect(`${appUrl}/?driveConnected=1#/settings`);
     } catch (err) {
-      res.redirect(`${appUrl}/?driveError=${encodeURIComponent((err as Error).message)}`);
+      res.redirect(`${appUrl}/?driveError=${encodeURIComponent((err as Error).message)}#/settings`);
     }
   }));
 

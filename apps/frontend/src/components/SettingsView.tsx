@@ -3,10 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '../api/client';
 import { useShellStore, type AppUser } from '../stores/shell';
 import { DeleteAccount } from './Account/DeleteAccount';
-import BenchPanel from './Checks/BenchPanel';
 import { People } from './Account/People';
 import { InstanceAddresses } from './Account/InstanceAddresses';
 import { Notifications } from './Account/Notifications';
+import GoogleDriveCard from './GoogleDriveCard';
 
 interface Invite {
   id: string;
@@ -63,7 +63,7 @@ export default function SettingsView() {
     )}
     <header className="mb-10">
       <h2 className="text-3xl font-bold">Settings</h2>
-      <p className="text-slate-400">Your account, sign-in, people, addresses, notifications and the bench.</p>
+      <p className="text-slate-400">Your account and sign-in, addresses, notifications, backups and the people here.</p>
     </header>
     
     <div className="bg-slate-800 border border-slate-700 rounded-3xl p-8 space-y-6">
@@ -128,36 +128,11 @@ export default function SettingsView() {
         </div>
       </div>
 
-      <div className="pt-6 border-t border-slate-700">
-        <h4 className="text-lg font-bold text-white mb-1">Cluster Service Access</h4>
-        <p className="text-xs text-slate-400 mb-4">
-          How each auto-provisioned service on your clusters is secured. No credentials are ever shown here —
-          Grafana, Gitea, and Infisical log you in automatically (a real session, password never sent to your browser) when
-          you click "Open dashboard" on a cluster's page in Infrastructure.
-        </p>
-        <div className="space-y-2">
-          {[
-            { name: 'Grafana', detail: 'Signed in automatically as admin.', status: 'Auto-login', ok: true },
-            { name: 'Gitea', detail: 'Signed in automatically as provisioning-bot.', status: 'Auto-login', ok: true },
-            { name: 'Infisical', detail: 'Signed in automatically as admin.', status: 'Auto-login', ok: true },
-            { name: 'Prometheus', detail: 'No login screen — open by design (local dev).', status: 'No auth', ok: false },
-            { name: 'Traefik Dashboard', detail: 'Runs in insecure/unauthenticated mode — local dev only.', status: 'No auth', ok: false },
-            { name: 'Alertmanager', detail: 'No login screen — open by design (local dev).', status: 'No auth', ok: false },
-            { name: 'Loki', detail: 'No dashboard of its own — browse logs via Grafana Explore.', status: 'N/A', ok: false },
-          ].map((s) => (
-            <div key={s.name} className="flex items-center justify-between bg-slate-900/40 p-4 rounded-2xl border border-white/5">
-              <div>
-                <div className="text-sm font-bold text-white">{s.name}</div>
-                <div className="text-xs text-slate-400 mt-0.5">{s.detail}</div>
-              </div>
-              <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase ${s.ok ? 'bg-green-500/10 text-green-500' : 'bg-slate-500/10 text-slate-400'}`}>
-                {s.status}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
+      <InstanceAddresses />
+      <Notifications />
+      <GoogleDriveCard />
 
+      {user.isAdmin && <People />}
       {user.isAdmin && (
         <div className="pt-6 border-t border-slate-700">
           <div className="flex items-center justify-between mb-1">
@@ -193,13 +168,6 @@ export default function SettingsView() {
           </div>
         </div>
       )}
-
-      {user.isAdmin && <People />}
-
-      <InstanceAddresses />
-      <Notifications />
-
-      <BenchPanel />
 
       <DeleteAccount />
     </div>

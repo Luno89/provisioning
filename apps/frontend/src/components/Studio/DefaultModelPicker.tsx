@@ -7,13 +7,11 @@ import {
 } from '../../api/models';
 import { modelOptionLabel } from '../../lib/model-label';
 import { ModelPicker } from '../ModelPicker';
-import { useShellStore } from '../../stores/shell';
 import { errorMessage } from '../../api/client';
 
 export function DefaultModelPicker() {
   const qc = useQueryClient();
   const [note, setNote] = useState<string | null>(null);
-  const setView = useShellStore((s) => s.setView);
 
   const { data: models = [] } = useQuery<ModelProvider[]>({
     queryKey: providerKeys.list(),
@@ -97,7 +95,7 @@ export function DefaultModelPicker() {
         models={models}
         selectedId={currentId}
         defaultModelId={currentId}
-        onConfigure={() => setView('accounts')}
+        onConfigure={() => document.getElementById('model-providers')?.scrollIntoView({ block: 'start' })}
         onSelect={(id) => save.mutate(id)}
       />
 

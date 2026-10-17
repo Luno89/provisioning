@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, ExternalLink, FileText, Loader2, Trash2 } fr
 import type { ClusterContents, Workload } from '../../api/infrastructure'
 import { clusterDashboardUrl } from '../../api/clusters'
 import { errorMessage } from '../../api/client'
+import { formatHash } from '../../lib/route'
 import { useShellStore } from '../../stores/shell'
 import { ClusterHealth } from '../Monitoring/ClusterHealth'
 import { Section } from '../Monitoring/Parts'
@@ -81,10 +82,14 @@ function Workloads({ contents }: { contents: ClusterContents }) {
   )
 }
 
-function PlatformServices({ contents }: { contents: ClusterContents }) {
+function PlatformServices({ contents, system }: { contents: ClusterContents; system: boolean }) {
   if (!contents.services) return null
   return (
-    <Section title="Platform services">
+    <Section
+      title="Platform services"
+      right={system ? <a href={formatHash('nginx')} className="text-[11px] text-slate-400 hover:text-slate-200 hover:underline">Local router (Nginx)</a> : undefined}
+    >
+      <p className="text-[11px] text-slate-500">Opening a dashboard signs you in with a session of its own; no password reaches your browser.</p>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {contents.services.map((service) => (
           <div key={service.key} className="space-y-1 rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)]/40 p-3 text-[12px]" data-testid="platform-service">
@@ -93,6 +98,7 @@ function PlatformServices({ contents }: { contents: ClusterContents }) {
               <WorkloadBadge state={service.state} />
             </div>
             <p className="text-[11px] text-slate-500">{service.does}{service.release ? ` · ${service.release.chart}${service.release.version ? ` ${service.release.version}` : ''}` : ''}{service.installed ? ` · ${service.pods.ready}/${service.pods.total} ready` : ''}</p>
+            <p className="text-[11px] text-slate-400">{service.access}</p>
             {service.reasons.length > 0 && <p className="text-[11px] text-amber-300">{service.reasons.join('; ')}</p>}
             {service.dashboard && (
               <a href={clusterDashboardUrl(contents.clusterId, service.key)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-300 hover:underline">
@@ -165,7 +171,7 @@ export function ClusterPage({ clusterId }: { clusterId: string }) {
       {contents.data && (
         <>
           <Workloads contents={contents.data} />
-          <PlatformServices contents={contents.data} />
+          <PlatformServices contents={contents.data} system={Boolean(cluster?.isSystem)} />
           <Nodes contents={contents.data} />
           {contents.data.ownsCluster && <GpuPanel clusterId={clusterId} passthrough={Boolean(cluster?.gpuEnabled)} />}
           <Releases contents={contents.data} />

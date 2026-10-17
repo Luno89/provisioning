@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Hand, Loader2, Square } from 'lucide-react'
 import { cancelRunning, pauseBench, pauseKeeper, runningKeys, type RunningItem } from '../../api/running'
@@ -6,15 +6,19 @@ import { errorMessage } from '../../api/client'
 import { ago } from '../home-summary'
 import { useRunning } from './useRunning'
 import { hashFor } from './opens'
+import { formatHash } from '../../lib/route'
+import BenchSchedule from '../Checks/BenchSchedule'
+import { evalKeys } from '../Checks/shared'
 import { Section } from '../Monitoring/Parts'
 import { waitingText } from './shared'
 
-function Switch({ label, explain, paused, onChange, busy }: { label: string; explain: string; paused: boolean | undefined; onChange: (paused: boolean) => void; busy: boolean }) {
+function Switch({ label, explain, paused, onChange, busy, children }: { label: string; explain: string; paused: boolean | undefined; onChange: (paused: boolean) => void; busy: boolean; children?: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-3 rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)]/40 p-3">
       <div className="min-w-0">
         <div className="text-[12px] font-semibold text-slate-200">{label}: {paused === undefined ? '…' : paused ? 'paused' : 'running'}</div>
         <p className="mt-0.5 text-[11px] text-slate-500">{explain}</p>
+        {children && <div className="mt-2">{children}</div>}
       </div>
       <button
         type="button"
@@ -73,12 +77,16 @@ export default function RunningSection() {
   const qc = useQueryClient()
   const { data, error } = useRunning()
   const refresh = () => void qc.invalidateQueries({ queryKey: runningKeys.view() })
-  const bench = useMutation({ mutationFn: pauseBench, onSuccess: refresh })
+  const bench = useMutation({ mutationFn: pauseBench, onSuccess: () => { refresh(); void qc.invalidateQueries({ queryKey: evalKeys.bench }) } })
   const keeper = useMutation({ mutationFn: pauseKeeper, onSuccess: refresh })
   const benchRunning = data?.items.some((item) => item.kind === 'bench')
 
   return (
-    <Section id="infrastructure-running" title={`Running${data?.items.length ? ` · ${data.items.length}` : ''}`}>
+    <Section
+      id="infrastructure-running"
+      title={`Running${data?.items.length ? ` · ${data.items.length}` : ''}`}
+      right={<a href={formatHash('temporal')} className="text-[11px] text-slate-400 hover:text-slate-200 hover:underline">All workflows</a>}
+    >
       <div className="space-y-4">
         {error && <p className="text-[12px] text-rose-400">{errorMessage(error)}</p>}
         {!data && !error && <p className="text-[12px] text-slate-500">Reading what runs…</p>}
@@ -94,7 +102,9 @@ export default function RunningSection() {
               paused={data?.bench.paused}
               busy={bench.isPending}
               onChange={(paused) => bench.mutate(paused)}
-            />
+            >
+              <BenchSchedule />
+            </Switch>
             <Switch
               label="The memory keeper"
               explain={`Reads conversations once they go quiet, settled stories and runs that failed, and keeps what is worth remembering. Paused, it holds them in order and reads them all when resumed.${data?.keeper.held ? ` ${data.keeper.held} ${data.keeper.held === 1 ? 'is' : 'are'} held now.` : ''}`}

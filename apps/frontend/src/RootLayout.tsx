@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, BellRing, Loader2, X } from 'lucide-react';
 import { releaseNotice, toastOf, type ToastKind } from './lib/toast';
 import Sidebar from './components/Sidebar';
-import { FOREST_TABS, ShellContextInstance, type ShellContext, type WizardPreset } from './components/shell-context';
+import { SIDEBAR_PAGES, ShellContextInstance, type ShellContext, type WizardPreset } from './components/shell-context';
 import PendingApprovals from './components/PendingApprovals';
 import Login from './components/Login.js';
 import ClusterWizard from './components/ClusterWizard.js';
@@ -274,7 +274,7 @@ export function RootLayout() {
 
   return (
     <div className="h-screen max-h-screen bg-[var(--bark-900)] canopy text-slate-100 flex font-sans overflow-hidden">
-      <Sidebar forestTabs={FOREST_TABS} onLogout={handleLogout} />
+      <Sidebar pages={SIDEBAR_PAGES} onLogout={handleLogout} />
       <PendingApprovals />
 
       <main className={`flex-1 min-w-0 h-full min-h-0 ${isFullBleed ? 'p-0 overflow-hidden' : 'p-10 overflow-y-auto'} relative flex flex-col`}>

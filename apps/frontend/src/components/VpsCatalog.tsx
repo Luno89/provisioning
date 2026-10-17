@@ -13,9 +13,11 @@ const hasGpuOffer = (o: VpsOffer) => Boolean(o.gpuCount || o.gpuVramGb || o.gpuM
 
 interface VpsCatalogProps {
   onDeploy?: (offer: { provider: string; planId: string; location?: string }) => void;
+  embedded?: boolean;
+  chooseLabel?: string;
 }
 
-export default function VpsCatalog({ onDeploy }: VpsCatalogProps) {
+export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = 'Deploy' }: VpsCatalogProps) {
   const [minRamGb, setMinRamGb] = useState('');
   const [minVcpu, setMinVcpu] = useState('');
   const [minDiskGb, setMinDiskGb] = useState('');
@@ -98,15 +100,18 @@ export default function VpsCatalog({ onDeploy }: VpsCatalogProps) {
 
   return (
     <section>
-      <header className="mb-8">
-        <h2 className="text-3xl font-bold flex items-center gap-3">
-          <Server className="text-blue-500" size={28} /> VPS Catalog
-        </h2>
-        <p className="text-slate-400 mt-2 text-sm">
-          Live plans and prices pulled from each provider's own API. Filter for what an app actually
-          needs instead of guessing at a size.
-        </p>
-      </header>
+      {!embedded && (
+        <header className="mb-8">
+          <a href="#/infrastructure/clusters" className="text-[11px] text-slate-500 hover:text-slate-300">← Clusters</a>
+          <h2 className="text-3xl font-bold flex items-center gap-3">
+            <Server className="text-blue-500" size={28} /> VPS Catalog
+          </h2>
+          <p className="text-slate-400 mt-2 text-sm">
+            Live plans and prices pulled from each provider's own API. Filter for what an app actually
+            needs instead of guessing at a size.
+          </p>
+        </header>
+      )}
 
       <div className="bg-slate-800/50 border border-slate-700/50 rounded-3xl p-6 mb-6">
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
@@ -296,7 +301,7 @@ export default function VpsCatalog({ onDeploy }: VpsCatalogProps) {
                       className="text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 transition-colors whitespace-nowrap"
                       title={`Provision a cluster on this ${o.planId} in ${o.locations[0] ?? 'its default location'}`}
                     >
-                      Deploy
+                      {chooseLabel}
                     </button>
                   )}
                 </td>

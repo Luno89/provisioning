@@ -1,20 +1,17 @@
 import React from 'react';
 import type { UseMutationResult } from '@tanstack/react-query';
-import { Key, Network, Package, Puzzle, Settings, Timer } from 'lucide-react';
+import { Cloud, Network, Settings } from 'lucide-react';
 import type { Cluster } from '../types/cluster';
 import type { Deployment } from '../types/deployment';
 import type { ProviderStatus } from '../types/credentials';
 
-export const FOREST_TABS = [
-  { id: 'vps-catalog' as const, label: 'VPS Catalog', icon: Package },
+export const SIDEBAR_PAGES = [
   { id: 'mesh' as const, label: 'My Machines', icon: Network },
-  { id: 'accounts' as const, label: 'Cloud Accounts', icon: Key },
-  { id: 'nginx' as const, label: 'Nginx Router', icon: Puzzle },
-  { id: 'temporal' as const, label: 'Temporal', icon: Timer },
+  { id: 'accounts' as const, label: 'Cloud providers', icon: Cloud },
   { id: 'settings' as const, label: 'Settings', icon: Settings },
 ];
 
-export type ForestTab = (typeof FOREST_TABS)[number];
+export type SidebarPage = (typeof SIDEBAR_PAGES)[number];
 
 export interface WizardPreset {
   provider: string;

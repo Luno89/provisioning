@@ -56,6 +56,7 @@ export interface PlatformService {
   reasons: string[]
   pods: { total: number; ready: number }
   dashboard: boolean
+  access: string
 }
 
 export interface HelmRelease {

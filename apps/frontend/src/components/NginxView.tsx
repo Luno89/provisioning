@@ -21,6 +21,7 @@ export default function NginxView({
         <section className="animate-in fade-in slide-in-from-bottom-4 duration-300 max-w-5xl">
           <header className="flex justify-between items-center mb-10">
             <div>
+              <a href="#/infrastructure/clusters" className="text-[11px] text-slate-500 hover:text-slate-300">← Clusters</a>
               <h2 className="text-3xl font-bold">Nginx Router Settings</h2>
               <p className="text-slate-400">Configure global ingress limits, custom proxy settings, and HTTP configurations.</p>
             </div>

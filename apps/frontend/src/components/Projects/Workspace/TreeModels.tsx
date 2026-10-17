@@ -61,7 +61,7 @@ function Row({ treeId, row, models }: { treeId: string; row: TreeModelRow; model
           selectedId={row.chosen?.modelId ?? null}
           onSelect={(id) => save.mutate(id)}
           inheritOption={{ label: fixed || 'problem' in row.own ? 'Its own' : own, onSelect: () => save.mutate(null) }}
-          onConfigure={() => setView('accounts')}
+          onConfigure={() => setView('studio', ['models'])}
           autoFocus
         />
       )}

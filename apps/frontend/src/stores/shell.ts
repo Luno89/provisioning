@@ -1,14 +1,14 @@
 import { create } from 'zustand'
 import { parseHash, formatHash, shouldReplace, resolveView, type Route } from '../lib/route'
 
-export const FOREST_VIEWS = [
+export const PLATFORM_VIEWS = [
   'projects', 'vps-catalog', 'mesh',
   'accounts', 'nginx', 'temporal', 'settings',
 ] as const
 
 export const KOALA_VIEWS = ['chat', 'studio', 'infrastructure'] as const
 
-export const KNOWN_VIEWS = [...FOREST_VIEWS, ...KOALA_VIEWS] as const
+export const KNOWN_VIEWS = [...PLATFORM_VIEWS, ...KOALA_VIEWS] as const
 
 export type ViewName = typeof KNOWN_VIEWS[number]
 
@@ -45,10 +45,7 @@ const MOCK_USER: AppUser = {
 
 interface ShellState {
   view: ViewName
-  setView: (view: ViewName) => void
-
-  forestOpen: boolean
-  setForestOpen: (open: boolean | ((open: boolean) => boolean)) => void
+  setView: (view: ViewName, path?: string[]) => void
 
   koalaOpen: boolean
   setKoalaOpen: (open: boolean | ((open: boolean) => boolean)) => void
@@ -87,25 +84,21 @@ let nextNotificationId = 0
 export const useShellStore = create<ShellState>((set) => ({
   view: resolveView(parseHash(window.location.hash)?.view, KNOWN_VIEWS, 'chat') as ViewName,
 
-  setView: (view) => set((state) => {
-    if (state.view === view) return state
+  setView: (view, path = []) => set((state) => {
     const current = parseHash(window.location.hash)
-    if (current?.view === view) {
+    const there = current?.view === view && (!path.length || current.path.join('/') === path.join('/'))
+    if (state.view === view && there) return state
+    if (there) {
       lastRoute = current
       return { view }
     }
-    const next: Route = { view, path: [] }
-    const hash = formatHash(view)
+    const next: Route = { view, path }
+    const hash = formatHash(view, path)
     if (shouldReplace(lastRoute, next)) window.history.replaceState(null, '', hash)
     else window.history.pushState(null, '', hash)
     lastRoute = next
     return { view }
   }),
-
-  forestOpen: true,
-  setForestOpen: (open) => set((s) => ({
-    forestOpen: typeof open === 'function' ? open(s.forestOpen) : open,
-  })),
 
   koalaOpen: true,
   setKoalaOpen: (open) => set((s) => ({

@@ -59,11 +59,9 @@ describe('Nginx Ingress Proxy Wizard', () => {
 
   it('guides the user through Nginx Proxy Wizard and injects config block', async () => {
     const user = userEvent.setup();
+    window.history.replaceState(null, '', '#/nginx');
     render(<App />, { wrapper });
 
-    const nginxBtn = await screen.findByRole('button', { name: /nginx router/i });
-    await user.click(nginxBtn);
-    
     expect(await screen.findByText('Nginx Router Settings')).toBeInTheDocument();
     
     const wizardBtn = await screen.findByRole('button', { name: /proxy wizard/i });
