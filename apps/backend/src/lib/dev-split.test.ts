@@ -15,7 +15,7 @@ const plan = (name = 'dev', existing?: Parameters<typeof devSplitPlan>[0]['exist
 describe('root and an instance on one machine', () => {
   it('gives root its own database and address, and the instance everything it needs to trust root and reach it', () => {
     const { rootEnv, instanceEnv, rootUrl, instanceUrl } = plan();
-    expect(rootUrl).toBe('http://koala.localhost:5174');
+    expect(rootUrl).toBe('http://koala.localhost:5175');
     expect(instanceUrl).toBe('http://dev.localhost:5173');
     expect(rootEnv).toEqual({ ROLE: 'root', PORT: '3002', MONGO_URI: 'mongodb://admin:admin@localhost:27017/koala_root?authSource=admin', PUBLIC_URL: rootUrl, APP_URL: rootUrl });
     expect(instanceEnv).toMatchObject({ ROLE: 'instance', PORT: '3001', PUBLIC_URL: instanceUrl, INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'u-1', INSTANCE_CREDENTIAL: 'cred', ROOT_URL: rootUrl });
@@ -48,7 +48,7 @@ describe('root and an instance on one machine', () => {
   });
 
   it('reads back the env files it writes', () => {
-    const values = { ROLE: 'instance', ROOT_URL: 'http://koala.localhost:5174', KEY: 'a=b' };
+    const values = { ROLE: 'instance', ROOT_URL: 'http://koala.localhost:5175', KEY: 'a=b' };
     expect(readEnvFile(envFileText(values))).toEqual(values);
   });
 

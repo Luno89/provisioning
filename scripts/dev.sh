@@ -92,7 +92,7 @@ reclaim_port 8000 "Host Tunnel"
 reclaim_port 5173 "Frontend Vite"
 if [ "$SPLIT" = true ]; then
   reclaim_port 3002 "Root API"
-  reclaim_port 5174 "Root Vite"
+  reclaim_port 5175 "Root Vite"
 fi
 
 # Also terminate any stale worker processes from previous sessions
@@ -122,7 +122,7 @@ if [ "$SPLIT" = true ]; then
     --prefix-colors "red,blue,gray,cyan,yellow,magenta,green" \
     "bash -c \"$(with_env root 'npm run dev -w apps/backend')\"" \
     "bash -c \"$(with_env instance 'npm run dev -w apps/backend')\"" \
-    "KOALA_BACKEND=http://localhost:3002 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5174 --strictPort" \
+    "KOALA_BACKEND=http://localhost:3002 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5175 --strictPort" \
     "KOALA_BACKEND=http://localhost:3001 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5173 --strictPort" \
     "bash -c \"$(with_env instance 'npm run dev:worker -w apps/backend')\"" \
     "bash -c \"$(with_env instance 'npm run dev:worker:cluster -w apps/backend')\"" \

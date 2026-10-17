@@ -6,7 +6,7 @@ export const DEV_SPLIT = {
   rootDatabase: 'koala_root',
   rootHost: 'koala',
   rootApiPort: 3002,
-  rootWebPort: 5174,
+  rootWebPort: 5175,
   instanceApiPort: 3001,
   instanceWebPort: 5173,
   defaultName: 'dev',
