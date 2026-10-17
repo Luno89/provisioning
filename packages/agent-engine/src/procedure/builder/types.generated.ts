@@ -580,8 +580,10 @@ export type ExternalAgentSettings = {
 export interface ExternalAgentNode extends Step<'finished' | 'stopped' | 'failed'> {
   /** What the agent said, its whole reply. */
   readonly text: Out<'text'>
-  /** What the agent said as a reply, for Save Conversation. */
+  /** What the agent said as a reply, with what it thought and the tools it called, for Save Conversation. */
   readonly reply: Out<'reply'>
+  /** What each tool it called gave back, for Save Conversation to keep beside the reply. */
+  readonly results: Out<'toolResults'>
   /** This agent and machine's session, keyed as Load Conversation reads it back, for Save Conversation to keep. */
   readonly session: Out<'json'>
   /** How its turn ended: end_turn, cancelled, refusal, max_tokens or max_turn_requests. */

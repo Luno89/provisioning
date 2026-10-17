@@ -113,6 +113,7 @@ export {
   type RecalledMemory,
   type ChildOutcomeValue,
   type ChildSteps,
+  type ExternalAgentCall,
   type RunStep,
   collectStep,
   STEP_DIGEST_CHARS,

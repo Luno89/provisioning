@@ -24,6 +24,7 @@ import {
   stepImplementation,
   valueImplementation,
   type ChildOutcomeValue,
+  type ExternalAgentCall,
   type NodeExecutor,
   type NodeImplementation,
   type NodeRequest,
@@ -282,9 +283,19 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       });
       const seen: ExternalToolSeen = { called: new Set(), settled: new Set() };
       let text = '';
+      let thinking = '';
+      const calls = new Map<string, ExternalAgentCall>();
       const take = async (result: ExternalAgentStepResult): Promise<void> => {
         const logged = externalRunEvents(agent, nodeId, result.events, seen);
         text += logged.text;
+        for (const event of logged.events) {
+          if (event.type === 'thinking') thinking += event.delta;
+          else if (event.type === 'tool.called') calls.set(event.callId, { callId: event.callId, name: event.name, args: event.args });
+          else if (event.type === 'tool.result') {
+            const called = calls.get(event.callId);
+            if (called) calls.set(event.callId, { ...called, ok: event.ok, digest: event.digest });
+          }
+        }
         const streamed = logged.events.filter((event) => event.type === 'content' || event.type === 'thinking');
         if (streamed.length > 0) {
           const at = new Date(Date.now()).toISOString();
@@ -338,7 +349,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       }
       const { identity, sessionId } = result;
       const on = result.model ?? ranOn;
-      const withModel = on ? { model: on } : {};
+      const withModel = { ...(on ? { model: on } : {}), ...(thinking.trim() ? { thinking } : {}), ...(calls.size ? { calls: [...calls.values()] } : {}) };
       if (result.state !== 'failed') await take(await step({ kind: 'close' }));
 
       if (result.state === 'failed') return { outcome: 'failed', text, reason: result.error, ...(identity ? { identity } : {}), ...(sessionId ? { sessionId } : {}), ...withModel };

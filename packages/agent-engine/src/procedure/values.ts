@@ -106,7 +106,15 @@ export interface ExternalAgentIdentity {
   version?: string | undefined;
 }
 
-export type ExternalAgentOutcome = { model?: { id: string; name: string } | undefined } & (
+export interface ExternalAgentCall {
+  callId: string;
+  name: string;
+  args: string;
+  ok?: boolean | undefined;
+  digest?: string | undefined;
+}
+
+export type ExternalAgentOutcome = { model?: { id: string; name: string } | undefined; thinking?: string | undefined; calls?: ExternalAgentCall[] | undefined } & (
   | { outcome: 'finished'; stopReason: string; text: string; identity: ExternalAgentIdentity; sessionId: string }
   | { outcome: 'stopped'; stopReason: string; text: string; identity: ExternalAgentIdentity; sessionId: string; reason: string }
   | { outcome: 'failed'; text: string; reason: string; identity?: ExternalAgentIdentity | undefined; sessionId?: string | undefined });

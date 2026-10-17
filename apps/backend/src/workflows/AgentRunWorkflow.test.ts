@@ -1076,6 +1076,35 @@ describe('an external agent working on someone\'s machine', () => {
     expect(sessions.openKeys()).toEqual([]);
   }, 60_000);
 
+  it('keeps what the agent thought and the tools it called with its reply, so the turn still shows them once it ends', async () => {
+    root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
+    const scriptPath = resolve(root, 'script.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [
+      { think: 'Look at the tree first.' },
+      { tool: { id: 'ls', title: 'ls addons', kind: 'read' }, output: 'delivery_labels' },
+      { say: 'There is one module.' },
+    ] }] } satisfies AgentScript));
+    const sessions = new ExternalAgentSessions({ rootDir: resolve(root, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500 });
+    const conversations = inMemoryConversations();
+    const acts = activities({ script: [{ content: 'unused' }], external: sessions, environment: MACHINE, conversations });
+
+    const result = await runWorkflow({
+      ticket: { ...ticket('koala'), conversationId: 'c-kept', modelId: 'machine:desk:antigravity' },
+      procedure: EXTERNAL_AGENT_CHAT,
+      inputs: { message: 'What modules are there?', conversationId: 'c-kept' },
+    }, acts);
+
+    expect(result.outcome).toBe('ok');
+    const reply = (await conversations.get('user-1', 'c-kept'))?.messages.at(-1);
+    expect(reply).toMatchObject({
+      role: 'assistant',
+      content: 'There is one module.',
+      reasoning: 'Look at the tree first.',
+      toolCalls: [{ id: 'ext-ls', name: 'antigravity.read', args: 'ls addons', ok: true, digest: 'delivery_labels' }],
+    });
+    await sessions.closeAll();
+  }, 60_000);
+
   it('serves the agent its persona\'s own tools, runs each call through the run (asking before one that changes something), and starts it on the model picked', async () => {
     root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
     const scriptPath = resolve(root, 'script.json');

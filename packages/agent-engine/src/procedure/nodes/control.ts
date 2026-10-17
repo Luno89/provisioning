@@ -331,7 +331,8 @@ export const externalAgent: BuiltInNode = {
     ],
     outputs: [
       { name: 'text', type: 'text', describe: 'What the agent said, its whole reply.' },
-      { name: 'reply', type: 'reply', describe: 'What the agent said as a reply, for Save Conversation.' },
+      { name: 'reply', type: 'reply', describe: 'What the agent said as a reply, with what it thought and the tools it called, for Save Conversation.' },
+      { name: 'results', type: 'toolResults', describe: 'What each tool it called gave back, for Save Conversation to keep beside the reply.' },
       { name: 'session', type: 'json', describe: 'This agent and machine\'s session, keyed as Load Conversation reads it back, for Save Conversation to keep.' },
       { name: 'stopReason', type: 'text', describe: 'How its turn ended: end_turn, cancelled, refusal, max_tokens or max_turn_requests.' },
       { name: 'identity', type: 'json', describe: 'Which agent ran: its name, title and version, as it reported them, and the model it ran on.' },

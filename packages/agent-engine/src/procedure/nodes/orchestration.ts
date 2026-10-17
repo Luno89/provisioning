@@ -410,11 +410,19 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         environment,
         run,
       });
+      const calls = outcome.calls ?? [];
       return {
         exit: outcome.outcome,
         outputs: {
           text: outcome.text,
-          reply: replyOf(node.id, outcome.text, 'stopReason' in outcome ? outcome.stopReason : 'error'),
+          reply: {
+            ...replyOf(node.id, outcome.text, 'stopReason' in outcome ? outcome.stopReason : 'error'),
+            thinking: outcome.thinking ?? '',
+            toolCalls: calls.map((call) => ({ id: call.callId, name: call.name, arguments: call.args })),
+          },
+          results: calls.filter((call) => call.ok !== undefined).map((call) => ({
+            forReply: node.id, callId: call.callId, name: call.name, ok: call.ok === true, digest: call.digest ?? '', content: call.digest ?? '',
+          })),
           ...(outcome.sessionId ? { session: { key, id: outcome.sessionId } } : {}),
           ...('stopReason' in outcome ? { stopReason: outcome.stopReason } : {}),
           ...(outcome.identity ? { identity: { ...outcome.identity, ...(outcome.model ? { model: outcome.model } : {}) } } : {}),

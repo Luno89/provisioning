@@ -36,7 +36,7 @@ export const EXTERNAL_AGENT_CHAT: Procedure = defineProcedure(BUILT_IN_GROUPS, {
   id: EXTERNAL_CHAT_PROCEDURE,
   name: 'A chat turn answered by an agent on the machine',
   describe: 'One turn of a conversation answered by an agent on the person\'s machine, picked where a model is picked, on the model picked for it. The conversation keeps one session with each agent, model and machine, so the next turn continues it; a new session is told this agent\'s prompt, what was learned before and what was said so far, once. This agent\'s own tools are served to it, and each call runs here as this agent\'s would. Whatever the agent wants permission for waits for the person. The turn is written back to the conversation.',
-  version: '2',
+  version: '3',
   budget: {},
 }, (p) => {
   const input = p.runInput('input');
@@ -55,8 +55,8 @@ export const EXTERNAL_AGENT_CHAT: Procedure = defineProcedure(BUILT_IN_GROUPS, {
     persona: persona.persona,
     tools: tools.offered,
   });
-  const remember = p.saveConversation('remember', { values: input.inputs, asked: input.message, reply: agent.reply, session: agent.session, history: earlier.history }, { id: '{{values.conversationId}}' });
-  const rememberFailed = p.saveConversation('rememberFailed', { values: input.inputs, asked: input.message, reply: agent.reply, session: agent.session, history: earlier.history, reason: agent.reason }, { id: '{{values.conversationId}}' });
+  const remember = p.saveConversation('remember', { values: input.inputs, asked: input.message, reply: agent.reply, results: agent.results, session: agent.session, history: earlier.history }, { id: '{{values.conversationId}}' });
+  const rememberFailed = p.saveConversation('rememberFailed', { values: input.inputs, asked: input.message, reply: agent.reply, results: agent.results, session: agent.session, history: earlier.history, reason: agent.reason }, { id: '{{values.conversationId}}' });
   const done = p.finish('done', { result: agent.text }, { outcome: 'ok' });
   const stopped = p.finish('stopped', { reason: agent.reason }, { outcome: 'failed' });
   const failed = p.finish('failed', { reason: agent.reason }, { outcome: 'failed' });
