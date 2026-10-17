@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from '../App';
@@ -58,15 +58,10 @@ describe('App Dashboard', () => {
     expect(screen.queryByText('Applications')).toBeNull();
   });
 
-  it('opens Infrastructure and moves between its Clusters and Apps tabs', async () => {
+  it('opens Infrastructure with its apps and clusters on the page', async () => {
     render(<App />, { wrapper });
     fireEvent.click(await screen.findByText('Infrastructure'));
-    const tabs = await screen.findByRole('navigation', { name: 'Infrastructure' });
-
-    fireEvent.click(within(tabs).getByRole('link', { name: 'Clusters' }));
     expect(await screen.findByRole('button', { name: /Provision a cluster/ })).toBeInTheDocument();
-
-    fireEvent.click(within(tabs).getByRole('link', { name: 'Apps' }));
-    expect(await screen.findByRole('button', { name: /Deploy an app/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Deploy an app/ })).toBeInTheDocument();
   });
 });

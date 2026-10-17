@@ -6,6 +6,7 @@ import { errorMessage } from '../../api/client'
 import { ago } from '../home-summary'
 import { useRunning } from './useRunning'
 import { hashFor } from './opens'
+import { Section } from '../Monitoring/Parts'
 import { waitingText } from './shared'
 
 function Switch({ label, explain, paused, onChange, busy }: { label: string; explain: string; paused: boolean | undefined; onChange: (paused: boolean) => void; busy: boolean }) {
@@ -68,7 +69,7 @@ function Row({ item }: { item: RunningItem }) {
   )
 }
 
-export default function RunningTab() {
+export default function RunningSection() {
   const qc = useQueryClient()
   const { data, error } = useRunning()
   const refresh = () => void qc.invalidateQueries({ queryKey: runningKeys.view() })
@@ -77,35 +78,35 @@ export default function RunningTab() {
   const benchRunning = data?.items.some((item) => item.kind === 'bench')
 
   return (
-    <div className="max-w-3xl space-y-4" data-testid="running-tab">
+    <Section id="infrastructure-running" title={`Running${data?.items.length ? ` · ${data.items.length}` : ''}`}>
+      <div className="space-y-4">
+        {error && <p className="text-[12px] text-rose-400">{errorMessage(error)}</p>}
+        {!data && !error && <p className="text-[12px] text-slate-500">Reading what runs…</p>}
+        {data && data.items.length === 0 && <p className="text-[12px] text-slate-500">Nothing is running.</p>}
+        {data && data.items.length > 0 && <ul className="space-y-2">{data.items.map((item) => <Row key={item.workflowId} item={item} />)}</ul>}
 
-        <section className="space-y-2">
-          <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Background work</h2>
-          <Switch
-            label="The bench"
-            explain={`Runs your checks on its own when the model is idle, and after an agent changes. Paused, it starts nothing new.${data?.bench.paused === false && benchRunning ? ' A bench run is going now; cancel it below to stop it too.' : ''}`}
-            paused={data?.bench.paused}
-            busy={bench.isPending}
-            onChange={(paused) => bench.mutate(paused)}
-          />
-          <Switch
-            label="The memory keeper"
-            explain={`Reads conversations once they go quiet, settled stories and runs that failed, and keeps what is worth remembering. Paused, it holds them in order and reads them all when resumed.${data?.keeper.held ? ` ${data.keeper.held} ${data.keeper.held === 1 ? 'is' : 'are'} held now.` : ''}`}
-            paused={data?.keeper.paused}
-            busy={keeper.isPending}
-            onChange={(paused) => keeper.mutate(paused)}
-          />
+        <div className="space-y-2">
+          <h4 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Background work</h4>
+          <div className="grid gap-2 md:grid-cols-2">
+            <Switch
+              label="The bench"
+              explain={`Runs your checks on its own when the model is idle, and after an agent changes. Paused, it starts nothing new.${data?.bench.paused === false && benchRunning ? ' A bench run is going now; cancel it above to stop it too.' : ''}`}
+              paused={data?.bench.paused}
+              busy={bench.isPending}
+              onChange={(paused) => bench.mutate(paused)}
+            />
+            <Switch
+              label="The memory keeper"
+              explain={`Reads conversations once they go quiet, settled stories and runs that failed, and keeps what is worth remembering. Paused, it holds them in order and reads them all when resumed.${data?.keeper.held ? ` ${data.keeper.held} ${data.keeper.held === 1 ? 'is' : 'are'} held now.` : ''}`}
+              paused={data?.keeper.paused}
+              busy={keeper.isPending}
+              onChange={(paused) => keeper.mutate(paused)}
+            />
+          </div>
           {bench.isError && <p className="text-[11px] text-rose-400">{errorMessage(bench.error)}</p>}
           {keeper.isError && <p className="text-[11px] text-rose-400">{errorMessage(keeper.error)}</p>}
-        </section>
-
-        <section className="space-y-2">
-          <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Running now</h2>
-          {error && <p className="text-[12px] text-rose-400">{errorMessage(error)}</p>}
-          {!data && !error && <p className="text-[12px] text-slate-500">Reading what runs…</p>}
-          {data && data.items.length === 0 && <p className="text-[12px] text-slate-500">Nothing is running.</p>}
-          {data && data.items.length > 0 && <ul className="space-y-2">{data.items.map((item) => <Row key={item.workflowId} item={item} />)}</ul>}
-        </section>
-    </div>
+        </div>
+      </div>
+    </Section>
   )
 }

@@ -88,7 +88,7 @@ export function formatValue(unit: ChartUnit, value: number): string {
 
 export const healthHash = (kind: 'app' | 'cluster', id: string): string => formatHash('infrastructure', [kind, id])
 
-export const tabHash = (tab: 'overview' | 'apps' | 'clusters' | 'running'): string => formatHash('infrastructure', tab === 'overview' ? [] : [tab])
+export const sectionHash = (section: 'apps' | 'clusters' | 'running'): string => formatHash('infrastructure', [section])
 
 export const RANGE_SECONDS: Record<Range, number> = { '1h': 3600, '24h': 86_400, '7d': 604_800, '30d': 2_592_000 }
 

@@ -146,13 +146,24 @@ describe('the Infrastructure page', () => {
     vi.mocked(monitoringApi.getClusterHealth).mockResolvedValue({ cluster, lines: ['provisioning-lunorica needs attention: the disk is 95% full.'], range: '24h', series: [{ chart: 'diskShare', points: [[1, 0.95]] }], firing: [], episodes: [], apps: monitoring.apps })
   })
 
-  it('has four tabs, Overview first, with what needs attention and what runs counted on them', async () => {
+  it('shows what needs attention, then apps, clusters and what runs, all on the one page', async () => {
     show()
-    const tabs = screen.getByRole('navigation', { name: 'Infrastructure' })
-    expect(within(tabs).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual(['#/infrastructure', '#/infrastructure/apps', '#/infrastructure/clusters', '#/infrastructure/running'])
-    expect(within(tabs).getByRole('link', { name: /Overview/ })).toHaveAttribute('aria-current', 'page')
-    expect(await within(tabs).findByLabelText('6 need attention')).toBeInTheDocument()
-    expect(await within(tabs).findByLabelText('1 running')).toBeInTheDocument()
+    expect(await screen.findByRole('list', { name: 'Needs attention' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Running · 1' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['Needs attention', 'Apps · 3', 'Clusters · 2', 'Running · 1', 'Alerts set', 'Alert history'])
+    expect(screen.getAllByTestId('app-row')).toHaveLength(3)
+    expect(screen.getAllByTestId('cluster-card')).toHaveLength(2)
+    expect(await screen.findByRole('link', { name: 'Koala answering' })).toHaveAttribute('href', '#/chat/c1')
+    expect(screen.queryByRole('navigation', { name: 'Infrastructure' })).toBeNull()
+  })
+
+  it('scrolls to the section an old address names', async () => {
+    const scrolled = vi.fn()
+    HTMLElement.prototype.scrollIntoView = scrolled
+    params.tab = 'running'
+    show()
+    await waitFor(() => expect(scrolled).toHaveBeenCalled())
+    expect(scrolled.mock.contexts[0]).toBe(document.getElementById('infrastructure-running'))
   })
 
   it('lists work waiting on the person, unhealthy apps and clusters, broken workloads and recent failures in one place', async () => {
@@ -187,7 +198,6 @@ describe('the Infrastructure page', () => {
   })
 
   it('lists every app with its health, deploys a new one, and manages or destroys each', async () => {
-    params.tab = 'apps'
     show()
     await waitFor(() => expect(screen.getAllByTestId('app-row')[0]).toHaveTextContent('Shop'))
     const rows = screen.getAllByTestId('app-row')
@@ -205,7 +215,6 @@ describe('the Infrastructure page', () => {
   })
 
   it('lists every cluster, provisions a new one, and keeps the system cluster read-only', async () => {
-    params.tab = 'clusters'
     show()
     const cards = await screen.findAllByTestId('cluster-card')
     expect(cards.map((card) => within(card).getAllByRole('link')[0]?.textContent)).toEqual(['provisioning-lunorica', 'edge'])
@@ -268,7 +277,8 @@ describe('the Infrastructure page', () => {
     expect(screen.getByText('Dashed lines: deployed abcdef12.')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Open in Grafana/ })).toHaveAttribute('href', expect.stringContaining('/clusters/provisioning-lunorica/proxy/grafana/'))
     expect(screen.getByRole('list', { name: 'Alert history' })).toHaveTextContent('Books is not answering')
-    expect(screen.getByRole('navigation', { name: 'Infrastructure' }).querySelector('[aria-current="page"]')).toHaveTextContent('Apps')
+    expect(screen.getByRole('link', { name: /Infrastructure/ })).toHaveAttribute('href', '#/infrastructure')
+    expect(screen.getByRole('link', { name: '← Apps' })).toHaveAttribute('href', '#/infrastructure/apps')
     fireEvent.click(screen.getByRole('button', { name: /Manage/ }))
     expect(shell.openDashboard).toHaveBeenCalledWith('app', 'books')
 
@@ -300,12 +310,5 @@ describe('the Infrastructure page', () => {
     show()
     expect(await screen.findByText('Only whoever owns this cluster can change it.')).toBeInTheDocument()
     expect(screen.queryByRole('spinbutton')).toBeNull()
-  })
-
-  it('opens the Running tab', async () => {
-    params.tab = 'running'
-    show()
-    expect(await screen.findByTestId('running-tab')).toBeInTheDocument()
-    expect(await screen.findByRole('link', { name: 'Koala answering' })).toHaveAttribute('href', '#/chat/c1')
   })
 })

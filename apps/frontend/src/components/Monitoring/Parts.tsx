@@ -143,9 +143,9 @@ export function EpisodeList({ episodes }: { episodes: AlertEpisode[] }) {
   )
 }
 
-export function Section({ title, children, right }: { title: string; children: React.ReactNode; right?: React.ReactNode }) {
+export function Section({ title, children, right, id }: { title: string; children: React.ReactNode; right?: React.ReactNode; id?: string }) {
   return (
-    <section className="space-y-2">
+    <section className="scroll-mt-4 space-y-2" id={id}>
       <div className="flex items-center justify-between">
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{title}</h3>
         {right}

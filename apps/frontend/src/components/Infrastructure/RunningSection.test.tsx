@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import RunningTab from './RunningTab'
+import RunningSection from './RunningSection'
 import * as runningApi from '../../api/running'
 
 vi.mock('../../api/running', async (orig) => ({
@@ -14,13 +14,13 @@ vi.mock('../../api/running', async (orig) => ({
 
 const show = () => render(
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-    <RunningTab />
+    <RunningSection />
   </QueryClientProvider>,
 )
 
 const since = new Date(Date.now() - 5 * 60_000).toISOString()
 
-describe('the Running tab', () => {
+describe('the Running section', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(runningApi.getRunning).mockResolvedValue({
@@ -53,7 +53,7 @@ describe('the Running tab', () => {
     expect(await screen.findByText('The bench: running')).toBeInTheDocument()
     expect(screen.getByText('The memory keeper: paused')).toBeInTheDocument()
     expect(screen.getByText(/2 are held now/)).toBeInTheDocument()
-    expect(screen.getByText(/A bench run is going now; cancel it below to stop it too/)).toBeInTheDocument()
+    expect(screen.getByText(/A bench run is going now; cancel it above to stop it too/)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
     await waitFor(() => expect(runningApi.pauseBench).toHaveBeenCalledWith(true, expect.anything()))

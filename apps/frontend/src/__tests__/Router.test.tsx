@@ -56,12 +56,12 @@ describe('TanStack Router configuration and route matching', () => {
     fireEvent.click(await screen.findByRole('button', { name: /infrastructure/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole('navigation', { name: 'Infrastructure' })).toBeInTheDocument();
+      expect(screen.getByTestId('infrastructure-overview')).toBeInTheDocument();
       expect(router.state.location.pathname).toBe('/infrastructure');
     });
   });
 
-  it('sends the pages folded into Infrastructure to their tab', async () => {
+  it('sends the pages folded into Infrastructure to their section', async () => {
     const qc = createTestQueryClient();
     render(
       <QueryClientProvider client={qc}>

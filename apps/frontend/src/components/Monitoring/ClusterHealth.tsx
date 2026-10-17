@@ -5,7 +5,7 @@ import { clusterDashboardUrl } from '../../api/clusters'
 import { errorMessage } from '../../api/client'
 import { Chart } from './Chart'
 import { Bar, EpisodeList, FiringList, HistorySetting, RangePicker, Section, StateBadge } from './Parts'
-import { CHARTS, windowOf, healthHash, tabHash, useClusterHealth } from './shared'
+import { CHARTS, windowOf, healthHash, sectionHash, useClusterHealth } from './shared'
 
 export function ClusterHealth({ clusterId, standalone = false, actions }: { clusterId: string; standalone?: boolean; actions?: ReactNode }) {
   const [range, setRange] = useState<Range>('24h')
@@ -21,7 +21,7 @@ export function ClusterHealth({ clusterId, standalone = false, actions }: { clus
     <div className="space-y-5 overflow-y-auto p-1" data-testid="cluster-health">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
-          {standalone && <a href={tabHash('clusters')} className="text-[11px] text-slate-500 hover:text-slate-300">← Clusters</a>}
+          {standalone && <a href={sectionHash('clusters')} className="text-[11px] text-slate-500 hover:text-slate-300">← Clusters</a>}
           <div className="flex items-center gap-3">
             {standalone && <h2 className="text-lg font-semibold text-slate-100">{cluster.name}</h2>}
             <StateBadge state={cluster.state} />

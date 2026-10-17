@@ -9,21 +9,18 @@ import type { Cluster } from '../../types/cluster'
 import type { Deployment } from '../../types/deployment'
 import { formatHash } from '../../lib/route'
 
-export { healthHash, tabHash, bytes, percent, rate, seconds } from '../Monitoring/shared'
+export { healthHash, sectionHash, bytes, percent, rate, seconds } from '../Monitoring/shared'
 
 export const INFRASTRUCTURE_POLL_MS = 15_000
 export const CLUSTER_CONTENTS_POLL_MS = 20_000
 
-export const TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'apps', label: 'Apps' },
-  { id: 'clusters', label: 'Clusters' },
-  { id: 'running', label: 'Running' },
-] as const
+export const SECTIONS = ['apps', 'clusters', 'running'] as const
 
-export type TabId = (typeof TABS)[number]['id']
+export type SectionId = (typeof SECTIONS)[number]
 
-export const isTab = (value: string | undefined): value is TabId => TABS.some((tab) => tab.id === value)
+export const isSection = (value: string | undefined): value is SectionId => SECTIONS.some((section) => section === value)
+
+export const sectionAnchor = (section: SectionId): string => `infrastructure-${section}`
 
 export function useInfrastructure() {
   return useQuery({ queryKey: infrastructureKeys.overview(), queryFn: getInfrastructure, refetchInterval: INFRASTRUCTURE_POLL_MS })

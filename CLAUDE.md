@@ -424,15 +424,17 @@ live on Settings → The bench.
 
 Plan: `~/.claude/plans/infrastructure-page.md` (and `monitoring.md` for the health part). Sidebar → **Infrastructure**
 (`components/Infrastructure/`, `#/infrastructure`, with Running's count badge) replaced Clusters, Applications, Services,
-Monitoring and Running; their old addresses open the matching tab. Tabs:
-- **Overview**: what needs attention, worst first — work **waiting on the person** (a tool call to allow, or a Wait for
+Monitoring and Running. It is one page of sections, no tabs; the old addresses (and `#/infrastructure/apps|clusters|running`)
+scroll to the matching section:
+- **Needs attention**: what needs attention, worst first — work **waiting on the person** (a tool call to allow, or a Wait for
   Person step: `waitsFor` in a run's state query, so a release waiting on its card or a workspace build asking to install
   shows), apps and clusters not healthy, **broken workloads** on any cluster they can see, firing alerts, and **work that
-  failed in the last 7 days** with Clear; then apps, clusters and running work in brief, and alerts set and their history.
+  failed in the last 7 days** with Clear.
 - **Apps**: every deployment with its health numbers, its addresses, Manage (the app's dashboard) and Destroy; Deploy an app.
 - **Clusters**: every cluster as a card (health, use, apps, history kept), Logs and Destroy (the system cluster
   read-only); Provision a cluster.
 - **Running**: what runs, cancel, and the bench and memory keeper switches (below).
+- **Alerts set** and **Alert history**.
 
 An app's page (`#/infrastructure/app/<id>`) is its health; a cluster's (`#/infrastructure/cluster/<id>`) is its health
 plus **everything on it** (`ClusterContentsService`, `GET /api/infrastructure/clusters/:id`): every workload, read with
@@ -508,7 +510,7 @@ relay for anyone else. `test:routing-live` proves an instance's email reaching i
 
 ## What runs (Infrastructure → Running)
 
-**Running** (`components/Infrastructure/RunningTab.tsx`; its count is the sidebar badge) lists the person's running work in
+**Running** (`components/Infrastructure/RunningSection.tsx`; its count is the sidebar badge) lists the person's running work in
 plain words, from Temporal (their `KoalaOwner` workflows, top-level only; the conversation countdowns and the bench's
 idle timer are left out) mapped by `lib/running.ts`: the bench and checks (progress from the check run), the memory
 keeper (what it reads, from the run's memo `about`), tree runs, releases (and whether one waits on the card), chat turns

@@ -1,11 +1,11 @@
 import { Cloud, FileText, Plus, Shield, Trash2 } from 'lucide-react'
 import { useShellStore } from '../../stores/shell'
-import { Bar, StateBadge } from '../Monitoring/Parts'
+import { Bar, Section, StateBadge } from '../Monitoring/Parts'
 import { useShellContext } from '../shell-context'
 import { QuietButton } from './Parts'
 import { clusterCards, healthHash, useInfrastructure } from './shared'
 
-export function ClustersTab() {
+export function ClustersSection() {
   const ctx = useShellContext()
   const view = useInfrastructure()
   const setConfirmDestroy = useShellStore((s) => s.setConfirmDestroy)
@@ -13,13 +13,16 @@ export function ClustersTab() {
   const cards = clusterCards(ctx.clusters, view.data?.monitoring.clusters ?? [])
 
   return (
-    <div className="space-y-3" data-testid="clusters-tab">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[12px] text-slate-400">Every cluster you have, with how much of it is used. Open one to see everything on it.</p>
+    <Section
+      id="infrastructure-clusters"
+      title={`Clusters · ${cards.length}`}
+      right={(
         <button type="button" onClick={() => ctx.setShowClusterModal(true)} className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-500">
           <Plus size={14} /> Provision a cluster
         </button>
-      </div>
+      )}
+    >
+      <p className="text-[11px] text-slate-500">Open one to see everything on it.</p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map(({ cluster, health }) => (
           <div key={cluster.id} className={`space-y-2 rounded-md border p-3 ${cluster.isSystem ? 'border-purple-500/40 bg-purple-950/20' : 'border-[var(--bark-700)] bg-[var(--bark-900)]/40'}`} data-testid="cluster-card">
@@ -51,8 +54,8 @@ export function ClustersTab() {
           </div>
         ))}
       </div>
-    </div>
+    </Section>
   )
 }
 
-export default ClustersTab
+export default ClustersSection

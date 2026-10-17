@@ -5,7 +5,7 @@ import { clusterDashboardUrl } from '../../api/clusters'
 import { errorMessage } from '../../api/client'
 import { Chart } from './Chart'
 import { EpisodeList, FiringList, RangePicker, RuleList, Section, StateBadge } from './Parts'
-import { CHARTS, windowOf, bytes, healthHash, tabHash, percent, rate, seconds, useAppHealth } from './shared'
+import { CHARTS, windowOf, bytes, healthHash, sectionHash, percent, rate, seconds, useAppHealth } from './shared'
 
 export function AppHealth({ deploymentId, standalone = false, actions }: { deploymentId: string; standalone?: boolean; actions?: ReactNode }) {
   const [range, setRange] = useState<Range>('24h')
@@ -21,7 +21,7 @@ export function AppHealth({ deploymentId, standalone = false, actions }: { deplo
     <div className="space-y-5 overflow-y-auto p-1" data-testid="app-health">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
-          {standalone && <a href={tabHash('apps')} className="text-[11px] text-slate-500 hover:text-slate-300">← Apps</a>}
+          {standalone && <a href={sectionHash('apps')} className="text-[11px] text-slate-500 hover:text-slate-300">← Apps</a>}
           <div className="flex items-center gap-3">
             {standalone && <h2 className="text-lg font-semibold text-slate-100">{app.name}</h2>}
             <StateBadge state={app.state} />

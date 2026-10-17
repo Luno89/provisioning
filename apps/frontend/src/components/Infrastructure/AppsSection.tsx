@@ -2,12 +2,12 @@ import { ExternalLink, Plus, Settings2, Shield, Trash2 } from 'lucide-react'
 import { deployStatusClass } from '../../lib/deploy-status'
 import { NO_WEB_UI_APP_TYPES } from '../../lib/app-ui'
 import { useShellStore } from '../../stores/shell'
-import { StateBadge } from '../Monitoring/Parts'
+import { Section, StateBadge } from '../Monitoring/Parts'
 import { useShellContext } from '../shell-context'
 import { QuietButton } from './Parts'
 import { appRows, bytes, healthHash, percent, rate, seconds, useInfrastructure } from './shared'
 
-export function AppsTab() {
+export function AppsSection() {
   const ctx = useShellContext()
   const view = useInfrastructure()
   const setConfirmDestroy = useShellStore((s) => s.setConfirmDestroy)
@@ -16,13 +16,15 @@ export function AppsTab() {
   const clusterName = (id: string) => ctx.clusters.find((cluster) => cluster.id === id)?.name ?? 'a cluster that is gone'
 
   return (
-    <div className="space-y-3" data-testid="apps-tab">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[12px] text-slate-400">Every app you deployed, worst first, with how it is doing.</p>
+    <Section
+      id="infrastructure-apps"
+      title={`Apps${rows.length ? ` · ${rows.length}` : ''}`}
+      right={(
         <button type="button" onClick={() => ctx.setShowAppModal(true)} className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-500">
           <Plus size={14} /> Deploy an app
         </button>
-      </div>
+      )}
+    >
       {rows.length ? (
         <div className="overflow-x-auto rounded-md border border-[var(--bark-700)]">
           <table className="w-full text-left text-[12px]">
@@ -78,8 +80,8 @@ export function AppsTab() {
           </table>
         </div>
       ) : <p className="text-[12px] text-slate-500">You have no apps deployed. Deploy one, or ask Koala.</p>}
-    </div>
+    </Section>
   )
 }
 
-export default AppsTab
+export default AppsSection
