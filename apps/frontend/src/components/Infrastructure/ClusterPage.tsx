@@ -19,7 +19,7 @@ function WorkloadRow({ workload }: { workload: Workload }) {
         <div className="font-semibold text-slate-100">{workload.name}</div>
         <div className="text-[11px] text-slate-500">
           {workload.kind} in {workload.namespace}
-          {workload.release ? ` · ${workload.release}` : ''}
+          {workload.release && workload.release !== workload.namespace ? ` · ${workload.release}` : ''}
           {about && (about.href ? <> · <a href={about.href} className="text-slate-300 hover:underline">{about.label}</a></> : ` · ${about.label}`)}
         </div>
       </td>
