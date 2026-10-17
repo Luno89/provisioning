@@ -269,6 +269,14 @@ served (`issuing` → `ready`, with Caddy's reason while it is not, a rate limit
 `<app>.<name>.<domain>`, and the flat addresses keep answering. `npm run test:routing-live` proves it with a VM, root's
 Caddy on the mesh as `tag:platform`, an app deployed on the instance, and the switch.
 
+**Every cluster that runs apps has monitoring.** Before an app is deployed, `ensureClusterMonitoring`
+(`activities/cluster-monitoring.ts`, rule in `lib/cluster-monitoring.ts`) asks the cluster whether it serves
+`probes.monitoring.coreos.com` and has blackbox-exporter. It applies whatever is missing: the cluster stack (`ENV=remote`,
+with `CLUSTER_INGRESS=existing` keeping an ingress the cluster already has, such as k3s's Traefik, so two never fight
+over ports 80/443) and the observability stack. An instance's cluster worker does the same when it starts. A failure
+fails the deploy with the reason; an app never goes on without its probe. A failed deploy keeps its record in the
+listing even when its namespace was never made.
+
 ## How an agent holds a tool
 
 An agent never lists its own tools. What it holds is its **grants** (`toolGrants`, many to many, neither the agent
