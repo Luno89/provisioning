@@ -45,6 +45,7 @@ npm run test:worker  # tsx tests/worker-isolated.ts — runs real Temporal workf
 npm run test:e2e     # test:alive → Playwright (skips the unit preflight `npm test` does)
 npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
 npm run test:routing-live         # root's Caddy on the mesh (local CA, koala.localhost) → a named instance installs on a VM → <name>.<domain> answers through Caddy and sign-in lands there → an app on the instance at <app>-<name>.<domain> → nested addresses issued and shown, the flat ones still answering, ~30 min, cleans up
+npm run test:monitoring-live      # a throwaway app on the system cluster → Monitoring calls it healthy → Koala, on your model, proposes an alert for when it stops answering → the card sets it → the app is stopped until the alert fires and the conversation hears it, started until it resolves → the alert is removed and the app destroyed, ~10 min
 npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
 npm run test:machine-live        # a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service and finds an ACP agent and two CLIs missing their adapters (`--adapters none`) → after a reboot with nobody logged in it connects again → Install adapter makes Claude Code ready → the command run again with `--yes` installs Codex's adapter; removes the machine, its project and the VM, ~10 min
 npm run test:mesh-live           # the image is built; root starts; the owner's instance installs in a VM and joins the mesh, its Temporal answering only on its mesh address → a second VM runs the command from the instance's My Machines, joins the mesh with a key root mints for the instance, and its worker polls the instance's Temporal over the mesh → a third VM, another person's, reaches neither and neither reaches it; ~30 min, removes everything
@@ -454,7 +455,8 @@ channel, or the conversation the rule was proposed in. Its resolution is told th
   k3s's Traefik, a `HelmChartConfig` turns it on, unless the person has one of their own, which is never overwritten.
 
 `mechanics-monitoring` (off the bench) proves the read → card → rule path with a real app deployed for the check's space
-(`world.apps`, expectation `alertRules`).
+(`world.apps`, expectation `alertRules`); `npm run test:monitoring-live` proves an alert of the person's own firing and
+resolving, on their own model.
 
 ## What runs (the Running page)
 
