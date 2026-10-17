@@ -53,6 +53,7 @@ describe('starting a project from a client\'s database', () => {
     expect(received()).toBe('PKzip-bytes');
     expect(did).toEqual([
       'remove pod shop-1a2b3c-import-holder',
+      'remove job shop-1a2b3c-restore-a',
       'remove pvc shop-1a2b3c-import',
       'put PersistentVolumeClaim shop-1a2b3c-import 2Gi',
       'put Pod shop-1a2b3c-import-holder',

@@ -81,6 +81,13 @@ describe('what the Odoo app holds that is not in its repository', () => {
     expect(ODOO_RELEASE_ADAPTER.database(target, 'b')).toEqual({ pod: 'shop-postgres-0', user: 'odoo', database: 'odoo_b' });
   });
 
+  it('removes its restore job when the restore ends, failed or not, so the upload\'s volume is free', async () => {
+    const removed: string[] = [];
+    const cluster = { job: async () => { throw new Error('ERROR missing modules: web_studio'); }, remove: async (_t: unknown, kind: string, name: string) => { removed.push(`${kind} ${name}`); } } as never;
+    await expect(ODOO_RELEASE_ADAPTER.restore!(cluster, { release: 'shop', namespace: 'shop' } as never, 'a', { image: 'img', source: {} } as never, 'copy')).rejects.toThrow('missing modules');
+    expect(removed).toEqual(['job shop-restore-a']);
+  });
+
   it('restores a client\'s database, as the list of release apps says it does', () => {
     expect(typeof ODOO_RELEASE_ADAPTER.restore).toBe('function');
     expect(restoringApp(ODOO_RELEASE_ADAPTER.id)).toEqual({ title: 'Odoo' });

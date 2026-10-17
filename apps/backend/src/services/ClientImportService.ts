@@ -3,7 +3,7 @@ import { releaseTargetOf, type OdooRelease } from '../lib/odoo-release.js';
 import type { SlotAdapter } from '../extensions/releases/adapter.js';
 import type { SlotCluster } from '../extensions/releases/slot-cluster.js';
 import {
-  DISCARD_COMMAND, MANIFEST_COMMAND, RECEIVE_COMMAND, claimManifest, holderManifest, importClaim, importHolder, isImportMode, majorOf, parseManifest, versionProblem,
+  DISCARD_COMMAND, MANIFEST_COMMAND, RECEIVE_COMMAND, claimManifest, holderManifest, importClaim, importHolder, restoreJobName, isImportMode, majorOf, parseManifest, versionProblem,
   type ClientImport, type ImportMode,
 } from '../lib/client-import.js';
 
@@ -73,7 +73,11 @@ export class ClientImportService {
     if (established) return { ok: false, status: 409, error: `${project.name} has already released` };
     await this.deps.saveProject({ id: project.id, clientImport: null });
     const cluster = project.targetClusterId ? await this.deps.clusterById(project.targetClusterId) : undefined;
-    if (cluster && project.releaseName) await this.deps.cluster.remove(releaseTargetOf(cluster, project), 'pvc', importClaim(project.releaseName)).catch(() => undefined);
+    if (cluster && project.releaseName) {
+      const target = releaseTargetOf(cluster, project);
+      await this.deps.cluster.remove(target, 'job', restoreJobName(project.releaseName, 'a'), true).catch(() => undefined);
+      await this.deps.cluster.remove(target, 'pvc', importClaim(project.releaseName)).catch(() => undefined);
+    }
     const build = await this.deps.latestBuild(project);
     if (build) await this.deps.releases.release({ ...project, clientImport: undefined }, build);
     return { ok: true, value: { released: Boolean(build) } };
@@ -103,6 +107,7 @@ export class ClientImportService {
     let entry: ClientImport;
     try {
       await this.deps.cluster.remove(target, 'pod', holder, true);
+      await this.deps.cluster.remove(target, 'job', restoreJobName(target.release, 'a'), true);
       await this.deps.cluster.remove(target, 'pvc', importClaim(target.release), true);
       await this.deps.cluster.put(target, claimManifest(target.release, input.bytes));
       await this.deps.cluster.put(target, holderManifest(target.release));

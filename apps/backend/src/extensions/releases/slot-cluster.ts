@@ -151,7 +151,7 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
 
     async remove(target, kind, name, wait = false) {
       beat(name);
-      await kubectl(target, ['delete', kind, name, '--ignore-not-found', `--wait=${wait}`]);
+      await kubectl(target, ['delete', kind, name, '--ignore-not-found', `--wait=${wait}`, ...(kind === 'job' ? ['--cascade=foreground'] : [])]);
     },
 
     async running(target, pod) {

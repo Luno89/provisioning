@@ -29,6 +29,7 @@ export const VERSION_MARK = 'wrong version: ';
 
 export const importClaim = (release: string): string => `${release}-import`;
 export const importHolder = (release: string): string => `${release}-import-holder`;
+export const restoreJobName = (release: string, slot: string): string => `${release}-restore-${slot}`;
 
 export const isImportMode = (value: unknown): value is ImportMode => value === 'copy' || value === 'live';
 
