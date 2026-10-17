@@ -187,7 +187,7 @@ async function main(): Promise<void> {
     assert.ok((accepted.data.modules as string[]).includes(MODULE));
     const restored = await liveAfter(copy, refusedReleases);
     assert.equal(restored.slot, 'a');
-    assert.equal((await importOf(copy)).import?.state, 'imported');
+    await waitFor('the import to be recorded as done', async () => ((await importOf(copy)).import?.state === 'imported' ? true : undefined), 2);
     assert.equal(await psql(copy, "select string_agg(name || ':' || note, ',' order by name) from koala_probe"), 'first:leave at the back door,second:ring twice');
     const stored = await psql(copy, "select store_fname from ir_attachment where name = 'notes.txt'");
     assert.equal(await kubectl(copy.place.namespace, 'exec', `deploy/${copy.place.release}-odoo-a`, '--', 'cat', `/var/lib/odoo/filestore/odoo_a/${stored}`), ATTACHED, 'the client\'s file did not come with the database');
