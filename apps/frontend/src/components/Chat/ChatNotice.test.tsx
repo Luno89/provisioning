@@ -45,13 +45,13 @@ describe('a notice about an alert', () => {
   it('opens the app\'s health when it fires', () => {
     render(<ChatNotice notice={{ key: 'alert:e1:fired', kind: 'alert-firing', text: 'Alert: Books is not answering.', refs: { clusterId: 'c1', deploymentId: 'books' }, actions: ['open-monitoring'] }} />)
     fireEvent.click(screen.getByRole('button', { name: 'Open its health' }))
-    expect(window.location.hash).toBe('#/monitoring/app/books')
+    expect(window.location.hash).toBe('#/infrastructure/app/books')
   })
 
   it('opens the cluster\'s health for a machine alert, and shows when one resolves', () => {
     render(<ChatNotice notice={{ key: 'alert:e2:resolved', kind: 'alert-resolved', text: 'Resolved: The disk is filling up.', refs: { clusterId: 'c1' }, actions: ['open-monitoring'] }} />)
     expect(screen.getByText('Resolved: The disk is filling up.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Open its health' }))
-    expect(window.location.hash).toBe('#/monitoring/cluster/c1')
+    expect(window.location.hash).toBe('#/infrastructure/cluster/c1')
   })
 })

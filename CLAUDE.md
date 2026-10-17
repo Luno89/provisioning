@@ -419,17 +419,36 @@ otherwise only the scenarios of agents whose fingerprint changed. A scenario tha
 fails now is a regression: it is recorded on the run, shown as a toast, and marked in that check's history. Settings
 live on Settings → The bench.
 
-## Monitoring (the Monitoring page, and Koala reading the same)
+## Infrastructure (one page for clusters, apps, services, monitoring and running work)
 
-Plan: `~/.claude/plans/monitoring.md`. Sidebar → **Monitoring** (`components/Monitoring/`) shows, across every cluster
-the person has (the system cluster too, when their apps run there or they own it):
-- what needs attention first;
-- each app worst first;
-- each cluster as a card.
+Plan: `~/.claude/plans/infrastructure-page.md` (and `monitoring.md` for the health part). Sidebar → **Infrastructure**
+(`components/Infrastructure/`, `#/infrastructure`, with Running's count badge) replaced Clusters, Applications, Services,
+Monitoring and Running; their old addresses open the matching tab. Tabs:
+- **Overview**: what needs attention, worst first — work **waiting on the person** (a tool call to allow, or a Wait for
+  Person step: `waitsFor` in a run's state query, so a release waiting on its card or a workspace build asking to install
+  shows), apps and clusters not healthy, **broken workloads** on any cluster they can see, firing alerts, and **work that
+  failed in the last 7 days** with Clear; then apps, clusters and running work in brief, and alerts set and their history.
+- **Apps**: every deployment with its health numbers, its addresses, Manage (the app's dashboard) and Destroy; Deploy an app.
+- **Clusters**: every cluster as a card (health, use, apps, history kept), Logs and Destroy (the system cluster
+  read-only); Provision a cluster.
+- **Running**: what runs, cancel, and the bench and memory keeper switches (below).
 
-Each app and cluster also has a **Health** tab (AppDashboard, or `#/monitoring/app|cluster/<id>`): charts over an hour,
-a day, a week or a month (uPlot, loaded lazily), with release markers, its alerts and alert history, and "Open in
-Grafana".
+An app's page (`#/infrastructure/app/<id>`) is its health; a cluster's (`#/infrastructure/cluster/<id>`) is its health
+plus **everything on it** (`ClusterContentsService`, `GET /api/infrastructure/clusters/:id`): every workload, read with
+kubectl and judged by `lib/cluster-workloads.ts` (crash loops, image pulls, waiting for room, restarts in the last hour,
+failed jobs; finished jobs left out; memory and CPU from Prometheus when it answers), grouped as the person's apps,
+Koala's work (sandboxes, release slots, builds; a namespace a check's space left is marked so), the platform, and
+anything put there another way; then the platform services (`lib/platform-services.ts`, with Open dashboard), nodes,
+GPUs and Helm releases. Whoever owns the cluster sees all of it; anyone else sees only their own namespaces (their apps,
+`koala.dev/owner`), and no services, nodes or releases. Reads are cached per cluster for 20 s.
+
+**Failed work** (`WorkFailureService`, `workFailures`): a top-level run that ends `failed` (from `run-ended`, never a
+check's space), and any workflow Temporal closes as Failed or TimedOut (polled every 30 s; deploys and provisioning are
+left out since their failure shows on the app or cluster), described the way Running describes it, shown 7 days, kept
+30. `GET /api/infrastructure` puts the overview together (`InfrastructureViewService`); `POST /api/infrastructure/failures/clear`.
+
+Each app and cluster also keeps its **Health** tab in AppDashboard: charts over an hour, a day, a week or a month
+(uPlot, loaded lazily), with release markers, its alerts and alert history, and "Open in Grafana".
 
 **One set of named questions** (`lib/monitoring-questions.ts`) is asked of each cluster's Prometheus through
 `ClusterProxyService`; the browser never sends PromQL. `lib/monitoring-summary.ts` turns the answers into states and the
@@ -486,9 +505,9 @@ In dev, `docker compose -f docker-compose.mailpit.yml up -d` and `MAIL_SMTP_URL=
 `npm run test:mail-live` proves the container signs mail that verifies (DKIM checked with `mailauth`) and refuses to
 relay for anyone else. `test:routing-live` proves an instance's email reaching its owner through root.
 
-## What runs (the Running page)
+## What runs (Infrastructure → Running)
 
-Sidebar → **Running** (`components/Running/`, a count badge while anything runs) lists the person's running work in
+**Running** (`components/Infrastructure/RunningTab.tsx`; its count is the sidebar badge) lists the person's running work in
 plain words, from Temporal (their `KoalaOwner` workflows, top-level only; the conversation countdowns and the bench's
 idle timer are left out) mapped by `lib/running.ts`: the bench and checks (progress from the check run), the memory
 keeper (what it reads, from the run's memo `about`), tree runs, releases (and whether one waits on the card), chat turns

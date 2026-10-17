@@ -220,76 +220,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
     }
   });
 
-  router.get('/:id/all-pods', asyncRoute(async (req, res) => res.json(await clusterService.listAllPods(idOf(req), userOf(req).id))));
-  router.get('/:id/helm-releases', asyncRoute(async (req, res) => res.json(await clusterService.listReleases(idOf(req), userOf(req).id))));
   router.get('/:id/gpu-status', asyncRoute(async (req, res) => res.json(await clusterService.getGpuStatus(idOf(req), userOf(req).id))));
-
-  router.get('/:id/services', async (req, res) => {
-    try {
-      const cluster = await clusterService.getById(idOf(req), userOf(req).id);
-      if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
-
-      const releases = await clusterService.listReleases(idOf(req), userOf(req).id);
-      const pods = await clusterService.listAllPods(idOf(req), userOf(req).id);
-
-      const RELEASE_NAMES: Record<string, string[]> = {
-        prometheus: ['kube-prometheus-stack', 'prometheus-server', 'prometheus'],
-        grafana: ['kube-prometheus-stack', 'kube-prometheus-stack-grafana', 'grafana'],
-        traefik: ['traefik'],
-        gitea: ['gitea'],
-        alertmanager: ['kube-prometheus-stack'],
-        loki: ['loki', 'promtail'],
-        infisical: ['infisical-standalone', 'infisical'],
-      };
-      const POD_NAME_PATTERNS: Record<string, string[]> = {
-        prometheus: ['kube-prometheus-stack-prometheus', 'kube-prometheus-stack-operator', 'kube-prometheus-stack-kube-state-metrics', 'kube-prometheus-stack-prometheus-node-exporter'],
-        grafana: ['kube-prometheus-stack-grafana'],
-        traefik: ['traefik'],
-        gitea: ['gitea'],
-        alertmanager: ['alertmanager-kube-prometheus-stack-alertmanager'],
-        loki: ['loki', 'promtail'],
-        infisical: ['infisical-standalone', 'infisical'],
-      };
-      const SERVICE_NAMESPACES: Record<string, string> = {
-        prometheus: 'monitoring',
-        grafana: 'monitoring',
-        traefik: 'traefik',
-        gitea: 'gitea',
-        alertmanager: 'monitoring',
-        loki: 'monitoring',
-        infisical: 'infisical',
-      };
-
-      const services = Object.entries(RELEASE_NAMES).map(([serviceKey, chartNames]) => {
-        const release = releases.find((r: any) => chartNames.includes(r.name));
-        const namespace = SERVICE_NAMESPACES[serviceKey];
-        const podPatterns = POD_NAME_PATTERNS[serviceKey] || [];
-        const servicePods = Array.isArray(pods) ? pods.filter((p: any) =>
-          p?.metadata?.namespace === namespace &&
-          podPatterns.some(name => (p?.metadata?.name || '').includes(name))
-        ) : [];
-
-        return {
-          name: serviceKey,
-          installed: !!release,
-          status: release?.status || 'not-installed',
-          chart: release?.chart || null,
-          appVersion: release?.app_version || null,
-          namespace,
-          pods: servicePods.map((p: any) => ({
-            name: p?.metadata?.name || 'unknown',
-            status: p?.status?.phase || 'Unknown',
-            ip: p?.status?.podIP || null,
-            ready: p?.status?.containerStatuses?.some((s: any) => s.ready) || false,
-          })),
-        };
-      });
-
-      res.json({ services });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
 
   return router;
 }

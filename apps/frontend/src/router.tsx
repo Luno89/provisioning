@@ -7,12 +7,11 @@ import {
   type RouterHistory,
 } from '@tanstack/react-router';
 import { RootLayout } from './RootLayout';
-import { AppsRoute, ClustersRoute, NginxRoute, ProjectsRoute, VpsCatalogRoute } from './components/ShellRoutes';
+import { NginxRoute, ProjectsRoute, VpsCatalogRoute } from './components/ShellRoutes';
 import ChatPage from './components/ChatPage';
 import TemporalPanel from './components/TemporalPanel';
-import RunningView from './components/Running/RunningView';
-import MonitoringView from './components/Monitoring/MonitoringView';
-import ServicesPanel from './components/ServicesPanel';
+import InfrastructureView from './components/Infrastructure/InfrastructureView';
+import MonitoringDetailRedirect from './components/Infrastructure/MonitoringDetailRedirect';
 import CloudAccounts from './components/CloudAccounts.js';
 import MeshDevices from './components/MeshDevices.js';
 import { Puzzle } from 'lucide-react';
@@ -108,17 +107,33 @@ export const treeSettingsRoute = createRoute({
   component: ProjectsRoute,
 });
 
-export const clustersRoute = createRoute({
+export const infrastructureRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/clusters',
-  component: ClustersRoute,
+  path: '/infrastructure',
+  component: InfrastructureView,
 });
 
-export const appsRoute = createRoute({
+export const infrastructureTabRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/apps',
-  component: AppsRoute,
+  path: '/infrastructure/$tab',
+  component: InfrastructureView,
 });
+
+export const infrastructureDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/infrastructure/$kind/$id',
+  component: InfrastructureView,
+});
+
+const toTab = (tab: string) => () => <Navigate to="/infrastructure/$tab" params={{ tab }} replace />;
+
+export const clustersRedirect = createRoute({ getParentRoute: () => rootRoute, path: '/clusters', component: toTab('clusters') });
+export const appsRedirect = createRoute({ getParentRoute: () => rootRoute, path: '/apps', component: toTab('apps') });
+export const servicesRedirect = createRoute({ getParentRoute: () => rootRoute, path: '/services', component: toTab('clusters') });
+export const runningRedirect = createRoute({ getParentRoute: () => rootRoute, path: '/running', component: toTab('running') });
+export const monitoringRedirect = createRoute({ getParentRoute: () => rootRoute, path: '/monitoring', component: () => <Navigate to="/infrastructure" replace /> });
+
+export const monitoringDetailRedirect = createRoute({ getParentRoute: () => rootRoute, path: '/monitoring/$kind/$id', component: MonitoringDetailRedirect });
 
 export const nginxRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -130,30 +145,6 @@ export const temporalRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/temporal',
   component: TemporalPanel,
-});
-
-export const runningRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/running',
-  component: RunningView,
-});
-
-export const monitoringRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/monitoring',
-  component: MonitoringView,
-});
-
-export const monitoringDetailRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/monitoring/$kind/$id',
-  component: MonitoringView,
-});
-
-export const servicesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/services',
-  component: ServicesPanel,
 });
 
 export const accountsRoute = createRoute({
@@ -347,14 +338,17 @@ export const routeTree = rootRoute.addChildren([
   treeDetailRoute,
   treeBranchRoute,
   treeLeafRoute,
-  clustersRoute,
-  appsRoute,
+  infrastructureRoute,
+  infrastructureTabRoute,
+  infrastructureDetailRoute,
+  clustersRedirect,
+  appsRedirect,
+  servicesRedirect,
+  runningRedirect,
+  monitoringRedirect,
+  monitoringDetailRedirect,
   nginxRoute,
   temporalRoute,
-  runningRoute,
-  monitoringRoute,
-  monitoringDetailRoute,
-  servicesRoute,
   accountsRoute,
   meshRoute,
   engineRedirect,

@@ -2,11 +2,11 @@ import { create } from 'zustand'
 import { parseHash, formatHash, shouldReplace, resolveView, type Route } from '../lib/route'
 
 export const FOREST_VIEWS = [
-  'clusters', 'apps', 'projects', 'vps-catalog', 'mesh',
-  'accounts', 'services', 'nginx', 'temporal', 'settings',
+  'projects', 'vps-catalog', 'mesh',
+  'accounts', 'nginx', 'temporal', 'settings',
 ] as const
 
-export const KOALA_VIEWS = ['chat', 'studio', 'running', 'monitoring'] as const
+export const KOALA_VIEWS = ['chat', 'studio', 'infrastructure'] as const
 
 export const KNOWN_VIEWS = [...FOREST_VIEWS, ...KOALA_VIEWS] as const
 
@@ -149,7 +149,7 @@ export function startHistorySync(): () => void {
     const route = parseHash(window.location.hash)
     lastRoute = route
     useShellStore.setState({
-      view: resolveView(route?.view, KNOWN_VIEWS, 'clusters') as ViewName,
+      view: resolveView(route?.view, KNOWN_VIEWS, 'infrastructure') as ViewName,
     })
   }
   window.addEventListener('popstate', onPop)

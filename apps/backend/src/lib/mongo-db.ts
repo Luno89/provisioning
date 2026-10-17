@@ -6,6 +6,7 @@ import type { AutoModeSettings } from './auto-mode.js';
 import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
 import type { AlertRuleRecord } from './monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
+import type { WorkFailure } from './work-failures.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
 import type { MachineJoinCode } from './machines.js';
@@ -1206,6 +1207,28 @@ export class MongoDB implements Database {
 
   async saveAlertEpisode(episode: AlertEpisode): Promise<void> {
     await this.db!.collection('monitoringAlertEpisodes').replaceOne({ _id: episode.id as never }, toDoc(episode), { upsert: true });
+  }
+
+  async getWorkFailures(ownerId?: string): Promise<WorkFailure[]> {
+    const docs = await this.db!.collection('workFailures').find(ownerId === undefined ? {} : { ownerId }).sort({ failedAt: -1 }).toArray();
+    return docs.map((doc) => fromDoc<WorkFailure>(doc as Record<string, unknown>));
+  }
+
+  async addWorkFailure(failure: WorkFailure): Promise<void> {
+    const { _id, ...doc } = toDoc(failure) as Record<string, unknown>;
+    await this.db!.collection('workFailures').updateOne({ _id: _id as never }, { $setOnInsert: doc }, { upsert: true });
+  }
+
+  async clearWorkFailures(ownerId: string, ids: readonly string[] | 'all', at: string): Promise<number> {
+    const result = await this.db!.collection('workFailures').updateMany(
+      { ownerId, clearedAt: { $exists: false }, ...(ids === 'all' ? {} : { _id: { $in: [...ids] as never[] } }) },
+      { $set: { clearedAt: at } },
+    );
+    return result.modifiedCount;
+  }
+
+  async pruneWorkFailures(before: string): Promise<void> {
+    await this.db!.collection('workFailures').deleteMany({ failedAt: { $lt: before } });
   }
 
   async getAutoModeSettings(ownerId: string): Promise<AutoModeSettings | undefined> {

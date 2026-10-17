@@ -33,6 +33,11 @@ export const RETIRED_VIEWS: Record<string, string> = {
   'tree-types': 'studio',
   evals: 'studio',
   engine: 'studio',
+  clusters: 'infrastructure',
+  apps: 'infrastructure',
+  services: 'infrastructure',
+  running: 'infrastructure',
+  monitoring: 'infrastructure',
 };
 
 export function resolveView(view: string | undefined, known: readonly string[], fallback: string): string {

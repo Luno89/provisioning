@@ -6,6 +6,7 @@ import type { AutoModeSettings } from './auto-mode.js';
 import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
 import type { AlertRuleRecord } from './monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
+import type { WorkFailure } from './work-failures.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
 import type { MachineJoinCode } from './machines.js';
@@ -83,6 +84,7 @@ export class MemoryDB implements Database {
   private notificationSettings = new Map<string, NotificationSettings>();
   private alertRules = new Map<string, AlertRuleRecord>();
   private alertEpisodes = new Map<string, AlertEpisode>();
+  private workFailures = new Map<string, WorkFailure>();
   private keeperSettings = new Map<string, KeeperSettings>();
   private deferredConclusions: DeferredConclusion[] = [];
   private authoredExtensions = new Map<string, AuthoredExtension>();
@@ -379,6 +381,7 @@ export class MemoryDB implements Database {
     sweepMap('monitoringSettings', this.monitoringSettings, (_, entry) => owned(entry));
     sweepMap('monitoringAlertRules', this.alertRules, (_, entry) => owned(entry));
     sweepMap('monitoringAlertEpisodes', this.alertEpisodes, (_, entry) => owned(entry));
+    sweepMap('workFailures', this.workFailures, (_, entry) => owned(entry));
     sweepMap('keeperSettings', this.keeperSettings, (key) => key === ownerId);
     this.deferredConclusions = sweep('deferredConclusions', this.deferredConclusions);
     this.giteaAccounts = sweep('giteaAccounts', this.giteaAccounts);
@@ -1000,6 +1003,29 @@ export class MemoryDB implements Database {
 
   async saveAlertEpisode(episode: AlertEpisode): Promise<void> {
     this.alertEpisodes.set(episode.id, { ...episode });
+  }
+
+  async getWorkFailures(ownerId?: string): Promise<WorkFailure[]> {
+    return [...this.workFailures.values()].filter((failure) => ownerId === undefined || failure.ownerId === ownerId)
+      .sort((a, b) => b.failedAt.localeCompare(a.failedAt)).map((failure) => ({ ...failure, opens: { ...failure.opens } }));
+  }
+
+  async addWorkFailure(failure: WorkFailure): Promise<void> {
+    if (!this.workFailures.has(failure.id)) this.workFailures.set(failure.id, { ...failure, opens: { ...failure.opens } });
+  }
+
+  async clearWorkFailures(ownerId: string, ids: readonly string[] | 'all', at: string): Promise<number> {
+    let cleared = 0;
+    for (const failure of this.workFailures.values()) {
+      if (failure.ownerId !== ownerId || failure.clearedAt || (ids !== 'all' && !ids.includes(failure.id))) continue;
+      failure.clearedAt = at;
+      cleared += 1;
+    }
+    return cleared;
+  }
+
+  async pruneWorkFailures(before: string): Promise<void> {
+    for (const [id, failure] of this.workFailures) if (failure.failedAt < before) this.workFailures.delete(id);
   }
 
   async getAutoModeSettings(ownerId: string): Promise<AutoModeSettings | undefined> {

@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Activity, Hand, Loader2, Square } from 'lucide-react'
+import { Hand, Loader2, Square } from 'lucide-react'
 import { cancelRunning, pauseBench, pauseKeeper, runningKeys, type RunningItem } from '../../api/running'
 import { errorMessage } from '../../api/client'
 import { ago } from '../home-summary'
 import { useRunning } from './useRunning'
 import { hashFor } from './opens'
+import { waitingText } from './shared'
 
 function Switch({ label, explain, paused, onChange, busy }: { label: string; explain: string; paused: boolean | undefined; onChange: (paused: boolean) => void; busy: boolean }) {
   return (
@@ -42,7 +43,7 @@ function Row({ item }: { item: RunningItem }) {
           <a href={hashFor(item.opens)} className="text-[12px] font-semibold text-slate-100 hover:underline">{item.title}</a>
           <div className="text-[11px] text-slate-500">
             started {ago(item.since)}
-            {item.asking?.length ? <span className="ml-2 inline-flex items-center gap-1 text-amber-300"><Hand size={10} /> waits for you to allow {item.asking.length === 1 ? 'a call' : `${item.asking.length} calls`}</span> : null}
+            {item.asking?.length || item.waitsFor?.length ? <span className="ml-2 inline-flex items-center gap-1 text-amber-300"><Hand size={10} /> {waitingText(item)}</span> : null}
           </div>
         </div>
         {stoppable && !confirming && (
@@ -67,7 +68,7 @@ function Row({ item }: { item: RunningItem }) {
   )
 }
 
-export default function RunningView() {
+export default function RunningTab() {
   const qc = useQueryClient()
   const { data, error } = useRunning()
   const refresh = () => void qc.invalidateQueries({ queryKey: runningKeys.view() })
@@ -76,9 +77,7 @@ export default function RunningView() {
   const benchRunning = data?.items.some((item) => item.kind === 'bench')
 
   return (
-    <div className="h-full overflow-y-auto p-4">
-      <div className="mx-auto max-w-3xl space-y-4">
-        <h1 className="flex items-center gap-2 text-sm font-semibold text-slate-100"><Activity size={15} className="text-[var(--leaf)]" /> Running</h1>
+    <div className="max-w-3xl space-y-4" data-testid="running-tab">
 
         <section className="space-y-2">
           <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Background work</h2>
@@ -107,7 +106,6 @@ export default function RunningView() {
           {data && data.items.length === 0 && <p className="text-[12px] text-slate-500">Nothing is running.</p>}
           {data && data.items.length > 0 && <ul className="space-y-2">{data.items.map((item) => <Row key={item.workflowId} item={item} />)}</ul>}
         </section>
-      </div>
     </div>
   )
 }

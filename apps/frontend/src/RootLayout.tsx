@@ -86,7 +86,7 @@ export function RootLayout() {
     try {
       await logout();
       setUser(null);
-      navigate({ to: '/clusters' });
+      navigate({ to: '/infrastructure' });
     } catch (err) {
       console.error('Logout failed', err);
     }

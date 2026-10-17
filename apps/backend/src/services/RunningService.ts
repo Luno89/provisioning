@@ -13,7 +13,7 @@ export type RunningOutcome<T> = { ok: true; value: T } | { ok: false; status: 40
 export interface RunningDeps {
   workflows: {
     list(ownerId: string): Promise<RunningWorkflow[] | undefined>;
-    asking(workflowId: string): Promise<string[] | undefined>;
+    waiting(workflowId: string): Promise<{ asking: string[]; waitsFor: string[] } | undefined>;
     cancel(workflowId: string): Promise<'cancelled' | 'not-running' | 'unreachable'>;
   };
   records(ownerId: string): Promise<RunningRecords>;
@@ -38,8 +38,12 @@ export class RunningService {
     const items = runningItems(workflows, await this.deps.records(ownerId));
     return Promise.all(items.map(async (item) => {
       if (item.cancel.via !== 'run' && item.cancel.via !== 'tree') return item;
-      const asking = await this.deps.workflows.asking(item.workflowId).catch(() => undefined);
-      return asking?.length ? { ...item, asking } : item;
+      const waiting = await this.deps.workflows.waiting(item.workflowId).catch(() => undefined);
+      return {
+        ...item,
+        ...(waiting?.asking.length ? { asking: waiting.asking } : {}),
+        ...(waiting?.waitsFor.length ? { waitsFor: waiting.waitsFor } : {}),
+      };
     }));
   }
 

@@ -650,24 +650,6 @@ export class ClusterService extends BaseService {
     }
   }
 
-  async listReleases(id: string, userId: string) {
-    try {
-        const cluster = await this.getById(id, userId);
-        if (!cluster) throw new Error('Cluster not found');
-        const physicalName = this.getPhysicalClusterName(cluster);
-        const context = (cluster.provider === 'k3d' || this.isMockCloud(cluster)) ? `k3d-${physicalName}` : undefined;
-        const args = ['list', '-A', '-o', 'json'];
-        if (context) args.push('--kube-context', context);
-        
-        const kubeconfigPath = await this.getOwnKubeconfigPath(cluster);
-        const output = await this.infra.runHelm(args, kubeconfigPath);
-        return JSON.parse(output);
-    } catch (err: any) {
-        this.logger.error(`Failed to list helm releases: ${err.message}`);
-        return [];
-    }
-  }
-
   async getGpuStatus(id: string, userId: string) {
     try {
       const cluster = await this.getById(id, userId);

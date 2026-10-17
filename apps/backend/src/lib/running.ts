@@ -34,6 +34,7 @@ export interface RunningItem {
   opens: OpensAt;
   cancel: CancelHow;
   asking?: string[] | undefined;
+  waitsFor?: string[] | undefined;
 }
 
 export const HIDDEN_TYPES: readonly string[] = ['ConversationConclusionWorkflow', 'BenchIdleWorkflow'];

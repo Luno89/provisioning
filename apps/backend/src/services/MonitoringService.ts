@@ -184,7 +184,7 @@ export class MonitoringService {
     this.newId = deps.newId ?? randomUUID;
   }
 
-  private ownsCluster(viewer: Viewer, cluster: ClusterMetadata): boolean {
+  ownsCluster(viewer: Viewer, cluster: ClusterMetadata): boolean {
     return cluster.isSystem ? this.deps.ownsSystem(viewer) : cluster.ownerId === viewer.id;
   }
 

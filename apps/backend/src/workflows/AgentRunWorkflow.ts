@@ -161,6 +161,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   const answers = new Map<string, unknown>(continued?.answers ?? []);
   let approvedForRun = continued?.approvedForRun ?? false;
   const asking = new Set<string>();
+  const waitsFor = new Set<string>();
   let cancelled = false;
   let currentNode: string | undefined;
   let rounds = continued?.checkpoint.counters.rounds ?? 0;
@@ -208,7 +209,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   };
   setHandler(cancelSignal, cancelRun);
   CancellationScope.current().cancelRequested.catch(cancelRun);
-  setHandler(stateQuery, () => ({ ...(currentNode ? { nodeId: currentNode } : {}), rounds, cancelled, ...(asking.size > 0 ? { asking: [...asking] } : {}) }));
+  setHandler(stateQuery, () => ({ ...(currentNode ? { nodeId: currentNode } : {}), rounds, cancelled, ...(asking.size > 0 ? { asking: [...asking] } : {}), ...(waitsFor.size > 0 ? { waitsFor: [...waitsFor] } : {}) }));
 
   const pending: EngineEvent[] = [];
   const traces: NodeTrace[] = [];
@@ -439,9 +440,11 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         return !choices?.length || (typeof value === 'string' && choices.includes(value));
       };
       await flush();
+      waitsFor.add(nodeId);
       const answered = timeoutMs === undefined
         ? await condition(() => usable() || cancelled).then(() => true)
         : await condition(() => usable() || cancelled, timeoutMs);
+      waitsFor.delete(nodeId);
       if (cancelled) return { answered: false, reason: 'the run was cancelled' };
       if (!answered) return { answered: false, reason: 'nobody answered in the time this step waits' };
       const value = answers.get(nodeId);

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from '../App';
@@ -45,7 +45,7 @@ describe('TanStack Router configuration and route matching', () => {
     vi.mocked(authApi.getMe).mockResolvedValue({ id: 'test-user', email: 'test@example.com' });
   });
 
-  it('renders application with router and navigates to clusters', async () => {
+  it('opens Infrastructure from the sidebar', async () => {
     const qc = createTestQueryClient();
     render(
       <QueryClientProvider client={qc}>
@@ -53,34 +53,27 @@ describe('TanStack Router configuration and route matching', () => {
       </QueryClientProvider>
     );
 
-    await waitFor(() => {
-      expect(screen.getByText('NO WRINKLES')).toBeInTheDocument();
-    });
-
-    const clustersBtn = screen.getByRole('button', { name: /clusters/i });
-    fireEvent.click(clustersBtn);
+    fireEvent.click(await screen.findByRole('button', { name: /infrastructure/i }));
 
     await waitFor(() => {
-      expect(screen.getByText('Infrastructures')).toBeInTheDocument();
-      expect(router.state.location.pathname).toBe('/clusters');
+      expect(screen.getByRole('navigation', { name: 'Infrastructure' })).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe('/infrastructure');
     });
   });
 
-  it('navigates to applications view', async () => {
+  it('sends the pages folded into Infrastructure to their tab', async () => {
     const qc = createTestQueryClient();
     render(
       <QueryClientProvider client={qc}>
         <App />
       </QueryClientProvider>
     );
+    await screen.findByRole('button', { name: /infrastructure/i });
 
-    const appsBtn = await screen.findByRole('button', { name: /applications/i });
-    fireEvent.click(appsBtn);
-
-    await waitFor(() => {
-      expect(screen.getByText('Deploy application instances.')).toBeInTheDocument();
-      expect(router.state.location.pathname).toBe('/apps');
-    });
+    for (const [from, to] of [['/clusters', '/infrastructure/clusters'], ['/apps', '/infrastructure/apps'], ['/services', '/infrastructure/clusters'], ['/running', '/infrastructure/running'], ['/monitoring', '/infrastructure'], ['/monitoring/app/books', '/infrastructure/app/books']] as const) {
+      await act(async () => { await router.navigate({ to: from as never }); });
+      await waitFor(() => expect(router.state.location.pathname, from).toBe(to));
+    }
   });
 
   it('navigates to projects view', async () => {

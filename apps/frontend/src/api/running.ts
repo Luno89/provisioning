@@ -15,6 +15,7 @@ export interface RunningItem {
   opens: { kind: 'chat' | 'tree' | 'project' | 'checks' | 'temporal'; id?: string }
   cancel: { via: 'check' | 'tree' | 'run' | 'workflow' } | { via: 'none'; why: string }
   asking?: string[]
+  waitsFor?: string[]
 }
 
 export interface RunningView {

@@ -22,6 +22,7 @@ import type { AutoModeSettings } from './auto-mode.js';
 import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
 import type { AlertRuleRecord } from './monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
+import type { WorkFailure } from './work-failures.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
 import type { MachineJoinCode } from './machines.js';
@@ -253,6 +254,10 @@ export interface Database {
   deleteAlertRule(id: string): Promise<void>;
   getAlertEpisodes(ownerId?: string): Promise<AlertEpisode[]>;
   saveAlertEpisode(episode: AlertEpisode): Promise<void>;
+  getWorkFailures(ownerId?: string): Promise<WorkFailure[]>;
+  addWorkFailure(failure: WorkFailure): Promise<void>;
+  clearWorkFailures(ownerId: string, ids: readonly string[] | 'all', at: string): Promise<number>;
+  pruneWorkFailures(before: string): Promise<void>;
   saveAutoModeSettings(settings: AutoModeSettings): Promise<void>;
   getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]>;
   saveEgressGrant(grant: EgressGrantRecord): Promise<void>;

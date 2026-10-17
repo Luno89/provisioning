@@ -19,15 +19,15 @@ afterEach(() => { vi.restoreAllMocks() })
 
 describe('changing the view', () => {
   it('writes the hash, without anything having to remember to', () => {
-    useShellStore.getState().setView('clusters')
-    expect(useShellStore.getState().view).toBe('clusters')
-    expect(window.location.hash).toContain('clusters')
+    useShellStore.getState().setView('infrastructure')
+    expect(useShellStore.getState().view).toBe('infrastructure')
+    expect(window.location.hash).toContain('infrastructure')
   })
 
   it('does nothing when the view is already current', () => {
-    useShellStore.getState().setView('clusters')
+    useShellStore.getState().setView('infrastructure')
     const before = window.history.length
-    useShellStore.getState().setView('clusters')
+    useShellStore.getState().setView('infrastructure')
     expect(window.history.length).toBe(before)
   })
 
@@ -56,10 +56,10 @@ describe('back and forward', () => {
   it('follows the URL without pushing a new entry for a move the user already made', () => {
     const stop = startHistorySync()
     try {
-      useShellStore.getState().setView('clusters')
-      setHash('#/apps')
+      useShellStore.getState().setView('infrastructure')
+      setHash('#/nginx')
       window.dispatchEvent(new PopStateEvent('popstate'))
-      expect(useShellStore.getState().view).toBe('apps')
+      expect(useShellStore.getState().view).toBe('nginx')
     } finally {
       stop()
     }

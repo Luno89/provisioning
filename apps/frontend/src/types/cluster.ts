@@ -33,16 +33,6 @@ export interface ClusterPod {
   }
 }
 
-export interface HelmRelease {
-  name?: string
-  namespace?: string
-  chart?: string
-  status?: string
-  revision?: string
-  updated?: string
-  app_version?: string
-}
-
 export interface GpuStatus {
   hasGpu?: boolean
   vendor?: string

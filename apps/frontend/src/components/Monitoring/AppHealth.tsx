@@ -1,13 +1,13 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ExternalLink, Loader2 } from 'lucide-react'
 import type { Range } from '../../api/monitoring'
 import { clusterDashboardUrl } from '../../api/clusters'
 import { errorMessage } from '../../api/client'
 import { Chart } from './Chart'
 import { EpisodeList, FiringList, RangePicker, RuleList, Section, StateBadge } from './Parts'
-import { CHARTS, windowOf, bytes, monitoringHash, percent, rate, seconds, useAppHealth } from './shared'
+import { CHARTS, windowOf, bytes, healthHash, tabHash, percent, rate, seconds, useAppHealth } from './shared'
 
-export function AppHealth({ deploymentId, standalone = false }: { deploymentId: string; standalone?: boolean }) {
+export function AppHealth({ deploymentId, standalone = false, actions }: { deploymentId: string; standalone?: boolean; actions?: ReactNode }) {
   const [range, setRange] = useState<Range>('24h')
   const health = useAppHealth(deploymentId, range)
 
@@ -21,14 +21,15 @@ export function AppHealth({ deploymentId, standalone = false }: { deploymentId: 
     <div className="space-y-5 overflow-y-auto p-1" data-testid="app-health">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
-          {standalone && <a href={monitoringHash()} className="text-[11px] text-slate-500 hover:text-slate-300">← Monitoring</a>}
+          {standalone && <a href={tabHash('apps')} className="text-[11px] text-slate-500 hover:text-slate-300">← Apps</a>}
           <div className="flex items-center gap-3">
             {standalone && <h2 className="text-lg font-semibold text-slate-100">{app.name}</h2>}
             <StateBadge state={app.state} />
-            <a href={monitoringHash('cluster', app.clusterId)} className="text-[11px] text-slate-500 hover:text-slate-300">on {app.clusterName}</a>
+            <a href={healthHash('cluster', app.clusterId)} className="text-[11px] text-slate-500 hover:text-slate-300">on {app.clusterName}</a>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {actions}
           <RangePicker range={range} onPick={setRange} />
           <a href={clusterDashboardUrl(app.clusterId, 'grafana')} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded border border-[var(--bark-600)] px-2 py-0.5 text-[11px] text-slate-300 hover:bg-[var(--bark-700)]">
             Open in Grafana <ExternalLink size={11} />

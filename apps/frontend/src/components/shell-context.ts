@@ -1,17 +1,14 @@
 import React from 'react';
 import type { UseMutationResult } from '@tanstack/react-query';
-import { Activity, Cloud, Key, Network, Package, Puzzle, Server, Shield, Timer } from 'lucide-react';
+import { Key, Network, Package, Puzzle, Shield, Timer } from 'lucide-react';
 import type { Cluster } from '../types/cluster';
 import type { Deployment } from '../types/deployment';
 import type { ProviderStatus } from '../types/credentials';
 
 export const FOREST_TABS = [
-  { id: 'clusters' as const, label: 'Clusters', icon: Cloud },
-  { id: 'apps' as const, label: 'Applications', icon: Server },
   { id: 'vps-catalog' as const, label: 'VPS Catalog', icon: Package },
   { id: 'mesh' as const, label: 'My Machines', icon: Network },
   { id: 'accounts' as const, label: 'Cloud Accounts', icon: Key },
-  { id: 'services' as const, label: 'Services', icon: Activity },
   { id: 'nginx' as const, label: 'Nginx Router', icon: Puzzle },
   { id: 'temporal' as const, label: 'Temporal', icon: Timer },
   { id: 'settings' as const, label: 'Security', icon: Shield },

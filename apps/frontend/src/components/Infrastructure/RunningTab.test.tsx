@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import RunningView from './RunningView'
+import RunningTab from './RunningTab'
 import * as runningApi from '../../api/running'
 
 vi.mock('../../api/running', async (orig) => ({
@@ -14,13 +14,13 @@ vi.mock('../../api/running', async (orig) => ({
 
 const show = () => render(
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-    <RunningView />
+    <RunningTab />
   </QueryClientProvider>,
 )
 
 const since = new Date(Date.now() - 5 * 60_000).toISOString()
 
-describe('the Running page', () => {
+describe('the Running tab', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(runningApi.getRunning).mockResolvedValue({

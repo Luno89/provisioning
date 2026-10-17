@@ -8,6 +8,7 @@ export interface RunState {
   rounds: number;
   cancelled: boolean;
   asking?: string[] | undefined;
+  waitsFor?: string[] | undefined;
 }
 
 export function runCancelledVia(client: () => Promise<Client>): (runId: string) => Promise<boolean> {
@@ -28,6 +29,17 @@ export function runAskingVia(client: () => Promise<Client>): (runId: string) => 
       return state.asking ?? [];
     } catch {
       return [];
+    }
+  };
+}
+
+export function runWaitingVia(client: () => Promise<Client>): (runId: string) => Promise<{ asking: string[]; waitsFor: string[] }> {
+  return async (runId) => {
+    try {
+      const state = await (await client()).workflow.getHandle(workflowOfRun(runId)).query<RunState>(RUN_STATE_QUERY);
+      return { asking: state.asking ?? [], waitsFor: state.waitsFor ?? [] };
+    } catch {
+      return { asking: [], waitsFor: [] };
     }
   };
 }

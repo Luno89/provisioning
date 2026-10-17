@@ -10,7 +10,7 @@ function setUp(workflows: RunningWorkflow[] | undefined) {
   const deps: RunningDeps = {
     workflows: {
       list: async () => workflows,
-      asking: async (id) => (id === 'run-r1' ? ['call-1'] : []),
+      waiting: async (id) => (id === 'run-r1' ? { asking: ['call-1'], waitsFor: [] } : { asking: [], waitsFor: id === 'release-p1' ? ['decide'] : [] }),
       cancel: async (id) => { done.push(`workflow ${id}`); return 'cancelled'; },
     },
     records: async () => ({ trees: [{ id: 't1', name: 'Shop' }], projects: [], conversations: [], checkRuns: [{ id: 'b1', trigger: { kind: 'changed' }, finished: 1, scenarios: [1, 2] }], releases: [], agentName: () => undefined }),
@@ -30,9 +30,10 @@ describe('what runs, for the person', () => {
     const { service } = setUp([
       { workflowId: 'check-run-b1', type: 'CheckRunWorkflow', startedAt: at },
       { workflowId: 'run-r1', type: 'AgentRunWorkflow', startedAt: at, memo: { runId: 'run-r1', agent: 'koala' } },
+      { workflowId: 'release-p1', type: 'AgentRunWorkflow', startedAt: at, memo: { runId: 'release-p1~1' } },
     ]);
     const view = await service.view('u1');
-    expect(view.ok && view.value.items.map((item) => [item.kind, item.asking])).toEqual([['bench', undefined], ['run', ['call-1']]]);
+    expect(view.ok && view.value.items.map((item) => [item.kind, item.asking, item.waitsFor])).toEqual([['bench', undefined, undefined], ['run', ['call-1'], undefined], ['release', undefined, ['decide']]]);
     expect(view.ok && view.value.bench).toEqual({ paused: false });
     expect(view.ok && view.value.keeper).toEqual({ paused: false, held: 0 });
   });

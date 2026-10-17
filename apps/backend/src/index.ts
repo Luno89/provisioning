@@ -63,8 +63,9 @@ import { createStoredToolCatalogue, createEngineHost, storesFromDatabase, create
 import { notifyGroveChanged, userRoom } from './engine-host/temporal/stream-worker.js';
 import { createWorkspaceRepoResolver, treeWorkspaceRunId } from './engine-host/sandboxes/workspace-repos.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
+import { labelValue } from './engine-host/sandboxes/workspace.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
-import { runAskingVia, runCancelledVia } from './engine-host/temporal/run-cancellation.js';
+import { runAskingVia, runCancelledVia, runWaitingVia } from './engine-host/temporal/run-cancellation.js';
 import { getTemporalClient, resolveOwnersWith } from './lib/temporal-client.js';
 import { PayloadStorageService } from './services/PayloadStorageService.js';
 import { MemoryKeeperService } from './services/MemoryKeeperService.js';
@@ -145,10 +146,14 @@ import type { SearchOutcome } from './lib/web-tools.js';
 import { createGroveLauncher } from './engine-host/grove-launcher.js';
 import { groveAgentOf, resolveTreeType, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, treeTypeOfProject, renderStarterFiles, versionVars } from './lib/tree-types.js';
 import { RunningService } from './services/RunningService.js';
-import { ownedQuery } from './lib/workflow-owner.js';
+import { ownedQuery, ownerIn } from './lib/workflow-owner.js';
 import { DEFAULT_BENCH_SETTINGS } from './lib/bench.js';
 import { runningRouter } from './routes/running.js';
-import type { RunningWorkflow } from './lib/running.js';
+import { infrastructureRouter } from './routes/infrastructure.js';
+import { InfrastructureViewService } from './services/InfrastructureViewService.js';
+import { ClusterContentsService } from './services/ClusterContentsService.js';
+import { WorkFailureService, type ClosedWorkflow } from './services/WorkFailureService.js';
+import type { RunningRecords, RunningWorkflow } from './lib/running.js';
 import { TreeHomeService } from './services/TreeHomeService.js';
 import { TreeModelsService, treeAgentsFrom } from './services/TreeModelsService.js';
 import { CustomizationsService } from './services/CustomizationsService.js';
@@ -492,6 +497,63 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     void memoryKeeper.settled(ownerId, conversationId).then(reportMemory('a conversation settled')).catch((err: Error) => console.warn(`[memory] ${err.message}`));
   };
 
+  async function runningRecords(ownerId: string): Promise<RunningRecords> {
+    const [trees, projects, conversations, checkRuns, releases, agents] = await Promise.all([
+      db.getTrees(), db.getProjects(), db.getConversations(), level2Service.list(ownerId), db.getOdooReleases(ownerId), agentDirectory.agents(ownerId),
+    ]);
+    return {
+      trees: trees.filter((entry) => entry.ownerId === ownerId),
+      projects: projects.filter((entry) => entry.ownerId === ownerId),
+      conversations: conversations.filter((entry) => entry.ownerId === ownerId),
+      checkRuns: checkRuns.map((run) => ({ id: run.id, trigger: run.trigger as { kind?: string; agents?: string[] } | undefined, finished: run.finished, scenarios: run.scenarios })),
+      releases,
+      agentName: (slug) => agents.find((agent) => agent.slug === slug)?.name,
+    };
+  }
+  const workFailures = new WorkFailureService({
+    store: db,
+    workflows: {
+      closedSince: async (since) => {
+        if (!temporalBridge.isReady()) return [];
+        const found: ClosedWorkflow[] = [];
+        const query = `(ExecutionStatus = "Failed" OR ExecutionStatus = "TimedOut") AND CloseTime > "${since.toISOString()}"`;
+        for await (const workflow of temporalBridge.client.workflow.list({ query })) {
+          found.push({
+            workflowId: workflow.workflowId,
+            temporalRunId: workflow.runId,
+            type: workflow.type,
+            startedAt: workflow.startTime.toISOString(),
+            closedAt: (workflow.closeTime ?? new Date()).toISOString(),
+            status: workflow.status.name === 'TIMED_OUT' ? 'TIMED_OUT' : 'FAILED',
+            ownerId: ownerIn(workflow.typedSearchAttributes),
+            ...(workflow.parentExecution?.workflowId ? { parent: workflow.parentExecution.workflowId } : {}),
+            ...(workflow.memo ? { memo: workflow.memo } : {}),
+          });
+        }
+        return found;
+      },
+      failureOf: async (workflowId, temporalRunId) => {
+        try {
+          await temporalBridge.client.workflow.getHandle(workflowId, temporalRunId).result();
+          return undefined;
+        } catch (err) {
+          return { message: (err as Error).message, cause: { message: (err as { cause?: Error }).cause?.message } };
+        }
+      },
+      describeRun: async (runId) => {
+        if (!temporalBridge.isReady()) return undefined;
+        const described = await temporalBridge.client.workflow.getHandle(workflowOfRun(runId)).describe();
+        return { workflowId: described.workflowId, type: described.type, startedAt: described.startTime.toISOString(), ...(described.memo ? { memo: described.memo } : {}) };
+      },
+    },
+    records: runningRecords,
+    isPerson: async (ownerId) => {
+      const user = await db.getUserById(ownerId);
+      return Boolean(user) && !user!.space && !user!.removal;
+    },
+    log: (message) => console.warn(message),
+  });
+
   if (servesTenants(role)) startStreamWorker({
     io,
     turnLogs: db,
@@ -515,6 +577,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
             }
           })());
         }
+        if (event.kind === 'run-ended') await workFailures.runEnded(event).catch((err: Error) => console.warn(`[failures] ${err.message}`));
         reportMemory(event.kind)(await memoryKeeper.handle(event));
         await bench.service?.activity(event);
       },
@@ -1368,7 +1431,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     builds: (ownerId) => db.getRunEffort(ownerId, BUILD_WORKSPACE.id),
     startBuild: (ownerId, treeId, commit) => workspaceBuilds.start(ownerId, treeId, commit),
   }) : undefined;
-  const askingOf = runAskingVia(() => getTemporalClient());
+  const waitingOf = runWaitingVia(() => getTemporalClient());
   const running = new RunningService({
     workflows: {
       list: async (ownerId) => {
@@ -1385,22 +1448,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         }
         return found;
       },
-      asking: (workflowId) => askingOf(workflowId),
+      waiting: (workflowId) => waitingOf(workflowId),
       cancel: (workflowId) => temporalBridge.cancelWorkflow(workflowId),
     },
-    records: async (ownerId) => {
-      const [trees, projects, conversations, checkRuns, releases, agents] = await Promise.all([
-        db.getTrees(), db.getProjects(), db.getConversations(), level2Service.list(ownerId), db.getOdooReleases(ownerId), agentDirectory.agents(ownerId),
-      ]);
-      return {
-        trees: trees.filter((entry) => entry.ownerId === ownerId),
-        projects: projects.filter((entry) => entry.ownerId === ownerId),
-        conversations: conversations.filter((entry) => entry.ownerId === ownerId),
-        checkRuns: checkRuns.map((run) => ({ id: run.id, trigger: run.trigger as { kind?: string; agents?: string[] } | undefined, finished: run.finished, scenarios: run.scenarios })),
-        releases,
-        agentName: (slug) => agents.find((agent) => agent.slug === slug)?.name,
-      };
-    },
+    records: runningRecords,
     checks: { cancel: (ownerId, id) => level2Service.cancel(ownerId, id) },
     trees: { stop: async (ownerId, treeId) => { const outcome = await groveRuns.stop(ownerId, treeId); return outcome.ok ? { ok: true } : { ok: false, error: outcome.error }; } },
     runs: { cancel: (runId) => engineRuns.cancel(runId) },
@@ -1411,6 +1462,17 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     keeper: memoryKeeper,
   });
   tenant.use('/api/running', runningRouter({ running }));
+  const clusterContents = new ClusterContentsService({
+    monitoring,
+    deployments: () => db.getDeployments(),
+    kubectl: async (cluster, args) => String(await infraService.runKubectl(args, await clusterService.getKubeconfigPath(cluster))),
+    helm: async (cluster, args) => String(await infraService.runHelm(args, await clusterService.getKubeconfigPath(cluster))),
+    labelOf: labelValue,
+  });
+  tenant.use('/api/infrastructure', infrastructureRouter({
+    infrastructure: new InfrastructureViewService({ monitoring, contents: clusterContents, running, failures: workFailures }),
+  }));
+  if (servesTenants(role)) workFailures.start();
   tenant.use('/api/trees', treesRouter({
     db,
     ...(treeWorkspace ? { workspaceFile: treeWorkspace } : {}),

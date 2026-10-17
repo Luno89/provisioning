@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from '../App';
@@ -48,32 +48,25 @@ describe('App Dashboard', () => {
     vi.mocked(authApi.getMe).mockResolvedValue({ id: 'u1', email: 'u@example.com' });
   });
 
-  it('renders the sidebar and main header', async () => {
+  it('renders the sidebar with one Infrastructure entry', async () => {
     render(<App />, { wrapper });
     await waitFor(() => {
       expect(screen.getByText('NO WRINKLES')).toBeInTheDocument();
-      expect(screen.getByText('Clusters')).toBeInTheDocument();
-      expect(screen.getByText('Applications')).toBeInTheDocument();
+      expect(screen.getByText('Infrastructure')).toBeInTheDocument();
     });
+    expect(screen.queryByText('Clusters')).toBeNull();
+    expect(screen.queryByText('Applications')).toBeNull();
   });
 
-  it('switches between Clusters and Applications views', async () => {
+  it('opens Infrastructure and moves between its Clusters and Apps tabs', async () => {
     render(<App />, { wrapper });
+    fireEvent.click(await screen.findByText('Infrastructure'));
+    const tabs = await screen.findByRole('navigation', { name: 'Infrastructure' });
 
-    await waitFor(() => {
-      expect(screen.getByText('Clusters')).toBeInTheDocument();
-    });
+    fireEvent.click(within(tabs).getByRole('link', { name: 'Clusters' }));
+    expect(await screen.findByRole('button', { name: /Provision a cluster/ })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('Clusters'));
-    await waitFor(() => {
-      expect(screen.getByText('Infrastructures')).toBeInTheDocument();
-    });
-    
-    const appsButton = screen.getByRole('button', { name: /applications/i });
-    appsButton.click();
-    
-    await waitFor(() => {
-      expect(screen.getByText('Deploy application instances.')).toBeInTheDocument();
-    });
+    fireEvent.click(within(tabs).getByRole('link', { name: 'Apps' }));
+    expect(await screen.findByRole('button', { name: /Deploy an app/ })).toBeInTheDocument();
   });
 });

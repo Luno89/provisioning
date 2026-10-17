@@ -63,7 +63,7 @@ export function ChatNotice({ notice, at, onOpenTree, onOpenStory }: {
           </button>
         )}
         {(deploymentId || clusterId) && goes('open-monitoring') && (
-          <button type="button" onClick={() => { window.location.hash = formatHash('monitoring', deploymentId ? ['app', deploymentId] : ['cluster', clusterId!]) }} className="rounded border border-[var(--bark-600)] px-2 py-0.5 text-[11px] text-slate-200 hover:bg-[var(--bark-700)] cursor-pointer">
+          <button type="button" onClick={() => { window.location.hash = formatHash('infrastructure', deploymentId ? ['app', deploymentId] : ['cluster', clusterId!]) }} className="rounded border border-[var(--bark-600)] px-2 py-0.5 text-[11px] text-slate-200 hover:bg-[var(--bark-700)] cursor-pointer">
             Open its health
           </button>
         )}

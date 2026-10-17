@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseHash, formatHash, shouldReplace, resolveView } from './route.js';
+import { RETIRED_VIEWS, parseHash, formatHash, shouldReplace, resolveView } from './route.js';
 
 describe('reading a hash', () => {
   it('reads a view and its ids', () => {
@@ -73,3 +73,12 @@ describe('links that outlived their view', () => {
     expect(resolveView(undefined, known, 'clusters')).toBe('clusters');
   });
 });
+
+describe('the pages folded into Infrastructure', () => {
+  it('open Infrastructure', () => {
+    for (const gone of ['clusters', 'apps', 'services', 'running', 'monitoring']) {
+      expect(RETIRED_VIEWS[gone], gone).toBe('infrastructure')
+      expect(resolveView(gone, ['infrastructure'], 'chat'), gone).toBe('infrastructure')
+    }
+  })
+})

@@ -15,8 +15,6 @@ const services = () => ({
     getAll: vi.fn(async () => [cluster()]),
     getById: vi.fn(async (id: string, userId: string) =>
       (id === 'c1' && userId === TEST_USER.id ? cluster() : undefined)),
-    listAllPods: vi.fn(async () => [{ metadata: { name: 'p1' } }]),
-    listReleases: vi.fn(async () => [{ name: 'traefik' }]),
     getGpuStatus: vi.fn(async () => ({ gpus: 0 })),
     getKubeconfigPath: vi.fn(async () => '/tmp/kubeconfig'),
   },
@@ -62,7 +60,7 @@ describe('reading one cluster', () => {
   it('404s for a cluster owned by someone else, not 403', async () => {
     const { h, svc } = await mount();
     svc.clusterService.getById.mockResolvedValue(undefined as never);
-    const err = await axios.get(h.url('/api/clusters/someone-elses/services')).catch((e) => e);
+    const err = await axios.get(h.url('/api/clusters/someone-elses/proxy/grafana')).catch((e) => e);
     expect(err.response.status).toBe(404);
     expect(JSON.stringify(err.response.data)).not.toMatch(/permission|forbidden|owner/i);
   });
@@ -70,15 +68,15 @@ describe('reading one cluster', () => {
   it('404s identically for an id that does not exist', async () => {
     const { h, svc } = await mount();
     svc.clusterService.getById.mockResolvedValue(undefined as never);
-    const err = await axios.get(h.url('/api/clusters/no-such-thing/services')).catch((e) => e);
+    const err = await axios.get(h.url('/api/clusters/no-such-thing/proxy/grafana')).catch((e) => e);
     expect(err.response.status).toBe(404);
   });
 
   it('passes the calling user down to every lookup', async () => {
     const { h, svc } = await mount();
     h.setUser({ id: 'someone-else', email: 'other@example.com', isAdmin: false });
-    await axios.get(h.url('/api/clusters/c1/all-pods')).catch(() => undefined);
-    expect(svc.clusterService.listAllPods).toHaveBeenCalledWith('c1', 'someone-else');
+    await axios.get(h.url('/api/clusters/c1/gpu-status')).catch(() => undefined);
+    expect(svc.clusterService.getGpuStatus).toHaveBeenCalledWith('c1', 'someone-else');
   });
 });
 
@@ -112,8 +110,8 @@ describe('the dashboard proxies', () => {
 describe('when the cluster cannot be reached', () => {
   it('answers rather than hanging', async () => {
     const { h, svc } = await mount();
-    svc.clusterService.listAllPods.mockRejectedValue(new Error('dial tcp: i/o timeout') as never);
-    await expect(axios.get(h.url('/api/clusters/c1/all-pods'), { timeout: 3000 })).rejects.toMatchObject({
+    svc.clusterService.getGpuStatus.mockRejectedValue(new Error('dial tcp: i/o timeout') as never);
+    await expect(axios.get(h.url('/api/clusters/c1/gpu-status'), { timeout: 3000 })).rejects.toMatchObject({
       response: { status: 500, data: { error: 'dial tcp: i/o timeout' } },
     });
   });
