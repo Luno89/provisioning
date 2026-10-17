@@ -313,6 +313,7 @@ export class MongoDB implements Database {
     await this.turnLogs.createIndex({ ownerId: 1, seq: 1, at: -1 });
     await this.handoffs.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.instanceRegistry.createIndex({ ownerId: 1 });
+    await this.instanceRegistry.createIndex({ name: 1 }, { unique: true, partialFilterExpression: { name: { $type: 'string' } } });
     await this.joinTokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.machineJoinCodes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.planProposals.createIndex({ ownerId: 1, conversationId: 1, createdAt: 1 });

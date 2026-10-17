@@ -8,6 +8,7 @@ PUBLIC_URL_OVERRIDE=""
 NAMESPACE="nowrinkles"
 RELEASE="instance"
 NODE_PORT=30320
+EDGE_PORT=30321
 KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 export KUBECONFIG
 
@@ -49,7 +50,7 @@ ok "this machine will be instance ${INSTANCE_ID}"
 
 report() {
   curl -fsS -X POST -H 'Content-Type: application/json' -H "X-Instance-Id: ${INSTANCE_ID}" -H "Authorization: Bearer ${INSTANCE_CREDENTIAL}" \
-    -d "{\"status\":\"$1\",\"detail\":\"$2\"$( [ -n "${3:-}" ] && printf ',"url":"%s"' "$3" )}" "${ROOT_URL}/api/instances/status" >/dev/null 2>&1 || true
+    -d "{\"status\":\"$1\",\"detail\":\"$2\"$( [ -n "${3:-}" ] && printf ',"url":"%s"' "$3" )$( [ -n "${MESH_IP:-}" ] && printf ',"meshIp":"%s"' "$MESH_IP" )}" "${ROOT_URL}/api/instances/status" >/dev/null 2>&1 || true
 }
 trap 'status=$?; rm -f "$JOIN_ENV"; [ $status -ne 0 ] && report failed "The install command stopped on this machine; run it again to retry"' EXIT
 
@@ -126,7 +127,14 @@ until kubectl get nodes 2>/dev/null | grep -q ' Ready'; do sleep 2; done
 ok "k3s pulls from ${INSTANCE_REGISTRY}"
 
 say "Installing your instance (this takes a while the first time)"
-PUBLIC_URL="${PUBLIC_URL_OVERRIDE:-http://${MESH_IP}:${NODE_PORT}}"
+if [ -n "${INSTANCE_DOMAIN:-}" ] && [ -n "${INSTANCE_NAME:-}" ]; then
+  DEFAULT_URL="https://${INSTANCE_NAME}.${INSTANCE_DOMAIN}"
+  ROUTING="--set routing.name=${INSTANCE_NAME} --set routing.domain=${INSTANCE_DOMAIN} --set edge.nodePort=${EDGE_PORT}"
+else
+  DEFAULT_URL="http://${MESH_IP}:${NODE_PORT}"
+  ROUTING=""
+fi
+PUBLIC_URL="${PUBLIC_URL_OVERRIDE:-$DEFAULT_URL}"
 report installing "Installing the instance" "$PUBLIC_URL"
 KEYS_FILE="$(mktemp)"
 printf '%s' "$ROOT_PUBLIC_KEYS_B64" | base64 -d > "$KEYS_FILE"
@@ -136,7 +144,7 @@ helm upgrade --install "$RELEASE" /tmp/instance-chart.tgz --namespace "$NAMESPAC
   --set instance.id="$INSTANCE_ID" --set instance.ownerId="$INSTANCE_OWNER_ID" --set instance.rootUrl="$ROOT_URL" \
   --set-file instance.rootPublicKeys="$KEYS_FILE" --set instance.credential="$INSTANCE_CREDENTIAL" \
   --set publicUrl="$PUBLIC_URL" --set backend.nodePort="$NODE_PORT" --set hostDocker="$HOST_DOCKER" \
-  --set mesh.loginServer="$MESH_LOGIN_SERVER" --set mesh.address="$MESH_IP" \
+  --set mesh.loginServer="$MESH_LOGIN_SERVER" --set mesh.address="$MESH_IP" $ROUTING \
   --wait --timeout 45m
 rm -f "$KEYS_FILE"
 report ready "Installed" "$PUBLIC_URL"

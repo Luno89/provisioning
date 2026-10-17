@@ -60,6 +60,7 @@
     "test:extensions-live": "cd apps/backend && tsx ../../tests/extensions-live.ts",
     "test:instance-live": "cd apps/backend && tsx ../../tests/instance-live.ts",
     "test:byo-live": "cd apps/backend && tsx ../../tests/byo-machine-live.ts",
+    "test:routing-live": "cd apps/backend && tsx ../../tests/routing-live.ts",
     "test:machine-live": "cd apps/backend && tsx ../../tests/machine-live.ts",
     "test:mesh-live": "cd apps/backend && tsx ../../tests/mesh-live.ts",
     "test:secrets-live": "cd apps/backend && tsx ../../tests/secrets-live.ts",

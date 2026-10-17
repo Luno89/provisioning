@@ -195,6 +195,9 @@ import { IdentityService } from './services/IdentityService.js';
 import { identityRouter } from './routes/identity.js';
 import { handoffRouter } from './routes/handoff.js';
 import { InstanceService } from './services/InstanceService.js';
+import { InstanceRoutes, dockerCaddy } from './services/InstanceRoutes.js';
+import { InstanceAddresses, adminEdge } from './services/InstanceAddresses.js';
+import { instanceAddressesRouter } from './routes/instance-addresses.js';
 import { InstanceChart } from './services/InstanceChart.js';
 import { instancesRouter } from './routes/instances.js';
 import { OdooReleaseService } from './services/OdooReleaseService.js';
@@ -279,7 +282,19 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const appService = new AppService(db, infraService, clusterService, builderService);
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
-  const appExposureService = new AppExposureService(db, infraService, clusterService, io);
+  let instanceAddresses: InstanceAddresses | undefined;
+  const edgeName = process.env.INSTANCE_NAME;
+  const edge = role.instance && edgeName && process.env.EDGE_ADMIN_URL && process.env.EDGE_CADDYFILE
+    ? adminEdge(edgeName, process.env.EDGE_ADMIN_URL, process.env.EDGE_CADDYFILE, () => instanceAddresses)
+    : undefined;
+  const appExposureService = new AppExposureService(db, infraService, clusterService, io, edge);
+  if (edge && role.instance) {
+    instanceAddresses = new InstanceAddresses(
+      { rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: process.env.INSTANCE_CREDENTIAL ?? '', name: edge.name },
+      () => appExposureService.syncExposedApps(),
+    );
+    instanceAddresses.refresh().catch((err: Error) => console.warn(`[addresses] ${err.message}`));
+  }
   const clusterProxyService = sharedClusterProxy();
   const giteaService = new GiteaService(infraService, keys.data, '/tmp/kubeconfig-provisioning-lunorica');
   await giteaService.ensureClusterSecret().catch((err: Error) =>
@@ -725,6 +740,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   if (holdsAccounts(role)) {
     const repoRoot = path.join(__dirname, '../../..');
     const instanceChart = new InstanceChart(repoRoot);
+    const routingDomain = process.env.INGRESS_DOMAIN || undefined;
+    const instanceRoutes = routingDomain
+      ? new InstanceRoutes(db, routingDomain, path.join(__dirname, '../data/caddy'), dockerCaddy(process.env.CADDY_CONTAINER || 'nowrinkles-caddy', process.env.CADDY_TLS_ADDRESS || '127.0.0.1:443'), (message) => console.error(message))
+      : undefined;
+    const siteNames = [process.env.APP_DOMAIN, process.env.MESH_DOMAIN]
+      .filter((site): site is string => Boolean(site && routingDomain && site.endsWith(`.${routingDomain}`)))
+      .map((site) => site.slice(0, -(routingDomain!.length + 1)));
     const instanceService = new InstanceService(db, {
       rootUrl: PUBLIC_URL,
       rootPublicKeys: () => identity.publicKeys().map((key) => key.publicKey),
@@ -732,7 +754,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       registry: process.env.INSTANCE_REGISTRY ?? '',
       imageTag: process.env.INSTANCE_IMAGE_TAG || 'dev',
       chartVersion: await instanceChart.version(),
-    }, headscaleService);
+      domain: routingDomain,
+      siteNames,
+    }, headscaleService, () => new Date(), () => instanceRoutes?.changed());
+    instanceRoutes?.start();
     app.use('/api/instances', instancesRouter({ instances: instanceService, chart: () => instanceChart.path() }));
     const installer = (await fs.readFile(path.join(repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', PUBLIC_URL);
     app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
@@ -748,6 +773,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     return owned ? res.status(200).send('ok') : res.status(404).send('unknown host');
   });
 
+  tenant.use('/api/instance-addresses', instanceAddressesRouter({ addresses: () => instanceAddresses }));
   tenant.use('/api/credentials', llmCredentialsRouter({ db, dataKey: keys.data, credentialService }));
   tenant.use('/api/credentials', credentialsRouter({
     credentialService,

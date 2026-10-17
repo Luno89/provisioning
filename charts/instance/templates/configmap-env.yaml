@@ -20,7 +20,35 @@ data:
   {{- if .Values.mesh.address }}
   MACHINE_TEMPORAL_ADDRESS: {{ printf "%s:7233" .Values.mesh.address | quote }}
   {{- end }}
+  {{- if .Values.routing.domain }}
+  INGRESS_DOMAIN: {{ .Values.routing.domain | quote }}
+  INSTANCE_NAME: {{ required "routing.name is required with routing.domain" .Values.routing.name | quote }}
+  EDGE_ADMIN_URL: http://localhost:2019
+  EDGE_CADDYFILE: /etc/edge/Caddyfile
+  {{- end }}
   SEARXNG_URL: http://searxng.searxng.svc.cluster.local:8080
   CRAWL4AI_URL: http://crawl4ai.crawl4ai.svc.cluster.local:11235
   KUBECONFIG_PATH: /tmp/kubeconfig-provisioning-lunorica
   IN_CLUSTER: "true"
+{{- if .Values.routing.domain }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "instance.name" . }}-edge
+  labels: {{- include "instance.labels" . | nindent 4 }}
+data:
+  Caddyfile: |
+    {
+    	admin localhost:2019
+    	auto_https off
+    	http_port 8080
+    	persist_config off
+    }
+
+    import /app/apps/backend/data/caddy/apps/*.caddy
+
+    :8080 {
+    	respond 404
+    }
+{{- end }}

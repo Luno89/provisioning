@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import type { Database } from '../lib/db-interface.js';
-import { INSTANCE_STATUSES, type InstanceRecord, type InstanceStatus } from '../lib/instances.js';
+import { INSTANCE_STATUSES, type InstanceAddresses, type InstanceRecord, type InstanceStatus } from '../lib/instances.js';
+import { nameProblem, suggestedName } from '../lib/instance-names.js';
+import { routeProblem } from '../lib/instance-routes.js';
 
 export const JOIN_TOKEN_TTL_SECONDS = 3600;
 
@@ -13,6 +15,8 @@ export interface InstanceSettings {
   registry: string;
   imageTag: string;
   chartVersion: string;
+  domain?: string | undefined;
+  siteNames?: readonly string[] | undefined;
 }
 
 export interface JoinBundle {
@@ -27,6 +31,8 @@ export interface JoinBundle {
   imageTag: string;
   chartUrl: string;
   credential: string;
+  name: string;
+  domain: string;
 }
 
 export type Outcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 401 | 404 | 503; error: string };
@@ -42,7 +48,31 @@ export class InstanceService {
     private readonly settings: InstanceSettings,
     private readonly mesh: { createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }> } | undefined,
     private readonly now: () => Date = () => new Date(),
+    private readonly routesChanged: () => void = () => {},
   ) {}
+
+  private async nameFor(ownerId: string, name: unknown): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
+    const existing = (await this.store.getInstances(ownerId))[0];
+    if (existing?.name) {
+      return name === undefined || name === existing.name
+        ? { ok: true, name: existing.name }
+        : { ok: false, error: `your instance is already named "${existing.name}", and a name stays as it is, since links use it` };
+    }
+    if (typeof name !== 'string') return { ok: false, error: 'pick a name for your instance' };
+    const problem = nameProblem(name, this.settings.siteNames ?? []);
+    if (problem) return { ok: false, error: problem };
+    const taken = (await this.store.getInstances()).some((entry) => entry.name === name && entry.ownerId !== ownerId);
+    return taken ? { ok: false, error: `"${name}" is taken` } : { ok: true, name };
+  }
+
+  async nameCheck(ownerId: string, name: unknown): Promise<{ ok: boolean; problem?: string; suggestion?: string; address?: string }> {
+    const user = await this.store.getUserById(ownerId);
+    const suggestion = user?.email ? suggestedName(user.email) : undefined;
+    if (name === undefined || name === '') return { ok: false, ...(suggestion ? { suggestion } : {}) };
+    const found = await this.nameFor(ownerId, name);
+    if (!found.ok) return { ok: false, problem: found.error };
+    return this.settings.domain ? { ok: true, address: `https://${found.name}.${this.settings.domain}` } : { ok: true };
+  }
 
   private async save(instance: InstanceRecord, patch: Partial<InstanceRecord>): Promise<InstanceRecord> {
     const next = { ...instance, ...patch, updatedAt: this.now().toISOString() };
@@ -50,7 +80,9 @@ export class InstanceService {
     return next;
   }
 
-  async createJoinToken(ownerId: string): Promise<{ token: string; command: string; expiresAt: string }> {
+  async createJoinToken(ownerId: string, requestedName?: unknown): Promise<Outcome<{ token: string; command: string; expiresAt: string; name: string }>> {
+    const named = await this.nameFor(ownerId, requestedName);
+    if (!named.ok) return { ok: false, status: 400, error: named.error };
     const token = crypto.randomBytes(24).toString('base64url');
     const expiresAt = new Date(this.now().getTime() + JOIN_TOKEN_TTL_SECONDS * 1000).toISOString();
     const instanceId = instanceIdFor(ownerId);
@@ -66,10 +98,12 @@ export class InstanceService {
       updatedAt: now,
       status: 'waiting',
       detail: 'Waiting for the machine to run the install command',
+      name: named.name,
       ...(existing?.credentialHash ? { credentialHash: existing.credentialHash } : {}),
+      ...(existing?.addresses ? { addresses: existing.addresses } : {}),
     });
 
-    return { token, expiresAt, command: `curl -fsSL ${this.settings.rootUrl}/install.sh | sudo sh -s -- ${token}` };
+    return { ok: true, value: { token, expiresAt, name: named.name, command: `curl -fsSL ${this.settings.rootUrl}/install.sh | sudo sh -s -- ${token}` } };
   }
 
   async join(token: unknown, machine: unknown): Promise<Outcome<JoinBundle>> {
@@ -104,6 +138,8 @@ export class InstanceService {
         imageTag: this.settings.imageTag,
         chartUrl: `${this.settings.rootUrl}/api/instances/chart.tgz`,
         credential,
+        name: instance?.name ?? '',
+        domain: this.settings.domain ?? '',
       },
     };
   }
@@ -127,7 +163,7 @@ export class InstanceService {
     return { ok: true, value: { preAuthKey: key, meshLoginServer: this.settings.meshLoginServer } };
   }
 
-  async report(instanceId: unknown, credential: unknown, report: { status?: unknown; detail?: unknown; url?: unknown }): Promise<Outcome<InstanceRecord>> {
+  async report(instanceId: unknown, credential: unknown, report: { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown }): Promise<Outcome<InstanceRecord>> {
     const instance = await this.authenticated(instanceId, credential);
     if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
     if (!INSTANCE_STATUSES.includes(report.status as InstanceStatus)) return { ok: false, status: 400, error: `status is one of ${INSTANCE_STATUSES.join(', ')}` };
@@ -141,11 +177,37 @@ export class InstanceService {
         return { ok: false, status: 400, error: 'url is the origin the instance answers on' };
       }
     }
-    return { ok: true, value: await this.save(instance, { status: report.status as InstanceStatus, detail: typeof report.detail === 'string' ? report.detail.slice(0, 500) : undefined, url }) };
+    let meshIp = instance.meshIp;
+    if (report.meshIp !== undefined) {
+      if (typeof report.meshIp !== 'string' || routeProblem({ name: 'x', meshIp: report.meshIp, nested: false })) return { ok: false, status: 400, error: 'meshIp is the instance\'s address on the mesh' };
+      meshIp = report.meshIp;
+    }
+    const saved = await this.save(instance, { status: report.status as InstanceStatus, detail: typeof report.detail === 'string' ? report.detail.slice(0, 500) : undefined, url, meshIp });
+    if (saved.status !== instance.status || saved.meshIp !== instance.meshIp) this.routesChanged();
+    return { ok: true, value: saved };
   }
 
-  async mine(ownerId: string): Promise<{ id: string; status: InstanceStatus; detail?: string | undefined; url: string } | null> {
+  async mine(ownerId: string): Promise<{ id: string; status: InstanceStatus; detail?: string | undefined; url: string; name?: string | undefined } | null> {
     const instance = (await this.store.getInstances(ownerId))[0];
-    return instance ? { id: instance.id, status: instance.status ?? (instance.url ? 'ready' : 'waiting'), detail: instance.detail, url: instance.url } : null;
+    return instance ? { id: instance.id, status: instance.status ?? (instance.url ? 'ready' : 'waiting'), detail: instance.detail, url: instance.url, name: instance.name } : null;
+  }
+
+  async addresses(instanceId: unknown, credential: unknown): Promise<Outcome<InstanceAddresses & { name: string; domain: string }>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    if (!instance.name || !this.settings.domain) return { ok: false, status: 503, error: 'this root gives instances no addresses of their own (no INGRESS_DOMAIN), so apps are not published from here' };
+    return { ok: true, value: { nested: false, ...instance.addresses, name: instance.name, domain: this.settings.domain } };
+  }
+
+  async setAddresses(instanceId: unknown, credential: unknown, nested: unknown): Promise<Outcome<InstanceAddresses & { name: string; domain: string }>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    if (typeof nested !== 'boolean') return { ok: false, status: 400, error: 'send "nested" as true or false' };
+    if (!instance.name || !this.settings.domain) return { ok: false, status: 503, error: 'this root gives instances no addresses of their own (no INGRESS_DOMAIN), so apps are not published from here' };
+    if ((instance.addresses?.nested ?? false) !== nested) {
+      await this.save(instance, { addresses: nested ? { nested: true, state: 'issuing' } : { nested: false } });
+      this.routesChanged();
+    }
+    return this.addresses(instanceId, credential);
   }
 }

@@ -10,7 +10,7 @@ describe('what the installer sources', () => {
     const bundle = {
       instanceId: 'inst-1', ownerId: 'u1', rootUrl: 'https://app.example.com', rootPublicKeys: "-----BEGIN PUBLIC KEY-----\nab'c$(rm -rf /)\n-----END PUBLIC KEY-----",
       meshLoginServer: 'https://mesh.example.com', preAuthKey: "key'with`quotes`", registry: '100.64.0.1:5001', image: '100.64.0.1:5001/nowrinkles/app',
-      imageTag: 'abc', chartUrl: 'https://app.example.com/api/instances/chart.tgz', credential: 'c$HOME',
+      imageTag: 'abc', chartUrl: 'https://app.example.com/api/instances/chart.tgz', credential: 'c$HOME', name: 'luno', domain: 'example.com',
     };
     const dir = mkdtempSync(join(tmpdir(), 'bundle-'));
     writeFileSync(join(dir, 'join.env'), bundleAsEnv(bundle));

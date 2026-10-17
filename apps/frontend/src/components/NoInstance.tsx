@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Check, Copy, HardDrive, Loader2, LogOut } from 'lucide-react'
-import { useCreateJoinCommand, useInstanceReady, useMySetup, type InstanceStatus } from '../api/instances'
+import { useCreateJoinCommand, useInstanceReady, useMySetup, useNameCheck, type InstanceStatus } from '../api/instances'
 import { errorMessage } from '../api/client'
 
 export interface NoInstanceProps {
@@ -22,6 +22,12 @@ export default function NoInstance({ hasInstance, onLogout }: NoInstanceProps) {
   const setup = useMySetup(settingUp)
   const ready = useInstanceReady()
   const status = setup.data?.status
+  const fixedName = setup.data?.name
+  const [typed, setTyped] = useState<string | undefined>(undefined)
+  const suggestion = useNameCheck('')
+  const name = fixedName ?? typed ?? suggestion.data?.suggestion ?? ''
+  const check = useNameCheck(name)
+  const nameOk = Boolean(name) && (check.data?.ok ?? false)
 
   useEffect(() => {
     if (status === 'ready') ready()
@@ -42,11 +48,32 @@ export default function NoInstance({ hasInstance, onLogout }: NoInstanceProps) {
           <>
             <p className="text-sm font-semibold">You don't have an instance yet</p>
             <p className="text-xs leading-relaxed text-slate-400">Your work runs on an instance of your own, on a machine you choose. Nothing about it is visible to anyone else.</p>
+            {!create.data && (
+              <div className="space-y-1">
+                <label className="block text-xs text-slate-300" htmlFor="instance-name">Your name, in your instance's address</label>
+                {fixedName ? (
+                  <p className="font-mono text-xs text-slate-200">{fixedName}</p>
+                ) : (
+                  <input
+                    id="instance-name"
+                    value={name}
+                    onChange={(event) => setTyped(event.target.value.toLowerCase())}
+                    autoComplete="off"
+                    className="w-full rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)] px-2 py-1 font-mono text-xs text-slate-100"
+                  />
+                )}
+                {check.data?.problem ? (
+                  <p role="alert" className="text-[11px] text-rose-300">{check.data.problem}</p>
+                ) : check.data?.address ? (
+                  <p className="text-[11px] text-slate-400">Your instance will be at <span className="font-mono text-slate-200">{check.data.address}</span>. A name stays as it is, since links use it.</p>
+                ) : null}
+              </div>
+            )}
             {!create.data ? (
               <button
                 type="button"
-                onClick={() => create.mutate()}
-                disabled={create.isPending}
+                onClick={() => create.mutate(name)}
+                disabled={create.isPending || !nameOk}
                 className="inline-flex items-center gap-2 rounded-md bg-[var(--leaf-stem)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
               >
                 {create.isPending ? <Loader2 size={14} className="animate-spin" /> : <HardDrive size={14} />} Use my own machine

@@ -7,6 +7,7 @@ import { ModelTraffic } from './ModelTraffic';
 import { DeleteAccount } from './Account/DeleteAccount';
 import BenchPanel from './Checks/BenchPanel';
 import { People } from './Account/People';
+import { InstanceAddresses } from './Account/InstanceAddresses';
 
 interface Invite {
   id: string;
@@ -195,6 +196,8 @@ export default function SettingsView() {
       )}
 
       {user.isAdmin && <People />}
+
+      <InstanceAddresses />
 
       <BenchPanel />
 

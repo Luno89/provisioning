@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { accountKeys, getPersonRemoval, getRemovalPreview, listPeople, removeMyAccount, removePerson } from '../../api/account'
+import { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '../../api/instance-addresses'
+import { deploymentKeys } from '../../api/deployments'
 
 export { confirmMatches, refusalBlockers, removalText } from './removal-text'
 
@@ -33,5 +35,24 @@ export function useRemovePerson() {
   return useMutation({
     mutationFn: ({ id, confirm }: { id: string; confirm: string }) => removePerson(id, confirm),
     onSettled: () => { void client.invalidateQueries({ queryKey: accountKeys.people() }) },
+  })
+}
+
+export function useInstanceAddresses() {
+  return useQuery({
+    queryKey: instanceAddressKeys.mine(),
+    queryFn: getInstanceAddresses,
+    refetchInterval: (query) => (query.state.data?.nested && query.state.data.state === 'issuing' ? 5000 : false),
+  })
+}
+
+export function useSetNestedAddresses() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (nested: boolean) => setNestedAddresses(nested),
+    onSuccess: (view) => {
+      client.setQueryData(instanceAddressKeys.mine(), view)
+      void client.invalidateQueries({ queryKey: deploymentKeys.all })
+    },
   })
 }

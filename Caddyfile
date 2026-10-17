@@ -11,6 +11,10 @@
 	email {$ACME_EMAIL:admin@nowrinkles.dev}
 }
 
+(koala_tls) {
+	import /etc/caddy/tls/{$ROOT_TLS:cloudflare}.caddy
+}
+
 # The platform itself — UI and API.
 {$APP_DOMAIN:app.nowrinkles.dev} {
 	encode zstd gzip
@@ -47,3 +51,13 @@
 # would let anyone trigger certificate issuance for names we do not own and exhaust Let's
 # Encrypt's 50-per-week-per-registered-domain limit. An unlisted name gets nothing.
 import /etc/caddy/apps/*.caddy
+
+*.{$DOMAIN:nowrinkles.dev} {
+	import koala_tls
+	import /etc/caddy/instances/*.caddy
+	handle {
+		respond 404
+	}
+}
+
+import /etc/caddy/instance-sites/*.caddy

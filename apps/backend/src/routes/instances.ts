@@ -24,18 +24,26 @@ export function bundleAsEnv(bundle: JoinBundle): string {
     ['INSTANCE_IMAGE_TAG', bundle.imageTag],
     ['INSTANCE_CHART_URL', bundle.chartUrl],
     ['INSTANCE_CREDENTIAL', bundle.credential],
+    ['INSTANCE_NAME', bundle.name],
+    ['INSTANCE_DOMAIN', bundle.domain],
   ];
   return `${lines.map(([key, value]) => `${key}=${shellQuote(value)}`).join('\n')}\n`;
 }
 
 export function instancesRouter(deps: {
-  instances: Pick<InstanceService, 'createJoinToken' | 'join' | 'release' | 'report' | 'mine' | 'machineKey'>;
+  instances: Pick<InstanceService, 'createJoinToken' | 'join' | 'release' | 'report' | 'mine' | 'machineKey' | 'nameCheck' | 'addresses' | 'setAddresses'>;
   chart: () => Promise<string>;
 }): Router {
   const router = Router();
 
+  router.get('/name-check', asyncRoute(async (req: Request, res: Response) => {
+    res.json(await deps.instances.nameCheck(userOf(req).id, req.query.name));
+  }));
+
   router.post('/join-tokens', asyncRoute(async (req: Request, res: Response) => {
-    res.json(await deps.instances.createJoinToken(userOf(req).id));
+    const outcome = await deps.instances.createJoinToken(userOf(req).id, ((req.body ?? {}) as { name?: unknown }).name);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value);
   }));
 
   router.get('/mine', asyncRoute(async (req: Request, res: Response) => {
@@ -70,9 +78,23 @@ export function instancesRouter(deps: {
     return res.json(outcome.value);
   }));
 
+  router.get('/addresses', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    const outcome = await deps.instances.addresses(instanceId, credential);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value);
+  }));
+
+  router.put('/addresses', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    const outcome = await deps.instances.setAddresses(instanceId, credential, ((req.body ?? {}) as { nested?: unknown }).nested);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value);
+  }));
+
   router.post('/status', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.report(instanceId, credential, (req.body ?? {}) as { status?: unknown; detail?: unknown; url?: unknown });
+    const outcome = await deps.instances.report(instanceId, credential, (req.body ?? {}) as { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown });
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json({ status: outcome.value.status });
   }));

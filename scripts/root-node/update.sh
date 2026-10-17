@@ -156,6 +156,10 @@ npx tsx apps/backend/src/scripts/seed-all.ts || warn "seed failed — the new ve
 step "Restarting ${SERVICE}"
 systemctl restart "$SERVICE"
 
+step "Updating Caddy"
+docker compose -f docker-compose.caddy.yml up -d --build
+docker exec nowrinkles-caddy caddy reload --config /etc/caddy/Caddyfile --force || warn "Caddy did not take the new Caddyfile: docker logs nowrinkles-caddy"
+
 # ── 7. Health check ────────────────────────────────────────────────────────────────────────────
 # A 401 counts as healthy: /api is session-gated, so anything other than a connection failure
 # proves the server is up and routing. Checking for 200 would fail on a perfectly good deploy.

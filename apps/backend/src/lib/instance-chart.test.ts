@@ -124,4 +124,20 @@ describe('the instance chart', () => {
   it('refuses to render without knowing whose instance it is', () => {
     expect(() => execFileSync(HELM, ['template', 'x', CHART], { encoding: 'utf8', stdio: 'pipe' })).toThrow(/instance.id is required/);
   });
+
+  it('serves the instance\'s apps through an edge beside the backend, only when root gives it addresses', () => {
+    const plain = render();
+    expect(plain.some((doc) => doc.metadata.name === 'luno-edge')).toBe(false);
+    expect(find(plain, 'Deployment', 'luno-backend').spec.template.spec.containers).toHaveLength(1);
+
+    const docs = render(['routing.domain=koala.dev', 'routing.name=luno', 'edge.nodePort=30321']);
+    expect(find(docs, 'ConfigMap', 'luno-env').data).toMatchObject({ INGRESS_DOMAIN: 'koala.dev', INSTANCE_NAME: 'luno', EDGE_ADMIN_URL: 'http://localhost:2019', EDGE_CADDYFILE: '/etc/edge/Caddyfile' });
+    expect(find(docs, 'ConfigMap', 'luno-edge').data!.Caddyfile).toContain('import /app/apps/backend/data/caddy/apps/*.caddy');
+    const [backend, edge] = find(docs, 'Deployment', 'luno-backend').spec.template.spec.containers;
+    expect(edge.image).toBe('caddy:2.10.2-alpine');
+    expect(edge.volumeMounts).toEqual(expect.arrayContaining([{ name: 'data', mountPath: '/app/apps/backend/data', readOnly: true }]));
+    expect(backend.volumeMounts).toEqual(expect.arrayContaining([{ name: 'edge-config', mountPath: '/etc/edge', readOnly: true }]));
+    expect(find(docs, 'Service', 'luno-edge').spec).toMatchObject({ type: 'NodePort', ports: [{ name: 'edge', port: 80, targetPort: 'edge', nodePort: 30321 }] });
+    expect(find(docs, 'Deployment', 'luno-worker-engine').spec.template.spec.containers).toHaveLength(1);
+  });
 });

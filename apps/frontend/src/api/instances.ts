@@ -9,6 +9,14 @@ export interface MySetup {
   status: InstanceStatus
   detail?: string
   url: string
+  name?: string
+}
+
+export interface NameCheck {
+  ok: boolean
+  problem?: string
+  suggestion?: string
+  address?: string
 }
 
 export interface JoinCommand {
@@ -19,13 +27,21 @@ export interface JoinCommand {
 
 export const instanceKeys = {
   mine: () => ['instances', 'mine'] as const,
+  name: (name: string) => ['instances', 'name', name] as const,
 }
 
 export const getMySetup = (): Promise<MySetup | null> =>
   api.get<{ instance: MySetup | null }>('/instances/mine').then((r) => r.data.instance)
 
-export const createJoinCommand = (): Promise<JoinCommand> =>
-  api.post<JoinCommand>('/instances/join-tokens', {}).then((r) => r.data)
+export const createJoinCommand = (name: string): Promise<JoinCommand> =>
+  api.post<JoinCommand>('/instances/join-tokens', { name }).then((r) => r.data)
+
+export const checkName = (name: string): Promise<NameCheck> =>
+  api.get<NameCheck>('/instances/name-check', { params: { name } }).then((r) => r.data)
+
+export function useNameCheck(name: string) {
+  return useQuery({ queryKey: instanceKeys.name(name), queryFn: () => checkName(name), staleTime: 5000 })
+}
 
 export function useMySetup(watching: boolean) {
   return useQuery({ queryKey: instanceKeys.mine(), queryFn: getMySetup, refetchInterval: watching ? 3000 : false, refetchIntervalInBackground: watching })
@@ -34,7 +50,7 @@ export function useMySetup(watching: boolean) {
 export function useCreateJoinCommand() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: createJoinCommand,
+    mutationFn: (name: string) => createJoinCommand(name),
     onSuccess: () => { void client.invalidateQueries({ queryKey: instanceKeys.mine() }) },
   })
 }

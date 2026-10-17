@@ -137,6 +137,15 @@ if ! grep -q '^MONGO_ROOT_PASSWORD=' "$COMPOSE_ENV"; then
 fi
 MONGO_ROOT_PASSWORD="$(grep '^MONGO_ROOT_PASSWORD=' "$COMPOSE_ENV" | cut -d= -f2-)"
 grep -q '^PLATFORM_BIND=' "$COMPOSE_ENV" || echo "PLATFORM_BIND=127.0.0.1" >> "$COMPOSE_ENV"
+if ! grep -q '^CLOUDFLARE_API_TOKEN=.' "$COMPOSE_ENV"; then
+  [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || die "Set CLOUDFLARE_API_TOKEN: a Cloudflare API token with Zone, DNS, Edit on ${DOMAIN} only. Caddy proves the domain with it for the wildcard certificate *.${DOMAIN}, which every person's address and app is under. It stays in ${COMPOSE_ENV}, never in the database."
+  echo "CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}" >> "$COMPOSE_ENV"
+fi
+for pair in "DOMAIN=${DOMAIN}" "APP_DOMAIN=${APP_DOMAIN}" "MESH_DOMAIN=${MESH_DOMAIN}" "ACME_EMAIL=${ACME_EMAIL}" "ROOT_TLS=cloudflare"; do
+  key="${pair%%=*}"
+  grep -q "^${key}=" "$COMPOSE_ENV" && sed -i "s|^${key}=.*|${pair}|" "$COMPOSE_ENV" || echo "$pair" >> "$COMPOSE_ENV"
+done
+ok "Caddy gets the wildcard certificate for *.${DOMAIN} over Cloudflare DNS"
 
 set_env MONGO_URI "mongodb://admin:${MONGO_ROOT_PASSWORD}@127.0.0.1:27017/provisioning?authSource=admin"
 set_env MESH_LOGIN_SERVER "https://${MESH_DOMAIN}"
@@ -181,7 +190,7 @@ step "Starting services"
 docker compose -f docker-compose.mongo.yml up -d
 docker compose -f docker-compose.temporal.yml up -d
 docker compose -f docker-compose.headscale.yml up -d
-docker compose -f docker-compose.caddy.yml up -d
+docker compose -f docker-compose.caddy.yml up -d --build
 ok "Mongo, Temporal, Headscale and Caddy running"
 
 for port in 27017 7233 8233 8080 9090 50443; do

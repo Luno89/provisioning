@@ -12,6 +12,17 @@ export interface InstanceRecord {
   detail?: string | undefined;
   credentialHash?: string | undefined;
   machine?: string | undefined;
+  name?: string | undefined;
+  meshIp?: string | undefined;
+  addresses?: InstanceAddresses | undefined;
+}
+
+export type NestedState = 'issuing' | 'ready';
+
+export interface InstanceAddresses {
+  nested: boolean;
+  state?: NestedState | undefined;
+  detail?: string | undefined;
 }
 
 export interface JoinToken {

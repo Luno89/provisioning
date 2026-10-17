@@ -79,14 +79,39 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /app/apps/backend/data
+            {{- if and (eq $process "backend") $.Values.routing.domain }}
+            - name: edge-config
+              mountPath: /etc/edge
+              readOnly: true
+            {{- end }}
             {{- if and (eq $process "worker-host") $.Values.hostDocker }}
             - name: docker-socket
               mountPath: /var/run/docker.sock
             {{- end }}
+        {{- if and (eq $process "backend") $.Values.routing.domain }}
+        - name: edge
+          image: {{ $.Values.edge.image }}
+          args: [caddy, run, --config, /etc/edge/Caddyfile]
+          ports:
+            - name: edge
+              containerPort: 8080
+          volumeMounts:
+            - name: data
+              mountPath: /app/apps/backend/data
+              readOnly: true
+            - name: edge-config
+              mountPath: /etc/edge
+              readOnly: true
+        {{- end }}
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "instance.name" $ }}-data
+        {{- if and (eq $process "backend") $.Values.routing.domain }}
+        - name: edge-config
+          configMap:
+            name: {{ include "instance.name" $ }}-edge
+        {{- end }}
         {{- if and (eq $process "worker-host") $.Values.hostDocker }}
         - name: docker-socket
           hostPath:
@@ -110,3 +135,21 @@ spec:
       {{- if .Values.backend.nodePort }}
       nodePort: {{ .Values.backend.nodePort }}
       {{- end }}
+{{- if .Values.routing.domain }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "instance.name" . }}-edge
+  labels: {{- include "instance.labels" . | nindent 4 }}
+spec:
+  type: {{ if .Values.edge.nodePort }}NodePort{{ else }}ClusterIP{{ end }}
+  selector: {{- include "instance.selector" (dict "root" . "component" "backend") | nindent 4 }}
+  ports:
+    - name: edge
+      port: 80
+      targetPort: edge
+      {{- if .Values.edge.nodePort }}
+      nodePort: {{ .Values.edge.nodePort }}
+      {{- end }}
+{{- end }}

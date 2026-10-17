@@ -13,6 +13,13 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import type { Server as SocketServer } from 'socket.io';
 import { ODOO_PROJECT_APP } from '../lib/odoo-release.js';
+import { appLabel, edgeSite, flatHost, freeLabel, labelOfFlat, nestedHost } from '../lib/edge-addresses.js';
+
+export interface InstanceEdge {
+  name: string;
+  nestedReady(): boolean;
+  reload(): Promise<void>;
+}
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -23,14 +30,15 @@ export class AppExposureService extends BaseService {
   private clusters: ClusterService;
   private nginxConfDir: string;
   private io: SocketServer | undefined;
+  private edge: InstanceEdge | undefined;
 
-  constructor(db: Database, infra: InfrastructureService, clusters: ClusterService, io?: SocketServer) {
+  constructor(db: Database, infra: InfrastructureService, clusters: ClusterService, io?: SocketServer, edge?: InstanceEdge) {
     super(db);
     this.infra = infra;
     this.clusters = clusters;
     this.nginxConfDir = path.join(__dirname, '../../data/nginx');
     this.io = io;
-
+    this.edge = edge;
   }
 
   private sanitize(name: string) {
@@ -65,6 +73,17 @@ export class AppExposureService extends BaseService {
     }
 
     const appHostname = `${namespace}.apps.local`;
+
+    if (this.edge && cluster.isSystem) {
+      for (const traefikNamespace of ['traefik', 'kube-system']) {
+        const found = await this.infra.runKubectl(['get', 'svc', 'traefik', '-n', traefikNamespace, '-o', 'json'], kubeconfigPath).catch(() => undefined);
+        if (!found) continue;
+        const svc = JSON.parse(found);
+        const port = (svc.spec?.ports?.find((p: any) => p.name === 'web') || svc.spec?.ports?.[0])?.port || 80;
+        return { namespace, backendTarget: assertUpstreamTarget(`traefik.${traefikNamespace}.svc.cluster.local:${port}`, namespace), appHostname };
+      }
+      throw new Error('This instance\'s cluster has no Traefik (looked in the traefik and kube-system namespaces), so its apps cannot be reached.');
+    }
 
     const traefikOutput = await this.infra.runKubectl(['get', 'svc', 'traefik', '-n', 'traefik', '-o', 'json'], kubeconfigPath);
     const traefikSvc = JSON.parse(traefikOutput);
@@ -144,7 +163,9 @@ export class AppExposureService extends BaseService {
     return { key, appHostname: `${key}.apps.local` };
   }
 
-  private previewPublicHostname(dep: DeploymentMetadata, domain: string): string {
+  private previewPublicHostname(dep: DeploymentMetadata, domain: string, publicHostname: string): string {
+    const label = this.edge ? labelOfFlat(publicHostname, this.edge.name, domain) : undefined;
+    if (this.edge && label) return flatHost(`${label}-preview`, this.edge.name, domain);
     return `${this.sanitize(dep.name)}-preview-${dep.id.replace(/-/g, '').slice(0, 6)}.${domain}`;
   }
 
@@ -163,9 +184,25 @@ export class AppExposureService extends BaseService {
     return process.env.INGRESS_DOMAIN || undefined;
   }
 
-  private hostnameFor(dep: DeploymentMetadata, domain: string): string {
-    if (dep.publicHostname) return dep.publicHostname;
-    return `${this.sanitize(dep.name)}-${dep.id.replace(/-/g, '').slice(0, 6)}.${domain}`;
+  private async hostnameFor(dep: DeploymentMetadata, domain: string): Promise<string> {
+    if (!this.edge) {
+      if (dep.publicHostname) return dep.publicHostname;
+      return `${this.sanitize(dep.name)}-${dep.id.replace(/-/g, '').slice(0, 6)}.${domain}`;
+    }
+    const edge = this.edge;
+    if (dep.publicHostname && labelOfFlat(dep.publicHostname, edge.name, domain)) return dep.publicHostname;
+    const taken = new Set((await this.db.getDeployments())
+      .filter((other) => other.id !== dep.id && other.publicHostname)
+      .map((other) => labelOfFlat(other.publicHostname!, edge.name, domain))
+      .filter((label): label is string => Boolean(label)));
+    return flatHost(freeLabel(appLabel(dep.name), edge.name, taken), edge.name, domain);
+  }
+
+  private publicHosts(flat: string, domain: string): { hosts: string[]; shown: string } {
+    const label = this.edge ? labelOfFlat(flat, this.edge.name, domain) : undefined;
+    if (!this.edge || !label || !this.edge.nestedReady()) return { hosts: [flat], shown: flat };
+    const nested = nestedHost(label, this.edge.name, domain);
+    return { hosts: [flat, nested], shown: nested };
   }
 
   private caddyConfPathFor(namespace: string): string {
@@ -189,18 +226,21 @@ export class AppExposureService extends BaseService {
   }
 
   private async reloadCaddy(): Promise<void> {
+    if (this.edge) return this.edge.reload();
     await execAsync('docker exec nowrinkles-caddy caddy reload --config /etc/caddy/Caddyfile --force');
   }
 
-  private async writeCaddyConf(namespace: string, publicHostname: string, backendTarget: string, appHostname: string) {
+  private async writeCaddyConf(namespace: string, publicHostname: string, backendTarget: string, appHostname: string, domain: string): Promise<string> {
     const confPath = this.caddyConfPathFor(namespace);
+    const { hosts, shown } = this.publicHosts(publicHostname, domain);
     await fs.mkdir(path.dirname(confPath), { recursive: true });
-    await fs.writeFile(confPath, this.buildCaddyContent(publicHostname, backendTarget, appHostname));
+    await fs.writeFile(confPath, this.edge ? edgeSite(hosts, backendTarget, appHostname) : this.buildCaddyContent(publicHostname, backendTarget, appHostname));
     try {
       await this.reloadCaddy();
     } catch (err: any) {
       throw new Error(`Failed to reload Caddy: ${err.message}`);
     }
+    return shown;
   }
 
   private async removeCaddyConf(namespace: string) {
@@ -281,18 +321,16 @@ export class AppExposureService extends BaseService {
 
     const { namespace, backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
 
-    const publicHostname = this.hostnameFor(dep, domain);
+    const publicHostname = await this.hostnameFor(dep, domain);
     dep.publicHostname = publicHostname;
     dep.isExposedPublicly = true;
-    dep.publicExposureUrl = `https://${publicHostname}`;
+    dep.publicExposureUrl = `https://${await this.writeCaddyConf(namespace, publicHostname, backendTarget, appHostname, domain)}`;
     this.syncDerivedFields(dep);
 
-    await this.writeCaddyConf(namespace, publicHostname, backendTarget, appHostname);
     const preview = this.previewOf(dep);
     if (preview) {
-      const previewHostname = this.previewPublicHostname(dep, domain);
-      await this.writeCaddyConf(preview.key, previewHostname, backendTarget, preview.appHostname);
-      dep.previewPublicUrl = `https://${previewHostname}`;
+      const previewHostname = this.previewPublicHostname(dep, domain, publicHostname);
+      dep.previewPublicUrl = `https://${await this.writeCaddyConf(preview.key, previewHostname, backendTarget, preview.appHostname, domain)}`;
     }
 
     await this.db.saveDeployment(dep);
@@ -318,14 +356,12 @@ export class AppExposureService extends BaseService {
         const domain = this.ingressDomain();
         const preview = this.previewOf(dep);
         if (dep.isExposedPublicly && domain) {
-          const publicHostname = this.hostnameFor(dep, domain);
+          const publicHostname = await this.hostnameFor(dep, domain);
           dep.publicHostname = publicHostname;
-          dep.publicExposureUrl = `https://${publicHostname}`;
-          await this.writeCaddyConf(namespace, publicHostname, backendTarget, appHostname);
+          dep.publicExposureUrl = `https://${await this.writeCaddyConf(namespace, publicHostname, backendTarget, appHostname, domain)}`;
           if (preview) {
-            const previewHostname = this.previewPublicHostname(dep, domain);
-            await this.writeCaddyConf(preview.key, previewHostname, backendTarget, preview.appHostname);
-            dep.previewPublicUrl = `https://${previewHostname}`;
+            const previewHostname = this.previewPublicHostname(dep, domain, publicHostname);
+            dep.previewPublicUrl = `https://${await this.writeCaddyConf(preview.key, previewHostname, backendTarget, preview.appHostname, domain)}`;
           }
         }
         if (dep.isExposedLocally) {

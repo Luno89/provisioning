@@ -23,6 +23,14 @@ mesh:
 backend:
   nodePort: null
 
+routing:
+  name: ""
+  domain: ""
+
+edge:
+  image: caddy:2.10.2-alpine
+  nodePort: null
+
 storage:
   data: 2Gi
   mongo: 5Gi

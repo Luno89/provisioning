@@ -342,25 +342,25 @@ describe('buildUpstreamTarget on mesh clusters', () => {
 
 });
 
-describe('public hostname allocation', () => {
+describe('public hostname allocation', async () => {
   const svc = () => createService() as any;
 
-  it('is stable across calls, so a saved link keeps working', () => {
+  it('is stable across calls, so a saved link keeps working', async () => {
     const dep = { id: 'abc123de-0000-4000-8000-000000000000', name: 'My Blog' };
-    const a = svc().hostnameFor(dep, 'nowrinkles.dev');
-    const b = svc().hostnameFor({ ...dep, publicHostname: a }, 'nowrinkles.dev');
+    const a = await svc().hostnameFor(dep, 'nowrinkles.dev');
+    const b = await svc().hostnameFor({ ...dep, publicHostname: a }, 'nowrinkles.dev');
     expect(b).toBe(a);
   });
 
-  it('distinguishes two tenants who both called their app the same thing', () => {
-    const alice = svc().hostnameFor({ id: 'aaaaaaaa-0000-4000-8000-000000000000', name: 'blog' }, 'nowrinkles.dev');
-    const bob = svc().hostnameFor({ id: 'bbbbbbbb-0000-4000-8000-000000000000', name: 'blog' }, 'nowrinkles.dev');
+  it('distinguishes two tenants who both called their app the same thing', async () => {
+    const alice = await svc().hostnameFor({ id: 'aaaaaaaa-0000-4000-8000-000000000000', name: 'blog' }, 'nowrinkles.dev');
+    const bob = await svc().hostnameFor({ id: 'bbbbbbbb-0000-4000-8000-000000000000', name: 'blog' }, 'nowrinkles.dev');
     expect(alice).not.toBe(bob);
     expect(alice.startsWith('blog-')).toBe(true);
   });
 
-  it('produces a DNS-safe label from an awkward app name', () => {
-    const h = svc().hostnameFor({ id: 'ffffffff-0000-4000-8000-000000000000', name: 'My  App!! v2' }, 'nowrinkles.dev');
+  it('produces a DNS-safe label from an awkward app name', async () => {
+    const h = await svc().hostnameFor({ id: 'ffffffff-0000-4000-8000-000000000000', name: 'My  App!! v2' }, 'nowrinkles.dev');
     expect(h).toMatch(/^[a-z0-9-]+\.nowrinkles\.dev$/);
   });
 });
@@ -428,5 +428,64 @@ describe('an Odoo project\'s preview', () => {
     const exposed = await createService().exposeLocal('d1abcdef');
     expect(exposed.previewLocalUrl).toBeUndefined();
     expect(written()).toEqual([['shop.conf', 'shop.apps.local']]);
+  });
+});
+
+describe('an instance publishing its apps through its edge', () => {
+  const cluster = { id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const };
+  const odoo = { id: 'd1abcdef', name: 'Shop', clusterId: 'c1', strategy: 'helm' as const, status: 'running' as const, appType: 'odoo-project' };
+  const svcJson = JSON.stringify({ items: [{ metadata: { name: 'shop-live' }, spec: { type: 'ClusterIP', ports: [{ port: 8069 }] } }] });
+  const reach = () => {
+    mockGetById.mockResolvedValue(cluster);
+    mockGetKubeconfigPath.mockResolvedValue('/tmp/kubeconfig');
+    mockRunKubectl.mockResolvedValueOnce(svcJson).mockResolvedValueOnce(traefikSvcJson);
+    mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
+  };
+  const onEdge = (nested: boolean) => {
+    const reloads: number[] = [];
+    const db = { getDeployments: mockGetDeployments, saveDeployment: mockSaveDeployment };
+    const infra = { runKubectl: mockRunKubectl, getK3dServerIp: mockGetK3dServerIp };
+    const clusters = { getById: mockGetById, getByIdUnscoped: mockGetById, getKubeconfigPath: mockGetKubeconfigPath };
+    const service = new AppExposureService(db, infra, clusters, undefined, { name: 'luno', nestedReady: () => nested, reload: async () => { reloads.push(1); } });
+    return { service, reloads };
+  };
+
+  it('gives an app and its preview flat addresses under the instance\'s name, served over plain http, reloading the edge', async () => {
+    process.env.INGRESS_DOMAIN = 'koala.dev';
+    mockGetDeployments.mockResolvedValue([{ ...odoo }, { id: 'other', name: 'shop!', publicHostname: 'shop-luno.koala.dev' }]);
+    reach();
+    const { service, reloads } = onEdge(false);
+    const exposed = await service.exposePublic('d1abcdef');
+    expect(exposed).toMatchObject({ publicHostname: 'shop-2-luno.koala.dev', publicExposureUrl: 'https://shop-2-luno.koala.dev', previewPublicUrl: 'https://shop-2-preview-luno.koala.dev' });
+    expect(String(mockWriteFile.mock.calls[0]![1])).toMatch(/^http:\/\/shop-2-luno\.koala\.dev \{/);
+    expect(reloads).toHaveLength(2);
+    expect(mockExec).not.toHaveBeenCalled();
+    delete process.env.INGRESS_DOMAIN;
+  });
+
+  it('shows nested addresses once they are ready, and keeps the flat ones answering', async () => {
+    process.env.INGRESS_DOMAIN = 'koala.dev';
+    mockGetDeployments.mockResolvedValue([{ ...odoo, publicHostname: 'shop-luno.koala.dev' }]);
+    reach();
+    const exposed = await onEdge(true).service.exposePublic('d1abcdef');
+    expect(exposed).toMatchObject({ publicHostname: 'shop-luno.koala.dev', publicExposureUrl: 'https://shop.luno.koala.dev', previewPublicUrl: 'https://shop-preview.luno.koala.dev' });
+    expect(String(mockWriteFile.mock.calls[0]![1])).toMatch(/^http:\/\/shop-luno\.koala\.dev, http:\/\/shop\.luno\.koala\.dev \{/);
+    delete process.env.INGRESS_DOMAIN;
+  });
+
+  it('reaches an app on the instance\'s own cluster through that cluster\'s Traefik, wherever k3s put it', async () => {
+    process.env.INGRESS_DOMAIN = 'koala.dev';
+    mockGetDeployments.mockResolvedValue([{ ...odoo }]);
+    mockGetById.mockResolvedValue({ id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d' as const, status: 'healthy' as const, isSystem: true });
+    mockGetKubeconfigPath.mockResolvedValue('/tmp/kubeconfig');
+    mockRunKubectl.mockReset();
+    mockRunKubectl
+      .mockResolvedValueOnce(svcJson)
+      .mockRejectedValueOnce(new Error('NotFound'))
+      .mockResolvedValueOnce(JSON.stringify({ spec: { type: 'LoadBalancer', ports: [{ name: 'web', port: 80 }] } }));
+    await onEdge(false).service.exposePublic('d1abcdef');
+    expect(String(mockWriteFile.mock.calls[0]![1])).toContain('reverse_proxy traefik.kube-system.svc.cluster.local:80');
+    expect(mockGetK3dServerIp).not.toHaveBeenCalled();
+    delete process.env.INGRESS_DOMAIN;
   });
 });

@@ -6,7 +6,8 @@ version: "3.9"
 
 services:
   caddy:
-    image: docker.io/library/caddy:2-alpine
+    image: nowrinkles/caddy:2.10.2
+    build: ./docker/caddy
     container_name: nowrinkles-caddy
     restart: unless-stopped
     # Host networking rather than published ports plus a shared bridge: it lets Caddy reach the
@@ -17,11 +18,16 @@ services:
       APP_DOMAIN: ${APP_DOMAIN:-app.nowrinkles.dev}
       MESH_DOMAIN: ${MESH_DOMAIN:-mesh.nowrinkles.dev}
       ACME_EMAIL: ${ACME_EMAIL:-admin@nowrinkles.dev}
+      DOMAIN: ${DOMAIN:-nowrinkles.dev}
+      ROOT_TLS: ${ROOT_TLS:-cloudflare}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # Per-app site blocks, written by AppExposureService and imported by the Caddyfile. Mounted
       # read-only: the backend writes them on the host side, Caddy only ever reads and reloads.
       - ./apps/backend/data/caddy/apps:/etc/caddy/apps:ro
+      - ./apps/backend/data/caddy/instances:/etc/caddy/instances:ro
+      - ./apps/backend/data/caddy/instance-sites:/etc/caddy/instance-sites:ro
       # Certificates and ACME account keys. Losing this volume means re-issuing on next start,
       # which is survivable but counts against Let's Encrypt rate limits (5 per name per week).
       - caddy-data:/data
