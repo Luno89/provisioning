@@ -234,3 +234,13 @@ export function importLine(entry: ClientImport | undefined): string {
     case 'failed': return `Starting from a client's database failed: ${entry.reason ?? 'no reason was given'}.`;
   }
 }
+
+export function manifestVersion(text: string | null): string | undefined {
+  return text?.match(/['"]version['"]\s*:\s*['"]([^'"]+)['"]/)?.[1];
+}
+
+export function moduleChanged(installed: string | undefined, manifest: string | undefined, series: string): boolean {
+  if (!installed || !manifest) return true;
+  const adapted = manifest.startsWith(`${series}.`) ? manifest : `${series}.${manifest}`;
+  return adapted !== installed;
+}

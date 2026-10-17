@@ -643,8 +643,9 @@ and deleted. The upload is recorded on the project (`clientImport`) and the newe
 when it comes. That first release (`restore` on the build input, carried by `OdooReleaseService` while nothing is
 established) runs the adapter's `restore` in place of `init`: one job in the build's image checks every module in the
 manifest exists in the image (refusing with the list, `missing modules: …`), loads `dump.sql` into `odoo_a`, unpacks
-the files, and for a copy runs `odoo neutralize` with a fresh database uuid and secret; then the ordinary `upgrade`
-brings in the repository's modules (with step 4's takeover). `admin`'s password is then Koala's sign-in. The service
+the files, and for a copy runs `odoo neutralize` with a fresh database uuid and secret; then `upgrade`
+installs the repository's new modules and updates only those whose version differs from what the client has
+installed (`moduleChanged`), since `-u` would reset what they edited in that module's views (with step 4's takeover). `admin`'s password is then Koala's sign-in. The service
 settles `clientImport` from the release (imported, refused with the missing modules, failed), and the channel's notice
 says how it started and how many things were made in the client's app (Settings → Made in the live app, Open settings).
 `npm run test:odoo-import-live` proves it: a backup made with `odoo db dump` from one project's live app, refused for

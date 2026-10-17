@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { claimSize, importLine, projectChoicesPatch, wrongVersionFrom, latestBuildOf, majorOf, missingFrom, missingSentence, odooVersionOfDockerfile, projectMajor, restorable, restoreJob, versionProblem } from './client-import.js';
+import { claimSize, importLine, manifestVersion, moduleChanged, projectChoicesPatch, wrongVersionFrom, latestBuildOf, majorOf, missingFrom, missingSentence, odooVersionOfDockerfile, projectMajor, restorable, restoreJob, versionProblem } from './client-import.js';
 
 describe('a client\'s Odoo backup', () => {
   it('is taken only from the project\'s own Odoo version, and never from hosted Odoo', () => {
@@ -69,5 +69,15 @@ describe('a client\'s Odoo backup', () => {
     expect(projectChoicesPatch({ id: 'p1' }, { startsFrom: 'client-database', release: { agent: 'release' } }, 'now')).toEqual({ id: 'p1', release: { agent: 'release' }, clientImport: { state: 'awaited', mode: 'copy', bytes: 0, at: 'now' } });
     expect(projectChoicesPatch({ id: 'p1', clientImport: { state: 'imported', mode: 'copy', bytes: 1, at: 'x' } }, { startsFrom: 'client-database' }, 'now')).toEqual({ id: 'p1' });
     expect(projectChoicesPatch({ id: 'p1', clientImport: { state: 'refused', mode: 'copy', bytes: 1, at: 'x' } }, { startsFrom: 'client-database' }, 'now')).toMatchObject({ clientImport: { state: 'awaited' } });
+  });
+
+  it('reads a module\'s version from its manifest, and says whether it differs from what the client has installed', () => {
+    expect(manifestVersion("{'name': 'X', 'version': '1.2.0', 'depends': []}")).toBe('1.2.0');
+    expect(manifestVersion('{"version": "20.0.1.0"}')).toBe('20.0.1.0');
+    expect(manifestVersion(null)).toBeUndefined();
+    expect(moduleChanged('20.0.1.2.0', '1.2.0', '20.0')).toBe(false);
+    expect(moduleChanged('20.0.1.2.0', '20.0.1.2.0', '20.0')).toBe(false);
+    expect(moduleChanged('20.0.1.2.0', '1.3.0', '20.0')).toBe(true);
+    expect(moduleChanged(undefined, '1.0', '20.0')).toBe(true);
   });
 });

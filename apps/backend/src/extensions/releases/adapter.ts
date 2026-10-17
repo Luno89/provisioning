@@ -22,7 +22,7 @@ export interface SlotAdapter {
   restore?(cluster: SlotCluster, target: ReleaseTarget, slot: Slot, build: SlotBuild, mode: ImportMode): Promise<void>;
   copy(cluster: SlotCluster, target: ReleaseTarget, from: Slot, to: Slot, build: SlotBuild): Promise<void>;
   quiet(cluster: SlotCluster, target: ReleaseTarget, slot: Slot): Promise<void>;
-  upgrade(cluster: SlotCluster, target: ReleaseTarget, slot: Slot, build: SlotBuild): Promise<void>;
+  upgrade(cluster: SlotCluster, target: ReleaseTarget, slot: Slot, build: SlotBuild, options?: { afterRestore?: boolean | undefined }): Promise<void>;
   database(target: ReleaseTarget, slot: Slot): PostgresAccess;
   inventory?(cluster: SlotCluster, target: ReleaseTarget, slot: Slot, of?: readonly InventoryItem[]): Promise<InventoryItem[]>;
   exportItems?(cluster: SlotCluster, target: ReleaseTarget, slot: Slot, items: readonly { kind: string; key: string }[], module: string): Promise<ExportResult>;

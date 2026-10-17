@@ -123,7 +123,7 @@ export function createReleaseOperations(deps: ReleaseOperationDeps): Record<stri
         if (restore) {
           if (!adapter.restore) throw ApplicationFailure.nonRetryable(`${adapter.title} cannot start from a client's database`);
           await adapter.restore(cluster, release.target, 'a', buildOf(release), restore.mode);
-          await adapter.upgrade(cluster, release.target, 'a', buildOf(release));
+          await adapter.upgrade(cluster, release.target, 'a', buildOf(release), { afterRestore: true });
         } else {
           await adapter.init(cluster, release.target, 'a', buildOf(release));
         }

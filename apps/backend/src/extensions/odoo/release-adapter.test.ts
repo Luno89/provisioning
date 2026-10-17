@@ -30,6 +30,18 @@ describe('the Odoo release adapter', () => {
     expect(argsOf(jobs[0]!.manifest)).toEqual(expect.arrayContaining(['--database=odoo_b', '--init=new_mod', '--update=sale_note']));
   });
 
+  it('after a client\'s database is restored, upgrades only the modules whose version the repository changed, so what the client edited in an unchanged module stays', async () => {
+    const { fake, jobs } = cluster('base|20.0.1.3\nsale_note|20.0.1.0.0\nkept|20.0.2.0\n', {
+      'addons/sale_note/__manifest__.py': "{'name': 'Sale note', 'version': '1.0.0'}",
+      'addons/new_mod/__manifest__.py': "{'version': '20.0.1.0'}",
+    });
+    (fake as unknown as { files: () => Promise<string[]> }).files = async () => ['addons/sale_note/__manifest__.py', 'addons/new_mod/__manifest__.py', 'addons/kept/__manifest__.py'];
+    await ODOO_RELEASE_ADAPTER.upgrade(fake, target, 'a', build, { afterRestore: true });
+    const args = argsOf(jobs[0]!.manifest);
+    expect(args).toEqual(expect.arrayContaining(['--init=new_mod', '--update=kept']));
+    expect(args.some((arg) => arg.startsWith('--update=') && arg.includes('sale_note'))).toBe(false);
+  });
+
   it('links the records a new module takes over to its XML ids before installing it, so they are updated and never made twice', async () => {
     const { fake, jobs, execs } = cluster('base\nsale_note\n', { 'addons/new_mod/adopt.json': JSON.stringify({ view_shop_form_7: { model: 'ir.ui.view', res_id: 7 }, odd: { model: 'res.partner', res_id: 3 } }) });
     await ODOO_RELEASE_ADAPTER.upgrade(fake, target, 'b', build);
