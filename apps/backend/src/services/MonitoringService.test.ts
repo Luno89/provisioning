@@ -195,7 +195,7 @@ describe('alert rules', () => {
 
   it('becomes a PrometheusRule on the app\'s cluster and a record', async () => {
     const rule = await monitoring.addRule(ME, 'books', alertSpec('down') as AlertSpec, 'conv-1');
-    expect(rule).toMatchObject({ id: 'rule-1', summary: 'Books: Books has not answered for 5 minutes', conversationId: 'conv-1' });
+    expect(rule).toMatchObject({ id: 'rule-1', summary: 'Books has not answered for 5 minutes', conversationId: 'conv-1' });
     expect(JSON.parse(applied[0]!).spec.groups[0].rules[0].expr).toBe('max(probe_success{namespace="books"}) < 1');
     expect(await db.getAlertRules('me')).toHaveLength(1);
   });
@@ -210,7 +210,7 @@ describe('alert rules', () => {
 
   it('says why one cannot be proposed', async () => {
     expect(await monitoring.proposeAlertProblem(ME, 'Nope', alertSpec('down') as AlertSpec)).toEqual({ error: 'no app called Nope; yours are: Books' });
-    expect(await monitoring.proposeAlertProblem(ME, 'books', alertSpec('errors') as AlertSpec)).toMatchObject({ summary: expect.stringContaining('requests fail') });
+    expect(await monitoring.proposeAlertProblem(ME, 'books', alertSpec('errors') as AlertSpec)).toMatchObject({ summary: expect.stringContaining('of its requests') });
   });
 });
 

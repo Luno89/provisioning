@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { appQuery, appChartQuery, stepFor, trafficSelector } from './monitoring-questions.js';
 import { appLines, appVerdict, clusterVerdict, worstFirst } from './monitoring-summary.js';
-import { alertExpression, alertRuleManifest, alertSpec, visibleAlerts, RULE_LABEL, type AlertRuleRecord, type AlertSpec } from './monitoring-alerts.js';
+import { alertExpression, alertRuleManifest, alertSpec, alertSummary, visibleAlerts, RULE_LABEL, type AlertRuleRecord, type AlertSpec } from './monitoring-alerts.js';
 import { chartVersionOf, helmHistoryArgs, historyApplied, historyProblem, keptDays, prometheusNow, storageFor } from './monitoring-history.js';
 
 const books = { namespace: 'books', services: ['audiobookshelf'] };
@@ -108,6 +108,11 @@ describe('alert rules', () => {
     expect(alertSpec('down')).toEqual({ kind: 'down', threshold: 0, forMinutes: 5 });
     expect(alertSpec('memory', 150)).toEqual({ error: 'the threshold for "memory" is in % of its limit, between 10 and 100' });
     expect(alertSpec('slow', 1, 1.5)).toEqual({ error: 'forMinutes is whole minutes, from 0 to 1440' });
+  });
+
+  it('reads as a sentence about the app, one minute or many', () => {
+    expect(alertSummary('books', alertSpec('down', undefined, 1) as AlertSpec)).toBe('books has not answered for 1 minute');
+    expect(alertSummary('books', alertSpec('volume', 85) as AlertSpec)).toBe('books has a volume over 85% full');
   });
 
   it('refuses to watch failing requests where none are counted', () => {

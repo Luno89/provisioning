@@ -11,7 +11,7 @@ import {
   type AppNumbers, type ClusterNumbers, type HealthState,
 } from '../lib/monitoring-summary.js';
 import {
-  ALERT_RULES, alertExpression, alertRuleManifest, ruleResourceName, visibleAlerts,
+  ALERT_RULES, alertExpression, alertSummary, alertRuleManifest, ruleResourceName, visibleAlerts,
   type AlertRuleRecord, type AlertSpec, type PromAlert, type VisibleAlert,
 } from '../lib/monitoring-alerts.js';
 import {
@@ -549,7 +549,7 @@ export class MonitoringService {
       namespace,
       appName: dep.name,
       spec,
-      summary: `${dep.name}: ${ALERT_RULES[spec.kind].describe(dep.name, spec)}`,
+      summary: alertSummary(dep.name, spec),
       ...(conversationId ? { conversationId } : {}),
       createdAt: this.now().toISOString(),
     };

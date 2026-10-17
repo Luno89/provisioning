@@ -89,14 +89,18 @@ interface KindRule {
   describe: (app: string, spec: AlertSpec) => string;
 }
 
+const minutes = (n: number): string => `${n} minute${n === 1 ? '' : 's'}`;
+
 export const ALERT_RULES: Record<AlertKind, KindRule> = {
-  down: { threshold: undefined, forMinutes: 5, describe: (app, s) => `${app} has not answered for ${s.forMinutes} minutes` },
-  slow: { threshold: { default: 2, min: 0.05, max: 120, unit: 'seconds' }, forMinutes: 10, describe: (app, s) => `${app} takes over ${s.threshold} s to answer for ${s.forMinutes} minutes` },
-  memory: { threshold: { default: 90, min: 10, max: 100, unit: '% of its limit' }, forMinutes: 15, describe: (app, s) => `${app} uses over ${s.threshold}% of its memory limit for ${s.forMinutes} minutes` },
+  down: { threshold: undefined, forMinutes: 5, describe: (app, s) => `${app} has not answered for ${minutes(s.forMinutes)}` },
+  slow: { threshold: { default: 2, min: 0.05, max: 120, unit: 'seconds' }, forMinutes: 10, describe: (app, s) => `${app} takes over ${s.threshold} s to answer for ${minutes(s.forMinutes)}` },
+  memory: { threshold: { default: 90, min: 10, max: 100, unit: '% of its limit' }, forMinutes: 15, describe: (app, s) => `${app} uses over ${s.threshold}% of its memory limit for ${minutes(s.forMinutes)}` },
   restarts: { threshold: { default: 3, min: 1, max: 1000, unit: 'restarts in an hour' }, forMinutes: 0, describe: (app, s) => `${app} restarts more than ${s.threshold} times in an hour` },
-  volume: { threshold: { default: 90, min: 10, max: 100, unit: '% full' }, forMinutes: 10, describe: (app, s) => `a volume of ${app} is over ${s.threshold}% full` },
-  errors: { threshold: { default: 5, min: 0.1, max: 100, unit: '% of requests failing' }, forMinutes: 10, describe: (app, s) => `over ${s.threshold}% of ${app}'s requests fail for ${s.forMinutes} minutes` },
+  volume: { threshold: { default: 90, min: 10, max: 100, unit: '% full' }, forMinutes: 10, describe: (app, s) => `${app} has a volume over ${s.threshold}% full` },
+  errors: { threshold: { default: 5, min: 0.1, max: 100, unit: '% of requests failing' }, forMinutes: 10, describe: (app, s) => `${app} fails over ${s.threshold}% of its requests for ${minutes(s.forMinutes)}` },
 };
+
+export const alertSummary = (app: string, spec: AlertSpec): string => ALERT_RULES[spec.kind].describe(app, spec);
 
 export const isAlertKind = (value: unknown): value is AlertKind => typeof value === 'string' && (ALERT_KINDS as readonly string[]).includes(value);
 

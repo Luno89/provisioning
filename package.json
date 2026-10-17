@@ -78,7 +78,8 @@
     "test:synth:palworld": "tsx tests/palworld-synth.ts",
     "test:test:e2e:setup": "bash scripts/test-e2e-setup.sh",
     "test:test:e2e:teardown": "bash scripts/test-e2e-teardown.sh",
-    "test:hetzner-integration": "tsx tests/hetzner-integration.ts"
+    "test:hetzner-integration": "tsx tests/hetzner-integration.ts",
+    "test:monitoring-live": "cd apps/backend && tsx ../../tests/monitoring-live.ts"
   },
   "workspaces": [
     "apps/*",
