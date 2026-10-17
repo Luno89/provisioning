@@ -329,6 +329,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
           const answered = cancelled || !callTool
             ? { ok: false, content: cancelled ? 'the run was cancelled' : 'no tools are offered here' }
             : await callTool(call);
+          calls.set(call.callId, { callId: call.callId, name: call.name, args: call.arguments, ok: answered.ok, digest: answered.content });
           result = await step({ kind: 'result', callId: call.callId, ok: answered.ok, content: answered.content });
           ranOn = result.model ?? ranOn;
           continue;

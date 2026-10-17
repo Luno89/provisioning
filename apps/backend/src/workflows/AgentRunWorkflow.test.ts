@@ -1144,6 +1144,10 @@ describe('an external agent working on someone\'s machine', () => {
       expect(acts.engine.EngineToolActivity.mock.calls.map(([call]) => call.name)).toEqual(['list_references']);
       const stored = await conversations.get('user-1', 'c-tools');
       expect(stored?.machineSessions).toEqual({ 'desk:antigravity:pro': 'scripted-1' });
+      expect(stored?.messages.at(-1)?.toolCalls).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: 'list_references', ok: true, digest: expect.stringContaining('output of list_references') }),
+        expect.objectContaining({ name: 'save_procedure', ok: false, digest: 'you did not approve that call, so it did not run' }),
+      ]));
       expect(sessions.openKeys()).toEqual([]);
     } finally {
       await sessions.closeAll();
