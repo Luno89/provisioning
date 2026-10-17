@@ -11,6 +11,8 @@ import { QuietButton, WorkloadBadge } from './Parts'
 import RunningSection from './RunningSection'
 import { aboutLink, healthHash, sectionAnchor, useClearFailures, useInfrastructure, waitingText, type SectionId } from './shared'
 
+const OVERVIEW_TOP = 'infrastructure-top'
+
 const row = 'flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)]/40 px-3 py-2 text-[12px]'
 
 function NeedsAttention() {
@@ -86,12 +88,13 @@ export function Overview({ focus }: { focus?: SectionId }) {
   const alerts = useAlerts()
   const loaded = Boolean(useInfrastructure().data)
 
+  const settled = focus ? loaded : false
   useEffect(() => {
-    if (focus) document.getElementById(sectionAnchor(focus))?.scrollIntoView({ block: 'start' })
-  }, [focus, loaded])
+    document.getElementById(focus ? sectionAnchor(focus) : OVERVIEW_TOP)?.scrollIntoView({ block: 'start' })
+  }, [focus, settled])
 
   return (
-    <div className="space-y-6" data-testid="infrastructure-overview">
+    <div className="scroll-mt-24 space-y-6" id={OVERVIEW_TOP} data-testid="infrastructure-overview">
       <NeedsAttention />
       <AppsSection />
       <ClustersSection />
