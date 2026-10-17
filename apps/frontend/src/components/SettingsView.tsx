@@ -2,8 +2,6 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '../api/client';
 import { useShellStore, type AppUser } from '../stores/shell';
-import { DefaultModelPicker } from './DefaultModelPicker';
-import { ModelTraffic } from './ModelTraffic';
 import { DeleteAccount } from './Account/DeleteAccount';
 import BenchPanel from './Checks/BenchPanel';
 import { People } from './Account/People';
@@ -64,8 +62,8 @@ export default function SettingsView() {
       </div>
     )}
     <header className="mb-10">
-      <h2 className="text-3xl font-bold">Security & Settings</h2>
-      <p className="text-slate-400">Configure authentication and two-factor (2FA) mechanisms.</p>
+      <h2 className="text-3xl font-bold">Settings</h2>
+      <p className="text-slate-400">Your account, sign-in, people, addresses, notifications and the bench.</p>
     </header>
     
     <div className="bg-slate-800 border border-slate-700 rounded-3xl p-8 space-y-6">
@@ -204,14 +202,6 @@ export default function SettingsView() {
       <BenchPanel />
 
       <DeleteAccount />
-    </div>
-
-    <div className="mt-8">
-      <DefaultModelPicker />
-    </div>
-
-    <div className="mt-6">
-      <ModelTraffic />
     </div>
   </section>
   );

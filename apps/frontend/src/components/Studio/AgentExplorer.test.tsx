@@ -19,6 +19,7 @@ const { stub } = vi.hoisted(() => ({
 }))
 vi.mock('./AgentFile', () => stub('file'))
 vi.mock('./AgentEditor', () => stub('editor'))
+vi.mock('./DefaultModelPicker', () => ({ DefaultModelPicker: () => <div data-testid="default-model" /> }))
 
 const agent = (slug: string, usedBy: NonNullable<Agent['usedBy']>): Agent => ({
   slug, name: slug[0]!.toUpperCase() + slug.slice(1), description: '', version: '1', prompt: '', guidance: '', returns: '', failures: [],
@@ -51,12 +52,13 @@ beforeEach(() => {
 const tree = () => within(screen.getByRole('complementary', { name: 'Agents' }))
 
 describe('the agents explorer', () => {
-  it('groups the agents by how they are used, and says what agents are when none is open', () => {
+  it('groups the agents by how they are used, and says what agents are and which model they default to when none is open', () => {
     render(<AgentExplorer />)
     expect(tree().getAllByRole('button').map((button) => button.textContent?.trim()).filter((text) => /^(You talk to|Run by|Handed|Not used)/.test(text ?? ''))).toEqual([
       'You talk to1', 'Run by the platform1', 'Handed work by other agents1', 'Not used yet1',
     ])
     expect(screen.getByText(/grouped by how they are used/)).toBeInTheDocument()
+    expect(screen.getByTestId('default-model')).toBeInTheDocument()
     expect(seen.props.file).toBeUndefined()
   })
 

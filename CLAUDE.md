@@ -434,6 +434,7 @@ scroll to the matching section:
 - **Clusters**: every cluster as a card (health, use, apps, history kept), Logs and Destroy (the system cluster
   read-only); Provision a cluster.
 - **Running**: what runs, cancel, and the bench and memory keeper switches (below).
+- **Model traffic**: each model's queue, whether it is answering or paused because its server said it is busy, and its totals.
 - **Alerts set** and **Alert history**.
 
 An app's page (`#/infrastructure/app/<id>`) is its health; a cluster's (`#/infrastructure/cluster/<id>`) is its health

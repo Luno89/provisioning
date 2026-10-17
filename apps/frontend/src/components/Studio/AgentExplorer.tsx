@@ -4,6 +4,7 @@ import { Bot } from 'lucide-react'
 import type { Agent } from '../../api/agents'
 import AgentEditor from './AgentEditor'
 import AgentFile from './AgentFile'
+import { DefaultModelPicker } from './DefaultModelPicker'
 import Explorer, { type ExplorerGroup } from './Explorer'
 import { AGENT_FILES, isAgentFile, type AgentFileId } from './agent-files'
 import { blankAgent } from './agent-forms'
@@ -108,6 +109,9 @@ function Welcome({ count }: { count: number }) {
       <h1 className="flex items-center gap-2 text-lg font-semibold text-slate-200"><Bot size={20} className="text-[var(--leaf)]" /> Agents</h1>
       <p>An agent is a procedure plus what it is allowed to touch: its prompt, the tools it is granted, the agents it can hand work to, and the workspace it runs in.</p>
       <p>The {count} agents on the left are grouped by how they are used. Open one to see what makes it up — each part opens here, like a file.</p>
+      <div className="mt-6 rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)]/40 p-4">
+        <DefaultModelPicker />
+      </div>
     </div>
   )
 }

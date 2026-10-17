@@ -150,7 +150,7 @@ describe('the Infrastructure page', () => {
     show()
     expect(await screen.findByRole('list', { name: 'Needs attention' })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Running · 1' })).toBeInTheDocument()
-    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['Needs attention', 'Apps · 3', 'Clusters · 2', 'Running · 1', 'Alerts set', 'Alert history'])
+    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['Needs attention', 'Apps · 3', 'Clusters · 2', 'Running · 1', 'Model traffic', 'Alerts set', 'Alert history'])
     expect(screen.getAllByTestId('app-row')).toHaveLength(3)
     expect(screen.getAllByTestId('cluster-card')).toHaveLength(2)
     expect(await screen.findByRole('link', { name: 'Koala answering' })).toHaveAttribute('href', '#/chat/c1')

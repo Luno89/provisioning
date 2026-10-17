@@ -1,6 +1,6 @@
 import React from 'react';
 import type { UseMutationResult } from '@tanstack/react-query';
-import { Key, Network, Package, Puzzle, Shield, Timer } from 'lucide-react';
+import { Key, Network, Package, Puzzle, Settings, Timer } from 'lucide-react';
 import type { Cluster } from '../types/cluster';
 import type { Deployment } from '../types/deployment';
 import type { ProviderStatus } from '../types/credentials';
@@ -11,7 +11,7 @@ export const FOREST_TABS = [
   { id: 'accounts' as const, label: 'Cloud Accounts', icon: Key },
   { id: 'nginx' as const, label: 'Nginx Router', icon: Puzzle },
   { id: 'temporal' as const, label: 'Temporal', icon: Timer },
-  { id: 'settings' as const, label: 'Security', icon: Shield },
+  { id: 'settings' as const, label: 'Settings', icon: Settings },
 ];
 
 export type ForestTab = (typeof FOREST_TABS)[number];

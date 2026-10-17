@@ -7,6 +7,7 @@ import { useAlerts } from '../Monitoring/shared'
 import { hashFor } from './opens'
 import { AppsSection } from './AppsSection'
 import { ClustersSection } from './ClustersSection'
+import { ModelTrafficSection } from './ModelTrafficSection'
 import { QuietButton, WorkloadBadge } from './Parts'
 import RunningSection from './RunningSection'
 import { aboutLink, healthHash, sectionAnchor, useClearFailures, useInfrastructure, waitingText, type SectionId } from './shared'
@@ -99,6 +100,7 @@ export function Overview({ focus }: { focus?: SectionId }) {
       <AppsSection />
       <ClustersSection />
       <RunningSection />
+      <ModelTrafficSection />
 
       <Section title="Alerts set">
         {alerts.data ? <RuleList rules={alerts.data.rules} /> : <Loader2 size={12} className="animate-spin text-slate-500" />}
