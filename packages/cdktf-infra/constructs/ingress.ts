@@ -80,6 +80,7 @@ export class IngressStack extends Construct {
           // same) — without it the ServiceMonitor exists but Prometheus silently ignores it.
           metrics: {
             prometheus: {
+              addServicesLabels: true,
               service: {
                 enabled: true,
               },

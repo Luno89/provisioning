@@ -261,3 +261,44 @@ describe('a card choosing a tree\'s model', () => {
     expect((await post(harness.url('/api/actions/a3/apply'))).data).toMatchObject({ status: 'failed', reason: 'There is no model gone among yours' });
   });
 });
+
+describe('a card setting an alert', () => {
+  let harness: Harness;
+  let added: string[];
+  let removed: string[];
+
+  beforeEach(async () => {
+    added = [];
+    removed = [];
+    harness = await mountRouter({
+      prefix: '/api/actions',
+      router: (db) => actionsRouter({ actions: new ActionService({
+        store: db,
+        deployer: { deployApp: vi.fn(), promoteProjectBuild: vi.fn() },
+        alerts: {
+          add: async (ownerId, deploymentId, spec, conversationId) => {
+            added.push(`${ownerId} ${deploymentId} ${spec.kind} ${spec.threshold} ${spec.forMinutes} ${conversationId}`);
+            return { summary: 'Books: Books takes over 1.5 s to answer for 10 minutes' };
+          },
+          remove: async (ownerId, ruleId) => { removed.push(`${ownerId} ${ruleId}`); },
+        },
+      }) }),
+    });
+  });
+
+  afterEach(() => harness.close());
+
+  it('sets the alert when applied, in the conversation it was proposed in', async () => {
+    await harness.db.saveActionProposal(proposal({ kind: 'set_alert', conversationId: 'conv-1', params: { deploymentId: 'books', kind: 'slow', threshold: '1.5', forMinutes: '10' } }));
+    expect((await post(harness.url('/api/actions/a1/apply'))).data).toMatchObject({ status: 'applied', result: 'set: Books: Books takes over 1.5 s to answer for 10 minutes' });
+    expect(added).toEqual([`${TEST_USER.id} books slow 1.5 10 conv-1`]);
+  });
+
+  it('removes one, and fails a card whose threshold is out of range', async () => {
+    await harness.db.saveActionProposal(proposal({ kind: 'set_alert', params: { remove: 'r1' } }));
+    expect((await post(harness.url('/api/actions/a1/apply'))).data).toMatchObject({ status: 'applied', result: 'the alert is removed' });
+    expect(removed).toEqual([`${TEST_USER.id} r1`]);
+    await harness.db.saveActionProposal(proposal({ id: 'a2', kind: 'set_alert', params: { deploymentId: 'books', kind: 'memory', threshold: '500', forMinutes: '5' } }));
+    expect((await post(harness.url('/api/actions/a2/apply'))).data).toMatchObject({ status: 'failed', reason: 'the threshold for "memory" is in % of its limit, between 10 and 100' });
+  });
+});

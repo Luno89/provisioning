@@ -38,6 +38,7 @@ export interface ScenarioWorld {
   tools?: ToolDefinition[] | undefined;
   mcpServers?: WorldServer[] | undefined;
   project?: { name: string } | undefined;
+  apps?: Array<{ name: string; appType: string }> | undefined;
   treeTypes?: Record<string, Record<string, unknown>> | undefined;
 }
 
@@ -110,6 +111,7 @@ export interface FlowExpectations {
   mcpServer?: { name: string; state?: 'captured' | 'failed' | undefined; heldBy?: string[] | undefined } | undefined;
   releasedBy?: { project?: boolean | undefined; treeType?: string | undefined; agent: string; app?: string | undefined } | undefined;
   treeModels?: { chosen?: string[] | undefined; own?: string[] | undefined } | undefined;
+  alertRules?: Array<{ app: string; kind: string }> | undefined;
   trees?: number | undefined;
   exit?: string | undefined;
   outputs?: Record<string, { equals?: unknown; contains?: string | undefined }> | undefined;
@@ -191,7 +193,7 @@ function browserTestProblems(expect: ExpectedBrowserTests, where: string): strin
 
 function expectationProblems(
   expect: ScenarioExpectations,
-  known: { agents: ReadonlySet<string>; tools: readonly ToolDefinition[] },
+  known: { agents: ReadonlySet<string>; tools: readonly ToolDefinition[]; apps?: ReadonlySet<string> | undefined },
   toolNames: ReadonlySet<string>,
   where: string,
 ): string[] {
@@ -213,6 +215,11 @@ function expectationProblems(
     if ((released.project === true) === (typeof released.treeType === 'string')) problems.push(`${where}how builds are released is expected of either the world's project or a tree type`);
     if (typeof released.agent !== 'string' || !released.agent.trim()) problems.push(`${where}it expects builds released by an agent, but names none`);
     if (released.app !== undefined && typeof released.app !== 'string') problems.push(`${where}the release's app adapter is a name`);
+  }
+  if (expect.alertRules !== undefined) {
+    const rules = expect.alertRules as unknown;
+    const apps = known.apps ?? new Set<string>();
+    if (!Array.isArray(rules) || rules.some((rule) => !apps.has((rule as { app?: string }).app ?? '') || typeof (rule as { kind?: unknown }).kind !== 'string')) problems.push(`${where}the alerts it expects name the world's apps and a kind`);
   }
   if (expect.treeModels !== undefined) {
     const models = expect.treeModels as { chosen?: unknown; own?: unknown };
@@ -291,6 +298,7 @@ export function scenarioProblems(
   const problems: string[] = [];
   const worldTools = Array.isArray(scenario.world?.tools) ? scenario.world.tools : [];
   const worldServers = Array.isArray(scenario.world?.mcpServers) ? scenario.world.mcpServers : [];
+  const worldAppNames = new Set(Array.isArray(scenario.world?.apps) ? scenario.world.apps.map((app) => app?.name) : []);
   const toolNames = new ToolNames(
     [...known.tools, ...worldTools].map((tool) => tool.name),
     worldServers.map((server) => `${slugify(server.name)}${SEPARATOR}`),
@@ -349,7 +357,7 @@ export function scenarioProblems(
   }
 
   if (!scenario.expect || typeof scenario.expect !== 'object') problems.push('the scenario has to expect something');
-  else problems.push(...expectationProblems(scenario.expect, known, toolNames, ''));
+  else problems.push(...expectationProblems(scenario.expect, { ...known, apps: worldAppNames }, toolNames, ''));
 
   if (scenario.script !== undefined) problems.push(...scriptProblems(scenario.script, new ToolNames([...toolNames, ...known.agents], toolNames.served)).map((problem) => `its script: ${problem}`));
   for (const [slug, settings] of Object.entries(scenario.world?.agents ?? {})) {
@@ -373,6 +381,15 @@ export function scenarioProblems(
   }
   if (scenario.world?.project !== undefined && (typeof scenario.world.project.name !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(scenario.world.project.name))) {
     problems.push('the world\'s project needs a name of lower-case words joined by dashes');
+  }
+  if (scenario.world?.apps !== undefined) {
+    const apps = scenario.world.apps as unknown;
+    if (!Array.isArray(apps)) problems.push('the world\'s apps have to be a list');
+    else {
+      const names = apps.map((app) => (app as { name?: unknown }).name);
+      if (apps.some((app) => typeof (app as { name?: unknown }).name !== 'string' || !/^[a-z][a-z0-9-]{0,20}$/.test((app as { name: string }).name) || typeof (app as { appType?: unknown }).appType !== 'string')) problems.push('each of the world\'s apps needs a short lower-case name and an appType');
+      if (new Set(names).size !== names.length) problems.push('the world\'s apps need different names');
+    }
   }
   const stages = Array.isArray(scenario.then) ? scenario.then : [];
   const approvedAt = stages.findIndex((stage) => stage?.do && typeof stage.do === 'object' && 'approvePlan' in stage.do);
@@ -418,7 +435,7 @@ export function scenarioProblems(
       }
     }
     if (stage?.expect?.e2e !== undefined && kinds[0] !== 'browse') problems.push(`${where} does not browse, so it has no browser tests of its own — expect the release's instead`);
-    if (stage?.expect !== undefined) problems.push(...expectationProblems(stage.expect, known, toolNames, `${where}: `));
+    if (stage?.expect !== undefined) problems.push(...expectationProblems(stage.expect, { ...known, apps: worldAppNames }, toolNames, `${where}: `));
   }
   if ((scenario.expect?.modelSaw || (scenario.then ?? []).some((stage) => stage.expect?.modelSaw)) && !scenario.script) {
     problems.push('only a scripted check can see what the model was sent — give it a script');

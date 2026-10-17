@@ -218,6 +218,33 @@ const treeModel: Scenario = {
   ],
 };
 
+const monitored: Scenario = {
+  id: 'mechanics-monitoring',
+  name: 'Koala reads how an app is doing and sets an alert on it only once its card is applied',
+  describe: 'Mechanics, on a script, with a real app: an app is deployed on the system cluster for the space; Koala reads its health from the cluster\'s Prometheus and proposes an alert for when it stops answering; nothing is set until the card is applied, and then the alert is on the app. Off the bench, since the app takes a minute or two to deploy.',
+  agent: 'koala',
+  procedure: { id: 'interactive-chat' },
+  input: { message: 'How is my books app doing? Tell me when it has been down for 5 minutes.' },
+  world: { apps: [{ name: 'books', appType: 'audiobookshelf' }] },
+  onBench: false,
+  script: { rules: [
+    { when: { offered: ['app_health'], notCalled: ['app_health'] }, reply: { call: [{ tool: 'app_health', arguments: { app: '{{world.apps.books}}' } }] } },
+    { when: { called: ['app_health'], notCalled: ['propose_alert'] }, reply: { call: [{ tool: 'propose_alert', arguments: { app: '{{world.apps.books}}', kind: 'down', forMinutes: 5, why: 'the person wants to know when it is down' } }] } },
+    { when: { called: ['propose_alert'] }, reply: { say: 'It is healthy; the alert waits for you on a card.' } },
+    NOTHING,
+  ] },
+  expect: {
+    outcome: 'ok',
+    toolsSucceeded: ['app_health', 'propose_alert'],
+    modelSaw: { anyRequest: true, contains: ['days of history.', 'Proposed on a card: Tell me when books-', 'has not answered for 5 minutes'] },
+  },
+  then: [{
+    name: 'the card is applied',
+    do: { applyAction: true },
+    expect: { alertRules: [{ app: 'books', kind: 'down' }] },
+  }],
+};
+
 const researched: Scenario = {
   id: 'mechanics-research-workspace',
   name: 'Research shares one workspace that outlives its pod',
@@ -636,4 +663,4 @@ const odooBrowserFailure: Scenario = {
   ],
 };
 
-export const MECHANICS_CHECKS = (): Scenario[] => [judged, longCommand, unaskedInSandbox, servedInWorkspace, proposedServer, proposedRelease, treeModel, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];
+export const MECHANICS_CHECKS = (): Scenario[] => [judged, longCommand, unaskedInSandbox, servedInWorkspace, proposedServer, proposedRelease, treeModel, monitored, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];

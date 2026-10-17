@@ -3,6 +3,8 @@ import { hintKey, type McpToolHint } from './mcp-tool-hints.js';
 import type { BenchSettings, BenchState } from './bench.js';
 import type { ExtensionSettings } from './extension-settings.js';
 import type { AutoModeSettings } from './auto-mode.js';
+import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
+import type { AlertRuleRecord } from './monitoring-alerts.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
 import type { MachineJoinCode } from './machines.js';
@@ -1156,6 +1158,41 @@ export class MongoDB implements Database {
 
   async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
     await this.db!.collection('deferredConclusions').deleteOne({ _id: id as never, ownerId });
+  }
+
+  async getMonitoringSettings(): Promise<MonitoringSetting[]> {
+    const docs = await this.db!.collection('monitoringSettings').find({}).toArray();
+    return docs.map((doc) => {
+      const { _id, ...rest } = doc as Record<string, unknown>;
+      return { ...(rest as Omit<MonitoringSetting, 'clusterId'>), clusterId: String(_id) };
+    });
+  }
+
+  async saveMonitoringSetting(setting: MonitoringSetting): Promise<void> {
+    const { clusterId, ...rest } = setting;
+    await this.db!.collection('monitoringSettings').replaceOne({ _id: clusterId as never }, rest, { upsert: true });
+  }
+
+  async getAlertRules(ownerId?: string): Promise<AlertRuleRecord[]> {
+    const docs = await this.db!.collection('monitoringAlertRules').find(ownerId === undefined ? {} : { ownerId }).toArray();
+    return docs.map((doc) => fromDoc<AlertRuleRecord>(doc as Record<string, unknown>));
+  }
+
+  async saveAlertRule(rule: AlertRuleRecord): Promise<void> {
+    await this.db!.collection('monitoringAlertRules').replaceOne({ _id: rule.id as never }, toDoc(rule), { upsert: true });
+  }
+
+  async deleteAlertRule(id: string): Promise<void> {
+    await this.db!.collection('monitoringAlertRules').deleteOne({ _id: id as never });
+  }
+
+  async getAlertEpisodes(ownerId?: string): Promise<AlertEpisode[]> {
+    const docs = await this.db!.collection('monitoringAlertEpisodes').find(ownerId === undefined ? {} : { ownerId }).sort({ startedAt: -1 }).toArray();
+    return docs.map((doc) => fromDoc<AlertEpisode>(doc as Record<string, unknown>));
+  }
+
+  async saveAlertEpisode(episode: AlertEpisode): Promise<void> {
+    await this.db!.collection('monitoringAlertEpisodes').replaceOne({ _id: episode.id as never }, toDoc(episode), { upsert: true });
   }
 
   async getAutoModeSettings(ownerId: string): Promise<AutoModeSettings | undefined> {

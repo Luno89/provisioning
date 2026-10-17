@@ -41,6 +41,7 @@ export const WORLD_FIELDS: Record<keyof ScenarioWorld, Entry> = {
   tools: { means: 'tools the space has as its own, defined like any tool', example: '[{"name": "count_lines", "summary": "Count the lines of a file", "binding": "environment", "effect": "read", "idempotent": true, "openWorld": false, "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "the file"}}, "required": ["path"]}, "returns": "the count", "failures": [], "command": "wc -l {{path}}"}]' },
   mcpServers: { means: 'MCP servers the space has in its catalogue, captured before the run starts; an agent holds one through its "servers", and its tools are offered as <name>__<tool>', example: '[{"name": "echoes", "summary": "Says back what it is told", "runs": {"where": "workspace", "install": [{"via": "npm", "packages": ["echoes-server"]}], "start": "echoes-server", "port": 8931}}]' },
   project: { means: 'a project made before the first run; the conversation is bound to it', example: '{ "name": "check project" }' },
+  apps: { means: 'apps deployed on the system cluster before the first run, as the space, and destroyed with it; {{world.apps.<name>}} is each one\'s id. Deploying takes a minute or two, so a check with apps stays off the bench', example: '[{ "name": "books", "appType": "audiobookshelf" }]' },
   treeTypes: { means: 'settings laid over tree types for this check only, by id', example: '{ "odoo-addons": { "env": [{ "name": "SHOP", "value": "demo" }] } }' },
 };
 
@@ -66,6 +67,7 @@ export const EXPECTATIONS: Record<keyof ScenarioExpectations, Entry> = {
   pullRequests: { means: 'plumbing: pull requests by state', example: '{ "merged": 2, "open": 0 }' },
   workspace: { means: 'plumbing: whether the tree\'s or conversation\'s workspace exists', example: '{ "of": "conversation", "exists": false }' },
   project: { means: 'plumbing: whether the world\'s project still exists', example: '{ "exists": false }' },
+  alertRules: { means: 'plumbing: alerts set on the world\'s apps, each by app and kind', example: '[{ "app": "books", "kind": "down" }]' },
   mcpServer: { means: 'plumbing: an MCP server in the space\'s catalogue — once its capture has finished when a state is expected — and which agents hold it', example: '{ "name": "echoes", "state": "captured", "heldBy": ["executor"] }' },
   releasedBy: { means: 'plumbing: how the world\'s project, or a tree type, has its builds released — the agent and app adapter', example: '{ "project": true, "agent": "release-replace" }' },
   treeModels: { means: 'plumbing: which agents in the world\'s tree have a model chosen for that tree, and which work on their own', example: '{ "chosen": ["executor"], "own": ["leaf-judge"] }' },

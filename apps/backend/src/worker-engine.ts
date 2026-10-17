@@ -47,6 +47,8 @@ import { signJWT } from './lib/auth.js';
 import axios from 'axios';
 import { httpCheckAccess } from './services/CheckToolAccess.js';
 import { sharedClusterProxy } from './services/ClusterProxyService.js';
+import { MonitoringService, prometheusAt, type Viewer } from './services/MonitoringService.js';
+import { roleFromEnv } from './lib/platform-role.js';
 import { ProjectRepoService } from './services/ProjectRepoService.js';
 import { createSecretVault } from './services/SecretRequestService.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
@@ -181,8 +183,24 @@ async function buildActivities() {
     savePlan: (proposal) => db.savePlanProposal(proposal),
     treeTypeOf: async (project) => (await treeTypeOfProject(db, project))?.id ?? ODOO_TREE_TYPE,
   });
+  const engineRole = roleFromEnv(process.env);
+  const ownsSystem = (viewer: Viewer) => (engineRole.instance ? viewer.id === engineRole.instance.ownerId : Boolean(viewer.isAdmin));
+  const monitoring = new MonitoringService({
+    store: db,
+    systemCluster: () => clusterService.getSystemClusterEntry(),
+    ownsSystem,
+    prometheus: async (cluster) => prometheusAt(await sharedClusterProxy().serviceUrl(cluster.id, 'prometheus', await clusterService.getKubeconfigPath(cluster))),
+    kubectl: async (cluster, args) => String(await kubeInfra.runKubectl(args, await clusterService.getKubeconfigPath(cluster))),
+    apply: async (cluster, manifest) => { await kubeInfra.applyManifest(manifest, await clusterService.getKubeconfigPath(cluster)); },
+    helm: async (cluster, args) => String(await kubeInfra.runHelm(args, await clusterService.getKubeconfigPath(cluster))),
+  });
   const host = createEngineHost({
     customizations,
+    monitoring: {
+      monitoring,
+      rules: (ownerId) => db.getAlertRules(ownerId),
+      viewer: async (ownerId) => ({ id: ownerId, isAdmin: Boolean((await db.getUserById(ownerId))?.isAdmin) }),
+    },
     treeModels: {
       describe: (ownerId, treeId) => treeModels.describe(ownerId, treeId),
       problem: (ownerId, treeId, agent, modelId) => treeModels.problem(ownerId, treeId, agent, modelId),

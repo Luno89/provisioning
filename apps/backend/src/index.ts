@@ -198,6 +198,10 @@ import { InstanceService } from './services/InstanceService.js';
 import { InstanceRoutes, dockerCaddy } from './services/InstanceRoutes.js';
 import { InstanceAddresses, adminEdge } from './services/InstanceAddresses.js';
 import { instanceAddressesRouter } from './routes/instance-addresses.js';
+import { monitoringRouter } from './routes/monitoring.js';
+import { MonitoringService, prometheusAt } from './services/MonitoringService.js';
+import { AlertWatchService } from './services/AlertWatchService.js';
+import { alertNotice, alertWhere } from './lib/alert-notices.js';
 import { InstanceChart } from './services/InstanceChart.js';
 import { instancesRouter } from './routes/instances.js';
 import { OdooReleaseService } from './services/OdooReleaseService.js';
@@ -774,6 +778,34 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   tenant.use('/api/instance-addresses', instanceAddressesRouter({ addresses: () => instanceAddresses }));
+  const systemOwners = async (): Promise<string[]> => (role.instance
+    ? [role.instance.ownerId]
+    : (await db.getUsers()).filter((user) => user.isAdmin).map((user) => user.id));
+  const monitoring = new MonitoringService({
+    store: db,
+    systemCluster: () => clusterService.getSystemClusterEntry(),
+    ownsSystem: (viewer) => (role.instance ? viewer.id === role.instance.ownerId : Boolean(viewer.isAdmin)),
+    prometheus: async (cluster) => prometheusAt(await clusterProxyService.serviceUrl(cluster.id, 'prometheus', await clusterService.getKubeconfigPath(cluster))),
+    kubectl: async (cluster, args) => String(await infraService.runKubectl(args, await clusterService.getKubeconfigPath(cluster))),
+    apply: async (cluster, manifest) => { await infraService.applyManifest(manifest, await clusterService.getKubeconfigPath(cluster)); },
+    helm: async (cluster, args) => String(await infraService.runHelm(args, await clusterService.getKubeconfigPath(cluster))),
+  });
+  tenant.use('/api/monitoring', monitoringRouter({ monitoring }));
+  if (servesTenants(role)) {
+    new AlertWatchService({
+      monitoring,
+      store: db,
+      systemOwners,
+      tell: async (episode, change, { app, rule }) => {
+        io.to(`user:${episode.ownerId}`).emit('monitoring-alert', { change, episode });
+        const where = alertWhere(app?.gitappProjectId, rule?.conversationId);
+        const notice = alertNotice(episode, change);
+        if (where.projectId) await notices.post(episode.ownerId, { projectId: where.projectId }, { ...notice, refs: { ...notice.refs, projectId: where.projectId } });
+        else if (where.conversationId) await notices.postTo(episode.ownerId, where.conversationId, notice);
+      },
+      log: (message) => console.warn(message),
+    }).start();
+  }
   tenant.use('/api/credentials', llmCredentialsRouter({ db, dataKey: keys.data, credentialService }));
   tenant.use('/api/credentials', credentialsRouter({
     credentialService,
@@ -1411,6 +1443,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     deployer: temporalBridge,
     releases: releaseSettings,
     treeModels,
+    alerts: {
+      add: (ownerId, deploymentId, spec, conversationId) => monitoring.addRule({ id: ownerId }, deploymentId, spec, conversationId),
+      remove: (ownerId, ruleId) => monitoring.removeRule({ id: ownerId }, ruleId),
+    },
     servers: { add: (ownerId, input) => mcpCatalogue.add(ownerId, input), list: (ownerId) => db.getMcpServers(ownerId) },
     agents: {
       agents: (ownerId) => agentDirectory.agents(ownerId),

@@ -6,6 +6,7 @@ import { platformRuntime, type PlatformRuntimeDeps } from './platform/runtime.js
 import { workspaceRuntime, type WorkspaceRuntimeDeps } from './workspace/runtime.js';
 import { mcpRuntime, type McpRuntimeDeps } from './mcp/runtime.js';
 import { releasesRuntime, type ReleasesRuntimeDeps } from './releases/runtime.js';
+import { monitoringRuntime, type MonitoringRuntimeDeps } from './monitoring/runtime.js';
 
 export interface ExtensionRuntimeDeps {
   grove?: GroveRuntimeDeps | undefined;
@@ -13,10 +14,11 @@ export interface ExtensionRuntimeDeps {
   workspace?: WorkspaceRuntimeDeps | undefined;
   mcp?: McpRuntimeDeps | undefined;
   releases?: ReleasesRuntimeDeps | undefined;
+  monitoring?: MonitoringRuntimeDeps | undefined;
 }
 
 export function extensionRuntimes(deps: ExtensionRuntimeDeps): Record<string, ExtensionRuntime> {
-  return { platform: platformRuntime(deps.platform ?? {}), grove: groveRuntime(deps.grove ?? {}), workspace: workspaceRuntime(deps.workspace ?? {}), mcp: mcpRuntime(deps.mcp ?? {}), releases: releasesRuntime(deps.releases ?? {}) };
+  return { platform: platformRuntime(deps.platform ?? {}), grove: groveRuntime(deps.grove ?? {}), workspace: workspaceRuntime(deps.workspace ?? {}), mcp: mcpRuntime(deps.mcp ?? {}), releases: releasesRuntime(deps.releases ?? {}), monitoring: monitoringRuntime(deps.monitoring ?? {}) };
 }
 
 export const operationHandlers = (runtimes: Record<string, ExtensionRuntime>): Record<string, HostOperationRun> =>

@@ -3,6 +3,8 @@ import { hintKey, type McpToolHint } from './mcp-tool-hints.js';
 import type { BenchSettings, BenchState } from './bench.js';
 import type { ExtensionSettings } from './extension-settings.js';
 import type { AutoModeSettings } from './auto-mode.js';
+import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
+import type { AlertRuleRecord } from './monitoring-alerts.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
 import type { MachineJoinCode } from './machines.js';
@@ -76,6 +78,9 @@ export class MemoryDB implements Database {
   private egressGrants: EgressGrantRecord[] = [];
   private extensionSettings = new Map<string, ExtensionSettings>();
   private autoModeSettings = new Map<string, AutoModeSettings>();
+  private monitoringSettings = new Map<string, MonitoringSetting>();
+  private alertRules = new Map<string, AlertRuleRecord>();
+  private alertEpisodes = new Map<string, AlertEpisode>();
   private keeperSettings = new Map<string, KeeperSettings>();
   private deferredConclusions: DeferredConclusion[] = [];
   private authoredExtensions = new Map<string, AuthoredExtension>();
@@ -368,6 +373,9 @@ export class MemoryDB implements Database {
     sweepMap('benchStates', this.benchStates, (key) => key === ownerId);
     sweepMap('extensionSettings', this.extensionSettings, (key) => key === ownerId);
     sweepMap('autoModeSettings', this.autoModeSettings, (key) => key === ownerId);
+    sweepMap('monitoringSettings', this.monitoringSettings, (_, entry) => owned(entry));
+    sweepMap('monitoringAlertRules', this.alertRules, (_, entry) => owned(entry));
+    sweepMap('monitoringAlertEpisodes', this.alertEpisodes, (_, entry) => owned(entry));
     sweepMap('keeperSettings', this.keeperSettings, (key) => key === ownerId);
     this.deferredConclusions = sweep('deferredConclusions', this.deferredConclusions);
     this.giteaAccounts = sweep('giteaAccounts', this.giteaAccounts);
@@ -951,6 +959,35 @@ export class MemoryDB implements Database {
 
   async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
     this.deferredConclusions = this.deferredConclusions.filter((entry) => !(entry.id === id && entry.ownerId === ownerId));
+  }
+
+  async getMonitoringSettings(): Promise<MonitoringSetting[]> {
+    return [...this.monitoringSettings.values()].map((setting) => ({ ...setting }));
+  }
+
+  async saveMonitoringSetting(setting: MonitoringSetting): Promise<void> {
+    this.monitoringSettings.set(setting.clusterId, { ...setting });
+  }
+
+  async getAlertRules(ownerId?: string): Promise<AlertRuleRecord[]> {
+    return [...this.alertRules.values()].filter((rule) => ownerId === undefined || rule.ownerId === ownerId).map((rule) => ({ ...rule, spec: { ...rule.spec } }));
+  }
+
+  async saveAlertRule(rule: AlertRuleRecord): Promise<void> {
+    this.alertRules.set(rule.id, { ...rule, spec: { ...rule.spec } });
+  }
+
+  async deleteAlertRule(id: string): Promise<void> {
+    this.alertRules.delete(id);
+  }
+
+  async getAlertEpisodes(ownerId?: string): Promise<AlertEpisode[]> {
+    return [...this.alertEpisodes.values()].filter((episode) => ownerId === undefined || episode.ownerId === ownerId)
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt)).map((episode) => ({ ...episode }));
+  }
+
+  async saveAlertEpisode(episode: AlertEpisode): Promise<void> {
+    this.alertEpisodes.set(episode.id, { ...episode });
   }
 
   async getAutoModeSettings(ownerId: string): Promise<AutoModeSettings | undefined> {

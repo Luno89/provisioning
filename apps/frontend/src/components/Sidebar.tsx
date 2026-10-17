@@ -4,6 +4,7 @@ import { useShellStore, type ViewName } from '../stores/shell';
 import {
   Trees, Trees as TreesIcon, ChevronDown, ChevronRight,
   Plus, Trash2, GitBranch, Layers, Bot, Wrench, Network, Puzzle, Server, Activity,
+  Gauge,
 } from 'lucide-react';
 import { Koala } from './Koala';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -326,6 +327,15 @@ export default function Sidebar({ forestTabs, onLogout }: {
           <Activity size={16} />
           <span className="flex-1 text-left">Running</span>
           {running > 0 && <span className="rounded-full bg-[var(--bark-600)] px-1.5 text-[10px] text-slate-200" aria-label={`${running} running`}>{running}</span>}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigateTo('monitoring')}
+          className={groupHeader(isCurrentView('monitoring'))}
+        >
+          <Gauge size={16} />
+          <span className="flex-1 text-left">Monitoring</span>
         </button>
 
         <button

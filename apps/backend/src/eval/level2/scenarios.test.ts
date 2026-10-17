@@ -21,7 +21,7 @@ describe('the scenarios the platform ships', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('keep the model stories of Odoo off the bench: one holds the model for an hour and a half, the other waits on a real build', () => {
-    expect(BUILT_IN_SCENARIOS.filter((scenario) => scenario.onBench === false).map((scenario) => scenario.id)).toEqual(['story-odoo-field', 'story-odoo-client-project']);
+  it('keep off the bench what holds the model or a cluster for long: the model stories of Odoo, and the monitoring check that deploys a real app', () => {
+    expect(BUILT_IN_SCENARIOS.filter((scenario) => scenario.onBench === false).map((scenario) => scenario.id).sort()).toEqual(['mechanics-monitoring', 'story-odoo-client-project', 'story-odoo-field']);
   });
 });

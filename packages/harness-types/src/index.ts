@@ -736,7 +736,7 @@ export interface McpRequest {
   updatedAt: string;
 }
 
-export type ActionKind = 'deploy_app' | 'deploy_project' | 'set_project_env' | 'add_project_dependency' | 'add_app_spec' | 'add_mcp_server' | 'set_release' | 'set_tree_model';
+export type ActionKind = 'deploy_app' | 'deploy_project' | 'set_project_env' | 'add_project_dependency' | 'add_app_spec' | 'add_mcp_server' | 'set_release' | 'set_tree_model' | 'set_alert';
 export type ActionStatus = 'proposed' | 'applying' | 'applied' | 'rejected' | 'failed';
 
 export type ProposalPart =

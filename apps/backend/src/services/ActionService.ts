@@ -13,10 +13,16 @@ import type { GrantMeta } from '../engine-host/registries/agent-directory.js';
 import type { ProposalProgress, ProposalStarted } from '@koala/harness-types';
 import { serverProgress, type ImageNow } from '../lib/proposal-progress.js';
 import type { TreeModelsService } from './TreeModelsService.js';
+import { alertSpec, isAlertKind, type AlertSpec } from '../lib/monitoring-alerts.js';
 
 export interface ActionServers {
   add(ownerId: string, input: McpServerInput & { template?: unknown }): Promise<McpServerOutcome>;
   list(ownerId: string): Promise<readonly McpServerRecord[]>;
+}
+
+export interface ActionAlerts {
+  add(ownerId: string, deploymentId: string, spec: AlertSpec, conversationId?: string): Promise<{ summary: string }>;
+  remove(ownerId: string, ruleId: string): Promise<void>;
 }
 
 export interface ActionAgents {
@@ -51,6 +57,7 @@ export class ActionService {
     agents?: ActionAgents | undefined;
     releases?: Pick<ReleaseSettings, 'setForType' | 'setForProject'> | undefined;
     treeModels?: Pick<TreeModelsService, 'set'> | undefined;
+    alerts?: ActionAlerts | undefined;
     now?: () => string;
     onSettled?: ((ownerId: string, conversationId: string | undefined) => void) | undefined;
   }) {}
@@ -199,6 +206,18 @@ export class ActionService {
         const outcome = await this.deps.treeModels.set(ownerId, params.treeId ?? '', { agent: params.agent, modelId: params.clear === 'true' ? null : params.modelId });
         if (!outcome.ok) throw new Error(outcome.error);
         return params.clear === 'true' ? `${params.agent} is back on its own model in this tree` : `${params.agent} works on ${params.modelId} in this tree from its next run`;
+      }
+      case 'set_alert': {
+        if (!this.deps.alerts) throw new Error('alerts cannot be set here');
+        if (params.remove) {
+          await this.deps.alerts.remove(ownerId, params.remove);
+          return 'the alert is removed';
+        }
+        if (!isAlertKind(params.kind)) throw new Error(`there is no alert of kind ${params.kind}`);
+        const spec = alertSpec(params.kind, params.threshold ? Number(params.threshold) : undefined, params.forMinutes ? Number(params.forMinutes) : undefined);
+        if ('error' in spec) throw new Error(spec.error);
+        const rule = await this.deps.alerts.add(ownerId, params.deploymentId ?? '', spec, proposal.conversationId);
+        return `set: ${rule.summary}`;
       }
       case 'add_project_dependency': {
         const out = await declareDependency(this.deps.store, ownerId, { projectId: params.projectId, service: params.service, as: params.as });

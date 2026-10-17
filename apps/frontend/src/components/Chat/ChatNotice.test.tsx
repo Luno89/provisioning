@@ -31,3 +31,27 @@ describe('a notice about a client\'s database', () => {
     expect(window.location.hash).toBe('#/projects/project/p1/settings')
   })
 })
+
+describe('a notice that a build waits for the client\'s database', () => {
+  it('shows, and opens the project\'s Settings', () => {
+    render(<ChatNotice notice={{ key: 'held:p1', kind: 'client-database-awaited', text: 'Shop is built and waits for the client\'s database.', refs: { projectId: 'p1' }, actions: ['open-settings'] }} />)
+    expect(screen.getByText('Shop is built and waits for the client\'s database.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
+    expect(window.location.hash).toBe('#/projects/project/p1/settings')
+  })
+})
+
+describe('a notice about an alert', () => {
+  it('opens the app\'s health when it fires', () => {
+    render(<ChatNotice notice={{ key: 'alert:e1:fired', kind: 'alert-firing', text: 'Alert: Books is not answering.', refs: { clusterId: 'c1', deploymentId: 'books' }, actions: ['open-monitoring'] }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open its health' }))
+    expect(window.location.hash).toBe('#/monitoring/app/books')
+  })
+
+  it('opens the cluster\'s health for a machine alert, and shows when one resolves', () => {
+    render(<ChatNotice notice={{ key: 'alert:e2:resolved', kind: 'alert-resolved', text: 'Resolved: The disk is filling up.', refs: { clusterId: 'c1' }, actions: ['open-monitoring'] }} />)
+    expect(screen.getByText('Resolved: The disk is filling up.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open its health' }))
+    expect(window.location.hash).toBe('#/monitoring/cluster/c1')
+  })
+})

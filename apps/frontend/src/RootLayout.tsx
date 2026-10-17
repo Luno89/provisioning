@@ -116,6 +116,13 @@ export function RootLayout() {
     });
   });
 
+  useSocketEvent<{ change: 'fired' | 'resolved'; episode: { summary: string } }>('monitoring-alert', (data) => {
+    pushNotification({
+      type: data.change === 'fired' ? 'error' : 'success',
+      message: data.change === 'fired' ? `Alert: ${data.episode.summary}. See Monitoring.` : `Resolved: ${data.episode.summary}.`,
+    });
+  });
+
   useSocketEvent<{ agent: string; better: string[]; worse: string[] }>('agent-change-ready', (data) => {
     pushNotification({
       type: 'info',

@@ -338,6 +338,21 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         const project = made.data as { id: string; name: string; giteaOwner: string; giteaRepo: string };
         Object.assign(world, { projectId: project.id, projectName: project.name, projectRepo: `${project.giteaOwner}/${project.giteaRepo}` });
       }
+      const worldApps: Record<string, string> = {};
+      for (const app of scenario.world?.apps ?? []) {
+        const made = await http.post('/deployments', { name: `${app.name}-${spaceId.slice(-8).toLowerCase()}`, clusterId: 'provisioning-lunorica', appType: app.appType, strategy: 'native' }, { validateStatus: () => true });
+        if (made.status >= 300) return { result: failedResult(scenario, '', `the world's app ${app.name} could not be deployed: ${(made.data as { error?: string }).error ?? made.status}`, startedAt), runIds: [] };
+        const id = (made.data as { id: string }).id;
+        for (;;) {
+          await stopIfCancelled();
+          const found = ((await http.get('/deployments')).data as { id: string; status: string }[]).find((entry) => entry.id === id);
+          if (!found || found.status === 'failed') return { result: failedResult(scenario, '', `the world's app ${app.name} did not deploy${found ? '' : ': it is gone'}`, startedAt), runIds: [] };
+          if (found.status === 'running') break;
+          await wait();
+        }
+        worldApps[app.name] = id;
+      }
+      if (Object.keys(worldApps).length > 0) world.apps = worldApps;
       const conversationId = ((await http.post('/conversations', typeof world.projectId === 'string' ? { projectId: world.projectId } : {})).data as { id: string }).id;
       world.conversationId = conversationId;
       const talkingIn = conversationId;
@@ -788,6 +803,11 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           flow.notices = (channel.messages ?? []).filter((message) => message.role === 'notice').map((message) => message.content);
         }
         if (expect.trees !== undefined) flow.trees = ((await http.get('/trees')).data as unknown[]).length;
+        if (expect.alertRules) {
+          const apps = Object.entries((world.apps ?? {}) as Record<string, string>);
+          const rules = ((await http.get('/monitoring/alerts')).data as { rules: { deploymentId: string; spec: { kind: string } }[] }).rules;
+          flow.alertRules = rules.map((rule) => ({ app: apps.find(([, id]) => id === rule.deploymentId)?.[0] ?? rule.deploymentId, kind: rule.spec.kind }));
+        }
         if (expect.mcpServer) {
           for (;;) {
             await stopIfCancelled();

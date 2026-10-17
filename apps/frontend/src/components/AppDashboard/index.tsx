@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Activity, AlertTriangle, Box, Check, Cpu, Database, ExternalLink, FileText, HardDrive, Layers, Loader2, Puzzle, RefreshCw, Server, Settings, Shield, Terminal, Trash2, X, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, Box, Check, Cpu, Database, ExternalLink, FileText, Gauge, HardDrive, Layers, Loader2, Puzzle, RefreshCw, Server, Settings, Shield, Terminal, Trash2, X, Zap } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import {
@@ -13,10 +13,12 @@ import type { Deployment } from '../../types/deployment';
 import type { Cluster } from '../../types/cluster';
 import { AnsiText } from '../AnsiText';
 import GameServerSettings from '../GameServerSettings';
+import { AppHealth } from '../Monitoring/AppHealth';
+import { ClusterHealth } from '../Monitoring/ClusterHealth';
 import { NO_WEB_UI_APP_TYPES } from '../../lib/app-ui';
 import { getSupportedVolumes, getFallbackSize, getVolumeDescription } from '../../lib/app-volumes';
 
-export type LogTab = 'general' | 'provision' | 'helm' | 'app' | 'diagnostics' | 'modules' | 'storage';
+export type LogTab = 'general' | 'health' | 'provision' | 'helm' | 'app' | 'diagnostics' | 'modules' | 'storage';
 
 export interface AppDashboardProps {
   target: { type: 'cluster' | 'app'; id: string };
@@ -177,6 +179,7 @@ export default function AppDashboard({
               {showLogModal.type === 'app' ? (
                 <>
                   <button onClick={() => setLogTab('general')} className={`pb-2 px-1 text-sm font-bold transition-all flex items-center gap-1.5 ${logTab === 'general' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}><Server size={14} /> General</button>
+                  <button onClick={() => setLogTab('health')} className={`pb-2 px-1 text-sm font-bold transition-all flex items-center gap-1.5 ${logTab === 'health' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}><Gauge size={14} /> Health</button>
                   <button onClick={() => setLogTab('provision')} className={`pb-2 px-1 text-sm font-bold transition-all flex items-center gap-1.5 ${logTab === 'provision' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}><Terminal size={14} /> Provisioning</button>
                   <button onClick={() => setLogTab('app')} className={`pb-2 px-1 text-sm font-bold transition-all flex items-center gap-1.5 ${logTab === 'app' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}><Cpu size={14} /> Container Logs</button>
                   <button onClick={() => setLogTab('helm')} className={`pb-2 px-1 text-sm font-bold transition-all flex items-center gap-1.5 ${logTab === 'helm' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}><Layers size={14} /> Helm Status</button>
@@ -185,7 +188,10 @@ export default function AppDashboard({
                   <button onClick={() => setLogTab('storage')} className={`pb-2 px-1 text-sm font-bold transition-all flex items-center gap-1.5 ${logTab === 'storage' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}><Settings size={14} /> Config</button>
                 </>
               ) : (
+                <>
                 <button onClick={() => setLogTab('provision')} className={`pb-2 px-1 text-sm font-bold transition-all flex items-center gap-1.5 ${logTab === 'provision' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}><Terminal size={14} /> Infrastructure</button>
+                <button onClick={() => setLogTab('health')} className={`pb-2 px-1 text-sm font-bold transition-all flex items-center gap-1.5 ${logTab === 'health' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}><Gauge size={14} /> Health</button>
+                </>
               )}
             </div>
           </div>
@@ -211,6 +217,11 @@ export default function AppDashboard({
           </div>
         </div>
         <div className="flex-1 flex gap-6 min-h-0">
+           {logTab === 'health' && (
+             <div className="flex-1 min-h-0 overflow-y-auto">
+               {showLogModal.type === 'app' ? <AppHealth deploymentId={showLogModal.id} /> : <ClusterHealth clusterId={showLogModal.id} />}
+             </div>
+           )}
            {showLogModal.type === 'app' && logTab === 'app' && (
              <div className="w-64 bg-slate-900/50 rounded-xl border border-slate-700 p-4 overflow-y-auto">
                 <div className="flex items-center justify-between mb-4">
@@ -899,7 +910,7 @@ export default function AppDashboard({
                )}
              </div>
            )}
-{logTab !== 'modules' && logTab !== 'general' && logTab !== 'storage' && (
+{logTab !== 'modules' && logTab !== 'general' && logTab !== 'storage' && logTab !== 'health' && (
               <div className={`flex-1 bg-slate-950 rounded-xl p-6 font-mono text-[11px] overflow-y-auto border border-slate-700/50 shadow-inner custom-scrollbar text-blue-100/90 leading-relaxed relative ${logTab === 'diagnostics' ? 'overflow-x-auto whitespace-pre' : 'whitespace-pre-wrap'}`}>
                  {logTab === 'app' && selectedPod && (
                    <div className="sticky top-0 float-right ml-4 mb-2 text-[9px] text-slate-600 bg-slate-950/90 px-2 py-1 rounded-lg border border-slate-800" title="Last time a new log line arrived over the socket">

@@ -44,6 +44,7 @@ export interface ObservedFlow {
   mcpServer?: { exists: boolean; state?: string | undefined; why?: string | undefined; heldBy: string[] } | undefined;
   releasedBy?: { agent?: string | undefined; app?: string | undefined; from?: string | undefined } | undefined;
   treeModels?: { agent: string; chosen?: string | undefined }[] | undefined;
+  alertRules?: Array<{ app: string; kind: string }> | undefined;
   trees?: number | undefined;
   step?: { exit?: string | undefined; outputs?: Record<string, unknown> | undefined; error?: string | undefined } | undefined;
   turn?: TurnReply | undefined;
@@ -381,6 +382,11 @@ export async function scoreScenario(expect: ScenarioExpectations, observed: Obse
       const row = seen.find((entry) => entry.agent === slug);
       add(`${slug} works on its own model in the tree`, Boolean(row) && !row?.chosen, said(slug));
     }
+  }
+  if (expect.alertRules) {
+    const seen = flow.alertRules ?? [];
+    const said = seen.length ? seen.map((rule) => `${rule.kind} on ${rule.app}`).join(', ') : 'no alerts are set';
+    for (const wanted of expect.alertRules) add(`an alert for ${wanted.kind} is set on ${wanted.app}`, seen.some((rule) => rule.app === wanted.app && rule.kind === wanted.kind), said);
   }
   if (expect.trees !== undefined) add(`${expect.trees} trees`, flow.trees === expect.trees, `there ${flow.trees === 1 ? 'is' : 'are'} ${flow.trees ?? 0}`);
 

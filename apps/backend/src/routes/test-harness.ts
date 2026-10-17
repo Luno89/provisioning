@@ -3,6 +3,7 @@ import http from 'http';
 import axios from 'axios';
 import { createDatabase } from '../lib/db-interface.js';
 import type { Database } from '../lib/db-interface.js';
+import { errorResponder } from '../middleware/async-route.js';
 
 export const TEST_USER = { id: 'test-user', email: 'test@example.com', isAdmin: false };
 
@@ -37,9 +38,7 @@ export async function mountRouter(opts: HarnessOptions): Promise<Harness> {
 
   app.use(opts.prefix, await opts.router(db));
 
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    res.status(500).json({ error: err.message });
-  });
+  app.use(errorResponder);
 
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));

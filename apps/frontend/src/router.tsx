@@ -11,6 +11,7 @@ import { AppsRoute, ClustersRoute, NginxRoute, ProjectsRoute, VpsCatalogRoute } 
 import ChatPage from './components/ChatPage';
 import TemporalPanel from './components/TemporalPanel';
 import RunningView from './components/Running/RunningView';
+import MonitoringView from './components/Monitoring/MonitoringView';
 import ServicesPanel from './components/ServicesPanel';
 import CloudAccounts from './components/CloudAccounts.js';
 import MeshDevices from './components/MeshDevices.js';
@@ -135,6 +136,18 @@ export const runningRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/running',
   component: RunningView,
+});
+
+export const monitoringRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/monitoring',
+  component: MonitoringView,
+});
+
+export const monitoringDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/monitoring/$kind/$id',
+  component: MonitoringView,
 });
 
 export const servicesRoute = createRoute({
@@ -339,6 +352,8 @@ export const routeTree = rootRoute.addChildren([
   nginxRoute,
   temporalRoute,
   runningRoute,
+  monitoringRoute,
+  monitoringDetailRoute,
   servicesRoute,
   accountsRoute,
   meshRoute,

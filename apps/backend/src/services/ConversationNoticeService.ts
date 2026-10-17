@@ -21,6 +21,10 @@ export class ConversationNoticeService {
     return [...posted, ...await this.deliver(ownerId, await this.audience(ownerId, scope), told)];
   }
 
+  async postTo(ownerId: string, conversationId: string, notice: ConversationNotice): Promise<string[]> {
+    return this.deliver(ownerId, [conversationId], notice);
+  }
+
   private async audience(ownerId: string, scope: { treeId?: string | undefined; projectId?: string | undefined }): Promise<string[]> {
     const channel = scope.projectId ? await this.deps.channelOf?.(ownerId, scope.projectId) : undefined;
     if (channel) return [channel];

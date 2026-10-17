@@ -417,6 +417,45 @@ otherwise only the scenarios of agents whose fingerprint changed. A scenario tha
 fails now is a regression: it is recorded on the run, shown as a toast, and marked in that check's history. Settings
 live on Settings → The bench.
 
+## Monitoring (the Monitoring page, and Koala reading the same)
+
+Plan: `~/.claude/plans/monitoring.md`. Sidebar → **Monitoring** (`components/Monitoring/`) shows, across every cluster
+the person has (the system cluster too, when their apps run there or they own it):
+- what needs attention first;
+- each app worst first;
+- each cluster as a card.
+
+Each app and cluster also has a **Health** tab (AppDashboard, or `#/monitoring/app|cluster/<id>`): charts over an hour,
+a day, a week or a month (uPlot, loaded lazily), with release markers, its alerts and alert history, and "Open in
+Grafana".
+
+**One set of named questions** (`lib/monitoring-questions.ts`) is asked of each cluster's Prometheus through
+`ClusterProxyService`; the browser never sends PromQL. `lib/monitoring-summary.ts` turns the answers into states and the
+plain lines Koala reads, and `MonitoringService` serves both (`/api/monitoring`, `/apps/:id`, `/clusters/:id`, `/alerts`,
+`PUT /clusters/:id/history`, `DELETE /rules/:id`). What isn't measured (an app with no probe, requests where Traefik doesn't
+count them) is said to be unmeasured, never shown as fine.
+
+**Koala** holds `monitoring_overview`, `app_health`, `cluster_health` and `propose_alert` (extension `monitoring`).
+- An alert is a template (`down`, `slow`, `memory`, `restarts`, `volume`, `errors`; `lib/monitoring-alerts.ts`) proposed
+  on a card (`set_alert`).
+- Applying it writes a PrometheusRule into the app's namespace, labelled `koala_rule`, and records it
+  (`monitoringAlertRules`).
+
+**Alerts reach the person.** `AlertWatchService` reads every cluster's `/api/v1/alerts` every 30 s. Each person sees
+their apps' alerts, their own rules, and machine alerts on clusters they own; never Watchdog or k3s's false positives.
+A new one becomes an episode (`monitoringAlertEpisodes`) and is told once, as a toast and a notice: in the project's
+channel, or the conversation the rule was proposed in. Its resolution is told the same way.
+
+**The watcher also reconciles each cluster**, at most every 10 minutes:
+- **History:** Prometheus keeps its data on a volume, for the days the person set per cluster (10 by default,
+  `monitoringSettings`). This is applied with `helm upgrade --reuse-values` at the chart's version, with a
+  `retentionSize` under the volume.
+- **Request counts:** each app's requests are counted. Our Traefik gets `addServicesLabels`. On a cluster that keeps
+  k3s's Traefik, a `HelmChartConfig` turns it on, unless the person has one of their own, which is never overwritten.
+
+`mechanics-monitoring` (off the bench) proves the read → card → rule path with a real app deployed for the check's space
+(`world.apps`, expectation `alertRules`).
+
 ## What runs (the Running page)
 
 Sidebar → **Running** (`components/Running/`, a count badge while anything runs) lists the person's running work in
