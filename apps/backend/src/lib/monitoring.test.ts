@@ -16,6 +16,10 @@ describe('the questions', () => {
     expect(appQuery('requestsPerSecond', { namespace: 'books' })).toBeUndefined();
   });
 
+  it('counts no failures as none failing, not as unmeasured', () => {
+    expect(appQuery('errorShare', books)).toMatch(/^\(sum\(rate\(.*code=~"5\.\."\}\[5m\]\)\) or vector\(0\)\) \/ sum/);
+  });
+
   it('cannot be broken out of a label by a namespace', () => {
     expect(appQuery('up', { namespace: 'a"}or vector(1)#' })).toBe('max(probe_success{namespace="a\\"}or vector(1)#"})');
   });

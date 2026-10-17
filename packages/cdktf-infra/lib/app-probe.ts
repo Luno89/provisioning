@@ -28,8 +28,13 @@ export interface AppProbeConfig {
  * hostname — that hostname is only a Traefik routing key (see app-ingress.ts), not a real DNS
  * record, so blackbox-exporter running in-cluster can't resolve it.
  */
+export function probeTarget(config: Pick<AppProbeConfig, "serviceName" | "namespace" | "servicePort" | "path">): string {
+  const path = config.path ? (config.path.startsWith("/") ? config.path : `/${config.path}`) : "";
+  return `${config.serviceName}.${config.namespace}.svc.cluster.local:${config.servicePort}${path}`;
+}
+
 export function createAppProbe(scope: Construct, id: string, config: AppProbeConfig): Manifest {
-  const target = `${config.serviceName}.${config.namespace}.svc.cluster.local:${config.servicePort}`;
+  const target = probeTarget(config);
   return new Manifest(scope, id, {
     manifest: {
       apiVersion: "monitoring.coreos.com/v1",

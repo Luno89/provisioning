@@ -390,6 +390,7 @@ export class TabbyApiApp extends Construct {
       namespace: namespaceName,
       serviceName: `${sanitizedName}-tabbyapi`,
       servicePort: 5000,
+      path: "/health",
     });
   }
 }

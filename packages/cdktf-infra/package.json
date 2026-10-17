@@ -12,7 +12,7 @@
     "synth": "cdktf synth",
     "compile": "tsc",
     "watch": "tsc -w",
-    "test": "jest",
+    "test": "vitest run",
     "test:watch": "jest --watch",
     "upgrade": "npm i cdktf@latest cdktf-cli@latest",
     "upgrade:next": "npm i cdktf@next cdktf-cli@next"

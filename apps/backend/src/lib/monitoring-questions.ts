@@ -48,7 +48,7 @@ export function appQuery(question: AppQuestion, app: AppSubject): string | undef
     case 'cpuLimitCores': return `sum(kube_pod_container_resource_limits{namespace=${ns},resource="cpu"} * ${running(app.namespace)})`;
     case 'volumeShare': return `max(kubelet_volume_stats_used_bytes{namespace=${ns}} / kubelet_volume_stats_capacity_bytes{namespace=${ns}})`;
     case 'requestsPerSecond': return traffic ? `sum(rate(traefik_service_requests_total{${traffic}}[5m]))` : undefined;
-    case 'errorShare': return traffic ? `sum(rate(traefik_service_requests_total{${traffic},code=~"5.."}[5m])) / sum(rate(traefik_service_requests_total{${traffic}}[5m]))` : undefined;
+    case 'errorShare': return traffic ? `(sum(rate(traefik_service_requests_total{${traffic},code=~"5.."}[5m])) or vector(0)) / sum(rate(traefik_service_requests_total{${traffic}}[5m]))` : undefined;
   }
 }
 
