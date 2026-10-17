@@ -41,7 +41,7 @@ export function instanceRouteFiles(instance: RoutedInstance, domain: string): In
     `handle @instance_${instance.name} {`,
     proxy(backend, '\t'),
     '}',
-    `@apps_${instance.name} header_regexp Host ^[a-z0-9-]+-${escaped(instance.name)}\\.${escaped(domain)}$`,
+    `@apps_${instance.name} header_regexp Host ^[a-z0-9-]+-${escaped(instance.name)}\\.${escaped(domain)}(:[0-9]+)?$`,
     `handle @apps_${instance.name} {`,
     proxy(edge, '\t'),
     '}',

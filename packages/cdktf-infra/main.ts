@@ -79,7 +79,7 @@ class ClusterStack extends TerraformStack {
     // apply the two Helm releases in parallel and Traefik's render fails outright — see
     // IngressStack's constructor doc.
     const monitoring = new MonitoringStack(this, "monitoring", config.name);
-    new IngressStack(this, "ingress", [monitoring.prometheusRelease]);
+    if (process.env.CLUSTER_INGRESS !== "existing") new IngressStack(this, "ingress", [monitoring.prometheusRelease]);
   }
 }
 

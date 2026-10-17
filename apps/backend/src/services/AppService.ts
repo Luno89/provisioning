@@ -76,7 +76,7 @@ export class AppService extends BaseService {
         const namespaces = data.items.map((item: any) => item.metadata.name);
 
         for (const dep of deps) {
-          if (dep.status === 'deploying' || dep.status === 'destroying') {
+          if (dep.status === 'deploying' || dep.status === 'destroying' || dep.status === 'failed') {
             cleanDeployments.push({ ...dep, lastSyncedAt: now });
             continue;
           }

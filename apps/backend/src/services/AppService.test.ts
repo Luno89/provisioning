@@ -30,6 +30,13 @@ describe('listing apps against the cluster', () => {
     expect((await db.getDeployments()).map((app) => app.id)).toEqual(['odoo-p1', 'wp']);
   });
 
+  it('keeps an app that failed before its namespace was made, so the person still sees it failed', async () => {
+    const { db, apps } = await serviceOn([]);
+    await db.saveDeploymentInfo({ id: 'books', name: 'Books', clusterId: 'c1', strategy: 'native', appType: 'audiobookshelf', ownerId: 'bo', status: 'failed', createdAt: at });
+
+    expect((await apps.getAll('bo')).map((app) => [app.id, app.status])).toEqual([['books', 'failed']]);
+  });
+
   it('does not discover again a release it already tracks under a namespace of its own name', async () => {
     const { db, apps } = await serviceOn(['shop-1a2b3c', 'stray']);
     await db.saveDeploymentInfo({ id: 'odoo-p1', name: 'Shop', namespace: 'shop-1a2b3c', clusterId: 'c1', strategy: 'helm', appType: 'odoo-project', ownerId: 'bo', status: 'running', createdAt: at });

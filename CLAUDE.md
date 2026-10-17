@@ -44,6 +44,7 @@ npm run test:alive   # scripts/alive.sh — Docker/k3d/K8s API/Temporal/worker p
 npm run test:worker  # tsx tests/worker-isolated.ts — runs real Temporal workflows without browser/webserver
 npm run test:e2e     # test:alive → Playwright (skips the unit preflight `npm test` does)
 npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
+npm run test:routing-live         # root's Caddy on the mesh (local CA, koala.localhost) → a named instance installs on a VM → <name>.<domain> answers through Caddy and sign-in lands there → an app on the instance at <app>-<name>.<domain> → nested addresses issued and shown, the flat ones still answering, ~30 min, cleans up
 npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
 npm run test:machine-live        # a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service and finds an ACP agent and two CLIs missing their adapters (`--adapters none`) → after a reboot with nobody logged in it connects again → Install adapter makes Claude Code ready → the command run again with `--yes` installs Codex's adapter; removes the machine, its project and the VM, ~10 min
 npm run test:mesh-live           # the image is built; root starts; the owner's instance installs in a VM and joins the mesh, its Temporal answering only on its mesh address → a second VM runs the command from the instance's My Machines, joins the mesh with a key root mints for the instance, and its worker polls the instance's Temporal over the mesh → a third VM, another person's, reaches neither and neither reaches it; ~30 min, removes everything
@@ -251,6 +252,22 @@ Sign-in on an instance: the instance sends you to root's `/api/identity/go`, whi
 single-use token for your instance and redirects to `<instance>/#/handoff?token=…`. The instance
 checks the signature, audience, expiry and owner, records the token id so it cannot be reused, and
 sets its own session. Register an instance with `npm run instances -w apps/backend -- add <id> <owner> <url>`.
+
+**Addresses (per-user instances step 6).** A person picks a name when their instance is made (`lib/instance-names.ts`:
+3–20 lowercase letters and digits, no dashes, some reserved; unique on root, fixed afterwards, asked on root's "Use my own
+machine" with `GET /api/instances/name-check`). With `INGRESS_DOMAIN` set, root's `InstanceRoutes` writes each ready
+instance's routes from its record (name, `meshIp` from the installer's reports) into `data/caddy/instances/` and
+`data/caddy/instance-sites/` and reloads Caddy: `<name>.<domain>` → the instance's backend over the mesh (`:30320`), and
+`<app>-<name>.<domain>` → its **edge** (`:30321`), a Caddy beside the instance's backend that serves the apps it publishes
+(`AppExposureService` in edge mode writes the same per-app blocks, plain http, and reloads it through its admin API; an app on
+the instance's own k3s is reached through that cluster's Traefik by service name). Root's Caddyfile holds one `*.<domain>`
+site with every instance's matchers (anything else is a 404) under a wildcard certificate over Cloudflare DNS-01
+(`docker/caddy`, `CLOUDFLARE_API_TOKEN` in root's compose env only), or Caddy's local authority with `ROOT_TLS=internal`.
+A person can switch to nested addresses (instance Settings → Addresses, `PUT /api/instance-addresses` → root's
+`PUT /api/instances/addresses`): root adds a `*.<name>.<domain>` site with its own certificate and probes it until it is
+served (`issuing` → `ready`, with Caddy's reason while it is not, a rate limit included); only then does the instance show
+`<app>.<name>.<domain>`, and the flat addresses keep answering. `npm run test:routing-live` proves it with a VM, root's
+Caddy on the mesh as `tag:platform`, an app deployed on the instance, and the switch.
 
 ## How an agent holds a tool
 

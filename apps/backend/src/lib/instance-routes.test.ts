@@ -6,7 +6,7 @@ describe('instance routes', () => {
     const { handles, site } = instanceRouteFiles({ name: 'luno', meshIp: '100.64.0.7', nested: false }, 'koala.dev');
     expect(handles).toContain('@instance_luno host luno.koala.dev');
     expect(handles).toContain('reverse_proxy 100.64.0.7:30320');
-    expect(handles).toContain('@apps_luno header_regexp Host ^[a-z0-9-]+-luno\\.koala\\.dev$');
+    expect(handles).toContain('@apps_luno header_regexp Host ^[a-z0-9-]+-luno\\.koala\\.dev(:[0-9]+)?$');
     expect(handles).toContain('reverse_proxy 100.64.0.7:30321');
     expect(handles).toContain('read_timeout 0');
     expect(site).toBeNull();

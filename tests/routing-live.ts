@@ -31,6 +31,8 @@ const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { cwd: REPO
 const step = (message: string) => console.log(`\n▶ ${message}`);
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
+class Hopeless extends Error {}
+
 async function until<T>(what: string, probe: () => Promise<T | undefined>): Promise<T> {
   let last = '';
   for (let tries = 0; ; tries += 1) {
@@ -38,6 +40,7 @@ async function until<T>(what: string, probe: () => Promise<T | undefined>): Prom
       const value = await probe();
       if (value !== undefined) return value;
     } catch (err) {
+      if (err instanceof Hopeless) throw err;
       last = (err as Error).message;
     }
     if (tries > 0 && tries % 24 === 0) console.log(`  still waiting for ${what}${last ? ` (${last.slice(0, 200)})` : ''}`);
@@ -115,7 +118,7 @@ async function main(): Promise<void> {
   for (const name of Object.values(CONTAINERS)) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
   run('docker', ['run', '-d', '--name', CONTAINERS.relay, '--network', 'host', SOCAT_IMAGE, `TCP-LISTEN:${RELAY_PORT},bind=${BRIDGE},fork,reuseaddr`, 'TCP:127.0.0.1:8080']);
   run('docker', ['run', '-d', '--name', CONTAINERS.mesh, '--cap-add', 'NET_ADMIN', '--device', '/dev/net/tun', '-p', `127.0.0.1:${TLS_PORT}:443`,
-    '-e', `TS_AUTHKEY=${platformKey()}`, '-e', `TS_EXTRA_ARGS=--login-server=http://${BRIDGE}:${RELAY_PORT} --advertise-tags=tag:platform --accept-dns=false`,
+    '-e', `TS_AUTHKEY=${platformKey()}`, '-e', `TS_EXTRA_ARGS=--login-server=http://${BRIDGE}:${RELAY_PORT} --accept-dns=false`,
     '-e', 'TS_HOSTNAME=nw-route-root', '-e', 'TS_USERSPACE=false', '-e', 'TS_STATE_DIR=/var/lib/tailscale', TAILSCALE_IMAGE]);
   const rootMeshIp = await until('root on the mesh', async () => run('docker', ['exec', CONTAINERS.mesh, 'tailscale', 'ip', '-4']).trim() || undefined);
   console.log(`  root is ${rootMeshIp} on the mesh`);
@@ -128,7 +131,7 @@ async function main(): Promise<void> {
     run('docker', ['cp', `${CONTAINERS.caddy}:/data/caddy/pki/authorities/local/root.crt`, join(work, 'ca.crt')]);
     return existsSync(join(work, 'ca.crt')) ? true : undefined;
   });
-  assert.equal(https(`nobody-${NAME}.${DOMAIN}`, '/').status, 404, 'a name nobody has gets nothing');
+  await until('Caddy answering a name nobody has with nothing', async () => (https(`nobody-${NAME}.${DOMAIN}`, '/').status === 404 ? true : undefined));
 
   step('root starts with the domain, writing its routes where Caddy reads them');
   run('docker', ['run', '-d', '--name', CONTAINERS.root, '--network', 'host', '--env-file', 'apps/backend/.env', '--group-add', String(statSync('/var/run/docker.sock').gid),
@@ -188,9 +191,15 @@ async function main(): Promise<void> {
   await until('the app running', async () => {
     const list = json<Array<{ id: string; status: string }>>(onInstance('/api/deployments'));
     const found = list.find((entry) => entry.id === deploymentId);
-    if (found?.status === 'failed') throw new Error('the app failed to deploy');
-    return found?.status === 'running' ? found : undefined;
+    if (!found) throw new Hopeless('the deployment is gone from the list');
+    if (found.status === 'failed') throw new Hopeless('the app failed to deploy');
+    return found.status === 'running' ? found : undefined;
   });
+  step('the instance\'s cluster got monitoring before the app, and the app has its probe');
+  const monitoring = await inVm(vm, 'sudo kubectl get probe app -n books -o name && sudo kubectl get service blackbox-exporter -n monitoring -o name && sudo helm --kubeconfig /etc/rancher/k3s/k3s.yaml list -n monitoring -q');
+  assert.match(monitoring, /probe\.monitoring\.coreos\.com\/app/);
+  assert.match(monitoring, /kube-prometheus-stack/);
+  console.log(`  ${monitoring.trim().split('\n').join(', ')}`);
   const exposed = onInstance(`/api/deployments/${deploymentId}/expose`, { method: 'POST', body: { mode: 'public' } });
   assert.equal(exposed.status, 200, exposed.body);
   const flatUrl = json<{ publicExposureUrl: string }>(exposed).publicExposureUrl;
@@ -220,6 +229,16 @@ async function main(): Promise<void> {
   assert.ok(https(`books-${NAME}.${DOMAIN}`, '/').status < 400, 'the flat address still answers');
 
   console.log('\nrouting live — PASS');
+}
+
+let stopping = false;
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    if (stopping) return;
+    stopping = true;
+    console.error(`\n${signal}: tearing down`);
+    void teardown().finally(() => process.exit(130));
+  });
 }
 
 main()

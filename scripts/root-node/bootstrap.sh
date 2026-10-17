@@ -208,7 +208,7 @@ if ! tailscale ip -4 >/dev/null 2>&1; then
   docker exec provisioning-headscale headscale users create platform-root >/dev/null 2>&1 || true
   ROOT_USER_ID="$(docker exec provisioning-headscale headscale users list -o json | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{const u=JSON.parse(s).find((x)=>x.name==="platform-root");if(!u)process.exit(1);console.log(u.id)})')"
   ROOT_KEY="$(docker exec provisioning-headscale headscale preauthkeys create --user "$ROOT_USER_ID" --tags tag:platform --expiration 10m -o json | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>console.log(JSON.parse(s).key))')"
-  tailscale up --login-server="https://${MESH_DOMAIN}" --authkey="$ROOT_KEY" --advertise-tags=tag:platform --hostname=nowrinkles-root
+  tailscale up --login-server="https://${MESH_DOMAIN}" --authkey="$ROOT_KEY" --hostname=nowrinkles-root
 fi
 ROOT_MESH_IP="$(tailscale ip -4 | head -n1)"
 [ -n "$ROOT_MESH_IP" ] || die "this node did not get a mesh address"
