@@ -10,6 +10,7 @@
     "start": "concurrently --kill-others \"npm run start -w apps/backend\" \"npm run start:worker -w apps/backend\" \"npm run start:worker:cluster -w apps/backend\" \"npm run start:worker:engine -w apps/backend\"",
     "provision:root-node": "tsx scripts/root-node/provision.ts",
     "dev": "bash scripts/dev.sh",
+    "dev:split": "bash scripts/dev.sh --split",
     "dev:infisical": "bash scripts/ensure-infisical.sh",
     "clean-dev": "bash scripts/cleanup-all.sh",
     "backup": "bash scripts/backup-to-drive.sh",
@@ -81,6 +82,7 @@
     "test:hetzner-integration": "tsx tests/hetzner-integration.ts",
     "test:monitoring-live": "cd apps/backend && tsx ../../tests/monitoring-live.ts",
     "test:infrastructure-live": "cd apps/backend && tsx ../../tests/infrastructure-live.ts",
+    "test:dev-split-live": "cd apps/backend && tsx ../../tests/dev-split-live.ts",
     "test:mail-live": "cd apps/backend && tsx ../../tests/mail-live.ts"
   },
   "workspaces": [

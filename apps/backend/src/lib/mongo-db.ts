@@ -89,6 +89,8 @@ function toDoc<T extends { id: string }>(entity: T): Record<string, any> {
 const toolGrantKey = (ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): string => (kind === 'server' ? `${ownerId}:${agent}:server:${tool}` : `${ownerId}:${agent}:${tool}`);
 const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (kind === 'server' ? { kind: 'server' } : kind === 'tool' ? { kind: { $ne: 'server' } } : {});
 export class MongoDB implements Database {
+  constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {}
+
   private client: MongoClient | null = null;
   private db: Db | null = null;
 
@@ -297,7 +299,7 @@ export class MongoDB implements Database {
   }
 
   async init(): Promise<void> {
-    const { uri, dbName, e2e: isE2E } = mongoTarget();
+    const { uri, dbName, e2e: isE2E } = mongoTarget(this.env);
 
     this.client = new MongoClient(uri);
     await this.client.connect();

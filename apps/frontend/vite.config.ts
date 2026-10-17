@@ -6,12 +6,25 @@ import tailwindcss from '@tailwindcss/vite'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-// https://vite.dev/config/
+const backend = process.env.KOALA_BACKEND
+const toBackend = backend ? { target: backend, changeOrigin: false, xfwd: true } : undefined
+
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
   ],
+  ...(toBackend ? {
+    cacheDir: `node_modules/.vite-${new URL(backend!).port}`,
+    server: {
+      proxy: {
+        '/api': toBackend,
+        '/socket.io': { ...toBackend, ws: true },
+        '/machine.sh': toBackend,
+        '/install.sh': toBackend,
+      },
+    },
+  } : {}),
   resolve: {
     alias: {
       react: path.resolve(__dirname, 'node_modules/react'),

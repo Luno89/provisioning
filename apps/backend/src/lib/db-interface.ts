@@ -329,9 +329,9 @@ export function sharedPayloadBlobs(): PayloadBlobs {
   return payloadBlobs;
 }
 
-export function createDatabase(): Database {
-  if (process.env.USE_MEMORY_DB === 'true' || (process.env.NODE_ENV === 'test' && !process.env.IS_E2E)) {
+export function createDatabase(env: Readonly<Record<string, string | undefined>> = process.env): Database {
+  if (env.USE_MEMORY_DB === 'true' || (env.NODE_ENV === 'test' && !env.IS_E2E)) {
     return new MemoryDB();
   }
-  return new MongoDB();
+  return new MongoDB(env);
 }

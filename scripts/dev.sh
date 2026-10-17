@@ -8,6 +8,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SPLIT=false
+[ "${1:-}" = "--split" ] && SPLIT=true
 
 # Never run under sudo
 if [ "$(id -u)" -eq 0 ]; then
@@ -88,6 +90,10 @@ reclaim_port() {
 reclaim_port 3001 "Backend API"
 reclaim_port 8000 "Host Tunnel"
 reclaim_port 5173 "Frontend Vite"
+if [ "$SPLIT" = true ]; then
+  reclaim_port 3002 "Root API"
+  reclaim_port 5174 "Root Vite"
+fi
 
 # Also terminate any stale worker processes from previous sessions
 # Workers do not hot-reload and must start fresh
@@ -99,6 +105,30 @@ if [ -n "$STALE_WORKERS" ]; then
 fi
 
 # ── 3. DEV PROCESS ORCHESTRATION ────────────────────────────────────
+if [ "$SPLIT" = true ]; then
+  echo "▶ [3/3] Starting root and your instance..."
+  npm run dev:split:setup -w apps/backend
+  SPLIT_ENV="${ROOT}/apps/backend/data/dev-split"
+  with_env() { echo "set -a; . '${SPLIT_ENV}/$1.env'; set +a; exec $2"; }
+  ROOT_WEB="$(grep '^PUBLIC_URL=' "${SPLIT_ENV}/root.env" | cut -d= -f2-)"
+  INSTANCE_WEB="$(grep '^PUBLIC_URL=' "${SPLIT_ENV}/instance.env" | cut -d= -f2-)"
+  echo "═══════════════════════════════════════════════════════════════════════"
+  echo "  Root:         ${ROOT_WEB}   (sign in here)"
+  echo "  Instance:     ${INSTANCE_WEB}"
+  echo "  APIs:         root :3002, instance :3001"
+  echo "═══════════════════════════════════════════════════════════════════════"
+  exec npx concurrently --kill-others \
+    --names "root,instance,web-root,web-instance,worker-host,worker-cluster,worker-engine" \
+    --prefix-colors "red,blue,gray,cyan,yellow,magenta,green" \
+    "bash -c \"$(with_env root 'npm run dev -w apps/backend')\"" \
+    "bash -c \"$(with_env instance 'npm run dev -w apps/backend')\"" \
+    "KOALA_BACKEND=http://localhost:3002 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5174 --strictPort" \
+    "KOALA_BACKEND=http://localhost:3001 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5173 --strictPort" \
+    "bash -c \"$(with_env instance 'npm run dev:worker -w apps/backend')\"" \
+    "bash -c \"$(with_env instance 'npm run dev:worker:cluster -w apps/backend')\"" \
+    "bash -c \"$(with_env instance 'npm run dev:worker:engine -w apps/backend')\""
+fi
+
 echo "▶ [3/3] Starting development stack with live log streaming..."
 echo "═══════════════════════════════════════════════════════════════════════"
 echo "  Backend API:  http://localhost:3001"

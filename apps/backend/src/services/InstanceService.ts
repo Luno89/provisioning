@@ -37,10 +37,10 @@ export interface JoinBundle {
 
 export type Outcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 401 | 404 | 503; error: string };
 
-const hash = (secret: string): string => crypto.createHash('sha256').update(secret).digest('hex');
+export const hashCredential = (secret: string): string => crypto.createHash('sha256').update(secret).digest('hex');
 const sameHash = (a: string, b: string): boolean => a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
-export const instanceIdFor = (ownerId: string): string => `inst-${hash(ownerId).slice(0, 12)}`;
+export const instanceIdFor = (ownerId: string): string => `inst-${hashCredential(ownerId).slice(0, 12)}`;
 
 export class InstanceService {
   constructor(
@@ -86,7 +86,7 @@ export class InstanceService {
     const token = crypto.randomBytes(24).toString('base64url');
     const expiresAt = new Date(this.now().getTime() + JOIN_TOKEN_TTL_SECONDS * 1000).toISOString();
     const instanceId = instanceIdFor(ownerId);
-    await this.store.saveJoinToken({ hash: hash(token), ownerId, instanceId, expiresAt });
+    await this.store.saveJoinToken({ hash: hashCredential(token), ownerId, instanceId, expiresAt });
 
     const existing = (await this.store.getInstances(ownerId))[0];
     const now = this.now().toISOString();
@@ -108,7 +108,7 @@ export class InstanceService {
 
   async join(token: unknown, machine: unknown): Promise<Outcome<JoinBundle>> {
     if (typeof token !== 'string' || !token) return { ok: false, status: 400, error: 'send the join token as "token"' };
-    const found = await this.store.takeJoinToken(hash(token));
+    const found = await this.store.takeJoinToken(hashCredential(token));
     if (!found || found.expiresAt <= this.now().toISOString()) return { ok: false, status: 401, error: 'that join command has expired or was already used — make a new one from the app' };
     if (!this.mesh || !this.settings.meshLoginServer) return { ok: false, status: 503, error: 'this root has no mesh configured (MESH_LOGIN_SERVER), so no machine can join it' };
     if (!this.settings.registry) return { ok: false, status: 503, error: 'this root has no registry for machines to pull from (INSTANCE_REGISTRY)' };
@@ -120,7 +120,7 @@ export class InstanceService {
     await this.save(instance ?? { id: found.instanceId, ownerId: found.ownerId, url: '', createdAt: now, updatedAt: now }, {
       status: 'joined',
       detail: 'The machine has the install command and is setting itself up',
-      credentialHash: hash(credential),
+      credentialHash: hashCredential(credential),
       machine: typeof machine === 'string' ? machine.slice(0, 120) : undefined,
     });
 
@@ -147,7 +147,7 @@ export class InstanceService {
   private async authenticated(instanceId: unknown, credential: unknown): Promise<InstanceRecord | undefined> {
     if (typeof instanceId !== 'string' || typeof credential !== 'string' || !credential) return undefined;
     const instance = (await this.store.getInstances()).find((entry) => entry.id === instanceId);
-    return instance?.credentialHash && sameHash(instance.credentialHash, hash(credential)) ? instance : undefined;
+    return instance?.credentialHash && sameHash(instance.credentialHash, hashCredential(credential)) ? instance : undefined;
   }
 
   async release(instanceId: unknown, credential: unknown): Promise<Outcome<{ imageTag: string; chartVersion: string; chartUrl: string }>> {

@@ -22,6 +22,7 @@ cdktf.out/
 /apps/backend/data/*.json
 !/apps/backend/data/*.json.example
 /apps/backend/data/logs/
+/apps/backend/data/dev-split/
 /apps/backend/data/nginx/conf.d/*
 !/apps/backend/data/nginx/conf.d/default.conf
 # Generated Caddy site blocks, one per exposed deployment — runtime state, not source.
