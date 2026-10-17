@@ -166,7 +166,8 @@ export async function scoreScenario(expect: ScenarioExpectations, observed: Obse
   for (const wanted of expect.handOffs ?? []) {
     const made = (observed.handOffs ?? []).filter((handOff) => handOff.agent === wanted.agent);
     const count = `${made.length} hand-off${made.length === 1 ? '' : 's'} to ${wanted.agent}`;
-    if (wanted.atLeast !== undefined) add(`hands work to ${wanted.agent} at least ${wanted.atLeast} times`, made.length >= wanted.atLeast, `it made ${count}`);
+    const atLeast = wanted.atLeast ?? (wanted.atMost === undefined && !wanted.together ? 1 : undefined);
+    if (atLeast !== undefined) add(atLeast === 1 && wanted.atLeast === undefined ? `hands work to ${wanted.agent}` : `hands work to ${wanted.agent} at least ${atLeast} times`, made.length >= atLeast, `it made ${count}`);
     if (wanted.atMost !== undefined) add(`hands work to ${wanted.agent} at most ${wanted.atMost} times`, made.length <= wanted.atMost, `it made ${count}`);
     if (wanted.together) {
       const overlapping = made.filter((handOff) => made.some((other) => other !== handOff && other.startedAt < handOff.finishedAt && handOff.startedAt < other.finishedAt));

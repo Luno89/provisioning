@@ -285,3 +285,12 @@ describe('what an agent said, and the plan it led to', () => {
     expect(none.map((check) => [check.passed, check.detail])).toEqual([[false, 'no plan for a new tree was proposed in the conversation']]);
   });
 });
+
+describe('a hand-off named without a count', () => {
+  it('means at least one, so it can fail', async () => {
+    const none = await scoreScenario({ handOffs: [{ agent: 'planner' }] }, observed({ handOffs: [] }), { tools: BUILDER_TOOLS });
+    expect(none.map((check) => [check.what, check.passed, check.detail])).toEqual([['hands work to planner', false, 'it made 0 hand-offs to planner']]);
+    const one = await scoreScenario({ handOffs: [{ agent: 'planner' }] }, observed({ handOffs: [{ agent: 'planner', runId: 'r', startedAt: 'a', finishedAt: 'b' } as never] }), { tools: BUILDER_TOOLS });
+    expect(one.map((check) => check.passed)).toEqual([true]);
+  });
+});
