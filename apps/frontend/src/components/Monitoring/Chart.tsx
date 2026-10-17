@@ -30,7 +30,7 @@ function markerPlugin(markers: Marker[]): uPlot.Plugin {
   }
 }
 
-export function Chart({ title, unit, points, markers = NO_MARKERS }: { title: string; unit: ChartUnit; points: Array<[number, number]>; markers?: Marker[] }) {
+export function Chart({ title, unit, points, from, to, markers = NO_MARKERS }: { title: string; unit: ChartUnit; points: Array<[number, number]>; from: number; to: number; markers?: Marker[] }) {
   const box = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -47,10 +47,13 @@ export function Chart({ title, unit, points, markers = NO_MARKERS }: { title: st
         height: HEIGHT,
         legend: { show: false },
         cursor: { drag: { x: false, y: false } },
-        scales: { y: unit === 'share' || unit === 'up' ? { range: [0, unit === 'up' ? 1.05 : Math.max(1, ...points.map(([, value]) => value))] } : {} },
+        scales: {
+          x: { time: true, range: [from, to] },
+          y: unit === 'share' || unit === 'up' ? { range: [0, unit === 'up' ? 1.05 : Math.max(1, ...points.map(([, value]) => value))] } : {},
+        },
         axes: [
           { stroke: '#94a3b8', grid: { stroke: 'rgba(148,163,184,0.08)' }, ticks: { stroke: 'rgba(148,163,184,0.2)' } },
-          { stroke: '#94a3b8', grid: { stroke: 'rgba(148,163,184,0.08)' }, ticks: { stroke: 'rgba(148,163,184,0.2)' }, size: 56, values: (_u, splits) => splits.map((value) => formatValue(unit, value)) },
+          { stroke: '#94a3b8', grid: { stroke: 'rgba(148,163,184,0.08)' }, ticks: { stroke: 'rgba(148,163,184,0.2)' }, size: 56, ...(unit === 'up' ? { splits: () => [0, 1] } : {}), values: (_u, splits) => splits.map((value) => formatValue(unit, value)) },
         ],
         series: [
           {},
@@ -62,7 +65,7 @@ export function Chart({ title, unit, points, markers = NO_MARKERS }: { title: st
       resize.observe(element)
     })
     return () => { gone = true; resize?.disconnect(); plot?.destroy() }
-  }, [points, markers, unit, title])
+  }, [points, markers, unit, title, from, to])
 
   const latest = points.at(-1)?.[1]
   return (

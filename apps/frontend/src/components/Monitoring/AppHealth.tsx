@@ -5,7 +5,7 @@ import { clusterDashboardUrl } from '../../api/clusters'
 import { errorMessage } from '../../api/client'
 import { Chart } from './Chart'
 import { EpisodeList, FiringList, RangePicker, RuleList, Section, StateBadge } from './Parts'
-import { CHARTS, bytes, monitoringHash, percent, rate, seconds, useAppHealth } from './shared'
+import { CHARTS, windowOf, bytes, monitoringHash, percent, rate, seconds, useAppHealth } from './shared'
 
 export function AppHealth({ deploymentId, standalone = false }: { deploymentId: string; standalone?: boolean }) {
   const [range, setRange] = useState<Range>('24h')
@@ -15,6 +15,7 @@ export function AppHealth({ deploymentId, standalone = false }: { deploymentId: 
   if (health.isError) return <p className="p-4 text-[12px] text-rose-300">{errorMessage(health.error)}</p>
 
   const { app, lines, series, markers, firing, episodes, rules, history } = health.data
+  const span = windowOf(health.data.range, health.dataUpdatedAt)
   const n = app.numbers
   return (
     <div className="space-y-5 overflow-y-auto p-1" data-testid="app-health">
@@ -56,7 +57,7 @@ export function AppHealth({ deploymentId, standalone = false }: { deploymentId: 
         <div className="grid gap-3 lg:grid-cols-2">
           {series.map((entry) => {
             const chart = CHARTS[entry.chart] ?? { title: entry.chart, unit: 'share' as const }
-            return <Chart key={entry.chart} title={chart.title} unit={chart.unit} points={entry.points} markers={markers} />
+            return <Chart key={entry.chart} title={chart.title} unit={chart.unit} points={entry.points} markers={markers} {...span} />
           })}
         </div>
       ) : (

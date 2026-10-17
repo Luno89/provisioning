@@ -5,7 +5,7 @@ import { clusterDashboardUrl } from '../../api/clusters'
 import { errorMessage } from '../../api/client'
 import { Chart } from './Chart'
 import { Bar, EpisodeList, FiringList, HistorySetting, RangePicker, Section, StateBadge } from './Parts'
-import { CHARTS, monitoringHash, useClusterHealth } from './shared'
+import { CHARTS, windowOf, monitoringHash, useClusterHealth } from './shared'
 
 export function ClusterHealth({ clusterId, standalone = false }: { clusterId: string; standalone?: boolean }) {
   const [range, setRange] = useState<Range>('24h')
@@ -15,6 +15,7 @@ export function ClusterHealth({ clusterId, standalone = false }: { clusterId: st
   if (health.isError) return <p className="p-4 text-[12px] text-rose-300">{errorMessage(health.error)}</p>
 
   const { cluster, lines, series, firing, episodes, apps } = health.data
+  const span = windowOf(health.data.range, health.dataUpdatedAt)
   const n = cluster.numbers
   return (
     <div className="space-y-5 overflow-y-auto p-1" data-testid="cluster-health">
@@ -50,7 +51,7 @@ export function ClusterHealth({ clusterId, standalone = false }: { clusterId: st
         <div className="grid gap-3 lg:grid-cols-3">
           {series.map((entry) => {
             const chart = CHARTS[entry.chart] ?? { title: entry.chart, unit: 'share' as const }
-            return <Chart key={entry.chart} title={chart.title} unit={chart.unit} points={entry.points} />
+            return <Chart key={entry.chart} title={chart.title} unit={chart.unit} points={entry.points} {...span} />
           })}
         </div>
       )}

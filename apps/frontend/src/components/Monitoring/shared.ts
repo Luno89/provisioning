@@ -52,6 +52,7 @@ export const percent = (value: number | undefined): string => (value === undefin
 
 export function seconds(value: number | undefined): string {
   if (value === undefined) return '—'
+  if (value < 0.01) return `${(value * 1000).toFixed(1)} ms`
   return value < 1 ? `${Math.round(value * 1000)} ms` : `${value.toFixed(value < 10 ? 1 : 0)} s`
 }
 
@@ -87,5 +88,12 @@ export function formatValue(unit: ChartUnit, value: number): string {
 
 export const monitoringHash = (kind?: 'app' | 'cluster', id?: string): string =>
   formatHash('monitoring', kind && id ? [kind, id] : [])
+
+export const RANGE_SECONDS: Record<Range, number> = { '1h': 3600, '24h': 86_400, '7d': 604_800, '30d': 2_592_000 }
+
+export function windowOf(range: Range, now = Date.now()): { from: number; to: number } {
+  const to = Math.floor(now / 1000)
+  return { from: to - RANGE_SECONDS[range], to }
+}
 
 export const RANGE_LABELS: Record<Range, string> = { '1h': 'Hour', '24h': 'Day', '7d': 'Week', '30d': 'Month' }
