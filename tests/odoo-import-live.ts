@@ -132,7 +132,9 @@ async function main(): Promise<void> {
       const [form] = await call('ir.model.data', 'search_read', [[['module', '=', MODULE], ['name', '=', 'probe_form']]], { fields: ['res_id'] }) as { res_id: number }[];
       await call('ir.ui.view', 'write', [[form!.res_id], { arch: '<form><sheet><field name="name"/><field name="x_koala_note"/></sheet></form>' }]);
       await call('koala.probe', 'create', [[{ name: 'first', note: 'leave at the back door' }, { name: 'second', note: 'ring twice' }]]);
-      await call('ir.attachment', 'create', [{ name: 'notes.txt', datas: Buffer.from(ATTACHED).toString('base64') }]);
+      await call('ir.attachment', 'create', [{ name: 'notes.txt', raw: Buffer.from(ATTACHED).toString('base64') }]);
+      const [stored] = await call('ir.attachment', 'search_read', [[['name', '=', 'notes.txt']]], { fields: ['store_fname', 'file_size'] }) as { store_fname: string | false; file_size: number }[];
+      assert.ok(stored?.store_fname, `the client's file was not stored: ${JSON.stringify(stored)}`);
       await call('ir.mail_server', 'create', [{ name: 'Client SMTP', smtp_host: 'smtp.client.invalid', smtp_port: 587 }]);
     } finally {
       forward.kill();
