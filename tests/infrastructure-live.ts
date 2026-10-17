@@ -112,11 +112,23 @@ async function main(): Promise<void> {
   assert.ok(!(await overview()).failures.some((entry) => entry.id === failure.id), 'the failure is still shown after Clear');
   console.log('  cleared');
 
-  step('the memory keeper reads the failed run; whatever it keeps from this made-up failure is retired');
+  step('the memory keeper reads the failed run, and the conversation once it goes quiet; whatever it keeps from this made-up failure is retired');
   const temporal = await getTemporalClient();
   await until('the memory keeper to finish', async () => {
     const described = await temporal.workflow.getHandle(memoryRunId(runId)).describe().catch(() => undefined);
     return described && described.status.name !== 'RUNNING' ? described.status.name : undefined;
+  });
+  await until('the conversation to go quiet', async () => {
+    const described = await temporal.workflow.getHandle(`conclude-conversation-${conversationId}`).describe().catch(() => undefined);
+    return !described || described.status.name !== 'RUNNING' ? true : undefined;
+  });
+  await until('the memory keeper to finish reading the conversation', async () => {
+    let running = false;
+    for await (const workflow of temporal.workflow.list({ query: `WorkflowId STARTS_WITH "memory-conversation-${conversationId}"` })) {
+      runIds.add(workflow.workflowId);
+      if (workflow.status.name === 'RUNNING') running = true;
+    }
+    return running ? undefined : true;
   });
   const forgotten = await forgetWhatRunsLeft(db, OWNER, runIds);
   console.log(`  ${forgotten} kept thing${forgotten === 1 ? '' : 's'} retired`);
