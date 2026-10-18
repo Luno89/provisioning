@@ -236,8 +236,7 @@ export default function ChatSurface({
           <ChatApprovalCard
             reason={conv.pendingApproval.reason}
             {...(conv.pendingApproval.toolName ? { toolName: conv.pendingApproval.toolName, args: conv.pendingApproval.args } : {})}
-            onAllow={() => void conv.decideApproval(true)}
-            onDeny={() => void conv.decideApproval(false)}
+            onDecide={(decision) => void conv.decideApproval(decision)}
           />
         ) : null;
     }

@@ -469,7 +469,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     await waitForRunStarted();
     emit(
       { type: 'tool.called', callId: 'tc1', name: 'run_command', args: '{"command":"docker compose up"}' },
-      { type: 'notice', level: 'warn', nodeId: 'turn.run_command', message: 'Koala wants to run run_command on this run: {"command":"docker compose up"}' },
+      { type: 'notice', level: 'warn', nodeId: 'turn.run_command', callId: 'tc1', tool: 'run_command', message: 'Koala wants to run run_command on this run: {"command":"docker compose up"}' },
     );
 
     const allowText = 'Koala wants to run run_command on this run: {"command":"docker compose up"}';
@@ -478,15 +478,15 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     expect(screen.getByRole('tab', { name: /Cards/ })).toHaveTextContent('1');
     fireEvent.click(marker);
     expect(screen.getByRole('tab', { name: /Cards/ })).toHaveAttribute('aria-selected', 'true');
-    await waitFor(() => expect(screen.getByText(/^Allow in this chat$/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Allow run_command in this chat' })).toBeInTheDocument());
     expect(screen.getByText(allowText)).toBeInTheDocument();
-    expect(screen.getByText('run_command')).toBeInTheDocument();
+    expect(screen.getByText('run_command {"command":"docker compose up"}')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText(/^Allow in this chat$/));
+    fireEvent.click(screen.getByRole('button', { name: 'Allow run_command in this chat' }));
     await waitFor(() =>
       expect(engineApi.approveRunCall).toHaveBeenCalledWith(RUN_ID, { callId: 'tc1', allowed: true, conversationId: 'c1', tool: 'run_command' }),
     );
-    await waitFor(() => expect(screen.queryByText(/^Allow in this chat$/)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Allow run_command in this chat' })).not.toBeInTheDocument());
     expect(screen.queryByRole('tab', { name: /Cards/ })).not.toBeInTheDocument();
 
     emit(
@@ -495,6 +495,22 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
       { type: 'run.finished', outcome: 'ok' },
     );
     await waitFor(() => expect(screen.getByText('All up')).toBeInTheDocument());
+  });
+
+  it('answers the call an agent on a machine asks about, and can switch its agent to always allowed', async () => {
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'research it' } });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+
+    await waitForRunStarted();
+    emit(
+      { type: 'tool.called', callId: 'tc9', name: 'research', args: '{"question":"port"}' },
+      { type: 'notice', level: 'warn', nodeId: 'work', callId: 'ext-abc', tool: 'antigravity: Write tabby-port.md', message: 'koala wants to run antigravity: Write tabby-port.md on OZ-001TallGeese: Write tabby-port.md' },
+    );
+
+    fireEvent.click(await screen.findByTestId('chat-card-marker'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Always allow this agent' }));
+    await waitFor(() => expect(engineApi.approveRunCall).toHaveBeenCalledWith(RUN_ID, { callId: 'ext-abc', allowed: true, auto: 'agent' }));
   });
 
   it('runs the turn on the conversation\u2019s own agent, with its pinned model', async () => {

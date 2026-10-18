@@ -1,4 +1,4 @@
-import type { MachineWork, MachineWorkRequest } from '../sandboxes/machine-work.js';
+import type { MachineSendRequest, MachineWork, MachineWorkRequest } from '../sandboxes/machine-work.js';
 import type { BroughtBack } from '../sandboxes/workspace-documents.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { Context } from '@temporalio/activity';
@@ -202,7 +202,7 @@ export interface EngineActivities extends StreamActivities {
   EngineSettleClaimsActivity(args: SettleClaimsArgs): Promise<string[]>;
   EngineToolAllowedActivity(args: ToolAllowedArgs): Promise<boolean>;
   EngineAutoModeActivity(args: AutoModeArgs): Promise<boolean>;
-  EngineMachineSendActivity(args: MachineWorkRequest & { message: string }): Promise<{ repo: string; folder: string; commit: string }>;
+  EngineMachineSendActivity(args: MachineSendRequest): Promise<{ repo: string; folder: string; commit: string }>;
   EngineMachineTakeActivity(args: MachineWorkRequest): Promise<BroughtBack>;
   EngineMachineDropActivity(args: MachineWorkRequest): Promise<void>;
 }
@@ -332,8 +332,9 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       return (await services.allowedTools(args.ownerId, args.conversationId)).includes(args.tool);
     },
 
-    async EngineMachineSendActivity(args) {
+    async EngineMachineSendActivity({ start, ...args }) {
       if (!services.machineWork) throw ApplicationFailure.nonRetryable('this engine worker cannot send a workspace\'s work to a machine', 'MachineWorkMissing');
+      if (start) await (await services.environments.forRun(start))?.exec({ command: 'true' });
       return services.machineWork.send(args);
     },
 

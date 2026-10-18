@@ -1,5 +1,6 @@
 import type { BroughtBack, WorkspaceDocuments } from './workspace-documents.js';
 import type { WorkspaceRepoResolver } from './workspace-repos.js';
+import type { EnvironmentRequest } from './environments.js';
 
 export interface MachineWorkRequest {
   ownerId: string;
@@ -7,6 +8,8 @@ export interface MachineWorkRequest {
   worktree?: string | undefined;
   branch: string;
 }
+
+export type MachineSendRequest = MachineWorkRequest & { message: string; start?: EnvironmentRequest | undefined };
 
 export interface MachineWork {
   send(request: MachineWorkRequest & { message: string }): Promise<{ repo: string; folder: string; commit: string }>;

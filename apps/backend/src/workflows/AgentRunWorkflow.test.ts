@@ -633,7 +633,7 @@ describe('AgentRunWorkflow', () => {
         kube: async () => { throw new Error('nothing in this test reaches the cluster'); },
         documents: { save: async (request: { workspaceRunId: string; repo: string }) => { saved.push(request.workspaceRunId); return { saved: true, owner: 'koala-user-1', repo: request.repo, commit: git(documents, 'rev-parse', 'HEAD') }; } } as never,
       });
-      const sent: { workspaceRunId: string; worktree?: string }[] = [];
+      const sent: { workspaceRunId: string; worktree?: string; start?: unknown }[] = [];
       const acts = activities({
         registry,
         script: [{ content: 'Found it with the model.' }],
@@ -641,7 +641,7 @@ describe('AgentRunWorkflow', () => {
         environments: resolver,
         conversationWorkspaces,
         machineWork: {
-          EngineMachineSendActivity: async (args: { workspaceRunId: string; worktree?: string; branch: string; message: string }) => {
+          EngineMachineSendActivity: async (args: { workspaceRunId: string; worktree?: string; branch: string; message: string; start?: unknown }) => {
             sent.push(args);
             if (!existsSync(resolve(documents, '.git'))) git(documents, 'init', '-q', '-b', 'main');
             git(documents, 'add', '-A');
@@ -685,7 +685,13 @@ describe('AgentRunWorkflow', () => {
       expect(result).toMatchObject({ outcome: 'ok' });
       expect(JSON.stringify(result.outputs)).toContain('Found it on the machine.');
       expect(resolved).toContainEqual(expect.objectContaining({ agentSlug: 'research', modelId: 'machine:desk:antigravity', handedDown: true }));
-      expect(sent).toEqual([expect.objectContaining({ workspaceRunId: 'conversation-c1' })]);
+      expect(sent).toEqual([expect.objectContaining({
+        workspaceRunId: 'conversation-c1',
+        start: {
+          ticket: expect.objectContaining({ agentSlug: 'research', inPlace: true }),
+          environment: expect.objectContaining({ id: expect.stringContaining('conversation-c1'), workspace: expect.objectContaining({ runId: 'conversation-c1' }) }),
+        },
+      })]);
       expect(recorded?.cwd).toBe(resolve(machineRoot, 'koala-trees', 'conversation-c1', 'repo'));
       expect(recorded?.prompt).toContain('is a checkout of this conversation\'s documents, from its workspace in Koala');
       expect(recorded?.servers.find((server) => server.server === 'koala')?.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['search_web', 'run_in_workspace']));

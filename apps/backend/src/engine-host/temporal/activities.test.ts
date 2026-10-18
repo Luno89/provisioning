@@ -323,3 +323,33 @@ describe('publishing a run\'s events', () => {
     expect(events).toEqual([{ ...event, ownerId: 'user-1' }]);
   });
 });
+
+describe('sending a workspace\'s work to a machine', () => {
+  it('starts the run\'s workspace before it bundles the folder, so a conversation workspace nothing has run in yet still goes', async () => {
+    const { createMachineWork } = await import('../sandboxes/machine-work.js');
+    let running = false;
+    const exec = vi.fn(async () => { running = true; return { exitCode: 0, stdout: '', stderr: '' }; });
+    const forRun = vi.fn(async () => ({ exec }) as never);
+    const sendBranch = vi.fn(async () => {
+      if (!running) throw new Error('the workspace is not running');
+      return { commit: 'c0ffee' };
+    });
+    const machineWork = createMachineWork({
+      documents: { sendBranch } as never,
+      repoFor: async () => ({ repo: 'conversation-c1', path: '/work', describe: 'this conversation\'s documents' }),
+    });
+    const base = services();
+    const activities = createEngineActivities({ ...base.services, environments: { ...base.services.environments, forRun }, machineWork });
+    const environment = { id: 'engine-conversation-c1', spec: { kind: 'sandbox' as const, lifecycle: 'persistent' as const } };
+
+    const sent = await activities.EngineMachineSendActivity({
+      ownerId: 'user-1', workspaceRunId: 'conversation-c1', branch: 'machine/d/k', message: 'Work so far',
+      start: { ticket: ticket({ runId: 'run-1-research-1' }), environment },
+    });
+
+    expect(forRun).toHaveBeenCalledWith({ ticket: ticket({ runId: 'run-1-research-1' }), environment });
+    expect(exec).toHaveBeenCalledWith({ command: 'true' });
+    expect(sendBranch).toHaveBeenCalledWith(expect.objectContaining({ repo: 'conversation-c1', folder: '/work', branch: 'machine/d/k' }));
+    expect(sent).toEqual({ repo: 'conversation-c1', folder: '/work', commit: 'c0ffee' });
+  });
+});

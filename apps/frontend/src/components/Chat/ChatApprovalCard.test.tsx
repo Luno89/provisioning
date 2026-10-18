@@ -4,18 +4,25 @@ import userEvent from '@testing-library/user-event'
 import ChatApprovalCard from './ChatApprovalCard'
 
 describe('asking the person before a tool runs', () => {
-  it('says allowing a tool here stands for the rest of the conversation', async () => {
-    const onAllow = vi.fn()
-    render(<ChatApprovalCard reason="check-writer wants to run update_check on this run" toolName="update_check" args='{"check":{}}' onAllow={onAllow} onDeny={vi.fn()} />)
+  it('offers every way to allow it, each its own decision', async () => {
+    const onDecide = vi.fn()
+    render(<ChatApprovalCard reason="research wants to run koala_search_web on OZ-001TallGeese: search" toolName="koala_search_web" onDecide={onDecide} />)
 
-    expect(screen.getByText('Allowing it here means update_check will not ask again in this conversation.')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Allow in this chat' }))
-    expect(onAllow).toHaveBeenCalled()
+    for (const [name, decision] of [
+      ['Allow', 'allow'],
+      ['Allow for this run', 'allow-for-run'],
+      ['Allow koala_search_web in this chat', 'allow-in-chat'],
+      ['Always allow this agent', 'auto-agent'],
+      ['Deny', 'decline'],
+    ] as const) {
+      await userEvent.click(screen.getByRole('button', { name }))
+      expect(onDecide).toHaveBeenLastCalledWith(decision)
+    }
   })
 
-  it('promises nothing it cannot keep when it does not know the tool', () => {
-    render(<ChatApprovalCard reason="a run wants to do something" onAllow={vi.fn()} onDeny={vi.fn()} />)
-    expect(screen.getByRole('button', { name: 'Allow' })).toBeInTheDocument()
-    expect(screen.queryByText(/will not ask again/)).toBeNull()
+  it('offers no chat-wide allow when it does not know the tool', () => {
+    render(<ChatApprovalCard reason="a run wants to do something" onDecide={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Always allow this agent' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /in this chat/ })).toBeNull()
   })
 })

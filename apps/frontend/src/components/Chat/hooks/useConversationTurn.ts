@@ -57,12 +57,13 @@ const forgetTurn = (key: string): void => {
   for (const [runId, entry] of liveRunsByRunId) if (entry.key === key) liveRunsByRunId.delete(runId);
 };
 
+export type ApprovalDecision = 'allow' | 'allow-for-run' | 'allow-in-chat' | 'auto-agent' | 'decline';
+
 export interface PendingApproval {
   runId: string;
   /** The engine's warn notice explaining what is being asked. */
   reason: string;
-  /** Set when the request arrived on the heels of the tool call it needs. */
-  callId?: string | undefined;
+  callId: string;
   toolName?: string | undefined;
   args?: string | undefined;
 }
@@ -278,13 +279,15 @@ export function useConversationTurn({
       if (PROPOSING.has(pendingCallsRef.current.get(event.callId)?.name ?? '')) void qc.invalidateQueries({ queryKey: planKeys.all });
       pendingCallsRef.current.delete(event.callId);
     }
-    if (event.type === 'notice' && event.level === 'warn') {
-      const pending = pendingCallsRef.current.entries().next();
-      const call = pending.done ? undefined : pending.value;
+    if (event.type === 'notice' && event.level === 'warn' && event.callId) {
+      const call = pendingCallsRef.current.get(event.callId);
+      const toolName = event.tool ?? call?.name;
       setPendingApproval({
         runId: event.runId,
         reason: event.message,
-        ...(call ? { callId: call[0], toolName: call[1].name, args: call[1].args } : {}),
+        callId: event.callId,
+        ...(toolName ? { toolName } : {}),
+        ...(call ? { args: call.args } : {}),
       });
     }
 
@@ -408,19 +411,22 @@ export function useConversationTurn({
   }, [settleTurn]);
 
   const decideApproval = useCallback(
-    async (allowed: boolean) => {
+    async (decision: ApprovalDecision) => {
       const approval = pendingApproval;
       if (!approval) return;
-      if (!approval.callId) return;
       setPendingApproval(null);
+      const allowed = decision !== 'decline';
       try {
         await approveRunCall(approval.runId, {
           callId: approval.callId,
           allowed,
-          ...(allowed && selectedConvId && approval.toolName ? { conversationId: selectedConvId, tool: approval.toolName } : {}),
+          ...(decision === 'allow-for-run' ? { forRun: true } : {}),
+          ...(decision === 'allow-in-chat' && selectedConvId && approval.toolName ? { conversationId: selectedConvId, tool: approval.toolName } : {}),
+          ...(decision === 'auto-agent' ? { auto: 'agent' as const } : {}),
         });
-      } catch {
-        setError('Approval could not be sent: the run may already have finished');
+      } catch (err) {
+        setPendingApproval(approval);
+        setError(`Approval could not be sent: ${errorMessage(err)}`);
       }
     },
     [pendingApproval, selectedConvId],

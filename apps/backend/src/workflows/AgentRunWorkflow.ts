@@ -66,7 +66,7 @@ import { tracedSummary } from '../lib/turn-log.js';
 import { externalCallId, externalRunEvents, externalToolName, permissionChoice, type ExternalToolSeen } from '../lib/external-agent-events.js';
 import type { ExternalAgentStepArgs, ExternalAgentStepResult, ExternalCallAnswer, ExternalToolCall, MachineGitOp, MachineGitResult } from '@koala/engine-core';
 import { machineBranch, machineFolder } from '../lib/machine-branches.js';
-import type { MachineWorkRequest } from '../engine-host/sandboxes/machine-work.js';
+import type { MachineSendRequest, MachineWorkRequest } from '../engine-host/sandboxes/machine-work.js';
 import type { BroughtBack } from '../engine-host/sandboxes/workspace-documents.js';
 import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
 
@@ -76,7 +76,7 @@ interface EngineRemote {
   EngineNodeActivity(request: RemoteNodeRequest): Promise<RemoteNodeResult>;
   EngineResolveAgentActivity(args: ResolveAgentArgs): Promise<ResolvedAgentInfo>;
   EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome>;
-  EngineMachineSendActivity(args: MachineWorkRequest & { message: string }): Promise<{ repo: string; folder: string; commit: string }>;
+  EngineMachineSendActivity(args: MachineSendRequest): Promise<{ repo: string; folder: string; commit: string }>;
   EngineMachineTakeActivity(args: MachineWorkRequest): Promise<BroughtBack>;
   EngineMachineDropActivity(args: MachineWorkRequest): Promise<void>;
 }
@@ -310,7 +310,11 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         return undefined;
       };
       if (work) {
-        const sent = await engine.EngineMachineSendActivity({ ...work, message: `Work so far, before ${agent} on ${machineName} takes it` });
+        const sent = await engine.EngineMachineSendActivity({
+          ...work,
+          message: `Work so far, before ${agent} on ${machineName} takes it`,
+          start: { ticket, environment: handleFor(workspace) },
+        });
         const folder = machineFolder(work.workspaceRunId, sent.folder);
         const fetched = await gitOnDevice({ kind: 'checkout', repo: sent.repo, branch: work.branch, folder });
         if (!fetched.ok) {
