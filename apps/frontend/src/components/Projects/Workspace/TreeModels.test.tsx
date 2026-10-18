@@ -6,6 +6,8 @@ import * as groveApi from '../../../api/grove'
 import * as modelsApi from '../../../api/models'
 import * as credentialsApi from '../../../api/credentials'
 import * as clustersApi from '../../../api/clusters'
+import * as localAgentsApi from '../../../api/local-agents'
+import { machineChoiceLabel } from '../../../lib/machine-rows'
 import type { ModelProvider } from '../../../api/models'
 
 vi.mock('../../../api/grove', async (orig) => ({
@@ -24,6 +26,17 @@ vi.mock('../../../api/credentials', async (orig) => ({
 vi.mock('../../../api/clusters', async (orig) => ({
   ...(await orig<typeof clustersApi>()),
   listClusters: vi.fn(async () => [{ id: 'c1', name: 'provisioning-lunorica' }]),
+}))
+
+const desk = [{
+  id: 'd1', name: 'desk', rootDir: '/home/me/koala', createdAt: 't', online: true, manualAgents: [],
+  agents: [{ id: 'antigravity', title: 'Antigravity', state: 'ready', source: 'found' }],
+}] as unknown as localAgentsApi.LocalAgentDevice[]
+
+vi.mock('../../../api/local-agents', async (orig) => ({
+  ...(await orig<typeof localAgentsApi>()),
+  useLocalAgentDevices: vi.fn(() => ({ data: desk })),
+  useMachineChoiceLabel: vi.fn((id: string | null | undefined) => machineChoiceLabel(id, desk)),
 }))
 
 const tabby = { id: 'tabby', name: 'Tabbyapi-Production', source: 'deployment', kind: 'tabbyapi', model: 'Qwen3.8-27B', clusterId: 'c1', contextTokens: 32_000 } as ModelProvider
@@ -70,5 +83,22 @@ describe('the models a tree works with', () => {
     fireEvent.click(screen.getByText('Change'))
     fireEvent.click(await screen.findByText('Its own: [TabbyAPI] Qwen3.8-27B'))
     await waitFor(() => expect(groveApi.setTreeModel).toHaveBeenCalledWith('t1', 'executor', null))
+  })
+
+  it('offers the agents on your machines to an agent whose procedure hands work to one, and names the machine once chosen', async () => {
+    const judgeNoMachine = { ...judge, noMachine: true as const }
+    vi.mocked(groveApi.getTreeModels).mockResolvedValue([executor, judgeNoMachine])
+    vi.mocked(groveApi.setTreeModel).mockResolvedValue([{ ...executor, chosen: { modelId: 'machine:d1:antigravity' } }, judgeNoMachine])
+    renderIt()
+
+    fireEvent.click((await screen.findAllByText('Change'))[0]!)
+    fireEvent.click(await screen.findByLabelText('Expand desk'))
+    fireEvent.click(screen.getByTitle('Antigravity answers on desk, with its own tools'))
+    await waitFor(() => expect(groveApi.setTreeModel).toHaveBeenCalledWith('t1', 'executor', 'machine:d1:antigravity'))
+    expect(await screen.findByText('Antigravity · desk')).toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByText('Change')[1]!)
+    expect(screen.queryByLabelText('Expand desk')).toBeNull()
+    expect(screen.getByText(/Leaf judge's procedure has no way to hand its work to a machine/)).toBeInTheDocument()
   })
 })

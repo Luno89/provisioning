@@ -67,3 +67,11 @@ export type ExternalAgentStepResult = {
   | { state: 'failed'; error: string }
   | { state: 'closed' }
 );
+
+export const MACHINE_TREES = 'koala-trees';
+
+export type MachineGitOp =
+  | { kind: 'checkout'; repo: string; branch: string; folder: string }
+  | { kind: 'push'; repo: string; branch: string; folder: string; message: string };
+
+export type MachineGitResult = { ok: true; path: string; commit: string } | { ok: false; error: string };

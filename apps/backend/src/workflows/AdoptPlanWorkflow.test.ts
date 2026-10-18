@@ -126,6 +126,9 @@ function world(start: PlanProposal[], options: { saved?: string[]; homes?: boole
     save: async () => ({ saved: false, why: 'not saved in this test' }),
     restore: async () => ({ restored: false, why: 'not restored in this test' }),
     catchUp: async () => undefined,
+    sendBranch: async () => ({ commit: '' }),
+    takeBranch: async () => ({ brought: false as const, why: 'not here' }),
+    dropBranch: async () => undefined,
     merge: async () => 'merged',
     bring: async (request) => {
       brought.push({ from: request.from, into: request.path, workspace: request.workspaceRunId, planWritten: files.has('repo/PLAN.md') });

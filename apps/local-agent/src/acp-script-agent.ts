@@ -23,7 +23,13 @@ export interface AgentScript {
   version: string;
   modes?: { current: string; available: { id: string; name: string }[] };
   models?: { current: string; available: { id: string; name: string }[] };
-  turns: { steps: ScriptStep[]; stop?: StopReason }[];
+  turns: { steps: ScriptStep[]; stop?: StopReason; when?: string }[];
+}
+
+export function turnFor(script: AgentScript, taken: number, asked: string): AgentScript['turns'][number] | undefined {
+  const matching = script.turns.find((turn) => turn.when !== undefined && asked.includes(turn.when));
+  if (matching) return matching;
+  return script.turns.filter((turn) => turn.when === undefined)[taken];
 }
 
 const pause = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
@@ -79,7 +85,8 @@ export function scriptedAgent(script: AgentScript, connection: AgentSideConnecti
     prompt: async ({ sessionId, prompt }) => {
       const session = sessions.get(sessionId);
       if (!session) throw RequestError.resourceNotFound(sessionId);
-      const turn = script.turns[session.turn];
+      const asked = prompt.map((block) => (block.type === 'text' ? block.text : '')).join('');
+      const turn = turnFor(script, session.turn, asked);
       session.turn += 1;
       if (!turn) return { stopReason: 'end_turn' };
       const abort = new AbortController();

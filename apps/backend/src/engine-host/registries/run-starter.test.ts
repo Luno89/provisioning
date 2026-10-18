@@ -102,10 +102,12 @@ describe('a run sent to an agent on the person\'s machine', () => {
     expect((runs[0]!.args[0] as ProcedureRunInput).ticket.modelId).toBe('machine:d1:antigravity');
   });
 
-  it('hands anything else to the task procedure', async () => {
+  it('keeps an agent\'s own procedure when it hands its work to a machine, and hands anything else to the task procedure', async () => {
     const { start } = started();
     const starter = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), machines: async () => undefined });
-    expect((await starter.start({ ownerId: 'bo', agentSlug: 'executor', message: 'do it', modelId: 'machine:d1:antigravity' })).loopId).toBe('external-agent-task');
+    expect((await starter.start({ ownerId: 'bo', agentSlug: 'executor', message: 'do it', modelId: 'machine:d1:antigravity' })).loopId).toBe('do-one-task');
+    expect((await starter.start({ ownerId: 'bo', agentSlug: 'memory-keeper', message: 'keep it', modelId: 'machine:d1:antigravity' })).loopId).toBe('tool-rounds');
+    expect((await starter.start({ ownerId: 'bo', agentSlug: 'koala', message: 'look into it', modelId: 'machine:d1:antigravity' })).loopId).toBe('external-agent-task');
   });
 
   it('starts nothing when the machine cannot answer, and says why', async () => {

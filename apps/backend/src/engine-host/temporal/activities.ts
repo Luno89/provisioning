@@ -1,3 +1,5 @@
+import type { MachineWork, MachineWorkRequest } from '../sandboxes/machine-work.js';
+import type { BroughtBack } from '../sandboxes/workspace-documents.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { Context } from '@temporalio/activity';
 import { abandonedBy, type Task } from '../tools/tasks.js';
@@ -90,6 +92,7 @@ export interface EngineServices extends StreamServices {
   /** the grove's tree stores (read-only use by the partition activity) */
   grove?: GroveStores | undefined;
   treeWorkspaces?: TreeWorkspaces | undefined;
+  machineWork?: MachineWork | undefined;
   conversationWorkspaces?: Pick<ConversationWorkspaces, 'conclude'> | undefined;
   conversationAgent?: ((ownerId: string, conversationId: string) => Promise<string | undefined>) | undefined;
   planAdoption?: PlanAdoption | undefined;
@@ -199,6 +202,9 @@ export interface EngineActivities extends StreamActivities {
   EngineSettleClaimsActivity(args: SettleClaimsArgs): Promise<string[]>;
   EngineToolAllowedActivity(args: ToolAllowedArgs): Promise<boolean>;
   EngineAutoModeActivity(args: AutoModeArgs): Promise<boolean>;
+  EngineMachineSendActivity(args: MachineWorkRequest & { message: string }): Promise<{ repo: string; folder: string; commit: string }>;
+  EngineMachineTakeActivity(args: MachineWorkRequest): Promise<BroughtBack>;
+  EngineMachineDropActivity(args: MachineWorkRequest): Promise<void>;
 }
 
 export function createEngineActivities(services: EngineServices): EngineActivities {
@@ -231,6 +237,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
         procedure: runnable.procedure,
         callableAgents: callable.map((agent) => agent.slug),
         ...(runnable.machine ? { machine: machineChoiceId(runnable.machine) } : {}),
+        ...(runnable.inPlace ? { inPlace: true } : {}),
         ...(tree ? { tree } : {}),
       };
     },
@@ -320,6 +327,20 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
     async EngineToolAllowedActivity(args: ToolAllowedArgs): Promise<boolean> {
       if (!services.allowedTools) return false;
       return (await services.allowedTools(args.ownerId, args.conversationId)).includes(args.tool);
+    },
+
+    async EngineMachineSendActivity(args) {
+      if (!services.machineWork) throw ApplicationFailure.nonRetryable('this engine worker cannot send a workspace\'s work to a machine', 'MachineWorkMissing');
+      return services.machineWork.send(args);
+    },
+
+    async EngineMachineTakeActivity(args) {
+      if (!services.machineWork) throw ApplicationFailure.nonRetryable('this engine worker cannot bring a machine\'s work into a workspace', 'MachineWorkMissing');
+      return services.machineWork.take(args);
+    },
+
+    async EngineMachineDropActivity(args) {
+      await services.machineWork?.drop(args);
     },
 
     async EngineAutoModeActivity(args: AutoModeArgs): Promise<boolean> {

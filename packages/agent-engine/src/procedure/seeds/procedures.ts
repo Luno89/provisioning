@@ -21,10 +21,21 @@ export interface AgentLoopShape {
 const ending = (shape: Ending) => ({ outcome: shape.outcome, ...(shape.reason ? { reason: shape.reason } : {}) });
 
 export function agentLoop(shape: AgentLoopShape): Procedure {
-  return defineProcedure(BUILT_IN_GROUPS, { id: shape.id, version: '3', name: shape.name, describe: shape.describe, budget: {} }, (p) => {
+  return defineProcedure(BUILT_IN_GROUPS, { id: shape.id, version: '4', name: shape.name, describe: `${shape.describe} An agent on the person's machine does the same work there in one turn of its own.`, budget: {} }, (p) => {
     const input = p.runInput('input');
     const provision = p.provisionSandbox('provision');
     const conversation = p.conversation('conversation', { opening: input.message, given: input.inputs });
+    const persona = p.persona('persona');
+    const where = p.whereItRuns('where', { persona: persona.persona });
+    const memories = p.recallMemory('memories');
+    const offered = p.resolveTools('offered', { persona: persona.persona, delegates: persona.delegates, environment: provision.environment });
+    const work = p.externalAgent('work', {
+      brief: input.message, prompt: persona.prompt, memories: memories.text, environment: provision.environment,
+      persona: persona.persona, tools: offered.offered, conversation: conversation.messages,
+    });
+    const worked = p.finish('worked', { result: work.text }, ending(shape.answered));
+    const workStopped = p.finish('workStopped', { reason: work.reason }, { outcome: 'failed' });
+    const workFailed = p.finish('workFailed', { reason: work.reason }, { outcome: 'failed' });
     const turn = p.groups.modelTurn('turn', { messages: conversation.messages, environment: provision.environment });
     const repetition = p.checkRepetition('repetition', { reply: turn.reply });
     const tools = p.groups.toolLoop('tools', { reply: turn.reply, persona: turn.persona, environment: provision.environment, offered: turn.offered });
@@ -47,7 +58,12 @@ export function agentLoop(shape: AgentLoopShape): Procedure {
     p.cleanup(release);
     provision.on('ready', conversation);
     provision.on('unavailable', unavailable);
-    conversation.on('done', turn);
+    conversation.on('done', where);
+    where.on('model', turn);
+    where.on('machine', work);
+    work.on('finished', worked);
+    work.on('stopped', workStopped);
+    work.on('failed', workFailed);
     turn.on('toolCalls', repetition);
     turn.on('answered', answered);
     turn.on('truncated', saidSomething ?? conversation);
@@ -78,6 +94,9 @@ export function agentLoop(shape: AgentLoopShape): Procedure {
       unavailable: [260, 140],
       release: [0, 560],
       released: [260, 560],
+      where: [390, 140],
+      persona: [260, 280], memories: [260, 420], offered: [520, 420],
+      work: [520, 560], worked: [780, 560], workStopped: [780, 640], workFailed: [780, 720],
     });
   });
 }
@@ -258,9 +277,9 @@ export const SINGLE_SHOT_V2 = defineProcedure(BUILT_IN_GROUPS, {
 
 export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   id: 'do-one-task',
-  version: '2',
+  version: '3',
   name: 'Do one task',
-  describe: 'Claims one task, works it with tools until the model is done — and stops there when the task now waits for something it asked for — runs the task\'s own check if it has one, has the judge weigh the work and the check against what the task asked for, has a model read the verdict, and marks the task done or failed.',
+  describe: 'Claims one task, works it with tools until the model is done — or hands it to the agent on the person\'s machine, when that is where this agent runs, to work in a checkout of the same folder — and stops there when the task now waits for something it asked for, runs the task\'s own check if it has one, has the judge weigh the work and the check against what the task asked for, has the same model or machine agent read the verdict, and marks the task done or failed.',
   budget: {},
 }, (p) => {
   const provision = p.provisionSandbox('provision');
@@ -273,6 +292,15 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
     says: 'The task has already been claimed for you.',
   });
   const conversation = p.conversation('conversation', { opening: input.message, given: input.inputs });
+  const where = p.whereItRuns('where', { persona: persona.persona });
+  const memories = p.recallMemory('memories');
+  const offered = p.resolveTools('offered', { persona: persona.persona, delegates: persona.delegates, environment: provision.environment });
+  const work = p.externalAgent('work', {
+    brief: input.message, prompt: persona.prompt, memories: memories.text, environment: provision.environment,
+    persona: persona.persona, tools: offered.offered, conversation: conversation.messages,
+  });
+  const workStopped = p.finish('workStopped', { reason: work.reason }, { outcome: 'failed' });
+  const workFailed = p.finish('workFailed', { reason: work.reason }, { outcome: 'failed' });
   const turn = p.groups.modelTurn('turn', { messages: conversation.messages, environment: provision.environment });
   const repetition = p.checkRepetition('repetition', { reply: turn.reply });
   const tools = p.groups.toolLoop('tools', { reply: turn.reply, persona: persona.persona, environment: provision.environment, offered: turn.offered });
@@ -289,7 +317,7 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
     args: '{"command":"{{values.item.checks.command}}"}',
     shared: true,
   });
-  const evidence = p.buildContext('evidence', { sections: [turn.content, check.text] });
+  const evidence = p.buildContext('evidence', { sections: [turn.content, work.text, check.text] });
   const judge = p.delegate('judge', { values: input.inputs, text: evidence.text, environment: provision.environment }, {
     agent: 'judge',
     inputs: '{"work":"{{text}}","expected":"{{values.item.doneMeans}}"}',
@@ -299,17 +327,24 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   const verdict = p.decide('verdict', { binding: model.binding, text: judge.outputs }, {
     question: 'Does this verdict say the work meets what was expected? Answer no if it is unproven or only partly done.',
   });
-  const record = p.callTool('record', { ...onTask, text: turn.content }, {
+  const readsVerdict = p.whereItRuns('readsVerdict', { persona: persona.persona });
+  const verdictOnMachine = p.askMachineAgent('verdictOnMachine', { text: judge.outputs }, {
+    question: 'Does this verdict say the work meets what was expected? Answer no if it is unproven or only partly done.',
+  });
+  const said = p.buildContext('said', { sections: [turn.content, work.text] });
+  const whyRejected = p.buildContext('whyRejected', { sections: [verdict.why, verdictOnMachine.why] });
+  const whyUnjudged = p.buildContext('whyUnjudged', { sections: [judge.reason, verdictOnMachine.reason] });
+  const record = p.callTool('record', { ...onTask, text: said.text }, {
     tool: 'mark_done',
     args: '{"taskId":"{{values.item.id}}","evidence":"{{text}}"}',
     says: 'The outcome is then recorded on the task for you. Do not record it yourself.',
   });
-  const rejected = p.callTool('rejected', { ...onTask, text: verdict.why }, {
+  const rejected = p.callTool('rejected', { ...onTask, text: whyRejected.text }, {
     tool: 'mark_failed',
     args: '{"taskId":"{{values.item.id}}","reason":"{{text}}"}',
     says: 'The outcome is then recorded on the task for you. Do not record it yourself.',
   });
-  const unjudged = p.callTool('unjudged', { ...onTask, text: judge.reason }, {
+  const unjudged = p.callTool('unjudged', { ...onTask, text: whyUnjudged.text }, {
     tool: 'mark_failed',
     args: '{"taskId":"{{values.item.id}}","reason":"the work could not be judged: {{text}}"}',
     says: 'The outcome is then recorded on the task for you. Do not record it yourself.',
@@ -334,7 +369,12 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   provision.on('unavailable', unavailable);
   claim.on('ok', conversation);
   claim.on('failed', notClaimed);
-  conversation.on('done', turn);
+  conversation.on('done', where);
+  where.on('model', turn);
+  where.on('machine', work);
+  work.on('finished', status);
+  work.on('stopped', workStopped);
+  work.on('failed', workFailed);
   turn.on('toolCalls', repetition);
   turn.on('answered', status);
   turn.on('truncated', status);
@@ -352,8 +392,14 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   hasCheck.on('false', judge);
   check.on('ok', judge);
   check.on('failed', judge);
-  judge.on('ok', verdict);
+  judge.on('ok', readsVerdict);
   judge.on('failed', unjudged);
+  readsVerdict.on('model', verdict);
+  readsVerdict.on('machine', verdictOnMachine);
+  verdictOnMachine.on('yes', record);
+  verdictOnMachine.on('no', rejected);
+  verdictOnMachine.on('unsure', rejected);
+  verdictOnMachine.on('failed', unjudged);
   verdict.on('yes', record);
   verdict.on('no', rejected);
   verdict.on('unsure', rejected);
@@ -386,6 +432,10 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
     record: [2080, 280],
     rejected: [2080, 420],
     unjudged: [1820, 560],
+    where: [650, 140], memories: [520, 700], offered: [780, 700],
+    work: [780, 840], workStopped: [1040, 840], workFailed: [1040, 920],
+    readsVerdict: [1690, 420], verdictOnMachine: [1820, 700],
+    said: [2080, 140], whyRejected: [2080, 560], whyUnjudged: [1820, 840],
     finished: [2340, 280],
     didNotPass: [2340, 420],
     couldNotJudge: [2080, 560],

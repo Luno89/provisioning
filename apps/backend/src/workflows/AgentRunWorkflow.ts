@@ -59,12 +59,15 @@ import {
 } from '../engine-host/temporal/contracts.js';
 import type { RunLimits, RunLimitsArgs } from '../engine-host/registries/effort.js';
 import { RUN_STATE_QUERY, type RunState } from '../engine-host/temporal/run-cancellation.js';
-import { ASK_CHARS, collectStep, machineChoice, type Artifact, type RunEffort, type RunStep } from '@koala/agent-engine/procedure';
+import { ASK_CHARS, collectStep, machineChoice, RUN_IN_WORKSPACE, type Artifact, type RunEffort, type RunStep } from '@koala/agent-engine/procedure';
 import { platformCatalogue, platformGroups } from '../extensions/installed.js';
 import { ownerIn, startedFor } from '../lib/workflow-owner.js';
 import { tracedSummary } from '../lib/turn-log.js';
 import { externalCallId, externalRunEvents, externalToolName, permissionChoice, type ExternalToolSeen } from '../lib/external-agent-events.js';
-import type { ExternalAgentStepArgs, ExternalAgentStepResult } from '@koala/engine-core';
+import type { ExternalAgentStepArgs, ExternalAgentStepResult, MachineGitOp, MachineGitResult } from '@koala/engine-core';
+import { machineBranch, machineFolder } from '../lib/machine-branches.js';
+import type { MachineWorkRequest } from '../engine-host/sandboxes/machine-work.js';
+import type { BroughtBack } from '../engine-host/sandboxes/workspace-documents.js';
 import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
 
 export const CONTINUE_AFTER_EVENTS = 10_000;
@@ -73,10 +76,14 @@ interface EngineRemote {
   EngineNodeActivity(request: RemoteNodeRequest): Promise<RemoteNodeResult>;
   EngineResolveAgentActivity(args: ResolveAgentArgs): Promise<ResolvedAgentInfo>;
   EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome>;
+  EngineMachineSendActivity(args: MachineWorkRequest & { message: string }): Promise<{ repo: string; folder: string; commit: string }>;
+  EngineMachineTakeActivity(args: MachineWorkRequest): Promise<BroughtBack>;
+  EngineMachineDropActivity(args: MachineWorkRequest): Promise<void>;
 }
 
 interface DeviceRemote {
   ExternalAgentActivity(args: ExternalAgentStepArgs): Promise<ExternalAgentStepResult>;
+  MachineGitActivity(op: MachineGitOp): Promise<MachineGitResult>;
 }
 
 interface StreamRemote {
@@ -272,7 +279,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       return outcome;
     },
 
-    async runExternal({ nodeId, agent, brief, context, mode, model, resume, tools, callTool, environment, run }) {
+    async runExternal({ nodeId, agent, brief, context, mode, model, resume, tools, callTool, environment, workspace, run }) {
       externals += 1;
       const key = `${ticket.runId}:${nodeId}:${externals}`;
       const device = proxyActivities<DeviceRemote>({
@@ -281,6 +288,34 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         ...LIVE_ACTIVITY,
         cancellationType: ABANDON,
       });
+      const machineName = environment.deviceName;
+      const work: MachineWorkRequest | undefined = workspace
+        ? { ownerId: ticket.ownerId, workspaceRunId: workspace.workspace.runId, ...(workspace.worktree ? { worktree: workspace.worktree } : {}), branch: machineBranch(environment.deviceId, key) }
+        : undefined;
+      let checkout: { repo: string; folder: string; path: string } | undefined;
+      const gitOnDevice = (op: MachineGitOp): Promise<MachineGitResult> => device.MachineGitActivity(op).catch((err: unknown) => {
+        if (!(err instanceof ActivityFailure)) throw err;
+        return { ok: false, error: `${machineName} could not reach the project's work: ${err.cause?.message ?? err.message}` };
+      });
+      const bringBack = async (message: string): Promise<string | undefined> => {
+        if (!work || !checkout) return undefined;
+        const pushed = await gitOnDevice({ kind: 'push', repo: checkout.repo, branch: work.branch, folder: checkout.folder, message });
+        if (!pushed.ok) return pushed.error;
+        const taken = await engine.EngineMachineTakeActivity(work);
+        if (!taken.brought) return `the work on ${machineName} could not be brought back into the workspace: ${taken.why}`;
+        if (taken.set) bus.emit({ type: 'notice', level: 'warn', nodeId, message: `What the workspace had uncommitted when ${agent}'s work came back was set aside in a stash (${taken.set}).`, runId: ticket.runId, at: new Date(Date.now()).toISOString() } as EngineEvent);
+        return undefined;
+      };
+      if (work) {
+        const sent = await engine.EngineMachineSendActivity({ ...work, message: `Work so far, before ${agent} on ${machineName} takes it` });
+        const folder = machineFolder(work.workspaceRunId, sent.folder);
+        const fetched = await gitOnDevice({ kind: 'checkout', repo: sent.repo, branch: work.branch, folder });
+        if (!fetched.ok) {
+          await engine.EngineMachineDropActivity(work);
+          return { outcome: 'failed', text: '', reason: fetched.error };
+        }
+        checkout = { repo: sent.repo, folder, path: fetched.path };
+      }
       const seen: ExternalToolSeen = { called: new Set(), settled: new Set() };
       let text = '';
       let thinking = '';
@@ -314,7 +349,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       let result = await step({
         kind: 'open', brief,
         ...(context ? { context } : {}), ...(mode ? { mode } : {}), ...(model ? { model } : {}), ...(resume ? { resume } : {}),
-        ...(environment.path ? { path: environment.path } : {}), ...(tools?.length ? { tools } : {}),
+        ...(checkout ? { path: checkout.path } : environment.path ? { path: environment.path } : {}), ...(tools?.length ? { tools } : {}),
       });
       let ranOn = result.model;
       for (;;) {
@@ -326,9 +361,10 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         }
         if (result.state === 'calls') {
           const { call } = result;
+          const unsynced = !cancelled && callTool && call.name === RUN_IN_WORKSPACE ? await bringBack(`Work so far, for ${RUN_IN_WORKSPACE}`) : undefined;
           const answered = cancelled || !callTool
             ? { ok: false, content: cancelled ? 'the run was cancelled' : 'no tools are offered here' }
-            : await callTool(call);
+            : unsynced ? { ok: false, content: unsynced } : await callTool(call);
           calls.set(call.callId, { callId: call.callId, name: call.name, args: call.arguments, ok: answered.ok, digest: answered.content });
           result = await step({ kind: 'result', callId: call.callId, ok: answered.ok, content: answered.content });
           ranOn = result.model ?? ranOn;
@@ -352,6 +388,9 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       const on = result.model ?? ranOn;
       const withModel = { ...(on ? { model: on } : {}), ...(thinking.trim() ? { thinking } : {}), ...(calls.size ? { calls: [...calls.values()] } : {}) };
       if (result.state !== 'failed') await take(await step({ kind: 'close' }));
+      const notBack = cancelled ? undefined : await bringBack(`${agent} on ${machineName}: ${brief.split('\n')[0]!.slice(0, 72)}`);
+      if (work) await engine.EngineMachineDropActivity(work);
+      if (notBack) return { outcome: 'failed', text, reason: notBack, ...(identity ? { identity } : {}), ...(sessionId ? { sessionId } : {}), ...withModel };
 
       if (result.state === 'failed') return { outcome: 'failed', text, reason: result.error, ...(identity ? { identity } : {}), ...(sessionId ? { sessionId } : {}), ...withModel };
       if (result.state !== 'ended' || !identity || !sessionId) return { outcome: 'failed', text, reason: 'the agent\'s session closed before its turn ended', ...withModel };
@@ -393,7 +432,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
           procedure: resolved.procedure,
           inputs: childInputs(inputs),
           ...(input.projectId ? { projectId: input.projectId } : {}),
-          ...(environment && !resolved.machine ? { environment } : {}),
+          ...(environment && (!resolved.machine || resolved.inPlace) ? { environment } : {}),
           ...(input.continueAfterEvents ? { continueAfterEvents: input.continueAfterEvents } : {}),
         }],
       });

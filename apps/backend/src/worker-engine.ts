@@ -251,7 +251,7 @@ async function buildActivities() {
     treeExtras: treeExtrasFrom(db, dependencyNamespaceFrom(db)),
     artifacts: { keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files) },
     checks,
-    documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request) },
+    documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request), pushBranch: (request) => projectRepos.pushBranch(request), pullBranch: (request) => projectRepos.pullBranch(request), deleteBranch: (request) => projectRepos.deleteBranch(request) },
     repoFor: createWorkspaceRepoResolver({ trees: () => db.getTrees(), projects: () => db.getProjects(), accountOf: async (ownerId) => (await db.getGiteaAccount(ownerId))?.username }),
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
@@ -335,7 +335,15 @@ async function buildActivities() {
   });
   const { registry, endpoints, environments, tools } = host;
   const autoMode = new AutoModeService({ store: db, agentExists: async (ownerId, slug) => Boolean(await registry.agent(ownerId, slug)) });
-  const treeModels = new TreeModelsService({ store: db, models, agentOf: treeAgentsFrom(registry), groups: platformGroups });
+  const treeModels = new TreeModelsService({
+    store: db,
+    models,
+    agentOf: treeAgentsFrom(registry),
+    machines: async (ownerId) => (await db.getLocalAgentDevices())
+      .filter((device) => device.ownerId === ownerId)
+      .map((device) => ({ id: device.id, name: device.name, online: false, agents: device.agents ?? [] })),
+    groups: platformGroups,
+  });
   const runStarter = createRunStarter({
     registry,
     workflows: () => ({
@@ -390,6 +398,7 @@ async function buildActivities() {
       save: (task: Task) => db.saveTask(task),
     },
     treeWorkspaces: host.treeWorkspaces,
+    ...(host.machineWork ? { machineWork: host.machineWork } : {}),
     conversationWorkspaces: host.conversationWorkspaces,
     conversationAgent: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.agentSlug,
     allowedTools: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.allowedTools ?? [],

@@ -28,6 +28,7 @@ export interface Runnable {
   agent: AgentDefinition;
   procedure: Procedure;
   machine?: MachineChoice | undefined;
+  inPlace?: boolean | undefined;
 }
 
 export interface AgentRegistry {
@@ -126,11 +127,12 @@ export function createAgentRegistry(options: RegistryOptions = {}): AgentRegistr
       const found = await agent(ownerId, slug);
       if (!found) return undefined;
 
-      const onMachine = machineRunFor(on, found.model?.endpointId, procedureId);
-      const procedure = await procedureStore.get(ownerId, onMachine?.procedureId ?? procedureId ?? found.procedure);
+      const own = !procedureId && found.procedure ? await procedureStore.get(ownerId, found.procedure) : undefined;
+      const onMachine = machineRunFor(on, found.model?.endpointId, procedureId, own);
+      const procedure = onMachine?.inPlace ? own : await procedureStore.get(ownerId, onMachine?.procedureId ?? procedureId ?? found.procedure);
       if (!procedure) return undefined;
 
-      return { agent: found, procedure, ...(onMachine ? { machine: onMachine.machine } : {}) };
+      return { agent: found, procedure, ...(onMachine ? { machine: onMachine.machine, inPlace: onMachine.inPlace } : {}) };
     },
 
     async tools(ownerId: string): Promise<ToolContract[]> {

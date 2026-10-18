@@ -10,7 +10,20 @@ export interface DocumentRepos {
   push(request: { ownerId: string; repo: string; describe: string; bundle: string }): Promise<{ owner: string; repo: string; commit: string }>;
   pull(request: { ownerId: string; repo: string; bundle: string }): Promise<boolean>;
   merge(request: { ownerId: string; repo: string; head: string; base: string; title: string; body: string }): Promise<MergeOutcome>;
+  pushBranch?(request: { ownerId: string; repo: string; bundle: string; branch: string }): Promise<string>;
+  pullBranch?(request: { ownerId: string; repo: string; branch: string; bundle: string }): Promise<boolean>;
+  deleteBranch?(request: { ownerId: string; repo: string; branch: string }): Promise<void>;
 }
+
+export interface FolderBranch {
+  ownerId: string;
+  workspaceRunId: string;
+  repo: string;
+  folder: string;
+  branch: string;
+}
+
+export type BroughtBack = { brought: true; commit: string; set?: string | undefined } | { brought: false; why: string };
 
 export interface SaveDocuments {
   ownerId: string;
@@ -41,6 +54,9 @@ export interface WorkspaceDocuments {
   restore(request: RestoreDocuments): Promise<RestoredDocuments>;
   bring(request: RestoreDocuments & { from: string }): Promise<BroughtDocuments>;
   catchUp(request: RestoreDocuments & { branch: string }): Promise<void>;
+  sendBranch(request: FolderBranch & { message: string }): Promise<{ commit: string }>;
+  takeBranch(request: FolderBranch): Promise<BroughtBack>;
+  dropBranch(request: Omit<FolderBranch, 'folder' | 'workspaceRunId'>): Promise<void>;
   merge(request: { ownerId: string; repo: string; head: string; base: string; title: string; body: string }): Promise<MergeOutcome>;
 }
 
@@ -107,6 +123,44 @@ export const BEHIND = 5;
 export const CONFLICTED = 6;
 const SAVED_MAIN = 'refs/koala/saved-main';
 const SAVED_BRANCH = 'main';
+
+export const sendBranchScript = [
+  'set -e',
+  'cd "$1"',
+  trusting('$1'),
+  'git add -A',
+  'git diff --cached --quiet || git -c user.name=koala -c user.email=koala@koala.local commit -q -m "$3"',
+  'git branch -f "$2" HEAD',
+  'git rev-parse HEAD >&2',
+  'git bundle create - "refs/heads/$2"',
+  'git branch -D -q "$2"',
+].join('\n');
+
+const MACHINE_REF = 'refs/koala/machine';
+
+export const takeBranchScript = [
+  'set -e',
+  'cd "$1"',
+  trusting('$1'),
+  `git fetch -q ${INCOMING} "+refs/heads/$2:${MACHINE_REF}"`,
+  `rm -f ${INCOMING}`,
+  `if ! git merge -q --ff-only ${MACHINE_REF} 2>/dev/null; then`,
+  '  set_aside=""',
+  '  if [ -n "$(git status --porcelain)" ]; then',
+  '    git -c user.name=koala -c user.email=koala@koala.local stash push -q -u -m "set aside when the machine\'s work came back"',
+  '    set_aside=$(git rev-parse -q --verify refs/stash)',
+  '  fi',
+  `  if ! git merge -q --ff-only ${MACHINE_REF}; then`,
+  `    git update-ref -d ${MACHINE_REF}`,
+  '    echo "the folder has commits of its own since the machine took it, so the machine\'s work cannot simply be laid over it" >&2',
+  `    exit ${CONFLICTED}`,
+  '  fi',
+  '  [ -n "$set_aside" ] && echo "$set_aside" >&2',
+  'fi',
+  `git update-ref -d ${MACHINE_REF}`,
+  'git rev-parse HEAD',
+].join('\n');
+
 
 export const reconcileScript = [
   'cd "$1"',
@@ -209,6 +263,47 @@ export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: Ku
       } finally {
         await rm(scratch, { recursive: true, force: true });
       }
+    },
+
+    sendBranch: (request) => oneAtATime(request.workspaceRunId, async () => {
+      if (!options.repos.pushBranch) throw new Error('this host cannot send a workspace\'s work to a machine');
+      const namespace = workspaceName(request.workspaceRunId);
+      if (!(await workspaceRunning(options.kube, namespace, POD))) throw new Error('the workspace is not running');
+      const scratch = await mkdtemp(path.join(os.tmpdir(), 'koala-machine-'));
+      try {
+        const bundle = path.join(scratch, 'folder.bundle');
+        const streamed = await options.stream.toFile(['exec', POD, '-n', namespace, '--', 'sh', '-c', sendBranchScript, 'sh', request.folder, request.branch, request.message], bundle);
+        if (streamed.exitCode !== 0) throw new Error(`could not bundle ${request.folder}: ${streamed.stderr.trim()}`);
+        await options.repos.pushBranch({ ownerId: request.ownerId, repo: request.repo, bundle, branch: request.branch });
+        return { commit: streamed.stderr.trim().split('\n').pop() ?? '' };
+      } finally {
+        await rm(scratch, { recursive: true, force: true });
+      }
+    }),
+
+    takeBranch: (request) => oneAtATime(request.workspaceRunId, async (): Promise<BroughtBack> => {
+      if (!options.repos.pullBranch) throw new Error('this host cannot bring a machine\'s work into a workspace');
+      const namespace = workspaceName(request.workspaceRunId);
+      if (!(await workspaceRunning(options.kube, namespace, POD))) return { brought: false, why: 'the workspace is not running' };
+      const scratch = await mkdtemp(path.join(os.tmpdir(), 'koala-machine-'));
+      try {
+        const bundle = path.join(scratch, 'branch.bundle');
+        if (!(await options.repos.pullBranch({ ownerId: request.ownerId, repo: request.repo, branch: request.branch, bundle }))) {
+          return { brought: false, why: `the machine has not sent ${request.branch}` };
+        }
+        const sent = await options.stream.fromFile(['exec', '-i', POD, '-n', namespace, '--', 'sh', '-c', `cat > ${INCOMING}`], bundle);
+        if (sent.exitCode !== 0) throw new Error(`could not send the machine's work into the workspace: ${sent.stderr.trim()}`);
+        const taken = await options.kube(['exec', POD, '-n', namespace, '--', 'sh', '-c', takeBranchScript, 'sh', request.folder, request.branch]);
+        if (taken.exitCode !== 0) return { brought: false, why: (taken.stderr || taken.stdout).trim() };
+        const setAside = taken.stderr.trim().split('\n').filter(Boolean).pop();
+        return { brought: true, commit: taken.stdout.trim(), ...(setAside ? { set: setAside } : {}) };
+      } finally {
+        await rm(scratch, { recursive: true, force: true });
+      }
+    }),
+
+    async dropBranch(request) {
+      await options.repos.deleteBranch?.({ ownerId: request.ownerId, repo: request.repo, branch: request.branch });
     },
 
     async bring(request) {

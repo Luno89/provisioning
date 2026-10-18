@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Cpu, Loader2 } from 'lucide-react'
 import { getTreeModels, groveKeys, setTreeModel, type TreeModelRow } from '../../../api/grove'
 import { listModels, providerKeys, type ModelProvider } from '../../../api/models'
+import { useMachineChoiceLabel } from '../../../api/local-agents'
 import { errorMessage } from '../../../api/client'
 import { modelOptionLabel } from '../../../lib/model-label'
 import { useShellStore } from '../../../stores/shell'
@@ -32,6 +33,8 @@ function Row({ treeId, row, models }: { treeId: string; row: TreeModelRow; model
   })
   const fixed = 'machine' in row.own
   const own = ownText(row, models)
+  const machine = useMachineChoiceLabel(row.chosen?.modelId)
+  const chosenName = row.chosen ? machine ?? nameOf(models, row.chosen.modelId) : undefined
 
   return (
     <li className="flex flex-col gap-1" data-testid="tree-model-row">
@@ -52,8 +55,8 @@ function Row({ treeId, row, models }: { treeId: string; row: TreeModelRow; model
       </div>
       {row.chosen
         ? row.chosen.gone
-          ? <span className="text-amber-400">{row.chosen.modelId} is no longer among your models, so its runs will fail until you choose another.</span>
-          : <span><span className="font-mono text-emerald-300">{nameOf(models, row.chosen.modelId)}</span> <span className="text-slate-500">chosen for this tree</span></span>
+          ? <span className="text-amber-400">{machine ? `${machine} can no longer do this work` : `${row.chosen.modelId} is no longer among your models`}, so its runs will fail until you choose another.</span>
+          : <span><span className="font-mono text-emerald-300">{chosenName}</span> <span className="text-slate-500">chosen for this tree</span></span>
         : <span className="text-slate-400">{own}</span>}
       {choosing && (
         <ModelPicker
@@ -62,8 +65,12 @@ function Row({ treeId, row, models }: { treeId: string; row: TreeModelRow; model
           onSelect={(id) => save.mutate(id)}
           inheritOption={{ label: fixed || 'problem' in row.own ? 'Its own' : own, onSelect: () => save.mutate(null) }}
           onConfigure={() => setView('studio', ['models'])}
+          {...(row.noMachine ? {} : { machines: { onManage: () => setView('mesh') } })}
           autoFocus
         />
+      )}
+      {choosing && row.noMachine && (
+        <span className="text-[11px] text-slate-500">{row.name}'s procedure has no way to hand its work to a machine, so only your models are offered.</span>
       )}
       {save.isPending && <span className="flex items-center gap-1 text-slate-500"><Loader2 size={11} className="animate-spin" /> Saving…</span>}
       {save.error && <span className="text-red-400">{errorMessage(save.error) || 'The choice was not saved.'}</span>}
@@ -83,7 +90,7 @@ export function TreeModels({ treeId }: { treeId: string }) {
       <div className="flex items-center gap-1.5 text-slate-200 font-semibold">
         <Cpu size={12} className="text-emerald-400" /> Models
       </div>
-      <p className="text-[11px] text-slate-500">Which model each agent works on in this tree. A choice here is for this tree only; the rest use the agent's own.</p>
+      <p className="text-[11px] text-slate-500">Which model each agent works on in this tree, or which agent on one of your machines. A choice here is for this tree only; the rest use the agent's own. An agent on a machine works in a checkout of the tree's work there, runs its checks back in the tree's workspace, and is judged like any other.</p>
       {rows.data.length === 0
         ? <p className="text-slate-500">Nothing in this tree's work asks a model.</p>
         : <ul className="flex flex-col gap-3">{rows.data.map((row) => <Row key={row.agent} treeId={treeId} row={row} models={models.data ?? []} />)}</ul>}

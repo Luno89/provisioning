@@ -39,7 +39,10 @@ import { PAPER_WRITING } from '../extensions/grove/procedures.js';
 import { timeSkippingTestEnvironment } from './temporal-test-env.js';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import type { ExternalAgentStepArgs } from '@koala/engine-core';
+import type { ExternalAgentStepArgs, MachineGitOp, MachineGitResult } from '@koala/engine-core';
+import { createMachineGit } from '../../../local-agent/src/machine-git.js';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync as readNow } from 'node:fs';
 import { ExternalAgentSessions } from '../../../local-agent/src/external-agents.js';
 import { LocalMcpServer } from '../../../local-agent/src/local-mcp.js';
 import type { AgentScript } from '../../../local-agent/src/acp-script-agent.js';
@@ -83,6 +86,8 @@ function activities(options: {
   environments?: { describe: (ticket: RunTicket) => Promise<RunEnvironment>; release: (runId: string) => Promise<void> };
   registry?: ReturnType<typeof createAgentRegistry>;
   external?: ExternalAgentSessions;
+  machineWork?: Record<string, (...args: never[]) => Promise<unknown>>;
+  machineGit?: (op: MachineGitOp) => Promise<MachineGitResult>;
 }) {
   const registry = options.registry ?? createAgentRegistry();
   const conversations = options.conversations ?? inMemoryConversations();
@@ -158,8 +163,12 @@ function activities(options: {
       }),
       EngineToolActivity: vi.fn(async (args: ToolCallArgs) => ({ ok: true, digest: `ran ${args.name}`, content: `output of ${args.name}` })),
       EngineRecordTracesActivity: vi.fn(async (_args: RecordTracesArgs) => undefined),
+      ...(options.machineWork ?? {}),
     },
-    device: options.external ? { ExternalAgentActivity: (args: ExternalAgentStepArgs) => options.external!.step(args) } : {},
+    device: options.external ? {
+      ExternalAgentActivity: (args: ExternalAgentStepArgs) => options.external!.step(args),
+      ...(options.machineGit ? { MachineGitActivity: options.machineGit } : {}),
+    } : {},
     stream: {
       EngineStreamNodeActivity: createNodeRunner([scriptedModel, createCompactContextNode({ models: noSummaries })], undefined, { runCancelled: runCancelledVia(async () => env.client) }),
       EnginePublishActivity: vi.fn(async (_args: PublishArgs) => undefined),
@@ -1105,6 +1114,91 @@ describe('an external agent working on someone\'s machine', () => {
     await sessions.closeAll();
   }, 60_000);
 
+  it('works a story\'s folder on the machine: checks it out there, brings its work in before run_in_workspace, and brings it back when the turn ends', async () => {
+    root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
+    const git = (cwd: string, ...args: string[]): string => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' }).trim();
+    const bare = resolve(root, 'gitea', 'tree.git');
+    const folder = resolve(root, 'pod', 'trees', 'l1');
+    execFileSync('mkdir', ['-p', bare, folder]);
+    git(bare, 'init', '-q', '--bare');
+    git(folder, 'init', '-q', '-b', 'leaf/l1');
+    await writeFile(resolve(folder, 'README.md'), 'labels\n');
+    git(folder, 'add', '-A');
+    git(folder, 'commit', '-q', '-m', 'start');
+    await writeFile(resolve(folder, 'notes.md'), 'what the model left\n');
+
+    const scriptPath = resolve(root, 'script.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [
+      { read: { path: 'notes.md' } },
+      { write: { path: 'label.txt', content: 'Axial Concepts\n' } },
+      { mcp: { server: 'koala', tool: 'run_in_workspace', args: { command: 'cat label.txt' } } },
+      { say: 'The label is in.' },
+    ] }] } satisfies AgentScript));
+    const mcp = new LocalMcpServer();
+    await mcp.start();
+    const machineRoot = resolve(root, 'machine');
+    const sessions = new ExternalAgentSessions({ rootDir: machineRoot, launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500, mcp });
+    const sandbox = {
+      kind: 'sandbox',
+      id: 'engine-tree-t1',
+      worktree: 'trees/l1',
+      workspace: {
+        runId: 'tree-t1', ownerId: 'user-1', agent: 'executor', image: 'koala/base', provides: ['git'],
+        lifetimeMs: 60_000, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared',
+      },
+      capabilities: { kind: 'sandbox', lifecycle: 'persistent', languages: ['node20'] },
+    } as RunEnvironment;
+    const dropped: string[] = [];
+    const inWorkspaceWhenRun: string[] = [];
+    const acts = activities({
+      script: [{ content: 'a model would never be asked' }],
+      external: sessions,
+      environment: sandbox,
+      machineWork: {
+        EngineMachineSendActivity: async (args: { workspaceRunId: string; worktree?: string; branch: string; message: string }) => {
+          git(folder, 'add', '-A');
+          git(folder, 'commit', '-q', '-m', args.message);
+          git(folder, 'push', '-q', bare, `HEAD:refs/heads/${args.branch}`);
+          return { repo: 'tree', folder: `/work/${args.worktree}`, commit: git(folder, 'rev-parse', 'HEAD') };
+        },
+        EngineMachineTakeActivity: async (args: { branch: string }) => {
+          git(folder, 'fetch', '-q', bare, `+refs/heads/${args.branch}:refs/koala/machine`);
+          git(folder, 'merge', '-q', '--ff-only', 'refs/koala/machine');
+          return { brought: true, commit: git(folder, 'rev-parse', 'HEAD') };
+        },
+        EngineMachineDropActivity: async (args: { branch: string }) => {
+          dropped.push(args.branch);
+          git(bare, 'branch', '-D', args.branch);
+        },
+      },
+      machineGit: createMachineGit({ rootDir: machineRoot, backendUrl: 'http://koala.test', token: 'device-token', remote: () => bare }),
+    });
+    acts.engine.EngineToolActivity.mockImplementation(async (args: ToolCallArgs) => {
+      inWorkspaceWhenRun.push(`${args.name} ${args.arguments} ${existsSync(resolve(folder, 'label.txt')) ? readNow(resolve(folder, 'label.txt'), 'utf8').trim() : 'missing'}`);
+      return { ok: true, digest: 'Axial Concepts', content: 'Axial Concepts\n(exit code 0)' };
+    });
+
+    try {
+      const result = await runWorkflow({ ...input('executor', TOOL_ROUNDS_V2, 'Add the delivery label.'), ticket: { ...ticket('executor'), modelId: 'machine:desk:antigravity' } }, acts);
+
+      expect(result.outcome).toBe('ok');
+      expect(String(result.outputs.result)).toContain('The label is in.');
+      expect(inWorkspaceWhenRun).toEqual(['run_command {"command":"cat label.txt"} Axial Concepts']);
+      expect(readNow(resolve(folder, 'label.txt'), 'utf8')).toBe('Axial Concepts\n');
+      expect(readNow(resolve(folder, 'notes.md'), 'utf8')).toBe('what the model left\n');
+      expect(git(folder, 'status', '--porcelain')).toBe('');
+      expect(git(folder, 'log', '--format=%s').split('\n')).toEqual(['Work so far, for run_in_workspace', 'Work so far, before antigravity on your machine takes it', 'start']);
+      expect(git(folder, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('leaf/l1');
+      expect(dropped).toHaveLength(1);
+      expect(dropped[0]).toMatch(/^machine\/desk\//);
+      expect(git(bare, 'branch', '--list')).toBe('');
+      expect(acts.seen).toEqual([]);
+    } finally {
+      await sessions.closeAll();
+      await mcp.close();
+    }
+  }, 60_000);
+
   it('serves the agent its persona\'s own tools, runs each call through the run (asking before one that changes something), and starts it on the model picked', async () => {
     root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
     const scriptPath = resolve(root, 'script.json');
@@ -1214,15 +1308,16 @@ describe('an external agent working on someone\'s machine', () => {
     await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [{ echo: true }] }] } satisfies AgentScript));
     const sessions = new ExternalAgentSessions({ rootDir: resolve(root, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500 });
     const registry = createAgentRegistry({
-      agentStore: { list: async () => seededAgents().map((agent) => (agent.slug === 'executor' ? { ...agent, model: { endpointId: 'machine:desk:antigravity' } } : agent)) },
+      agentStore: { list: async () => seededAgents().map((agent) => (agent.slug === 'research' ? { ...agent, model: { endpointId: 'machine:desk:antigravity' } } : agent)) },
     });
     const acts = activities({ registry, script: [{ content: 'unused' }], external: sessions, environment: MACHINE });
 
-    const result = await runWorkflow({ ...input('koala', delegating('executor', '{"message":"Write the labels"}')), ticket: { ...ticket('koala'), modelId: 'tabby-qwen' } }, acts);
+    const result = await runWorkflow({ ...input('koala', delegating('research', '{"message":"Write the labels"}')), ticket: { ...ticket('koala'), modelId: 'tabby-qwen' } }, acts);
 
     expect(result.outcome).toBe('ok');
     expect(JSON.stringify(result.outputs)).toContain('Write the labels');
-    expect(acts.engine.EngineResolveAgentActivity).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 'user-1', agentSlug: 'executor', modelId: 'tabby-qwen' }));
+    expect(acts.engine.EngineResolveAgentActivity).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 'user-1', agentSlug: 'research', modelId: 'tabby-qwen' }));
+    expect(acts.seen).toEqual([]);
     expect(sessions.openKeys()).toEqual([]);
   }, 60_000);
 

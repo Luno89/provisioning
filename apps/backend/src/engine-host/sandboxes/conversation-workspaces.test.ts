@@ -33,6 +33,9 @@ const documents: WorkspaceDocuments = {
   restore: async () => ({ restored: true }),
   bring: async () => ({ brought: [] }),
   catchUp: async () => undefined,
+  sendBranch: async () => ({ commit: '' }),
+  takeBranch: async () => ({ brought: false as const, why: 'not here' }),
+  dropBranch: async () => undefined,
   merge: async () => 'merged',
 };
 

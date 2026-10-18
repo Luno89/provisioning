@@ -223,7 +223,7 @@ describe('the models a tree works with', () => {
     await harness.db.saveTree(tree() as never);
     await harness.db.saveTree(tree({ id: 't2', ownerId: 'someone-else' }) as never);
 
-    expect((await axios.get(harness.url('/api/trees/t1/models'))).data).toEqual({ rows: [{ agent: 'executor', name: 'Executor', own: { modelId: 'tabby' } }] });
+    expect((await axios.get(harness.url('/api/trees/t1/models'))).data).toEqual({ rows: [{ agent: 'executor', name: 'Executor', own: { modelId: 'tabby' }, noMachine: true }] });
     const chosen = await axios.put(harness.url('/api/trees/t1/models'), { agent: 'executor', modelId: 'tabby' });
     expect(chosen.data.rows[0].chosen).toEqual({ modelId: 'tabby' });
     expect((await harness.db.getTrees()).find((entry) => entry.id === 't1')?.models).toEqual({ executor: 'tabby' });

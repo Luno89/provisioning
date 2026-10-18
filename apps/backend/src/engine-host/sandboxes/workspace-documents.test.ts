@@ -378,3 +378,85 @@ describe('landing a tree\'s verified leaves', () => {
     expect(await readFile(path.join(repo(), 'PLAN.md'), 'utf8')).toBe('plan as a sees it\n');
   });
 });
+
+describe('a workspace folder going to a machine and coming back', () => {
+  const branches = new Map<string, string>();
+  const machineRepos = (): DocumentRepos => ({
+    ...repos,
+    async pushBranch({ bundle, branch }) {
+      const kept = path.join(root, `branch-${branches.size}.bundle`);
+      await copyFile(bundle, kept);
+      branches.set(branch, kept);
+      return 'pushed';
+    },
+    async pullBranch({ branch, bundle }) {
+      const kept = branches.get(branch);
+      if (!kept) return false;
+      await copyFile(kept, bundle);
+      return true;
+    },
+    async deleteBranch({ branch }) { branches.delete(branch); },
+  });
+  const folder = () => path.join(root, 'work', 'trees', 'l1');
+  const inFolder = (...args: string[]) => git('git', ['-C', folder(), '-c', 'user.name=t', '-c', 'user.email=t@t', ...args]).then((out) => out.stdout.trim());
+  const request = { ownerId: 'u1', workspaceRunId: 'tree-t1', repo: 'tree-t1', folder: '/work/trees/l1', branch: 'machine/desk/run-1' };
+
+  const machineCommits = async (files: Record<string, string>) => {
+    const machine = path.join(root, `machine-${Math.random().toString(36).slice(2, 8)}`);
+    await git('git', ['clone', '-q', '-b', request.branch, branches.get(request.branch)!, machine]);
+    for (const [name, content] of Object.entries(files)) await writeFile(path.join(machine, name), content);
+    await git('git', ['-C', machine, 'add', '-A']);
+    await git('git', ['-C', machine, '-c', 'user.name=m', '-c', 'user.email=m@m', 'commit', '-q', '-m', 'machine files']);
+    const bundle = path.join(machine, 'out.bundle');
+    await git('git', ['-C', machine, 'bundle', 'create', bundle, request.branch]);
+    branches.set(request.branch, bundle);
+  };
+
+  beforeEach(async () => {
+    branches.clear();
+    await mkdir(folder(), { recursive: true });
+    await inFolder('init', '-q', '-b', 'leaf/l1');
+    await writeFile(path.join(folder(), 'README.md'), 'labels\n');
+    await inFolder('add', '-A');
+    await inFolder('commit', '-q', '-m', 'start');
+  });
+
+  it('sends what the folder holds, committed or not, as that branch alone, and leaves the folder on its own branch', async () => {
+    await writeFile(path.join(folder(), 'notes.md'), 'left by the model\n');
+    const sent = await createWorkspaceDocuments({ kube, stream, repos: machineRepos() }).sendBranch({ ...request, message: 'Work so far' });
+
+    expect(sent.commit).toBe(await inFolder('rev-parse', 'HEAD'));
+    expect(await inFolder('log', '--format=%s')).toBe('Work so far\nstart');
+    expect(await inFolder('rev-parse', '--abbrev-ref', 'HEAD')).toBe('leaf/l1');
+    expect(await inFolder('branch', '--list', 'machine/*')).toBe('');
+    const heads = (await git('git', ['bundle', 'list-heads', branches.get(request.branch)!])).stdout.trim();
+    expect(heads).toBe(`${sent.commit} refs/heads/${request.branch}`);
+  });
+
+  it('lays the machine\'s commits over the folder, setting aside anything uncommitted in the way, and refuses when the folder moved on', async () => {
+    const documents = createWorkspaceDocuments({ kube, stream, repos: machineRepos() });
+    await documents.sendBranch({ ...request, message: 'Work so far' });
+    await machineCommits({ 'label.txt': 'Axial Concepts\n' });
+    await writeFile(path.join(folder(), 'label.txt'), 'built by a check\n');
+
+    const taken = await documents.takeBranch(request);
+
+    expect(taken).toMatchObject({ brought: true, commit: await inFolder('rev-parse', 'HEAD') });
+    expect(taken.brought && taken.set).toMatch(/^[0-9a-f]{40}$/);
+    expect(await readFile(path.join(folder(), 'label.txt'), 'utf8')).toBe('Axial Concepts\n');
+    expect(await inFolder('rev-parse', '--abbrev-ref', 'HEAD')).toBe('leaf/l1');
+    expect(await inFolder('stash', 'list')).toContain('set aside when the machine');
+
+    await documents.sendBranch({ ...request, message: 'Again' });
+    await machineCommits({ 'more.txt': 'more\n' });
+    await writeFile(path.join(folder(), 'own.txt'), 'own\n');
+    await inFolder('add', '-A');
+    await inFolder('commit', '-q', '-m', 'the folder moved on');
+    expect(await documents.takeBranch(request)).toEqual({ brought: false, why: expect.stringContaining('the folder has commits of its own since the machine took it') });
+    expect(await inFolder('log', '-1', '--format=%s')).toBe('the folder moved on');
+  });
+
+  it('says so when the machine never sent its work', async () => {
+    expect(await createWorkspaceDocuments({ kube, stream, repos: machineRepos() }).takeBranch(request)).toEqual({ brought: false, why: 'the machine has not sent machine/desk/run-1' });
+  });
+});

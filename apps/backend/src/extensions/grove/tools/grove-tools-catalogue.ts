@@ -154,14 +154,14 @@ export const GROVE_TOOLS: ToolDefinition[] = [
   {
     name: 'propose_tree_model',
     summary: 'Propose which model one agent works on in a tree, for the person to apply on a card',
-    guidance: 'Use this when the person wants a tree\'s work done on a different model: the stories on one, the judging on another. read_tree lists each agent in the tree\'s work with the model it uses now and the ids to name. The choice is for that tree only; clear it to put the agent back on its own model. A machine cannot do a tree\'s work yet. Nothing changes until the person applies the card.',
+    guidance: 'Use this when the person wants a tree\'s work done on a different model: the stories on one, the judging on another. read_tree lists each agent in the tree\'s work with the model it uses now and the ids to name. The choice is for that tree only; clear it to put the agent back on its own model. An agent on one of the person\'s machines can be chosen the same way, by the machine:<device>:<agent> id the model list shows, for an agent whose procedure hands its work to a machine. Nothing changes until the person applies the card.',
     binding: 'platform',
     effect: 'propose',
     idempotent: true,
     openWorld: false,
     returns: 'that it is on a card for the person, or that the same card is already waiting',
     failures: [
-      { when: 'the tree is not yours, the agent asks no model in its work or always runs on its machine, or the model is not one of the person\'s', says: 'which' },
+      { when: 'the tree is not yours, the agent asks no model in its work or always runs on its machine, the model is not one of the person\'s, or the machine or its agent cannot do the work', says: 'which' },
     ],
     parameters: {
       type: 'object',

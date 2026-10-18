@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createOrchestrationNodes, REFUSED_CALL, type OrchestrationPorts } from './orchestration.js';
+import { createOrchestrationNodes, REFUSED_CALL, RUN_IN_WORKSPACE, type OrchestrationPorts } from './orchestration.js';
 import { approveToolCalls, callTool, runToolCalls } from './tools.js';
-import { delegate, externalAgent, fanOut, waitForPerson } from './control.js';
+import { askMachineAgent, delegate, externalAgent, fanOut, waitForPerson, whereItRuns } from './control.js';
 import type { BuiltInNode, NodeImplementation } from '../implementation.js';
 import type { NodeRequest, RunContext, StepResult } from '../interpreter.js';
 import { defaultSettings } from '../settings-schema.js';
@@ -492,5 +492,89 @@ describe('handing a task to an external agent', () => {
     expect(await invoke(createOrchestrationNodes(ports({ runExternal } as never)), externalAgent, { settings: { agent: 'antigravity' }, inputs: { brief: '  ', environment: machine } }))
       .toMatchObject({ exit: 'failed', outputs: { reason: 'there was no task to hand antigravity' } });
     expect(runExternal).not.toHaveBeenCalled();
+  });
+});
+
+describe('an agent on a machine working on a workspace', () => {
+  const identity = { name: 'antigravity-acp', title: 'Google Antigravity', version: '1.4.0' };
+  const workspace = {
+    kind: 'sandbox', id: 'engine-tree-t1', worktree: 'trees/l1',
+    workspace: { runId: 'tree-t1', ownerId: 'owner-1', agent: 'executor', image: 'koala/base', provides: [], lifetimeMs: 1, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared' },
+    capabilities: { kind: 'sandbox', lifecycle: 'persistent', languages: [] },
+  } as const;
+  const onMachine = { launch: { ownerId: 'owner-1', modelId: 'machine:laptop:antigravity:pro' } };
+
+  it('leaves through machine when a machine was picked for the run or the agent runs on one, and through model otherwise', async () => {
+    const nodes = createOrchestrationNodes(ports());
+    expect(await invoke(nodes, whereItRuns, { run: onMachine })).toMatchObject({ exit: 'machine', outputs: { machine: 'machine:laptop:antigravity:pro' } });
+    expect(await invoke(nodes, whereItRuns, { inputs: { persona: persona({ model: { endpointId: 'machine:desk:antigravity' } }) } })).toMatchObject({ exit: 'machine', outputs: { machine: 'machine:desk:antigravity' } });
+    expect(await invoke(nodes, whereItRuns, { run: { launch: { ownerId: 'owner-1', modelId: 'tabby' } } })).toMatchObject({ exit: 'model' });
+  });
+
+  it('hands the run\'s machine the workspace, serves run_in_workspace in place of the environment\'s tools, and runs it as a command in the workspace', async () => {
+    let served: { name: string }[] = [];
+    let ran: { ok: boolean; content: string } | undefined;
+    const runExternal = vi.fn(async (request: { tools?: { name: string }[]; callTool?: (call: { callId: string; name: string; arguments: string }) => Promise<{ ok: boolean; content: string }> }) => {
+      served = request.tools ?? [];
+      ran = await request.callTool!({ callId: 'c1', name: RUN_IN_WORKSPACE, arguments: '{"command":"odoo-check"}' });
+      return { outcome: 'finished' as const, stopReason: 'end_turn', text: 'Checked.', identity, sessionId: 's' };
+    });
+    const p = ports({ runExternal } as never);
+    const outcome = await invoke(createOrchestrationNodes(p), externalAgent, {
+      inputs: {
+        brief: 'Build the label.', environment: workspace, persona: persona({ tools: ['read_file'] }),
+        tools: [{ name: 'read_file', description: 'reads', binding: 'environment' }, { name: 'search_memories', description: 'searches', binding: 'none' }],
+      },
+      run: onMachine,
+    });
+
+    expect(outcome.exit).toBe('finished');
+    expect(runExternal).toHaveBeenCalledWith(expect.objectContaining({
+      agent: 'antigravity', model: 'pro', workspace,
+      environment: expect.objectContaining({ kind: 'machine', deviceId: 'laptop' }),
+    }));
+    expect(served.map((tool) => tool.name)).toEqual(['search_memories', RUN_IN_WORKSPACE]);
+    expect(p.runTool).toHaveBeenCalledWith(expect.objectContaining({
+      call: { id: 'c1', name: 'run_command', arguments: '{"command":"odoo-check"}' },
+      persona: expect.objectContaining({ tools: ['read_file', 'run_command'] }),
+      environment: workspace,
+    }));
+    expect(ran).toEqual({ ok: true, content: 'output of run_command' });
+  });
+
+  it('fails without starting anything when a workspace run has no machine picked', async () => {
+    const runExternal = vi.fn();
+    expect(await invoke(createOrchestrationNodes(ports({ runExternal } as never)), externalAgent, { settings: { agent: 'antigravity' }, inputs: { brief: 'go', environment: workspace } }))
+      .toMatchObject({ exit: 'failed', outputs: { reason: 'antigravity works on a person\'s machine, and no machine was picked for this run' } });
+    expect(runExternal).not.toHaveBeenCalled();
+  });
+
+  it('asks the machine\'s agent a yes-or-no question in a session of its own, and leaves by its answer', async () => {
+    const runExternal = vi.fn(async () => ({ outcome: 'finished' as const, stopReason: 'end_turn', text: 'Yes. The verdict accepts the work.', identity, sessionId: 's' }));
+    const outcome = await invoke(createOrchestrationNodes(ports({ runExternal } as never)), askMachineAgent, {
+      settings: { question: 'Does this verdict say the work is done?' }, inputs: { text: { verdict: 'pass' } }, run: onMachine,
+    });
+    expect(outcome).toMatchObject({ exit: 'yes', outputs: { decision: 'yes', why: 'Yes. The verdict accepts the work.' } });
+    expect(runExternal).toHaveBeenCalledWith(expect.objectContaining({
+      agent: 'antigravity', model: 'pro',
+      brief: expect.stringContaining('Question: Does this verdict say the work is done?\n\nText:\n{\n  "verdict": "pass"\n}'),
+      environment: expect.objectContaining({ kind: 'machine', deviceId: 'laptop' }),
+    }));
+    expect(runExternal.mock.calls[0]).not.toHaveProperty('0.tools');
+
+    const died = ports({ runExternal: vi.fn(async () => ({ outcome: 'failed' as const, text: '', reason: 'the laptop is off' })) } as never);
+    expect(await invoke(createOrchestrationNodes(died), askMachineAgent, { inputs: { text: 'x' }, run: onMachine })).toMatchObject({ exit: 'failed', outputs: { reason: 'the laptop is off' } });
+    expect(await invoke(createOrchestrationNodes(died), askMachineAgent, { inputs: { text: 'x' } })).toMatchObject({ exit: 'failed', outputs: { reason: 'no machine was picked for this run, so there is no agent there to ask' } });
+  });
+
+
+  it('hands it the opening a model would get when it is given inputs but no message', async () => {
+    const runExternal = vi.fn(async () => ({ outcome: 'finished' as const, stopReason: 'end_turn', text: 'Met.', identity, sessionId: 's' }));
+    await invoke(createOrchestrationNodes(ports({ runExternal } as never)), externalAgent, {
+      inputs: { brief: '', conversation: [{ role: 'user', content: 'work: wrote label.txt\nexpected: label.txt says Axial Concepts' }], environment: workspace, persona: persona() },
+      run: onMachine,
+    });
+    expect(runExternal).toHaveBeenCalledWith(expect.objectContaining({ brief: 'work: wrote label.txt\nexpected: label.txt says Axial Concepts' }));
+    expect(runExternal.mock.calls[0]).not.toHaveProperty('0.context');
   });
 });

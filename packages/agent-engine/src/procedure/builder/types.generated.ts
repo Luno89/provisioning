@@ -463,6 +463,29 @@ export interface WithdrawToolsNode extends Value {
   wire(wires: WithdrawToolsWires): void
 }
 
+export interface AskMachineAgentWires {
+  /** What the question is about. Anything that is not text is shown as JSON. Required. */
+  text?: In<'any'>
+}
+
+export type AskMachineAgentSettings = {
+  /**
+   * Question
+   * A question that can be answered yes or no from the text alone.
+   */
+  question: string
+}
+
+export interface AskMachineAgentNode extends Step<'yes' | 'no' | 'unsure' | 'failed'> {
+  /** yes, no or unsure. */
+  readonly decision: Out<'text'>
+  /** The agent's whole answer, including why it decided that. */
+  readonly why: Out<'text'>
+  /** Why it could not be asked, when it could not. */
+  readonly reason: Out<'text'>
+  wire(wires: AskMachineAgentWires): void
+}
+
 export interface CollectWires {
   /** What to add this time. Required. */
   item?: In<'any'>
@@ -547,7 +570,7 @@ export interface ExternalAgentWires {
   context?: In<'text'>
   /** What was learned before, as recalled for this run. Told once, when its session starts. */
   memories?: In<'text'>
-  /** The machine and folder it works in. Nothing wired means the one this run was given. */
+  /** A machine and the folder it works in, or a workspace whose folder is checked out on the machine picked for this run. Nothing wired means the one this run was given. */
   environment?: In<'environment'>
   /** The sessions a conversation already has with agents on machines, from Load Conversation. The one this agent and machine had is continued rather than started again, and then the prompt, context and memories are not told again. */
   sessions?: In<'json'>
@@ -555,7 +578,7 @@ export interface ExternalAgentWires {
   conversation?: In<'messages'>
   /** Whose tools it is offered, and as whom they run. */
   persona?: In<'persona'>
-  /** The tools served to the agent for its session, from Resolve Tools. Those bound to an environment are left out, since the agent has its own on the machine. Each call it makes runs here, as the persona's would, and one that changes something waits for the person first. */
+  /** The tools served to the agent for its session, from Resolve Tools. Those bound to an environment are left out, since the agent has its own on the machine; working on a workspace, it gets run_in_workspace in their place. Each call it makes runs here, as the persona's would, and one that changes something waits for the person first. */
   tools?: In<'toolSet'>
 }
 
@@ -695,6 +718,19 @@ export interface WaitForPersonNode extends Step<'answered' | 'unanswered'> {
   /** Why there was no answer, when there was none. */
   readonly reason: Out<'text'>
   wire(wires: WaitForPersonWires): void
+}
+
+export interface WhereItRunsWires {
+  /** The agent whose own "Runs on" counts when nothing was picked for this run. */
+  persona?: In<'persona'>
+}
+
+export type WhereItRunsSettings = Record<string, never>
+
+export interface WhereItRunsNode extends Step<'machine' | 'model'> {
+  /** The machine and agent picked, when it is one. */
+  readonly machine: Out<'text'>
+  wire(wires: WhereItRunsWires): void
 }
 
 export type ProvisionSandboxWires = Record<string, never>
@@ -1199,6 +1235,14 @@ export interface Nodes {
   /** Withdraw Tools: Stops offering some tools once the run has used a number of rounds — for example taking away search once it is time to write up. */
   withdrawTools(id: string, wires: WithdrawToolsWires, settings: WithdrawToolsSettings, meta?: NodeMeta): WithdrawToolsNode
   /**
+   * Ask the Machine Agent: Asks the agent on the person's machine a yes-or-no question about some text, in a session of its own with no tools, and leaves through yes, no or unsure. It is Decide for a run whose agent works on a machine.
+   * Leaves through yes: It answered yes.
+   * Leaves through no: It answered no.
+   * Leaves through unsure: It was unsure, or did not answer with yes or no.
+   * Leaves through failed: It could not be asked: there is no machine for this run, or its agent did not answer.
+   */
+  askMachineAgent(id: string, wires: AskMachineAgentWires, settings: AskMachineAgentSettings, meta?: NodeMeta): AskMachineAgentNode
+  /**
    * Collect: Adds the wired value to a list each time it runs, so a loop can gather every result instead of only the last.
    * Leaves through done: Always.
    */
@@ -1216,7 +1260,7 @@ export interface Nodes {
    */
   delegate(id: string, wires: DelegateWires, settings: DelegateSettings, meta?: NodeMeta): DelegateNode
   /**
-   * External Agent: Hands a task to an agent that runs its own loop on the person's machine (Antigravity, Claude Code, any agent that speaks ACP), follows what it does, asks the person before anything it wants permission for, and leaves by how its turn ended. It edits and runs things in the machine's folder; it never records, claims or judges anything here.
+   * External Agent: Hands a task to an agent that runs its own loop on the person's machine (Antigravity, Claude Code, any agent that speaks ACP), follows what it does, asks the person before anything it wants permission for, and leaves by how its turn ended. Given a machine, it works in the machine's folder. Given a tree's workspace, the folder it works on there is checked out on the machine first, the agent can run commands back in the workspace with run_in_workspace, and what it commits comes back into that folder when its turn ends. It never records, claims or judges anything itself.
    * Leaves through finished: Its turn ended normally.
    * Leaves through stopped: It was cancelled, refused, or ran out of room before finishing.
    * Leaves through failed: It could not be started, or died, or this run has no machine for it.
@@ -1240,6 +1284,12 @@ export interface Nodes {
    * Leaves through unanswered: The run was stopped, or the wait this step set ran out.
    */
   waitForPerson(id: string, wires: WaitForPersonWires, settings: WaitForPersonSettings, meta?: NodeMeta): WaitForPersonNode
+  /**
+   * Where It Runs: Leaves through machine when this run's agent works on the person's machine (a machine picked for the run, for its tree, or as where the agent runs in the Studio), and through model when a model of theirs does the work. A procedure branches here so an agent on a machine does the same work its model would, with the steps around it unchanged.
+   * Leaves through machine: An agent on the person's machine does the work.
+   * Leaves through model: A model does the work.
+   */
+  whereItRuns(id: string, wires?: WhereItRunsWires, settings?: WhereItRunsSettings, meta?: NodeMeta): WhereItRunsNode
   /**
    * Provision Sandbox: Gets the run somewhere to work, derived from the tools its persona is granted: nothing, a fresh sandbox pod built from a matching image, or a registered machine. Pair it with Release Sandbox in the cleanup lane.
    * Leaves through ready: The environment is ready.

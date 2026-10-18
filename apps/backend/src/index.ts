@@ -87,6 +87,7 @@ import { askDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDev
 import { MachineService } from './services/MachineService.js';
 import { MachineBundle } from './services/MachineBundle.js';
 import { RootMeshKeys } from './services/RootMeshKeys.js';
+import { MachineGitService } from './services/MachineGitService.js';
 import { machinesRouter } from './routes/machines.js';
 import { asyncRoute } from './middleware/async-route.js';
 import { clusterProvidersRouter } from './routes/cluster-providers.js';
@@ -1074,7 +1075,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.use('/api/mesh/local-agents', localAgentsRouter({ machines: machineService }));
   const machineRoot = path.join(__dirname, '../../..');
   const machineBundle = new MachineBundle(machineRoot);
-  tenant.use('/api/machines', machinesRouter({ machines: machineService, bundle: () => machineBundle.path() }));
+  const machineGit = new MachineGitService({
+    deviceFor: async (token) => findDeviceByToken(await db.getLocalAgentDevices(), token, keys.data),
+    remote: (ownerId, repo) => projectRepoService.gitRemote(ownerId, repo),
+  });
+  tenant.use('/api/machines', machinesRouter({ machines: machineService, bundle: () => machineBundle.path(), git: machineGit }));
   tenant.get('/machine.sh', asyncRoute(async (_req, res) => {
     const installer = await fs.readFile(path.join(machineRoot, 'scripts/machine/machine.sh'), 'utf8');
     res.type('text/x-shellscript').send(installer.replaceAll('__KOALA_URL__', PUBLIC_URL));
@@ -1142,7 +1147,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       if (!person) throw new Error(`there is no account ${ownerId} to act for`);
       return axios.create({ baseURL: `http://localhost:${process.env.PORT || 3001}/api`, proxy: false, headers: { Cookie: `session=${signJWT({ userId: person.id, email: person.email }, keys.session, 60 * 60)}` } });
     }),
-    documents: { push: (request) => projectRepoService.pushDocuments(request), pull: (request) => projectRepoService.pullDocuments(request), merge: (request) => projectRepoService.mergeDocuments(request) },
+    documents: { push: (request) => projectRepoService.pushDocuments(request), pull: (request) => projectRepoService.pullDocuments(request), merge: (request) => projectRepoService.mergeDocuments(request), pushBranch: (request) => projectRepoService.pushBranch(request), pullBranch: (request) => projectRepoService.pullBranch(request), deleteBranch: (request) => projectRepoService.deleteBranch(request) },
     repoFor: workspaceRepos,
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
@@ -1397,7 +1402,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   tenant.use('/api/tree-types', treeTypesRouter({ db, agents: async (ownerId: string) => (await engineRegistry.agents(ownerId)).map((agent) => agent.slug), describe: (ownerId, typeId) => treeTypeDescriptions.describe(ownerId, typeId), releaseProblem: (ownerId, how) => releaseSettings.problem(ownerId, how) }));
   tenant.use('/api/binding-types', bindingTypesRouter({ db }));
-  const treeModels = new TreeModelsService({ store: db, models: modelService, agentOf: treeAgentsFrom(engineRegistry), groups: platformGroups });
+  const treeModels = new TreeModelsService({ store: db, models: modelService, agentOf: treeAgentsFrom(engineRegistry), machines: (ownerId) => machineService.list(ownerId), groups: platformGroups });
   const groveRuns = new GroveRunService({
     store: db,
     asking: runAskingVia(() => getTemporalClient()),

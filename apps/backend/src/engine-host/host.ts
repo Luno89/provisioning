@@ -11,6 +11,7 @@ import { createSandboxDriver } from './drivers/sandbox.js';
 import { createClusterBackend } from './sandboxes/cluster-backend.js';
 import { createKubeRunner, createKubeStreamer } from './sandboxes/kube.js';
 import { createWorkspaceDocuments, type DocumentRepos } from './sandboxes/workspace-documents.js';
+import { createMachineWork, type MachineWork } from './sandboxes/machine-work.js';
 import { defaultRepoResolver, repoForWorkspace, treeWorkspaceRunId, type WorkspaceRepoResolver } from './sandboxes/workspace-repos.js';
 import { createImageBuilder, discoverRegistry, type ImageBuilder, type RegistryAccount } from './sandboxes/image-builder.js';
 import { createEnvironmentResolver, type EnvironmentResolver } from './sandboxes/environments.js';
@@ -164,6 +165,7 @@ export interface EngineHost {
   services: HostNodeServices;
   implemented: ReadonlySet<string>;
   treeWorkspaceFiles: TreeWorkspaceFiles | undefined;
+  machineWork: MachineWork | undefined;
 }
 
 export interface TreeWorkspaceFiles {
@@ -264,6 +266,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     ...(published ? { published } : {}),
   });
 
+  const machineWork = documents ? createMachineWork({ documents, repoFor }) : undefined;
   const treeWorkspaces = createTreeWorkspaces({ resolver: environments, kube, documents, repoFor, languageOf: options.treeLanguage, extrasOf: options.treeExtras });
   treeWorkspacesFor.current = treeWorkspaces;
   const conversationWorkspaces = documents
@@ -512,7 +515,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
 
   return {
     efforts, workspaceImages, registry, catalogue, endpoints, environments,
-    runEnvironments, treeWorkspaces, conversationWorkspaces, images, imagePruner, tools, services, implemented, treeWorkspaceFiles,
+    runEnvironments, treeWorkspaces, conversationWorkspaces, images, imagePruner, tools, services, implemented, treeWorkspaceFiles, machineWork,
   };
 }
 

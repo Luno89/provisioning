@@ -1,4 +1,4 @@
-import { agentsHandedTo, callsModel, machineChoice, type GroupDefinition, type Procedure } from '@koala/agent-engine/procedure';
+import { agentsHandedTo, callsModel, machineChoice, type GroupDefinition, type MachineChoice, type Procedure } from '@koala/agent-engine/procedure';
 
 export type TreeModels = Record<string, string>;
 
@@ -24,12 +24,25 @@ export async function modelAgentsOf(grower: string, agentOf: (slug: string) => P
   return found;
 }
 
-export function treeModelProblem(agents: readonly TreeAgent[], slug: string, modelId: string | null, models: readonly string[]): string | undefined {
+export const handsWorkToMachine = (agent: TreeAgent): boolean =>
+  Boolean(agent.procedure?.nodes.some((node) => node.kind === 'where-it-runs'));
+
+export function treeModelProblem(
+  agents: readonly TreeAgent[],
+  slug: string,
+  modelId: string | null,
+  models: readonly string[],
+  machineProblem: (choice: MachineChoice) => string | undefined = () => 'machines cannot be checked here',
+): string | undefined {
   const agent = agents.find((entry) => entry.slug === slug);
   if (!agent) return `${slug} asks no model anything in this tree's work, so it has no model to choose`;
   if (machineChoice(agent.endpointId)) return `${agent.name} always runs on its machine; change where it runs in the Studio`;
   if (modelId === null) return undefined;
-  if (machineChoice(modelId)) return 'A machine cannot do a tree\'s work yet; choose one of your models';
+  const machine = machineChoice(modelId);
+  if (machine) {
+    if (!handsWorkToMachine(agent)) return `${agent.name}'s procedure has no way to hand its work to a machine; give it a Where It Runs step, or choose one of your models`;
+    return machineProblem(machine);
+  }
   if (!models.includes(modelId)) return `There is no model ${modelId} among yours`;
   return undefined;
 }

@@ -14,7 +14,8 @@ import type {
   ToolSet,
 } from '../values.js';
 import { numberOf, textOf } from './read.js';
-import { machineChoice, machineSessionKey } from '../machine-choice.js';
+import { effectiveMachineChoice, machineChoice, machineChoiceId, machineSessionKey, type MachineChoice } from '../machine-choice.js';
+import { DECIDE_INSTRUCTIONS, readDecision } from './model.js';
 
 export interface ToolRunRequest {
   nodeId: string;
@@ -76,6 +77,8 @@ export interface ExternalToolCallValue {
   arguments: string;
 }
 
+export type WorkspaceEnvironment = Extract<EnvironmentValue, { kind: 'sandbox' }>;
+
 export interface ExternalAgentRequest {
   nodeId: string;
   agent: string;
@@ -87,7 +90,31 @@ export interface ExternalAgentRequest {
   tools?: ExternalServedToolValue[] | undefined;
   callTool?: ((call: ExternalToolCallValue) => Promise<{ ok: boolean; content: string }>) | undefined;
   environment: Extract<EnvironmentValue, { kind: 'machine' }>;
+  workspace?: WorkspaceEnvironment | undefined;
   run: RunContext;
+}
+
+export const RUN_IN_WORKSPACE = 'run_in_workspace';
+
+export const RUN_IN_WORKSPACE_TOOL: ExternalServedToolValue = {
+  name: RUN_IN_WORKSPACE,
+  description: 'Runs a shell command in the project\'s workspace, where its checks, its database and the app\'s own tools are, after bringing your work so far there: everything in your folder, committed or not. Use it to run tests, checks or the app itself; your own folder has none of them. It returns what the command printed and its exit code.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      command: { type: 'string', description: 'The shell command, run from the same folder of the project as yours.' },
+      timeoutSeconds: { type: 'integer', description: 'Stop it after this many seconds. Leave it out to let it run until it finishes.' },
+    },
+    required: ['command'],
+  },
+};
+
+export function machineOfRun(run: RunContext, persona: AgentDefinition | undefined): MachineChoice | undefined {
+  return effectiveMachineChoice(run.launch.modelId, persona?.model?.endpointId);
+}
+
+function machineEnvironment(choice: MachineChoice): Extract<EnvironmentValue, { kind: 'machine' }> {
+  return { kind: 'machine', deviceId: choice.deviceId, deviceName: 'your machine', egressMode: 'auto' };
 }
 
 export interface OrchestrationPorts {
@@ -116,6 +143,14 @@ function conversationText(messages: unknown): string | undefined {
     return [`${role === 'user' ? 'The person' : 'You'}: ${content.trim()}`];
   });
   return lines.length ? `The conversation so far:\n\n${lines.join('\n\n')}` : undefined;
+}
+
+function openingOf(messages: unknown): string | undefined {
+  if (!Array.isArray(messages)) return undefined;
+  const asked = messages.filter((message) => (message as { role?: unknown })?.role === 'user');
+  if (asked.length !== 1) return undefined;
+  const content = (asked[0] as { content?: unknown }).content;
+  return typeof content === 'string' && content.trim() ? content.trim() : undefined;
 }
 
 const parseJson = (text: string): unknown => {
@@ -370,25 +405,37 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         inputSchema: tool.parameters ?? { type: 'object', properties: {} },
       }));
       const mode = textOf(node.settings, 'mode');
-      const environment = (inputs.environment as EnvironmentValue | undefined) ?? (run.launch.environment as EnvironmentValue | undefined);
-      const brief = typeof inputs.brief === 'string' ? inputs.brief.trim() : '';
-      const said = conversationText(inputs.conversation);
+      const given = (inputs.environment as EnvironmentValue | undefined) ?? (run.launch.environment as EnvironmentValue | undefined);
+      const workspace = given?.kind === 'sandbox' ? given : undefined;
+      const onMachine = workspace ? machineOfRun(run, persona) : undefined;
+      const environment = workspace ? (onMachine ? machineEnvironment(onMachine) : undefined) : given;
+      if (workspace) tools.push(RUN_IN_WORKSPACE_TOOL);
+      const written = typeof inputs.brief === 'string' ? inputs.brief.trim() : '';
+      const opening = written ? undefined : openingOf(inputs.conversation);
+      const brief = written || opening || '';
+      const said = opening ? undefined : conversationText(inputs.conversation);
       const context = [inputs.prompt, inputs.context, inputs.memories, said]
         .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
         .map((part) => part.trim())
         .join('\n\n');
       const failed = (reason: string) => ({ exit: 'failed', outputs: { text: '', reply: replyOf(node.id, '', 'error'), reason } });
       if (!ports.runExternal) return failed('this host cannot run an external agent');
-      if (environment?.kind !== 'machine') return failed(`${agent} works on a person's machine, and this run has none`);
+      if (environment?.kind !== 'machine') return failed(`${agent} works on a person's machine, and ${workspace ? 'no machine was picked for this run' : 'this run has none'}`);
       if (!brief) return failed(`there was no task to hand ${agent}`);
 
       const key = machineSessionKey({ deviceId: environment.deviceId, agent, ...(model ? { model } : {}) });
       const callTool = async (asked: { callId: string; name: string; arguments: string }): Promise<{ ok: boolean; content: string }> => {
+        if (asked.name === RUN_IN_WORKSPACE && workspace && persona) {
+          const command: ToolCallRequest = { id: asked.callId, name: 'run_command', arguments: asked.arguments };
+          const runsCommands = { ...persona, tools: [...new Set([...(persona.tools ?? []), 'run_command'])] };
+          const { outcome } = await runOne(request, command, runsCommands, workspace);
+          return { ok: outcome.ok, content: outcome.content ?? outcome.digest };
+        }
         const call: ToolCallRequest = { id: asked.callId, name: asked.name, arguments: asked.arguments };
         if (!persona || !offered.some((tool) => tool.name === call.name)) return { ok: false, content: `${call.name} is not one of the tools offered here` };
         if (destructive.has(call.name)) {
           run.emit({ type: 'tool.called', nodeId: node.id, callId: call.id, name: call.name, args: call.arguments } as never);
-          if (!(await ports.approve({ nodeId: node.id, call, environment, run }))) {
+          if (!(await ports.approve({ nodeId: node.id, call, environment: workspace ?? environment, run }))) {
             run.emit({ type: 'tool.result', nodeId: node.id, callId: call.id, ok: false, digest: REFUSED_CALL } as never);
             return { ok: false, content: REFUSED_CALL };
           }
@@ -408,6 +455,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         ...(resume ? { resume } : {}),
         ...(tools.length ? { tools, callTool } : {}),
         environment,
+        ...(workspace ? { workspace } : {}),
         run,
       });
       const calls = outcome.calls ?? [];
@@ -432,6 +480,32 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         },
         usage: { childRuns: 1 },
       };
+    }),
+
+    stepImplementation('where-it-runs', ({ inputs, run }) => {
+      const choice = machineOfRun(run, inputs.persona as AgentDefinition | undefined);
+      return choice ? { exit: 'machine', outputs: { machine: machineChoiceId(choice) } } : { exit: 'model', outputs: {} };
+    }),
+
+    stepImplementation('ask-machine-agent', async ({ node, inputs, run }) => {
+      const failed = (reason: string) => ({ exit: 'failed', outputs: { decision: 'unsure', why: '', reason } });
+      const choice = machineOfRun(run, undefined);
+      if (!ports.runExternal) return failed('this host cannot run an external agent');
+      if (!choice) return failed('no machine was picked for this run, so there is no agent there to ask');
+      const question = textOf(node.settings, 'question');
+      const text = typeof inputs.text === 'string' ? inputs.text : JSON.stringify(inputs.text, null, 2);
+      const outcome = await ports.runExternal({
+        nodeId: node.id,
+        agent: choice.agent,
+        brief: `Question: ${question}\n\nText:\n${text}`,
+        context: `${DECIDE_INSTRUCTIONS} Change nothing and run nothing: answer from the text alone.`,
+        ...(choice.model ? { model: choice.model } : {}),
+        environment: machineEnvironment(choice),
+        run,
+      });
+      if (outcome.outcome === 'failed') return failed(outcome.reason);
+      const decision = readDecision(outcome.text);
+      return { exit: decision, outputs: { decision, why: outcome.text.trim() }, usage: { childRuns: 1 } };
     }),
   ];
 }

@@ -316,18 +316,18 @@ export const externalAgent: BuiltInNode = {
     kind: 'external-agent',
     title: 'External Agent',
     category: 'control',
-    describe: 'Hands a task to an agent that runs its own loop on the person\'s machine (Antigravity, Claude Code, any agent that speaks ACP), follows what it does, asks the person before anything it wants permission for, and leaves by how its turn ended. It edits and runs things in the machine\'s folder; it never records, claims or judges anything here.',
+    describe: 'Hands a task to an agent that runs its own loop on the person\'s machine (Antigravity, Claude Code, any agent that speaks ACP), follows what it does, asks the person before anything it wants permission for, and leaves by how its turn ended. Given a machine, it works in the machine\'s folder. Given a tree\'s workspace, the folder it works on there is checked out on the machine first, the agent can run commands back in the workspace with run_in_workspace, and what it commits comes back into that folder when its turn ends. It never records, claims or judges anything itself.',
     role: 'step',
     inputs: [
       { name: 'brief', type: 'text', describe: 'The task, as the agent is given it.' },
       { name: 'prompt', type: 'text', describe: 'The persona\'s own prompt: who the agent is here and how it works. Told once, when its session starts.' },
       { name: 'context', type: 'text', describe: 'What else it is told once, when its session starts: what it works on, what done means.' },
       { name: 'memories', type: 'text', describe: 'What was learned before, as recalled for this run. Told once, when its session starts.' },
-      { name: 'environment', type: 'environment', describe: 'The machine and folder it works in. Nothing wired means the one this run was given.' },
+      { name: 'environment', type: 'environment', describe: 'A machine and the folder it works in, or a workspace whose folder is checked out on the machine picked for this run. Nothing wired means the one this run was given.' },
       { name: 'sessions', type: 'json', describe: 'The sessions a conversation already has with agents on machines, from Load Conversation. The one this agent and machine had is continued rather than started again, and then the prompt, context and memories are not told again.' },
       { name: 'conversation', type: 'messages', describe: 'What was said before in the conversation, told once when a new session starts, so an agent picked part way through a conversation knows it.' },
       { name: 'persona', type: 'persona', describe: 'Whose tools it is offered, and as whom they run.' },
-      { name: 'tools', type: 'toolSet', describe: 'The tools served to the agent for its session, from Resolve Tools. Those bound to an environment are left out, since the agent has its own on the machine. Each call it makes runs here, as the persona\'s would, and one that changes something waits for the person first.' },
+      { name: 'tools', type: 'toolSet', describe: 'The tools served to the agent for its session, from Resolve Tools. Those bound to an environment are left out, since the agent has its own on the machine; working on a workspace, it gets run_in_workspace in their place. Each call it makes runs here, as the persona\'s would, and one that changes something waits for the person first.' },
     ],
     outputs: [
       { name: 'text', type: 'text', describe: 'What the agent said, its whole reply.' },
@@ -360,4 +360,69 @@ export const externalAgent: BuiltInNode = {
   }),
 };
 
-export const CONTROL_NODES = [condition, merge, collect, finish, delegate, fanOut, waitForPerson, externalAgent];
+export const whereItRuns: BuiltInNode = {
+  definition: defineNode({
+    kind: 'where-it-runs',
+    title: 'Where It Runs',
+    category: 'control',
+    describe: 'Leaves through machine when this run\'s agent works on the person\'s machine (a machine picked for the run, for its tree, or as where the agent runs in the Studio), and through model when a model of theirs does the work. A procedure branches here so an agent on a machine does the same work its model would, with the steps around it unchanged.',
+    role: 'step',
+    inputs: [{ name: 'persona', type: 'persona', describe: 'The agent whose own "Runs on" counts when nothing was picked for this run.' }],
+    outputs: [{ name: 'machine', type: 'text', describe: 'The machine and agent picked, when it is one.' }],
+    exits: [
+      { name: 'machine', describe: 'An agent on the person\'s machine does the work.' },
+      { name: 'model', describe: 'A model does the work.' },
+    ],
+    settings: { type: 'object', properties: {} },
+    runs: 'orchestration',
+    idempotent: true,
+    summarize: () => 'on a machine, or a model',
+  }),
+};
+
+export const askMachineAgent: BuiltInNode = {
+  definition: defineNode({
+    kind: 'ask-machine-agent',
+    title: 'Ask the Machine Agent',
+    category: 'control',
+    describe: 'Asks the agent on the person\'s machine a yes-or-no question about some text, in a session of its own with no tools, and leaves through yes, no or unsure. It is Decide for a run whose agent works on a machine.',
+    role: 'step',
+    inputs: [
+      { name: 'text', type: 'any', describe: 'What the question is about. Anything that is not text is shown as JSON.', required: true },
+    ],
+    outputs: [
+      { name: 'decision', type: 'text', describe: 'yes, no or unsure.' },
+      { name: 'why', type: 'text', describe: 'The agent\'s whole answer, including why it decided that.' },
+      { name: 'reason', type: 'text', describe: 'Why it could not be asked, when it could not.' },
+    ],
+    exits: [
+      { name: 'yes', describe: 'It answered yes.' },
+      { name: 'no', describe: 'It answered no.' },
+      { name: 'unsure', describe: 'It was unsure, or did not answer with yes or no.' },
+      { name: 'failed', describe: 'It could not be asked: there is no machine for this run, or its agent did not answer.' },
+    ],
+    settings: {
+      type: 'object',
+      required: ['question'],
+      properties: {
+        question: {
+          type: 'string',
+          title: 'Question',
+          describe: 'A question that can be answered yes or no from the text alone.',
+          minLength: 1,
+          multiline: true,
+          default: 'Does this say the work meets what was asked?',
+        },
+      },
+    },
+    runs: 'orchestration',
+    spends: ['childRuns'],
+    idempotent: false,
+    summarize: (settings) => {
+      const question = textOf(settings, 'question');
+      return question ? `asks the machine: ${question.length > 50 ? `${question.slice(0, 50)}…` : question}` : 'asks the machine yes or no';
+    },
+  }),
+};
+
+export const CONTROL_NODES = [condition, merge, collect, finish, delegate, fanOut, waitForPerson, externalAgent, whereItRuns, askMachineAgent];

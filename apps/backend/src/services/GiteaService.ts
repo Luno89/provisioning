@@ -517,6 +517,34 @@ export class GiteaService {
     });
   }
 
+  async pushBranchBundle(auth: { username: string; token: string }, owner: string, name: string, bundle: string, branch: string): Promise<string> {
+    return this.withBareRepo(auth, owner, name, 'Pushing to', async (bare, url, env) => {
+      await run('git', ['clone', '--bare', '--quiet', bundle, bare], { env });
+      await run('git', ['-C', bare, 'push', '--quiet', '--force', url, `refs/heads/${branch}:refs/heads/${branch}`], { env });
+      return (await run('git', ['-C', bare, 'rev-parse', `refs/heads/${branch}`], { env })).stdout.trim();
+    });
+  }
+
+  async pullBranchBundle(auth: { username: string; token: string }, owner: string, name: string, branch: string, destination: string): Promise<boolean> {
+    return this.withBareRepo(auth, owner, name, 'Fetching', async (bare, url, env) => {
+      await run('git', ['init', '--bare', '--quiet', bare], { env });
+      const listed = (await run('git', ['ls-remote', '--heads', url, `refs/heads/${branch}`], { env })).stdout.trim();
+      if (!listed) return false;
+      await run('git', ['-C', bare, 'fetch', '--quiet', url, `refs/heads/${branch}:refs/heads/${branch}`], { env });
+      await run('git', ['-C', bare, 'bundle', 'create', destination, `refs/heads/${branch}`], { env });
+      return true;
+    });
+  }
+
+  async deleteBranch(owner: string, name: string, branch: string): Promise<void> {
+    const res = await this.apiFetch(`/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/branches/${branch.split('/').map(encodeURIComponent).join('/')}`, { method: 'DELETE' });
+    if (!res.ok && res.status !== 404) throw new Error(`Could not delete ${branch} of ${owner}/${name}: HTTP ${res.status}`);
+  }
+
+  async repoGitUrl(owner: string, name: string): Promise<string> {
+    return `${await this.resolveBaseUrl()}/${encodeURIComponent(owner)}/${encodeURIComponent(name)}.git`;
+  }
+
   async pullBundle(auth: { username: string; token: string }, owner: string, name: string, destination: string): Promise<boolean> {
     return this.withBareRepo(auth, owner, name, 'Fetching', async (bare, url, env) => {
       await run('git', ['clone', '--bare', '--quiet', url, bare], { env });

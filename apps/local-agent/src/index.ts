@@ -1,3 +1,4 @@
+import { createMachineGit } from './machine-git.js';
 import { mkdir } from 'fs/promises';
 import { io, type Socket } from 'socket.io-client';
 import {
@@ -59,6 +60,7 @@ function followEngineWorker(socket: Socket, config: MachineConfig, sessions: Ext
       rootDir: config.rootDir,
       deviceId,
       externalAgents: sessions,
+      git: createMachineGit({ rootDir: config.rootDir, backendUrl: config.backendUrl, token: config.token }),
       address: temporalAddress,
       payloads: { ring, blobs: remoteBlobs(socket) },
       ...(config.temporalNamespace ? { namespace: config.temporalNamespace } : {}),

@@ -172,6 +172,7 @@ export interface ResolvedAgentInfo {
   procedure?: Procedure | undefined;
   callableAgents: string[];
   machine?: string | undefined;
+  inPlace?: boolean | undefined;
   tree?: { modelId?: string | undefined } | undefined;
 }
 

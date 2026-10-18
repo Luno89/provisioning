@@ -276,6 +276,41 @@ export class ProjectRepoService {
     }
   }
 
+  async pushBranch(request: { ownerId: string; repo: string; bundle: string; branch: string }): Promise<string> {
+    const { username, password } = await this.ensureAccount(request.ownerId);
+    const { name: tokenName, token } = await this.gitea.createPushToken(username, password);
+    try {
+      return await this.gitea.pushBranchBundle({ username, token }, username, request.repo, request.bundle, request.branch);
+    } finally {
+      await this.gitea.revokeUserToken(username, password, tokenName).catch(() => undefined);
+    }
+  }
+
+  async pullBranch(request: { ownerId: string; repo: string; branch: string; bundle: string }): Promise<boolean> {
+    const { username, password } = await this.ensureAccount(request.ownerId);
+    if (!(await this.gitea.findRepo(username, request.repo))) return false;
+    const { name: tokenName, token } = await this.gitea.createReadToken(username, password);
+    try {
+      return await this.gitea.pullBranchBundle({ username, token }, username, request.repo, request.branch, request.bundle);
+    } finally {
+      await this.gitea.revokeUserToken(username, password, tokenName).catch(() => undefined);
+    }
+  }
+
+  async deleteBranch(request: { ownerId: string; repo: string; branch: string }): Promise<void> {
+    const { username } = await this.ensureAccount(request.ownerId);
+    await this.gitea.deleteBranch(username, request.repo, request.branch);
+  }
+
+  async gitRemote(ownerId: string, repo: string): Promise<{ url: string; authorization: string } | undefined> {
+    const { username, password } = await this.ensureAccount(ownerId);
+    if (!(await this.gitea.findRepo(username, repo))) return undefined;
+    return {
+      url: await this.gitea.repoGitUrl(username, repo),
+      authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`,
+    };
+  }
+
   async readDocument(ownerId: string, repo: string, path: string, ref: string): Promise<{ owner: string; repo: string; content: string } | null> {
     const { username } = await this.ensureAccount(ownerId);
     if (!(await this.gitea.findRepo(username, repo))) return null;

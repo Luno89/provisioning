@@ -1,8 +1,9 @@
-import { machineChoice, type GroupDefinition } from '@koala/agent-engine/procedure';
+import { machineChoice, type GroupDefinition, type MachineChoice } from '@koala/agent-engine/procedure';
 import type { Database } from '../lib/db-interface.js';
 import type { ModelProvider } from '../lib/model-registry.js';
 import { groveAgentOf, resolveTreeType } from '../lib/tree-types.js';
-import { modelAgentsOf, treeModelProblem, withTreeModel, type TreeAgent } from '../lib/tree-models.js';
+import { handsWorkToMachine, modelAgentsOf, treeModelProblem, withTreeModel, type TreeAgent } from '../lib/tree-models.js';
+import { machineChoiceProblem, type ChosenMachine } from '../lib/machines.js';
 
 export type TreeModelsStore = Pick<Database, 'getTrees' | 'saveTree' | 'getTreeTypes'>;
 
@@ -14,6 +15,7 @@ export interface TreeModelRow {
   describe?: string | undefined;
   chosen?: { modelId: string; gone?: true | undefined } | undefined;
   own: AgentOwnModel;
+  noMachine?: true | undefined;
 }
 
 export type TreeModelsOutcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 404; error: string };
@@ -25,6 +27,7 @@ export interface TreeModelsDeps {
     route(ownerId: string, modelId?: string | null, endpointId?: string | null): Promise<{ provider: ModelProvider }>;
   };
   agentOf(ownerId: string, slug: string): Promise<TreeAgent | undefined>;
+  machines?: ((ownerId: string) => Promise<readonly (ChosenMachine & { id: string })[]>) | undefined;
   groups?: (() => readonly GroupDefinition[]) | undefined;
   now?: (() => string) | undefined;
 }
@@ -50,19 +53,30 @@ export class TreeModelsService {
     }
   }
 
+  private async machineProblem(ownerId: string): Promise<(choice: MachineChoice) => string | undefined> {
+    if (!this.deps.machines) return () => 'machines cannot be checked here';
+    const machines = await this.deps.machines(ownerId);
+    return (choice) => machineChoiceProblem(machines.find((machine) => machine.id === choice.deviceId), choice.agent, { waitsToConnect: true, model: choice.model });
+  }
+
   async view(ownerId: string, treeId: string): Promise<TreeModelsOutcome<{ rows: TreeModelRow[] }>> {
     const tree = await this.tree(ownerId, treeId);
     if (!tree) return { ok: false, status: 404, error: 'Tree not found' };
-    const [agents, models] = await Promise.all([this.agents(ownerId, tree.type), this.deps.models.list(ownerId)]);
+    const [agents, models, machineProblem] = await Promise.all([this.agents(ownerId, tree.type), this.deps.models.list(ownerId), this.machineProblem(ownerId)]);
     const known = new Set(models.map((model) => model.id));
+    const present = (modelId: string): boolean => {
+      const machine = machineChoice(modelId);
+      return machine ? !machineProblem(machine) : known.has(modelId);
+    };
     const rows = await Promise.all(agents.map(async (agent): Promise<TreeModelRow> => {
       const chosen = tree.models?.[agent.slug];
       return {
         agent: agent.slug,
         name: agent.name,
         ...(agent.describe ? { describe: agent.describe } : {}),
-        ...(chosen ? { chosen: { modelId: chosen, ...(known.has(chosen) ? {} : { gone: true as const }) } } : {}),
+        ...(chosen ? { chosen: { modelId: chosen, ...(present(chosen) ? {} : { gone: true as const }) } } : {}),
         own: await this.own(ownerId, agent),
+        ...(handsWorkToMachine(agent) ? {} : { noMachine: true as const }),
       };
     }));
     return { ok: true, value: { rows } };
@@ -71,8 +85,8 @@ export class TreeModelsService {
   async problem(ownerId: string, treeId: string, agent: string, modelId: string | null): Promise<{ status: 400 | 404; error: string } | undefined> {
     const tree = await this.tree(ownerId, treeId);
     if (!tree) return { status: 404, error: 'Tree not found' };
-    const [agents, models] = await Promise.all([this.agents(ownerId, tree.type), this.deps.models.list(ownerId)]);
-    const problem = treeModelProblem(agents, agent, modelId, models.map((model) => model.id));
+    const [agents, models, machineProblem] = await Promise.all([this.agents(ownerId, tree.type), this.deps.models.list(ownerId), this.machineProblem(ownerId)]);
+    const problem = treeModelProblem(agents, agent, modelId, models.map((model) => model.id), machineProblem);
     return problem ? { status: 400, error: problem } : undefined;
   }
 
@@ -82,7 +96,11 @@ export class TreeModelsService {
     const models = await this.deps.models.list(ownerId);
     const named = (id: string): string => models.find((model) => model.id === id)?.name ?? id;
     const line = (row: TreeModelRow): string => {
-      if (row.chosen) return row.chosen.gone ? `${row.chosen.modelId}, chosen for this tree but no longer among the person's models, so its runs fail until another is chosen` : `${named(row.chosen.modelId)} (id ${row.chosen.modelId}), chosen for this tree`;
+      if (row.chosen) {
+        const machine = machineChoice(row.chosen.modelId);
+        if (machine) return row.chosen.gone ? `${machine.agent} on a machine (id ${row.chosen.modelId}), chosen for this tree, but that machine or its agent can no longer do the work, so its runs fail until another is chosen` : `${machine.agent} on the person's machine (id ${row.chosen.modelId}), chosen for this tree`;
+        return row.chosen.gone ? `${row.chosen.modelId}, chosen for this tree but no longer among the person's models, so its runs fail until another is chosen` : `${named(row.chosen.modelId)} (id ${row.chosen.modelId}), chosen for this tree`;
+      }
       if ('machine' in row.own) return 'always on its machine, set in the Studio';
       if ('problem' in row.own) return `its own, which it cannot use: ${row.own.problem}`;
       return `its own, ${named(row.own.modelId)} (id ${row.own.modelId})`;

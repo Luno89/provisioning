@@ -1,7 +1,7 @@
 import { Context } from '@temporalio/activity';
 import { Worker, NativeConnection } from '@temporalio/worker';
 import { buildDataConverter, type BlobReach, type Keyring } from '@koala/engine-core/payloads';
-import { executeTool, heartbeatWhileRunning, type ExternalAgentStepArgs, type ExternalAgentStepResult, type ToolContract } from '@koala/engine-core';
+import { executeTool, heartbeatWhileRunning, type ExternalAgentStepArgs, type ExternalAgentStepResult, type MachineGitOp, type MachineGitResult, type ToolContract } from '@koala/engine-core';
 import { createLocalFsDriver } from './local-fs-driver.js';
 import type { ExternalAgentSessions } from './external-agents.js';
 
@@ -36,6 +36,7 @@ export interface DeviceActivitiesOptions {
   deviceId: string;
   languages?: string[];
   externalAgents?: ExternalAgentSessions | undefined;
+  git?: ((op: MachineGitOp) => Promise<MachineGitResult>) | undefined;
 }
 
 export const HEARTBEAT_MS = 10_000;
@@ -54,6 +55,11 @@ export function createDeviceActivities(options: DeviceActivitiesOptions) {
       if (!options.externalAgents) return { state: 'failed', error: 'this machine runs no external agents', events: [] };
       const context = activityContext();
       return options.externalAgents.step(args, () => context?.heartbeat());
+    },
+
+    async MachineGitActivity(op: MachineGitOp): Promise<MachineGitResult> {
+      if (!options.git) return { ok: false, error: 'this machine cannot fetch or push a project\'s work' };
+      return options.git(op);
     },
 
     async EngineToolActivity(args: DeviceToolCall): Promise<DeviceToolOutcome> {

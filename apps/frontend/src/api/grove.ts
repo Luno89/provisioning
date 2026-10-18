@@ -106,6 +106,7 @@ export interface TreeModelRow {
   describe?: string
   chosen?: { modelId: string; gone?: true }
   own: AgentOwnModel
+  noMachine?: true
 }
 
 export const getTreeModels = (id: string): Promise<TreeModelRow[]> =>
