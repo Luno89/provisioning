@@ -47,6 +47,7 @@ let scratch: string | undefined;
 let conversationId: string | undefined;
 let treeId: string | undefined;
 let closeDb: (() => Promise<void>) | undefined;
+let retire: (() => Promise<void>) | undefined;
 
 async function main(): Promise<void> {
   const machine = JSON.parse(await readFile(path.join(homedir(), '.config/koala/machine.json'), 'utf8')) as { deviceId: string; token: string };
@@ -61,6 +62,20 @@ async function main(): Promise<void> {
   api = axios.create({ baseURL: BASE, proxy: false, validateStatus: () => true, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 7200)}` } });
   const temporal = await getTemporalClient();
   const began = new Date().toISOString();
+  retire = async () => {
+    step('whatever the memory keeper keeps from this made-up story is retired');
+    const runIds = new Set<string>();
+    await until('the memory keeper to finish', async () => {
+      let running = false;
+      for await (const workflow of temporal.workflow.list({ query: `WorkflowId STARTS_WITH "memory-" AND StartTime >= "${began}"` })) {
+        runIds.add(workflow.workflowId);
+        if (workflow.status.name === 'RUNNING') running = true;
+      }
+      return running ? undefined : true;
+    });
+    const forgotten = await forgetWhatRunsLeft(db, owner, runIds);
+    console.log(`  ${forgotten} kept thing${forgotten === 1 ? '' : 's'} retired`);
+  };
   const stamp = Date.now().toString(36);
   const choice = `machine:${deviceId}:${AGENT}`;
 
@@ -159,19 +174,6 @@ async function main(): Promise<void> {
   assert.deepEqual(left, [], `the machine's work branches were left behind: ${left.join(', ')}`);
   console.log(`  ${account!.username}/${repo} main: label.txt = ${JSON.stringify(onMain)}; no work branch of the machine's is left`);
 
-  step('whatever the memory keeper keeps from this made-up story is retired');
-  const runIds = new Set<string>([plannerRun]);
-  await until('the memory keeper to finish', async () => {
-    let running = false;
-    for await (const workflow of temporal.workflow.list({ query: `WorkflowId STARTS_WITH "memory-" AND StartTime >= "${began}"` })) {
-      runIds.add(workflow.workflowId);
-      if (workflow.status.name === 'RUNNING') running = true;
-    }
-    return running ? undefined : true;
-  });
-  const forgotten = await forgetWhatRunsLeft(db, owner, runIds);
-  console.log(`  ${forgotten} kept thing${forgotten === 1 ? '' : 's'} retired`);
-
   console.log('\nmachine story live — PASS');
 }
 
@@ -179,6 +181,7 @@ async function teardown(): Promise<void> {
   if (api && treeId) await api.delete(`/trees/${treeId}`).catch(() => undefined);
   if (api && conversationId) await api.delete(`/conversations/${conversationId}`).catch(() => undefined);
   if (api && device) await api.put(`/mesh/local-agents/${device.id}/agents`, { agents: device.manualAgents }).catch(() => undefined);
+  await retire?.().catch((err: Error) => console.error(`  the memory keeper's runs could not be retired: ${err.message}`));
   if (scratch) await rm(scratch, { recursive: true, force: true });
   await closeDb?.();
 }
