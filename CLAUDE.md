@@ -51,6 +51,7 @@ npm run test:monitoring-live      # a throwaway app on the system cluster → Mo
 npm run test:infrastructure-live   # Infrastructure reads the system cluster → a workload that cannot pull its image, put there by hand, shows in Needs attention and on the cluster page as not deployed through Koala, then leaves once removed → a Koala chat turn on a model that does not exist shows as failed work, opens its chat and clears → whatever the memory keeper keeps from the run and the quiet conversation is retired, ~15 min
 npm run test:dev-split-live        # against a running `npm run dev:split`: the instance sends a signed-out person to root → root's Google sign-in (the dev mock) → root knows the instance and serves none of its routes → its one-time token signs you into the instance, and not twice → your work is there and the instance makes no accounts → the instance's credential is taken by root and a wrong one refused, ~10 s
 npm run test:openrouter-connect-live # against a running `npm run dev:split`: signed in through root, Connect OpenRouter sends you to OpenRouter's sign-in with a PKCE challenge and a state → a state Koala did not make is refused before OpenRouter is asked → OpenRouter's refusal of a made-up code is told in plain words → nothing changed; approving on OpenRouter is yours, ~5 s
+npm run test:machine-story-live    # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine by hand → the planner, on it, proposes a one-story tree through propose_plan → approved, the first run stopped → every agent in the tree's work put on the machine → the story is worked in a checkout on the machine, checked with run_in_workspace and its task check in the tree's workspace, judged and settled by the scripted judges → it succeeds, label.txt is on main and no machine branch is left; removes the tree, the conversation and the agent, retires what the memory keeper kept, ~30 min (most of it the keeper)
 npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
 npm run test:machine-live        # a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service and finds an ACP agent and two CLIs missing their adapters (`--adapters none`) → after a reboot with nobody logged in it connects again → Install adapter makes Claude Code ready → the command run again with `--yes` installs Codex's adapter; removes the machine, its project and the VM, ~10 min
 npm run test:mesh-live           # the image is built; root starts; the owner's instance installs in a VM and joins the mesh, its Temporal answering only on its mesh address → a second VM runs the command from the instance's My Machines, joins the mesh with a key root mints for the instance, and its worker polls the instance's Temporal over the mesh → a third VM, another person's, reaches neither and neither reaches it; ~30 min, removes everything
@@ -233,6 +234,23 @@ one row per ready agent per machine, `machine:<deviceId>:<agent>` (`machine-choi
 `MACHINE_UNAVAILABLE` when the machine is gone, offline or its agent is not ready). An agent whose "Runs on" (Studio) is a
 machine always runs there; a machine picked for one run is never inherited by the runs it starts. A conversation keeps one
 session per machine, agent and model (`machineSessions`), so the next turn resumes it; a failed turn is saved with its reason.
+
+**An agent on a machine does a tree's work** (external-cli-agents step 4). A procedure branches at **Where It Runs**
+(`where-it-runs`: machine when the run's model or the agent's "Runs on" is a machine, else model): `agentLoop` (tool-rounds,
+planning, research) and `do-one-task` hand their Model Turn and Tool Loop to the **External Agent** node on the machine
+branch, and `do-one-task` asks its verdict question with **Ask the Machine Agent**; every step around them (claim, check,
+judge, record) is unchanged. An agent on a machine keeps its own procedure when it branches (`machineRunFor`'s `inPlace`,
+which also keeps the run's workspace, `runChild`), otherwise it gets `external-agent-task` as before. Given a workspace,
+External Agent works a checkout of that folder (a story's worktree, a judge's checkout, the repo root): the folder's work is
+committed and sent to Gitea as `machine/<device>/<run step>` (`EngineMachineSendActivity`, `sendBranch` in
+`workspace-documents.ts`), the machine fetches it into `<root>/koala-trees/<workspace>/<folder>` (`MachineGitActivity`,
+`apps/local-agent/src/machine-git.ts`) and the session works there; `run_in_workspace` brings its work in and runs a command
+in the workspace; when the turn ends the machine commits and pushes, the work is laid over the folder (fast-forward, anything
+uncommitted in the way set aside in a stash, refused when the folder moved on) and the branch deleted. The machine reaches
+Gitea only through the backend (`/api/machines/git/<repo>.git`, `MachineGitService`, its device token; the person's own
+repositories only, pushes only to its own `machine/<device>/` branches, git never prompting). A tree's Models offer
+machines for every agent whose procedure branches (`treeModelProblem`, the picker's My machines in `TreeModels`), and
+`propose_tree_model` may name one. `npm run test:machine-story-live` proves it.
 
 **An agent on a machine gets its persona's tools, and runs on the model picked.** The external-agent procedures resolve the
 persona's tools (Resolve Tools) and hand them to the `external-agent` step, which serves every one not bound to an
@@ -903,7 +921,7 @@ agent's procedure, `modelAgentsOf`), with what it would use on its own; a choice
 read when each of the tree's runs starts: the grove agent's by the launcher (`modelFor`), every run under it by
 `EngineResolveAgentActivity` from the run's root id (`treeOfGroveRun`), so in a tree's run an agent gets the tree's choice
 or its own model, never one handed down from the run above it (the judge stays on its own while the executor is moved).
-A machine is not offered yet, and an agent whose "Runs on" is a machine keeps it. A chosen model that is gone shows on
+An agent on one of the person's machines can be chosen too, for an agent whose procedure branches at Where It Runs; an agent whose "Runs on" is a machine keeps it. A chosen model that is gone shows on
 the panel and fails the agent's runs with its name. Koala reads the models in `read_tree` and `run_tree` and proposes a
 change with `propose_tree_model` (card `set_tree_model`); `mechanics-tree-model` proves it (expectation `treeModels`).
 A `choose-model` trace keeps the model's name in its summary, so a story's run shows the model each round ran on.
