@@ -9,7 +9,16 @@ import type { LocalMcpServer, LocalTool, Mounted } from './local-mcp.js';
 
 export const KOALA_TOOLS_INSTRUCTIONS = 'Koala\'s own tools, served to you for this session. Each runs in Koala exactly as it would for Koala itself, so a proposal becomes a card for the person, and a call that changes something may wait for the person to allow it.';
 
-export const TOOLS_LINE = 'Koala\'s tools are served to you through the MCP server named koala. When your instructions name one of Koala\'s tools, call it there; do not describe calling it, and do not do its work another way.';
+export const TOOLS_LINE = 'Koala\'s tools are served to you through the MCP server named koala. When your instructions name one of Koala\'s tools, call it there; do not describe calling it, and do not do its work another way. Some of them take a long time: a call still running after a couple of minutes answers with a job id instead of its result, and keeps running in Koala; call wait_for with that job until it gives you the result, rather than calling the tool again.';
+
+export const CALL_ANSWER_MS = 150_000;
+
+export const JOB_WAIT_MS = 150_000;
+
+export const WAIT_FOR = 'wait_for';
+
+export const stillRunning = (tool: string, job: string): string =>
+  `${tool} is still running in Koala as job ${job}. Call ${WAIT_FOR} with job "${job}" to get its result; do not call ${tool} again for it.`;
 
 export const HEARTBEAT_EVERY_MS = 5000;
 
@@ -54,6 +63,7 @@ interface Live {
   ask?: { ask: ExternalAgentAsk; answer: (answer: PermissionAnswer) => void } | undefined;
   calls: ExternalToolCall[];
   held: Map<string, { resolve: (content: string) => void; reject: (err: Error) => void }>;
+  jobs: Map<string, Promise<{ content: string } | { error: Error }>>;
   ended?: { stopReason: string } | { error: string } | undefined;
   wake: () => void;
 }
@@ -63,15 +73,26 @@ export interface ExternalAgentSessionsOptions {
   launches: ExternalAgentLaunches;
   segmentMs?: number | undefined;
   mcp?: LocalMcpServer | undefined;
+  callAnswerMs?: number | undefined;
+  jobWaitMs?: number | undefined;
 }
 
 const NOT_ANSWERED = 'the run that offered this tool stopped before it answered';
 
-function releaseHeld(live: Pick<Live, 'held' | 'calls'>, why: string): void {
+function releaseHeld(live: Pick<Live, 'held' | 'calls' | 'jobs'>, why: string): void {
   for (const held of live.held.values()) held.reject(new Error(why));
   live.held.clear();
   live.calls.splice(0);
+  live.jobs.clear();
 }
+
+const within = <T>(promise: Promise<T>, ms: number): Promise<T | undefined> => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => resolve(undefined), ms);
+  promise.then(
+    (value) => { clearTimeout(timer); resolve(value); },
+    (err: unknown) => { clearTimeout(timer); reject(err); },
+  );
+});
 
 export class ExternalAgentSessions {
   private readonly live = new Map<string, Live>();
@@ -148,7 +169,7 @@ export class ExternalAgentSessions {
     if (!cwd) return { state: 'failed', error: `${op.path} is outside this machine's folder`, events: [] };
     await mkdir(cwd, { recursive: true });
 
-    const live: Partial<Live> & Pick<Live, 'events' | 'wake' | 'calls' | 'held'> = { events: [], calls: [], held: new Map(), wake: () => {} };
+    const live: Partial<Live> & Pick<Live, 'events' | 'wake' | 'calls' | 'held' | 'jobs'> = { events: [], calls: [], held: new Map(), jobs: new Map(), wake: () => {} };
     const strays = new Set<string>();
     const watch = (event: ExternalAgentWireEvent) => {
       live.events.push(event);
@@ -158,7 +179,8 @@ export class ExternalAgentSessions {
       strays.add(event.tool.callId);
       live.events.push({ type: 'stray', callId: event.tool.callId, title: event.tool.title, workingDir, folder: cwd });
     };
-    const served = (op.tools ?? []).map((tool): LocalTool => this.serve(live, tool));
+    const offered = (op.tools ?? []).map((tool): LocalTool => this.serve(live, tool));
+    const served = offered.length ? [...offered, this.waitFor(live)] : offered;
     const mounted = this.options.mcp && served.length ? this.options.mcp.mount(served, KOALA_TOOLS_INSTRUCTIONS) : undefined;
     let session: AcpSession;
     try {
@@ -248,17 +270,45 @@ export class ExternalAgentSessions {
     };
   }
 
-  private serve(live: Pick<Live, 'calls' | 'held' | 'wake'>, tool: ExternalServedTool): LocalTool {
+  private serve(live: Pick<Live, 'calls' | 'held' | 'wake' | 'jobs'>, tool: ExternalServedTool): LocalTool {
     return {
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema,
-      run: (args) => new Promise<string>((resolve, reject) => {
+      run: async (args) => {
         const callId = randomUUID();
-        live.held.set(callId, { resolve, reject });
-        live.calls.push({ callId, name: tool.name, arguments: JSON.stringify(args) });
-        live.wake();
-      }),
+        const answered = new Promise<string>((resolve, reject) => {
+          live.held.set(callId, { resolve, reject });
+          live.calls.push({ callId, name: tool.name, arguments: JSON.stringify(args) });
+          live.wake();
+        });
+        const settled = answered.then((content) => ({ content }), (error: Error) => ({ error }));
+        const done = await within(settled, this.options.callAnswerMs ?? CALL_ANSWER_MS);
+        if (!done) {
+          live.jobs.set(callId, settled);
+          return stillRunning(tool.name, callId);
+        }
+        if ('error' in done) throw done.error;
+        return done.content;
+      },
+    };
+  }
+
+  private waitFor(live: Pick<Live, 'jobs'>): LocalTool {
+    return {
+      name: WAIT_FOR,
+      description: 'Waits for a Koala tool call that is still running, given the job its first answer named, and gives you its result. If it is still running after a couple of minutes, it says so; call it again.',
+      inputSchema: { type: 'object', properties: { job: { type: 'string', description: 'The job id a call answered with.' } }, required: ['job'] },
+      run: async (args) => {
+        const job = String(args.job ?? '');
+        const pending = live.jobs.get(job);
+        if (!pending) throw new Error(`there is no running job ${job}; it may already have been collected`);
+        const done = await within(pending, this.options.jobWaitMs ?? JOB_WAIT_MS);
+        if (!done) return `job ${job} is still running in Koala; call ${WAIT_FOR} with it again.`;
+        live.jobs.delete(job);
+        if ('error' in done) throw done.error;
+        return done.content;
+      },
     };
   }
 }

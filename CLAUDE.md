@@ -276,7 +276,13 @@ the tool is destructive, then answers the machine (`op: 'result'`); a cancelled 
 opens a session (no prompt) to read each agent's `model` config option (ACP `configOptions`), reported as `models` with
 `agents:found`; the picker offers one row per model (`machine:<device>:<agent>:<model>`), a run sets it with
 `setSessionConfigOption` before its first prompt (a model the agent no longer offers is refused), and the model it ran on
-comes back on the step (`model`), in the trace summary and so on the run's rounds.
+comes back on the step (`model`), in the trace summary and so on the run's rounds. Every call the agent makes at once is
+handed to the run together (`state: 'calls'` carries `calls`) and run together, `run_in_workspace` ones one at a time,
+each answer going back as it comes (`op: 'results'`). Some agents give up on a tool call: Antigravity's own harness cuts
+every MCP call off at 3 minutes, whatever the server does (progress messages, which the machine sends on a streamed answer,
+do not help, and nothing in ACP sets it). So a served call not answered within 2½ minutes answers the agent with a job id
+and keeps running in the run; the machine's own `wait_for` tool waits for the job and hands over its result
+(`external-agents.ts`, told to the agent in `TOOLS_LINE`).
 
 ## Roles: root, instance, combined
 
@@ -365,6 +371,10 @@ the chat — add a known one (with the person's notes, depends-on, offer/omit), 
 agents. Applying it (`ActionService`) adds and captures the server, then gives it to each agent named through
 `setServers`, which rebuilds a workspace server's holders' images. `mechanics-proposed-server` proves it (check stage
 `applyAction`, expectation `mcpServer`).
+
+**Tool calls run together where they can** (`run-tool-calls`, behind the `reads-together` patch): hand-offs start at
+once, calls to tools whose `effect` is `read` (from the Tool Loop's `offered`) run together, and a call that changes
+something waits for every call before it and runs on its own.
 
 **When a run asks before a call** (the `approve-tool-calls` step, `ports.approve` in `AgentRunWorkflow`): on someone's
 own machine every call asks; elsewhere a destructive tool asks (an MCP tool is destructive unless its server says
@@ -671,7 +681,11 @@ No wait inside an activity watches a clock: it ends on the thing it waits for, o
 (`assessWorkload` in `lib/workload-health.ts` — `ImagePullBackOff`, `CrashLoopBackOff` and the like), or on a stop. The
 pieces that used to cut work off and no longer do:
 - **Model calls** go out through `patientFetch` (`agent-engine/src/model/patient-fetch.ts`): Node's `fetch` with an
-  undici `Agent` that has no header or body timeout, so a long prefill or a slow stream is never dropped at 300 s. The
+  undici `Agent` that has no header or body timeout, so a long prefill or a slow stream is never dropped at 300 s. A call
+  whose connection is lost (refused, reset, the stream cut off) waits until the server answers `/models` again, with no
+  deadline, and asks again from the start, telling the run with a notice (`callModel`, `onConnectionLost`). TabbyAPI's
+  liveness probe checks only that its port accepts connections (`constructs/tabbyapi.ts`): its `/health` shares the thread
+  that generates, so a busy server used to be killed mid-answer. The
   per-endpoint queue (`model-rate-limiter.ts`) waits for its turn with no deadline and leaves when the run is stopped.
 - **Commands.** `run_command`, Code steps, task checks, browser tests and every `kubectl` the engine runs have no time
   limit unless the caller sets one (`timeoutSeconds`, a step's "Stop after"). In a cluster workspace every command runs
@@ -683,6 +697,9 @@ pieces that used to cut work off and no longer do:
 - **People.** Wait for Person and tool approvals wait until someone answers or the run is stopped; a step may still set
   "Stop waiting after". A run takes each answer once (behind the `answers-taken-once` patch), so a procedure that
   comes back to the same question asks it again.
+- **Workload health** (`assessWorkload` in `lib/workload-health.ts`) counts restarts against a pod only when the last
+  one was within the hour, and ignores a pod that failed and was replaced, so a deployment whose server was once
+  restarted and is only busy now is not marked `unhealthy` (an unhealthy model drops out of the model list).
 - **Builds and releases.** Workspace image builds, Odoo release jobs and rollouts, browser tests, pipeline builds and
   cluster provisioning wait for their work however long it takes.
 `mechanics-long-command` proves a command outliving any old limit.

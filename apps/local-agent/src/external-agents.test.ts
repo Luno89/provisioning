@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ExternalAgentSessions, TOOLS_LINE, servesCall, workingDirOf, workspaceLine } from './external-agents.js';
+import { ExternalAgentSessions, TOOLS_LINE, WAIT_FOR, servesCall, stillRunning, workingDirOf, workspaceLine } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
 import type { AgentScript } from './acp-script-agent.js';
 
@@ -152,6 +152,60 @@ describe('the run\'s tools for an external agent', () => {
       expect(Number(/\((\d+) progress\)/.exec(heard)?.[1])).toBeGreaterThanOrEqual(2);
       expect(said).toContain('read_tree: tree b');
       expect(logged).toEqual(expect.arrayContaining(['read_tree was called with a progress token']));
+    } finally {
+      await sessions.closeAll();
+      await mcp.close();
+    }
+  });
+
+  it('answers a call still running after its time with a job, and gives the result to wait_for once the run answers', async () => {
+    const scriptPath = path.join(dir, 'script.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'scripted', version: '1', turns: [{ steps: [
+      { mcp: { server: 'koala', tool: 'read_tree', args: { treeId: 'slow' } } },
+      { wait: 300 },
+      { mcp: { server: 'koala', tool: WAIT_FOR, args: { job: 'unknown' } } },
+    ] }] } satisfies AgentScript));
+    const mcp = new LocalMcpServer();
+    await mcp.start();
+    sessions = new ExternalAgentSessions({ rootDir: path.join(dir, 'root'), launches: { scripted: { command: process.execPath, args: ['--import', TSX, AGENT, scriptPath] } }, mcp, callAnswerMs: 100, jobWaitMs: 100 });
+    try {
+      let result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'look it up', tools: [READ_TREE] } });
+      expect(result).toMatchObject({ state: 'calls', calls: [{ name: 'read_tree' }] });
+      const job = (result as { calls: { callId: string }[] }).calls[0]!.callId;
+      let said: string[] = [];
+      while (result.state !== 'ended') {
+        result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'continue' } });
+        said = [...said, ...result.events.filter((event) => event.type === 'text').map((event) => (event as { delta: string }).delta)];
+      }
+      expect(said).toContain(`read_tree: ${stillRunning('read_tree', job)}`);
+      expect(said.some((text) => text.startsWith(`${WAIT_FOR}: there is no running job unknown`))).toBe(true);
+    } finally {
+      await sessions.closeAll();
+      await mcp.close();
+    }
+  });
+
+  it('waits for a job on the machine, says when it is still running, and hands over the result the run gave it', async () => {
+    const scriptPath = path.join(dir, 'script.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'scripted', version: '1', turns: [{ steps: [
+      { mcp: { server: 'koala', tool: 'read_tree', args: { treeId: 'slow' } } },
+    ] }] } satisfies AgentScript));
+    const mcp = new LocalMcpServer();
+    await mcp.start();
+    sessions = new ExternalAgentSessions({ rootDir: path.join(dir, 'root'), launches: { scripted: { command: process.execPath, args: ['--import', TSX, AGENT, scriptPath] } }, mcp, callAnswerMs: 100, jobWaitMs: 200 });
+    try {
+      const opened = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'look it up', tools: [READ_TREE] } });
+      const job = (opened as { calls: { callId: string }[] }).calls[0]!.callId;
+      let result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'continue' } });
+      while (result.state === 'running') result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'continue' } });
+      const url = (sessions as unknown as { live: Map<string, { mounted: { url: string } }> }).live.get('k')!.mounted.url;
+      const waitFor = (id: string) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: WAIT_FOR, arguments: { job: id } } }) })
+        .then((response) => response.json() as Promise<{ result: { content: { text: string }[]; isError?: boolean } }>);
+      expect((await waitFor(job)).result.content[0]!.text).toBe(`job ${job} is still running in Koala; call ${WAIT_FOR} with it again.`);
+      const waiting = waitFor(job);
+      await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'results', results: [{ callId: job, ok: true, content: 'Tree "Shop": 2 stories' }] } });
+      expect((await waiting).result.content[0]!.text).toBe('Tree "Shop": 2 stories');
+      expect((await waitFor(job)).result).toMatchObject({ isError: true });
     } finally {
       await sessions.closeAll();
       await mcp.close();

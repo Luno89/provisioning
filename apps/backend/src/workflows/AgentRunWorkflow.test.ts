@@ -44,7 +44,7 @@ import type { ExternalAgentStepArgs, MachineGitOp, MachineGitResult } from '@koa
 import { createMachineGit } from '../../../local-agent/src/machine-git.js';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync as readNow } from 'node:fs';
-import { ExternalAgentSessions } from '../../../local-agent/src/external-agents.js';
+import { ExternalAgentSessions, TOOLS_LINE, WAIT_FOR } from '../../../local-agent/src/external-agents.js';
 import { LocalMcpServer } from '../../../local-agent/src/local-mcp.js';
 import type { AgentScript } from '../../../local-agent/src/acp-script-agent.js';
 import { EXTERNAL_AGENT_CHAT, EXTERNAL_AGENT_TASK } from '../extensions/external-agents/procedures.js';
@@ -1306,7 +1306,8 @@ describe('an external agent working on someone\'s machine', () => {
 
         const koala = got.servers.find((server) => server.server === 'koala');
         const served = new Map(koala?.tools.map((tool) => [tool.name, tool.description ?? '']));
-        expect([...served.keys()].sort()).toEqual(listed);
+        expect([...served.keys()].sort()).toEqual([...listed, WAIT_FOR].sort());
+        expect(said).toContain(TOOLS_LINE);
         expect(listed).toEqual(expect.arrayContaining(['run_in_workspace', 'request_secret', 'request_egress', 'list_project_secrets']));
         expect(said).not.toContain('NOT AVAILABLE TO YOU THIS TURN\n\n- request_secret');
         expect(served.get('run_in_workspace')).toContain('Runs a shell command in the project\'s workspace');
