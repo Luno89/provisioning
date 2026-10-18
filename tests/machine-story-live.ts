@@ -159,7 +159,7 @@ async function main(): Promise<void> {
   console.log(`  the tree's run ended ${grove.outcome ?? JSON.stringify(grove).slice(0, 200)}`);
   const leaf = ((await api.get('/leaves')).data as Leaf[]).find((entry) => entry.id === leafId);
   console.log(`  the story is ${leaf?.state ?? leaf?.status}`);
-  assert.match(String(leaf?.state ?? leaf?.status), /verified|landed|done/, `the story ended ${JSON.stringify(leaf)}`);
+  assert.equal(leaf?.state ?? leaf?.status, 'succeeded', `the story ended ${JSON.stringify(leaf)}`);
 
   step(`label.txt is on main, as the machine wrote it`);
   const gitea = new GiteaService(new InfrastructureService(), loadKeys(process.env).data, '/tmp/kubeconfig-provisioning-lunorica');
