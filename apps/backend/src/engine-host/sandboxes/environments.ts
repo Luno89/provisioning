@@ -27,7 +27,7 @@ import type { McpServerRecord } from '../../lib/mcp-servers.js';
 import type { ComposedWorkspace } from '../../lib/workspace-composition.js';
 import { readWorkspaceFile, type WorkspaceFile, pendingChanges } from '../../lib/workspace-file.js';
 import { stageText, type PublishedWorkspace } from '../../lib/published-workspace.js';
-import { treeOfWorkspace } from './workspace-repos.js';
+import { repositoryOf, treeOfWorkspace } from './workspace-repos.js';
 
 export type WorkspaceTarget =
   | { kind: 'machine'; deviceId: string; deviceName: string; path?: string | undefined }
@@ -268,11 +268,12 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
         });
       }
 
+      const repository = repositoryOf(ticket.runId);
       return {
         kind: 'sandbox',
         id: environmentIdFor(ticket.runId),
         capabilities: { ...environmentFor(merged), lifecycle: 'persistent' },
-        workspace: { ...withExtras(workspace, extras), persistent: true, ...(coming.length ? { coming: { what: coming, stage: stageText(published?.next) } } : {}) },
+        workspace: { ...withExtras(workspace, extras), persistent: true, ...(repository ? { repository } : {}), ...(coming.length ? { coming: { what: coming, stage: stageText(published?.next) } } : {}) },
       };
     },
 
@@ -283,7 +284,7 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
       const { agent, spec, workspace } = resolved;
       const egressMode = agent.egressMode ?? 'declared';
 
-      if (machineChoice(ticket.modelId)) {
+      if (machineChoice(ticket.modelId) && !ticket.inPlace) {
         const chosen = await options.workspaces?.forRun(ticket);
         if (chosen?.kind !== 'machine') throw new NoMachineAvailableError(`${ticket.agentSlug} was sent to a machine that is not one of yours any more`);
         return { kind: 'machine', deviceId: chosen.deviceId, deviceName: chosen.deviceName, ...(chosen.path ? { path: chosen.path } : {}), egressMode };

@@ -6,18 +6,18 @@ import type { HostNodeServices } from './services.js';
 const SHARED = { kind: 'sandbox', id: 'engine-conversation-c1', capabilities: { lifecycle: 'persistent' }, workspace: { runId: 'conversation-c1', sharedBy: 'conversation' } };
 const OWN = { kind: 'sandbox', id: 'engine-run-1', capabilities: {}, workspace: { runId: 'run-1' } };
 
-const provisionWith = (services: Partial<HostNodeServices>) => {
+const provisionWith = (services: Partial<HostNodeServices>, environments = { describe: vi.fn(async (): Promise<unknown> => OWN), release: vi.fn(async () => undefined) }) => {
   const nodes = createEnvironmentNodes({
-    environments: { describe: vi.fn(async () => OWN), release: vi.fn(async () => undefined) },
+    environments,
     ...services,
   } as unknown as HostNodeServices);
   const provision = nodes.find((node) => node.kind === 'provision-sandbox') as Extract<NodeImplementation, { role: 'step' }>;
-  return (run: { depth: number; conversationId?: string; environment?: unknown }) => provision.run({
+  return (run: { depth: number; conversationId?: string; environment?: unknown; modelId?: string; inPlace?: boolean }) => provision.run({
     node: { id: 'provision', kind: 'provision-sandbox', settings: {} },
     inputs: {},
     run: {
       identity: { runId: 'run-1', depth: run.depth, agentId: 'koala', trigger: 'user' },
-      launch: { ownerId: 'u1', ...(run.conversationId ? { conversationId: run.conversationId } : {}), ...(run.environment ? { environment: run.environment } : {}) },
+      launch: { ownerId: 'u1', ...(run.conversationId ? { conversationId: run.conversationId } : {}), ...(run.environment ? { environment: run.environment } : {}), ...(run.modelId ? { modelId: run.modelId } : {}), ...(run.inPlace ? { inPlace: true } : {}) },
       budget: {},
       emit: () => undefined,
     },
@@ -48,6 +48,28 @@ describe('provisioning a run\'s environment', () => {
 
     expect(outcome).toEqual({ exit: 'ready', outputs: { environment: { ...SHARED, handedOver: true } } });
     expect(describe).not.toHaveBeenCalled();
+  });
+
+  it('gives an agent on a machine that keeps its own procedure the conversation\'s workspace, however deep it was handed the work', async () => {
+    const describe = vi.fn(async () => SHARED);
+    const outcome = await provisionWith({ conversationWorkspaces: { describe } as never })({ depth: 1, conversationId: 'c1', modelId: 'machine:desk:antigravity', inPlace: true });
+
+    expect(outcome).toEqual({ exit: 'ready', outputs: { environment: SHARED } });
+    expect(describe).toHaveBeenCalledWith({ conversationId: 'c1', ownerId: 'u1', agentSlug: 'koala' });
+  });
+
+  it('leaves an agent working in its own folder on a machine out of the conversation\'s workspace, and tells the resolver whether a machine run keeps its procedure', async () => {
+    const describe = vi.fn(async () => SHARED);
+    const MACHINE = { kind: 'machine', deviceId: 'desk', deviceName: 'Desk', egressMode: 'declared' };
+    const environments = { describe: vi.fn(async (): Promise<unknown> => MACHINE), release: vi.fn(async () => undefined) };
+    const provision = provisionWith({ conversationWorkspaces: { describe } as never }, environments);
+
+    expect(await provision({ depth: 0, conversationId: 'c1', modelId: 'machine:desk:antigravity' })).toEqual({ exit: 'ready', outputs: { environment: MACHINE } });
+    expect(describe).not.toHaveBeenCalled();
+    expect(environments.describe).toHaveBeenCalledWith(expect.not.objectContaining({ inPlace: true }), undefined);
+
+    await provision({ depth: 1, modelId: 'machine:desk:antigravity', inPlace: true });
+    expect(environments.describe).toHaveBeenLastCalledWith(expect.objectContaining({ modelId: 'machine:desk:antigravity', inPlace: true }), undefined);
   });
 
   it('says why when the conversation\'s workspace cannot be provided', async () => {

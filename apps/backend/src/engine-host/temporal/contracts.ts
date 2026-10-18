@@ -35,6 +35,7 @@ export interface RunTicket {
   projectId?: string | undefined;
   trigger: RunIdentity['trigger'];
   modelId?: string | undefined;
+  inPlace?: boolean | undefined;
   modelReach?: ModelReach | undefined;
   sampling?: SamplingConfig | undefined;
 }
@@ -290,6 +291,7 @@ export const ticketFor = (run: Pick<RunContext, 'identity' | 'launch'>): RunTick
   ...(run.launch.projectId ? { projectId: run.launch.projectId } : {}),
   trigger: run.identity.trigger,
   ...(run.launch.modelId ? { modelId: run.launch.modelId } : {}),
+  ...(run.launch.inPlace ? { inPlace: true } : {}),
   ...(run.launch.sampling ? { sampling: run.launch.sampling } : {}),
 });
 
@@ -301,6 +303,7 @@ export const launchFor = (ticket: RunTicket, projectId?: string): RunLaunch => (
   ...((projectId ?? ticket.projectId) ? { projectId: projectId ?? ticket.projectId } : {}),
   ...(ticket.conversationId ? { conversationId: ticket.conversationId } : {}),
   ...(ticket.modelId ? { modelId: ticket.modelId } : {}),
+  ...(ticket.inPlace ? { inPlace: true } : {}),
   ...(ticket.sampling ? { sampling: ticket.sampling } : {}),
 });
 

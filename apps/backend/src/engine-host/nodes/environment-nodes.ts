@@ -12,7 +12,8 @@ export function createEnvironmentNodes(services: HostNodeServices): NodeImplemen
       const handed = run.launch.environment as EnvironmentValue | undefined;
       if (handed) return { exit: 'ready', outputs: { environment: { ...handed, handedOver: true } } };
 
-      const conversationId = run.identity.depth === 0 && !machineChoice(run.launch.modelId) ? run.launch.conversationId : undefined;
+      const bareMachine = Boolean(machineChoice(run.launch.modelId)) && !run.launch.inPlace;
+      const conversationId = bareMachine ? undefined : run.launch.conversationId;
       if (conversationId && services.conversationWorkspaces) {
         try {
           const shared = await services.conversationWorkspaces.describe({ conversationId, ownerId: run.launch.ownerId, agentSlug: run.identity.agentId });

@@ -175,7 +175,7 @@ export interface DescribeEnvironmentWires {
   environment?: In<'environment'>
   /** The personas it may delegate to. */
   delegates?: In<'json'>
-  /** The agent on the person's machine doing this step, from Where It Runs. When it is wired, the section also says how that agent works: its folder is a checkout of the workspace's, the project runs in the workspace and is reached with run_in_workspace, and its work goes back when its turn ends. */
+  /** The agent on the person's machine doing this step, from Where It Runs. When it is wired, the section also says how that agent works: its folder is a checkout of the workspace's, the work runs in the workspace and is reached with run_in_workspace, and its work goes back when its turn ends; or, in a sandbox that keeps no repository, that its folder is its own and only Koala's tools reach the sandbox. */
   machine?: In<'text'>
 }
 
@@ -217,7 +217,7 @@ export interface DescribeToolsWires {
   withheld?: In<'json'>
   /** Decides what the model is told about reaching the network. */
   environment?: In<'environment'>
-  /** The agent on the person's machine doing this step, from Where It Runs. When it is wired, the tools listed are the ones served to that agent (those bound to an environment are its own on the machine, named apart), with run_in_workspace when it works on a workspace. */
+  /** The agent on the person's machine doing this step, from Where It Runs. When it is wired, the tools listed are the ones served to that agent (those bound to an environment are its own on the machine, named apart), with run_in_workspace when it works on a workspace that keeps a repository. */
   machine?: In<'text'>
 }
 

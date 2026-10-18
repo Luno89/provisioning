@@ -21,14 +21,18 @@ import {
   type Procedure,
 } from '@koala/agent-engine/procedure';
 import { AgentRunWorkflow, answerSignal, approveSignal, cancelSignal, stateQuery } from './AgentRunWorkflow.js';
-import { createNodeRunner } from '../engine-host/temporal/activities.js';
+import { createEngineActivities, createNodeRunner } from '../engine-host/temporal/activities.js';
+import { createEnvironmentResolver } from '../engine-host/sandboxes/environments.js';
+import { createRunEnvironments } from '../engine-host/sandboxes/run-environments.js';
+import { createMachineWorkspaces } from '../engine-host/sandboxes/machine-workspaces.js';
+import { createConversationWorkspaces, type ConversationWorkspaces } from '../engine-host/sandboxes/conversation-workspaces.js';
 import { runCancelledVia } from '../engine-host/temporal/run-cancellation.js';
 import { createAgentRegistry } from '../engine-host/registries/registry.js';
 import { BUILDER_TOOLS, contractsFor } from '@koala/agent-engine';
 import { WORKSPACE_TOOLS } from '../engine-host/tools/workspace-tools-catalogue.js';
 import { extensionTools, seededAgents } from '../extensions/seeds.js';
 import { createEffortTracker, type RunLimitsArgs } from '../engine-host/registries/effort.js';
-import { machineChoiceId, type RunEffort } from '@koala/agent-engine/procedure';
+import { type RunEffort } from '@koala/agent-engine/procedure';
 import { createHostNodes, hostNodesFor } from '../engine-host/nodes/index.js';
 import { inMemoryConversations } from '../engine-host/nodes/conversation-nodes.js';
 import { temporal } from '@temporalio/proto';
@@ -85,6 +89,7 @@ function activities(options: {
   history?: RunEffort[];
   conversations?: ReturnType<typeof inMemoryConversations>;
   environments?: { describe: (ticket: RunTicket) => Promise<RunEnvironment>; release: (runId: string) => Promise<void> };
+  conversationWorkspaces?: ConversationWorkspaces;
   registry?: ReturnType<typeof createAgentRegistry>;
   external?: ExternalAgentSessions;
   machineWork?: Record<string, (...args: never[]) => Promise<unknown>>;
@@ -112,6 +117,7 @@ function activities(options: {
     tools: { run: async () => ({ ok: true, digest: '' }) },
     environments: options.environments ?? { describe: async () => options.environment ?? { kind: 'none', egress: false }, release: async () => undefined },
     memories: { list: async () => (options.memories ?? []) as never[], save: async () => undefined },
+    ...(options.conversationWorkspaces ? { conversationWorkspaces: options.conversationWorkspaces } : {}),
   }), ['activity', 'sandbox']);
 
   const scriptedModel = stepImplementation('call-model', async ({ node, execution, inputs, run }) => {
@@ -157,12 +163,7 @@ function activities(options: {
       EngineToolAllowedActivity: vi.fn(async (_args: { ownerId: string; conversationId: string; tool: string }) => false),
       EngineAutoModeActivity: vi.fn(async (_args: { ownerId: string; agentSlug: string; conversationId?: string; workspaceRunId?: string }) => false),
       EngineNodeActivity: createNodeRunner(hostNodes, undefined),
-      EngineResolveAgentActivity: vi.fn(async ({ ownerId, agentSlug, modelId }: { ownerId: string; agentSlug: string; modelId?: string }) => {
-        const runnable = await registry.runnable(ownerId, agentSlug, undefined, { modelId });
-        return runnable
-          ? { found: true, procedure: runnable.procedure, callableAgents: [], ...(runnable.machine ? { machine: machineChoiceId(runnable.machine) } : {}) }
-          : { found: false, callableAgents: [] };
-      }),
+      EngineResolveAgentActivity: vi.fn(createEngineActivities({ registry } as never).EngineResolveAgentActivity),
       EngineToolActivity: vi.fn(async (args: ToolCallArgs) => ({ ok: true, digest: `ran ${args.name}`, content: `output of ${args.name}` })),
       EngineRecordTracesActivity: vi.fn(async (_args: RecordTracesArgs) => undefined),
       ...(options.machineWork ?? {}),
@@ -415,7 +416,7 @@ describe('AgentRunWorkflow', () => {
       id: 'engine-tree-t1',
       workspace: {
         runId: 'tree-t1', ownerId: 'user-1', agent: 'executor', image: 'koala/base', provides: ['git'],
-        lifetimeMs: 60_000, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared',
+        lifetimeMs: 60_000, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared', repository: 'the project\'s repository',
       },
       capabilities: { kind: 'sandbox', lifecycle: 'persistent', languages: ['node20'] },
     };
@@ -569,35 +570,139 @@ describe('AgentRunWorkflow', () => {
 
   describe('how far a chat\'s machine reaches', () => {
     const AGENT_SCRIPT = fileURLToPath(new URL('../../../local-agent/src/acp-script-agent.ts', import.meta.url));
+    const handsOffFromItsEnvironment = (agent: string): Procedure => ({
+      schema: PROCEDURE_SCHEMA,
+      id: 'hands-off-provisioned',
+      version: '1',
+      name: 'Hands off from where it works',
+      describe: 'provisions, then delegates',
+      budget: { maxRounds: 2 },
+      start: 'provision',
+      nodes: [
+        place('provision', 'provision-sandbox', {}),
+        place('handOff', 'delegate', { agent, inputs: '{"question":"What port does TabbyAPI listen on?"}' }),
+        place('done', 'finish', { outcome: 'ok' }),
+        place('failed', 'finish', { outcome: 'failed' }),
+      ],
+      wires: [
+        { from: { node: 'provision', socket: 'environment' }, to: { node: 'handOff', socket: 'environment' } },
+        { from: { node: 'handOff', socket: 'outputs' }, to: { node: 'done', socket: 'result' } },
+        { from: { node: 'handOff', socket: 'reason' }, to: { node: 'failed', socket: 'reason' } },
+        { from: { node: 'provision', socket: 'reason' }, to: { node: 'failed', socket: 'reason' } },
+      ],
+      flow: [
+        { from: 'provision', exit: 'ready', to: 'handOff' },
+        { from: 'provision', exit: 'unavailable', to: 'failed' },
+        { from: 'handOff', exit: 'ok', to: 'done' },
+        { from: 'handOff', exit: 'failed', to: 'failed' },
+      ],
+      groups: [],
+    });
+
     const onMachine = async (reach?: 'chat' | 'handoffs') => {
       const here = await mkdtemp(resolve(tmpdir(), 'external-run-'));
+      const git = (cwd: string, ...args: string[]): string => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' }).trim();
+      const bare = resolve(here, 'gitea', 'research.git');
+      const documents = resolve(here, 'pod', 'work');
+      execFileSync('mkdir', ['-p', bare, documents]);
+      git(bare, 'init', '-q', '--bare');
+      const told = resolve(here, 'told.json');
       const scriptPath = resolve(here, 'script.json');
-      await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [{ say: 'Found it on the machine.' }] }] } satisfies AgentScript));
-      const sessions = new ExternalAgentSessions({ rootDir: resolve(here, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT_SCRIPT, scriptPath] } }, segmentMs: 500 });
-      const acts = activities({ script: [{ content: 'Found it with the model.' }], external: sessions, environment: MACHINE });
+      await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [
+        { record: told },
+        { mcp: { server: 'koala', tool: 'search_web', args: { query: 'TabbyAPI default port' } } },
+        { write: { path: 'tabby.md', content: 'TabbyAPI listens on 5000.\n' } },
+        { say: 'Found it on the machine.' },
+      ] }] } satisfies AgentScript));
+      const mcp = new LocalMcpServer();
+      await mcp.start();
+      const machineRoot = resolve(here, 'machine');
+      const sessions = new ExternalAgentSessions({ rootDir: machineRoot, launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT_SCRIPT, scriptPath] } }, segmentMs: 500, mcp });
+      const registry = createAgentRegistry({ toolCatalogue: { list: async () => contractsFor([...BUILDER_TOOLS, ...extensionTools()]) } });
+      const resolver = createEnvironmentResolver({
+        registry,
+        environments: createRunEnvironments({ provision: async () => { throw new Error('nothing in this test starts a pod'); } }),
+        images: { ensure: async (plan) => plan.base, exists: async () => true, start: async (plan) => ({ state: 'ready' as const, reference: plan.base }), standing: async (plan) => ({ state: 'ready' as const, reference: plan.base }) },
+        tools: async () => [],
+        workspaces: createMachineWorkspaces({ list: async () => [{ id: 'desk', ownerId: 'user-1', name: 'Desk' }] }),
+      });
+      const saved: string[] = [];
+      const conversationWorkspaces = createConversationWorkspaces({
+        resolver,
+        registry,
+        kube: async () => { throw new Error('nothing in this test reaches the cluster'); },
+        documents: { save: async (request: { workspaceRunId: string; repo: string }) => { saved.push(request.workspaceRunId); return { saved: true, owner: 'koala-user-1', repo: request.repo, commit: git(documents, 'rev-parse', 'HEAD') }; } } as never,
+      });
+      const sent: { workspaceRunId: string; worktree?: string }[] = [];
+      const acts = activities({
+        registry,
+        script: [{ content: 'Found it with the model.' }],
+        external: sessions,
+        environments: resolver,
+        conversationWorkspaces,
+        machineWork: {
+          EngineMachineSendActivity: async (args: { workspaceRunId: string; worktree?: string; branch: string; message: string }) => {
+            sent.push(args);
+            if (!existsSync(resolve(documents, '.git'))) git(documents, 'init', '-q', '-b', 'main');
+            git(documents, 'add', '-A');
+            git(documents, 'commit', '-q', '--allow-empty', '-m', args.message);
+            git(documents, 'push', '-q', bare, `HEAD:refs/heads/${args.branch}`);
+            return { repo: 'research-c1', folder: '/work', commit: git(documents, 'rev-parse', 'HEAD') };
+          },
+          EngineMachineTakeActivity: async (args: { branch: string }) => {
+            git(documents, 'fetch', '-q', bare, `+refs/heads/${args.branch}:refs/koala/machine`);
+            git(documents, 'merge', '-q', '--ff-only', 'refs/koala/machine');
+            return { brought: true, commit: git(documents, 'rev-parse', 'HEAD') };
+          },
+          EngineMachineDropActivity: async (args: { branch: string }) => { git(bare, 'branch', '-D', args.branch); },
+        },
+        machineGit: createMachineGit({ rootDir: machineRoot, backendUrl: 'http://koala.test', token: 'device-token', remote: () => bare }),
+      });
       try {
-        const args = input('koala', delegating('research'));
-        const result = await runWorkflow({ ...args, ticket: { ...args.ticket, modelId: 'machine:desk:antigravity', ...(reach ? { modelReach: reach } : {}) } }, acts);
-        return { result, resolved: acts.engine.EngineResolveAgentActivity.mock.calls.map(([call]) => call) };
+        const args = input('koala', handsOffFromItsEnvironment('research'));
+        const result = await runWorkflow({ ...args, ticket: { ...args.ticket, conversationId: 'c1', modelId: 'machine:desk:antigravity', ...(reach ? { modelReach: reach } : {}) } }, acts);
+        const recorded = existsSync(told) ? JSON.parse(await readFile(told, 'utf8')) as { cwd: string; prompt: string; servers: { server: string; tools: { name: string }[] }[] } : undefined;
+        return {
+          result,
+          recorded,
+          machineRoot,
+          sent,
+          saved,
+          brought: existsSync(resolve(documents, 'tabby.md')) ? await readFile(resolve(documents, 'tabby.md'), 'utf8') : undefined,
+          resolved: acts.engine.EngineResolveAgentActivity.mock.calls.map(([call]) => call),
+          toolCalls: acts.engine.EngineToolActivity.mock.calls.map(([call]) => call),
+        };
       } finally {
         await sessions.closeAll();
+        await mcp.close();
         await rm(here, { recursive: true, force: true });
       }
     };
 
-    it('runs the agents a chat hands work to on the machine picked for it, keeping their own procedure', async () => {
-      const { result, resolved } = await onMachine();
+    it('runs research a chat on a machine hands work to on that machine, in the conversation\'s workspace, its served tools there and its work brought back', async () => {
+      const { result, recorded, machineRoot, sent, saved, brought, resolved, toolCalls } = await onMachine();
 
       expect(result).toMatchObject({ outcome: 'ok' });
       expect(JSON.stringify(result.outputs)).toContain('Found it on the machine.');
       expect(resolved).toContainEqual(expect.objectContaining({ agentSlug: 'research', modelId: 'machine:desk:antigravity', handedDown: true }));
+      expect(sent).toEqual([expect.objectContaining({ workspaceRunId: 'conversation-c1' })]);
+      expect(recorded?.cwd).toBe(resolve(machineRoot, 'koala-trees', 'conversation-c1', 'repo'));
+      expect(recorded?.prompt).toContain('is a checkout of this conversation\'s documents, from its workspace in Koala');
+      expect(recorded?.servers.find((server) => server.server === 'koala')?.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['search_web', 'run_in_workspace']));
+      const search = toolCalls.find((call) => call.name === 'search_web');
+      expect(search?.environment).toMatchObject({ workspace: { runId: 'conversation-c1', sharedBy: 'conversation', repository: 'this conversation\'s documents' } });
+      expect(search?.ticket).toMatchObject({ agentSlug: 'research', inPlace: true, conversationId: 'c1' });
+      expect(brought).toBe('TabbyAPI listens on 5000.\n');
+      expect(saved).toEqual(['conversation-c1']);
     }, 60_000);
 
-    it('leaves the agents it hands work to on their own models when the machine is for this chat only', async () => {
-      const { result, resolved } = await onMachine('chat');
+    it('leaves the agents it hands work to on their own models when the machine is for this chat only, in the conversation\'s workspace', async () => {
+      const { result, resolved, sent, recorded } = await onMachine('chat');
 
       expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'Found it with the model.' } });
       expect(resolved.find((call) => call.agentSlug === 'research')).not.toHaveProperty('modelId');
+      expect(sent).toEqual([]);
+      expect(recorded).toBeUndefined();
     }, 60_000);
   });
 
@@ -1180,7 +1285,7 @@ describe('an external agent working on someone\'s machine', () => {
       worktree: 'trees/l1',
       workspace: {
         runId: 'tree-t1', ownerId: 'user-1', agent: 'executor', image: 'koala/base', provides: ['git'],
-        lifetimeMs: 60_000, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared',
+        lifetimeMs: 60_000, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared', repository: 'the project\'s repository',
       },
       capabilities: { kind: 'sandbox', lifecycle: 'persistent', languages: ['node20'] },
     } as RunEnvironment;
@@ -1270,7 +1375,7 @@ describe('an external agent working on someone\'s machine', () => {
       worktree: 'trees/l1',
       workspace: {
         runId: 'tree-t1', ownerId: 'user-1', agent: 'executor', image: 'koala/odoo-20', provides: ['git', 'odoo-check'],
-        lifetimeMs: 60_000, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared',
+        lifetimeMs: 60_000, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared', repository: 'the project\'s repository',
       },
       capabilities: { kind: 'sandbox', lifecycle: 'persistent', languages: ['python3'] },
     } as RunEnvironment;
@@ -1574,9 +1679,10 @@ describe('an external agent working on someone\'s machine', () => {
     const chosen: Record<string, { modelId?: string }> = { 'grove-run-t1~abc': { modelId: 'vllm-big' }, 'grove-run-t2~abc': {} };
     for (const [runId, tree] of Object.entries(chosen)) {
       const acts = activities({ script: [{ content: 'because it was' }] });
-      const resolve = acts.engine.EngineResolveAgentActivity;
-      acts.engine.EngineResolveAgentActivity = vi.fn(async (args: { ownerId: string; agentSlug: string; modelId?: string; turnId?: string }) =>
-        ({ ...(await resolve(args)), ...(args.turnId === runId && args.agentSlug === 'research' ? { tree } : {}) }));
+      acts.engine.EngineResolveAgentActivity = vi.fn(createEngineActivities({
+        registry: createAgentRegistry(),
+        treeModel: async (_owner: string, turnId: string, slug: string) => (turnId === runId && slug === 'research' ? tree : undefined),
+      } as never).EngineResolveAgentActivity);
 
       const result = await runWorkflow({ ...input('koala', delegating('research')), ticket: { ...ticket('koala'), runId, modelId: 'tabby-qwen' } }, acts);
 
@@ -1589,6 +1695,6 @@ describe('an external agent working on someone\'s machine', () => {
     const acts = activities({ script: [{ content: 'unused' }] });
     const result = await runWorkflow(input('executor', EXTERNAL, 'Do it'), acts);
     expect(result.outcome).toBe('failed');
-    expect(result.reason).toBe('scripted works on a person\'s machine, and this run has none');
+    expect(result.reason).toBe('scripted works on a person\'s machine, and no machine was picked for this run');
   }, 60_000);
 });

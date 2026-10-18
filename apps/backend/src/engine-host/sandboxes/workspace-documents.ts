@@ -10,7 +10,7 @@ export interface DocumentRepos {
   push(request: { ownerId: string; repo: string; describe: string; bundle: string }): Promise<{ owner: string; repo: string; commit: string }>;
   pull(request: { ownerId: string; repo: string; bundle: string }): Promise<boolean>;
   merge(request: { ownerId: string; repo: string; head: string; base: string; title: string; body: string }): Promise<MergeOutcome>;
-  pushBranch?(request: { ownerId: string; repo: string; bundle: string; branch: string }): Promise<string>;
+  pushBranch?(request: { ownerId: string; repo: string; describe: string; bundle: string; branch: string }): Promise<string>;
   pullBranch?(request: { ownerId: string; repo: string; branch: string; bundle: string }): Promise<boolean>;
   deleteBranch?(request: { ownerId: string; repo: string; branch: string }): Promise<void>;
 }
@@ -54,7 +54,7 @@ export interface WorkspaceDocuments {
   restore(request: RestoreDocuments): Promise<RestoredDocuments>;
   bring(request: RestoreDocuments & { from: string }): Promise<BroughtDocuments>;
   catchUp(request: RestoreDocuments & { branch: string }): Promise<void>;
-  sendBranch(request: FolderBranch & { message: string }): Promise<{ commit: string }>;
+  sendBranch(request: FolderBranch & { message: string; describe: string }): Promise<{ commit: string }>;
   takeBranch(request: FolderBranch): Promise<BroughtBack>;
   dropBranch(request: Omit<FolderBranch, 'folder' | 'workspaceRunId'>): Promise<void>;
   merge(request: { ownerId: string; repo: string; head: string; base: string; title: string; body: string }): Promise<MergeOutcome>;
@@ -126,10 +126,13 @@ const SAVED_BRANCH = 'main';
 
 export const sendBranchScript = [
   'set -e',
+  'mkdir -p "$1"',
   'cd "$1"',
   trusting('$1'),
+  'git rev-parse --git-dir >/dev/null 2>&1 || git init -q -b main',
   'git add -A',
-  'git diff --cached --quiet || git -c user.name=koala -c user.email=koala@koala.local commit -q -m "$3"',
+  'if ! git rev-parse -q --verify HEAD >/dev/null; then git -c user.name=koala -c user.email=koala@koala.local commit -q --allow-empty -m "$3"',
+  'elif ! git diff --cached --quiet; then git -c user.name=koala -c user.email=koala@koala.local commit -q -m "$3"; fi',
   'git branch -f "$2" HEAD',
   'git rev-parse HEAD >&2',
   'git bundle create - "refs/heads/$2"',
@@ -274,7 +277,7 @@ export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: Ku
         const bundle = path.join(scratch, 'folder.bundle');
         const streamed = await options.stream.toFile(['exec', POD, '-n', namespace, '--', 'sh', '-c', sendBranchScript, 'sh', request.folder, request.branch, request.message], bundle);
         if (streamed.exitCode !== 0) throw new Error(`could not bundle ${request.folder}: ${streamed.stderr.trim()}`);
-        await options.repos.pushBranch({ ownerId: request.ownerId, repo: request.repo, bundle, branch: request.branch });
+        await options.repos.pushBranch({ ownerId: request.ownerId, repo: request.repo, describe: request.describe, bundle, branch: request.branch });
         return { commit: streamed.stderr.trim().split('\n').pop() ?? '' };
       } finally {
         await rm(scratch, { recursive: true, force: true });

@@ -15,4 +15,8 @@ describe('the machine a run was given', () => {
     expect(await machines.forRun(ticket('machine:d9:antigravity'))).toBeUndefined();
     expect(await machines.forRun(ticket('machine:d1:antigravity', 'al'))).toBeUndefined();
   });
+
+  it('is nothing for an agent that keeps its own procedure on the machine, which works in the environment it would have on a model', async () => {
+    expect(await machines.forRun({ ...ticket('machine:d1:antigravity'), inPlace: true })).toBeUndefined();
+  });
 });

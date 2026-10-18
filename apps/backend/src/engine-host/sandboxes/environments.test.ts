@@ -11,6 +11,7 @@ import { denyAll } from '@koala/agent-engine';
 import type { MachineBackend } from '../drivers/machine.js';
 import type { EnvironmentHandleRef, RunTicket } from '../temporal/contracts.js';
 import { seededAgents } from '../../extensions/seeds.js';
+import { createMachineWorkspaces } from './machine-workspaces.js';
 
 const ticket = (agentSlug: string, runId = 'run-1'): RunTicket => ({
   runId,
@@ -117,6 +118,26 @@ describe('describing a run environment', () => {
       deviceName: 'Tallgeese',
       path: 'projects/thing',
     });
+  });
+
+  it('gives a run on a machine its agent\'s own environment when the agent keeps its procedure there, and the bare machine when it does not', async () => {
+    const { resolver } = setup({
+      workspaces: createMachineWorkspaces({ list: async () => [{ id: 'tallgeese', ownerId: 'user-1', name: 'Tallgeese' }] }),
+      machineBackend: machineBackend(),
+    });
+    const onIt = { ...ticket('research'), modelId: 'machine:tallgeese:antigravity' };
+
+    expect(await resolver.describe(onIt)).toMatchObject({ kind: 'machine', deviceId: 'tallgeese', deviceName: 'Tallgeese' });
+    expect(await resolver.describe({ ...onIt, inPlace: true })).toMatchObject({ kind: 'sandbox', capabilities: { egress: true }, workspace: { runId: 'run-1' } });
+    expect(await resolver.describe({ ...ticket('planner'), modelId: 'machine:tallgeese:antigravity', inPlace: true })).toMatchObject({ kind: 'none' });
+  });
+
+  it('says what a tree\'s or a conversation\'s workspace keeps in git, and nothing for a run\'s own sandbox', async () => {
+    const { resolver } = setup();
+
+    expect(await resolver.describeShared({ ticket: ticket('research', 'conversation-c1'), agents: ['research'] })).toMatchObject({ workspace: { repository: 'this conversation\'s documents' } });
+    expect(await resolver.describeShared({ ticket: ticket('research', 'tree-t1'), agents: ['research'] })).toMatchObject({ workspace: { repository: 'the project\'s repository' } });
+    expect(await resolver.describe(ticket('research'))).toMatchObject({ workspace: expect.not.objectContaining({ repository: expect.anything() }) });
   });
 
   it('does not consult the workspace for an agent that never asked for one', async () => {

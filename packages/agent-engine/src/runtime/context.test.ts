@@ -301,7 +301,7 @@ describe('the tools an MCP server serves', () => {
 });
 
 describe('what an agent on the person\'s machine is told about how it works', () => {
-  const workspace = { runId: 'tree-t1', ownerId: 'o', agent: 'executor', image: 'koala/odoo-20', provides: [], lifetimeMs: 1, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared' } as unknown as RunWorkspace;
+  const workspace = { runId: 'tree-t1', ownerId: 'o', agent: 'executor', image: 'koala/odoo-20', provides: [], lifetimeMs: 1, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared', repository: 'the project\'s repository' } as unknown as RunWorkspace;
 
   it('tells an agent working a story that its folder is a checkout of the story\'s, and where the project runs', () => {
     const told = describeOnMachine({ kind: 'sandbox', workspace, worktree: 'trees/l1' });
@@ -312,7 +312,20 @@ describe('what an agent on the person\'s machine is told about how it works', ()
   });
 
   it('tells an agent working the whole repository, such as a planner, the same of the repository', () => {
-    expect(describeOnMachine({ kind: 'sandbox', workspace })).toContain('is a checkout of the project\'s repository, from the project\'s workspace in Koala');
+    expect(describeOnMachine({ kind: 'sandbox', workspace })).toContain('is a checkout of the project\'s repository, from its workspace in Koala');
+  });
+
+  it('tells an agent in a conversation\'s workspace that its folder is a checkout of the conversation\'s documents', () => {
+    expect(describeOnMachine({ kind: 'sandbox', workspace: { ...workspace, runId: 'conversation-c1', repository: 'this conversation\'s documents' } })).toContain('is a checkout of this conversation\'s documents, from its workspace in Koala');
+  });
+
+  it('tells an agent whose sandbox keeps no repository that its folder is its own and only Koala\'s tools reach the sandbox', () => {
+    const { repository: _kept, ...own } = workspace;
+    const told = describeOnMachine({ kind: 'sandbox', workspace: { ...own, runId: 'run-1' } });
+    expect(told).toContain('The folder you were told to work in is your own, on this machine. Nothing in it reaches Koala');
+    expect(told).toContain('You cannot run commands in it');
+    expect(told).not.toContain('run_in_workspace');
+    expect(told).not.toContain('checkout');
   });
 
   it('tells an agent in a folder of the machine\'s own that it is the project\'s, with no workspace to reach', () => {
@@ -324,7 +337,7 @@ describe('what an agent on the person\'s machine is told about how it works', ()
 
   it('names the tools a model would be given that the agent has for itself', () => {
     const own = [{ name: 'run_command' }, { name: 'read_file' }] as ToolContract[];
-    expect(describeOwnOnMachine(own, true)).toContain('Koala would give a model these tools: run_command, read_file. You have your own for the same work, so use yours, in your folder. To run something where the project runs, use run_in_workspace.');
+    expect(describeOwnOnMachine(own, true)).toContain('Koala would give a model these tools: run_command, read_file. You have your own for the same work, so use yours, in your folder. To run something in the workspace, use run_in_workspace.');
     expect(describeOwnOnMachine(own, false)).not.toContain('run_in_workspace');
     expect(describeOwnOnMachine([], true)).toBe('');
   });

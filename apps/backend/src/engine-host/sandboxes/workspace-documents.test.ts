@@ -399,7 +399,7 @@ describe('a workspace folder going to a machine and coming back', () => {
   });
   const folder = () => path.join(root, 'work', 'trees', 'l1');
   const inFolder = (...args: string[]) => git('git', ['-C', folder(), '-c', 'user.name=t', '-c', 'user.email=t@t', ...args]).then((out) => out.stdout.trim());
-  const request = { ownerId: 'u1', workspaceRunId: 'tree-t1', repo: 'tree-t1', folder: '/work/trees/l1', branch: 'machine/desk/run-1' };
+  const request = { ownerId: 'u1', workspaceRunId: 'tree-t1', repo: 'tree-t1', folder: '/work/trees/l1', branch: 'machine/desk/run-1', describe: 'The repository of grove tree t1' };
 
   const machineCommits = async (files: Record<string, string>) => {
     const machine = path.join(root, `machine-${Math.random().toString(36).slice(2, 8)}`);
@@ -454,6 +454,20 @@ describe('a workspace folder going to a machine and coming back', () => {
     await inFolder('commit', '-q', '-m', 'the folder moved on');
     expect(await documents.takeBranch(request)).toEqual({ brought: false, why: expect.stringContaining('the folder has commits of its own since the machine took it') });
     expect(await inFolder('log', '-1', '--format=%s')).toBe('the folder moved on');
+  });
+
+  it('starts the history of a folder that has none, so a conversation with nothing saved yet can still send its work', async () => {
+    const fresh = path.join(root, 'work', 'research');
+    const asked = { ...request, workspaceRunId: 'conversation-c1', repo: 'research-c1', folder: '/work/research', describe: 'Documents written in conversation c1' };
+    const documents = createWorkspaceDocuments({ kube, stream, repos: machineRepos() });
+
+    const empty = await documents.sendBranch({ ...asked, message: 'Nothing yet' });
+    await writeFile(path.join(fresh, 'notes.md'), 'found\n');
+    const written = await documents.sendBranch({ ...asked, message: 'Notes so far' });
+
+    const log = (await git('git', ['-C', fresh, 'log', '--format=%H %s'])).stdout.trim().split('\n');
+    expect(log).toEqual([`${written.commit} Notes so far`, `${empty.commit} Nothing yet`]);
+    expect((await git('git', ['-C', fresh, 'symbolic-ref', '--short', 'HEAD'])).stdout.trim()).toBe('main');
   });
 
   it('says so when the machine never sent its work', async () => {

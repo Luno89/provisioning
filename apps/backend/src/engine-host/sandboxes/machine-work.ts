@@ -15,16 +15,16 @@ export interface MachineWork {
 }
 
 export function createMachineWork(options: { documents: WorkspaceDocuments; repoFor: WorkspaceRepoResolver }): MachineWork {
-  const where = async (request: MachineWorkRequest): Promise<{ repo: string; folder: string }> => {
+  const where = async (request: MachineWorkRequest): Promise<{ repo: string; folder: string; describe: string }> => {
     const repo = await options.repoFor(request.workspaceRunId);
     if (!repo) throw new Error(`${request.workspaceRunId} keeps no repository, so its work cannot go to a machine`);
-    return { repo: repo.repo, folder: request.worktree ? `/work/${request.worktree}` : repo.path };
+    return { repo: repo.repo, folder: request.worktree ? `/work/${request.worktree}` : repo.path, describe: repo.describe };
   };
 
   return {
     async send(request) {
-      const { repo, folder } = await where(request);
-      const { commit } = await options.documents.sendBranch({ ...request, repo, folder, message: request.message });
+      const { repo, folder, describe } = await where(request);
+      const { commit } = await options.documents.sendBranch({ ...request, repo, folder, describe, message: request.message });
       return { repo, folder, commit };
     },
     async take(request) {

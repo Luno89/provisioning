@@ -244,13 +244,20 @@ session per machine, agent and model (`machineSessions`), so the next turn resum
 planning, research) and `do-one-task` hand their Model Turn and Tool Loop to the **External Agent** node on the machine
 branch, and `do-one-task` asks its verdict question with **Ask the Machine Agent**; every step around them (claim, check,
 judge, record) is unchanged. An agent on a machine keeps its own procedure when it branches (`machineRunFor`'s `inPlace`,
-which also keeps the run's workspace, `runChild`), otherwise it gets `external-agent-task` as before. Given a workspace,
+carried on the ticket and the run's launch), otherwise it gets `external-agent-task` as before. **Where it works follows
+from that:** a run that keeps its procedure gets the environment it would get on a model (what it was handed, else the
+conversation's workspace in a chat, else its agent's own; `describe` in `environments.ts`, the provision step), and only an
+`external-agent-task` or `-chat` run gets the bare machine folder, which `runChild` never hands to a child. A workspace says
+what it keeps in git (`repository` on the workspace, `repositoryOf`: a tree's the project's repository, a conversation's its
+documents, made in Gitea the first time work goes to a machine, `pushBranch`). Given a workspace that keeps one,
 External Agent works a checkout of that folder (a story's worktree, a judge's checkout, the repo root): the folder's work is
 committed and sent to Gitea as `machine/<device>/<run step>` (`EngineMachineSendActivity`, `sendBranch` in
 `workspace-documents.ts`), the machine fetches it into `<root>/koala-trees/<workspace>/<folder>` (`MachineGitActivity`,
 `apps/local-agent/src/machine-git.ts`) and the session works there; `run_in_workspace` brings its work in and runs a command
 in the workspace; when the turn ends the machine commits and pushes, the work is laid over the folder (fast-forward, anything
-uncommitted in the way set aside in a stash, refused when the folder moved on) and the branch deleted. The machine reaches
+uncommitted in the way set aside in a stash, refused when the folder moved on) and the branch deleted. In a sandbox that
+keeps no repository (a run's own) the agent works in its own folder on the machine, Koala's tools it calls run in the
+sandbox, and there is no `run_in_workspace`, since nothing carries its files across; it is told so (`describeOnMachine`). The machine reaches
 Gitea only through the backend (`/api/machines/git/<repo>.git`, `MachineGitService`, its device token; the person's own
 repositories only, pushes only to its own `machine/<device>/` branches, git never prompting). A tree's Models offer
 machines for every agent whose procedure branches (`treeModelProblem`, the picker's My machines in `TreeModels`), and

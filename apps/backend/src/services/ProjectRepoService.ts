@@ -276,11 +276,17 @@ export class ProjectRepoService {
     }
   }
 
-  async pushBranch(request: { ownerId: string; repo: string; bundle: string; branch: string }): Promise<string> {
+  async pushBranch(request: { ownerId: string; repo: string; describe: string; bundle: string; branch: string }): Promise<string> {
     const { username, password } = await this.ensureAccount(request.ownerId);
+    const created = !(await this.gitea.findRepo(username, request.repo));
+    if (created) {
+      await this.gitea.createRepoForUser(username, request.repo, { private: true, description: request.describe, empty: true });
+    }
     const { name: tokenName, token } = await this.gitea.createPushToken(username, password);
     try {
-      return await this.gitea.pushBranchBundle({ username, token }, username, request.repo, request.bundle, request.branch);
+      const commit = await this.gitea.pushBranchBundle({ username, token }, username, request.repo, request.bundle, request.branch, { asMain: created });
+      if (created) await this.untilServed(username, request.repo);
+      return commit;
     } finally {
       await this.gitea.revokeUserToken(username, password, tokenName).catch(() => undefined);
     }

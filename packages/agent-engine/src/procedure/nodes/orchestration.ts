@@ -16,7 +16,7 @@ import type {
 import { numberOf, textOf } from './read.js';
 import { effectiveMachineChoice, machineChoice, machineChoiceId, machineSessionKey, type MachineChoice } from '../machine-choice.js';
 import { DECIDE_INSTRUCTIONS, readDecision } from './model.js';
-import { RUN_IN_WORKSPACE_DESCRIPTION, RUN_IN_WORKSPACE_NAME } from '../../runtime/context.js';
+import { RUN_IN_WORKSPACE_DESCRIPTION, RUN_IN_WORKSPACE_NAME, carriesWork } from '../../runtime/context.js';
 
 export interface ToolRunRequest {
   nodeId: string;
@@ -439,9 +439,10 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       }));
       const mode = textOf(node.settings, 'mode');
       const given = (inputs.environment as EnvironmentValue | undefined) ?? (run.launch.environment as EnvironmentValue | undefined);
-      const workspace = given?.kind === 'sandbox' ? given : undefined;
-      const onMachine = workspace ? machineOfRun(run, persona) : undefined;
-      const environment = workspace ? (onMachine ? machineEnvironment(onMachine) : undefined) : given;
+      const sandbox = given?.kind === 'sandbox' ? given : undefined;
+      const workspace = sandbox && carriesWork(sandbox) ? sandbox : undefined;
+      const onMachine = given?.kind === 'machine' ? undefined : machineOfRun(run, persona);
+      const environment = given?.kind === 'machine' ? given : onMachine ? machineEnvironment(onMachine) : undefined;
       if (workspace) tools.push(RUN_IN_WORKSPACE_TOOL);
       const written = typeof inputs.brief === 'string' ? inputs.brief.trim() : '';
       const opening = written ? undefined : openingOf(inputs.conversation);
@@ -453,7 +454,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         .join('\n\n');
       const failed = (reason: string) => ({ exit: 'failed', outputs: { text: '', reply: replyOf(node.id, '', 'error'), reason } });
       if (!ports.runExternal) return failed('this host cannot run an external agent');
-      if (environment?.kind !== 'machine') return failed(`${agent} works on a person's machine, and ${workspace ? 'no machine was picked for this run' : 'this run has none'}`);
+      if (environment?.kind !== 'machine') return failed(`${agent} works on a person's machine, and no machine was picked for this run`);
       if (!brief) return failed(`there was no task to hand ${agent}`);
 
       const key = machineSessionKey({ deviceId: environment.deviceId, agent, ...(model ? { model } : {}) });
@@ -468,12 +469,12 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         if (!persona || !offered.some((tool) => tool.name === call.name)) return { ok: false, content: `${call.name} is not one of the tools offered here` };
         if (destructive.has(call.name)) {
           run.emit({ type: 'tool.called', nodeId: node.id, callId: call.id, name: call.name, args: call.arguments } as never);
-          if (!(await ports.approve({ nodeId: node.id, call, environment: workspace ?? environment, run }))) {
+          if (!(await ports.approve({ nodeId: node.id, call, environment: sandbox ?? environment, run }))) {
             run.emit({ type: 'tool.result', nodeId: node.id, callId: call.id, ok: false, digest: REFUSED_CALL } as never);
             return { ok: false, content: REFUSED_CALL };
           }
         }
-        const { outcome } = await runOne(request, call, persona, workspace);
+        const { outcome } = await runOne(request, call, persona, sandbox);
         return { ok: outcome.ok, content: outcome.content ?? outcome.digest };
       };
       const sessions = inputs.sessions && typeof inputs.sessions === 'object' ? inputs.sessions as Record<string, unknown> : {};

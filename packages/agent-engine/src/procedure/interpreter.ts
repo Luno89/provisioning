@@ -23,6 +23,7 @@ export interface RunLaunch {
   projectId?: string | undefined;
   conversationId?: string | undefined;
   modelId?: string | undefined;
+  inPlace?: boolean | undefined;
   sampling?: SamplingConfig | undefined;
   environment?: unknown;
 }

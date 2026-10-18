@@ -31,6 +31,13 @@ export function workspaceOwnerOf(workspaceRunId: string): { kind: 'tree' | 'conv
   return undefined;
 }
 
+export function repositoryOf(workspaceRunId: string): string | undefined {
+  const owner = workspaceOwnerOf(workspaceRunId);
+  if (owner?.kind === 'tree') return 'the project\'s repository';
+  if (owner?.kind === 'conversation') return 'this conversation\'s documents';
+  return undefined;
+}
+
 export function pathInRepo(requested: string): string | undefined {
   const normal = path.posix.normalize(requested.replace(/^\/+/, ''));
   if (!normal || normal === '.' || normal.startsWith('..') || normal.split('/').includes('.git')) return undefined;

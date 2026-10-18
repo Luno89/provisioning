@@ -129,6 +129,7 @@ export function createRunStarter(options: RunStarterOptions) {
         ...(request.conversationId ? { conversationId: request.conversationId } : {}),
         trigger: 'user',
         ...(modelId ? { modelId } : {}),
+        ...(runnable.inPlace ? { inPlace: true } : {}),
         ...(request.modelReach ? { modelReach: request.modelReach } : {}),
         ...(request.sampling ? { sampling: request.sampling } : {}),
       };

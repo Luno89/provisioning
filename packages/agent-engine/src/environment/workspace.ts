@@ -28,6 +28,7 @@ export interface RunWorkspace {
   grantedHosts?: string[] | undefined;
   persistent?: boolean | undefined;
   sharedBy?: 'conversation' | undefined;
+  repository?: string | undefined;
   coming?: { what: string[]; stage: string } | undefined;
 }
 

@@ -517,9 +517,10 @@ export class GiteaService {
     });
   }
 
-  async pushBranchBundle(auth: { username: string; token: string }, owner: string, name: string, bundle: string, branch: string): Promise<string> {
+  async pushBranchBundle(auth: { username: string; token: string }, owner: string, name: string, bundle: string, branch: string, options: { asMain?: boolean } = {}): Promise<string> {
     return this.withBareRepo(auth, owner, name, 'Pushing to', async (bare, url, env) => {
       await run('git', ['clone', '--bare', '--quiet', bundle, bare], { env });
+      if (options.asMain) await run('git', ['-C', bare, 'push', '--quiet', url, `refs/heads/${branch}:refs/heads/main`], { env });
       await run('git', ['-C', bare, 'push', '--quiet', '--force', url, `refs/heads/${branch}:refs/heads/${branch}`], { env });
       return (await run('git', ['-C', bare, 'rev-parse', `refs/heads/${branch}`], { env })).stdout.trim();
     });

@@ -233,6 +233,23 @@ describe('context nodes', () => {
     expect((await invoke(describeTools, {})).outputs.text).toBe('');
   });
 
+  it('serves an agent on a machine run_in_workspace only when its sandbox keeps a repository', async () => {
+    const offered = [tool('search_web'), { ...tool('run_command'), binding: 'environment' as const }];
+    const sandbox = (repository?: string) => ({
+      kind: 'sandbox', id: 'pod', capabilities: { kind: 'sandbox' },
+      workspace: { runId: 'r', ownerId: 'o', agent: 'research', image: 'i', provides: [], cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared', ...(repository ? { repository } : {}) },
+    });
+
+    const kept = (await invoke(describeTools, { inputs: { offered, environment: sandbox('this conversation\'s documents'), machine: 'machine:d:antigravity' } })).outputs.text as string;
+    const own = (await invoke(describeTools, { inputs: { offered, environment: sandbox(), machine: 'machine:d:antigravity' } })).outputs.text as string;
+
+    expect(kept).toContain('- run_in_workspace');
+    expect(kept).toContain('To run something in the workspace, use run_in_workspace.');
+    expect(own).toContain('- search_web');
+    expect(own).not.toContain('run_in_workspace');
+    expect(own).toContain('Koala would give a model these tools: run_command.');
+  });
+
   it('asks for the persona\'s declared outputs', async () => {
     const builder = SEEDED_AGENTS.find((agent) => agent.slug === 'agent-builder')!;
 

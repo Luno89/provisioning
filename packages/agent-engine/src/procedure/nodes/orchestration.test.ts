@@ -556,7 +556,7 @@ describe('handing a task to an external agent', () => {
     expect(await invoke(createOrchestrationNodes(ports()), externalAgent, { settings: { agent: 'antigravity' }, inputs: { brief: 'go', environment: machine } }))
       .toMatchObject({ exit: 'failed', outputs: { reason: 'this host cannot run an external agent' } });
     expect(await invoke(createOrchestrationNodes(ports({ runExternal } as never)), externalAgent, { settings: { agent: 'antigravity' }, inputs: { brief: 'go', environment: { kind: 'none', egress: false } } }))
-      .toMatchObject({ exit: 'failed', outputs: { reason: 'antigravity works on a person\'s machine, and this run has none' } });
+      .toMatchObject({ exit: 'failed', outputs: { reason: 'antigravity works on a person\'s machine, and no machine was picked for this run' } });
     expect(await invoke(createOrchestrationNodes(ports({ runExternal } as never)), externalAgent, { settings: { agent: 'antigravity' }, inputs: { brief: '  ', environment: machine } }))
       .toMatchObject({ exit: 'failed', outputs: { reason: 'there was no task to hand antigravity' } });
     expect(runExternal).not.toHaveBeenCalled();
@@ -567,8 +567,13 @@ describe('an agent on a machine working on a workspace', () => {
   const identity = { name: 'antigravity-acp', title: 'Google Antigravity', version: '1.4.0' };
   const workspace = {
     kind: 'sandbox', id: 'engine-tree-t1', worktree: 'trees/l1',
-    workspace: { runId: 'tree-t1', ownerId: 'owner-1', agent: 'executor', image: 'koala/base', provides: [], lifetimeMs: 1, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared' },
+    workspace: { runId: 'tree-t1', ownerId: 'owner-1', agent: 'executor', image: 'koala/base', provides: [], lifetimeMs: 1, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared', repository: 'the project\'s repository' },
     capabilities: { kind: 'sandbox', lifecycle: 'persistent', languages: [] },
+  } as const;
+  const ownSandbox = {
+    kind: 'sandbox', id: 'engine-run-1',
+    workspace: { runId: 'run-1', ownerId: 'owner-1', agent: 'research', image: 'koala/base', provides: [], cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared' },
+    capabilities: { kind: 'sandbox', lifecycle: 'invocation', languages: [] },
   } as const;
   const onMachine = { launch: { ownerId: 'owner-1', modelId: 'machine:laptop:antigravity:pro' } };
 
@@ -621,6 +626,42 @@ describe('an agent on a machine working on a workspace', () => {
       run: onMachine,
     });
     expect(p.runTool).toHaveBeenCalledWith(expect.objectContaining({ call: expect.objectContaining({ name: 'record_verdict' }), environment: workspace }));
+  });
+
+  it('lets the agent work in its own folder when the run\'s sandbox keeps no repository, running Koala\'s tools in the sandbox and offering no run_in_workspace', async () => {
+    let served: { name: string }[] = [];
+    const runExternal = vi.fn(async (request: { tools?: { name: string }[]; callTool?: (call: { callId: string; name: string; arguments: string }) => Promise<{ ok: boolean; content: string }> }) => {
+      served = request.tools ?? [];
+      await request.callTool!({ callId: 'c3', name: 'search_web', arguments: '{"query":"TabbyAPI"}' });
+      expect(await request.callTool!({ callId: 'c4', name: RUN_IN_WORKSPACE, arguments: '{"command":"ls"}' })).toEqual({ ok: false, content: `${RUN_IN_WORKSPACE} is not one of the tools offered here` });
+      return { outcome: 'finished' as const, stopReason: 'end_turn', text: 'Found it.', identity, sessionId: 's' };
+    });
+    const p = ports({ runExternal } as never);
+    await invoke(createOrchestrationNodes(p), externalAgent, {
+      inputs: { brief: 'Find the port.', environment: ownSandbox, persona: persona({ tools: ['search_web', 'run_command'] }), tools: [{ name: 'search_web', description: 'searches', binding: 'none' }, { name: 'run_command', description: 'runs', binding: 'environment' }] },
+      run: onMachine,
+    });
+
+    expect(served.map((tool) => tool.name)).toEqual(['search_web']);
+    expect(runExternal.mock.calls[0]).not.toHaveProperty('0.workspace');
+    expect(runExternal).toHaveBeenCalledWith(expect.objectContaining({ environment: expect.objectContaining({ kind: 'machine', deviceId: 'laptop' }) }));
+    expect(p.runTool).toHaveBeenCalledTimes(1);
+    expect(p.runTool).toHaveBeenCalledWith(expect.objectContaining({ call: expect.objectContaining({ name: 'search_web' }), environment: ownSandbox }));
+  });
+
+  it('puts an agent with no environment at all on the run\'s machine, and runs Koala\'s tools with no environment, as it does for a bare machine', async () => {
+    const callOnce = async (request: { callTool?: (call: { callId: string; name: string; arguments: string }) => Promise<{ ok: boolean; content: string }> }) => {
+      await request.callTool!({ callId: 'c5', name: 'search_memories', arguments: '{}' });
+      return { outcome: 'finished' as const, stopReason: 'end_turn', text: 'ok', identity, sessionId: 's' };
+    };
+    const tools = [{ name: 'search_memories', description: 'searches', binding: 'none' }];
+    for (const environment of [{ kind: 'none', egress: false }, { kind: 'machine', deviceId: 'laptop', deviceName: 'Laptop', egressMode: 'open' }]) {
+      const runExternal = vi.fn(callOnce);
+      const p = ports({ runExternal } as never);
+      await invoke(createOrchestrationNodes(p), externalAgent, { inputs: { brief: 'Look.', environment, persona: persona({ tools: ['search_memories'] }), tools }, run: onMachine });
+      expect(runExternal).toHaveBeenCalledWith(expect.objectContaining({ environment: expect.objectContaining({ kind: 'machine', deviceId: 'laptop' }) }));
+      expect(p.runTool).toHaveBeenCalledWith(expect.objectContaining({ call: expect.objectContaining({ name: 'search_memories' }), environment: undefined }));
+    }
   });
 
   it('fails without starting anything when a workspace run has no machine picked', async () => {
