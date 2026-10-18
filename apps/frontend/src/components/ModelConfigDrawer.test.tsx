@@ -30,6 +30,7 @@ const model = (id: string, name: string): ModelProvider =>
 const setup = (selectedModelId: string | null, defaultId: string | null = 'd1') => {
   const onSelectModel = vi.fn();
   const onClose = vi.fn();
+  const onReach = vi.fn();
   listModels.mockResolvedValue([model('d1', 'anthropic/opus'), model('m2', 'google/gemini')]);
   useDefaultModel.mockReturnValue({
     data: { defaultModelId: defaultId, globalModelOverride: false },
@@ -38,10 +39,10 @@ const setup = (selectedModelId: string | null, defaultId: string | null = 'd1') 
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={qc}>
-      <ModelConfigDrawer isOpen onClose={onClose} selectedModelId={selectedModelId} onSelectModel={onSelectModel} />
+      <ModelConfigDrawer isOpen onClose={onClose} selectedModelId={selectedModelId} onSelectModel={onSelectModel} reach="handoffs" onReach={onReach} />
     </QueryClientProvider>,
   );
-  return { onSelectModel, onClose };
+  return { onSelectModel, onClose, onReach };
 };
 
 beforeEach(() => vi.clearAllMocks());
@@ -54,7 +55,7 @@ describe('ModelConfigDrawer', () => {
     const qc = new QueryClient();
     const { container } = render(
       <QueryClientProvider client={qc}>
-        <ModelConfigDrawer isOpen={false} onClose={vi.fn()} selectedModelId={null} onSelectModel={vi.fn()} />
+        <ModelConfigDrawer isOpen={false} onClose={vi.fn()} selectedModelId={null} onSelectModel={vi.fn()} reach="handoffs" onReach={vi.fn()} />
       </QueryClientProvider>,
     );
     expect(container).toBeEmptyDOMElement();
@@ -86,5 +87,17 @@ describe('ModelConfigDrawer', () => {
   it('warns when there is no account default to fall back to', async () => {
     setup(null, null);
     expect(await screen.findByText(/no account default set/)).toBeInTheDocument();
+  });
+
+  it('asks how far a chosen model reaches, the agents it hands work to by default, and changes it on a click', () => {
+    const { onReach } = setup('m2');
+    expect(screen.getByLabelText(/This chat and the agents it hands work to/)).toBeChecked();
+    fireEvent.click(screen.getByLabelText(/This chat only/));
+    expect(onReach).toHaveBeenCalledWith('chat');
+  });
+
+  it('does not ask how far the account default reaches, since every agent follows its own', () => {
+    setup(null);
+    expect(screen.queryByText('Use it for')).not.toBeInTheDocument();
   });
 });

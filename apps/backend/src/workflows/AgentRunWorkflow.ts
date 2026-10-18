@@ -433,8 +433,9 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
     async runChild({ agent, inputs, environment, run, callId }): Promise<ChildOutcomeValue> {
       children += 1;
       const childRunId = `${ticket.runId}-${agent}-${children}`;
-      const inherited = machineChoice(run.launch.modelId) ? undefined : run.launch.modelId;
-      const resolved = await engine.EngineResolveAgentActivity({ ownerId: ticket.ownerId, agentSlug: agent, turnId: turnOf(ticket), ...(inherited ? { modelId: inherited } : {}) });
+      const handed = ticket.modelReach === 'chat' ? undefined : run.launch.modelId;
+      const inherited = machineChoice(handed) ? undefined : handed;
+      const resolved = await engine.EngineResolveAgentActivity({ ownerId: ticket.ownerId, agentSlug: agent, turnId: turnOf(ticket), ...(handed ? { modelId: handed, handedDown: true } : {}) });
       const childModel = resolved.machine ?? (resolved.tree ? resolved.tree.modelId : inherited);
 
       if (!resolved.found || !resolved.procedure) {
@@ -457,6 +458,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
             agentSlug: agent,
             trigger: 'agent',
             modelId: childModel,
+            ...(ticket.modelReach ? { modelReach: ticket.modelReach } : {}),
           },
           procedure: resolved.procedure,
           inputs: childInputs(inputs),

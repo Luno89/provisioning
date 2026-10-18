@@ -232,7 +232,11 @@ since a machine never reaches Mongo. A new keyring restarts the worker (`DeviceW
 one row per ready agent per machine, `machine:<deviceId>:<agent>` (`machine-choice.ts`). A run picked that way runs the
 `external-agent-chat` procedure (chat) or `external-agent-task`, on that machine (`machineRunFor`, refused with
 `MACHINE_UNAVAILABLE` when the machine is gone, offline or its agent is not ready). An agent whose "Runs on" (Studio) is a
-machine always runs there; a machine picked for one run is never inherited by the runs it starts. A conversation keeps one
+machine always runs there. A chat's own model reaches as far as the person says in the model drawer (`modelReach` on
+the conversation, sent with each run, carried on the ticket): **this chat and the agents it hands work to** (the default)
+hands it down the runs it starts, a machine only to an agent whose procedure branches at Where It Runs (`handedDown` in
+`EngineResolveAgentActivity`; any other keeps its own model); **this chat only** leaves them on their own; following the
+account default reaches nothing. A conversation keeps one
 session per machine, agent and model (`machineSessions`), so the next turn resumes it; a failed turn is saved with its reason.
 
 **An agent on a machine does a tree's work** (external-cli-agents step 4). A procedure branches at **Where It Runs**

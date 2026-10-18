@@ -190,7 +190,7 @@ export function engineRouter(deps: EngineRouterDeps): Router {
   router.post('/tasks/:taskId/drop', decide('dropped'));
 
   router.post('/runs', asyncRoute(async (req: Request, res: Response) => {
-    const { agent, message, inputs, conversationId, modelId, temperature, procedure, asks } = req.body ?? {};
+    const { agent, message, inputs, conversationId, modelId, modelReach, temperature, procedure, asks } = req.body ?? {};
 
     if (typeof agent !== 'string' || !agent.trim()) {
       return res.status(400).json({ error: 'agent is required' });
@@ -212,6 +212,7 @@ export function engineRouter(deps: EngineRouterDeps): Router {
         ...(inputs && typeof inputs === 'object' ? { inputs: inputs as Record<string, unknown> } : {}),
         ...(typeof conversationId === 'string' ? { conversationId } : {}),
         ...(typeof modelId === 'string' && modelId ? { modelId } : {}),
+        ...(modelReach === 'handoffs' || modelReach === 'chat' ? { modelReach } : {}),
         ...(temperature === undefined ? {} : { sampling: samplingAt(temperature) }),
         ...(typeof procedure === 'string' && procedure.trim() ? { procedureId: procedure.trim() } : {}),
         ...(typeof asks === 'string' ? { asks } : {}),

@@ -1,3 +1,4 @@
+import type { ModelReach } from '@koala/harness-types'
 import type { Artifact, ChildSteps } from '@koala/agent-engine/procedure';
 
 import { api } from './client.js';
@@ -60,6 +61,7 @@ export interface ChatConversation {
    * Absent means the default agent. Patched by the chat surface; preserved across engine turns.
    */
   agentSlug?: string | null | undefined;
+  modelReach?: ModelReach | undefined;
   kind?: 'channel' | 'item' | undefined;
   treeId?: string | undefined;
   leafId?: string | undefined;
@@ -108,6 +110,6 @@ export const deleteChatConversation = (id: string): Promise<void> =>
  */
 export const patchChatConversation = (
   id: string,
-  patch: { modelId?: string | null | undefined; agentSlug?: string | null | undefined },
+  patch: { modelId?: string | null | undefined; agentSlug?: string | null | undefined; modelReach?: ModelReach | undefined },
 ): Promise<ChatConversation> =>
   api.patch<ChatConversation>(`/conversations/${id}`, patch).then((r) => r.data);

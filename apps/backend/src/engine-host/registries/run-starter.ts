@@ -1,3 +1,4 @@
+import type { ModelReach } from '@koala/harness-types';
 import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_ENGINE_TASK_QUEUE, RUN_ABOUT_MEMO, RUN_AGENT_MEMO, RUN_CONVERSATION_MEMO, RUN_ID_MEMO, workflowOfRun } from '../temporal/contracts.js';
 import type { SamplingConfig } from '@koala/harness-types';
@@ -27,6 +28,7 @@ export interface StartRunRequest {
   inputs?: Record<string, unknown> | undefined;
   conversationId?: string | undefined;
   modelId?: string | undefined;
+  modelReach?: ModelReach | undefined;
   sampling?: SamplingConfig | undefined;
   procedureId?: string | undefined;
   runId?: string | undefined;
@@ -127,6 +129,7 @@ export function createRunStarter(options: RunStarterOptions) {
         ...(request.conversationId ? { conversationId: request.conversationId } : {}),
         trigger: 'user',
         ...(modelId ? { modelId } : {}),
+        ...(request.modelReach ? { modelReach: request.modelReach } : {}),
         ...(request.sampling ? { sampling: request.sampling } : {}),
       };
 

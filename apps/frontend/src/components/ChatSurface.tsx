@@ -499,6 +499,8 @@ export default function ChatSurface({
         onClose={() => setShowModelDrawer(false)}
         selectedModelId={conv.pinnedModelId}
         onSelectModel={conv.setPinnedModelId}
+        reach={conv.modelReach}
+        onReach={conv.setModelReach}
       />
 
       <AgentConfigDrawer

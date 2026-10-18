@@ -1,3 +1,4 @@
+import type { ModelReach } from '@koala/harness-types';
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -123,6 +124,7 @@ export function useConversationTurn({
   // Same, per conversation, for the running agent. Absent (document) or null (picker) means the
   // default agent — 'koala'.
   const [unsavedAgentPicks, setUnsavedAgentPicks] = useState<Record<string, string | null>>({});
+  const [unsavedReachPicks, setUnsavedReachPicks] = useState<Record<string, ModelReach>>({});
 
   // --- the in-flight engine run, and the approvals it asks for ----------------
   /** The run this instance started, so the steering buttons act on it. */
@@ -199,6 +201,9 @@ export function useConversationTurn({
     : (activeConversation?.modelId ?? modelId ?? null);
   const setPinnedModelId = (id: string | null) =>
     setUnsavedModelPicks((prev) => ({ ...prev, [conversationKey]: id }));
+  const modelReach: ModelReach = unsavedReachPicks[conversationKey] ?? activeConversation?.modelReach ?? 'handoffs';
+  const setModelReach = (reach: ModelReach) =>
+    setUnsavedReachPicks((prev) => ({ ...prev, [conversationKey]: reach }));
   const selectedAgentSlug = conversationKey in unsavedAgentPicks
     ? (unsavedAgentPicks[conversationKey] ?? DEFAULT_CHAT_AGENT)
     : (activeConversation?.agentSlug ?? DEFAULT_CHAT_AGENT);
@@ -210,11 +215,11 @@ export function useConversationTurn({
   // the conversation exists, then get patched). Only fires on divergence, so a refetch that
   // picks up the patched doc settles without re-patching.
   const { mutate: persistSelection, isPending: persistingSelection } = useMutation({
-    mutationFn: (picks: { convId: string; modelId: string | null; agentSlug: string | null }) =>
-      patchChatConversation(picks.convId, { modelId: picks.modelId, agentSlug: picks.agentSlug }),
+    mutationFn: (picks: { convId: string; modelId: string | null; agentSlug: string | null; modelReach: ModelReach }) =>
+      patchChatConversation(picks.convId, { modelId: picks.modelId, agentSlug: picks.agentSlug, modelReach: picks.modelReach }),
     onSuccess: (_doc, picks) => {
       qc.setQueryData<ChatConversation | null>(chatPackKeys.conversation(picks.convId), (prev) =>
-        (prev ? { ...prev, modelId: picks.modelId, agentSlug: picks.agentSlug } : prev));
+        (prev ? { ...prev, modelId: picks.modelId, agentSlug: picks.agentSlug, modelReach: picks.modelReach } : prev));
     },
   });
   useEffect(() => {
@@ -224,9 +229,10 @@ export function useConversationTurn({
     const localModel = pinnedModelId ?? null;
     const docAgent = conv.agentSlug ?? null;
     const localAgent = selectedAgentSlug ?? null;
-    if (docModel === localModel && docAgent === localAgent) return;
-    persistSelection({ convId: conv.id, modelId: localModel, agentSlug: localAgent });
-  }, [pinnedModelId, selectedAgentSlug, activeConversation, persistingSelection, persistSelection]);
+    const docReach = conv.modelReach ?? 'handoffs';
+    if (docModel === localModel && docAgent === localAgent && docReach === modelReach) return;
+    persistSelection({ convId: conv.id, modelId: localModel, agentSlug: localAgent, modelReach });
+  }, [pinnedModelId, selectedAgentSlug, modelReach, activeConversation, persistingSelection, persistSelection]);
 
   // --- settling a turn -------------------------------------------------------
   const settleTurn = useCallback(
@@ -367,7 +373,7 @@ export function useConversationTurn({
         message: text,
         inputs: { conversationId: targetConvId },
         conversationId: targetConvId,
-        ...(pinnedModelId ? { modelId: pinnedModelId } : {}),
+        ...(pinnedModelId ? { modelId: pinnedModelId, modelReach } : {}),
         ...(options.asks ? { asks: options.asks } : {}),
       });
       if (options.asks) qc.invalidateQueries({ queryKey: chatPackKeys.conversation(targetConvId) });
@@ -443,6 +449,8 @@ export function useConversationTurn({
     setError,
     pinnedModelId,
     setPinnedModelId,
+    modelReach,
+    setModelReach,
     selectedAgentSlug,
     setSelectedAgentSlug,
     createMutation,

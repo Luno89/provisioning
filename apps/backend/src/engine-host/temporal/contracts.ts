@@ -1,3 +1,4 @@
+import type { ModelReach } from '@koala/harness-types';
 import type {
   EngineEvent,
   RunOutcome,
@@ -34,6 +35,7 @@ export interface RunTicket {
   projectId?: string | undefined;
   trigger: RunIdentity['trigger'];
   modelId?: string | undefined;
+  modelReach?: ModelReach | undefined;
   sampling?: SamplingConfig | undefined;
 }
 
@@ -163,6 +165,7 @@ export interface ResolveAgentArgs {
   ownerId: string;
   agentSlug: string;
   modelId?: string | undefined;
+  handedDown?: boolean | undefined;
   turnId?: string | undefined;
 }
 

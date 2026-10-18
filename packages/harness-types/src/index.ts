@@ -3,6 +3,8 @@ export type WorkspaceLanguage = 'node' | 'python' | 'go' | 'base';
 
 export type ModelKind = 'vllm' | 'tabbyapi';
 
+export type ModelReach = 'handoffs' | 'chat';
+
 export interface AgentStep {
   step: number;
   reasoning?: string;

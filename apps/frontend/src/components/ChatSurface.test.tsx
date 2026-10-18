@@ -543,7 +543,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
 
     await waitFor(() =>
       expect(chatPackApi.patchChatConversation)
-        .toHaveBeenCalledWith('c1', { modelId: 'm2', agentSlug: 'koala' }),
+        .toHaveBeenCalledWith('c1', { modelId: 'm2', agentSlug: 'koala', modelReach: 'handoffs' }),
     );
   });
 

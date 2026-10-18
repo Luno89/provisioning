@@ -1,3 +1,4 @@
+import type { ModelReach } from '@koala/harness-types';
 import { Router } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import type { Database } from '../lib/db-interface.js';
@@ -117,6 +118,13 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
       changed = true;
     } else if (body.modelId === null) {
       delete next.modelId;
+      changed = true;
+    }
+    if (body.modelReach === 'handoffs' || body.modelReach === 'chat') {
+      next.modelReach = body.modelReach as ModelReach;
+      changed = true;
+    } else if (body.modelReach === null) {
+      delete next.modelReach;
       changed = true;
     }
     if (typeof body.agentSlug === 'string' && body.agentSlug.trim()) {

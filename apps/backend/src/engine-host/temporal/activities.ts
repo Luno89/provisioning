@@ -226,7 +226,10 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
 
     async EngineResolveAgentActivity(args: ResolveAgentArgs): Promise<ResolvedAgentInfo> {
       const tree = args.turnId && services.treeModel ? await services.treeModel(args.ownerId, args.turnId, args.agentSlug) : undefined;
-      const runnable = await services.registry.runnable(args.ownerId, args.agentSlug, undefined, { modelId: tree ? tree.modelId : args.modelId });
+      const asked = await services.registry.runnable(args.ownerId, args.agentSlug, undefined, { modelId: tree ? tree.modelId : args.modelId });
+      const runnable = !tree && args.handedDown && asked?.machine && !asked.inPlace
+        ? await services.registry.runnable(args.ownerId, args.agentSlug)
+        : asked;
       if (!runnable) return { found: false, callableAgents: [] };
 
       const callable = await services.registry.callable(args.ownerId, args.agentSlug);

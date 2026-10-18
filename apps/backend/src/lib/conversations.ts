@@ -1,3 +1,4 @@
+import type { ModelReach } from '@koala/harness-types';
 import type { Artifact, ChildSteps } from '@koala/agent-engine/procedure';
 
 export type MessageAuthor = { kind: 'person'; id: string } | { kind: 'agent'; slug: string } | { kind: 'platform' };
@@ -66,6 +67,7 @@ export interface Conversation {
    * rather than replacing the document: chat-owned metadata rides the conversation doc.
    */
   agentSlug?: string | undefined;
+  modelReach?: ModelReach | undefined;
   treeId?: string | undefined;
   projectId?: string | undefined;
   kind?: 'channel' | 'item' | undefined;

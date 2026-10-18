@@ -7,6 +7,12 @@ import { modelOptionLabel } from '../lib/model-label';
 import { useShellStore } from '../stores/shell';
 import { useMachineChoiceLabel } from '../api/local-agents';
 import { ModelPicker } from './ModelPicker';
+import type { ModelReach } from '@koala/harness-types';
+
+const REACHES: { reach: ModelReach; label: string; detail: string }[] = [
+  { reach: 'handoffs', label: 'This chat and the agents it hands work to', detail: 'Research, planning and the rest run on it too. An agent that cannot work on a machine, or one set to run somewhere of its own, keeps its own.' },
+  { reach: 'chat', label: 'This chat only', detail: 'The agents it hands work to stay on their own models.' },
+];
 
 /**
  * Which engine this conversation runs on.
@@ -23,11 +29,15 @@ export function ModelConfigDrawer({
   onClose,
   selectedModelId,
   onSelectModel,
+  reach,
+  onReach,
 }: {
   isOpen: boolean;
   onClose: () => void;
   selectedModelId: string | null;
   onSelectModel: (modelId: string | null) => void;
+  reach: ModelReach;
+  onReach: (reach: ModelReach) => void;
 }) {
   const { data: models = [] } = useQuery<ModelProvider[]>({
     queryKey: providerKeys.list(),
@@ -81,6 +91,30 @@ export function ModelConfigDrawer({
                 ? <span className="font-mono text-emerald-300">{modelOptionLabel(defaultModel)}<span className="text-slate-500 font-sans"> (account default)</span></span>
                 : <span className="text-amber-400">no account default set — pick one below</span>}
           </div>
+
+          {selectedModelId && (
+            <fieldset className="space-y-1.5">
+              <legend className="text-[11px] text-slate-400 mb-1">Use it for</legend>
+              {REACHES.map((option) => (
+                <label
+                  key={option.reach}
+                  className={`flex items-start gap-2 rounded-md border px-2.5 py-2 cursor-pointer transition-colors ${reach === option.reach ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-[var(--bark-800,#1b2620)] hover:border-[var(--bark-700,#24332b)]'}`}
+                >
+                  <input
+                    type="radio"
+                    name="model-reach"
+                    className="mt-0.5 accent-emerald-500"
+                    checked={reach === option.reach}
+                    onChange={() => onReach(option.reach)}
+                  />
+                  <span>
+                    <span className="block text-xs text-slate-200">{option.label}</span>
+                    <span className="block text-[10px] text-slate-500 leading-snug">{option.detail}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          )}
 
           <ModelPicker
             autoFocus

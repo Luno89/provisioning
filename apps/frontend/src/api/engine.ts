@@ -1,3 +1,4 @@
+import type { ModelReach } from '@koala/harness-types'
 import type { Artifact, ChildSteps, GroupDefinition, HostOperation, NodeTrace } from '@koala/agent-engine/procedure'
 import { api } from './client'
 
@@ -178,6 +179,7 @@ export async function startRun(input: {
   inputs?: Record<string, unknown>
   conversationId?: string
   modelId?: string
+  modelReach?: ModelReach
   procedure?: string
   asks?: string
 }): Promise<StartedRun> {

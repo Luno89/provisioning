@@ -469,6 +469,20 @@ describe('engine routes', () => {
     await h.close();
   });
 
+  it('carries how far a chat\'s model reaches onto the ticket, and drops a reach it does not know', async () => {
+    const workflows = starter();
+    const h: Harness = await harnessWith(workflows);
+
+    await axios.post(h.url('/api/engine/runs'), { agent: 'executor', message: 'one', modelId: 'test-model-123', modelReach: 'chat' });
+    await axios.post(h.url('/api/engine/runs'), { agent: 'executor', message: 'two', modelId: 'test-model-123', modelReach: 'everyone' });
+
+    const tickets = workflows.start.mock.calls.map(([, options]) => (options as { args: [{ ticket: Record<string, unknown> }] }).args[0].ticket);
+    expect(tickets[0]).toMatchObject({ modelReach: 'chat' });
+    expect(tickets[1]).not.toHaveProperty('modelReach');
+
+    await h.close();
+  });
+
   it('turns a temperature into sampling for both kinds of turn, and refuses one out of range', async () => {
     const workflows = starter();
     const h: Harness = await harnessWith(workflows);

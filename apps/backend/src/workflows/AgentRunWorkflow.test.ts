@@ -567,6 +567,40 @@ describe('AgentRunWorkflow', () => {
     expect(acts.seen[0]![0]).toEqual({ role: 'user', content: 'question: why' });
   }, 60_000);
 
+  describe('how far a chat\'s machine reaches', () => {
+    const AGENT_SCRIPT = fileURLToPath(new URL('../../../local-agent/src/acp-script-agent.ts', import.meta.url));
+    const onMachine = async (reach?: 'chat' | 'handoffs') => {
+      const here = await mkdtemp(resolve(tmpdir(), 'external-run-'));
+      const scriptPath = resolve(here, 'script.json');
+      await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [{ say: 'Found it on the machine.' }] }] } satisfies AgentScript));
+      const sessions = new ExternalAgentSessions({ rootDir: resolve(here, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT_SCRIPT, scriptPath] } }, segmentMs: 500 });
+      const acts = activities({ script: [{ content: 'Found it with the model.' }], external: sessions, environment: MACHINE });
+      try {
+        const args = input('koala', delegating('research'));
+        const result = await runWorkflow({ ...args, ticket: { ...args.ticket, modelId: 'machine:desk:antigravity', ...(reach ? { modelReach: reach } : {}) } }, acts);
+        return { result, resolved: acts.engine.EngineResolveAgentActivity.mock.calls.map(([call]) => call) };
+      } finally {
+        await sessions.closeAll();
+        await rm(here, { recursive: true, force: true });
+      }
+    };
+
+    it('runs the agents a chat hands work to on the machine picked for it, keeping their own procedure', async () => {
+      const { result, resolved } = await onMachine();
+
+      expect(result).toMatchObject({ outcome: 'ok' });
+      expect(JSON.stringify(result.outputs)).toContain('Found it on the machine.');
+      expect(resolved).toContainEqual(expect.objectContaining({ agentSlug: 'research', modelId: 'machine:desk:antigravity', handedDown: true }));
+    }, 60_000);
+
+    it('leaves the agents it hands work to on their own models when the machine is for this chat only', async () => {
+      const { result, resolved } = await onMachine('chat');
+
+      expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'Found it with the model.' } });
+      expect(resolved.find((call) => call.agentSlug === 'research')).not.toHaveProperty('modelId');
+    }, 60_000);
+  });
+
   it('hands a delegated persona the opening line its parent wrote, and still labels the rest of what it was given', async () => {
     const acts = activities({ script: [{ content: 'because it was' }] });
 
@@ -1269,7 +1303,7 @@ describe('an external agent working on someone\'s machine', () => {
       try {
         const result = await runWorkflow({
           ...input('executor', DO_ONE_TASK_V2, 'Work the task Write the label.', { item: task }),
-          ticket: { ...ticket('executor'), modelId: 'machine:desk:antigravity' },
+          ticket: { ...ticket('executor'), modelId: 'machine:desk:antigravity', modelReach: 'chat' },
         }, acts);
         expect(result.outcome).toBe('ok');
 

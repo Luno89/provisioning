@@ -190,6 +190,15 @@ describe('what Koala sees in a conversation', () => {
     return { status: response.status, body: response.status === 200 ? await response.json() as { given: Record<string, string>; text: string } : undefined };
   };
 
+  it('keeps how far the conversation\'s model reaches, clears it with null, and ignores a reach it does not know', async () => {
+    const created = (await (await fetch(harness.url('/api/conversations'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json()) as { id: string };
+    const patch = (body: unknown) => fetch(harness.url(`/api/conversations/${created.id}`), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+    expect(((await (await patch({ modelId: 'machine:d1:antigravity', modelReach: 'chat' })).json()) as { modelReach?: string }).modelReach).toBe('chat');
+    expect((await patch({ modelReach: 'everyone' })).status).toBe(400);
+    expect(((await (await patch({ modelReach: null })).json()) as { modelReach?: string }).modelReach).toBeUndefined();
+  });
+
   it('is shown at every level a conversation can be about: a project, a tree, a feature, a story', async () => {
     const owner = TEST_USER.id;
     await harness.db.saveTree({ id: 'ctx-t', ownerId: owner, name: 'Shop', type: 'odoo-addons', goal: 'Delivery notes', projectIds: ['ctx-p'], createdAt: 't', updatedAt: 't' } as never);
