@@ -104,13 +104,19 @@ async function main(): Promise<void> {
   console.log(`  planner run ${plannerRun} proposed plan ${proposal.id}`);
 
   step('the plan is approved, and the tree is made');
-  assert.equal((await api.post(`/plans/${proposal.id}/approve`)).status, 200);
+  const approved = await api.post(`/plans/${proposal.id}/approve`);
+  assert.ok(approved.status === 200 || approved.status === 202, JSON.stringify(approved.data));
   await temporal.workflow.getHandle(`adopt-plan-${proposal.id}`).result();
   const adopted = (await api.get(`/plans/${proposal.id}`)).data as { status: string; reason?: string; adopted?: { treeId: string; leafIds: Record<string, string> } };
   assert.equal(adopted.status, 'adopted', adopted.reason);
   treeId = adopted.adopted!.treeId;
   const leafId = Object.values(adopted.adopted!.leafIds)[0]!;
   console.log(`  tree ${treeId}, story ${leafId}`);
+  const first = temporal.workflow.getHandle(groveRunWorkflowId(treeId));
+  await api.post(`/trees/${treeId}/run/stop`, {});
+  await first.result().catch(() => undefined);
+  const waiting = ((await api.get('/leaves')).data as Leaf[]).find((entry) => entry.id === leafId);
+  console.log(`  the run approving starts was stopped before its agents were moved; the story is ${waiting?.state ?? waiting?.status}`);
 
   step('every agent in the tree\'s work is put on the machine for this tree');
   const rows = (await api.get(`/trees/${treeId}/models`)).data as { rows: { agent: string; noMachine?: true }[] };
