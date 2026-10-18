@@ -50,6 +50,7 @@ npm run test:mail-live            # the send-only mail server is built and run b
 npm run test:monitoring-live      # a throwaway app on the system cluster → Monitoring calls it healthy → Koala, on your model, proposes an alert for when it stops answering → the card sets it → the app is stopped until the alert fires and the conversation hears it, started until it resolves → the alert is removed and the app destroyed, ~10 min
 npm run test:infrastructure-live   # Infrastructure reads the system cluster → a workload that cannot pull its image, put there by hand, shows in Needs attention and on the cluster page as not deployed through Koala, then leaves once removed → a Koala chat turn on a model that does not exist shows as failed work, opens its chat and clears → whatever the memory keeper keeps from the run and the quiet conversation is retired, ~15 min
 npm run test:dev-split-live        # against a running `npm run dev:split`: the instance sends a signed-out person to root → root's Google sign-in (the dev mock) → root knows the instance and serves none of its routes → its one-time token signs you into the instance, and not twice → your work is there and the instance makes no accounts → the instance's credential is taken by root and a wrong one refused, ~10 s
+npm run test:openrouter-connect-live # against a running `npm run dev:split`: signed in through root, Connect OpenRouter sends you to OpenRouter's sign-in with a PKCE challenge and a state → a state Koala did not make is refused before OpenRouter is asked → OpenRouter's refusal of a made-up code is told in plain words → nothing changed; approving on OpenRouter is yours, ~5 s
 npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
 npm run test:machine-live        # a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service and finds an ACP agent and two CLIs missing their adapters (`--adapters none`) → after a reboot with nobody logged in it connects again → Install adapter makes Claude Code ready → the command run again with `--yes` installs Codex's adapter; removes the machine, its project and the VM, ~10 min
 npm run test:mesh-live           # the image is built; root starts; the owner's instance installs in a VM and joins the mesh, its Temporal answering only on its mesh address → a second VM runs the command from the instance's My Machines, joins the mesh with a key root mints for the instance, and its worker polls the instance's Temporal over the mesh → a third VM, another person's, reaches neither and neither reaches it; ~30 min, removes everything
@@ -435,7 +436,10 @@ often everything runs).
 ## The sidebar
 
 Koala (chats), Projects, Studio (Agents, Tools, MCP Servers, Procedures, Tree Types, Extensions, and **Models**: the LLM
-providers and the default model, `Studio/ModelsView.tsx`), Infrastructure, My Machines (machines Koala works on),
+providers and the default model, `Studio/ModelsView.tsx`; **Connect OpenRouter** signs the person in to OpenRouter and gets a
+key on their own account and bill by OAuth PKCE, `lib/openrouter-connect.ts`: the verifier only in a sealed, httpOnly
+cookie bound to the person, the state checked before OpenRouter is asked, the key stored like a pasted one, which stays
+possible), Infrastructure, My Machines (machines Koala works on),
 Cloud providers (cloud credentials) and Settings (account, 2FA, addresses, notifications, backups, people and invites).
 Three pages are off it and reached where they are used: the VPS catalog through Compare plans in Provision a cluster,
 Nginx through Local router on the system cluster's page, and Temporal through All workflows on Running. Each still
