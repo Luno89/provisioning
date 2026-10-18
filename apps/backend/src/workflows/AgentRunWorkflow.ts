@@ -404,6 +404,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
             nodeId,
             call: { id: externalCallId(ask.tool.callId), name: externalToolName(agent, ask.tool), arguments: ask.tool.title },
             environment: workspace ?? environment,
+            on: machineName,
             run,
           });
           result = await step({ kind: 'answer', optionId: cancelled ? undefined : permissionChoice(ask, allowed) });
@@ -488,7 +489,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       };
     },
 
-    async approve({ nodeId, call, environment }) {
+    async approve({ nodeId, call, environment, on }) {
       if (approvedForRun) return true;
       if (patched(AUTO_MODE)) {
         const workspaceRunId = environment?.kind === 'sandbox' ? environment.workspace.runId : undefined;
@@ -503,7 +504,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         if (await EngineToolAllowedActivity({ ownerId: ticket.ownerId, conversationId: ticket.conversationId, tool: call.name })) return true;
       }
 
-      const where = environment?.kind === 'machine' ? environment.deviceName : 'this run';
+      const where = on ?? (environment?.kind === 'machine' ? environment.deviceName : 'this run');
       await publishNow({
         type: 'notice',
         level: 'warn',

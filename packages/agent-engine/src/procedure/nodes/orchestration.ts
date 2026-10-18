@@ -49,6 +49,7 @@ export interface ApprovalRequest {
   nodeId: string;
   call: ToolCallRequest;
   environment?: EnvironmentValue | undefined;
+  on?: string | undefined;
   run: RunContext;
 }
 

@@ -1277,6 +1277,7 @@ describe('an external agent working on someone\'s machine', () => {
     const scriptPath = resolve(root, 'script.json');
     await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [
       { read: { path: 'notes.md' } },
+      { tool: { id: 'ls', title: 'ls', kind: 'execute' }, ask: true, output: 'notes.md README.md' },
       { write: { path: 'label.txt', content: 'Axial Concepts\n' } },
       { mcp: { server: 'koala', tool: 'run_in_workspace', args: { command: 'cat label.txt' } } },
       { say: 'The label is in.' },
@@ -1326,10 +1327,14 @@ describe('an external agent working on someone\'s machine', () => {
     });
 
     try {
-      const result = await runWorkflow({ ...input('executor', TOOL_ROUNDS_V2, 'Add the delivery label.'), ticket: { ...ticket('executor'), modelId: 'machine:desk:antigravity' } }, acts);
+      const result = await runWorkflow({ ...input('executor', TOOL_ROUNDS_V2, 'Add the delivery label.'), ticket: { ...ticket('executor'), modelId: 'machine:desk:antigravity' } }, acts, async (handle) => {
+        while (!(await handle.query(stateQuery)).asking?.length) await new Promise((wait) => setTimeout(wait, 50));
+        await handle.signal(approveSignal, { callId: 'ext-ls', allowed: true });
+      });
 
       expect(result.outcome).toBe('ok');
       expect(String(result.outputs.result)).toContain('The label is in.');
+      expect(published(acts)).toContainEqual(expect.objectContaining({ type: 'notice', level: 'warn', callId: 'ext-ls', message: 'executor wants to run antigravity.execute on your machine: ls' }));
       expect(inWorkspaceWhenRun).toEqual(['run_command {"command":"cat label.txt"} Axial Concepts']);
       expect(readNow(resolve(folder, 'label.txt'), 'utf8')).toBe('Axial Concepts\n');
       expect(readNow(resolve(folder, 'notes.md'), 'utf8')).toBe('what the model left\n');
