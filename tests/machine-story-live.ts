@@ -83,7 +83,7 @@ async function main(): Promise<void> {
     { steps: [{ echo: true }] },
   ]);
   const agent: ManualAgent = { id: AGENT, title: 'Scripted agent (machine-story-live)', command: process.execPath, args: ['--import', TSX_LOADER, SCRIPT_AGENT, scriptPath] };
-  const added = await api.put(`/mesh/local-agents/${deviceId}/agents`, [...device.manualAgents.filter((entry) => entry.id !== AGENT), agent]);
+  const added = await api.put(`/mesh/local-agents/${deviceId}/agents`, { agents: [...device.manualAgents.filter((entry) => entry.id !== AGENT), agent] });
   assert.equal(added.status, 200, JSON.stringify(added.data));
   await until(`${AGENT} to be ready on ${device.name}`, async () => {
     const found = ((await api!.get('/mesh/local-agents')).data as Device[]).find((entry) => entry.id === deviceId)?.agents.find((entry) => entry.id === AGENT);
@@ -172,7 +172,7 @@ async function main(): Promise<void> {
 async function teardown(): Promise<void> {
   if (api && treeId) await api.delete(`/trees/${treeId}`).catch(() => undefined);
   if (api && conversationId) await api.delete(`/conversations/${conversationId}`).catch(() => undefined);
-  if (api && device) await api.put(`/mesh/local-agents/${device.id}/agents`, device.manualAgents).catch(() => undefined);
+  if (api && device) await api.put(`/mesh/local-agents/${device.id}/agents`, { agents: device.manualAgents }).catch(() => undefined);
   if (scratch) await rm(scratch, { recursive: true, force: true });
   await closeDb?.();
 }
