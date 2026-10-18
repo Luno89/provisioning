@@ -661,6 +661,16 @@ export class MongoDB implements Database {
     return (await this.turnLogs.countDocuments({ ownerId, $or: [{ turnId: runId }, { 'events.runId': runId }] }, { limit: 1 })) > 0;
   }
 
+  async runOrigin(ownerId: string, runId: string): Promise<{ agentId?: string | undefined; turnId: string } | undefined> {
+    const found = await this.turnLogs.findOne(
+      { ownerId, events: { $elemMatch: { runId, type: 'run.started' } } },
+      { projection: { turnId: 1, events: { $elemMatch: { runId, type: 'run.started' } } } },
+    ) as { turnId?: string; events?: { agentId?: string }[] } | null;
+    if (!found?.turnId) return undefined;
+    const agentId = found.events?.[0]?.agentId;
+    return { turnId: found.turnId, ...(agentId ? { agentId } : {}) };
+  }
+
   async saveConversation(conversation: Conversation): Promise<void> {
     const doc = toDoc(conversation);
     const id = doc._id;

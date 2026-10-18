@@ -664,6 +664,15 @@ export class MemoryDB implements Database {
     return this.turnLogs.some((entry) => entry.ownerId === ownerId && (entry.turnId === runId || entry.events.some((event) => event.runId === runId)));
   }
 
+  async runOrigin(ownerId: string, runId: string): Promise<{ agentId?: string | undefined; turnId: string } | undefined> {
+    for (const entry of this.turnLogs) {
+      if (entry.ownerId !== ownerId) continue;
+      const started = entry.events.find((event) => event.runId === runId && event.type === 'run.started') as { agentId?: string } | undefined;
+      if (started) return { turnId: entry.turnId, ...(started.agentId ? { agentId: started.agentId } : {}) };
+    }
+    return undefined;
+  }
+
   async saveConversation(conversation: Conversation): Promise<void> {
     const i = this.conversations.findIndex((c) => c.id === conversation.id);
     if (i >= 0) this.conversations[i] = conversation;

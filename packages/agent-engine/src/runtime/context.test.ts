@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  describeOnMachine,
+  describeOwnOnMachine,
   describeAsks,
   describeAvailable,
   describeEnvironment,
@@ -295,5 +297,35 @@ describe('the tools an MCP server serves', () => {
       '  - playwright__browser_click: Click',
       '    Learned from earlier runs: Click by ref, not by text.',
     ].join('\n'));
+  });
+});
+
+describe('what an agent on the person\'s machine is told about how it works', () => {
+  const workspace = { runId: 'tree-t1', ownerId: 'o', agent: 'executor', image: 'koala/odoo-20', provides: [], lifetimeMs: 1, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared' } as unknown as RunWorkspace;
+
+  it('tells an agent working a story that its folder is a checkout of the story\'s, and where the project runs', () => {
+    const told = describeOnMachine({ kind: 'sandbox', workspace, worktree: 'trees/l1' });
+    expect(told).toContain('a checkout of the folder trees/l1 of the project\'s repository');
+    expect(told).toContain('Run them with run_in_workspace');
+    expect(told).toContain('everything in your folder goes back into the workspace, committed or not');
+    expect(told).toContain('a command it describes is one you run with run_in_workspace');
+  });
+
+  it('tells an agent working the whole repository, such as a planner, the same of the repository', () => {
+    expect(describeOnMachine({ kind: 'sandbox', workspace })).toContain('is a checkout of the project\'s repository, from the project\'s workspace in Koala');
+  });
+
+  it('tells an agent in a folder of the machine\'s own that it is the project\'s, with no workspace to reach', () => {
+    const told = describeOnMachine({ kind: 'machine', deviceName: 'desk', root: '/home/me/koala', egressMode: 'auto' });
+    expect(told).toContain('the project\'s own folder on this machine');
+    expect(told).not.toContain('run_in_workspace');
+    expect(describeOnMachine({ kind: 'none', egress: false })).toBe('');
+  });
+
+  it('names the tools a model would be given that the agent has for itself', () => {
+    const own = [{ name: 'run_command' }, { name: 'read_file' }] as ToolContract[];
+    expect(describeOwnOnMachine(own, true)).toContain('Koala would give a model these tools: run_command, read_file. You have your own for the same work, so use yours, in your folder. To run something where the project runs, use run_in_workspace.');
+    expect(describeOwnOnMachine(own, false)).not.toContain('run_in_workspace');
+    expect(describeOwnOnMachine([], true)).toBe('');
   });
 });

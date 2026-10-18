@@ -165,6 +165,7 @@ export interface Database {
   appendNotice(ownerId: string, conversationId: string, message: import('./conversations.js').ConversationMessage): Promise<boolean>;
   appendMessage(ownerId: string, conversationId: string, message: import('./conversations.js').ConversationMessage): Promise<boolean>;
   ownsRun(ownerId: string, runId: string): Promise<boolean>;
+  runOrigin(ownerId: string, runId: string): Promise<{ agentId?: string | undefined; turnId: string } | undefined>;
   saveConversation(conversation: Conversation): Promise<void>;
   deleteConversation(id: string): Promise<void>;
 

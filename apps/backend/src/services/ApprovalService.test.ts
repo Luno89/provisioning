@@ -34,4 +34,23 @@ describe('approving a tool call', () => {
     expect((await db.getConversation('bo', 'c1'))?.allowedTools).toBeUndefined();
     expect(await service().approve('bo', 'run-1', { callId: 'x', allowed: true, conversation: { id: 'not-mine', tool: 'delete_check' } })).toBe('no-such-conversation');
   });
+
+  it('switches on auto mode for the agent asking, or the tree its run works in, before allowing the call', async () => {
+    await db.appendTurnLog({ turnId: 'grove-run-t1~abc', ownerId: 'bo', seq: 1, at: 'now', events: [{ type: 'run.started', runId: 'grove-run-t1~abc-grove-leaf-1-executor-1', agentId: 'executor' } as never] });
+    const setAgent = vi.fn(async () => ({ ok: true as const }));
+    const setTree = vi.fn(async () => ({ ok: true as const }));
+    const withAuto = new ApprovalService({ store: db, runs: { approve }, autoMode: { setAgent, setTree }, treeOfRun: (turnId) => /^grove-run-([^~]+)~/.exec(turnId)?.[1] });
+    const run = 'grove-run-t1~abc-grove-leaf-1-executor-1';
+
+    expect(await withAuto.approve('bo', run, { callId: 'x', allowed: true, auto: 'agent' })).toBe('sent');
+    expect(setAgent).toHaveBeenCalledWith('bo', 'executor', { on: true });
+    expect(await withAuto.approve('bo', run, { callId: 'y', allowed: true, auto: 'tree' })).toBe('sent');
+    expect(setTree).toHaveBeenCalledWith('bo', 't1', { on: true });
+    expect(approve).toHaveBeenCalledTimes(2);
+
+    expect(await withAuto.approve('bo', 'run-1-check-writer-1', { callId: 'z', allowed: true, auto: 'tree' })).toEqual({ refused: 'this run is not part of a tree\'s work, so there is no tree to switch auto mode on for' });
+    expect(await withAuto.approve('bo', run, { callId: 'w', allowed: false, auto: 'agent' })).toBe('sent');
+    expect(setAgent).toHaveBeenCalledTimes(1);
+    expect(approve).toHaveBeenCalledTimes(3);
+  });
 });

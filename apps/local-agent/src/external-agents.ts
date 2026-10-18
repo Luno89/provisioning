@@ -23,7 +23,7 @@ export function servesCall(served: readonly { name: string }[], title: string): 
 const WORKING_DIR_FIELDS = ['workingDir', 'working_dir', 'WorkingDirectory', 'cwd', 'Cwd'];
 
 export const workspaceLine = (folder: string): string =>
-  `Your workspace is the folder ${folder}. Run every command from it (cd into it first) and keep every file you write inside it; nothing outside it is yours to change.`;
+  `Your folder is ${folder}. Run every command from it (cd into it first) and keep every file you write inside it; nothing outside it is yours to change.`;
 
 const fieldOf = (value: unknown): string | undefined => {
   if (!value || typeof value !== 'object') return undefined;

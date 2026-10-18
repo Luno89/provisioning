@@ -49,6 +49,20 @@ describe('a run asking to make a call', () => {
     expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
   })
 
+  it('can switch on auto mode for the agent asking, and in a tree for the tree, while allowing the call', async () => {
+    const { unmount } = render(<RunControls run={asking()} />)
+    expect(screen.queryByRole('button', { name: 'Always allow in this tree' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Always allow this agent' }))
+    expect(approveRunCall).toHaveBeenCalledWith('run-1', { callId: 'c7', allowed: true, auto: 'agent' })
+    expect(await screen.findByTestId('approval-decided')).toHaveTextContent('Auto mode is on for this agent')
+    unmount()
+
+    render(<RunControls run={asking()} inTree />)
+    await userEvent.click(screen.getByRole('button', { name: 'Always allow in this tree' }))
+    expect(approveRunCall).toHaveBeenCalledWith('run-1', { callId: 'c7', allowed: true, auto: 'tree' })
+    expect(await screen.findByTestId('approval-decided')).toHaveTextContent('Auto mode is on for this tree')
+  })
+
   it('shows why an answer did not reach the run, and lets it be tried again', async () => {
     vi.mocked(approveRunCall).mockRejectedValueOnce(new Error('the run is not waiting on that call'))
     render(<RunControls run={asking()} />)

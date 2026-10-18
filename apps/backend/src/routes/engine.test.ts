@@ -194,7 +194,7 @@ describe('engine routes', () => {
       router: (database) => {
         db = database;
         const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => workflows, newRunId: () => 'run-fixed', binding: conversationBinding(database) });
-        return engineRouter({ runs, registry: createAgentRegistry(), approvals: new ApprovalService({ store: { ownsRun: async () => true, allowToolInConversation: async () => true }, runs }) });
+        return engineRouter({ runs, registry: createAgentRegistry(), approvals: new ApprovalService({ store: { ownsRun: async () => true, runOrigin: async () => undefined, allowToolInConversation: async () => true }, runs }) });
       },
     });
     const stamp = new Date().toISOString();
@@ -239,7 +239,7 @@ describe('engine routes', () => {
         const turns = new ConversationTurnService({ store: database, log: database, running: async () => true });
         let n = 0;
         const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => workflows, newRunId: () => `run-${(n += 1)}`, turns });
-        return engineRouter({ runs, registry: createAgentRegistry(), approvals: new ApprovalService({ store: { ownsRun: async () => true, allowToolInConversation: async () => true }, runs }) });
+        return engineRouter({ runs, registry: createAgentRegistry(), approvals: new ApprovalService({ store: { ownsRun: async () => true, runOrigin: async () => undefined, allowToolInConversation: async () => true }, runs }) });
       },
     });
     const stamp = '2026-10-11T17:59:09.231Z';

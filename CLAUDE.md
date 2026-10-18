@@ -252,6 +252,21 @@ repositories only, pushes only to its own `machine/<device>/` branches, git neve
 machines for every agent whose procedure branches (`treeModelProblem`, the picker's My machines in `TreeModels`), and
 `propose_tree_model` may name one. `npm run test:machine-story-live` proves it.
 
+**An agent on a machine is told everything a model is.** The machine branch builds its context from the same steps as
+Model Turn (the persona's prompt, Describe Environment, Describe Procedure, Describe Tools, Recall Memory, Describe Outputs)
+and hands it over with the opening (the task and its inputs) once. Wired with Where It Runs' `machine`, Describe Environment
+first says **how it works there** (`describeOnMachine` in `runtime/context.ts`): its folder is a checkout of the workspace's
+folder at the same commit; the project runs in the workspace, reached with run_in_workspace; the workspace text that follows
+is written for an agent inside it, so its commands are run_in_workspace's; what is in the folder goes back when the turn
+ends; Koala's tools are on the MCP server `koala`. Describe Tools lists what is served (the persona's tools not bound to an
+environment, and run_in_workspace) and names the environment tools it has for itself on the machine. `AgentRunWorkflow.test.ts`
+("what an agent on a machine is told") checks every section and that the MCP server serves exactly the tools listed.
+
+**Asks from an agent on a machine** are checked against the tree's workspace, so a tree on auto mode lets them through. The
+approval box also offers **Always allow this agent** and, on a tree's or a story's page, **Always allow in this tree**:
+`POST /api/engine/runs/:id/approve` with `auto: 'agent' | 'tree'` switches auto mode on (the run's agent from its turn log,
+`runOrigin`; its tree from the tree run's id) and allows the call.
+
 **An agent on a machine gets its persona's tools, and runs on the model picked.** The external-agent procedures resolve the
 persona's tools (Resolve Tools) and hand them to the `external-agent` step, which serves every one not bound to an
 environment (the agent has its own shell and files) through the machine's local MCP server, named `koala`, and tells the

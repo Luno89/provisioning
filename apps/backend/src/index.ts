@@ -69,7 +69,7 @@ import { runAskingVia, runCancelledVia, runWaitingVia } from './engine-host/temp
 import { getTemporalClient, resolveOwnersWith } from './lib/temporal-client.js';
 import { PayloadStorageService } from './services/PayloadStorageService.js';
 import { MemoryKeeperService } from './services/MemoryKeeperService.js';
-import { BENCH_IDLE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, conversationConclusionId, workflowOfRun } from './engine-host/temporal/contracts.js';
+import { BENCH_IDLE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, conversationConclusionId, treeOfGroveRun, workflowOfRun } from './engine-host/temporal/contracts.js';
 import { BenchService } from './services/BenchService.js';
 import { PracticeService } from './services/PracticeService.js';
 import { scenarioSubjects } from './lib/check-subjects.js';
@@ -1312,9 +1312,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }),
   }));
 
+  const autoModeService = new AutoModeService({ store: db, agentExists: async (ownerId, slug) => Boolean(await engineRegistry.agent(ownerId, slug)) });
   tenant.use('/api/engine', engineRouter({
     runs: engineRuns,
-    approvals: new ApprovalService({ store: db, runs: engineRuns }),
+    approvals: new ApprovalService({ store: db, runs: engineRuns, autoMode: autoModeService, treeOfRun: treeOfGroveRun }),
     registry: engineRegistry,
     admin: requireAdmin,
     extensions,
@@ -1426,7 +1427,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const groveOrder = new GroveOrderService({ store: db });
   tenant.use('/api/auto-mode', autoModeRouter({
-    autoMode: new AutoModeService({ store: db, agentExists: async (ownerId, slug) => Boolean(await engineRegistry.agent(ownerId, slug)) }),
+    autoMode: autoModeService,
   }));
   const treeWorkspace = evalHost.treeWorkspaceFiles ? new TreeWorkspaceService({
     trees: () => db.getTrees(),

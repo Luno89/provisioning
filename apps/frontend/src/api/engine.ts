@@ -196,7 +196,7 @@ export async function answerRun(runId: string, nodeId: string, value: unknown): 
 
 export async function approveRunCall(
   runId: string,
-  input: { callId: string; allowed: boolean; forRun?: boolean; conversationId?: string; tool?: string },
+  input: { callId: string; allowed: boolean; forRun?: boolean; conversationId?: string; tool?: string; auto?: 'agent' | 'tree' },
 ): Promise<void> {
   await api.post(`/engine/runs/${runId}/approve`, input)
 }

@@ -29,7 +29,7 @@ export function StoryRun({ run, events }: { run: RunInstance; events: readonly E
         )}
         <StopRun run={run} />
       </div>
-      <RunControls run={run} />
+      <RunControls run={run} inTree />
       {run.loopId && <RunProcedure procedureId={run.loopId} current={run.finished ? undefined : run.currentNode} events={events} />}
       <Rounds events={events} live={!run.finished} />
     </section>

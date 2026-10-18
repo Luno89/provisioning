@@ -29,8 +29,13 @@ export function agentLoop(shape: AgentLoopShape): Procedure {
     const where = p.whereItRuns('where', { persona: persona.persona });
     const memories = p.recallMemory('memories');
     const offered = p.resolveTools('offered', { persona: persona.persona, delegates: persona.delegates, environment: provision.environment });
+    const onMachine = p.describeEnvironment('onMachine', { environment: provision.environment, delegates: persona.delegates, machine: where.machine });
+    const aroundMachine = p.describeProcedure('aroundMachine');
+    const machineTools = p.describeTools('machineTools', { offered: offered.offered, withheld: offered.withheld, environment: provision.environment, machine: where.machine });
+    const machineOutputs = p.describeOutputs('machineOutputs', { persona: persona.persona });
+    const machineContext = p.buildContext('machineContext', { sections: [persona.prompt, onMachine.text, aroundMachine.text, machineTools.text, memories.text, machineOutputs.text] });
     const work = p.externalAgent('work', {
-      brief: input.message, prompt: persona.prompt, memories: memories.text, environment: provision.environment,
+      context: machineContext.text, environment: provision.environment,
       persona: persona.persona, tools: offered.offered, conversation: conversation.messages,
     });
     const worked = p.finish('worked', { result: work.text }, ending(shape.answered));
@@ -96,6 +101,7 @@ export function agentLoop(shape: AgentLoopShape): Procedure {
       released: [260, 560],
       where: [390, 140],
       persona: [260, 280], memories: [260, 420], offered: [520, 420],
+      onMachine: [130, 700], aroundMachine: [130, 780], machineTools: [390, 700], machineOutputs: [390, 780], machineContext: [520, 700],
       work: [520, 560], worked: [780, 560], workStopped: [780, 640], workFailed: [780, 720],
     });
   });
@@ -295,8 +301,13 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   const where = p.whereItRuns('where', { persona: persona.persona });
   const memories = p.recallMemory('memories');
   const offered = p.resolveTools('offered', { persona: persona.persona, delegates: persona.delegates, environment: provision.environment });
+  const onMachine = p.describeEnvironment('onMachine', { environment: provision.environment, delegates: persona.delegates, machine: where.machine });
+  const aroundMachine = p.describeProcedure('aroundMachine');
+  const machineTools = p.describeTools('machineTools', { offered: offered.offered, withheld: offered.withheld, environment: provision.environment, machine: where.machine });
+  const machineOutputs = p.describeOutputs('machineOutputs', { persona: persona.persona });
+  const machineContext = p.buildContext('machineContext', { sections: [persona.prompt, onMachine.text, aroundMachine.text, machineTools.text, memories.text, machineOutputs.text] });
   const work = p.externalAgent('work', {
-    brief: input.message, prompt: persona.prompt, memories: memories.text, environment: provision.environment,
+    context: machineContext.text, environment: provision.environment,
     persona: persona.persona, tools: offered.offered, conversation: conversation.messages,
   });
   const workStopped = p.finish('workStopped', { reason: work.reason }, { outcome: 'failed' });
@@ -433,6 +444,7 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
     rejected: [2080, 420],
     unjudged: [1820, 560],
     where: [650, 140], memories: [520, 700], offered: [780, 700],
+    onMachine: [520, 980], aroundMachine: [650, 980], machineTools: [780, 980], machineOutputs: [910, 980], machineContext: [1040, 980],
     work: [780, 840], workStopped: [1040, 840], workFailed: [1040, 920],
     readsVerdict: [1690, 420], verdictOnMachine: [1820, 700],
     said: [2080, 140], whyRejected: [2080, 560], whyUnjudged: [1820, 840],

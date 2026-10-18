@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import {
@@ -16,7 +16,8 @@ export type ScriptStep =
   | { read: { path: string } }
   | { wait: number }
   | { exit: number }
-  | { tellModel: true };
+  | { tellModel: true }
+  | { record: string };
 
 export interface AgentScript {
   name: string;
@@ -110,6 +111,14 @@ export function scriptedAgent(script: AgentScript, connection: AgentSideConnecti
           await send({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `${step.mcp.tool}: ${answer.result?.content?.[0]?.text ?? answer.error?.message ?? ''}` } });
         }
         else if ('exit' in step) process.exit(step.exit);
+        else if ('record' in step) {
+          const listed = await Promise.all((session.servers ?? []).map(async (server) => {
+            const response = await fetch(server.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }) });
+            const answer = await response.json() as { result?: { tools?: { name: string; description?: string; inputSchema?: unknown }[] } };
+            return { server: server.name, tools: answer.result?.tools ?? [] };
+          }));
+          writeFileSync(step.record, JSON.stringify({ cwd: session.cwd, prompt: prompt.map((block) => (block.type === 'text' ? block.text : '')).join(''), servers: listed }, null, 2));
+        }
         else if ('tellModel' in step) await send({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `on ${session.model ?? 'no model'}` } });
         else if ('write' in step) await connection.writeTextFile({ sessionId, path: path.resolve(session.cwd, step.write.path), content: step.write.content });
         else if ('read' in step) {

@@ -376,7 +376,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
           const allowed = await ports.approve({
             nodeId,
             call: { id: externalCallId(ask.tool.callId), name: externalToolName(agent, ask.tool), arguments: ask.tool.title },
-            environment,
+            environment: workspace ?? environment,
             run,
           });
           result = await step({ kind: 'answer', optionId: cancelled ? undefined : permissionChoice(ask, allowed) });

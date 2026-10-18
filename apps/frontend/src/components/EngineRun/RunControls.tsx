@@ -18,13 +18,13 @@ export function StopRun({ run }: { run: Pick<EngineRunState, 'runId' | 'finished
   )
 }
 
-export default function RunControls({ run }: { run: EngineRunState }) {
+export default function RunControls({ run, inTree = false }: { run: EngineRunState; inTree?: boolean }) {
   const approval = pendingApproval(run)
   const waiting = run.notices.filter((notice) => notice.level === 'info').at(-1)
 
   return (
     <>
-      {approval && <ApprovalBox key={approval.callId} runId={run.runId} approval={approval} />}
+      {approval && <ApprovalBox key={approval.callId} runId={run.runId} approval={approval} inTree={inTree} />}
 
       {waiting && !approval && !run.finished && run.currentNode && (
         <WaitingOnYou run={run} prompt={waiting.message} choices={waiting.choices} />
@@ -33,20 +33,24 @@ export default function RunControls({ run }: { run: EngineRunState }) {
   )
 }
 
-type Decision = 'allow' | 'allow-for-run' | 'decline'
+type Decision = 'allow' | 'allow-for-run' | 'auto-agent' | 'auto-tree' | 'decline'
 
 const DECIDED: Record<Decision, string> = {
   'allow': 'Allowed — it runs now.',
   'allow-for-run': 'Allowed for the rest of this run — it runs now.',
+  'auto-agent': 'Auto mode is on for this agent: it runs now, and nothing it does asks again until you switch it off in the Studio.',
+  'auto-tree': 'Auto mode is on for this tree: it runs now, and nothing in its work asks again until you switch it off in its Settings.',
   'decline': 'Declined — the model is told it did not run.',
 }
 
-export function ApprovalBox({ runId, approval }: { runId: string; approval: PendingApproval }) {
+export function ApprovalBox({ runId, approval, inTree = false }: { runId: string; approval: PendingApproval; inTree?: boolean }) {
   const decide = useMutation({
     mutationFn: (decision: Decision) => approveRunCall(runId, {
       callId: approval.callId,
       allowed: decision !== 'decline',
       ...(decision === 'allow-for-run' ? { forRun: true } : {}),
+      ...(decision === 'auto-agent' ? { auto: 'agent' as const } : {}),
+      ...(decision === 'auto-tree' ? { auto: 'tree' as const } : {}),
     }),
   })
   const button = 'text-xs px-3 py-1 rounded border transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default flex items-center gap-1.5'
@@ -77,6 +81,26 @@ export function ApprovalBox({ runId, approval }: { runId: string; approval: Pend
           >
             {sending('allow-for-run')}Allow for this run
           </button>
+          <button
+            type="button"
+            disabled={decide.isPending}
+            onClick={() => decide.mutate('auto-agent')}
+            title="Switches on auto mode for the agent asking: none of its calls ask again, in any run"
+            className={`${button} bg-emerald-500/10 text-emerald-300/80 border-emerald-500/20 hover:bg-emerald-500/20`}
+          >
+            {sending('auto-agent')}Always allow this agent
+          </button>
+          {inTree && (
+            <button
+              type="button"
+              disabled={decide.isPending}
+              onClick={() => decide.mutate('auto-tree')}
+              title="Switches on auto mode for this tree: nothing in its work asks again"
+              className={`${button} bg-emerald-500/10 text-emerald-300/80 border-emerald-500/20 hover:bg-emerald-500/20`}
+            >
+              {sending('auto-tree')}Always allow in this tree
+            </button>
+          )}
           <button
             type="button"
             disabled={decide.isPending}

@@ -55,6 +55,45 @@ export function describeEnvironment(
     : describeNoEnvironment();
 }
 
+export const RUN_IN_WORKSPACE_NAME = 'run_in_workspace';
+
+export const RUN_IN_WORKSPACE_DESCRIPTION = 'Runs a shell command in the project\'s workspace, where its checks, its database and the app\'s own tools are, after bringing your work so far there: everything in your folder, committed or not. Use it to run tests, checks or the app itself; your own folder has none of them. It returns what the command printed and its exit code.';
+
+export function describeOnMachine(environment: ResolvedEnvironment): string {
+  if (environment.kind === 'sandbox') {
+    const folder = environment.worktree ? `the folder ${environment.worktree} of the project's repository` : 'the project\'s repository';
+    return [
+      'HOW YOU WORK HERE',
+      '',
+      'You are an agent on the person\'s own machine, doing one step of Koala\'s work for them. Koala runs the project and the procedure around you; you do this step.',
+      `- The folder you were told to work in is a checkout of ${folder}, from the project's workspace in Koala, at the same commit. Edit it with your own tools, and commit when you like.`,
+      `- Everything the project runs on is in that workspace, not on this machine: its image, languages and tools, its services, its database and its checks. Do not look for them here, install them or start copies of your own. Run them with ${RUN_IN_WORKSPACE_NAME}: it takes everything in your folder there first, committed or not, and runs the command from the same place in the project.`,
+      `- The execution environment described next is that workspace, written as it is told to an agent working inside it. For you, a command it describes is one you run with ${RUN_IN_WORKSPACE_NAME}, and the working directory it names is the same place in the project as your folder.`,
+      '- When your turn ends, everything in your folder goes back into the workspace, committed or not. Nothing you leave outside the folder reaches Koala.',
+      '- Koala\'s own tools are served to you through the MCP server named koala: the ones listed under the tools you can use. Call them there, not by doing their work another way.',
+    ].join('\n');
+  }
+  if (environment.kind === 'machine') {
+    return [
+      'HOW YOU WORK HERE',
+      '',
+      'You are an agent on the person\'s own machine, doing one step of Koala\'s work for them, in the folder you were told to work in.',
+      '- That folder is the project\'s own folder on this machine; what you change there stays there.',
+      '- Koala\'s own tools are served to you through the MCP server named koala: the ones listed under the tools you can use. Call them there, not by doing their work another way.',
+    ].join('\n');
+  }
+  return '';
+}
+
+export function describeOwnOnMachine(own: readonly ToolContract[], workspace: boolean): string {
+  if (own.length === 0) return '';
+  return [
+    'YOURS ON THIS MACHINE',
+    '',
+    `Koala would give a model these tools: ${own.map((tool) => tool.name).join(', ')}. You have your own for the same work, so use yours, in your folder.${workspace ? ` To run something where the project runs, use ${RUN_IN_WORKSPACE_NAME}.` : ''}`,
+  ].join('\n');
+}
+
 const ASKS: { tool: string; line: string }[] = [
   {
     tool: 'request_egress',

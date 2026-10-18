@@ -7,9 +7,13 @@ import {
   describeAsks,
   describeAvailable,
   describeEnvironment,
+  describeOnMachine,
   describeOutputs,
+  describeOwnOnMachine,
   describeWithheld,
   joinSections,
+  RUN_IN_WORKSPACE_DESCRIPTION,
+  RUN_IN_WORKSPACE_NAME,
   type ResolvedEnvironment,
 } from '../../runtime/context.js';
 import { defineNode } from '../definition.js';
@@ -142,6 +146,7 @@ export const describeEnvironmentNode: BuiltInNode = {
     inputs: [
       { name: 'environment', type: 'environment', describe: 'What the run can reach. Nothing wired means no environment.' },
       { name: 'delegates', type: 'json', describe: 'The personas it may delegate to.' },
+      { name: 'machine', type: 'text', describe: 'The agent on the person\'s machine doing this step, from Where It Runs. When it is wired, the section also says how that agent works: its folder is a checkout of the workspace\'s, the project runs in the workspace and is reached with run_in_workspace, and its work goes back when its turn ends.' },
     ],
     outputs: [{ name: 'text', type: 'text', describe: 'The environment section of the prompt.' }],
     exits: [],
@@ -150,15 +155,11 @@ export const describeEnvironmentNode: BuiltInNode = {
     idempotent: true,
     summarize: () => 'describes where the model is working',
   }),
-  implementation: valueImplementation('describe-environment', ({ inputs, run }) => ({
-    outputs: {
-      text: describeEnvironment(
-        resolvedEnvironment(inputs.environment as EnvironmentValue | undefined),
-        (inputs.delegates as AgentDefinition[] | undefined) ?? [],
-        { agent: run.identity.agentId, runId: run.identity.runId },
-      ),
-    },
-  })),
+  implementation: valueImplementation('describe-environment', ({ inputs, run }) => {
+    const environment = resolvedEnvironment(inputs.environment as EnvironmentValue | undefined);
+    const where = describeEnvironment(environment, (inputs.delegates as AgentDefinition[] | undefined) ?? [], { agent: run.identity.agentId, runId: run.identity.runId });
+    return { outputs: { text: typeof inputs.machine === 'string' && inputs.machine ? joinSections([describeOnMachine(environment), where]) : where } };
+  }),
 };
 
 export const describeProcedure: BuiltInNode = {
@@ -192,6 +193,7 @@ export const describeTools: BuiltInNode = {
       { name: 'offered', type: 'toolSet', describe: 'The tools being offered.' },
       { name: 'withheld', type: 'json', describe: 'The tools not offered, with reasons.' },
       { name: 'environment', type: 'environment', describe: 'Decides what the model is told about reaching the network.' },
+      { name: 'machine', type: 'text', describe: 'The agent on the person\'s machine doing this step, from Where It Runs. When it is wired, the tools listed are the ones served to that agent (those bound to an environment are its own on the machine, named apart), with run_in_workspace when it works on a workspace.' },
     ],
     outputs: [{ name: 'text', type: 'text', describe: 'The tools section of the prompt.' }],
     exits: [],
@@ -204,6 +206,18 @@ export const describeTools: BuiltInNode = {
     const offered = (inputs.offered as ToolSet | undefined) ?? [];
     const withheld = (inputs.withheld as WithheldTool[] | undefined) ?? [];
     const environment = resolvedEnvironment(inputs.environment as EnvironmentValue | undefined);
+    if (typeof inputs.machine === 'string' && inputs.machine) {
+      const workspace = environment.kind === 'sandbox';
+      const served = [
+        ...offered.filter((tool) => tool.binding !== 'environment'),
+        ...(workspace ? [{ name: RUN_IN_WORKSPACE_NAME, description: RUN_IN_WORKSPACE_DESCRIPTION, binding: 'platform' } as ToolSet[number]] : []),
+      ];
+      return {
+        outputs: {
+          text: joinSections([describeAvailable(served), describeOwnOnMachine(offered.filter((tool) => tool.binding === 'environment'), workspace), describeWithheld(withheld), describeAsks(environment, served)]),
+        },
+      };
+    }
 
     return {
       outputs: {

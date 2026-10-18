@@ -240,13 +240,15 @@ export function engineRouter(deps: EngineRouterDeps): Router {
   }));
 
   router.post('/runs/:runId/approve', asyncRoute(async (req: Request, res: Response) => {
-    const { callId, allowed, forRun, conversationId, tool } = req.body ?? {};
+    const { callId, allowed, forRun, conversationId, tool, auto } = req.body ?? {};
     if (typeof callId !== 'string') return res.status(400).json({ error: 'callId is required' });
     if (typeof allowed !== 'boolean') return res.status(400).json({ error: 'allowed must be true or false' });
+    if (auto !== undefined && auto !== 'agent' && auto !== 'tree') return res.status(400).json({ error: 'auto is agent or tree' });
     const conversation = typeof conversationId === 'string' && typeof tool === 'string' && tool ? { id: conversationId, tool } : undefined;
 
     try {
-      const outcome = await deps.approvals.approve(userOf(req).id, String(req.params.runId), { callId, allowed, forRun: forRun === true, conversation });
+      const outcome = await deps.approvals.approve(userOf(req).id, String(req.params.runId), { callId, allowed, forRun: forRun === true, conversation, ...(auto ? { auto } : {}) });
+      if (typeof outcome === 'object') return res.status(409).json({ error: outcome.refused });
       if (outcome === 'not-yours') return res.status(404).json({ error: 'You have no run with that id' });
       if (outcome === 'no-such-conversation') return res.status(404).json({ error: 'You have no conversation with that id' });
       return res.json({ ok: true });

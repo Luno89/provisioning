@@ -16,6 +16,7 @@ import type {
 import { numberOf, textOf } from './read.js';
 import { effectiveMachineChoice, machineChoice, machineChoiceId, machineSessionKey, type MachineChoice } from '../machine-choice.js';
 import { DECIDE_INSTRUCTIONS, readDecision } from './model.js';
+import { RUN_IN_WORKSPACE_DESCRIPTION, RUN_IN_WORKSPACE_NAME } from '../../runtime/context.js';
 
 export interface ToolRunRequest {
   nodeId: string;
@@ -94,11 +95,11 @@ export interface ExternalAgentRequest {
   run: RunContext;
 }
 
-export const RUN_IN_WORKSPACE = 'run_in_workspace';
+export const RUN_IN_WORKSPACE = RUN_IN_WORKSPACE_NAME;
 
 export const RUN_IN_WORKSPACE_TOOL: ExternalServedToolValue = {
   name: RUN_IN_WORKSPACE,
-  description: 'Runs a shell command in the project\'s workspace, where its checks, its database and the app\'s own tools are, after bringing your work so far there: everything in your folder, committed or not. Use it to run tests, checks or the app itself; your own folder has none of them. It returns what the command printed and its exit code.',
+  description: RUN_IN_WORKSPACE_DESCRIPTION,
   inputSchema: {
     type: 'object',
     properties: {

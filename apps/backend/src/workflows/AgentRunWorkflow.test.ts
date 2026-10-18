@@ -12,6 +12,7 @@ import {
   REFUSED_CALL,
   RESEARCH_V2,
   TOOL_ROUNDS_V2,
+  DO_ONE_TASK_V2,
   INTERACTIVE_CHAT_V4,
   replyExit,
   stepImplementation,
@@ -25,7 +26,7 @@ import { runCancelledVia } from '../engine-host/temporal/run-cancellation.js';
 import { createAgentRegistry } from '../engine-host/registries/registry.js';
 import { BUILDER_TOOLS, contractsFor } from '@koala/agent-engine';
 import { WORKSPACE_TOOLS } from '../engine-host/tools/workspace-tools-catalogue.js';
-import { seededAgents } from '../extensions/seeds.js';
+import { extensionTools, seededAgents } from '../extensions/seeds.js';
 import { createEffortTracker, type RunLimitsArgs } from '../engine-host/registries/effort.js';
 import { machineChoiceId, type RunEffort } from '@koala/agent-engine/procedure';
 import { createHostNodes, hostNodesFor } from '../engine-host/nodes/index.js';
@@ -88,6 +89,7 @@ function activities(options: {
   external?: ExternalAgentSessions;
   machineWork?: Record<string, (...args: never[]) => Promise<unknown>>;
   machineGit?: (op: MachineGitOp) => Promise<MachineGitResult>;
+  memories?: unknown[];
 }) {
   const registry = options.registry ?? createAgentRegistry();
   const conversations = options.conversations ?? inMemoryConversations();
@@ -109,7 +111,7 @@ function activities(options: {
     models,
     tools: { run: async () => ({ ok: true, digest: '' }) },
     environments: options.environments ?? { describe: async () => options.environment ?? { kind: 'none', egress: false }, release: async () => undefined },
-    memories: { list: async () => [], save: async () => undefined },
+    memories: { list: async () => (options.memories ?? []) as never[], save: async () => undefined },
   }), ['activity', 'sandbox']);
 
   const scriptedModel = stepImplementation('call-model', async ({ node, execution, inputs, run }) => {
@@ -1049,7 +1051,7 @@ describe('an external agent working on someone\'s machine', () => {
 
     expect(result.outcome).toBe('ok');
     const told = String(result.outputs.result);
-    expect(told).toMatch(/^Your workspace is the folder .*machine\/projects\/thing\./);
+    expect(told).toMatch(/^Your folder is .*machine\/projects\/thing\./);
     expect(told).toContain('You are working for Koala');
     expect(told.endsWith('Build the delivery labels.')).toBe(true);
     expect(sessions.openKeys()).toEqual([]);
@@ -1198,6 +1200,173 @@ describe('an external agent working on someone\'s machine', () => {
       await mcp.close();
     }
   }, 60_000);
+
+  describe('what an agent on a machine is told', () => {
+    const storyFolder = async (base: string) => {
+      const git = (cwd: string, ...args: string[]): string => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' }).trim();
+      const bare = resolve(base, 'gitea', 'tree.git');
+      const folder = resolve(base, 'pod', 'trees', 'l1');
+      execFileSync('mkdir', ['-p', bare, folder]);
+      git(bare, 'init', '-q', '--bare');
+      git(folder, 'init', '-q', '-b', 'leaf/l1');
+      await writeFile(resolve(folder, 'README.md'), 'labels\n');
+      git(folder, 'add', '-A');
+      git(folder, 'commit', '-q', '-m', 'start');
+      return {
+        bare,
+        machineWork: {
+          EngineMachineSendActivity: async (args: { worktree?: string; branch: string; message: string }) => {
+            git(folder, 'add', '-A');
+            git(folder, 'commit', '-q', '--allow-empty', '-m', args.message);
+            git(folder, 'push', '-q', bare, `HEAD:refs/heads/${args.branch}`);
+            return { repo: 'tree', folder: `/work/${args.worktree}`, commit: git(folder, 'rev-parse', 'HEAD') };
+          },
+          EngineMachineTakeActivity: async (args: { branch: string }) => {
+            git(folder, 'fetch', '-q', bare, `+refs/heads/${args.branch}:refs/koala/machine`);
+            git(folder, 'merge', '-q', '--ff-only', 'refs/koala/machine');
+            return { brought: true, commit: git(folder, 'rev-parse', 'HEAD') };
+          },
+          EngineMachineDropActivity: async (args: { branch: string }) => { git(bare, 'branch', '-D', args.branch); },
+        },
+      };
+    };
+    const storySandbox = {
+      kind: 'sandbox',
+      id: 'engine-tree-t1',
+      worktree: 'trees/l1',
+      workspace: {
+        runId: 'tree-t1', ownerId: 'user-1', agent: 'executor', image: 'koala/odoo-20', provides: ['git', 'odoo-check'],
+        lifetimeMs: 60_000, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared',
+      },
+      capabilities: { kind: 'sandbox', lifecycle: 'persistent', languages: ['python3'] },
+    } as RunEnvironment;
+    const remembered = {
+      id: 'm1', ownerId: 'user-1', category: 'environment_facts', scope: 'global', recommendedScope: 'global', status: 'active',
+      title: 'Odoo 20 paper formats', text: 'In Odoo 20 a report names its paper format through paperformat_id.', createdAt: 'now', updatedAt: 'now',
+    };
+    interface Recorded { cwd: string; prompt: string; servers: { server: string; tools: { name: string; description?: string }[] }[] }
+
+    it('gives an executor working a story everything a model would get, the setup it works in, and every tool it is served', async () => {
+      root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
+      const { bare, machineWork } = await storyFolder(root);
+      const told = resolve(root, 'told.json');
+      const scriptPath = resolve(root, 'script.json');
+      await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [
+        { when: 'Question: Does this verdict', steps: [{ say: 'Yes.' }] },
+        { steps: [{ record: told }, { write: { path: 'label.txt', content: 'Axial Concepts\n' } }, { say: 'Wrote label.txt.' }] },
+      ] } satisfies AgentScript));
+      const mcp = new LocalMcpServer();
+      await mcp.start();
+      const machineRoot = resolve(root, 'machine');
+      const sessions = new ExternalAgentSessions({ rootDir: machineRoot, launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500, mcp });
+      const registry = createAgentRegistry({ toolCatalogue: { list: async () => contractsFor([...BUILDER_TOOLS, ...extensionTools()]) } });
+      const acts = activities({
+        registry, script: [{ content: 'The work meets what was asked.' }], external: sessions, environment: storySandbox, machineWork, memories: [remembered],
+        machineGit: createMachineGit({ rootDir: machineRoot, backendUrl: 'http://koala.test', token: 'device-token', remote: () => bare }),
+      });
+      const task = { id: 't1', leafId: 'l1', title: 'Write the label', doneMeans: 'label.txt says Axial Concepts', checks: {} };
+
+      try {
+        const result = await runWorkflow({
+          ...input('executor', DO_ONE_TASK_V2, 'Work the task Write the label.', { item: task }),
+          ticket: { ...ticket('executor'), modelId: 'machine:desk:antigravity' },
+        }, acts);
+        expect(result.outcome).toBe('ok');
+
+        const got = JSON.parse(await readFile(told, 'utf8')) as Recorded;
+        const executor = seededAgents().find((agent) => agent.slug === 'executor')!;
+        const said = got.prompt;
+        const at = (text: string): number => {
+          const found = said.indexOf(text);
+          expect(found, `the agent was not told: ${text}`).toBeGreaterThanOrEqual(0);
+          return found;
+        };
+
+        expect(got.cwd).toBe(resolve(machineRoot, 'koala-trees', 'tree-t1', 'trees', 'l1'));
+        at(`Your folder is ${got.cwd}.`);
+        at('Koala\'s tools are served to you through the MCP server named koala.');
+        at(executor.prompt.slice(0, 120));
+        const setup = at('HOW YOU WORK HERE');
+        at('is a checkout of the folder trees/l1 of the project\'s repository');
+        at('Run them with run_in_workspace');
+        at('everything in your folder goes back into the workspace, committed or not');
+        expect(at('YOUR EXECUTION ENVIRONMENT')).toBeGreaterThan(setup);
+        at('koala/odoo-20');
+        at('WHAT THE PROCEDURE DOES AROUND YOU');
+        at('The task has already been claimed for you.');
+        at('a judge weighs your work against what the task asked for');
+        at('The outcome is then recorded on the task for you.');
+        const usable = said.slice(at('TOOLS YOU CAN USE RIGHT NOW'), at('YOURS ON THIS MACHINE'));
+        const listed = [...usable.matchAll(/^- ([a-z_]+): /gm)].map((match) => match[1]!).sort();
+        at('Koala would give a model these tools: run_command, read_file, write_file, list_dir.');
+        at('In Odoo 20 a report names its paper format through paperformat_id.');
+        expect(said.split('Work the task Write the label.')).toHaveLength(2);
+        expect(said).not.toContain('The conversation so far');
+        expect(at('"doneMeans": "label.txt says Axial Concepts"')).toBeGreaterThan(at('When you are done, your answer must provide: summary, changed.'));
+
+        const koala = got.servers.find((server) => server.server === 'koala');
+        const served = new Map(koala?.tools.map((tool) => [tool.name, tool.description ?? '']));
+        expect([...served.keys()].sort()).toEqual(listed);
+        expect(listed).toEqual(expect.arrayContaining(['run_in_workspace', 'request_secret', 'request_egress', 'list_project_secrets']));
+        expect(said).not.toContain('NOT AVAILABLE TO YOU THIS TURN\n\n- request_secret');
+        expect(served.get('run_in_workspace')).toContain('Runs a shell command in the project\'s workspace');
+        for (const [name, description] of served) expect(description.trim(), `${name} has no description`).not.toBe('');
+      } finally {
+        await sessions.closeAll();
+        await mcp.close();
+      }
+    }, 60_000);
+
+    it('lets the agent\'s own asks through without anyone when its tree is on auto mode', async () => {
+      root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
+      const { bare, machineWork } = await storyFolder(root);
+      const scriptPath = resolve(root, 'script.json');
+      await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [
+        { steps: [{ tool: { id: 'ls', title: 'ls -la', kind: 'execute' }, ask: true, output: 'README.md' }, { say: 'Looked.' }] },
+      ] } satisfies AgentScript));
+      const machineRoot = resolve(root, 'machine');
+      const sessions = new ExternalAgentSessions({ rootDir: machineRoot, launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500 });
+      const acts = activities({
+        script: [{ content: 'unused' }], external: sessions, environment: storySandbox, machineWork,
+        machineGit: createMachineGit({ rootDir: machineRoot, backendUrl: 'http://koala.test', token: 'device-token', remote: () => bare }),
+      });
+      acts.engine.EngineAutoModeActivity.mockImplementation(async (args: { workspaceRunId?: string }) => args.workspaceRunId === 'tree-t1');
+
+      try {
+        const result = await runWorkflow({ ...input('executor', TOOL_ROUNDS_V2, 'Look around.'), ticket: { ...ticket('executor'), modelId: 'machine:desk:antigravity' } }, acts);
+        expect(result.outcome).toBe('ok');
+        expect(String(result.outputs.result)).toContain('Looked.');
+        expect(acts.engine.EngineAutoModeActivity).toHaveBeenCalledWith(expect.objectContaining({ workspaceRunId: 'tree-t1' }));
+      } finally {
+        await sessions.closeAll();
+      }
+    }, 60_000);
+
+    it('tells an agent working a folder of its own that it is the project\'s own, and offers no run_in_workspace', async () => {
+      root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
+      const told = resolve(root, 'told.json');
+      const scriptPath = resolve(root, 'script.json');
+      await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [{ record: told }, { say: 'Looked.' }] }] } satisfies AgentScript));
+      const mcp = new LocalMcpServer();
+      await mcp.start();
+      const sessions = new ExternalAgentSessions({ rootDir: resolve(root, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500, mcp });
+      const registry = createAgentRegistry({ toolCatalogue: { list: async () => contractsFor([...BUILDER_TOOLS, ...WORKSPACE_TOOLS]) } });
+      const acts = activities({ registry, script: [{ content: 'unused' }], external: sessions, environment: MACHINE });
+
+      try {
+        const result = await runWorkflow({ ...input('executor', TOOL_ROUNDS_V2, 'Look around.'), ticket: { ...ticket('executor'), modelId: 'machine:desk:antigravity' } }, acts);
+        expect(result.outcome).toBe('ok');
+        const got = JSON.parse(await readFile(told, 'utf8')) as Recorded;
+        expect(got.prompt).toContain('That folder is the project\'s own folder on this machine; what you change there stays there.');
+        expect(got.prompt).not.toContain('run_in_workspace');
+        expect(got.prompt).toContain('Koala would give a model these tools: run_command, read_file, write_file, list_dir. You have your own for the same work, so use yours, in your folder.');
+        expect(got.servers.find((server) => server.server === 'koala')?.tools.map((tool) => tool.name)).not.toContain('run_in_workspace');
+      } finally {
+        await sessions.closeAll();
+        await mcp.close();
+      }
+    }, 60_000);
+  });
 
   it('serves the agent its persona\'s own tools, runs each call through the run (asking before one that changes something), and starts it on the model picked', async () => {
     root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
