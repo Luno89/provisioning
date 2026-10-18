@@ -39,6 +39,43 @@ describe('a machine\'s checkout of a project\'s work', () => {
     expect(again).toMatchObject({ ok: true, commit: pushed.ok ? pushed.commit : '' });
   });
 
+  it('lays the work over what the workspace already took when the agent rewrites those commits, so it still fast-forwards', async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'machine-git-'));
+    const bare = path.join(root, 'tree.git');
+    const seed = path.join(root, 'seed');
+    execFileSync('mkdir', ['-p', bare, seed]);
+    git(bare, 'init', '-q', '--bare');
+    git(seed, 'init', '-q', '-b', 'main');
+    await writeFile(path.join(seed, 'README.md'), 'labels\n');
+    git(seed, 'add', '-A');
+    git(seed, 'commit', '-q', '-m', 'start');
+    git(seed, 'push', '-q', bare, 'HEAD:refs/heads/machine/desk/run-1');
+    const machine = createMachineGit({ rootDir: path.join(root, 'home'), backendUrl: 'http://koala.test', token: 'device-token', remote: () => bare });
+    const at = { repo: 'tree-t1', branch: 'machine/desk/run-1', folder: 'tree-t1/trees/l1' };
+    await machine({ kind: 'checkout', ...at });
+    const folder = path.join(root, 'home', 'koala-trees', 'tree-t1', 'trees', 'l1');
+
+    await writeFile(path.join(folder, 'labels.spec.ts'), 'first\n');
+    const synced = await machine({ kind: 'push', ...at, message: 'Work so far, for run_in_workspace' });
+    expect(synced.ok).toBe(true);
+    const taken = git(bare, 'rev-parse', 'machine/desk/run-1');
+
+    await writeFile(path.join(folder, 'labels.spec.ts'), 'second\n');
+    git(folder, 'add', '-A');
+    git(folder, 'commit', '-q', '--amend', '-m', 'Add the labels spec');
+    await writeFile(path.join(folder, 'notes.md'), 'left uncommitted\n');
+
+    const back = await machine({ kind: 'push', ...at, message: 'antigravity: the labels spec' });
+    expect(back.ok).toBe(true);
+    const pushed = git(bare, 'rev-parse', 'machine/desk/run-1');
+    expect(git(bare, 'rev-parse', `${pushed}^`)).toBe(taken);
+    expect(git(bare, 'log', '-1', '--format=%s', pushed)).toBe('antigravity: the labels spec');
+    expect(git(bare, 'show', `${pushed}:labels.spec.ts`)).toBe('second');
+    expect(git(bare, 'show', `${pushed}:notes.md`)).toBe('left uncommitted');
+    expect(git(folder, 'status', '--porcelain')).toBe('');
+    expect(git(folder, 'rev-parse', 'HEAD')).toBe(pushed);
+  });
+
   it('keeps out of anything outside its folder, and says what failed without the token', async () => {
     root = await mkdtemp(path.join(tmpdir(), 'machine-git-'));
     const machine = createMachineGit({ rootDir: path.join(root, 'home'), backendUrl: 'http://koala.test', token: 'device-token', remote: () => path.join(root, 'missing.git') });

@@ -23,7 +23,10 @@ export interface MachineGitOptions {
   remote?: ((repo: string) => string) | undefined;
 }
 
-export const remoteFor = (backendUrl: string, repo: string): string =>
+const SENT = 'refs/koala/sent';
+const AS_MACHINE = ['-c', 'user.name=koala-machine', '-c', 'user.email=machine@koala.local'];
+
+export const remoteFor =(backendUrl: string, repo: string): string =>
   `${backendUrl.replace(/\/$/, '')}/api/machines/git/${encodeURIComponent(repo)}.git`;
 
 export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp) => Promise<MachineGitResult> {
@@ -53,14 +56,22 @@ export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp)
         await must([...signedIn, 'fetch', '-q', remote, `+refs/heads/${op.branch}:refs/remotes/koala/work`], `could not fetch ${op.branch}`);
         await must(['checkout', '-q', '-f', '-B', 'koala-work', 'refs/remotes/koala/work'], 'could not check it out');
         await must(['clean', '-q', '-fd'], 'could not clear what the last turn left');
+        await must(['update-ref', SENT, 'HEAD'], 'could not note what the workspace has');
         return { ok: true, path: relative, commit: await must(['rev-parse', 'HEAD'], 'could not read the commit') };
       }
 
       await must(['add', '-A'], 'could not stage the work');
-      if ((await git(['diff', '--cached', '--quiet'], folder, env)).code !== 0) {
-        await must(['-c', 'user.name=koala-machine', '-c', 'user.email=machine@koala.local', 'commit', '-q', '-m', op.message], 'could not commit the work');
+      const sent = (await git(['rev-parse', '--verify', '-q', SENT], folder, env)).stdout.trim();
+      const rewritten = sent !== '' && (await git(['merge-base', '--is-ancestor', sent, 'HEAD'], folder, env)).code !== 0;
+      if (rewritten) {
+        const tree = await must(['write-tree'], 'could not read the work');
+        const laid = await must([...AS_MACHINE, 'commit-tree', tree, '-p', sent, '-m', op.message], 'could not lay the work over what the workspace has');
+        await must(['reset', '-q', '--soft', laid], 'could not lay the work over what the workspace has');
+      } else if ((await git(['diff', '--cached', '--quiet'], folder, env)).code !== 0) {
+        await must([...AS_MACHINE, 'commit', '-q', '-m', op.message], 'could not commit the work');
       }
       await must([...signedIn, 'push', '-q', '--force', remote, `HEAD:refs/heads/${op.branch}`], `could not push ${op.branch}`);
+      await must(['update-ref', SENT, 'HEAD'], 'could not note what the workspace has');
       return { ok: true, path: relative, commit: await must(['rev-parse', 'HEAD'], 'could not read the commit') };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
