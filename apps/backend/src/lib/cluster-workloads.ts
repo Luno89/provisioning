@@ -1,3 +1,5 @@
+import { RECENT_RESTART_MS } from './workload-health.js';
+
 export type WorkloadState = 'ok' | 'starting' | 'warning' | 'down';
 export type WorkloadKind = 'Deployment' | 'StatefulSet' | 'DaemonSet' | 'Job' | 'Pod';
 export type WorkloadGroup = 'apps' | 'koala' | 'platform' | 'other';
@@ -85,7 +87,6 @@ export const BUILD_NAMESPACES: ReadonlySet<string> = new Set(['pipeline-builds']
 export const CHECK_SPACE_PREFIX = 'space-';
 
 const STARTING_GRACE_MS = 2 * 60_000;
-const RECENT_RESTART_MS = 60 * 60_000;
 
 const BROKEN: Record<string, string> = {
   CrashLoopBackOff: 'it keeps crashing',

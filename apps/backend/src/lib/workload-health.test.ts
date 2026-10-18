@@ -54,10 +54,30 @@ describe('a workload that has settled into failing', () => {
   });
 
   it('catches repeated restarts before Kubernetes says CrashLoopBackOff', () => {
-    const r = assessWorkload(pods([{ ready: false, restartCount: 3, state: {} }]));
+    const now = Date.parse('2026-10-18T12:00:00Z');
+    const r = assessWorkload(pods([{ ready: false, restartCount: 3, state: {}, lastState: { terminated: { finishedAt: '2026-10-18T11:50:00Z' } } }]), now);
 
     expect(r.health).toBe('unhealthy');
     expect(r.reason).toMatch(/restarted 3 times/);
+  });
+
+  it('does not hold restarts from long ago against a busy server that is only not ready now', () => {
+    const now = Date.parse('2026-10-18T12:00:00Z');
+    const busy = { ready: false, restartCount: 3, state: { running: {} }, lastState: { terminated: { finishedAt: '2026-10-18T08:22:53Z' } } };
+
+    expect(assessWorkload(pods([busy]), now).health).toBe('starting');
+    expect(assessWorkload(pods([{ ...busy, ready: true }]), now).health).toBe('healthy');
+  });
+
+  it('ignores a pod that failed and was replaced, so the workload can be healthy again', () => {
+    const r = assessWorkload({
+      items: [
+        { metadata: { name: 'tabby-old' }, status: { phase: 'Failed', containerStatuses: [{ ready: false, restartCount: 0, state: { terminated: { reason: 'Unknown', exitCode: 255 } } }] } },
+        { metadata: { name: 'tabby' }, status: { phase: 'Running', containerStatuses: [ok] } },
+      ],
+    });
+
+    expect(r.health).toBe('healthy');
   });
 
   it('says which pod, because a namespace can hold several', () => {

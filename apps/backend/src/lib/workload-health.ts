@@ -8,6 +8,8 @@ export interface WorkloadStatus {
 
 const RESTARTS_BEFORE_FAILING = 3;
 
+export const RECENT_RESTART_MS = 60 * 60_000;
+
 const TERMINAL_WAITING = new Set([
   'CrashLoopBackOff',
   'ImagePullBackOff',
@@ -24,11 +26,12 @@ interface PodLike {
       ready?: boolean;
       restartCount?: number;
       state?: { waiting?: { reason?: string }; terminated?: { reason?: string; exitCode?: number } };
+      lastState?: { terminated?: { finishedAt?: string } };
     }[];
   };
 }
 
-export function assessWorkload(podListJson: unknown): WorkloadStatus {
+export function assessWorkload(podListJson: unknown, now: number = Date.now()): WorkloadStatus {
   const items = (podListJson as { items?: PodLike[] })?.items;
   if (!Array.isArray(items)) return { health: 'unknown', reason: '' };
   if (items.length === 0) return { health: 'starting', reason: 'no pods yet' };
@@ -39,7 +42,7 @@ export function assessWorkload(podListJson: unknown): WorkloadStatus {
   for (const pod of items) {
     const name = pod.metadata?.name ?? 'pod';
     const phase = pod.status?.phase;
-    if (phase === 'Succeeded') continue;
+    if (phase === 'Succeeded' || phase === 'Failed') continue;
     judged = true;
 
     const containers = pod.status?.containerStatuses ?? [];
@@ -50,7 +53,9 @@ export function assessWorkload(podListJson: unknown): WorkloadStatus {
       if (waiting && TERMINAL_WAITING.has(waiting)) {
         return { health: 'unhealthy', reason: `${name}: ${waiting}` };
       }
-      if ((c.restartCount ?? 0) >= RESTARTS_BEFORE_FAILING && !c.ready) {
+      const lastRestart = Date.parse(c.lastState?.terminated?.finishedAt ?? '');
+      const restartedLately = Number.isFinite(lastRestart) && now - lastRestart < RECENT_RESTART_MS;
+      if ((c.restartCount ?? 0) >= RESTARTS_BEFORE_FAILING && !c.ready && restartedLately) {
         return { health: 'unhealthy', reason: `${name}: restarted ${c.restartCount} times` };
       }
       if (!c.ready) starting = true;
