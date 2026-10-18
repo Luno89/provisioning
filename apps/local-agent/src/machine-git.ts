@@ -28,8 +28,9 @@ export const remoteFor = (backendUrl: string, repo: string): string =>
 
 export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp) => Promise<MachineGitResult> {
   const git = options.git ?? runGit;
-  const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
-  const signedIn = ['-c', `http.extraHeader=Authorization: Bearer ${options.token}`];
+  const { SSH_ASKPASS: _ssh, GIT_ASKPASS: _git, ...inherited } = process.env;
+  const env: NodeJS.ProcessEnv = { ...inherited, GIT_TERMINAL_PROMPT: '0' };
+  const signedIn = ['-c', 'credential.helper=', '-c', 'core.askPass=', '-c', `http.extraHeader=Authorization: Bearer ${options.token}`];
   const hidden = (text: string): string => text.replaceAll(options.token, '***').trim();
 
   return async (op) => {
