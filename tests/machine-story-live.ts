@@ -23,6 +23,7 @@ const run = promisify(execFile);
 const BASE = process.env.MACHINE_STORY_LIVE_URL ?? 'http://localhost:3001/api';
 const AGENT = 'koala-script';
 const SCRIPT_AGENT = fileURLToPath(new URL('../apps/local-agent/src/acp-script-agent.ts', import.meta.url));
+const TSX_LOADER = new URL('../node_modules/tsx/dist/loader.mjs', import.meta.url).href;
 const LABEL = 'Axial Concepts';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const step = (message: string) => console.log(`\n▶ ${message}`);
@@ -81,7 +82,7 @@ async function main(): Promise<void> {
     { when: 'Plan the machine story check', steps: [{ mcp: { server: 'koala', tool: 'propose_plan', args: plan } }, { say: 'Proposed; it waits for your approval.' }] },
     { steps: [{ echo: true }] },
   ]);
-  const agent: ManualAgent = { id: AGENT, title: 'Scripted agent (machine-story-live)', command: process.execPath, args: ['--import', import.meta.resolve('tsx'), SCRIPT_AGENT, scriptPath] };
+  const agent: ManualAgent = { id: AGENT, title: 'Scripted agent (machine-story-live)', command: process.execPath, args: ['--import', TSX_LOADER, SCRIPT_AGENT, scriptPath] };
   const added = await api.put(`/mesh/local-agents/${deviceId}/agents`, [...device.manualAgents.filter((entry) => entry.id !== AGENT), agent]);
   assert.equal(added.status, 200, JSON.stringify(added.data));
   await until(`${AGENT} to be ready on ${device.name}`, async () => {
