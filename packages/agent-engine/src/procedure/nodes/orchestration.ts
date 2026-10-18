@@ -126,6 +126,7 @@ export interface OrchestrationPorts {
   runExternal?(request: ExternalAgentRequest): Promise<ExternalAgentOutcome>;
   handOffsTogether?(): boolean;
   sandboxCallsUnasked?(): boolean;
+  readsTogether?(): boolean;
 }
 
 export const REFUSED_CALL = 'you did not approve that call, so it did not run';
@@ -273,14 +274,45 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       for (const handOff of handOffs.values()) handOff.catch(() => undefined);
       const settled: { call: ToolCallRequest; outcome: ToolRunOutcome }[] = [];
 
-      for (const call of reply.toolCalls) {
-        const handOff = handOffs.get(call.id);
-        if (handOff) {
-          settled.push({ call, outcome: (await handOff).outcome });
-          continue;
+      if (ports.readsTogether?.() === true) {
+        const reads = new Set(((inputs.offered as ToolSet | undefined) ?? []).filter((tool) => tool.effect === 'read').map((tool) => tool.name));
+        const started = new Map<string, Promise<{ outcome: ToolRunOutcome }>>();
+        const before: Promise<unknown>[] = [];
+        for (const call of reply.toolCalls) {
+          const handOff = handOffs.get(call.id);
+          if (handOff) {
+            before.push(handOff);
+            continue;
+          }
+          if (run.signal?.aborted) continue;
+          if (reads.has(call.name)) {
+            const reading = runOne(request, call, persona, environment);
+            reading.catch(() => undefined);
+            started.set(call.id, reading);
+            before.push(reading);
+            continue;
+          }
+          await Promise.allSettled(before);
+          if (run.signal?.aborted) continue;
+          const changing = runOne(request, call, persona, environment);
+          started.set(call.id, changing);
+          before.push(changing);
+          await changing.catch(() => undefined);
         }
-        if (run.signal?.aborted) continue;
-        settled.push({ call, outcome: (await runOne(request, call, persona, environment)).outcome });
+        for (const call of reply.toolCalls) {
+          const running = handOffs.get(call.id) ?? started.get(call.id);
+          if (running) settled.push({ call, outcome: (await running).outcome });
+        }
+      } else {
+        for (const call of reply.toolCalls) {
+          const handOff = handOffs.get(call.id);
+          if (handOff) {
+            settled.push({ call, outcome: (await handOff).outcome });
+            continue;
+          }
+          if (run.signal?.aborted) continue;
+          settled.push({ call, outcome: (await runOne(request, call, persona, environment)).outcome });
+        }
       }
 
       const results: ToolResult[] = settled.map(({ call, outcome }) => ({

@@ -95,7 +95,7 @@ export const TOOL_LOOP = defineGroup('tool-loop', {
   },
 }, (g) => {
   const approve = g.approveToolCalls('approve', { reply: g.inputs.reply, environment: g.inputs.environment, offered: g.inputs.offered });
-  const run = g.runToolCalls('run', { reply: approve.approved, persona: g.inputs.persona, environment: g.inputs.environment });
+  const run = g.runToolCalls('run', { reply: approve.approved, persona: g.inputs.persona, environment: g.inputs.environment, offered: g.inputs.offered });
   const trim = g.trimToolResults('trim', { results: run.results });
   const failures = g.checkToolFailures('failures', { results: trim.results });
 

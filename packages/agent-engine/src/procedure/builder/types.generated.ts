@@ -1124,6 +1124,8 @@ export interface RunToolCallsWires {
   persona?: In<'persona'>
   /** Where environment tools run. Nothing wired means no environment. */
   environment?: In<'environment'>
+  /** The tools the model was offered, which say which of them only read. Nothing wired means every call runs on its own, in order. */
+  offered?: In<'toolSet'>
 }
 
 export type RunToolCallsSettings = {
@@ -1378,7 +1380,7 @@ export interface Nodes {
    */
   callTool(id: string, wires: CallToolWires, settings: CallToolSettings, meta?: NodeMeta): CallToolNode
   /**
-   * Run Tool Calls: Runs every tool call in the reply, in order. A call naming a persona this one may delegate to starts that persona as a child run; every other call runs wherever its tool lives — the sandbox, a registered machine, or the platform. Each result is tagged with its call and the reply it answers.
+   * Run Tool Calls: Runs every tool call in the reply. A call naming a persona this one may delegate to starts that persona as a child run, and every hand-off starts at once; calls that only read run together, and a call that changes something waits for every call before it and runs on its own, so the reply's order holds wherever it matters. Every other call runs wherever its tool lives — the sandbox, a registered machine, or the platform. Each result is tagged with its call and the reply it answers.
    * Leaves through done: Every call has a result, whether it succeeded or not.
    */
   runToolCalls(id: string, wires?: RunToolCallsWires, settings?: RunToolCallsSettings, meta?: NodeMeta): RunToolCallsNode

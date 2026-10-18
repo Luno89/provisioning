@@ -43,10 +43,17 @@ export interface ExternalAgentModel {
 export type ExternalAgentOp =
   | { kind: 'open'; brief: string; context?: string | undefined; mode?: string | undefined; path?: string | undefined; resume?: string | undefined; tools?: ExternalServedTool[] | undefined; model?: string | undefined }
   | { kind: 'result'; callId: string; ok: boolean; content: string }
-  | { kind: 'continue' }
+  | { kind: 'results'; results: ExternalCallAnswer[] }
+  | { kind: 'continue'; within?: number | undefined }
   | { kind: 'answer'; optionId?: string | undefined }
   | { kind: 'cancel' }
   | { kind: 'close' };
+
+export interface ExternalCallAnswer {
+  callId: string;
+  ok: boolean;
+  content: string;
+}
 
 export interface ExternalAgentStepArgs {
   key: string;
@@ -62,7 +69,7 @@ export type ExternalAgentStepResult = {
 } & (
   | { state: 'running' }
   | { state: 'asks'; ask: ExternalAgentAsk }
-  | { state: 'calls'; call: ExternalToolCall }
+  | { state: 'calls'; calls: ExternalToolCall[] }
   | { state: 'ended'; stopReason: string }
   | { state: 'failed'; error: string }
   | { state: 'closed' }

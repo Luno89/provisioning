@@ -110,14 +110,48 @@ describe('the run\'s tools for an external agent', () => {
       let result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'look it up', tools: [READ_TREE] } });
       const opening = result.events.filter((event) => event.type === 'text').map((event) => (event as { delta: string }).delta).join('');
       expect(opening).toContain(TOOLS_LINE);
-      expect(result).toMatchObject({ state: 'calls', call: { name: 'read_tree', arguments: '{"treeId":"t1"}' } });
-      result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'result', callId: (result as { call: { callId: string } }).call.callId, ok: true, content: 'Tree "Shop": 2 stories' } });
-      expect(result).toMatchObject({ state: 'calls', call: { arguments: '{"treeId":"gone"}' } });
+      expect(result).toMatchObject({ state: 'calls', calls: [{ name: 'read_tree', arguments: '{"treeId":"t1"}' }] });
+      result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'result', callId: (result as { calls: { callId: string }[] }).calls[0]!.callId, ok: true, content: 'Tree "Shop": 2 stories' } });
+      expect(result).toMatchObject({ state: 'calls', calls: [{ arguments: '{"treeId":"gone"}' }] });
       expect(result.events).toContainEqual({ type: 'text', delta: 'read_tree: Tree "Shop": 2 stories' });
-      result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'result', callId: (result as { call: { callId: string } }).call.callId, ok: false, content: 'no such tree: gone' } });
+      result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'results', results: [{ callId: (result as { calls: { callId: string }[] }).calls[0]!.callId, ok: false, content: 'no such tree: gone' }] } });
       while (result.state === 'running') result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'continue' } });
       expect(result.state).toBe('ended');
       expect(result.events).toContainEqual({ type: 'text', delta: 'read_tree: no such tree: gone' });
+    } finally {
+      await sessions.closeAll();
+      await mcp.close();
+    }
+  });
+
+  it('hands the run every call the agent makes at once, takes their answers together, and keeps a waiting agent hearing progress', async () => {
+    const scriptPath = path.join(dir, 'script.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'scripted', version: '1', turns: [{ steps: [{ mcp: [
+      { server: 'koala', tool: 'read_tree', args: { treeId: 'a' }, progress: true },
+      { server: 'koala', tool: 'read_tree', args: { treeId: 'b' } },
+    ] }] }] } satisfies AgentScript));
+    const logged: string[] = [];
+    const mcp = new LocalMcpServer({ progressEveryMs: 50, log: (line) => logged.push(line) });
+    await mcp.start();
+    sessions = new ExternalAgentSessions({ rootDir: path.join(dir, 'root'), launches: { scripted: { command: process.execPath, args: ['--import', TSX, AGENT, scriptPath] } }, mcp });
+    try {
+      let result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'look both up', tools: [READ_TREE] } });
+      while (result.state === 'calls' && result.calls.length < 2) {
+        const more = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'continue' } });
+        result = more.state === 'calls' ? { ...more, calls: [...result.calls, ...more.calls] } : more;
+      }
+      expect(result.state).toBe('calls');
+      const calls = (result as { calls: { callId: string; arguments: string }[] }).calls;
+      expect(calls.map((call) => call.arguments).sort()).toEqual(['{"treeId":"a"}', '{"treeId":"b"}']);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'results', results: calls.map((call) => ({ callId: call.callId, ok: true, content: `tree ${JSON.parse(call.arguments).treeId}` })) } });
+      while (result.state === 'running') result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'continue' } });
+      expect(result.state).toBe('ended');
+      const said = result.events.filter((event) => event.type === 'text').map((event) => (event as { delta: string }).delta);
+      const heard = said.find((text) => text.startsWith('read_tree: tree a'))!;
+      expect(Number(/\((\d+) progress\)/.exec(heard)?.[1])).toBeGreaterThanOrEqual(2);
+      expect(said).toContain('read_tree: tree b');
+      expect(logged).toEqual(expect.arrayContaining(['read_tree was called with a progress token']));
     } finally {
       await sessions.closeAll();
       await mcp.close();

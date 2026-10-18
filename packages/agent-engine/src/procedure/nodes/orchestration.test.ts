@@ -233,6 +233,74 @@ describe('run tool calls', () => {
     expect(outcome.usage).toEqual({ toolCalls: 0, childRuns: 3 });
   });
 
+  it('runs calls that only read together, and holds a call that changes something until every call before it is done', async () => {
+    const log: string[] = [];
+    const finishers = new Map<string, () => void>();
+    const p = ports({
+      runTool: vi.fn(async ({ call }: { call: { id: string; name: string } }) => {
+        log.push(`start ${call.id}`);
+        await new Promise<void>((resolve) => finishers.set(call.id, resolve));
+        log.push(`end ${call.id}`);
+        return { ok: true, digest: `ran ${call.name}`, content: `output of ${call.name}` };
+      }),
+      readsTogether: vi.fn(() => true),
+    });
+    const offered = [
+      { name: 'read_file', effect: 'read' },
+      { name: 'search_web', effect: 'read' },
+      { name: 'write_file', effect: 'write' },
+    ];
+    const running = invoke(createOrchestrationNodes(p), runToolCalls, {
+      inputs: {
+        persona: persona({ tools: ['read_file', 'search_web', 'write_file'] }),
+        offered,
+        reply: reply([
+          { id: 'a', name: 'read_file', arguments: '{}' },
+          { id: 'b', name: 'search_web', arguments: '{}' },
+          { id: 'c', name: 'write_file', arguments: '{}' },
+          { id: 'd', name: 'read_file', arguments: '{}' },
+        ]),
+      },
+    });
+
+    await vi.waitFor(() => expect(log).toEqual(['start a', 'start b']));
+    finishers.get('b')!();
+    await vi.waitFor(() => expect(log).toEqual(['start a', 'start b', 'end b']));
+    finishers.get('a')!();
+    await vi.waitFor(() => expect(log.at(-1)).toBe('start c'));
+    finishers.get('c')!();
+    await vi.waitFor(() => expect(log.at(-1)).toBe('start d'));
+    finishers.get('d')!();
+    const outcome = await running;
+
+    expect(log).toEqual(['start a', 'start b', 'end b', 'end a', 'start c', 'end c', 'start d', 'end d']);
+    expect((outcome.outputs.results as ToolResult[]).map((result) => result.callId)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('runs every call on its own, in order, for a run that began before reads ran together', async () => {
+    let running = 0;
+    let most = 0;
+    const p = ports({
+      runTool: vi.fn(async ({ call }: { call: { name: string } }) => {
+        running += 1;
+        most = Math.max(most, running);
+        await Promise.resolve();
+        running -= 1;
+        return { ok: true, digest: `ran ${call.name}`, content: '' };
+      }),
+      readsTogether: vi.fn(() => false),
+    });
+    await invoke(createOrchestrationNodes(p), runToolCalls, {
+      inputs: {
+        persona: persona(),
+        offered: [{ name: 'read_file', effect: 'read' }],
+        reply: reply([{ id: 'a', name: 'read_file', arguments: '{}' }, { id: 'b', name: 'read_file', arguments: '{}' }]),
+      },
+    });
+
+    expect(most).toBe(1);
+  });
+
   it('starts hand-offs one at a time when the host says a run began before they started together', async () => {
     let running = 0;
     let most = 0;

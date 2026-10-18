@@ -6,10 +6,17 @@ import {
   type Agent, type StopReason, type ToolKind,
 } from '@agentclientprotocol/sdk';
 
+export interface ScriptMcpCall {
+  server: string;
+  tool: string;
+  args: Record<string, unknown>;
+  progress?: boolean;
+}
+
 export type ScriptStep =
   | { say: string }
   | { echo: true }
-  | { mcp: { server: string; tool: string; args: Record<string, unknown> } }
+  | { mcp: ScriptMcpCall | ScriptMcpCall[] }
   | { think: string }
   | { tool: { id: string; title: string; kind?: ToolKind; input?: unknown }; ask?: boolean; output?: string }
   | { write: { path: string; content: string } }
@@ -25,6 +32,26 @@ export interface AgentScript {
   modes?: { current: string; available: { id: string; name: string }[] };
   models?: { current: string; available: { id: string; name: string }[] };
   turns: { steps: ScriptStep[]; stop?: StopReason; when?: string }[];
+}
+
+type McpAnswer = { id?: unknown; method?: string; result?: { content?: { text?: string }[] }; error?: { message: string } };
+
+export async function callMcp(servers: { name: string; url: string }[], call: ScriptMcpCall, id: number): Promise<string> {
+  const server = servers.find((candidate) => candidate.name === call.server);
+  if (!server) return `no ${call.server} server`;
+  const response = await fetch(server.url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: call.progress ? 'application/json, text/event-stream' : 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: call.tool, arguments: call.args, ...(call.progress ? { _meta: { progressToken: `p-${id}` } } : {}) } }),
+  });
+  const body = await response.text();
+  const messages: McpAnswer[] = response.headers.get('content-type')?.includes('text/event-stream')
+    ? body.split('\n').filter((line) => line.startsWith('data: ')).map((line) => JSON.parse(line.slice(6)) as McpAnswer)
+    : [JSON.parse(body) as McpAnswer];
+  const answer = messages.find((message) => message.id !== undefined) ?? {};
+  const progress = messages.filter((message) => message.method === 'notifications/progress').length;
+  const text = `${call.tool}: ${answer.result?.content?.[0]?.text ?? answer.error?.message ?? ''}`;
+  return call.progress ? `${text} (${progress} progress)` : text;
 }
 
 export function turnFor(script: AgentScript, taken: number, asked: string): AgentScript['turns'][number] | undefined {
@@ -101,14 +128,8 @@ export function scriptedAgent(script: AgentScript, connection: AgentSideConnecti
         else if ('think' in step) await send({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: step.think } });
         else if ('wait' in step) await pause(step.wait, abort.signal);
         else if ('mcp' in step) {
-          const server = session.servers?.find((candidate) => candidate.name === step.mcp.server);
-          if (!server) {
-            await send({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `no ${step.mcp.server} server` } });
-            continue;
-          }
-          const response = await fetch(server.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: step.mcp.tool, arguments: step.mcp.args } }) });
-          const answer = await response.json() as { result?: { content?: { text?: string }[] }; error?: { message: string } };
-          await send({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `${step.mcp.tool}: ${answer.result?.content?.[0]?.text ?? answer.error?.message ?? ''}` } });
+          const said = await Promise.all((Array.isArray(step.mcp) ? step.mcp : [step.mcp]).map((call, index) => callMcp(session.servers ?? [], call, index + 1)));
+          for (const text of said) await send({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } });
         }
         else if ('exit' in step) process.exit(step.exit);
         else if ('record' in step) {

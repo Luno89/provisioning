@@ -64,7 +64,7 @@ import { platformCatalogue, platformGroups } from '../extensions/installed.js';
 import { ownerIn, startedFor } from '../lib/workflow-owner.js';
 import { tracedSummary } from '../lib/turn-log.js';
 import { externalCallId, externalRunEvents, externalToolName, permissionChoice, type ExternalToolSeen } from '../lib/external-agent-events.js';
-import type { ExternalAgentStepArgs, ExternalAgentStepResult, MachineGitOp, MachineGitResult } from '@koala/engine-core';
+import type { ExternalAgentStepArgs, ExternalAgentStepResult, ExternalCallAnswer, ExternalToolCall, MachineGitOp, MachineGitResult } from '@koala/engine-core';
 import { machineBranch, machineFolder } from '../lib/machine-branches.js';
 import type { MachineWorkRequest } from '../engine-host/sandboxes/machine-work.js';
 import type { BroughtBack } from '../engine-host/sandboxes/workspace-documents.js';
@@ -127,6 +127,9 @@ const TOOL_CALLS_HEAR_STOPS = 'tool-calls-hear-stops';
 const SANDBOX_CALLS_UNASKED = 'sandbox-calls-unasked';
 const AUTO_MODE = 'auto-mode';
 const ANSWERS_TAKEN_ONCE = 'answers-taken-once';
+const READS_TOGETHER = 'reads-together';
+const MACHINE_ANSWER_WAIT_MS = 15_000;
+const MACHINE_GATHER_MS = 1_000;
 
 export const approveSignal = defineSignal<[{ callId: string; allowed: boolean; forRun?: boolean }]>('approve');
 export const answerSignal = defineSignal<[{ nodeId: string; value: unknown }]>('answer');
@@ -352,21 +355,41 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         ...(checkout ? { path: checkout.path } : environment.path ? { path: environment.path } : {}), ...(tools?.length ? { tools } : {}),
       });
       let ranOn = result.model;
+      const answers: ExternalCallAnswer[] = [];
+      const answering = new Map<string, Promise<void>>();
+      let inWorkspace: Promise<unknown> = Promise.resolve();
+      let broke: unknown;
+      const answer = async (call: ExternalToolCall): Promise<ExternalCallAnswer> => {
+        const unsynced = !cancelled && callTool && call.name === RUN_IN_WORKSPACE ? await bringBack(`Work so far, for ${RUN_IN_WORKSPACE}`) : undefined;
+        const answered = cancelled || !callTool
+          ? { ok: false, content: cancelled ? 'the run was cancelled' : 'no tools are offered here' }
+          : unsynced ? { ok: false, content: unsynced } : await callTool(call);
+        calls.set(call.callId, { callId: call.callId, name: call.name, args: call.arguments, ok: answered.ok, digest: answered.content });
+        return { callId: call.callId, ok: answered.ok, content: answered.content };
+      };
+      const start = (call: ExternalToolCall): void => {
+        const running = call.name === RUN_IN_WORKSPACE ? inWorkspace.then(() => answer(call)) : answer(call);
+        if (call.name === RUN_IN_WORKSPACE) inWorkspace = running.catch(() => undefined);
+        answering.set(call.callId, running.then(
+          (done) => { answers.push(done); },
+          (err: unknown) => { broke ??= err; },
+        ).finally(() => { answering.delete(call.callId); }));
+      };
       for (;;) {
         await take(result);
+        if (broke !== undefined) throw broke;
         if (result.state === 'ended' || result.state === 'failed' || result.state === 'closed') break;
         if (cancelled) {
           result = await step({ kind: 'cancel' });
           continue;
         }
         if (result.state === 'calls') {
-          const { call } = result;
-          const unsynced = !cancelled && callTool && call.name === RUN_IN_WORKSPACE ? await bringBack(`Work so far, for ${RUN_IN_WORKSPACE}`) : undefined;
-          const answered = cancelled || !callTool
-            ? { ok: false, content: cancelled ? 'the run was cancelled' : 'no tools are offered here' }
-            : unsynced ? { ok: false, content: unsynced } : await callTool(call);
-          calls.set(call.callId, { callId: call.callId, name: call.name, args: call.arguments, ok: answered.ok, digest: answered.content });
-          result = await step({ kind: 'result', callId: call.callId, ok: answered.ok, content: answered.content });
+          if (!Array.isArray(result.calls)) {
+            result = { ...result, state: 'failed', error: `the machine agent on ${machineName} is older than this Koala; run the command from My Machines on it again to update it`, events: [] };
+            break;
+          }
+          for (const call of result.calls) start(call);
+          result = await step({ kind: 'continue', within: MACHINE_GATHER_MS });
           ranOn = result.model ?? ranOn;
           continue;
         }
@@ -380,10 +403,15 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
             run,
           });
           result = await step({ kind: 'answer', optionId: cancelled ? undefined : permissionChoice(ask, allowed) });
-        } else {
-          result = await step({ kind: 'continue' });
+          continue;
         }
+        if (answers.length === 0 && answering.size > 0) await condition(() => answers.length > 0 || broke !== undefined || cancelled, MACHINE_ANSWER_WAIT_MS);
+        if (broke !== undefined) throw broke;
+        result = await step(answers.length > 0 && !cancelled ? { kind: 'results', results: answers.splice(0) } : { kind: 'continue' });
+        ranOn = result.model ?? ranOn;
       }
+      await Promise.all(answering.values());
+      if (broke !== undefined) throw broke;
       const { identity, sessionId } = result;
       const on = result.model ?? ranOn;
       const withModel = { ...(on ? { model: on } : {}), ...(thinking.trim() ? { thinking } : {}), ...(calls.size ? { calls: [...calls.values()] } : {}) };
@@ -400,6 +428,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
 
     handOffsTogether: () => patched(HAND_OFFS_TOGETHER),
     sandboxCallsUnasked: () => patched(SANDBOX_CALLS_UNASKED),
+    readsTogether: () => patched(READS_TOGETHER),
 
     async runChild({ agent, inputs, environment, run, callId }): Promise<ChildOutcomeValue> {
       children += 1;

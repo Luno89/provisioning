@@ -105,13 +105,13 @@ export class ExternalAgentSessions {
       await live.session.close();
       return { ...this.about(live), state: 'closed', events: live.events.splice(0) };
     }
-    if (op.kind === 'result') {
-      const held = live.held.get(op.callId);
-      live.held.delete(op.callId);
-      if (held) {
-        if (op.ok) held.resolve(op.content);
-        else held.reject(new Error(op.content));
-      }
+    const answers = op.kind === 'result' ? [op] : op.kind === 'results' ? op.results : [];
+    for (const answer of answers) {
+      const held = live.held.get(answer.callId);
+      live.held.delete(answer.callId);
+      if (!held) continue;
+      if (answer.ok) held.resolve(answer.content);
+      else held.reject(new Error(answer.content));
     }
     if (op.kind === 'cancel') {
       releaseHeld(live, 'the run was cancelled');
@@ -124,7 +124,7 @@ export class ExternalAgentSessions {
       live.ask = undefined;
       pending.answer(op.optionId ? { optionId: op.optionId } : { cancelled: true });
     }
-    return this.segment(live, beat);
+    return this.segment(live, beat, op.kind === 'continue' ? op.within : undefined);
   }
 
   async closeAll(): Promise<void> {
@@ -212,8 +212,8 @@ export class ExternalAgentSessions {
     return this.segment(opened, beat);
   }
 
-  private segment(live: Live, beat: () => void): Promise<ExternalAgentStepResult> {
-    const limit = this.options.segmentMs ?? EXTERNAL_SEGMENT_MS;
+  private segment(live: Live, beat: () => void, within?: number): Promise<ExternalAgentStepResult> {
+    const limit = Math.min(this.options.segmentMs ?? EXTERNAL_SEGMENT_MS, within ?? Number.POSITIVE_INFINITY);
     return new Promise((resolve) => {
       const done = () => {
         clearTimeout(timer);
@@ -232,8 +232,8 @@ export class ExternalAgentSessions {
   private result(live: Live): ExternalAgentStepResult {
     const base = { ...this.about(live), events: live.events.splice(0) };
     if (live.ask) return { ...base, state: 'asks', ask: live.ask.ask };
-    const call = live.calls.shift();
-    if (call) return { ...base, state: 'calls', call };
+    const calls = live.calls.splice(0);
+    if (calls.length) return { ...base, state: 'calls', calls };
     if (live.ended && 'error' in live.ended) return { ...base, state: 'failed', error: live.ended.error };
     if (live.ended) return { ...base, state: 'ended', stopReason: live.ended.stopReason };
     return { ...base, state: 'running' };

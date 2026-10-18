@@ -1418,6 +1418,51 @@ describe('an external agent working on someone\'s machine', () => {
     }
   }, 60_000);
 
+  it('runs the calls an agent on a machine makes at once together, and gives it each answer', async () => {
+    root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
+    const scriptPath = resolve(root, 'script.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [
+      { mcp: [
+        { server: 'koala', tool: 'list_references', args: { about: 'twitter' } },
+        { server: 'koala', tool: 'list_references', args: { about: 'reddit' } },
+      ] },
+    ] }] } satisfies AgentScript));
+    const mcp = new LocalMcpServer();
+    await mcp.start();
+    const sessions = new ExternalAgentSessions({ rootDir: resolve(root, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500, mcp });
+    const registry = createAgentRegistry({
+      agentStore: { list: async () => seededAgents().map((agent) => (agent.slug === 'koala' ? { ...agent, tools: ['list_references'] } : agent)) },
+      toolCatalogue: { list: async () => contractsFor(BUILDER_TOOLS) },
+    });
+    const acts = activities({ registry, script: [{ content: 'unused' }], external: sessions, environment: MACHINE, conversations: inMemoryConversations() });
+    let running = 0;
+    let most = 0;
+    acts.engine.EngineToolActivity.mockImplementation(async ({ arguments: args }: { arguments: string }) => {
+      running += 1;
+      most = Math.max(most, running);
+      await new Promise((settle) => setTimeout(settle, 1500));
+      running -= 1;
+      const about = JSON.parse(args).about as string;
+      return { ok: true, digest: `references about ${about}`, content: `references about ${about}` };
+    });
+    try {
+      const result = await runWorkflow({
+        ticket: { ...ticket('koala'), conversationId: 'c-together', modelId: 'machine:desk:antigravity' },
+        procedure: EXTERNAL_AGENT_CHAT,
+        inputs: { message: 'Look both up', conversationId: 'c-together' },
+      }, acts);
+
+      expect(result.outcome).toBe('ok');
+      expect(most).toBe(2);
+      const said = String(result.outputs.result);
+      expect(said).toContain('list_references: references about twitter');
+      expect(said).toContain('list_references: references about reddit');
+    } finally {
+      await sessions.closeAll();
+      await mcp.close();
+    }
+  }, 60_000);
+
   it('runs on a machine that reads its instance\'s payloads: encrypted, and fetched or stored over its socket when they are large', async () => {
     root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
     const scriptPath = resolve(root, 'script.json');

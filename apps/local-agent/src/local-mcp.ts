@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
 export const MAX_BODY_BYTES = 1_000_000;
+export const PROGRESS_EVERY_MS = 20_000;
 
 export interface LocalTool {
   name: string;
@@ -43,7 +44,14 @@ const readBody = (request: IncomingMessage): Promise<string> => new Promise((res
   request.on('error', reject);
 });
 
+export interface LocalMcpOptions {
+  progressEveryMs?: number | undefined;
+  log?: ((line: string) => void) | undefined;
+}
+
 export class LocalMcpServer {
+  constructor(private readonly options: LocalMcpOptions = {}) {}
+
   private server: Server | undefined;
   private port = 0;
   private readonly mounts = new Map<string, { tools: LocalTool[]; instructions: string }>();
@@ -85,6 +93,10 @@ export class LocalMcpServer {
     } catch (err) {
       return this.send(response, 400, failure(null, -32700, (err as Error).message));
     }
+    const single = !Array.isArray(parsed) ? parsed as RpcMessage : undefined;
+    if (single?.method === 'tools/call' && single.id !== undefined && String(request.headers.accept ?? '').includes('text/event-stream')) {
+      return this.stream(single, mounted, response);
+    }
     const messages = (Array.isArray(parsed) ? parsed : [parsed]) as RpcMessage[];
     const answers = (await Promise.all(messages.map((message) => this.answer(message, mounted)))).filter((answer) => answer !== undefined);
     if (answers.length === 0) {
@@ -121,6 +133,27 @@ export class LocalMcpServer {
       }
       default:
         return failure(message.id, -32601, `${message.method ?? 'that'} is not something this server does`);
+    }
+  }
+
+  private async stream(message: RpcMessage, mounted: { tools: LocalTool[]; instructions: string }, response: ServerResponse): Promise<void> {
+    const meta = message.params?._meta as { progressToken?: unknown } | undefined;
+    const token = typeof meta?.progressToken === 'string' || typeof meta?.progressToken === 'number' ? meta.progressToken : undefined;
+    this.options.log?.(`${String(message.params?.name)} was called ${token === undefined ? 'without a progress token' : 'with a progress token'}`);
+    response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
+    const event = (body: unknown) => { response.write(`event: message\ndata: ${JSON.stringify(body)}\n\n`); };
+    let progress = 0;
+    const beating = setInterval(() => {
+      progress += 1;
+      if (token === undefined) response.write(': still working\n\n');
+      else event({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: token, progress, message: 'still working' } });
+    }, this.options.progressEveryMs ?? PROGRESS_EVERY_MS);
+    response.on('close', () => clearInterval(beating));
+    try {
+      event(await this.answer(message, mounted));
+    } finally {
+      clearInterval(beating);
+      response.end();
     }
   }
 

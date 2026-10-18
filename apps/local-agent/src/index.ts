@@ -84,7 +84,7 @@ async function main() {
   const containerMode = docker.ok;
 
   const socket = io(`${backendUrl}/agent`, { auth: { token, containerMode }, reconnection: true });
-  const mcp = new LocalMcpServer();
+  const mcp = new LocalMcpServer({ log: (line) => console.log(`[koala-local-agent] ${line}`) });
   await mcp.start();
   const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp });
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
