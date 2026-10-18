@@ -35,6 +35,8 @@ export const getDriveStatus = (): Promise<GoogleDriveStatus> =>
 
 export const driveConnectUrl = (): string => `${api.defaults.baseURL}/credentials/googledrive/connect`
 
+export const openRouterConnectUrl = (): string => `${api.defaults.baseURL}/credentials/llm/openrouter/connect`
+
 export const runBackup = (): Promise<BackupResult> =>
   api.post<BackupResult>('/backup/run').then((r) => r.data)
 

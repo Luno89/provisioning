@@ -1,14 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ExternalLink, Loader2, Trash2 } from 'lucide-react'
-import { deleteLlmCredentials, listLlmProviders, saveLlmCredentials, type LlmProviderStatus } from '../../api/credentials'
+import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Trash2, X } from 'lucide-react'
+import { deleteLlmCredentials, listLlmProviders, openRouterConnectUrl, saveLlmCredentials, type LlmProviderStatus } from '../../api/credentials'
 import { errorMessage } from '../../api/client'
 import { LLM_PROVIDERS } from '../credential-providers'
+import { openRouterNoticeFrom, withoutOpenRouterNotice } from '../../lib/openrouter-notice'
 import { DefaultModelPicker } from './DefaultModelPicker'
 
 const LLM_KEYS = ['credentials', 'llm'] as const
 
 const input = 'w-full rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)] px-2.5 py-1.5 font-mono text-xs text-slate-200 outline-none focus:border-[var(--leaf-stem)]'
+const primary = 'rounded-md bg-[var(--leaf-stem)] px-2.5 py-1 text-[11px] font-medium text-white hover:opacity-90'
 const quiet = 'rounded-md border border-[var(--bark-600)] px-2.5 py-1 text-[11px] text-slate-300 hover:bg-[var(--bark-700)] disabled:opacity-50'
 
 function ProviderCard({ provider, status }: { provider: (typeof LLM_PROVIDERS)[number]; status: LlmProviderStatus | undefined }) {
@@ -42,11 +44,16 @@ function ProviderCard({ provider, status }: { provider: (typeof LLM_PROVIDERS)[n
         </div>
         {!editing && !confirming && (
           <div className="flex gap-1.5">
-            <button type="button" className={quiet} onClick={() => { setEditing(true); setForm({}) }}>{connected ? 'Change key' : 'Connect'}</button>
+            {provider.connectsWithAccount && <a href={openRouterConnectUrl()} className={connected ? quiet : primary}>{connected ? 'Reconnect' : `Connect ${provider.label}`}</a>}
+            <button type="button" className={quiet} onClick={() => { setEditing(true); setForm({}) }}>{connected ? 'Change key' : provider.connectsWithAccount ? 'Paste a key' : 'Connect'}</button>
             {connected && <button type="button" className={`${quiet} text-rose-300`} onClick={() => setConfirming(true)} aria-label={`Remove ${provider.label}`}><Trash2 size={12} /></button>}
           </div>
         )}
       </div>
+
+      {provider.connectsWithAccount && !connected && !editing && (
+        <p className="text-[11px] text-slate-400">Sign in to {provider.label} and approve, and Koala gets a key on your own account. Free models cost nothing; anything else is billed by {provider.label}, and nothing paid is picked for you.</p>
+      )}
 
       {editing && (
         <form
@@ -89,6 +96,11 @@ function ProviderCard({ provider, status }: { provider: (typeof LLM_PROVIDERS)[n
 
 export default function ModelsView() {
   const providers = useQuery({ queryKey: LLM_KEYS, queryFn: listLlmProviders })
+  const [notice, setNotice] = useState(() => openRouterNoticeFrom(window.location.search))
+
+  useEffect(() => {
+    if (openRouterNoticeFrom(window.location.search)) window.history.replaceState(null, '', `${window.location.pathname}${withoutOpenRouterNotice(window.location.search)}${window.location.hash}`)
+  }, [])
 
   return (
     <div className="max-w-4xl space-y-8">
@@ -102,6 +114,13 @@ export default function ModelsView() {
 
       <section className="space-y-2" id="model-providers">
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Providers</h3>
+        {notice && (
+          <p role="status" className={`flex items-start gap-1.5 rounded-md border px-2.5 py-2 text-[12px] ${notice.kind === 'success' ? 'border-emerald-700/60 text-emerald-300' : 'border-rose-700/60 text-rose-300'}`}>
+            {notice.kind === 'success' ? <CheckCircle2 size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
+            <span className="flex-1">{notice.message}</span>
+            <button type="button" aria-label="Dismiss" onClick={() => setNotice(null)} className="text-slate-500 hover:text-slate-300"><X size={12} /></button>
+          </p>
+        )}
         {providers.isPending && <p className="flex items-center gap-2 text-[12px] text-slate-400"><Loader2 size={12} className="animate-spin" /> Reading your providers…</p>}
         {providers.isError && <p className="text-[12px] text-rose-300">{errorMessage(providers.error)}</p>}
         {providers.data && (

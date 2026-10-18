@@ -880,7 +880,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       log: (message) => console.warn(message),
     }).start();
   }
-  tenant.use('/api/credentials', llmCredentialsRouter({ db, dataKey: keys.data, credentialService }));
+  tenant.use('/api/credentials', llmCredentialsRouter({ db, dataKey: keys.data, credentialService, publicUrl: PUBLIC_URL, appUrl: APP_URL }));
   tenant.use('/api/credentials', credentialsRouter({
     credentialService,
     publicUrl: PUBLIC_URL,

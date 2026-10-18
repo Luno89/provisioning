@@ -5,6 +5,7 @@ interface ProviderMeta {
   icon: string;
   docsUrl: string;
   fields: { key: string; label: string; sensitive: boolean; placeholder: string; multiline?: boolean }[];
+  connectsWithAccount?: boolean;
 }
 
 export const PROVIDERS: ProviderMeta[] = [
@@ -164,6 +165,7 @@ export const LLM_PROVIDERS: ProviderMeta[] = [
     icon: '◇',
     docsUrl: 'https://openrouter.ai/keys',
     fields: [{ key: 'apiKey', label: 'API Key', sensitive: true, placeholder: 'sk-or-v1-...' }],
+    connectsWithAccount: true,
   },
   {
     key: 'groq',

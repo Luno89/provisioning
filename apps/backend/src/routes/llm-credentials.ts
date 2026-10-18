@@ -2,6 +2,11 @@ import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import { v4 as uuidv4 } from 'uuid';
 import { encryptValue, type SecretKey } from '../lib/crypto.js';
+import { parseCookie } from '../middleware/auth.js';
+import {
+  authUrl, checkCallback, connectedRedirect, CONNECT_COOKIE, CONNECT_COOKIE_MS, CONNECT_PATH, exchangeBody, exchangeProblem,
+  failedRedirect, keyFrom, newPending, OPENROUTER_KEYS_URL, openPending, sealPending,
+} from '../lib/openrouter-connect.js';
 import { buildIntelligenceIndex, intelligenceFor, type AaModel } from '../lib/intelligence-index.js';
 
 const userOf = (req: Request): { id: string } =>
@@ -159,8 +164,43 @@ async function intelligenceIndex(
   }
 }
 
+async function connectPreset(
+  db: any,
+  dataKey: SecretKey,
+  userId: string,
+  preset: GatewayPreset,
+  apiKey: string | undefined,
+): Promise<{ endpoints: unknown[] } | { error: string }> {
+  const { models, error } = await fetchModelList(preset.baseUrl, apiKey, preset.modelListAuth);
+  if (error) return { error };
+  if (models.length === 0) return { error: 'No models returned from provider' };
+
+  for (const e of await db.getModelEndpoints()) {
+    if (e.ownerId === userId && e.baseUrl === preset.baseUrl) await db.deleteModelEndpoint(e.id);
+  }
+
+  for (const m of models) {
+    await db.saveModelEndpoint({
+      id: uuidv4(),
+      ownerId: userId,
+      name: `${preset.label} · ${m.id}`,
+      baseUrl: preset.baseUrl,
+      model: m.id,
+      ...(apiKey ? { apiKeyEnc: encryptValue(String(apiKey), dataKey) } : {}),
+      ...(m.contextTokens ? { contextTokens: m.contextTokens } : {}),
+      ...(m.pricing ? { pricing: m.pricing } : {}),
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  const fresh = await db.getModelEndpoints();
+  return { endpoints: fresh.filter((e: any) => e.ownerId === userId) };
+}
+
 export function llmCredentialsRouter(deps: Record<string, any>): Router {
   const { db, dataKey, credentialService } = deps;
+  const publicUrl: string = deps.publicUrl ?? 'http://localhost:3001';
+  const appUrl: string = deps.appUrl ?? publicUrl;
   const router = Router();
 
   router.get('/llm', asyncRoute(async (req, res) => {
@@ -223,37 +263,41 @@ export function llmCredentialsRouter(deps: Record<string, any>): Router {
      */
     if (!preset) return res.status(400).json({ error: `Unknown provider: ${provider}` });
 
-    // Preset provider — fetch model list and create records
-    const { models, error } = await fetchModelList(effectiveBaseUrl, apiKey, preset.modelListAuth);
-    if (error) return res.status(400).json({ error });
+    const saved = await connectPreset(db, dataKey, userId, preset, apiKey);
+    if ('error' in saved) return res.status(400).json({ error: saved.error });
+    res.json({ endpoints: saved.endpoints });
+  }));
 
-    if (models.length === 0) return res.status(400).json({ error: 'No models returned from provider' });
+  router.get('/llm/openrouter/connect', (req, res) => {
+    const pending = newPending(userOf(req).id);
+    res.cookie(CONNECT_COOKIE, sealPending(pending, dataKey), {
+      httpOnly: true, sameSite: 'lax', secure: publicUrl.startsWith('https://'), path: CONNECT_PATH, maxAge: CONNECT_COOKIE_MS, encode: String,
+    });
+    res.redirect(authUrl(pending, `${publicUrl}${CONNECT_PATH}/callback`));
+  });
 
-    // Remove old endpoint records for this provider
-    const all = await db.getModelEndpoints();
-    for (const e of all) {
-      if (e.ownerId === userId && e.baseUrl === effectiveBaseUrl) {
-        await db.deleteModelEndpoint(e.id);
-      }
-    }
-
-    // Create one record per model
-    for (const m of models) {
-      await db.saveModelEndpoint({
-        id: uuidv4(),
-        ownerId: userId,
-        name: `${preset.label} · ${m.id}`,
-        baseUrl: effectiveBaseUrl,
-        model: m.id,
-        ...(apiKey ? { apiKeyEnc: encryptValue(String(apiKey), dataKey) } : {}),
-        ...(m.contextTokens ? { contextTokens: m.contextTokens } : {}),
-        ...(m.pricing ? { pricing: m.pricing } : {}),
-        createdAt: new Date().toISOString(),
+  router.get('/llm/openrouter/callback', asyncRoute(async (req, res) => {
+    const userId = userOf(req).id;
+    res.clearCookie(CONNECT_COOKIE, { path: CONNECT_PATH });
+    const checked = checkCallback(req.query, openPending(parseCookie(req.headers.cookie, CONNECT_COOKIE), dataKey), userId);
+    if (!checked.ok) return res.redirect(failedRedirect(appUrl, checked.problem));
+    const preset = GATEWAY_PRESETS.openrouter!;
+    try {
+      const answer = await fetch(OPENROUTER_KEYS_URL, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: exchangeBody(checked.code, checked.verifier),
       });
+      const text = await answer.text();
+      if (!answer.ok) return res.redirect(failedRedirect(appUrl, exchangeProblem(answer.status, text)));
+      let body: unknown;
+      try { body = JSON.parse(text); } catch { body = undefined; }
+      const key = keyFrom(body);
+      if (!key) return res.redirect(failedRedirect(appUrl, 'OpenRouter answered without a key. Nothing was connected.'));
+      const saved = await connectPreset(db, dataKey, userId, preset, key);
+      if ('error' in saved) return res.redirect(failedRedirect(appUrl, saved.error));
+      res.redirect(connectedRedirect(appUrl));
+    } catch (err) {
+      res.redirect(failedRedirect(appUrl, `Could not reach OpenRouter: ${(err as Error).message}`));
     }
-
-    const fresh = await db.getModelEndpoints();
-    res.json({ endpoints: fresh.filter((e: any) => e.ownerId === userId) });
   }));
 
   /**
