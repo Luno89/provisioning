@@ -259,19 +259,13 @@ export class TabbyApiApp extends Construct {
       // load a separate full copy of the model into VRAM, which the GPU budget doesn't have room
       // for — so /health shares the same event loop as generation and can't be made to respond
       // instantly while a request is in flight; that's not something fixable from the K8s side.
-      // Liveness is deliberately much more tolerant than readiness as a result: killing the pod
-      // is destructive (drops every in-flight request), so it should only fire for a genuinely
-      // hung process, not a busy one. 30s timeout + 8 failures over a 15s period means ~135s of
-      // sustained unresponsiveness before a kill — long enough to outlast any real generation,
-      // long context prefill included, while still recovering a truly stuck pod within ~2min.
       livenessProbe: {
-        httpGet: {
-          path: "/health",
+        tcpSocket: {
           port: 5000,
         },
-        timeoutSeconds: 30,
+        timeoutSeconds: 10,
         periodSeconds: 15,
-        failureThreshold: 8,
+        failureThreshold: 4,
       },
       // Readiness only gates traffic (doesn't kill anything) so it can afford to react faster —
       // though with replicas: 1 there's nowhere else for traffic to go anyway, so this mostly

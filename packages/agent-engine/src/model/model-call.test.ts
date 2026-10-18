@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { callModel, ModelCallError, type EngineEndpoint } from './model-call.js';
+import { callModel, connectionLost, ModelCallError, type EngineEndpoint } from './model-call.js';
 import type { StreamEvent } from '../runtime/stream.js';
 
 const endpoint = (over: Partial<EngineEndpoint> = {}): EngineEndpoint => ({
@@ -147,5 +147,94 @@ describe('callModel', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(maxInFlight).toBe(1);
+  });
+
+  const lost = (code: string, message = 'fetch failed') => Object.assign(new TypeError(message), { cause: { code } });
+
+  it('waits for the model\'s server to answer again after it refused the call, then asks again', async () => {
+    vi.useFakeTimers();
+    try {
+      const asked: string[] = [];
+      let modelsAsked = 0;
+      const fetchImpl = vi.fn(async (url: string) => {
+        asked.push(url.endsWith('/models') ? 'models' : 'chat');
+        if (url.endsWith('/models')) {
+          modelsAsked += 1;
+          if (modelsAsked < 3) throw lost('ECONNREFUSED');
+          return modelsAsked === 3 ? new Response('loading', { status: 503 }) : new Response('{}', { status: 200 });
+        }
+        if (asked.filter((what) => what === 'chat').length === 1) throw lost('ECONNREFUSED');
+        return streamingResponse([frame({ choices: [{ delta: { content: 'back' }, finish_reason: 'stop' }] })]);
+      });
+      const losses: string[] = [];
+      const answer = callModel({
+        endpoint: endpoint(),
+        messages: [],
+        maxTokens: 10,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        onConnectionLost: (why) => losses.push(why),
+      });
+      await vi.runAllTimersAsync();
+      const result = await answer;
+      expect(result.content).toBe('back');
+      expect(asked).toEqual(['chat', 'models', 'models', 'models', 'models', 'chat']);
+      expect(losses).toEqual(['fetch failed (ECONNREFUSED)']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('starts the answer over when the stream is cut off part way, keeping only the new answer', async () => {
+    vi.useFakeTimers();
+    try {
+      let chats = 0;
+      const fetchImpl = vi.fn(async (url: string) => {
+        if (url.endsWith('/models')) return new Response('{}', { status: 200 });
+        chats += 1;
+        if (chats === 1) {
+          return {
+            ok: true,
+            status: 200,
+            headers: new Headers(),
+            body: (async function* () {
+              yield frame({ choices: [{ delta: { content: 'half an ' } }] });
+              throw lost('UND_ERR_SOCKET', 'terminated');
+            })(),
+          } as unknown as Response;
+        }
+        return streamingResponse([frame({ choices: [{ delta: { content: 'whole answer' }, finish_reason: 'stop' }] })]);
+      });
+      const seen: string[] = [];
+      const losses: string[] = [];
+      const answer = callModel(
+        { endpoint: endpoint(), messages: [], maxTokens: 10, fetchImpl: fetchImpl as unknown as typeof fetch, onConnectionLost: (why) => losses.push(why) },
+        (event) => { if (event.kind === 'content') seen.push(event.text); },
+      );
+      await vi.runAllTimersAsync();
+      const result = await answer;
+      expect(result.content).toBe('whole answer');
+      expect(result.finishReason).toBe('stop');
+      expect(seen).toEqual(['half an ', 'whole answer']);
+      expect(losses).toEqual(['terminated (UND_ERR_SOCKET)']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not wait on an address that does not exist, or once the run is stopped', async () => {
+    const nowhere = vi.fn(async () => { throw lost('ENOTFOUND'); });
+    await expect(callModel({ endpoint: endpoint(), messages: [], maxTokens: 10, fetchImpl: nowhere as unknown as typeof fetch })).rejects.toThrow('fetch failed');
+    expect(nowhere).toHaveBeenCalledTimes(1);
+
+    const stop = new AbortController();
+    const refused = vi.fn(async (url: string) => {
+      if (url.endsWith('/models')) stop.abort('the run was stopped');
+      throw lost('ECONNREFUSED');
+    });
+    await expect(callModel({ endpoint: endpoint(), messages: [], maxTokens: 10, signal: stop.signal, fetchImpl: refused as unknown as typeof fetch })).rejects.toThrow('the run was stopped');
+
+    expect(connectionLost(new ModelCallError('Model call failed (HTTP 502)', 502))).toBe(false);
+    expect(connectionLost(Object.assign(new Error('aborted'), { name: 'AbortError' }))).toBe(false);
+    expect(connectionLost(lost('ECONNRESET'))).toBe(true);
   });
 });

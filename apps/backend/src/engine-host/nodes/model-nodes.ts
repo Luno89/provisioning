@@ -136,10 +136,11 @@ export function createModelNodes(services: ModelNodeServices): NodeImplementatio
 
       const stopOverthinking = node.settings.stopOverthinking !== false;
       const lastAsk = [...messages].reverse().find((message) => message.role === 'user')?.content ?? '';
-      const monitors = createMonitorSet(
+      const watching = () => createMonitorSet(
         stopOverthinking ? (services.streamMonitors?.(request) ?? [overthinkMonitor({ seed: lastAsk })]) : [],
       );
-      const state = createRunState();
+      let monitors = watching();
+      let state = createRunState();
       const reasoningEffort = typeof node.settings.reasoningEffort === 'string' ? node.settings.reasoningEffort : binding.reasoningEffort;
 
       const allowed = typeof inputs.maxTokens === 'number'
@@ -157,6 +158,11 @@ export function createModelNodes(services: ModelNodeServices): NodeImplementatio
           ...(node.settings.toolChoice === 'none' ? { toolChoice: 'none' as const } : {}),
           ...(run.signal ? { signal: run.signal } : {}),
           ...(services.fetchImpl ? { fetchImpl: services.fetchImpl } : {}),
+          onConnectionLost: (why) => {
+            monitors = watching();
+            state = createRunState();
+            run.emit(connectionLostNotice(node.id, provider.name, why) as never);
+          },
         },
         (event) => {
           if (event.kind === 'thinking' || event.kind === 'content') {
@@ -225,6 +231,7 @@ export function createModelNodes(services: ModelNodeServices): NodeImplementatio
           ...(binding.reasoningEffort ? { reasoningEffort: binding.reasoningEffort } : {}),
           ...(run.signal ? { signal: run.signal } : {}),
           ...(services.fetchImpl ? { fetchImpl: services.fetchImpl } : {}),
+          onConnectionLost: (why) => run.emit(connectionLostNotice(node.id, provider.name, why) as never),
         },
         () => undefined,
       );
@@ -245,6 +252,13 @@ export function createModelNodes(services: ModelNodeServices): NodeImplementatio
     createCompactContextNode(services),
   ];
 }
+
+export const connectionLostNotice = (nodeId: string, model: string, why: string) => ({
+  type: 'notice',
+  level: 'warn',
+  nodeId,
+  message: `the connection to ${model} was lost (${why}); the question is asked again from the start once it answers`,
+});
 
 export function createCompactContextNode(services: Pick<HostNodeServices, 'models' | 'fetchImpl'>): NodeImplementation {
   return stepImplementation('compact-context', async ({ node, inputs, previous, run }) => {
@@ -281,6 +295,7 @@ export function createCompactContextNode(services: Pick<HostNodeServices, 'model
         ...(binding.sampling ? { sampling: binding.sampling } : {}),
         ...(run.signal ? { signal: run.signal } : {}),
         ...(services.fetchImpl ? { fetchImpl: services.fetchImpl } : {}),
+        onConnectionLost: (why) => run.emit(connectionLostNotice(node.id, provider.name, why) as never),
       },
       () => undefined,
     );

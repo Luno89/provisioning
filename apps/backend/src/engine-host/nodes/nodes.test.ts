@@ -310,6 +310,42 @@ describe('calling the model', () => {
     expect(events.find((event) => event.type === 'content')).toMatchObject({ runId: 'run-sandboxed', delta: 'the answer' });
   });
 
+  it('asks again from the start when the model\'s server drops the answer part way, and says so', async () => {
+    let chats = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('/models')) return new Response('{}', { status: 200 });
+      chats += 1;
+      const frames = chats === 1 ? [{ choices: [{ delta: { content: 'half an ' } }] }] : [{ choices: [{ delta: { content: 'the whole answer' }, finish_reason: 'stop' }] }];
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        body: (async function* () {
+          for (const frame of frames) yield `data: ${JSON.stringify(frame)}\n`;
+          if (chats === 1) throw Object.assign(new TypeError('terminated'), { cause: { code: 'UND_ERR_SOCKET' } });
+          yield 'data: [DONE]\n';
+        })(),
+      } as unknown as Response;
+    }));
+
+    const { services } = world();
+    const bus = createEventBus();
+    const events: EngineEvent[] = [];
+    bus.subscribe((event) => { events.push(event); });
+    const traces: NodeTrace[] = [];
+
+    const result = await runV2(services, 'sandboxed', TOOL_ROUNDS_V2, { bus, traces });
+
+    expect(result.outcome).toBe('ok');
+    expect(chats).toBe(2);
+    expect(events.find((event) => event.type === 'notice')).toMatchObject({
+      level: 'warn',
+      message: 'the connection to Tabby was lost (terminated (UND_ERR_SOCKET)); the question is asked again from the start once it answers',
+    });
+    const call = traces.find((trace) => trace.kind === 'call-model');
+    expect((call?.outputs as { content: string }).content).toBe('the whole answer');
+  });
+
   it('stops the run when a stream monitor interrupts', async () => {
     streamed(
       { choices: [{ delta: { reasoning_content: 'round and round' } }] },

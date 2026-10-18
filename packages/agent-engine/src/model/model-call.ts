@@ -1,6 +1,6 @@
 import type { ModelKind, SamplingConfig } from '@koala/harness-types';
 import { buildModelRequest } from './model-request.js';
-import { rateLimitedFetch } from './model-rate-limiter.js';
+import { pause, rateLimitedFetch } from './model-rate-limiter.js';
 import { patientFetch } from './patient-fetch.js';
 import { createStreamParser, type StreamEvent, type StreamToolCall } from '../runtime/stream.js';
 
@@ -25,6 +25,7 @@ export interface ModelCallSpec {
   toolChoice?: 'none' | undefined;
   signal?: AbortSignal | undefined;
   fetchImpl?: typeof fetch | undefined;
+  onConnectionLost?: ((why: string) => void) | undefined;
 }
 
 export interface ModelCallResult {
@@ -90,22 +91,75 @@ export async function callModel(spec: ModelCallSpec, sink: StreamSink = () => un
     ...(spec.toolChoice ? { extra: { tool_choice: spec.toolChoice } } : {}),
   });
 
-  const doFetch = rateLimitedFetch(
-    endpoint.rateLimitKey,
-    endpoint.ownerId,
-    endpoint.label,
-    spec.fetchImpl ?? patientFetch,
-  );
+  const fetchImpl = spec.fetchImpl ?? patientFetch;
+  const doFetch = rateLimitedFetch(endpoint.rateLimitKey, endpoint.ownerId, endpoint.label, fetchImpl);
+  const headers = {
+    'content-type': 'application/json',
+    ...(endpoint.apiKey ? { authorization: `Bearer ${endpoint.apiKey}` } : {}),
+  };
+  const body = JSON.stringify({ ...built.body, stream_options: { include_usage: true } });
 
-  const response = await doFetch(`${endpoint.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...(endpoint.apiKey ? { authorization: `Bearer ${endpoint.apiKey}` } : {}),
-    },
-    body: JSON.stringify({ ...built.body, stream_options: { include_usage: true } }),
-    ...(spec.signal ? { signal: spec.signal } : {}),
-  });
+  for (;;) {
+    try {
+      return await askOnce(sink, built.unsupported, () => doFetch(`${endpoint.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers,
+        body,
+        ...(spec.signal ? { signal: spec.signal } : {}),
+      }));
+    } catch (err) {
+      if (spec.signal?.aborted || !connectionLost(err)) throw err;
+      spec.onConnectionLost?.(describeLoss(err));
+      await serverAnswers(endpoint, fetchImpl, headers, spec.signal);
+    }
+  }
+}
+
+const LOST_CONNECTION = new Set([
+  'ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT',
+  'UND_ERR_SOCKET', 'UND_ERR_CLOSED', 'UND_ERR_CONNECT_TIMEOUT',
+]);
+
+const causeCode = (err: unknown): string | undefined => {
+  const cause = (err as { cause?: { code?: unknown } } | undefined)?.cause;
+  return typeof cause?.code === 'string' ? cause.code : undefined;
+};
+
+export function connectionLost(err: unknown): boolean {
+  if (err instanceof ModelCallError || !(err instanceof Error) || err.name === 'AbortError') return false;
+  const code = causeCode(err);
+  if (code) return LOST_CONNECTION.has(code);
+  return err.name === 'TypeError' && err.message === 'terminated';
+}
+
+const describeLoss = (err: unknown): string => {
+  const code = causeCode(err);
+  return code ? `${(err as Error).message} (${code})` : (err as Error).message;
+};
+
+const ANSWER_WAIT_FIRST_MS = 2_000;
+const ANSWER_WAIT_MOST_MS = 30_000;
+
+async function serverAnswers(endpoint: EngineEndpoint, fetchImpl: typeof fetch, headers: Record<string, string>, signal: AbortSignal | undefined): Promise<void> {
+  for (let wait = ANSWER_WAIT_FIRST_MS; ; wait = Math.min(wait * 2, ANSWER_WAIT_MOST_MS)) {
+    await pause(wait, signal);
+    try {
+      const answer = await fetchImpl(`${endpoint.baseUrl}/models`, { headers, ...(signal ? { signal } : {}) });
+      await answer.body?.cancel().catch(() => {});
+      if (answer.status < 500) return;
+    } catch (err) {
+      if (signal?.aborted) await pause(0, signal);
+      if (!connectionLost(err)) throw err;
+    }
+  }
+}
+
+async function askOnce(
+  sink: StreamSink,
+  unsupported: string[],
+  send: () => Promise<Response>,
+): Promise<ModelCallResult> {
+  const response = await send();
 
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
@@ -122,7 +176,7 @@ export async function callModel(spec: ModelCallSpec, sink: StreamSink = () => un
     toolCalls: [],
     usage: undefined,
     finishReason: '',
-    unsupported: built.unsupported,
+    unsupported,
     interrupted: undefined,
   };
 

@@ -46,7 +46,7 @@ function stopped(signal: AbortSignal | undefined): Error {
   return signal?.reason instanceof Error ? signal.reason : new Error(typeof signal?.reason === 'string' ? signal.reason : 'the call was stopped while it waited for the model');
 }
 
-function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
+export function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(stopped(signal));
     const onAbort = () => { clearTimeout(timer); reject(stopped(signal)); };
