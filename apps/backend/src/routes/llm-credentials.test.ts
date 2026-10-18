@@ -107,6 +107,10 @@ describe('connecting OpenRouter with the person\'s own account', () => {
     openRouter({ status: 403, body: '{"error":"Authorization code expired"}' });
     const back = await get(harness.url(`/api/credentials/llm/openrouter/callback?code=c&state=${location.searchParams.get('state')}`), cookie);
     expect(decodeURIComponent(back.headers.location as string)).toContain('longer than its ten minutes');
+    const again = await started(harness);
+    openRouter({ status: 400, body: '{"error":{"message":"Invalid code","code":400}}' });
+    const unknown = await get(harness.url(`/api/credentials/llm/openrouter/callback?code=c&state=${again.location.searchParams.get('state')}`), again.cookie);
+    expect(decodeURIComponent(unknown.headers.location as string)).toContain('did not accept the connection');
     expect(await harness.db.getModelEndpoints()).toEqual([]);
   });
 });

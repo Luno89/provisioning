@@ -46,7 +46,7 @@ async function main(): Promise<void> {
 
   step('OpenRouter itself refuses a code it never issued, and the person is told in plain words');
   const refused = (await back(`code=made-up-${Date.now()}&state=${encodeURIComponent(state)}`)).get('openrouterError') ?? '';
-  assert.match(refused, /did not accept the connection|OpenRouter answered/, refused);
+  assert.match(refused, /did not accept the connection/, refused);
   console.log(`  ${refused}`);
 
   step('nothing about the person\'s OpenRouter changed');

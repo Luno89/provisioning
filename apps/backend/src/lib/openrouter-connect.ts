@@ -76,7 +76,7 @@ export function exchangeBody(code: string, verifier: string): string {
 
 export function exchangeProblem(status: number, text: string): string {
   if (status === 403 && /expired/i.test(text)) return 'OpenRouter says the connection took longer than its ten minutes. Start it again from Models.';
-  if (status === 403) return 'OpenRouter did not accept the connection. Make sure you are signed in to OpenRouter and start it again from Models.';
+  if (status === 403 || /invalid code/i.test(text)) return 'OpenRouter did not accept the connection. Make sure you are signed in to OpenRouter and start it again from Models.';
   return `OpenRouter answered ${status}${text ? `: ${text.slice(0, 200)}` : ''}`;
 }
 
