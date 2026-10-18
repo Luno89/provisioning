@@ -542,6 +542,19 @@ describe('an agent on a machine working on a workspace', () => {
     expect(ran).toEqual({ ok: true, content: 'output of run_command' });
   });
 
+  it('runs the persona\'s served tools in the workspace too, as a model\'s call would', async () => {
+    const runExternal = vi.fn(async (request: { callTool?: (call: { callId: string; name: string; arguments: string }) => Promise<{ ok: boolean; content: string }> }) => {
+      await request.callTool!({ callId: 'c2', name: 'record_verdict', arguments: '{"verdict":"met"}' });
+      return { outcome: 'finished' as const, stopReason: 'end_turn', text: 'Met.', identity, sessionId: 's' };
+    });
+    const p = ports({ runExternal } as never);
+    await invoke(createOrchestrationNodes(p), externalAgent, {
+      inputs: { brief: 'Judge it.', environment: workspace, persona: persona({ tools: ['record_verdict'] }), tools: [{ name: 'record_verdict', description: 'records', binding: 'none' }] },
+      run: onMachine,
+    });
+    expect(p.runTool).toHaveBeenCalledWith(expect.objectContaining({ call: expect.objectContaining({ name: 'record_verdict' }), environment: workspace }));
+  });
+
   it('fails without starting anything when a workspace run has no machine picked', async () => {
     const runExternal = vi.fn();
     expect(await invoke(createOrchestrationNodes(ports({ runExternal } as never)), externalAgent, { settings: { agent: 'antigravity' }, inputs: { brief: 'go', environment: workspace } }))

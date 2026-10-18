@@ -440,7 +440,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
             return { ok: false, content: REFUSED_CALL };
           }
         }
-        const { outcome } = await runOne(request, call, persona, undefined);
+        const { outcome } = await runOne(request, call, persona, workspace);
         return { ok: outcome.ok, content: outcome.content ?? outcome.digest };
       };
       const sessions = inputs.sessions && typeof inputs.sessions === 'object' ? inputs.sessions as Record<string, unknown> : {};
