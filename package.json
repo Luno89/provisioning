@@ -83,6 +83,7 @@
     "test:monitoring-live": "cd apps/backend && tsx ../../tests/monitoring-live.ts",
     "test:infrastructure-live": "cd apps/backend && tsx ../../tests/infrastructure-live.ts",
     "test:dev-split-live": "cd apps/backend && tsx ../../tests/dev-split-live.ts",
+    "test:openrouter-connect-live": "cd apps/backend && tsx ../../tests/openrouter-connect-live.ts",
     "test:mail-live": "cd apps/backend && tsx ../../tests/mail-live.ts"
   },
   "workspaces": [
