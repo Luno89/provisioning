@@ -59,11 +59,18 @@ describe('the browser tests a release runs against its preview', () => {
     const container = job.spec.template.spec.containers[0]!;
     expect(job.metadata.name).toBe('shop-e2e-login-b');
     expect(container.image).toBe('reg/shop:two');
-    expect(container.command[2]).toContain('odoo shell --database=odoo_b --no-http --db_host=shop-postgres');
+    expect(container.command[2]).toContain('odoo shell --database=odoo_b --no-http --data-dir=/var/lib/odoo --db_host=shop-postgres');
     expect(container.command.join(' ')).not.toMatch(/E2E_PASSWORD/);
     expect(container.env.find((entry) => entry.name === 'E2E_PASSWORD')).toEqual({ name: 'E2E_PASSWORD', valueFrom: { secretKeyRef: { name: 'shop-e2e-login', key: 'password' } } });
     expect(container.env.find((entry) => entry.name === 'SCRIPT')?.value).toContain('admin[groups].ids');
     expect(container.env.find((entry) => entry.name === 'PASSWORD')).toEqual({ name: 'PASSWORD', valueFrom: { secretKeyRef: { name: 'shop-vault', key: 'POSTGRES_PASSWORD' } } });
+  });
+
+  it('writes the files the test login makes, such as its avatar, into the release\'s filestore, not the job\'s own disk', () => {
+    const job = testLoginJob({ release: 'shop', slot: 'b', image: 'reg/shop:two', database: 'odoo_b', password: { secret: 'shop-vault', key: 'POSTGRES_PASSWORD' } }) as { spec: { template: { spec: { containers: { volumeMounts: { name: string; mountPath: string }[] }[]; volumes: { name: string; persistentVolumeClaim: { claimName: string } }[] } } } };
+    const pod = job.spec.template.spec;
+    expect(pod.containers[0]!.volumeMounts).toEqual([{ name: 'filestore', mountPath: '/var/lib/odoo' }]);
+    expect(pod.volumes).toEqual([{ name: 'filestore', persistentVolumeClaim: { claimName: 'shop-filestore' } }]);
   });
 
   it('reads the database password from the vault once it holds one, and from a chart that keeps its own otherwise', () => {

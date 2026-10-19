@@ -53,6 +53,20 @@ const COLOUR = files({
   [`addons/${EXTRA}/models/probe.py`]: "from odoo import fields, models\n\n\nclass Probe(models.Model):\n    _inherit = 'koala.probe'\n\n    colour = fields.Char()\n",
 });
 
+const SAVES = files({
+  'e2e/saves-a-contact.spec.ts': [
+    "import { test, expect, signIn, openAction, fill, save } from './odoo';",
+    '',
+    "test('a person saves a new contact', async ({ page }) => {",
+    '  await signIn(page);',
+    "  await openAction(page, 'base.action_partner_form', { newRecord: true });",
+    "  await fill(page, 'name', 'Saved in the preview');",
+    '  expect(await save(page)).toBeGreaterThan(0);',
+    '});',
+    '',
+  ].join('\n'),
+});
+
 const FAILING = files({
   'e2e/never-made.spec.ts': [
     "import { test, expect } from '@playwright/test';",
@@ -160,7 +174,7 @@ async function main(): Promise<void> {
     console.log('    made through Odoo\'s own API, signed in with the project\'s sign-in');
 
     console.log('[3] a new module adds a field and the probe loses its note: the next build is prepared in slot b, compared with live, and waits in preview');
-    await gitea.commitFiles(project.giteaOwner, project.giteaRepo, [...COLOUR, ...PROBE_WITHOUT_NOTE], 'Add the colour module, and the probe no longer keeps a note');
+    await gitea.commitFiles(project.giteaOwner, project.giteaRepo, [...COLOUR, ...PROBE_WITHOUT_NOTE, ...SAVES], 'Add the colour module and a browser test that saves a contact, and the probe no longer keeps a note');
     const preview = await waitFor('preview', (all) => all.find((release) => release.state === 'preview'), 30);
     assert.equal(preview.slot, 'b');
     assert.match(await columns('odoo_b'), /colour/, 'slot b\'s copy has no colour column');
@@ -189,19 +203,23 @@ async function main(): Promise<void> {
     assert.notEqual(await psql('odoo_a', 'select count(*) from ir_cron where active'), '0', 'the live database lost its scheduled jobs');
     const tested = await waitFor('browser tests on the preview', (all) => all.find((release) => release.id === preview.id && release.e2e && release.e2e.state !== 'running'), 15);
     assert.equal(tested.e2e!.state, 'passed', JSON.stringify(tested.e2e));
-    assert.equal(tested.e2e!.summary, '1 passed, 0 failed');
-    assert.deepEqual(tested.e2e!.tests!.map((test) => [test.title, test.status]), [['a person signs in and reaches the Odoo home', 'passed']]);
+    assert.equal(tested.e2e!.summary, '2 passed, 0 failed');
+    assert.deepEqual(tested.e2e!.tests!.map((test) => [test.title, test.status]).sort(), [['a person saves a new contact', 'passed'], ['a person signs in and reaches the Odoo home', 'passed']]);
     assert.equal(await psql('odoo_b', "select count(*) from res_users where login = 'koala-e2e' and active"), '1', 'the preview has no test user');
+    const avatars = (await psql('odoo_b', "select a.store_fname from ir_attachment a join res_users u on a.res_model = 'res.partner' and a.res_id = u.partner_id where u.login = 'koala-e2e' and a.store_fname is not null")).split('\n').filter(Boolean);
+    assert.ok(avatars.length > 0, 'the test user has no avatar to look for');
+    const slotB = (await kubectl('get', 'pods', '-o', 'name')).split('\n').find((line) => line.includes(`${place.release}-odoo-b`))!;
+    for (const file of avatars) await kubectl('exec', slotB.replace('pod/', ''), '--', 'test', '-f', `/var/lib/odoo/filestore/odoo_b/${file}`).catch(() => assert.fail(`the test user's ${file} is in the database but not in the preview's filestore`));
     assert.equal(await psql('odoo_a', "select count(*) from res_users where login = 'koala-e2e'"), '0', 'the test user reached the live database');
     assert.equal(await kubectl('get', 'jobs', '-l', 'app.kubernetes.io/component=e2e', '-o', 'name').then((out) => out.split('\n').filter((line) => line.includes('/' + place.release + '-e2e')).filter((line) => !line.includes('login')).length), 0, 'the browser job was left behind');
-    console.log(`    ${tested.e2e!.summary}: the sign-in test passed in the preview as koala-e2e; slot a has no such user`);
+    console.log(`    ${tested.e2e!.summary}: signed in as koala-e2e, a contact saved, the test user's ${avatars.length} avatar files in the preview's filestore; slot a has no such user`);
 
     console.log('[3c] a spec that cannot pass: the next preview shows the failure and what the browser saw, and still offers the cutover');
     await gitea.seedTemplate(project.giteaOwner, project.giteaRepo, FAILING);
     const failing = await waitFor('the failing preview\'s browser tests', (all) => all.find((release) => release.id !== preview.id && release.state === 'preview' && release.e2e && release.e2e.state !== 'running'), 30);
     assert.equal((await releases()).find((release) => release.id === preview.id)?.state, 'superseded');
     assert.equal(failing.e2e!.state, 'failed', JSON.stringify(failing.e2e));
-    assert.equal(failing.e2e!.summary, '1 passed, 1 failed');
+    assert.equal(failing.e2e!.summary, '2 passed, 1 failed');
     const failed = failing.e2e!.tests!.find((test) => test.status === 'failed');
     assert.equal(failed?.title, 'a person sees the never-made field on the home page');
     assert.match(failed?.error ?? '', /toBeVisible/);

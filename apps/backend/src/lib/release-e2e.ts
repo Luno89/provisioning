@@ -131,7 +131,7 @@ export const LOGIN_SCRIPT = [
 
 export function testLoginJob(input: { release: string; slot: Slot; image: string; database: string; password: { secret: string; key: string } }): Record<string, unknown> {
   const labels = { ...releaseLabels(input.release), 'app.kubernetes.io/component': 'e2e' };
-  const shell = `printf '%s\\n' "$SCRIPT" | odoo shell --database=${input.database} --no-http --db_host=${input.release}-postgres --db_user=odoo --db_password="$PASSWORD"`;
+  const shell = `printf '%s\\n' "$SCRIPT" | odoo shell --database=${input.database} --no-http --data-dir=/var/lib/odoo --db_host=${input.release}-postgres --db_user=odoo --db_password="$PASSWORD"`;
   return {
     apiVersion: 'batch/v1',
     kind: 'Job',
@@ -153,7 +153,9 @@ export function testLoginJob(input: { release: string; slot: Slot; image: string
               { name: 'E2E_PASSWORD', valueFrom: { secretKeyRef: { name: releaseLoginSecret(input.release), key: 'password' } } },
               { name: 'SCRIPT', value: LOGIN_SCRIPT },
             ],
+            volumeMounts: [{ name: 'filestore', mountPath: '/var/lib/odoo' }],
           }],
+          volumes: [{ name: 'filestore', persistentVolumeClaim: { claimName: `${input.release}-filestore` } }],
         },
       },
     },
