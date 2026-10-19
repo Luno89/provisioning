@@ -28,7 +28,7 @@ export interface ConflictTask {
 
 export const conflictTask = (leaf: Pick<Leaf, 'title'>): ConflictTask => ({
   title: CONFLICT_TASK_TITLE,
-  description: `"${leaf.title}" was verified, but another leaf landed on main first and changed some of the same lines, so its work could not be merged. `
+  description: `"${leaf.title}" was verified, but another story landed on main first and changed some of the same lines, so its work could not be merged. `
     + 'In this leaf\'s worktree, merge main into its branch (git merge main), resolve every conflict so both changes still do what they were meant to, '
     + 'run what the leaf\'s goal needs to show it still holds, and commit the merge.',
   doneMeans: 'main is merged into the leaf\'s branch with no conflicts left, and the leaf\'s goal still holds',

@@ -42,7 +42,7 @@ describe('what a tree says when it stops growing', () => {
   it('sums up what landed, failed and waits, and names each failed leaf', () => {
     const said = treeNotices({ id: 't1', name: 'Shop', projectId: 'p1' }, leaves, { runId: 'grove-run-t1', outcome: 'ok' });
     expect(said.map((notice) => [notice.kind, notice.text])).toEqual([
-      ['tree-quiet', 'Shop finished growing: 1 leaf landed, 1 failed, 1 still to work.'],
+      ['tree-quiet', 'Work on Shop finished: 1 story landed, 1 failed, 1 still to work.'],
       ['leaf-failed', 'The story "The proof" failed: the spec could not sign in.'],
     ]);
     expect(said[1]!.refs).toEqual({ treeId: 't1', projectId: 'p1', branchId: 'b2', leafId: 'l2' });
@@ -51,7 +51,7 @@ describe('what a tree says when it stops growing', () => {
 
   it('says a run that did not finish well stopped, and why', () => {
     expect(treeNotices({ id: 't1', name: 'Shop' }, [], { runId: 'grove-run-t1', outcome: 'failed', reason: 'the workspace could not be built' })[0]!.text)
-      .toBe('Shop stopped growing (failed: the workspace could not be built): 0 leaves landed.');
+      .toBe('Work on Shop stopped (failed: the workspace could not be built): 0 stories landed.');
   });
 
   it('knows a tree\'s own run from any other', () => {

@@ -71,8 +71,8 @@ export function treeNotices(
   const failed = leaves.filter((leaf) => leaf.status === 'failed');
   const waiting = leaves.filter((leaf) => leaf.status === 'pending' || leaf.status === 'claimed').length;
   const how = run.outcome === 'ok'
-    ? `${tree.name} finished growing: ${count(landed, 'leaf', 'leaves')} landed${failed.length ? `, ${failed.length} failed` : ''}${waiting ? `, ${waiting} still to work` : ''}.`
-    : `${tree.name} stopped growing (${run.outcome}${run.reason ? `: ${run.reason}` : ''}): ${count(landed, 'leaf', 'leaves')} landed${failed.length ? `, ${failed.length} failed` : ''}.`;
+    ? `Work on ${tree.name} finished: ${count(landed, 'story', 'stories')} landed${failed.length ? `, ${failed.length} failed` : ''}${waiting ? `, ${waiting} still to work` : ''}.`
+    : `Work on ${tree.name} stopped (${run.outcome}${run.reason ? `: ${run.reason}` : ''}): ${count(landed, 'story', 'stories')} landed${failed.length ? `, ${failed.length} failed` : ''}.`;
   return [
     { key: `tree:${run.runId}:${run.outcome}`, kind: 'tree-quiet', text: how, refs, actions: ['open-tree'] },
     ...failed.map((leaf): ConversationNotice => ({

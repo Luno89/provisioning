@@ -5,7 +5,7 @@ import Markdown from './Markdown.js';
 import ClaimReview from './ClaimReview.js';
 import ConfirmDelete from './ConfirmDelete.js';
 import DocumentPanel from './DocumentPanel.js';
-import { STATE_LABEL, STATE_STYLE, STATE_HINT, stateFor, blockedBy, landingNote, leafDocuments, type Leaf } from './leaf-types.js';
+import { STATE_STYLE, STATE_HINT, stateFor, leafDocuments, storyLine, type Leaf } from './leaf-types.js';
 import type { DocumentAddress } from '../types/documents';
 import { cancelLeaf, retryLeaf, deleteLeaf } from '../api/grove';
 import { errorMessage } from '../api/client';
@@ -52,7 +52,7 @@ function AttemptError({ error }: { error: string }) {
   );
 }
 
-export default function LeafDetail({ leaf, all = [], treeId }: { leaf: Leaf; all?: Leaf[]; treeId?: string | undefined }) {
+export default function LeafDetail({ leaf, all = [], treeId, tasks }: { leaf: Leaf; all?: Leaf[]; treeId?: string | undefined; tasks?: { done: number; total: number } | undefined }) {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ['leaves'] });
   const call = (fn: () => Promise<unknown>) => ({ mutationFn: fn, onSuccess: invalidate });
@@ -65,8 +65,10 @@ export default function LeafDetail({ leaf, all = [], treeId }: { leaf: Leaf; all
   const documents = treeId ? leafDocuments(leaf, treeId) : [];
 
   const state = stateFor(leaf, all);
-  const waiting = blockedBy(leaf, all);
-  const attempts = leaf.attempts ?? [];
+  const line = storyLine(leaf, all, tasks);
+  const attempts = [...(leaf.attempts ?? [])].sort((a, b) => b.attempt - a.attempt);
+  const earlier = line.reopened;
+  const attemptsOpen = leaf.status === 'failed';
 
   return (
     <div className="max-w-3xl pb-10">
@@ -75,20 +77,20 @@ export default function LeafDetail({ leaf, all = [], treeId }: { leaf: Leaf; all
           <h2 className="text-2xl font-bold text-slate-100 break-words">{leaf.title}</h2>
           <div className="flex items-center gap-3 mt-2 flex-wrap">
             <span
-              className={`text-[11px] uppercase tracking-widest font-semibold ${state ? STATE_STYLE[state] : 'text-slate-600 line-through'}`}
-              title={state ? `${STATE_HINT[state]} (api: ${leaf.status})` : `cancelled (api: ${leaf.status})`}
+              className={`text-[12px] font-semibold ${state ? STATE_STYLE[state] : 'text-slate-500'}`}
+              title={state ? STATE_HINT[state] : 'It was cancelled'}
+              data-testid="story-line"
             >
-              {state ? STATE_LABEL[state] : 'Cancelled'}
+              {line.text}
             </span>
-            {landingNote(leaf) && <span className="text-[11px] text-emerald-300/80">{landingNote(leaf)}</span>}
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {['pending', 'running', 'claimed'].includes(leaf.status) && (
-            <button onClick={() => cancel.mutate()} disabled={cancel.isPending} title="Cancel — stop working this leaf; the rest of the tree carries on"
+            <button onClick={() => cancel.mutate()} disabled={cancel.isPending} title="Cancel: stop working this story; the rest of the project carries on"
               className="p-1.5 rounded-lg text-slate-500 hover:text-amber-400 hover:bg-[var(--bark-700)] disabled:opacity-50"><CircleSlash size={15} /></button>
           )}
-          <button onClick={() => setConfirmingDelete(true)} title="Delete this leaf"
+          <button onClick={() => setConfirmingDelete(true)} title="Delete this story"
             className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-[var(--bark-700)]"><Trash2 size={15} /></button>
         </div>
       </div>
@@ -96,8 +98,8 @@ export default function LeafDetail({ leaf, all = [], treeId }: { leaf: Leaf; all
       {confirmingDelete && (
         <div className="mt-3">
           <ConfirmDelete
-            prompt="Delete this leaf with its tasks and plans? A run in progress is stopped."
-            confirmLabel="Delete leaf"
+            prompt="Delete this story with its tasks and plans? A run in progress is stopped."
+            confirmLabel="Delete story"
             pending={remove.isPending}
             onConfirm={() => remove.mutate()}
             onCancel={() => setConfirmingDelete(false)}
@@ -114,7 +116,7 @@ export default function LeafDetail({ leaf, all = [], treeId }: { leaf: Leaf; all
               <ShieldCheck size={13} /> a person verified it{leaf.review.reason ? ` — ${leaf.review.reason}` : ''}
             </span>
           ) : (
-            <span className="flex items-center gap-1.5 text-green-400" title="The judge weighed the claim's evidence against the leaf's goal and verified it">
+            <span className="flex items-center gap-1.5 text-green-400" title="The judge weighed the claim's evidence against the story's goal and verified it">
               <ShieldCheck size={13} /> the judge verified it{leaf.review?.reason ? ` — ${leaf.review.reason}` : ''}
             </span>
           )}
@@ -147,24 +149,13 @@ export default function LeafDetail({ leaf, all = [], treeId }: { leaf: Leaf; all
         </div>
       )}
 
-      {waiting.length > 0 && (
-        <p className="mt-4 text-[12px] text-slate-500" title="This does not start until they have succeeded">
-          waits on {waiting.map((w) => w.title).join(', ')}
-        </p>
-      )}
-
-      {leaf.waitingFor && (
-        <p className="mt-4 text-[12px] text-amber-300/80" title="It is taken up again when the rebuilt workspace is published">
-          Put aside until its workspace is rebuilt: {leaf.waitingFor.reason}
-        </p>
-      )}
       {leaf.waitingFor?.stuck && (
         <p className="mt-1 text-[12px] text-red-300/80" title="A change to .koala/workspace.json on main starts the build again">
           Its workspace is {leaf.waitingFor.stuck}
         </p>
       )}
 
-      {leaf.findings && (
+      {leaf.findings && !earlier && (
         <div className="mt-5">
           <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Findings</h3>
           <div className="text-[13px] text-slate-300 leading-relaxed rounded-xl border border-[var(--bark-600)] bg-[var(--bark-900)]/50 p-4 max-h-[32rem] overflow-y-auto">
@@ -174,7 +165,7 @@ export default function LeafDetail({ leaf, all = [], treeId }: { leaf: Leaf; all
         </div>
       )}
 
-      {documents.length > 0 && (
+      {documents.length > 0 && !earlier && (
         <div className="mt-5">
           <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Documents</h3>
           <ul className="space-y-1">
@@ -202,7 +193,7 @@ export default function LeafDetail({ leaf, all = [], treeId }: { leaf: Leaf; all
         </div>
       )}
 
-      {attempts.length > 0 && (
+      {attempts.length > 0 && attemptsOpen && (
         <div className="mt-6">
           <h3 className="text-[10px] font-black text-red-400/80 uppercase tracking-widest mb-2 flex items-center gap-1.5">
             <AlertTriangle size={11} /> {attempts.length} failed attempt{attempts.length > 1 ? 's' : ''}
@@ -221,6 +212,44 @@ export default function LeafDetail({ leaf, all = [], treeId }: { leaf: Leaf; all
             ))}
           </ol>
         </div>
+      )}
+
+      {((earlier && (leaf.findings || documents.length > 0)) || (!attemptsOpen && attempts.length > 0)) && (
+        <details className="mt-6 rounded-lg border border-[var(--bark-700)] px-3 py-2" data-testid="story-earlier">
+          <summary className="cursor-pointer text-[12px] text-slate-400">
+            Earlier{earlier && leaf.landed ? `: landed on main ${new Date(leaf.landed.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+            {attempts.length > 0 ? `${earlier && leaf.landed ? ', ' : ': '}${attempts.length} failed attempt${attempts.length > 1 ? 's' : ''}` : ''}
+          </summary>
+          {earlier && leaf.findings && (
+            <div className="mt-3 text-[13px] text-slate-300 leading-relaxed rounded-xl border border-[var(--bark-600)] bg-[var(--bark-900)]/50 p-4 max-h-[32rem] overflow-y-auto">
+              <Markdown>{withArtifactAddresses(leaf.findings)}</Markdown>
+            </div>
+          )}
+          {earlier && documents.length > 0 && (
+            <ul className="mt-3 space-y-1">
+              {documents.map((document) => (
+                <li key={document.path}>
+                  <button type="button" onClick={() => setOpenDocument(document)} className="flex items-center gap-1.5 text-[12px] font-mono text-emerald-300 hover:text-emerald-200 cursor-pointer text-left break-all">
+                    <FileText size={12} className="shrink-0" /> {document.path}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {!attemptsOpen && attempts.length > 0 && (
+            <ol className="mt-3 space-y-2">
+              {attempts.map((a) => (
+                <li key={a.attempt} className="text-[12px] bg-red-950/20 border border-red-900/40 rounded-lg px-3 py-2">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-red-400/70 font-semibold">Attempt #{a.attempt}</span>
+                    {a.failedAt && <span className="text-slate-500 text-[11px]">{new Date(a.failedAt).toLocaleString()}</span>}
+                  </div>
+                  <AttemptError error={a.error} />
+                </li>
+              ))}
+            </ol>
+          )}
+        </details>
       )}
 
       {openDocument && <DocumentPanel file={openDocument} onClose={() => setOpenDocument(undefined)} />}

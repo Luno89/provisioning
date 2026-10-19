@@ -75,7 +75,7 @@ export function NewProjectDialog({ clusters, onClose, onCreated }: {
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1">Where Koala's leaves run</label>
+            <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1">Where Koala's work runs</label>
             <select
               name="executionTargetDeviceId"
               value={deviceId}

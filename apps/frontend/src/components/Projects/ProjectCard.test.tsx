@@ -2,20 +2,24 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { ProjectCard } from './ProjectCard.js'
 import type { ProjectRow } from './shared.js'
+vi.mock('./Strip/ProjectPulse.js', () => ({ ProjectPulse: ({ treeId, projectId }: { treeId?: string; projectId?: string }) => <span data-testid="project-pulse">{treeId ?? ''}{projectId ?? ''}</span> }))
 
 describe('ProjectCard', () => {
-  it('shows repo info and status badge for a tree with a linked project', () => {
+  it('shows its status badge and what is going on, and its repository only when it is named differently', () => {
     const row: ProjectRow = {
-      id: 't1', name: 'widget',
-      tree: { id: 't1', name: 'widget', branchCount: 2 },
-      project: { id: 'p1', name: 'widget', giteaOwner: 'acme', giteaRepo: 'widget', status: 'running' },
+      id: 't1', name: 'Delivery Labels',
+      tree: { id: 't1', name: 'Delivery Labels', branchCount: 2 },
+      project: { id: 'p1', name: 'Delivery Labels', giteaOwner: 'acme', giteaRepo: 'delivery-labels', status: 'running' },
     }
-    render(<ProjectCard row={row} onOpen={vi.fn()} />)
-
-    expect(screen.getByText('widget')).toBeInTheDocument()
-    expect(screen.getByText('acme/widget')).toBeInTheDocument()
+    const { unmount } = render(<ProjectCard row={row} onOpen={vi.fn()} />)
+    expect(screen.getByText('Delivery Labels')).toBeInTheDocument()
+    expect(screen.queryByText('delivery-labels')).toBeNull()
     expect(screen.getByText('Running')).toBeInTheDocument()
-    expect(screen.getByText('2 conversations')).toBeInTheDocument()
+    expect(screen.getByTestId('project-pulse')).toHaveTextContent('t1p1')
+    unmount()
+
+    render(<ProjectCard row={{ ...row, project: { ...row.project!, giteaRepo: 'shop-site' } }} onOpen={vi.fn()} />)
+    expect(screen.getByText('shop-site')).toHaveAttribute('title', 'acme/shop-site')
   })
 
   it('marks a tree with no linked project as having no repository', () => {

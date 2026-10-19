@@ -1,6 +1,9 @@
 import { Box, Trees as TreesIcon, ShieldCheck, ShieldAlert, Terminal } from 'lucide-react'
 import type { ProjectRow } from './shared.js'
 import { ProjectStatusBadge } from './StatusBadge.js'
+import { ProjectPulse } from './Strip/ProjectPulse.js'
+
+const slugOf = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
 export interface LocalAgentSummary {
   id: string
@@ -26,9 +29,9 @@ export function ProjectCard({ row, onOpen, localAgents = [] }: {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
           <h4 className="font-semibold text-sm text-slate-100 truncate">{row.name}</h4>
-          {row.project?.giteaOwner && row.project.giteaRepo && (
-            <span className="text-[11px] font-mono text-slate-400 bg-[var(--bark-800)] px-2 py-0.5 rounded">
-              {row.project.giteaOwner}/{row.project.giteaRepo}
+          {row.project?.giteaRepo && row.project.giteaRepo !== slugOf(row.name) && (
+            <span className="text-[10px] font-mono text-slate-500" title={`${row.project.giteaOwner}/${row.project.giteaRepo}`}>
+              {row.project.giteaRepo}
             </span>
           )}
           {row.project?.autoDeployOnBuild && (
@@ -39,7 +42,7 @@ export function ProjectCard({ row, onOpen, localAgents = [] }: {
           {localDeviceId && (
             <span
               className="text-[10px] font-mono text-blue-400 bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded flex items-center gap-1"
-              title="This project's leaves execute on a local machine, not a sandboxed cluster"
+              title="This project's work runs on a local machine, not a sandboxed cluster"
             >
               <Terminal size={10} />
               Local machine: {localAgents.find((d) => d.id === localDeviceId)?.name ?? 'unknown'}
@@ -61,11 +64,7 @@ export function ProjectCard({ row, onOpen, localAgents = [] }: {
             <span className="text-[11px] text-slate-500 italic">no conversation yet</span>
           )}
         </div>
-        {row.tree?.branchCount !== undefined && (
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            {row.tree.branchCount} {row.tree.branchCount === 1 ? 'conversation' : 'conversations'}
-          </p>
-        )}
+        <ProjectPulse treeId={row.tree?.id} projectId={row.project?.id} />
       </div>
       {row.project && <ProjectStatusBadge status={row.project.status} reason={row.project.reason} />}
     </button>

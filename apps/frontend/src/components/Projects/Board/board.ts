@@ -82,11 +82,11 @@ const zero = (): Record<LeafState, number> =>
   Object.fromEntries(BOARD_COLUMNS.map((column) => [column.id, 0])) as unknown as Record<LeafState, number>
 
 export function reachedBy(
-  leaf: Pick<Leaf, 'landed'>,
+  leaf: Pick<Leaf, 'landed' | 'status'>,
   releases: readonly Pick<OdooRelease, 'state' | 'startedAt'>[],
   runs: readonly Pick<PipelineRun, 'startedAt' | 'promotedAt'>[],
 ): Reached | undefined {
-  if (leaf.landed?.outcome !== 'merged') return undefined
+  if (leaf.status !== 'succeeded' || leaf.landed?.outcome !== 'merged') return undefined
   const after = (at: string | undefined) => at !== undefined && at >= leaf.landed!.at
   if (releases.some((release) => release.state === 'live' && after(release.startedAt))) return 'live'
   if (runs.some((run) => run.promotedAt !== undefined && after(run.startedAt))) return 'live'

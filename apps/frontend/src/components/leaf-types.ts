@@ -112,8 +112,47 @@ export function leafDocuments(leaf: Pick<Leaf, 'claim'>, treeId: string): Docume
   return (leaf.claim?.files ?? []).map((path) => ({ workspace: treeWorkspace(treeId), path, at: commit }));
 }
 
-export function landingNote(leaf: Pick<Leaf, 'status' | 'verified' | 'landed'>): string | undefined {
-  if (leaf.landed) return leaf.landed.outcome === 'merged' ? 'Landed on main' : 'Landed on main — it had nothing main did not already have'
-  if (leaf.status === 'succeeded' && leaf.verified) return 'Verified — lands on main at the end of this judge pass'
-  return undefined
+export interface StoryLine {
+  text: string;
+  reopened: boolean;
+}
+
+const onDay = (at: string): string => new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+export function storyLine(
+  leaf: Pick<Leaf, 'status' | 'verified' | 'landed' | 'attempts' | 'waitingFor' | 'dependsOn' | 'review' | 'claim' | 'updatedAt'>,
+  all: { id: string; title: string; status: LeafStatus }[],
+  tasks: { done: number; total: number } = { done: 0, total: 0 },
+): StoryLine {
+  const reopened = Boolean(leaf.landed) && leaf.status !== 'succeeded' && leaf.status !== 'cancelled';
+  const left = tasks.total - tasks.done;
+  const toDo = tasks.total > 0 ? `${left} of ${tasks.total} ${tasks.total === 1 ? 'task' : 'tasks'} to do` : '';
+  const tried = (leaf.attempts ?? []).length;
+  switch (leaf.status) {
+    case 'cancelled':
+      return { text: 'Cancelled', reopened };
+    case 'succeeded': {
+      const who = leaf.review?.model === 'person' ? 'verified by you' : 'verified';
+      if (leaf.landed?.outcome === 'merged') return { text: `Done: ${who} and landed on main ${onDay(leaf.landed.at)}`, reopened };
+      if (leaf.landed) return { text: `Done: ${who}; main already had its work`, reopened };
+      return leaf.verified
+        ? { text: `Done: ${who}; it lands on main when this judge pass ends`, reopened }
+        : { text: 'Claimed done: waiting for the judge', reopened };
+    }
+    case 'claimed':
+      return isAwaitingReview(leaf)
+        ? { text: 'Waiting for your review: the judge could not settle it', reopened }
+        : { text: 'Claimed done: waiting for the judge', reopened };
+    case 'running':
+      return { text: `Being worked now${reopened ? ` (reopened ${onDay(leaf.updatedAt)})` : ''}${toDo ? `: ${toDo}` : ''}`, reopened };
+    case 'failed':
+      return { text: `Failed after ${tried || 1} ${tried === 1 || tried === 0 ? 'attempt' : 'attempts'}`, reopened };
+    case 'pending': {
+      if (leaf.waitingFor) return { text: `Put aside until its workspace is rebuilt: ${leaf.waitingFor.reason}`, reopened };
+      const waits = blockedBy(leaf, all);
+      if (waits.length > 0) return { text: `Waits on ${waits.map((other) => `“${other.title}”`).join(', ')}`, reopened };
+      if (reopened) return { text: `Reopened ${onDay(leaf.updatedAt)}${toDo ? `: ${toDo}` : ''}`, reopened };
+      return { text: `To do${toDo ? `: ${toDo}` : ''}`, reopened };
+    }
+  }
 }

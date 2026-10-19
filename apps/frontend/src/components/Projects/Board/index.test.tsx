@@ -14,7 +14,6 @@ vi.mock('../../../api/engine', async (orig) => ({ ...(await orig<typeof engineAp
 vi.mock('../../../api/releases', async (orig) => ({ ...(await orig<typeof releasesApi>()), listReleases: vi.fn(async () => ({ releases: [], addresses: {} })) }))
 vi.mock('../../../api/chat-pack', async (orig) => ({ ...(await orig<typeof chatPackApi>()), createChatConversation: vi.fn() }))
 vi.mock('../Workspace/ProjectChannel', () => ({ ProjectChannel: ({ projectId }: { projectId: string }) => <div data-testid="channel">{projectId}</div> }))
-vi.mock('../Workspace/TreeRunPanel', () => ({ TreeRunPanel: () => <div data-testid="run" /> }))
 vi.mock('../Workspace/TreeProposalsPanel', () => ({ TreeProposalsPanel: () => null }))
 vi.mock('../Workspace/TreeConversationsPanel', () => ({ TreeConversationsPanel: ({ onSelect }: { onSelect: (id: string) => void }) => <button type="button" onClick={() => onSelect('conv-1')}>a thread</button> }))
 vi.mock('../../LeafDetail', () => ({ default: ({ leaf }: { leaf: { title: string } }) => <div data-testid="leaf-detail">{leaf.title}</div> }))

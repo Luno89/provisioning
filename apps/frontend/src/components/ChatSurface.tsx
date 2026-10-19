@@ -10,6 +10,7 @@ import ChatHero from './Chat/ChatHero.js';
 import { ConversationContext } from './Chat/ConversationContext.js';
 import ChatComposer, { type PersonaPackOption } from './Chat/ChatComposer.js';
 import ChatMessageRow from './Chat/ChatMessageRow.js';
+import { noticeRepeats } from './Chat/notice-repeats.js';
 import ChatNotice, { type StoryAddress } from './Chat/ChatNotice.js';
 import DocumentPanel from './DocumentPanel.js';
 import type { FileArtifact } from './Chat/ChatToolCallCard.js';
@@ -193,6 +194,7 @@ export default function ChatSurface({
     access: access.requests,
     approvals: conv.pendingApprovals,
   }), [planProposals.plans, actions.proposals, secretRequests.requests, mcp.requests, egress.requests, access.requests, conv.pendingApprovals]);
+  const repeats = useMemo(() => noticeRepeats(renderedMessages), [renderedMessages]);
   const cardsAt = useMemo(() => cardMarkers(renderedMessages, cards), [renderedMessages, cards]);
   const waitingCards = cards.filter(isWaiting).length;
   const showing = cardsLayout === 'tab' && cards.length > 0 ? cardsTab : 'chat';
@@ -419,7 +421,7 @@ export default function ChatSurface({
                   {renderedMessages.map((msg, idx) => (
                     <Fragment key={idx}>
                       {msg.role === 'notice' && msg.notice
-                        ? <ChatNotice notice={msg.notice} at={msg.at} onOpenTree={onOpenTree} onOpenStory={onOpenStory} />
+                        ? (repeats.get(idx) ?? 1) > 0 && <ChatNotice notice={msg.notice} at={msg.at} onOpenTree={onOpenTree} onOpenStory={onOpenStory} times={repeats.get(idx) ?? 1} onItsPage={Boolean(channel)} />
                         : (
                           <ChatMessageRow
                             message={msg}

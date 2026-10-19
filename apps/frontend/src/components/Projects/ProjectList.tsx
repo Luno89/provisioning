@@ -1,5 +1,4 @@
 import { useMemo } from 'react'
-import TaskBoard from './TaskBoard'
 import { useQuery } from '@tanstack/react-query'
 import { GitBranch, Plus, Loader2 } from 'lucide-react'
 import { listTrees, groveKeys } from '../../api/grove.js'
@@ -58,8 +57,6 @@ export function ProjectList({ onOpenTree, onOpenProject, onNewTree, onNewProject
           </button>
         </div>
       </header>
-
-      <TaskBoard />
 
       {isLoading ? (
         <div className="text-slate-400 text-xs flex items-center gap-2 py-8">

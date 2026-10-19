@@ -920,8 +920,14 @@ release (Odoo) or the deployed image (image deploys) still builds, but nothing i
 conversation (`channel-<projectId>`, `kind: 'channel'`, `ProjectChannelService.ensure`, made with the project or the
 first time its page opens, bound to its tree, deleted with it).
 
-**A project opens on its board** (`components/Projects/Board/`, `#/projects/tree/<id>` or `#/projects/project/<id>`):
-what is going on with it across the top (what is live, a preview with its cut-over, Open app, sign-in, the last build),
+**A project opens on its board** (`components/Projects/Board/`, `#/projects/tree/<id>` or `#/projects/project/<id>`).
+Every tab (Board · Releases · Files · Settings) starts with **the strip** (`Projects/Strip/ProjectStrip.tsx`): what is live
+with Open app and sign-in; what is being worked with Stop, or how many stories are ready with Work them; what each agent runs
+on (`runsOnLine`), opening the tree's models in place with **Every agent in this tree** (`wholeTreeChanges`) and auto mode;
+and **Waiting on you**: a preview to cut over, cards, asks, secrets. A plan card about a story that has since finished is out
+of date (`lib/plan-staleness.ts`): listed as replaced and refused when approved. Releases holds builds and releases, Files
+the explorer and editor, Settings the models, auto mode, workspace definition and sandbox. On the board
+(full width, its chat a panel the strip's Channel button opens and closes, remembered per project, `useChatPanel`),
 each tree as an epic with its features (branches) as rows and its stories (leaves) as cards in the state columns
 (`BOARD_COLUMNS`/`stateFor`, the one rule for a leaf's column; `board.ts` builds it), and the channel on the right, its
 width dragged (and kept) at the divider. Opening a card or a feature puts it on its own page in place of the board, with

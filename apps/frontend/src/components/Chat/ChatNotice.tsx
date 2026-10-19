@@ -30,9 +30,11 @@ export interface StoryAddress {
   leafId: string;
 }
 
-export function ChatNotice({ notice, at, onOpenTree, onOpenStory }: {
+export function ChatNotice({ notice, at, onOpenTree, onOpenStory, times = 1, onItsPage = false }: {
   notice: ConversationNotice;
   at?: string | undefined;
+  times?: number | undefined;
+  onItsPage?: boolean | undefined;
   onOpenTree?: ((treeId: string) => void) | undefined;
   onOpenStory?: ((story: StoryAddress) => void) | undefined;
 }) {
@@ -42,14 +44,14 @@ export function ChatNotice({ notice, at, onOpenTree, onOpenStory }: {
   return (
     <div role="status" className="my-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)]/60 px-3 py-2 text-[12px]" data-testid="chat-notice">
       <Icon size={14} className={`shrink-0 ${tone}`} aria-hidden="true" />
-      <span className="text-slate-200 flex-1 min-w-[12rem]">{notice.text}</span>
+      <span className="text-slate-200 flex-1 min-w-[12rem]">{notice.text}{times > 1 && <span className="ml-1.5 text-slate-500" title={`The same thing was said ${times} times in a row`}>×{times}</span>}</span>
       {timeOf(at) && <span className="text-[11px] text-slate-500">{timeOf(at)}</span>}
       <div className="flex flex-wrap items-center gap-2">
         {projectId && goes('open-preview') && <OpenApp projectId={projectId} which="preview" />}
         {projectId && goes('open-app') && <OpenApp projectId={projectId} />}
-        {treeId && onOpenTree && (goes('cut-over') || goes('open-tree') || goes('enter-secret')) && (
+        {treeId && onOpenTree && (goes('enter-secret') || (!onItsPage && (goes('cut-over') || goes('open-tree')))) && (
           <button type="button" onClick={() => onOpenTree(treeId)} className="rounded border border-[var(--bark-600)] px-2 py-0.5 text-[11px] text-slate-200 hover:bg-[var(--bark-700)] cursor-pointer">
-            {goes('cut-over') ? 'Cut over or discard…' : goes('enter-secret') ? 'Enter it…' : 'Open the tree'}
+            {goes('enter-secret') ? 'Enter it…' : goes('cut-over') ? 'Cut over or discard…' : 'Open its board'}
           </button>
         )}
         {treeId && goes('open-workspace') && (

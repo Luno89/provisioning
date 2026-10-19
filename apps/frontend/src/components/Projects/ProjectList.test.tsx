@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { ProjectList } from './ProjectList.js'
 import * as groveApi from '../../api/grove.js'
 import * as projectsApi from '../../api/projects.js'
+vi.mock('./Strip/ProjectPulse.js', () => ({ ProjectPulse: ({ treeId, projectId }: { treeId?: string; projectId?: string }) => <span data-testid="project-pulse">{treeId ?? ''}{projectId ?? ''}</span> }))
 
 vi.mock('../../api/grove.js', async (importOriginal) => ({
   ...(await importOriginal<typeof groveApi>()),
@@ -37,7 +38,6 @@ describe('ProjectList', () => {
     renderList()
 
     expect(await screen.findByText('widget')).toBeInTheDocument()
-    expect(screen.getByText('acme/widget')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: /widget/ })).toHaveLength(1)
   })
 

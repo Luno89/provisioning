@@ -30,6 +30,11 @@ import type { StoryAddress } from '../../Chat/ChatNotice'
 
 const STARTABLE: ReadonlySet<LeafStatus> = new Set(['pending', 'running', 'claimed'])
 
+const taskCount = (tasks: readonly { status: string }[]) => {
+  const counted = tasks.filter((task) => task.status !== 'dropped' && task.status !== 'proposed')
+  return { done: counted.filter((task) => task.status === 'done').length, total: counted.length }
+}
+
 type Main = { kind: 'board'; epicId?: string | undefined } | { kind: 'story'; id: string } | { kind: 'feature'; id: string }
 type Side = { kind: 'item' } | { kind: 'channel' } | { kind: 'threads' } | { kind: 'conversation'; id: string }
 
@@ -210,7 +215,7 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
 
         {main.kind === 'story' && openLeaf && (
           <article className="rounded-lg border border-[var(--bark-700)] bg-[var(--bark-900)] p-4" aria-label={openLeaf.title} data-testid="story-page">
-            <LeafDetail key={openLeaf.id} leaf={openLeaf} all={leaves} treeId={openBranch?.treeId} />
+            <LeafDetail key={openLeaf.id} leaf={openLeaf} all={leaves} treeId={openBranch?.treeId} tasks={taskCount((tasks.data ?? []).filter((task) => task.leafId === openLeaf.id))} />
             {asking.some((ask) => ask.leafId === openLeaf.id) && <div className="mt-3"><TreeAsks asks={asking.filter((ask) => ask.leafId === openLeaf.id)} /></div>}
             {openBranch?.treeId && STARTABLE.has(openLeaf.status) && (
               <p className="mt-4 text-[11px] text-slate-500" data-testid="story-run-tree">Ready stories are worked in the order you set on the board, with Work them at the top of the page.</p>

@@ -114,7 +114,7 @@ describe('the board of a project', () => {
 })
 
 describe('how far a story\'s work got', () => {
-  const landed = { landed: { at: '2026-10-09T09:30:00Z', outcome: 'merged' as const } }
+  const landed = { status: 'succeeded' as const, landed: { at: '2026-10-09T09:30:00Z', outcome: 'merged' as const } }
 
   it('reached what is live when a live release was made after it landed', () => {
     expect(reachedBy(landed, [release({ state: 'live' })], [])).toBe('live')
@@ -124,8 +124,13 @@ describe('how far a story\'s work got', () => {
   })
 
   it('reached nothing when it landed nothing', () => {
-    expect(reachedBy({ landed: { at: '2026-10-09T09:30:00Z', outcome: 'nothing' } }, [release({ state: 'live' })], [])).toBeUndefined()
-    expect(reachedBy({}, [release({ state: 'live' })], [])).toBeUndefined()
+    expect(reachedBy({ status: 'succeeded', landed: { at: '2026-10-09T09:30:00Z', outcome: 'nothing' } }, [release({ state: 'live' })], [])).toBeUndefined()
+    expect(reachedBy({ status: 'succeeded' }, [release({ state: 'live' })], [])).toBeUndefined()
+  })
+
+  it('reached nothing while it is reopened, whatever its earlier work reached', () => {
+    expect(reachedBy({ ...landed, status: 'pending' }, [release({ state: 'preview' })], [])).toBeUndefined()
+    expect(reachedBy({ ...landed, status: 'running' }, [release({ state: 'live' })], [])).toBeUndefined()
   })
 })
 
