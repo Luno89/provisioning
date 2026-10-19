@@ -1,3 +1,5 @@
+import { E2E_LOGIN, LOGIN_SCRIPT } from '../../lib/release-e2e.js';
+
 export const ODOO_E2E_HELPERS_AT = '/usr/local/share/koala/odoo.ts';
 
 export const ODOO_E2E_SCRIPT = [
@@ -99,10 +101,21 @@ export const ODOO_E2E_SCRIPT = [
   "  echo \"$fingerprint\" > \"$state/fingerprint\"",
   "  serve",
   "fi",
+  "if [ \"$reused\" = 0 ] || [ ! -f \"$state/login\" ]; then",
+  "  E2E_LOGIN=" + E2E_LOGIN + " E2E_PASSWORD=" + E2E_LOGIN + " odoo shell $common --no-http >\"$state/login.log\" 2>&1 <<'KOALA_LOGIN' || true",
+  ...LOGIN_SCRIPT.split('\n'),
+  "KOALA_LOGIN",
+  "  if ! grep -q 'the test login is ready' \"$state/login.log\"; then",
+  "    tail -20 \"$state/login.log\"",
+  "    echo \"odoo-e2e: FAILED \u2014 the test login " + E2E_LOGIN + " could not be made\"",
+  "    exit 1",
+  "  fi",
+  "  touch \"$state/login\"",
+  "fi",
   "mkdir -p \"$PWD/e2e-results\"",
   "rm -rf \"$PWD/e2e-results/artifacts\"",
   "status=0",
-  "BASE_URL=\"http://127.0.0.1:$port\" ODOO_LOGIN=admin ODOO_PASSWORD=admin PLAYWRIGHT_JSON_OUTPUT_NAME=\"$PWD/e2e-results/report.json\" \\",
+  "BASE_URL=\"http://127.0.0.1:$port\" ODOO_LOGIN=" + E2E_LOGIN + " ODOO_PASSWORD=" + E2E_LOGIN + " PLAYWRIGHT_JSON_OUTPUT_NAME=\"$PWD/e2e-results/report.json\" \\",
   "  playwright test \"$@\" --reporter=line,json --output=\"$PWD/e2e-results/artifacts\" > \"$state/e2e.out\" 2>&1 || status=$?",
   "tail -40 \"$state/e2e.out\"",
   "if [ \"$status\" -ne 0 ]; then",

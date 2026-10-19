@@ -658,8 +658,12 @@ a failure keeps what the browser saw:
 
 That serves every module under \`addons/\` the same way (\`koala-e2e <specs>\`).
 
+Specs sign in as a test user, \`koala-e2e\`, with the admin's rights but not the admin's record: \`signIn\` reads it
+from \`ODOO_LOGIN\` / \`ODOO_PASSWORD\`, in the checks and in the preview alike. Never edit the Administrator (user 2) or
+any record a spec did not make to stand in for one: make the user, partner or product the test needs.
+
 Every build that reaches the preview slot runs all of \`e2e/\` again there, against a copy of the live data, signed
-in as a test user (\`koala-e2e\`, with the admin's rights) through the same \`ODOO_LOGIN\` / \`ODOO_PASSWORD\`. The
+in as that same test user. The
 result shows on the release's card as advice; the person still decides whether to cut over. Outgoing mail and
 scheduled jobs are off in a preview, and what the tests change there is thrown away. Write specs that hold on real
 data: make the records a test looks at, rather than counting on them being there.
