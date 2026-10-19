@@ -101,6 +101,7 @@ async function main(): Promise<void> {
   scratch = await mkdtemp(path.join(tmpdir(), 'machine-chat-live-'));
   const scriptPath = path.join(scratch, 'script.json');
   const toldPath = path.join(scratch, 'told.json');
+  const resolvedPath = path.join(scratch, 'resolved.json');
   const script = (turns: AgentScript['turns']): Promise<void> => writeFile(scriptPath, JSON.stringify({ name: 'koala-script', version: '1.0.0', turns } satisfies AgentScript));
   await script([{ steps: [{ echo: true }] }]);
   const agent: ManualAgent = { id: AGENT, title: 'Scripted agent (machine-chat-live)', command: process.execPath, args: ['--import', TSX_LOADER, SCRIPT_AGENT, scriptPath] };
@@ -132,6 +133,27 @@ async function main(): Promise<void> {
     { when: 'delivery label? (second)', steps: [
       { tool: { id: 'peek', title: 'ls -la', kind: 'execute' }, ask: true, output: 'nothing' },
       { say: 'Nothing to add.' },
+    ] },
+    { when: 'These files conflict: notes.md', steps: [
+      { record: resolvedPath },
+      { write: { path: 'notes.md', content: 'What A found.\nWhat B found.\n' } },
+      { say: 'Kept both findings.' },
+    ] },
+    { when: 'Ask research both questions at once', steps: [
+      { mcp: [
+        { server: 'koala', tool: 'research', args: { question: 'What does the label header say? (fourth A)' }, follow: true },
+        { server: 'koala', tool: 'research', args: { question: 'What does the label footer say? (fourth B)' }, follow: true },
+      ] },
+      { say: 'Both answered.' },
+    ] },
+    { when: '(fourth A)', steps: [
+      { write: { path: 'notes.md', content: 'What A found.\n' } },
+      { say: 'A wrote its finding.' },
+    ] },
+    { when: '(fourth B)', steps: [
+      { wait: 45_000 },
+      { write: { path: 'notes.md', content: 'What B found.\n' } },
+      { say: 'B wrote its finding.' },
     ] },
     { when: 'its own folder (third)', steps: [
       { record: toldPath },
@@ -200,6 +222,27 @@ async function main(): Promise<void> {
   const searched = thirdEvents.find((event) => event.type === 'tool.result' && thirdEvents.some((called) => called.callId === event.callId && called.name === 'search_web'));
   assert.equal(searched?.ok, true, `search_web did not run: ${JSON.stringify(searched)}`);
   console.log(`  research worked in ${own.cwd}, search_web ran for it, and it was offered no run_in_workspace`);
+
+  step('two research hand-offs at once in one chat write the same file; the one whose work comes back second resolves the conflict in its session, and both findings are kept');
+  const fourth = await newChat('Machine chat live, together');
+  await api.put(`/auto-mode/conversations/${fourth}`, { on: true });
+  const fourthRun = await turn(fourth, 'koala', 'Ask research both questions at once.');
+  const fourthEvents = await finished(fourthRun);
+  const handed = fourthEvents.filter((event) => event.type === 'run.started' && event.parentRunId === fourthRun);
+  assert.equal(handed.length, 2, `Koala handed ${handed.length} questions to research`);
+  for (const child of handed) {
+    const ended = fourthEvents.find((event) => event.type === 'run.finished' && event.runId === child.runId);
+    assert.equal(ended?.outcome, 'ok', `${child.runId} ended ${JSON.stringify(ended)}`);
+  }
+  const resolved = JSON.parse(await readFile(resolvedPath, 'utf8')) as Told;
+  assert.ok(resolved.prompt.includes('These files conflict: notes.md'), `the agent was not told what conflicts: ${resolved.prompt.slice(0, 300)}`);
+  const notes = await api.get(`/documents/${encodeURIComponent(`conversation-${fourth}`)}`, { params: { path: 'notes.md' } });
+  assert.equal((notes.data as { content?: string }).content, 'What A found.\nWhat B found.\n', `the chat's workspace holds ${JSON.stringify(notes.data)}`);
+  const kept = fourthEvents.filter((event) => event.type === 'notice' && event.message?.includes('kept as the branch'));
+  assert.deepEqual(kept, [], `work was kept aside instead of merged: ${JSON.stringify(kept)}`);
+  const { stdout: fourthBranches } = await run('git', ['-c', 'credential.helper=', '-c', 'core.askPass=', '-c', `http.extraHeader=Authorization: Bearer ${machine.token}`, 'ls-remote', '--heads', `${BASE}/machines/git/${conversationRepoName(fourth)}.git`], { env: { ...process.env, GIT_TERMINAL_PROMPT: '0', SSH_ASKPASS: '', GIT_ASKPASS: '' } });
+  assert.deepEqual(fourthBranches.split('\n').filter((line) => line.includes('refs/heads/machine/')), [], 'the machine\'s work branches were left behind');
+  console.log(`  ${handed.map((child) => child.runId.split('-').slice(-2).join('-')).join(' and ')} worked at once; the second was told notes.md conflicts, kept both findings, and the workspace has them`);
 
   console.log('\nmachine chat live — PASS');
 }
