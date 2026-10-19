@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ActionProposal, EgressRequest, McpRequest, PlanProposal, SecretRequest } from '@koala/harness-types'
-import { APPROVAL_CARD_ID, cardLine, cardMarkers, chatCards, type CardSources } from './chat-cards'
+import { approvalCardId, cardLine, cardMarkers, chatCards, type CardSources } from './chat-cards'
 
 const none: CardSources = { plans: [], actions: [], secrets: [], mcp: [], egress: [], access: [] }
 const plan = (id: string, status: PlanProposal['status'], createdAt: string): PlanProposal => ({
@@ -22,13 +22,13 @@ describe('the cards of a chat', () => {
       secrets: [secret],
       mcp: [mcp],
       egress: [egress],
-      approval: { reason: 'r', toolName: 'run_command' },
+      approvals: [{ runId: 'run-1', callId: 'c1', reason: 'r', toolName: 'run_command' }],
     })
-    expect(cards.map((card) => card.id)).toEqual(['p-new', 'm1', 'a1', APPROVAL_CARD_ID, 's1', 'e1', 'p-old'])
+    expect(cards.map((card) => card.id)).toEqual(['p-new', 'm1', 'a1', 'tool-approval run-1 c1', 's1', 'e1', 'p-old'])
   })
 
   it('says in one line what each card is and where it stands', () => {
-    const [waiting, approval, decided, dismissed] = chatCards({ ...none, plans: [plan('p', 'proposed', 'a')], secrets: [secret], egress: [egress], approval: { reason: 'Koala wants to run it' } })
+    const [waiting, approval, decided, dismissed] = chatCards({ ...none, plans: [plan('p', 'proposed', 'a')], secrets: [secret], egress: [egress], approvals: [{ runId: 'run-1', callId: 'c1', reason: 'Koala wants to run it' }] })
     expect(waiting && cardLine(waiting)).toBe('Plan: Break down “Labels” · waits for you')
     expect(approval && cardLine(approval)).toBe('Tool call: Koala wants to run it · waits for you')
     expect(decided && cardLine(decided)).toBe('Secret: SMTP_PASSWORD · provided')
@@ -37,12 +37,12 @@ describe('the cards of a chat', () => {
 
   it('places each card after the last message before it was raised, and ones raised since the last message at the end', () => {
     const messages = [{ at: '2026-10-14T10:00:00Z' }, { at: '2026-10-14T10:00:05Z' }, {}, { at: '2026-10-14T10:05:00Z' }]
-    const cards = chatCards({ ...none, plans: [plan('p1', 'adopted', '2026-10-14T10:00:03Z'), plan('p0', 'adopted', '2026-10-14T09:00:00Z'), plan('p2', 'proposed', '2026-10-14T10:06:00Z')], approval: { reason: 'r' } })
+    const cards = chatCards({ ...none, plans: [plan('p1', 'adopted', '2026-10-14T10:00:03Z'), plan('p0', 'adopted', '2026-10-14T09:00:00Z'), plan('p2', 'proposed', '2026-10-14T10:06:00Z')], approvals: [{ runId: 'run-1', callId: 'c1', reason: 'r' }, { runId: 'run-1-research-1', callId: 'c2', reason: 'r' }] })
     const at = cardMarkers(messages, cards)
     expect([...at.entries()].map(([index, placed]) => [index, placed.map((card) => card.id)])).toEqual([
       [-1, ['p0']],
       [0, ['p1']],
-      [3, ['p2', APPROVAL_CARD_ID]],
+      [3, ['p2', approvalCardId({ runId: 'run-1', callId: 'c1' }), approvalCardId({ runId: 'run-1-research-1', callId: 'c2' })]],
     ])
   })
 })

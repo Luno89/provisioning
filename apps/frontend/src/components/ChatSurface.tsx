@@ -191,8 +191,8 @@ export default function ChatSurface({
     mcp: mcp.requests,
     egress: egress.requests,
     access: access.requests,
-    approval: conv.pendingApproval,
-  }), [planProposals.plans, actions.proposals, secretRequests.requests, mcp.requests, egress.requests, access.requests, conv.pendingApproval]);
+    approvals: conv.pendingApprovals,
+  }), [planProposals.plans, actions.proposals, secretRequests.requests, mcp.requests, egress.requests, access.requests, conv.pendingApprovals]);
   const cardsAt = useMemo(() => cardMarkers(renderedMessages, cards), [renderedMessages, cards]);
   const waitingCards = cards.filter(isWaiting).length;
   const showing = cardsLayout === 'tab' && cards.length > 0 ? cardsTab : 'chat';
@@ -233,13 +233,14 @@ export default function ChatSurface({
           />
         );
       case 'approval':
-        return conv.pendingApproval ? (
+        return (
           <ChatApprovalCard
-            reason={conv.pendingApproval.reason}
-            {...(conv.pendingApproval.toolName ? { toolName: conv.pendingApproval.toolName, args: conv.pendingApproval.args } : {})}
-            onDecide={(decision) => void (decision === 'auto-chat' ? switchAutoMode(true) : conv.decideApproval(decision))}
+            reason={card.item.reason}
+            {...(card.item.toolName ? { toolName: card.item.toolName } : {})}
+            {...(card.item.args ? { args: card.item.args } : {})}
+            onDecide={(decision) => void (decision === 'auto-chat' ? switchAutoMode(true) : conv.decideApproval(card.item, decision))}
           />
-        ) : null;
+        );
     }
   };
   const askKoalaAbout = (message: ChatMessageRecord) => {
@@ -287,7 +288,7 @@ export default function ChatSurface({
       setError(`Auto mode could not be switched ${on ? 'on' : 'off'}: ${errorMessage(err)}`);
       return;
     }
-    if (on && conv.pendingApproval) await conv.decideApproval('allow');
+    if (on) await Promise.all(conv.pendingApprovals.map((approval) => conv.decideApproval(approval, 'allow')));
   };
 
   const composer = (

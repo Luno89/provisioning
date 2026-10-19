@@ -59,7 +59,7 @@ import {
 } from '../engine-host/temporal/contracts.js';
 import type { RunLimits, RunLimitsArgs } from '../engine-host/registries/effort.js';
 import { RUN_STATE_QUERY, type RunState } from '../engine-host/temporal/run-cancellation.js';
-import { ASK_CHARS, collectStep, machineChoice, RUN_IN_WORKSPACE, type Artifact, type RunEffort, type RunStep } from '@koala/agent-engine/procedure';
+import { ASK_CHARS, collectStep, machineChoice, RUN_IN_WORKSPACE, UNNAMED_MACHINE, type Artifact, type RunEffort, type RunStep } from '@koala/agent-engine/procedure';
 import { platformCatalogue, platformGroups } from '../extensions/installed.js';
 import { ownerIn, startedFor } from '../lib/workflow-owner.js';
 import { tracedSummary } from '../lib/turn-log.js';
@@ -79,6 +79,7 @@ interface EngineRemote {
   EngineMachineSendActivity(args: MachineSendRequest): Promise<{ repo: string; folder: string; commit: string }>;
   EngineMachineTakeActivity(args: MachineWorkRequest): Promise<BroughtBack>;
   EngineMachineDropActivity(args: MachineWorkRequest): Promise<void>;
+  EngineMachineNameActivity(args: { ownerId: string; deviceId: string }): Promise<string | null>;
 }
 
 interface DeviceRemote {
@@ -128,6 +129,7 @@ const SANDBOX_CALLS_UNASKED = 'sandbox-calls-unasked';
 const AUTO_MODE = 'auto-mode';
 const ANSWERS_TAKEN_ONCE = 'answers-taken-once';
 const READS_TOGETHER = 'reads-together';
+const MACHINE_NAMES = 'machine-names';
 const MACHINE_ANSWER_WAIT_MS = 15_000;
 const MACHINE_GATHER_MS = 1_000;
 
@@ -291,7 +293,9 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         ...LIVE_ACTIVITY,
         cancellationType: ABANDON,
       });
-      const machineName = environment.deviceName;
+      const machineName = environment.deviceName === UNNAMED_MACHINE && patched(MACHINE_NAMES)
+        ? (await engine.EngineMachineNameActivity({ ownerId: ticket.ownerId, deviceId: environment.deviceId })) ?? environment.deviceName
+        : environment.deviceName;
       const work: MachineWorkRequest | undefined = workspace
         ? { ownerId: ticket.ownerId, workspaceRunId: workspace.workspace.runId, ...(workspace.worktree ? { worktree: workspace.worktree } : {}), branch: machineBranch(environment.deviceId, key) }
         : undefined;

@@ -135,7 +135,7 @@ export function useConversationTurn({
   const settledKeysRef = useRef<Set<string>>(new Set());
   /** Tool calls announced but not yet resulted — the pending-call one becomes the approval. */
   const pendingCallsRef = useRef<Map<string, { name: string; args: string }>>(new Map());
-  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
+  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
 
   const liveTurnKey = enabled && selectedConvId ? conversationTurnKey(selectedConvId) : null;
   const currentTurn = useLiveTurnsStore((s) => (liveTurnKey ? s.turns[liveTurnKey] : undefined));
@@ -258,7 +258,7 @@ export function useConversationTurn({
 
       qc.invalidateQueries({ queryKey: chatPackKeys.conversation(convId) });
       qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
-      setPendingApproval(null);
+      setPendingApprovals([]);
     },
     [qc, appendLocalMessage],
   );
@@ -278,17 +278,19 @@ export function useConversationTurn({
     if (event.type === 'tool.result') {
       if (PROPOSING.has(pendingCallsRef.current.get(event.callId)?.name ?? '')) void qc.invalidateQueries({ queryKey: planKeys.all });
       pendingCallsRef.current.delete(event.callId);
+      setPendingApprovals((asking) => asking.filter((approval) => !(approval.runId === event.runId && approval.callId === event.callId)));
     }
     if (event.type === 'notice' && event.level === 'warn' && event.callId) {
       const call = pendingCallsRef.current.get(event.callId);
       const toolName = event.tool ?? call?.name;
-      setPendingApproval({
+      const approval: PendingApproval = {
         runId: event.runId,
         reason: event.message,
         callId: event.callId,
         ...(toolName ? { toolName } : {}),
         ...(call ? { args: call.args } : {}),
-      });
+      };
+      setPendingApprovals((asking) => [...asking.filter((other) => !(other.runId === approval.runId && other.callId === approval.callId)), approval]);
     }
 
     if (active.path.length > 0) {
@@ -411,10 +413,9 @@ export function useConversationTurn({
   }, [settleTurn]);
 
   const decideApproval = useCallback(
-    async (decision: ApprovalDecision) => {
-      const approval = pendingApproval;
-      if (!approval) return;
-      setPendingApproval(null);
+    async (approval: PendingApproval, decision: ApprovalDecision) => {
+      const same = (other: PendingApproval) => other.runId === approval.runId && other.callId === approval.callId;
+      setPendingApprovals((asking) => asking.filter((other) => !same(other)));
       const allowed = decision !== 'decline';
       try {
         await approveRunCall(approval.runId, {
@@ -424,11 +425,11 @@ export function useConversationTurn({
           ...(decision === 'allow-in-chat' && selectedConvId && approval.toolName ? { conversationId: selectedConvId, tool: approval.toolName } : {}),
         });
       } catch (err) {
-        setPendingApproval(approval);
+        setPendingApprovals((asking) => (asking.some(same) ? asking : [...asking, approval]));
         setError(`Approval could not be sent: ${errorMessage(err)}`);
       }
     },
-    [pendingApproval, selectedConvId],
+    [selectedConvId],
   );
 
   const renderedMessages = useMemo(() => {
@@ -462,7 +463,7 @@ export function useConversationTurn({
     deleteMutation,
     sendConversationTurn,
     handleStop,
-    pendingApproval,
+    pendingApprovals,
     decideApproval,
   };
 }

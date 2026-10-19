@@ -520,6 +520,39 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     expect(await screen.findByRole('button', { name: /Auto mode: on/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
+  it('shows each call asking at once as its own card, answers each by its own call, and lets every one through when auto mode is switched on', async () => {
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'research it' } });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+
+    await waitForRunStarted();
+    emit(
+      { type: 'notice', level: 'warn', nodeId: 'work', callId: 'ext-a', tool: 'antigravity.execute', message: 'research wants to run antigravity.execute on Desk: ls' },
+      { type: 'notice', level: 'warn', nodeId: 'work', callId: 'ext-b', tool: 'antigravity.edit', message: 'research wants to run antigravity.edit on Desk: write notes.md' },
+      { type: 'notice', level: 'warn', nodeId: 'work', callId: 'ext-c', tool: 'antigravity.fetch', message: 'research wants to run antigravity.fetch on Desk: fetch' },
+    );
+
+    expect(await screen.findByRole('tab', { name: /Cards/ })).toHaveTextContent('3');
+    fireEvent.click(screen.getByRole('tab', { name: /Cards/ }));
+    expect(await screen.findByText('research wants to run antigravity.execute on Desk: ls')).toBeInTheDocument();
+    expect(screen.getByText('research wants to run antigravity.edit on Desk: write notes.md')).toBeInTheDocument();
+
+    const denies = screen.getAllByRole('button', { name: 'Deny' });
+    expect(denies).toHaveLength(3);
+    fireEvent.click(denies[1]!);
+    await waitFor(() => expect(engineApi.approveRunCall).toHaveBeenCalledWith(RUN_ID, { callId: 'ext-b', allowed: false }));
+    await waitFor(() => expect(screen.queryByText('research wants to run antigravity.edit on Desk: write notes.md')).not.toBeInTheDocument());
+
+    emit({ type: 'tool.result', callId: 'ext-c', ok: true, digest: 'answered elsewhere' });
+    await waitFor(() => expect(screen.queryByText('research wants to run antigravity.fetch on Desk: fetch')).not.toBeInTheDocument());
+    emit({ type: 'notice', level: 'warn', nodeId: 'work', callId: 'ext-d', tool: 'antigravity.execute', message: 'research wants to run antigravity.execute on Desk: pwd' });
+
+    fireEvent.click(await screen.findByRole('button', { name: /Auto mode: off/ }));
+    await waitFor(() => expect(engineApi.approveRunCall).toHaveBeenCalledWith(RUN_ID, { callId: 'ext-a', allowed: true }));
+    await waitFor(() => expect(engineApi.approveRunCall).toHaveBeenCalledWith(RUN_ID, { callId: 'ext-d', allowed: true }));
+    expect(engineApi.approveRunCall).toHaveBeenCalledTimes(3);
+  });
+
   it('switches the chat\u2019s auto mode on and back off beside the model', async () => {
     renderWithProviders(<ChatSurface conversationId="c1" />);
     fireEvent.click(await screen.findByRole('button', { name: /Auto mode: off/ }));

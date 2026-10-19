@@ -93,6 +93,7 @@ export interface EngineServices extends StreamServices {
   grove?: GroveStores | undefined;
   treeWorkspaces?: TreeWorkspaces | undefined;
   machineWork?: MachineWork | undefined;
+  machineName?: ((ownerId: string, deviceId: string) => Promise<string | undefined>) | undefined;
   conversationWorkspaces?: Pick<ConversationWorkspaces, 'conclude'> | undefined;
   conversationAgent?: ((ownerId: string, conversationId: string) => Promise<string | undefined>) | undefined;
   planAdoption?: PlanAdoption | undefined;
@@ -205,6 +206,7 @@ export interface EngineActivities extends StreamActivities {
   EngineMachineSendActivity(args: MachineSendRequest): Promise<{ repo: string; folder: string; commit: string }>;
   EngineMachineTakeActivity(args: MachineWorkRequest): Promise<BroughtBack>;
   EngineMachineDropActivity(args: MachineWorkRequest): Promise<void>;
+  EngineMachineNameActivity(args: { ownerId: string; deviceId: string }): Promise<string | null>;
 }
 
 export function createEngineActivities(services: EngineServices): EngineActivities {
@@ -330,6 +332,10 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
     async EngineToolAllowedActivity(args: ToolAllowedArgs): Promise<boolean> {
       if (!services.allowedTools) return false;
       return (await services.allowedTools(args.ownerId, args.conversationId)).includes(args.tool);
+    },
+
+    async EngineMachineNameActivity({ ownerId, deviceId }) {
+      return (await services.machineName?.(ownerId, deviceId)) ?? null;
     },
 
     async EngineMachineSendActivity({ start, ...args }) {

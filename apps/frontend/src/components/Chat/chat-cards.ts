@@ -2,8 +2,11 @@ import type { AccessRequest, ActionProposal, EgressRequest, McpRequest, PlanProp
 import { changeHeading } from '../../lib/item-change'
 
 export interface ToolApproval {
+  runId: string
+  callId: string
   reason: string
   toolName?: string | undefined
+  args?: string | undefined
 }
 
 export type ChatCard =
@@ -22,10 +25,10 @@ export interface CardSources {
   mcp: readonly McpRequest[]
   egress: readonly EgressRequest[]
   access: readonly AccessRequest[]
-  approval?: ToolApproval | null | undefined
+  approvals?: readonly ToolApproval[] | undefined
 }
 
-export const APPROVAL_CARD_ID = 'tool-approval'
+export const approvalCardId = (approval: Pick<ToolApproval, 'runId' | 'callId'>): string => `tool-approval ${approval.runId} ${approval.callId}`
 
 const LAST = '~'
 
@@ -100,7 +103,7 @@ export function chatCards(sources: CardSources): ChatCard[] {
     ...sources.mcp.map((item) => ({ kind: 'mcp' as const, id: item.id, at: item.createdAt, item })),
     ...sources.egress.map((item) => ({ kind: 'egress' as const, id: item.id, at: item.createdAt, item })),
     ...sources.access.map((item) => ({ kind: 'access' as const, id: item.id, at: item.createdAt, item })),
-    ...(sources.approval ? [{ kind: 'approval' as const, id: APPROVAL_CARD_ID, item: sources.approval }] : []),
+    ...(sources.approvals ?? []).map((item) => ({ kind: 'approval' as const, id: approvalCardId(item), item })),
   ]
   const waiting = cards.filter(isWaiting).sort(earlier)
   const settled = cards.filter((card) => !isWaiting(card)).sort((a, b) => earlier(b, a))

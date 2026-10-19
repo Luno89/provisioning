@@ -399,6 +399,7 @@ async function buildActivities() {
     },
     treeWorkspaces: host.treeWorkspaces,
     ...(host.machineWork ? { machineWork: host.machineWork } : {}),
+    machineName: async (ownerId, deviceId) => (await db.getLocalAgentDevices()).find((device) => device.id === deviceId && device.ownerId === ownerId)?.name,
     conversationWorkspaces: host.conversationWorkspaces,
     conversationAgent: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.agentSlug,
     allowedTools: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.allowedTools ?? [],

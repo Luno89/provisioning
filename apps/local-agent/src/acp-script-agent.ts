@@ -11,6 +11,7 @@ export interface ScriptMcpCall {
   tool: string;
   args: Record<string, unknown>;
   progress?: boolean;
+  follow?: boolean;
 }
 
 export type ScriptStep =
@@ -36,7 +37,21 @@ export interface AgentScript {
 
 type McpAnswer = { id?: unknown; method?: string; result?: { content?: { text?: string }[] }; error?: { message: string } };
 
+const STILL_RUNNING = /\bjob ([0-9a-f-]{36})\b/;
+
 export async function callMcp(servers: { name: string; url: string }[], call: ScriptMcpCall, id: number): Promise<string> {
+  let said = await callMcpOnce(servers, call, id);
+  if (!call.follow) return said;
+  let followed: string | undefined;
+  for (let asked = 1; ; asked += 1) {
+    const job = said.includes('still running') ? STILL_RUNNING.exec(said)?.[1] : undefined;
+    if (!job) return followed ? `${said} (waited for job ${followed} ${asked - 1} times)` : said;
+    followed = job;
+    said = `${call.tool}: ${(await callMcpOnce(servers, { server: call.server, tool: 'wait_for', args: { job } }, id * 1000 + asked)).replace(/^wait_for: /, '')}`;
+  }
+}
+
+async function callMcpOnce(servers: { name: string; url: string }[], call: ScriptMcpCall, id: number): Promise<string> {
   const server = servers.find((candidate) => candidate.name === call.server);
   if (!server) return `no ${call.server} server`;
   const response = await fetch(server.url, {

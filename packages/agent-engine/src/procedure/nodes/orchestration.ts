@@ -36,6 +36,8 @@ export interface ToolRunOutcome {
   child?: ChildSteps | undefined;
 }
 
+export const UNNAMED_MACHINE = 'your machine';
+
 export interface ServedCallAnswer {
   ok: boolean;
   content: string;
@@ -130,7 +132,7 @@ export function machineOfRun(run: RunContext, persona: AgentDefinition | undefin
 }
 
 function machineEnvironment(choice: MachineChoice): Extract<EnvironmentValue, { kind: 'machine' }> {
-  return { kind: 'machine', deviceId: choice.deviceId, deviceName: 'your machine', egressMode: 'auto' };
+  return { kind: 'machine', deviceId: choice.deviceId, deviceName: UNNAMED_MACHINE, egressMode: 'auto' };
 }
 
 export interface OrchestrationPorts {

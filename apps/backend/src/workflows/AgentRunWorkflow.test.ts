@@ -166,6 +166,7 @@ function activities(options: {
       EngineResolveAgentActivity: vi.fn(createEngineActivities({ registry } as never).EngineResolveAgentActivity),
       EngineToolActivity: vi.fn(async (args: ToolCallArgs) => ({ ok: true, digest: `ran ${args.name}`, content: `output of ${args.name}` })),
       EngineRecordTracesActivity: vi.fn(async (_args: RecordTracesArgs) => undefined),
+      EngineMachineNameActivity: vi.fn(createEngineActivities({ machineName: async (_ownerId: string, deviceId: string) => (deviceId === 'desk' ? 'Desk' : undefined) } as never).EngineMachineNameActivity),
       ...(options.machineWork ?? {}),
     },
     device: options.external ? {
@@ -1338,12 +1339,12 @@ describe('an external agent working on someone\'s machine', () => {
 
       expect(result.outcome).toBe('ok');
       expect(String(result.outputs.result)).toContain('The label is in.');
-      expect(published(acts)).toContainEqual(expect.objectContaining({ type: 'notice', level: 'warn', callId: 'ext-ls', message: 'executor wants to run antigravity.execute on your machine: ls' }));
+      expect(published(acts)).toContainEqual(expect.objectContaining({ type: 'notice', level: 'warn', callId: 'ext-ls', message: 'executor wants to run antigravity.execute on Desk: ls' }));
       expect(inWorkspaceWhenRun).toEqual(['run_command {"command":"cat label.txt"} Axial Concepts']);
       expect(readNow(resolve(folder, 'label.txt'), 'utf8')).toBe('Axial Concepts\n');
       expect(readNow(resolve(folder, 'notes.md'), 'utf8')).toBe('what the model left\n');
       expect(git(folder, 'status', '--porcelain')).toBe('');
-      expect(git(folder, 'log', '--format=%s').split('\n')).toEqual(['Work so far, for run_in_workspace', 'Work so far, before antigravity on your machine takes it', 'start']);
+      expect(git(folder, 'log', '--format=%s').split('\n')).toEqual(['Work so far, for run_in_workspace', 'Work so far, before antigravity on Desk takes it', 'start']);
       expect(git(folder, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('leaf/l1');
       expect(dropped).toHaveLength(1);
       expect(dropped[0]).toMatch(/^machine\/desk\//);
