@@ -28,13 +28,21 @@ const WORKSPACE_NOW = 'refs/remotes/koala/workspace';
 const CONFLICT_MARKER = /^(<{7}|>{7})( |$)/m;
 const AS_MACHINE = ['-c', 'user.name=koala-machine', '-c', 'user.email=machine@koala.local'];
 
+export const QUIET_REPOSITORY: NodeJS.ProcessEnv = {
+  GIT_CONFIG_COUNT: '2',
+  GIT_CONFIG_KEY_0: 'maintenance.auto',
+  GIT_CONFIG_VALUE_0: 'false',
+  GIT_CONFIG_KEY_1: 'gc.auto',
+  GIT_CONFIG_VALUE_1: '0',
+};
+
 export const remoteFor =(backendUrl: string, repo: string): string =>
   `${backendUrl.replace(/\/$/, '')}/api/machines/git/${encodeURIComponent(repo)}.git`;
 
 export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp) => Promise<MachineGitResult> {
   const git = options.git ?? runGit;
   const { SSH_ASKPASS: _ssh, GIT_ASKPASS: _git, ...inherited } = process.env;
-  const env: NodeJS.ProcessEnv = { ...inherited, GIT_TERMINAL_PROMPT: '0' };
+  const env: NodeJS.ProcessEnv = { ...inherited, GIT_TERMINAL_PROMPT: '0', ...QUIET_REPOSITORY };
   const signedIn = ['-c', 'credential.helper=', '-c', 'core.askPass=', '-c', `http.extraHeader=Authorization: Bearer ${options.token}`];
   const hidden = (text: string): string => text.replaceAll(options.token, '***').trim();
 
@@ -44,7 +52,7 @@ export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp)
     if (!folder) return { ok: false, error: `${op.folder} is outside this machine's folder` };
     if (op.kind === 'remove') {
       if (folder === options.rootDir || !relative.startsWith(`${MACHINE_TREES}/`)) return { ok: false, error: `${op.folder} is not a folder Koala made` };
-      await rm(folder, { recursive: true, force: true });
+      await rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
       return { ok: true, path: relative, commit: '' };
     }
     const remote = options.remote?.(op.repo) ?? remoteFor(options.backendUrl, op.repo);

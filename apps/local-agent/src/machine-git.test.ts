@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createMachineGit, remoteFor } from './machine-git.js';
+import { QUIET_REPOSITORY, createMachineGit, remoteFor } from './machine-git.js';
 
 let root: string;
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
@@ -130,5 +130,17 @@ describe('a machine\'s checkout of a project\'s work', () => {
     expect(failed.ok).toBe(false);
     expect(!failed.ok && failed.error).not.toContain('device-token');
     expect(remoteFor('http://koala.test/', 'tree-t1')).toBe('http://koala.test/api/machines/git/tree-t1.git');
+  });
+
+  it('runs git with its background maintenance off, so nothing writes into a folder while it is removed', async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'machine-git-'));
+    const envs: NodeJS.ProcessEnv[] = [];
+    const machine = createMachineGit({
+      rootDir: path.join(root, 'home'), backendUrl: 'http://koala.test', token: 'device-token', remote: () => 'unused',
+      git: async (_args, _cwd, env) => { envs.push(env); return { code: 1, stdout: '', stderr: 'refused' }; },
+    });
+    await machine({ kind: 'checkout', repo: 'tree-t1', branch: 'machine/desk/run-1', folder: 'tree-t1/trees/l1' });
+    expect(envs.length).toBeGreaterThan(0);
+    for (const env of envs) expect(env).toMatchObject(QUIET_REPOSITORY);
   });
 });

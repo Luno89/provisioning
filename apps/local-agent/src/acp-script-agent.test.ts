@@ -16,6 +16,15 @@ describe('which turn a scripted agent plays', () => {
     expect(turnFor(script, 1, 'Do the next')?.steps).toEqual([{ say: 'second' }]);
     expect(turnFor(script, 2, 'Anything more')).toBeUndefined();
   });
+
+  it('takes a turn whose phrases are all in what was asked, in the order the turns are listed', () => {
+    const script: AgentScript = { name: 's', version: '1', turns: [
+      { when: ['Question:', 'met'], steps: [{ say: 'yes' }] },
+      { when: 'Question:', steps: [{ say: 'no' }] },
+    ] };
+    expect(turnFor(script, 0, 'Question: the verdict says met')?.steps).toEqual([{ say: 'yes' }]);
+    expect(turnFor(script, 0, 'Question: the verdict says nothing')?.steps).toEqual([{ say: 'no' }]);
+  });
 });
 
 describe('a scripted agent calling a tool that answers with a job', () => {

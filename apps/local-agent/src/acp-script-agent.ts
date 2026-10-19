@@ -32,7 +32,7 @@ export interface AgentScript {
   version: string;
   modes?: { current: string; available: { id: string; name: string }[] };
   models?: { current: string; available: { id: string; name: string }[] };
-  turns: { steps: ScriptStep[]; stop?: StopReason; when?: string }[];
+  turns: { steps: ScriptStep[]; stop?: StopReason; when?: string | string[] }[];
 }
 
 type McpAnswer = { id?: unknown; method?: string; result?: { content?: { text?: string }[] }; error?: { message: string } };
@@ -70,7 +70,7 @@ async function callMcpOnce(servers: { name: string; url: string }[], call: Scrip
 }
 
 export function turnFor(script: AgentScript, taken: number, asked: string): AgentScript['turns'][number] | undefined {
-  const matching = script.turns.find((turn) => turn.when !== undefined && asked.includes(turn.when));
+  const matching = script.turns.find((turn) => turn.when !== undefined && [turn.when].flat().every((phrase) => asked.includes(phrase)));
   if (matching) return matching;
   return script.turns.filter((turn) => turn.when === undefined)[taken];
 }

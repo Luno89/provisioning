@@ -483,9 +483,13 @@ export class GiteaService {
     return {
       ...process.env,
       GIT_TERMINAL_PROMPT: '0',
-      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_COUNT: '3',
       GIT_CONFIG_KEY_0: 'http.extraHeader',
       GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(`${auth.username}:${auth.token}`).toString('base64')}`,
+      GIT_CONFIG_KEY_1: 'maintenance.auto',
+      GIT_CONFIG_VALUE_1: 'false',
+      GIT_CONFIG_KEY_2: 'gc.auto',
+      GIT_CONFIG_VALUE_2: '0',
     };
   }
 
@@ -499,7 +503,7 @@ export class GiteaService {
       const detail = ((err as { stderr?: string }).stderr || (err as Error).message).replaceAll(auth.token, '***').trim();
       throw new Error(`${what} ${owner}/${name} failed: ${detail}`);
     } finally {
-      await fs.rm(scratch, { recursive: true, force: true });
+      await fs.rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
   }
 
