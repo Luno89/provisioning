@@ -155,7 +155,7 @@ async function main(): Promise<void> {
   const asked = firstEvents.filter((event) => event.type === 'notice' && event.level === 'warn');
   assert.deepEqual(asked, [], `something asked though the chat is in auto mode: ${JSON.stringify(asked)}`);
   const told = JSON.parse(await readFile(toldPath, 'utf8')) as Told;
-  assert.equal(told.cwd, path.join(homedir(), 'koala', 'koala-trees', `conversation-${first}`, 'repo'), `research worked in ${told.cwd}`);
+  assert.ok(told.cwd.startsWith(`${path.join(homedir(), 'koala', 'koala-trees', `conversation-${first}`, 'repo')}@`), `research worked in ${told.cwd}`);
   assert.ok(told.prompt.includes('is a checkout of this conversation\'s documents'), 'research was not told it works a checkout of the conversation\'s documents');
   assert.ok(told.servers.find((server) => server.server === 'koala')?.tools.some((tool) => tool.name === 'run_in_workspace'), 'run_in_workspace was not served');
   const inWorkspace = firstEvents.find((event) => event.runId === research.runId && event.type === 'tool.result' && firstEvents.some((called) => called.callId === event.callId && called.name === 'run_command'));

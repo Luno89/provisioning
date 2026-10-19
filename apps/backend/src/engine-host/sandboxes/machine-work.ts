@@ -13,7 +13,8 @@ export type MachineSendRequest = MachineWorkRequest & { message: string; start?:
 
 export interface MachineWork {
   send(request: MachineWorkRequest & { message: string }): Promise<{ repo: string; folder: string; commit: string }>;
-  take(request: MachineWorkRequest): Promise<BroughtBack>;
+  take(request: MachineWorkRequest & { message?: string | undefined }): Promise<BroughtBack>;
+  keep(request: MachineWorkRequest): Promise<{ kept: true; commit: string } | { kept: false; why: string }>;
   drop(request: MachineWorkRequest): Promise<void>;
 }
 
@@ -33,6 +34,10 @@ export function createMachineWork(options: { documents: WorkspaceDocuments; repo
     async take(request) {
       const { repo, folder } = await where(request);
       return options.documents.takeBranch({ ...request, repo, folder });
+    },
+    async keep(request) {
+      const { repo, folder } = await where(request);
+      return options.documents.keepBranch({ ...request, repo, folder });
     },
     async drop(request) {
       const { repo } = await where(request);

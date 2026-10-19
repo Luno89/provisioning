@@ -127,6 +127,7 @@ function world(start: PlanProposal[], options: { saved?: string[]; homes?: boole
     restore: async () => ({ restored: false, why: 'not restored in this test' }),
     catchUp: async () => undefined,
     sendBranch: async () => ({ commit: '' }),
+    keepBranch: async () => ({ kept: false as const, why: 'not here' }),
     takeBranch: async () => ({ brought: false as const, why: 'not here' }),
     dropBranch: async () => undefined,
     merge: async () => 'merged',

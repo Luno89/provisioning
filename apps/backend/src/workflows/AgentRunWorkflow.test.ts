@@ -46,7 +46,10 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import type { ExternalAgentStepArgs, MachineGitOp, MachineGitResult } from '@koala/engine-core';
 import { createMachineGit } from '../../../local-agent/src/machine-git.js';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { createWorkspaceDocuments } from '../engine-host/sandboxes/workspace-documents.js';
+import { createMachineWork } from '../engine-host/sandboxes/machine-work.js';
 import { existsSync, readFileSync as readNow } from 'node:fs';
 import { ExternalAgentSessions, TOOLS_LINE, WAIT_FOR } from '../../../local-agent/src/external-agents.js';
 import { LocalMcpServer } from '../../../local-agent/src/local-mcp.js';
@@ -696,7 +699,8 @@ describe('AgentRunWorkflow', () => {
           environment: expect.objectContaining({ id: expect.stringContaining('conversation-c1'), workspace: expect.objectContaining({ runId: 'conversation-c1' }) }),
         },
       })]);
-      expect(recorded?.cwd).toBe(resolve(machineRoot, 'koala-trees', 'conversation-c1', 'repo'));
+      expect(recorded?.cwd.startsWith(`${resolve(machineRoot, 'koala-trees', 'conversation-c1', 'repo')}@`)).toBe(true);
+      expect(existsSync(recorded!.cwd)).toBe(false);
       expect(recorded?.prompt).toContain('is a checkout of this conversation\'s documents, from its workspace in Koala');
       expect(recorded?.servers.find((server) => server.server === 'koala')?.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['search_web', 'run_in_workspace']));
       const search = toolCalls.find((call) => call.name === 'search_web');
@@ -1356,6 +1360,147 @@ describe('an external agent working on someone\'s machine', () => {
     }
   }, 60_000);
 
+  describe('when the workspace moved on while the machine worked', () => {
+    const conflicted = async (secondTurns: AgentScript['turns'], first: AgentScript['turns'][number]['steps'] = [{ write: { path: 'label.txt', content: 'Axial Concepts\n' } }, { say: 'Wrote the label.' }]) => {
+      root = await mkdtemp(resolve(tmpdir(), 'external-merge-'));
+      const git = (cwd: string, ...args: string[]): string => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' }).trim();
+      const bare = resolve(root, 'gitea', 'tree.git');
+      const pod = resolve(root, 'pod');
+      const folder = resolve(pod, 'work', 'trees', 'l1');
+      execFileSync('mkdir', ['-p', bare, folder]);
+      git(bare, 'init', '-q', '--bare');
+      git(folder, 'init', '-q', '-b', 'leaf/l1');
+      await writeFile(resolve(folder, 'README.md'), 'labels\n');
+      git(folder, 'add', '-A');
+      git(folder, 'commit', '-q', '-m', 'start');
+
+      const local = (args: string[]): string[] => args.slice(args.indexOf('--') + 1)
+        .map((part) => part.replaceAll('/tmp/koala-restore.bundle', resolve(pod, 'incoming.bundle')))
+        .map((part) => (part.startsWith('/work') ? resolve(pod, `.${part}`) : part));
+      const spawnIn = (args: string[], into?: string, from?: string) => new Promise<{ stdout: string; stderr: string; exitCode: number }>((done) => {
+        const [binary, ...rest] = local(args);
+        const child = spawn(binary!, rest, { cwd: pod });
+        let stdout = '';
+        let stderr = '';
+        const out = into ? createWriteStream(into) : undefined;
+        if (out) child.stdout.pipe(out); else child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+        child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+        child.on('close', (code) => (out ? out.end(() => done({ stdout, stderr, exitCode: code ?? -1 })) : done({ stdout, stderr, exitCode: code ?? -1 })));
+        if (from) createReadStream(from).pipe(child.stdin); else child.stdin.end();
+      });
+      const documents = createWorkspaceDocuments({
+        kube: async (args) => (args[0] === 'get' ? { stdout: 'Running', stderr: '', exitCode: 0 } : spawnIn(args)),
+        stream: { toFile: (args, to) => spawnIn(args, to), fromFile: (args, from) => spawnIn(args, undefined, from) },
+        repos: {
+          push: async () => { throw new Error('not here'); },
+          pull: async () => false,
+          merge: async () => 'nothing',
+          pushBranch: async ({ bundle, branch }) => { git(bare, 'fetch', '-q', bundle, `+refs/heads/${branch}:refs/heads/${branch}`); return 'pushed'; },
+          pullBranch: async ({ branch, bundle }) => {
+            try { git(bare, 'rev-parse', '--verify', '-q', `refs/heads/${branch}`); } catch { return false; }
+            git(bare, 'bundle', 'create', '-q', bundle, `refs/heads/${branch}`);
+            return true;
+          },
+          deleteBranch: async ({ branch }) => { try { git(bare, 'branch', '-D', '-q', branch); } catch { /* already gone */ } },
+        },
+      });
+      const real = createEngineActivities({
+        environments: { forRun: async () => undefined },
+        machineWork: createMachineWork({ documents, repoFor: async () => ({ repo: 'tree', path: '/work', describe: 'the tree\'s repository' }) }),
+      } as never);
+      let landedFirst = false;
+
+      const scriptPath = resolve(root, 'script.json');
+      await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [
+        ...secondTurns,
+        { steps: first },
+      ] } satisfies AgentScript));
+      const machineRoot = resolve(root, 'machine');
+      const mcp = new LocalMcpServer();
+      await mcp.start();
+      const sessions = new ExternalAgentSessions({ rootDir: machineRoot, launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500, mcp });
+      const sandbox = {
+        kind: 'sandbox', id: 'engine-tree-t1', worktree: 'trees/l1',
+        workspace: { runId: 'tree-t1', ownerId: 'user-1', agent: 'executor', image: 'koala/base', provides: ['git'], lifetimeMs: 60_000, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared', repository: 'the project\'s repository' },
+        capabilities: { kind: 'sandbox', lifecycle: 'persistent', languages: ['node20'] },
+      } as RunEnvironment;
+      const acts = activities({
+        script: [{ content: 'a model would never be asked' }],
+        external: sessions,
+        environment: sandbox,
+        machineWork: {
+          EngineMachineSendActivity: real.EngineMachineSendActivity,
+          EngineMachineTakeActivity: async (args: Parameters<typeof real.EngineMachineTakeActivity>[0]) => {
+            if (!landedFirst) {
+              landedFirst = true;
+              await writeFile(resolve(folder, 'label.txt'), 'Another agent\'s label\n');
+              git(folder, 'add', '-A');
+              git(folder, 'commit', '-q', '-m', 'another agent landed first');
+            }
+            return real.EngineMachineTakeActivity(args);
+          },
+          EngineMachineKeepActivity: real.EngineMachineKeepActivity,
+          EngineMachineDropActivity: real.EngineMachineDropActivity,
+        },
+        machineGit: createMachineGit({ rootDir: machineRoot, backendUrl: 'http://koala.test', token: 'device-token', remote: () => bare }),
+      });
+      try {
+        const result = await runWorkflow({ ...input('executor', TOOL_ROUNDS_V2, 'Add the delivery label.'), ticket: { ...ticket('executor'), modelId: 'machine:desk:antigravity' } }, acts);
+        return { result, acts, folder, bare, machineRoot, git };
+      } finally {
+        await sessions.closeAll();
+        await mcp.close();
+      }
+    };
+
+    it('merges the workspace into the agent\'s folder, has it resolve the conflict in its session, and brings the resolved work back', async () => {
+      const { result, folder, bare, machineRoot, git } = await conflicted([
+        { when: 'These files conflict: label.txt', steps: [{ write: { path: 'label.txt', content: 'Another agent\'s label\nAxial Concepts\n' } }, { say: 'Kept both labels.' }] },
+      ]);
+
+      expect(result.outcome).toBe('ok');
+      expect(readNow(resolve(folder, 'label.txt'), 'utf8')).toBe('Another agent\'s label\nAxial Concepts\n');
+      expect(git(folder, 'log', '--format=%s')).toContain('another agent landed first');
+      expect(git(folder, 'status', '--porcelain')).toBe('');
+      expect(git(folder, 'branch', '--list', 'machine/*')).toBe('');
+      expect(git(bare, 'branch', '--list')).toBe('');
+      expect(existsSync(resolve(machineRoot, 'koala-trees', 'tree-t1', 'trees'))).toBe(true);
+      expect(execFileSync('ls', [resolve(machineRoot, 'koala-trees', 'tree-t1', 'trees')], { encoding: 'utf8' }).trim()).toBe('');
+    }, 60_000);
+
+    it('answers run_in_workspace with the conflict mid-turn, so the agent resolves it and runs its check on the merged work', async () => {
+      const { result, acts, folder, git } = await conflicted([], [
+        { write: { path: 'label.txt', content: 'Axial Concepts\n' } },
+        { mcp: { server: 'koala', tool: 'run_in_workspace', args: { command: 'cat label.txt' } } },
+        { write: { path: 'label.txt', content: 'Another agent\'s label\nAxial Concepts\n' } },
+        { mcp: { server: 'koala', tool: 'run_in_workspace', args: { command: 'cat label.txt' } } },
+        { say: 'Checked the merged label.' },
+      ]);
+
+      expect(result.outcome).toBe('ok');
+      expect(String(result.outputs.result)).toContain('These files conflict: label.txt. Resolve each conflict so that both your work and the other work are kept');
+      expect(String(result.outputs.result)).toContain('Then call run_in_workspace again.run_in_workspace: output of run_command');
+      expect(acts.engine.EngineToolActivity).toHaveBeenCalledTimes(1);
+      expect(readNow(resolve(folder, 'label.txt'), 'utf8')).toBe('Another agent\'s label\nAxial Concepts\n');
+      expect(git(folder, 'status', '--porcelain')).toBe('');
+    }, 60_000);
+
+    it('keeps the agent\'s work as a branch in the workspace, and says so, when it will not resolve the conflict', async () => {
+      const { result, acts, folder, git } = await conflicted([
+        { when: 'These files conflict: label.txt', steps: [{ say: 'I will leave it.' }] },
+        { when: 'still have conflicts to resolve', steps: [{ say: 'Still leaving it.' }] },
+      ]);
+
+      expect(result.outcome).toBe('failed');
+      expect(String(result.outputs.reason ?? result.reason)).toContain('is kept as the branch machine/desk/');
+      expect(readNow(resolve(folder, 'label.txt'), 'utf8')).toBe('Another agent\'s label\n');
+      const kept = git(folder, 'branch', '--list', 'machine/*').replace('*', '').trim();
+      expect(kept).toMatch(/^machine\/desk\//);
+      expect(git(folder, 'show', `${kept}:label.txt`)).toContain('Axial Concepts');
+      expect(published(acts)).toContainEqual(expect.objectContaining({ type: 'notice', level: 'warn', message: expect.stringContaining(`kept as the branch ${kept} in the workspace`) }));
+    }, 60_000);
+  });
+
   describe('what an agent on a machine is told', () => {
     const storyFolder = async (base: string) => {
       const git = (cwd: string, ...args: string[]): string => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' }).trim();
@@ -1437,7 +1582,7 @@ describe('an external agent working on someone\'s machine', () => {
           return found;
         };
 
-        expect(got.cwd).toBe(resolve(machineRoot, 'koala-trees', 'tree-t1', 'trees', 'l1'));
+        expect(got.cwd.startsWith(`${resolve(machineRoot, 'koala-trees', 'tree-t1', 'trees', 'l1')}@`)).toBe(true);
         at(`Your folder is ${got.cwd}.`);
         at('Koala\'s tools are served to you through the MCP server named koala.');
         at(executor.prompt.slice(0, 120));

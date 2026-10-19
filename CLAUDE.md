@@ -253,10 +253,17 @@ what it keeps in git (`repository` on the workspace, `repositoryOf`: a tree's th
 documents, made in Gitea the first time work goes to a machine, `pushBranch`). Given a workspace that keeps one,
 External Agent works a checkout of that folder (a story's worktree, a judge's checkout, the repo root): the folder's work is
 committed and sent to Gitea as `machine/<device>/<run step>` (`EngineMachineSendActivity`, `sendBranch` in
-`workspace-documents.ts`), the machine fetches it into `<root>/koala-trees/<workspace>/<folder>` (`MachineGitActivity`,
-`apps/local-agent/src/machine-git.ts`) and the session works there; `run_in_workspace` brings its work in and runs a command
-in the workspace; when the turn ends the machine commits and pushes, the work is laid over the folder (fast-forward, anything
-uncommitted in the way set aside in a stash, refused when the folder moved on) and the branch deleted. In a sandbox that
+`workspace-documents.ts`), the machine fetches it into its own folder for that step, `<root>/koala-trees/<workspace>/<folder>@<run step>` (`MachineGitActivity`,
+`apps/local-agent/src/machine-git.ts`), so agents working the same folder at once never share a checkout, and the session works
+there; `run_in_workspace` brings its work in and runs a command in the workspace; when the turn ends the machine commits and
+pushes, and the work is laid over the folder (fast-forward, anything uncommitted in the way set aside in a stash), merged in when
+the folder moved on (another agent's work landed first), and **never refused**: when it conflicts, the workspace as it is now is
+merged into the agent's checkout on the machine and the agent, still in its session, is told which files conflict and resolves
+them (`mergeIn`, `toMerge`; mid-turn this is `run_in_workspace`'s answer, at the end a follow-up `prompt`), repeating while it
+makes progress. A push is refused while conflict markers remain. When the agent will not or cannot resolve them, its work is
+pushed as it is and kept as the branch `machine/<device>/<run step>` in the workspace, with a notice (`keepWork`,
+`keepBranchScript`). Then the session closes, the branch is deleted from Gitea and the machine's folder removed. Behind the
+`machine-merges` patch. In a sandbox that
 keeps no repository (a run's own) the agent works in its own folder on the machine, Koala's tools it calls run in the
 sandbox, and there is no `run_in_workspace`, since nothing carries its files across; it is told so (`describeOnMachine`). The machine reaches
 Gitea only through the backend (`/api/machines/git/<repo>.git`, `MachineGitService`, its device token; the person's own

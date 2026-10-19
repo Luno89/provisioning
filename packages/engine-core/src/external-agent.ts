@@ -46,6 +46,7 @@ export type ExternalAgentOp =
   | { kind: 'results'; results: ExternalCallAnswer[] }
   | { kind: 'continue'; within?: number | undefined }
   | { kind: 'answer'; optionId?: string | undefined }
+  | { kind: 'prompt'; text: string }
   | { kind: 'cancel' }
   | { kind: 'close' };
 
@@ -79,6 +80,8 @@ export const MACHINE_TREES = 'koala-trees';
 
 export type MachineGitOp =
   | { kind: 'checkout'; repo: string; branch: string; folder: string }
-  | { kind: 'push'; repo: string; branch: string; folder: string; message: string };
+  | { kind: 'push'; repo: string; branch: string; folder: string; message: string; keep?: boolean | undefined }
+  | { kind: 'merge'; repo: string; branch: string; folder: string }
+  | { kind: 'remove'; folder: string };
 
-export type MachineGitResult = { ok: true; path: string; commit: string } | { ok: false; error: string };
+export type MachineGitResult = { ok: true; path: string; commit: string; conflicts?: string[] | undefined } | { ok: false; error: string; unresolved?: string[] | undefined };

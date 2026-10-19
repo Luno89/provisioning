@@ -11,3 +11,6 @@ export const mayPushRef = (deviceId: string, ref: string): boolean =>
 
 export const machineFolder = (treeOrWorkspace: string, folder: string): string =>
   `${safe(treeOrWorkspace)}/${folder.replace(/^\/work\/?/, '').split('/').filter((part) => part && part !== '.' && part !== '..').map(safe).join('/') || 'repo'}`;
+
+export const machineStepFolder = (treeOrWorkspace: string, folder: string, step: string): string =>
+  `${machineFolder(treeOrWorkspace, folder)}@${safe(step)}`;

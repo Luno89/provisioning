@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, stat } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { MACHINE_TREES, type MachineGitOp, type MachineGitResult } from '@koala/engine-core';
 import { insideRoot } from './acp-session.js';
@@ -24,6 +24,8 @@ export interface MachineGitOptions {
 }
 
 const SENT = 'refs/koala/sent';
+const WORKSPACE_NOW = 'refs/remotes/koala/workspace';
+const CONFLICT_MARKER = /^(<{7}|>{7})( |$)/m;
 const AS_MACHINE = ['-c', 'user.name=koala-machine', '-c', 'user.email=machine@koala.local'];
 
 export const remoteFor =(backendUrl: string, repo: string): string =>
@@ -40,11 +42,32 @@ export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp)
     const relative = path.posix.join(MACHINE_TREES, op.folder);
     const folder = insideRoot(options.rootDir, relative);
     if (!folder) return { ok: false, error: `${op.folder} is outside this machine's folder` };
+    if (op.kind === 'remove') {
+      if (folder === options.rootDir || !relative.startsWith(`${MACHINE_TREES}/`)) return { ok: false, error: `${op.folder} is not a folder Koala made` };
+      await rm(folder, { recursive: true, force: true });
+      return { ok: true, path: relative, commit: '' };
+    }
     const remote = options.remote?.(op.repo) ?? remoteFor(options.backendUrl, op.repo);
     const must = async (args: string[], what: string): Promise<string> => {
       const ran = await git(args, folder, env);
       if (ran.code !== 0) throw new Error(`${what}: ${hidden(ran.stderr || ran.stdout)}`);
       return ran.stdout.trim();
+    };
+
+    const unmerged = async (): Promise<string[]> =>
+      (await git(['diff', '--name-only', '--diff-filter=U'], folder, env)).stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+    const stillMarked = async (files: string[]): Promise<string[]> => {
+      const marked: string[] = [];
+      for (const file of files) {
+        const content = await readFile(path.join(folder, file), 'utf8').catch(() => '');
+        if (CONFLICT_MARKER.test(content)) marked.push(file);
+      }
+      return marked;
+    };
+    const markersSince = async (base: string): Promise<string[]> => {
+      if (!base) return [];
+      const checked = await git(['diff', '--cached', '--check', base], folder, env);
+      return [...new Set(checked.stdout.split('\n').filter((line) => line.includes('leftover conflict marker')).map((line) => line.split(':')[0]!))];
     };
 
     try {
@@ -60,8 +83,24 @@ export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp)
         return { ok: true, path: relative, commit: await must(['rev-parse', 'HEAD'], 'could not read the commit') };
       }
 
+      if (op.kind === 'merge') {
+        await must(['add', '-A'], 'could not stage the work');
+        if ((await git(['diff', '--cached', '--quiet'], folder, env)).code !== 0) {
+          await must([...AS_MACHINE, 'commit', '-q', '-m', 'Work so far, before the workspace is merged in'], 'could not commit the work');
+        }
+        await must([...signedIn, 'fetch', '-q', remote, `+refs/heads/${op.branch}:${WORKSPACE_NOW}`], `could not fetch ${op.branch}`);
+        const merged = await git([...AS_MACHINE, 'merge', '-q', '--no-edit', '-m', 'Merge what the workspace has now', WORKSPACE_NOW], folder, env);
+        const conflicts = merged.code === 0 ? [] : await unmerged();
+        if (merged.code !== 0 && conflicts.length === 0) throw new Error(`could not merge the workspace in: ${hidden(merged.stderr || merged.stdout)}`);
+        return { ok: true, path: relative, commit: await must(['rev-parse', 'HEAD'], 'could not read the commit'), conflicts };
+      }
+
+      const still = op.keep ? [] : await stillMarked(await unmerged());
+      if (still.length) return { ok: false, error: `these files still have conflicts to resolve: ${still.join(', ')}`, unresolved: still };
       await must(['add', '-A'], 'could not stage the work');
       const sent = (await git(['rev-parse', '--verify', '-q', SENT], folder, env)).stdout.trim();
+      const marked = op.keep ? [] : await markersSince(sent);
+      if (marked.length) return { ok: false, error: `these files still hold conflict markers: ${marked.join(', ')}`, unresolved: marked };
       const rewritten = sent !== '' && (await git(['merge-base', '--is-ancestor', sent, 'HEAD'], folder, env)).code !== 0;
       if (rewritten) {
         const tree = await must(['write-tree'], 'could not read the work');

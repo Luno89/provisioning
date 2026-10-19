@@ -23,7 +23,9 @@ export interface FolderBranch {
   branch: string;
 }
 
-export type BroughtBack = { brought: true; commit: string; set?: string | undefined } | { brought: false; why: string };
+export type BroughtBack =
+  | { brought: true; commit: string; set?: string | undefined; merged?: true | undefined }
+  | { brought: false; why: string; conflicts?: string[] | undefined };
 
 export interface SaveDocuments {
   ownerId: string;
@@ -55,7 +57,8 @@ export interface WorkspaceDocuments {
   bring(request: RestoreDocuments & { from: string }): Promise<BroughtDocuments>;
   catchUp(request: RestoreDocuments & { branch: string }): Promise<void>;
   sendBranch(request: FolderBranch & { message: string; describe: string }): Promise<{ commit: string }>;
-  takeBranch(request: FolderBranch): Promise<BroughtBack>;
+  takeBranch(request: FolderBranch & { message?: string | undefined }): Promise<BroughtBack>;
+  keepBranch(request: FolderBranch): Promise<{ kept: true; commit: string } | { kept: false; why: string }>;
   dropBranch(request: Omit<FolderBranch, 'folder' | 'workspaceRunId'>): Promise<void>;
   merge(request: { ownerId: string; repo: string; head: string; base: string; title: string; body: string }): Promise<MergeOutcome>;
 }
@@ -153,15 +156,29 @@ export const takeBranchScript = [
   '    git -c user.name=koala -c user.email=koala@koala.local stash push -q -u -m "set aside when the machine\'s work came back"',
   '    set_aside=$(git rev-parse -q --verify refs/stash)',
   '  fi',
-  `  if ! git merge -q --ff-only ${MACHINE_REF}; then`,
+  `  if git merge -q --ff-only ${MACHINE_REF} 2>/dev/null; then :`,
+  `  elif git -c user.name=koala -c user.email=koala@koala.local merge -q --no-edit -m "$3" ${MACHINE_REF} >/dev/null 2>&1; then echo merged >&2`,
+  '  else',
+  '    files=$(git diff --name-only --diff-filter=U | tr "\\n" " ")',
+  '    git merge --abort 2>/dev/null || true',
+  '    [ -n "$set_aside" ] && git stash pop -q 2>/dev/null || true',
   `    git update-ref -d ${MACHINE_REF}`,
-  '    echo "the folder has commits of its own since the machine took it, so the machine\'s work cannot simply be laid over it" >&2',
+  '    echo "conflicts: $files" >&2',
   `    exit ${CONFLICTED}`,
   '  fi',
   '  [ -n "$set_aside" ] && echo "$set_aside" >&2',
   'fi',
   `git update-ref -d ${MACHINE_REF}`,
   'git rev-parse HEAD',
+].join('\n');
+
+export const keepBranchScript = [
+  'set -e',
+  'cd "$1"',
+  trusting('$1'),
+  `git fetch -q ${INCOMING} "+refs/heads/$2:refs/heads/$2"`,
+  `rm -f ${INCOMING}`,
+  'git rev-parse "refs/heads/$2"',
 ].join('\n');
 
 
@@ -296,10 +313,36 @@ export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: Ku
         }
         const sent = await options.stream.fromFile(['exec', '-i', POD, '-n', namespace, '--', 'sh', '-c', `cat > ${INCOMING}`], bundle);
         if (sent.exitCode !== 0) throw new Error(`could not send the machine's work into the workspace: ${sent.stderr.trim()}`);
-        const taken = await options.kube(['exec', POD, '-n', namespace, '--', 'sh', '-c', takeBranchScript, 'sh', request.folder, request.branch]);
+        const taken = await options.kube(['exec', POD, '-n', namespace, '--', 'sh', '-c', takeBranchScript, 'sh', request.folder, request.branch, request.message ?? 'Merge the machine\'s work']);
+        const said = taken.stderr.trim().split('\n').map((line) => line.trim()).filter(Boolean);
+        const conflicting = said.find((line) => line.startsWith('conflicts:'));
+        if (taken.exitCode === CONFLICTED && conflicting) {
+          const conflicts = conflicting.slice('conflicts:'.length).trim().split(/\s+/).filter(Boolean);
+          return { brought: false, why: `the workspace moved on while the machine worked, and these files conflict: ${conflicts.join(', ')}`, conflicts };
+        }
         if (taken.exitCode !== 0) return { brought: false, why: (taken.stderr || taken.stdout).trim() };
-        const setAside = taken.stderr.trim().split('\n').filter(Boolean).pop();
-        return { brought: true, commit: taken.stdout.trim(), ...(setAside ? { set: setAside } : {}) };
+        const setAside = said.find((line) => /^[0-9a-f]{40}$/.test(line));
+        return { brought: true, commit: taken.stdout.trim(), ...(setAside ? { set: setAside } : {}), ...(said.includes('merged') ? { merged: true as const } : {}) };
+      } finally {
+        await rm(scratch, { recursive: true, force: true });
+      }
+    }),
+
+    keepBranch: (request) => oneAtATime(request.workspaceRunId, async () => {
+      if (!options.repos.pullBranch) throw new Error('this host cannot bring a machine\'s work into a workspace');
+      const namespace = workspaceName(request.workspaceRunId);
+      if (!(await workspaceRunning(options.kube, namespace, POD))) return { kept: false as const, why: 'the workspace is not running' };
+      const scratch = await mkdtemp(path.join(os.tmpdir(), 'koala-machine-'));
+      try {
+        const bundle = path.join(scratch, 'branch.bundle');
+        if (!(await options.repos.pullBranch({ ownerId: request.ownerId, repo: request.repo, branch: request.branch, bundle }))) {
+          return { kept: false as const, why: `the machine has not sent ${request.branch}` };
+        }
+        const sent = await options.stream.fromFile(['exec', '-i', POD, '-n', namespace, '--', 'sh', '-c', `cat > ${INCOMING}`], bundle);
+        if (sent.exitCode !== 0) throw new Error(`could not send the machine's work into the workspace: ${sent.stderr.trim()}`);
+        const kept = await options.kube(['exec', POD, '-n', namespace, '--', 'sh', '-c', keepBranchScript, 'sh', request.folder, request.branch]);
+        if (kept.exitCode !== 0) return { kept: false as const, why: (kept.stderr || kept.stdout).trim() };
+        return { kept: true as const, commit: kept.stdout.trim() };
       } finally {
         await rm(scratch, { recursive: true, force: true });
       }

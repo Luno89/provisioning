@@ -65,7 +65,7 @@ import { ownerIn, startedFor } from '../lib/workflow-owner.js';
 import { tracedSummary } from '../lib/turn-log.js';
 import { externalCallId, externalRunEvents, externalToolName, permissionChoice, type ExternalToolSeen } from '../lib/external-agent-events.js';
 import type { ExternalAgentStepArgs, ExternalAgentStepResult, ExternalCallAnswer, ExternalToolCall, MachineGitOp, MachineGitResult } from '@koala/engine-core';
-import { machineBranch, machineFolder } from '../lib/machine-branches.js';
+import { machineBranch, machineFolder, machineStepFolder } from '../lib/machine-branches.js';
 import type { MachineSendRequest, MachineWorkRequest } from '../engine-host/sandboxes/machine-work.js';
 import type { BroughtBack } from '../engine-host/sandboxes/workspace-documents.js';
 import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
@@ -77,7 +77,8 @@ interface EngineRemote {
   EngineResolveAgentActivity(args: ResolveAgentArgs): Promise<ResolvedAgentInfo>;
   EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome>;
   EngineMachineSendActivity(args: MachineSendRequest): Promise<{ repo: string; folder: string; commit: string }>;
-  EngineMachineTakeActivity(args: MachineWorkRequest): Promise<BroughtBack>;
+  EngineMachineTakeActivity(args: MachineWorkRequest & { message?: string | undefined }): Promise<BroughtBack>;
+  EngineMachineKeepActivity(args: MachineWorkRequest): Promise<{ kept: true; commit: string } | { kept: false; why: string }>;
   EngineMachineDropActivity(args: MachineWorkRequest): Promise<void>;
   EngineMachineNameActivity(args: { ownerId: string; deviceId: string }): Promise<string | null>;
 }
@@ -130,6 +131,7 @@ const AUTO_MODE = 'auto-mode';
 const ANSWERS_TAKEN_ONCE = 'answers-taken-once';
 const READS_TOGETHER = 'reads-together';
 const MACHINE_NAMES = 'machine-names';
+const MACHINE_MERGES = 'machine-merges';
 const MACHINE_ANSWER_WAIT_MS = 15_000;
 const MACHINE_GATHER_MS = 1_000;
 
@@ -304,14 +306,40 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         if (!(err instanceof ActivityFailure)) throw err;
         return { ok: false, error: `${machineName} could not reach the project's work: ${err.cause?.message ?? err.message}` };
       });
-      const bringBack = async (message: string): Promise<string | undefined> => {
-        if (!work || !checkout) return undefined;
+      const merging = Boolean(work) && patched(MACHINE_MERGES);
+      const notice = (message: string): void => {
+        bus.emit({ type: 'notice', level: 'warn', nodeId, message, runId: ticket.runId, at: new Date(Date.now()).toISOString() } as EngineEvent);
+      };
+      type Back = { ok: true } | { ok: false; why: string; conflicts?: string[] | undefined; unresolved?: string[] | undefined };
+      const bringBack = async (message: string): Promise<Back> => {
+        if (!work || !checkout) return { ok: true };
         const pushed = await gitOnDevice({ kind: 'push', repo: checkout.repo, branch: work.branch, folder: checkout.folder, message });
-        if (!pushed.ok) return pushed.error;
-        const taken = await engine.EngineMachineTakeActivity(work);
-        if (!taken.brought) return `the work on ${machineName} could not be brought back into the workspace: ${taken.why}`;
-        if (taken.set) bus.emit({ type: 'notice', level: 'warn', nodeId, message: `What the workspace had uncommitted when ${agent}'s work came back was set aside in a stash (${taken.set}).`, runId: ticket.runId, at: new Date(Date.now()).toISOString() } as EngineEvent);
-        return undefined;
+        if (!pushed.ok) return { ok: false, why: pushed.error, ...(pushed.unresolved ? { unresolved: pushed.unresolved } : {}) };
+        const taken = await engine.EngineMachineTakeActivity({ ...work, ...(merging ? { message: `Merge ${agent}'s work from ${machineName}` } : {}) });
+        if (!taken.brought) return { ok: false, why: `the work on ${machineName} could not be brought back into the workspace: ${taken.why}`, ...(taken.conflicts ? { conflicts: taken.conflicts } : {}) };
+        if (taken.set) notice(`What the workspace had uncommitted when ${agent}'s work came back was set aside in a stash (${taken.set}).`);
+        return { ok: true };
+      };
+      const mergeIn = async (): Promise<{ ok: true; conflicts: string[] } | { ok: false; why: string }> => {
+        if (!work || !checkout) return { ok: false, why: 'there is no work to merge' };
+        const now = { ...work, branch: `${work.branch}-workspace` };
+        await engine.EngineMachineSendActivity({ ...now, message: `What the workspace has now, for ${agent} on ${machineName} to merge` });
+        const merged = await gitOnDevice({ kind: 'merge', repo: checkout.repo, branch: now.branch, folder: checkout.folder });
+        await engine.EngineMachineDropActivity(now);
+        if (!merged.ok) return { ok: false, why: merged.error };
+        if (!merged.conflicts) return { ok: false, why: `the machine agent on ${machineName} is older than this Koala and cannot merge; run the command from My Machines on it again to update it` };
+        return { ok: true, conflicts: merged.conflicts };
+      };
+      const toMerge = (conflicts: string[]): string => conflicts.length
+        ? `Other work came into the workspace while you worked, and it is now merged into your folder. These files conflict: ${conflicts.join(', ')}. Resolve each conflict so that both your work and the other work are kept, remove every conflict marker, and commit the merge.`
+        : 'Other work came into the workspace while you worked, and it is now merged into your folder without conflicts. Check that your work still holds with it, and commit anything you change.';
+      const keepWork = async (why: string): Promise<string> => {
+        if (!work || !checkout) return why;
+        const pushed = await gitOnDevice({ kind: 'push', repo: checkout.repo, branch: work.branch, folder: checkout.folder, message: `${agent}'s work on ${machineName}, kept as it was`, keep: true });
+        const kept = pushed.ok ? await engine.EngineMachineKeepActivity(work) : { kept: false as const, why: pushed.error };
+        if (!kept.kept) return `${why}; its work is still in ${checkout.path} on ${machineName}, and could not be kept in the workspace: ${kept.why}`;
+        notice(`${agent}'s work on ${machineName} could not be merged into the workspace (${why}). Nothing is lost: it is kept as the branch ${work.branch} in the workspace.`);
+        return `${why}; ${agent}'s work is kept as the branch ${work.branch} in the workspace`;
       };
       if (work) {
         const sent = await engine.EngineMachineSendActivity({
@@ -319,7 +347,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
           message: `Work so far, before ${agent} on ${machineName} takes it`,
           start: { ticket, environment: handleFor(workspace) },
         });
-        const folder = machineFolder(work.workspaceRunId, sent.folder);
+        const folder = merging ? machineStepFolder(work.workspaceRunId, sent.folder, key) : machineFolder(work.workspaceRunId, sent.folder);
         const fetched = await gitOnDevice({ kind: 'checkout', repo: sent.repo, branch: work.branch, folder });
         if (!fetched.ok) {
           await engine.EngineMachineDropActivity(work);
@@ -367,8 +395,19 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       const answering = new Map<string, Promise<void>>();
       let inWorkspace: Promise<unknown> = Promise.resolve();
       let broke: unknown;
+      const unsyncedFor = async (): Promise<string | undefined> => {
+        const back = await bringBack(`Work so far, for ${RUN_IN_WORKSPACE}`);
+        if (back.ok) return undefined;
+        if (!merging) return back.why;
+        if (back.conflicts) {
+          const merged = await mergeIn();
+          return merged.ok ? `${toMerge(merged.conflicts)} Then call ${RUN_IN_WORKSPACE} again.` : back.why;
+        }
+        if (back.unresolved) return `${back.why}. Resolve them so that both sides are kept, commit, then call ${RUN_IN_WORKSPACE} again.`;
+        return back.why;
+      };
       const answer = async (call: ExternalToolCall): Promise<ExternalCallAnswer> => {
-        const unsynced = !cancelled && callTool && call.name === RUN_IN_WORKSPACE ? await bringBack(`Work so far, for ${RUN_IN_WORKSPACE}`) : undefined;
+        const unsynced = !cancelled && callTool && call.name === RUN_IN_WORKSPACE ? await unsyncedFor() : undefined;
         const answered = cancelled || !callTool
           ? { ok: false, content: cancelled ? 'the run was cancelled' : 'no tools are offered here' }
           : unsynced ? { ok: false, content: unsynced } : await callTool(call);
@@ -387,50 +426,87 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
           (err: unknown) => { broke ??= err; },
         ).finally(() => { answering.delete(call.callId); }));
       };
-      for (;;) {
-        await take(result);
-        if (broke !== undefined) throw broke;
-        if (result.state === 'ended' || result.state === 'failed' || result.state === 'closed') break;
-        if (cancelled) {
-          result = await step({ kind: 'cancel' });
-          continue;
-        }
-        if (result.state === 'calls') {
-          if (!Array.isArray(result.calls)) {
-            result = { ...result, state: 'failed', error: `the machine agent on ${machineName} is older than this Koala; run the command from My Machines on it again to update it`, events: [] };
-            break;
+      const drive = async (from: ExternalAgentStepResult): Promise<ExternalAgentStepResult> => {
+        let at = from;
+        for (;;) {
+          await take(at);
+          if (broke !== undefined) throw broke;
+          if (at.state === 'ended' || at.state === 'failed' || at.state === 'closed') return at;
+          if (cancelled) {
+            at = await step({ kind: 'cancel' });
+            continue;
           }
-          for (const call of result.calls) start(call);
-          result = await step({ kind: 'continue', within: MACHINE_GATHER_MS });
-          ranOn = result.model ?? ranOn;
-          continue;
+          if (at.state === 'calls') {
+            if (!Array.isArray(at.calls)) {
+              return { ...at, state: 'failed', error: `the machine agent on ${machineName} is older than this Koala; run the command from My Machines on it again to update it`, events: [] };
+            }
+            for (const call of at.calls) start(call);
+            at = await step({ kind: 'continue', within: MACHINE_GATHER_MS });
+            ranOn = at.model ?? ranOn;
+            continue;
+          }
+          if (at.state === 'asks') {
+            const { ask } = at;
+            ranOn = at.model ?? ranOn;
+            const allowed = await ports.approve({
+              nodeId,
+              call: { id: externalCallId(ask.tool.callId), name: externalToolName(agent, ask.tool), arguments: ask.tool.title },
+              environment: workspace ?? environment,
+              on: machineName,
+              run,
+            });
+            at = await step({ kind: 'answer', optionId: cancelled ? undefined : permissionChoice(ask, allowed) });
+            continue;
+          }
+          if (answers.length === 0 && answering.size > 0) await condition(() => answers.length > 0 || broke !== undefined || cancelled, MACHINE_ANSWER_WAIT_MS);
+          if (broke !== undefined) throw broke;
+          at = await step(answers.length > 0 && !cancelled ? { kind: 'results', results: answers.splice(0) } : { kind: 'continue' });
+          ranOn = at.model ?? ranOn;
         }
-        if (result.state === 'asks') {
-          const { ask } = result;
-          ranOn = result.model ?? ranOn;
-          const allowed = await ports.approve({
-            nodeId,
-            call: { id: externalCallId(ask.tool.callId), name: externalToolName(agent, ask.tool), arguments: ask.tool.title },
-            environment: workspace ?? environment,
-            on: machineName,
-            run,
-          });
-          result = await step({ kind: 'answer', optionId: cancelled ? undefined : permissionChoice(ask, allowed) });
-          continue;
+      };
+      const settle = async (): Promise<string | undefined> => {
+        const message = `${agent} on ${machineName}: ${brief.split('\n')[0]!.slice(0, 72)}`;
+        let lastUnresolved: string | undefined;
+        for (;;) {
+          const back = await bringBack(message);
+          if (back.ok) return undefined;
+          if (result.state !== 'ended' || cancelled) return keepWork(back.why);
+          let ask: string;
+          if (back.conflicts) {
+            const merged = await mergeIn();
+            if (!merged.ok) return keepWork(merged.why);
+            ask = toMerge(merged.conflicts);
+          } else if (back.unresolved) {
+            const still = back.unresolved.join(', ');
+            if (still === lastUnresolved) return keepWork(back.why);
+            lastUnresolved = still;
+            ask = `${back.why}. Resolve them so that both sides are kept, remove every conflict marker, and commit.`;
+          } else {
+            return keepWork(back.why);
+          }
+          result = await drive(await step({ kind: 'prompt', text: ask }));
+          await Promise.all(answering.values());
+          if (broke !== undefined) throw broke;
         }
-        if (answers.length === 0 && answering.size > 0) await condition(() => answers.length > 0 || broke !== undefined || cancelled, MACHINE_ANSWER_WAIT_MS);
-        if (broke !== undefined) throw broke;
-        result = await step(answers.length > 0 && !cancelled ? { kind: 'results', results: answers.splice(0) } : { kind: 'continue' });
-        ranOn = result.model ?? ranOn;
-      }
+      };
+
+      result = await drive(result);
       await Promise.all(answering.values());
       if (broke !== undefined) throw broke;
+      let notBack: string | undefined;
+      if (merging) {
+        notBack = await settle();
+        if (result.state !== 'failed') await take(await step({ kind: 'close' }));
+      } else {
+        if (result.state !== 'failed') await take(await step({ kind: 'close' }));
+        const back = cancelled ? { ok: true as const } : await bringBack(`${agent} on ${machineName}: ${brief.split('\n')[0]!.slice(0, 72)}`);
+        notBack = back.ok ? undefined : back.why;
+      }
       const { identity, sessionId } = result;
       const on = result.model ?? ranOn;
       const withModel = { ...(on ? { model: on } : {}), ...(thinking.trim() ? { thinking } : {}), ...(calls.size ? { calls: [...calls.values()] } : {}) };
-      if (result.state !== 'failed') await take(await step({ kind: 'close' }));
-      const notBack = cancelled ? undefined : await bringBack(`${agent} on ${machineName}: ${brief.split('\n')[0]!.slice(0, 72)}`);
       if (work) await engine.EngineMachineDropActivity(work);
+      if (merging && checkout && !notBack) await gitOnDevice({ kind: 'remove', folder: checkout.folder });
       if (notBack) return { outcome: 'failed', text, reason: notBack, ...(identity ? { identity } : {}), ...(sessionId ? { sessionId } : {}), ...withModel };
 
       if (result.state === 'failed') return { outcome: 'failed', text, reason: result.error, ...(identity ? { identity } : {}), ...(sessionId ? { sessionId } : {}), ...withModel };

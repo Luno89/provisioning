@@ -140,6 +140,14 @@ export class ExternalAgentSessions {
       live.ask = undefined;
       await live.session.cancel();
     }
+    if (op.kind === 'prompt') {
+      if (!live.ended) return { ...this.about(live), state: 'failed', error: 'the agent is still working on its last prompt', events: live.events.splice(0) };
+      live.ended = undefined;
+      live.session.prompt(op.text).then(
+        (reply) => { live.ended = { stopReason: reply.stopReason }; },
+        (err: unknown) => { live.ended = { error: (err as Error).message }; },
+      ).finally(() => live.wake());
+    }
     if (op.kind === 'answer' && live.ask) {
       const pending = live.ask;
       live.ask = undefined;

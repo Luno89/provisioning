@@ -433,7 +433,7 @@ describe('a workspace folder going to a machine and coming back', () => {
     expect(heads).toBe(`${sent.commit} refs/heads/${request.branch}`);
   });
 
-  it('lays the machine\'s commits over the folder, setting aside anything uncommitted in the way, and refuses when the folder moved on', async () => {
+  it('lays the machine\'s commits over the folder, setting aside anything uncommitted in the way, merges them in when the folder moved on, and names the files when it cannot', async () => {
     const documents = createWorkspaceDocuments({ kube, stream, repos: machineRepos() });
     await documents.sendBranch({ ...request, message: 'Work so far' });
     await machineCommits({ 'label.txt': 'Axial Concepts\n' });
@@ -452,8 +452,28 @@ describe('a workspace folder going to a machine and coming back', () => {
     await writeFile(path.join(folder(), 'own.txt'), 'own\n');
     await inFolder('add', '-A');
     await inFolder('commit', '-q', '-m', 'the folder moved on');
-    expect(await documents.takeBranch(request)).toEqual({ brought: false, why: expect.stringContaining('the folder has commits of its own since the machine took it') });
-    expect(await inFolder('log', '-1', '--format=%s')).toBe('the folder moved on');
+    const merged = await documents.takeBranch({ ...request, message: 'Merge antigravity\'s work from Desk' });
+    expect(merged).toMatchObject({ brought: true, merged: true, commit: await inFolder('rev-parse', 'HEAD') });
+    expect(await inFolder('log', '-1', '--format=%s')).toBe('Merge antigravity\'s work from Desk');
+    expect(await readFile(path.join(folder(), 'more.txt'), 'utf8')).toBe('more\n');
+    expect(await readFile(path.join(folder(), 'own.txt'), 'utf8')).toBe('own\n');
+
+    await documents.sendBranch({ ...request, message: 'Once more' });
+    await machineCommits({ 'label.txt': 'the machine\'s label\n' });
+    await writeFile(path.join(folder(), 'label.txt'), 'another agent\'s label\n');
+    await inFolder('add', '-A');
+    await inFolder('commit', '-q', '-m', 'another agent landed first');
+    await writeFile(path.join(folder(), 'scratch.txt'), 'uncommitted\n');
+    expect(await documents.takeBranch(request)).toEqual({ brought: false, why: expect.stringContaining('these files conflict: label.txt'), conflicts: ['label.txt'] });
+    expect(await inFolder('log', '-1', '--format=%s')).toBe('another agent landed first');
+    expect(await readFile(path.join(folder(), 'label.txt'), 'utf8')).toBe('another agent\'s label\n');
+    expect(await readFile(path.join(folder(), 'scratch.txt'), 'utf8')).toBe('uncommitted\n');
+    expect(await inFolder('status', '--porcelain')).toBe('?? scratch.txt');
+
+    const kept = await documents.keepBranch(request);
+    expect(kept).toMatchObject({ kept: true });
+    expect(await inFolder('show', `${request.branch}:label.txt`)).toBe('the machine\'s label');
+    expect(await inFolder('rev-parse', '--abbrev-ref', 'HEAD')).toBe('leaf/l1');
   });
 
   it('starts the history of a folder that has none, so a conversation with nothing saved yet can still send its work', async () => {

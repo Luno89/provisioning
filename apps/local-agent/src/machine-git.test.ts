@@ -76,6 +76,52 @@ describe('a machine\'s checkout of a project\'s work', () => {
     expect(git(folder, 'rev-parse', 'HEAD')).toBe(pushed);
   });
 
+  it('merges what the workspace has now into the agent\'s folder, names the files that conflict, and pushes nothing until they are resolved', async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'machine-git-'));
+    const bare = path.join(root, 'tree.git');
+    const seed = path.join(root, 'seed');
+    execFileSync('mkdir', ['-p', bare, seed]);
+    git(bare, 'init', '-q', '--bare');
+    git(seed, 'init', '-q', '-b', 'main');
+    await writeFile(path.join(seed, 'notes.md'), 'start\n');
+    git(seed, 'add', '-A');
+    git(seed, 'commit', '-q', '-m', 'start');
+    git(seed, 'push', '-q', bare, 'HEAD:refs/heads/machine/desk/run-2');
+    const machine = createMachineGit({ rootDir: path.join(root, 'home'), backendUrl: 'http://koala.test', token: 'device-token', remote: () => bare });
+    const at = { repo: 'conversation-c1', branch: 'machine/desk/run-2', folder: 'conversation-c1/run-2' };
+    await machine({ kind: 'checkout', ...at });
+    const folder = path.join(root, 'home', 'koala-trees', 'conversation-c1', 'run-2');
+    await writeFile(path.join(folder, 'notes.md'), 'what the second agent found\n');
+    await writeFile(path.join(folder, 'second.md'), 'second\n');
+
+    await writeFile(path.join(seed, 'notes.md'), 'what the first agent found\n');
+    await writeFile(path.join(seed, 'first.md'), 'first\n');
+    git(seed, 'add', '-A');
+    git(seed, 'commit', '-q', '-m', 'the first agent\'s work came back');
+    git(seed, 'push', '-q', bare, 'HEAD:refs/heads/machine/desk/run-2-workspace');
+
+    const merged = await machine({ kind: 'merge', ...at, branch: 'machine/desk/run-2-workspace' });
+    expect(merged).toMatchObject({ ok: true, conflicts: ['notes.md'] });
+    expect(await readFile(path.join(folder, 'first.md'), 'utf8')).toBe('first\n');
+    expect(await readFile(path.join(folder, 'notes.md'), 'utf8')).toContain('<<<<<<<');
+
+    expect(await machine({ kind: 'push', ...at, message: 'too soon' })).toEqual({ ok: false, error: expect.stringContaining('notes.md'), unresolved: ['notes.md'] });
+    git(folder, 'add', '-A');
+    expect(await machine({ kind: 'push', ...at, message: 'markers staged' })).toMatchObject({ ok: false, unresolved: ['notes.md'] });
+
+    await writeFile(path.join(folder, 'notes.md'), 'what the first agent found\nwhat the second agent found\n');
+    const pushed = await machine({ kind: 'push', ...at, message: 'Both agents\' notes' });
+    expect(pushed.ok).toBe(true);
+    git(seed, 'fetch', '-q', bare, 'machine/desk/run-2');
+    expect(execFileSync('git', ['merge-base', '--is-ancestor', 'HEAD', 'FETCH_HEAD'], { cwd: seed }).toString()).toBe('');
+    expect(git(seed, 'show', 'FETCH_HEAD:notes.md')).toBe('what the first agent found\nwhat the second agent found');
+    expect(git(seed, 'show', 'FETCH_HEAD:second.md')).toBe('second');
+
+    expect(await machine({ kind: 'remove', folder: 'conversation-c1/run-2' })).toMatchObject({ ok: true });
+    await expect(readFile(path.join(folder, 'notes.md'))).rejects.toThrow();
+    expect(await machine({ kind: 'remove', folder: '' })).toMatchObject({ ok: false });
+  });
+
   it('keeps out of anything outside its folder, and says what failed without the token', async () => {
     root = await mkdtemp(path.join(tmpdir(), 'machine-git-'));
     const machine = createMachineGit({ rootDir: path.join(root, 'home'), backendUrl: 'http://koala.test', token: 'device-token', remote: () => path.join(root, 'missing.git') });

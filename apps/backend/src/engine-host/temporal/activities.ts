@@ -204,7 +204,8 @@ export interface EngineActivities extends StreamActivities {
   EngineToolAllowedActivity(args: ToolAllowedArgs): Promise<boolean>;
   EngineAutoModeActivity(args: AutoModeArgs): Promise<boolean>;
   EngineMachineSendActivity(args: MachineSendRequest): Promise<{ repo: string; folder: string; commit: string }>;
-  EngineMachineTakeActivity(args: MachineWorkRequest): Promise<BroughtBack>;
+  EngineMachineTakeActivity(args: MachineWorkRequest & { message?: string | undefined }): Promise<BroughtBack>;
+  EngineMachineKeepActivity(args: MachineWorkRequest): Promise<{ kept: true; commit: string } | { kept: false; why: string }>;
   EngineMachineDropActivity(args: MachineWorkRequest): Promise<void>;
   EngineMachineNameActivity(args: { ownerId: string; deviceId: string }): Promise<string | null>;
 }
@@ -347,6 +348,11 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
     async EngineMachineTakeActivity(args) {
       if (!services.machineWork) throw ApplicationFailure.nonRetryable('this engine worker cannot bring a machine\'s work into a workspace', 'MachineWorkMissing');
       return services.machineWork.take(args);
+    },
+
+    async EngineMachineKeepActivity(args) {
+      if (!services.machineWork) throw ApplicationFailure.nonRetryable('this engine worker cannot bring a machine\'s work into a workspace', 'MachineWorkMissing');
+      return services.machineWork.keep(args);
     },
 
     async EngineMachineDropActivity(args) {

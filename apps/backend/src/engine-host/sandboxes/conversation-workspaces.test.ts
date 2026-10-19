@@ -34,6 +34,7 @@ const documents: WorkspaceDocuments = {
   bring: async () => ({ brought: [] }),
   catchUp: async () => undefined,
   sendBranch: async () => ({ commit: '' }),
+  keepBranch: async () => ({ kept: false as const, why: 'not here' }),
   takeBranch: async () => ({ brought: false as const, why: 'not here' }),
   dropBranch: async () => undefined,
   merge: async () => 'merged',
