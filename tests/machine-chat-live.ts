@@ -45,6 +45,7 @@ let api: AxiosInstance | undefined;
 let device: Device | undefined;
 let scratch: string | undefined;
 const conversations: string[] = [];
+const turns: string[] = [];
 let closeDb: (() => Promise<void>) | undefined;
 let retire: (() => Promise<void>) | undefined;
 
@@ -89,7 +90,9 @@ async function main(): Promise<void> {
   const turn = async (conversationId: string | undefined, agent: string, message: string, inputs?: Record<string, unknown>): Promise<string> => {
     const started = await api!.post('/engine/runs', { agent, message, modelId: choice, ...(conversationId ? { conversationId, modelReach: 'handoffs' } : {}), ...(inputs ? { inputs } : {}) });
     assert.equal(started.status, 201, JSON.stringify(started.data));
-    return (started.data as { runId: string }).runId;
+    const runId = (started.data as { runId: string }).runId;
+    turns.push(runId);
+    return runId;
   };
 
   step('a scripted ACP agent is added by hand to the person\'s machine, and the machine finds it ready');
@@ -202,6 +205,7 @@ async function main(): Promise<void> {
 }
 
 async function teardown(): Promise<void> {
+  for (const runId of turns) if (api) await api.post(`/running/${runId}/cancel`).catch(() => undefined);
   for (const id of conversations) if (api) await api.delete(`/conversations/${id}`).catch(() => undefined);
   if (api && device) await api.put(`/mesh/local-agents/${device.id}/agents`, { agents: device.manualAgents }).catch(() => undefined);
   await retire?.().catch((err: Error) => console.error(`  what the memory keeper kept could not be retired: ${err.message}`));
