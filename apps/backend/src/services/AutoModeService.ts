@@ -1,7 +1,7 @@
 import type { Database } from '../lib/db-interface.js';
 import { runsUnasked, switchedOn, withAgent } from '../lib/auto-mode.js';
 
-export type AutoModeStore = Pick<Database, 'getAutoModeSettings' | 'saveAutoModeSettings' | 'getTrees' | 'saveTree' | 'getConversation'>;
+export type AutoModeStore = Pick<Database, 'getAutoModeSettings' | 'saveAutoModeSettings' | 'getTrees' | 'saveTree' | 'getConversation' | 'setConversationAutoMode'>;
 
 export type AutoModeOutcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 404; error: string };
 
@@ -46,10 +46,18 @@ export class AutoModeService {
     return { ok: true, value: { autoMode: on } };
   }
 
+  async setConversation(ownerId: string, conversationId: string, body: unknown): Promise<AutoModeOutcome<{ autoMode: boolean }>> {
+    const on = switchedOn(body);
+    if (typeof on === 'string') return { ok: false, status: 400, error: on };
+    if (!(await this.deps.store.setConversationAutoMode(ownerId, conversationId, on))) return { ok: false, status: 404, error: 'Conversation not found' };
+    return { ok: true, value: { autoMode: on } };
+  }
+
   async unasked({ ownerId, agentSlug, treeId, conversationId }: RunAskingArgs): Promise<boolean> {
     const settings = await this.deps.store.getAutoModeSettings(ownerId);
-    const boundTree = treeId ?? (conversationId ? (await this.deps.store.getConversation(ownerId, conversationId))?.treeId : undefined);
+    const conversation = conversationId ? await this.deps.store.getConversation(ownerId, conversationId) : undefined;
+    const boundTree = treeId ?? conversation?.treeId;
     const tree = boundTree ? (await this.deps.store.getTrees()).find((entry) => entry.id === boundTree && entry.ownerId === ownerId) : undefined;
-    return runsUnasked({ agentSlug, settings, tree });
+    return runsUnasked({ agentSlug, settings, tree, conversation });
   }
 }

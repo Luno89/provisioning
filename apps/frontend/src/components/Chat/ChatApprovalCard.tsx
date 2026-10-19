@@ -5,7 +5,7 @@ export interface ChatApprovalCardProps {
   reason: string
   toolName?: string | undefined
   args?: string | undefined
-  onDecide: (decision: ApprovalDecision) => void
+  onDecide: (decision: ApprovalDecision | 'auto-chat') => void
 }
 
 const quiet = 'px-2.5 py-1 rounded bg-red-900/40 hover:bg-red-800/60 text-red-100 border border-red-500/30 transition-colors cursor-pointer text-xs'
@@ -38,11 +38,11 @@ export default function ChatApprovalCard({ reason, toolName, args, onDecide }: C
         ) : null}
         <button
           type="button"
-          onClick={() => onDecide('auto-agent')}
-          title="Switches on auto mode for the agent asking: none of its calls ask again, in any run, until you switch it off in the Studio"
+          onClick={() => onDecide('auto-chat')}
+          title="Turns on auto mode for this chat and lets this through: nothing it runs asks again, any command or tool, including the agents it hands work to, until you switch it off beside the model"
           className={quiet}
         >
-          Always allow this agent
+          Auto mode for this chat
         </button>
         <button
           type="button"

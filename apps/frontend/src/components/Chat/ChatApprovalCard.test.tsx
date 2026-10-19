@@ -12,7 +12,7 @@ describe('asking the person before a tool runs', () => {
       ['Allow', 'allow'],
       ['Allow for this run', 'allow-for-run'],
       ['Allow koala_search_web in this chat', 'allow-in-chat'],
-      ['Always allow this agent', 'auto-agent'],
+      ['Auto mode for this chat', 'auto-chat'],
       ['Deny', 'decline'],
     ] as const) {
       await userEvent.click(screen.getByRole('button', { name }))
@@ -20,9 +20,9 @@ describe('asking the person before a tool runs', () => {
     }
   })
 
-  it('offers no chat-wide allow when it does not know the tool', () => {
+  it('offers no chat-wide allow when it does not know the tool, and still offers auto mode for the chat', () => {
     render(<ChatApprovalCard reason="a run wants to do something" onDecide={vi.fn()} />)
-    expect(screen.getByRole('button', { name: 'Always allow this agent' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Auto mode for this chat' })).toHaveAttribute('title', expect.stringContaining('nothing it runs asks again, any command or tool'))
     expect(screen.queryByRole('button', { name: /in this chat/ })).toBeNull()
   })
 })

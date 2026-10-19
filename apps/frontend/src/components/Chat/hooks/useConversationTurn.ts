@@ -57,7 +57,7 @@ const forgetTurn = (key: string): void => {
   for (const [runId, entry] of liveRunsByRunId) if (entry.key === key) liveRunsByRunId.delete(runId);
 };
 
-export type ApprovalDecision = 'allow' | 'allow-for-run' | 'allow-in-chat' | 'auto-agent' | 'decline';
+export type ApprovalDecision = 'allow' | 'allow-for-run' | 'allow-in-chat' | 'decline';
 
 export interface PendingApproval {
   runId: string;
@@ -422,7 +422,6 @@ export function useConversationTurn({
           allowed,
           ...(decision === 'allow-for-run' ? { forRun: true } : {}),
           ...(decision === 'allow-in-chat' && selectedConvId && approval.toolName ? { conversationId: selectedConvId, tool: approval.toolName } : {}),
-          ...(decision === 'auto-agent' ? { auto: 'agent' as const } : {}),
         });
       } catch (err) {
         setPendingApproval(approval);

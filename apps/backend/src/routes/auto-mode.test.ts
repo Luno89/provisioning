@@ -56,6 +56,23 @@ describe('auto mode', () => {
     expect(await service.unasked({ ownerId: TEST_USER.id, agentSlug: 'koala', conversationId: 'c1' })).toBe(true);
   });
 
+  it('switches a chat on and off, so every run it starts goes unasked, whatever its agent, without touching what the chat holds', async () => {
+    await harness.db.saveConversation({ id: 'c2', ownerId: TEST_USER.id, title: 'Machine reach', messages: [{ role: 'user', content: 'hi' }], createdAt: 'a', updatedAt: 'a' } as never);
+    await harness.db.saveConversation({ id: 'c3', ownerId: 'someone-else', title: 'Theirs', messages: [], createdAt: 'a', updatedAt: 'a' } as never);
+
+    expect((await put('/conversations/c2', { on: true })).data).toEqual({ autoMode: true });
+    expect(await service.unasked({ ownerId: TEST_USER.id, agentSlug: 'research', conversationId: 'c2' })).toBe(true);
+    expect(await service.unasked({ ownerId: TEST_USER.id, agentSlug: 'research' })).toBe(false);
+    expect((await harness.db.getConversation(TEST_USER.id, 'c2'))?.messages).toHaveLength(1);
+
+    expect((await put('/conversations/c2', { on: false })).data).toEqual({ autoMode: false });
+    expect(await harness.db.getConversation(TEST_USER.id, 'c2')).not.toHaveProperty('autoMode');
+    expect(await service.unasked({ ownerId: TEST_USER.id, agentSlug: 'research', conversationId: 'c2' })).toBe(false);
+
+    expect((await put('/conversations/c3', { on: true })).status).toBe(404);
+    expect((await put('/conversations/c2', { on: 'yes' })).status).toBe(400);
+  });
+
   it('refuses a tree that is not yours, an agent there is none of, and a body that does not say on or off', async () => {
     expect((await put('/trees/t2', { on: true })).status).toBe(404);
     expect(await service.unasked({ ownerId: TEST_USER.id, agentSlug: 'executor', treeId: 't2' })).toBe(false);

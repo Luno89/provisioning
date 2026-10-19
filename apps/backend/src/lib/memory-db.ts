@@ -635,6 +635,14 @@ export class MemoryDB implements Database {
     return true;
   }
 
+  async setConversationAutoMode(ownerId: string, conversationId: string, on: boolean): Promise<boolean> {
+    const conversation = this.conversations.find((c) => c.id === conversationId && c.ownerId === ownerId);
+    if (!conversation) return false;
+    if (on) conversation.autoMode = true;
+    else delete conversation.autoMode;
+    return true;
+  }
+
   async bindConversation(ownerId: string, conversationId: string, binding: { treeId: string; projectId?: string | undefined }): Promise<boolean> {
     const conversation = this.conversations.find((c) => c.id === conversationId && c.ownerId === ownerId);
     if (!conversation || conversation.treeId) return false;

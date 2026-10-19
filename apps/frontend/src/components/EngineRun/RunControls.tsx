@@ -3,7 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 import { Check, Loader2, Square } from 'lucide-react'
 import { errorMessage } from '../../api/client'
 import { answerRun, approveRunCall, cancelRun } from '../../api/engine'
-import { pendingApproval, type EngineRunState, type PendingApproval } from '../../lib/engine-run-state'
+import { autoModeLabel, autoModeTitle, pendingApproval, type EngineRunState, type PendingApproval } from '../../lib/engine-run-state'
 
 export function StopRun({ run }: { run: Pick<EngineRunState, 'runId' | 'finished'> }) {
   if (run.finished) return null
@@ -38,7 +38,7 @@ type Decision = 'allow' | 'allow-for-run' | 'auto-agent' | 'auto-tree' | 'declin
 const DECIDED: Record<Decision, string> = {
   'allow': 'Allowed — it runs now.',
   'allow-for-run': 'Allowed for the rest of this run — it runs now.',
-  'auto-agent': 'Auto mode is on for this agent: it runs now, and nothing it does asks again until you switch it off in the Studio.',
+  'auto-agent': 'Auto mode is on for this agent: it runs now, and no command or tool it runs asks again, in any run, until you switch it off in the Studio.',
   'auto-tree': 'Auto mode is on for this tree: it runs now, and nothing in its work asks again until you switch it off in its Settings.',
   'decline': 'Declined — the model is told it did not run.',
 }
@@ -85,20 +85,20 @@ export function ApprovalBox({ runId, approval, inTree = false }: { runId: string
             type="button"
             disabled={decide.isPending}
             onClick={() => decide.mutate('auto-agent')}
-            title="Switches on auto mode for the agent asking: none of its calls ask again, in any run"
+            title={autoModeTitle(approval.agent)}
             className={`${button} bg-emerald-500/10 text-emerald-300/80 border-emerald-500/20 hover:bg-emerald-500/20`}
           >
-            {sending('auto-agent')}Always allow this agent
+            {sending('auto-agent')}{autoModeLabel(approval.agent)}
           </button>
           {inTree && (
             <button
               type="button"
               disabled={decide.isPending}
               onClick={() => decide.mutate('auto-tree')}
-              title="Switches on auto mode for this tree: nothing in its work asks again"
+              title="Turns on auto mode for this tree: no command or tool any agent runs in its work asks again, until you switch it off in its Settings"
               className={`${button} bg-emerald-500/10 text-emerald-300/80 border-emerald-500/20 hover:bg-emerald-500/20`}
             >
-              {sending('auto-tree')}Always allow in this tree
+              {sending('auto-tree')}Auto mode for this tree
             </button>
           )}
           <button

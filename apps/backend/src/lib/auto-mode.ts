@@ -8,10 +8,11 @@ export interface RunAsking {
   agentSlug: string;
   settings?: Pick<AutoModeSettings, 'agents'> | undefined;
   tree?: { autoMode?: boolean | undefined } | undefined;
+  conversation?: { autoMode?: boolean | undefined } | undefined;
 }
 
-export function runsUnasked({ agentSlug, settings, tree }: RunAsking): boolean {
-  return tree?.autoMode === true || (settings?.agents ?? []).includes(agentSlug);
+export function runsUnasked({ agentSlug, settings, tree, conversation }: RunAsking): boolean {
+  return conversation?.autoMode === true || tree?.autoMode === true || (settings?.agents ?? []).includes(agentSlug);
 }
 
 export function withAgent(settings: AutoModeSettings | undefined, ownerId: string, agentSlug: string, on: boolean, at: string): AutoModeSettings {

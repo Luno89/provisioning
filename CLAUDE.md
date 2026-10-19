@@ -274,7 +274,7 @@ environment, and run_in_workspace) and names the environment tools it has for it
 ("what an agent on a machine is told") checks every section and that the MCP server serves exactly the tools listed.
 
 **Asks from an agent on a machine** are checked against the tree's workspace, so a tree on auto mode lets them through. The
-approval box also offers **Always allow this agent** and, on a tree's or a story's page, **Always allow in this tree**:
+approval box on a run or story also offers **Auto mode for <agent>** and, on a tree's or a story's page, **Auto mode for this tree**:
 `POST /api/engine/runs/:id/approve` with `auto: 'agent' | 'tree'` switches auto mode on (the run's agent from its turn log,
 `runOrigin`; its tree from the tree run's id) and allows the call.
 
@@ -392,10 +392,14 @@ own machine every call asks; elsewhere a destructive tool asks (an MCP tool is d
 otherwise). A call to a tool that runs inside the run's sandbox (`binding: 'environment'` while the environment is a
 sandbox) never asks, whatever it does (behind the `sandbox-calls-unasked` patch). **Auto mode** turns asking off for a
 whole run: a person switches it on per agent (Studio, the agent's settings; `autoModeSettings`, so a built-in stays
-built in) or per tree (the tree's Settings page; `autoMode` on the tree), and a run goes unasked when its agent is on, or
-the tree it works on — its sandbox's `tree-<id>` workspace or its chat's tree — is (`AutoModeService.unasked`, read at
-each ask through `EngineAutoModeActivity`, behind the `auto-mode` patch). The approval box answers the call its notice
-names (`callId`) and says what was decided.
+built in), per tree (the tree's Settings page; `autoMode` on the tree) or per chat (**Auto mode** beside the model in the
+composer, on and off at any time; `autoMode` on the conversation, `PUT /api/auto-mode/conversations/:id`, set atomically so
+a turn's messages are never overwritten), and a run goes unasked when its agent is on, the tree it works on — its sandbox's
+`tree-<id>` workspace or its chat's tree — is, or the chat it runs for is, which reaches every agent the chat hands work
+to, since a child's ticket carries the conversation (`AutoModeService.unasked`, read at each ask through
+`EngineAutoModeActivity`, behind the `auto-mode` patch). The approval box answers the call its notice names (`callId`)
+and says what was decided. A chat's approval card offers Allow, Allow for this run, Allow <tool> in this chat, **Auto mode
+for this chat** (switches it on and lets the call through; so does switching it on while something asks) and Deny.
 
 ## Memory
 

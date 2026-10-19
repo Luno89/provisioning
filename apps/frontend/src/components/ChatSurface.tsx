@@ -19,6 +19,7 @@ import { chatPackKeys, type ConversationBinding } from '../api/chat-pack.js';
 import { postChannelMessage } from '../api/project-channel.js';
 import { addressOf, channelAsksKoala, goesToKoala, rememberChannelAsks } from '../lib/channel-asks.js';
 import { errorMessage } from '../api/client.js';
+import { useConversationAutoMode } from './AutoMode/useAutoMode.js';
 import { modelOptionLabel } from '../lib/model-label';
 import { type ChatMessageRecord } from './Chat/chat-stream.js';
 import { useChatScroll } from './Chat/hooks/useChatScroll.js';
@@ -236,7 +237,7 @@ export default function ChatSurface({
           <ChatApprovalCard
             reason={conv.pendingApproval.reason}
             {...(conv.pendingApproval.toolName ? { toolName: conv.pendingApproval.toolName, args: conv.pendingApproval.args } : {})}
-            onDecide={(decision) => void conv.decideApproval(decision)}
+            onDecide={(decision) => void (decision === 'auto-chat' ? switchAutoMode(true) : conv.decideApproval(decision))}
           />
         ) : null;
     }
@@ -278,6 +279,17 @@ export default function ChatSurface({
 
   const handleStop = () => conv.handleStop();
 
+  const autoMode = useConversationAutoMode(conv.selectedConvId, conv.activeConversation);
+  const switchAutoMode = async (on: boolean) => {
+    try {
+      await autoMode.turnTo(on);
+    } catch (err) {
+      setError(`Auto mode could not be switched ${on ? 'on' : 'off'}: ${errorMessage(err)}`);
+      return;
+    }
+    if (on && conv.pendingApproval) await conv.decideApproval('allow');
+  };
+
   const composer = (
     <ChatComposer
       onSend={handleSend}
@@ -288,6 +300,7 @@ export default function ChatSurface({
       {...(toolCount !== undefined ? { toolCount } : {})}
       modelLabel={modelLabel}
       onOpenModelDrawer={() => setShowModelDrawer(true)}
+      {...(conv.selectedConvId && autoMode.on !== undefined ? { autoMode: { on: autoMode.on, switching: autoMode.switching, onToggle: () => void switchAutoMode(!autoMode.on) } } : {})}
       {...(channel ? {
         placeholder: askingKoala ? 'Ask Koala — it answers in the channel' : 'Post to the channel — start with @koala to ask Koala',
         channelAsk: { on: askingKoala, onToggle: toggleAskingKoala },

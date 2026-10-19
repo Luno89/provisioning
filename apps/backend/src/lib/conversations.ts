@@ -78,6 +78,7 @@ export interface Conversation {
   compaction?: { summary: string; through: number } | undefined;
   liveTurn?: { runId: string; startedAt: string } | undefined;
   allowedTools?: string[] | undefined;
+  autoMode?: boolean | undefined;
   machineSessions?: Record<string, string> | undefined;
   createdAt: string;
   updatedAt: string;

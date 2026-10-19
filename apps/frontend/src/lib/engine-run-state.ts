@@ -20,7 +20,13 @@ export interface EngineNotice {
 export interface PendingApproval {
   message: string
   callId: string
+  agent?: string | undefined
 }
+
+export const autoModeLabel = (agent: string | undefined): string => `Auto mode for ${agent ?? 'this agent'}`
+
+export const autoModeTitle = (agent: string | undefined): string =>
+  `Turns on auto mode for ${agent ?? 'the agent asking'}: no command or tool it runs asks again, in any run, until you switch it off in the Studio`
 
 export interface EngineRunState {
   runId: string
@@ -134,7 +140,7 @@ export function reduceEngineEvents(runId: string, events: EngineEvent[]): Engine
 export function pendingApproval(state: EngineRunState): PendingApproval | undefined {
   if (state.finished) return undefined
   const notice = state.notices.filter((candidate) => candidate.level === 'warn' && !candidate.answered).at(-1)
-  return notice?.callId ? { message: notice.message, callId: notice.callId } : undefined
+  return notice?.callId ? { message: notice.message, callId: notice.callId, ...(state.agentId ? { agent: state.agentId } : {}) } : undefined
 }
 
 export function applyTurnEvents(runs: readonly EngineRunState[], events: readonly EngineEvent[]): EngineRunState[] {

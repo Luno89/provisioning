@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Send, Square, Sliders, Cpu, Sparkles, Paperclip, X, MessageSquare } from 'lucide-react';
+import { Send, Square, Sliders, Cpu, Sparkles, Paperclip, X, MessageSquare, Zap } from 'lucide-react';
 import { goesToKoala } from '../../lib/channel-asks.js';
 
 export interface PersonaPackOption {
@@ -36,6 +36,7 @@ export interface ChatComposerProps {
   attachments?: ComposerAttachment[] | undefined;
   onRemoveAttachment?: ((path: string) => void) | undefined;
   channelAsk?: { on: boolean; onToggle: () => void } | undefined;
+  autoMode?: { on: boolean; switching: boolean; onToggle: () => void } | undefined;
 }
 
 export function ChatComposer({
@@ -53,6 +54,7 @@ export function ChatComposer({
   attachments,
   onRemoveAttachment,
   channelAsk,
+  autoMode,
 }: ChatComposerProps) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -162,6 +164,26 @@ export function ChatComposer({
             >
               <Sparkles size={11} className={channelAsk.on ? 'text-emerald-400' : 'text-slate-500'} />
               <span className="font-medium">{channelAsk.on ? 'Asking Koala' : 'Ask Koala: off'}</span>
+            </button>
+          )}
+
+          {autoMode && (
+            <button
+              type="button"
+              onClick={autoMode.onToggle}
+              disabled={autoMode.switching}
+              aria-pressed={autoMode.on}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded border text-xs transition-colors cursor-pointer disabled:opacity-60 ${
+                autoMode.on
+                  ? 'bg-amber-950/70 border-amber-500/60 text-amber-200'
+                  : 'bg-[var(--bark-950,#090d0b)] border-[var(--bark-700,#24332b)] text-slate-400 hover:text-white'
+              }`}
+              title={autoMode.on
+                ? 'Nothing this chat runs asks before it runs, any command or tool, including the agents it hands work to. Click to be asked again.'
+                : 'Every command or tool that needs your say-so asks first. Click to let everything this chat runs go ahead without asking.'}
+            >
+              <Zap size={11} className={autoMode.on ? 'text-amber-400' : 'text-slate-500'} />
+              <span className="font-medium">{autoMode.on ? 'Auto mode: on' : 'Auto mode: off'}</span>
             </button>
           )}
 

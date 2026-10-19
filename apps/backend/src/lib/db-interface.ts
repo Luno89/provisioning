@@ -161,6 +161,7 @@ export interface Database {
   getConversations(): Promise<Conversation[]>;
   getConversation(ownerId: string, id: string): Promise<Conversation | undefined>;
   allowToolInConversation(ownerId: string, conversationId: string, tool: string): Promise<boolean>;
+  setConversationAutoMode(ownerId: string, conversationId: string, on: boolean): Promise<boolean>;
   bindConversation(ownerId: string, conversationId: string, binding: { treeId: string; projectId?: string | undefined }): Promise<boolean>;
   appendNotice(ownerId: string, conversationId: string, message: import('./conversations.js').ConversationMessage): Promise<boolean>;
   appendMessage(ownerId: string, conversationId: string, message: import('./conversations.js').ConversationMessage): Promise<boolean>;

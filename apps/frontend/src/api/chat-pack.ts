@@ -62,6 +62,7 @@ export interface ChatConversation {
    */
   agentSlug?: string | null | undefined;
   modelReach?: ModelReach | undefined;
+  autoMode?: boolean | undefined;
   kind?: 'channel' | 'item' | undefined;
   treeId?: string | undefined;
   leafId?: string | undefined;

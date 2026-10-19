@@ -5,6 +5,7 @@ import { type ReactNode } from 'react';
 import ChatSurface from '../components/ChatSurface.js';
 import * as chatPackApi from '../api/chat-pack.js';
 import * as engineApi from '../api/engine.js';
+import * as autoModeApi from '../api/auto-mode';
 import { useLiveTurnsStore, conversationTurnKey } from '../stores/live-turns.js';
 import { type EngineEvent } from '../api/engine.js';
 import { TURN_LOG_CHANNEL } from '../api/turns';
@@ -25,6 +26,10 @@ vi.mock('../api/chat-pack', async (orig) => ({
   getConversationContext: vi.fn().mockResolvedValue({ given: {}, text: '' }),
 }));
 
+vi.mock('../api/auto-mode', async (orig) => ({
+  ...(await orig<typeof import('../api/auto-mode')>()),
+  setConversationAutoMode: vi.fn(async (_id: string, on: boolean) => on),
+}));
 vi.mock('../api/plans', async (orig) => ({
   ...(await orig<typeof plansApi>()),
   listPlans: vi.fn().mockResolvedValue([]),
@@ -497,7 +502,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     await waitFor(() => expect(screen.getByText('All up')).toBeInTheDocument());
   });
 
-  it('answers the call an agent on a machine asks about, and can switch its agent to always allowed', async () => {
+  it('answers the call an agent on a machine asks about, and auto mode for the chat lets it through', async () => {
     renderWithProviders(<ChatSurface conversationId="c1" />);
     fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'research it' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
@@ -505,12 +510,24 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     await waitForRunStarted();
     emit(
       { type: 'tool.called', callId: 'tc9', name: 'research', args: '{"question":"port"}' },
-      { type: 'notice', level: 'warn', nodeId: 'work', callId: 'ext-abc', tool: 'antigravity: Write tabby-port.md', message: 'koala wants to run antigravity: Write tabby-port.md on OZ-001TallGeese: Write tabby-port.md' },
+      { type: 'notice', level: 'warn', nodeId: 'work', callId: 'ext-abc', tool: 'antigravity: Write tabby-port.md', message: 'research wants to run antigravity: Write tabby-port.md on OZ-001TallGeese: Write tabby-port.md' },
     );
 
     fireEvent.click(await screen.findByTestId('chat-card-marker'));
-    fireEvent.click(await screen.findByRole('button', { name: 'Always allow this agent' }));
-    await waitFor(() => expect(engineApi.approveRunCall).toHaveBeenCalledWith(RUN_ID, { callId: 'ext-abc', allowed: true, auto: 'agent' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Auto mode for this chat' }));
+    await waitFor(() => expect(autoModeApi.setConversationAutoMode).toHaveBeenCalledWith('c1', true));
+    await waitFor(() => expect(engineApi.approveRunCall).toHaveBeenCalledWith(RUN_ID, { callId: 'ext-abc', allowed: true }));
+    expect(await screen.findByRole('button', { name: /Auto mode: on/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('switches the chat\u2019s auto mode on and back off beside the model', async () => {
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Auto mode: off/ }));
+    await waitFor(() => expect(autoModeApi.setConversationAutoMode).toHaveBeenLastCalledWith('c1', true));
+    fireEvent.click(await screen.findByRole('button', { name: /Auto mode: on/ }));
+    await waitFor(() => expect(autoModeApi.setConversationAutoMode).toHaveBeenLastCalledWith('c1', false));
+    expect(await screen.findByRole('button', { name: /Auto mode: off/ })).toHaveAttribute('aria-pressed', 'false');
+    expect(engineApi.approveRunCall).not.toHaveBeenCalled();
   });
 
   it('runs the turn on the conversation\u2019s own agent, with its pinned model', async () => {

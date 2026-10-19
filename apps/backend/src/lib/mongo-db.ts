@@ -637,6 +637,14 @@ export class MongoDB implements Database {
     return result.matchedCount > 0;
   }
 
+  async setConversationAutoMode(ownerId: string, conversationId: string, on: boolean): Promise<boolean> {
+    const result = await this.conversations.updateOne(
+      { _id: conversationId as any, ownerId },
+      on ? { $set: { autoMode: true } } : { $unset: { autoMode: '' } },
+    );
+    return result.matchedCount > 0;
+  }
+
   async bindConversation(ownerId: string, conversationId: string, binding: { treeId: string; projectId?: string | undefined }): Promise<boolean> {
     const set = { treeId: binding.treeId, ...(binding.projectId ? { projectId: binding.projectId } : {}), updatedAt: new Date().toISOString() };
     const result = await this.conversations.updateOne({ _id: conversationId as any, ownerId, treeId: { $exists: false } }, { $set: set });

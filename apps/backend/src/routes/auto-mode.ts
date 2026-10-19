@@ -3,7 +3,7 @@ import { asyncRoute } from '../middleware/async-route.js';
 import type { AutoModeService } from '../services/AutoModeService.js';
 
 export interface AutoModeRouterDeps {
-  autoMode: Pick<AutoModeService, 'agents' | 'setAgent' | 'setTree'>;
+  autoMode: Pick<AutoModeService, 'agents' | 'setAgent' | 'setTree' | 'setConversation'>;
 }
 
 const userOf = (req: Request): { id: string } =>
@@ -24,6 +24,12 @@ export function autoModeRouter(deps: AutoModeRouterDeps): Router {
 
   router.put('/trees/:id', asyncRoute(async (req: Request, res: Response) => {
     const outcome = await deps.autoMode.setTree(userOf(req).id, String(req.params.id), req.body);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value);
+  }));
+
+  router.put('/conversations/:id', asyncRoute(async (req: Request, res: Response) => {
+    const outcome = await deps.autoMode.setConversation(userOf(req).id, String(req.params.id), req.body);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json(outcome.value);
   }));

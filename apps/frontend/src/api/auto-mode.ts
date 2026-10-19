@@ -10,5 +10,8 @@ export const listAutoModeAgents = (): Promise<string[]> =>
 export const setAgentAutoMode = (slug: string, on: boolean): Promise<string[]> =>
   api.put<{ agents: string[] }>(`/auto-mode/agents/${encodeURIComponent(slug)}`, { on }).then((r) => r.data.agents)
 
+export const setConversationAutoMode = (conversationId: string, on: boolean): Promise<boolean> =>
+  api.put<{ autoMode: boolean }>(`/auto-mode/conversations/${encodeURIComponent(conversationId)}`, { on }).then((r) => r.data.autoMode)
+
 export const setTreeAutoMode = (treeId: string, on: boolean): Promise<boolean> =>
   api.put<{ autoMode: boolean }>(`/auto-mode/trees/${encodeURIComponent(treeId)}`, { on }).then((r) => r.data.autoMode)

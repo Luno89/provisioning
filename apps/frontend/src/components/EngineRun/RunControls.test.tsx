@@ -35,6 +35,7 @@ describe('a run waiting on the person', () => {
 
 describe('a run asking to make a call', () => {
   const asking = (): EngineRunState => waiting({
+    agentId: 'executor',
     currentNode: 'tools.approve',
     toolCalls: [{ callId: 'c7', name: 'playwright__browser_navigate', args: '{}', running: true }],
     notices: [{ level: 'warn', message: 'executor wants to run playwright__browser_navigate on this run: {}', callId: 'c7' }],
@@ -51,14 +52,15 @@ describe('a run asking to make a call', () => {
 
   it('can switch on auto mode for the agent asking, and in a tree for the tree, while allowing the call', async () => {
     const { unmount } = render(<RunControls run={asking()} />)
-    expect(screen.queryByRole('button', { name: 'Always allow in this tree' })).toBeNull()
-    await userEvent.click(screen.getByRole('button', { name: 'Always allow this agent' }))
+    expect(screen.queryByRole('button', { name: 'Auto mode for this tree' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Auto mode for executor' })).toHaveAttribute('title', expect.stringContaining('no command or tool it runs asks again'))
+    await userEvent.click(screen.getByRole('button', { name: 'Auto mode for executor' }))
     expect(approveRunCall).toHaveBeenCalledWith('run-1', { callId: 'c7', allowed: true, auto: 'agent' })
     expect(await screen.findByTestId('approval-decided')).toHaveTextContent('Auto mode is on for this agent')
     unmount()
 
     render(<RunControls run={asking()} inTree />)
-    await userEvent.click(screen.getByRole('button', { name: 'Always allow in this tree' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Auto mode for this tree' }))
     expect(approveRunCall).toHaveBeenCalledWith('run-1', { callId: 'c7', allowed: true, auto: 'tree' })
     expect(await screen.findByTestId('approval-decided')).toHaveTextContent('Auto mode is on for this tree')
   })

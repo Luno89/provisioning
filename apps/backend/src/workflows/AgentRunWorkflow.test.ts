@@ -611,6 +611,7 @@ describe('AgentRunWorkflow', () => {
       await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [
         { record: told },
         { mcp: { server: 'koala', tool: 'search_web', args: { query: 'TabbyAPI default port' } } },
+        { tool: { id: 'ls', title: 'ls', kind: 'execute' }, ask: true, output: 'tabby.md' },
         { write: { path: 'tabby.md', content: 'TabbyAPI listens on 5000.\n' } },
         { say: 'Found it on the machine.' },
       ] }] } satisfies AgentScript));
@@ -658,6 +659,7 @@ describe('AgentRunWorkflow', () => {
         },
         machineGit: createMachineGit({ rootDir: machineRoot, backendUrl: 'http://koala.test', token: 'device-token', remote: () => bare }),
       });
+      acts.engine.EngineAutoModeActivity.mockImplementation(async (args: { conversationId?: string }) => args.conversationId === 'c1');
       try {
         const args = input('koala', handsOffFromItsEnvironment('research'));
         const result = await runWorkflow({ ...args, ticket: { ...args.ticket, conversationId: 'c1', modelId: 'machine:desk:antigravity', ...(reach ? { modelReach: reach } : {}) } }, acts);
@@ -671,6 +673,7 @@ describe('AgentRunWorkflow', () => {
           brought: existsSync(resolve(documents, 'tabby.md')) ? await readFile(resolve(documents, 'tabby.md'), 'utf8') : undefined,
           resolved: acts.engine.EngineResolveAgentActivity.mock.calls.map(([call]) => call),
           toolCalls: acts.engine.EngineToolActivity.mock.calls.map(([call]) => call),
+          unaskedFor: acts.engine.EngineAutoModeActivity.mock.calls.map(([call]) => call),
         };
       } finally {
         await sessions.closeAll();
@@ -680,7 +683,7 @@ describe('AgentRunWorkflow', () => {
     };
 
     it('runs research a chat on a machine hands work to on that machine, in the conversation\'s workspace, its served tools there and its work brought back', async () => {
-      const { result, recorded, machineRoot, sent, saved, brought, resolved, toolCalls } = await onMachine();
+      const { result, recorded, machineRoot, sent, saved, brought, resolved, toolCalls, unaskedFor } = await onMachine();
 
       expect(result).toMatchObject({ outcome: 'ok' });
       expect(JSON.stringify(result.outputs)).toContain('Found it on the machine.');
@@ -698,6 +701,7 @@ describe('AgentRunWorkflow', () => {
       const search = toolCalls.find((call) => call.name === 'search_web');
       expect(search?.environment).toMatchObject({ workspace: { runId: 'conversation-c1', sharedBy: 'conversation', repository: 'this conversation\'s documents' } });
       expect(search?.ticket).toMatchObject({ agentSlug: 'research', inPlace: true, conversationId: 'c1' });
+      expect(unaskedFor).toContainEqual(expect.objectContaining({ agentSlug: 'research', conversationId: 'c1' }));
       expect(brought).toBe('TabbyAPI listens on 5000.\n');
       expect(saved).toEqual(['conversation-c1']);
     }, 60_000);
