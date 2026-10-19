@@ -18,7 +18,7 @@ export default function ProjectFiles({ treeId, projectId }: { treeId?: string | 
     loadingPath, savingPath, conflictPath,
     loadFile, openFile, closeFile, changeContent, saveFile,
   } = useOpenFiles(project?.id ?? '')
-  const explorer = useResizableWidth('workspace-left-width', 256, 180, () => Math.max(600, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 480))
+  const explorer = useResizableWidth('files-explorer-width', 256, 180, () => Math.max(240, Math.round((typeof window !== 'undefined' ? window.innerWidth : 1200) * 0.35)))
 
   if (reading) return <Reading label="Reading its files…" className="px-3 py-6" />
   if (!project) return <p className="px-3 py-6 text-[12px] text-slate-400" data-testid="no-files">This work has no repository of its own, so there are no files to show.</p>

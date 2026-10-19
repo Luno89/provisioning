@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CircleDot, Cpu, Loader2, MessageSquare, Play, Square, Zap } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleDot, Cpu, Loader2, MessageSquare, Play, Square, Zap } from 'lucide-react'
 import { listReleases, releaseKeys } from '../../../api/releases'
 import { listProjectRuns } from '../../../api/projects'
 import { getTreeModels, getTreeRun, groveKeys, runTree, stopTreeRun, type TreeRunStatus } from '../../../api/grove'
@@ -23,6 +23,7 @@ import { useTreeCards } from '../Workspace/useTreeCards'
 import { projectStatus } from '../Board/board'
 import { useProjectWork, type WorkTree } from '../useProjectWork'
 import { runsOnLine, workingOn } from './shared'
+import { useRemembered } from '../useChatPanel'
 
 const chip = 'flex items-center gap-1.5 px-2 py-0.5 rounded border border-[var(--bark-700)] bg-[var(--bark-950,#090d0b)] text-[12px] cursor-pointer hover:bg-[var(--bark-800)]'
 
@@ -159,7 +160,9 @@ function TreeWaiting({ tree, named }: { tree: WorkTree; named: boolean }) {
     <div className="space-y-2" data-testid="strip-waiting-tree">
       {named && <div className="text-[11px] text-slate-500">{tree.name}</div>}
       <TreeAsks asks={asks} />
-      <TreeProposalsPanel treeId={tree.id} quietWhenEmpty />
+      <div className="max-h-[40vh] overflow-y-auto rounded-md">
+        <TreeProposalsPanel treeId={tree.id} quietWhenEmpty />
+      </div>
     </div>
   )
 }
@@ -202,6 +205,7 @@ export interface StripChannel {
 export default function ProjectStrip({ treeId, projectId, channel }: { treeId?: string | undefined; projectId?: string | undefined; channel?: StripChannel | undefined }) {
   const { tree, project, projectTrees, branches, leaves } = useProjectWork({ treeId, projectId })
   const [modelsOpen, setModelsOpen] = useState<string | undefined>(undefined)
+  const waiting = useRemembered('project-waiting-closed', `${treeId ?? ''}|${projectId ?? ''}`)
   const named = projectTrees.length > 1
   const title = project?.name ?? tree?.name
   const leavesOf = (id: string): Leaf[] => {
@@ -227,10 +231,12 @@ export default function ProjectStrip({ treeId, projectId, channel }: { treeId?: 
       </div>
       {openTree && <RunsOnPanel tree={openTree} />}
       <div className="hidden has-[[data-waiting]]:block space-y-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2" data-testid="strip-waiting">
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-300">Waiting on you</div>
+        <button type="button" onClick={waiting.toggle} aria-expanded={waiting.open} className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-amber-300 cursor-pointer">
+          {waiting.open ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />} Waiting on you
+        </button>
         <WaitingCount trees={projectTrees} projectId={project?.id} />
-        {project && <PreviewWaiting projectId={project.id} />}
-        {projectTrees.map((entry) => <TreeWaiting key={entry.id} tree={entry} named={named} />)}
+        {waiting.open && project && <PreviewWaiting projectId={project.id} />}
+        {waiting.open && projectTrees.map((entry) => <TreeWaiting key={entry.id} tree={entry} named={named} />)}
       </div>
     </section>
   )

@@ -109,7 +109,7 @@ export function storyOf(
   return {
     leaf,
     state,
-    waitsOn: blockedBy(leaf, all).map((other) => other.title),
+    waitsOn: leaf.status === 'pending' ? blockedBy(leaf, all).map((other) => other.title) : [],
     ...(leaf.waitingFor ? { waitsForWorkspace: leaf.waitingFor.reason } : {}),
     ...(leaf.waitingFor?.stuck ? { workspaceStuck: leaf.waitingFor.stuck } : {}),
     ...(asked ? { asks: { tool: asked.tool, ...(asked.agent ? { agent: asked.agent } : {}) } } : {}),

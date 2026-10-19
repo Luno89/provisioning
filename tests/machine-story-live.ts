@@ -14,6 +14,7 @@ import { loadKeys } from '../apps/backend/src/lib/keys.js';
 import { getTemporalClient } from '../apps/backend/src/lib/temporal-client.js';
 import { groveRunWorkflowId } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import { CATCH_ALL_TREE_TYPE } from '../apps/backend/src/lib/tree-type-seeds.js';
+import { projectIdForTree } from '../apps/backend/src/lib/tree-home.js';
 import { GiteaService } from '../apps/backend/src/services/GiteaService.js';
 import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
 import type { AgentScript } from '../apps/local-agent/src/acp-script-agent.js';
@@ -178,7 +179,12 @@ async function main(): Promise<void> {
 }
 
 async function teardown(): Promise<void> {
-  if (api && treeId) await api.delete(`/trees/${treeId}`).catch(() => undefined);
+  if (api && treeId) {
+    const projectOf = ((await api.get('/projects').catch(() => ({ data: [] }))).data as { id: string; name: string }[])
+      .find((project) => project.id === projectIdForTree(treeId!));
+    if (projectOf) await api.delete(`/projects/${projectOf.id}`, { data: { confirm: projectOf.name } }).catch(() => undefined);
+    else await api.delete(`/trees/${treeId}`).catch(() => undefined);
+  }
   if (api && conversationId) await api.delete(`/conversations/${conversationId}`).catch(() => undefined);
   if (api && device) await api.put(`/mesh/local-agents/${device.id}/agents`, { agents: device.manualAgents }).catch(() => undefined);
   await retire?.().catch((err: Error) => console.error(`  the memory keeper's runs could not be retired: ${err.message}`));
