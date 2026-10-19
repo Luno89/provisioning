@@ -55,6 +55,29 @@ const longCommand: Scenario = {
   },
 };
 
+const CIRCLE = 'Should I run the browser spec to see the label, or write a scratch spec of my own that renders the report and asserts the barcode, or open an odoo shell and render it there? The spec does not assert the barcode, so running it settles nothing. A scratch spec would, but I would have to sign in and render the report first.';
+
+const circling: Scenario = {
+  id: 'mechanics-circling',
+  name: 'A model going in circles is asked again and decides',
+  describe: 'Mechanics, on a script: the judge\'s thinking writes the same paragraph over and over until the guard stops it; the step asks again, showing it where it was stuck and telling it to decide, and the judge records its verdict instead of the run being stopped.',
+  agent: 'judge',
+  procedure: { id: 'tool-rounds' },
+  input: { message: 'Judge this. Work: a delivery label with a barcode. Expected: the label carries a barcode of the delivery reference.', inputs: { work: 'a delivery label with a barcode', expected: 'the label carries a barcode of the delivery reference' } },
+  script: { rules: [
+    { when: { offered: ['record_verdict'], called: ['record_verdict'] }, reply: { say: 'Unproven: nothing shows the barcode.' } },
+    { when: { offered: ['record_verdict'], asked: 'going in circles' }, reply: { call: [{ tool: 'record_verdict', arguments: { verdict: 'unproven', reasoning: 'the spec does not assert the barcode and I did not render the report' } }] } },
+    { when: { offered: ['record_verdict'] }, reply: { think: Array.from({ length: 8 }, () => CIRCLE).join(' '), say: 'never reached' } },
+    NOTHING,
+  ] },
+  expect: {
+    outcome: 'ok',
+    toolsSucceeded: ['record_verdict'],
+    modelSaw: { anyRequest: true, contains: ['your thinking was going in circles', 'A scratch spec would, but I would have to sign in'] },
+    files: [{ path: 'verdict.md', contains: ['Verdict: unproven'] }],
+  },
+};
+
 export const ECHO_SERVER_PORT = 8931;
 
 const ECHO_SERVER_SOURCE = (): string => MCP_SERVER_FILES.find((file) => file.path === 'src/server.js')!.content.replaceAll('{{projectName}}', 'echoes');
@@ -663,4 +686,4 @@ const odooBrowserFailure: Scenario = {
   ],
 };
 
-export const MECHANICS_CHECKS = (): Scenario[] => [judged, longCommand, unaskedInSandbox, servedInWorkspace, proposedServer, proposedRelease, treeModel, monitored, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];
+export const MECHANICS_CHECKS = (): Scenario[] => [judged, circling, longCommand, unaskedInSandbox, servedInWorkspace, proposedServer, proposedRelease, treeModel, monitored, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];

@@ -346,8 +346,56 @@ describe('calling the model', () => {
     expect((call?.outputs as { content: string }).content).toBe('the whole answer');
   });
 
-  it('stops the run when a stream monitor interrupts', async () => {
-    streamed(
+  it('asks again when the model goes in circles, showing it where it was stuck, and goes on with the answer', async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      const frames = calls === 1
+        ? [{ choices: [{ delta: { reasoning_content: 'should I run the spec or write my own? should I run the spec or write my own?' } }] }, { choices: [{ delta: { content: 'never gets here' } }] }]
+        : [{ choices: [{ delta: { content: 'I ran the spec; it passes.' }, finish_reason: 'stop' }] }];
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        text: async () => '',
+        body: (async function* () {
+          for (const frame of frames) yield `data: ${JSON.stringify(frame)}\n`;
+          yield 'data: [DONE]\n';
+        })(),
+      } as unknown as Response;
+    });
+    vi.stubGlobal('fetch', fetchImpl);
+
+    let watched = 0;
+    const spinning = (): Monitor => {
+      watched += 1;
+      return watched === 1 ? { name: 'spinning', onThinking: () => 'caught looping' } : { name: 'spinning' };
+    };
+    const { services } = world();
+    const bus = createEventBus();
+    const events: EngineEvent[] = [];
+    bus.subscribe((event) => { events.push(event); });
+    const traces: NodeTrace[] = [];
+
+    const result = await runV2({ ...services, streamMonitors: () => [spinning()] }, 'sandboxed', TOOL_ROUNDS_V2, { bus, traces });
+
+    expect(result.outcome).toBe('ok');
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const second = JSON.parse((fetchImpl.mock.calls[1] as unknown as [string, { body: string }])[1].body) as { messages: { role: string; content: string }[] };
+    const nudge = second.messages.at(-1)!;
+    expect(nudge.role).toBe('user');
+    expect(nudge.content).toContain('going in circles');
+    expect(nudge.content).toContain('should I run the spec or write my own?');
+    expect(events.find((event) => event.type === 'notice')).toMatchObject({
+      level: 'warn',
+      message: 'its thinking went in circles (caught looping (spinning)); it was asked again, shown where it was stuck and told to decide',
+    });
+    const call = traces.find((trace) => trace.kind === 'call-model');
+    expect((call?.outputs as { content: string }).content).toBe('I ran the spec; it passes.');
+  });
+
+  it('stops the run when the model, asked again, goes round the same circle', async () => {
+    const model = streamed(
       { choices: [{ delta: { reasoning_content: 'round and round' } }] },
       { choices: [{ delta: { content: 'never gets here' } }] },
     );
@@ -359,6 +407,7 @@ describe('calling the model', () => {
 
     expect(result.outcome).toBe('interrupted');
     expect(result.reason).toContain('caught looping (spinning)');
+    expect(model).toHaveBeenCalledTimes(2);
   });
 
   it('resolves the endpoint for the persona that is being called', async () => {

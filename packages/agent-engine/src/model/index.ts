@@ -5,3 +5,4 @@ export * from './model-registry.js';
 export * from './model-request.js';
 export * from './model-rate-limiter.js';
 export * from './thinking-classifier.js';
+export * from './circling.js';

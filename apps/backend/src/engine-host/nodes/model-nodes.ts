@@ -1,10 +1,13 @@
 import {
   callModel,
+  circlingNotice,
+  circlingNudge,
   contextPressure,
   createMonitorSet,
   fittedMaxTokens,
   createRunState,
   overthinkMonitor,
+  sameCircle,
   type AgentDefinition,
   type EngineEndpoint,
 } from '@koala/agent-engine';
@@ -143,42 +146,63 @@ export function createModelNodes(services: ModelNodeServices): NodeImplementatio
       let state = createRunState();
       const reasoningEffort = typeof node.settings.reasoningEffort === 'string' ? node.settings.reasoningEffort : binding.reasoningEffort;
 
-      const allowed = typeof inputs.maxTokens === 'number'
-        ? inputs.maxTokens
-        : roomForReply(binding, inputs.system as string, messages);
-
-      const result = await callModel(
-        {
-          endpoint,
-          messages: toWireMessages(inputs.system as string, messages),
-          ...(tools.length > 0 ? { tools: toolSchemas(tools) } : {}),
-          maxTokens: allowed,
-          ...(binding.sampling ? { sampling: binding.sampling } : {}),
-          ...(reasoningEffort ? { reasoningEffort } : {}),
-          ...(node.settings.toolChoice === 'none' ? { toolChoice: 'none' as const } : {}),
-          ...(run.signal ? { signal: run.signal } : {}),
-          ...(services.fetchImpl ? { fetchImpl: services.fetchImpl } : {}),
-          onConnectionLost: (why) => {
-            monitors = watching();
-            state = createRunState();
-            run.emit(connectionLostNotice(node.id, provider.name, why) as never);
-          },
-        },
-        (event) => {
-          if (event.kind === 'thinking' || event.kind === 'content') {
-            run.emit({ type: event.kind, nodeId: node.id, delta: event.text } as never);
-          }
-          return monitors.sink({ state })(event);
-        },
-      );
-
-      const usage = {
-        rounds: 1,
-        ...(result.finishReason === 'length' ? { cappedAt: allowed } : {}),
-        promptTokens: numberUsage(result.usage, 'prompt_tokens'),
-        completionTokens: numberUsage(result.usage, 'completion_tokens'),
-        totalTokens: numberUsage(result.usage, 'total_tokens'),
+      const usage: { rounds: number; cappedAt?: number; promptTokens: number; completionTokens: number; totalTokens: number } = {
+        rounds: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
       };
+      let circledBy: string | undefined;
+
+      const ask = async (asked: ChatMessage[]) => {
+        const allowed = typeof inputs.maxTokens === 'number'
+          ? inputs.maxTokens
+          : roomForReply(binding, inputs.system as string, asked);
+        circledBy = undefined;
+        const answered = await callModel(
+          {
+            endpoint,
+            messages: toWireMessages(inputs.system as string, asked),
+            ...(tools.length > 0 ? { tools: toolSchemas(tools) } : {}),
+            maxTokens: allowed,
+            ...(binding.sampling ? { sampling: binding.sampling } : {}),
+            ...(reasoningEffort ? { reasoningEffort } : {}),
+            ...(node.settings.toolChoice === 'none' ? { toolChoice: 'none' as const } : {}),
+            ...(run.signal ? { signal: run.signal } : {}),
+            ...(services.fetchImpl ? { fetchImpl: services.fetchImpl } : {}),
+            onConnectionLost: (why) => {
+              monitors = watching();
+              state = createRunState();
+              run.emit(connectionLostNotice(node.id, provider.name, why) as never);
+            },
+          },
+          (event) => {
+            if (event.kind === 'thinking' || event.kind === 'content') {
+              run.emit({ type: event.kind, nodeId: node.id, delta: event.text } as never);
+            }
+            const stop = monitors.sink({ state })(event);
+            if (typeof stop === 'string' && stop) circledBy = stop;
+            return stop;
+          },
+        );
+        usage.rounds += 1;
+        usage.promptTokens += numberUsage(answered.usage, 'prompt_tokens');
+        usage.completionTokens += numberUsage(answered.usage, 'completion_tokens');
+        usage.totalTokens += numberUsage(answered.usage, 'total_tokens');
+        if (answered.finishReason === 'length') usage.cappedAt = allowed;
+        else delete usage.cappedAt;
+        return { answered, circled: circledBy };
+      };
+
+      let { answered: result, circled: why } = await ask(messages);
+      let before: string | undefined;
+      while (result.interrupted && why && !(before !== undefined && sameCircle(before, result.thinking))) {
+        before = result.thinking;
+        run.emit({ type: 'notice', level: 'warn', nodeId: node.id, message: circlingNotice(why) } as never);
+        monitors = watching();
+        state = createRunState();
+        ({ answered: result, circled: why } = await ask([...messages, { role: 'user', content: circlingNudge(result.thinking) }]));
+      }
 
       const reply: ModelReply = {
         id: `${node.id}#${execution}`,

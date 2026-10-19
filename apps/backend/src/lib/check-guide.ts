@@ -127,6 +127,7 @@ export const SCRIPT_WHEN: Record<keyof ScriptWhen, Entry> = {
 };
 
 export const SCRIPT_REPLY: Record<keyof ScriptReply, Entry> = {
+  think: { means: 'thinking the model streams before it answers, twenty words at a time, for a model that has to go in circles' },
   say: { means: 'text the model says' },
   call: { means: 'tool calls it makes', example: '[{ "tool": "write_file", "arguments": { "path": "{{directory}}notes.md", "content": "hi" } }]' },
   paceMs: { means: 'milliseconds between streamed words, for a reply that has to take a while' },

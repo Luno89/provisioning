@@ -727,6 +727,12 @@ pieces that used to cut work off and no longer do:
   cluster provisioning wait for their work however long it takes.
 `mechanics-long-command` proves a command outliving any old limit.
 
+**A model going in circles is asked again, not stopped.** The overthinking guard (Model Turn's "Stop overthinking") cuts a
+stream off when its thinking repeats itself; the step then asks again in place, showing the model the end of where it
+was stuck and telling it to pick and act, or say what it cannot do (`circlingNudge` in the engine's `model/circling.ts`,
+with a notice). It asks again while each attempt circles somewhere new, and stops the run only when one goes round the
+same circle as the last (`sameCircle`). A check script can stream thinking with `think`; `mechanics-circling` proves it.
+
 **Odoo browser tests.** `odoo-e2e --keep` leaves the throwaway Odoo served between runs (reused while `addons/` is
 unchanged, upgraded in place when it changed, `--stop` ends it). Specs use `e2e/odoo.ts` (`lib/odoo-e2e-helpers.ts`:
 `signIn`, `openAction`, `fill`, `choose`, `addLine`, `save`, `press`, `smartButton`, `reportHtml`), whose `test` gives each

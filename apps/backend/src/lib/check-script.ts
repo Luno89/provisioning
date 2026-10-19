@@ -13,6 +13,7 @@ export interface ScriptCall {
 }
 
 export interface ScriptReply {
+  think?: string | undefined;
   say?: string | undefined;
   call?: ScriptCall[] | undefined;
   paceMs?: number | undefined;
@@ -47,6 +48,7 @@ export interface ScriptContext {
 }
 
 export interface ScriptAnswer {
+  think?: string | undefined;
   say?: string | undefined;
   calls: { name: string; arguments: Record<string, unknown> }[];
   paceMs?: number | undefined;
@@ -193,6 +195,7 @@ export function answerFrom(script: CheckScript, request: ScriptRequest, context:
       return {
         rule: index,
         answer: {
+          ...(reply.think ? { think: reply.think } : {}),
           ...(reply.say ? { say: reply.say } : {}),
           calls: (reply.call ?? []).map((call) => ({ name: call.tool, arguments: call.arguments ?? {} })),
           ...(reply.paceMs ? { paceMs: reply.paceMs } : {}),

@@ -29,6 +29,10 @@ export function checksRouter(deps: { scripted: ScriptedModelService }): Router {
     const { answer } = outcome;
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
     res.write(chunk(SCRIPTED_MODEL, { role: 'assistant' }));
+    for (const piece of answer.think?.match(/(?:\S+\s*){1,20}/g) ?? []) {
+      if (res.destroyed) return undefined;
+      res.write(chunk(SCRIPTED_MODEL, { reasoning_content: piece }));
+    }
     if (answer.say && answer.paceMs) {
       for (const piece of answer.say.match(/\S+\s*/g) ?? [answer.say]) {
         if (res.destroyed) return undefined;
