@@ -13,7 +13,6 @@ vi.mock('../../../api/projects', async (orig) => ({ ...(await orig<typeof projec
 vi.mock('../../../api/engine', async (orig) => ({ ...(await orig<typeof engineApi>()), listTasks: vi.fn(async () => []) }))
 vi.mock('../../../api/releases', async (orig) => ({ ...(await orig<typeof releasesApi>()), listReleases: vi.fn(async () => ({ releases: [], addresses: {} })) }))
 vi.mock('../../../api/chat-pack', async (orig) => ({ ...(await orig<typeof chatPackApi>()), createChatConversation: vi.fn() }))
-vi.mock('./StatusBar', () => ({ StatusBar: ({ projectId }: { projectId: string }) => <div data-testid="status">{projectId}</div> }))
 vi.mock('../Workspace/ProjectChannel', () => ({ ProjectChannel: ({ projectId }: { projectId: string }) => <div data-testid="channel">{projectId}</div> }))
 vi.mock('../Workspace/TreeRunPanel', () => ({ TreeRunPanel: () => <div data-testid="run" /> }))
 vi.mock('../Workspace/TreeProposalsPanel', () => ({ TreeProposalsPanel: () => null }))
@@ -43,10 +42,8 @@ beforeEach(() => {
 })
 
 describe('a project\'s board', () => {
-  it('shows the project\'s status, its epic with each feature\'s stories in their columns, and the channel beside it', async () => {
-    renderBoard({ treeId: 't1' })
-    expect(await screen.findByRole('heading', { name: 'Shop' })).toBeInTheDocument()
-    expect(screen.getByTestId('status')).toHaveTextContent('p1')
+  it('shows its epic with each feature\'s stories in their columns, the channel beside it, and no channel once the person closes it', async () => {
+    const { unmount } = renderBoard({ treeId: 't1' })
     const epic = await screen.findByRole('region', { name: 'Delivery instructions' })
     const lane = await within(epic).findByRole('row', { name: /The field/ })
     expect(within(lane).getAllByTestId('story-card').map((card) => card.textContent)).toEqual([
@@ -54,14 +51,16 @@ describe('a project\'s board', () => {
       expect.stringContaining('Module installs'),
     ])
     expect(screen.getByTestId('channel')).toHaveTextContent('p1')
+    unmount()
+    renderBoard({ treeId: 't1', chatOpen: false })
+    expect(await screen.findByRole('region', { name: 'Delivery instructions' })).toBeInTheDocument()
+    expect(screen.queryByTestId('channel')).toBeNull()
   })
 
-  it('lets the person start or stop the tree from a story still to be worked, and not from one that is done', async () => {
+  it('tells the person how a story still to be worked gets worked, and says nothing of it on one that is done', async () => {
     renderBoard({ treeId: 't1' })
     fireEvent.click(await screen.findByRole('button', { name: /Browser spec/ }))
-    const start = screen.getByTestId('story-run-tree')
-    expect(within(start).getByTestId('run')).toBeInTheDocument()
-    expect(start).toHaveTextContent('takes the stories that are ready in the order you set on the board')
+    expect(screen.getByTestId('story-run-tree')).toHaveTextContent('Ready stories are worked in the order you set on the board, with Work them at the top of the page.')
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByText('Delivery instructions'))
     fireEvent.click(await screen.findByRole('button', { name: /Module installs/ }))
     expect(screen.queryByTestId('story-run-tree')).not.toBeInTheDocument()

@@ -18,10 +18,25 @@ vi.mock('./ProjectList.js', () => ({
   ),
 }))
 
-vi.mock('./Workspace/index.js', () => ({
+vi.mock('./Files/index.js', () => ({
   default: ({ treeId, projectId }: { treeId?: string; projectId?: string }) => (
     <div data-testid="workspace">
-      Workspace for {treeId ? `tree:${treeId}` : `project:${projectId}`}
+      Files for {treeId ? `tree:${treeId}` : `project:${projectId}`}
+    </div>
+  ),
+}))
+
+vi.mock('./Releases/index.js', () => ({
+  default: ({ treeId, projectId }: { treeId?: string; projectId?: string }) => (
+    <div data-testid="releases">Releases for {treeId ? `tree:${treeId}` : `project:${projectId}`}</div>
+  ),
+}))
+
+vi.mock('./Strip/ProjectStrip.js', () => ({
+  default: ({ treeId, projectId, channel }: { treeId?: string; projectId?: string; channel?: { open: boolean; onToggle: () => void } }) => (
+    <div data-testid="strip">
+      Strip for {treeId ? `tree:${treeId}` : `project:${projectId}`}
+      {channel && <button type="button" onClick={channel.onToggle}>{channel.open ? 'Hide the channel' : 'Channel'}</button>}
     </div>
   ),
 }))
@@ -33,9 +48,9 @@ vi.mock('./Settings/index.js', () => ({
 }))
 
 vi.mock('./Board/index.js', () => ({
-  default: ({ treeId, projectId, initialBranchId, initialLeafId }: { treeId?: string; projectId?: string; initialBranchId?: string; initialLeafId?: string }) => (
+  default: ({ treeId, projectId, initialBranchId, initialLeafId, chatOpen }: { treeId?: string; projectId?: string; initialBranchId?: string; initialLeafId?: string; chatOpen?: boolean }) => (
     <div data-testid="board">
-      Board for {treeId ? `tree:${treeId}` : `project:${projectId}`}{initialBranchId ? ` in ${initialBranchId}` : ''}{initialLeafId ? ` at ${initialLeafId}` : ''}
+      Board for {treeId ? `tree:${treeId}` : `project:${projectId}`}{initialBranchId ? ` in ${initialBranchId}` : ''}{initialLeafId ? ` at ${initialLeafId}` : ''}{chatOpen === false ? ' without its chat' : ''}
     </div>
   ),
 }))
@@ -69,10 +84,32 @@ describe('Projects component routing and hash synchronization', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Files' }))
     expect(window.location.hash).toBe('#/projects/tree/tree-1/files')
-    expect(await screen.findByText('Workspace for tree:tree-1')).toBeInTheDocument()
+    expect(await screen.findByText('Files for tree:tree-1')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: 'Board' }))
     expect(window.location.hash).toBe('#/projects/tree/tree-1')
+    expect(await screen.findByText('Board for tree:tree-1')).toBeInTheDocument()
+  })
+
+  it('shows what is going on across every tab, opens releases under /releases, and remembers the chat panel closed', async () => {
+    localStorage.removeItem('project-chat-closed')
+    window.location.hash = '#/projects/tree/tree-1'
+    const { unmount } = renderProjects()
+    expect(await screen.findByText('Strip for tree:tree-1')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Hide the channel' }))
+    expect(await screen.findByText('Board for tree:tree-1 without its chat')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Releases' }))
+    expect(window.location.hash).toBe('#/projects/tree/tree-1/releases')
+    expect(await screen.findByText('Releases for tree:tree-1')).toBeInTheDocument()
+    expect(screen.getByText('Strip for tree:tree-1')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /channel/i })).toBeNull()
+    unmount()
+
+    window.location.hash = '#/projects/tree/tree-1'
+    renderProjects()
+    expect(await screen.findByText('Board for tree:tree-1 without its chat')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Channel' }))
     expect(await screen.findByText('Board for tree:tree-1')).toBeInTheDocument()
   })
 
@@ -92,7 +129,7 @@ describe('Projects component routing and hash synchronization', () => {
   it('opens a project\'s files straight from its address, and a story on the board from a link to it', async () => {
     window.location.hash = '#/projects/project/p1/files'
     const { unmount } = renderProjects()
-    expect(await screen.findByText('Workspace for project:p1')).toBeInTheDocument()
+    expect(await screen.findByText('Files for project:p1')).toBeInTheDocument()
     unmount()
     window.location.hash = '#/projects/tree/tree-1/branch-1/leaf-1'
     renderProjects()

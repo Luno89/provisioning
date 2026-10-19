@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useRouter } from '@tanstack/react-router'
 import { formatHash, parseHash, shouldReplace } from '../../lib/route'
 
-export const PROJECT_PAGES = ['files', 'settings'] as const
+export const PROJECT_PAGES = ['releases', 'files', 'settings'] as const
 export type ProjectPage = typeof PROJECT_PAGES[number]
 
 export const pageOf = (segment: string | undefined): ProjectPage | undefined =>

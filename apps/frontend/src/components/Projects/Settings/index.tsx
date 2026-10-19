@@ -11,6 +11,8 @@ import { ClientImport } from './ClientImport'
 import { useClientImport } from './useClientImport'
 import { TreeDeletePanel } from '../Workspace/TreeDeletePanel'
 import { ProjectDeletePanel } from '../Workspace/ProjectDeletePanel'
+import { TreeWorkspaceFilePanel } from '../Workspace/TreeWorkspaceFilePanel'
+import { TreeSandboxPanel } from '../Workspace/TreeSandboxPanel'
 
 function Section({ title, children, danger = false }: { title: string; children: ReactNode; danger?: boolean }) {
   return (
@@ -54,6 +56,16 @@ export default function ProjectSettings({ treeId, projectId, onDeleted }: {
         {tree && (
           <Section title="Auto mode">
             <TreeAutoMode treeId={tree.id} />
+          </Section>
+        )}
+        {tree && (
+          <Section title="Workspace">
+            <TreeWorkspaceFilePanel treeId={tree.id} />
+          </Section>
+        )}
+        {tree && (
+          <Section title="Sandbox">
+            <TreeSandboxPanel treeId={tree.id} />
           </Section>
         )}
         {project && (

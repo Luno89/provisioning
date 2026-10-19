@@ -6,8 +6,11 @@ import { NewProjectDialog } from './NewProjectDialog.js'
 import { ProjectList } from './ProjectList.js'
 import { parseHash, formatHash } from '../../lib/route.js'
 import { pageOf, type ProjectPage } from './useRouteSync.js'
+import { useChatPanel } from './useChatPanel.js'
 
-const Workspace = lazy(() => import('./Workspace/index.js'))
+const ProjectFiles = lazy(() => import('./Files/index.js'))
+const ProjectReleases = lazy(() => import('./Releases/index.js'))
+const ProjectStrip = lazy(() => import('./Strip/ProjectStrip.js'))
 const ProjectBoard = lazy(() => import('./Board/index.js'))
 const ProjectSettings = lazy(() => import('./Settings/index.js'))
 
@@ -131,6 +134,7 @@ export function Projects({ clusters }: {
   const [open, setOpen] = useState<Open | null>(() => getActiveOpen())
   const [showNewTree, setShowNewTree] = useState(false)
   const [showNewProject, setShowNewProject] = useState(false)
+  const chat = useChatPanel(open ? `${open.kind}:${open.id}` : undefined)
 
   const routeKey = [routerParams?.treeId, routerParams?.branchId, routerParams?.leafId, routerParams?.projectId, routerParams?.page ?? ''].join('|')
   const [seenRouteKey, setSeenRouteKey] = useState(routeKey)
@@ -157,14 +161,18 @@ export function Projects({ clusters }: {
       const go = next.kind === 'tree'
         ? next.page === 'files'
           ? navigate({ to: '/projects/tree/$treeId/files', params: { treeId: next.id } })
-          : next.page === 'settings'
-            ? navigate({ to: '/projects/tree/$treeId/settings', params: { treeId: next.id } })
-            : navigate({ to: '/projects/tree/$treeId', params: { treeId: next.id } })
+          : next.page === 'releases'
+            ? navigate({ to: '/projects/tree/$treeId/releases', params: { treeId: next.id } })
+            : next.page === 'settings'
+              ? navigate({ to: '/projects/tree/$treeId/settings', params: { treeId: next.id } })
+              : navigate({ to: '/projects/tree/$treeId', params: { treeId: next.id } })
         : next.page === 'files'
           ? navigate({ to: '/projects/project/$projectId/files', params: { projectId: next.id } })
-          : next.page === 'settings'
-            ? navigate({ to: '/projects/project/$projectId/settings', params: { projectId: next.id } })
-            : navigate({ to: '/projects/project/$projectId', params: { projectId: next.id } })
+          : next.page === 'releases'
+            ? navigate({ to: '/projects/project/$projectId/releases', params: { projectId: next.id } })
+            : next.page === 'settings'
+              ? navigate({ to: '/projects/project/$projectId/settings', params: { projectId: next.id } })
+              : navigate({ to: '/projects/project/$projectId', params: { projectId: next.id } })
       go.catch(() => {})
     }
     setOpen(next)
@@ -179,6 +187,7 @@ export function Projects({ clusters }: {
   }
 
   if (open) {
+    const scope = open.kind === 'tree' ? { treeId: open.id } : { projectId: open.id }
     return (
       <div className="h-full min-h-0 flex flex-col p-3">
         <div className="shrink-0 flex items-center gap-4 mb-3">
@@ -189,7 +198,7 @@ export function Projects({ clusters }: {
             <ChevronLeft size={14} /> Back to Projects
           </button>
           <div role="tablist" aria-label="Project view" className="flex rounded-md border border-[var(--bark-700)] overflow-hidden text-[12px]">
-            {([['board', 'Board'], ['files', 'Files'], ['settings', 'Settings']] as const).map(([id, label]) => {
+            {([['board', 'Board'], ['releases', 'Releases'], ['files', 'Files'], ['settings', 'Settings']] as const).map(([id, label]) => {
               const on = id === 'board' ? !open.page : open.page === id
               return (
                 <button
@@ -207,28 +216,23 @@ export function Projects({ clusters }: {
           </div>
         </div>
         <WorkspaceErrorBoundary onBack={closeEntity}>
-          <Suspense fallback={<div className="text-slate-400 text-sm py-10 text-center">Loading workspace…</div>}>
+          <Suspense fallback={<div className="text-slate-400 text-sm py-10 text-center">Loading…</div>}>
+            <ProjectStrip key={`strip-${open.kind}-${open.id}`} {...scope} {...(!open.page ? { channel: { open: chat.open, onToggle: chat.toggle } } : {})} />
             {open.page === 'settings' ? (
-              <ProjectSettings
-                key={open.kind === 'tree' ? `settings-tree-${open.id}` : `settings-project-${open.id}`}
-                {...(open.kind === 'tree' ? { treeId: open.id } : { projectId: open.id })}
-                onDeleted={closeEntity}
-              />
-            ) : !open.page ? (
+              <ProjectSettings key={`settings-${open.kind}-${open.id}`} {...scope} onDeleted={closeEntity} />
+            ) : open.page === 'releases' ? (
+              <ProjectReleases key={`releases-${open.kind}-${open.id}`} {...scope} />
+            ) : open.page === 'files' ? (
+              <ProjectFiles key={`files-${open.kind}-${open.id}`} {...scope} />
+            ) : (
               <ProjectBoard
                 key={open.kind === 'tree' ? `board-tree-${open.id}` : `board-project-${open.id}`}
-                {...(open.kind === 'tree' ? { treeId: open.id } : { projectId: open.id })}
+                {...scope}
+                chatOpen={chat.open}
                 {...(open.kind === 'tree' && open.branchId ? { initialBranchId: open.branchId } : {})}
                 {...(open.kind === 'tree' && open.leafId ? { initialLeafId: open.leafId } : {})}
                 onTreeReady={(treeId) => openEntity({ kind: 'tree', id: treeId })}
               />
-            ) : (
-            <Workspace
-              key={open.kind === 'tree' ? `tree-${open.id}` : `project-${open.id}`}
-              {...(open.kind === 'tree' ? { treeId: open.id } : { projectId: open.id })}
-              {...(open.kind === 'tree' && open.leafId ? { initialLeafId: open.leafId } : {})}
-              onTreeReady={(treeId) => openEntity({ kind: 'tree', id: treeId })}
-            />
             )}
           </Suspense>
         </WorkspaceErrorBoundary>

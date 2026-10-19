@@ -11,12 +11,12 @@ afterEach(async () => { await h?.close(); h = undefined; });
 const settled: [string, string | undefined][] = [];
 const adopter = { adoptPlan: vi.fn(async (_ownerId: string, id: string): Promise<string | undefined> => `adopt-plan-${id}`) };
 
-const mount = async (): Promise<Harness> => {
+const mount = async (stories?: { id: string; title: string; status: string }[]): Promise<Harness> => {
   adopter.adoptPlan.mockClear();
   settled.length = 0;
   h = await mountRouter({
     prefix: '/api/plans',
-    router: (db) => plansRouter({ plans: new PlanService({ store: db, adopter, now: () => 'now', onSettled: (ownerId, conversationId) => { settled.push([ownerId, conversationId]); } }) }),
+    router: (db) => plansRouter({ plans: new PlanService({ store: db, adopter, now: () => 'now', ...(stories ? { stories: async () => stories } : {}), onSettled: (ownerId, conversationId) => { settled.push([ownerId, conversationId]); } }) }),
   });
   return h!;
 };
@@ -100,6 +100,23 @@ describe('/api/plans', () => {
 
     const res = await axios.get(harness.url('/api/plans?treeId=t9'));
     expect(res.data.map((entry: PlanProposal) => entry.id).sort()).toEqual(['grew', 'replan']);
+  });
+
+  it('marks a card about a story that has since succeeded as replaced, and refuses to approve it, so nothing out of date is applied', async () => {
+    const harness = await mount([{ id: 'l1', title: 'The sandbox facts', status: 'succeeded' }]);
+    await harness.db.savePlanProposal(proposal({ id: 'old', plan: undefined, leafPlan: { treeId: 't9', leafId: 'l1', leafTitle: 'The sandbox facts', mode: 'replan', why: 'w', brief: 'b', tasks: [] } }));
+    await harness.db.savePlanProposal(proposal({ id: 'again', plan: undefined, leafPlan: { treeId: 't9', leafId: 'l1', leafTitle: 'The sandbox facts', mode: 'replan', why: 'w', brief: 'b', tasks: [] } }));
+
+    const refused = await axios.post(harness.url('/api/plans/old/approve'), {}, { validateStatus: () => true });
+    expect(refused.status).toBe(409);
+    expect(refused.data.error).toBe('This card is out of date: "The sandbox facts" has succeeded since this was proposed. Nothing was changed.');
+    expect(adopter.adoptPlan).not.toHaveBeenCalled();
+
+    const listed = (await axios.get(harness.url('/api/plans?treeId=t9'))).data as PlanProposal[];
+    expect(listed.map((entry) => [entry.id, entry.status, entry.reason])).toEqual(expect.arrayContaining([
+      ['old', 'superseded', 'out of date: "The sandbox facts" has succeeded since this was proposed'],
+      ['again', 'superseded', 'out of date: "The sandbox facts" has succeeded since this was proposed'],
+    ]));
   });
 });
 

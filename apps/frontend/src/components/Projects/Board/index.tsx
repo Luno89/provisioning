@@ -10,11 +10,9 @@ import { listProjectRuns } from '../../../api/projects'
 import type { PipelineRun } from '../../PipelineRunRow'
 import { ProjectChannel } from '../Workspace/ProjectChannel'
 import { TreeConversationsPanel } from '../Workspace/TreeConversationsPanel'
-import { TreeRunPanel } from '../Workspace/TreeRunPanel'
 import TreeAsks from '../Workspace/TreeAsks'
 import { getTreeRun, groveKeys, listTreeTypes, type TreeAsk, type TreeRunStatus } from '../../../api/grove'
 import type { LeafStatus } from '../../leaf-types'
-import { TreeProposalsPanel } from '../Workspace/TreeProposalsPanel'
 import { useResizableWidth } from '../Workspace/useResizableWidth'
 import { resizeHandle } from '../Workspace/shared'
 import { useProjectWork } from '../useProjectWork'
@@ -24,10 +22,10 @@ import { buildBoard, byRank, featureOnly, type Epic } from './board'
 import { StoryTasks } from './StoryTasks'
 import { StoryFeed } from './StoryFeed'
 import { useBoardOrder } from './useBoardOrder'
-import { StatusBar } from './StatusBar'
 import { Swimlanes } from './Swimlanes'
 import { ItemChat } from './ItemChat'
 import { Breadcrumbs, type Crumb } from './Breadcrumbs'
+import { FeatureDelete } from './FeatureDelete'
 import type { StoryAddress } from '../../Chat/ChatNotice'
 
 const STARTABLE: ReadonlySet<LeafStatus> = new Set(['pending', 'running', 'claimed'])
@@ -43,9 +41,10 @@ const tab = (on: boolean) => `px-2 py-1 rounded-md cursor-pointer whitespace-now
 const askingOf = (runs: readonly { data?: TreeRunStatus | undefined }[]): TreeAsk[] =>
   runs.flatMap((run) => (run.data?.state === 'running' ? run.data.asking ?? [] : []))
 
-export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId, onTreeReady }: {
+export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId, onTreeReady, chatOpen = true }: {
   treeId?: string | undefined
   projectId?: string | undefined
+  chatOpen?: boolean | undefined
   initialBranchId?: string | undefined
   initialLeafId?: string | undefined
   onTreeReady?: ((treeId: string) => void) | undefined
@@ -164,11 +163,6 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
       <div ref={mainRef} className="flex-1 min-w-0 min-h-0 flex flex-col gap-3 overflow-y-auto" data-testid="board-main">
         {main.kind === 'board' && (
           <>
-            <header className="space-y-2 rounded-lg border border-[var(--bark-700)] bg-[var(--bark-900)] p-3">
-              <h1 className="text-[15px] font-semibold text-slate-100 break-words">{title}</h1>
-              {project && <StatusBar projectId={project.id} />}
-            </header>
-
             {reading && <Reading label="Reading its features and stories…" className="px-1 py-2" />}
 
             {!reading && epics.length === 0 && project && (
@@ -195,8 +189,6 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
                     {epic.features.length} {epic.features.length === 1 ? 'feature' : 'features'}, {epic.total} {epic.total === 1 ? 'story' : 'stories'} · <span className="text-[var(--leaf)]">{epic.totals.verified} verified</span>
                   </span>
                 </div>
-                <TreeProposalsPanel treeId={epic.id} quietWhenEmpty />
-                <TreeRunPanel treeId={epic.id} />
                 {order.error && <p className="text-[11px] text-red-400" role="alert">{order.error}</p>}
                 <Swimlanes
                   epic={epic}
@@ -221,10 +213,7 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
             <LeafDetail key={openLeaf.id} leaf={openLeaf} all={leaves} treeId={openBranch?.treeId} />
             {asking.some((ask) => ask.leafId === openLeaf.id) && <div className="mt-3"><TreeAsks asks={asking.filter((ask) => ask.leafId === openLeaf.id)} /></div>}
             {openBranch?.treeId && STARTABLE.has(openLeaf.status) && (
-              <div className="mt-4 rounded-md border border-[var(--bark-700)]" data-testid="story-run-tree">
-                <TreeRunPanel treeId={openBranch.treeId} />
-                <p className="px-3 pb-2 text-[11px] text-slate-500">This story is worked by running its tree, which takes the stories that are ready in the order you set on the board.</p>
-              </div>
+              <p className="mt-4 text-[11px] text-slate-500" data-testid="story-run-tree">Ready stories are worked in the order you set on the board, with Work them at the top of the page.</p>
             )}
             {openBranch?.treeId && (
               <div className="mt-4">
@@ -253,13 +242,14 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
               onOrderStories={order.orderStories}
             />
             {order.error && <p className="text-[11px] text-red-400" role="alert">{order.error}</p>}
+            <FeatureDelete key={openFeature.id} branchId={openFeature.id} title={openFeature.title} onDeleted={() => go({ kind: 'board' })} />
           </article>
         )}
         {main.kind === 'feature' && !openFeature && reading && <Reading label="Opening the feature…" className="p-3" />}
         {main.kind === 'feature' && !openFeature && !reading && <p className="p-3 text-[12px] text-slate-500">This feature is no longer on the board.</p>}
       </div>
 
-      {sidePanel.isCollapsed ? (
+      {chatOpen && (sidePanel.isCollapsed ? (
         <div className="hidden lg:flex shrink-0 ml-3 flex-col items-center py-2 px-1 rounded-lg border border-[var(--bark-700)] bg-[var(--bark-900)]">
           <button
             type="button"
@@ -281,9 +271,9 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
           title="Drag to resize, double-click to collapse"
           className={`hidden lg:block ${resizeHandle}`}
         />
-      )}
+      ))}
 
-      <aside
+      {chatOpen && <aside
         className={`lg:w-[var(--board-side)] lg:max-w-[calc(100%-30rem)] shrink-0 min-h-[24rem] flex-col rounded-lg border border-[var(--bark-700)] bg-[var(--bark-900)] overflow-hidden ${sidePanel.isCollapsed ? 'flex lg:hidden' : 'flex'}`}
         aria-label={sideTitle}
       >
@@ -350,7 +340,7 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
             </div>
           )}
         </div>
-      </aside>
+      </aside>}
     </div>
   )
 }

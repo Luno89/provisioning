@@ -1498,7 +1498,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       },
     },
   }));
-  tenant.use('/api/plans', plansRouter({ plans: new PlanService({ store: db, adopter: temporalBridge, onSettled: concluded }) }));
+  tenant.use('/api/plans', plansRouter({ plans: new PlanService({ store: db, adopter: temporalBridge, onSettled: concluded, stories: async (ownerId) => (await db.getLeaves()).filter((leaf) => leaf.ownerId === ownerId).map((leaf) => ({ id: leaf.id, title: leaf.title, status: leaf.status })) }) }));
   tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault: infisicalService }) }));
   tenant.use('/api/branches', branchesRouter({ db, deletion: groveDeletion, order: groveOrder }));
 

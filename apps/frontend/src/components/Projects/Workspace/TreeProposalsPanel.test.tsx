@@ -46,7 +46,7 @@ describe('TreeProposalsPanel', () => {
   it('says so when nothing waits', async () => {
     vi.mocked(plansApi.listTreePlans).mockResolvedValue([])
     renderPanel()
-    expect(await screen.findByText('No plans waiting.')).toBeTruthy()
+    expect(await screen.findByText('Nothing waits for you.')).toBeTruthy()
   })
 
   it('refreshes the conversation that proposed it, so its card stops asking', async () => {

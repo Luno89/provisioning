@@ -36,6 +36,14 @@ const CHANGE_STATUS_WORD: Record<PlanProposal['status'], string> = {
   failed: 'Applying it failed',
 }
 
+const OUT_OF_DATE = 'out of date: '
+
+function statusLine(proposal: PlanProposal, change: boolean): string {
+  if (proposal.status === 'superseded' && proposal.reason?.startsWith(OUT_OF_DATE)) return `Out of date: ${proposal.reason.slice(OUT_OF_DATE.length)}. Nothing was changed.`
+  const word = change ? CHANGE_STATUS_WORD[proposal.status] : STATUS_WORD[proposal.status]
+  return `${word}${proposal.reason ? ` — ${proposal.reason}` : ''}`
+}
+
 export default function PlanProposalCard({ proposal, deciding, onApprove, onReject, onOpenTree, onOpenStory }: PlanProposalCardProps) {
   const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState('')
@@ -54,7 +62,7 @@ export default function PlanProposalCard({ proposal, deciding, onApprove, onReje
         <ClipboardList size={14} className="text-emerald-400 shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
           <div className="font-medium text-slate-100">{where}{version && <span className="ml-2 text-[11px] px-1.5 rounded bg-[var(--bark-900)] text-slate-300" data-testid="plan-version">{version}</span>}</div>
-          <div className="text-slate-400">{change ? CHANGE_STATUS_WORD[status] : STATUS_WORD[status]}{proposal.reason ? ` — ${proposal.reason}` : ''}</div>
+          <div className="text-slate-400">{statusLine(proposal, Boolean(change))}</div>
         </div>
         {status === 'adopting' && <Loader2 size={14} className="animate-spin text-slate-400 shrink-0" />}
         {status === 'adopted' && <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />}

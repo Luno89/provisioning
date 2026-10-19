@@ -81,3 +81,8 @@ export function useMachineChoiceLabel(id: string | null | undefined): string | u
   const { data: devices = [] } = useLocalAgentDevices(Boolean(machineChoice(id)))
   return machineChoiceLabel(id, devices)
 }
+
+export function useMachineChoiceLabels(): (id: string) => string | undefined {
+  const { data: devices = [] } = useLocalAgentDevices()
+  return (id) => (machineChoice(id) ? machineChoiceLabel(id, devices) : undefined)
+}
