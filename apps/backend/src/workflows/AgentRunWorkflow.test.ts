@@ -1573,6 +1573,42 @@ describe('an external agent working on someone\'s machine', () => {
     }
   }, 60_000);
 
+  it('saves the run of an agent a served call hands work to on the chat\'s reply, so its steps are still there after the turn', async () => {
+    root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
+    const scriptPath = resolve(root, 'script.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [
+      { mcp: { server: 'koala', tool: 'research', args: { question: 'What port does TabbyAPI use?' } } },
+      { say: 'It is 5000.' },
+    ] }] } satisfies AgentScript));
+    const mcp = new LocalMcpServer();
+    await mcp.start();
+    const sessions = new ExternalAgentSessions({ rootDir: resolve(root, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500, mcp });
+    const conversations = inMemoryConversations();
+    const registry = createAgentRegistry({
+      agentStore: { list: async () => seededAgents().map((agent) => (agent.slug === 'koala' ? { ...agent, tools: [], agents: ['research'] } : agent)) },
+      toolCatalogue: { list: async () => contractsFor(BUILDER_TOOLS) },
+    });
+    const acts = activities({ registry, script: [{ content: 'TabbyAPI listens on 5000.' }], external: sessions, environment: MACHINE, conversations });
+    try {
+      const result = await runWorkflow({
+        ticket: { ...ticket('koala'), conversationId: 'c-hands', modelId: 'machine:desk:antigravity', modelReach: 'chat' },
+        procedure: EXTERNAL_AGENT_CHAT,
+        inputs: { message: 'Ask research.', conversationId: 'c-hands' },
+      }, acts);
+
+      expect(result.outcome).toBe('ok');
+      const stored = await conversations.get('user-1', 'c-hands');
+      expect(stored?.messages.at(-1)?.toolCalls).toContainEqual(expect.objectContaining({
+        name: 'research',
+        ok: true,
+        child: expect.objectContaining({ agentId: 'research', outcome: 'ok', steps: expect.any(Array) }),
+      }));
+    } finally {
+      await sessions.closeAll();
+      await mcp.close();
+    }
+  }, 60_000);
+
   it('runs the calls an agent on a machine makes at once together, and gives it each answer', async () => {
     root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
     const scriptPath = resolve(root, 'script.json');

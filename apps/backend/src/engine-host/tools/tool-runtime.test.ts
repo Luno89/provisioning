@@ -165,6 +165,15 @@ describe('tool runtime', () => {
     expect(outcome.digest).toContain('not a tool this agent can use');
   });
 
+  it('runs what the run grants for the call, such as run_command for an agent on a machine\'s run_in_workspace, though the agent does not hold it', async () => {
+    const { driver } = sandbox();
+    const outcome = await runtime(driver).run({ ...args({ name: 'run_command', arguments: '{"command":"ls"}' }), ticket: { ...args({ name: 'run_command', arguments: '' }).ticket, agentSlug: 'research' }, granted: ['search_web', 'run_command'] });
+    expect(outcome.ok).toBe(true);
+
+    const held = await runtime(driver).run({ ...args({ name: 'run_command', arguments: '{"command":"ls"}' }), ticket: { ...args({ name: 'run_command', arguments: '' }).ticket, agentSlug: 'research' } });
+    expect(held.digest).toContain('not a tool this agent can use');
+  });
+
   it('refuses an environment tool when the agent has no machine, explaining why', async () => {
     const outcome = await runtime(createNoneDriver()).run(args());
 

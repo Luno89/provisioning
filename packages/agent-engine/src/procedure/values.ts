@@ -112,6 +112,8 @@ export interface ExternalAgentCall {
   args: string;
   ok?: boolean | undefined;
   digest?: string | undefined;
+  artifacts?: Artifact[] | undefined;
+  child?: ChildSteps | undefined;
 }
 
 export type ExternalAgentOutcome = { model?: { id: string; name: string } | undefined; thinking?: string | undefined; calls?: ExternalAgentCall[] | undefined } & (

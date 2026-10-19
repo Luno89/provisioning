@@ -368,7 +368,11 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         const answered = cancelled || !callTool
           ? { ok: false, content: cancelled ? 'the run was cancelled' : 'no tools are offered here' }
           : unsynced ? { ok: false, content: unsynced } : await callTool(call);
-        calls.set(call.callId, { callId: call.callId, name: call.name, args: call.arguments, ok: answered.ok, digest: answered.content });
+        calls.set(call.callId, {
+          callId: call.callId, name: call.name, args: call.arguments, ok: answered.ok, digest: answered.content,
+          ...('artifacts' in answered && answered.artifacts?.length ? { artifacts: answered.artifacts } : {}),
+          ...('child' in answered && answered.child ? { child: answered.child } : {}),
+        });
         return { callId: call.callId, ok: answered.ok, content: answered.content };
       };
       const start = (call: ExternalToolCall): void => {

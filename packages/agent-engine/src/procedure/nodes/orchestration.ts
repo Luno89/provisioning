@@ -36,6 +36,20 @@ export interface ToolRunOutcome {
   child?: ChildSteps | undefined;
 }
 
+export interface ServedCallAnswer {
+  ok: boolean;
+  content: string;
+  artifacts?: Artifact[] | undefined;
+  child?: ChildSteps | undefined;
+}
+
+const answerOf = (outcome: ToolRunOutcome): ServedCallAnswer => ({
+  ok: outcome.ok,
+  content: outcome.content ?? outcome.digest,
+  ...(outcome.artifacts?.length ? { artifacts: outcome.artifacts } : {}),
+  ...(outcome.child ? { child: outcome.child } : {}),
+});
+
 export interface ChildRunRequest {
   nodeId: string;
   callId?: string | undefined;
@@ -90,7 +104,7 @@ export interface ExternalAgentRequest {
   model?: string | undefined;
   resume?: string | undefined;
   tools?: ExternalServedToolValue[] | undefined;
-  callTool?: ((call: ExternalToolCallValue) => Promise<{ ok: boolean; content: string }>) | undefined;
+  callTool?: ((call: ExternalToolCallValue) => Promise<ServedCallAnswer>) | undefined;
   environment: Extract<EnvironmentValue, { kind: 'machine' }>;
   workspace?: WorkspaceEnvironment | undefined;
   run: RunContext;
@@ -459,12 +473,12 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       if (!brief) return failed(`there was no task to hand ${agent}`);
 
       const key = machineSessionKey({ deviceId: environment.deviceId, agent, ...(model ? { model } : {}) });
-      const callTool = async (asked: { callId: string; name: string; arguments: string }): Promise<{ ok: boolean; content: string }> => {
+      const callTool = async (asked: { callId: string; name: string; arguments: string }): Promise<ServedCallAnswer> => {
         if (asked.name === RUN_IN_WORKSPACE && workspace && persona) {
           const command: ToolCallRequest = { id: asked.callId, name: 'run_command', arguments: asked.arguments };
           const runsCommands = { ...persona, tools: [...new Set([...(persona.tools ?? []), 'run_command'])] };
           const { outcome } = await runOne(request, command, runsCommands, workspace);
-          return { ok: outcome.ok, content: outcome.content ?? outcome.digest };
+          return answerOf(outcome);
         }
         const call: ToolCallRequest = { id: asked.callId, name: asked.name, arguments: asked.arguments };
         if (!persona || !offered.some((tool) => tool.name === call.name)) return { ok: false, content: `${call.name} is not one of the tools offered here` };
@@ -476,7 +490,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
           }
         }
         const { outcome } = await runOne(request, call, persona, sandbox);
-        return { ok: outcome.ok, content: outcome.content ?? outcome.digest };
+        return answerOf(outcome);
       };
       const sessions = inputs.sessions && typeof inputs.sessions === 'object' ? inputs.sessions as Record<string, unknown> : {};
       const resume = typeof sessions[key] === 'string' && sessions[key] ? sessions[key] as string : undefined;
@@ -505,6 +519,8 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
           },
           results: calls.filter((call) => call.ok !== undefined).map((call) => ({
             forReply: node.id, callId: call.callId, name: call.name, ok: call.ok === true, digest: call.digest ?? '', content: call.digest ?? '',
+            ...(call.artifacts?.length ? { artifacts: call.artifacts } : {}),
+            ...(call.child ? { child: call.child } : {}),
           })),
           ...(outcome.sessionId ? { session: { key, id: outcome.sessionId } } : {}),
           ...('stopReason' in outcome ? { stopReason: outcome.stopReason } : {}),

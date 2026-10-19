@@ -615,6 +615,26 @@ describe('an agent on a machine working on a workspace', () => {
     expect(ran).toEqual({ ok: true, content: 'output of run_command' });
   });
 
+  it('keeps the steps of an agent a served call hands work to, on the answer and on the step\'s results, so a chat shows them after the turn', async () => {
+    const steps = [{ callId: 's1', name: 'search_web', ok: true, digest: 'TabbyAPI 5000' }];
+    let answered: unknown;
+    const runExternal = vi.fn(async (request: { callTool?: (call: { callId: string; name: string; arguments: string }) => Promise<unknown> }) => {
+      answered = await request.callTool!({ callId: 'c6', name: 'research', arguments: '{"question":"port"}' });
+      return {
+        outcome: 'finished' as const, stopReason: 'end_turn', text: 'Port 5000.', identity, sessionId: 's',
+        calls: [{ callId: 'c6', name: 'research', args: '{"question":"port"}', ok: true, digest: 'Port 5000.', child: { runId: 'child-research', agentId: 'research', outcome: 'ok', steps } }],
+      };
+    });
+    const p = ports({ runExternal, runChild: vi.fn(async ({ agent }) => ({ runId: `child-${agent}`, agentId: agent, outcome: 'ok', outputs: { result: 'Port 5000.' }, steps })) } as never);
+    const outcome = await invoke(createOrchestrationNodes(p), externalAgent, {
+      inputs: { brief: 'Find the port.', environment: workspace, persona: persona({ agents: ['research'] }), tools: [{ name: 'research', description: 'looks things up', binding: 'none' }] },
+      run: onMachine,
+    });
+
+    expect(answered).toMatchObject({ ok: true, child: { runId: 'child-research', agentId: 'research', outcome: 'ok', steps } });
+    expect(outcome.outputs.results).toEqual([expect.objectContaining({ callId: 'c6', name: 'research', child: expect.objectContaining({ steps }) })]);
+  });
+
   it('runs the persona\'s served tools in the workspace too, as a model\'s call would', async () => {
     const runExternal = vi.fn(async (request: { callTool?: (call: { callId: string; name: string; arguments: string }) => Promise<{ ok: boolean; content: string }> }) => {
       await request.callTool!({ callId: 'c2', name: 'record_verdict', arguments: '{"verdict":"met"}' });

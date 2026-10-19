@@ -51,7 +51,7 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
       const outcome = await executeTool({
         name: args.name,
         arguments: args.arguments,
-        granted: [...agent.tools, ...(served?.tools.map((tool) => tool.name) ?? [])],
+        granted: [...(args.granted ?? agent.tools), ...(served?.tools.map((tool) => tool.name) ?? [])],
         catalogue,
         ...(agent.maxEffect ? { ceiling: agent.maxEffect } : {}),
         caller: {
