@@ -207,6 +207,7 @@ async function main(): Promise<void> {
     assert.equal(tested.e2e!.summary, '2 passed, 0 failed');
     assert.deepEqual(tested.e2e!.tests!.map((test) => [test.title, test.status]).sort(), [['a person saves a new contact', 'passed'], ['a person signs in and reaches the Odoo home', 'passed']]);
     assert.equal(await psql('odoo_b', "select count(*) from res_users where login = 'koala-e2e' and active"), '1', 'the preview has no test user');
+    assert.equal(await psql('odoo_b', "select tour_enabled from res_users where login = 'koala-e2e'"), 'f', 'the test user would be shown Odoo\'s onboarding tours, which open over the forms the specs use');
     const avatars = (await psql('odoo_b', "select a.store_fname from ir_attachment a join res_users u on a.res_model = 'res.partner' and a.res_id = u.partner_id where u.login = 'koala-e2e' and a.store_fname is not null")).split('\n').filter(Boolean);
     assert.ok(avatars.length > 0, 'the test user has no avatar to look for');
     const slotB = (await kubectl('get', 'pods', '-o', 'name')).split('\n').find((line) => line.includes(`${place.release}-odoo-b`))!;
@@ -358,7 +359,15 @@ async function main(): Promise<void> {
     assert.equal(story?.landed?.outcome, 'merged', `the story did not land: ${JSON.stringify(story?.landed)}`);
     assert.ok((await gitea.listPaths(project.giteaOwner, project.giteaRepo, 'main')).includes(`addons/${drift.module}/adopt.json`), 'the module did not land on main');
     console.log(`    the story shipped: addons/${drift.module} is on main`);
-    const adopted = await waitFor('the release that brings them in', (all) => all.find((release) => release.state === 'preview' && release.e2e && release.e2e.state !== 'running' && release.changes !== undefined && !releaseIds.includes(release.id) && release.id !== first.id), 40);
+    const holdsModule = new Map<string, boolean>();
+    const bringsThemIn = async (commit: string) => {
+      if (!holdsModule.has(commit)) holdsModule.set(commit, (await gitea.getRawFile(project.giteaOwner, project.giteaRepo, `addons/${drift.module}/adopt.json`, commit)) !== null);
+      return holdsModule.get(commit)!;
+    };
+    const adopted = await waitFor('the release that brings them in', (all) => {
+      for (const release of all) if (!holdsModule.has(release.commit)) void bringsThemIn(release.commit).catch(() => undefined);
+      return all.find((release) => holdsModule.get(release.commit) && release.state === 'preview' && release.e2e && release.e2e.state !== 'running' && release.changes !== undefined && !releaseIds.includes(release.id));
+    }, 40);
     console.log(`    ${JSON.stringify({ lost: adopted.changes!.lost, items: adopted.changes!.items.map((item) => `${item.kind}: ${item.state}`) })}`);
     const adoptedStates = adopted.changes!.items.map((item) => `${item.kind}: ${item.state}`).sort();
     if (adoptedStates.join() !== 'edited-view: kept,field: kept') {

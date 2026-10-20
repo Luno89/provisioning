@@ -122,6 +122,7 @@ export const LOGIN_SCRIPT = [
   'Users = env["res.users"].with_context(active_test=False, no_reset_password=True)',
   'groups = "group_ids" if "group_ids" in Users._fields else "groups_id"',
   'values = {"name": "Koala browser tests", "login": login, "active": True, groups: [(6, 0, admin[groups].ids)]}',
+  'if "tour_enabled" in Users._fields: values["tour_enabled"] = False',
   'user = Users.search([("login", "=", login)], limit=1) or Users.create(dict(values))',
   'user.write(values)',
   'user.write({"password": os.environ["E2E_PASSWORD"]})',
