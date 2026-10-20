@@ -739,7 +739,8 @@ unchanged, upgraded in place when it changed, `--stop` ends it). Specs use `e2e/
 `signIn`, `openAction`, `fill`, `choose`, `addLine`, `save`, `press`, `smartButton`, `reportHtml`), whose `test` gives each
 step ten seconds and attaches `page-at-failure`, an outline of the page, which `odoo-e2e` prints and `readE2EReport`
 keeps as `E2ETest.page` (task checks and the release card show it). The image carries the helpers and `odoo-e2e` copies
-them into a repository that lacks them.
+them into a repository that lacks them. Specs sign in as `koala-e2e`, made with the admin's rights and Odoo's onboarding
+tours switched off (`tour_enabled`), since a tour starting on a new user's first form opens an error over it.
 
 **Workspace images can be product images.** A tree works in the image its type's `language` names. The engine's
 image planner takes the host's bases (`extensions/workspace-bases.ts`: the UBI ones plus `extensions/odoo/`'s Odoo 18 and 20, each
@@ -843,6 +844,14 @@ the name it has. Its namespace is labelled `koala.dev/owner` and `koala.dev/proj
 (`activities/cluster-access.ts`'s `reachCluster`). Exposing the app also exposes its preview on its own address, and
 the project's builds panel shows the releases with a card to cut over or discard a waiting one. `npm run test:odoo-release-live` proves it on the system cluster with
 a throwaway project, ~4 min, and removes everything.
+
+**A release's build can be released again** (Release this build again on its card, `POST /api/projects/:id/releases/:rid/again`,
+`OdooReleaseService.releaseAgain`): the same image prepared afresh in the idle slot from a fresh copy of live, without asking
+whether anything changed, recorded with `again`; a waiting preview is set aside as a new build would. Each release on the card
+says whether it brought **new code** or an image already released (`release-kind.ts`), and lists the **files it changes** since
+what is live (a live one: since the release it replaced), each with its diff, the files the app is built from (the type's
+`releaseWhen`) apart from the rest of the repository (`GET …/releases/:rid/files`, `lib/file-changes.ts`, the diff read with
+git through a read token, `ProjectRepoService.diffCommits`).
 
 **What was made in the live app can be brought into git** (`CustomizationsService`, `lib/app-drift.ts`). The project's
 Settings lists it under "Made in the live app" (`GET /api/projects/:id/customizations`, the adapter's `inventory` on the
