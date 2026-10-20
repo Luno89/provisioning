@@ -276,6 +276,16 @@ export class ProjectRepoService {
     }
   }
 
+  async diffCommits(request: { ownerId: string; owner: string; repo: string; base: string; head: string }): Promise<string> {
+    const { username, password } = await this.ensureAccount(request.ownerId);
+    const { name: tokenName, token } = await this.gitea.createReadToken(username, password);
+    try {
+      return await this.gitea.diffBetween({ username, token }, request.owner, request.repo, request.base, request.head);
+    } finally {
+      await this.gitea.revokeUserToken(username, password, tokenName).catch(() => undefined);
+    }
+  }
+
   async pushBranch(request: { ownerId: string; repo: string; describe: string; bundle: string; branch: string }): Promise<string> {
     const { username, password } = await this.ensureAccount(request.ownerId);
     const created = !(await this.gitea.findRepo(username, request.repo));

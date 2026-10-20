@@ -541,6 +541,14 @@ export class GiteaService {
     });
   }
 
+  async diffBetween(auth: { username: string; token: string }, owner: string, name: string, base: string, head: string): Promise<string> {
+    return this.withBareRepo(auth, owner, name, 'Comparing', async (bare, url, env) => {
+      await run('git', ['init', '--bare', '--quiet', bare], { env });
+      await run('git', ['-C', bare, 'fetch', '--quiet', url, '+refs/heads/*:refs/heads/*'], { env });
+      return (await run('git', ['-C', bare, 'diff', '-M', '--no-color', '--no-ext-diff', base, head], { env, maxBuffer: 256 * 1024 * 1024 })).stdout;
+    });
+  }
+
   async deleteBranch(owner: string, name: string, branch: string): Promise<void> {
     const res = await this.apiFetch(`/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/branches/${branch.split('/').map(encodeURIComponent).join('/')}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) throw new Error(`Could not delete ${branch} of ${owner}/${name}: HTTP ${res.status}`);

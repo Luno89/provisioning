@@ -22,6 +22,15 @@ function harness(state: string) {
       decided.push(`rollBack ${project.id} ${releaseId}`);
       return { id: releaseId } as never;
     },
+    releaseAgain: async (_ownerId: string, project: { id: string }, releaseId: string) => {
+      if (state === 'live') return { status: 409, error: 'the release is live, so its build cannot be released again' };
+      if (state === 'same') return { skipped: 'held' };
+      decided.push(`again ${project.id} ${releaseId}`);
+      return { id: 'r2', again: releaseId } as never;
+    },
+    files: async (_ownerId: string, project: { id: string }, releaseId: string) => (releaseId === 'r1'
+      ? { against: { releaseId: 'r0', commit: 'aaa', state: 'live' as const }, files: [{ path: 'addons/x.py', status: 'modified' as const, added: 1, removed: 0, binary: false, patch: 'p', inApp: true }] }
+      : { status: 404, error: `${project.id} has no release ${releaseId}` }),
     retest: async (_ownerId: string, releaseId: string) => {
       if (state !== 'preview') return { status: 409, error: `the release is ${state}, so its browser tests cannot run again` };
       decided.push(`retest ${releaseId}`);
@@ -88,5 +97,29 @@ describe('a project\'s releases', () => {
     expect([refused.status, refused.data]).toEqual([409, { error: 'the release is preview, not live' }]);
     expect((await axios.get(h2.url('/api/projects/p1/releases'))).data).not.toHaveProperty('rollBack');
     await h2.close();
+  });
+
+  it('releases a build again, and says why when it cannot', async () => {
+    const ok = harness('discarded');
+    const h = await ok.mounted;
+    const again = await axios.post(h.url('/api/projects/p1/releases/r1/again'), {}, quiet);
+    expect([again.status, again.data]).toEqual([202, { release: { id: 'r2', again: 'r1' } }]);
+    expect(ok.decided).toEqual(['again p1 r1']);
+    expect((await axios.post(h.url('/api/projects/p2/releases/r1/again'), {}, quiet)).status).toBe(404);
+    await h.close();
+    const live = await harness('live').mounted;
+    expect((await axios.post(live.url('/api/projects/p1/releases/r1/again'), {}, quiet)).data).toEqual({ error: 'the release is live, so its build cannot be released again' });
+    await live.close();
+    const held = await harness('same').mounted;
+    expect((await axios.post(held.url('/api/projects/p1/releases/r1/again'), {}, quiet)).data).toEqual({ error: 'held' });
+    await held.close();
+  });
+
+  it('lists the files a release changes, and nothing of a release it does not have', async () => {
+    const h = await harness('preview').mounted;
+    expect((await axios.get(h.url('/api/projects/p1/releases/r1/files'))).data).toMatchObject({ against: { releaseId: 'r0' }, files: [{ path: 'addons/x.py', inApp: true }] });
+    expect((await axios.get(h.url('/api/projects/p1/releases/zz/files'), quiet)).status).toBe(404);
+    expect((await axios.get(h.url('/api/projects/p2/releases/r1/files'), quiet)).status).toBe(404);
+    await h.close();
   });
 });

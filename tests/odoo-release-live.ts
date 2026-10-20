@@ -84,8 +84,9 @@ const FAILING = files({
 });
 
 interface BrowserTests { state: string; summary?: string; reason?: string; tests?: { title: string; status: string; error?: string }[]; artifacts?: { id: string; name: string }[] }
+interface ReleaseFiles { against?: { releaseId: string; commit: string; state: string }; files: { path: string; status: string; added: number; removed: number; patch: string; inApp: boolean }[]; note?: string }
 interface Changes { losing: boolean; lost: string[]; columns: { table: string; column: string; filled: number }[]; items: { kind: string; name: string; state: string }[] }
-interface Release { id: string; state: string; slot?: string; reason?: string; previewHost?: string; e2e?: BrowserTests; changes?: Changes }
+interface Release { id: string; state: string; commit: string; image: string; again?: string; slot?: string; reason?: string; previewHost?: string; e2e?: BrowserTests; changes?: Changes }
 
 async function main(): Promise<void> {
   assert.ok(OWNER, 'set ODOO_RELEASE_LIVE_OWNER (or CHECKS_LIVE_OWNER) to the person the project is made for');
@@ -214,6 +215,18 @@ async function main(): Promise<void> {
     assert.equal(await kubectl('get', 'jobs', '-l', 'app.kubernetes.io/component=e2e', '-o', 'name').then((out) => out.split('\n').filter((line) => line.includes('/' + place.release + '-e2e')).filter((line) => !line.includes('login')).length), 0, 'the browser job was left behind');
     console.log(`    ${tested.e2e!.summary}: signed in as koala-e2e, a contact saved, the test user's ${avatars.length} avatar files in the preview's filestore; slot a has no such user`);
 
+    console.log('[3g] the preview lists the files it changes since what is live, each with its diff');
+    const changedFiles = (await http.get(`/projects/${projectId}/releases/${preview.id}/files`)).data as ReleaseFiles;
+    assert.deepEqual(changedFiles.against, { releaseId: first.id, commit: first.commit, state: 'live' }, JSON.stringify(changedFiles));
+    assert.deepEqual(changedFiles.files.map((file) => [file.path, file.status]), [
+      [`addons/${EXTRA}/__init__.py`, 'added'], [`addons/${EXTRA}/__manifest__.py`, 'added'], [`addons/${EXTRA}/models/__init__.py`, 'added'], [`addons/${EXTRA}/models/probe.py`, 'added'],
+      [`addons/${MODULE}/models/probe.py`, 'modified'], ['e2e/saves-a-contact.spec.ts', 'added'],
+    ], JSON.stringify(changedFiles.files.map((file) => file.path)));
+    const probeChange = changedFiles.files.find((file) => file.path === `addons/${MODULE}/models/probe.py`)!;
+    assert.deepEqual([probeChange.added, probeChange.removed], [0, 1]);
+    assert.match(probeChange.patch, /^-\s+note = fields\.Char\(\)$/m);
+    console.log(`    ${changedFiles.files.length} files since ${first.commit.slice(0, 8)}: the probe's diff drops its note line`);
+
     console.log('[3c] a spec that cannot pass: the next preview shows the failure and what the browser saw, and still offers the cutover');
     await gitea.seedTemplate(project.giteaOwner, project.giteaRepo, FAILING);
     const failing = await waitFor('the failing preview\'s browser tests', (all) => all.find((release) => release.id !== preview.id && release.state === 'preview' && release.e2e && release.e2e.state !== 'running'), 30);
@@ -239,6 +252,23 @@ async function main(): Promise<void> {
     assert.equal(rerun.e2e!.state, 'failed');
     console.log(`    ran again: ${rerun.e2e!.summary}`);
 
+    console.log('[3f] the first preview\'s build released again: the waiting preview is set aside, and the same image is prepared afresh and tested');
+    const releasedAgain = await http.post(`/projects/${projectId}/releases/${preview.id}/again`, {});
+    assert.equal(releasedAgain.status, 202, JSON.stringify(releasedAgain.data));
+    const repeat = (releasedAgain.data as { release: Release }).release;
+    assert.deepEqual([repeat.again, repeat.image, repeat.commit], [preview.id, preview.image, preview.commit]);
+    const candidate = await waitFor('the build released again to be tested', (all) => all.find((release) => release.id === repeat.id && release.state === 'preview' && release.e2e && release.e2e.state !== 'running'), 30);
+    assert.equal((await releases()).find((release) => release.id === failing.id)?.state, 'superseded', 'the waiting preview was not set aside');
+    assert.equal(candidate.slot, 'b');
+    assert.equal(candidate.e2e!.summary, '2 passed, 0 failed', JSON.stringify(candidate.e2e));
+    assert.ok(candidate.changes?.losing, 'the build released again was not compared with live');
+    const againFiles = (await http.get(`/projects/${projectId}/releases/${candidate.id}/files`)).data as ReleaseFiles;
+    assert.ok(!againFiles.files.some((file) => file.path === 'e2e/never-made.spec.ts'), 'the build released again carries the later commit\'s spec');
+    assert.equal(againFiles.files.length, changedFiles.files.length);
+    const refusedAgain = await http.post(`/projects/${projectId}/releases/${first.id}/again`, {});
+    assert.deepEqual([refusedAgain.status, refusedAgain.data.error], [409, 'the release is live, so its build cannot be released again']);
+    console.log(`    ${candidate.e2e!.summary} on slot b, the same image as ${preview.commit.slice(0, 8)}; the live release cannot be released again`);
+
     console.log('[3b] exposing the app also exposes its preview, each on its own address');
     const deployment = (await db.getDeployments()).find((entry) => entry.gitappProjectId === projectId)!;
     const exposed = await http.post(`/deployments/${deployment.id}/expose`, { mode: 'local' });
@@ -263,14 +293,14 @@ async function main(): Promise<void> {
     console.log('    both addresses reach an Odoo through the proxy: the live one, and the preview the Ingress sends to slot b');
 
     console.log('[4] cutting over waits for the loss to be confirmed, then moves the project to slot b');
-    const refused = await http.post(`/projects/${projectId}/releases/${failing.id}/cut-over`, {});
+    const refused = await http.post(`/projects/${projectId}/releases/${candidate.id}/cut-over`, {});
     assert.equal(refused.status, 409, JSON.stringify(refused.data));
     assert.ok((refused.data as { losing?: string[] }).losing?.includes('the column koala_probe.note is dropped; 2 rows held a value in it'), JSON.stringify(refused.data));
     console.log(`    refused without a confirm: ${(refused.data as { error: string }).error}`);
-    const cut = await http.post(`/projects/${projectId}/releases/${failing.id}/cut-over`, { confirm: true });
+    const cut = await http.post(`/projects/${projectId}/releases/${candidate.id}/cut-over`, { confirm: true });
     assert.equal(cut.status, 202, JSON.stringify(cut.data));
-    await waitFor('cutover', (all) => all.find((release) => release.id === failing.id && release.state === 'live'), 20);
-    releaseIds.push(preview.id, failing.id);
+    await waitFor('cutover', (all) => all.find((release) => release.id === candidate.id && release.state === 'live'), 20);
+    releaseIds.push(preview.id, failing.id, candidate.id);
     assert.equal(await psql('odoo_b', "select count(*) from res_users where login = 'koala-e2e'"), '0', 'the test user came along into the live database');
     assert.notEqual(await psql('odoo_b', 'select count(*) from ir_cron where active'), '0', 'the live database came over quiet');
     assert.equal(await kubectl('get', 'svc', `${place.release}-live`, '-o', 'jsonpath={.spec.selector.koala\\.dev/slot}'), 'b');
@@ -285,11 +315,11 @@ async function main(): Promise<void> {
     console.log('[4a] rolling back returns the app to slot a exactly as it was at the cutover');
     await psql('odoo_b', "insert into koala_probe (name, create_date, write_date) values ('entered after the cutover', now(), now())");
     const offer = (await http.get(`/projects/${projectId}/releases`)).data.rollBack as { from: string; to: string; commit: string; liveSince?: string } | undefined;
-    assert.deepEqual(offer && { from: offer.from, to: offer.to }, { from: failing.id, to: first.id }, `the rollback offer is wrong: ${JSON.stringify(offer)}`);
+    assert.deepEqual(offer && { from: offer.from, to: offer.to }, { from: candidate.id, to: first.id }, `the rollback offer is wrong: ${JSON.stringify(offer)}`);
     assert.ok(offer?.liveSince, 'the offer does not say when the cutover was');
-    const back = await http.post(`/projects/${projectId}/releases/${failing.id}/roll-back`, {});
+    const back = await http.post(`/projects/${projectId}/releases/${candidate.id}/roll-back`, {});
     assert.equal(back.status, 202, JSON.stringify(back.data));
-    await waitFor('rollback', (all) => (all.find((release) => release.id === first.id && release.state === 'live') && all.find((release) => release.id === failing.id && release.state === 'rolled-back')) || undefined, 10);
+    await waitFor('rollback', (all) => (all.find((release) => release.id === first.id && release.state === 'live') && all.find((release) => release.id === candidate.id && release.state === 'rolled-back')) || undefined, 10);
     assert.equal(await kubectl('get', 'svc', `${place.release}-live`, '-o', 'jsonpath={.spec.selector.koala\\.dev/slot}'), 'a');
     assert.equal(await health(`${place.release}-live`), '200', 'the live slot does not answer after the rollback');
     assert.doesNotMatch(await columns('odoo_a'), /colour/, 'the rolled-back slot has the newer module\'s field');

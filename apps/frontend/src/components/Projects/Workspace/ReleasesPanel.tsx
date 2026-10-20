@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowRightLeft, ExternalLink, Layers, Loader2, Trash2, Undo2 } from 'lucide-react'
-import { decideRelease, listReleases, releaseKeys, rollBackRelease, type OdooRelease, type ReleaseState, type RollBackOffer } from '../../../api/releases'
+import { ArrowRightLeft, ExternalLink, FileCode2, Layers, Loader2, Repeat, Trash2, Undo2 } from 'lucide-react'
+import { AGAIN_FROM, decideRelease, listReleases, releaseAgain, releaseKeys, rollBackRelease, type OdooRelease, type ReleaseState, type RollBackOffer } from '../../../api/releases'
 import { ago } from '../../home-summary'
 import { errorMessage } from '../../../api/client'
 import { ReleaseBrowserTests } from './ReleaseBrowserTests'
 import { ReleaseChanges } from './ReleaseChanges'
+import { ReleaseFiles } from './ReleaseFiles'
+import { releaseKind, type ReleaseKind } from './release-kind'
 import { OpenApp } from './OpenApp'
 
 const STATE: Record<ReleaseState, { label: string; tone: string }> = {
@@ -38,6 +40,7 @@ export function Decision({ projectId, release, preview }: { projectId: string; r
         This build is running in slot {release.slot?.toUpperCase()} on a copy of the live data. Look it over, then make it live.
       </p>
       <ReleaseChanges changes={release.changes} />
+      <ReleaseFiles projectId={projectId} releaseId={release.id} />
       <div className="flex flex-wrap items-center gap-2">
         {preview
           ? <a href={preview} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded border border-amber-500/40 px-2 py-1 text-[11px] text-amber-200 hover:bg-amber-500/10"><ExternalLink size={11} /> Open preview</a>
@@ -101,6 +104,60 @@ function RollBack({ projectId, offer }: { projectId: string; offer: RollBackOffe
   )
 }
 
+function KindBadge({ kind }: { kind: ReleaseKind }) {
+  if (kind.kind === 'new-code') {
+    return <span className="rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-300" title="Built from new code: a new image is deployed">new code</span>
+  }
+  const of = kind.kind === 'again' ? kind.of : kind.as
+  return (
+    <span className="rounded border border-slate-600/40 bg-slate-500/10 px-1.5 py-0.5 text-[10px] text-slate-400" title="No new code: the same image as an earlier release, prepared again on a fresh copy of the live data">
+      {kind.kind === 'again' ? 'released again' : 'same image'}{of ? ` · ${of.slice(0, 8)}` : ''}
+    </span>
+  )
+}
+
+function ReleaseAgain({ projectId, release, previewWaits }: { projectId: string; release: OdooRelease; previewWaits: boolean }) {
+  const client = useQueryClient()
+  const [confirming, setConfirming] = useState(false)
+  const again = useMutation({
+    mutationFn: () => releaseAgain(projectId, release.id),
+    onSuccess: () => { setConfirming(false); void client.invalidateQueries({ queryKey: releaseKeys.list(projectId) }) },
+  })
+
+  return (
+    <div className="space-y-1.5">
+      {!confirming ? (
+        <button type="button" onClick={() => setConfirming(true)} className="flex items-center gap-1 rounded border border-slate-600 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-700">
+          <Repeat size={11} /> Release this build again
+        </button>
+      ) : (
+        <div className="space-y-2 rounded-md border border-slate-600 bg-slate-500/5 p-2.5">
+          <p className="text-[11px] text-slate-300">
+            No code changes: the image of {release.commit.slice(0, 8)} is prepared again in the idle slot, from a fresh copy of the live data, and tested.{previewWaits ? ' The preview waiting now is set aside.' : ''} Nothing goes live until you cut it over.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => again.mutate()} disabled={again.isPending} className="flex items-center gap-1 rounded bg-sky-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50">
+              {again.isPending ? <Loader2 size={11} className="animate-spin" /> : <Repeat size={11} />} Yes, release it again
+            </button>
+            <button type="button" onClick={() => setConfirming(false)} className="rounded border border-slate-600 px-2 py-1 text-[11px] text-slate-300">Not now</button>
+          </div>
+        </div>
+      )}
+      {again.isError && <p className="text-[11px] text-rose-400">{errorMessage(again.error)}</p>}
+    </div>
+  )
+}
+
+function FilesToggle({ projectId, releaseId }: { projectId: string; releaseId: string }) {
+  const [open, setOpen] = useState(false)
+  if (open) return <ReleaseFiles projectId={projectId} releaseId={releaseId} />
+  return (
+    <button type="button" onClick={() => setOpen(true)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200">
+      <FileCode2 size={11} /> Files changed
+    </button>
+  )
+}
+
 export function ReleasesPanel({ projectId }: { projectId: string }) {
   const { data } = useQuery({ queryKey: releaseKeys.list(projectId), queryFn: () => listReleases(projectId) })
   const releases = data?.releases ?? []
@@ -117,6 +174,7 @@ export function ReleasesPanel({ projectId }: { projectId: string }) {
           <li key={release.id} className="space-y-1.5 rounded-md border border-[var(--bark-800)] p-2">
             <div className="flex flex-wrap items-center gap-2 text-[11px]">
               <span className={`rounded border px-1.5 py-0.5 text-[10px] ${STATE[release.state].tone}`}>{STATE[release.state].label}</span>
+              <KindBadge kind={releaseKind(release, releases)} />
               <span className="text-slate-300">{release.commit.slice(0, 8)}</span>
               {release.slot && <span className="text-slate-500">slot {release.slot.toUpperCase()}</span>}
               <span className="ml-auto text-slate-500">{when(release.startedAt)}</span>
@@ -125,6 +183,8 @@ export function ReleasesPanel({ projectId }: { projectId: string }) {
             {release.state === 'preview' && <Decision projectId={projectId} release={release} preview={data?.addresses.preview} />}
             {data?.rollBack?.from === release.id && <RollBack projectId={projectId} offer={data.rollBack} />}
             {(release.state === 'preview' || release.state === 'live') && <ReleaseBrowserTests projectId={projectId} release={release} />}
+            {release.state !== 'preview' && <FilesToggle projectId={projectId} releaseId={release.id} />}
+            {AGAIN_FROM.includes(release.state) && <ReleaseAgain projectId={projectId} release={release} previewWaits={releases.some((other) => other.state === 'preview')} />}
           </li>
         ))}
       </ul>

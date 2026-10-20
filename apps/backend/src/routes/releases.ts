@@ -8,7 +8,7 @@ const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } 
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
 export interface ReleasesRouterDeps {
-  releases: Pick<OdooReleaseService, 'list' | 'decide' | 'retest' | 'addresses' | 'rollBackOffer' | 'rollBack'>;
+  releases: Pick<OdooReleaseService, 'list' | 'decide' | 'retest' | 'addresses' | 'rollBackOffer' | 'rollBack' | 'releaseAgain' | 'files'>;
   getOwnedProject: (id: string, user: { id: string; email: string; isAdmin?: boolean }) => Promise<ProjectMetadata | undefined | null>;
   signIns: (project: ProjectMetadata) => Promise<SignIn[]>;
 }
@@ -55,6 +55,24 @@ export function releasesRouter(deps: ReleasesRouterDeps): Router {
     if (!project) return;
     const outcome = await deps.releases.retest(project.ownerId ?? userOf(req).id, String(req.params.releaseId));
     if ('error' in outcome) return res.status(outcome.status).json({ error: outcome.error });
+    return res.status(202).json({ release: outcome });
+  }));
+
+  router.get('/:id/releases/:releaseId/files', asyncRoute(async (req: Request, res: Response) => {
+    const project = await owned(req, res);
+    if (!project) return;
+    const outcome = await deps.releases.files(project.ownerId ?? userOf(req).id, project, String(req.params.releaseId));
+    if ('error' in outcome) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome);
+  }));
+
+  router.post('/:id/releases/:releaseId/again', asyncRoute(async (req: Request, res: Response) => {
+    const project = await owned(req, res);
+    if (!project) return;
+    if (project.removal) return res.status(409).json({ error: 'This project is being deleted' });
+    const outcome = await deps.releases.releaseAgain(project.ownerId ?? userOf(req).id, project, String(req.params.releaseId));
+    if ('error' in outcome) return res.status(outcome.status).json({ error: outcome.error });
+    if ('skipped' in outcome) return res.status(409).json({ error: outcome.skipped });
     return res.status(202).json({ release: outcome });
   }));
 

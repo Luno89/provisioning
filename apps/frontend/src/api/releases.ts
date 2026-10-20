@@ -5,7 +5,8 @@ import { api } from './client'
  * Authority: `OdooRelease` and `ReleaseState` in apps/backend/src/lib/odoo-release.ts,
  * `RollBackOffer` in apps/backend/src/services/OdooReleaseService.ts,
  * `ReleaseE2E` in apps/backend/src/lib/release-e2e.ts, `E2ETest` in apps/backend/src/lib/e2e.ts,
- * `ReleaseChanges` in apps/backend/src/lib/release-compare.ts.
+ * `ReleaseChanges` in apps/backend/src/lib/release-compare.ts,
+ * `ReleaseFile` in apps/backend/src/lib/file-changes.ts, `ReleaseFiles` and `AGAIN_FROM` in apps/backend/src/services/OdooReleaseService.ts.
  */
 export type ReleaseState = 'queued' | 'preparing' | 'preview' | 'cutting-over' | 'live' | 'rolling-back' | 'rolled-back' | 'discarded' | 'failed' | 'superseded'
 
@@ -54,10 +55,30 @@ export interface OdooRelease {
   e2e?: ReleaseE2E
   changes?: ReleaseChanges
   liveAt?: string
+  again?: string
   restoredAt?: string
   startedAt: string
   updatedAt: string
 }
+
+export interface ReleaseFile {
+  path: string
+  from?: string
+  status: 'added' | 'modified' | 'deleted' | 'renamed'
+  added: number
+  removed: number
+  binary: boolean
+  patch: string
+  inApp: boolean
+}
+
+export interface ReleaseFiles {
+  against?: { releaseId: string; commit: string; state: ReleaseState }
+  files: ReleaseFile[]
+  note?: string
+}
+
+export const AGAIN_FROM: readonly ReleaseState[] = ['preview', 'failed', 'discarded', 'superseded', 'rolled-back']
 
 export interface RollBackOffer {
   from: string
@@ -74,6 +95,7 @@ export interface ReleaseList {
 
 export const releaseKeys = {
   list: (projectId: string) => ['project-releases', projectId] as const,
+  files: (projectId: string, releaseId: string) => ['project-release-files', projectId, releaseId] as const,
   signIn: (projectId: string) => ['project-sign-in', projectId] as const,
 }
 
@@ -101,3 +123,9 @@ export const rollBackRelease = (projectId: string, releaseId: string): Promise<v
 
 export const retestRelease = (projectId: string, releaseId: string): Promise<void> =>
   api.post(`/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(releaseId)}/retest`, {}).then(() => undefined)
+
+export const releaseFiles = (projectId: string, releaseId: string): Promise<ReleaseFiles> =>
+  api.get<ReleaseFiles>(`/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(releaseId)}/files`).then((r) => r.data)
+
+export const releaseAgain = (projectId: string, releaseId: string): Promise<void> =>
+  api.post(`/projects/${encodeURIComponent(projectId)}/releases/${encodeURIComponent(releaseId)}/again`, {}).then(() => undefined)

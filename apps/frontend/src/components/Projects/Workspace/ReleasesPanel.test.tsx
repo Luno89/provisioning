@@ -10,6 +10,8 @@ vi.mock('../../../api/releases', async (original) => ({
   decideRelease: vi.fn(),
   retestRelease: vi.fn(),
   rollBackRelease: vi.fn(),
+  releaseFiles: vi.fn(),
+  releaseAgain: vi.fn(),
 }))
 vi.mock('../../../api/project-app', async (original) => ({
   ...(await original<typeof import('../../../api/project-app')>()),
@@ -20,7 +22,7 @@ vi.mock('../../../api/artifacts', async (original) => ({
   ...(await original<typeof import('../../../api/artifacts')>()),
   getArtifactStorage: vi.fn().mockResolvedValue({ minio: true }),
 }))
-const { listReleases, decideRelease, retestRelease, rollBackRelease } = await import('../../../api/releases')
+const { listReleases, decideRelease, retestRelease, rollBackRelease, releaseFiles, releaseAgain } = await import('../../../api/releases')
 const { artifactUrl } = await import('../../../api/artifacts')
 
 const release = (id: string, state: OdooRelease['state'], over: Partial<OdooRelease> = {}): OdooRelease => ({
@@ -33,7 +35,10 @@ const show = () => render(
   </QueryClientProvider>,
 )
 
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => {
+  vi.clearAllMocks()
+  vi.mocked(releaseFiles).mockResolvedValue({ files: [], note: 'Nothing is live yet to compare it with.' })
+})
 
 describe('a project\'s releases', () => {
   it('shows nothing for a project that releases no other way than before', async () => {
@@ -164,5 +169,59 @@ describe('a project\'s releases', () => {
     show()
     expect(await screen.findByText(/Browser tests running against the preview/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Run again/ })).toBeNull()
+  })
+
+  it('tells a release built from new code from one that released an image already released', async () => {
+    vi.mocked(listReleases).mockResolvedValue({
+      releases: [
+        release('r3', 'failed', { image: 'i:b', again: 'r2', startedAt: '2026-10-08T14:00:00Z' }),
+        release('r2', 'discarded', { image: 'i:b', startedAt: '2026-10-08T13:00:00Z' }),
+        release('r1', 'live', { image: 'i:a', startedAt: '2026-10-08T12:00:00Z' }),
+      ],
+      addresses: {},
+    })
+    show()
+    expect(await screen.findByText('released again · r2c0ffee')).toBeInTheDocument()
+    expect(screen.getAllByText('new code')).toHaveLength(2)
+  })
+
+  it('shows the files a preview changes since live, the app\'s apart from the rest, each with its diff', async () => {
+    vi.mocked(listReleases).mockResolvedValue({ releases: [release('r2', 'preview', { slot: 'b' }), release('r1', 'live', { slot: 'a' })], addresses: {} })
+    vi.mocked(releaseFiles).mockResolvedValue({
+      against: { releaseId: 'r1', commit: 'aaaaaaaaaa', state: 'live' },
+      files: [
+        { path: 'addons/labels/report.xml', status: 'modified', added: 2, removed: 1, binary: false, patch: 'diff --git a/addons/labels/report.xml b/addons/labels/report.xml\n@@ -1 +1,2 @@\n-old\n+new\n+more', inApp: true },
+        { path: 'PLAN.md', status: 'modified', added: 1, removed: 0, binary: false, patch: 'diff --git a/PLAN.md b/PLAN.md\n+x', inApp: false },
+      ],
+    })
+    show()
+    expect(await screen.findByText(/since aaaaaaaa \(live now\)/)).toBeInTheDocument()
+    expect(releaseFiles).toHaveBeenCalledWith('p1', 'r2')
+    expect(screen.getByText('In the app')).toBeInTheDocument()
+    expect(screen.getByText('Elsewhere in the repository')).toBeInTheDocument()
+    expect(screen.queryByTestId('release-file-patch')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('addons/labels/report.xml'))
+    expect(screen.getByTestId('release-file-patch').textContent).toContain('+more')
+  })
+
+  it('releases a discarded build again after a confirm that says the waiting preview is set aside', async () => {
+    vi.mocked(listReleases).mockResolvedValue({ releases: [release('r2', 'preview', { slot: 'b' }), release('r1', 'discarded')], addresses: {} })
+    vi.mocked(releaseAgain).mockResolvedValue(undefined)
+    show()
+    const buttons = await screen.findAllByRole('button', { name: /Release this build again/ })
+    expect(buttons).toHaveLength(2)
+    fireEvent.click(buttons[1]!)
+    expect(screen.getByText(/The preview waiting now is set aside/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Yes, release it again/ }))
+    await waitFor(() => expect(releaseAgain).toHaveBeenCalledWith('p1', 'r1'))
+  })
+
+  it('offers no release again for the live release', async () => {
+    vi.mocked(listReleases).mockResolvedValue({ releases: [release('r1', 'live')], addresses: {} })
+    show()
+    expect(await screen.findByText('live')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Release this build again/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Files changed/ }))
+    expect(await screen.findByText('Nothing is live yet to compare it with.')).toBeInTheDocument()
   })
 })

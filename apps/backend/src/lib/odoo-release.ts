@@ -42,6 +42,7 @@ export interface OdooRelease {
   changes?: ReleaseChanges | undefined;
   liveAt?: string | undefined;
   replacedBy?: string | undefined;
+  again?: string | undefined;
   restoredAt?: string | undefined;
   restore?: { mode: import('./client-import.js').ImportMode; version?: string | undefined; modules: number } | undefined;
   startedAt: string;

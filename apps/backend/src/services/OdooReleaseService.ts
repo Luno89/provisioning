@@ -1,4 +1,5 @@
 import { lossLines } from '../lib/release-compare.js';
+import { parseDiff, sortedForRelease, type ReleaseFile } from '../lib/file-changes.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../lib/types.js';
 import { ODOO_DATABASE_PASSWORD, ODOO_PROJECT_APP, ODOO_RELEASE_SECRETS, chartDatabaseSecret, vaultDatabaseSecret, newReleaseName, type ReleaseVault, releaseNameOf, releasePlace, releaseTargetOf, rollBackTarget, type OdooRelease, type ReleaseState } from '../lib/odoo-release.js';
@@ -22,6 +23,7 @@ export interface OdooReleaseStore {
   saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
   savePipelineRunInfo(run: Partial<PipelineRunMetadata> & { id: string }): Promise<PipelineRunMetadata>;
   saveProjectInfo(project: Partial<ProjectMetadata> & { id: string }): Promise<ProjectMetadata>;
+  getPipelineRuns(): Promise<PipelineRunMetadata[]>;
 }
 
 export interface ReleaseRuns {
@@ -47,6 +49,8 @@ export interface OdooReleaseDeps {
   runs: ReleaseRuns;
   how?: ((project: ProjectMetadata) => Promise<ReleaseHow>) | undefined;
   chartAt: (owner: string, repo: string, commit: string) => Promise<boolean>;
+  diff?: ((project: ProjectMetadata, base: string, head: string) => Promise<string>) | undefined;
+  releaseWhen?: ((project: ProjectMetadata) => Promise<readonly string[] | undefined>) | undefined;
   clusterById?: ((id: string) => Promise<ClusterMetadata | undefined>) | undefined;
   notify?: ((ownerId: string, release: OdooRelease) => void) | undefined;
   awaiting?: ((ownerId: string, project: ProjectMetadata, run: PipelineRunMetadata) => void) | undefined;
@@ -56,6 +60,14 @@ export interface OdooReleaseDeps {
 }
 
 export type ReleaseRefusal = { status: number; error: string; losing?: string[] | undefined };
+
+export interface ReleaseFiles {
+  against?: { releaseId: string; commit: string; state: ReleaseState } | undefined;
+  files: ReleaseFile[];
+  note?: string | undefined;
+}
+
+const AGAIN_FROM: readonly ReleaseState[] = ['preview', 'failed', 'discarded', 'superseded', 'rolled-back'];
 
 export interface RollBackOffer {
   from: string;
@@ -81,7 +93,7 @@ export class OdooReleaseService {
     return this.deps.chartAt(project.giteaOwner, project.giteaRepo, commit);
   }
 
-  async release(project: ProjectMetadata, run: PipelineRunMetadata): Promise<OdooRelease | ReleaseRefusal | { skipped: string }> {
+  async release(project: ProjectMetadata, run: PipelineRunMetadata, options: { again?: string | undefined } = {}): Promise<OdooRelease | ReleaseRefusal | { skipped: string }> {
     const refuse = async (error: string): Promise<ReleaseRefusal> => {
       await this.deps.store.savePipelineRunInfo({ id: run.id, releaseRefused: error });
       return { status: 409, error };
@@ -100,7 +112,7 @@ export class OdooReleaseService {
       return { skipped: HELD_FOR_CLIENT };
     }
 
-    const since = this.deps.decide ? (await this.deps.store.getOdooReleases(ownerId, project.id))
+    const since = this.deps.decide && !options.again ? (await this.deps.store.getOdooReleases(ownerId, project.id))
       .filter((entry) => entry.state !== 'failed' && entry.state !== 'discarded' && entry.state !== 'queued')
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0]?.commit : undefined;
     if (since && this.deps.decide) {
@@ -126,6 +138,7 @@ export class OdooReleaseService {
       commit: run.commitSha,
       image: run.imageTag,
       state: busy ? 'queued' : 'preparing',
+      ...(options.again ? { again: options.again } : {}),
       host: place.host,
       previewHost: place.previewHost,
       ...(fromClient ? { restore: { mode: fromClient.mode, version: fromClient.version, modules: fromClient.modules?.length ?? 0 } } : {}),
@@ -351,6 +364,30 @@ export class OdooReleaseService {
     await this.deps.runs.answer(release.projectId, RETEST, release.changes?.losing ? LOSING_DECISION_NODE : DECISION_NODE);
     void this.follow(ownerId, release.projectId);
     return release;
+  }
+
+  async releaseAgain(ownerId: string, project: ProjectMetadata, releaseId: string): Promise<OdooRelease | ReleaseRefusal | { skipped: string }> {
+    const release = (await this.deps.store.getOdooReleases(ownerId, project.id)).find((entry) => entry.id === releaseId);
+    if (!release) return { status: 404, error: 'This project has no release with that id' };
+    if (!AGAIN_FROM.includes(release.state)) return { status: 409, error: `the release is ${release.state}, so its build cannot be released again` };
+    const run = (await this.deps.store.getPipelineRuns()).find((entry) => entry.id === release.pipelineRunId && entry.projectId === project.id);
+    if (!run) return { status: 409, error: 'the build this release was made from is gone' };
+    return this.release(project, run, { again: release.id });
+  }
+
+  async files(ownerId: string, project: ProjectMetadata, releaseId: string): Promise<ReleaseFiles | ReleaseRefusal> {
+    const releases = await this.deps.store.getOdooReleases(ownerId, project.id);
+    const release = releases.find((entry) => entry.id === releaseId);
+    if (!release) return { status: 404, error: 'This project has no release with that id' };
+    const against = release.state === 'live'
+      ? releases.find((entry) => entry.replacedBy === release.id)
+      : releases.find((entry) => entry.state === 'live');
+    if (!against) return { files: [], note: release.state === 'live' ? 'This was the first release, so there is nothing before it to compare with.' : 'Nothing is live yet to compare it with.' };
+    const base = { releaseId: against.id, commit: against.commit, state: against.state };
+    if (against.commit === release.commit) return { against: base, files: [], note: 'It is the same commit as what it is compared with, so no file differs.' };
+    if (!this.deps.diff) return { against: base, files: [], note: 'The files it changes cannot be read here.' };
+    const diff = await this.deps.diff(project, against.commit, release.commit);
+    return { against: base, files: sortedForRelease(parseDiff(diff), await this.deps.releaseWhen?.(project)) };
   }
 
   async recover(ownerIds: readonly string[]): Promise<number> {

@@ -969,6 +969,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     runs: engineReleaseRuns({ runs: engineRuns, client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined) }),
     how: async (project) => releaseHowOf(project, await treeTypeOfProject(db, project), true),
     chartAt: async (owner, repo, commit) => (await giteaService.getRawFile(owner, repo, CHART_FILE, commit)) !== null,
+    diff: (project, base, head) => projectRepoService.diffCommits({ ownerId: project.ownerId!, owner: project.giteaOwner!, repo: project.giteaRepo!, base, head }),
+    releaseWhen: async (project) => (await treeTypeOfProject(db, project))?.releaseWhen,
     clusterById: async (id) => (id === 'provisioning-lunorica' ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
     awaiting: (ownerId, project, run) => {
       postNotice('a project waits for its client\'s database', treeOfProject(project.id).then((tree) => notices.post(ownerId, { projectId: project.id, treeId: tree?.id }, awaitedNotice(project, run.commitSha, tree?.id))));

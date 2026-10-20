@@ -352,3 +352,85 @@ describe('where the app answers', () => {
     expect(await svc.addresses('p1')).toEqual({ live: 'https://shop-x.dev', preview: 'http://shop-preview.localhost:8000' });
   });
 });
+
+describe('releasing a build again', () => {
+  const deciding = () => new OdooReleaseService({
+    store: db as never, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`, pollMs: 5,
+    decide: async () => ({ release: false, reason: 'nothing changed since abc' }),
+  });
+
+  it('releases the same build without asking whether anything changed, and records which release it repeats', async () => {
+    await db.savePipelineRun(run('b1', 'abc'));
+    await db.saveOdooRelease({ id: 'live', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b0', commit: 'aaa', image: 'reg/bo/shop:aaa', state: 'live', host: 'h', startedAt: 't0', updatedAt: 't0' });
+    await db.saveOdooRelease({ id: 'old', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b1', commit: 'abc', image: 'reg/bo/shop:abc', state: 'discarded', host: 'h', startedAt: 't1', updatedAt: 't1' });
+    const again = await deciding().releaseAgain('bo', project, 'old');
+    expect(again).toMatchObject({ state: 'preparing', again: 'old', commit: 'abc', image: 'reg/bo/shop:abc', pipelineRunId: 'b1' });
+    expect(started).toHaveLength(1);
+  });
+
+  it('queues behind a waiting preview and stops it, as a new build does', async () => {
+    await db.savePipelineRun(run('b1', 'abc'));
+    await db.saveOdooRelease({ id: 'waiting', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b1', commit: 'abc', image: 'reg/bo/shop:abc', state: 'preview', host: 'h', startedAt: 't1', updatedAt: 't1' });
+    running = true;
+    expect(await deciding().releaseAgain('bo', project, 'waiting')).toMatchObject({ state: 'queued', again: 'waiting' });
+    expect(stopped).toEqual(['p1']);
+  });
+
+  it('refuses a release that is live or still in progress, one it does not know, and one whose build is gone', async () => {
+    await db.saveOdooRelease({ id: 'live', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b1', commit: 'abc', image: 'i', state: 'live', host: 'h', startedAt: 't', updatedAt: 't' });
+    await db.saveOdooRelease({ id: 'prep', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b1', commit: 'abc', image: 'i', state: 'preparing', host: 'h', startedAt: 't', updatedAt: 't' });
+    await db.saveOdooRelease({ id: 'lost', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'gone', commit: 'abc', image: 'i', state: 'failed', host: 'h', startedAt: 't', updatedAt: 't' });
+    expect(await deciding().releaseAgain('bo', project, 'live')).toEqual({ status: 409, error: 'the release is live, so its build cannot be released again' });
+    expect(await deciding().releaseAgain('bo', project, 'prep')).toEqual({ status: 409, error: 'the release is preparing, so its build cannot be released again' });
+    expect(await deciding().releaseAgain('bo', project, 'nope')).toEqual({ status: 404, error: 'This project has no release with that id' });
+    expect(await deciding().releaseAgain('bo', project, 'lost')).toEqual({ status: 409, error: 'the build this release was made from is gone' });
+    expect(started).toEqual([]);
+  });
+});
+
+describe('the files a release changes', () => {
+  const DIFF = [
+    'diff --git a/addons/labels/models.py b/addons/labels/models.py', '--- a/addons/labels/models.py', '+++ b/addons/labels/models.py', '@@ -1 +1 @@', '-x = 1', '+x = 2',
+    'diff --git a/PLAN.md b/PLAN.md', '--- a/PLAN.md', '+++ b/PLAN.md', '@@ -1 +1 @@', '-a', '+b',
+  ].join('\n');
+  const asked: string[] = [];
+  const reading = () => new OdooReleaseService({
+    store: db as never, runs, chartAt: async () => true, now, pollMs: 5,
+    diff: async (_project, base, head) => { asked.push(`${base}..${head}`); return DIFF; },
+    releaseWhen: async () => ['addons/**'],
+  });
+  const save = (id: string, commit: string, state: 'live' | 'preview' | 'superseded', extra: object = {}) =>
+    db.saveOdooRelease({ id, ownerId: 'bo', projectId: 'p1', pipelineRunId: id, commit, image: `i:${commit}`, state, host: 'h', startedAt: id, updatedAt: id, ...extra });
+
+  beforeEach(() => { asked.length = 0; });
+
+  it('compares a preview with what is live, the files the app is built from first', async () => {
+    await save('one', 'aaa', 'live');
+    await save('two', 'bbb', 'preview');
+    const files = await reading().files('bo', project, 'two');
+    expect(asked).toEqual(['aaa..bbb']);
+    expect(files).toMatchObject({ against: { releaseId: 'one', commit: 'aaa', state: 'live' } });
+    expect('files' in files && files.files.map((file) => [file.path, file.inApp, file.added, file.removed])).toEqual([['addons/labels/models.py', true, 1, 1], ['PLAN.md', false, 1, 1]]);
+  });
+
+  it('compares a live release with the one it replaced, and says when there is nothing to compare', async () => {
+    await save('one', 'aaa', 'superseded', { replacedBy: 'two' });
+    await save('two', 'bbb', 'live');
+    expect(await reading().files('bo', project, 'two')).toMatchObject({ against: { releaseId: 'one' } });
+    expect(await reading().files('bo', project, 'one')).toMatchObject({ against: { releaseId: 'two', state: 'live' } });
+    expect(asked).toEqual(['aaa..bbb', 'bbb..aaa']);
+    asked.length = 0;
+    await db.saveOdooRelease({ id: 'two', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'two', commit: 'aaa', image: 'i', state: 'preview', host: 'h', startedAt: 'two', updatedAt: 'two' });
+    await save('one', 'aaa', 'live');
+    expect(await reading().files('bo', project, 'two')).toEqual({ against: { releaseId: 'one', commit: 'aaa', state: 'live' }, files: [], note: 'It is the same commit as what it is compared with, so no file differs.' });
+    expect(asked).toEqual([]);
+  });
+
+  it('says so when the first release is the one live, and when nothing is live yet', async () => {
+    await save('one', 'aaa', 'live');
+    expect(await reading().files('bo', project, 'one')).toEqual({ files: [], note: 'This was the first release, so there is nothing before it to compare with.' });
+    await save('one', 'aaa', 'superseded');
+    await save('two', 'bbb', 'preview');
+    expect(await reading().files('bo', project, 'two')).toEqual({ files: [], note: 'Nothing is live yet to compare it with.' });
+  });
+});
