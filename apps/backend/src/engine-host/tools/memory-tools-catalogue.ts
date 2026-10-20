@@ -30,8 +30,13 @@ export const MEMORY_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'save_memory',
-    summary: 'Remember something that will still matter later — a preference, a decision, a fact about the person\'s setup, a lesson from what went wrong',
-    guidance: 'Use this for what stays true past this conversation or run. When it updates something already remembered, name that memory\'s id in replaces, and the old one is retired in its favour. A memory that says exactly what one already says is not stored twice.',
+    summary: 'Remember something that will still be true and useful in other work — how the person likes things done, a standing fact about their setup, a lesson for future work',
+    guidance: 'A memory is recalled into every later conversation and run, so save only what holds beyond this piece of work: '
+      + 'how the person wants things done in general, a fact about their setup, services or tools that stays true, a lesson that applies next time. '
+      + 'Do not save what this conversation is about or decided for one project or plan (that is kept with the project, the plan and the conversation), '
+      + 'the current state of work (what is live, which build, what was cancelled or is waiting: it goes stale, and the tools read it fresh), '
+      + 'or one memory per run for the same thing. Search first: when it updates or repeats something already remembered, name that memory\'s id in replaces, '
+      + 'and the old one is retired in its favour. A memory that says exactly what one already says is not stored twice.',
     binding: 'platform',
     effect: 'write',
     idempotent: false,
