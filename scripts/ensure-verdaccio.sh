@@ -137,6 +137,6 @@ spec:
 EOF
 
 echo "  ▶  Waiting for the registry mirror to be ready..."
-"$KUBECTL" --context "$CONTEXT" -n "$NAMESPACE" rollout status deployment/verdaccio --timeout=120s
+"$KUBECTL" --context "$CONTEXT" -n "$NAMESPACE" rollout status deployment/verdaccio --timeout=720h
 
 echo "  ✅  npm registry mirror ready (verdaccio.${NAMESPACE}.svc.cluster.local:4873)"

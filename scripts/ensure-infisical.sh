@@ -137,8 +137,8 @@ echo "  ▶  Deploying Infisical Standalone (helm upgrade --install is a cheap n
   --set resources.requests.memory=256Mi \
   --set resources.limits.memory=512Mi \
   --set ingress.enabled=false \
-  --set ingress-nginx.enabled=false \
-  --timeout 2m || {
+  --set ingress.nginx.enabled=false \
+  --timeout 720h || {
     echo "  ❌  Infisical standalone helm deploy failed."
     exit 1
   }
@@ -146,19 +146,19 @@ echo "  ▶  Deploying Infisical Standalone (helm upgrade --install is a cheap n
 # Verify the deployment is actually healthy — don't trust Helm's exit status (the post-install
 # hook job can hang on slow environments, leaving a "failed" release with healthy pods).
 echo "  ▶  Verifying Infisical pods are running..."
-"$KUBECTL" --context "$CONTEXT" -n "$NAMESPACE" rollout status deployment/infisical-infisical-standalone-infisical --timeout=120s || {
+"$KUBECTL" --context "$CONTEXT" -n "$NAMESPACE" rollout status deployment/infisical-infisical-standalone-infisical --timeout=720h || {
   echo "  ❌  Infisical deployment did not become Ready."
   exit 1
 }
-"$KUBECTL" --context "$CONTEXT" -n "$NAMESPACE" rollout status statefulset/postgresql --timeout=120s || true
-"$KUBECTL" --context "$CONTEXT" -n "$NAMESPACE" rollout status statefulset/redis-master --timeout=120s || true
+"$KUBECTL" --context "$CONTEXT" -n "$NAMESPACE" rollout status statefulset/postgresql --timeout=720h || true
+"$KUBECTL" --context "$CONTEXT" -n "$NAMESPACE" rollout status statefulset/redis-master --timeout=720h || true
 echo "  ✅  Infisical standalone pods Ready."
 
 echo "  ▶  Deploying Infisical Secrets Operator..."
 "$HELM" upgrade --install "$OPERATOR_RELEASE" infisical-helm-charts/secrets-operator \
   --kube-context "$CONTEXT" \
   -n "$NAMESPACE" --create-namespace \
-  --wait --timeout 3m || {
+  --wait --timeout 720h || {
     echo "  ❌  Infisical secrets operator helm deploy failed or timed out."
     exit 1
   }

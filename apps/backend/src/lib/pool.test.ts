@@ -56,6 +56,7 @@ describe('the pool on a node', () => {
     expect(values.policies.resourceQuota.quota).toMatchObject({
       'requests.memory': '6144Mi', 'requests.cpu': '2', 'services.nodeports': 0, 'services.loadbalancers': 0,
     });
+    expect(values.policies.resourceQuota.quota).toMatchObject({ 'limits.memory': null, 'limits.cpu': null, 'limits.ephemeral-storage': null });
     expect(values.policies.networkPolicy.enabled).toBe(true);
   });
 });

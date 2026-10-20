@@ -249,7 +249,7 @@ step "Making room for trials on Koala's servers"
 sh scripts/root-node/gvisor.sh --yes || die "gVisor could not be set up, and no trial instance may run without it"
 TOTAL_MIB=$(( $(awk '/^MemTotal:/ {print $2}' /proc/meminfo) / 1024 ))
 ROOT_KEEPS_MIB=8192
-SLOT_MIB=6144
+SLOT_MIB=10240
 SLOTS=$(( TOTAL_MIB > ROOT_KEEPS_MIB ? (TOTAL_MIB - ROOT_KEEPS_MIB) / SLOT_MIB : 0 ))
 set_env POOL_SLOTS "$SLOTS"
 set_env POOL_SLOT_MEMORY_MIB "$SLOT_MIB"

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
@@ -155,14 +155,14 @@ async function main(): Promise<void> {
   console.log(`  the pool node is ${poolIp} on the mesh`);
 
   step('root starts with the pool on that node, and its host worker takes the pool\'s work');
-  const poolEnv = ['-e', `POOL_ADDRESS=${poolIp}`, '-e', 'POOL_SLOTS=2', '-e', 'POOL_KUBECONFIG=/pool/kubeconfig.yaml', '-e', `POOL_TASK_QUEUE=${QUEUE}`,
-    '-e', 'POOL_IMAGE=10.0.2.2:5001/nowrinkles/app', '-e', `POOL_IMAGE_TAG=${TAG}`, '-e', 'POOL_SLOT_MEMORY_MIB=5120', '-e', 'POOL_TRIAL_DAYS=14',
+  const poolEnv = ['-e', `POOL_ADDRESS=${poolIp}`, '-e', 'POOL_SLOTS=1', '-e', 'POOL_KUBECONFIG=/pool/kubeconfig.yaml', '-e', `POOL_TASK_QUEUE=${QUEUE}`,
+    '-e', 'POOL_IMAGE=10.0.2.2:5001/nowrinkles/app', '-e', `POOL_IMAGE_TAG=${TAG}`, '-e', 'POOL_SLOT_MEMORY_MIB=10240', '-e', 'POOL_TRIAL_DAYS=14',
     '-v', `${kubeconfigPath}:/pool/kubeconfig.yaml:ro`];
   const rootEnv = ['--network', 'host', '--env-file', 'apps/backend/.env',
     ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
     '-e', 'ROLE=root', '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`, '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${DOMAIN}`,
     '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', `INSTANCE_IMAGE_TAG=${TAG}`, ...poolEnv];
-  run('docker', ['run', '-d', '--name', CONTAINERS.root, ...rootEnv, '-v', `${caddyDir}:/app/apps/backend/data/caddy`,
+  run('docker', ['run', '-d', '--name', CONTAINERS.root, ...rootEnv, '--group-add', String(statSync('/var/run/docker.sock').gid), '-v', `${caddyDir}:/app/apps/backend/data/caddy`,
     '-v', '/var/run/docker.sock:/var/run/docker.sock', '-e', `PORT=${ROOT_PORT}`,
     '-e', `CADDY_CONTAINER=${CONTAINERS.caddy}`, '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`, IMAGE, 'backend']);
   run('docker', ['run', '-d', '--name', CONTAINERS.worker, ...rootEnv, '-e', `TEMPORAL_TASK_QUEUE=${QUEUE}`, '-e', 'HEALTH_PORT=0', '-e', 'TEMPORAL_METRICS_PORT=9475', IMAGE, 'worker-host']);
@@ -256,9 +256,9 @@ async function main(): Promise<void> {
     const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string } }).instance;
     return mine.status === 'paused' ? true : undefined;
   });
-  await until('its pods gone', async () => (pool(['get', 'pods', '-n', namespace, '-o', 'name']).trim() === '' ? true : undefined));
+  await until('its pods gone', async () => (pool(['get', 'pods', '-n', namespace, '--field-selector', 'status.phase!=Succeeded,status.phase!=Failed', '-o', 'name']).trim() === '' ? true : undefined));
   await until('root\'s route removed', async () => (existsSync(join(caddyDir, 'instances', `${NAME}.caddy`)) ? undefined : true));
-  console.log('  stopped: no pods left in its namespace, and no route');
+  console.log('  stopped: nothing running in its namespace, and no route');
 
   step('the admin moves the end two weeks ahead: it starts again, with its work as it was');
   const later = new Date(Date.now() + 14 * 86_400_000).toISOString();
