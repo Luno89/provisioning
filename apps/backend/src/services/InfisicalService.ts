@@ -33,6 +33,7 @@ export class InfisicalService {
 
   async resolveBaseUrl(): Promise<string> {
     if (this.customBaseUrl) return this.customBaseUrl;
+    if (process.env.INFISICAL_URL?.trim()) return process.env.INFISICAL_URL.trim().replace(/\/+$/, '');
     if (this.baseUrlCache) return this.baseUrlCache;
 
     if (this.clusterProxy) {

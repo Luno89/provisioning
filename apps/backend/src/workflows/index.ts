@@ -14,3 +14,4 @@ export { ConcludeWorkspaceWorkflow } from './ConcludeWorkspaceWorkflow.js';
 export { RemoveAccountWorkflow } from './RemoveAccountWorkflow.js';
 export { RemoveProjectWorkflow } from './RemoveProjectWorkflow.js';
 export { CheckRunWorkflow } from './CheckRunWorkflow.js';
+export { PoolInstanceWorkflow } from './PoolInstanceWorkflow.js';

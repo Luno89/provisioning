@@ -44,3 +44,9 @@ temporal:
   postgresImage: postgres:12-alpine
 
 hostDocker: true
+
+pool:
+  enabled: false
+  registryPullHost: ""
+
+resources: {}

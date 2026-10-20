@@ -19,6 +19,15 @@ describe('instance routes', () => {
     expect(site).toContain('reverse_proxy 100.64.0.7:30321');
   });
 
+  it('sends a pool instance to its own ports on the pool node', () => {
+    const { handles, site } = instanceRouteFiles({ name: 'alice', meshIp: '100.64.0.9', nested: true, ports: { backend: 35000, edge: 35001 } }, 'koala.dev');
+    expect(handles).toContain('reverse_proxy 100.64.0.9:35000');
+    expect(handles).toContain('reverse_proxy 100.64.0.9:35001');
+    expect(site).toContain('reverse_proxy 100.64.0.9:35001');
+    const wanted = wantedRoutes([{ name: 'alice', meshIp: '100.64.0.9', status: 'ready', pool: { ports: { backend: 35003, edge: 35004 } } }], 'koala.dev');
+    expect(wanted.handles.get('alice.caddy')).toContain('reverse_proxy 100.64.0.9:35003');
+  });
+
   it('refuses an upstream that is not on the mesh', () => {
     expect(() => instanceRouteFiles({ name: 'luno', meshIp: '10.0.0.1', nested: false }, 'koala.dev')).toThrow(/not a mesh address/);
     expect(() => instanceRouteFiles({ name: 'luno', meshIp: '100.64.0.7 { }', nested: false }, 'koala.dev')).toThrow(/not a mesh address/);

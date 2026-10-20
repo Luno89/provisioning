@@ -8,9 +8,17 @@ KUBECTL="${ROOT}/bin/kubectl"
 
 "$KUBECTL" --context "$CONTEXT" apply -f "${ROOT}/k8s/koala-egress/" \
   || echo "  ⚠️  Egress proxy apply failed — sandboxes will not be able to install packages"
-"$KUBECTL" --context "$CONTEXT" apply -f "${ROOT}/k8s/searxng/" \
+apply_services() {
+  if [ "${POOL:-}" = true ]; then
+    for manifest in "$1"/*.yaml; do echo ---; cat "$manifest"; done | sed -e 's/type: NodePort/type: ClusterIP/' -e '/nodePort:/d' | "$KUBECTL" --context "$CONTEXT" apply -f -
+  else
+    "$KUBECTL" --context "$CONTEXT" apply -f "$1"
+  fi
+}
+
+apply_services "${ROOT}/k8s/searxng/" \
   || echo "  ⚠️  SearXNG apply failed — web_search will fall back to DuckDuckGo"
-"$KUBECTL" --context "$CONTEXT" apply -f "${ROOT}/k8s/crawl4ai/" \
+apply_services "${ROOT}/k8s/crawl4ai/" \
   || echo "  ⚠️  Crawl4AI apply failed — fetch_web_page will fall back to raw HTML stripping"
 
 bash "${ROOT}/scripts/ensure-gitea.sh"

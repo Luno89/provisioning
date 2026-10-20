@@ -326,6 +326,7 @@ async function buildActivities() {
     ...(web ? { web } : {}),
     kubeconfig: process.env.KUBECONFIG_PATH,
     registryHost: process.env.KOALA_REGISTRY,
+    pushRegistryHost: process.env.KOALA_REGISTRY_PUSH,
     registryAccount: async () => ({ owner: gitea.adminUsername, ...(await gitea.getAdminCredentials()) }),
     registryPushToken: async () => ({ username: gitea.adminUsername, password: (await gitea.createDeployToken()).token }),
     onLeak: (runId, ageMs) => {

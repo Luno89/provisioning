@@ -1,3 +1,5 @@
+import type { PoolPorts } from './pool.js';
+
 export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed';
 
 export const INSTANCE_STATUSES: readonly InstanceStatus[] = ['waiting', 'joined', 'installing', 'ready', 'failed'];
@@ -15,6 +17,13 @@ export interface InstanceRecord {
   name?: string | undefined;
   meshIp?: string | undefined;
   addresses?: InstanceAddresses | undefined;
+  pool?: InstancePool | undefined;
+}
+
+export interface InstancePool {
+  ports: PoolPorts;
+  startedAt: string;
+  trialEndsAt: string;
 }
 
 export type NestedState = 'issuing' | 'ready';

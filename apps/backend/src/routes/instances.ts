@@ -33,7 +33,7 @@ export function bundleAsEnv(bundle: JoinBundle): string {
 }
 
 export function instancesRouter(deps: {
-  instances: Pick<InstanceService, 'createJoinToken' | 'join' | 'release' | 'report' | 'mine' | 'machineKey' | 'nameCheck' | 'addresses' | 'setAddresses' | 'ownerOf'>;
+  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'join' | 'release' | 'report' | 'mine' | 'machineKey' | 'nameCheck' | 'addresses' | 'setAddresses' | 'ownerOf'>;
   chart: () => Promise<string>;
   mail?: Pick<MailService, 'toOwner'> | undefined;
 }): Router {
@@ -47,6 +47,16 @@ export function instancesRouter(deps: {
     const outcome = await deps.instances.createJoinToken(userOf(req).id, ((req.body ?? {}) as { name?: unknown }).name);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json(outcome.value);
+  }));
+
+  router.get('/pool', asyncRoute(async (req: Request, res: Response) => {
+    res.json(await deps.instances.poolOffer(userOf(req).id));
+  }));
+
+  router.post('/pool', asyncRoute(async (req: Request, res: Response) => {
+    const outcome = await deps.instances.createPoolInstance(userOf(req).id, ((req.body ?? {}) as { name?: unknown }).name);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.status(202).json(outcome.value);
   }));
 
   router.get('/mine', asyncRoute(async (req: Request, res: Response) => {

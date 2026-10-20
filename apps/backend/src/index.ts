@@ -83,6 +83,7 @@ import { meshRouter } from './routes/mesh.js';
 import { localAgentsRouter } from './routes/local-agents.js';
 import { pendingApprovalsRouter } from './routes/pending-approvals.js';
 import { startedFor } from './lib/workflow-owner.js';
+import { poolSettingsFrom } from './lib/pool.js';
 import { askDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from './lib/local-agent-registry.js';
 import { MachineService } from './services/MachineService.js';
 import { MachineBundle } from './services/MachineBundle.js';
@@ -833,7 +834,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       chartVersion: await instanceChart.version(),
       domain: routingDomain,
       siteNames,
-    }, headscaleService, () => new Date(), () => instanceRoutes?.changed());
+      pool: (() => {
+        const pool = poolSettingsFrom(process.env, '/tmp/kubeconfig-provisioning-lunorica');
+        return 'off' in pool ? pool : { slots: pool.slots, trialDays: pool.trialDays };
+      })(),
+    }, headscaleService, () => new Date(), () => instanceRoutes?.changed(), async (instanceId, ownerId) => {
+      await temporalBridge.client.workflow.start('PoolInstanceWorkflow', {
+        workflowId: `pool-instance-${instanceId}`,
+        taskQueue: process.env.POOL_TASK_QUEUE || 'host-ops-queue',
+        args: [{ instanceId }],
+        ...startedFor(ownerId),
+      });
+    });
     instanceRoutes?.start();
     app.use('/api/instances', instancesRouter({ instances: instanceService, chart: () => instanceChart.path(), mail }));
     const installer = (await fs.readFile(path.join(repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', PUBLIC_URL);
@@ -1159,6 +1171,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     ...(evalWeb ? { web: evalWeb } : {}),
     kubeconfig: process.env.KUBECONFIG_PATH,
     registryHost: process.env.KOALA_REGISTRY,
+    pushRegistryHost: process.env.KOALA_REGISTRY_PUSH,
     registryAccount: async () => ({
       owner: giteaService.adminUsername,
       ...(await giteaService.getAdminCredentials()),

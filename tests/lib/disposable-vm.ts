@@ -16,7 +16,6 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import fssync from 'fs';
-import os from 'os';
 import path from 'path';
 import net from 'net';
 import { calculateRequiredVmMemoryMB } from './memory-budget.js';
@@ -26,6 +25,7 @@ const execFileAsync = promisify(execFile);
 const CACHE_DIR = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '.vm-cache');
 const BASE_IMAGE_URL = 'https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img';
 const BASE_IMAGE_PATH = path.join(CACHE_DIR, 'ubuntu-22.04-server-cloudimg-amd64.img');
+const WORK_DIR = path.join(CACHE_DIR, '..', '.vm-work');
 
 export interface DisposableVm {
   host: string;
@@ -111,7 +111,8 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
   await checkPrereqs();
   const baseImage = await ensureBaseImage();
 
-  const workDir = await fs.mkdtemp(path.join(os.tmpdir(), `disposable-vm-${name}-`));
+  await fs.mkdir(WORK_DIR, { recursive: true });
+  const workDir = await fs.mkdtemp(path.join(WORK_DIR, `disposable-vm-${name}-`));
   const overlayPath = path.join(workDir, 'disk.qcow2');
   const seedPath = path.join(workDir, 'seed.iso');
   const userDataPath = path.join(workDir, 'user-data.yaml');

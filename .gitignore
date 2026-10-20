@@ -56,6 +56,7 @@ cdktf.out/
 # Cached base cloud image for tests/remote-host-integration.ts's disposable QEMU VM (~600MB,
 # re-downloaded on demand if missing — see tests/lib/disposable-vm.ts)
 /tests/.vm-cache/
+/tests/.vm-work/
 
 # rclone remotes/passwords (contains the crypt password if not using the OS keyring)
 /rclone.conf

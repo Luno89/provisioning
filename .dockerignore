@@ -11,6 +11,7 @@ apps/frontend/dist/
 .test-server-state/
 .test-e2e-state/
 tests/.vm-cache/
+tests/.vm-work/
 test-results/
 backups/
 graphify-out/

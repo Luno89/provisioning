@@ -46,6 +46,12 @@ if [ ! -s "$PASSWORD_FILE" ]; then
 fi
 GITEA_ADMIN_PASSWORD="$(cat "$PASSWORD_FILE")"
 
+SERVICE_ARGS=(--set service.http.type=NodePort --set service.http.nodePort=31737 --set service.ssh.type=NodePort)
+if [ "${POOL:-}" = true ]; then
+  SERVICE_ARGS=(--set service.http.type=ClusterIP --set service.ssh.type=ClusterIP
+    --set-string gitea.config.server.ROOT_URL=http://gitea-http.gitea.svc.cluster.local:3000/)
+fi
+
 echo "  ▶  Ensuring Gitea is installed (helm upgrade --install is a cheap no-op when nothing changed)..."
 "$HELM" repo add gitea-charts https://dl.gitea.com/charts/ >/dev/null 2>&1 || true
 "$HELM" repo update gitea-charts >/dev/null 2>&1
@@ -62,9 +68,7 @@ echo "  ▶  Ensuring Gitea is installed (helm upgrade --install is a cheap no-o
   --set gitea.admin.password="${GITEA_ADMIN_PASSWORD}" \
   --set gitea.admin.email=bot@provisioning.local \
   --set gitea.admin.passwordMode=keepUpdated \
-  --set service.http.type=NodePort \
-  --set service.http.nodePort=31737 \
-  --set service.ssh.type=NodePort \
+  "${SERVICE_ARGS[@]}" \
   --set postgresql.enabled=true \
   --set postgresql-ha.enabled=false \
   --set valkey-cluster.enabled=false \

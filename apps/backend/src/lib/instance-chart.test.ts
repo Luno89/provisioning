@@ -140,4 +140,29 @@ describe('the instance chart', () => {
     expect(find(docs, 'Service', 'luno-edge').spec).toMatchObject({ type: 'NodePort', ports: [{ name: 'edge', port: 80, targetPort: 'edge', nodePort: 30321 }] });
     expect(find(docs, 'Deployment', 'luno-worker-engine').spec.template.spec.containers).toHaveLength(1);
   });
+
+  it('in the pool, never mounts the machine\'s Docker, and reaches Gitea, Infisical and its registry by the addresses a vcluster has', () => {
+    expect(() => render(['pool.enabled=true'])).toThrow(/pool.registryPullHost is required/);
+    const docs = render(['pool.enabled=true', 'pool.registryPullHost=127.0.0.1:35010']);
+    const host = find(docs, 'Deployment', 'luno-worker-host').spec.template.spec;
+    expect(host.volumes.map((volume: { name: string }) => volume.name)).not.toContain('docker-socket');
+    expect(find(docs, 'ConfigMap', 'luno-env').data).toMatchObject({
+      POOL: 'true',
+      GITEA_URL: 'http://gitea-http.gitea.svc.cluster.local:3000',
+      INFISICAL_URL: 'http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080',
+      REGISTRY_PULL_HOST: '127.0.0.1:35010',
+      KOALA_REGISTRY: '127.0.0.1:35010',
+      KOALA_REGISTRY_PUSH: 'gitea-http.gitea.svc.cluster.local:3000',
+    });
+    expect(find(render(), 'ConfigMap', 'luno-env').data).not.toHaveProperty('POOL');
+  });
+
+  it('gives each component the memory and CPU it is given, and none when it is given none', () => {
+    const docs = render(['resources.backend.limits.memory=1Gi', 'resources.mongo.requests.memory=300Mi', 'resources.temporalDb.limits.memory=256Mi', 'resources.temporal.requests.cpu=100m']);
+    expect(find(docs, 'Deployment', 'luno-backend').spec.template.spec.containers[0].resources).toEqual({ limits: { memory: '1Gi' } });
+    expect(find(docs, 'StatefulSet', 'luno-mongo').spec.template.spec.containers[0].resources).toEqual({ requests: { memory: '300Mi' } });
+    expect(find(docs, 'StatefulSet', 'luno-temporal-db').spec.template.spec.containers[0].resources).toEqual({ limits: { memory: '256Mi' } });
+    expect(find(docs, 'Deployment', 'luno-temporal').spec.template.spec.containers[0].resources).toEqual({ requests: { cpu: '100m' } });
+    expect(find(render(), 'Deployment', 'luno-worker-engine').spec.template.spec.containers[0].resources).toBeUndefined();
+  });
 });

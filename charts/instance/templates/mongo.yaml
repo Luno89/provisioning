@@ -27,6 +27,7 @@ spec:
       containers:
         - name: mongo
           image: {{ .Values.mongo.image }}
+          {{- include "instance.resources" (dict "root" . "component" "mongo") | nindent 10 }}
           ports:
             - containerPort: 27017
           env:

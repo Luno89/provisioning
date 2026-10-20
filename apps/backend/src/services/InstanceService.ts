@@ -3,6 +3,7 @@ import type { Database } from '../lib/db-interface.js';
 import { INSTANCE_STATUSES, type InstanceAddresses, type InstanceRecord, type InstanceStatus } from '../lib/instances.js';
 import { nameProblem, suggestedName } from '../lib/instance-names.js';
 import { routeProblem } from '../lib/instance-routes.js';
+import { freePorts } from '../lib/pool.js';
 
 export const JOIN_TOKEN_TTL_SECONDS = 3600;
 
@@ -17,6 +18,13 @@ export interface InstanceSettings {
   chartVersion: string;
   domain?: string | undefined;
   siteNames?: readonly string[] | undefined;
+  pool?: { slots: number; trialDays: number } | { off: string } | undefined;
+}
+
+export interface PoolOffer {
+  available: boolean;
+  reason?: string | undefined;
+  trialDays?: number | undefined;
 }
 
 export interface JoinBundle {
@@ -49,6 +57,7 @@ export class InstanceService {
     private readonly mesh: { createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }> } | undefined,
     private readonly now: () => Date = () => new Date(),
     private readonly routesChanged: () => void = () => {},
+    private readonly startPool: ((instanceId: string, ownerId: string) => Promise<void>) | undefined = undefined,
   ) {}
 
   private async nameFor(ownerId: string, name: unknown): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
@@ -81,6 +90,8 @@ export class InstanceService {
   }
 
   async createJoinToken(ownerId: string, requestedName?: unknown): Promise<Outcome<{ token: string; command: string; expiresAt: string; name: string }>> {
+    const current = (await this.store.getInstances(ownerId))[0];
+    if (current?.pool && current.status !== 'failed') return { ok: false, status: 400, error: 'your instance runs on Koala\'s servers; moving it to your own machine keeps your work, and starting afresh there would not' };
     const named = await this.nameFor(ownerId, requestedName);
     if (!named.ok) return { ok: false, status: 400, error: named.error };
     const token = crypto.randomBytes(24).toString('base64url');
@@ -104,6 +115,52 @@ export class InstanceService {
     });
 
     return { ok: true, value: { token, expiresAt, name: named.name, command: `curl -fsSL ${this.settings.rootUrl}/install.sh | sudo sh -s -- ${token}` } };
+  }
+
+  private async poolRoom(): Promise<{ ok: true; slots: number; trialDays: number; taken: InstanceRecord[] } | { ok: false; reason: string }> {
+    const pool = this.settings.pool;
+    if (!pool || 'off' in pool || !this.startPool) return { ok: false, reason: pool && 'off' in pool ? pool.off : 'this root has no pool' };
+    const taken = (await this.store.getInstances()).filter((entry) => entry.pool && entry.status !== 'failed');
+    return { ok: true, slots: pool.slots, trialDays: pool.trialDays, taken };
+  }
+
+  async poolOffer(ownerId: string): Promise<PoolOffer> {
+    const room = await this.poolRoom();
+    if (!room.ok) return { available: false, reason: room.reason };
+    const own = room.taken.some((entry) => entry.ownerId === ownerId);
+    if (!own && room.taken.length >= room.slots) return { available: false, reason: 'Koala\'s servers are full right now; use your own machine, or try again later', trialDays: room.trialDays };
+    return { available: true, trialDays: room.trialDays };
+  }
+
+  async createPoolInstance(ownerId: string, requestedName?: unknown): Promise<Outcome<{ id: string; name: string; trialEndsAt: string }>> {
+    const room = await this.poolRoom();
+    if (!room.ok) return { ok: false, status: 503, error: room.reason };
+    const existing = (await this.store.getInstances(ownerId))[0];
+    if (existing && existing.status && existing.status !== 'waiting' && existing.status !== 'failed') {
+      return { ok: false, status: 400, error: existing.pool ? 'your instance on Koala\'s servers is already there' : 'you already have Koala on your own machine' };
+    }
+    if (room.taken.length >= room.slots) return { ok: false, status: 503, error: 'Koala\'s servers are full right now; use your own machine, or try again later' };
+    const named = await this.nameFor(ownerId, requestedName);
+    if (!named.ok) return { ok: false, status: 400, error: named.error };
+    const ports = existing?.pool?.ports ?? freePorts((await this.store.getInstances()).flatMap((entry) => (entry.pool ? [entry.pool.ports] : [])));
+    if (!ports) return { ok: false, status: 503, error: 'Koala\'s servers have no ports left for another instance' };
+    const now = this.now();
+    const trialEndsAt = new Date(now.getTime() + room.trialDays * 86_400_000).toISOString();
+    const instanceId = instanceIdFor(ownerId);
+    await this.store.saveInstance({
+      id: instanceId,
+      ownerId,
+      url: '',
+      createdAt: existing?.createdAt ?? now.toISOString(),
+      updatedAt: now.toISOString(),
+      status: 'installing',
+      detail: 'Making your space on Koala\'s servers',
+      name: named.name,
+      ...(existing?.addresses ? { addresses: existing.addresses } : {}),
+      pool: { ports, startedAt: now.toISOString(), trialEndsAt },
+    });
+    await this.startPool!(instanceId, ownerId);
+    return { ok: true, value: { id: instanceId, name: named.name, trialEndsAt } };
   }
 
   async join(token: unknown, machine: unknown): Promise<Outcome<JoinBundle>> {
@@ -187,9 +244,9 @@ export class InstanceService {
     return { ok: true, value: saved };
   }
 
-  async mine(ownerId: string): Promise<{ id: string; status: InstanceStatus; detail?: string | undefined; url: string; name?: string | undefined } | null> {
+  async mine(ownerId: string): Promise<{ id: string; status: InstanceStatus; detail?: string | undefined; url: string; name?: string | undefined; trialEndsAt?: string | undefined } | null> {
     const instance = (await this.store.getInstances(ownerId))[0];
-    return instance ? { id: instance.id, status: instance.status ?? (instance.url ? 'ready' : 'waiting'), detail: instance.detail, url: instance.url, name: instance.name } : null;
+    return instance ? { id: instance.id, status: instance.status ?? (instance.url ? 'ready' : 'waiting'), detail: instance.detail, url: instance.url, name: instance.name, ...(instance.pool ? { trialEndsAt: instance.pool.trialEndsAt } : {}) } : null;
   }
 
   async ownerOf(instanceId: unknown, credential: unknown): Promise<Outcome<{ ownerId: string }>> {

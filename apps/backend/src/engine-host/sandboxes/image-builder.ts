@@ -1,6 +1,7 @@
 import { imageReference, needsBuilding, renderDockerfile, type ImagePlan } from '@koala/agent-engine';
 import type { KubeRunner } from './kube.js';
 import { assessWorkload } from '../../lib/workload-health.js';
+import { forPushing, kanikoRegistryArgs, registryAuths, type RegistryHosts } from '../../lib/registry-hosts.js';
 
 export const BUILD_NAMESPACE = 'pipeline-builds';
 
@@ -69,6 +70,7 @@ export interface RegistryAccount {
 export interface ImageBuilderOptions {
   run: KubeRunner;
   registry?: string | undefined;
+  pushRegistry?: string | undefined;
   namespace?: string | undefined;
   pollMs?: number | undefined;
   published?: ((reference: string) => Promise<boolean>) | undefined;
@@ -76,10 +78,8 @@ export interface ImageBuilderOptions {
   pushToken?: (() => Promise<{ username: string; password: string }>) | undefined;
 }
 
-export function dockerConfigFor(host: string, login: { username: string; password: string }): string {
-  return JSON.stringify({
-    auths: { [host]: { auth: Buffer.from(`${login.username}:${login.password}`).toString('base64') } },
-  });
+export function dockerConfigFor(hosts: RegistryHosts, login: { username: string; password: string }): string {
+  return JSON.stringify({ auths: registryAuths(hosts, Buffer.from(`${login.username}:${login.password}`).toString('base64')) });
 }
 
 export type ImageState = 'ready' | 'building' | 'failed' | 'unbuilt';
@@ -119,6 +119,7 @@ function buildManifests(input: {
   plan: ImagePlan;
   namespace: string;
   reference: string;
+  hosts: RegistryHosts;
   dockerConfigJson?: string | undefined;
 }): Record<string, unknown>[] {
   const name = jobName(input.plan);
@@ -158,12 +159,13 @@ function buildManifests(input: {
                 args: [
                   '--context=dir:///workspace',
                   '--dockerfile=/workspace/Dockerfile',
-                  `--destination=${input.reference}`,
+                  `--destination=${forPushing(input.reference, input.hosts)}`,
                   '--insecure',
                   '--insecure-pull',
                   '--skip-tls-verify',
                   '--compressed-caching=false',
                   '--snapshot-mode=redo',
+                  ...kanikoRegistryArgs(input.hosts),
                 ],
                 volumeMounts: [
                   { name: 'workspace', mountPath: '/workspace' },
@@ -203,6 +205,11 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
     return found;
   };
 
+  const hosts = async (): Promise<RegistryHosts> => {
+    const pull = await registry();
+    return { pull, push: options.pushRegistry ?? pull };
+  };
+
   const account = async (): Promise<RegistryAccount | undefined> => options.account?.();
 
   const target = async (plan: ImagePlan): Promise<string> =>
@@ -213,7 +220,7 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
     const login = await account();
     const path = reference.slice(reference.indexOf('/') + 1, reference.lastIndexOf(':'));
     const response = await fetch(
-      `http://${await registry()}/v2/${path}/manifests/${tag}`,
+      `http://${(await hosts()).push}/v2/${path}/manifests/${tag}`,
       {
         method: 'HEAD',
         headers: {
@@ -231,9 +238,10 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
 
   const apply = async (plan: ImagePlan, reference: string): Promise<void> => {
     const push = await (options.pushToken ?? options.account)?.();
-    const dockerConfigJson = push ? dockerConfigFor(await registry(), push) : undefined;
+    const registryHosts = await hosts();
+    const dockerConfigJson = push ? dockerConfigFor(registryHosts, push) : undefined;
     const manifests = buildManifests({
-      plan, namespace, reference, ...(dockerConfigJson ? { dockerConfigJson } : {}),
+      plan, namespace, reference, hosts: registryHosts, ...(dockerConfigJson ? { dockerConfigJson } : {}),
     });
     const doc = manifests.map((manifest) => JSON.stringify(manifest)).join('\n---\n');
     const applied = await run(['apply', '-f', '-'], doc);

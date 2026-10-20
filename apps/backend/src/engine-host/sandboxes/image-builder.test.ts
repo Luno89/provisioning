@@ -86,6 +86,32 @@ describe('building what does', () => {
     expect(applied).toContain('"requests":{"cpu":"250m","memory":"1Gi"},"limits":{"cpu":"2","memory":"10Gi"}');
   });
 
+  it('in a pool instance, names the image for the node to pull, but pushes, signs in and checks where the builds reach', async () => {
+    const { run, calls } = kube();
+    const asked: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      asked.push(String(url));
+      return new Response(null, { status: calls.some((call) => call.args[0] === 'apply') ? 200 : 404 });
+    });
+    try {
+      const build = createImageBuilder({
+        run, registry: '127.0.0.1:35010', pushRegistry: 'gitea-http.gitea.svc.cluster.local:3000', pollMs: 1,
+        pushToken: async () => ({ username: 'bot', password: 'token' }),
+      });
+      const reference = await build.ensure(CUSTOM);
+
+      expect(reference).toBe(imageReference('127.0.0.1:35010', CUSTOM));
+      const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
+      expect(applied).toContain(`--destination=${imageReference('gitea-http.gitea.svc.cluster.local:3000', CUSTOM)}`);
+      expect(applied).toContain('--registry-map=127.0.0.1:35010=gitea-http.gitea.svc.cluster.local:3000');
+      const config = JSON.parse(JSON.parse(applied.split('\n---\n')[0]!).stringData['.dockerconfigjson']);
+      expect(Object.keys(config.auths).sort()).toEqual(['127.0.0.1:35010', 'gitea-http.gitea.svc.cluster.local:3000']);
+      expect(asked.every((url) => url.startsWith('http://gitea-http.gitea.svc.cluster.local:3000/v2/'))).toBe(true);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it('ships the Dockerfile with the job rather than needing a checkout', async () => {
     const { run, calls } = kube();
     await createImageBuilder({ run, registry: REGISTRY, pollMs: 1, published: servedAfterApply(calls) }).ensure(CUSTOM);

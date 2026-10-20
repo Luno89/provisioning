@@ -112,6 +112,9 @@ if "$KUBECTL" --context "$CONTEXT" get validatingwebhookconfiguration "$WEBHOOK"
   fi
 fi
 
+SERVICE_ARGS=(--set infisical.service.type=NodePort --set infisical.service.nodePort=31738)
+[ "${POOL:-}" = true ] && SERVICE_ARGS=(--set infisical.service.type=ClusterIP)
+
 echo "  ▶  Deploying Infisical Standalone (helm upgrade --install is a cheap no-op when nothing changed)..."
 # No --wait: the chart's post-install hook job (ingress-nginx admission webhook patch) hangs
 # on slow environments, which makes Helm report "failed" even though every pod is healthy.
@@ -124,8 +127,7 @@ echo "  ▶  Deploying Infisical Standalone (helm upgrade --install is a cheap n
   --set backendEnvironmentVariables.ENCRYPTION_KEY="${INFISICAL_ENCRYPTION_KEY}" \
   --set backendEnvironmentVariables.AUTH_SECRET="${INFISICAL_AUTH_SECRET}" \
   --set backendEnvironmentVariables.ADMIN_PASSWORD="${INFISICAL_ADMIN_PASSWORD}" \
-  --set infisical.service.type=NodePort \
-  --set infisical.service.nodePort=31738 \
+  "${SERVICE_ARGS[@]}" \
   --set postgresql.enabled=true \
   --set postgresql.auth.password="${INFISICAL_POSTGRES_PASSWORD}" \
   --set redis.enabled=true \

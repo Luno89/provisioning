@@ -122,6 +122,7 @@ export interface EngineHostOptions {
   web?: WebTools | undefined;
   kubeconfig?: string | undefined;
   registryHost?: string | undefined;
+  pushRegistryHost?: string | undefined;
   registryAccount?: (() => Promise<RegistryAccount>) | undefined;
   registryPushToken?: (() => Promise<{ username: string; password: string }>) | undefined;
   onSandbox?: ((driver: EnvironmentDriver, ticket: RunTicket) => Promise<void>) | undefined;
@@ -221,6 +222,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
   const images = createImageBuilder({
     run: kube,
     ...(options.registryHost ? { registry: options.registryHost } : {}),
+    ...(options.pushRegistryHost ? { pushRegistry: options.pushRegistryHost } : {}),
     ...(options.registryAccount ? { account: options.registryAccount } : {}),
     ...(options.registryPushToken ? { pushToken: options.registryPushToken } : {}),
   });
@@ -494,7 +496,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
   let registryAddress: string | undefined;
   const registryPackages = registryAccount
     ? createRegistryPackages({
-      registry: async () => (registryAddress ??= options.registryHost ?? await discoverRegistry(kube)),
+      registry: async () => (registryAddress ??= options.pushRegistryHost ?? options.registryHost ?? await discoverRegistry(kube)),
       account: registryAccount,
     })
     : undefined;

@@ -5,6 +5,7 @@ export interface RoutedInstance {
   name: string;
   meshIp: string;
   nested: boolean;
+  ports?: { backend: number; edge: number } | undefined;
 }
 
 export interface InstanceRouteFiles {
@@ -34,8 +35,8 @@ export const nestedSiteOf = (name: string, domain: string): string => `*.${name}
 export function instanceRouteFiles(instance: RoutedInstance, domain: string): InstanceRouteFiles {
   const problem = routeProblem(instance);
   if (problem) throw new Error(problem);
-  const backend = `${instance.meshIp}:${INSTANCE_BACKEND_PORT}`;
-  const edge = `${instance.meshIp}:${INSTANCE_EDGE_PORT}`;
+  const backend = `${instance.meshIp}:${instance.ports?.backend ?? INSTANCE_BACKEND_PORT}`;
+  const edge = `${instance.meshIp}:${instance.ports?.edge ?? INSTANCE_EDGE_PORT}`;
   const handles = [
     `@instance_${instance.name} host ${instance.name}.${domain}`,
     `handle @instance_${instance.name} {`,
@@ -58,6 +59,7 @@ export interface RoutableRecord {
   meshIp?: string | undefined;
   status?: string | undefined;
   addresses?: { nested: boolean } | undefined;
+  pool?: { ports: { backend: number; edge: number } } | undefined;
 }
 
 export interface WantedRoutes {
@@ -70,7 +72,7 @@ export function wantedRoutes(records: readonly RoutableRecord[], domain: string)
   const sites = new Map<string, string>();
   for (const record of records) {
     if (!record.name || !record.meshIp || record.status !== 'ready') continue;
-    const instance = { name: record.name, meshIp: record.meshIp, nested: record.addresses?.nested ?? false };
+    const instance = { name: record.name, meshIp: record.meshIp, nested: record.addresses?.nested ?? false, ...(record.pool ? { ports: record.pool.ports } : {}) };
     if (routeProblem(instance)) continue;
     const files = instanceRouteFiles(instance, domain);
     handles.set(`${record.name}.caddy`, files.handles);

@@ -26,6 +26,14 @@ data:
   EDGE_ADMIN_URL: http://localhost:2019
   EDGE_CADDYFILE: /etc/edge/Caddyfile
   {{- end }}
+  {{- if .Values.pool.enabled }}
+  POOL: "true"
+  GITEA_URL: http://gitea-http.gitea.svc.cluster.local:3000
+  INFISICAL_URL: http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080
+  REGISTRY_PULL_HOST: {{ required "pool.registryPullHost is required in a pool instance" .Values.pool.registryPullHost | quote }}
+  KOALA_REGISTRY: {{ .Values.pool.registryPullHost | quote }}
+  KOALA_REGISTRY_PUSH: gitea-http.gitea.svc.cluster.local:3000
+  {{- end }}
   SEARXNG_URL: http://searxng.searxng.svc.cluster.local:8080
   CRAWL4AI_URL: http://crawl4ai.crawl4ai.svc.cluster.local:11235
   KUBECONFIG_PATH: /tmp/kubeconfig-provisioning-lunorica

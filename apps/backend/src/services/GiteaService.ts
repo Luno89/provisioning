@@ -6,6 +6,7 @@ import fs from 'fs/promises';
 import { promisify } from 'util';
 import { encryptValue, decryptValue, type SecretKey } from '../lib/crypto.js';
 import type { InfrastructureService } from './InfrastructureService.js';
+import { registryHosts, type RegistryHosts } from '../lib/registry-hosts.js';
 
 const run = promisify(execFile);
 
@@ -44,6 +45,10 @@ export class GiteaService {
 
   private async resolveBaseUrl(): Promise<string> {
     if (this.baseUrlCache) return this.baseUrlCache;
+    if (process.env.GITEA_URL?.trim()) {
+      this.baseUrlCache = process.env.GITEA_URL.trim().replace(/\/+$/, '');
+      return this.baseUrlCache;
+    }
 
     const svcJson = await this.infra.runKubectl(
       ['get', 'svc', 'gitea-http', '-n', NAMESPACE, '-o', 'json'],
@@ -839,7 +844,10 @@ export class GiteaService {
   }
 
   async getRegistryHost(): Promise<string> {
-    const baseUrl = await this.resolveBaseUrl();
-    return baseUrl.replace(/^https?:\/\//, '');
+    return (await this.getRegistryHosts()).pull;
+  }
+
+  async getRegistryHosts(): Promise<RegistryHosts> {
+    return registryHosts(await this.resolveBaseUrl(), process.env.REGISTRY_PULL_HOST);
   }
 }

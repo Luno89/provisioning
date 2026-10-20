@@ -27,6 +27,7 @@ spec:
       containers:
         - name: postgres
           image: {{ .Values.temporal.postgresImage }}
+          {{- include "instance.resources" (dict "root" . "component" "temporalDb") | nindent 10 }}
           ports:
             - containerPort: 5432
           env:
@@ -90,6 +91,7 @@ spec:
       containers:
         - name: temporal
           image: {{ .Values.temporal.image }}
+          {{- include "instance.resources" (dict "root" . "component" "temporal") | nindent 10 }}
           ports:
             - containerPort: 7233
               {{- if .Values.mesh.address }}

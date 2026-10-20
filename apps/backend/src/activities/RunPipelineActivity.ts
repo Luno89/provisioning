@@ -10,6 +10,7 @@ import { ApplicationFailure } from '@temporalio/common';
 import { buildPlanAt, isCommitSha } from '../lib/build-plan.js';
 import { buildArgEntries } from '../lib/pipeline-config.js';
 import { loadKeys } from '../lib/keys.js';
+import { forPushing, kanikoRegistryArgs, registryAuths } from '../lib/registry-hosts.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -67,8 +68,8 @@ export async function RunPipelineActivity(args: RunPipelineArgs): Promise<RunPip
   const runSlug = (args.runId ?? Math.random().toString(36).slice(2)).replace(/[^a-z0-9]/gi, '').slice(-8).toLowerCase();
   const jobName = `build-${args.giteaRepo}-${args.commitSha.slice(0, 8)}-${runSlug}`
     .toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 63);
-  const registryHost = await gitea.getRegistryHost();
-  const imageTag = `${registryHost}/${args.giteaOwner}/${args.giteaRepo}:${args.commitSha}`;
+  const registry = await gitea.getRegistryHosts();
+  const imageTag = `${registry.pull}/${args.giteaOwner}/${args.giteaRepo}:${args.commitSha}`;
   const gitSecretName = `${jobName}-git-auth`;
   const registrySecretName = `${jobName}-registry-auth`;
 
@@ -88,9 +89,7 @@ export async function RunPipelineActivity(args: RunPipelineArgs): Promise<RunPip
 
   const deployToken = await gitea.createDeployToken();
   const authBasic = Buffer.from(`${gitea.adminUsername}:${deployToken.token}`).toString('base64');
-  const dockerConfigJson = JSON.stringify({
-    auths: { [registryHost]: { auth: Buffer.from(`${gitea.adminUsername}:${deployToken.token}`).toString('base64') } },
-  });
+  const dockerConfigJson = JSON.stringify({ auths: registryAuths(registry, authBasic) });
 
   const manifest = `
 apiVersion: v1
@@ -132,7 +131,7 @@ spec:
             - secretRef: { name: ${gitSecretName} }
           command: ["sh", "-c"]
           args:
-            - "git -c http.extraHeader=\\"Authorization: Basic ${'$'}{GIT_AUTH_BASIC}\\" clone --branch ${args.ref} --single-branch http://${registryHost}/${args.giteaOwner}/${args.giteaRepo}.git /workspace && git -C /workspace checkout -q ${args.commitSha}"
+            - "git -c http.extraHeader=\\"Authorization: Basic ${'$'}{GIT_AUTH_BASIC}\\" clone --branch ${args.ref} --single-branch http://${registry.push}/${args.giteaOwner}/${args.giteaRepo}.git /workspace && git -C /workspace checkout -q ${args.commitSha}"
           volumeMounts:
             - { name: workspace, mountPath: /workspace }
       containers:
@@ -141,10 +140,10 @@ spec:
           args:
             - "--context=${yamlDoubleQuoted(workspacePath(pipeline.config?.context))}"
             - "--dockerfile=${yamlDoubleQuoted(workspacePath(dockerfilePath))}"
-            - "--destination=${imageTag}"
+            - "--destination=${forPushing(imageTag, registry)}"
             - "--insecure"
             - "--insecure-pull"
-            - "--skip-tls-verify"${buildArgFlags.length ? '\n' + buildArgFlags.map((f) => `            - "${f}"`).join('\n') : ''}
+            - "--skip-tls-verify"${kanikoRegistryArgs(registry).map((arg) => `\n            - "${arg}"`).join('')}${buildArgFlags.length ? '\n' + buildArgFlags.map((f) => `            - "${f}"`).join('\n') : ''}
           volumeMounts:
             - { name: workspace, mountPath: /workspace }
             - { name: docker-config, mountPath: /kaniko/.docker }

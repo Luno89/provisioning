@@ -20,6 +20,7 @@
   // against the running binary with `headscale policy check`, not assumed.
   "tagOwners": {
     "tag:platform": ["platform-root@"],
+    "tag:pool": ["platform-root@"],
   },
 
   "acls": [
@@ -46,6 +47,15 @@
     {
       "action": "accept",
       "src": ["autogroup:member"],
+      "dst": ["tag:platform:5001"],
+    },
+
+    // A pool node (a cluster where people's trial instances run, root's own or a server of its own) pulls
+    // the app image from root's registry and nothing else. The platform reaches it by the first rule;
+    // no member reaches it, since each instance on it is reached only through root's Caddy.
+    {
+      "action": "accept",
+      "src": ["tag:pool"],
       "dst": ["tag:platform:5001"],
     },
   ],

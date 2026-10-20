@@ -139,3 +139,66 @@ describe('an instance\'s name and addresses', () => {
     expect(await new InstanceService(db, { ...settings, domain: undefined }, mesh, () => now).addresses(instanceId, credential)).toMatchObject({ ok: false, status: 503 });
   });
 });
+
+describe('a trial instance on Koala\'s servers', () => {
+  let started: Array<{ instanceId: string; ownerId: string }>;
+  const pooled = (pool: { slots: number; trialDays: number } | { off: string } = { slots: 2, trialDays: 14 }) => {
+    started = [];
+    return new InstanceService(db, { ...settings, pool }, mesh, () => now, () => {}, async (instanceId, ownerId) => { started.push({ instanceId, ownerId }); });
+  };
+
+  it('is offered while the pool has room, with how long the trial lasts', async () => {
+    expect(await pooled().poolOffer('u1')).toEqual({ available: true, trialDays: 14 });
+    expect(await pooled({ off: 'this root has no pool (POOL_ADDRESS is not set)' }).poolOffer('u1')).toEqual({ available: false, reason: 'this root has no pool (POOL_ADDRESS is not set)' });
+    expect(await service.poolOffer('u1')).toEqual({ available: false, reason: 'this root has no pool' });
+  });
+
+  it('is made under the name picked, with ports of its own and a trial that ends after the trial days, and its install started', async () => {
+    const pool = pooled();
+    const made = await pool.createPoolInstance('u1', 'alice');
+    expect(made).toEqual({ ok: true, value: { id: instanceIdFor('u1'), name: 'alice', trialEndsAt: '2026-10-16T12:00:00.000Z' } });
+    expect(started).toEqual([{ instanceId: instanceIdFor('u1'), ownerId: 'u1' }]);
+    const record = (await db.getInstances('u1'))[0]!;
+    expect(record).toMatchObject({ status: 'installing', name: 'alice', pool: { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: now.toISOString() } });
+    expect(await pool.mine('u1')).toMatchObject({ status: 'installing', trialEndsAt: '2026-10-16T12:00:00.000Z' });
+
+    expect(await pool.createPoolInstance('u2', 'bob')).toMatchObject({ ok: true });
+    expect((await db.getInstances('u2'))[0]!.pool!.ports.backend).toBe(35003);
+  });
+
+  it('says when the pool is full, and lets nobody past it, though someone already in it is still offered theirs', async () => {
+    const pool = pooled({ slots: 1, trialDays: 14 });
+    await pool.createPoolInstance('u1', 'alice');
+    expect(await pool.poolOffer('u2')).toMatchObject({ available: false, reason: expect.stringContaining('full') });
+    expect(await pool.createPoolInstance('u2', 'bob')).toMatchObject({ ok: false, status: 503 });
+    expect(await pool.poolOffer('u1')).toMatchObject({ available: true });
+  });
+
+  it('refuses someone who already has Koala on their own machine, a name that is taken, and a second one', async () => {
+    const pool = pooled();
+    const { token } = await tokenFor('u1', 'luno');
+    await service.join(token, 'desk');
+    expect(await pool.createPoolInstance('u1', 'luno')).toEqual({ ok: false, status: 400, error: 'you already have Koala on your own machine' });
+    expect(await pool.createPoolInstance('u2', 'luno')).toMatchObject({ ok: false, status: 400, error: '"luno" is taken' });
+    await pool.createPoolInstance('u3', 'carol');
+    expect(await pool.createPoolInstance('u3', 'carol')).toMatchObject({ ok: false, error: 'your instance on Koala\'s servers is already there' });
+  });
+
+  it('can be tried again after its install failed, keeping its ports and freeing its slot meanwhile', async () => {
+    const pool = pooled({ slots: 1, trialDays: 14 });
+    await pool.createPoolInstance('u1', 'alice');
+    const record = (await db.getInstances('u1'))[0]!;
+    await db.saveInstance({ ...record, status: 'failed', detail: 'no gVisor' });
+    expect(await pool.poolOffer('u2')).toMatchObject({ available: true });
+    expect(await pool.createPoolInstance('u1', 'alice')).toMatchObject({ ok: true });
+    expect((await db.getInstances('u1'))[0]!.pool!.ports).toEqual(record.pool!.ports);
+    expect(started).toHaveLength(2);
+  });
+
+  it('is never replaced by a join command for a machine, which would lose it', async () => {
+    const pool = pooled();
+    await pool.createPoolInstance('u1', 'alice');
+    expect(await pool.createJoinToken('u1', 'alice')).toMatchObject({ ok: false, status: 400, error: expect.stringContaining('moving it to your own machine keeps your work') });
+    expect((await db.getInstances('u1'))[0]!.pool).toBeDefined();
+  });
+});

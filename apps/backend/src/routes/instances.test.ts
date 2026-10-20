@@ -1,9 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import axios from 'axios';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { bundleAsEnv } from './instances.js';
+import { bundleAsEnv, instancesRouter } from './instances.js';
+import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
+import { InstanceService } from '../services/InstanceService.js';
 
 describe('what the installer sources', () => {
   it('reads back every value exactly in a POSIX shell, whatever characters it holds', () => {
@@ -19,5 +22,34 @@ describe('what the installer sources', () => {
 
     expect(out.split('\n').slice(0, 2)).toEqual([bundle.preAuthKey, bundle.credential]);
     expect(out.split('\n').slice(2).join('\n')).toBe(bundle.rootPublicKeys);
+  });
+});
+
+describe('trying Koala on its own servers', () => {
+  let harness: Harness | undefined;
+  afterEach(async () => { await harness?.close(); });
+
+  it('offers the pool to someone signed in, and starts their trial instance under the name they pick', async () => {
+    const started: string[] = [];
+    harness = await mountRouter({
+      prefix: '/api/instances',
+      user: TEST_USER,
+      router: (db) => instancesRouter({
+        instances: new InstanceService(db, {
+          rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', chartVersion: '1', domain: 'koala.dev',
+          pool: { slots: 1, trialDays: 14 },
+        }, undefined, () => new Date('2026-10-20T00:00:00Z'), () => {}, async (instanceId) => { started.push(instanceId); }),
+        chart: async () => '',
+      }),
+    });
+    const call = (method: 'get' | 'post', path: string, data?: unknown) => axios.request({ method, url: harness!.url(path), data, validateStatus: () => true });
+
+    expect((await call('get', '/api/instances/pool')).data).toEqual({ available: true, trialDays: 14 });
+    expect((await call('post', '/api/instances/pool', { name: 'no-dashes' })).status).toBe(400);
+    const made = await call('post', '/api/instances/pool', { name: 'alice' });
+    expect(made.status).toBe(202);
+    expect(made.data).toMatchObject({ name: 'alice', trialEndsAt: '2026-11-03T00:00:00.000Z' });
+    expect(started).toHaveLength(1);
+    expect((await call('get', '/api/instances/mine')).data.instance).toMatchObject({ status: 'installing', name: 'alice', trialEndsAt: '2026-11-03T00:00:00.000Z' });
   });
 });

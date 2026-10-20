@@ -20,3 +20,11 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
 {{- define "instance.image" -}}{{ .Values.image.repository }}:{{ .Values.image.tag }}{{- end -}}
+
+{{- define "instance.resources" -}}
+{{- with index .root.Values.resources .component }}
+resources: {{- toYaml . | nindent 2 }}
+{{- end -}}
+{{- end -}}
+
+{{- define "instance.hostDocker" -}}{{ if and .Values.hostDocker (not .Values.pool.enabled) }}true{{ end }}{{- end -}}
