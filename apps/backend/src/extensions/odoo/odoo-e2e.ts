@@ -1,3 +1,4 @@
+import { E2E_IGNORED } from '../../lib/e2e.js';
 import { E2E_LOGIN, LOGIN_SCRIPT } from '../../lib/release-e2e.js';
 
 export const ODOO_E2E_HELPERS_AT = '/usr/local/share/koala/odoo.ts';
@@ -112,6 +113,7 @@ export const ODOO_E2E_SCRIPT = [
   "  fi",
   "  touch \"$state/login\"",
   "fi",
+  E2E_IGNORED,
   "mkdir -p \"$PWD/e2e-results\"",
   "rm -rf \"$PWD/e2e-results/artifacts\"",
   "status=0",

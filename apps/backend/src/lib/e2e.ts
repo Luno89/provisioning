@@ -6,6 +6,7 @@ export const E2E_ROOT = 'e2e-results';
 export const E2E_REPORT = `${E2E_ROOT}/report.json`;
 export const E2E_DEFAULT_SPECS = ['e2e'];
 export const E2E_RUNNER_MISSING = 127;
+export const E2E_IGNORED = `exclude="$(git rev-parse --git-path info/exclude 2>/dev/null)" && { grep -qx '${E2E_ROOT}/' "$exclude" 2>/dev/null || { mkdir -p "$(dirname "$exclude")" && echo '${E2E_ROOT}/' >> "$exclude"; }; } || true`;
 
 export type E2ETestStatus = 'passed' | 'failed' | 'flaky' | 'skipped';
 
@@ -65,7 +66,7 @@ export function e2eRequestOf(raw: unknown): E2ERequest | undefined {
 
 export function e2eCommand(request: E2ERequest): string {
   const specs = request.specs.map(quote).join(' ');
-  const fresh = `rm -rf ${E2E_ROOT} && mkdir -p ${E2E_ROOT}`;
+  const fresh = `{ ${E2E_IGNORED}; } && rm -rf ${E2E_ROOT} && mkdir -p ${E2E_ROOT}`;
   if (!request.url) return `${fresh} && ${E2E_RUNNER} ${specs}`;
   return [
     `command -v playwright >/dev/null || exit ${E2E_RUNNER_MISSING};`,

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { runTaskChecks, checksFailed, checkReport, type CheckEnvironment } from './task-checks.js';
+import { E2E_IGNORED } from './e2e.js';
 import { PLAYWRIGHT_REPORT } from './e2e-fixtures.js';
 
 interface Reply { stdout?: string; stderr?: string; exitCode?: number }
@@ -163,7 +164,7 @@ describe('browser tests a task carries', () => {
     const timeouts: (number | undefined)[] = [];
     const outcomes = await runTaskChecks({ ...world, exec: (command, timeoutMs) => { timeouts.push(timeoutMs); return world.exec(command); } }, { e2e: { specs: ['e2e/a.spec.ts'] } });
 
-    expect(world.ran[0]).toBe(`rm -rf e2e-results && mkdir -p e2e-results && koala-e2e 'e2e/a.spec.ts'`);
+    expect(world.ran[0]).toBe(`{ ${E2E_IGNORED}; } && rm -rf e2e-results && mkdir -p e2e-results && koala-e2e 'e2e/a.spec.ts'`);
     expect(timeouts).toEqual([undefined]);
     expect(outcomes).toEqual([
       { check: 'the browser tests in e2e/a.spec.ts pass against the workspace\'s own app', passed: true, says: '1 passed, 0 failed' },

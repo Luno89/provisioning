@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { E2E_IGNORED } from '../../lib/e2e.js';
 import { E2E_LOGIN, LOGIN_SCRIPT } from '../../lib/release-e2e.js';
 import { ODOO_E2E_SCRIPT } from './odoo-e2e.js';
 
@@ -12,6 +13,11 @@ describe('odoo-e2e', () => {
     expect(ODOO_E2E_SCRIPT).not.toContain('ODOO_LOGIN=admin');
     expect(ODOO_E2E_SCRIPT).toContain(LOGIN_SCRIPT);
     expect(ODOO_E2E_SCRIPT.indexOf('the test login is ready')).toBeLessThan(ODOO_E2E_SCRIPT.indexOf('playwright test'));
+  });
+
+  it('keeps its results out of git before it writes them', () => {
+    expect(ODOO_E2E_SCRIPT.indexOf(E2E_IGNORED)).toBeGreaterThan(-1);
+    expect(ODOO_E2E_SCRIPT.indexOf(E2E_IGNORED)).toBeLessThan(ODOO_E2E_SCRIPT.indexOf('mkdir -p "$PWD/e2e-results"'));
   });
 
   it('is a script sh can read', () => {

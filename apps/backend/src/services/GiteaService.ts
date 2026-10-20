@@ -307,6 +307,9 @@ export class GiteaService {
       '.DS_Store',
       '*.log',
       '',
+      '# Browser test results, kept by Koala on the run and the release',
+      'e2e-results/',
+      '',
     ].join('\n');
 
     await this.ensureFile(username, name, '.gitignore', content, 'Add .gitignore');

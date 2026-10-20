@@ -1,6 +1,10 @@
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { PLAYWRIGHT_REPORT } from './e2e-fixtures.js';
-import { e2eCommand, e2ePassed, e2eRequestOf, e2eSummary, e2eUrlProblem, PAGE_AT_FAILURE, readE2EReport } from './e2e.js';
+import { E2E_IGNORED, e2eCommand, e2ePassed, e2eRequestOf, e2eSummary, e2eUrlProblem, PAGE_AT_FAILURE, readE2EReport } from './e2e.js';
 
 describe('what a browser test check asks for', () => {
   it('reads specs as a list, a string or nothing, defaulting to the e2e folder', () => {
@@ -23,7 +27,7 @@ describe('what a browser test check asks for', () => {
 
 describe('the command a browser test check runs', () => {
   it('asks the workspace image to serve its own app, starting from clean results', () => {
-    expect(e2eCommand({ specs: ['e2e/it\'s.spec.ts'] })).toBe(`rm -rf e2e-results && mkdir -p e2e-results && koala-e2e 'e2e/it'\\''s.spec.ts'`);
+    expect(e2eCommand({ specs: ['e2e/it\'s.spec.ts'] })).toBe(`{ ${E2E_IGNORED}; } && rm -rf e2e-results && mkdir -p e2e-results && koala-e2e 'e2e/it'\\''s.spec.ts'`);
   });
 
   it('runs Playwright straight at an address, saying so when there is no Playwright', () => {
@@ -75,5 +79,36 @@ describe('what the page showed when a browser test failed', () => {
 
   it('is left off a test that passed', () => {
     expect(readE2EReport(report(outline, 'expected'))!.tests[0]!.page).toBeUndefined();
+  });
+});
+
+describe('browser test results never become a commit', () => {
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' });
+  const resultsIn = (cwd: string) => {
+    mkdirSync(path.join(cwd, 'e2e-results', 'artifacts'), { recursive: true });
+    writeFileSync(path.join(cwd, 'e2e-results', 'report.json'), '{}');
+  };
+
+  it('keeps e2e-results out of git in the repository and in a worktree of it, once however often it runs', () => {
+    const repo = mkdtempSync(path.join(tmpdir(), 'e2e-ignored-'));
+    git(repo, 'init', '--quiet', '-b', 'main');
+    writeFileSync(path.join(repo, 'README.md'), 'x');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '--quiet', '-m', 'start');
+    const tree = path.join(repo, '..', `${path.basename(repo)}-leaf`);
+    git(repo, 'worktree', 'add', '--quiet', tree);
+
+    for (const cwd of [repo, tree, repo]) {
+      execFileSync('sh', ['-c', E2E_IGNORED], { cwd });
+      resultsIn(cwd);
+      git(cwd, 'add', '-A');
+      expect(git(cwd, 'status', '--porcelain')).toBe('');
+    }
+    expect(readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8').split('\n').filter((line) => line === 'e2e-results/')).toHaveLength(1);
+  });
+
+  it('does nothing outside a repository', () => {
+    const plain = mkdtempSync(path.join(tmpdir(), 'e2e-plain-'));
+    expect(() => execFileSync('sh', ['-c', `set -e; ${E2E_IGNORED}`], { cwd: plain })).not.toThrow();
   });
 });

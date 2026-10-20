@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { NodeRequest } from '@koala/agent-engine/procedure';
 import type { EnvironmentDriver, ExecResult } from '@koala/engine-core';
 import { createPlatformOperations, type PlatformOperationDeps } from './handlers.js';
+import { E2E_IGNORED } from '../../../lib/e2e.js';
 import { PLAYWRIGHT_REPORT } from '../../../lib/e2e-fixtures.js';
 
 const PASSING = JSON.stringify({ suites: [{ title: 'a.spec.ts', file: 'a.spec.ts', specs: [{ title: 'signs in', file: 'a.spec.ts', tests: [{ status: 'expected', results: [{ status: 'passed', duration: 900 }] }] }] }], errors: [] });
@@ -69,7 +70,7 @@ describe('Run Browser Tests', () => {
 
     expect(result.exit).toBe('passed');
     expect(result.outputs).toMatchObject({ summary: '1 passed, 0 failed', artifacts: [], report: { passed: 1, failed: 0 } });
-    expect(ran[0]).toEqual({ command: `rm -rf e2e-results && mkdir -p e2e-results && koala-e2e 'e2e/a.spec.ts'`, timeoutMs: undefined });
+    expect(ran[0]).toEqual({ command: `{ ${E2E_IGNORED}; } && rm -rf e2e-results && mkdir -p e2e-results && koala-e2e 'e2e/a.spec.ts'`, timeoutMs: undefined });
     expect(asked[0]).toMatchObject({ ticket: { runId: 'run-e', ownerId: 'user-1' } });
   });
 
