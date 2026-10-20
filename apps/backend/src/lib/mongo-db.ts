@@ -1110,7 +1110,7 @@ export class MongoDB implements Database {
   async takeJoinToken(hash: string): Promise<JoinToken | undefined> {
     const doc = await this.joinTokens.findOneAndDelete({ _id: hash as never });
     if (!doc) return undefined;
-    return { hash, ownerId: doc.ownerId as string, instanceId: doc.instanceId as string, expiresAt: (doc.expiresAt as Date).toISOString() };
+    return { hash, ownerId: doc.ownerId as string, instanceId: doc.instanceId as string, expiresAt: (doc.expiresAt as Date).toISOString(), ...(doc.move === true ? { move: true } : {}) };
   }
 
   async saveMachineJoinCode(code: MachineJoinCode): Promise<void> {

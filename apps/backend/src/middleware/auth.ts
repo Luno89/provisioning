@@ -70,12 +70,15 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
         '/instances/addresses',
         '/instances/trial',
         '/instances/mail',
+        '/instances/monitoring',
+        '/instances/move/self',
       ]),
       ...(role === 'instance' ? ['/auth/handoff', '/auth/sign-in'] : []),
       '/machines/join',
       '/machines/agent.tgz',
     ];
-    if (publicPaths.includes(req.path) || PUBLIC_PREFIXES.some((prefix) => req.path.startsWith(prefix))) {
+    const publicPrefixes = role === 'instance' ? [...PUBLIC_PREFIXES, '/move/'] : [...PUBLIC_PREFIXES, '/instances/monitoring/', '/instances/move/parts/'];
+    if (publicPaths.includes(req.path) || publicPrefixes.some((prefix) => req.path.startsWith(prefix))) {
       return next();
     }
     if (process.env.IS_E2E === 'true') {

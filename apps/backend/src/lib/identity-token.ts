@@ -111,3 +111,53 @@ export function trustedKeys(publicKeyPems: readonly string[]): Map<string, crypt
     return [kidOf(key), key] as const;
   }));
 }
+
+export const MOVE_TOKEN_TTL_SECONDS = 60;
+const MOVE_TYP = 'nowrinkles-move';
+
+export interface MoveClaims {
+  aud: string;
+  part: string;
+  iat: number;
+  exp: number;
+}
+
+export type MoveCheck =
+  | { ok: true; claims: MoveClaims }
+  | { ok: false; reason: 'malformed' | 'unknown-key' | 'bad-signature' | 'wrong-audience' | 'expired' | 'not-yet-valid' };
+
+export function issueMoveToken(keys: IdentityKeyPair, instanceId: string, part: string, now: number = Math.floor(Date.now() / 1000)): string {
+  const header = { alg: ALG, typ: MOVE_TYP, kid: keys.kid };
+  const claims: MoveClaims = { aud: instanceId, part, iat: now, exp: now + MOVE_TOKEN_TTL_SECONDS };
+  const signed = `${b64(JSON.stringify(header))}.${b64(JSON.stringify(claims))}`;
+  return `${signed}.${b64(crypto.sign(null, Buffer.from(signed), keys.privateKey))}`;
+}
+
+export function checkMoveToken(
+  token: string,
+  trusted: ReadonlyMap<string, crypto.KeyObject>,
+  instanceId: string,
+  part: string,
+  now: number = Math.floor(Date.now() / 1000),
+): MoveCheck {
+  const parts = typeof token === 'string' ? token.split('.') : [];
+  if (parts.length !== 3) return { ok: false, reason: 'malformed' };
+  const [head, body, signature] = parts as [string, string, string];
+  let header: { alg?: unknown; typ?: unknown; kid?: unknown };
+  let claims: Partial<MoveClaims>;
+  try {
+    header = JSON.parse(fromB64(head).toString('utf8'));
+    claims = JSON.parse(fromB64(body).toString('utf8'));
+  } catch {
+    return { ok: false, reason: 'malformed' };
+  }
+  if (header.alg !== ALG || header.typ !== MOVE_TYP || typeof header.kid !== 'string') return { ok: false, reason: 'malformed' };
+  const key = trusted.get(header.kid);
+  if (!key) return { ok: false, reason: 'unknown-key' };
+  if (!crypto.verify(null, Buffer.from(`${head}.${body}`), key, fromB64(signature))) return { ok: false, reason: 'bad-signature' };
+  if (typeof claims.aud !== 'string' || typeof claims.part !== 'string' || typeof claims.iat !== 'number' || typeof claims.exp !== 'number') return { ok: false, reason: 'malformed' };
+  if (claims.aud !== instanceId || claims.part !== part) return { ok: false, reason: 'wrong-audience' };
+  if (claims.exp <= now) return { ok: false, reason: 'expired' };
+  if (claims.iat > now + 30) return { ok: false, reason: 'not-yet-valid' };
+  return { ok: true, claims: claims as MoveClaims };
+}

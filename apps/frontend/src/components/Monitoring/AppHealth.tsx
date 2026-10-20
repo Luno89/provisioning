@@ -31,9 +31,11 @@ export function AppHealth({ deploymentId, standalone = false, actions }: { deplo
         <div className="flex flex-wrap items-center gap-2">
           {actions}
           <RangePicker range={range} onPick={setRange} />
-          <a href={clusterDashboardUrl(app.clusterId, 'grafana')} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded border border-[var(--bark-600)] px-2 py-0.5 text-[11px] text-slate-300 hover:bg-[var(--bark-700)]">
-            Open in Grafana <ExternalLink size={11} />
-          </a>
+          {!history.byKoala && (
+            <a href={clusterDashboardUrl(app.clusterId, 'grafana')} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded border border-[var(--bark-600)] px-2 py-0.5 text-[11px] text-slate-300 hover:bg-[var(--bark-700)]">
+              Open in Grafana <ExternalLink size={11} />
+            </a>
+          )}
         </div>
       </div>
 

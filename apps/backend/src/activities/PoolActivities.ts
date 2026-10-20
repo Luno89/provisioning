@@ -10,8 +10,11 @@ import { roleFromEnv } from '../lib/platform-role.js';
 import { publicKeyPem } from '../lib/identity-token.js';
 import { emailWayFrom } from '../lib/email-way.js';
 import { afterStep, nextTrialStep, trialMessage, type DueStep, type TrialStep } from '../lib/pool-trial.js';
+import { MoveRelay, kubeconfigFile } from '../services/MoveRelay.js';
+import { issueMoveToken } from '../lib/identity-token.js';
 import { MailService } from '../services/MailService.js';
 import type { InstanceRecord } from '../lib/instances.js';
+import { BLACKBOX_VALUES, POOL_MONITORING, poolAppAlerts, poolStackValues, probeIngressPolicy } from '../lib/pool-monitoring.js';
 import {
   admissionManifests, COMPONENT_RESOURCES, INSTANCE_RELEASE, namespaceManifest, POOL_LABEL, poolChartValues, poolNamespace,
   poolSettingsFrom, PROXY, proxyCaddyfile, proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterAddress, vclusterValues,
@@ -71,6 +74,36 @@ export async function PoolHostActivity(): Promise<void> {
   }
   const existing = await infra.runKubectl(['get', 'daemonset', PROXY.name, '-n', PROXY.namespace, '-o', 'name'], pool.kubeconfig).catch(() => '');
   if (!existing.trim()) await infra.applyManifest(yaml(proxyManifests(proxyCaddyfile([], pool.address))), pool.kubeconfig);
+  await poolMonitoring(infra, pool.kubeconfig);
+}
+
+async function deployedVersion(infra: InfrastructureService, release: string, kubeconfig: string): Promise<string | undefined> {
+  const listed = JSON.parse(await infra.runHelm(['list', '-n', POOL_MONITORING.namespace, '--filter', `^${release}$`, '-o', 'json'], kubeconfig)) as Array<{ chart?: string; status?: string }>;
+  const found = listed[0];
+  return found?.status === 'deployed' ? found.chart : undefined;
+}
+
+async function poolMonitoring(infra: InfrastructureService, kubeconfig: string): Promise<void> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pool-monitoring-'));
+  try {
+    const stack = POOL_MONITORING.stack;
+    if (await deployedVersion(infra, stack.release, kubeconfig) !== `${stack.chart}-${stack.version}`) {
+      const values = path.join(dir, 'stack.json');
+      await fs.writeFile(values, JSON.stringify(poolStackValues()));
+      await infra.runHelm(['upgrade', '--install', stack.release, stack.chart, '--repo', POOL_MONITORING.repo, '--version', stack.version,
+        '-n', POOL_MONITORING.namespace, '--create-namespace', '--wait', '--timeout', '720h', '-f', values], kubeconfig);
+    }
+    const blackbox = POOL_MONITORING.blackbox;
+    if (await deployedVersion(infra, blackbox.release, kubeconfig) !== `${blackbox.chart}-${blackbox.version}`) {
+      const values = path.join(dir, 'blackbox.yaml');
+      await fs.writeFile(values, BLACKBOX_VALUES);
+      await infra.runHelm(['upgrade', '--install', blackbox.release, blackbox.chart, '--repo', POOL_MONITORING.repo, '--version', blackbox.version,
+        '-n', POOL_MONITORING.namespace, '--wait', '--timeout', '720h', '-f', values], kubeconfig);
+    }
+    await infra.applyManifest(yaml([poolAppAlerts()]), kubeconfig);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 }
 
 export async function PoolProxyActivity(): Promise<void> {
@@ -94,6 +127,7 @@ export async function PoolVclusterActivity(args: { instanceId: string }): Promis
     const namespace = poolNamespace(name);
     await save({ status: 'installing', detail: 'Making your space on Koala\'s servers' });
     await infra.applyManifest(yaml([namespaceManifest(name, instance.ownerId)]), pool.kubeconfig);
+    await infra.applyManifest(yaml([probeIngressPolicy(name, { hostNamespace: namespace })]), pool.kubeconfig);
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pool-'));
     try {
       const values = path.join(dir, 'vcluster.json');
@@ -208,12 +242,13 @@ export async function PoolFailedActivity(args: { instanceId: string; reason: str
   });
 }
 
-export async function PoolTrialNextActivity(args: { instanceId: string; now: number }): Promise<DueStep | null> {
+export async function PoolTrialNextActivity(args: { instanceId: string; now: number }): Promise<DueStep | { hold: true } | null> {
   const db = createDatabase();
   await db.init();
   try {
     const instance = (await db.getInstances()).find((entry) => entry.id === args.instanceId);
     if (!instance?.pool || !instance.name) return null;
+    if (instance.move && instance.move.state !== 'failed') return { hold: true };
     return nextTrialStep(instance.pool, args.now);
   } finally {
     await db.close();
@@ -290,4 +325,92 @@ export async function PoolTrialStepActivity(args: { instanceId: string; step: Tr
   });
   if (args.step === 'resume') await PoolReadyActivity({ instanceId: instance.id });
   await tell(instance.ownerId, message);
+}
+
+async function readInstance(instanceId: string): Promise<InstanceRecord | undefined> {
+  const db = createDatabase();
+  await db.init();
+  try {
+    return (await db.getInstances()).find((entry) => entry.id === instanceId);
+  } finally {
+    await db.close();
+  }
+}
+
+async function writeInstance(instance: InstanceRecord): Promise<void> {
+  const db = createDatabase();
+  await db.init();
+  try {
+    await db.saveInstance({ ...instance, updatedAt: new Date().toISOString() });
+  } finally {
+    await db.close();
+  }
+}
+
+function moveRelay(pool: PoolSettings): MoveRelay {
+  const role = roleFromEnv(process.env);
+  if (!role.signing) throw ApplicationFailure.nonRetryable('only root moves instances', 'NotRoot');
+  const signing = role.signing;
+  return new MoveRelay({ kubeconfig: kubeconfigFile(pool.kubeconfig), sign: (instanceId, part) => issueMoveToken(signing, instanceId, part) });
+}
+
+async function backendAnswers(pool: PoolSettings, ports: { backend: number }): Promise<void> {
+  const infra = new InfrastructureService();
+  const probe = `wget -q -O /dev/null -T 10 http://${pool.address}:${ports.backend}/api/auth/sign-in`;
+  for (;;) {
+    const answered = await infra.runKubectl(['exec', '-n', PROXY.namespace, `daemonset/${PROXY.name}`, '--', 'sh', '-c', probe], pool.kubeconfig).then(() => true, () => false);
+    if (answered) return;
+    await sleep(5000);
+  }
+}
+
+export async function PoolMoveStartActivity(args: { instanceId: string }): Promise<void> {
+  const pool = settings();
+  const instance = await readInstance(args.instanceId);
+  if (!instance?.pool || !instance.name || !instance.move) return;
+  if (instance.move.wasPaused) {
+    await writeInstance({ ...instance, move: { ...instance.move, detail: 'Starting your stopped instance so it can move' } });
+    await vclusterReplicas(pool, instance.name, 1);
+    await backendAnswers(pool, instance.pool.ports);
+    const now = await readInstance(args.instanceId);
+    if (now?.move) await writeInstance({ ...now, move: { ...now.move, detail: now.move.state === 'waiting' ? 'Waiting for your machine to run the move command' : now.move.detail } });
+  }
+}
+
+export async function PoolMoveSwitchActivity(args: { instanceId: string }): Promise<{ name: string } | null> {
+  const pool = settings();
+  const infra = new InfrastructureService();
+  const instance = await readInstance(args.instanceId);
+  if (!instance?.name) return null;
+  const name = instance.name;
+  if (instance.move) {
+    const { move, pool: _place, ...rest } = instance;
+    if (!move.credentialHash || !move.target?.meshIp || !move.target.url) throw ApplicationFailure.nonRetryable('the new machine never said where it answers', 'MoveIncomplete');
+    await writeInstance({
+      ...rest,
+      credentialHash: move.credentialHash,
+      meshIp: move.target.meshIp,
+      url: move.target.url,
+      status: 'ready',
+      detail: `Moved to ${move.target.machine ?? 'your machine'}`,
+      ...(move.target.machine ? { machine: move.target.machine } : {}),
+    });
+  }
+  const namespace = poolNamespace(name);
+  await infra.runHelm(['uninstall', name, '-n', namespace, '--ignore-not-found', '--wait', '--timeout', '720h'], pool.kubeconfig);
+  await infra.runKubectl(['delete', 'namespace', namespace, '--ignore-not-found', '--wait=true'], pool.kubeconfig);
+  await PoolProxyActivity();
+  return { name };
+}
+
+export async function PoolMoveStopActivity(args: { instanceId: string; reason: string }): Promise<void> {
+  const pool = settings();
+  const instance = await readInstance(args.instanceId);
+  if (!instance?.pool || !instance.name || !instance.move) return;
+  const thawed = await moveRelay(pool).open({ name: instance.name, instanceId: instance.id }, 'thaw', 'POST')
+    .then((answer) => { answer.resume(); return true; }, () => false);
+  if (!thawed) console.warn(`[pool] ${instance.name} could not be told the move stopped; it starts taking work again when it restarts`);
+  if (instance.move.wasPaused) await vclusterReplicas(pool, instance.name, 0);
+  const now = await readInstance(args.instanceId);
+  if (now?.move) await writeInstance({ ...now, move: { ...now.move, state: 'failed', detail: args.reason.slice(0, 500) } });
 }

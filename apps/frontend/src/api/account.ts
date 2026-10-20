@@ -1,11 +1,18 @@
 import { api } from './client'
-import type { PersonEntry, RemovalPreview, RemovalState } from '../types/account'
+import type { Invite, PersonEntry, RemovalPreview, RemovalState } from '../types/account'
 
 export const accountKeys = {
   removal: () => ['account', 'removal'] as const,
   people: () => ['admin', 'people'] as const,
   personRemoval: (id: string) => ['admin', 'people', id, 'removal'] as const,
+  invites: () => ['admin', 'invites'] as const,
 }
+
+export const listInvites = (): Promise<Invite[]> =>
+  api.get<Invite[]>('/admin/invites').then((r) => r.data)
+
+export const mintInvite = (): Promise<Invite> =>
+  api.post<Invite>('/admin/invites', {}).then((r) => r.data)
 
 export const getRemovalPreview = (): Promise<RemovalPreview> =>
   api.get<RemovalPreview>('/account/removal').then((r) => r.data)

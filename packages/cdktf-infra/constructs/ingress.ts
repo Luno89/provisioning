@@ -35,7 +35,7 @@ export class IngressStack extends Construct {
     // needs to reach this Service from the HOST the same way it already reaches every app's
     // own Service, via the identical k3d-server-ip / host-gateway-ip / cloud-LB resolution — a
     // ClusterIP Service has no NodePort at all and isn't reachable that way.
-    const serviceType = isLocal ? "NodePort" : "LoadBalancer";
+    const serviceType = process.env.INGRESS_SERVICE || (isLocal ? "NodePort" : "LoadBalancer");
 
     new Release(this, "traefik-release", {
       name: "traefik",

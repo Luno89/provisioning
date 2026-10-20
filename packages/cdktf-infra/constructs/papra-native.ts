@@ -6,6 +6,7 @@ import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-v
 import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
+import { defaultServiceType } from "../lib/service-type.js";
 
 export interface PapraNativeConfig extends VpnConfig {
   readonly namespace?: string;
@@ -25,7 +26,7 @@ export class PapraNativeApp extends Construct {
     const dataSize = config.dataStorage || "2Gi";
     const mediaSize = config.mediaStorage || "5Gi";
 
-    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || defaultServiceType();
 
     const ns = new Namespace(this, "ns", {
       metadata: {

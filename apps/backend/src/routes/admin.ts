@@ -31,7 +31,7 @@ export function adminRouter(deps: Record<string, any>): Router {
   });
 
   const removal = deps.removal as AccountRemovalService | undefined;
-  const ELSEWHERE = 'Accounts are removed where their data lives, on the tenant backend, not on the root node';
+  const ELSEWHERE = 'Accounts cannot be removed here';
 
   router.get('/people', requireAdmin, asyncRoute(async (_req, res) => {
     if (!removal) return res.status(404).json({ error: ELSEWHERE });

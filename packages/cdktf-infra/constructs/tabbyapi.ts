@@ -5,6 +5,7 @@ import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
 import { isValidImageTag } from "../lib/image-tag.js";
+import { defaultServiceType } from "../lib/service-type.js";
 
 export interface TabbyApiConfig {
   readonly namespace?: string;
@@ -88,7 +89,7 @@ export class TabbyApiApp extends Construct {
     const seqLenFactor = maxSeqLen > 65536 ? 1.5 : (maxSeqLen > 32768 ? 1.25 : 1.0);
     const memoryLimit = config.memoryLimit || (estimatedShardGiB ? `${Math.max(32, Math.ceil((estimatedShardGiB * seqLenFactor) + 12))}G` : "32G");
 
-    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || defaultServiceType();
 
     const imageTag = isValidImageTag(config.imageTag) ? config.imageTag : 'latest';
     const imageName = `ghcr.io/theroyallab/tabbyapi:${imageTag}`;

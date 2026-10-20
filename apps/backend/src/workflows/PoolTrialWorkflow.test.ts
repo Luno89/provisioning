@@ -79,4 +79,34 @@ describe('a pool instance\'s trial', () => {
       await handle.result();
     });
   }, 120_000);
+
+  it('holds every step while the instance moves, and ends once it has moved off Koala\'s servers', async () => {
+    const start = await env.currentTimeMs();
+    let moving = true;
+    let moved = false;
+    const done: TrialStep[] = [];
+    const taskQueue = `trial-${Math.random().toString(36).slice(2, 8)}`;
+    const worker = await Worker.create({
+      connection: env.nativeConnection,
+      taskQueue,
+      workflowsPath: resolve(__dirname, 'PoolTrialWorkflow.ts'),
+      activities: {
+        PoolTrialNextActivity: async ({ now }: { instanceId: string; now: number }) => {
+          if (moved) return null;
+          return moving ? { hold: true } : nextTrialStep({ trialEndsAt: new Date(start + DAY_MS).toISOString() }, now);
+        },
+        PoolTrialStepActivity: async ({ step }: { instanceId: string; step: TrialStep; now: number }) => { done.push(step); },
+      },
+    });
+    await worker.runUntil(async () => {
+      const handle = await env.client.workflow.start('PoolTrialWorkflow', { workflowId: `pool-trial-${taskQueue}`, taskQueue, args: [{ instanceId: 'inst-1' }], ...startedFor('u1') });
+      await env.sleep(5 * DAY_MS);
+      expect(done).toEqual([]);
+      moved = true;
+      moving = false;
+      await handle.signal('trialChanged');
+      await handle.result();
+    });
+    expect(done).toEqual([]);
+  }, 120_000);
 });

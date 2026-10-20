@@ -6,6 +6,7 @@ import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-v
 import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
+import { defaultServiceType } from "../lib/service-type.js";
 
 /**
  * Text Embeddings Inference — the thing that turns chunks into vectors.
@@ -55,7 +56,7 @@ export class TeiNativeApp extends Construct {
     const useGpu = config.useGpu === true;
     const defaultTag = useGpu ? "1.8.1" : "cpu-1.8.1";
     const image = `${config.webRepo || "ghcr.io/huggingface/text-embeddings-inference"}:${config.webTag || defaultTag}`;
-    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || defaultServiceType();
     const modelId = config.modelId || "BAAI/bge-small-en-v1.5";
     const memoryLimit = config.memoryLimit || "4Gi";
     const storage = config.storage || "10Gi";

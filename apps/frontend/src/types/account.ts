@@ -1,9 +1,10 @@
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `RemovalWorkflowState` and `PersonEntry` in apps/backend/src/services/AccountRemovalService.ts,
+ * Authority: `RemovalWorkflowState`, `PersonEntry` and `PersonInstance` in apps/backend/src/services/AccountRemovalService.ts,
+ * `InviteMetadata` in apps/backend/src/lib/types.ts,
  * `RemovalStep` in apps/backend/src/lib/account-removal.ts.
  */
-export type RemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records'
+export type RemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance'
 
 export type RemovalState =
   | { state: 'running'; done: RemovalStep[] }
@@ -11,12 +12,31 @@ export type RemovalState =
   | { state: 'finished' }
   | { state: 'none' }
 
+export interface PersonInstance {
+  name?: string
+  where: 'pool' | 'own'
+  status: 'waiting' | 'joined' | 'installing' | 'ready' | 'failed' | 'paused'
+  detail?: string
+  url: string
+  trialEndsAt?: string
+}
+
 export interface PersonEntry {
   id: string
   email: string
   isAdmin: boolean
   createdAt: string
-  removal?: { startedAt: string; requestedBy: string; state: RemovalState }
+  instance?: PersonInstance
+  removal?: { startedAt: string; requestedBy: string; state: RemovalState; steps?: RemovalStep[] }
+}
+
+export interface Invite {
+  id: string
+  code: string
+  createdBy: string
+  createdAt: string
+  usedBy?: string
+  usedAt?: string
 }
 
 export interface RemovalPreview {

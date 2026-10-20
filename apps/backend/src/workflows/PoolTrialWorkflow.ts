@@ -14,6 +14,10 @@ export async function PoolTrialWorkflow(input: { instanceId: string }): Promise<
     changed = false;
     const due = await trial.PoolTrialNextActivity({ instanceId: input.instanceId, now: Date.now() });
     if (!due) return;
+    if ('hold' in due) {
+      await condition(() => changed);
+      continue;
+    }
     const wait = due.at - Date.now();
     if (wait > 0 && await condition(() => changed, wait)) continue;
     if (changed) continue;

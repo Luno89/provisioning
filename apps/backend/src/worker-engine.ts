@@ -48,6 +48,7 @@ import axios from 'axios';
 import { httpCheckAccess } from './services/CheckToolAccess.js';
 import { sharedClusterProxy } from './services/ClusterProxyService.js';
 import { MonitoringService, prometheusAt, type Viewer } from './services/MonitoringService.js';
+import { poolMonitor, poolMonitorFrom } from './services/PoolMonitor.js';
 import { roleFromEnv } from './lib/platform-role.js';
 import { ProjectRepoService } from './services/ProjectRepoService.js';
 import { createSecretVault } from './services/SecretRequestService.js';
@@ -185,10 +186,13 @@ async function buildActivities() {
   });
   const engineRole = roleFromEnv(process.env);
   const ownsSystem = (viewer: Viewer) => (engineRole.instance ? viewer.id === engineRole.instance.ownerId : Boolean(viewer.isAdmin));
+  const placeOnPool = poolMonitorFrom(process.env);
+  const onPool = placeOnPool ? poolMonitor(placeOnPool) : undefined;
   const monitoring = new MonitoringService({
     store: db,
     systemCluster: () => clusterService.getSystemClusterEntry(),
     ownsSystem,
+    pool: (cluster) => (cluster.isSystem ? onPool : undefined),
     prometheus: async (cluster) => prometheusAt(await sharedClusterProxy().serviceUrl(cluster.id, 'prometheus', await clusterService.getKubeconfigPath(cluster))),
     kubectl: async (cluster, args) => String(await kubeInfra.runKubectl(args, await clusterService.getKubeconfigPath(cluster))),
     apply: async (cluster, manifest) => { await kubeInfra.applyManifest(manifest, await clusterService.getKubeconfigPath(cluster)); },

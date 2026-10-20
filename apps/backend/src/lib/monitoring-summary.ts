@@ -79,10 +79,10 @@ export function appVerdict(n: AppNumbers, firing: readonly string[]): Verdict {
   return { state: down ? 'down' : reasons.length > 0 ? 'warning' : 'ok', reasons };
 }
 
-export function clusterVerdict(n: ClusterNumbers, firing: readonly string[]): Verdict {
+export function clusterVerdict(n: ClusterNumbers, firing: readonly string[], onPool = false): Verdict {
   const reasons: string[] = [];
   if ((n.nodesNotReady ?? 0) > 0) reasons.push(`${n.nodesNotReady} of ${n.nodes ?? '?'} machines are not ready`);
-  if (n.diskShare !== undefined && n.diskShare >= NEARLY_FULL) reasons.push(`the disk is ${percent(n.diskShare)} full`);
+  if (n.diskShare !== undefined && n.diskShare >= NEARLY_FULL) reasons.push(onPool ? `${percent(n.diskShare)} of its place's storage is claimed` : `the disk is ${percent(n.diskShare)} full`);
   if (n.memoryShare !== undefined && n.memoryShare >= NEARLY_FULL) reasons.push(`memory is ${percent(n.memoryShare)} used`);
   if (n.cpuShare !== undefined && n.cpuShare >= NEARLY_FULL) reasons.push(`CPU is ${percent(n.cpuShare)} busy`);
   if ((n.podsBroken ?? 0) > 0) reasons.push(`${n.podsBroken} container${n.podsBroken === 1 ? '' : 's'} keep failing to start`);
@@ -123,16 +123,16 @@ export function appLines(name: string, verdict: Verdict, n: AppNumbers, keptDays
   return lines;
 }
 
-export function clusterLines(name: string, verdict: Verdict, n: ClusterNumbers): string[] {
+export function clusterLines(name: string, verdict: Verdict, n: ClusterNumbers, onPool = false): string[] {
   const lines = [`${name} is ${STATE_WORDS[verdict.state]}${verdict.reasons.length ? `: ${verdict.reasons.join('; ')}` : ''}.`];
   if (verdict.state === 'unreachable' || verdict.state === 'installing') return lines;
   if (n.nodes !== undefined) lines.push(`${n.nodes} machine${n.nodes === 1 ? '' : 's'}${n.nodesNotReady ? `, ${n.nodesNotReady} not ready` : ''}.`);
   const used = [
     n.cpuShare !== undefined ? `CPU ${percent(n.cpuShare)}` : undefined,
     n.memoryShare !== undefined ? `memory ${percent(n.memoryShare)}` : undefined,
-    n.diskShare !== undefined ? `disk ${percent(n.diskShare)}` : undefined,
+    n.diskShare !== undefined ? `${onPool ? 'storage claimed' : 'disk'} ${percent(n.diskShare)}` : undefined,
   ].filter(Boolean);
-  if (used.length) lines.push(`In use: ${used.join(', ')}.`);
+  if (used.length) lines.push(onPool ? `In use of its place on Koala's servers: ${used.join(', ')}.` : `In use: ${used.join(', ')}.`);
   if (n.podsPending) lines.push(`${n.podsPending} pod${n.podsPending === 1 ? ' is' : 's are'} not running.`);
   return lines;
 }

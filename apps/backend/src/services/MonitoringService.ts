@@ -3,9 +3,11 @@ import type { ClusterMetadata, DeploymentMetadata } from '../lib/types.js';
 import type { Database } from '../lib/db-interface.js';
 import { sanitizeNamespace } from '../lib/model-registry.js';
 import {
-  APP_CHARTS, APP_QUESTIONS, CLUSTER_CHARTS, CLUSTER_QUESTIONS, RANGE_SECONDS, appChartQuery, appQuery, appWindowQuery,
-  clusterChartQuery, clusterQuery, stepFor, type AppChart, type AppSubject, type ClusterChart, type Range,
+  APP_CHARTS, APP_QUESTIONS, CLUSTER_CHARTS, CLUSTER_QUESTIONS, RANGE_SECONDS, stepFor,
+  type AppChart, type AppSubject, type ClusterChart, type Range,
 } from '../lib/monitoring-questions.js';
+import { askQuery, type MonitoringAsk, type RangeAsk } from '../lib/monitoring-asks.js';
+import { probesFromCluster, probesKey, type PoolProbe, type PoolRule } from '../lib/pool-monitoring.js';
 import {
   appLines, appVerdict, clusterLines, clusterVerdict, share, worstFirst,
   type AppNumbers, type ClusterNumbers, type HealthState,
@@ -29,6 +31,33 @@ export interface PrometheusClient {
   query(query: string): Promise<Sample[]>;
   range(query: string, start: number, end: number, step: number): Promise<Array<[number, number]>>;
   alerts(): Promise<PromAlert[]>;
+}
+
+export interface MetricsClient {
+  ask(ask: MonitoringAsk): Promise<Sample[]>;
+  askRange(ask: MonitoringAsk, range: RangeAsk): Promise<Array<[number, number]>>;
+  alerts(): Promise<PromAlert[]>;
+}
+
+export function metricsOf(prometheus: PrometheusClient): MetricsClient {
+  return {
+    async ask(ask) {
+      const query = askQuery(ask);
+      return query ? prometheus.query(query) : [];
+    },
+    async askRange(ask, range) {
+      const query = askQuery(ask);
+      return query ? prometheus.range(query, range.start, range.end, range.step) : [];
+    },
+    alerts: () => prometheus.alerts(),
+  };
+}
+
+export interface PoolMonitor extends MetricsClient {
+  history(): Promise<{ days: number; kept?: number | undefined }>;
+  setRule(rule: PoolRule): Promise<void>;
+  removeRule(id: string): Promise<void>;
+  setProbes(probes: PoolProbe[]): Promise<void>;
 }
 
 export function prometheusAt(base: string, fetchImpl: typeof fetch = fetch): PrometheusClient {
@@ -70,6 +99,7 @@ export interface MonitoringDeps {
   systemCluster(): Promise<ClusterMetadata | undefined>;
   ownsSystem(viewer: Viewer): boolean;
   prometheus(cluster: ClusterMetadata): Promise<PrometheusClient>;
+  pool?(cluster: ClusterMetadata): PoolMonitor | undefined;
   kubectl(cluster: ClusterMetadata, args: string[]): Promise<string>;
   apply(cluster: ClusterMetadata, manifest: string): Promise<void>;
   helm(cluster: ClusterMetadata, args: string[]): Promise<string>;
@@ -83,6 +113,7 @@ export interface HistoryState {
   applied: boolean;
   problem?: string | undefined;
   canChange: boolean;
+  byKoala?: boolean | undefined;
 }
 
 export interface AppRow {
@@ -160,7 +191,7 @@ interface Reached {
   cluster: ClusterMetadata;
   state: HealthState;
   reason?: string | undefined;
-  prometheus?: PrometheusClient | undefined;
+  metrics?: MetricsClient | undefined;
 }
 
 export class MonitoringError extends Error {
@@ -206,10 +237,19 @@ export class MonitoringService {
   async reach(cluster: ClusterMetadata): Promise<Reached> {
     if (cluster.status === 'provisioning') return { cluster, state: 'installing', reason: 'it is being made' };
     if (cluster.status !== 'healthy') return { cluster, state: 'unreachable', reason: `it is ${cluster.status}` };
+    const pool = this.deps.pool?.(cluster);
+    if (pool) {
+      try {
+        await pool.ask({ kind: 'cluster', question: 'nodes' });
+        return { cluster, state: 'ok', metrics: pool };
+      } catch (err) {
+        return { cluster, state: 'unreachable', reason: `Koala's servers do not answer about it (${(err as Error).message})` };
+      }
+    }
     try {
       const prometheus = await this.deps.prometheus(cluster);
       await prometheus.query('vector(1)');
-      return { cluster, state: 'ok', prometheus };
+      return { cluster, state: 'ok', metrics: metricsOf(prometheus) };
     } catch (err) {
       const monitoring = await this.deps.kubectl(cluster, ['get', 'service', 'kube-prometheus-stack-prometheus', '-n', 'monitoring', '--ignore-not-found', '-o', 'name']).catch(() => undefined);
       if (monitoring === undefined) return { cluster, state: 'unreachable', reason: 'it does not answer' };
@@ -225,6 +265,11 @@ export class MonitoringService {
   async historyOf(viewer: Viewer | undefined, cluster: ClusterMetadata, reached?: Reached): Promise<HistoryState> {
     const setting = await this.settingOf(cluster.id);
     const days = setting?.historyDays ?? DEFAULT_HISTORY_DAYS;
+    const pool = this.deps.pool?.(cluster);
+    if (pool) {
+      const kept = await pool.history().catch(() => undefined);
+      return { days: kept?.days ?? DEFAULT_HISTORY_DAYS, kept: kept?.kept, applied: true, canChange: false, byKoala: true };
+    }
     const canChange = viewer ? this.ownsCluster(viewer, cluster) : false;
     if (reached && reached.state !== 'ok') return { days, applied: false, canChange, ...(setting?.problem ? { problem: setting.problem } : {}) };
     const now = await this.prometheusResource(cluster).catch(() => undefined);
@@ -242,22 +287,20 @@ export class MonitoringService {
     return prometheusNow(JSON.parse(json));
   }
 
-  async servicesOf(prometheus: PrometheusClient, namespace: string): Promise<string[]> {
-    const samples = await prometheus.query(`kube_service_info{namespace=${JSON.stringify(namespace)}}`).catch(() => []);
+  async servicesOf(metrics: MetricsClient, namespace: string): Promise<string[]> {
+    const samples = await metrics.ask({ kind: 'services', namespace }).catch(() => []);
     return [...new Set(samples.map((sample) => sample.metric.service).filter((name): name is string => Boolean(name)))];
   }
 
-  async appNumbers(prometheus: PrometheusClient, subject: AppSubject, kept: number): Promise<AppNumbers> {
+  async appNumbers(metrics: MetricsClient, subject: AppSubject, kept: number): Promise<AppNumbers> {
     const numbers: AppNumbers = {};
     await Promise.all([
       ...APP_QUESTIONS.map(async (question) => {
-        const query = appQuery(question, subject);
-        if (!query) return;
-        const value = first(await prometheus.query(query).catch(() => []));
+        const value = first(await metrics.ask({ kind: 'app', question, subject }).catch(() => []));
         numbers[question] = value ?? (COUNTED.has(question) ? 0 : undefined);
       }),
       ...([['uptimeDay', 'uptime', 86_400], ['uptimeWeek', 'uptime', 604_800], ['uptimeKept', 'uptime', kept * 86_400], ['restartsDay', 'restarts', 86_400]] as const).map(async ([key, question, seconds]) => {
-        numbers[key] = first(await prometheus.query(appWindowQuery(question, subject, seconds)).catch(() => []));
+        numbers[key] = first(await metrics.ask({ kind: 'window', question, subject, seconds }).catch(() => []));
       }),
     ]);
     if (!numbers.probed) {
@@ -268,10 +311,10 @@ export class MonitoringService {
     return numbers;
   }
 
-  async clusterNumbers(prometheus: PrometheusClient): Promise<ClusterNumbers> {
+  async clusterNumbers(metrics: MetricsClient): Promise<ClusterNumbers> {
     const numbers: ClusterNumbers = {};
     await Promise.all(CLUSTER_QUESTIONS.map(async (question) => {
-      const value = first(await prometheus.query(clusterQuery(question)).catch(() => []));
+      const value = first(await metrics.ask({ kind: 'cluster', question }).catch(() => []));
       numbers[question] = value ?? (COUNTED.has(question) ? 0 : undefined);
     }));
     return numbers;
@@ -287,8 +330,8 @@ export class MonitoringService {
   }
 
   async firingOn(viewer: Viewer, reached: Reached, apps: DeploymentMetadata[]): Promise<VisibleAlert[]> {
-    if (!reached.prometheus) return [];
-    const alerts = await reached.prometheus.alerts().catch(() => []);
+    if (!reached.metrics) return [];
+    const alerts = await reached.metrics.alerts().catch(() => []);
     return visibleAlerts(alerts, await this.scopeFor(viewer, reached.cluster, apps));
   }
 
@@ -296,9 +339,9 @@ export class MonitoringService {
     const base = { id: dep.id, name: dep.name, ...(dep.appType ? { appType: dep.appType } : {}), clusterId: reached.cluster.id, clusterName: reached.cluster.name, ...(dep.publicExposureUrl ? { url: dep.publicExposureUrl } : {}) };
     if (dep.status === 'deploying') return { ...base, state: 'installing', reasons: ['it is being deployed'], numbers: {} };
     if (dep.status === 'failed') return { ...base, state: 'down', reasons: ['its deploy failed'], numbers: {} };
-    if (!reached.prometheus) return { ...base, state: reached.state, reasons: reached.reason ? [`its cluster ${reached.reason}`] : [], numbers: {} };
+    if (!reached.metrics) return { ...base, state: reached.state, reasons: reached.reason ? [`its cluster ${reached.reason}`] : [], numbers: {} };
     const namespace = namespaceOf(dep);
-    const numbers = await this.appNumbers(reached.prometheus, { namespace, services: await this.servicesOf(reached.prometheus, namespace) }, kept);
+    const numbers = await this.appNumbers(reached.metrics, { namespace, services: await this.servicesOf(reached.metrics, namespace) }, kept);
     const verdict = appVerdict(numbers, firing.filter((alert) => alert.about.kind === 'app' && alert.about.deploymentId === dep.id).map((alert) => alert.summary));
     return { ...base, ...verdict, numbers, memoryShare: share(numbers.memoryBytes, numbers.memoryLimitBytes), cpuShare: share(numbers.cpuCores, numbers.cpuLimitCores) };
   }
@@ -306,9 +349,9 @@ export class MonitoringService {
   private async clusterRow(viewer: Viewer, reached: Reached, firing: VisibleAlert[], apps: number): Promise<ClusterRow> {
     const history = await this.historyOf(viewer, reached.cluster, reached);
     const base = { id: reached.cluster.id, name: reached.cluster.name, history, apps, isSystem: Boolean(reached.cluster.isSystem) };
-    if (!reached.prometheus) return { ...base, state: reached.state, reasons: reached.reason ? [reached.reason] : [], numbers: {} };
-    const numbers = await this.clusterNumbers(reached.prometheus);
-    const verdict = clusterVerdict(numbers, firing.filter((alert) => alert.about.kind === 'cluster').map((alert) => alert.summary));
+    if (!reached.metrics) return { ...base, state: reached.state, reasons: reached.reason ? [reached.reason] : [], numbers: {} };
+    const numbers = await this.clusterNumbers(reached.metrics);
+    const verdict = clusterVerdict(numbers, firing.filter((alert) => alert.about.kind === 'cluster').map((alert) => alert.summary), this.isPool(reached.cluster));
     return { ...base, ...verdict, numbers };
   }
 
@@ -361,13 +404,12 @@ export class MonitoringService {
     const row = await this.appRow(dep, reached, firing, kept);
     const window = this.window(range);
     const series: Series[] = [];
-    if (reached.prometheus) {
+    if (reached.metrics) {
+      const metrics = reached.metrics;
       const namespace = namespaceOf(dep);
-      const subject = { namespace, services: await this.servicesOf(reached.prometheus, namespace) };
+      const subject = { namespace, services: await this.servicesOf(metrics, namespace) };
       await Promise.all(APP_CHARTS.map(async (chart: AppChart) => {
-        const query = appChartQuery(chart, subject);
-        if (!query) return;
-        const points = await reached.prometheus!.range(query, window.start, window.end, window.step).catch(() => []);
+        const points = await metrics.askRange({ kind: 'appChart', chart, subject }, window).catch(() => []);
         if (points.length) series.push({ chart, points });
       }));
     }
@@ -399,9 +441,10 @@ export class MonitoringService {
     const row = await this.clusterRow(viewer, reached, firing, mine.length);
     const window = this.window(range);
     const series: Series[] = [];
-    if (reached.prometheus) {
+    if (reached.metrics) {
+      const metrics = reached.metrics;
       await Promise.all(CLUSTER_CHARTS.map(async (chart: ClusterChart) => {
-        const points = await reached.prometheus!.range(clusterChartQuery(chart), window.start, window.end, window.step).catch(() => []);
+        const points = await metrics.askRange({ kind: 'clusterChart', chart }, window).catch(() => []);
         if (points.length) series.push({ chart, points });
       }));
     }
@@ -409,7 +452,7 @@ export class MonitoringService {
     const episodes = (await this.deps.store.getAlertEpisodes(viewer.id)).filter((episode) => episode.clusterId === cluster.id).slice(0, 50);
     return {
       cluster: row,
-      lines: clusterLines(cluster.name, row, row.numbers),
+      lines: clusterLines(cluster.name, row, row.numbers, this.isPool(cluster)),
       range,
       series,
       firing: firing.filter((alert) => alert.about.kind === 'cluster'),
@@ -433,12 +476,35 @@ export class MonitoringService {
     const cluster = (await this.clustersOf(viewer)).find((entry) => entry.id === clusterId);
     if (!cluster) throw new MonitoringError(404, 'no such cluster');
     if (!this.ownsCluster(viewer, cluster)) throw new MonitoringError(403, 'only whoever owns this cluster can change how long it keeps history');
+    if (this.deps.pool?.(cluster)) throw new MonitoringError(409, 'Koala\'s servers keep this history, for as long as they keep everyone\'s');
     await this.deps.store.saveMonitoringSetting({ clusterId, ownerId: viewer.id, historyDays: days as number, updatedAt: this.now().toISOString() });
     await this.applyHistory(cluster);
     return this.historyOf(viewer, cluster);
   }
 
+  private async expressionFor(cluster: ClusterMetadata, metrics: MetricsClient, namespace: string, spec: AlertSpec): Promise<string | { error: string }> {
+    if (this.deps.pool?.(cluster)) return alertExpression(spec, { namespace }, { hostNamespace: 'pool' });
+    return alertExpression(spec, { namespace, services: await this.servicesOf(metrics, namespace) });
+  }
+
+  private readonly probesSent = new Map<string, string>();
+
+  async syncPoolProbes(cluster: ClusterMetadata): Promise<void> {
+    const pool = this.deps.pool?.(cluster);
+    if (!pool) return;
+    const probes = probesFromCluster(await this.deps.kubectl(cluster, ['get', 'probes.monitoring.coreos.com', '--all-namespaces', '-o', 'json']));
+    const key = probesKey(probes);
+    if (this.probesSent.get(cluster.id) === key) return;
+    await pool.setProbes(probes);
+    this.probesSent.set(cluster.id, key);
+  }
+
+  isPool(cluster: ClusterMetadata): boolean {
+    return Boolean(this.deps.pool?.(cluster));
+  }
+
   async applyHistory(cluster: ClusterMetadata): Promise<boolean> {
+    if (this.isPool(cluster)) return false;
     const setting = await this.settingOf(cluster.id);
     const days = setting?.historyDays ?? DEFAULT_HISTORY_DAYS;
     const now = await this.prometheusResource(cluster).catch(() => undefined);
@@ -524,9 +590,8 @@ export class MonitoringService {
     const cluster = (await this.clustersOf(viewer)).find((entry) => entry.id === dep.clusterId);
     if (!cluster) return { error: 'the app\'s cluster is gone' };
     const reached = await this.reach(cluster);
-    if (!reached.prometheus) return { error: `its cluster ${reached.reason ?? 'cannot be reached'}, so an alert cannot be set there now` };
-    const namespace = namespaceOf(dep);
-    const expression = alertExpression(spec, { namespace, services: await this.servicesOf(reached.prometheus, namespace) });
+    if (!reached.metrics) return { error: `its cluster ${reached.reason ?? 'cannot be reached'}, so an alert cannot be set there now` };
+    const expression = await this.expressionFor(cluster, reached.metrics, namespaceOf(dep), spec);
     if (typeof expression !== 'string') return expression;
     return { dep, summary: `Tell me when ${ALERT_RULES[spec.kind].describe(dep.name, spec)}` };
   }
@@ -537,9 +602,9 @@ export class MonitoringService {
     const cluster = (await this.clustersOf(viewer)).find((entry) => entry.id === dep.clusterId);
     if (!cluster) throw new MonitoringError(404, 'the app\'s cluster is gone');
     const reached = await this.reach(cluster);
-    if (!reached.prometheus) throw new MonitoringError(409, `its cluster ${reached.reason ?? 'cannot be reached'}`);
+    if (!reached.metrics) throw new MonitoringError(409, `its cluster ${reached.reason ?? 'cannot be reached'}`);
     const namespace = namespaceOf(dep);
-    const expression = alertExpression(spec, { namespace, services: await this.servicesOf(reached.prometheus, namespace) });
+    const expression = await this.expressionFor(cluster, reached.metrics, namespace, spec);
     if (typeof expression !== 'string') throw new MonitoringError(400, expression.error);
     const rule: AlertRuleRecord = {
       id: this.newId(),
@@ -553,7 +618,9 @@ export class MonitoringService {
       ...(conversationId ? { conversationId } : {}),
       createdAt: this.now().toISOString(),
     };
-    await this.deps.apply(cluster, JSON.stringify(alertRuleManifest(rule, expression)));
+    const pool = this.deps.pool?.(cluster);
+    if (pool) await pool.setRule({ id: rule.id, namespace, spec, summary: rule.summary });
+    else await this.deps.apply(cluster, JSON.stringify(alertRuleManifest(rule, expression)));
     await this.deps.store.saveAlertRule(rule);
     return rule;
   }
@@ -562,7 +629,9 @@ export class MonitoringService {
     const rule = (await this.deps.store.getAlertRules(viewer.id)).find((entry) => entry.id === ruleId);
     if (!rule) throw new MonitoringError(404, 'no such alert');
     const cluster = (await this.clustersOf(viewer)).find((entry) => entry.id === rule.clusterId);
-    if (cluster) await this.deps.kubectl(cluster, ['delete', 'prometheusrule', ruleResourceName(rule.id), '-n', rule.namespace, '--ignore-not-found']);
+    const pool = cluster ? this.deps.pool?.(cluster) : undefined;
+    if (pool) await pool.removeRule(rule.id);
+    else if (cluster) await this.deps.kubectl(cluster, ['delete', 'prometheusrule', ruleResourceName(rule.id), '-n', rule.namespace, '--ignore-not-found']);
     await this.deps.store.deleteAlertRule(rule.id);
   }
 }

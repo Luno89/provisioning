@@ -48,6 +48,12 @@ export const poolRoute = createRoute({
   component: () => <Navigate to="/chat" replace />,
 });
 
+export const adminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin',
+  component: () => <Navigate to="/chat" replace />,
+});
+
 export const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/chat',
@@ -352,6 +358,7 @@ export const boardRedirect = createRoute({
 export const routeTree = rootRoute.addChildren([
   handoffRoute,
   poolRoute,
+  adminRoute,
   indexRoute,
   chatRoute,
   chatConvRoute,

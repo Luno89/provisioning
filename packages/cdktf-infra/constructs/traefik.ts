@@ -1,6 +1,7 @@
 import { Construct } from "constructs";
 import { Release } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
+import { defaultServiceType } from "../lib/service-type.js";
 
 export interface TraefikConfig {
   readonly namespace?: string;
@@ -35,7 +36,7 @@ export class TraefikApp extends Construct {
     //
     // LoadBalancer stays the default for real clouds (aws/gcp/azure/do), where a controller exists
     // to satisfy it.
-    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || defaultServiceType();
 
     const configValues: any = {
       service: {

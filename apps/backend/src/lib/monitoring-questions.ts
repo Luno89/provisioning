@@ -22,7 +22,40 @@ export interface AppSubject {
 const BROKEN_REASONS = 'CrashLoopBackOff|ImagePullBackOff|ErrImagePull|CreateContainerConfigError|CreateContainerError|InvalidImageName';
 const REAL_FILESYSTEMS = 'ext4|xfs|btrfs|zfs';
 
-const running = (ns: string) => `on(namespace, pod) group_left() (kube_pod_status_phase{namespace=${label(ns)},phase="Running"} == 1)`;
+export interface PoolPlace {
+  hostNamespace: string;
+}
+
+export const VIRTUAL_NAMESPACE_LABEL = 'label_vcluster_loft_sh_namespace';
+export const VIRTUAL_NAME_ANNOTATION = 'annotation_vcluster_loft_sh_object_name';
+export const PROBE_NAMESPACE_LABEL = 'koala_namespace';
+
+const hostOf = (app: AppSubject, place: PoolPlace | undefined) => label(place ? place.hostNamespace : app.namespace);
+
+const podsOf = (app: AppSubject, place: PoolPlace) =>
+  `max by (namespace, pod) (kube_pod_labels{namespace=${label(place.hostNamespace)},${VIRTUAL_NAMESPACE_LABEL}=${label(app.namespace)}})`;
+
+const claimsOf = (app: AppSubject, place: PoolPlace) =>
+  `max by (namespace, persistentvolumeclaim) (kube_persistentvolumeclaim_labels{namespace=${label(place.hostNamespace)},${VIRTUAL_NAMESPACE_LABEL}=${label(app.namespace)}})`;
+
+const ofPods = (metric: string, matchers: string, app: AppSubject, place: PoolPlace | undefined) => {
+  const selected = `${metric}{namespace=${hostOf(app, place)}${matchers}}`;
+  return place ? `(${selected} * on(namespace, pod) group_left() ${podsOf(app, place)})` : selected;
+};
+
+const ofClaims = (metric: string, app: AppSubject, place: PoolPlace | undefined) => {
+  const selected = `${metric}{namespace=${hostOf(app, place)}}`;
+  return place ? `(${selected} * on(namespace, persistentvolumeclaim) group_left() ${claimsOf(app, place)})` : selected;
+};
+
+const ofProbes = (metric: string, app: AppSubject, place: PoolPlace | undefined) =>
+  place ? `${metric}{namespace=${label(place.hostNamespace)},${PROBE_NAMESPACE_LABEL}=${label(app.namespace)}}` : `${metric}{namespace=${label(app.namespace)}}`;
+
+const podLevel = (metric: string, place: PoolPlace) => `max by (namespace, pod) (${metric}{namespace=${label(place.hostNamespace)},container=""})`;
+const podLevelRate = (metric: string, place: PoolPlace) => `max by (namespace, pod) (rate(${metric}{namespace=${label(place.hostNamespace)},container=""}[5m]))`;
+
+const running = (app: AppSubject, place: PoolPlace | undefined) =>
+  `on(namespace, pod) group_left() (kube_pod_status_phase{namespace=${hostOf(app, place)},phase="Running"} == 1)`;
 
 export function trafficSelector(app: AppSubject): string | undefined {
   if (!app.services?.length) return undefined;
@@ -33,37 +66,62 @@ export function trafficSelector(app: AppSubject): string | undefined {
 export const APP_QUESTIONS = ['probed', 'up', 'responseSeconds', 'podsRunning', 'podsBroken', 'memoryBytes', 'memoryLimitBytes', 'cpuCores', 'cpuLimitCores', 'volumeShare', 'requestsPerSecond', 'errorShare'] as const;
 export type AppQuestion = typeof APP_QUESTIONS[number];
 
-export function appQuery(question: AppQuestion, app: AppSubject): string | undefined {
-  const ns = label(app.namespace);
-  const traffic = trafficSelector(app);
+export function appQuery(question: AppQuestion, app: AppSubject, place?: PoolPlace): string | undefined {
+  const traffic = place ? undefined : trafficSelector(app);
   switch (question) {
-    case 'probed': return `count(probe_success{namespace=${ns}})`;
-    case 'up': return `max(probe_success{namespace=${ns}})`;
-    case 'responseSeconds': return `avg(probe_duration_seconds{namespace=${ns}})`;
-    case 'podsRunning': return `count(kube_pod_status_phase{namespace=${ns},phase="Running"} == 1)`;
-    case 'podsBroken': return `count(kube_pod_container_status_waiting_reason{namespace=${ns},reason=~"${BROKEN_REASONS}"} == 1)`;
-    case 'memoryBytes': return `sum(container_memory_working_set_bytes{namespace=${ns},container!="",container!="POD"})`;
-    case 'memoryLimitBytes': return `sum(kube_pod_container_resource_limits{namespace=${ns},resource="memory"} * ${running(app.namespace)})`;
-    case 'cpuCores': return `sum(rate(container_cpu_usage_seconds_total{namespace=${ns},container!="",container!="POD"}[5m]))`;
-    case 'cpuLimitCores': return `sum(kube_pod_container_resource_limits{namespace=${ns},resource="cpu"} * ${running(app.namespace)})`;
-    case 'volumeShare': return `max(kubelet_volume_stats_used_bytes{namespace=${ns}} / kubelet_volume_stats_capacity_bytes{namespace=${ns}})`;
+    case 'probed': return `count(${ofProbes('probe_success', app, place)})`;
+    case 'up': return `max(${ofProbes('probe_success', app, place)})`;
+    case 'responseSeconds': return `avg(${ofProbes('probe_duration_seconds', app, place)})`;
+    case 'podsRunning': return `count(${ofPods('kube_pod_status_phase', ',phase="Running"', app, place)} == 1)`;
+    case 'podsBroken': return `count(${ofPods('kube_pod_container_status_waiting_reason', `,reason=~"${BROKEN_REASONS}"`, app, place)} == 1)`;
+    case 'memoryBytes': return place
+      ? `sum(${podLevel('container_memory_working_set_bytes', place)} * on(namespace, pod) group_left() ${podsOf(app, place)})`
+      : `sum(${ofPods('container_memory_working_set_bytes', ',container!="",container!="POD"', app, place)})`;
+    case 'memoryLimitBytes': return `sum(${ofPods('kube_pod_container_resource_limits', ',resource="memory"', app, place)} * ${running(app, place)})`;
+    case 'cpuCores': return place
+      ? `sum(${podLevelRate('container_cpu_usage_seconds_total', place)} * on(namespace, pod) group_left() ${podsOf(app, place)})`
+      : `sum(rate(container_cpu_usage_seconds_total{namespace=${hostOf(app, place)},container!="",container!="POD"}[5m]))`;
+    case 'cpuLimitCores': return `sum(${ofPods('kube_pod_container_resource_limits', ',resource="cpu"', app, place)} * ${running(app, place)})`;
+    case 'volumeShare': return `max(${ofClaims('kubelet_volume_stats_used_bytes', app, place)} / ${ofClaims('kubelet_volume_stats_capacity_bytes', app, place)})`;
     case 'requestsPerSecond': return traffic ? `sum(rate(traefik_service_requests_total{${traffic}}[5m]))` : undefined;
     case 'errorShare': return traffic ? `(sum(rate(traefik_service_requests_total{${traffic},code=~"5.."}[5m])) or vector(0)) / sum(rate(traefik_service_requests_total{${traffic}}[5m]))` : undefined;
   }
 }
 
-export function appWindowQuery(question: 'uptime' | 'restarts' | 'responseSeconds', app: AppSubject, seconds: number): string {
-  const ns = label(app.namespace);
+export const WINDOW_QUESTIONS = ['uptime', 'restarts', 'responseSeconds'] as const;
+export type WindowQuestion = typeof WINDOW_QUESTIONS[number];
+
+export function appWindowQuery(question: WindowQuestion, app: AppSubject, seconds: number, place?: PoolPlace): string {
   const window = `${Math.max(60, Math.round(seconds))}s`;
-  if (question === 'uptime') return `avg(avg_over_time(probe_success{namespace=${ns}}[${window}]))`;
-  if (question === 'restarts') return `sum(increase(kube_pod_container_status_restarts_total{namespace=${ns}}[${window}]))`;
-  return `avg(avg_over_time(probe_duration_seconds{namespace=${ns}}[${window}]))`;
+  if (question === 'uptime') return `avg(avg_over_time(${ofProbes('probe_success', app, place)}[${window}]))`;
+  if (question === 'restarts') {
+    const restarts = `increase(kube_pod_container_status_restarts_total{namespace=${hostOf(app, place)}}[${window}])`;
+    return place ? `sum(${restarts} * on(namespace, pod) group_left() ${podsOf(app, place)})` : `sum(${restarts})`;
+  }
+  return `avg(avg_over_time(${ofProbes('probe_duration_seconds', app, place)}[${window}]))`;
 }
 
 export const CLUSTER_QUESTIONS = ['nodes', 'nodesNotReady', 'cpuShare', 'memoryShare', 'diskShare', 'podsPending', 'podsBroken'] as const;
 export type ClusterQuestion = typeof CLUSTER_QUESTIONS[number];
 
-export function clusterQuery(question: ClusterQuestion): string {
+const quota = (place: PoolPlace, resource: string) =>
+  `sum(kube_resourcequota{namespace=${label(place.hostNamespace)},resource="${resource}",type="hard"})`;
+
+function placeQuery(question: ClusterQuestion, place: PoolPlace): string {
+  const ns = label(place.hostNamespace);
+  switch (question) {
+    case 'nodes': return 'count(kube_node_info)';
+    case 'nodesNotReady': return 'count(kube_node_status_condition{condition="Ready",status="true"} == 0)';
+    case 'cpuShare': return `sum(${podLevelRate('container_cpu_usage_seconds_total', place)}) / ${quota(place, 'requests.cpu')}`;
+    case 'memoryShare': return `sum(${podLevel('container_memory_working_set_bytes', place)}) / ${quota(place, 'requests.memory')}`;
+    case 'diskShare': return `sum(kube_persistentvolumeclaim_resource_requests_storage_bytes{namespace=${ns}}) / ${quota(place, 'requests.storage')}`;
+    case 'podsPending': return `count(kube_pod_status_phase{namespace=${ns},phase=~"Pending|Failed|Unknown"} == 1)`;
+    case 'podsBroken': return `count(kube_pod_container_status_waiting_reason{namespace=${ns},reason=~"${BROKEN_REASONS}"} == 1)`;
+  }
+}
+
+export function clusterQuery(question: ClusterQuestion, place?: PoolPlace): string {
+  if (place) return placeQuery(question, place);
   switch (question) {
     case 'nodes': return 'count(kube_node_info)';
     case 'nodesNotReady': return 'count(kube_node_status_condition{condition="Ready",status="true"} == 0)';
@@ -75,16 +133,34 @@ export function clusterQuery(question: ClusterQuestion): string {
   }
 }
 
+export const USAGES = ['memory', 'cpu'] as const;
+export type Usage = typeof USAGES[number];
+
+const USAGE_METRIC: Record<Usage, string> = {
+  memory: 'container_memory_working_set_bytes{container!="",image!=""%s}',
+  cpu: 'rate(container_cpu_usage_seconds_total{container!="",image!=""%s}[5m])',
+};
+
+export function usageQuery(of: Usage, place?: PoolPlace): string {
+  if (!place) return `sum by (namespace, pod) (${USAGE_METRIC[of].replace('%s', '')})`;
+  const ns = label(place.hostNamespace);
+  const named = `max by (namespace, pod, ${VIRTUAL_NAMESPACE_LABEL}, ${VIRTUAL_NAME_ANNOTATION}) (kube_pod_labels{namespace=${ns}} * on(namespace, pod) group_left(${VIRTUAL_NAME_ANNOTATION}) kube_pod_annotations{namespace=${ns}})`;
+  const perPod = of === 'memory' ? podLevel('container_memory_working_set_bytes', place) : podLevelRate('container_cpu_usage_seconds_total', place);
+  const joined = `${perPod} * on(namespace, pod) group_left(${VIRTUAL_NAMESPACE_LABEL}, ${VIRTUAL_NAME_ANNOTATION}) ${named}`;
+  const renamed = `label_replace(label_replace(${joined}, "namespace", "$1", "${VIRTUAL_NAMESPACE_LABEL}", "(.+)"), "pod", "$1", "${VIRTUAL_NAME_ANNOTATION}", "(.+)")`;
+  return `sum by (namespace, pod) (${renamed})`;
+}
+
 export const APP_CHARTS = ['up', 'responseSeconds', 'memoryShare', 'cpuShare', 'requestsPerSecond', 'errorShare'] as const;
 export type AppChart = typeof APP_CHARTS[number];
 
-export function appChartQuery(chart: AppChart, app: AppSubject): string | undefined {
-  if (chart === 'memoryShare') return `(${appQuery('memoryBytes', app)}) / (${appQuery('memoryLimitBytes', app)})`;
-  if (chart === 'cpuShare') return `(${appQuery('cpuCores', app)}) / (${appQuery('cpuLimitCores', app)})`;
-  return appQuery(chart, app);
+export function appChartQuery(chart: AppChart, app: AppSubject, place?: PoolPlace): string | undefined {
+  if (chart === 'memoryShare') return `(${appQuery('memoryBytes', app, place)}) / (${appQuery('memoryLimitBytes', app, place)})`;
+  if (chart === 'cpuShare') return `(${appQuery('cpuCores', app, place)}) / (${appQuery('cpuLimitCores', app, place)})`;
+  return appQuery(chart, app, place);
 }
 
 export const CLUSTER_CHARTS = ['cpuShare', 'memoryShare', 'diskShare'] as const;
 export type ClusterChart = typeof CLUSTER_CHARTS[number];
 
-export const clusterChartQuery = (chart: ClusterChart): string => clusterQuery(chart);
+export const clusterChartQuery = (chart: ClusterChart, place?: PoolPlace): string => clusterQuery(chart, place);

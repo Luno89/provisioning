@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ClusterMetadata, DeploymentMetadata } from '../lib/types.js';
 import { ClusterContentsService, nodesFrom } from './ClusterContentsService.js';
-import type { PrometheusClient, Viewer } from './MonitoringService.js';
+import { metricsOf, type PrometheusClient, type Viewer } from './MonitoringService.js';
 
 const NOW = new Date('2026-10-17T12:00:00Z');
 const system = { id: 'sys', name: 'system', status: 'healthy', isSystem: true } as ClusterMetadata;
@@ -23,7 +23,7 @@ function setUp(owns: (viewer: Viewer, cluster: ClusterMetadata) => boolean) {
     alerts: async () => [],
   };
   const service = new ClusterContentsService({
-    monitoring: { clustersOf: async () => [system, mine], ownsCluster: owns, reach: async () => ({ prometheus }) },
+    monitoring: { clustersOf: async () => [system, mine], ownsCluster: owns, reach: async () => ({ metrics: metricsOf(prometheus) }) },
     deployments: async () => [
       { id: 'd1', name: 'shop', namespace: 'shop', clusterId: 'sys', ownerId: 'me', status: 'running' },
       { id: 'd2', name: 'theirs', namespace: 'theirs', clusterId: 'sys', ownerId: 'you', status: 'running' },

@@ -2,6 +2,7 @@ import { App, TerraformStack } from "cdktf";
 import { SpecApp } from "./constructs/spec-app.js";
 import { Construct } from "constructs";
 import { BaseCluster } from "./constructs/cluster.js";
+import { OperatorCrdsStack } from "./constructs/operator-crds.js";
 import { OdooApp } from "./constructs/odoo.js";
 import { OdooNativeApp } from "./constructs/odoo-native.js";
 import { WordPressApp } from "./constructs/wordpress.js";
@@ -78,7 +79,9 @@ class ClusterStack extends TerraformStack {
     // the monitoring.coreos.com/v1 CRDs kube-prometheus-stack installs. Terraform would otherwise
     // apply the two Helm releases in parallel and Traefik's render fails outright — see
     // IngressStack's constructor doc.
-    const monitoring = new MonitoringStack(this, "monitoring", config.name);
+    const monitoring = process.env.CLUSTER_MONITORING === "crds"
+      ? new OperatorCrdsStack(this, "monitoring")
+      : new MonitoringStack(this, "monitoring", config.name);
     if (process.env.CLUSTER_INGRESS !== "existing") new IngressStack(this, "ingress", [monitoring.prometheusRelease]);
   }
 }

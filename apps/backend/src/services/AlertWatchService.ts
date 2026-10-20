@@ -11,7 +11,7 @@ export const HISTORY_RETRY_MS = 10 * 60_000;
 export type AlertChange = 'fired' | 'resolved';
 
 export interface AlertWatchDeps {
-  monitoring: Pick<MonitoringService, 'allClusters' | 'reach' | 'applyHistory' | 'applyRequestMetrics'>;
+  monitoring: Pick<MonitoringService, 'allClusters' | 'reach' | 'applyHistory' | 'applyRequestMetrics' | 'syncPoolProbes'>;
   store: Pick<Database, 'getDeployments' | 'getAlertRules' | 'getAlertEpisodes' | 'saveAlertEpisode'>;
   systemOwners(): Promise<string[]>;
   tell(episode: AlertEpisode, change: AlertChange, context: { app?: DeploymentMetadata | undefined; rule?: AlertRuleRecord | undefined }): Promise<void>;
@@ -58,9 +58,10 @@ export class AlertWatchService {
     const systemOwners = await this.deps.systemOwners();
     for (const cluster of clusters) {
       const reached = await this.deps.monitoring.reach(cluster);
-      if (!reached.prometheus) continue;
+      if (!reached.metrics) continue;
+      await this.deps.monitoring.syncPoolProbes(cluster).catch((err: Error) => this.deps.log?.(`[alerts] ${cluster.name}: its probes were not handed to Koala's servers (${err.message})`));
       await this.reconcileHistory(cluster);
-      const alerts = await reached.prometheus.alerts().catch(() => undefined);
+      const alerts = await reached.metrics.alerts().catch(() => undefined);
       if (!alerts) continue;
       const onCluster = apps.filter((dep) => dep.clusterId === cluster.id);
       const owners = new Set<string>([

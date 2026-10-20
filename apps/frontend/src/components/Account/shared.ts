@@ -1,6 +1,6 @@
 import { getNotifications, notificationKeys, sendTestEmail, setEmailChoice, type EmailChoice, type NotificationView } from '../../api/notifications'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { accountKeys, getPersonRemoval, getRemovalPreview, listPeople, removeMyAccount, removePerson } from '../../api/account'
+import { accountKeys, getPersonRemoval, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson } from '../../api/account'
 import { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '../../api/instance-addresses'
 import { deploymentKeys } from '../../api/deployments'
 
@@ -25,6 +25,15 @@ export function usePeople() {
     queryFn: listPeople,
     refetchInterval: (query) => (query.state.data?.some((person) => person.removal && person.removal.state.state === 'running') ? 3_000 : false),
   })
+}
+
+export function useInvites() {
+  return useQuery({ queryKey: accountKeys.invites(), queryFn: listInvites })
+}
+
+export function useMintInvite() {
+  const client = useQueryClient()
+  return useMutation({ mutationFn: mintInvite, onSuccess: () => { void client.invalidateQueries({ queryKey: accountKeys.invites() }) } })
 }
 
 export function usePersonRemoval(id: string, enabled: boolean) {

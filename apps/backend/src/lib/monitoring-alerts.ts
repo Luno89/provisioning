@@ -1,4 +1,4 @@
-import { appQuery, appWindowQuery, trafficSelector, type AppSubject } from './monitoring-questions.js';
+import { appQuery, appWindowQuery, trafficSelector, type AppSubject, type PoolPlace } from './monitoring-questions.js';
 
 export interface PromAlert {
   labels: Record<string, string>;
@@ -115,14 +115,15 @@ export function alertSpec(kind: AlertKind, threshold?: number, forMinutes?: numb
   return { kind, threshold: rule.threshold ? t : 0, forMinutes: minutes };
 }
 
-export function alertExpression(spec: AlertSpec, app: AppSubject): string | { error: string } {
+export function alertExpression(spec: AlertSpec, app: AppSubject, place?: PoolPlace): string | { error: string } {
   switch (spec.kind) {
-    case 'down': return `${appQuery('up', app)} < 1`;
-    case 'slow': return `${appQuery('responseSeconds', app)} > ${spec.threshold}`;
-    case 'memory': return `(${appQuery('memoryBytes', app)}) / (${appQuery('memoryLimitBytes', app)}) > ${spec.threshold / 100}`;
-    case 'restarts': return `${appWindowQuery('restarts', app, 3600)} > ${spec.threshold}`;
-    case 'volume': return `${appQuery('volumeShare', app)} > ${spec.threshold / 100}`;
+    case 'down': return `${appQuery('up', app, place)} < 1`;
+    case 'slow': return `${appQuery('responseSeconds', app, place)} > ${spec.threshold}`;
+    case 'memory': return `(${appQuery('memoryBytes', app, place)}) / (${appQuery('memoryLimitBytes', app, place)}) > ${spec.threshold / 100}`;
+    case 'restarts': return `${appWindowQuery('restarts', app, 3600, place)} > ${spec.threshold}`;
+    case 'volume': return `${appQuery('volumeShare', app, place)} > ${spec.threshold / 100}`;
     case 'errors': {
+      if (place) return { error: 'requests are not counted on Koala\'s servers, so failing requests cannot be watched there' };
       if (!trafficSelector(app)) return { error: 'this app has no service whose requests are counted, so failing requests cannot be watched' };
       return `${appQuery('errorShare', app)} > ${spec.threshold / 100}`;
     }

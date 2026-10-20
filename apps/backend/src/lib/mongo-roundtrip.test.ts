@@ -138,3 +138,15 @@ describe('binding types in real Mongo', () => {
     expect(after.find((b) => b.id === TEST_ID)).toBeUndefined();
   }, 15_000);
 });
+
+describe('join tokens in real Mongo', () => {
+  it('give back whether they move an instance, once', async () => {
+    if (!reachable) return;
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    await db.saveJoinToken({ hash: 'roundtrip-move-token', ownerId: OWNERS[0]!, instanceId: 'roundtrip-instance', expiresAt, move: true });
+    await db.saveJoinToken({ hash: 'roundtrip-join-token', ownerId: OWNERS[0]!, instanceId: 'roundtrip-instance', expiresAt });
+    expect(await db.takeJoinToken('roundtrip-move-token')).toEqual({ hash: 'roundtrip-move-token', ownerId: OWNERS[0], instanceId: 'roundtrip-instance', expiresAt, move: true });
+    expect(await db.takeJoinToken('roundtrip-join-token')).toEqual({ hash: 'roundtrip-join-token', ownerId: OWNERS[0], instanceId: 'roundtrip-instance', expiresAt });
+    expect(await db.takeJoinToken('roundtrip-move-token')).toBeUndefined();
+  });
+});

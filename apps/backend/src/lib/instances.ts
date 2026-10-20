@@ -1,5 +1,6 @@
 import type { PoolPorts } from './pool.js';
 import type { TrialStep } from './pool-trial.js';
+import type { InstanceMove } from './instance-move.js';
 
 export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed' | 'paused';
 
@@ -19,6 +20,7 @@ export interface InstanceRecord {
   meshIp?: string | undefined;
   addresses?: InstanceAddresses | undefined;
   pool?: InstancePool | undefined;
+  move?: InstanceMove | undefined;
 }
 
 export interface InstancePool {
@@ -42,6 +44,7 @@ export interface JoinToken {
   ownerId: string;
   instanceId: string;
   expiresAt: string;
+  move?: boolean | undefined;
 }
 
 const ID = /^[a-z0-9][a-z0-9-]{1,62}$/;

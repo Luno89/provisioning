@@ -1,10 +1,10 @@
 import type { ClusterMetadata, DeploymentMetadata } from '../lib/types.js';
 import {
-  CPU_BY_POD, MEMORY_BY_POD, brokenWorkloads, clusterWorkloads,
+  brokenWorkloads, clusterWorkloads,
   type NamespaceJson, type PodJson, type UsageSample, type Workload, type WorkloadScope,
 } from '../lib/cluster-workloads.js';
 import { platformServices, type HelmReleaseJson, type PlatformService } from '../lib/platform-services.js';
-import { MonitoringError, namespaceOf, type PrometheusClient, type Sample, type Viewer } from './MonitoringService.js';
+import { MonitoringError, namespaceOf, type MetricsClient, type Sample, type Viewer } from './MonitoringService.js';
 
 export interface ClusterNode {
   name: string;
@@ -49,7 +49,7 @@ export interface ClusterContentsDeps {
   monitoring: {
     clustersOf(viewer: Viewer): Promise<ClusterMetadata[]>;
     ownsCluster(viewer: Viewer, cluster: ClusterMetadata): boolean;
-    reach(cluster: ClusterMetadata): Promise<{ prometheus?: PrometheusClient | undefined }>;
+    reach(cluster: ClusterMetadata): Promise<{ metrics?: MetricsClient | undefined }>;
   };
   deployments(): Promise<DeploymentMetadata[]>;
   kubectl(cluster: ClusterMetadata, args: string[]): Promise<string>;
@@ -114,10 +114,11 @@ export class ClusterContentsService {
       this.deps.kubectl(cluster, ['get', 'namespaces', '-o', 'json']),
       this.deps.kubectl(cluster, ['get', 'nodes', '-o', 'json']).catch(() => '{"items":[]}'),
       this.deps.helm(cluster, ['list', '-A', '-o', 'json']).then((out) => JSON.parse(out) as HelmReleaseJson[]).catch(() => undefined),
-      this.deps.monitoring.reach(cluster).catch(() => ({ prometheus: undefined })),
+      this.deps.monitoring.reach(cluster).catch(() => ({ metrics: undefined })),
     ]);
-    const [memory, cpu] = reached.prometheus
-      ? await Promise.all([reached.prometheus.query(MEMORY_BY_POD).then(usage).catch(() => undefined), reached.prometheus.query(CPU_BY_POD).then(usage).catch(() => undefined)])
+    const metrics = reached.metrics;
+    const [memory, cpu] = metrics
+      ? await Promise.all([metrics.ask({ kind: 'usage', of: 'memory' }).then(usage).catch(() => undefined), metrics.ask({ kind: 'usage', of: 'cpu' }).then(usage).catch(() => undefined)])
       : [undefined, undefined];
     return {
       readAt: this.now().toISOString(),

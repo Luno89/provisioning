@@ -48,6 +48,18 @@ export function Bar({ label, share }: { label: string; share: number | undefined
 }
 
 export function HistorySetting({ clusterId, history }: { clusterId: string; history: HistoryState }) {
+  if (history.byKoala) {
+    return (
+      <div className="space-y-1.5 rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)]/40 p-3 text-[12px]" data-testid="history-setting">
+        <div className="font-semibold text-slate-200">History kept</div>
+        <p className="text-[11px] text-slate-500">Koala's servers watch this cluster and keep {history.kept ?? history.days} days of its measurements.</p>
+      </div>
+    )
+  }
+  return <OwnHistorySetting clusterId={clusterId} history={history} />
+}
+
+function OwnHistorySetting({ clusterId, history }: { clusterId: string; history: HistoryState }) {
   const [days, setDays] = useState(String(history.days))
   const save = useSetHistory(clusterId)
   const wanted = Number(days)

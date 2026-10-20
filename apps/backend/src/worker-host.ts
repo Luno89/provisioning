@@ -7,6 +7,8 @@ import { fileURLToPath } from 'url';
 
 import { ProvisionClusterActivity } from './activities/ProvisionClusterActivity.js';
 import { DestroyClusterActivity } from './activities/DestroyClusterActivity.js';
+import { RootRemovalInstanceActivity, RootRemovalMeshActivity, RootRemovalRecordsActivity } from './activities/RootRemovalActivities.js';
+import { PoolMoveStartActivity, PoolMoveStopActivity, PoolMoveSwitchActivity } from './activities/PoolActivities.js';
 import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActivity, PoolReadyActivity, PoolRemoveActivity, PoolTrialNextActivity, PoolTrialStepActivity, PoolVclusterActivity } from './activities/PoolActivities.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
@@ -61,6 +63,12 @@ async function main() {
           PoolTrialNextActivity,
           PoolTrialStepActivity,
           PoolRemoveActivity,
+          PoolMoveStartActivity,
+          PoolMoveSwitchActivity,
+          PoolMoveStopActivity,
+          RootRemovalInstanceActivity,
+          RootRemovalMeshActivity,
+          RootRemovalRecordsActivity,
           CrawlBatchActivity,
           NextBatchActivity,
           SeedFrontierActivity,

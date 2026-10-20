@@ -8,6 +8,7 @@ import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
 import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
+import { defaultServiceType } from "../lib/service-type.js";
 
 /**
  * SearXNG — a metasearch front end, deployed so the agent has a real search API.
@@ -49,7 +50,7 @@ export class SearxngNativeApp extends Construct {
 
     const namespaceName = config.namespace || "searxng";
     const image = `${config.webRepo || "searxng/searxng"}:${config.webTag || "latest"}`;
-    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || defaultServiceType();
 
     const ns = new Namespace(this, "ns", {
       metadata: { name: namespaceName },

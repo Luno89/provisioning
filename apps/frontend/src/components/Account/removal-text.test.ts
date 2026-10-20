@@ -8,6 +8,11 @@ describe('saying how a removal is going', () => {
     expect(removalText({ state: 'running', done: ['workflows', 'apps', 'workspaces', 'secrets'] })).toBe('removing its machines from the mesh (5 of 7)')
   })
 
+  it('counts the steps of the removal under way when they are given, as root\'s are', () => {
+    expect(removalText({ state: 'running', done: ['instance'] }, ['instance', 'mesh', 'records'])).toBe('removing its machines from the mesh (2 of 3)')
+    expect(removalText({ state: 'running', done: [] }, ['instance', 'mesh', 'records'])).toBe('removing its instance (1 of 3)')
+  })
+
   it('says when it stopped and why, or that it is done', () => {
     expect(removalText({ state: 'failed', reason: 'Gitea would not delete the user' })).toBe('Stopped: Gitea would not delete the user')
     expect(removalText({ state: 'finished' })).toBe('Removed')

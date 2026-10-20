@@ -49,4 +49,7 @@ pool:
   enabled: false
   registryPullHost: ""
 
+move:
+  enabled: false
+
 resources: {}

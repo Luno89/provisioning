@@ -50,7 +50,7 @@ ok "this machine will be instance ${INSTANCE_ID}"
 
 report() {
   curl -fsS -X POST -H 'Content-Type: application/json' -H "X-Instance-Id: ${INSTANCE_ID}" -H "Authorization: Bearer ${INSTANCE_CREDENTIAL}" \
-    -d "{\"status\":\"$1\",\"detail\":\"$2\"$( [ -n "${3:-}" ] && printf ',"url":"%s"' "$3" )$( [ -n "${MESH_IP:-}" ] && printf ',"meshIp":"%s"' "$MESH_IP" )}" "${ROOT_URL}/api/instances/status" >/dev/null 2>&1 || true
+    -d "{\"status\":\"$1\",\"detail\":\"$2\"$( [ -n "${3:-}" ] && printf ',"url":"%s"' "$3" )$( [ -n "${MESH_IP:-}" ] && printf ',"meshIp":"%s"' "$MESH_IP" )$( [ -n "${4:-}" ] && printf ',"moved":true' )}" "${ROOT_URL}/api/instances/status" >/dev/null 2>&1 || true
 }
 trap 'status=$?; rm -f "$JOIN_ENV"; [ $status -ne 0 ] && report failed "The install command stopped on this machine; run it again to retry"' EXIT
 
@@ -139,15 +139,45 @@ report installing "Installing the instance" "$PUBLIC_URL"
 KEYS_FILE="$(mktemp)"
 printf '%s' "$ROOT_PUBLIC_KEYS_B64" | base64 -d > "$KEYS_FILE"
 curl -fsSL "$INSTANCE_CHART_URL" -o /tmp/instance-chart.tgz
+MOVE_ARGS=""
+if [ "${INSTANCE_MOVE:-}" = yes ]; then
+  say "Bringing your instance over from Koala's servers"
+  kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  MOVED_KEYS="$(mktemp)"
+  while :; do
+    KEYS_CODE="$(curl -sS -H "X-Instance-Id: ${INSTANCE_ID}" -H "Authorization: Bearer ${INSTANCE_CREDENTIAL}" -o "$MOVED_KEYS" -w '%{http_code}' "${ROOT_URL}/api/instances/move/parts/keys" || echo 000)"
+    [ "$KEYS_CODE" = 200 ] && break
+    case "$KEYS_CODE" in
+      502|503|000) echo "  Koala's servers are getting your instance ready (${KEYS_CODE}); asking again"; sleep 5 ;;
+      *) die "Koala's servers would not hand over your instance's keys (${KEYS_CODE}): $(cat "$MOVED_KEYS" 2>/dev/null)" ;;
+    esac
+  done
+  kubectl create secret generic "${RELEASE}-keys" -n "$NAMESPACE" --from-env-file="$MOVED_KEYS" --dry-run=client -o yaml \
+    | kubectl label --local -f - app.kubernetes.io/managed-by=Helm -o yaml \
+    | kubectl annotate --local -f - "meta.helm.sh/release-name=${RELEASE}" "meta.helm.sh/release-namespace=${NAMESPACE}" helm.sh/resource-policy=keep -o yaml \
+    | kubectl apply -f - >/dev/null
+  rm -f "$MOVED_KEYS"
+  ok "your instance's keys are here"
+  MOVE_ARGS="--set move.enabled=true"
+fi
+WAIT="--wait"
+[ -n "$MOVE_ARGS" ] && WAIT=
 helm upgrade --install "$RELEASE" /tmp/instance-chart.tgz --namespace "$NAMESPACE" --create-namespace \
   --set image.repository="$INSTANCE_IMAGE" --set image.tag="$INSTANCE_IMAGE_TAG" \
   --set instance.id="$INSTANCE_ID" --set instance.ownerId="$INSTANCE_OWNER_ID" --set instance.rootUrl="$ROOT_URL" \
   --set-file instance.rootPublicKeys="$KEYS_FILE" --set instance.credential="$INSTANCE_CREDENTIAL" \
   --set publicUrl="$PUBLIC_URL" --set backend.nodePort="$NODE_PORT" --set hostDocker="$HOST_DOCKER" \
-  --set mesh.loginServer="$MESH_LOGIN_SERVER" --set mesh.address="$MESH_IP" $ROUTING \
-  --wait --timeout 45m
+  --set mesh.loginServer="$MESH_LOGIN_SERVER" --set mesh.address="$MESH_IP" $ROUTING $MOVE_ARGS \
+  $WAIT --timeout 720h
 rm -f "$KEYS_FILE"
-report ready "Installed" "$PUBLIC_URL"
+if [ -n "$MOVE_ARGS" ]; then
+  ok "everything came over"
+  helm upgrade "$RELEASE" /tmp/instance-chart.tgz --namespace "$NAMESPACE" --reuse-values --set move.enabled=false --wait --timeout 720h
+  until curl -fsS -o /dev/null "http://${MESH_IP}:${NODE_PORT}/api/auth/sign-in"; do sleep 3; done
+  report ready "Moved here" "$PUBLIC_URL" moved
+else
+  report ready "Installed" "$PUBLIC_URL"
+fi
 
 say "Done"
 echo "  Your instance is running. Sign in at ${ROOT_URL} and it will take you there."

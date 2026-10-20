@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Check, Cloud, Copy, HardDrive, Loader2, LogOut, RotateCcw } from 'lucide-react'
-import { useCreateJoinCommand, useInstanceReady, useMySetup, useNameCheck, usePoolOffer, useStartPoolInstance, type InstanceStatus, type MySetup } from '../api/instances'
+import { useCreateJoinCommand, useInstanceReady, useMySetup, useNameCheck, usePoolOffer, useStartMyMove, useStartPoolInstance, useStopMyMove, type InstanceStatus, type MySetup } from '../api/instances'
 import { errorMessage } from '../api/client'
+import { MovePanel } from './Move/MovePanel'
 
 export interface NoInstanceProps {
   hasInstance: boolean
+  isAdmin?: boolean
   onLogout: () => void
 }
 
@@ -24,6 +26,22 @@ const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 
 
 const KEEP_DAYS = 30
 
+function PausedMove({ setup }: { setup: MySetup }) {
+  const start = useStartMyMove()
+  const stop = useStopMyMove()
+  return (
+    <MovePanel
+      move={setup.move}
+      command={start.data}
+      starting={start.isPending}
+      stopping={stop.isPending}
+      error={start.error ?? stop.error}
+      onStart={() => start.mutate()}
+      onStop={() => stop.mutate()}
+    />
+  )
+}
+
 function PoolProgress({ setup, retrying, onRetry }: { setup: MySetup; retrying: boolean; onRetry: () => void }) {
   if (setup.status === 'paused' && setup.trialEndsAt) {
     const deleted = new Date(Date.parse(setup.trialEndsAt) + KEEP_DAYS * 86_400_000).toISOString()
@@ -31,6 +49,7 @@ function PoolProgress({ setup, retrying, onRetry }: { setup: MySetup; retrying: 
       <div className="space-y-2">
         <p className="text-xs text-slate-200">Your trial on Koala's servers ended on {day(setup.trialEndsAt)}, and your instance {setup.name} has stopped.</p>
         <p className="text-xs text-slate-400">Its work is kept as it is until {day(deleted)}, and deleted then.</p>
+        <PausedMove setup={setup} />
       </div>
     )
   }
@@ -61,7 +80,7 @@ function PoolProgress({ setup, retrying, onRetry }: { setup: MySetup; retrying: 
   )
 }
 
-export default function NoInstance({ hasInstance, onLogout }: NoInstanceProps) {
+export default function NoInstance({ hasInstance, isAdmin = false, onLogout }: NoInstanceProps) {
   const [copied, setCopied] = useState(false)
   const create = useCreateJoinCommand()
   const offer = usePoolOffer()
@@ -185,7 +204,10 @@ export default function NoInstance({ hasInstance, onLogout }: NoInstanceProps) {
             {startPool.isError && <p role="alert" className="text-xs text-rose-300">{errorMessage(startPool.error)}</p>}
           </>
         )}
-        <button type="button" onClick={onLogout} className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200"><LogOut size={12} /> Sign out</button>
+        <div className="flex items-center gap-4">
+          <button type="button" onClick={onLogout} className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200"><LogOut size={12} /> Sign out</button>
+          {isAdmin && <a href="#/admin" className="text-xs text-slate-400 hover:text-slate-200">Admin</a>}
+        </div>
       </div>
     </div>
   )

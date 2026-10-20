@@ -3,8 +3,9 @@ import type { Database } from '../lib/db-interface.js';
 import { INSTANCE_STATUSES, type InstanceAddresses, type InstanceRecord, type InstanceStatus } from '../lib/instances.js';
 import { nameProblem, suggestedName } from '../lib/instance-names.js';
 import { routeProblem } from '../lib/instance-routes.js';
-import { freePorts, trialDaysProblem, type PoolPolicy } from '../lib/pool.js';
+import { freePorts, poolNamespace, trialDaysProblem, type PoolPolicy } from '../lib/pool.js';
 import { extendedTrial } from '../lib/pool-trial.js';
+import { moveProblem, type MoveStateName } from '../lib/instance-move.js';
 
 export const JOIN_TOKEN_TTL_SECONDS = 3600;
 
@@ -14,6 +15,16 @@ export interface PoolWorkflows {
   start(instanceId: string, ownerId: string): Promise<void>;
   trialChanged(instanceId: string): Promise<void>;
   remove(instanceId: string, ownerId: string): Promise<void>;
+  move?(instanceId: string, ownerId: string): Promise<void>;
+  moveFinished?(instanceId: string): Promise<void>;
+  moveStopped?(instanceId: string, reason: string): Promise<void>;
+}
+
+export interface MoveView {
+  state: MoveStateName;
+  detail?: string | undefined;
+  machine?: string | undefined;
+  startedAt: string;
 }
 
 export interface PoolInstanceRow {
@@ -59,9 +70,10 @@ export interface JoinBundle {
   credential: string;
   name: string;
   domain: string;
+  move?: boolean | undefined;
 }
 
-export type Outcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 401 | 404 | 503; error: string };
+export type Outcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 401 | 404 | 409 | 503; error: string };
 
 export const hashCredential = (secret: string): string => crypto.createHash('sha256').update(secret).digest('hex');
 const sameHash = (a: string, b: string): boolean => a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -246,15 +258,27 @@ export class InstanceService {
     if (!this.settings.registry) return { ok: false, status: 503, error: 'this root has no registry for machines to pull from (INSTANCE_REGISTRY)' };
 
     const credential = crypto.randomBytes(32).toString('base64url');
-    const { key } = await this.mesh.createPreAuthKey(found.ownerId, { reusable: false, expirySeconds: JOIN_TOKEN_TTL_SECONDS });
     const instance = (await this.store.getInstances(found.ownerId)).find((entry) => entry.id === found.instanceId);
+    const machineName = typeof machine === 'string' ? machine.slice(0, 120) : undefined;
+    if (found.move) {
+      if (!instance?.move || instance.move.state === 'switching' || instance.move.state === 'failed') return { ok: false, status: 401, error: 'that move command is no longer wanted — start the move again from Koala' };
+    } else if (instance?.pool) {
+      return { ok: false, status: 409, error: 'this instance runs on Koala\'s servers; only its move command brings it to a machine' };
+    }
+    const { key } = await this.mesh.createPreAuthKey(found.ownerId, { reusable: false, expirySeconds: JOIN_TOKEN_TTL_SECONDS });
     const now = this.now().toISOString();
-    await this.save(instance ?? { id: found.instanceId, ownerId: found.ownerId, url: '', createdAt: now, updatedAt: now }, {
-      status: 'joined',
-      detail: 'The machine has the install command and is setting itself up',
-      credentialHash: hashCredential(credential),
-      machine: typeof machine === 'string' ? machine.slice(0, 120) : undefined,
-    });
+    if (found.move && instance?.move) {
+      await this.save(instance, {
+        move: { ...instance.move, state: 'joined', detail: 'Your machine has the move command and is setting itself up', credentialHash: hashCredential(credential), target: { machine: machineName } },
+      });
+    } else {
+      await this.save(instance ?? { id: found.instanceId, ownerId: found.ownerId, url: '', createdAt: now, updatedAt: now }, {
+        status: 'joined',
+        detail: 'The machine has the install command and is setting itself up',
+        credentialHash: hashCredential(credential),
+        machine: machineName,
+      });
+    }
 
     return {
       ok: true,
@@ -272,6 +296,7 @@ export class InstanceService {
         credential,
         name: instance?.name ?? '',
         domain: this.settings.domain ?? '',
+        ...(found.move ? { move: true } : {}),
       },
     };
   }
@@ -280,6 +305,99 @@ export class InstanceService {
     if (typeof instanceId !== 'string' || typeof credential !== 'string' || !credential) return undefined;
     const instance = (await this.store.getInstances()).find((entry) => entry.id === instanceId);
     return instance?.credentialHash && sameHash(instance.credentialHash, hashCredential(credential)) ? instance : undefined;
+  }
+
+  private async mover(instanceId: unknown, credential: unknown): Promise<InstanceRecord | undefined> {
+    if (typeof instanceId !== 'string' || typeof credential !== 'string' || !credential) return undefined;
+    const instance = (await this.store.getInstances()).find((entry) => entry.id === instanceId);
+    const hash = instance?.move?.credentialHash;
+    return hash && instance.move!.state !== 'failed' && sameHash(hash, hashCredential(credential)) ? instance : undefined;
+  }
+
+  async startMove(ownerId: string): Promise<Outcome<{ token: string; command: string; expiresAt: string }>> {
+    const instance = (await this.store.getInstances(ownerId))[0];
+    if (!instance) return { ok: false, status: 404, error: 'you have no instance to move' };
+    const problem = moveProblem(instance);
+    if (problem) return { ok: false, status: 409, error: problem };
+    if (!this.poolWorkflows?.move) return { ok: false, status: 503, error: 'this root cannot move instances' };
+    const token = crypto.randomBytes(24).toString('base64url');
+    const expiresAt = new Date(this.now().getTime() + JOIN_TOKEN_TTL_SECONDS * 1000).toISOString();
+    await this.store.saveJoinToken({ hash: hashCredential(token), ownerId, instanceId: instance.id, expiresAt, move: true });
+    const live = instance.move && instance.move.state !== 'failed';
+    const paused = instance.status === 'paused';
+    await this.save(instance, {
+      move: live ? instance.move! : {
+        state: 'waiting', startedAt: this.now().toISOString(), wasPaused: paused,
+        detail: paused ? 'Starting your stopped instance so it can move' : 'Waiting for your machine to run the move command',
+      },
+    });
+    if (!live) await this.poolWorkflows.move(instance.id, ownerId);
+    return { ok: true, value: { token, expiresAt, command: `curl -fsSL ${this.settings.rootUrl}/install.sh | sudo sh -s -- ${token}` } };
+  }
+
+  async startMoveAs(instanceId: unknown, credential: unknown): Promise<Outcome<{ token: string; command: string; expiresAt: string }>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    return this.startMove(instance.ownerId);
+  }
+
+  async moveOf(ownerId: string): Promise<MoveView | null> {
+    const move = (await this.store.getInstances(ownerId))[0]?.move;
+    return move ? { state: move.state, startedAt: move.startedAt, ...(move.detail ? { detail: move.detail } : {}), ...(move.target?.machine ? { machine: move.target.machine } : {}) } : null;
+  }
+
+  async moveOfAs(instanceId: unknown, credential: unknown): Promise<Outcome<MoveView | null>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    return { ok: true, value: await this.moveOf(instance.ownerId) };
+  }
+
+  async stopMove(ownerId: string): Promise<Outcome<{ stopping: true }>> {
+    const instance = (await this.store.getInstances(ownerId))[0];
+    if (!instance?.move || instance.move.state === 'failed') return { ok: false, status: 404, error: 'nothing is moving' };
+    if (instance.move.state === 'switching') return { ok: false, status: 409, error: 'the instance is switching to its new machine already' };
+    await this.poolWorkflows?.moveStopped?.(instance.id, 'you stopped the move');
+    return { ok: true, value: { stopping: true } };
+  }
+
+  async stopMoveAs(instanceId: unknown, credential: unknown): Promise<Outcome<{ stopping: true }>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    return this.stopMove(instance.ownerId);
+  }
+
+  async moveSource(instanceId: unknown, credential: unknown): Promise<Outcome<{ name: string; instanceId: string }>> {
+    const instance = await this.mover(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or move credential' };
+    if (!instance.pool || !instance.name) return { ok: false, status: 409, error: 'the instance is no longer on Koala\'s servers' };
+    return { ok: true, value: { name: instance.name, instanceId: instance.id } };
+  }
+
+  private async reportMove(instance: InstanceRecord, report: { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown }): Promise<Outcome<InstanceRecord>> {
+    const move = instance.move!;
+    if (move.state === 'switching') return { ok: true, value: instance };
+    const detail = typeof report.detail === 'string' ? report.detail.slice(0, 500) : move.detail;
+    const target = { ...move.target };
+    if (typeof report.meshIp === 'string' && !routeProblem({ name: 'x', meshIp: report.meshIp, nested: false })) target.meshIp = report.meshIp;
+    if (typeof report.url === 'string') {
+      try {
+        target.url = new URL(report.url).origin;
+      } catch {
+        return { ok: false, status: 400, error: 'url is the origin the instance answers on' };
+      }
+    }
+    if (report.status === 'failed') {
+      const saved = await this.save(instance, { move: { ...move, state: 'failed', detail: detail ?? 'The move stopped on your machine', target } });
+      await this.poolWorkflows?.moveStopped?.(instance.id, saved.move!.detail!);
+      return { ok: true, value: saved };
+    }
+    if (report.status === 'ready' && report.moved === true) {
+      if (!target.meshIp || !target.url) return { ok: false, status: 400, error: 'a moved instance reports its mesh address and its url' };
+      const saved = await this.save(instance, { move: { ...move, state: 'switching', detail: 'Switching your address to your machine', target } });
+      await this.poolWorkflows?.moveFinished?.(instance.id);
+      return { ok: true, value: saved };
+    }
+    return { ok: true, value: await this.save(instance, { move: { ...move, state: 'copying', detail, target } }) };
   }
 
   async release(instanceId: unknown, credential: unknown): Promise<Outcome<{ imageTag: string; chartVersion: string; chartUrl: string }>> {
@@ -295,10 +413,13 @@ export class InstanceService {
     return { ok: true, value: { preAuthKey: key, meshLoginServer: this.settings.meshLoginServer } };
   }
 
-  async report(instanceId: unknown, credential: unknown, report: { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown }): Promise<Outcome<InstanceRecord>> {
+  async report(instanceId: unknown, credential: unknown, report: { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown }): Promise<Outcome<InstanceRecord>> {
+    const moving = await this.mover(instanceId, credential);
+    if (moving) return this.reportMove(moving, report);
     const instance = await this.authenticated(instanceId, credential);
     if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
     if (!INSTANCE_STATUSES.includes(report.status as InstanceStatus)) return { ok: false, status: 400, error: `status is one of ${INSTANCE_STATUSES.join(', ')}` };
+    if (instance.pool && (instance.status !== 'ready' || instance.move)) return { ok: true, value: instance };
     let url = instance.url;
     if (report.url !== undefined) {
       try {
@@ -319,15 +440,29 @@ export class InstanceService {
     return { ok: true, value: saved };
   }
 
-  async mine(ownerId: string): Promise<{ id: string; status: InstanceStatus; detail?: string | undefined; url: string; name?: string | undefined; trialEndsAt?: string | undefined } | null> {
+  async mine(ownerId: string): Promise<{ id: string; status: InstanceStatus; detail?: string | undefined; url: string; name?: string | undefined; trialEndsAt?: string | undefined; move?: MoveView | undefined } | null> {
     const instance = (await this.store.getInstances(ownerId))[0];
-    return instance ? { id: instance.id, status: instance.status ?? (instance.url ? 'ready' : 'waiting'), detail: instance.detail, url: instance.url, name: instance.name, ...(instance.pool ? { trialEndsAt: instance.pool.trialEndsAt } : {}) } : null;
+    if (!instance) return null;
+    const move = await this.moveOf(ownerId);
+    return {
+      id: instance.id, status: instance.status ?? (instance.url ? 'ready' : 'waiting'), detail: instance.detail, url: instance.url, name: instance.name,
+      ...(instance.pool ? { trialEndsAt: instance.pool.trialEndsAt } : {}),
+      ...(move ? { move } : {}),
+    };
   }
 
   async ownerOf(instanceId: unknown, credential: unknown): Promise<Outcome<{ ownerId: string }>> {
     const instance = await this.authenticated(instanceId, credential);
     if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
     return { ok: true, value: { ownerId: instance.ownerId } };
+  }
+
+  async poolPlaceOf(instanceId: unknown, credential: unknown): Promise<Outcome<{ name: string; hostNamespace: string }>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    if (!instance.pool || !instance.name) return { ok: false, status: 404, error: 'this instance does not run on Koala\'s servers' };
+    if (instance.status === 'paused') return { ok: false, status: 409, error: 'this instance is stopped' };
+    return { ok: true, value: { name: instance.name, hostNamespace: poolNamespace(instance.name) } };
   }
 
   async trialOf(instanceId: unknown, credential: unknown): Promise<Outcome<{ trialEndsAt?: string | undefined }>> {

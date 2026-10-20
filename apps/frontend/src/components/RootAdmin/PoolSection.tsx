@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Cloud, Loader2, LogOut, Trash2 } from 'lucide-react'
-import { usePoolAdmin, useRemovePoolInstance, useSetPoolTrialDays, useSetPoolTrialEnd, type PoolInstanceRow } from '../api/instances'
-import { errorMessage } from '../api/client'
+import { Loader2, Trash2 } from 'lucide-react'
+import { usePoolAdmin, useRemovePoolInstance, useSetPoolTrialDays, useSetPoolTrialEnd, type PoolInstanceRow } from '../../api/instances'
+import { errorMessage } from '../../api/client'
 
 const STATE: Record<PoolInstanceRow['status'], string> = {
   waiting: 'waiting',
@@ -80,19 +80,16 @@ function TrialRow({ row }: { row: PoolInstanceRow }) {
   )
 }
 
-export default function PoolAdmin({ onLogout }: { onLogout: () => void }) {
+export function PoolSection() {
   const pool = usePoolAdmin()
   const setDays = useSetPoolTrialDays()
   const [days, setDaysValue] = useState<string | undefined>(undefined)
   const current = days ?? (pool.data ? String(pool.data.trialDays) : '')
 
   return (
-    <div className="min-h-screen bg-[var(--bark-900)] p-6 text-slate-100">
-      <div className="mx-auto max-w-4xl space-y-5 rounded-2xl border border-[var(--bark-700)] bg-[var(--bark-800)] p-6">
-        <div className="flex items-center justify-between">
-          <h1 className="flex items-center gap-2 text-sm font-semibold"><Cloud size={16} /> Koala's servers</h1>
-          <button type="button" onClick={onLogout} className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200"><LogOut size={12} /> Sign out</button>
-        </div>
+    <section id="pool" className="pt-6 border-t border-slate-700">
+      <div className="space-y-5">
+        <h4 className="text-lg font-bold text-white">Koala's servers</h4>
         {pool.isPending && <p className="flex items-center gap-2 text-xs text-slate-400"><Loader2 size={14} className="animate-spin" /> Reading the pool…</p>}
         {pool.isError && <p role="alert" className="text-xs text-rose-300">{errorMessage(pool.error)}</p>}
         {pool.data && (
@@ -145,6 +142,6 @@ export default function PoolAdmin({ onLogout }: { onLogout: () => void }) {
           </>
         )}
       </div>
-    </div>
+    </section>
   )
 }

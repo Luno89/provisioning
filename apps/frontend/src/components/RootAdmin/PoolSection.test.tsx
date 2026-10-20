@@ -1,17 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import PoolAdmin from './PoolAdmin'
-import { api } from '../api/client'
+import { PoolSection } from './PoolSection'
+import { api } from '../../api/client'
 
-vi.mock('../api/client', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../api/client')>()
+vi.mock('../../api/client', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../api/client')>()
   return { ...original, api: { get: vi.fn(), put: vi.fn(), delete: vi.fn() } }
 })
 
 const renderPage = () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={client}><PoolAdmin onLogout={() => {}} /></QueryClientProvider>)
+  return render(<QueryClientProvider client={client}><PoolSection /></QueryClientProvider>)
 }
 
 describe('the pool, for an admin on root', () => {

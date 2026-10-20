@@ -7,6 +7,7 @@ import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
 import { Manifest } from "../.gen/providers/kubernetes/manifest/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
+import { defaultServiceType } from "../lib/service-type.js";
 
 export interface VllmConfig {
   readonly namespace?: string;
@@ -55,7 +56,7 @@ export class VllmApp extends Construct {
     const cpuLimit = config.cpuLimit || "10";
     const memoryLimit = config.memoryLimit || "20G";
 
-    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || defaultServiceType();
 
     const imageTag = config.imageTag && config.imageTag !== 'latest' ? config.imageTag : "v0.7.2";
     const imageName = gpuVendor === 'amd'

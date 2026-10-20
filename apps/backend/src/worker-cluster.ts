@@ -22,6 +22,7 @@ import { heartbeatWhileRunning } from '@koala/engine-core';
 import { roleFromEnv } from './lib/platform-role.js';
 import { InfrastructureService } from './services/InfrastructureService.js';
 import { ensureClusterMonitoring } from './activities/cluster-monitoring.js';
+import { placedOnPool, SYSTEM_CLUSTER } from './lib/cluster-monitoring.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -95,7 +96,7 @@ async function main() {
 
   logger.info('[ClusterWorker] ✅ Listening for app deployment tasks');
   if (roleFromEnv(process.env).role === 'instance' && process.env.KUBECONFIG_PATH) {
-    ensureClusterMonitoring(new InfrastructureService(), { physicalName: 'provisioning-lunorica', kubeconfigPath: process.env.KUBECONFIG_PATH, local: false })
+    ensureClusterMonitoring(new InfrastructureService(), { physicalName: SYSTEM_CLUSTER, kubeconfigPath: process.env.KUBECONFIG_PATH, local: false, pool: placedOnPool(process.env, SYSTEM_CLUSTER) })
       .then(() => logger.info('[ClusterWorker] this instance\'s cluster has monitoring'))
       .catch((err: Error) => logger.warn(`[ClusterWorker] monitoring could not be installed yet; the next deploy tries again: ${err.message}`));
   }

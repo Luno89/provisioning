@@ -5,6 +5,7 @@ import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
+import { defaultServiceType } from "../lib/service-type.js";
 
 export interface HermesAgentConfig {
   readonly namespace?: string;
@@ -27,7 +28,7 @@ export class HermesAgentApp extends Construct {
     const webTag = (config.webTag && config.webTag !== "18.0") ? config.webTag : "latest";
     const image = `${webRepo}:${webTag}`;
     const storageSize = config.storage || "5Gi";
-    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || defaultServiceType();
 
     const ns = new Namespace(this, "ns", {
       metadata: {

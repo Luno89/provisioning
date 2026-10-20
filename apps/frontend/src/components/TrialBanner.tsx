@@ -16,6 +16,7 @@ export default function TrialBanner() {
         This instance runs on Koala's servers for a trial that ends on {day(ends)}{left > 0 ? `, in ${left} day${left === 1 ? '' : 's'}` : ''}.
         Then it stops, and its work is kept until {day(ends + KEEP_DAYS * 86_400_000)}.
       </span>
+      <a href="#/settings" className="ml-auto shrink-0 font-semibold underline hover:text-white">Move it to your own machine</a>
     </div>
   )
 }

@@ -17,3 +17,5 @@ export { CheckRunWorkflow } from './CheckRunWorkflow.js';
 export { PoolInstanceWorkflow } from './PoolInstanceWorkflow.js';
 export { PoolTrialWorkflow } from './PoolTrialWorkflow.js';
 export { PoolRemoveWorkflow } from './PoolRemoveWorkflow.js';
+export { RootAccountRemovalWorkflow } from './RootAccountRemovalWorkflow.js';
+export { PoolMoveWorkflow } from './PoolMoveWorkflow.js';

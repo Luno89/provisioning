@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { monitoringPlan, monitoringStackEnv, monitoringStackName } from './cluster-monitoring.js';
+import { monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, SYSTEM_CLUSTER } from './cluster-monitoring.js';
 
 const operator = 'servicemonitors.monitoring.coreos.com\nprobes.monitoring.coreos.com\n';
 
@@ -39,5 +39,21 @@ describe('monitoringStackEnv', () => {
 
   it('names the two stacks the way provisioning does', () => {
     expect([monitoringStackName('c', 'cluster'), monitoringStackName('c', 'observability')]).toEqual(['c', 'c-observability']);
+  });
+});
+
+describe('the cluster of a pool instance', () => {
+  const seen = (apiResources: string, ingressClasses: string) => ({ apiResources, blackbox: false, ingressClasses });
+
+  it('is watched by root, so it gets only the operator\'s resources and an ingress, never a monitoring stack of its own', () => {
+    expect(monitoringPlan(seen('', ''), true)).toEqual({ stacks: ['cluster'], keepIngress: false });
+    expect(monitoringPlan(seen('probes.monitoring.coreos.com', 'ingressclass.networking.k8s.io/traefik'), true)).toEqual({ stacks: [], keepIngress: true });
+    expect(monitoringStackEnv({ physicalName: SYSTEM_CLUSTER, kubeconfigPath: '/k', local: false, pool: true }, false)).toMatchObject({ CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' });
+  });
+
+  it('is only the instance\'s own cluster, and only in pool mode', () => {
+    expect(placedOnPool({ POOL: 'true' }, SYSTEM_CLUSTER)).toBe(true);
+    expect(placedOnPool({ POOL: 'true' }, 'shop-box')).toBe(false);
+    expect(placedOnPool({}, SYSTEM_CLUSTER)).toBe(false);
   });
 });

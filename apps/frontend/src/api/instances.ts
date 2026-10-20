@@ -4,6 +4,16 @@ import { identityKeys } from './identity'
 
 export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed' | 'paused'
 
+/**
+ * ── DUPLICATED, KNOWINGLY ── `MoveView` in apps/backend/src/services/InstanceService.ts is the authority.
+ */
+export interface MoveView {
+  state: 'waiting' | 'joined' | 'copying' | 'switching' | 'failed'
+  detail?: string
+  machine?: string
+  startedAt: string
+}
+
 export interface MySetup {
   id: string
   status: InstanceStatus
@@ -11,6 +21,12 @@ export interface MySetup {
   url: string
   name?: string
   trialEndsAt?: string
+  move?: MoveView
+}
+
+export interface MoveCommand {
+  command: string
+  expiresAt: string
 }
 
 export interface PoolOffer {
@@ -62,7 +78,25 @@ export const instanceKeys = {
   pool: () => ['instances', 'pool'] as const,
   poolAdmin: () => ['instances', 'pool', 'admin'] as const,
   trial: () => ['instance-trial'] as const,
+  move: () => ['instance-trial', 'move'] as const,
 }
+
+export const getInstanceMove = (): Promise<MoveView | null> =>
+  api.get<{ move: MoveView | null }>('/instance-trial/move').then((r) => r.data.move)
+
+export const startInstanceMove = (): Promise<MoveCommand> =>
+  api.post<MoveCommand>('/instance-trial/move').then((r) => r.data)
+
+export const stopInstanceMove = (): Promise<unknown> =>
+  api.delete('/instance-trial/move').then((r) => r.data)
+
+export const startMyMove = (): Promise<MoveCommand> =>
+  api.post<MoveCommand>('/instances/move').then((r) => r.data)
+
+export const stopMyMove = (): Promise<unknown> =>
+  api.delete('/instances/move').then((r) => r.data)
+
+export const moveUnderWay = (move: MoveView | null | undefined): boolean => Boolean(move) && move!.state !== 'failed'
 
 export const getMySetup = (): Promise<MySetup | null> =>
   api.get<{ instance: MySetup | null }>('/instances/mine').then((r) => r.data.instance)
@@ -108,11 +142,41 @@ export function useNameCheck(name: string) {
 export const poolInstalling = (setup: MySetup | null | undefined): boolean =>
   Boolean(setup?.trialEndsAt) && setup?.status !== 'ready' && setup?.status !== 'failed'
 
+export function useInstanceMove(enabled: boolean) {
+  return useQuery({
+    queryKey: instanceKeys.move(),
+    queryFn: getInstanceMove,
+    enabled,
+    retry: false,
+    refetchInterval: (query) => (moveUnderWay(query.state.data) ? 4000 : false),
+  })
+}
+
+export function useStartInstanceMove() {
+  const client = useQueryClient()
+  return useMutation({ mutationFn: startInstanceMove, onSuccess: () => { void client.invalidateQueries({ queryKey: instanceKeys.move() }) } })
+}
+
+export function useStopInstanceMove() {
+  const client = useQueryClient()
+  return useMutation({ mutationFn: stopInstanceMove, onSettled: () => { void client.invalidateQueries({ queryKey: instanceKeys.move() }) } })
+}
+
+export function useStartMyMove() {
+  const client = useQueryClient()
+  return useMutation({ mutationFn: startMyMove, onSuccess: () => { void client.invalidateQueries({ queryKey: instanceKeys.mine() }) } })
+}
+
+export function useStopMyMove() {
+  const client = useQueryClient()
+  return useMutation({ mutationFn: stopMyMove, onSettled: () => { void client.invalidateQueries({ queryKey: instanceKeys.mine() }) } })
+}
+
 export function useMySetup(watching: boolean) {
   return useQuery({
     queryKey: instanceKeys.mine(),
     queryFn: getMySetup,
-    refetchInterval: (query) => (watching || poolInstalling(query.state.data) ? 3000 : false),
+    refetchInterval: (query) => (watching || poolInstalling(query.state.data) || moveUnderWay(query.state.data?.move) ? 3000 : false),
     refetchIntervalInBackground: true,
   })
 }

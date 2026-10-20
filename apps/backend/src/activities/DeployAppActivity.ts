@@ -18,6 +18,7 @@ import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topolo
 import { clusterAccess } from './cluster-access.js';
 import { buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN } from '../lib/app-env.js';
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
+import { appServiceType, placedOnPool } from '../lib/cluster-monitoring.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { planHostMemory, parseQuantity, type HostMemoryPlan } from '../lib/host-memory-plan.js';
 import { deploymentIdFor } from '../lib/deployment-id.js';
@@ -334,7 +335,7 @@ export async function DeployAppActivity(
       renderedSpec = renderApp(stored.spec, {
         id: deploymentId,
         namespace: sanitizedName,
-        serviceType: isSelfManagedCluster(args.provider, isMock) ? 'NodePort' : 'LoadBalancer',
+        serviceType: appServiceType(placedOnPool(process.env, physicalName), isSelfManagedCluster(args.provider, isMock)),
         secrets,
       });
       console.log(`[DeployAppActivity] ${args.appType} deploying from a stored spec, not a construct`);
@@ -398,6 +399,7 @@ export async function DeployAppActivity(
   }
 
   const env = buildAppEnv({
+    ...(placedOnPool(process.env, physicalName) ? { serviceType: 'ClusterIP' } : {}),
     ...(renderedSpec ? { renderedSpec } : {}),
     ...(bindingsJson ? { bindingsJson } : {}),
     physicalName,
@@ -476,7 +478,7 @@ export async function DeployAppActivity(
     storageEnv,
   });
 
-  await ensureClusterMonitoring(infra, { physicalName, kubeconfigPath, local: args.provider === 'k3d' || isMock }, logFile);
+  await ensureClusterMonitoring(infra, { physicalName, kubeconfigPath, local: args.provider === 'k3d' || isMock, pool: placedOnPool(process.env, physicalName) }, logFile);
   await infra.deploy(
     `app-${physicalName}-${deploymentId}`,
     { logFile, env },

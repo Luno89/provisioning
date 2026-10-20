@@ -6,6 +6,7 @@ export interface MonitoredCluster {
   physicalName: string;
   kubeconfigPath: string;
   local: boolean;
+  pool?: boolean | undefined;
 }
 
 const inFlight = new Map<string, Promise<void>>();
@@ -16,10 +17,10 @@ async function install(infra: InfrastructureService, cluster: MonitoredCluster, 
     infra.runKubectl(['get', 'service', 'blackbox-exporter', '-n', 'monitoring', '--ignore-not-found', '-o', 'name'], cluster.kubeconfigPath).then((out) => out.trim() !== ''),
     infra.runKubectl(['get', 'ingressclass', '-o', 'name'], cluster.kubeconfigPath),
   ]);
-  const plan = monitoringPlan({ apiResources, blackbox, ingressClasses });
+  const plan = monitoringPlan({ apiResources, blackbox, ingressClasses }, cluster.pool);
   if (plan.stacks.length === 0) return;
   const env = monitoringStackEnv(cluster, plan.keepIngress);
-  if (logFile) await fs.appendFile(logFile, `[monitoring] ${cluster.physicalName} has no monitoring yet; installing ${plan.stacks.join(' and ')}\n`).catch(() => {});
+  if (logFile) await fs.appendFile(logFile, `[monitoring] ${cluster.physicalName} ${cluster.pool ? 'is watched by Koala\'s servers; installing what its apps need' : `has no monitoring yet; installing ${plan.stacks.join(' and ')}`}\n`).catch(() => {});
   for (const part of plan.stacks) {
     await infra.deploy(monitoringStackName(cluster.physicalName, part), { env, ...(logFile ? { logFile } : {}) });
   }

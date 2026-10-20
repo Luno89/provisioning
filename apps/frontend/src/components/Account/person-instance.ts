@@ -1,0 +1,25 @@
+import type { PersonInstance } from '../../types/account'
+
+const INSTANCE_STATE: Record<PersonInstance['status'], string> = {
+  waiting: 'waiting for its machine',
+  joined: 'joined',
+  installing: 'setting up',
+  ready: 'running',
+  failed: 'failed',
+  paused: 'stopped, trial ended',
+}
+
+const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+
+export function instanceLine(instance: PersonInstance): string {
+  const where = instance.where === 'pool' ? 'on Koala\'s servers' : 'on their own machine'
+  const trial = instance.trialEndsAt ? `, trial ends ${day(instance.trialEndsAt)}` : ''
+  return `${instance.name ?? 'Instance'} ${where}: ${INSTANCE_STATE[instance.status]}${trial}`
+}
+
+export function goesWith(instance: PersonInstance | undefined): string | undefined {
+  if (!instance) return undefined
+  return instance.where === 'pool'
+    ? `Their instance ${instance.name ?? ''} on Koala's servers is deleted with everything in it.`
+    : `Their instance ${instance.name ?? ''} is let go of here: its address stops and its machines leave the mesh. What is on their own machine stays theirs.`
+}

@@ -6,6 +6,7 @@ metadata:
   labels: {{- include "instance.labels" . | nindent 4 }}
 spec:
   schedule: {{ .Values.selfUpgrade.schedule | quote }}
+  suspend: {{ .Values.move.enabled }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3

@@ -1,4 +1,6 @@
-{{- range $step := list "platform-services" "seed" }}
+{{- $steps := ternary (list "move-data" "platform-services" "move-restore" "seed") (list "platform-services" "seed") .Values.move.enabled }}
+{{- $weights := dict "move-data" "-1" "platform-services" "0" "move-restore" "1" "seed" "2" }}
+{{- range $step := $steps }}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -7,7 +9,7 @@ metadata:
   labels: {{- include "instance.labels" $ | nindent 4 }}
   annotations:
     helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-weight: {{ if eq $step "platform-services" }}"0"{{ else }}"1"{{ end }}
+    helm.sh/hook-weight: {{ index $weights $step | quote }}
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   backoffLimit: 3
@@ -27,6 +29,8 @@ spec:
                 name: {{ include "instance.name" $ }}-env
             - secretRef:
                 name: {{ include "instance.name" $ }}-keys
+            - secretRef:
+                name: {{ include "instance.name" $ }}-instance
           env:
             - name: MONGO_ROOT_PASSWORD
               valueFrom:

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { errorMessage } from '../../api/client'
 import type { PersonEntry } from '../../types/account'
+import { goesWith, instanceLine } from './person-instance'
 import { confirmMatches, dangerButton, dangerPanel, emailField, quietButton, refusalBlockers, removalText, usePeople, usePersonRemoval, useRemovePerson } from './shared'
 
 function RemovePerson({ person, onClose }: { person: PersonEntry; onClose: () => void }) {
@@ -18,6 +19,7 @@ function RemovePerson({ person, onClose }: { person: PersonEntry; onClose: () =>
       )}
       {preview.data && blockers.length === 0 && (
         <>
+          {goesWith(person.instance) && <p className="text-xs text-amber-200">{goesWith(person.instance)}</p>}
           <label className="block text-xs text-slate-400">
             Type <span className="font-mono text-slate-200">{person.email}</span> to remove this account and everything in it
             <input className={`${emailField} mt-1`} value={typed} onChange={(event) => setTyped(event.target.value)} autoComplete="off" />
@@ -52,8 +54,9 @@ export function People() {
               <div className="min-w-0">
                 <div className="text-sm font-bold text-white truncate">{person.email}{person.isAdmin && <span className="ml-2 text-[10px] uppercase text-blue-300">admin</span>}</div>
                 <div className="text-xs text-slate-400 mt-0.5">
-                  {person.removal ? removalText(person.removal.state) : `Joined ${new Date(person.createdAt).toLocaleDateString()}`}
+                  {person.removal ? removalText(person.removal.state, person.removal.steps) : `Joined ${new Date(person.createdAt).toLocaleDateString()}`}
                 </div>
+                {person.instance && !person.removal && <div className="text-xs text-slate-500 mt-0.5" data-testid={`instance-${person.id}`}>{instanceLine(person.instance)}</div>}
               </div>
               {person.removal?.state.state === 'failed' && (
                 <button type="button" className={dangerButton} disabled={retry.isPending} onClick={() => retry.mutate({ id: person.id, confirm: person.email })}>Try again</button>

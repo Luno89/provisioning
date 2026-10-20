@@ -46,6 +46,7 @@ export interface HistoryState {
   applied: boolean
   problem?: string
   canChange: boolean
+  byKoala?: boolean
 }
 
 export interface AppRow {

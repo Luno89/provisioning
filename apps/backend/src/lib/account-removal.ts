@@ -7,8 +7,10 @@ export const removeAccountWorkflowId = (ownerId: string): string => `remove-acco
 export const REMOVE_ACCOUNT_WORKFLOW = 'RemoveAccountWorkflow';
 export const REMOVAL_PROGRESS_QUERY = 'removalProgress';
 
-export type RemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records';
+export type RemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance';
 export const REMOVAL_STEPS: readonly RemovalStep[] = ['workflows', 'workspaces', 'secrets', 'mesh', 'repositories', 'records'];
+export const ROOT_REMOVAL_WORKFLOW = 'RootAccountRemovalWorkflow';
+export const ROOT_REMOVAL_STEPS: readonly RemovalStep[] = ['instance', 'mesh', 'records'];
 
 export const ACTIVITY_STOP_GRACE_MS = 30_000;
 

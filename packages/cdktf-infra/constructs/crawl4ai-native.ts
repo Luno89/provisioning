@@ -7,6 +7,7 @@ import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
 import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
+import { defaultServiceType } from "../lib/service-type.js";
 
 /**
  * Crawl4AI — headless Chromium behind an HTTP API, returning markdown instead of HTML.
@@ -61,7 +62,7 @@ export class Crawl4aiNativeApp extends Construct {
 
     const namespaceName = config.namespace || "crawl4ai";
     const image = `${config.webRepo || "unclecode/crawl4ai"}:${config.webTag || "latest"}`;
-    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || defaultServiceType();
     const memoryLimit = config.memoryLimit || "4Gi";
     const shmSize = config.shmSize || "1Gi";
 

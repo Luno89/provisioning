@@ -5,6 +5,7 @@ import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
+import { defaultServiceType } from "../lib/service-type.js";
 
 export interface OpenWebUiConfig {
   readonly namespace?: string;
@@ -36,7 +37,7 @@ export class OpenWebUiApp extends Construct {
     // requests has to match exactly what got imported into the cluster's containerd.
     const image = `${config.webRepo || "ghcr.io/open-webui/open-webui"}:${config.webTag && config.webTag !== 'latest' ? config.webTag : "main"}`;
     const storageSize = config.storage || "5Gi";
-    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || defaultServiceType();
 
     const ns = new Namespace(this, "ns", {
       metadata: {

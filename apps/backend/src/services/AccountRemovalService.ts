@@ -1,4 +1,5 @@
 import type { ClusterMetadata, DeploymentMetadata, UserMetadata } from '../lib/types.js';
+import type { InstanceRecord, InstanceStatus } from '../lib/instances.js';
 import type { Client } from '@temporalio/client';
 import { startedFor } from '../lib/workflow-owner.js';
 import {
@@ -36,18 +37,18 @@ const innermost = (err: unknown): string | undefined => {
 };
 
 export function temporalRemovalWorkflows<Args = { ownerId: string }, Step extends string = RemovalStep>(
-  client: () => Client | undefined | null,
+  client: () => Client | undefined | null | Promise<Client | undefined | null>,
   taskQueue: string,
   progressQuery: string = REMOVAL_PROGRESS_QUERY,
 ): AccountRemovalWorkflows<Args, Step> {
   return {
     async start(workflowType, workflowId, args, owner) {
-      const temporal = client();
+      const temporal = await client();
       if (!temporal) throw new Error('Temporal is not reachable, so the account cannot be removed now');
       await temporal.workflow.start(workflowType, { workflowId, taskQueue, args, ...startedFor(owner) });
     },
     async state(workflowId) {
-      const temporal = client();
+      const temporal = await client();
       if (!temporal) return { state: 'none' };
       const handle = temporal.workflow.getHandle(workflowId);
       const described = await handle.describe().catch((err: Error) => {
@@ -67,7 +68,19 @@ export function temporalRemovalWorkflows<Args = { ownerId: string }, Step extend
 export interface AccountRemovalDeps {
   store: AccountRemovalStore;
   workflows: AccountRemovalWorkflows;
+  workflowType?: string | undefined;
+  steps?: readonly RemovalStep[] | undefined;
+  instances?: (() => Promise<InstanceRecord[]>) | undefined;
   now?: () => string;
+}
+
+export interface PersonInstance {
+  name?: string | undefined;
+  where: 'pool' | 'own';
+  status: InstanceStatus;
+  detail?: string | undefined;
+  url: string;
+  trialEndsAt?: string | undefined;
 }
 
 export interface PersonEntry {
@@ -75,8 +88,18 @@ export interface PersonEntry {
   email: string;
   isAdmin: boolean;
   createdAt: string;
-  removal?: { startedAt: string; requestedBy: string; state: RemovalWorkflowState } | undefined;
+  instance?: PersonInstance | undefined;
+  removal?: { startedAt: string; requestedBy: string; state: RemovalWorkflowState; steps?: readonly RemovalStep[] | undefined } | undefined;
 }
+
+const instanceOf = (instance: InstanceRecord): PersonInstance => ({
+  ...(instance.name ? { name: instance.name } : {}),
+  where: instance.pool ? 'pool' : 'own',
+  status: instance.status ?? (instance.url ? 'ready' : 'waiting'),
+  ...(instance.detail ? { detail: instance.detail } : {}),
+  url: instance.url,
+  ...(instance.pool ? { trialEndsAt: instance.pool.trialEndsAt } : {}),
+});
 
 export class AccountRemovalService {
   constructor(private readonly deps: AccountRemovalDeps) {}
@@ -107,18 +130,24 @@ export class AccountRemovalService {
     const current = await this.deps.workflows.state(workflowId);
     if (current.state === 'running') return { ok: true, state: current };
     await this.deps.store.saveUser({ ...target!, removal: { startedAt: this.now(), requestedBy: request.requestedBy } });
-    await this.deps.workflows.start(REMOVE_ACCOUNT_WORKFLOW, workflowId, [{ ownerId: request.ownerId }], request.ownerId);
+    await this.deps.workflows.start(this.deps.workflowType ?? REMOVE_ACCOUNT_WORKFLOW, workflowId, [{ ownerId: request.ownerId }], request.ownerId);
     return { ok: true, state: await this.deps.workflows.state(workflowId) };
   }
 
   async people(): Promise<PersonEntry[]> {
     const users = (await this.deps.store.getUsers()).filter((user) => !user.space);
-    return Promise.all(users.map(async (user) => ({
-      id: user.id,
-      email: user.email,
-      isAdmin: user.isAdmin === true,
-      createdAt: user.createdAt,
-      ...(user.removal ? { removal: { ...user.removal, state: await this.deps.workflows.state(removeAccountWorkflowId(user.id)) } } : {}),
-    })));
+    const instances = this.deps.instances ? await this.deps.instances() : [];
+    const steps = this.deps.steps;
+    return Promise.all(users.map(async (user) => {
+      const instance = instances.find((entry) => entry.ownerId === user.id);
+      return {
+        id: user.id,
+        email: user.email,
+        isAdmin: user.isAdmin === true,
+        createdAt: user.createdAt,
+        ...(instance ? { instance: instanceOf(instance) } : {}),
+        ...(user.removal ? { removal: { ...user.removal, state: await this.deps.workflows.state(removeAccountWorkflowId(user.id)), ...(steps ? { steps } : {}) } } : {}),
+      };
+    }));
   }
 }

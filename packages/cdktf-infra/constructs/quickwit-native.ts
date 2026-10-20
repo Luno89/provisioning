@@ -6,6 +6,7 @@ import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
 import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
+import { defaultServiceType } from "../lib/service-type.js";
 
 /**
  * Quickwit — full-text search that reads its indexes straight out of object storage.
@@ -53,7 +54,7 @@ export class QuickwitNativeApp extends Construct {
 
     const namespaceName = config.namespace || "quickwit";
     const image = `${config.webRepo || "quickwit/quickwit"}:${config.webTag || "latest"}`;
-    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || defaultServiceType();
     const bucket = config.bucket || "koala-corpus";
     const s3Endpoint = config.s3Endpoint || "http://minio.minio.svc.cluster.local:9000";
     const memoryLimit = config.memoryLimit || "3Gi";

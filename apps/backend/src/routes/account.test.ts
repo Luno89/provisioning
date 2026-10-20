@@ -6,6 +6,7 @@ import { accountRouter } from './account.js';
 import { adminRouter } from './admin.js';
 import { AccountRemovalService, type AccountRemovalWorkflows, type RemovalWorkflowState } from '../services/AccountRemovalService.js';
 import type { Database } from '../lib/db-interface.js';
+import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-removal.js';
 
 const ADMIN = { id: 'ana', email: 'ana@example.com', isAdmin: true };
 const PERSON = { ...TEST_USER };
@@ -113,5 +114,37 @@ describe('an admin removing someone else\'s account', () => {
     harness.setUser(PERSON);
     expect((await call('delete', `/api/admin/people/${ADMIN.id}`, { confirm: ADMIN.email })).status).toBe(403);
     expect((await call('get', '/api/admin/people')).status).toBe(403);
+  });
+});
+
+describe('an admin on root', () => {
+  it('lists each account with its instance, and removes one through root\'s own removal, which takes its instance with it', async () => {
+    const types: string[] = [];
+    harness = await mountRouter({
+      prefix: '/api/admin',
+      user: ADMIN,
+      router: async (db) => {
+        await seedPeople(db);
+        await db.saveInstance({ id: 'inst-1', ownerId: PERSON.id, name: 'bob', url: 'https://bob.koala.dev', status: 'ready', createdAt: 'then', updatedAt: 'then',
+          pool: { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: 'then', trialEndsAt: '2026-11-03T00:00:00.000Z' } });
+        const removal = new AccountRemovalService({
+          store: db,
+          workflows: { ...workflows, start: async (type, workflowId) => { types.push(type); await workflows.start(type, workflowId, [{ ownerId: PERSON.id }], PERSON.id); } },
+          workflowType: ROOT_REMOVAL_WORKFLOW,
+          steps: ROOT_REMOVAL_STEPS,
+          instances: () => db.getInstances(),
+          now: () => 'now',
+        });
+        return adminRouter({ db, requireAdmin, removal });
+      },
+    });
+    const listed = (await call('get', '/api/admin/people')).data.people as Array<{ id: string; instance?: unknown }>;
+    expect(listed.find((person) => person.id === PERSON.id)?.instance).toEqual({ name: 'bob', where: 'pool', status: 'ready', url: 'https://bob.koala.dev', trialEndsAt: '2026-11-03T00:00:00.000Z' });
+    expect(listed.find((person) => person.id === ADMIN.id)?.instance).toBeUndefined();
+    expect((await call('delete', `/api/admin/people/${PERSON.id}`, { confirm: 'wrong@example.com' })).status).toBe(400);
+    expect((await call('delete', `/api/admin/people/${PERSON.id}`, { confirm: PERSON.email })).status).toBe(202);
+    expect(types).toEqual([ROOT_REMOVAL_WORKFLOW]);
+    const after = (await call('get', '/api/admin/people')).data.people as Array<{ id: string; removal?: { steps: string[] } }>;
+    expect(after.find((person) => person.id === PERSON.id)?.removal?.steps).toEqual(ROOT_REMOVAL_STEPS);
   });
 });

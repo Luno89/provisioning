@@ -8,6 +8,7 @@ import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-v
 import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
+import { defaultServiceType } from "../lib/service-type.js";
 
 /**
  * Qdrant — vector search, for the part of the corpus worth embedding.
@@ -52,7 +53,7 @@ export class QdrantNativeApp extends Construct {
 
     const namespaceName = config.namespace || "qdrant";
     const image = `${config.webRepo || "qdrant/qdrant"}:${config.webTag || "latest"}`;
-    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || defaultServiceType();
     const storage = config.storage || "50Gi";
     const memoryLimit = config.memoryLimit || "4Gi";
 

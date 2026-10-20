@@ -84,6 +84,15 @@ import { localAgentsRouter } from './routes/local-agents.js';
 import { pendingApprovalsRouter } from './routes/pending-approvals.js';
 import { startedFor } from './lib/workflow-owner.js';
 import { poolSettingsFrom } from './lib/pool.js';
+import { keepTrying } from './lib/keep-trying.js';
+import { mongoTarget } from './lib/mongo-db.js';
+import { MoveExport } from './services/MoveExport.js';
+import { moveRouter } from './routes/move.js';
+import { MoveRelay, kubeconfigFile } from './services/MoveRelay.js';
+import { issueMoveToken } from './lib/identity-token.js';
+import { MOVE_FINISHED, MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } from './lib/instance-move.js';
+import { PoolMonitoringService } from './services/PoolMonitoringService.js';
+import { poolMonitor, poolMonitorFrom } from './services/PoolMonitor.js';
 import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from './lib/pool-trial.js';
 import { askDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from './lib/local-agent-registry.js';
 import { MachineService } from './services/MachineService.js';
@@ -189,6 +198,7 @@ import { buildPlanAt } from './lib/build-plan.js';
 import { webhookAddress } from './services/webhook-address.js';
 import { endpointRulesFromEnv } from './lib/endpoint-url-safety.js';
 import { AccountRemovalService, temporalRemovalWorkflows } from './services/AccountRemovalService.js';
+import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from './lib/account-removal.js';
 import { ProjectRemovalService } from './services/ProjectRemovalService.js';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from './lib/project-removal.js';
 import { accountRouter } from './routes/account.js';
@@ -400,12 +410,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   clusterService.setTemporalBridge(temporalBridge);
   appService.setTemporalBridge(temporalBridge);
   if (servesTenants(role)) {
-    try {
+    await keepTrying('⚠️ Temporal TS bridge not available yet, routes fall back to the local DB until it is', async () => {
       await temporalBridge.start();
       await temporalBridge.startActiveWorkflowRecovery();
-    } catch (e: any) {
-      console.warn(`⚠️ Temporal TS bridge not available. Routes will fall back to Local DB.`, e.message);
-    }
+    }, (message) => console.warn(message));
   }
 
   const extensions = extensionServiceFor(db);
@@ -559,47 +567,45 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     log: (message) => console.warn(message),
   });
 
-  if (servesTenants(role)) startStreamWorker({
-    io,
-    turnLogs: db,
-    encryptionKey: keys.payload,
-    services: {
-      registry: engineRegistry,
-      endpoints: createEndpointResolver({ models: modelService, registry: engineRegistry }),
-      streamNodes: hostNodesFor(createModelNodes({ registry: engineRegistry, models: modelService }), ['stream']),
-      runCancelled: runCancelledVia(() => getTemporalClient()),
-      conclude: async (event) => {
-        const grown = event.kind === 'run-ended' ? grovedTree(event.runId, event.depth) : undefined;
-        if (event.kind === 'run-ended' && grown) {
-          postNotice('a tree stopped growing', (async () => {
-            const tree = (await db.getTrees()).find((entry) => entry.id === grown && entry.ownerId === event.ownerId);
-            if (!tree) return;
-            const branchIds = new Set((await db.getBranches()).filter((branch) => branch.treeId === tree.id).map((branch) => branch.id));
-            const leaves = (await db.getLeaves()).filter((leaf) => branchIds.has(leaf.branchId));
-            const projectId = tree.projectIds?.[0];
-            for (const notice of treeNotices({ id: tree.id, name: tree.name, ...(projectId ? { projectId } : {}) }, leaves, { runId: event.runId, outcome: event.outcome, ...(event.reason ? { reason: event.reason } : {}) })) {
-              await notices.post(event.ownerId, { treeId: tree.id, projectId }, notice);
-            }
-          })());
-        }
-        if (event.kind === 'run-ended') await workFailures.runEnded(event).catch((err: Error) => console.warn(`[failures] ${err.message}`));
-        reportMemory(event.kind)(await memoryKeeper.handle(event));
-        await bench.service?.activity(event);
+  if (servesTenants(role)) void keepTrying('[engine] stream worker not started yet, runs do not stream until it is', async () => {
+    const worker = await startStreamWorker({
+      io,
+      turnLogs: db,
+      encryptionKey: keys.payload,
+      services: {
+        registry: engineRegistry,
+        endpoints: createEndpointResolver({ models: modelService, registry: engineRegistry }),
+        streamNodes: hostNodesFor(createModelNodes({ registry: engineRegistry, models: modelService }), ['stream']),
+        runCancelled: runCancelledVia(() => getTemporalClient()),
+        conclude: async (event) => {
+          const grown = event.kind === 'run-ended' ? grovedTree(event.runId, event.depth) : undefined;
+          if (event.kind === 'run-ended' && grown) {
+            postNotice('a tree stopped growing', (async () => {
+              const tree = (await db.getTrees()).find((entry) => entry.id === grown && entry.ownerId === event.ownerId);
+              if (!tree) return;
+              const branchIds = new Set((await db.getBranches()).filter((branch) => branch.treeId === tree.id).map((branch) => branch.id));
+              const leaves = (await db.getLeaves()).filter((leaf) => branchIds.has(leaf.branchId));
+              const projectId = tree.projectIds?.[0];
+              for (const notice of treeNotices({ id: tree.id, name: tree.name, ...(projectId ? { projectId } : {}) }, leaves, { runId: event.runId, outcome: event.outcome, ...(event.reason ? { reason: event.reason } : {}) })) {
+                await notices.post(event.ownerId, { treeId: tree.id, projectId }, notice);
+              }
+            })());
+          }
+          if (event.kind === 'run-ended') await workFailures.runEnded(event).catch((err: Error) => console.warn(`[failures] ${err.message}`));
+          reportMemory(event.kind)(await memoryKeeper.handle(event));
+          await bench.service?.activity(event);
+        },
+        benchIdle: async (ownerId) => (bench.service ? bench.service.idle(ownerId) : 'nothing'),
+        post: async (ownerId, posted) => {
+          const notice = postedNotice(posted);
+          if (notice) await notices.post(ownerId, { treeId: notice.refs.treeId, projectId: notice.refs.projectId }, notice);
+        },
       },
-      benchIdle: async (ownerId) => (bench.service ? bench.service.idle(ownerId) : 'nothing'),
-      post: async (ownerId, posted) => {
-        const notice = postedNotice(posted);
-        if (notice) await notices.post(ownerId, { treeId: notice.refs.treeId, projectId: notice.refs.projectId }, notice);
-      },
-    },
-  })
-    .then((worker) => {
-      void worker.run().catch((err: Error) =>
-        console.warn(`[engine] stream worker stopped: ${err.message}`));
-      console.log('[engine] stream worker polling engine-stream-queue');
-    })
-    .catch((err: Error) =>
-      console.warn(`[engine] stream worker not started (${err.message}) — runs will not stream until Temporal is reachable`));
+    });
+    void worker.run().catch((err: Error) =>
+      console.warn(`[engine] stream worker stopped: ${err.message}`));
+    console.log('[engine] stream worker polling engine-stream-queue');
+  }, (message) => console.warn(message));
 
   const authService = new AuthService(db);
   app.use(cors({
@@ -650,6 +656,23 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role });
   const { requireAdmin, userFromSessionCookie } = auth;
+
+  let runningNow: (() => Promise<string[] | 'unknown'>) | undefined;
+  const moveExport = role.role === 'instance' && process.env.POOL === 'true' && role.trusted && role.instance ? new MoveExport({
+    instanceId: role.instance.id,
+    trusted: role.trusted,
+    dataDir: path.join(__dirname, '../data'),
+    mongo: mongoTarget(process.env),
+    env: process.env,
+    running: async () => (runningNow ? runningNow() : 'unknown'),
+  }) : undefined;
+  if (moveExport) {
+    await moveExport.load();
+    app.use('/api', (req, res, next) => (moveExport.isFrozen() && !answersWhileMoving(req.path)
+      ? res.status(503).json({ error: 'This instance is moving to your own machine; it opens there once the move is done' })
+      : next()));
+    app.use('/api/move', moveRouter({ move: moveExport, log: (message) => console.warn(message) }));
+  }
 
   app.use('/api', auth.requireAuth);
 
@@ -864,9 +887,33 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           ...startedFor(ownerId),
         });
       },
+      move: async (instanceId, ownerId) => {
+        await (await getTemporalClient()).workflow.start('PoolMoveWorkflow', {
+          workflowId: poolMoveWorkflowId(instanceId),
+          taskQueue: process.env.POOL_TASK_QUEUE || 'host-ops-queue',
+          args: [{ instanceId }],
+          workflowIdReusePolicy: 'ALLOW_DUPLICATE',
+          ...startedFor(ownerId),
+        });
+      },
+      moveFinished: async (instanceId) => {
+        await (await getTemporalClient()).workflow.getHandle(poolMoveWorkflowId(instanceId)).signal(MOVE_FINISHED);
+      },
+      moveStopped: async (instanceId, reason) => {
+        await (await getTemporalClient()).workflow.getHandle(poolMoveWorkflowId(instanceId)).signal(MOVE_STOPPED, reason);
+      },
     });
     instanceRoutes?.start();
-    app.use('/api/instances', instancesRouter({ instances: instanceService, chart: () => instanceChart.path(), mail, requireAdmin }));
+    const poolWatched = poolSettingsFrom(process.env, '/tmp/kubeconfig-provisioning-lunorica');
+    const poolMonitoring = 'off' in poolWatched ? undefined : new PoolMonitoringService({
+      kubectl: async (args) => String(await infraService.runKubectl(args, poolWatched.kubeconfig)),
+      apply: async (manifest) => { await infraService.applyManifest(manifest, poolWatched.kubeconfig); },
+    });
+    const moveRelay = 'off' in poolWatched || !role.signing ? undefined : new MoveRelay({
+      kubeconfig: kubeconfigFile(poolWatched.kubeconfig),
+      sign: (instanceId, part) => issueMoveToken(role.signing!, instanceId, part),
+    });
+    app.use('/api/instances', instancesRouter({ instances: instanceService, chart: () => instanceChart.path(), mail, requireAdmin, poolMonitoring, moveRelay }));
     const installer = (await fs.readFile(path.join(repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', PUBLIC_URL);
     app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
     app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(repoRoot, 'scripts/setup-gpu.sh')));
@@ -890,10 +937,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const systemOwners = async (): Promise<string[]> => (role.instance
     ? [role.instance.ownerId]
     : (await db.getUsers()).filter((user) => user.isAdmin).map((user) => user.id));
+  const placeOnPool = poolMonitorFrom(process.env);
+  const onPool = placeOnPool ? poolMonitor(placeOnPool) : undefined;
   const monitoring = new MonitoringService({
     store: db,
     systemCluster: () => clusterService.getSystemClusterEntry(),
     ownsSystem: (viewer) => (role.instance ? viewer.id === role.instance.ownerId : Boolean(viewer.isAdmin)),
+    pool: (cluster) => (cluster.isSystem ? onPool : undefined),
     prometheus: async (cluster) => prometheusAt(await clusterProxyService.serviceUrl(cluster.id, 'prometheus', await clusterService.getKubeconfigPath(cluster))),
     kubectl: async (cluster, args) => String(await infraService.runKubectl(args, await clusterService.getKubeconfigPath(cluster))),
     apply: async (cluster, manifest) => { await infraService.applyManifest(manifest, await clusterService.getKubeconfigPath(cluster)); },
@@ -1131,7 +1181,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }) : undefined;
   tenant.use('/api/checks', checksRouter({ scripted: new ScriptedModelService({ store: db, dataKey: keys.data }) }));
   if (accountRemoval) tenant.use('/api/account', accountRouter({ removal: accountRemoval, clearSession: (res) => res.clearCookie('session', auth.sessionCookieOptions) }));
-  app.use('/api/admin', adminRouter({ db, requireAdmin, ...(accountRemoval ? { removal: accountRemoval } : {}) }));
+  const rootRemoval = holdsAccounts(role) && !servesTenants(role) ? new AccountRemovalService({
+    store: db,
+    workflows: temporalRemovalWorkflows(() => getTemporalClient(), process.env.POOL_TASK_QUEUE || 'host-ops-queue'),
+    workflowType: ROOT_REMOVAL_WORKFLOW,
+    steps: ROOT_REMOVAL_STEPS,
+    instances: () => db.getInstances(),
+  }) : undefined;
+  const peopleRemoval = rootRemoval ?? accountRemoval;
+  if (holdsAccounts(role)) app.use('/api/admin', adminRouter({ db, requireAdmin, ...(peopleRemoval ? { removal: peopleRemoval } : {}) }));
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, rateLimits: getModelRateLimiterSnapshot }));
   tenant.use('/api/temporal', temporalRouter({ temporalBridge, instanceOwner: role.instance?.ownerId }));
   tenant.use('/api/worker', workerRouter({ workerService }));
@@ -1344,7 +1402,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         delete: (ownerId, id) => db.deleteProcedure(ownerId, id),
       },
       known: async (ownerId) => ({
-        tools: new Set((await engineRegistry.tools(ownerId)).map((tool) => tool.name)),
+        tools: await (async () => {
+          const hidden = await extensions.hidden(ownerId);
+          return new Set((await draftCatalogue.names(ownerId)).filter((name) => !hidden.tools.has(name)));
+        })(),
         agents: new Set((await engineRegistry.agents(ownerId)).map((agent) => agent.slug)),
       }),
       effort: { list: (ownerId, procedureId) => db.getRunEffort(ownerId, procedureId) },
@@ -1506,6 +1567,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     },
     keeper: memoryKeeper,
   });
+  runningNow = async () => {
+    const view = await running.view(role.instance?.ownerId ?? '');
+    if (!view.ok) return 'unknown';
+    return view.value.items.map((item) => item.title);
+  };
   tenant.use('/api/running', runningRouter({ running }));
   const clusterContents = new ClusterContentsService({
     monitoring,

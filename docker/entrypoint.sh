@@ -39,6 +39,8 @@ case "${1:-backend}" in
   worker-host) exec npx tsx src/worker-host.ts ;;
   seed) exec npx tsx src/scripts/seed-all.ts ;;
   platform-services) exec bash /app/scripts/instance/platform-services.sh ;;
+  move-data) exec npx tsx src/scripts/move-import.ts data ;;
+  move-restore) exec npx tsx src/scripts/move-import.ts restore ;;
   self-upgrade) exec bash /app/scripts/instance/self-upgrade.sh ;;
   *) exec "$@" ;;
 esac

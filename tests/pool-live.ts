@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -17,7 +18,9 @@ const TAG = IMAGE.split(':')[1] ?? 'dev';
 const DOMAIN = 'koala.localhost';
 const ROOT_PORT = 3241;
 const ROOT_FOR_HOST = `http://localhost:${ROOT_PORT}`;
-const ROOT_FOR_GUEST = `http://10.0.2.2:${ROOT_PORT}`;
+const GUEST_NETWORK = '203.0.113.0/24';
+const HOST_FOR_GUEST = '203.0.113.2';
+const ROOT_FOR_GUEST = `http://${HOST_FOR_GUEST}:${ROOT_PORT}`;
 const TLS_PORT = 8444;
 const RELAY_PORT = 18081;
 const BRIDGE = '172.17.0.1';
@@ -68,6 +71,9 @@ function toVm(vm: DisposableVm, files: string[], into: string): void {
 let work = '';
 let vm: DisposableVm | undefined;
 let instanceId: string | undefined;
+let throwawayId: string | undefined;
+let target: DisposableVm | undefined;
+const ENDING = process.env.POOL_LIVE_ENDING === 'delete' ? 'delete' : 'move';
 
 interface Answer { status: number; body: string; headers: Record<string, string> }
 
@@ -96,6 +102,8 @@ function meshKey(tag: 'tag:platform' | 'tag:pool'): string {
 }
 
 async function teardown(): Promise<void> {
+  const movedId = instanceId;
+  if (throwawayId) console.log(`  the throwaway account ${throwawayId} was not removed; remove it from root's admin page`);
   for (const name of Object.values(CONTAINERS)) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
   if (instanceId) {
     for (const workflow of ['pool-instance', 'pool-trial', 'pool-remove']) {
@@ -105,11 +113,13 @@ async function teardown(): Promise<void> {
   }
   try {
     const nodes = JSON.parse(run('docker', ['exec', 'provisioning-headscale', 'headscale', 'nodes', 'list', '-o', 'json'])) as Array<{ id: number; given_name?: string; name?: string }>;
-    for (const node of nodes.filter((entry) => /^(pool-pool-live|nw-pool-root)/.test(entry.given_name ?? entry.name ?? ''))) {
+    const ours = (name: string) => /^(pool-pool-live|nw-pool-root)/.test(name) || (movedId !== undefined && name === movedId);
+    for (const node of nodes.filter((entry) => ours(entry.given_name ?? entry.name ?? ''))) {
       run('docker', ['exec', 'provisioning-headscale', 'headscale', 'nodes', 'delete', '-i', String(node.id), '--force']);
     }
   } catch { /* nothing joined */ }
   await vm?.destroy();
+  await target?.destroy();
   if (work) rmSync(work, { recursive: true, force: true });
 }
 
@@ -143,10 +153,10 @@ async function main(): Promise<void> {
   });
 
   step('a disposable VM becomes a pool node through scripts/root-node/pool-node.sh: k3s, the mesh as tag:pool, root\'s registry, gVisor');
-  vm = await createDisposableVm('pool-live', { memoryMB: 16384, cpus: 6, diskGB: 80 });
+  vm = await createDisposableVm('pool-live', { memoryMB: 16384, cpus: 6, diskGB: 80, network: GUEST_NETWORK });
   toVm(vm, [join(REPO, 'scripts/root-node/pool-node.sh'), join(REPO, 'scripts/root-node/gvisor.sh'), GVISOR_TARBALL], '/tmp/');
   await inVm(vm, 'which zstd >/dev/null || sudo apt-get install -y -qq zstd >/dev/null');
-  await inVm(vm, `sudo sh /tmp/pool-node.sh --login-server http://10.0.2.2:8080 --authkey ${meshKey('tag:pool')} --registry 10.0.2.2:5001 --gvisor-tarball /tmp/gvisor.tar.zstd --yes`, true);
+  await inVm(vm, `sudo sh /tmp/pool-node.sh --login-server http://${HOST_FOR_GUEST}:8080 --authkey ${meshKey('tag:pool')} --registry ${HOST_FOR_GUEST}:5001 --gvisor-tarball /tmp/gvisor.tar.zstd --yes`, true);
   const poolIp = (await inVm(vm, 'tailscale ip -4')).trim().split('\n')[0]!;
   const kubeconfig = (await inVm(vm, 'sudo cat /etc/rancher/k3s/k3s.yaml')).replace('server: https://127.0.0.1:6443', `server: https://127.0.0.1:${vm.k3sApiPort}`);
   const kubeconfigPath = join(work, 'pool-kubeconfig.yaml');
@@ -156,12 +166,12 @@ async function main(): Promise<void> {
 
   step('root starts with the pool on that node, and its host worker takes the pool\'s work');
   const poolEnv = ['-e', `POOL_ADDRESS=${poolIp}`, '-e', 'POOL_SLOTS=1', '-e', 'POOL_KUBECONFIG=/pool/kubeconfig.yaml', '-e', `POOL_TASK_QUEUE=${QUEUE}`,
-    '-e', 'POOL_IMAGE=10.0.2.2:5001/nowrinkles/app', '-e', `POOL_IMAGE_TAG=${TAG}`, '-e', 'POOL_SLOT_MEMORY_MIB=10240', '-e', 'POOL_TRIAL_DAYS=14',
+    '-e', `POOL_IMAGE=${HOST_FOR_GUEST}:5001/nowrinkles/app`, '-e', `POOL_IMAGE_TAG=${TAG}`, '-e', 'POOL_SLOT_MEMORY_MIB=10240', '-e', 'POOL_TRIAL_DAYS=14',
     '-v', `${kubeconfigPath}:/pool/kubeconfig.yaml:ro`];
   const rootEnv = ['--network', 'host', '--env-file', 'apps/backend/.env',
     ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
     '-e', 'ROLE=root', '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`, '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${DOMAIN}`,
-    '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', `INSTANCE_IMAGE_TAG=${TAG}`, ...poolEnv];
+    '-e', `MESH_LOGIN_SERVER=http://${HOST_FOR_GUEST}:8080`, '-e', `INSTANCE_REGISTRY=${HOST_FOR_GUEST}:5001`, '-e', `INSTANCE_IMAGE_TAG=${TAG}`, ...poolEnv];
   run('docker', ['run', '-d', '--name', CONTAINERS.root, ...rootEnv, '--group-add', String(statSync('/var/run/docker.sock').gid), '-v', `${caddyDir}:/app/apps/backend/data/caddy`,
     '-v', '/var/run/docker.sock:/var/run/docker.sock', '-e', `PORT=${ROOT_PORT}`,
     '-e', `CADDY_CONTAINER=${CONTAINERS.caddy}`, '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`, IMAGE, 'backend']);
@@ -245,6 +255,121 @@ async function main(): Promise<void> {
   assert.equal(traces.find((trace) => trace.node === 'stamp')?.exit, 'ok', `the code did not run: ${JSON.stringify(traces.find((trace) => trace.node === 'unavailable' || trace.node === 'broke'))}`);
   assert.equal(traces.find((trace) => trace.node === 'stamp')?.outputs?.host, 'workspace', 'the code did not run in a sandbox pod');
 
+  step('an app deployed inside the pool instance: its cluster gets only the operator\'s resources and an ingress, no monitoring stack of its own');
+  const json = <T,>(answer: Answer): T => JSON.parse(answer.body) as T;
+  const deployed = onInstance('/api/deployments', { method: 'POST', body: { name: 'books', clusterId: 'provisioning-lunorica', appType: 'audiobookshelf', strategy: 'native' } });
+  assert.equal(deployed.status, 202, deployed.body);
+  const deploymentId = json<{ id: string }>(deployed).id;
+  const app = await until('the app running', async () => {
+    const found = json<Array<{ id: string; status: string; namespace?: string }>>(onInstance('/api/deployments')).find((entry) => entry.id === deploymentId);
+    if (!found) throw new Hopeless('the deployment is gone from the list');
+    if (found.status === 'failed') {
+      const log = json<{ content?: string }>(onInstance(`/api/logs/app/${deploymentId}`)).content ?? '';
+      throw new Hopeless(`the app failed to deploy: ${JSON.stringify(found)}\n${log.slice(-4000)}`);
+    }
+    return found.status === 'running' ? found : undefined;
+  });
+  const appNamespace = app.namespace ?? 'books';
+  const inside = (virtual: string) => pool(['get', 'pods', '-n', namespace, '-l', `vcluster.loft.sh/namespace=${virtual}`, '-o', 'name']).trim();
+  assert.equal(inside('monitoring'), '', 'the pool instance runs a monitoring stack of its own');
+  assert.notEqual(inside('traefik'), '', 'the pool instance has no ingress for its apps');
+  console.log(`  books runs in ${appNamespace}; no monitoring pods inside, Traefik there`);
+
+  step('it is published at its flat address through the instance\'s edge');
+  const exposed = onInstance(`/api/deployments/${deploymentId}/expose`, { method: 'POST', body: { mode: 'public' } });
+  assert.equal(exposed.status, 200, exposed.body);
+  assert.equal(json<{ publicExposureUrl: string }>(exposed).publicExposureUrl, `https://books-${NAME}.${DOMAIN}`);
+  const served = await until('the app at its address', async () => {
+    const answer = https(`books-${NAME}.${DOMAIN}`, '/');
+    return answer.status < 400 ? answer : undefined;
+  });
+  console.log(`  ${served.status} from books-${NAME}.${DOMAIN}`);
+
+  step('root probes it on the pool node, and the instance reads it healthy through root');
+  await until('root\'s probe of the app', async () => pool(['get', 'probes.monitoring.coreos.com', '-n', namespace, '-l', 'koala.dev/pool-probe=true', '-o', 'name']).trim() || undefined);
+  const health = await until('the app healthy through root', async () => {
+    const view = json<{ app: { state: string; numbers: { up?: number; memoryBytes?: number } }; history: { byKoala?: boolean }; lines: string[] }>(onInstance(`/api/monitoring/apps/${deploymentId}?range=1h`));
+    return view.app.state === 'ok' && view.app.numbers.up === 1 && (view.app.numbers.memoryBytes ?? 0) > 0 ? view : undefined;
+  });
+  assert.equal(health.history.byKoala, true, 'the app\'s history is not said to be kept by Koala\'s servers');
+  console.log(`  ${health.lines.join(' ')}`);
+
+  step('the owner sets an alert through Koala\'s own tool and its card; it fires when the app stops, and resolves when it starts');
+  const alertProcedure = { schema: 2, id: 'pool-live-alert', version: '1', name: 'Pool live alert', describe: 'proposes an alert', budget: {}, start: 'propose',
+    nodes: [
+      { id: 'who', kind: 'persona', settings: {}, position: { x: 0, y: 0 } },
+      { id: 'propose', kind: 'call-tool', settings: { tool: 'propose_alert', args: JSON.stringify({ app: 'books', kind: 'down', forMinutes: 0, why: 'pool-live' }) }, position: { x: 260, y: 0 } },
+      { id: 'done', kind: 'finish', settings: { outcome: 'ok' }, position: { x: 520, y: 0 } },
+      { id: 'broke', kind: 'finish', settings: { outcome: 'failed' }, position: { x: 520, y: 160 } }],
+    wires: [
+      { from: { node: 'who', socket: 'persona' }, to: { node: 'propose', socket: 'persona' } },
+      { from: { node: 'propose', socket: 'text' }, to: { node: 'done', socket: 'result' } },
+      { from: { node: 'propose', socket: 'text' }, to: { node: 'broke', socket: 'reason' } }],
+    flow: [{ from: 'propose', exit: 'ok', to: 'done' }, { from: 'propose', exit: 'failed', to: 'broke' }],
+    groups: [] };
+  assert.equal(onInstance('/api/procedures/pool-live-alert', { method: 'PUT', body: alertProcedure }).status, 200);
+  const alertRun = json<{ runId: string }>(onInstance('/api/engine/runs', { method: 'POST', body: { agent: 'koala', message: 'live', procedure: 'pool-live-alert' } })).runId;
+  const proposed = await until('the alert proposed', async () => {
+    const list = json<{ traces: Array<{ node: string; outputs?: { text?: string; reason?: string } }> }>(onInstance(`/api/engine/runs/${alertRun}/traces`)).traces;
+    if (list.some((trace) => trace.node === 'broke')) throw new Hopeless(`propose_alert failed: ${JSON.stringify(list.find((trace) => trace.node === 'propose'))}`);
+    return list.some((trace) => trace.node === 'done') ? true : undefined;
+  });
+  assert.ok(proposed);
+  const card = json<Array<{ id: string; kind: string; status: string }>>(onInstance('/api/actions')).find((entry) => entry.kind === 'set_alert' && entry.status === 'proposed');
+  assert.ok(card, 'no alert card waits for the owner');
+  const applied = onInstance(`/api/actions/${card.id}/apply`, { method: 'POST' });
+  assert.equal(applied.status, 200, applied.body);
+  await until('root\'s rule on the pool node', async () => pool(['get', 'prometheusrules', '-n', namespace, '-l', 'koala.dev/pool-rule=true', '-o', 'name']).trim() || undefined);
+  const worker = pool(['get', 'pods', '-n', namespace, '-o', 'name']).trim().split('\n').find((line) => line.startsWith('pod/instance-worker-cluster-'));
+  assert.ok(worker, 'the instance\'s cluster worker pod is not found');
+  const scale = (replicas: number) => pool(['exec', '-n', namespace, worker.slice(4), '--', 'kubectl', 'scale', 'deployment', '--all', '-n', appNamespace, `--replicas=${replicas}`]);
+  scale(0);
+  const fired = await until('the alert firing in the instance', async () => {
+    const alerts = json<{ firing: Array<{ ruleId?: string; summary: string }> }>(onInstance('/api/monitoring/alerts'));
+    return alerts.firing.find((alert) => alert.ruleId);
+  });
+  console.log(`  fired: ${fired.summary}`);
+  scale(1);
+  await until('the alert resolved', async () => {
+    const alerts = json<{ firing: Array<{ ruleId?: string }>; episodes: Array<{ ruleId?: string; resolvedAt?: string }> }>(onInstance('/api/monitoring/alerts'));
+    return !alerts.firing.some((alert) => alert.ruleId) && alerts.episodes.some((episode) => episode.ruleId && episode.resolvedAt) ? true : undefined;
+  });
+  console.log('  resolved once the app answered again');
+
+  step('nothing inside the pool instance reaches root\'s Prometheus');
+  const prometheusIp = pool(['get', 'service', 'kube-prometheus-stack-prometheus', '-n', 'monitoring', '-o', 'jsonpath={.spec.clusterIP}']).trim();
+  const backend = pool(['get', 'pods', '-n', namespace, '-o', 'name']).trim().split('\n').find((line) => line.startsWith('pod/instance-backend-'));
+  assert.ok(backend, 'the instance\'s backend pod is not found');
+  const reach = pool(['exec', '-n', namespace, backend.slice(4), '-c', 'backend', '--', 'node', '-e',
+    `fetch('http://${prometheusIp}:9090/-/ready',{signal:AbortSignal.timeout(15000)}).then((r)=>console.log('reached',r.status),(e)=>console.log('refused',e.cause?.code??e.name))`]).trim();
+  assert.match(reach, /^refused/, `the pool instance reached root's Prometheus: ${reach}`);
+  console.log(`  ${reach}`);
+
+  step('a marker is written into the app\'s own volume, for the move to carry');
+  const appPod = JSON.parse(pool(['get', 'pods', '-n', namespace, '-l', `vcluster.loft.sh/namespace=${appNamespace}`, '-o', 'json'])) as {
+    items: Array<{ metadata: { name: string }; spec: { volumes?: Array<{ name: string; persistentVolumeClaim?: { claimName: string } }>; containers: Array<{ name: string; volumeMounts?: Array<{ name: string; mountPath: string }> }> } }>;
+  };
+  const withVolume = appPod.items.flatMap((pod) => pod.spec.containers.map((container) => ({ pod, container })))
+    .map(({ pod, container }) => ({ pod: pod.metadata.name, container: container.name, mount: container.volumeMounts?.find((mount) => pod.spec.volumes?.some((volume) => volume.name === mount.name && volume.persistentVolumeClaim)) }))
+    .find((entry) => entry.mount);
+  assert.ok(withVolume?.mount, `the app has no volume to carry: ${JSON.stringify(appPod.items.map((pod) => pod.metadata.name))}`);
+  const marker = `${withVolume.mount.mountPath}/.koala-moved`;
+  pool(['exec', '-n', namespace, withVolume.pod, '-c', withVolume.container, '--', 'sh', '-c', `echo ${NAME} > ${marker}`]);
+  console.log(`  ${marker} in ${appNamespace}`);
+
+  step('the owner makes a project with a repository and writes a file in it, for the move to carry');
+  const project = json<{ id: string }>(onInstance('/api/projects', { method: 'POST', body: { name: 'Moved', giteaRepo: `moved-${NAME}`, createRepo: true } }));
+  assert.ok(project.id, 'the project was not made');
+  const listing = await until('the project\'s repository', async () => {
+    const answer = onInstance(`/api/projects/${project.id}/files`);
+    const entries = answer.status === 200 ? json<{ entries: Array<{ name: string; path: string; type: string }> }>(answer).entries.filter((entry) => entry.type === 'file') : [];
+    return entries.length ? entries : undefined;
+  });
+  const movedFile = listing[0]!.path;
+  const opened = json<{ content: string; sha: string }>(onInstance(`/api/projects/${project.id}/files/content?path=${encodeURIComponent(movedFile)}`));
+  const wrote = onInstance(`/api/projects/${project.id}/files/content`, { method: 'PUT', body: { path: movedFile, content: `${opened.content}\nmade on Koala's servers as ${NAME}\n`, sha: opened.sha } });
+  assert.ok(wrote.status < 300, `the file was not written: ${wrote.body}`);
+
   step('an admin ends the trial in a minute and a half: the instance stops, its pods go, and root stops routing to it');
   const admin = (path: string, init: RequestInit = {}) => asOwner(`/api/instances/pool/admin${path}`, init);
   const listed = await (await admin('')).json() as { instances: Array<{ id: string; name: string; status: string }> };
@@ -272,16 +397,114 @@ async function main(): Promise<void> {
   assert.equal(onInstance('/api/procedures/pool-live').status, 200, 'the procedure saved before the pause is gone');
   console.log('  running again, and the procedure saved before the pause is still there');
 
-  step('the admin deletes it, typing its name: the vcluster, its namespace, its ports and its record go');
-  const wrong = await admin(`/instances/${instanceId}`, { method: 'DELETE', body: JSON.stringify({ confirm: 'nope' }) });
-  assert.equal(wrong.status, 400);
-  const deleted = await admin(`/instances/${instanceId}`, { method: 'DELETE', body: JSON.stringify({ confirm: NAME }) });
-  assert.equal(deleted.status, 202, await deleted.clone().text());
-  await until('the namespace gone', async () => (pool(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'name']).trim() === '' ? true : undefined));
-  await until('the record gone', async () => ((await (await asOwner('/api/instances/mine')).json() as { instance: unknown }).instance === null ? true : undefined));
-  const proxy = pool(['get', 'configmap', 'pool-proxy', '-n', 'kube-system', '-o', 'jsonpath={.data.Caddyfile}']);
-  assert.ok(!proxy.includes(namespace), 'the proxy still serves the deleted instance');
-  instanceId = undefined;
+  if (ENDING === 'move') {
+    step('the trial ends again, and the owner moves the stopped instance to a machine of their own from root\'s page');
+    assert.equal((await admin(`/instances/${instanceId}/trial`, { method: 'PUT', body: JSON.stringify({ trialEndsAt: new Date(Date.now() + 90_000).toISOString() }) })).status, 200);
+    await until('the instance paused again', async () => ((await (await asOwner('/api/instances/mine')).json() as { instance: { status: string } }).instance.status === 'paused' ? true : undefined));
+    const moving = await asOwner('/api/instances/move', { method: 'POST' });
+    assert.equal(moving.status, 200, await moving.clone().text());
+    const moveToken = ((await moving.json()) as { command: string }).command.split(' ').pop()!;
+    await until('the stopped instance started for the move', async () => {
+      const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { move?: { state: string; detail?: string } } }).instance;
+      return mine.move?.state === 'waiting' && mine.move.detail === 'Waiting for your machine to run the move command' ? true : undefined;
+    });
+    assert.notEqual(pool(['get', 'pods', '-n', namespace, '--field-selector', 'status.phase=Running', '-o', 'name']).trim(), '', 'the stopped instance said it was ready to move before it ran');
+
+    step('a second VM runs the move command: everything comes over, root switches the address to it, and the pool copy goes');
+    target = await createDisposableVm('pool-live-target', { memoryMB: 12288, cpus: 4, diskGB: 60, network: GUEST_NETWORK });
+    let movedSaid = '';
+    const follow = setInterval(() => {
+      void asOwner('/api/instances/mine').then((answer) => answer.json()).then((body: { instance?: { move?: { detail?: string } } }) => {
+        const detail = body.instance?.move?.detail;
+        if (detail && detail !== movedSaid) { movedSaid = detail; console.log(`  moving: ${detail}`); }
+      }).catch(() => undefined);
+    }, 5000);
+    try {
+      await inVm(target, `curl -fsSL ${ROOT_FOR_GUEST}/install.sh | sudo sh -s -- ${moveToken} --yes`, true);
+      await until('root switching the instance to the new machine', async () => {
+        const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; trialEndsAt?: string; move?: { state: string; detail?: string } } }).instance;
+        if (mine.move?.state === 'failed') throw new Hopeless(`the move stopped: ${mine.move.detail}`);
+        return mine.status === 'ready' && !mine.trialEndsAt && !mine.move ? true : undefined;
+      });
+    } finally {
+      clearInterval(follow);
+    }
+    await until('the pool copy gone', async () => (pool(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'name']).trim() === '' ? true : undefined));
+    assert.ok(!pool(['get', 'configmap', 'pool-proxy', '-n', 'kube-system', '-o', 'jsonpath={.data.Caddyfile}']).includes(namespace), 'the proxy still serves the moved instance');
+
+    step('the owner signs in at root and lands on the new machine, with their work there');
+    await until('the instance through Caddy on its new machine', async () => (https(`${NAME}.${DOMAIN}`, '/api/auth/sign-in').status === 200 ? true : undefined));
+    const goAgain = await fetch(`${ROOT_FOR_HOST}/api/identity/go`, { headers: { Cookie: `session=${session}` }, redirect: 'manual' });
+    const againToken = decodeURIComponent((goAgain.headers.get('location') ?? '').split('token=')[1] ?? '');
+    const againExchange = https(`${NAME}.${DOMAIN}`, '/api/auth/handoff', { method: 'POST', body: { token: againToken } });
+    assert.equal(againExchange.status, 200, `the moved instance refused the owner: ${againExchange.body}`);
+    const movedCookie = (againExchange.headers['set-cookie'] ?? '').split(';')[0]!;
+    const onMoved = (path: string, init: { method?: string; body?: unknown } = {}) => https(`${NAME}.${DOMAIN}`, path, { ...init, cookie: movedCookie });
+    assert.equal(onMoved('/api/procedures/pool-live').status, 200, 'the procedure made on Koala\'s servers is not on the new machine');
+    const file = onMoved(`/api/projects/${project.id}/files/content?path=${encodeURIComponent(movedFile)}`);
+    assert.equal(file.status, 200, `the project's file cannot be read on the new machine: ${file.body}`);
+    assert.match(json<{ content: string }>(file).content, new RegExp(`made on Koala's servers as ${NAME}`));
+    const carried = await until('the app running on the new machine with its volume', async () => {
+      const read = await inVm(target!, `sudo kubectl get pods -n ${appNamespace} -o name | head -1 | xargs -I{} sudo kubectl exec -n ${appNamespace} {} -c ${withVolume.container} -- cat ${marker}`).catch(() => '');
+      return read.trim() === NAME ? read.trim() : undefined;
+    });
+    assert.equal(carried, NAME);
+    const hosts = (await inVm(target, 'hostname')).trim();
+    console.log(`  on ${hosts}: the procedure, the project's repository with its file read with the moved key, and ${appNamespace}'s volume with its marker`);
+  } else {
+    step('the admin deletes it, typing its name: the vcluster, its namespace, its ports and its record go');
+    const wrong = await admin(`/instances/${instanceId}`, { method: 'DELETE', body: JSON.stringify({ confirm: 'nope' }) });
+    assert.equal(wrong.status, 400);
+    const deleted = await admin(`/instances/${instanceId}`, { method: 'DELETE', body: JSON.stringify({ confirm: NAME }) });
+    assert.equal(deleted.status, 202, await deleted.clone().text());
+    await until('the namespace gone', async () => (pool(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'name']).trim() === '' ? true : undefined));
+    await until('the record gone', async () => ((await (await asOwner('/api/instances/mine')).json() as { instance: unknown }).instance === null ? true : undefined));
+    const proxy = pool(['get', 'configmap', 'pool-proxy', '-n', 'kube-system', '-o', 'jsonpath={.data.Caddyfile}']);
+    assert.ok(!proxy.includes(namespace), 'the proxy still serves the deleted instance');
+    instanceId = undefined;
+  }
+
+  step('an admin on root removes a throwaway account: its instance on its own machine is let go of, and the account goes');
+  const invite = await (await asOwner('/api/admin/invites', { method: 'POST', body: '{}' })).json() as { code: string };
+  const email = `pool-live-${NAME}@example.com`;
+  const registered = await fetch(`${ROOT_FOR_HOST}/api/auth/register`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, password: randomBytes(18).toString('base64url'), inviteCode: invite.code }),
+  });
+  assert.equal(registered.status, 200, await registered.clone().text());
+  const people = async () => (await (await asOwner('/api/admin/people')).json() as { people: Array<{ id: string; email: string; instance?: { where: string; name?: string } }> }).people;
+  const throwaway = (await people()).find((person) => person.email === email);
+  assert.ok(throwaway, 'root\'s admin page does not list the new account');
+  throwawayId = throwaway.id;
+  const theirs = signJWT({ userId: throwaway.id, email }, loadKeys(process.env).session, 3600);
+  const joining = await fetch(`${ROOT_FOR_HOST}/api/instances/join-tokens`, {
+    method: 'POST', headers: { 'content-type': 'application/json', Cookie: `session=${theirs}` }, body: JSON.stringify({ name: `${NAME}b` }),
+  });
+  assert.equal(joining.status, 200, await joining.clone().text());
+  assert.equal((await people()).find((person) => person.id === throwaway.id)?.instance?.where, 'own', 'the admin page does not show the account\'s instance');
+  const removedAccount = await asOwner(`/api/admin/people/${throwaway.id}`, { method: 'DELETE', body: JSON.stringify({ confirm: email }) });
+  assert.equal(removedAccount.status, 202, await removedAccount.clone().text());
+  assert.equal((await fetch(`${ROOT_FOR_HOST}/api/auth/me`, { headers: { Cookie: `session=${theirs}` } })).status, 401, 'the removed account is still signed in');
+  await until('the account gone from root', async () => ((await people()).some((person) => person.id === throwaway.id) ? undefined : true));
+  throwawayId = undefined;
+  const second = await (await asOwner('/api/admin/invites', { method: 'POST', body: '{}' })).json() as { code: string };
+  const secondEmail = `pool-live-${NAME}-c@example.com`;
+  const secondRegistered = await fetch(`${ROOT_FOR_HOST}/api/auth/register`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: secondEmail, password: randomBytes(18).toString('base64url'), inviteCode: second.code }),
+  });
+  assert.equal(secondRegistered.status, 200, await secondRegistered.clone().text());
+  const secondId = (await people()).find((person) => person.email === secondEmail)?.id;
+  assert.ok(secondId, 'root\'s admin page does not list the second account');
+  throwawayId = secondId;
+  const asSecond = signJWT({ userId: secondId, email: secondEmail }, loadKeys(process.env).session, 3600);
+  const nameFree = await (await fetch(`${ROOT_FOR_HOST}/api/instances/name-check?name=${NAME}b`, { headers: { Cookie: `session=${asSecond}` } })).json() as { ok: boolean; problem?: string };
+  assert.ok(nameFree.ok, `the removed account's instance name is still taken: ${nameFree.problem}`);
+  const secondRemoved = await asOwner(`/api/admin/people/${secondId}`, { method: 'DELETE', body: JSON.stringify({ confirm: secondEmail }) });
+  assert.equal(secondRemoved.status, 202, await secondRemoved.clone().text());
+  await until('the second account gone from root', async () => ((await people()).some((person) => person.id === secondId) ? undefined : true));
+  throwawayId = undefined;
+  console.log('  removed, signed out at once, and its instance\'s name is free again');
 
   console.log('\npool live — PASS');
 }

@@ -5,6 +5,7 @@ import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
+import { defaultServiceType } from "../lib/service-type.js";
 
 // A sibling project's image comes from a CI pipeline run (RunPipelineActivity), not a
 // hand-picked public registry tag — so unlike every other app construct here, there's no
@@ -47,7 +48,7 @@ export class GitappApp extends Construct {
     })();
 
     const containerPort = config.containerPort || 8080;
-    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || defaultServiceType();
 
     /**
      * Configuration for the deployed project, one "KEY=VALUE" per line.

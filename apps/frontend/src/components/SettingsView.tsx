@@ -1,37 +1,18 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '../api/client';
 import { useShellStore, type AppUser } from '../stores/shell';
 import { DeleteAccount } from './Account/DeleteAccount';
 import { People } from './Account/People';
+import { Invites } from './Account/Invites';
 import { InstanceAddresses } from './Account/InstanceAddresses';
+import { InstanceMove } from './Move/InstanceMove';
 import { Notifications } from './Account/Notifications';
 import GoogleDriveCard from './GoogleDriveCard';
 
-interface Invite {
-  id: string;
-  code: string;
-  createdBy: string;
-  createdAt: string;
-  usedBy?: string;
-  usedAt?: string;
-}
-
 export default function SettingsView() {
-  const qc = useQueryClient();
   const user = useShellStore((s) => s.user);
   const setUser = useShellStore((s) => s.setUser);
   const [error, setError] = useState<string | null>(null);
-
-  const { data: invites = [] } = useQuery({
-    queryKey: ['invites'],
-    queryFn: () => api.get<Invite[]>('/admin/invites').then((r) => r.data),
-    enabled: user?.isAdmin === true,
-  });
-  const mintInvite = useMutation({
-    mutationFn: () => api.post('/admin/invites', {}).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['invites'] }),
-  });
 
   const update2FASettings = async (
     enabled: boolean, phone?: string, preferredMethod?: 'email' | 'sms',
@@ -129,45 +110,12 @@ export default function SettingsView() {
       </div>
 
       <InstanceAddresses />
+      <InstanceMove />
       <Notifications />
       <GoogleDriveCard />
 
-      {user.isAdmin && <People />}
-      {user.isAdmin && (
-        <div className="pt-6 border-t border-slate-700">
-          <div className="flex items-center justify-between mb-1">
-            <h4 className="text-lg font-bold text-white">Invites</h4>
-            <button
-              onClick={() => mintInvite.mutate()}
-              disabled={mintInvite.isPending}
-              className="text-xs font-bold px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 transition-colors cursor-pointer disabled:opacity-50"
-            >
-              {mintInvite.isPending ? 'Generating...' : 'Generate Invite'}
-            </button>
-          </div>
-          <p className="text-xs text-slate-400 mb-4">
-            This platform is invite-only. Share an unused code with anyone you want to give an account.
-          </p>
-          <div className="space-y-2">
-            {invites.length === 0 && (
-              <div className="text-sm text-slate-500 italic">No invites generated yet.</div>
-            )}
-            {[...invites].reverse().map((inv) => (
-              <div key={inv.id} className="flex items-center justify-between bg-slate-900/40 p-4 rounded-2xl border border-white/5">
-                <div>
-                  <div className="text-sm font-mono font-bold text-white">{inv.code}</div>
-                  <div className="text-xs text-slate-400 mt-0.5">
-                    {inv.usedBy ? `Used ${new Date(inv.usedAt ?? inv.createdAt).toLocaleDateString()}` : `Created ${new Date(inv.createdAt).toLocaleDateString()}`}
-                  </div>
-                </div>
-                <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase ${inv.usedBy ? 'bg-slate-500/10 text-slate-400' : 'bg-green-500/10 text-green-500'}`}>
-                  {inv.usedBy ? 'Used' : 'Unused'}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {user.isAdmin && user.holdsAccounts !== false && <People />}
+      {user.isAdmin && user.holdsAccounts !== false && <Invites />}
 
       <DeleteAccount />
     </div>

@@ -105,6 +105,7 @@ export interface DisposableVmOptions {
   diskGB?: number;
   forwards?: Array<{ host: number; guest: number }>;
   reboots?: boolean;
+  network?: string;
 }
 
 export async function createDisposableVm(name: string, options: DisposableVmOptions = {}): Promise<DisposableVm> {
@@ -146,6 +147,15 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
     'ssh_pwauth: false',
     'package_update: false',
     'package_upgrade: false',
+    ...(options.network ? [
+      'write_files:',
+      '  - path: /etc/systemd/resolved.conf.d/public.conf',
+      '    content: |',
+      '      [Resolve]',
+      '      DNS=1.1.1.1 8.8.8.8',
+      'runcmd:',
+      '  - systemctl restart systemd-resolved',
+    ] : []),
   ].join('\n'));
   await fs.writeFile(metaDataPath, [
     `instance-id: ${name}-${Date.now()}`,
@@ -182,7 +192,7 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
     ...(options.reboots ? [] : ['-no-reboot']),
     '-drive', `file=${overlayPath},if=virtio,format=qcow2`,
     '-drive', `file=${seedPath},if=virtio,format=raw,readonly=on`,
-    '-nic', `user,hostfwd=tcp::${sshPort}-:22,hostfwd=tcp::${k3sApiPort}-:6443${(options.forwards ?? []).map((forward) => `,hostfwd=tcp::${forward.host}-:${forward.guest}`).join('')}`,
+    '-nic', `user,${options.network ? `net=${options.network},` : ''}hostfwd=tcp::${sshPort}-:22,hostfwd=tcp::${k3sApiPort}-:6443${(options.forwards ?? []).map((forward) => `,hostfwd=tcp::${forward.host}-:${forward.guest}`).join('')}`,
     '-daemonize',
     '-pidfile', pidPath,
   ]);

@@ -365,9 +365,41 @@ In pool mode an instance pushes images to Gitea by its in-cluster name and gives
 (`lib/registry-hosts.ts`, `REGISTRY_PULL_HOST`, `KOALA_REGISTRY_PUSH`). kubectl port-forward cannot reach a gVisor pod.
 **The trial** (`PoolTrialWorkflow`, rules in `lib/pool-trial.ts`): emails 3 days and 1 day before the end, stops the
 vcluster at the end (status `paused`, so sign-in and routes skip it), warns again 3 days before deleting it 30 days later.
-An admin opens **`/#/pool` on root** (root has no other admin page): places in use, the default trial length
-(`poolSettings`, seeded from `POOL_TRIAL_DAYS`), each person's trial end (moving it ahead warns again and starts a stopped
-instance) and Delete (typing the name; `PoolRemoveWorkflow`). `npm run test:pool-live` proves it on a VM pool node.
+While a move runs the trial holds (`PoolTrialNextActivity` answers `hold`).
+**Root watches pool apps; a pool instance has no monitoring of its own** (`lib/pool-monitoring.ts`). Its cluster gets only
+the operator's CRDs and a ClusterIP Traefik (`CLUSTER_MONITORING=crds`, `INGRESS_SERVICE`; `placedOnPool`). Root's
+`PoolHostActivity` installs one kube-prometheus-stack (no Grafana, `enforcedNamespaceLabel`, kube-state-metrics keeping
+vcluster's `vcluster.loft.sh/namespace` label and `object-name` annotation) and a blackbox exporter that never follows a
+redirect, per node; each pool namespace lets only that exporter in (`probeIngressPolicy`). The instance asks root named
+questions, never PromQL (`MonitoringService`'s `pool` dep → `PoolMonitor` → root's `/api/instances/monitoring/*` with its
+credential → `PoolMonitoringService`, which builds each query with `place` so it reads only `pool-<name>`, joining pods and
+volumes to the namespace they came from, `lib/monitoring-asks.ts`). Its probes (read from the Probe CRs its apps make) and
+its alert rules (rebuilt by root from the six templates) are written by root into its host namespace; alerts come back with
+their namespaces translated. Not on a pool place: Open in Grafana, request counts and the `errors` alert (shown as not
+measured), and changing how long history is kept (`byKoala`).
+**Root's admin area, `/#/admin`** (`components/RootAdmin/`; `/#/pool` opens its pool section): People (every account and
+its instance, own machine or pool), Invites, and Koala's servers (places in use, the default trial length, `poolSettings`
+seeded from `POOL_TRIAL_DAYS`, each person's trial end, which moving ahead warns again and starts a stopped instance, and
+Delete, typing the name, `PoolRemoveWorkflow`). Removing an account on root runs `RootAccountRemovalWorkflow` (host worker):
+a pool instance is deleted, its mesh user and nodes removed, its records removed; what is on a person's own machine stays
+theirs. An instance mounts no `/api/admin`, and its Settings shows People and Invites only where accounts are held
+(`holdsAccounts` on `/api/auth/me`).
+**Moving to their own machine** (plan `~/.claude/plans/pool-instances.md`, design A). The person starts it on root's page
+(also for a stopped trial, which is started again only for the move) or in the instance's Settings
+(`/api/instance-trial/move` → root's `/api/instances/move/self`). Root gives the install command with a single-use move
+code (`startMove`, a join token with `move`) and starts `PoolMoveWorkflow`. The machine joins as the same instance (same
+name, a new credential kept as `move.credentialHash` until the switch), takes the instance's four keys
+(`MOVED_KEYS`) into `<release>-keys` before Helm, and installs the chart with `move.enabled`: workers at zero, the setup
+jobs `move-data` (the data folder) → `platform-services` (with the moved secrets) → `move-restore` (Mongo through
+`lib/mongo-move.ts`, Gitea's and Infisical's Postgres through `PG_RESTORE` into a fresh schema, Gitea's data volume
+through a helper pod) → `seed`. Every part comes through root (`/api/instances/move/parts/:part`, the move credential):
+root's `MoveRelay` reaches the pool instance's backend through the pool node's API server with a token it signs for that
+instance and part (`issueMoveToken`), never storing anything. The pool instance (`MoveExport`, `/api/move/*`) checks the
+token, refuses while work runs, and stops taking work (every other route answers 503, `.moving` in its data folder) until
+root thaws it. The installer then turns `move` off and reports `ready` with `moved`; root switches the record (credential,
+mesh address, no pool), removes the pool copy and frees its ports. A failure reported by the machine, or Stop the move,
+thaws the pool copy and stops it again if it was stopped. `npm run test:pool-live` proves the pool, its monitoring, root's
+admin removal and the move on two VMs (`POOL_LIVE_ENDING=delete` ends with an admin's Delete instead of the move).
 
 **Every cluster that runs apps has monitoring.** Before an app is deployed, `ensureClusterMonitoring`
 (`activities/cluster-monitoring.ts`, rule in `lib/cluster-monitoring.ts`) asks the cluster whether it serves

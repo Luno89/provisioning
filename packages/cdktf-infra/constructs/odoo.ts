@@ -3,6 +3,7 @@ import { Release } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
+import { defaultServiceType } from "../lib/service-type.js";
 
 export interface OdooConfig {
   readonly namespace?: string;
@@ -51,7 +52,7 @@ export class OdooApp extends Construct {
       },
     });
 
-    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || defaultServiceType();
 
     const helmValues: any[] = [
       { name: "service.type", value: serviceType },

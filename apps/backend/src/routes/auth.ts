@@ -154,6 +154,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       emailVerified: user.emailVerified,
       createdAt: user.createdAt,
       isAdmin: user.isAdmin === true,
+      holdsAccounts: deps.accounts !== false,
     });
   });
 

@@ -293,7 +293,5 @@ export function clusterWorkloads(
   return { workloads, finishedJobs, measured: Boolean(input.memory || input.cpu) };
 }
 
-export const MEMORY_BY_POD = 'sum by (namespace, pod) (container_memory_working_set_bytes{container!="",image!=""})';
-export const CPU_BY_POD = 'sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{container!="",image!=""}[5m]))';
 
 export const brokenWorkloads = (workloads: readonly Workload[]): Workload[] => workloads.filter((workload) => workload.state === 'down' || workload.state === 'warning');

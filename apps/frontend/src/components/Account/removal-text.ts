@@ -8,16 +8,17 @@ const STEP_NAMES: Record<RemovalStep, string> = {
   mesh: 'removing its machines from the mesh',
   repositories: 'deleting its repositories',
   records: 'deleting its records',
+  instance: 'removing its instance',
 }
 
 const ORDER: RemovalStep[] = ['workflows', 'apps', 'workspaces', 'secrets', 'mesh', 'repositories', 'records']
 
-export function removalText(state: RemovalState): string {
+export function removalText(state: RemovalState, steps: readonly RemovalStep[] = ORDER): string {
   if (state.state === 'none') return 'Waiting to start'
   if (state.state === 'finished') return 'Removed'
   if (state.state === 'failed') return `Stopped: ${state.reason}`
-  const next = ORDER.find((step) => !state.done.includes(step))
-  return next ? `${STEP_NAMES[next]} (${state.done.length + 1} of ${ORDER.length})` : 'Finishing'
+  const next = steps.find((step) => !state.done.includes(step))
+  return next ? `${STEP_NAMES[next]} (${state.done.length + 1} of ${steps.length})` : 'Finishing'
 }
 
 export const confirmMatches = (typed: string, email: string): boolean =>
