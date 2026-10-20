@@ -360,7 +360,15 @@ async function main(): Promise<void> {
     console.log(`    the story shipped: addons/${drift.module} is on main`);
     const adopted = await waitFor('the release that brings them in', (all) => all.find((release) => release.state === 'preview' && release.e2e && release.e2e.state !== 'running' && release.changes !== undefined && !releaseIds.includes(release.id) && release.id !== first.id), 40);
     console.log(`    ${JSON.stringify({ lost: adopted.changes!.lost, items: adopted.changes!.items.map((item) => `${item.kind}: ${item.state}`) })}`);
-    assert.deepEqual(adopted.changes!.items.map((item) => `${item.kind}: ${item.state}`).sort(), ['edited-view: kept', 'field: kept']);
+    const adoptedStates = adopted.changes!.items.map((item) => `${item.kind}: ${item.state}`).sort();
+    if (adoptedStates.join() !== 'edited-view: kept,field: kept') {
+      for (const file of (await gitea.listPaths(project.giteaOwner, project.giteaRepo, 'main')).filter((path) => path.startsWith(`addons/${drift.module}/`) || path.startsWith(`addons/${MODULE}/views/`))) {
+        console.log(`    --- ${file}\n${await gitea.getRawFile(project.giteaOwner, project.giteaRepo, file, 'main')}`);
+      }
+      console.log(`    slot a probe_form: ${await psql('odoo_a', "select arch_db::text from ir_ui_view v join ir_model_data d on d.res_id = v.id and d.model = 'ir.ui.view' where d.module = 'koala_probe' and d.name = 'probe_form'")}`);
+      console.log(`    slot b probe_form: ${await psql('odoo_b', "select arch_db::text from ir_ui_view v join ir_model_data d on d.res_id = v.id and d.model = 'ir.ui.view' where d.module = 'koala_probe' and d.name = 'probe_form'")}`);
+    }
+    assert.deepEqual(adoptedStates, ['edited-view: kept', 'field: kept']);
     const adoptCut = await http.post(`/projects/${projectId}/releases/${adopted.id}/cut-over`, { confirm: true });
     assert.equal(adoptCut.status, 202, JSON.stringify(adoptCut.data));
     await waitFor('the cut-over that keeps them', (all) => all.find((release) => release.id === adopted.id && release.state === 'live'), 20);
