@@ -74,7 +74,7 @@ echo "  ▶  Ensuring Gitea is installed (helm upgrade --install is a cheap no-o
   --set valkey-cluster.enabled=false \
   --set strategy.type=Recreate \
   --set-string gitea.config.security.ALLOWED_HOST_LIST='private\,loopback' \
-  --wait --timeout 5m
+  --wait --timeout 720h
   # strategy=Recreate: the chart's default RollingUpdate brings up a second pod (sharing the
   # same ReadWriteOnce PVC) before killing the first — Gitea's local leveldb queue can't be
   # opened by two processes at once, so every config change crash-loops the new pod until the
@@ -90,7 +90,7 @@ echo "  ▶  Ensuring Gitea is installed (helm upgrade --install is a cheap no-o
   # that config on every reinstall.
 
 echo "  ▶  Waiting for Gitea to be ready..."
-"$KUBECTL" --context "$CONTEXT" -n "$NAMESPACE" rollout status deployment/gitea --timeout=120s
+"$KUBECTL" --context "$CONTEXT" -n "$NAMESPACE" rollout status deployment/gitea --timeout=720h
 
 # Minimal-RBAC ServiceAccount for Phase 1's ephemeral pipeline build Jobs — applied here since
 # this script already owns "things pipelines need in-cluster" alongside Gitea itself. No

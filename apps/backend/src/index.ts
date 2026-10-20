@@ -84,6 +84,7 @@ import { localAgentsRouter } from './routes/local-agents.js';
 import { pendingApprovalsRouter } from './routes/pending-approvals.js';
 import { startedFor } from './lib/workflow-owner.js';
 import { poolSettingsFrom } from './lib/pool.js';
+import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from './lib/pool-trial.js';
 import { askDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from './lib/local-agent-registry.js';
 import { MachineService } from './services/MachineService.js';
 import { MachineBundle } from './services/MachineBundle.js';
@@ -204,6 +205,8 @@ import { handoffRouter } from './routes/handoff.js';
 import { InstanceService } from './services/InstanceService.js';
 import { InstanceRoutes, dockerCaddy } from './services/InstanceRoutes.js';
 import { InstanceAddresses, adminEdge } from './services/InstanceAddresses.js';
+import { instanceTrialRouter } from './routes/instance-trial.js';
+import { InstanceTrial } from './services/InstanceTrial.js';
 import { instanceAddressesRouter } from './routes/instance-addresses.js';
 import { monitoringRouter } from './routes/monitoring.js';
 import { notificationsRouter } from './routes/notifications.js';
@@ -838,16 +841,32 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         const pool = poolSettingsFrom(process.env, '/tmp/kubeconfig-provisioning-lunorica');
         return 'off' in pool ? pool : { slots: pool.slots, trialDays: pool.trialDays };
       })(),
-    }, headscaleService, () => new Date(), () => instanceRoutes?.changed(), async (instanceId, ownerId) => {
-      await temporalBridge.client.workflow.start('PoolInstanceWorkflow', {
-        workflowId: `pool-instance-${instanceId}`,
-        taskQueue: process.env.POOL_TASK_QUEUE || 'host-ops-queue',
-        args: [{ instanceId }],
-        ...startedFor(ownerId),
-      });
+    }, headscaleService, () => new Date(), () => instanceRoutes?.changed(), {
+      start: async (instanceId, ownerId) => {
+        await (await getTemporalClient()).workflow.start('PoolInstanceWorkflow', {
+          workflowId: `pool-instance-${instanceId}`,
+          taskQueue: process.env.POOL_TASK_QUEUE || 'host-ops-queue',
+          args: [{ instanceId }],
+          ...startedFor(ownerId),
+        });
+      },
+      trialChanged: async (instanceId) => {
+        await (await getTemporalClient()).workflow.getHandle(poolTrialWorkflowId(instanceId)).signal(TRIAL_CHANGED).catch((error: Error) => {
+          if (!/not found|already completed/i.test(error.message)) throw error;
+        });
+      },
+      remove: async (instanceId, ownerId) => {
+        const temporal = await getTemporalClient();
+        await temporal.workflow.start('PoolRemoveWorkflow', {
+          workflowId: poolRemoveWorkflowId(instanceId),
+          taskQueue: process.env.POOL_TASK_QUEUE || 'host-ops-queue',
+          args: [{ instanceId }],
+          ...startedFor(ownerId),
+        });
+      },
     });
     instanceRoutes?.start();
-    app.use('/api/instances', instancesRouter({ instances: instanceService, chart: () => instanceChart.path(), mail }));
+    app.use('/api/instances', instancesRouter({ instances: instanceService, chart: () => instanceChart.path(), mail, requireAdmin }));
     const installer = (await fs.readFile(path.join(repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', PUBLIC_URL);
     app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
     app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(repoRoot, 'scripts/setup-gpu.sh')));
@@ -863,6 +882,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   tenant.use('/api/instance-addresses', instanceAddressesRouter({ addresses: () => instanceAddresses }));
+  tenant.use('/api/instance-trial', instanceTrialRouter({
+    trial: role.instance && process.env.INSTANCE_CREDENTIAL
+      ? new InstanceTrial({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: process.env.INSTANCE_CREDENTIAL })
+      : undefined,
+  }));
   const systemOwners = async (): Promise<string[]> => (role.instance
     ? [role.instance.ownerId]
     : (await db.getUsers()).filter((user) => user.isAdmin).map((user) => user.id));

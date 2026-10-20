@@ -49,8 +49,9 @@ describe('the pool on a node', () => {
   });
 
   it('runs a vcluster\'s control plane and every pod it syncs under gVisor, within its slot, with no node ports', () => {
-    const values = vclusterValues(SLOT) as any;
+    const values = vclusterValues('alice', SLOT) as any;
     expect(values.controlPlane.statefulSet.runtimeClassName).toBe('gvisor');
+    expect(values.controlPlane.proxy.extraSANs).toEqual(['alice.pool-alice.svc']);
     expect(values.sync.toHost.pods.runtimeClassName).toBe('gvisor');
     expect(values.policies.resourceQuota.quota).toMatchObject({
       'requests.memory': '6144Mi', 'requests.cpu': '2', 'services.nodeports': 0, 'services.loadbalancers': 0,

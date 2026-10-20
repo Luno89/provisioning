@@ -8,10 +8,13 @@ import { InfrastructureService } from '../services/InfrastructureService.js';
 import { hashCredential } from '../services/InstanceService.js';
 import { roleFromEnv } from '../lib/platform-role.js';
 import { publicKeyPem } from '../lib/identity-token.js';
+import { emailWayFrom } from '../lib/email-way.js';
+import { afterStep, nextTrialStep, trialMessage, type DueStep, type TrialStep } from '../lib/pool-trial.js';
+import { MailService } from '../services/MailService.js';
 import type { InstanceRecord } from '../lib/instances.js';
 import {
   admissionManifests, COMPONENT_RESOURCES, INSTANCE_RELEASE, namespaceManifest, POOL_LABEL, poolChartValues, poolNamespace,
-  poolSettingsFrom, PROXY, proxyCaddyfile, proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterValues,
+  poolSettingsFrom, PROXY, proxyCaddyfile, proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterAddress, vclusterValues,
   type PoolSettings,
 } from '../lib/pool.js';
 
@@ -94,7 +97,7 @@ export async function PoolVclusterActivity(args: { instanceId: string }): Promis
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pool-'));
     try {
       const values = path.join(dir, 'vcluster.json');
-      await fs.writeFile(values, JSON.stringify(vclusterValues(pool.slot)));
+      await fs.writeFile(values, JSON.stringify(vclusterValues(name, pool.slot)));
       await infra.runHelm(['upgrade', '--install', name, 'vcluster', '--repo', 'https://charts.loft.sh', '--version', VCLUSTER_CHART_VERSION,
         '-n', namespace, '--wait', '--timeout', '720h', '-f', values], pool.kubeconfig);
     } finally {
@@ -151,7 +154,8 @@ export async function PoolChartActivity(args: { instanceId: string }): Promise<v
 function installJob(job: string, namespace: string, vcluster: string, image: PoolSettings['image']): Record<string, unknown> {
   const script = [
     'set -eu',
-    `sed "s|server: .*|server: https://${vcluster}.${namespace}.svc:443|" /vc/config > /tmp/kubeconfig`,
+    `sed "s|server: .*|server: https://${vclusterAddress(vcluster)}:443|" /vc/config > /tmp/kubeconfig`,
+    'chmod 600 /tmp/kubeconfig',
     `/app/bin/helm upgrade --install ${INSTANCE_RELEASE.name} /app/charts/instance -n ${INSTANCE_RELEASE.namespace} --create-namespace --kubeconfig /tmp/kubeconfig -f /values/values.json --timeout 720h`,
   ].join('\n');
   return {
@@ -202,4 +206,88 @@ export async function PoolFailedActivity(args: { instanceId: string; reason: str
   await withInstance(args.instanceId, async (_instance, save) => {
     await save({ status: 'failed', detail: args.reason.slice(0, 500) });
   });
+}
+
+export async function PoolTrialNextActivity(args: { instanceId: string; now: number }): Promise<DueStep | null> {
+  const db = createDatabase();
+  await db.init();
+  try {
+    const instance = (await db.getInstances()).find((entry) => entry.id === args.instanceId);
+    if (!instance?.pool || !instance.name) return null;
+    return nextTrialStep(instance.pool, args.now);
+  } finally {
+    await db.close();
+  }
+}
+
+async function tell(ownerId: string, message: { subject: string; text: string }): Promise<void> {
+  const db = createDatabase();
+  await db.init();
+  try {
+    const mail = new MailService({ way: emailWayFrom(process.env, roleFromEnv(process.env)), emailOf: async (id) => (await db.getUserById(id))?.email });
+    await mail.toOwner(ownerId, message);
+  } catch (error) {
+    console.warn(`[pool] could not email ${ownerId} "${message.subject}": ${(error as Error).message}`);
+  } finally {
+    await db.close();
+  }
+}
+
+async function vclusterReplicas(pool: PoolSettings, name: string, replicas: 0 | 1): Promise<void> {
+  const infra = new InfrastructureService();
+  const namespace = poolNamespace(name);
+  await infra.runKubectl(['scale', 'statefulset', name, '-n', namespace, `--replicas=${replicas}`], pool.kubeconfig);
+  if (replicas === 0) {
+    await infra.runKubectl(['delete', 'pods', '-n', namespace, '-l', `vcluster.loft.sh/managed-by=${name}`, '--wait=true'], pool.kubeconfig);
+  }
+}
+
+export async function PoolRemoveActivity(args: { instanceId: string }): Promise<void> {
+  const pool = settings();
+  const infra = new InfrastructureService();
+  const db = createDatabase();
+  await db.init();
+  try {
+    const instance = (await db.getInstances()).find((entry) => entry.id === args.instanceId);
+    if (!instance?.pool || !instance.name) return;
+    const namespace = poolNamespace(instance.name);
+    await infra.runHelm(['uninstall', instance.name, '-n', namespace, '--ignore-not-found', '--wait', '--timeout', '720h'], pool.kubeconfig);
+    await infra.runKubectl(['delete', 'namespace', namespace, '--ignore-not-found', '--wait=true'], pool.kubeconfig);
+    await db.deleteInstance(instance.id);
+  } finally {
+    await db.close();
+  }
+  await PoolProxyActivity();
+}
+
+export async function PoolTrialStepActivity(args: { instanceId: string; step: TrialStep; now: number }): Promise<void> {
+  const pool = settings();
+  const rootUrl = process.env.PUBLIC_URL?.trim() || '';
+  const db = createDatabase();
+  await db.init();
+  let instance: InstanceRecord | undefined;
+  try {
+    instance = (await db.getInstances()).find((entry) => entry.id === args.instanceId);
+  } finally {
+    await db.close();
+  }
+  if (!instance?.pool || !instance.name) return;
+  const message = trialMessage(args.step, { name: instance.name, trialEndsAt: instance.pool.trialEndsAt, rootUrl });
+  if (args.step === 'delete') {
+    await PoolRemoveActivity({ instanceId: instance.id });
+    await tell(instance.ownerId, message);
+    return;
+  }
+  if (args.step === 'pause') await vclusterReplicas(pool, instance.name, 0);
+  if (args.step === 'resume') await vclusterReplicas(pool, instance.name, 1);
+  await withInstance(instance.id, async (current, save) => {
+    const trial = afterStep(current.pool!, args.step, args.now);
+    await save({
+      pool: { ...current.pool!, told: [...(trial.told ?? [])], pausedAt: trial.pausedAt },
+      ...(args.step === 'pause' ? { status: 'paused' as const, detail: 'The trial has ended' } : {}),
+      ...(args.step === 'resume' ? { status: 'installing' as const, detail: 'Starting Koala in your space' } : {}),
+    });
+  });
+  if (args.step === 'resume') await PoolReadyActivity({ instanceId: instance.id });
+  await tell(instance.ownerId, message);
 }

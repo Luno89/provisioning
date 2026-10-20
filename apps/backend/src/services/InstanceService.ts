@@ -3,11 +3,29 @@ import type { Database } from '../lib/db-interface.js';
 import { INSTANCE_STATUSES, type InstanceAddresses, type InstanceRecord, type InstanceStatus } from '../lib/instances.js';
 import { nameProblem, suggestedName } from '../lib/instance-names.js';
 import { routeProblem } from '../lib/instance-routes.js';
-import { freePorts } from '../lib/pool.js';
+import { freePorts, trialDaysProblem, type PoolPolicy } from '../lib/pool.js';
+import { extendedTrial } from '../lib/pool-trial.js';
 
 export const JOIN_TOKEN_TTL_SECONDS = 3600;
 
-type Store = Pick<Database, 'saveJoinToken' | 'takeJoinToken' | 'getInstances' | 'saveInstance' | 'getUserById'>;
+type Store = Pick<Database, 'saveJoinToken' | 'takeJoinToken' | 'getInstances' | 'saveInstance' | 'getUserById' | 'getPoolPolicy' | 'savePoolPolicy'>;
+
+export interface PoolWorkflows {
+  start(instanceId: string, ownerId: string): Promise<void>;
+  trialChanged(instanceId: string): Promise<void>;
+  remove(instanceId: string, ownerId: string): Promise<void>;
+}
+
+export interface PoolInstanceRow {
+  id: string;
+  name: string;
+  owner: string;
+  status: InstanceStatus;
+  detail?: string | undefined;
+  startedAt: string;
+  trialEndsAt: string;
+  pausedAt?: string | undefined;
+}
 
 export interface InstanceSettings {
   rootUrl: string;
@@ -57,7 +75,7 @@ export class InstanceService {
     private readonly mesh: { createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }> } | undefined,
     private readonly now: () => Date = () => new Date(),
     private readonly routesChanged: () => void = () => {},
-    private readonly startPool: ((instanceId: string, ownerId: string) => Promise<void>) | undefined = undefined,
+    private readonly poolWorkflows: PoolWorkflows | undefined = undefined,
   ) {}
 
   private async nameFor(ownerId: string, name: unknown): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
@@ -119,9 +137,9 @@ export class InstanceService {
 
   private async poolRoom(): Promise<{ ok: true; slots: number; trialDays: number; taken: InstanceRecord[] } | { ok: false; reason: string }> {
     const pool = this.settings.pool;
-    if (!pool || 'off' in pool || !this.startPool) return { ok: false, reason: pool && 'off' in pool ? pool.off : 'this root has no pool' };
+    if (!pool || 'off' in pool || !this.poolWorkflows) return { ok: false, reason: pool && 'off' in pool ? pool.off : 'this root has no pool' };
     const taken = (await this.store.getInstances()).filter((entry) => entry.pool && entry.status !== 'failed');
-    return { ok: true, slots: pool.slots, trialDays: pool.trialDays, taken };
+    return { ok: true, slots: pool.slots, trialDays: (await this.store.getPoolPolicy())?.trialDays ?? pool.trialDays, taken };
   }
 
   async poolOffer(ownerId: string): Promise<PoolOffer> {
@@ -159,8 +177,65 @@ export class InstanceService {
       ...(existing?.addresses ? { addresses: existing.addresses } : {}),
       pool: { ports, startedAt: now.toISOString(), trialEndsAt },
     });
-    await this.startPool!(instanceId, ownerId);
+    try {
+      await this.poolWorkflows!.start(instanceId, ownerId);
+    } catch (error) {
+      const record = (await this.store.getInstances(ownerId)).find((entry) => entry.id === instanceId)!;
+      await this.save(record, { status: 'failed', detail: `Setting it up could not start: ${(error as Error).message}` });
+      return { ok: false, status: 503, error: `setting up your instance could not start: ${(error as Error).message}` };
+    }
     return { ok: true, value: { id: instanceId, name: named.name, trialEndsAt } };
+  }
+
+  async poolAdmin(): Promise<Outcome<{ slots: number; trialDays: number; defaultTrialDays: number; policy?: PoolPolicy | undefined; instances: PoolInstanceRow[] }>> {
+    const room = await this.poolRoom();
+    if (!room.ok) return { ok: false, status: 503, error: room.reason };
+    const pool = this.settings.pool as { slots: number; trialDays: number };
+    const instances: PoolInstanceRow[] = [];
+    for (const entry of (await this.store.getInstances()).filter((record) => record.pool && record.name)) {
+      const owner = await this.store.getUserById(entry.ownerId);
+      instances.push({
+        id: entry.id, name: entry.name!, owner: owner?.email ?? entry.ownerId, status: entry.status ?? 'installing', detail: entry.detail,
+        startedAt: entry.pool!.startedAt, trialEndsAt: entry.pool!.trialEndsAt, pausedAt: entry.pool!.pausedAt,
+      });
+    }
+    instances.sort((a, b) => a.trialEndsAt.localeCompare(b.trialEndsAt));
+    const policy = await this.store.getPoolPolicy();
+    return { ok: true, value: { slots: room.slots, trialDays: room.trialDays, defaultTrialDays: pool.trialDays, ...(policy ? { policy } : {}), instances } };
+  }
+
+  async setTrialDays(adminId: string, days: unknown): Promise<Outcome<PoolPolicy>> {
+    const room = await this.poolRoom();
+    if (!room.ok) return { ok: false, status: 503, error: room.reason };
+    const problem = trialDaysProblem(days);
+    if (problem) return { ok: false, status: 400, error: problem };
+    const policy = { trialDays: days as number, updatedAt: this.now().toISOString(), updatedBy: adminId };
+    await this.store.savePoolPolicy(policy);
+    return { ok: true, value: policy };
+  }
+
+  async setTrialEnd(instanceId: string, trialEndsAt: unknown): Promise<Outcome<PoolInstanceRow>> {
+    if (!this.poolWorkflows) return { ok: false, status: 503, error: 'this root has no pool' };
+    const instance = (await this.store.getInstances()).find((entry) => entry.id === instanceId);
+    if (!instance?.pool || !instance.name) return { ok: false, status: 404, error: 'no pool instance by that id' };
+    const at = typeof trialEndsAt === 'string' ? Date.parse(trialEndsAt) : NaN;
+    if (!Number.isFinite(at)) return { ok: false, status: 400, error: 'send the new end of the trial as "trialEndsAt", a date and time' };
+    if (at <= this.now().getTime()) return { ok: false, status: 400, error: 'the new end of the trial has to be in the future' };
+    const trial = extendedTrial(instance.pool, new Date(at).toISOString(), this.now().getTime());
+    const saved = await this.save(instance, { pool: { ...instance.pool, trialEndsAt: trial.trialEndsAt, told: [...(trial.told ?? [])], pausedAt: trial.pausedAt } });
+    await this.poolWorkflows.trialChanged(instanceId);
+    const owner = await this.store.getUserById(saved.ownerId);
+    return { ok: true, value: { id: saved.id, name: saved.name!, owner: owner?.email ?? saved.ownerId, status: saved.status ?? 'installing', detail: saved.detail, startedAt: saved.pool!.startedAt, trialEndsAt: saved.pool!.trialEndsAt, pausedAt: saved.pool!.pausedAt } };
+  }
+
+  async removePoolInstance(instanceId: string, confirm: unknown): Promise<Outcome<{ removing: string }>> {
+    if (!this.poolWorkflows) return { ok: false, status: 503, error: 'this root has no pool' };
+    const instance = (await this.store.getInstances()).find((entry) => entry.id === instanceId);
+    if (!instance?.pool || !instance.name) return { ok: false, status: 404, error: 'no pool instance by that id' };
+    if (confirm !== instance.name) return { ok: false, status: 400, error: `type the instance's name, "${instance.name}", to delete it and everything in it` };
+    await this.save(instance, { status: 'paused', detail: 'Being deleted' });
+    await this.poolWorkflows.remove(instance.id, instance.ownerId);
+    return { ok: true, value: { removing: instance.name } };
   }
 
   async join(token: unknown, machine: unknown): Promise<Outcome<JoinBundle>> {
@@ -253,6 +328,12 @@ export class InstanceService {
     const instance = await this.authenticated(instanceId, credential);
     if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
     return { ok: true, value: { ownerId: instance.ownerId } };
+  }
+
+  async trialOf(instanceId: unknown, credential: unknown): Promise<Outcome<{ trialEndsAt?: string | undefined }>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    return { ok: true, value: instance.pool ? { trialEndsAt: instance.pool.trialEndsAt } : {} };
   }
 
   async addresses(instanceId: unknown, credential: unknown): Promise<Outcome<InstanceAddresses & { name: string; domain: string }>> {

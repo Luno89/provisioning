@@ -22,7 +22,18 @@ const POOL_STEPS: { status: InstanceStatus; label: string }[] = [
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })
 
+const KEEP_DAYS = 30
+
 function PoolProgress({ setup, retrying, onRetry }: { setup: MySetup; retrying: boolean; onRetry: () => void }) {
+  if (setup.status === 'paused' && setup.trialEndsAt) {
+    const deleted = new Date(Date.parse(setup.trialEndsAt) + KEEP_DAYS * 86_400_000).toISOString()
+    return (
+      <div className="space-y-2">
+        <p className="text-xs text-slate-200">Your trial on Koala's servers ended on {day(setup.trialEndsAt)}, and your instance {setup.name} has stopped.</p>
+        <p className="text-xs text-slate-400">Its work is kept as it is until {day(deleted)}, and deleted then.</p>
+      </div>
+    )
+  }
   return (
     <div className="space-y-3">
       <p className="text-xs text-slate-300">Your instance runs on Koala's servers until {setup.trialEndsAt ? day(setup.trialEndsAt) : 'the trial ends'}. Before then you can move it to your own machine, keeping all your work.</p>
@@ -84,8 +95,14 @@ export default function NoInstance({ hasInstance, onLogout }: NoInstanceProps) {
           <p className="flex items-center justify-center gap-2 text-sm text-slate-300"><Loader2 size={16} className="animate-spin" /> Taking you to your instance…</p>
         ) : (
           <>
-            <p className="text-sm font-semibold">You don't have an instance yet</p>
-            <p className="text-xs leading-relaxed text-slate-400">Your work runs on an instance of your own, on a machine you choose. Nothing about it is visible to anyone else.</p>
+            {setup.data?.status === 'paused' ? (
+              <p className="text-sm font-semibold">Your trial has ended</p>
+            ) : (
+              <>
+                <p className="text-sm font-semibold">You don't have an instance yet</p>
+                <p className="text-xs leading-relaxed text-slate-400">Your work runs on an instance of your own, on a machine you choose. Nothing about it is visible to anyone else.</p>
+              </>
+            )}
             {inPool && setup.data ? (
               <PoolProgress setup={setup.data} retrying={startPool.isPending} onRetry={() => startPool.mutate(setup.data!.name ?? name)} />
             ) : null}

@@ -38,8 +38,9 @@ describe('trying Koala on its own servers', () => {
         instances: new InstanceService(db, {
           rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', chartVersion: '1', domain: 'koala.dev',
           pool: { slots: 1, trialDays: 14 },
-        }, undefined, () => new Date('2026-10-20T00:00:00Z'), () => {}, async (instanceId) => { started.push(instanceId); }),
+        }, undefined, () => new Date('2026-10-20T00:00:00Z'), () => {}, { start: async (instanceId) => { started.push(instanceId); }, trialChanged: async () => {}, remove: async () => {} }),
         chart: async () => '',
+        requireAdmin: (req, res, next) => ((req as unknown as { user?: { isAdmin?: boolean } }).user?.isAdmin ? next() : res.status(403).json({ error: 'Admin only' })),
       }),
     });
     const call = (method: 'get' | 'post', path: string, data?: unknown) => axios.request({ method, url: harness!.url(path), data, validateStatus: () => true });
@@ -51,5 +52,26 @@ describe('trying Koala on its own servers', () => {
     expect(made.data).toMatchObject({ name: 'alice', trialEndsAt: '2026-11-03T00:00:00.000Z' });
     expect(started).toHaveLength(1);
     expect((await call('get', '/api/instances/mine')).data.instance).toMatchObject({ status: 'installing', name: 'alice', trialEndsAt: '2026-11-03T00:00:00.000Z' });
+  });
+
+  it('shows the pool and its trials only to an admin', async () => {
+    harness = await mountRouter({
+      prefix: '/api/instances',
+      user: { ...TEST_USER },
+      router: (db) => instancesRouter({
+        instances: new InstanceService(db, {
+          rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', chartVersion: '1', domain: 'koala.dev',
+          pool: { slots: 1, trialDays: 14 },
+        }, undefined, () => new Date('2026-10-20T00:00:00Z'), () => {}, { start: async () => {}, trialChanged: async () => {}, remove: async () => {} }),
+        chart: async () => '',
+        requireAdmin: (req, res, next) => ((req as unknown as { user?: { isAdmin?: boolean } }).user?.isAdmin ? next() : res.status(403).json({ error: 'Admin only' })),
+      }),
+    });
+    const call = (method: 'get' | 'put', path: string, data?: unknown) => axios.request({ method, url: harness!.url(path), data, validateStatus: () => true });
+    expect((await call('get', '/api/instances/pool/admin')).status).toBe(403);
+    expect((await call('put', '/api/instances/pool/admin/trial-days', { days: 30 })).status).toBe(403);
+    harness.setUser({ ...TEST_USER, isAdmin: true } as typeof TEST_USER);
+    expect((await call('put', '/api/instances/pool/admin/trial-days', { days: 30 })).data).toMatchObject({ trialDays: 30 });
+    expect((await call('get', '/api/instances/pool/admin')).data).toMatchObject({ slots: 1, trialDays: 30, defaultTrialDays: 14, instances: [] });
   });
 });

@@ -245,6 +245,23 @@ ok "Catalogues seeded"
 step "Creating the management cluster"
 bash scripts/ensure-cluster.sh || warn "ensure-cluster.sh reported a problem — check before provisioning"
 
+step "Making room for trials on Koala's servers"
+sh scripts/root-node/gvisor.sh --yes || die "gVisor could not be set up, and no trial instance may run without it"
+TOTAL_MIB=$(( $(awk '/^MemTotal:/ {print $2}' /proc/meminfo) / 1024 ))
+ROOT_KEEPS_MIB=8192
+SLOT_MIB=6144
+SLOTS=$(( TOTAL_MIB > ROOT_KEEPS_MIB ? (TOTAL_MIB - ROOT_KEEPS_MIB) / SLOT_MIB : 0 ))
+set_env POOL_SLOTS "$SLOTS"
+set_env POOL_SLOT_MEMORY_MIB "$SLOT_MIB"
+set_env POOL_ADDRESS "$ROOT_MESH_IP"
+set_env POOL_IMAGE "127.0.0.1:5000/nowrinkles/app"
+grep -q '^POOL_TRIAL_DAYS=' "$ENV_FILE" || echo "POOL_TRIAL_DAYS=14" >> "$ENV_FILE"
+if [ "$SLOTS" -gt 0 ]; then
+  ok "${SLOTS} trial instances fit in ${TOTAL_MIB} MiB, ${SLOT_MIB} MiB each after ${ROOT_KEEPS_MIB} MiB for root itself"
+else
+  warn "${TOTAL_MIB} MiB leaves no room for trial instances; people will be asked to use their own machine"
+fi
+
 # ── 8. systemd ─────────────────────────────────────────────────────────────────────────────────
 # Without this the platform dies on reboot and every tenant loses the ability to provision.
 step "Installing the systemd unit"

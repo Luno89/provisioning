@@ -6,6 +6,7 @@ import type { AutoModeSettings } from './auto-mode.js';
 import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
 import type { AlertRuleRecord } from './monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
+import type { PoolPolicy } from './pool.js';
 import type { WorkFailure } from './work-failures.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
@@ -1192,6 +1193,17 @@ export class MongoDB implements Database {
   async saveNotificationSettings(settings: NotificationSettings): Promise<void> {
     const { ownerId, ...rest } = settings;
     await this.db!.collection('notificationSettings').replaceOne({ _id: ownerId as never }, rest, { upsert: true });
+  }
+
+  async getPoolPolicy(): Promise<PoolPolicy | undefined> {
+    const doc = await this.db!.collection('poolSettings').findOne({ _id: 'pool' as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc as Record<string, unknown>;
+    return rest as unknown as PoolPolicy;
+  }
+
+  async savePoolPolicy(policy: PoolPolicy): Promise<void> {
+    await this.db!.collection('poolSettings').replaceOne({ _id: 'pool' as never }, { ...policy }, { upsert: true });
   }
 
   async getMonitoringSettings(): Promise<MonitoringSetting[]> {

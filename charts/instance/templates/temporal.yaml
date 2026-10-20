@@ -46,6 +46,7 @@ spec:
             exec:
               command: [pg_isready, -U, temporal]
             periodSeconds: 10
+            timeoutSeconds: 10
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data

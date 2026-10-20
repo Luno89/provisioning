@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { mailProblem } from '../lib/mail.js';
 import { MailError, type MailService } from '../services/MailService.js';
 import { asyncRoute } from '../middleware/async-route.js';
@@ -33,9 +33,10 @@ export function bundleAsEnv(bundle: JoinBundle): string {
 }
 
 export function instancesRouter(deps: {
-  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'join' | 'release' | 'report' | 'mine' | 'machineKey' | 'nameCheck' | 'addresses' | 'setAddresses' | 'ownerOf'>;
+  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'join' | 'release' | 'report' | 'mine' | 'machineKey' | 'nameCheck' | 'addresses' | 'setAddresses' | 'ownerOf' | 'trialOf'>;
   chart: () => Promise<string>;
   mail?: Pick<MailService, 'toOwner'> | undefined;
+  requireAdmin?: RequestHandler | undefined;
 }): Router {
   const router = Router();
 
@@ -55,6 +56,32 @@ export function instancesRouter(deps: {
 
   router.post('/pool', asyncRoute(async (req: Request, res: Response) => {
     const outcome = await deps.instances.createPoolInstance(userOf(req).id, ((req.body ?? {}) as { name?: unknown }).name);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.status(202).json(outcome.value);
+  }));
+
+  const admin: RequestHandler = deps.requireAdmin ?? ((_req: Request, res: Response, _next: NextFunction) => { res.status(403).json({ error: 'Admin only' }); });
+
+  router.get('/pool/admin', admin, asyncRoute(async (_req: Request, res: Response) => {
+    const outcome = await deps.instances.poolAdmin();
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value);
+  }));
+
+  router.put('/pool/admin/trial-days', admin, asyncRoute(async (req: Request, res: Response) => {
+    const outcome = await deps.instances.setTrialDays(userOf(req).id, ((req.body ?? {}) as { days?: unknown }).days);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value);
+  }));
+
+  router.put('/pool/admin/instances/:id/trial', admin, asyncRoute(async (req: Request, res: Response) => {
+    const outcome = await deps.instances.setTrialEnd(String(req.params.id), ((req.body ?? {}) as { trialEndsAt?: unknown }).trialEndsAt);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value);
+  }));
+
+  router.delete('/pool/admin/instances/:id', admin, asyncRoute(async (req: Request, res: Response) => {
+    const outcome = await deps.instances.removePoolInstance(String(req.params.id), ((req.body ?? {}) as { confirm?: unknown }).confirm);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.status(202).json(outcome.value);
   }));
@@ -87,6 +114,13 @@ export function instancesRouter(deps: {
     const { instanceId, credential } = credentialOf(req);
     const outcome = await deps.instances.machineKey(instanceId, credential);
     res.setHeader('Cache-Control', 'no-store');
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value);
+  }));
+
+  router.get('/trial', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    const outcome = await deps.instances.trialOf(instanceId, credential);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json(outcome.value);
   }));

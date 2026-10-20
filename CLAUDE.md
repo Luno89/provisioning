@@ -54,6 +54,7 @@ npm run test:openrouter-connect-live # against a running `npm run dev:split`: si
 npm run test:machine-story-live    # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine by hand → the planner, on it, proposes a one-story tree through propose_plan → approved, the first run stopped → every agent in the tree's work put on the machine → the story is worked in a checkout on the machine, checked with run_in_workspace and its task check in the tree's workspace, judged and settled by the scripted judges → it succeeds, label.txt is on main and no machine branch is left; removes the tree, the conversation and the agent, retires what the memory keeper kept, ~30 min (most of it the keeper)
 npm run test:machine-odoo-live     # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine and every agent of an Odoo 20 tree is put on it → the module is written without its test, odoo-check runs as the task check, the judge on the machine says not met, the story fails and the planner, in its checkout on the machine, reads leaves/<story>.failed.md and proposes a replan → approved, the test is met and the browser task's judge ends without a verdict, so that task fails and is never taken as met → replanned again, the browser task is met, the leaf judge verifies, it lands on main with no machine branch left, the starter is live in slot a and the landed build previews in slot b with the module installed; removes the project, the conversation and the agent, ~30 min
 npm run test:machine-chat-live     # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine → a chat in auto mode on it hands work to research, which works a checkout of the chat's documents on the machine, runs run_in_workspace, writes label.md and outlives the cut-off where a served call becomes a job the agent follows with wait_for; nothing asks, label.md is in the chat's workspace, the saved reply keeps research's steps and no machine branch is left → a chat not in auto mode asks before research runs something, naming the machine, and the test declines it → research with no conversation works in its own folder, search_web running for it, no run_in_workspace → two research hand-offs at once write the same file, and the one whose work comes back second is told the conflict in its session and keeps both; removes the chats and the agent, ~6 min
+npm run test:pool-live            # a VM becomes a pool node through scripts/root-node/pool-node.sh (k3s, the mesh as tag:pool, gVisor) → root and its host worker as containers offer a trial → the person starts one: a vcluster under gVisor, its ports on the node, Koala installed in it → every pod on gVisor, a pod without it refused, no node port → <name>.koala.localhost through root's Caddy over the mesh, sign-in lands there, a sandboxed run inside it, ~40 min, cleans up
 npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
 npm run test:machine-live        # a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service and finds an ACP agent and two CLIs missing their adapters (`--adapters none`) → after a reboot with nobody logged in it connects again → Install adapter makes Claude Code ready → the command run again with `--yes` installs Codex's adapter; removes the machine, its project and the VM, ~10 min
 npm run test:mesh-live           # the image is built; root starts; the owner's instance installs in a VM and joins the mesh, its Temporal answering only on its mesh address → a second VM runs the command from the instance's My Machines, joins the mesh with a key root mints for the instance, and its worker polls the instance's Temporal over the mesh → a third VM, another person's, reaches neither and neither reaches it; ~30 min, removes everything
@@ -342,6 +343,31 @@ A person can switch to nested addresses (instance Settings → Addresses, `PUT /
 served (`issuing` → `ready`, with Caddy's reason while it is not, a rate limit included); only then does the instance show
 `<app>.<name>.<domain>`, and the flat addresses keep answering. `npm run test:routing-live` proves it with a VM, root's
 Caddy on the mesh as `tag:platform`, an app deployed on the instance, and the switch.
+
+**Trial instances on Koala's servers (the pool, per-user instances step 5c; plan `~/.claude/plans/pool-instances.md`).**
+Someone with no machine of their own can try Koala on a **pool node**: root's own k3s (`bootstrap.sh` sets it up) or a server of
+its own (`scripts/root-node/pool-node.sh`: k3s, the mesh as `tag:pool`, root's registry, gVisor). Root offers it on the "no
+instance yet" page while a slot is free (`POOL_SLOTS`, from the node's memory) and only with `POOL_ADDRESS` (the node's mesh
+address), `POOL_KUBECONFIG` and `INGRESS_DOMAIN` set (`poolSettingsFrom` in `lib/pool.ts`). `PoolInstanceWorkflow` (host
+worker, `POOL_TASK_QUEUE`):
+- readies the node: RuntimeClass `gvisor` (`scripts/root-node/gvisor.sh`, pinned gVisor), the `koala-pool-gvisor`
+  ValidatingAdmissionPolicy refusing any pod in a `koala.dev/pool=true` namespace not on gVisor (proved to refuse before
+  use), and `pool-proxy`, a hostNetwork Caddy in `kube-system` whose ConfigMap root writes;
+- makes a namespace `pool-<name>` (PodSecurity baseline) and a vcluster in it (chart 0.37.2) whose control plane and every
+  synced pod run under gVisor, with root's quota and limit range and no node ports;
+- gives the instance three ports (`freePorts`): its backend and edge on the node's mesh address, its Gitea registry on the
+  node's 127.0.0.1, which containerd pulls over plain HTTP with nothing configured;
+- installs the instance chart in pool mode (`pool.enabled`: no Docker, cluster-only Gitea, Infisical, searxng and crawl4ai,
+  each component's memory set) through a Job in the pool namespace, since root cannot reach a vcluster's API from outside
+  its cluster;
+- waits until the proxy reaches the backend, then marks it ready; `InstanceRoutes` sends `<name>.<domain>` to its ports.
+In pool mode an instance pushes images to Gitea by its in-cluster name and gives pods the loopback name
+(`lib/registry-hosts.ts`, `REGISTRY_PULL_HOST`, `KOALA_REGISTRY_PUSH`). kubectl port-forward cannot reach a gVisor pod.
+**The trial** (`PoolTrialWorkflow`, rules in `lib/pool-trial.ts`): emails 3 days and 1 day before the end, stops the
+vcluster at the end (status `paused`, so sign-in and routes skip it), warns again 3 days before deleting it 30 days later.
+An admin opens **`/#/pool` on root** (root has no other admin page): places in use, the default trial length
+(`poolSettings`, seeded from `POOL_TRIAL_DAYS`), each person's trial end (moving it ahead warns again and starts a stopped
+instance) and Delete (typing the name; `PoolRemoveWorkflow`). `npm run test:pool-live` proves it on a VM pool node.
 
 **Every cluster that runs apps has monitoring.** Before an app is deployed, `ensureClusterMonitoring`
 (`activities/cluster-monitoring.ts`, rule in `lib/cluster-monitoring.ts`) asks the cluster whether it serves

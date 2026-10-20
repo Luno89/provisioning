@@ -81,9 +81,11 @@ export function admissionManifests(): Record<string, unknown>[] {
   ];
 }
 
-export function vclusterValues(slot: PoolSlot): Record<string, unknown> {
+export const vclusterAddress = (name: string): string => `${name}.${poolNamespace(name)}.svc`;
+
+export function vclusterValues(name: string, slot: PoolSlot): Record<string, unknown> {
   return {
-    controlPlane: { statefulSet: { runtimeClassName: RUNTIME_CLASS } },
+    controlPlane: { statefulSet: { runtimeClassName: RUNTIME_CLASS }, proxy: { extraSANs: [vclusterAddress(name)] } },
     sync: { toHost: { pods: { runtimeClassName: RUNTIME_CLASS } } },
     policies: {
       resourceQuota: {
@@ -238,7 +240,7 @@ export function poolSettingsFrom(env: Readonly<Record<string, string | undefined
     slot: {
       memoryMiB: positive(env.POOL_SLOT_MEMORY_MIB, 6144),
       cpu: positive(env.POOL_SLOT_CPU, 2),
-      storageGiB: positive(env.POOL_SLOT_STORAGE_GIB, 20),
+      storageGiB: positive(env.POOL_SLOT_STORAGE_GIB, 60),
     },
     image: { repository, tag: env.POOL_IMAGE_TAG?.trim() || env.INSTANCE_IMAGE_TAG?.trim() || 'dev' },
     trialDays: positive(env.POOL_TRIAL_DAYS, DEFAULT_TRIAL_DAYS),
@@ -255,3 +257,15 @@ export const COMPONENT_RESOURCES: Record<string, unknown> = {
   temporal: { requests: { memory: '192Mi', cpu: '50m' }, limits: { memory: '768Mi' } },
   temporalDb: { requests: { memory: '128Mi', cpu: '20m' }, limits: { memory: '512Mi' } },
 };
+
+export interface PoolPolicy {
+  trialDays: number;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export const MAX_TRIAL_DAYS = 365;
+
+export function trialDaysProblem(days: unknown): string | null {
+  return typeof days === 'number' && Number.isInteger(days) && days >= 1 && days <= MAX_TRIAL_DAYS ? null : `a trial is a whole number of days from 1 to ${MAX_TRIAL_DAYS}`;
+}

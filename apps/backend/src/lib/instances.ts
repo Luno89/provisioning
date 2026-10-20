@@ -1,6 +1,7 @@
 import type { PoolPorts } from './pool.js';
+import type { TrialStep } from './pool-trial.js';
 
-export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed';
+export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed' | 'paused';
 
 export const INSTANCE_STATUSES: readonly InstanceStatus[] = ['waiting', 'joined', 'installing', 'ready', 'failed'];
 
@@ -24,6 +25,8 @@ export interface InstancePool {
   ports: PoolPorts;
   startedAt: string;
   trialEndsAt: string;
+  told?: TrialStep[] | undefined;
+  pausedAt?: string | undefined;
 }
 
 export type NestedState = 'issuing' | 'ready';

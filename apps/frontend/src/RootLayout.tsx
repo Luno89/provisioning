@@ -20,6 +20,8 @@ import { getMe, logout, signInElsewhere } from './api/auth';
 import { getMyInstance, identityKeys, INSTANCE_GO_URL } from './api/identity';
 import HandoffPage from './components/HandoffPage';
 import NoInstance from './components/NoInstance';
+import PoolAdmin from './components/PoolAdmin';
+import TrialBanner from './components/TrialBanner';
 import {
   listClusters, clusterKeys, type ClusterCreated,
   provisionCluster as provisionClusterApi,
@@ -98,9 +100,10 @@ export function RootLayout() {
   useEffect(() => {
     if (!user && signInUrl.data) window.location.assign(signInUrl.data);
   }, [user, signInUrl.data]);
+  const poolPage = location.pathname === '/pool' && Boolean(user?.isAdmin);
   useEffect(() => {
-    if (placement.data && !placement.data.servesTenants && placement.data.instance) window.location.assign(INSTANCE_GO_URL);
-  }, [placement.data]);
+    if (placement.data && !placement.data.servesTenants && placement.data.instance && !poolPage) window.location.assign(INSTANCE_GO_URL);
+  }, [placement.data, poolPage]);
 
   const { data: clusters = [] } = useQuery({ queryKey: clusterKeys.list(), queryFn: listClusters, refetchInterval: 3000 });
   const { data: deployments = [] } = useQuery({ queryKey: deploymentKeys.list(), queryFn: listDeployments, refetchInterval: 3000 });
@@ -249,6 +252,10 @@ export function RootLayout() {
     return <Login onSuccess={setUser} />;
   }
 
+  if (placement.data && !placement.data.servesTenants && poolPage) {
+    return <PoolAdmin onLogout={handleLogout} />;
+  }
+
   if (placement.data && !placement.data.servesTenants) {
     return <NoInstance hasInstance={Boolean(placement.data.instance)} onLogout={handleLogout} />;
   }
@@ -297,6 +304,7 @@ export function RootLayout() {
           })}
         </div>
 
+        <TrialBanner />
         <ShellContextInstance.Provider value={shellContext}>
           <Outlet />
         </ShellContextInstance.Provider>

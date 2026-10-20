@@ -94,4 +94,13 @@ describe('trying Koala on its own servers', () => {
     fireEvent.click(screen.getByRole('button', { name: /Try again/ }))
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/instances/pool', { name: 'luno' }))
   })
+
+  it('tells someone whose trial ended that it stopped, and until when its work is kept', async () => {
+    mine = { id: 'inst-1', status: 'paused', url: '', name: 'luno', detail: 'The trial has ended', trialEndsAt: '2026-11-03T12:00:00.000Z' }
+    renderPage()
+    expect(await screen.findByText(/ended on (3 November|November 3)/)).toBeInTheDocument()
+    expect(screen.getByText(/kept as it is until (3 December|December 3)/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Try it on Koala's servers/ })).not.toBeInTheDocument()
+    expect(screen.getByText('Your trial has ended')).toBeInTheDocument()
+  })
 })

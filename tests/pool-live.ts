@@ -97,7 +97,12 @@ function meshKey(tag: 'tag:platform' | 'tag:pool'): string {
 
 async function teardown(): Promise<void> {
   for (const name of Object.values(CONTAINERS)) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
-  if (instanceId) try { run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', 'remove', instanceId]); } catch { /* fine */ }
+  if (instanceId) {
+    for (const workflow of ['pool-instance', 'pool-trial', 'pool-remove']) {
+      try { run('docker', ['exec', 'provisioning-temporal-1', 'temporal', 'workflow', 'terminate', '--address', 'provisioning-temporal-1:7233', '--workflow-id', `${workflow}-${instanceId}`, '--reason', 'pool-live teardown']); } catch { /* not running */ }
+    }
+    try { run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', 'remove', instanceId]); } catch { /* fine */ }
+  }
   try {
     const nodes = JSON.parse(run('docker', ['exec', 'provisioning-headscale', 'headscale', 'nodes', 'list', '-o', 'json'])) as Array<{ id: number; given_name?: string; name?: string }>;
     for (const node of nodes.filter((entry) => /^(pool-pool-live|nw-pool-root)/.test(entry.given_name ?? entry.name ?? ''))) {
@@ -169,6 +174,7 @@ async function main(): Promise<void> {
   const offer = await (await asOwner('/api/instances/pool')).json() as { available: boolean; trialDays?: number; reason?: string };
   assert.deepEqual(offer, { available: true, trialDays: 14 }, `the pool was not offered: ${offer.reason}`);
   const started = await asOwner('/api/instances/pool', { method: 'POST', body: JSON.stringify({ name: NAME }) });
+  instanceId = ((await (await asOwner('/api/instances/mine')).json()) as { instance?: { id: string } | null }).instance?.id;
   assert.equal(started.status, 202, await started.clone().text());
   const trial = await started.json() as { id: string; trialEndsAt: string };
   instanceId = trial.id;
@@ -238,6 +244,44 @@ async function main(): Promise<void> {
   console.log(`  ${traces.map((trace) => `${trace.node}${trace.exit ? `→${trace.exit}` : ''}`).join(' · ')}`);
   assert.equal(traces.find((trace) => trace.node === 'stamp')?.exit, 'ok', `the code did not run: ${JSON.stringify(traces.find((trace) => trace.node === 'unavailable' || trace.node === 'broke'))}`);
   assert.equal(traces.find((trace) => trace.node === 'stamp')?.outputs?.host, 'workspace', 'the code did not run in a sandbox pod');
+
+  step('an admin ends the trial in a minute and a half: the instance stops, its pods go, and root stops routing to it');
+  const admin = (path: string, init: RequestInit = {}) => asOwner(`/api/instances/pool/admin${path}`, init);
+  const listed = await (await admin('')).json() as { instances: Array<{ id: string; name: string; status: string }> };
+  assert.ok(listed.instances.some((row) => row.name === NAME), `the admin page does not list ${NAME}`);
+  const soon = new Date(Date.now() + 90_000).toISOString();
+  const moved = await admin(`/instances/${instanceId}/trial`, { method: 'PUT', body: JSON.stringify({ trialEndsAt: soon }) });
+  assert.equal(moved.status, 200, await moved.clone().text());
+  await until('the instance paused', async () => {
+    const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string } }).instance;
+    return mine.status === 'paused' ? true : undefined;
+  });
+  await until('its pods gone', async () => (pool(['get', 'pods', '-n', namespace, '-o', 'name']).trim() === '' ? true : undefined));
+  await until('root\'s route removed', async () => (existsSync(join(caddyDir, 'instances', `${NAME}.caddy`)) ? undefined : true));
+  console.log('  stopped: no pods left in its namespace, and no route');
+
+  step('the admin moves the end two weeks ahead: it starts again, with its work as it was');
+  const later = new Date(Date.now() + 14 * 86_400_000).toISOString();
+  assert.equal((await admin(`/instances/${instanceId}/trial`, { method: 'PUT', body: JSON.stringify({ trialEndsAt: later }) })).status, 200);
+  await until('the instance running again', async () => {
+    const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; detail?: string } }).instance;
+    if (mine.status === 'failed') throw new Hopeless(`it did not start again: ${mine.detail}`);
+    return mine.status === 'ready' ? true : undefined;
+  });
+  await until('the instance through Caddy again', async () => (https(`${NAME}.${DOMAIN}`, '/api/auth/sign-in').status === 200 ? true : undefined));
+  assert.equal(onInstance('/api/procedures/pool-live').status, 200, 'the procedure saved before the pause is gone');
+  console.log('  running again, and the procedure saved before the pause is still there');
+
+  step('the admin deletes it, typing its name: the vcluster, its namespace, its ports and its record go');
+  const wrong = await admin(`/instances/${instanceId}`, { method: 'DELETE', body: JSON.stringify({ confirm: 'nope' }) });
+  assert.equal(wrong.status, 400);
+  const deleted = await admin(`/instances/${instanceId}`, { method: 'DELETE', body: JSON.stringify({ confirm: NAME }) });
+  assert.equal(deleted.status, 202, await deleted.clone().text());
+  await until('the namespace gone', async () => (pool(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'name']).trim() === '' ? true : undefined));
+  await until('the record gone', async () => ((await (await asOwner('/api/instances/mine')).json() as { instance: unknown }).instance === null ? true : undefined));
+  const proxy = pool(['get', 'configmap', 'pool-proxy', '-n', 'kube-system', '-o', 'jsonpath={.data.Caddyfile}']);
+  assert.ok(!proxy.includes(namespace), 'the proxy still serves the deleted instance');
+  instanceId = undefined;
 
   console.log('\npool live — PASS');
 }

@@ -1,4 +1,6 @@
-import { proxyActivities } from '@temporalio/workflow';
+import { ParentClosePolicy, proxyActivities, startChild, WorkflowIdReusePolicy } from '@temporalio/workflow';
+import { PoolTrialWorkflow } from './PoolTrialWorkflow.js';
+import { poolTrialWorkflowId } from '../lib/pool-trial.js';
 import type * as pool from '../activities/PoolActivities.js';
 import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
 
@@ -21,4 +23,12 @@ export async function PoolInstanceWorkflow(input: PoolInstanceInput): Promise<vo
     await record.PoolFailedActivity({ instanceId: input.instanceId, reason: cause });
     throw error;
   }
+  await startChild(PoolTrialWorkflow, {
+    workflowId: poolTrialWorkflowId(input.instanceId),
+    args: [input],
+    parentClosePolicy: ParentClosePolicy.ABANDON,
+    workflowIdReusePolicy: WorkflowIdReusePolicy.ALLOW_DUPLICATE,
+  }).catch((error: Error) => {
+    if (!/already started|AlreadyStarted/i.test(error.message) && error.name !== 'WorkflowExecutionAlreadyStartedError') throw error;
+  });
 }

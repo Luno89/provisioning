@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import { identityKeys } from './identity'
 
-export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed'
+export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed' | 'paused'
 
 export interface MySetup {
   id: string
@@ -17,6 +17,24 @@ export interface PoolOffer {
   available: boolean
   reason?: string
   trialDays?: number
+}
+
+export interface PoolInstanceRow {
+  id: string
+  name: string
+  owner: string
+  status: InstanceStatus
+  detail?: string
+  startedAt: string
+  trialEndsAt: string
+  pausedAt?: string
+}
+
+export interface PoolAdmin {
+  slots: number
+  trialDays: number
+  defaultTrialDays: number
+  instances: PoolInstanceRow[]
 }
 
 export interface PoolStart {
@@ -42,6 +60,8 @@ export const instanceKeys = {
   mine: () => ['instances', 'mine'] as const,
   name: (name: string) => ['instances', 'name', name] as const,
   pool: () => ['instances', 'pool'] as const,
+  poolAdmin: () => ['instances', 'pool', 'admin'] as const,
+  trial: () => ['instance-trial'] as const,
 }
 
 export const getMySetup = (): Promise<MySetup | null> =>
@@ -55,6 +75,28 @@ export const getPoolOffer = (): Promise<PoolOffer> =>
 
 export const startPoolInstance = (name: string): Promise<PoolStart> =>
   api.post<PoolStart>('/instances/pool', { name }).then((r) => r.data)
+
+export const getPoolAdmin = (): Promise<PoolAdmin> =>
+  api.get<PoolAdmin>('/instances/pool/admin').then((r) => r.data)
+
+export const setPoolTrialDays = (days: number): Promise<unknown> =>
+  api.put('/instances/pool/admin/trial-days', { days }).then((r) => r.data)
+
+export const setPoolTrialEnd = (id: string, trialEndsAt: string): Promise<PoolInstanceRow> =>
+  api.put<PoolInstanceRow>(`/instances/pool/admin/instances/${encodeURIComponent(id)}/trial`, { trialEndsAt }).then((r) => r.data)
+
+export const removePoolInstance = (id: string, confirm: string): Promise<unknown> =>
+  api.delete(`/instances/pool/admin/instances/${encodeURIComponent(id)}`, { data: { confirm } }).then((r) => r.data)
+
+export interface InstanceTrialView {
+  trialEndsAt?: string
+  daysLeft?: number
+}
+
+export const getInstanceTrial = (): Promise<InstanceTrialView> =>
+  api.get<{ trialEndsAt?: string }>('/instance-trial').then((r) => (r.data.trialEndsAt
+    ? { trialEndsAt: r.data.trialEndsAt, daysLeft: Math.max(0, Math.ceil((Date.parse(r.data.trialEndsAt) - Date.now()) / 86_400_000)) }
+    : {}))
 
 export const checkName = (name: string): Promise<NameCheck> =>
   api.get<NameCheck>('/instances/name-check', { params: { name } }).then((r) => r.data)
@@ -93,6 +135,38 @@ export function useStartPoolInstance() {
     mutationFn: (name: string) => startPoolInstance(name),
     onSuccess: () => { void client.invalidateQueries({ queryKey: instanceKeys.mine() }) },
   })
+}
+
+export function usePoolAdmin() {
+  return useQuery({ queryKey: instanceKeys.poolAdmin(), queryFn: getPoolAdmin, refetchInterval: 10_000 })
+}
+
+export function useSetPoolTrialDays() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (days: number) => setPoolTrialDays(days),
+    onSuccess: () => { void client.invalidateQueries({ queryKey: instanceKeys.poolAdmin() }) },
+  })
+}
+
+export function useSetPoolTrialEnd() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, trialEndsAt }: { id: string; trialEndsAt: string }) => setPoolTrialEnd(id, trialEndsAt),
+    onSuccess: () => { void client.invalidateQueries({ queryKey: instanceKeys.poolAdmin() }) },
+  })
+}
+
+export function useRemovePoolInstance() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, confirm }: { id: string; confirm: string }) => removePoolInstance(id, confirm),
+    onSuccess: () => { void client.invalidateQueries({ queryKey: instanceKeys.poolAdmin() }) },
+  })
+}
+
+export function useInstanceTrial() {
+  return useQuery({ queryKey: instanceKeys.trial(), queryFn: getInstanceTrial, staleTime: 10 * 60_000, retry: false })
 }
 
 export function useInstanceReady() {

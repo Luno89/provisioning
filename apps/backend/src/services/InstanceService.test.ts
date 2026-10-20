@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryDB } from '../lib/memory-db.js';
-import { InstanceService, JOIN_TOKEN_TTL_SECONDS, instanceIdFor } from './InstanceService.js';
+import { InstanceService, JOIN_TOKEN_TTL_SECONDS, hashCredential, instanceIdFor } from './InstanceService.js';
 
 const settings = {
   rootUrl: 'https://app.example.com',
@@ -142,9 +142,13 @@ describe('an instance\'s name and addresses', () => {
 
 describe('a trial instance on Koala\'s servers', () => {
   let started: Array<{ instanceId: string; ownerId: string }>;
+  let changed: string[];
+  let removed: string[];
   const pooled = (pool: { slots: number; trialDays: number } | { off: string } = { slots: 2, trialDays: 14 }) => {
     started = [];
-    return new InstanceService(db, { ...settings, pool }, mesh, () => now, () => {}, async (instanceId, ownerId) => { started.push({ instanceId, ownerId }); });
+    changed = [];
+    removed = [];
+    return new InstanceService(db, { ...settings, pool }, mesh, () => now, () => {}, { start: async (instanceId, ownerId) => { started.push({ instanceId, ownerId }); }, trialChanged: async (instanceId) => { changed.push(instanceId); }, remove: async (instanceId) => { removed.push(instanceId); } });
   };
 
   it('is offered while the pool has room, with how long the trial lasts', async () => {
@@ -200,5 +204,55 @@ describe('a trial instance on Koala\'s servers', () => {
     await pool.createPoolInstance('u1', 'alice');
     expect(await pool.createJoinToken('u1', 'alice')).toMatchObject({ ok: false, status: 400, error: expect.stringContaining('moving it to your own machine keeps your work') });
     expect((await db.getInstances('u1'))[0]!.pool).toBeDefined();
+  });
+
+  it('says so when its install cannot start, and leaves it failed rather than installing forever', async () => {
+    const broken = new InstanceService(db, { ...settings, pool: { slots: 1, trialDays: 14 } }, mesh, () => now, () => {}, { start: async () => { throw new Error('Temporal is not reachable'); }, trialChanged: async () => {}, remove: async () => {} });
+    expect(await broken.createPoolInstance('u1', 'alice')).toEqual({ ok: false, status: 503, error: 'setting up your instance could not start: Temporal is not reachable' });
+    expect(await broken.mine('u1')).toMatchObject({ status: 'failed', detail: 'Setting it up could not start: Temporal is not reachable' });
+    expect(await broken.poolOffer('u2')).toMatchObject({ available: true });
+  });
+
+  it('lets an admin set how long new trials last, which every new trial then gets', async () => {
+    const pool = pooled();
+    expect(await pool.setTrialDays('admin', 0)).toMatchObject({ ok: false, status: 400 });
+    expect(await pool.setTrialDays('admin', 7.5)).toMatchObject({ ok: false, status: 400 });
+    expect(await pool.setTrialDays('admin', 21)).toEqual({ ok: true, value: { trialDays: 21, updatedAt: now.toISOString(), updatedBy: 'admin' } });
+    expect(await pool.poolOffer('u1')).toEqual({ available: true, trialDays: 21 });
+    expect(await pool.createPoolInstance('u1', 'alice')).toMatchObject({ ok: true, value: { trialEndsAt: '2026-10-23T12:00:00.000Z' } });
+    expect(await pool.poolAdmin()).toMatchObject({ ok: true, value: { slots: 2, trialDays: 21, defaultTrialDays: 14, instances: [{ name: 'alice', status: 'installing' }] } });
+  });
+
+  it('lets an admin move one person\'s trial end, warning again before the new end and waking their trial', async () => {
+    const pool = pooled();
+    const { value } = await pool.createPoolInstance('u1', 'alice') as { value: { id: string } };
+    const record = (await db.getInstances('u1'))[0]!;
+    await db.saveInstance({ ...record, pool: { ...record.pool!, told: ['warn-3d'] } });
+    expect(await pool.setTrialEnd(value.id, '2026-09-01T00:00:00Z')).toMatchObject({ ok: false, status: 400, error: 'the new end of the trial has to be in the future' });
+    expect(await pool.setTrialEnd(value.id, 'soon')).toMatchObject({ ok: false, status: 400 });
+    expect(await pool.setTrialEnd('nobody', '2026-12-01T00:00:00Z')).toMatchObject({ ok: false, status: 404 });
+    expect(await pool.setTrialEnd(value.id, '2026-12-01T00:00:00Z')).toMatchObject({ ok: true, value: { name: 'alice', trialEndsAt: '2026-12-01T00:00:00.000Z' } });
+    expect((await db.getInstances('u1'))[0]!.pool).toMatchObject({ trialEndsAt: '2026-12-01T00:00:00.000Z', told: [] });
+    expect(changed).toEqual([value.id]);
+  });
+
+  it('lets an admin delete one, once they type its name, and starts its removal', async () => {
+    const pool = pooled();
+    const { value } = await pool.createPoolInstance('u1', 'alice') as { value: { id: string } };
+    expect(await pool.removePoolInstance(value.id, 'alise')).toMatchObject({ ok: false, status: 400, error: expect.stringContaining('"alice"') });
+    expect(removed).toEqual([]);
+    expect(await pool.removePoolInstance(value.id, 'alice')).toEqual({ ok: true, value: { removing: 'alice' } });
+    expect(removed).toEqual([value.id]);
+    expect(await pool.mine('u1')).toMatchObject({ status: 'paused', detail: 'Being deleted' });
+  });
+
+  it('tells an instance, by its credential, when its trial ends, and an instance not on the pool that it has none', async () => {
+    const pool = pooled();
+    await pool.createPoolInstance('u1', 'alice');
+    const id = instanceIdFor('u1');
+    const record = (await db.getInstances('u1'))[0]!;
+    await db.saveInstance({ ...record, credentialHash: hashCredential('secret') });
+    expect(await pool.trialOf(id, 'secret')).toEqual({ ok: true, value: { trialEndsAt: '2026-10-16T12:00:00.000Z' } });
+    expect(await pool.trialOf(id, 'wrong')).toMatchObject({ ok: false, status: 401 });
   });
 });

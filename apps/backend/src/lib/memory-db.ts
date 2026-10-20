@@ -6,6 +6,7 @@ import type { AutoModeSettings } from './auto-mode.js';
 import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
 import type { AlertRuleRecord } from './monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
+import type { PoolPolicy } from './pool.js';
 import type { WorkFailure } from './work-failures.js';
 import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
@@ -82,6 +83,7 @@ export class MemoryDB implements Database {
   private autoModeSettings = new Map<string, AutoModeSettings>();
   private monitoringSettings = new Map<string, MonitoringSetting>();
   private notificationSettings = new Map<string, NotificationSettings>();
+  private poolPolicy: PoolPolicy | undefined;
   private alertRules = new Map<string, AlertRuleRecord>();
   private alertEpisodes = new Map<string, AlertEpisode>();
   private workFailures = new Map<string, WorkFailure>();
@@ -991,6 +993,14 @@ export class MemoryDB implements Database {
 
   async saveNotificationSettings(settings: NotificationSettings): Promise<void> {
     this.notificationSettings.set(settings.ownerId, { ...settings });
+  }
+
+  async getPoolPolicy(): Promise<PoolPolicy | undefined> {
+    return this.poolPolicy ? { ...this.poolPolicy } : undefined;
+  }
+
+  async savePoolPolicy(policy: PoolPolicy): Promise<void> {
+    this.poolPolicy = { ...policy };
   }
 
   async getMonitoringSettings(): Promise<MonitoringSetting[]> {

@@ -103,7 +103,7 @@ export const ACCOUNT_DATA = {
   byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts', 'keeperSettings', 'notificationSettings'],
   related: { memoryWatermarks: 'the keys of its conversations', crawl_frontier: 'its ingests', pipelineRuns: 'its projects' },
   last: 'users',
-  shared: ['clusterProviders', 'identityHandoffs', 'invites', 'model_thinking_profiles', 'temporal_payload_chunks'],
+  shared: ['clusterProviders', 'identityHandoffs', 'invites', 'model_thinking_profiles', 'poolSettings', 'temporal_payload_chunks'],
 } as const;
 
 export interface AccountRelated {
