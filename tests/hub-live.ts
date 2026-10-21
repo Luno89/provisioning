@@ -11,6 +11,7 @@ import { signJWT } from '../apps/backend/src/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/lib/keys.js';
 import { HUB_DATABASE_PREFIX } from '../apps/backend/src/lib/hub.js';
 import { HUB_REPO, hubOrgOf } from '../apps/backend/src/services/HubRepos.js';
+import { mainHeads } from '../apps/backend/src/services/HubRepoSync.js';
 import { GiteaService } from '../apps/backend/src/services/GiteaService.js';
 import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
 
@@ -102,7 +103,7 @@ async function main(): Promise<void> {
       const invite = (await adminHttp.post('/admin/invites')).data as { code: string };
       await signUp(ann, invite.code);
       for (const name of [`Shop ${stamp}`, `Other ${stamp}`]) {
-        const project = await ann.root!.post('/projects', { name });
+        const project = await ann.root!.post('/projects', { name, giteaRepo: `${name.split(' ')[0]!.toLowerCase()}-${stamp}`, createRepo: true });
         assert.ok(project.status < 300, JSON.stringify(project.data));
         const before = await ann.root!.get(`/project-sharing/${project.data.id}`);
         assert.equal(before.status, 200, JSON.stringify(before.data));
@@ -111,6 +112,13 @@ async function main(): Promise<void> {
         const shared = await ann.root!.post(`/project-sharing/${project.data.id}`);
         assert.equal(shared.status, 200, JSON.stringify(shared.data));
         const made = await ann.hub!.get(`/hub/projects/${shared.data.shared.hubProjectId}`);
+        const admin = await gitea.getAdminCredentials();
+        const auth = { username: admin.username, token: admin.password };
+        const heads = await mainHeads(
+          { url: await gitea.repoGitUrl(project.data.giteaOwner, project.data.giteaRepo), auth },
+          { url: await gitea.repoGitUrl(hubOrgOf(shared.data.shared.hubProjectId), HUB_REPO), auth },
+        );
+        assert.ok(heads.owner && heads.owner === heads.hub, `the hub's repository does not hold the project's main: ${JSON.stringify(heads)}`);
         assert.deepEqual([made.data.role, made.data.members.map((m: { email: string }) => m.email)], ['owner', [ann.email]]);
         projects.push({ ...made.data.project, onInstance: project.data.id });
       }
