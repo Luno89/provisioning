@@ -65,6 +65,7 @@ export class NextcloudNativeApp extends Construct {
         name: "nextcloud-web-pvc",
         namespace: ns.metadata.name,
       },
+      waitUntilBound: false,
       spec: {
         accessModes: ["ReadWriteOnce"],
         resources: { requests: { storage: webSize } },
