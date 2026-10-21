@@ -121,7 +121,8 @@ describe('settling a claim a judge kept for a person', () => {
 });
 
 describe('retrying a failed engine leaf', () => {
-  it('resets the leaf and its failed tasks, records the attempt, and runs the tree on the engine', async () => {
+  it('resets the leaf and its failed tasks, records the attempt, gives its workspace what its checks need, and runs the tree on the engine', async () => {
+    const needsAsked: { ownerId: string; treeId: string; taskIds: string[] }[] = [];
     const launcher = {
       startGroveRun: vi.fn(async () => ({ started: true as const, workflowId: 'grove-run-t1' })),
       groveRunStatus: vi.fn(async () => ({ state: 'running' as const, startedAt: 'then' })),
@@ -129,7 +130,7 @@ describe('retrying a failed engine leaf', () => {
     };
     h = await mountRouter({
       prefix: '/api/leaves',
-      router: (db) => leavesRouter({ db, runs: new GroveRunService({ store: db, launcher, now: () => 'later' }), deletion: deletionFor(db) }),
+      router: (db) => leavesRouter({ db, runs: new GroveRunService({ store: db, launcher, checkNeeds: async (ownerId, treeId, taskIds) => { needsAsked.push({ ownerId, treeId, taskIds: [...taskIds] }); return {}; }, now: () => 'later' }), deletion: deletionFor(db) }),
     });
     await h.db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', createdAt: 'now', updatedAt: 'now' } as never);
     await h.db.saveLeaf(leaf({ id: 'e1', status: 'failed', findings: 'test.sh exits 1', claim: { evidence: 'ran it', at: 'then' } }) as never);
@@ -142,6 +143,7 @@ describe('retrying a failed engine leaf', () => {
     expect(res.data.claim).toBeUndefined();
     expect((await h.db.getTasks(TEST_USER.id)).map((task) => [task.id, task.status]).sort()).toEqual([['k1', 'accepted'], ['k2', 'done']]);
     expect(launcher.startGroveRun).toHaveBeenCalledWith(TEST_USER.id, 't1');
+    expect(needsAsked.map((asked) => [asked.treeId, [...asked.taskIds].sort()])).toEqual([['t1', ['k1', 'k2']]]);
   });
 
   it('refuses a leaf that has not failed', async () => {

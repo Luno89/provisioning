@@ -248,6 +248,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
   }) : undefined;
   const checkNeeds = workspaceFiles && options.workspaceBuild && options.publishedWorkspaces ? createCheckNeeds({
     tasks: stores.tasks,
+    leaves: stores.grove.leaves,
     published: options.publishedWorkspaces.get,
     dependencies: dependenciesOf,
     change: (ownerId, treeId, change, said) => workspaceFiles.change(ownerId, treeId, change, said),

@@ -400,7 +400,9 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
         updatedAt: now(),
       });
       if (outcome.status === 'adopted' && outcome.adopted && options.checkNeeds) {
-        const needs = await options.checkNeeds(ownerId, outcome.adopted.treeId, Object.values(outcome.adopted.taskIds));
+        const touched = new Set(Object.values(outcome.adopted.leafIds));
+        const inStories = (await options.stores.leaves.list()).filter((leaf) => touched.has(leaf.id)).flatMap((leaf) => leaf.tasks ?? []);
+        const needs = await options.checkNeeds(ownerId, outcome.adopted.treeId, [...new Set([...Object.values(outcome.adopted.taskIds), ...inStories])]);
         if (needs.refused) console.warn(`[plan] ${proposalId}: the workspace could not be given what its checks need: ${needs.refused}`);
       }
       if (outcome.status !== 'adopted' || !outcome.adopted || proposal.leafPlan || proposal.change || !proposal.conversationId || !options.stores.conversations) return;

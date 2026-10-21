@@ -25,7 +25,13 @@ const SWITCHED_OFF = 'The agent that grows this tree belongs to an extension you
 export type GroveRunOutcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 404 | 409 | 503; error: string };
 
 export class GroveRunService {
-  constructor(private readonly deps: { store: GroveRunStore; launcher: GroveRunLauncher; asking?: ((runId: string) => Promise<string[]>) | undefined; now?: () => string }) {}
+  constructor(private readonly deps: {
+    store: GroveRunStore;
+    launcher: GroveRunLauncher;
+    asking?: ((runId: string) => Promise<string[]>) | undefined;
+    checkNeeds?: ((ownerId: string, treeId: string, taskIds: readonly string[]) => Promise<{ refused?: string | undefined }>) | undefined;
+    now?: () => string;
+  }) {}
 
   private now(): string {
     return this.deps.now?.() ?? new Date().toISOString();
@@ -98,6 +104,8 @@ export class GroveRunService {
     const reset = resetForRetry(leaf, tasks, this.now());
     await this.deps.store.saveLeaf(reset.leaf);
     for (const task of reset.tasks) await this.deps.store.saveTask(task);
+    const needs = await this.deps.checkNeeds?.(ownerId, branch.treeId, tasks.map((task) => task.id));
+    if (needs?.refused) return { ok: false, status: 409, error: `The leaf is reset, but its workspace could not be given what its checks need: ${needs.refused}` };
 
     const started = await this.deps.launcher.startGroveRun(ownerId, branch.treeId);
     if (!started.started && started.reason === 'unavailable') return { ok: false, status: 503, error: 'The leaf is reset, but Temporal is not reachable to run the tree.' };

@@ -1533,6 +1533,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const groveRuns = new GroveRunService({
     store: db,
     asking: runAskingVia(() => getTemporalClient()),
+    ...(evalHost.checkNeeds ? { checkNeeds: evalHost.checkNeeds } : {}),
     launcher: createGroveLauncher({
       hidden: (ownerId: string) => extensions.hidden(ownerId),
       runs: engineRuns,

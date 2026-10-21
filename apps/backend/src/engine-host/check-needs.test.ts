@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { createCheckNeeds, needsOfAccepted, type CheckNeedsDeps } from './check-needs.js';
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import type { Task } from './tools/tasks.js';
+import type { Leaf } from '../lib/leaves.js';
 
 const task = (id: string, over: Partial<Task> = {}): Task => ({
   id, ownerId: 'u1', title: id, doneMeans: 'it works', status: 'accepted', dependsOn: [], createdAt: 't0', updatedAt: 't0', leafId: 'l1', ...over,
 } as Task);
 
-function world(over: { published?: string[] | null; refuse?: string; written?: boolean } = {}) {
+function world(over: { published?: string[] | null; refuse?: string; written?: boolean; leaves?: Map<string, Leaf> } = {}) {
   const tasks = new Map<string, Task>([
     ['browser', task('browser', { checks: { e2e: { specs: ['e2e'] } } })],
     ['address', task('address', { checks: { e2e: { specs: ['e2e'], url: 'https://shop.test' } } })],
@@ -18,6 +19,7 @@ function world(over: { published?: string[] | null; refuse?: string; written?: b
   const builds: string[] = [];
   const deps: CheckNeedsDeps = {
     tasks: { list: async () => [...tasks.values()], save: async (saved) => { tasks.set(saved.id, saved); } },
+    ...(over.leaves ? { leaves: { list: async () => [...over.leaves!.values()], save: async (leaf: Leaf) => { over.leaves!.set(leaf.id, leaf); } } } : {}),
     published: async () => (over.published === null ? undefined : { provides: over.published ?? ['bash', 'node'] } as never),
     dependencies: async () => SHIPPED_DEPENDENCIES,
     change: async (_ownerId, treeId, change) => {
@@ -39,6 +41,14 @@ describe('giving a tree\'s workspace what its checks need', () => {
     expect(tasks.get('browser')).toMatchObject({ status: 'waiting', evidence: 'waits for the workspace to get koala-e2e: its checks need it' });
     expect(tasks.get('plain')!.status).toBe('accepted');
     expect(tasks.get('finished')!.status).toBe('done');
+  });
+
+  it('parks the story of finished work whose check needs what is missing, since its checks run again at the claim', async () => {
+    const leaves = new Map<string, Leaf>([['l1', { id: 'l1', ownerId: 'u1', branchId: 'b1', title: 'Story', status: 'pending', tasks: ['finished'], createdAt: 't0', updatedAt: 't0' } as Leaf]]);
+    const { checkNeeds, tasks } = world({ leaves });
+    expect(await checkNeeds('u1', 'tree-1', ['finished'])).toEqual({ added: ['koala-e2e'], waiting: [], parked: ['l1'] });
+    expect(tasks.get('finished')!.status).toBe('done');
+    expect(leaves.get('l1')!.waitingFor).toEqual({ reason: 'the workspace getting koala-e2e, which its finished work\'s checks need', since: 't1' });
   });
 
   it('does nothing when the workspace has it built already, or no check needs anything', async () => {
