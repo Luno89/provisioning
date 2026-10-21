@@ -137,6 +137,7 @@ async function main(): Promise<void> {
   const chat = await api.post('/engine/runs', {
     agent: 'koala',
     conversationId,
+    ...(process.env.FILES_LIVE_MODEL ? { modelId: process.env.FILES_LIVE_MODEL } : {}),
     message: 'Read the file I attached and tell me the code word in it, exactly as written.',
     attachments: [{ name: 'live-brief.md', path: attachment, type: 'text/markdown', projectId: shop.id }],
   });
