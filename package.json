@@ -87,6 +87,7 @@
     "test:machine-story-live": "cd apps/backend && tsx ../../tests/machine-story-live.ts",
     "test:machine-odoo-live": "cd apps/backend && tsx ../../tests/machine-odoo-live.ts",
     "test:machine-chat-live": "cd apps/backend && tsx ../../tests/machine-chat-live.ts",
+    "test:machine-default-live": "cd apps/backend && tsx ../../tests/machine-default-live.ts",
     "test:mail-live": "cd apps/backend && tsx ../../tests/mail-live.ts",
     "test:pool-live": "cd apps/backend && tsx ../../tests/pool-live.ts"
   },

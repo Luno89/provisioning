@@ -54,6 +54,7 @@ npm run test:openrouter-connect-live # against a running `npm run dev:split`: si
 npm run test:machine-story-live    # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine by hand → the planner, on it, proposes a one-story tree through propose_plan → approved, the first run stopped → every agent in the tree's work put on the machine → the story is worked in a checkout on the machine, checked with run_in_workspace and its task check in the tree's workspace, judged and settled by the scripted judges → it succeeds, label.txt is on main and no machine branch is left; removes the tree, the conversation and the agent, retires what the memory keeper kept, ~30 min (most of it the keeper)
 npm run test:machine-odoo-live     # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine and every agent of an Odoo 20 tree is put on it → the module is written without its test, odoo-check runs as the task check, the judge on the machine says not met, the story fails and the planner, in its checkout on the machine, reads leaves/<story>.failed.md and proposes a replan → approved, the test is met and the browser task's judge ends without a verdict, so that task fails and is never taken as met → replanned again, the browser task is met, the leaf judge verifies, it lands on main with no machine branch left, the starter is live in slot a and the landed build previews in slot b with the module installed; removes the project, the conversation and the agent, ~30 min
 npm run test:machine-chat-live     # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine → a chat in auto mode on it hands work to research, which works a checkout of the chat's documents on the machine, runs run_in_workspace, writes label.md and outlives the cut-off where a served call becomes a job the agent follows with wait_for; nothing asks, label.md is in the chat's workspace, the saved reply keeps research's steps and no machine branch is left → a chat not in auto mode asks before research runs something, naming the machine, and the test declines it → research with no conversation works in its own folder, search_web running for it, no run_in_workspace → two research hand-offs at once write the same file, and the one whose work comes back second is told the conflict in its session and keeps both; removes the chats and the agent, ~6 min
+npm run test:machine-default-live  # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine and made your account default (another machine is refused) → a chat turn with no model picked runs on it and answers from it → a run that cannot be handed to a machine fails saying to add a model; your previous default, the agent and the chat are put back or removed however it ends, ~1 min
 npm run test:pool-live            # a VM becomes a pool node through scripts/root-node/pool-node.sh (k3s, the mesh as tag:pool, gVisor) → root and its host worker as containers offer a trial → the person starts one: a vcluster under gVisor, its ports on the node, Koala installed in it → every pod on gVisor, a pod without it refused, no node port → <name>.koala.localhost through root's Caddy over the mesh, sign-in lands there, a sandboxed run inside it, ~40 min, cleans up
 npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
 npm run test:machine-live        # a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service and finds an ACP agent and two CLIs missing their adapters (`--adapters none`) → after a reboot with nobody logged in it connects again → Install adapter makes Claude Code ready → the command run again with `--yes` installs Codex's adapter; removes the machine, its project and the VM, ~10 min
@@ -238,7 +239,7 @@ machine). Payloads over 128 KB go through the backend over that socket (`payload
 since a machine never reaches Mongo. A new keyring restarts the worker (`DeviceWorkerHost`). Without this nothing sent to
 `device-<id>` could be read; `machine-live` and `mesh-live` now run a two-turn chat on the machine to prove it.
 
-**Picking an agent on a machine.** Every model picker except the account default and Checks has a "My machines" section:
+**Picking an agent on a machine.** Every model picker except Checks has a "My machines" section:
 one row per ready agent per machine, `machine:<deviceId>:<agent>` (`machine-choice.ts`). A run picked that way runs the
 `external-agent-chat` procedure (chat) or `external-agent-task`, on that machine (`machineRunFor`, refused with
 `MACHINE_UNAVAILABLE` when the machine is gone, offline or its agent is not ready). An agent whose "Runs on" (Studio) is a
@@ -246,7 +247,13 @@ machine always runs there. A chat's own model reaches as far as the person says 
 the conversation, sent with each run, carried on the ticket): **this chat and the agents it hands work to** (the default)
 hands it down the runs it starts, a machine only to an agent whose procedure branches at Where It Runs (`handedDown` in
 `EngineResolveAgentActivity`; any other keeps its own model); **this chat only** leaves them on their own; following the
-account default reaches nothing. A conversation keeps one
+account default reaches nothing. **The account default can be an agent on a machine** (Studio → Models, or the first-model dialog; `PUT /api/models/default`
+checks the machine is the person's and its agent ready): a run that names no model and whose agent has none of its own (or the default overrides it)
+goes there when it is a chat or its procedure branches at Where It Runs (`accountMachineFor` in `lib/machine-runs.ts`, read by the registry's `runnable`
+through `accountDefault`); anything else that would need a model fails with `MACHINE_DEFAULT_NEEDS_MODEL` from `ModelService.route`. A check's space
+never takes it. **The first-model dialog** (`FirstModel.tsx`, shown to anyone without a default) offers Connect OpenRouter, a model on their own machine
+(Infrastructure → Your own hardware, then TabbyAPI or vLLM) and a subscription agent through My Machines, and lists ready machine agents to pick.
+`npm run test:machine-default-live` proves it. A conversation keeps one
 session per machine, agent and model (`machineSessions`), so the next turn resumes it; a failed turn is saved with its reason.
 
 **An agent on a machine does a tree's work** (external-cli-agents step 4). A procedure branches at **Where It Runs**
@@ -821,6 +828,19 @@ that version's workspace (`treeLanguage`, through `treeLanguageFrom`), its start
 (`FROM odoo:{{version}}`, manifest versions), and the planner reads the versions in `list_tree_types` and
 `describe_tree_type`. A tree from before versions works in the type's own `language`; startup stamps it with that
 version (`stampTreeVersions` in `seedAll`). The Studio keeps a type's versions when it is saved but cannot edit them.
+
+**Workspace images are built from named dependencies** (plan `~/.claude/plans/workspace-dependencies.md`). One catalogue
+(`extensions/workspace-dependencies.ts`: node, python, go, jq, chromium-libraries, playwright, koala-e2e, playwright-mcp; each person's own in
+`workspaceDependencies`, Studio → Dependencies, `/api/workspace-dependencies`, `WorkspaceDependencyService`) says how each installs (`onDebian` for an
+apt base), what programs or libraries it puts there and what it needs first. Everything names what it needs: a tool (`needs`), an MCP server
+(`runs.needs`), a procedure step (`needs` on its `HostOperation`, resolved onto the agent by the directory's `stepNeeds`), a check (`checksNeed`: an
+`e2e` check needs `koala-e2e`), the project's `.koala/workspace.json` (`needs`) and a base (`has`). `planImage` resolves them in order, once each,
+skipping what the base has, and every planned image ends with a proof run as uid 1000 that each dependency put in what it promised (`proofScript`; a
+broken promise fails the build naming it). Approving a plan or story change, accepting a task, or retrying a story adds what its checks need to
+`.koala/workspace.json` and starts the build (`check-needs.ts`): unfinished tasks wait, a story whose finished work's checks need it is parked, and the
+published build puts them back. A person's own dependency with a script waits for approval like a project script. Startup moves stored inline
+installs onto dependencies (`lib/dependency-migration.ts`). `koala-e2e` outside Odoo runs the project's own Playwright with its playwright.config
+webServer (`lib/browser-tests.ts`); `mechanics-workspace-needs` proves the whole path. In-cluster addresses skip the egress proxy (`NO_PROXY`).
 
 **A tree's workspace is composed, built and published.** Plan: `~/.claude/plans/workspace-tool-servers.md` (step 0).
 - A project says what its workspace needs in `.koala/workspace.json` on `main` (`lib/workspace-file.ts`: packages by
