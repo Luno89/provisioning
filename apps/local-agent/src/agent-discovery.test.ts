@@ -52,6 +52,16 @@ describe('finding the agents on a machine', () => {
     expect(reports[0]).toMatchObject([{ id: 'gemini', state: 'checking' }]);
   });
 
+  it('hands over how to launch an agent with every report that calls it ready, so a run sent at once finds it', async () => {
+    await acpAgent('gemini', { name: 'gemini-cli', version: '0.9.1', turns: [] });
+    const reports: { agents: FoundAgent[]; launches: Record<string, unknown> }[] = [];
+    await discoverAgents(deps(), [], (agents, launches) => reports.push({ agents, launches }));
+    for (const report of reports) {
+      for (const agent of report.agents.filter((entry) => entry.state === 'ready')) expect(report.launches[agent.id], `${agent.id} is ready without a launch`).toBeDefined();
+    }
+    expect(reports.at(-1)!.agents.some((agent) => agent.state === 'ready')).toBe(true);
+  });
+
   it('reads the models an agent offers by opening a session without prompting it, and reports the one it starts on', async () => {
     await acpAgent('gemini', { name: 'gemini-cli', version: '0.9.1', models: { current: 'flash', available: [{ id: 'flash', name: 'Gemini 3.8 Flash' }, { id: 'pro', name: 'Gemini 3.8 Pro' }] }, turns: [] });
     const found = await discoverAgents(deps(), []);

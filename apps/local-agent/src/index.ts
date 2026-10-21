@@ -29,7 +29,10 @@ function watchAgents(socket: Socket, config: MachineConfig, sessions: ExternalAg
   const deps = systemDeps(config.rootDir, probeAcp);
   const rediscover = async (): Promise<void> => {
     const manual = await manualOver(socket);
-    const found = await discoverAgents(deps, manual, (agents: FoundAgent[]) => socket.emit('agents:found', { agents }));
+    const found = await discoverAgents(deps, manual, (agents: FoundAgent[], launches) => {
+      sessions.setLaunches(launches);
+      socket.emit('agents:found', { agents });
+    });
     sessions.setLaunches(found.launches);
     const ready = found.agents.filter((agent) => agent.state === 'ready').map((agent) => agent.id);
     console.log(`[koala-local-agent] external agents: ${ready.length ? ready.join(', ') : 'none ready'}`);

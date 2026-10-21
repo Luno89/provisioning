@@ -166,7 +166,7 @@ export interface Discovered {
   launches: Record<string, AcpLaunch>;
 }
 
-export async function discoverAgents(deps: DiscoveryDeps, manual: readonly ManualAgent[], report: (agents: FoundAgent[]) => void = () => {}): Promise<Discovered> {
+export async function discoverAgents(deps: DiscoveryDeps, manual: readonly ManualAgent[], report: (agents: FoundAgent[], launches: Record<string, AcpLaunch>) => void = () => {}): Promise<Discovered> {
   const byHand = new Set(manual.map((entry) => entry.id));
   const candidates: Candidate[] = [];
   for (const known of KNOWN_AGENTS) {
@@ -178,13 +178,13 @@ export async function discoverAgents(deps: DiscoveryDeps, manual: readonly Manua
 
   const agents = candidates.map((candidate) => candidate.agent);
   const launches: Record<string, AcpLaunch> = {};
-  report([...agents]);
+  report([...agents], { ...launches });
   await Promise.all(candidates.map(async (candidate, index) => {
     if (candidate.agent.state !== 'checking') return;
     const settled = await confirm(candidate, deps);
     agents[index] = settled.agent;
     if (settled.launch) launches[candidate.agent.id] = settled.launch;
-    report([...agents]);
+    report([...agents], { ...launches });
   }));
   return { agents, launches };
 }
