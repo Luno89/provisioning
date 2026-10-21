@@ -58,6 +58,8 @@ export interface WorkspaceDocuments {
   catchUp(request: RestoreDocuments & { branch: string }): Promise<void>;
   sendBranch(request: FolderBranch & { message: string; describe: string }): Promise<{ commit: string }>;
   takeBranch(request: FolderBranch & { message?: string | undefined }): Promise<BroughtBack>;
+  applyDrop(request: FolderBranch & { message: string }): Promise<BroughtBack>;
+  holds(request: { workspaceRunId: string; path: string }): Promise<boolean>;
   keepBranch(request: FolderBranch): Promise<{ kept: true; commit: string } | { kept: false; why: string }>;
   dropBranch(request: Omit<FolderBranch, 'folder' | 'workspaceRunId'>): Promise<void>;
   merge(request: { ownerId: string; repo: string; head: string; base: string; title: string; body: string }): Promise<MergeOutcome>;
@@ -172,6 +174,28 @@ export const takeBranchScript = [
   'git rev-parse HEAD',
 ].join('\n');
 
+const DROP_REF = 'refs/koala/drop';
+
+export const applyDropScript = [
+  'set -e',
+  'cd "$1"',
+  trusting('$1'),
+  `git fetch -q ${INCOMING} "+refs/heads/$2:${DROP_REF}"`,
+  `rm -f ${INCOMING}`,
+  'set +e',
+  `if git -c user.name=koala -c user.email=koala@koala.local merge -q --ff-only --autostash ${DROP_REF} >/dev/null 2>&1; then :`,
+  `elif git -c user.name=koala -c user.email=koala@koala.local merge -q --no-edit --autostash -m "$3" ${DROP_REF} >/dev/null 2>&1; then echo merged >&2`,
+  'else',
+  '  files=$(git diff --name-only --diff-filter=U | tr "\\n" " ")',
+  '  git merge --abort 2>/dev/null || true',
+  `  git update-ref -d ${DROP_REF}`,
+  '  echo "conflicts: $files" >&2',
+  `  exit ${CONFLICTED}`,
+  'fi',
+  `git update-ref -d ${DROP_REF}`,
+  'git rev-parse HEAD',
+].join('\n');
+
 export const keepBranchScript = [
   'set -e',
   'cd "$1"',
@@ -211,6 +235,33 @@ export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: Ku
     void next.finally(() => { if (saving.get(workspaceRunId) === next) saving.delete(workspaceRunId); }).catch(() => undefined);
     return next;
   };
+
+  const bringInto = (request: FolderBranch, script: string, message: string, who: string, movedOn: string) => oneAtATime(request.workspaceRunId, async (): Promise<BroughtBack> => {
+    if (!options.repos.pullBranch) throw new Error(`this host cannot bring ${who}'s work into a workspace`);
+    const namespace = workspaceName(request.workspaceRunId);
+    if (!(await workspaceRunning(options.kube, namespace, POD))) return { brought: false, why: 'the workspace is not running' };
+    const scratch = await mkdtemp(path.join(os.tmpdir(), 'koala-machine-'));
+    try {
+      const bundle = path.join(scratch, 'branch.bundle');
+      if (!(await options.repos.pullBranch({ ownerId: request.ownerId, repo: request.repo, branch: request.branch, bundle }))) {
+        return { brought: false, why: `${who} has not sent ${request.branch}` };
+      }
+      const sent = await options.stream.fromFile(['exec', '-i', POD, '-n', namespace, '--', 'sh', '-c', `cat > ${INCOMING}`], bundle);
+      if (sent.exitCode !== 0) throw new Error(`could not send ${who}'s work into the workspace: ${sent.stderr.trim()}`);
+      const taken = await options.kube(['exec', POD, '-n', namespace, '--', 'sh', '-c', script, 'sh', request.folder, request.branch, message]);
+      const said = taken.stderr.trim().split('\n').map((line) => line.trim()).filter(Boolean);
+      const conflicting = said.find((line) => line.startsWith('conflicts:'));
+      if (taken.exitCode === CONFLICTED && conflicting) {
+        const conflicts = conflicting.slice('conflicts:'.length).trim().split(/\s+/).filter(Boolean);
+        return { brought: false, why: `${movedOn}, and these files conflict: ${conflicts.join(', ')}`, conflicts };
+      }
+      if (taken.exitCode !== 0) return { brought: false, why: (taken.stderr || taken.stdout).trim() };
+      const setAside = said.find((line) => /^[0-9a-f]{40}$/.test(line));
+      return { brought: true, commit: taken.stdout.trim(), ...(setAside ? { set: setAside } : {}), ...(said.includes('merged') ? { merged: true as const } : {}) };
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  });
 
   return {
     save: (request) => oneAtATime(request.workspaceRunId, async (): Promise<SavedDocuments> => {
@@ -301,32 +352,15 @@ export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: Ku
       }
     }),
 
-    takeBranch: (request) => oneAtATime(request.workspaceRunId, async (): Promise<BroughtBack> => {
-      if (!options.repos.pullBranch) throw new Error('this host cannot bring a machine\'s work into a workspace');
+    takeBranch: (request) => bringInto(request, takeBranchScript, request.message ?? 'Merge the machine\'s work', 'the machine', 'the workspace moved on while the machine worked'),
+
+    applyDrop: (request) => bringInto(request, applyDropScript, request.message, 'the drop', 'the story\'s checkout changed the same files'),
+
+    async holds(request) {
       const namespace = workspaceName(request.workspaceRunId);
-      if (!(await workspaceRunning(options.kube, namespace, POD))) return { brought: false, why: 'the workspace is not running' };
-      const scratch = await mkdtemp(path.join(os.tmpdir(), 'koala-machine-'));
-      try {
-        const bundle = path.join(scratch, 'branch.bundle');
-        if (!(await options.repos.pullBranch({ ownerId: request.ownerId, repo: request.repo, branch: request.branch, bundle }))) {
-          return { brought: false, why: `the machine has not sent ${request.branch}` };
-        }
-        const sent = await options.stream.fromFile(['exec', '-i', POD, '-n', namespace, '--', 'sh', '-c', `cat > ${INCOMING}`], bundle);
-        if (sent.exitCode !== 0) throw new Error(`could not send the machine's work into the workspace: ${sent.stderr.trim()}`);
-        const taken = await options.kube(['exec', POD, '-n', namespace, '--', 'sh', '-c', takeBranchScript, 'sh', request.folder, request.branch, request.message ?? 'Merge the machine\'s work']);
-        const said = taken.stderr.trim().split('\n').map((line) => line.trim()).filter(Boolean);
-        const conflicting = said.find((line) => line.startsWith('conflicts:'));
-        if (taken.exitCode === CONFLICTED && conflicting) {
-          const conflicts = conflicting.slice('conflicts:'.length).trim().split(/\s+/).filter(Boolean);
-          return { brought: false, why: `the workspace moved on while the machine worked, and these files conflict: ${conflicts.join(', ')}`, conflicts };
-        }
-        if (taken.exitCode !== 0) return { brought: false, why: (taken.stderr || taken.stdout).trim() };
-        const setAside = said.find((line) => /^[0-9a-f]{40}$/.test(line));
-        return { brought: true, commit: taken.stdout.trim(), ...(setAside ? { set: setAside } : {}), ...(said.includes('merged') ? { merged: true as const } : {}) };
-      } finally {
-        await rm(scratch, { recursive: true, force: true });
-      }
-    }),
+      if (!(await workspaceRunning(options.kube, namespace, POD))) return false;
+      return (await options.kube(['exec', POD, '-n', namespace, '--', 'test', '-e', request.path])).exitCode === 0;
+    },
 
     keepBranch: (request) => oneAtATime(request.workspaceRunId, async () => {
       if (!options.repos.pullBranch) throw new Error('this host cannot bring a machine\'s work into a workspace');

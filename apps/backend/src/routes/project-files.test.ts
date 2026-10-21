@@ -47,6 +47,7 @@ async function mount(gitea: Record<string, unknown>, opts: { seedProject?: boole
           commit: (...args) => (gitea.commitDrop as (...given: unknown[]) => Promise<{ commit: string }>)(...args),
           writeOnDevice: vi.fn(),
         }),
+        storyDrops: { drop: (gitea.storyDrop as (...given: unknown[]) => Promise<unknown>) ?? vi.fn() },
         getOwnedProject: async (id: string, user: any) => {
           const p = (await db.getProjects()).find((x: any) => x.id === id);
           return p && ownsProject(p, user) ? p : undefined;
@@ -284,4 +285,16 @@ describe('POST /:id/files/drop', () => {
     const missing = await axios.post(harness.url('/api/projects/nope/files/drop'), JSON.stringify({ files: [{ path: 'x', content: '' }] }), sent(undefined));
     expect(missing.status).toBe(404);
   });
+
+  it('hands code dropped on a story to the story, and says what became of it', async () => {
+    const storyDrop = vi.fn(async () => ({ ok: true, drop: { id: 'd1', state: 'merged' }, said: 'logo.svg merged into the story\'s checkout' }));
+    const commitDrop = vi.fn();
+    const harness = await mount({ commitDrop, storyDrop });
+    const res = await axios.post(harness.url('/api/projects/proj-1/files/drop'), JSON.stringify({ leafId: 'l1', files: [{ path: 'logo.svg', content: Buffer.from('<svg/>').toString('base64') }] }), sent(undefined));
+    expect(res.status).toBe(201);
+    expect(res.data).toMatchObject({ said: 'logo.svg merged into the story\'s checkout' });
+    expect(storyDrop).toHaveBeenCalledWith(TEST_USER.id, 'proj-1', 'l1', [{ path: 'logo.svg', bytes: Buffer.from('<svg/>') }], undefined);
+    expect(commitDrop).not.toHaveBeenCalled();
+  });
 });
+

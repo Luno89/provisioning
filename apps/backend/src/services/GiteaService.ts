@@ -744,6 +744,7 @@ export class GiteaService {
     files: readonly { path: string; bytes: Buffer }[],
     message: string,
     branch?: string,
+    newBranch?: string,
   ): Promise<{ commit: string }> {
     const repo = `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
     const ref = branch ? `?ref=${encodeURIComponent(branch)}` : '';
@@ -757,7 +758,7 @@ export class GiteaService {
     }));
     const res = await this.tokenFetch(token, `${repo}/contents`, {
       method: 'POST',
-      body: JSON.stringify({ message, files: operations, ...(branch ? { branch } : {}) }),
+      body: JSON.stringify({ message, files: operations, ...(branch ? { branch } : {}), ...(newBranch ? { new_branch: newBranch } : {}) }),
     });
     if (res.status === 409 || res.status === 422) throw new GiteaConflictError(`Something in this drop changed while it was being committed; drop it again. (${(await res.text()).slice(0, 160)})`);
     if (!res.ok) throw new Error(`Could not commit ${files.length} file${files.length === 1 ? '' : 's'} to "${owner}/${name}": HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);

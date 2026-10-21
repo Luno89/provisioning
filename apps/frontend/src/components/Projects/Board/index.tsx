@@ -17,6 +17,8 @@ import { useResizableWidth } from '../Workspace/useResizableWidth'
 import { resizeHandle } from '../Workspace/shared'
 import { useProjectWork } from '../useProjectWork'
 import ProjectStoredFiles from '../../Files/ProjectStoredFiles'
+import RepositoryFiles from '../../Files/RepositoryFiles'
+import { StoryDrops } from './StoryDrops'
 import { storyFolder } from '../../../lib/file-drop'
 import Reading from '../Reading'
 import { useRouteSync } from '../useRouteSync'
@@ -231,8 +233,16 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
               <StoryTasks tasks={(tasks.data ?? []).filter((task) => task.leafId === openLeaf.id).sort((a, b) => (openLeaf.tasks ?? []).indexOf(a.id) - (openLeaf.tasks ?? []).indexOf(b.id) || byRank(a, b))} />
             </div>
             {project && (
-              <div className="mt-4 rounded border border-[var(--bark-700)] p-2" data-testid="story-files">
-                <ProjectStoredFiles projectId={project.id} dir={storyFolder(openLeaf.id)} title="Files for this story" />
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded border border-[var(--bark-700)] p-2" data-testid="story-code">
+                  <RepositoryFiles projectId={project.id} leafId={openLeaf.id} title="Code for this story">
+                    {() => <StoryDrops drops={openLeaf.drops ?? []} />}
+                  </RepositoryFiles>
+                  {!(openLeaf.drops ?? []).length && <p className="text-[11px] text-slate-500">Code dropped here is merged into the story&apos;s checkout, or waits for it if the story has not started.</p>}
+                </div>
+                <div className="rounded border border-[var(--bark-700)] p-2" data-testid="story-files">
+                  <ProjectStoredFiles projectId={project.id} dir={storyFolder(openLeaf.id)} title="Files for this story" />
+                </div>
               </div>
             )}
           </article>

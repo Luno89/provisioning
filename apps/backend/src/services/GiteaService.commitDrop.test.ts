@@ -41,4 +41,10 @@ describe('GiteaService.commitDrop', () => {
     const raced = serviceAnswering((call) => (call.method === 'GET' ? new Response('', { status: 404 }) : new Response('sha mismatch', { status: 409 })));
     await expect(raced.service.commitDrop('tok', 'o', 'r', [{ path: 'a.txt', bytes: Buffer.from('x') }], 'm')).rejects.toThrow('changed while it was being committed');
   });
+
+  it('starts a new branch from the one named, for a drop that goes to a story', async () => {
+    const { service, calls } = serviceAnswering((call) => (call.method === 'GET' ? new Response('', { status: 404 }) : new Response(JSON.stringify({ commit: { sha: 'c2' } }), { status: 201 })));
+    await service.commitDrop('tok', 'o', 'r', [{ path: 'a.txt', bytes: Buffer.from('a') }], 'm', 'main', 'drop/l1/s1');
+    expect(calls.at(-1)?.body).toMatchObject({ branch: 'main', new_branch: 'drop/l1/s1' });
+  });
 });

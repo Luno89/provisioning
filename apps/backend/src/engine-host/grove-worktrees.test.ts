@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { prepareJudgeCheckout, prepareLeafWorktree, pruneLeafWorktrees, WorktreeConflictError } from './grove-worktrees.js';
+import { mergeDrops, prepareJudgeCheckout, prepareLeafWorktree, pruneLeafWorktrees, WorktreeConflictError } from './grove-worktrees.js';
 
 function shell(script: (command: string) => { stdout?: string; exitCode?: number } | undefined) {
   const commands: string[] = [];
@@ -92,3 +92,28 @@ describe('pruning the work of deleted leaves', () => {
     expect(commands.some((command) => command.includes('branch -D') || command.includes('worktree remove'))).toBe(false);
   });
 });
+
+describe('code dropped on a story, waiting for its checkout', () => {
+  const drop = (id: string, state: 'waiting' | 'merged' = 'waiting') => ({ id, branch: `drop/c/${id}`, paths: ['logo.svg'], at: 't', by: 'u1', state });
+
+  it('is merged into the checkout keeping what is uncommitted there, its branch removed once in, and one not here yet keeps waiting', async () => {
+    const { driver, commands } = shell((command) => (command.includes("'refs/heads/drop/c/later'") ? { exitCode: 1 } : undefined));
+    const settled = await mergeDrops(driver, 'c', [drop('d1'), drop('later'), drop('old', 'merged')], 'now');
+    expect(settled.map((entry) => [entry.id, entry.state])).toEqual([['d1', 'merged'], ['later', 'waiting'], ['old', 'merged']]);
+    expect(settled[0]).toMatchObject({ mergedAt: 'now' });
+    expect(commands).toContain("git -C '/work/trees/c' -c user.name=koala -c user.email=koala@grove.local merge -q --no-edit --autostash -m 'Merge what was dropped on the story' 'drop/c/d1'");
+    expect(commands).toContain("git -C /work/repo branch -D 'drop/c/d1'");
+    expect(commands.some((command) => command.includes("'drop/c/old'"))).toBe(false);
+  });
+
+  it('names the files when it conflicts, and leaves the checkout as it was', async () => {
+    const { driver, commands } = shell((command) => {
+      if (command.includes(' merge -q --no-edit --autostash')) return { exitCode: 1 };
+      if (command.includes('--diff-filter=U')) return { stdout: 'README.md' };
+      return undefined;
+    });
+    expect(await mergeDrops(driver, 'c', [drop('d1')], 'now')).toEqual([{ ...drop('d1'), state: 'conflict', conflicts: ['README.md'] }]);
+    expect(commands).toContain("git -C '/work/trees/c' merge --abort");
+  });
+});
+

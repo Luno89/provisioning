@@ -35,7 +35,7 @@ export interface ObservedFlow {
   summary?: { through: number } | undefined;
   kept?: { interrupted: boolean; chars: number; loggedChars: number; prefix: boolean } | undefined;
   turnLog?: { contiguous: boolean; savedMatches: boolean; entries: number } | undefined;
-  leaves?: { title: string; status: string; verified: boolean; landed?: string | undefined; findings?: string | undefined; retried?: number | undefined; artifacts?: { name: string; opens: boolean; contentType?: string | undefined; size?: number | undefined }[] | undefined }[] | undefined;
+  leaves?: { title: string; status: string; verified: boolean; landed?: string | undefined; findings?: string | undefined; retried?: number | undefined; artifacts?: { name: string; opens: boolean; contentType?: string | undefined; size?: number | undefined }[] | undefined; drops?: string[] | undefined }[] | undefined;
   mergeTasks?: number | undefined;
   repository?: Record<string, string | null> | undefined;
   pullRequests?: { merged: number; open: number; closedUnmerged: number } | undefined;
@@ -264,6 +264,11 @@ export async function scoreScenario(expect: ScenarioExpectations, observed: Obse
     for (const [title, times] of Object.entries(expect.leaves.retried ?? {})) {
       const leaf = leaves.find((entry) => entry.title === title);
       add(`${title} was retried ${times} time${times === 1 ? '' : 's'}`, leaf?.retried === times, !leaf ? `there is no leaf called ${title}` : `it was retried ${leaf.retried ?? 0}`);
+    }
+    for (const [title, states] of Object.entries(expect.leaves.drops ?? {})) {
+      const leaf = leaves.find((entry) => entry.title === title);
+      const seen = leaf?.drops ?? [];
+      add(`what was dropped on ${title} is ${states.join(', ')}`, Boolean(leaf) && seen.join(',') === states.join(','), !leaf ? `there is no leaf called ${title}` : `it is ${seen.join(', ') || 'nothing'}`);
     }
     if (expect.leaves.mergeTasks !== undefined) add(`${expect.leaves.mergeTasks} merge tasks`, flow.mergeTasks === expect.leaves.mergeTasks, `there ${flow.mergeTasks === 1 ? 'is' : 'are'} ${flow.mergeTasks ?? 0}`);
   }

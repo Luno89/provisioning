@@ -99,6 +99,7 @@ export const STAGE_ACTIONS: Record<ActionKey, Entry> = {
   applyAction: { means: 'apply the newest card waiting in the check\'s own conversation — deploying, adding an app or an MCP server — as the person would', example: '{ "applyAction": true }' },
   runTree: { means: 'grow the approved tree until it settles', example: '{ "runTree": true }' },
   waitQuiet: { means: 'wait out the conversation\'s quiet time, so it concludes', example: '{ "waitQuiet": true }' },
+  dropOnStory: { means: 'drop code on a story as the person does on its page: committed on a branch of its own, merged into the story\'s checkout, or waiting for it; with whenRunning, once the story is being worked', example: '{ "dropOnStory": { "story": "Use the notes", "files": { "notes.txt": "from the person" }, "whenRunning": true } }' },
   editWorkspace: { means: 'save the tree\'s .koala/workspace.json as the person does in the Studio\'s Workspace section: it is committed to main and its build starts', example: '{ "editWorkspace": { "packages": { "dnf": ["jq"] } } }' },
   waitWorkspace: { means: 'wait until main\'s .koala/workspace.json is built and published as the tree\'s workspace; it fails when the build fails or its install script is declined', example: '{ "waitWorkspace": true }' },
   settleTree: { means: 'wait until every story of the tree is settled and nothing grows it, whatever starts its runs — a rebuilt workspace putting a waiting story back in line, for one', example: '{ "settleTree": true }' },

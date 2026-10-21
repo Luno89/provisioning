@@ -5,6 +5,7 @@ import {
   setDefaultFileServer, startProjectMinio, uploadStoredFile,
 } from '../../api/files'
 import { dropIntoRepository, projectFileKeys } from '../../api/project-files'
+import { groveKeys } from '../../api/grove'
 import { base64Of, joinPath, type PickedFile } from '../../lib/file-drop'
 import type { FileScope, PlaceState } from '../../types/files'
 
@@ -82,18 +83,19 @@ export function useStoredChanges(scope: FileScope) {
   return { remove, move }
 }
 
-export function useRepositoryDrop(projectId: string, ref?: string | undefined) {
+export function useRepositoryDrop(projectId: string, ref?: string | undefined, leafId?: string | undefined) {
   const client = useQueryClient()
   const [share, setShare] = useState<number | undefined>()
   const drop = useMutation({
     mutationFn: async ({ dir, picked }: { dir: string; picked: PickedFile[] }) => {
       const files = await Promise.all(picked.map(async (one) => ({ path: one.path, content: await base64Of(one.file) })))
-      return dropIntoRepository(projectId, { dir, files, ...(ref ? { ref } : {}) }, setShare)
+      return dropIntoRepository(projectId, { dir, files, ...(ref ? { ref } : {}), ...(leafId ? { leafId } : {}) }, setShare)
     },
     onSettled: () => {
       setShare(undefined)
       void client.invalidateQueries({ queryKey: ['project-files', projectId] })
       void client.invalidateQueries({ queryKey: projectFileKeys.tree(projectId, '') })
+      if (leafId) void client.invalidateQueries({ queryKey: groveKeys.leaves() })
     },
   })
   return { drop, share }

@@ -39,6 +39,7 @@ export interface Leaf {
   };
   attempts?: LeafAttempt[];
   waitingFor?: { reason: string; since: string; stuck?: string | undefined } | undefined;
+  drops?: import('./story-drops.js').StoryDrop[] | undefined;
   createdAt: string;
   updatedAt: string;
 }

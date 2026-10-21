@@ -490,7 +490,55 @@ describe('a workspace folder going to a machine and coming back', () => {
     expect((await git('git', ['-C', fresh, 'symbolic-ref', '--short', 'HEAD'])).stdout.trim()).toBe('main');
   });
 
-  it('says so when the machine never sent its work', async () => {
+  it('merges a person\'s drop into a story\'s checkout, keeping what its worker has not committed yet, and names the files that conflict', async () => {
+    const documents = createWorkspaceDocuments({ kube, stream, repos: machineRepos() });
+    const dropBranch = 'drop/l1/d1';
+    const drop = async (files: Record<string, string>) => {
+      const made = path.join(root, `drop-${Math.random().toString(36).slice(2, 8)}`);
+      await git('git', ['clone', '-q', folder(), made]);
+      await git('git', ['-C', made, 'checkout', '-q', '-b', dropBranch]);
+      for (const [name, content] of Object.entries(files)) await writeFile(path.join(made, name), content);
+      await git('git', ['-C', made, 'add', '-A']);
+      await git('git', ['-C', made, '-c', 'user.name=p', '-c', 'user.email=p@p', 'commit', '-q', '-m', 'dropped']);
+      const bundle = path.join(made, 'out.bundle');
+      await git('git', ['-C', made, 'bundle', 'create', bundle, dropBranch]);
+      branches.set(dropBranch, bundle);
+    };
+    const asked = { ...request, branch: dropBranch, message: 'Merge what was dropped on the story' };
+
+    await drop({ 'logo.svg': '<svg/>\n' });
+    await writeFile(path.join(folder(), 'half-done.ts'), 'the worker is still writing this\n');
+    expect(await documents.applyDrop(asked)).toMatchObject({ brought: true, commit: await inFolder('rev-parse', 'HEAD') });
+    expect(await readFile(path.join(folder(), 'logo.svg'), 'utf8')).toBe('<svg/>\n');
+    expect(await readFile(path.join(folder(), 'half-done.ts'), 'utf8')).toBe('the worker is still writing this\n');
+    expect(await inFolder('stash', 'list')).toBe('');
+    expect(await inFolder('rev-parse', '--abbrev-ref', 'HEAD')).toBe('leaf/l1');
+
+    await writeFile(path.join(folder(), 'README.md'), 'the worker\'s readme\n');
+    await inFolder('commit', '-q', '-am', 'the worker changed the readme');
+    const before = await inFolder('rev-parse', 'HEAD');
+    const base = path.join(root, `base-${Math.random().toString(36).slice(2, 8)}`);
+    await git('git', ['clone', '-q', folder(), base]);
+    await git('git', ['-C', base, 'checkout', '-q', '-b', dropBranch, 'HEAD~1']);
+    await writeFile(path.join(base, 'README.md'), 'the person\'s readme\n');
+    await git('git', ['-C', base, '-c', 'user.name=p', '-c', 'user.email=p@p', 'commit', '-q', '-am', 'dropped a readme']);
+    const bundle = path.join(base, 'out.bundle');
+    await git('git', ['-C', base, 'bundle', 'create', bundle, dropBranch]);
+    branches.set(dropBranch, bundle);
+    expect(await documents.applyDrop(asked)).toEqual({ brought: false, why: expect.stringContaining('the story\'s checkout changed the same files, and these files conflict: README.md'), conflicts: ['README.md'] });
+    expect(await inFolder('rev-parse', 'HEAD')).toBe(before);
+    expect(await readFile(path.join(folder(), 'README.md'), 'utf8')).toBe('the worker\'s readme\n');
+  });
+
+  it('says whether a path is there in a running workspace, and that nothing is when it is stopped', async () => {
+    const documents = createWorkspaceDocuments({ kube, stream, repos: machineRepos() });
+    expect(await documents.holds({ workspaceRunId: 'tree-t1', path: '/work/trees/l1/.git' })).toBe(true);
+    expect(await documents.holds({ workspaceRunId: 'tree-t1', path: '/work/trees/l9/.git' })).toBe(false);
+    podRunning = false;
+    expect(await documents.holds({ workspaceRunId: 'tree-t1', path: '/work/trees/l1/.git' })).toBe(false);
+  });
+
+    it('says so when the machine never sent its work', async () => {
     expect(await createWorkspaceDocuments({ kube, stream, repos: machineRepos() }).takeBranch(request)).toEqual({ brought: false, why: 'the machine has not sent machine/desk/run-1' });
   });
 });

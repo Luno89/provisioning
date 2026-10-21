@@ -79,6 +79,7 @@ import { fingerprintOf } from './lib/bench.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
 import { RepositoryDropService } from './services/RepositoryDropService.js';
+import { StoryDropService } from './services/StoryDropService.js';
 import { FileStores } from './services/FileStores.js';
 import { FileService } from './services/FileService.js';
 import { DEFAULT_TARGET_CLUSTER } from './lib/project-shipping.js';
@@ -1082,7 +1083,17 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     commit: (token, owner, repo, files, message, branch) => giteaService.commitDrop(token, owner, repo, files, message, branch),
     writeOnDevice: (deviceId, ownerId, leafId, target, bytes) => writeFileOnDevice(deviceId, ownerId, leafId, target, bytes),
   });
-  tenant.use('/api/projects', projectFilesRouter({ projectRepoService, giteaService, getOwnedProject, drops: repositoryDrops }));
+  let storyDrops: StoryDropService | undefined;
+  tenant.use('/api/projects', projectFilesRouter({
+    projectRepoService,
+    giteaService,
+    getOwnedProject,
+    drops: repositoryDrops,
+    storyDrops: { drop: (...args: Parameters<StoryDropService['drop']>) => {
+      if (!storyDrops) throw new Error('stories cannot take dropped code here');
+      return storyDrops.drop(...args);
+    } },
+  }));
   tenant.use('/api/files', filesRouter({ files: fileService, getOwnedProject }));
   const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
     const releaseWhen = (await treeTypeOfProject(db, project))?.releaseWhen;
@@ -1312,6 +1323,17 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }),
     efforts: { save: (effort) => db.saveRunEffort(effort), list: (ownerId, procedureId, modelKey) => db.getRunEffort(ownerId, procedureId, modelKey) },
   });
+  storyDrops = evalHost.storyDrops ? new StoryDropService({
+    leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
+    treeOfLeaf: async (leaf) => {
+      const branch = (await db.getBranches()).find((entry) => entry.id === leaf.branchId);
+      return branch ? (await db.getTrees()).find((tree) => tree.id === branch.treeId) : undefined;
+    },
+    account: (ownerId) => projectRepoService.ensureAccountFor(ownerId),
+    credential: (ownerId) => projectRepoService.editorCredential(ownerId),
+    commit: (token, owner, repo, files, message, branch, newBranch) => giteaService.commitDrop(token, owner, repo, files, message, branch, newBranch),
+    work: evalHost.storyDrops,
+  }) : undefined;
 
   const practiceService = new PracticeService({ store: db });
   const toolNoteService = new PracticeService({ store: db, category: 'tool_note' });

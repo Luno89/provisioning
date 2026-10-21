@@ -1,4 +1,5 @@
 import { Context } from '@temporalio/activity';
+import { DROP_TYPE } from '../lib/drops.js';
 import type { AxiosInstance } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { grantChanges, type GrantKind, type ToolDefinition, type ToolGrant, type WorkspaceDependency } from '@koala/agent-engine';
@@ -641,6 +642,25 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           const { committed } = saved.data as { committed: boolean };
           return committed ? { outcome: 'ok' } : { outcome: 'failed', reason: 'the edit changed nothing, so nothing was committed' };
         }
+        if ('dropOnStory' in action) {
+          const asked = action.dropOnStory;
+          let leaf: { id: string; title: string; status: string; branchId: string } | undefined;
+          for (;;) {
+            await stopIfCancelled();
+            leaf = ((await http.get('/leaves')).data as { id: string; title: string; status: string; branchId: string }[]).find((entry) => entry.title === asked.story);
+            if (leaf && (!asked.whenRunning || leaf.status === 'running')) break;
+            if (leaf && ['succeeded', 'failed', 'cancelled'].includes(leaf.status)) return { outcome: 'failed', reason: `"${asked.story}" was ${leaf.status} before anything could be dropped on it` };
+            await wait();
+          }
+          const branch = ((await http.get('/branches')).data as { id: string; treeId: string }[]).find((entry) => entry.id === leaf!.branchId);
+          const tree = ((await http.get('/trees')).data as { id: string; projectIds?: string[] }[]).find((entry) => entry.id === branch?.treeId);
+          const projectId = tree?.projectIds?.[0];
+          if (!projectId) return { outcome: 'failed', reason: `"${asked.story}" is in no project, so code cannot be dropped on it` };
+          const files = Object.entries(asked.files).map(([path, content]) => ({ path, content: Buffer.from(content).toString('base64') }));
+          const dropped = await http.post(`/projects/${projectId}/files/drop`, JSON.stringify({ leafId: leaf.id, files }), { headers: { 'Content-Type': DROP_TYPE }, validateStatus: () => true });
+          if (dropped.status >= 300) return { outcome: 'failed', reason: `the drop was refused: ${(dropped.data as { error?: string }).error ?? dropped.status}` };
+          return { outcome: 'ok' };
+        }
         if ('waitWorkspace' in action) {
           const id = encodeURIComponent(treeId());
           for (;;) {
@@ -743,7 +763,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           flow.turnLog = { entries: seqs.length, contiguous: seqs.every((seq, index) => seq === index + 1), savedMatches: Boolean(ran.saved) && logged.endsWith(ran.saved) };
         }
         if (expect.leaves) {
-          const leaves = (await http.get('/leaves')).data as { title: string; status: string; verified?: boolean; landed?: { outcome: string }; findings?: string; attempts?: unknown[] }[];
+          const leaves = (await http.get('/leaves')).data as { title: string; status: string; verified?: boolean; landed?: { outcome: string }; findings?: string; attempts?: unknown[]; drops?: { state: string }[] }[];
           flow.leaves = await Promise.all(leaves.map(async (leaf) => ({
             title: leaf.title,
             status: leaf.status,
@@ -751,6 +771,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
             ...(leaf.landed ? { landed: leaf.landed.outcome } : {}),
             ...(leaf.findings ? { findings: leaf.findings } : {}),
             retried: leaf.attempts?.length ?? 0,
+            ...(leaf.drops?.length ? { drops: leaf.drops.map((drop) => drop.state) } : {}),
             ...(expect.leaves?.artifacts?.[leaf.title] !== undefined ? { artifacts: await openArtifacts(leaf.findings ?? '') } : {}),
           })));
           const tasks = (await http.get('/engine/tasks')).data as { title: string }[];

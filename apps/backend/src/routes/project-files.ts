@@ -34,7 +34,7 @@ async function readLocalContent(deviceId: string, ownerId: string, target: strin
 }
 
 export function projectFilesRouter(deps: Record<string, any>): Router {
-  const { projectRepoService, giteaService, getOwnedProject, drops } = deps;
+  const { projectRepoService, giteaService, getOwnedProject, drops, storyDrops } = deps;
   const router = Router();
 
   router.post('/:id/files/drop', express.json({ type: DROP_TYPE, limit: '1gb' }), asyncRoute(async (req, res) => {
@@ -42,7 +42,12 @@ export function projectFilesRouter(deps: Record<string, any>): Router {
     if (!project) return res.status(404).json({ error: 'Project not found' });
     const read = readDrop(req.body);
     if (!read.ok) return res.status(400).json({ error: read.why });
-    const { ref, message } = req.body as { ref?: unknown; message?: unknown };
+    const { ref, message, leafId } = req.body as { ref?: unknown; message?: unknown; leafId?: unknown };
+    if (typeof leafId === 'string' && leafId) {
+      const outcome = await storyDrops.drop(userOf(req).id, project.id, leafId, read.files, typeof message === 'string' ? message : undefined);
+      if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.why });
+      return res.status(201).json(outcome);
+    }
     try {
       const outcome = await drops.drop(project, read.files, { ref: typeof ref === 'string' && ref ? ref : undefined, message: typeof message === 'string' ? message : undefined });
       if (!outcome.ok) return res.status(409).json({ error: outcome.why });

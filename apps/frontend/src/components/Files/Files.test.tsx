@@ -128,6 +128,18 @@ describe('code dropped on the repository', () => {
   })
 })
 
+describe('code dropped on a story', () => {
+  it('goes to the story and says what became of it', async () => {
+    vi.mocked(projectFilesApi.dropIntoRepository).mockResolvedValueOnce({ ok: true, drop: { id: 'd1', branch: 'drop/l1/d1', paths: ['logo.svg'], at: 't', by: 'u1', state: 'conflict', conflicts: ['logo.svg'] }, said: 'logo.svg could not be merged into the story\'s checkout' })
+    show(<RepositoryFiles projectId="p1" leafId="l1" title="Code for this story">{() => null}</RepositoryFiles>)
+    const code = new File(['<svg/>'], 'logo.svg')
+    await act(async () => { dropOn(screen.getByTestId('drop-target'), [code]) })
+    await waitFor(() => expect(projectFilesApi.dropIntoRepository).toHaveBeenCalledWith('p1', { dir: '', files: [{ path: 'logo.svg', content: 'PHN2Zy8+' }], leafId: 'l1' }, expect.any(Function)))
+    expect(await screen.findByTestId('drop-outcome')).toHaveTextContent('logo.svg could not be merged into the story\'s checkout')
+    expect(screen.getByTestId('drop-target')).toHaveAttribute('aria-label', 'Drop code to merge into this story\'s checkout')
+  })
+})
+
 describe('the person\'s default file server', () => {
   it('is chosen from their running servers, or says how to get one', async () => {
     show(<DefaultFileServer />)

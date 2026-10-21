@@ -15,6 +15,7 @@ import { createClusterBackend } from './sandboxes/cluster-backend.js';
 import { createKubeRunner, createKubeStreamer } from './sandboxes/kube.js';
 import { createWorkspaceDocuments, type DocumentRepos } from './sandboxes/workspace-documents.js';
 import { createMachineWork, type MachineWork } from './sandboxes/machine-work.js';
+import { createStoryDropWork, type StoryDropWork } from './sandboxes/story-drop-work.js';
 import { defaultRepoResolver, repoForWorkspace, treeWorkspaceRunId, type WorkspaceRepoResolver } from './sandboxes/workspace-repos.js';
 import { createImageBuilder, discoverRegistry, type ImageBuilder, type RegistryAccount } from './sandboxes/image-builder.js';
 import { createEnvironmentResolver, type EnvironmentResolver } from './sandboxes/environments.js';
@@ -173,6 +174,7 @@ export interface EngineHost {
   implemented: ReadonlySet<string>;
   treeWorkspaceFiles: TreeWorkspaceFiles | undefined;
   machineWork: MachineWork | undefined;
+  storyDrops: StoryDropWork | undefined;
   checkNeeds: CheckNeeds | undefined;
   acceptedNeeds: ReturnType<typeof needsOfAccepted> | undefined;
 }
@@ -292,6 +294,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
   });
 
   const machineWork = documents ? createMachineWork({ documents, repoFor }) : undefined;
+  const storyDrops = documents ? createStoryDropWork({ documents, repoFor }) : undefined;
   const treeWorkspaces = createTreeWorkspaces({ resolver: environments, kube, documents, repoFor, languageOf: options.treeLanguage, extrasOf: options.treeExtras });
   treeWorkspacesFor.current = treeWorkspaces;
   const conversationWorkspaces = documents
@@ -545,7 +548,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
 
   return {
     efforts, workspaceImages, registry, catalogue, endpoints, environments,
-    runEnvironments, treeWorkspaces, conversationWorkspaces, images, imagePruner, tools, services, implemented, treeWorkspaceFiles, machineWork, checkNeeds, acceptedNeeds,
+    runEnvironments, treeWorkspaces, conversationWorkspaces, images, imagePruner, tools, services, implemented, treeWorkspaceFiles, machineWork, storyDrops, checkNeeds, acceptedNeeds,
   };
 }
 

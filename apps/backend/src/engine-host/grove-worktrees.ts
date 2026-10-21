@@ -1,5 +1,6 @@
 import type { EnvironmentDriver } from '@koala/engine-core';
 import { judgeCheckout, leafBranch, leafBriefPath, leafWorktree, TREE_REPO } from '../lib/plan-documents.js';
+import type { StoryDrop } from '../lib/story-drops.js';
 
 export interface LeafDependency {
   leafId: string;
@@ -55,6 +56,27 @@ export async function prepareLeafWorktree(driver: EnvironmentDriver, leafId: str
       throw new WorktreeConflictError(leafId, conflicted.out.split('\n').filter(Boolean));
     }
   }
+}
+
+export async function mergeDrops(driver: EnvironmentDriver, leafId: string, drops: readonly StoryDrop[], now: string): Promise<StoryDrop[]> {
+  const path = at(leafWorktree(leafId));
+  const settled: StoryDrop[] = [];
+  for (const drop of drops) {
+    if (drop.state !== 'waiting' || !(await run(driver, `git -C ${TREE_REPO} rev-parse --verify -q ${quote(`refs/heads/${drop.branch}`)}`)).ok) {
+      settled.push(drop);
+      continue;
+    }
+    const merged = await run(driver, `git -C ${quote(path)} -c user.name=koala -c user.email=koala@grove.local merge -q --no-edit --autostash -m 'Merge what was dropped on the story' ${quote(drop.branch)}`);
+    if (merged.ok) {
+      await run(driver, `git -C ${TREE_REPO} branch -D ${quote(drop.branch)}`);
+      settled.push({ ...drop, state: 'merged', mergedAt: now });
+      continue;
+    }
+    const conflicted = await run(driver, `git -C ${quote(path)} diff --name-only --diff-filter=U`);
+    await run(driver, `git -C ${quote(path)} merge --abort`);
+    settled.push({ ...drop, state: 'conflict', conflicts: conflicted.out.split('\n').filter(Boolean) });
+  }
+  return settled;
 }
 
 const listed = (out: string): string[] => out.split('\n').map((line) => line.trim()).filter(Boolean);

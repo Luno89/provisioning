@@ -582,6 +582,50 @@ const deletedProject: Scenario = {
   ],
 };
 
+const READ_DROPPED = 'Read the dropped notes';
+const READ_WAITING = 'Read the waiting notes';
+
+const storyDrop: Scenario = {
+  id: 'mechanics-story-drop',
+  name: 'Code dropped on a story reaches its checkout',
+  describe: 'Mechanics, on a script: a plan for the check\'s project is approved and its tree starts. The first story\'s worker waits for a file that is not there; the person drops it on the story while it is worked, and it is merged into the story\'s checkout under the worker, which reads it and finishes. A file dropped on the second story, which waits on the first and has no checkout yet, waits in the tree\'s workspace and is merged when its checkout is made. Both stories land with what was dropped.',
+  agent: 'planner',
+  procedure: { id: 'planning' },
+  input: { message: 'Plan the story drop check.', inputs: { goal: 'story drop check', projectId: '{{world.projectId}}' } },
+  world: { project: { name: 'story-drop-check' } },
+  script: { rules: [
+    { when: { offered: ['propose_plan'], notCalled: ['propose_plan'] }, reply: { call: [{ tool: 'propose_plan', arguments: {
+      tree: { name: 'Story drop check', type: CATCH_ALL_TREE_TYPE, goal: 'Stories that use files the person drops on them.' },
+      planDoc: '# Story drop check\n\n## Destination\ndropped/notes.txt and waiting/notes.txt on main.\n\n## Not yet specified\nNothing.\n\n## Out of scope\nEverything else.\n',
+      branches: [{ title: 'Drops', leaves: [
+        { key: 'first', title: 'Use the dropped notes', body: 'dropped/notes.txt is read', brief: 'The person drops dropped/notes.txt on this story.', tasks: [{ key: 'read', title: READ_DROPPED, description: 'Read dropped/notes.txt once it is there.', role: 'All of it.', doneMeans: 'dropped/notes.txt says it is from the person', checks: { command: 'cat dropped/notes.txt', expects: ['from the person'] } }] },
+        { key: 'second', title: 'Use the waiting notes', body: 'waiting/notes.txt is read', brief: 'The person drops waiting/notes.txt on this story before it starts.', dependsOn: ['first'], tasks: [{ key: 'read', title: READ_WAITING, description: 'Read waiting/notes.txt.', role: 'All of it.', doneMeans: 'waiting/notes.txt says it was kept for later', checks: { command: 'cat waiting/notes.txt', expects: ['kept for later'] } }] },
+      ] }],
+    } }] } },
+    { when: { offered: ['propose_plan'] }, reply: { say: 'Proposed.' } },
+    DECIDE,
+    { when: { offered: ['settle_leaf'], notCalled: ['settle_leaf'] }, reply: { call: [{ tool: 'settle_leaf', arguments: { leafId: '{{mentioned.leaf}}', verdict: 'verified', note: 'scripted' } }] } },
+    { when: { offered: ['settle_leaf'] }, reply: { say: 'Settled.' } },
+    { when: { offered: ['record_verdict'], notCalled: ['record_verdict'] }, reply: { call: [{ tool: 'record_verdict', arguments: { verdict: 'met', reasoning: 'scripted' } }] } },
+    { when: { offered: ['record_verdict'] }, reply: { say: 'Met.' } },
+    { when: { asked: `Work the task ${READ_DROPPED}`, notCalled: ['run_command'] }, reply: { call: [{ tool: 'run_command', arguments: { command: 'until [ -f dropped/notes.txt ]; do sleep 2; done; cat dropped/notes.txt' } }] } },
+    { when: { asked: `Work the task ${READ_WAITING}`, notCalled: ['run_command'] }, reply: { call: [{ tool: 'run_command', arguments: { command: 'cat waiting/notes.txt' } }] } },
+    { when: { asked: 'Work the task' }, reply: { say: 'Done.' } },
+    NOTHING,
+  ] },
+  expect: { outcome: 'ok', toolsSucceeded: ['propose_plan'] },
+  then: [
+    { name: 'approving the plan into the project', do: { approvePlan: true }, expect: { trees: 1 } },
+    { name: 'a file is dropped on the first story while it is worked', do: { dropOnStory: { story: 'Use the dropped notes', files: { 'dropped/notes.txt': 'from the person\n' }, whenRunning: true } }, expect: { leaves: { drops: { 'Use the dropped notes': ['merged'] } } } },
+    { name: 'a file is dropped on the second story before it has a checkout', do: { dropOnStory: { story: 'Use the waiting notes', files: { 'waiting/notes.txt': 'kept for later\n' } } }, expect: { leaves: { drops: { 'Use the waiting notes': ['waiting'] } } } },
+    { name: 'the tree works both', do: { settleTree: true }, expect: {
+      leaves: { verified: 2, landed: { 'Use the dropped notes': 'merged', 'Use the waiting notes': 'merged' }, drops: { 'Use the dropped notes': ['merged'], 'Use the waiting notes': ['merged'] } },
+      repository: { of: 'tree', files: [{ path: 'dropped/notes.txt', contains: ['from the person'] }, { path: 'waiting/notes.txt', contains: ['kept for later'] }] },
+    } },
+    { name: 'deleting the project', do: { deleteProject: true }, expect: { outcome: 'ok', project: { exists: false } } },
+  ],
+};
+
 const itemChats: Scenario = {
   id: 'mechanics-item-chats',
   name: 'A story and a feature each have their own chat',
@@ -747,4 +791,4 @@ const odooBrowserFailure: Scenario = {
   ],
 };
 
-export const MECHANICS_CHECKS = (): Scenario[] => [judged, circling, longCommand, unaskedInSandbox, servedInWorkspace, proposedServer, proposedRelease, treeModel, monitored, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, workspaceNeeds, deletedProject, itemChats, odooModule, odooBrowserFailure];
+export const MECHANICS_CHECKS = (): Scenario[] => [judged, circling, longCommand, unaskedInSandbox, servedInWorkspace, proposedServer, proposedRelease, treeModel, monitored, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, workspaceNeeds, deletedProject, itemChats, storyDrop, odooModule, odooBrowserFailure];

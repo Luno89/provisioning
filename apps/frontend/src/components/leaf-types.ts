@@ -37,6 +37,21 @@ export function stateFor(
   }
 }
 
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Mirrors `StoryDrop` in `apps/backend/src/lib/story-drops.ts`, which is the authority.
+ */
+export interface StoryDrop {
+  id: string;
+  branch: string;
+  paths: string[];
+  at: string;
+  by: string;
+  state: 'waiting' | 'merged' | 'conflict';
+  conflicts?: string[];
+  mergedAt?: string;
+}
+
 export interface LeafAttempt {
   attempt: number;
   error: string;
@@ -65,6 +80,7 @@ export interface Leaf {
   verified?: boolean;
   landed?: { at: string; outcome: 'merged' | 'nothing' };
   review?: { verdict: 'sound' | 'concern' | 'unsound'; reason?: string; model?: string; at: string };
+  drops?: StoryDrop[];
   createdAt?: string;
   updatedAt: string;
 }

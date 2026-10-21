@@ -2,7 +2,8 @@ import type { NodeRequest, Procedure, StepResult } from '@koala/agent-engine/pro
 import { resolveTreeType, type TreeTypeSpec } from '../../../lib/tree-types.js';
 import type { EnvironmentDriver } from '@koala/engine-core';
 import { createGroveTools } from '../tools/grove-tools.js';
-import { prepareJudgeCheckout, prepareLeafWorktree, pruneLeafWorktrees, WorktreeConflictError } from '../../../engine-host/grove-worktrees.js';
+import { mergeDrops, prepareJudgeCheckout, prepareLeafWorktree, pruneLeafWorktrees, WorktreeConflictError } from '../../../engine-host/grove-worktrees.js';
+import { waitingDrops } from '../../../lib/story-drops.js';
 import { claimEvidenceFor, leavesNeedingPlan, nextLeafStep, runEvidence, taskItem } from '../../../lib/grove-leaf.js';
 import { checkReport, checksFailed, runTaskChecks, type CheckOutcome } from '../../../lib/task-checks.js';
 import { keepFailureArtifacts, type KeepArtifacts } from '../../../lib/artifacts.js';
@@ -204,6 +205,10 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
         });
         try {
           await prepareLeafWorktree(driver, leafId, dependencies);
+          if (waitingDrops(leaf.drops).length) {
+            const drops = await mergeDrops(driver, leafId, leaf.drops ?? [], now());
+            await deps.leaves.save({ ...leaf, drops, updatedAt: now() });
+          }
           const { failure, ...rest } = asked;
           const worktree = leafWorktree(leafId);
           if (typeof failure === 'string' && failure.trim()) {

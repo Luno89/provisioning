@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { StoryDrop } from '../components/leaf-types'
 
 export interface RepoFileEntry {
   path: string
@@ -40,12 +41,14 @@ export interface DroppedCode {
   content: string
 }
 
+export type DropAnswer = { ok: true; paths: string[]; commit?: string } | { ok: true; drop: StoryDrop; said: string }
+
 export const dropIntoRepository = (
   projectId: string,
-  body: { dir: string; files: DroppedCode[]; ref?: string; message?: string },
+  body: { dir: string; files: DroppedCode[]; ref?: string; message?: string; leafId?: string },
   onProgress?: (share: number) => void,
-): Promise<{ ok: true; paths: string[]; commit?: string }> =>
-  api.post<{ ok: true; paths: string[]; commit?: string }>(`/projects/${projectId}/files/drop`, JSON.stringify(body), {
+): Promise<DropAnswer> =>
+  api.post<DropAnswer>(`/projects/${projectId}/files/drop`, JSON.stringify(body), {
     headers: { 'Content-Type': DROP_TYPE },
     timeout: 0,
     maxBodyLength: Infinity,

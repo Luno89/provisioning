@@ -104,7 +104,7 @@ export interface FlowExpectations {
   summaryKept?: boolean | undefined;
   interrupted?: boolean | undefined;
   turnLog?: { complete: boolean } | undefined;
-  leaves?: { verified?: number | undefined; landed?: Record<string, 'merged' | 'nothing'> | undefined; mergeTasks?: number | undefined; findings?: Record<string, string[]> | undefined; artifacts?: Record<string, number> | undefined; retried?: Record<string, number> | undefined } | undefined;
+  leaves?: { verified?: number | undefined; landed?: Record<string, 'merged' | 'nothing'> | undefined; mergeTasks?: number | undefined; findings?: Record<string, string[]> | undefined; artifacts?: Record<string, number> | undefined; retried?: Record<string, number> | undefined; drops?: Record<string, ('waiting' | 'merged' | 'conflict')[]> | undefined } | undefined;
   repository?: { of: 'tree' | 'conversation'; files: ExpectedFile[] } | undefined;
   pullRequests?: { merged?: number | undefined; open?: number | undefined; closedUnmerged?: number | undefined } | undefined;
   workspace?: { of: 'tree' | 'conversation'; exists: boolean } | undefined;
@@ -136,6 +136,7 @@ export type FlowAction =
   | { waitQuiet: true }
   | { settleTree: true }
   | { editWorkspace: Record<string, unknown> }
+  | { dropOnStory: { story: string; files: Record<string, string>; whenRunning?: boolean | undefined } }
   | { waitWorkspace: true }
   | { deleteTree: true }
   | { deleteProject: true }
@@ -176,7 +177,7 @@ export interface Scenario {
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 export const MAX_REPEATS = 25;
 const TURN_EXPECTATIONS: readonly (keyof ScenarioExpectations)[] = ['chooses', 'modelSaw'];
-const ACTIONS = ['chat', 'post', 'approvePlan', 'applyAction', 'runTree', 'waitQuiet', 'settleTree', 'editWorkspace', 'waitWorkspace', 'deleteTree', 'deleteProject', 'waitRelease', 'waitBuild', 'cutOver', 'browse', 'removeRelease'];
+const ACTIONS = ['chat', 'post', 'approvePlan', 'applyAction', 'runTree', 'waitQuiet', 'settleTree', 'editWorkspace', 'dropOnStory', 'waitWorkspace', 'deleteTree', 'deleteProject', 'waitRelease', 'waitBuild', 'cutOver', 'browse', 'removeRelease'];
 const RELEASE_ACTIONS = ['waitRelease', 'waitBuild', 'cutOver', 'browse', 'removeRelease'];
 const RELEASE_STATES: ReleaseState[] = ['preparing', 'preview', 'cutting-over', 'live', 'discarded', 'failed', 'superseded'];
 const TEST_STATUSES: BrowserTestStatus[] = ['passed', 'failed', 'flaky', 'skipped'];
@@ -425,6 +426,13 @@ export function scenarioProblems(
     if (kinds[0] === 'post' && (typeof post?.message !== 'string' || !post.message.trim() || post.in !== 'channel')) problems.push(`${where} posts a message in the channel`);
     if (kinds[0] === 'chat' && (typeof chat?.message !== 'string' || !chat.message.trim())) problems.push(`${where} has to say what is asked`);
     if (kinds[0] === 'chat' && chat?.agent !== undefined && (typeof chat.agent !== 'string' || !known.agents.has(chat.agent))) problems.push(`${where} talks to "${String(chat.agent)}", which is not an agent`);
+    const dropping = action?.dropOnStory as { story?: unknown; files?: unknown; whenRunning?: unknown } | undefined;
+    if (kinds[0] === 'dropOnStory') {
+      if (typeof dropping?.story !== 'string' || !dropping.story.trim()) problems.push(`${where} names the story it drops code on, by its title`);
+      const files = dropping?.files;
+      if (!files || typeof files !== 'object' || Array.isArray(files) || Object.keys(files).length === 0 || Object.entries(files).some(([path, content]) => typeof content !== 'string' || !path.trim() || path.split('/').includes('..'))) problems.push(`${where} drops files by path, each with its text`);
+      if (dropping?.whenRunning !== undefined && typeof dropping.whenRunning !== 'boolean') problems.push(`${where}'s whenRunning is true or false`);
+    }
     const waiting = action?.waitRelease as { state?: unknown } | undefined;
     if (kinds[0] === 'waitRelease' && !['preview', 'live'].includes(String(waiting?.state))) problems.push(`${where} waits for a release in preview or live`);
     const browsing = action?.browse as { release?: unknown; specs?: unknown } | undefined;
