@@ -98,7 +98,7 @@ async function main(): Promise<void> {
     });
     const [shop, other] = projects as [{ id: string; name: string }, { id: string; name: string }];
 
-    const links = await stage('she invites a collaborator and a client to Shop, and someone else only to Other', async () => {
+    const links = await stage('the owner invites a collaborator and a client to Shop, and someone else only to Other', async () => {
       const sent: Record<string, { code: string; project: string }> = {};
       for (const [who, project, role] of [[bo, shop, 'collaborator'], [cy, shop, 'client'], [eve, other, 'client']] as const) {
         const invited = await ann.hub!.post(`/hub/projects/${project.id}/invites`, { email: who.email, role });
