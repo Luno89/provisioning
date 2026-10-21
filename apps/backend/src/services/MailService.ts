@@ -30,6 +30,12 @@ export class MailService {
     return this.deps.way.kind === 'none' ? { ok: false, why: this.deps.way.why } : { ok: true };
   }
 
+  async toAddress(to: string, message: MailMessage): Promise<void> {
+    const way = this.deps.way;
+    if (way.kind !== 'smtp') throw new MailError(503, way.kind === 'none' ? way.why : 'only root sends email to other people');
+    await this.smtp!.sendMail({ from: way.from, to, subject: message.subject, text: message.text });
+  }
+
   async toOwner(ownerId: string, message: MailMessage): Promise<void> {
     const way = this.deps.way;
     if (way.kind === 'none') throw new MailError(503, way.why);

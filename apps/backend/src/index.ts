@@ -213,12 +213,19 @@ import { ScriptedModelService } from './services/ScriptedModelService.js';
 import { extensionServiceFor } from './services/ExtensionService.js';
 import { loadKeys } from './lib/keys.js';
 import { signJWT } from './lib/auth.js';
-import { roleFromEnv, servesTenants, holdsAccounts } from './lib/platform-role.js';
+import { roleFromEnv, servesTenants, holdsAccounts, servesHub, signsInThroughRoot } from './lib/platform-role.js';
+import { ProjectInviteService } from './services/ProjectInviteService.js';
+import { HubService } from './services/HubService.js';
+import { HubRootClient } from './services/HubRootClient.js';
+import { hubRouter } from './routes/hub.js';
+import { hubLinkRouter } from './routes/hub-link.js';
+import { memoryHubStore } from './lib/hub-store.js';
+import { mongoHubStore } from './lib/hub-mongo.js';
 import { machinePayloads, type GetAnswer, type PutAnswer, type RingAnswer } from './lib/machine-payloads.js';
 import { IdentityService } from './services/IdentityService.js';
 import { identityRouter } from './routes/identity.js';
 import { handoffRouter } from './routes/handoff.js';
-import { InstanceService } from './services/InstanceService.js';
+import { InstanceService, hashCredential } from './services/InstanceService.js';
 import { InstanceRoutes, dockerCaddy } from './services/InstanceRoutes.js';
 import { InstanceAddresses, adminEdge } from './services/InstanceAddresses.js';
 import { instanceTrialRouter } from './routes/instance-trial.js';
@@ -960,7 +967,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
     app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(repoRoot, 'scripts/setup-gpu.sh')));
   }
-  if (role.role === 'instance') app.use('/api/auth', handoffRouter({ identity, auth, sessionKey: keys.session }));
+  if (signsInThroughRoot(role.role)) app.use('/api/auth', handoffRouter({ identity, auth, sessionKey: keys.session }));
+  const projectInvites = holdsAccounts(role) ? new ProjectInviteService({ invites: db, mail, rootUrl: PUBLIC_URL }) : undefined;
+  if (projectInvites) app.use('/api/hub-link', hubLinkRouter({ invites: projectInvites, credentialHash: role.hubLink?.credentialHash, hash: hashCredential }));
+  if (servesHub(role)) {
+    const hubStore = process.env.NODE_ENV === 'test' && process.env.IS_E2E !== 'true'
+      ? memoryHubStore()
+      : mongoHubStore(mongoTarget(process.env).uri, process.env.HUB_DATABASE?.trim() || 'koala_hub');
+    await hubStore.init();
+    const sender = role.hub ? new HubRootClient(role.hub) : projectInvites;
+    if (!sender) throw new Error('a hub needs root to send its invites');
+    app.use('/api/hub', hubRouter({ hub: new HubService({ store: hubStore, invites: sender }) }));
+  }
 
   tenant.get('/ingress/verify', async (req, res) => {
     const domain = String(req.query.domain ?? '');

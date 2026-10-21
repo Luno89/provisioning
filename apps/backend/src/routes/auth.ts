@@ -41,7 +41,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
 
       const isFirstUser = (await db.getUsers()).length === 0;
       const userId = uuidv4();
-      const inviteError = await checkAndConsumeInvite(inviteCode, userId, isFirstUser);
+      const inviteError = await checkAndConsumeInvite(inviteCode, userId, isFirstUser, email);
       if (inviteError) {
         return res.status(403).json({ error: inviteError });
       }
@@ -240,7 +240,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (!user) {
         const isFirstUser = (await db.getUsers()).length === 0;
         const userId = uuidv4();
-        const inviteError = await checkAndConsumeInvite(typeof state === 'string' ? state : undefined, userId, isFirstUser);
+        const inviteError = await checkAndConsumeInvite(typeof state === 'string' ? state : undefined, userId, isFirstUser, email);
         if (inviteError) {
           return res.redirect(`${APP_URL}/?authError=${encodeURIComponent(inviteError)}`);
         }
@@ -321,7 +321,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (!user) {
         const isFirstUser = (await db.getUsers()).length === 0;
         const userId = uuidv4();
-        const inviteError = await checkAndConsumeInvite(typeof state === 'string' ? state : undefined, userId, isFirstUser);
+        const inviteError = await checkAndConsumeInvite(typeof state === 'string' ? state : undefined, userId, isFirstUser, email);
         if (inviteError) {
           return res.redirect(`${APP_URL}/?authError=${encodeURIComponent(inviteError)}`);
         }

@@ -3,7 +3,7 @@ import { verifyJWT } from '../lib/auth.js';
 import type { Database } from '../lib/db-interface.js';
 import type { UserMetadata } from '../lib/types.js';
 import type { SecretKey } from '../lib/crypto.js';
-import type { PlatformRole } from '../lib/platform-role.js';
+import { signsInThroughRoot, type PlatformRole } from '../lib/platform-role.js';
 
 export function parseCookie(cookieHeader: string | undefined, name: string): string | undefined {
   if (!cookieHeader) return undefined;
@@ -33,6 +33,7 @@ export interface Auth {
     code: string | undefined,
     newUserId: string,
     isFirstUser: boolean,
+    email?: string,
   ) => Promise<string | null>;
 }
 
@@ -52,7 +53,9 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
 
   const requireAuth: express.RequestHandler = async (req, res, next) => {
     const publicPaths = [
-      ...(role === 'instance' ? [] : [
+      ...(signsInThroughRoot(role) ? [] : [
+        '/hub-link/invite',
+        '/hub-link/invitation',
         '/auth/login',
         '/auth/register',
         '/auth/2fa/verify',
@@ -73,7 +76,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
         '/instances/monitoring',
         '/instances/move/self',
       ]),
-      ...(role === 'instance' ? ['/auth/handoff', '/auth/sign-in'] : []),
+      ...(signsInThroughRoot(role) ? ['/auth/handoff', '/auth/sign-in'] : []),
       '/machines/join',
       '/machines/agent.tgz',
     ];
@@ -120,17 +123,18 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
   const arrivedOverHttps = (req: express.Request): boolean =>
     req.secure || String(req.headers['x-forwarded-proto'] ?? '').split(',')[0]?.trim() === 'https';
   const setSessionCookie = (res: express.Response, token: string, req?: express.Request) => {
-    const secure = role === 'instance' && req ? arrivedOverHttps(req) : sessionCookieOptions.secure;
+    const secure = signsInThroughRoot(role) && req ? arrivedOverHttps(req) : sessionCookieOptions.secure;
     res.cookie('session', token, { ...sessionCookieOptions, secure, maxAge: 24 * 60 * 60 * 1000 });
   };
 
-  async function checkAndConsumeInvite(code: string | undefined, newUserId: string, isFirstUser: boolean): Promise<string | null> {
+  async function checkAndConsumeInvite(code: string | undefined, newUserId: string, isFirstUser: boolean, email?: string): Promise<string | null> {
     if (isFirstUser) return null;
     if (!code) return 'An invite code is required to create an account';
     const invites = await db.getInvites();
     const invite = invites.find((i) => i.code === code);
     if (!invite) return 'Invalid invite code';
     if (invite.usedBy) return 'This invite code has already been used';
+    if (invite.email && (!email || invite.email.trim().toLowerCase() !== email.trim().toLowerCase())) return `This invite is for ${invite.email}; sign up with that address`;
     await db.saveInvite({ ...invite, usedBy: newUserId, usedAt: new Date().toISOString() });
     return null;
   }

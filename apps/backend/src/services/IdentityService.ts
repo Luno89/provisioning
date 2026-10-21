@@ -2,6 +2,7 @@ import type { Database } from '../lib/db-interface.js';
 import { checkHandoff, issueHandoff, publicKeyPem, type HandoffCheck } from '../lib/identity-token.js';
 import { instanceProblem, type InstanceRecord } from '../lib/instances.js';
 import type { RoleConfig } from '../lib/platform-role.js';
+import { HUB_AUDIENCE } from '../lib/hub.js';
 
 type Store = Pick<Database, 'claimHandoff' | 'getInstances' | 'saveInstance' | 'deleteInstance' | 'getUserById' | 'saveUser'>;
 
@@ -33,8 +34,14 @@ export class IdentityService {
     return (await this.store.getInstances(ownerId)).find((instance) => instance.url && (instance.status === undefined || instance.status === 'ready'));
   }
 
-  async handoffUrl(user: { id: string; email: string }): Promise<string | undefined> {
+  async handoffUrl(user: { id: string; email: string }, to?: { hub: true; next?: string | undefined }): Promise<string | undefined> {
     if (!this.role.signing) return undefined;
+    if (to?.hub) {
+      if (!this.role.hubLink) return undefined;
+      const token = issueHandoff(this.role.signing, { userId: user.id, email: user.email }, HUB_AUDIENCE, this.now());
+      const next = to.next && /^\/[^/\\]/.test(to.next) ? `&next=${encodeURIComponent(to.next)}` : '';
+      return `${this.role.hubLink.url}/#/handoff?token=${encodeURIComponent(token)}${next}`;
+    }
     const instance = await this.instanceOf(user.id);
     if (!instance) return undefined;
     const token = issueHandoff(this.role.signing, { userId: user.id, email: user.email }, instance.id, this.now());
@@ -42,6 +49,7 @@ export class IdentityService {
   }
 
   signInUrl(): string | undefined {
+    if (this.role.hub) return `${this.role.hub.rootUrl}/api/identity/go?to=hub`;
     return this.role.instance ? `${this.role.instance.rootUrl}/api/identity/go` : undefined;
   }
 
@@ -51,12 +59,13 @@ export class IdentityService {
 
   async acceptHandoff(token: unknown): Promise<HandoffOutcome> {
     const instance = this.role.instance;
-    if (!instance || !this.role.trusted) return { ok: false, status: 400, error: 'this server is not an instance, so it takes no sign-in tokens' };
+    const hub = this.role.role === 'hub';
+    if ((!instance && !hub) || !this.role.trusted) return { ok: false, status: 400, error: 'this server is not an instance, so it takes no sign-in tokens' };
     if (typeof token !== 'string') return { ok: false, status: 400, error: 'send the sign-in token as "token"' };
 
-    const check = checkHandoff(token, this.role.trusted, instance.id, this.now());
+    const check = checkHandoff(token, this.role.trusted, hub ? HUB_AUDIENCE : instance!.id, this.now());
     if (!check.ok) return { ok: false, status: 401, error: REFUSALS[check.reason] };
-    if (check.claims.sub !== instance.ownerId) return { ok: false, status: 403, error: 'this instance belongs to someone else' };
+    if (!hub && check.claims.sub !== instance!.ownerId) return { ok: false, status: 403, error: 'this instance belongs to someone else' };
     if (!await this.store.claimHandoff(check.claims.jti, new Date(check.claims.exp * 1000).toISOString())) {
       return { ok: false, status: 409, error: 'that sign-in token has already been used — sign in again' };
     }
@@ -67,7 +76,7 @@ export class IdentityService {
       id: check.claims.sub,
       email: check.claims.email,
       emailVerified: true,
-      isAdmin: true,
+      isAdmin: !hub,
     } as never);
     return { ok: true, user: { id: check.claims.sub, email: check.claims.email } };
   }

@@ -25,8 +25,9 @@ export function identityRouter(deps: {
     const user = await deps.signedIn(req);
     res.setHeader('Cache-Control', 'no-store');
     if (!user) return res.redirect(302, '/');
-    const url = await deps.identity.handoffUrl(user);
-    if (!url) return res.status(404).json({ error: 'you have no instance yet' });
+    const toHub = req.query.to === 'hub';
+    const url = await deps.identity.handoffUrl(user, toHub ? { hub: true, ...(typeof req.query.next === 'string' ? { next: req.query.next } : {}) } : undefined);
+    if (!url) return res.status(404).json({ error: toHub ? 'this root has no hub' : 'you have no instance yet' });
     return res.redirect(302, url);
   }));
 

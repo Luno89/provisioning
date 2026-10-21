@@ -498,4 +498,6 @@ export interface InviteMetadata {
   createdAt: string;
   usedBy?: string;
   usedAt?: string;
+  email?: string | undefined;
+  project?: { name: string; role: string; join: string } | undefined;
 }

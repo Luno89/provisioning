@@ -83,3 +83,29 @@ describe('signing in at root and landing on your own instance', () => {
     expect(await root.register({ id: 'inst-u1-b', ownerId: 'u1', url: 'https://b.example.com' })).toMatchObject({ ok: false, error: expect.stringMatching(/already has an instance/) });
   });
 });
+
+describe('signing in at root and landing on the hub', () => {
+  const hubRole: RoleConfig = { role: 'hub', trusted: trustedKeys([publicKeyPem(signing.publicKey)]), hub: { rootUrl: 'https://app.example.com', credential: 'c' } };
+  const linkedRoot: RoleConfig = { role: 'root', signing, hubLink: { url: 'https://hub.example.com', credentialHash: 'h' } };
+
+  it('hands anyone root signs in to the hub, where they are a person and not an admin, and carries where they were going', async () => {
+    const root = new IdentityService(linkedRoot, rootDb, () => now);
+    const url = await root.handoffUrl({ id: 'u7', email: 'cy@example.com' }, { hub: true, next: '/hub/join/abc' });
+    expect(url).toMatch(/^https:\/\/hub\.example\.com\/#\/handoff\?token=[^&]+&next=%2Fhub%2Fjoin%2Fabc$/);
+    const token = decodeURIComponent(/token=([^&]+)/.exec(url!)![1]!);
+
+    const hub = new IdentityService(hubRole, instanceDb, () => now);
+    expect(await hub.acceptHandoff(token)).toEqual({ ok: true, user: { id: 'u7', email: 'cy@example.com' } });
+    expect(await instanceDb.getUserById('u7')).toMatchObject({ email: 'cy@example.com', isAdmin: false });
+    expect(await hub.acceptHandoff(token)).toMatchObject({ ok: false, status: 409 });
+    expect(hub.signInUrl()).toBe('https://app.example.com/api/identity/go?to=hub');
+  });
+
+  it('refuses a token root signed for an instance, sends nowhere a path that leaves the hub, and has no hub to send to without one', async () => {
+    const hub = new IdentityService(hubRole, instanceDb, () => now);
+    expect(await hub.acceptHandoff(issueHandoff(signing, { userId: 'u1', email: 'a@example.com' }, 'inst-u1', now))).toMatchObject({ ok: false, status: 401 });
+    const root = new IdentityService(linkedRoot, rootDb, () => now);
+    expect(await root.handoffUrl({ id: 'u7', email: 'cy@example.com' }, { hub: true, next: '//evil.example.com' })).not.toContain('next=');
+    expect(await new IdentityService(rootRole, rootDb, () => now).handoffUrl({ id: 'u7', email: 'cy@example.com' }, { hub: true })).toBeUndefined();
+  });
+});

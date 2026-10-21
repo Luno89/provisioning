@@ -155,7 +155,7 @@ describe('what is open without a session, by role', () => {
     (call.req as unknown as { path: string }).path = path;
     return call;
   };
-  const opens = async (role: 'root' | 'instance' | 'combined', path: string): Promise<boolean> => {
+  const opens = async (role: 'root' | 'instance' | 'combined' | 'hub', path: string): Promise<boolean> => {
     const db = createDatabase();
     await db.init();
     const call = at(path);
@@ -163,7 +163,16 @@ describe('what is open without a session, by role', () => {
     return call.result().nexted;
   };
 
-  it('lets anyone open a shared file\'s link, and nothing else of a person\'s files', async () => {
+  it('lets the hub sign people in like an instance, and lets root take its hub\'s invites and show one to whoever holds its code', async () => {
+    expect(await opens('hub', '/auth/handoff')).toBe(true);
+    expect(await opens('hub', '/auth/login')).toBe(false);
+    expect(await opens('hub', '/hub/projects')).toBe(false);
+    expect(await opens('root', '/hub-link/invite')).toBe(true);
+    expect(await opens('root', '/hub-link/invitation')).toBe(true);
+    expect(await opens('instance', '/hub-link/invite')).toBe(false);
+  });
+
+    it('lets anyone open a shared file\'s link, and nothing else of a person\'s files', async () => {
     for (const role of ['instance', 'combined'] as const) {
       expect(await opens(role, '/share/abcdefghijklmnopqrstuvwxyz012345')).toBe(true);
       expect(await opens(role, '/files/shares')).toBe(false);
@@ -200,5 +209,28 @@ describe('what is open without a session, by role', () => {
     auth.setSessionCookie(res, 't', { secure: false, headers: {} } as unknown as Request);
 
     expect(cookies.map((cookie) => cookie.secure)).toEqual([true, false]);
+  });
+});
+
+describe('an invite to sign up', () => {
+  const withInvite = async (email?: string) => {
+    const db = createDatabase();
+    await db.init();
+    await db.saveInvite({ id: 'i1', code: 'CODE', createdBy: 'ann', createdAt: 't', ...(email ? { email } : {}) });
+    return { db, auth: createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001' }) };
+  };
+
+  it('made for one address signs up only that address, however it is written', async () => {
+    const { db, auth } = await withInvite('cy@example.com');
+    expect(await auth.checkAndConsumeInvite('CODE', 'u9', false, 'eve@example.com')).toBe('This invite is for cy@example.com; sign up with that address');
+    expect((await db.getInvites())[0]?.usedBy).toBeUndefined();
+    expect(await auth.checkAndConsumeInvite('CODE', 'u9', false, ' CY@example.com ')).toBeNull();
+    expect((await db.getInvites())[0]?.usedBy).toBe('u9');
+  });
+
+  it('made for anyone still works for anyone, once', async () => {
+    const { auth } = await withInvite();
+    expect(await auth.checkAndConsumeInvite('CODE', 'u9', false, 'eve@example.com')).toBeNull();
+    expect(await auth.checkAndConsumeInvite('CODE', 'u10', false, 'dee@example.com')).toBe('This invite code has already been used');
   });
 });

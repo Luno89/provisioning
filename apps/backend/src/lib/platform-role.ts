@@ -7,7 +7,7 @@ import {
   type IdentityKeyPair,
 } from './identity-token.js';
 
-export type PlatformRole = 'combined' | 'root' | 'instance';
+export type PlatformRole = 'combined' | 'root' | 'instance' | 'hub';
 
 export interface InstanceIdentity {
   id: string;
@@ -15,11 +15,23 @@ export interface InstanceIdentity {
   rootUrl: string;
 }
 
+export interface HubIdentity {
+  rootUrl: string;
+  credential: string;
+}
+
+export interface HubLink {
+  url: string;
+  credentialHash: string;
+}
+
 export interface RoleConfig {
   role: PlatformRole;
   signing?: IdentityKeyPair | undefined;
   trusted?: ReadonlyMap<string, crypto.KeyObject> | undefined;
   instance?: InstanceIdentity | undefined;
+  hub?: HubIdentity | undefined;
+  hubLink?: HubLink | undefined;
 }
 
 export class RoleConfigError extends Error {
@@ -30,7 +42,7 @@ export class RoleConfigError extends Error {
 }
 
 const DEV_SECRET = 'provisioning-platform-secret-12345';
-const ROLES: readonly PlatformRole[] = ['combined', 'root', 'instance'];
+const ROLES: readonly PlatformRole[] = ['combined', 'root', 'instance', 'hub'];
 
 const pemOf = (value: string): string => {
   const trimmed = value.trim();
@@ -62,11 +74,26 @@ export function roleFromEnv(env: Readonly<Record<string, string | undefined>>): 
     };
   }
 
+  if (role === 'hub') {
+    const missing = ['ROOT_URL', 'ROOT_PUBLIC_KEYS', 'HUB_CREDENTIAL'].filter((name) => !env[name]?.trim());
+    if (missing.length > 0) throw new RoleConfigError(`a hub needs ${missing.join(', ')}`);
+    return {
+      role,
+      trusted: trustedKeys(pemList(env.ROOT_PUBLIC_KEYS!)),
+      hub: { rootUrl: env.ROOT_URL!.trim().replace(/\/+$/, ''), credential: env.HUB_CREDENTIAL!.trim() },
+    };
+  }
+
   const signing = signingKeys(env, production);
+  const hubLink = role === 'root' && env.HUB_URL?.trim() && env.HUB_CREDENTIAL_HASH?.trim()
+    ? { hubLink: { url: env.HUB_URL.trim().replace(/\/+$/, ''), credentialHash: env.HUB_CREDENTIAL_HASH.trim() } }
+    : {};
   return role === 'root'
-    ? { role, signing }
+    ? { role, signing, ...hubLink }
     : { role, signing, trusted: trustedKeys([publicKeyPem(signing.publicKey)]) };
 }
 
-export const servesTenants = (config: RoleConfig): boolean => config.role !== 'root';
-export const holdsAccounts = (config: RoleConfig): boolean => config.role !== 'instance';
+export const servesTenants = (config: RoleConfig): boolean => config.role !== 'root' && config.role !== 'hub';
+export const holdsAccounts = (config: RoleConfig): boolean => config.role !== 'instance' && config.role !== 'hub';
+export const servesHub = (config: RoleConfig): boolean => config.role === 'combined' || config.role === 'hub';
+export const signsInThroughRoot = (role: PlatformRole): boolean => role === 'instance' || role === 'hub';
