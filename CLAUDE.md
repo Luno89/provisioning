@@ -55,6 +55,7 @@ npm run test:machine-story-live    # against the running dev stack and this comp
 npm run test:machine-odoo-live     # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine and every agent of an Odoo 20 tree is put on it → the module is written without its test, odoo-check runs as the task check, the judge on the machine says not met, the story fails and the planner, in its checkout on the machine, reads leaves/<story>.failed.md and proposes a replan → approved, the test is met and the browser task's judge ends without a verdict, so that task fails and is never taken as met → replanned again, the browser task is met, the leaf judge verifies, it lands on main with no machine branch left, the starter is live in slot a and the landed build previews in slot b with the module installed; removes the project, the conversation and the agent, ~30 min
 npm run test:machine-chat-live     # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine → a chat in auto mode on it hands work to research, which works a checkout of the chat's documents on the machine, runs run_in_workspace, writes label.md and outlives the cut-off where a served call becomes a job the agent follows with wait_for; nothing asks, label.md is in the chat's workspace, the saved reply keeps research's steps and no machine branch is left → a chat not in auto mode asks before research runs something, naming the machine, and the test declines it → research with no conversation works in its own folder, search_web running for it, no run_in_workspace → two research hand-offs at once write the same file, and the one whose work comes back second is told the conflict in its session and keeps both; removes the chats and the agent, ~6 min
 npm run test:machine-default-live  # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine and made your account default (another machine is refused) → a chat turn with no model picked runs on it and answers from it → a run that cannot be handed to a machine fails saying to add a model; your previous default, the agent and the chat are put back or removed however it ends, ~1 min
+npm run test:files-live            # code dropped on a throwaway project's repository is committed whole (binary bytes included) → the project keeps its other files on your MinIO: a PDF and a JSON file come back byte for byte, a folder moves, a file goes → a file attached in the project's chat is stored there and Koala, on FILES_LIVE_MODEL (else your default), reads it with read_stored_file → deleting the project empties its folder → the same on a fresh Nextcloud with its generated passwords, then destroyed, ~10 min
 npm run test:pool-live            # a VM becomes a pool node through scripts/root-node/pool-node.sh (k3s, the mesh as tag:pool, gVisor) → root and its host worker as containers offer a trial → the person starts one: a vcluster under gVisor, its ports on the node, Koala installed in it → every pod on gVisor, a pod without it refused, no node port → <name>.koala.localhost through root's Caddy over the mesh, sign-in lands there, a sandboxed run inside it, ~40 min, cleans up
 npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
 npm run test:machine-live        # a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service and finds an ACP agent and two CLIs missing their adapters (`--adapters none`) → after a reboot with nobody logged in it connects again → Install adapter makes Claude Code ready → the command run again with `--yes` installs Codex's adapter; removes the machine, its project and the VM, ~10 min
@@ -1220,6 +1221,36 @@ git config core.hooksPath .githooks   # pre-push typecheck
 - **`workers: 1` only** — E2E tests provision/deprovision real k3d clusters bound to host network ports; parallel workers collide on ports.
 - **Worker restarts on failure**: a failed test restarts the Playwright worker process, which reloads the spec file and generates a *new* random `CLUSTER_NAME` (e.g. `e2e-fleet-XXX`) — but already-passed tests aren't rerun. A cascade of timeouts after one failure almost always means the *first* failure is the real bug; look there, not at the timeouts.
 - **Stale k3d containers**: leftover containers from a previous run (e.g. `k3d-isolated-fleet-XXX-server-0`) can make `k3d cluster create/delete` fail. `npm run clean-dev` removes leftover k3d containers/volumes.
+
+## Files: code in git, everything else on the person's file server
+
+Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's Files page shows two roots:
+- **Repository**: code dropped there, or on a folder in it, is committed in one commit as the person (`POST /api/projects/:id/files/drop`,
+  body typed `application/vnd.koala.drop+json` so the 20 MB JSON parser leaves it alone, `RepositoryDropService` →
+  `GiteaService.commitDrop`, bytes intact). A project whose files live on the person's machine gets them written there byte for
+  byte (`sandbox:writeFile` with `encoding: 'base64'`).
+- **Files**: everything else, on the person's own **MinIO or Nextcloud** (`FileService`, `FileStores`, `lib/file-places.ts`,
+  `/api/files/...`): the project's server and its folder (`files` on the project: kind, deployment, a folder named once from the
+  project and kept), else the person's default (Settings → Files, `fileSettings`), else none. MinIO keeps files in the bucket
+  `koala-files` under the folder; Nextcloud over WebDAV as `admin` under `Koala/<folder>`, reached through its node port with the
+  Host `nextcloud`, which the native construct trusts. Uploads and downloads stream (`X-File-Type` carries the type; the body is
+  always octet-stream so nothing parses it); no size limit. With no server, a drop waits on the page and the project's Files
+  offers **Start MinIO for this project** (one click, on the project's cluster, `koala-files[-n]`); it goes through once the server runs.
+- **A story's page** takes both: **Code for this story** goes to the story's checkout (`StoryDropService`, recorded as `drops` on
+  the story): committed on its own branch `drop/<story>/<id>` from `main`, merged into the story's worktree at once when it
+  exists (`applyDrop`, `git merge --autostash`, so the worker's uncommitted changes stay), otherwise brought into the tree's
+  repository (`keepBranch`) or left in Gitea for the next workspace start, and merged when the checkout is made
+  (`mergeDrops` in Prepare Worktrees). A conflict changes nothing and names the files. **Files for this story** go under
+  `stories/<story>/` on the project's server. `mechanics-story-drop` proves both code paths on a script.
+- **Chat attachments** (paperclip, drop or paste in any composer) are uploaded first, to the chat's project
+  (`attachments/<day>/<time>-<name>`) or the person's own files (`chats/<day>/...`), then sent with the message
+  (`attachments` on the person's message, `lib/attachments.ts`); the model is told where each is and how to read it, in that turn
+  and every later one (`heardAs`). A channel post can be only attachments.
+- **Agents' tools** (extension `files`): `list_files`, `read_stored_file` (text whole up to 100,000 characters, a binary file
+  described), `store_file`, `remove_stored_file` (both destructive, so they ask), on the project named or the run's or chat's
+  own, else the person's files. Koala holds all four; the executor and research the first three.
+- Deleting a project deletes its files (`RemoveProjectFilesActivity`, behind the `project-files` patch; listed in the popup).
+  A new Nextcloud gets generated admin and database passwords (`resolveNextcloudDefaults`) and keeps its files on a volume.
 
 ## Data
 
