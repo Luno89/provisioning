@@ -268,7 +268,7 @@ export function RootLayout() {
     return <NoInstance hasInstance={Boolean(placement.data.instance)} isAdmin={user.isAdmin === true} onLogout={handleLogout} />;
   }
 
-  const isFullBleed = ['/chat', '/projects', '/studio/agents', '/studio/tools', '/studio/mcp-servers', '/studio/procedures', '/studio/tree-types'].some((prefix) => location.pathname.startsWith(prefix));
+  const isFullBleed = ['/chat', '/projects', '/studio/agents', '/studio/tools', '/studio/mcp-servers', '/studio/dependencies', '/studio/procedures', '/studio/tree-types'].some((prefix) => location.pathname.startsWith(prefix));
 
   const shellContext: ShellContext = {
     clusters,

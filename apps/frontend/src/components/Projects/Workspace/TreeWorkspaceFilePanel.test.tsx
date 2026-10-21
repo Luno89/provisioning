@@ -6,7 +6,7 @@ import * as groveApi from '../../../api/grove.js'
 
 vi.mock('../../../api/workspaceDependencies', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../api/workspaceDependencies')>()),
-  useDependencies: () => ({ isPending: false, data: [{ name: 'koala-e2e', summary: 'koala-e2e: runs a project\'s Playwright specs.', provides: ['koala-e2e'], install: [], mine: false, script: true, usedBy: { tools: [], servers: [], dependencies: [], trees: [] } }] }),
+  useDependencies: () => ({ isPending: false, data: [{ name: 'koala-e2e', summary: 'koala-e2e: runs a project\'s Playwright specs.', provides: ['koala-e2e'], install: [], mine: false, script: true, usedBy: { tools: [], servers: [], dependencies: [], steps: [], trees: [] } }] }),
 }))
 
 vi.mock('@tanstack/react-router', async (importOriginal) => ({

@@ -24,7 +24,7 @@ export interface WorkspaceDependency {
 export interface DependencyView extends WorkspaceDependency {
   mine: boolean
   script: boolean
-  usedBy: { tools: string[]; servers: string[]; dependencies: string[]; trees: string[] }
+  usedBy: { tools: string[]; servers: string[]; dependencies: string[]; steps: string[]; trees: { id: string; name: string }[] }
 }
 
 export const dependencyKeys = {

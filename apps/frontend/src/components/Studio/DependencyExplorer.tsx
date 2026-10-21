@@ -79,8 +79,8 @@ function BuiltIn({ dependency }: { dependency: DependencyView }) {
       </section>
       <section className="space-y-1">
         <span className={label}>How it is installed</span>
-        <pre className="whitespace-pre-wrap rounded bg-[var(--bark-950)] p-2 font-mono text-[11px] text-slate-300">{installLines(dependency.install).join('\n')}</pre>
-        {dependency.onDebian?.length ? <pre className="whitespace-pre-wrap rounded bg-[var(--bark-950)] p-2 font-mono text-[11px] text-slate-400">{`On a Debian base:\n${installLines(dependency.onDebian).join('\n')}`}</pre> : null}
+        <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap break-all rounded bg-[var(--bark-950)] p-2 font-mono text-[11px] text-slate-300">{installLines(dependency.install).join('\n')}</pre>
+        {dependency.onDebian?.length ? <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap break-all rounded bg-[var(--bark-950)] p-2 font-mono text-[11px] text-slate-400">{`On a Debian base:\n${installLines(dependency.onDebian).join('\n')}`}</pre> : null}
       </section>
     </div>
   )

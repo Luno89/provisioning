@@ -425,7 +425,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     store: db,
     tools: (ownerId) => db.getEngineTools(ownerId),
     servers: (ownerId) => db.getMcpServers(ownerId),
-    workspaces: (ownerId) => db.getPublishedWorkspaces(ownerId),
+    workspaces: async (ownerId) => {
+      const [published, trees] = await Promise.all([db.getPublishedWorkspaces(ownerId), db.getTrees()]);
+      const names = new Map(trees.filter((tree) => tree.ownerId === ownerId).map((tree) => [tree.id, tree.name]));
+      return published.map((workspace) => ({ ...workspace, treeName: names.get(workspace.treeId) }));
+    },
     changed: async (ownerId, _name, use) => {
       if (use.tools.length) await dependencyFollowers.tools?.rebuildNeeding(ownerId, use.tools);
       const servers = await db.getMcpServers(ownerId);

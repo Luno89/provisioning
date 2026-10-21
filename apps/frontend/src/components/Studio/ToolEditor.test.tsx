@@ -14,7 +14,7 @@ vi.mock('@tanstack/react-router', () => ({
 
 vi.mock('../../api/workspaceDependencies', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../api/workspaceDependencies')>()),
-  useDependencies: () => ({ isPending: false, data: ['jq', 'koala-e2e'].map((name) => ({ name, summary: `${name}.`, provides: [name], install: [], mine: false, script: false, usedBy: { tools: [], servers: [], dependencies: [], trees: [] } })) }),
+  useDependencies: () => ({ isPending: false, data: ['jq', 'koala-e2e'].map((name) => ({ name, summary: `${name}.`, provides: [name], install: [], mine: false, script: false, usedBy: { tools: [], servers: [], dependencies: [], steps: [], trees: [] } })) }),
 }))
 
 vi.mock('../../api/engineTools', async () => {

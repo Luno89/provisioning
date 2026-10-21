@@ -28,7 +28,7 @@ const SERVERS = [
 
 vi.mock('../../api/workspaceDependencies', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../api/workspaceDependencies')>()),
-  useDependencies: () => ({ isPending: false, isError: false, error: null, data: [{ name: 'jq', summary: 'jq.', provides: ['jq'], install: [], mine: false, script: false, usedBy: { tools: [], servers: [], dependencies: [], trees: [] } }] }),
+  useDependencies: () => ({ isPending: false, isError: false, error: null, data: [{ name: 'jq', summary: 'jq.', provides: ['jq'], install: [], mine: false, script: false, usedBy: { tools: [], servers: [], dependencies: [], steps: [], trees: [] } }] }),
 }))
 
 vi.mock('../Checks/shared', async (importOriginal) => ({ ...(await importOriginal<typeof import('../Checks/shared')>()), useScenarios: () => ({ data: [] }), useLevel2Runs: () => ({ data: [] }) }))

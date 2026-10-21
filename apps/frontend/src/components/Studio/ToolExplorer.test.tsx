@@ -25,7 +25,7 @@ vi.mock('../Checks/shared', () => ({ useScenarios: () => ({ data: [] }), useLeve
 const tool = (name: string, binding: string, effect: string, grantedTo: string[] = []) => ({ name, summary: `${name} does it`, binding, effect, grantedTo, mine: false })
 vi.mock('../../api/workspaceDependencies', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../api/workspaceDependencies')>()),
-  useDependencies: () => ({ isPending: false, isError: false, error: null, data: [{ name: 'jq', summary: 'jq.', provides: ['jq'], install: [], mine: false, script: false, usedBy: { tools: [], servers: [], dependencies: [], trees: [] } }] }),
+  useDependencies: () => ({ isPending: false, isError: false, error: null, data: [{ name: 'jq', summary: 'jq.', provides: ['jq'], install: [], mine: false, script: false, usedBy: { tools: [], servers: [], dependencies: [], steps: [], trees: [] } }] }),
 }))
 
 vi.mock('./shared', () => ({

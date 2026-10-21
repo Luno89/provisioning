@@ -63,15 +63,31 @@ export function dependencyOf(form: DependencyForm): WorkspaceDependency {
 }
 
 export function installLines(install: readonly DependencyInstall[]): string[] {
-  return install.map((step) => (step.via === 'script' ? `script: ${step.run}` : `${step.via} ${step.packages.join(' ')}`))
+  return install.map((step) => (step.via === 'script' ? scriptLine(step.run) : `${step.via} ${step.packages.join(' ')}`))
+}
+
+const WRITTEN = /^echo ([A-Za-z0-9+/=]+) \| base64 -d > (\S+)(.*)$/
+
+function scriptLine(run: string): string {
+  const written = WRITTEN.exec(run)
+  if (!written) return `script: ${run}`
+  let content: string
+  try {
+    content = new TextDecoder().decode(Uint8Array.from(atob(written[1]!), (char) => char.charCodeAt(0)))
+  } catch {
+    return `script: ${run}`
+  }
+  const then = written[3]!.replace(/^\s*&&\s*/, '').trim()
+  return `script: writes ${written[2]}${then ? `, then ${then}` : ''}:\n${content.trimEnd()}`
 }
 
 export function usedByLines(view: Pick<DependencyView, 'usedBy'>): string[] {
-  const { tools, servers, dependencies, trees } = view.usedBy
+  const { tools, servers, dependencies, steps, trees } = view.usedBy
   return [
     ...tools.map((name) => `the tool ${name}`),
     ...servers.map((name) => `the MCP server ${name}`),
     ...dependencies.map((name) => `the dependency ${name}`),
-    ...trees.map((id) => `the workspace of tree ${id}`),
+    ...steps.map((title) => `the step ${title}, in every agent whose procedure runs it`),
+    ...trees.map((tree) => `the workspace of the tree ${tree.name}`),
   ]
 }
