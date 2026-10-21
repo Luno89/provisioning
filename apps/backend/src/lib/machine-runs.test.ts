@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { machineRunFor } from './machine-runs.js';
+import { accountDefaultOf, accountMachineFor, machineRunFor } from './machine-runs.js';
 
 describe('a run on a machine', () => {
   it('hands a chat turn to the chat procedure and anything else to the task procedure', () => {
@@ -20,5 +20,30 @@ describe('a run on a machine', () => {
     expect(machineRunFor({ modelId: 'machine:d1:antigravity' }, undefined, undefined, branches)).toEqual({ machine: { deviceId: 'd1', agent: 'antigravity' }, procedureId: 'do-one-task', inPlace: true });
     expect(machineRunFor({ modelId: 'machine:d1:antigravity' }, undefined, undefined, doesNot)).toMatchObject({ procedureId: 'external-agent-task', inPlace: false });
     expect(machineRunFor({ modelId: 'machine:d1:antigravity', chat: true }, undefined, undefined, branches)).toMatchObject({ procedureId: 'external-agent-chat', inPlace: false });
+  });
+});
+
+describe('an account default on a machine', () => {
+  const branches = { nodes: [{ id: 'where', kind: 'where-it-runs' }] } as never;
+  const doesNot = { nodes: [{ id: 'm', kind: 'call-model' }] } as never;
+  const onMachine = { modelId: 'machine:d1:claude-code' };
+
+  it('takes a chat, and work whose procedure can be handed to a machine', () => {
+    expect(accountMachineFor({ chat: true }, undefined, onMachine, doesNot)).toBe('machine:d1:claude-code');
+    expect(accountMachineFor({}, undefined, onMachine, branches)).toBe('machine:d1:claude-code');
+    expect(accountMachineFor({}, undefined, onMachine, doesNot)).toBeUndefined();
+  });
+
+  it('gives way to a model asked for and to the agent\'s own unless the default overrides it', () => {
+    expect(accountMachineFor({ modelId: 'tabby-qwen', chat: true }, undefined, onMachine, branches)).toBeUndefined();
+    expect(accountMachineFor({ chat: true }, 'tabby-qwen', onMachine, branches)).toBeUndefined();
+    expect(accountMachineFor({ chat: true }, 'tabby-qwen', { ...onMachine, overrides: true }, branches)).toBe('machine:d1:claude-code');
+  });
+
+  it('does nothing for a model default, a run asked about without running, or a check\'s space', () => {
+    expect(accountMachineFor({ chat: true }, undefined, { modelId: 'tabby-qwen' }, branches)).toBeUndefined();
+    expect(accountMachineFor(undefined, undefined, onMachine, branches)).toBeUndefined();
+    expect(accountDefaultOf({ space: { person: 'p' }, defaultModelId: 'machine:d1:claude-code' })).toBeUndefined();
+    expect(accountDefaultOf({ defaultModelId: 'machine:d1:claude-code', globalModelOverride: true })).toEqual({ modelId: 'machine:d1:claude-code', overrides: true });
   });
 });

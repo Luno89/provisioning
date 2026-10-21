@@ -31,6 +31,10 @@ test.describe('Provisioning Platform E2E Suite', () => {
     return minted;
   })();
 
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => sessionStorage.setItem('koala.firstModel.later', '1'));
+  });
+
   test.beforeAll(async () => {
     console.log(`🚀 Starting E2E test suite for cluster: ${CLUSTER_NAME}`);
     try {

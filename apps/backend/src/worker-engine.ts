@@ -3,6 +3,7 @@
 import { machineChoiceProblem } from './lib/machines.js';
 import { catalogueOf } from './lib/workspace-dependencies.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
+import { accountDefaultOf } from './lib/machine-runs.js';
 import path from 'path';
 import { DEFAULT_TARGET_CLUSTER } from './lib/project-shipping.js';
 import { stopIfRunning } from './lib/stop-workflow.js';
@@ -202,6 +203,7 @@ async function buildActivities() {
   });
   const host = createEngineHost({
     dependencies: async (ownerId) => catalogueOf(SHIPPED_DEPENDENCIES, await db.getWorkspaceDependencies(ownerId)),
+    accountDefault: async (ownerId) => accountDefaultOf(await db.getUserById(ownerId)),
     customizations,
     monitoring: {
       monitoring,

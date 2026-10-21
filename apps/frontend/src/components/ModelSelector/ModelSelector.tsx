@@ -43,6 +43,7 @@ export default function ModelSelector({
 
   const selectedModel = models.find((m) => m.id === value)
   const machineLabel = useMachineChoiceLabel(value)
+  const defaultMachine = useMachineChoiceLabel(defaultModelId)
 
   const close = () => {
     setOpen(false)
@@ -108,7 +109,7 @@ export default function ModelSelector({
       if (showAccountDefault) {
         return defaultModel
           ? `Account default · ${defaultModel.name}`
-          : 'Account default'
+          : defaultMachine ? `Account default · ${defaultMachine}` : 'Account default'
       }
       return placeholder
     }
@@ -117,7 +118,7 @@ export default function ModelSelector({
       return `${selectedModel.name}${selectedModel.model ? ` · ${selectedModel.model}` : ''}`
     }
     return value
-  }, [value, selectedModel, machineLabel, defaultModel, showAccountDefault, placeholder])
+  }, [value, selectedModel, machineLabel, defaultModel, defaultMachine, showAccountDefault, placeholder])
 
   const triggerBadge = selectedModel
     ? isLocal(selectedModel)
@@ -206,11 +207,13 @@ export default function ModelSelector({
                         Fallback
                       </span>
                     </div>
-                    {defaultModel && (
+                    {defaultModel ? (
                       <p className="truncate text-[11px] text-slate-400 mt-0.5">
                         {defaultModel.name} · {defaultModel.model ?? 'system'}
                       </p>
-                    )}
+                    ) : defaultMachine ? (
+                      <p className="truncate text-[11px] text-slate-400 mt-0.5">{defaultMachine}</p>
+                    ) : null}
                   </div>
                   {!value && <Check size={14} className="shrink-0 text-sky-400" />}
                 </button>

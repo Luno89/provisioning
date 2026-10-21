@@ -9,7 +9,7 @@ import {
   BUILDER_TOOLS,
 } from '@koala/agent-engine';
 import type { MachineChoice, Procedure } from '@koala/agent-engine/procedure';
-import { machineRunFor, type RunOn } from '../../lib/machine-runs.js';
+import { accountMachineFor, machineRunFor, type AccountDefault, type RunOn } from '../../lib/machine-runs.js';
 import { createStoredToolCatalogue, type ToolReader } from './tool-catalogue-store.js';
 import { createProcedureStore, type OwnedProcedure, type ProcedureReader, type ProcedureStore } from './procedure-store.js';
 import type { ToolContract } from '@koala/engine-core';
@@ -45,6 +45,7 @@ export interface RegistryOptions {
   agentStore?: AgentStore | undefined;
   procedureStore?: ProcedureStore | undefined;
   toolCatalogue?: ToolCatalogue | undefined;
+  accountDefault?: ((ownerId: string) => Promise<AccountDefault | undefined>) | undefined;
 }
 
 export async function withPublished(procedure: Procedure, published: readonly GroupDefinition[]): Promise<Procedure> {
@@ -62,12 +63,14 @@ export function createStoredAgentRegistry(options: {
   toolCatalogue?: ToolCatalogue | undefined;
   hidden?: ((ownerId: string) => Promise<HiddenVocabulary>) | undefined;
   published?: ((ownerId: string) => Promise<GroupDefinition[]>) | undefined;
+  accountDefault?: ((ownerId: string) => Promise<AccountDefault | undefined>) | undefined;
 }): AgentRegistry {
   const hiddenFor = async (ownerId: string | undefined) => (ownerId && options.hidden ? options.hidden(ownerId) : undefined);
   const tools = catalogueFor(options);
   const registry = createAgentRegistry({
     agentStore: { list: (ownerId) => options.agents.agents(ownerId) },
     procedureStore: createProcedureStore({ sources: options.procedures, ...(options.published ? { published: options.published } : {}) }),
+    ...(options.accountDefault ? { accountDefault: options.accountDefault } : {}),
     ...(tools ? {
       toolCatalogue: {
         list: async (ownerId: string) => {
@@ -128,7 +131,9 @@ export function createAgentRegistry(options: RegistryOptions = {}): AgentRegistr
       if (!found) return undefined;
 
       const own = !procedureId && found.procedure ? await procedureStore.get(ownerId, found.procedure) : undefined;
-      const onMachine = machineRunFor(on, found.model?.endpointId, procedureId, own);
+      const account = on && options.accountDefault ? await options.accountDefault(ownerId) : undefined;
+      const fromAccount = accountMachineFor(on, found.model?.endpointId, account, own);
+      const onMachine = machineRunFor(fromAccount ? { ...on, modelId: fromAccount } : on, found.model?.endpointId, procedureId, own);
       const procedure = onMachine?.inPlace ? own : await procedureStore.get(ownerId, onMachine?.procedureId ?? procedureId ?? found.procedure);
       if (!procedure) return undefined;
 

@@ -241,6 +241,7 @@ import { CHART_FILE, ODOO_RELEASE_SECRETS, OWN_SECRET_FILE } from './lib/odoo-re
 import { providerServing } from './lib/model-registry.js';
 import { WorkspaceDependencyService } from './services/WorkspaceDependencyService.js';
 import { workspaceDependenciesRouter } from './routes/workspace-dependencies.js';
+import { accountDefaultOf } from './lib/machine-runs.js';
 import { createArtifactService } from './services/artifact-service-factory.js';
 
 dotenv.config();
@@ -445,6 +446,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     procedures: { list: (ownerId?: string) => db.getProcedures(ownerId) },
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
+    accountDefault: async (ownerId: string) => accountDefaultOf(await db.getUserById(ownerId)),
   });
   const conversationTurns = new ConversationTurnService({
     store: db,
@@ -1209,7 +1211,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const peopleRemoval = rootRemoval ?? accountRemoval;
   if (holdsAccounts(role) && peopleRemoval) app.use('/api/account', accountRouter({ removal: peopleRemoval, clearSession: (res) => res.clearCookie('session', auth.sessionCookieOptions) }));
   if (holdsAccounts(role)) app.use('/api/admin', adminRouter({ db, requireAdmin, ...(peopleRemoval ? { removal: peopleRemoval } : {}) }));
-  tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, rateLimits: getModelRateLimiterSnapshot }));
+  tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
   tenant.use('/api/temporal', temporalRouter({ temporalBridge, instanceOwner: role.instance?.ownerId }));
   tenant.use('/api/worker', workerRouter({ workerService }));
   tenant.use('/api/nginx', nginxRouter({ infraService, nginxConfPath: NGINX_CONF_PATH }));

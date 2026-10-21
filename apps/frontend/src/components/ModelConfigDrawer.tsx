@@ -49,6 +49,7 @@ export function ModelConfigDrawer({
   const defaultModelId = setting?.defaultModelId ?? null;
   const setView = useShellStore((s) => s.setView);
   const machineLabel = useMachineChoiceLabel(selectedModelId);
+  const defaultMachine = useMachineChoiceLabel(defaultModelId);
 
   if (!isOpen) return null;
 
@@ -87,8 +88,8 @@ export function ModelConfigDrawer({
               ? <span className="font-mono text-amber-200">{machineLabel}<span className="text-slate-500 font-sans"> (its own loop, tools and model)</span></span>
               : selected
               ? <span className="font-mono text-emerald-300">{modelOptionLabel(selected)}</span>
-              : defaultModel
-                ? <span className="font-mono text-emerald-300">{modelOptionLabel(defaultModel)}<span className="text-slate-500 font-sans"> (account default)</span></span>
+              : defaultModel || defaultMachine
+                ? <span className="font-mono text-emerald-300">{defaultModel ? modelOptionLabel(defaultModel) : defaultMachine}<span className="text-slate-500 font-sans"> (account default)</span></span>
                 : <span className="text-amber-400">no account default set — pick one below</span>}
           </div>
 
@@ -125,8 +126,8 @@ export function ModelConfigDrawer({
             machines={{ onManage: () => { onClose(); setView('mesh'); } }}
             onSelect={(id) => { onSelectModel(id); onClose(); }}
             inheritOption={{
-              label: defaultModel
-                ? `Follow the account default (${modelOptionLabel(defaultModel)})`
+              label: defaultModel || defaultMachine
+                ? `Follow the account default (${defaultModel ? modelOptionLabel(defaultModel) : defaultMachine})`
                 : 'Follow the account default — none set',
               onSelect: () => { onSelectModel(null); onClose(); },
             }}

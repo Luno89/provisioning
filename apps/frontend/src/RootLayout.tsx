@@ -23,6 +23,7 @@ import NoInstance from './components/NoInstance';
 import RootAdmin from './components/RootAdmin/RootAdmin';
 import RemoveAccountPage from './components/Account/RemoveAccountPage';
 import TrialBanner from './components/TrialBanner';
+import { FirstModel } from './components/FirstModel';
 import { MovingPage } from './components/Move/InstanceMove';
 import {
   listClusters, clusterKeys, type ClusterCreated,
@@ -313,6 +314,7 @@ export function RootLayout() {
 
         <TrialBanner />
         <MovingPage />
+        <FirstModel />
         <ShellContextInstance.Provider value={shellContext}>
           <Outlet />
         </ShellContextInstance.Provider>

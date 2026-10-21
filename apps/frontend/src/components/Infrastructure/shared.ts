@@ -14,7 +14,7 @@ export { healthHash, sectionHash, bytes, percent, rate, seconds } from '../Monit
 export const INFRASTRUCTURE_POLL_MS = 15_000
 export const CLUSTER_CONTENTS_POLL_MS = 20_000
 
-export const SECTIONS = ['apps', 'clusters', 'running'] as const
+export const SECTIONS = ['apps', 'clusters', 'running', 'hardware'] as const
 
 export type SectionId = (typeof SECTIONS)[number]
 

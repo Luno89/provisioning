@@ -107,6 +107,7 @@ export interface EngineHostStores {
 
 export interface EngineHostOptions {
   dependencies?: ((ownerId: string) => Promise<readonly WorkspaceDependency[]>) | undefined;
+  accountDefault?: ((ownerId: string) => Promise<import('../lib/machine-runs.js').AccountDefault | undefined>) | undefined;
   treeModels?: import('../extensions/grove/tools/grove-tools.js').TreeModelChoices | undefined;
   customizations?: Pick<import('../services/CustomizationsService.js').CustomizationsService, 'drift' | 'propose' | 'exportItems'> | undefined;
   monitoring?: import('../extensions/monitoring/handlers.js').MonitoringReading | undefined;
@@ -197,6 +198,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     tools: stores.tools,
     ...(options.hidden ? { hidden: options.hidden } : {}),
     ...(options.published ? { published: options.published } : {}),
+    ...(options.accountDefault ? { accountDefault: options.accountDefault } : {}),
   });
   const endpoints = createEndpointResolver({ models: options.models, registry });
   const kube = createKubeRunner({ kubeconfig: options.kubeconfig });

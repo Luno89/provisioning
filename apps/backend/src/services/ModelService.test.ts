@@ -103,6 +103,13 @@ describe('the engine a run reaches', () => {
     await expect(models.resolveBaseUrl('u1', undefined, 'deleted')).rejects.toThrow(/Model deleted not found/);
   });
 
+  it('says plainly what to do when the default is an agent on a machine and the work cannot go there', async () => {
+    const said = /Your default is an agent on your machine, and this work cannot be handed to a machine/;
+    await expect((await build([], { defaultModelId: 'machine:d1:claude-code' })).resolveBaseUrl('u1')).rejects.toThrow(said);
+    await expect((await build(gatewayEndpoints('u1', 3), { defaultModelId: 'machine:d1:claude-code' })).resolveBaseUrl('u1')).rejects.toThrow(said);
+    expect((await (await build(gatewayEndpoints('u1', 3), { defaultModelId: 'machine:d1:claude-code' })).resolveBaseUrl('u1', 'openrouter-2')).provider.id).toBe('openrouter-2');
+  });
+
   it('does not reach another tenant\'s endpoint through the default', async () => {
     const models = await build(gatewayEndpoints('u2', 3), { defaultModelId: 'openrouter-1' });
     await expect(models.resolveBaseUrl('u1')).rejects.toThrow(/No models available/);

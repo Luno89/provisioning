@@ -167,6 +167,20 @@ describe('agent registry', () => {
     expect(await registry.procedure('user-1', 'half')).toBeUndefined();
   });
 
+  it('sends a run to the account default on a machine when nothing else names a model, and only where it can go', async () => {
+    const registry = createAgentRegistry({ accountDefault: async () => ({ modelId: 'machine:d1:claude-code' }) });
+
+    const chat = await registry.runnable('user-1', 'koala', undefined, { chat: true });
+    expect(chat?.machine).toEqual({ deviceId: 'd1', agent: 'claude-code' });
+    expect(chat?.procedure.id).toBe('external-agent-chat');
+
+    const research = await registry.runnable('user-1', 'research', undefined, {});
+    expect([research?.machine, research?.inPlace]).toEqual([{ deviceId: 'd1', agent: 'claude-code' }, true]);
+
+    expect((await registry.runnable('user-1', 'koala', undefined, { chat: true, modelId: 'tabby-qwen' }))?.machine).toBeUndefined();
+    expect((await registry.runnable('user-1', 'koala'))?.machine).toBeUndefined();
+  });
+
   it('runs any persona against any procedure the caller names', async () => {
     const registry = createAgentRegistry();
 

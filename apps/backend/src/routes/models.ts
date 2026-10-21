@@ -1,4 +1,5 @@
 import { Router, type Request } from 'express';
+import { machineChoice } from '@koala/agent-engine/procedure';
 import { asyncRoute } from '../middleware/async-route.js';
 import {
   getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels,
@@ -37,7 +38,12 @@ export function modelsRouter(deps: Record<string, any>): Router {
     if (modelId !== null && typeof modelId !== 'string') {
       return res.status(400).json({ error: 'modelId must be a string, or null to clear' });
     }
-    if (modelId) {
+    const onMachine = machineChoice(modelId);
+    if (onMachine) {
+      if (!deps.machines) return res.status(400).json({ error: 'this server cannot reach people\'s machines' });
+      const problem = await deps.machines.choiceProblem(user.id, onMachine);
+      if (problem) return res.status(400).json({ error: problem });
+    } else if (modelId) {
       const owned = (await modelService.list(user.id)).some((m: any) => m.id === modelId);
       if (!owned) return res.status(404).json({ error: 'Model not found' });
     }

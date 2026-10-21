@@ -6,6 +6,8 @@ import type { ClusterProxyService } from './ClusterProxyService.js';
 import { listProviders, routeProvider, type ModelProvider, type EndpointSource } from '../lib/model-registry.js';
 import { checkEndpointUrl, isMeshAddress, type EndpointRules } from '../lib/endpoint-url-safety.js';
 import { modelOwner } from '../lib/check-space.js';
+import { MACHINE_DEFAULT_NEEDS_MODEL } from '../lib/machine-runs.js';
+import { machineChoice } from '@koala/agent-engine/procedure';
 import { decryptValue, type SecretKey } from '../lib/crypto.js';
 import type { HeadscaleService } from './HeadscaleService.js';
 
@@ -66,12 +68,15 @@ export class ModelService extends BaseService {
   ): Promise<{ owner: string; provider: ModelProvider; source: EndpointSource }> {
     const owner = await this.modelOwner(userId);
     const providers = await this.list(owner);
+    const user = await this.db.getUserById(owner);
+    const onMachine = machineChoice(user?.defaultModelId) ? user!.defaultModelId : undefined;
     if (providers.length === 0) {
-      throw new Error('No models available. Deploy a vLLM or TabbyAPI app, or register an OpenAI-compatible endpoint.');
+      throw new Error(onMachine && !modelId && !packEndpointId
+        ? MACHINE_DEFAULT_NEEDS_MODEL
+        : 'No models available. Deploy a vLLM or TabbyAPI app, or register an OpenAI-compatible endpoint.');
     }
 
-    const user = await this.db.getUserById(owner);
-    const routed = routeProvider(providers, modelId, packEndpointId, user?.defaultModelId,
+    const routed = routeProvider(providers, modelId, packEndpointId, onMachine ? undefined : user?.defaultModelId,
       { overrideGlobal: user?.globalModelOverride === true })
       /**
        * With one endpoint there is nothing to choose between, so a pack that names none still runs.
@@ -81,7 +86,8 @@ export class ModelService extends BaseService {
       ?? (providers.length === 1 ? { provider: providers[0]!, source: 'sole' as const } : undefined);
 
     if (!routed) {
-      const named = modelId ?? packEndpointId ?? user?.defaultModelId;
+      const named = modelId ?? packEndpointId ?? (onMachine ? undefined : user?.defaultModelId);
+      if (!named && onMachine) throw new Error(MACHINE_DEFAULT_NEEDS_MODEL);
       throw new Error(named
         ? `Model ${named} not found`
         : `This account has ${providers.length} endpoints and nothing named one. `

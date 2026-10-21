@@ -8,10 +8,13 @@ import {
 import { modelOptionLabel } from '../../lib/model-label';
 import { ModelPicker } from '../ModelPicker';
 import { errorMessage } from '../../api/client';
+import { useMachineChoiceLabel } from '../../api/local-agents';
+import { useShellStore } from '../../stores/shell';
 
 export function DefaultModelPicker() {
   const qc = useQueryClient();
   const [note, setNote] = useState<string | null>(null);
+  const setView = useShellStore((s) => s.setView);
 
   const { data: models = [] } = useQuery<ModelProvider[]>({
     queryKey: providerKeys.list(),
@@ -44,6 +47,7 @@ export function DefaultModelPicker() {
   });
 
   const current = models.find((m) => m.id === currentId);
+  const machine = useMachineChoiceLabel(currentId);
 
   return (
     <div className="space-y-2">
@@ -60,6 +64,8 @@ export function DefaultModelPicker() {
         Currently:{' '}
         {current
           ? <span className="font-mono text-emerald-300">{modelOptionLabel(current)}</span>
+          : machine
+            ? <span className="font-mono text-amber-200">{machine}<span className="font-sans text-slate-500"> — chats and the agents that can hand their work to a machine run on it; checks and the bench still need a model</span></span>
           : currentId
             ? <span className="text-amber-400">{currentId} — no longer in your list</span>
             : <span className="text-amber-400/80">not set — agents naming no model will fail</span>}
@@ -97,6 +103,7 @@ export function DefaultModelPicker() {
         defaultModelId={currentId}
         onConfigure={() => document.getElementById('model-providers')?.scrollIntoView({ block: 'start' })}
         onSelect={(id) => save.mutate(id)}
+        machines={{ onManage: () => setView('mesh') }}
       />
 
       {currentId && (
