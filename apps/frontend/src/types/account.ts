@@ -42,6 +42,7 @@ export interface Invite {
 export interface RemovalPreview {
   email: string
   blockers: string[]
+  instance?: PersonInstance
 }
 
 export interface RemovalRefusal {

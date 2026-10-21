@@ -113,10 +113,12 @@ export class AccountRemovalService {
     return { users, clusters, deployments };
   }
 
-  async preview(ownerId: string): Promise<{ email: string; blockers: string[] } | undefined> {
+  async preview(ownerId: string): Promise<{ email: string; blockers: string[]; instance?: PersonInstance } | undefined> {
     const world = await this.world();
     const user = world.users.find((entry) => entry.id === ownerId);
-    return user ? { email: user.email, blockers: removalBlockers(ownerId, world) } : undefined;
+    if (!user) return undefined;
+    const instance = this.deps.instances ? (await this.deps.instances()).find((entry) => entry.ownerId === ownerId) : undefined;
+    return { email: user.email, blockers: removalBlockers(ownerId, world), ...(instance ? { instance: instanceOf(instance) } : {}) };
   }
 
   async remove(request: RemovalRequest): Promise<{ ok: true; state: RemovalWorkflowState } | { ok: false; refusal: RemovalRefusal }> {

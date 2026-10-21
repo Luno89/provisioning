@@ -44,5 +44,8 @@ export const verifyTwoFactor = (body: { userId: string; code: string }): Promise
 export const signInElsewhere = (): Promise<string | null> =>
   api.get<{ url: string | null }>('/auth/sign-in').then((r) => r.data.url).catch(() => null)
 
+export const accountRemovalPlace = (): Promise<string | null> =>
+  api.get<{ url: string | null }>('/auth/account-removal').then((r) => r.data.url)
+
 export const exchangeHandoff = (token: string): Promise<SessionUser> =>
   api.post<{ user: SessionUser }>('/auth/handoff', { token }).then((r) => r.data.user)

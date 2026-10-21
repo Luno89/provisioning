@@ -207,6 +207,7 @@ export default function NoInstance({ hasInstance, isAdmin = false, onLogout }: N
         <div className="flex items-center gap-4">
           <button type="button" onClick={onLogout} className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200"><LogOut size={12} /> Sign out</button>
           {isAdmin && <a href="#/admin" className="text-xs text-slate-400 hover:text-slate-200">Admin</a>}
+          <a href="#/remove-account" className="text-xs text-slate-500 hover:text-slate-300">Delete my account</a>
         </div>
       </div>
     </div>

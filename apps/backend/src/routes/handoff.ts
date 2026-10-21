@@ -6,7 +6,7 @@ import type { Auth } from '../middleware/auth.js';
 import type { IdentityService } from '../services/IdentityService.js';
 
 export function handoffRouter(deps: {
-  identity: Pick<IdentityService, 'acceptHandoff' | 'signInUrl'>;
+  identity: Pick<IdentityService, 'acceptHandoff' | 'signInUrl' | 'removalUrl'>;
   auth: Pick<Auth, 'setSessionCookie'>;
   sessionKey: SecretKey;
 }): Router {
@@ -14,6 +14,10 @@ export function handoffRouter(deps: {
 
   router.get('/sign-in', (_req: Request, res: Response) => {
     res.json({ url: deps.identity.signInUrl() ?? null });
+  });
+
+  router.get('/account-removal', (_req: Request, res: Response) => {
+    res.json({ url: deps.identity.removalUrl() ?? null });
   });
 
   router.post('/handoff', asyncRoute(async (req: Request, res: Response) => {

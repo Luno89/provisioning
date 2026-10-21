@@ -45,6 +45,10 @@ export class IdentityService {
     return this.role.instance ? `${this.role.instance.rootUrl}/api/identity/go` : undefined;
   }
 
+  removalUrl(): string | undefined {
+    return this.role.instance ? `${this.role.instance.rootUrl}/#/remove-account` : undefined;
+  }
+
   async acceptHandoff(token: unknown): Promise<HandoffOutcome> {
     const instance = this.role.instance;
     if (!instance || !this.role.trusted) return { ok: false, status: 400, error: 'this server is not an instance, so it takes no sign-in tokens' };

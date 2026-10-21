@@ -3,12 +3,18 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { DeleteAccount } from './DeleteAccount'
 import * as accountApi from '../../api/account'
+import * as authApi from '../../api/auth'
 import { useShellStore } from '../../stores/shell'
 
 vi.mock('../../api/account', async (importOriginal) => ({
   ...(await importOriginal<typeof accountApi>()),
   getRemovalPreview: vi.fn(),
   removeMyAccount: vi.fn(),
+}))
+
+vi.mock('../../api/auth', async (importOriginal) => ({
+  ...(await importOriginal<typeof authApi>()),
+  accountRemovalPlace: vi.fn(),
 }))
 
 const renderSection = () => {
@@ -48,3 +54,21 @@ describe('deleting your own account', () => {
     expect(screen.queryByRole('button', { name: 'Delete my account' })).toBeNull()
   })
 })
+
+describe('deleting your account from inside an instance', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useShellStore.getState().setUser({ id: 'bo', email: 'bo@example.com', holdsAccounts: false } as never)
+  })
+
+  it('removes nothing here and sends you to Koala, where the account is kept', async () => {
+    vi.mocked(authApi.accountRemovalPlace).mockResolvedValue('https://koala.dev/#/remove-account')
+    renderSection()
+
+    const link = await screen.findByRole('link', { name: 'Delete my account on Koala…' })
+    expect(link).toHaveAttribute('href', 'https://koala.dev/#/remove-account')
+    expect(screen.queryByRole('button', { name: 'Delete account…' })).toBeNull()
+    expect(accountApi.getRemovalPreview).not.toHaveBeenCalled()
+  })
+})
+

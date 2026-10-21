@@ -92,7 +92,7 @@ describe('the instance chart', () => {
     expect(find(render(['backend.nodePort=30320']), 'Service', 'luno').spec).toMatchObject({ type: 'NodePort', ports: [{ nodePort: 30320 }] });
   });
 
-  it('with a credential from root, keeps it in a Secret, hands it to the app, and checks root hourly for the version to run', () => {
+  it('with a credential from root, keeps it in a Secret, hands it to the app and its setup jobs (which, without one, never wait for it), and checks root hourly for the version to run', () => {
     const plain = render();
     expect(plain.find((doc) => doc.kind === 'CronJob')).toBeUndefined();
 
@@ -110,6 +110,10 @@ describe('the instance chart', () => {
 
     const backend = find(joined, 'Deployment', 'luno-backend').spec.template.spec.containers[0];
     expect(backend.envFrom).toEqual(expect.arrayContaining([{ secretRef: { name: 'luno-instance' } }]));
+    const setupJobs = (docs: Doc[]) => docs.filter((doc) => doc.kind === 'Job').map((doc) => doc.spec.template.spec.containers[0].envFrom as unknown[]);
+    for (const envFrom of setupJobs(joined)) expect(envFrom).toEqual(expect.arrayContaining([{ secretRef: { name: 'luno-instance' } }]));
+    expect(setupJobs(plain).length).toBeGreaterThan(0);
+    for (const envFrom of setupJobs(plain)) expect(envFrom).not.toEqual(expect.arrayContaining([{ secretRef: { name: 'luno-instance' } }]));
   });
 
   it('upgrades each process by starting the new one before stopping the old, and only once it is healthy', () => {

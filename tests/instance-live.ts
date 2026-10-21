@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -117,6 +118,38 @@ async function main(): Promise<void> {
   assert.equal(traces.find((trace) => trace.node === 'stamp')?.exit, 'ok', 'the code did not run');
   assert.equal(traces.find((trace) => trace.node === 'done')?.finish?.outcome, 'ok', 'the run did not finish ok');
   assert.equal(traces.find((trace) => trace.node === 'stamp')?.outputs?.host, 'workspace', 'the code did not run in a sandbox pod');
+
+  step('deleting an account is root\'s: the instance removes none and points there, and a person on root removes their own, their instance let go of with it');
+  const place = await (await http('/api/auth/account-removal')).json() as { url: string | null };
+  assert.equal(place.url, `${ROOT_URL}/#/remove-account`, 'the instance does not send people to root to delete their account');
+  assert.equal((await http('/api/account', { method: 'DELETE', body: JSON.stringify({ confirm: 'live' }) })).status, 404, 'the instance still removes accounts itself');
+  const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_URL}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${rootSession}`, ...(init.headers ?? {}) } });
+  const invite = await (await asOwner('/api/admin/invites', { method: 'POST', body: '{}' })).json() as { code: string };
+  const email = `instance-live-${randomBytes(4).toString('hex')}@example.com`;
+  const registered = await fetch(`${ROOT_URL}/api/auth/register`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, password: randomBytes(18).toString('base64url'), inviteCode: invite.code }),
+  });
+  assert.equal(registered.status, 200, await registered.clone().text());
+  const people = async () => (await (await asOwner('/api/admin/people')).json() as { people: Array<{ id: string; email: string }> }).people;
+  const leaving = (await people()).find((person) => person.email === email);
+  assert.ok(leaving, 'root does not list the new account');
+  const theirInstance = `inst-live-${leaving.id.slice(0, 8)}`;
+  run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', 'add', theirInstance, leaving.id, 'http://127.0.0.1:9']);
+  const theirs = signJWT({ userId: leaving.id, email }, loadKeys(process.env).session, 300);
+  const asLeaving = (path: string, init: RequestInit = {}) => fetch(`${ROOT_URL}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${theirs}`, ...(init.headers ?? {}) } });
+  const preview = await (await asLeaving('/api/account/removal')).json() as { email: string; blockers: string[]; instance?: { where: string } };
+  assert.equal(preview.email, email);
+  assert.deepEqual(preview.blockers, []);
+  assert.equal(preview.instance?.where, 'own', 'root does not say their instance goes with the account');
+  assert.equal((await asLeaving('/api/account', { method: 'DELETE', body: JSON.stringify({ confirm: 'someone-else@example.com' }) })).status, 400, 'root removed an account without its email typed');
+  const removed = await asLeaving('/api/account', { method: 'DELETE', body: JSON.stringify({ confirm: email }) });
+  assert.equal(removed.status, 202, await removed.clone().text());
+  assert.match(removed.headers.get('set-cookie') ?? '', /session=;/, 'root did not sign them out');
+  assert.equal((await asLeaving('/api/auth/me')).status, 401, 'the removed account is still signed in');
+  await until('the account gone from root', 5, async () => ((await people()).some((person) => person.id === leaving.id) ? undefined : true));
+  await until('their instance let go of', 2, async () => (run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', 'list']).includes(theirInstance) ? undefined : true));
+  console.log('  the instance points at root; the account removed itself there, signed out at once, its instance let go of');
 
   const users = run(bin('kubectl'), ['-n', 'nowrinkles', 'exec', 'live-mongo-0', '--', 'sh', '-c', 'mongosh -u admin -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin provisioning --quiet --eval "db.users.countDocuments()"'], { KUBECONFIG }).trim();
   assert.equal(users, '1', 'the instance holds someone other than its owner');

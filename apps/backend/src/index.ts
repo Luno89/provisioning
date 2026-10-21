@@ -1180,7 +1180,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     workflows: temporalRemovalWorkflows(() => temporalBridge.client, process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE),
   }) : undefined;
   tenant.use('/api/checks', checksRouter({ scripted: new ScriptedModelService({ store: db, dataKey: keys.data }) }));
-  if (accountRemoval) tenant.use('/api/account', accountRouter({ removal: accountRemoval, clearSession: (res) => res.clearCookie('session', auth.sessionCookieOptions) }));
   const rootRemoval = holdsAccounts(role) && !servesTenants(role) ? new AccountRemovalService({
     store: db,
     workflows: temporalRemovalWorkflows(() => getTemporalClient(), process.env.POOL_TASK_QUEUE || 'host-ops-queue'),
@@ -1189,6 +1188,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     instances: () => db.getInstances(),
   }) : undefined;
   const peopleRemoval = rootRemoval ?? accountRemoval;
+  if (holdsAccounts(role) && peopleRemoval) app.use('/api/account', accountRouter({ removal: peopleRemoval, clearSession: (res) => res.clearCookie('session', auth.sessionCookieOptions) }));
   if (holdsAccounts(role)) app.use('/api/admin', adminRouter({ db, requireAdmin, ...(peopleRemoval ? { removal: peopleRemoval } : {}) }));
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, rateLimits: getModelRateLimiterSnapshot }));
   tenant.use('/api/temporal', temporalRouter({ temporalBridge, instanceOwner: role.instance?.ownerId }));

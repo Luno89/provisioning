@@ -29,8 +29,10 @@ spec:
                 name: {{ include "instance.name" $ }}-env
             - secretRef:
                 name: {{ include "instance.name" $ }}-keys
+            {{- if $.Values.instance.credential }}
             - secretRef:
                 name: {{ include "instance.name" $ }}-instance
+            {{- end }}
           env:
             - name: MONGO_ROOT_PASSWORD
               valueFrom:

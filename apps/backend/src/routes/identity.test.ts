@@ -41,7 +41,7 @@ describe('root\'s identity routes', () => {
 });
 
 describe('an instance\'s sign-in exchange', () => {
-  it('turns root\'s token into this instance\'s own session, once, and points the signed-out at root', async () => {
+  it('turns root\'s token into this instance\'s own session, once, and points the signed-out, and anyone removing their account, at root', async () => {
     const sessionKey = 'instance-session-key';
     const h = await mountRouter({
       prefix: '/api/auth',
@@ -52,6 +52,7 @@ describe('an instance\'s sign-in exchange', () => {
     });
 
     expect((await axios.get(h.url('/api/auth/sign-in'))).data).toEqual({ url: 'https://app.example.com/api/identity/go' });
+    expect((await axios.get(h.url('/api/auth/account-removal'))).data).toEqual({ url: 'https://app.example.com/#/remove-account' });
 
     const token = issueHandoff(signing, { userId: 'u1', email: 'u1@example.com' }, 'inst-u1');
     const first = await axios.post(h.url('/api/auth/handoff'), { token }, { ...quiet, headers: { 'X-Forwarded-Proto': 'https' } });

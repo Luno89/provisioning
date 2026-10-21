@@ -17,6 +17,17 @@ export function instanceLine(instance: PersonInstance): string {
   return `${instance.name ?? 'Instance'} ${where}: ${INSTANCE_STATE[instance.status]}${trial}`
 }
 
+export function yoursGoes(instance: PersonInstance | undefined): string[] {
+  if (!instance) return []
+  const named = instance.name ? ` ${instance.name}` : ''
+  return instance.where === 'pool'
+    ? [`Your instance${named} on Koala's servers is deleted, with everything in it: chats, projects, repositories, apps and their data.`]
+    : [
+      `Your instance${named} is let go of: its address stops answering and it leaves the mesh, so nobody can sign in to it any more.`,
+      'It keeps running on your own machine, with your work on it, until you uninstall it. Take what you want to keep before you go.',
+    ]
+}
+
 export function goesWith(instance: PersonInstance | undefined): string | undefined {
   if (!instance) return undefined
   return instance.where === 'pool'

@@ -1,9 +1,28 @@
 import { useState } from 'react'
 import { errorMessage } from '../../api/client'
 import { useShellStore } from '../../stores/shell'
-import { confirmMatches, dangerButton, dangerPanel, emailField, quietButton, refusalBlockers, useRemovalPreview, useRemoveMyAccount } from './shared'
+import { confirmMatches, dangerButton, dangerPanel, emailField, quietButton, refusalBlockers, useAccountRemovalPlace, useRemovalPreview, useRemoveMyAccount } from './shared'
+
+function RemovedOnRoot() {
+  const place = useAccountRemovalPlace(true)
+  return (
+    <div className={dangerPanel} data-testid="delete-account">
+      <h4 className="text-lg font-bold text-white mb-1">Delete account</h4>
+      <p className="text-xs text-slate-400 mb-3">
+        Your account is kept by Koala, where you sign in, and this instance is part of it. Deleting it there removes the account and lets go of this instance; you are told exactly what goes before anything does.
+      </p>
+      {place.isError && <div className="text-sm text-red-300">{errorMessage(place.error)}</div>}
+      {place.data && <a href={place.data} className={`${quietButton} inline-block`}>Delete my account on Koala…</a>}
+    </div>
+  )
+}
 
 export function DeleteAccount() {
+  const holdsAccounts = useShellStore((s) => s.user?.holdsAccounts !== false)
+  return holdsAccounts ? <DeleteHere /> : <RemovedOnRoot />
+}
+
+function DeleteHere() {
   const [open, setOpen] = useState(false)
   const [typed, setTyped] = useState('')
   const setUser = useShellStore((s) => s.setUser)

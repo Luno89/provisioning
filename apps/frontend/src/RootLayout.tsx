@@ -21,6 +21,7 @@ import { getMyInstance, identityKeys, INSTANCE_GO_URL } from './api/identity';
 import HandoffPage from './components/HandoffPage';
 import NoInstance from './components/NoInstance';
 import RootAdmin from './components/RootAdmin/RootAdmin';
+import RemoveAccountPage from './components/Account/RemoveAccountPage';
 import TrialBanner from './components/TrialBanner';
 import { MovingPage } from './components/Move/InstanceMove';
 import {
@@ -102,9 +103,10 @@ export function RootLayout() {
     if (!user && signInUrl.data) window.location.assign(signInUrl.data);
   }, [user, signInUrl.data]);
   const adminPage = (location.pathname === '/pool' || location.pathname === '/admin') && Boolean(user?.isAdmin);
+  const removalPage = location.pathname === '/remove-account';
   useEffect(() => {
-    if (placement.data && !placement.data.servesTenants && placement.data.instance && !adminPage) window.location.assign(INSTANCE_GO_URL);
-  }, [placement.data, adminPage]);
+    if (placement.data && !placement.data.servesTenants && placement.data.instance && !adminPage && !removalPage) window.location.assign(INSTANCE_GO_URL);
+  }, [placement.data, adminPage, removalPage]);
 
   const { data: clusters = [] } = useQuery({ queryKey: clusterKeys.list(), queryFn: listClusters, refetchInterval: 3000 });
   const { data: deployments = [] } = useQuery({ queryKey: deploymentKeys.list(), queryFn: listDeployments, refetchInterval: 3000 });
@@ -251,6 +253,10 @@ export function RootLayout() {
 
   if (!user) {
     return <Login onSuccess={setUser} />;
+  }
+
+  if (placement.data && !placement.data.servesTenants && removalPage) {
+    return <RemoveAccountPage onRemoved={() => setUser(null)} />;
   }
 
   if (placement.data && !placement.data.servesTenants && adminPage) {

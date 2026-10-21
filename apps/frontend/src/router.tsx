@@ -54,6 +54,12 @@ export const adminRoute = createRoute({
   component: () => <Navigate to="/chat" replace />,
 });
 
+export const removeAccountRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/remove-account',
+  component: () => <Navigate to="/settings" replace />,
+});
+
 export const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/chat',
@@ -359,6 +365,7 @@ export const routeTree = rootRoute.addChildren([
   handoffRoute,
   poolRoute,
   adminRoute,
+  removeAccountRoute,
   indexRoute,
   chatRoute,
   chatConvRoute,

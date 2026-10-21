@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { accountKeys, getPersonRemoval, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson } from '../../api/account'
 import { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '../../api/instance-addresses'
 import { deploymentKeys } from '../../api/deployments'
+import { accountRemovalPlace } from '../../api/auth'
 
 export { confirmMatches, refusalBlockers, removalText } from './removal-text'
 
@@ -17,6 +18,10 @@ export function useRemovalPreview(enabled: boolean) {
 
 export function useRemoveMyAccount(onRemoved: () => void) {
   return useMutation({ mutationFn: (confirm: string) => removeMyAccount(confirm), onSuccess: onRemoved })
+}
+
+export function useAccountRemovalPlace(enabled: boolean) {
+  return useQuery({ queryKey: ['auth', 'account-removal'], queryFn: accountRemovalPlace, enabled, staleTime: Infinity })
 }
 
 export function usePeople() {

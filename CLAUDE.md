@@ -68,7 +68,7 @@ npm run test:account-removal-live # a fresh account with a project, its reposito
 npm run test:odoo-release-live     # a throwaway project on the system cluster: its push builds and releases into slot a, a new module is prepared in slot b and previewed, cut over and rolled back, then deleting the project takes the live app, its namespace and its release workflow with it, ~5 min
 npm run test:tree-to-release-live  # new trees made through the API: an Odoo tree gets its own project and its starter goes live in slot a, an API tree gets one and is built and deployed, a paper tree gets none; ~10 min, removes everything
 npm run test:checks-live          # a Level 2 run on the check runner (CHECKS_LIVE_SCENARIOS picks which; default seven model scenarios on your model): each in a fresh hidden space, driven through the API → every run opens for you afterwards → no space is left behind
-npm run test:instance-live        # k3d cluster + root container + charts/instance → sign in through root → sandboxed run, ~10 min, cleans up
+npm run test:instance-live        # k3d cluster + root container + charts/instance → sign in through root → sandboxed run → the instance removes no account and points at root, where a throwaway account removes itself and its instance is let go of, ~10 min, cleans up
 npm run test:remote-integration   # boots a disposable QEMU VM, provisions it as a provider:'remote' cluster over
                                    # real SSH, verifies kubectl + deploys a real app, tears down VM+cluster — proves
                                    # the distributed-systems plan's Phase 2 (SSH k3s bootstrap) end-to-end, ~10-15 min.
@@ -177,6 +177,13 @@ Gitea user and repositories, then every record, the account last. A person remov
 Settings (typing their email), an admin removes anyone's from Settings → People. It is refused while the account
 still has clusters or deployed apps, and for the only admin. The moment it starts, the account's sessions and
 sign-in are refused (`userFromSessionCookie`), and no run can start for it (`closing` in the run starter).
+
+**On root and an instance, an account is root's.** An instance removes no account (it mounts no `/api/account`): its
+Settings → Delete account links to root's `/#/remove-account` (`GET /api/auth/account-removal`, `IdentityService.removalUrl`).
+That page (`Account/RemoveAccountPage.tsx`, also linked from the no-instance page) shows what goes, their instance
+included (`preview`'s `instance`: a pool one deleted with everything in it, one on their own machine let go of while it
+keeps running there), takes the typed email, and starts `RootAccountRemovalWorkflow` through root's own `DELETE /api/account`,
+the same removal an admin's is.
 
 Removal, project deletion and tree deletion stop workflows by **cancelling** them (`lib/stop-workflow.ts`), never by
 terminating: a cancelled agent run still runs its own ending — it ends `interrupted` and hands its claimed tasks
