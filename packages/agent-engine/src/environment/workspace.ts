@@ -46,9 +46,17 @@ export interface PackageAccess {
   egress: EgressRule[];
 }
 
+export const PROXY_BYPASS = '.svc.cluster.local,.svc,localhost,127.0.0.1';
+
+export const BYPASS_ENV = [
+  { name: 'NO_PROXY', value: PROXY_BYPASS },
+  { name: 'no_proxy', value: PROXY_BYPASS },
+];
+
 const PROXY_ENV = [
   { name: 'HTTPS_PROXY', value: `http://${PROXY_HOST}` },
   { name: 'https_proxy', value: `http://${PROXY_HOST}` },
+  ...BYPASS_ENV,
 ];
 
 export function packageAccessFor(provides: readonly string[]): PackageAccess {

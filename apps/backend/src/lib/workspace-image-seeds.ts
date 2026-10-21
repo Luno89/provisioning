@@ -25,9 +25,13 @@ export const WORKSPACE_MOUNT = '/work';
 export const EGRESS_PROXY_HOST = 'egress-proxy.koala-egress.svc.cluster.local:8888';
 export const EGRESS_PROXY_EGRESS: EgressRule = { namespace: 'koala-egress', ports: [8888] };
 
+const PROXY_BYPASS = '.svc.cluster.local,.svc,localhost,127.0.0.1';
+
 const PROXY_ENV = [
   { name: 'HTTPS_PROXY', value: `http://${EGRESS_PROXY_HOST}` },
   { name: 'https_proxy', value: `http://${EGRESS_PROXY_HOST}` },
+  { name: 'NO_PROXY', value: PROXY_BYPASS },
+  { name: 'no_proxy', value: PROXY_BYPASS },
 ];
 
 const odooImage = (id: WorkspaceLanguage, version: string): WorkspaceImageSpec => ({

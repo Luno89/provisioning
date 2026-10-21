@@ -1,4 +1,5 @@
 import {
+  BYPASS_ENV,
   environmentFor,
   needsWorkspace,
   type AgentDefinition,
@@ -136,7 +137,7 @@ export async function composeRunWorkspace(input: {
 
   const granted = input.egressMode === 'none' || input.egressMode === 'auto' || !input.proxyUrl ? [] : [...(input.grants ?? [])];
   const credentialed = granted.length > 0
-    ? [{ name: 'HTTPS_PROXY', value: input.proxyUrl! }, { name: 'https_proxy', value: input.proxyUrl! }]
+    ? [{ name: 'HTTPS_PROXY', value: input.proxyUrl! }, { name: 'https_proxy', value: input.proxyUrl! }, ...BYPASS_ENV]
     : [];
   const baseEnv = planEnv.filter((entry) => !access.env.some((own) => own.name === entry.name));
   const declared = fileEnv.filter((entry) => !access.env.some((own) => own.name === entry.name) && !baseEnv.some((own) => own.name === entry.name));

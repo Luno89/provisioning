@@ -245,6 +245,8 @@ describe('describing a run environment', () => {
     if (granted.kind !== 'sandbox') throw new Error('expected a sandbox');
     expect(granted.workspace.env).toEqual(expect.arrayContaining([
       { name: 'HTTPS_PROXY', value: 'http://u-user-1-executor:pw@egress-proxy.koala-egress.svc.cluster.local:8888' },
+      { name: 'NO_PROXY', value: '.svc.cluster.local,.svc,localhost,127.0.0.1' },
+      { name: 'no_proxy', value: '.svc.cluster.local,.svc,localhost,127.0.0.1' },
     ]));
     expect(granted.workspace.egress.every((rule) => rule.cidr === undefined)).toBe(true);
     expect(granted.workspace.egress).toEqual(expect.arrayContaining([expect.objectContaining({ namespace: 'koala-egress' })]));

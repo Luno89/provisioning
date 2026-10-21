@@ -130,6 +130,8 @@ export {
   describeMachine,
   describeNoEnvironment,
   packageAccessFor,
+  BYPASS_ENV,
+  PROXY_BYPASS,
   absentFrom,
   workspaceName,
   lifetimeFor,

@@ -328,6 +328,7 @@ describe('the package sources a language needs', () => {
     expect(allowed.length).toBeGreaterThan(0);
     for (const language of ['node', 'python', 'go'] as const) {
       const hosts = packageAccess(IMAGES, language).env
+        .filter((e) => e.name.toLowerCase() !== 'no_proxy')
         .flatMap((e) => e.value.split(','))
         .map((part) => part.trim().replace(/^https?:\/\//, '').split(/[/:]/)[0]!)
         .filter((h) => h && h !== 'direct' && h !== 'off' && !h.endsWith('.svc.cluster.local'));

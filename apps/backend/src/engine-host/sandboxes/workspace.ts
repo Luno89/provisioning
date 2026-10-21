@@ -1,4 +1,4 @@
-import type { EgressMode } from '@koala/agent-engine';
+import { BYPASS_ENV, type EgressMode } from '@koala/agent-engine';
 import { WORKSPACE_STAMP, workspaceStamp } from '../../lib/published-workspace.js';
 
 export type EgressRule =
@@ -52,6 +52,7 @@ export interface PackageAccess {
 const PROXY_ENV = [
   { name: 'HTTPS_PROXY', value: `http://${PROXY_HOST}` },
   { name: 'https_proxy', value: `http://${PROXY_HOST}` },
+  ...BYPASS_ENV,
 ];
 
 export function packageAccessFor(provides: readonly string[]): PackageAccess {
