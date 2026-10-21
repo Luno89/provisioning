@@ -21,9 +21,9 @@ describe('a server in the Studio', () => {
   })
 
   it('round-trips how a workspace server runs through its form', () => {
-    const runs = { where: 'workspace' as const, languages: ['node'], install: [{ via: 'npm' as const, packages: ['@playwright/mcp'] }, { via: 'script' as const, run: 'npx playwright install chromium' }], needsBinaries: ['curl'], start: 'playwright-mcp', port: 8931, path: '/mcp' }
+    const runs = { where: 'workspace' as const, languages: ['node'], needs: ['playwright-mcp'], start: 'playwright-mcp', port: 8931, path: '/mcp' }
     expect(runsOf(formOf(runs))).toEqual(runs)
-    expect(runsOf({ ...formOf(runs), script: ' ', port: '9,000', path: '', packages: { npm: 'a, b a' } })).toEqual({ where: 'workspace', languages: ['node'], install: [{ via: 'npm', packages: ['a', 'b'] }], needsBinaries: ['curl'], start: 'playwright-mcp', port: 9000 })
+    expect(runsOf({ ...formOf(runs), port: '9,000', path: '', needs: ['tickets-server'] })).toEqual({ where: 'workspace', languages: ['node'], needs: ['tickets-server'], start: 'playwright-mcp', port: 9000 })
   })
 
   it('offers a tool by leaving it out of what is omitted, or adding it to what is offered', () => {

@@ -3,13 +3,18 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ToolEditor from './ToolEditor'
-import { blanksIn, blankTool, commandProblems, packagesOf } from './tool-forms'
+import { blanksIn, blankTool, commandProblems } from './tool-forms'
 import type { EngineTool } from '../../api/engineTools'
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
   Link: ({ children, to, params }: { children: React.ReactNode; to: string; params?: Record<string, string> }) =>
     <a href={Object.entries(params ?? {}).reduce((path, [key, value]) => path.replace(`$${key}`, value), to)}>{children}</a>,
+}))
+
+vi.mock('../../api/workspaceDependencies', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/workspaceDependencies')>()),
+  useDependencies: () => ({ isPending: false, data: ['jq', 'koala-e2e'].map((name) => ({ name, summary: `${name}.`, provides: [name], install: [], mine: false, script: false, usedBy: { tools: [], servers: [], dependencies: [], trees: [] } })) }),
 }))
 
 vi.mock('../../api/engineTools', async () => {
@@ -35,8 +40,7 @@ const tool = (over: Partial<EngineTool> = {}): EngineTool => ({
   returns: 'the number of matching lines',
   failures: [{ when: 'the path does not exist', says: 'no such file' }],
   command: 'rg --count {pattern}',
-  needsBinaries: ['rg'],
-  install: { via: 'dnf', packages: ['ripgrep'] },
+  needs: ['jq'],
   mine: false,
   grantedTo: ['executor'],
   ...over,
@@ -63,15 +67,14 @@ describe('the tools a person can edit', () => {
     expect(screen.queryByRole('button', { name: 'Delete my copy' })).not.toBeInTheDocument()
   })
 
-  it('saves the command and the install recipe', async () => {
+  it('saves the command and what it needs', async () => {
     vi.mocked(saveEngineTool).mockResolvedValue({ tool: tool({ mine: true }), rebuilding: [], failed: [] })
     await edit('jq_query')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(saveEngineTool).toHaveBeenCalledWith(expect.objectContaining({
       command: 'rg --count {pattern}',
-      needsBinaries: ['rg'],
-      install: { via: 'dnf', packages: ['ripgrep'] },
+      needs: ['jq'],
     })))
   })
 
@@ -135,13 +138,15 @@ describe('the tools a person can edit', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
   })
 
-  it('asks for an install script only when the recipe is a script', async () => {
+  it('names what it needs from the dependencies, and drops one', async () => {
     await edit('jq_query')
-    expect(screen.queryByLabelText(/Install script/i)).not.toBeInTheDocument()
+    expect(screen.getByText('jq')).toBeInTheDocument()
 
-    await userEvent.selectOptions(screen.getByLabelText('How they get installed'), 'script')
+    await userEvent.selectOptions(screen.getByLabelText('Add to what it needs in the workspace'), 'koala-e2e')
+    await userEvent.click(screen.getByRole('button', { name: 'Stop needing jq' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(screen.getByText(/runs as root while the image is built/)).toBeInTheDocument()
+    await waitFor(() => expect(vi.mocked(saveEngineTool).mock.calls[0]![0]).toMatchObject({ name: 'jq_query', needs: ['koala-e2e'] }))
   })
 
   it('will not save a command that fills in an argument the tool does not take', async () => {
@@ -169,7 +174,7 @@ describe('what a blank tool starts as', () => {
       name: 'count_words',
       binding: 'environment',
       parameters: { type: 'object', properties: {} },
-      install: { via: 'base' },
+      needs: [],
       mine: true,
     })
   })
@@ -186,8 +191,4 @@ describe('the blanks in a command', () => {
     ])
   })
 
-  it('reads the packages back out of an install that has them', () => {
-    expect(packagesOf({ via: 'dnf', packages: ['ripgrep', 'jq'] })).toBe('ripgrep, jq')
-    expect(packagesOf({ via: 'base' })).toBe('')
-  })
 })

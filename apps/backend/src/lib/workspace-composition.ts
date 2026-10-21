@@ -1,12 +1,13 @@
-import { planFor, type AgentDefinition, type BaseImage, type ImagePlan, type ToolDefinition } from '@koala/agent-engine';
-import { contributionsOf, type WorkspaceFile } from './workspace-file.js';
-import { serverContributions, type McpServerRecord } from './mcp-servers.js';
+import { planFor, type AgentDefinition, type BaseImage, type ImagePlan, type Need, type ToolDefinition, type WorkspaceDependency } from '@koala/agent-engine';
+import { contributionsOf, FROM_PROJECT, type WorkspaceFile } from './workspace-file.js';
+import { serverNeeds, type McpServerRecord } from './mcp-servers.js';
 
 export interface WorkspaceInputs {
   agent: AgentDefinition;
   tools: readonly ToolDefinition[];
   file?: WorkspaceFile | undefined;
   servers?: readonly McpServerRecord[] | undefined;
+  dependencies?: readonly WorkspaceDependency[] | undefined;
 }
 
 export interface ComposedWorkspace {
@@ -40,7 +41,11 @@ function withServerLanguages(agent: AgentDefinition, servers: readonly McpServer
 export function composeWorkspace(inputs: WorkspaceInputs, bases: readonly BaseImage[]): ComposedWorkspace | undefined {
   const held = heldWorkspaceServers(inputs.agent, inputs.servers);
   const agent = withServerLanguages(withFileLanguages(inputs.agent, inputs.file), held);
-  const plan = planFor(agent, inputs.tools, bases, [...(inputs.file ? contributionsOf(inputs.file) : []), ...held.flatMap(serverContributions)]);
+  const needs: Need[] = [
+    ...(inputs.file?.needs ?? []).map((name) => ({ name, from: FROM_PROJECT })),
+    ...held.flatMap(serverNeeds),
+  ];
+  const plan = planFor(agent, inputs.tools, bases, inputs.file ? contributionsOf(inputs.file) : [], { needs, ...(inputs.dependencies ? { dependencies: inputs.dependencies } : {}) });
   if (!plan) return undefined;
   return { plan, env: (inputs.file?.env ?? []).map((entry) => ({ name: entry.name, value: entry.value })) };
 }

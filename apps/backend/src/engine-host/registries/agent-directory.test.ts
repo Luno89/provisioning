@@ -111,3 +111,20 @@ describe('the MCP servers agents hold', () => {
     expect((await agents.agents('user-1')).find((agent) => agent.slug === 'judge')).toMatchObject({ tools: ['read_file', 'playwright'], servers: [] });
   });
 });
+
+describe('what an agent needs in its workspace', () => {
+  it('is what the steps of its procedure declare, read once per procedure', async () => {
+    const db = new MemoryDB();
+    const asked: string[] = [];
+    const agents = createAgentDirectory({
+      records: { list: (ownerId) => db.getEnginePersonas(ownerId) },
+      grants: grantStoreFrom(db),
+      builtIn: () => [{ ...record('tester'), procedure: 'browser-check' }, { ...record('other'), procedure: 'browser-check' }, { ...record('plain'), procedure: 'tool-rounds' }],
+      shipped: () => [],
+      stepNeeds: async (_ownerId, procedure) => { asked.push(procedure); return procedure === 'browser-check' ? ['koala-e2e'] : []; },
+    });
+    const listed = await agents.agents('user-1');
+    expect(listed.map((agent) => [agent.slug, agent.needs])).toEqual([['tester', ['koala-e2e']], ['other', ['koala-e2e']], ['plain', undefined]]);
+    expect(asked.sort()).toEqual(['browser-check', 'tool-rounds']);
+  });
+});

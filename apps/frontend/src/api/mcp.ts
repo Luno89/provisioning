@@ -21,14 +21,10 @@ export interface McpServerSummary {
  * Authority: `ServerRuns`, `McpServerRecord`, `McpServerTemplate` and `ServerState` in apps/backend/src/lib/mcp-servers.ts,
  * and `McpServerView` / `McpCatalogue` in apps/backend/src/services/McpServerService.ts.
  */
-export type McpInstall =
-  | { via: 'dnf' | 'apt' | 'pip' | 'npm'; packages: string[] }
-  | { via: 'script'; run: string }
-
 export type McpServerRuns =
   | { where: 'hosted'; url: string }
   | { where: 'hosted'; deploymentId: string }
-  | { where: 'workspace'; languages?: string[]; install: McpInstall[]; needsBinaries?: string[]; start: string; port: number; path?: string }
+  | { where: 'workspace'; languages?: string[]; needs: string[]; start: string; port: number; path?: string }
 
 export interface McpCapturedTool {
   name: string

@@ -31,7 +31,7 @@ import type { ProcedureSource } from './procedure-source.js';
 import type { StoredNodeTrace } from './run-traces.js';
 import type { RunMark, TurnLogEntry } from './turn-log.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
-import type { GrantKind, PersonaRecord as EnginePersona, ToolDefinition as EngineTool, ToolGrant } from '@koala/agent-engine';
+import type { GrantKind, PersonaRecord as EnginePersona, ToolDefinition as EngineTool, ToolGrant, WorkspaceDependency } from '@koala/agent-engine';
 import type { PublishedWorkspace } from './published-workspace.js';
 import type { McpServerRecord } from './mcp-servers.js';
 import type { EvalCollection, EvalRecord } from './eval-run.js';
@@ -295,11 +295,15 @@ export interface Database {
   deleteEnginePersona(ownerId: string | undefined, slug: string): Promise<void>;
 
   getPublishedWorkspace(ownerId: string, treeId: string): Promise<PublishedWorkspace | undefined>;
+  getPublishedWorkspaces(ownerId: string): Promise<PublishedWorkspace[]>;
   savePublishedWorkspace(workspace: PublishedWorkspace): Promise<void>;
   deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void>;
   getMcpServers(ownerId: string): Promise<McpServerRecord[]>;
   saveMcpServer(server: McpServerRecord): Promise<void>;
   deleteMcpServer(ownerId: string, id: string): Promise<void>;
+  getWorkspaceDependencies(ownerId: string): Promise<WorkspaceDependency[]>;
+  saveWorkspaceDependency(dependency: WorkspaceDependency & { ownerId: string }): Promise<void>;
+  deleteWorkspaceDependency(ownerId: string, name: string): Promise<void>;
 
   getToolGrants(ownerId: string): Promise<ToolGrant[]>;
   saveToolGrant(grant: ToolGrant & { ownerId: string }): Promise<void>;

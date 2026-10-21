@@ -1,4 +1,4 @@
-import type { McpInstall, McpServer, McpServerRuns, McpToolKind } from '../../api/mcp'
+import type { McpServer, McpServerRuns, McpToolKind } from '../../api/mcp'
 
 export type ServerPlace = 'workspace' | 'url' | 'deployment'
 
@@ -29,47 +29,29 @@ export function groupServers<T extends Pick<McpServer, 'runs' | 'name'>>(servers
     .filter((group) => group.servers.length > 0)
 }
 
-export const MANAGERS = ['dnf', 'apt', 'pip', 'npm'] as const
-
 export interface WorkspaceForm {
   languages: string[]
-  packages: Record<string, string>
-  script: string
+  needs: string[]
   start: string
   port: string
   path: string
-  needsBinaries: string
 }
 
-const namesIn = (text: string): string[] => [...new Set(text.split(/[\s,]+/).map((name) => name.trim()).filter(Boolean))]
-
 export function formOf(runs: Extract<McpServerRuns, { where: 'workspace' }>): WorkspaceForm {
-  const scripts = runs.install.flatMap((install) => (install.via === 'script' ? [install.run] : []))
   return {
     languages: [...(runs.languages ?? [])],
-    packages: Object.fromEntries(MANAGERS.map((manager) => [manager, runs.install.flatMap((install) => (install.via === manager ? install.packages : [])).join(' ')])),
-    script: scripts.join('\n'),
+    needs: [...runs.needs],
     start: runs.start,
     port: String(runs.port),
     path: runs.path ?? '',
-    needsBinaries: (runs.needsBinaries ?? []).join(', '),
   }
 }
 
 export function runsOf(form: WorkspaceForm): Extract<McpServerRuns, { where: 'workspace' }> {
-  const install: McpInstall[] = [
-    ...MANAGERS.flatMap((manager) => {
-      const packages = namesIn(form.packages[manager] ?? '')
-      return packages.length > 0 ? [{ via: manager, packages }] : []
-    }),
-    ...(form.script.trim() ? [{ via: 'script' as const, run: form.script.trim() }] : []),
-  ]
-  const needs = namesIn(form.needsBinaries)
   return {
     where: 'workspace',
     ...(form.languages.length > 0 ? { languages: [...form.languages] } : {}),
-    install,
-    ...(needs.length > 0 ? { needsBinaries: needs } : {}),
+    needs: [...form.needs],
     start: form.start.trim(),
     port: Number(form.port.replace(/[^0-9]/g, '')),
     ...(form.path.trim() ? { path: form.path.trim() } : {}),

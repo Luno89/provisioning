@@ -35,6 +35,7 @@ export interface WorkspaceFile {
   script?: string
   languages?: string[]
   env?: { name: string; value: string }[]
+  needs?: string[]
 }
 
 /**

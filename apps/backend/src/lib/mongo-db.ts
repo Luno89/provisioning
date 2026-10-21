@@ -32,7 +32,7 @@ import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import { MARK_MESSAGE_CHARS, TURN_LOG_RETENTION_SECONDS, type RunMark, type TurnLogEntry } from './turn-log.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
-import type { PersonaRecord as EnginePersona, ToolDefinition as EngineTool, ToolGrant, GrantKind } from '@koala/agent-engine';
+import type { PersonaRecord as EnginePersona, ToolDefinition as EngineTool, ToolGrant, GrantKind, WorkspaceDependency } from '@koala/agent-engine';
 import type { PublishedWorkspace } from './published-workspace.js';
 import type { McpServerRecord } from './mcp-servers.js';
 import { evalRecordKey, type EvalCollection, type EvalRecord } from './eval-run.js';
@@ -197,6 +197,10 @@ export class MongoDB implements Database {
 
   private get publishedWorkspaces(): Collection {
     return this.db!.collection('publishedWorkspaces');
+  }
+
+  private get workspaceDependencies(): Collection {
+    return this.db!.collection('workspaceDependencies');
   }
 
   private get mcpServers(): Collection {
@@ -1538,6 +1542,11 @@ export class MongoDB implements Database {
     await this.publishedWorkspaces.replaceOne({ _id: `${workspace.ownerId}:${workspace.treeId}` as any }, { ...workspace }, { upsert: true });
   }
 
+  async getPublishedWorkspaces(ownerId: string): Promise<PublishedWorkspace[]> {
+    const docs = await this.publishedWorkspaces.find({ ownerId }).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as PublishedWorkspace);
+  }
+
   async deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void> {
     await this.publishedWorkspaces.deleteOne({ _id: `${ownerId}:${treeId}` as any });
   }
@@ -1553,6 +1562,19 @@ export class MongoDB implements Database {
 
   async deleteMcpServer(ownerId: string, id: string): Promise<void> {
     await this.mcpServers.deleteOne({ _id: `${ownerId}:${id}` as any });
+  }
+
+  async getWorkspaceDependencies(ownerId: string): Promise<WorkspaceDependency[]> {
+    const docs = await this.workspaceDependencies.find({ ownerId }).sort({ name: 1 }).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as WorkspaceDependency);
+  }
+
+  async saveWorkspaceDependency(dependency: WorkspaceDependency & { ownerId: string }): Promise<void> {
+    await this.workspaceDependencies.replaceOne({ _id: `${dependency.ownerId}:${dependency.name}` as any }, { ...dependency }, { upsert: true });
+  }
+
+  async deleteWorkspaceDependency(ownerId: string, name: string): Promise<void> {
+    await this.workspaceDependencies.deleteOne({ _id: `${ownerId}:${name}` as any });
   }
 
   async getToolGrants(ownerId: string): Promise<ToolGrant[]> {

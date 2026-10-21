@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /* eslint-disable no-console */
 import { machineChoiceProblem } from './lib/machines.js';
+import { catalogueOf } from './lib/workspace-dependencies.js';
+import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
 import path from 'path';
 import { DEFAULT_TARGET_CLUSTER } from './lib/project-shipping.js';
 import { stopIfRunning } from './lib/stop-workflow.js';
@@ -199,6 +201,7 @@ async function buildActivities() {
     helm: async (cluster, args) => String(await kubeInfra.runHelm(args, await clusterService.getKubeconfigPath(cluster))),
   });
   const host = createEngineHost({
+    dependencies: async (ownerId) => catalogueOf(SHIPPED_DEPENDENCIES, await db.getWorkspaceDependencies(ownerId)),
     customizations,
     monitoring: {
       monitoring,
@@ -434,6 +437,7 @@ async function buildActivities() {
         if (project) await db.saveProjectInfo(projectChoicesPatch(project as { id: string; clientImport?: ClientImport }, choices, new Date().toISOString()));
       },
       stopRun: async (workflowId: string) => { await stopIfRunning(temporal.workflow.getHandle(workflowId), 'the story it was working changed'); },
+      ...(host.checkNeeds ? { checkNeeds: host.checkNeeds } : {}),
     }),
     grove: {
       trees: { list: () => db.getTrees() },

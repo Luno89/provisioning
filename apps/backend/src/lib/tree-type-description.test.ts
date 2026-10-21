@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { describeTreeType } from './tree-type-description.js';
+import { browserTestsLine, describeTreeType } from './tree-type-description.js';
+import { builtLanguage } from './tree-types.js';
 import { TREE_TYPE_SEEDS } from './tree-type-seeds.js';
 import { WORKSPACE_IMAGE_SEEDS } from './workspace-image-seeds.js';
 
@@ -49,5 +50,26 @@ describe('a tree type described from the parts that run it', () => {
     expect(two).toContain('- the release-careful agent, with the odoo adapter: release: { agent: \'release-careful\', app: \'odoo\' }.');
     expect(two).not.toContain('STARTING FROM THE CLIENT');
     expect(describeTreeType({ type: seed('research-paper'), releasing: { own: { slug: 'release', name: 'Release' }, others: [] } })).not.toContain('HOW IT IS RELEASED');
+  });
+});
+
+describe('whether a tree type\'s workspace runs browser tests', () => {
+  it('says so for an Odoo image and for a starter that turns them on, and says how to get them otherwise', () => {
+    expect(browserTestsLine(seed('odoo-addons'), image('odoo-20'))).toMatch(/^Browser tests: yes\. Its image has koala-e2e/);
+    expect(browserTestsLine(seed('ui-app'), image('node'))).toMatch(/^Browser tests: yes\. The starter's \.koala\/workspace\.json turns them on/);
+    expect(browserTestsLine(seed('api-service'), image('node'))).toMatch(/^Browser tests: not built in\. .*change_workspace with needs: \["koala-e2e"\]/);
+  });
+
+  it('describes the workspace a type with no particular language is really built in', () => {
+    const paper = seed('research-paper');
+    expect(builtLanguage(paper.language)).toBe('node');
+    expect(describeTreeType({ type: paper, image: image(builtLanguage(paper.language)) })).toContain('in the node workspace');
+  });
+});
+
+describe('what a tree could be given', () => {
+  it('lists the dependencies its workspace does not have, from the person\'s catalogue', () => {
+    const text = describeTreeType({ type: seed('api-service'), image: image('node'), canGet: [{ name: 'koala-e2e', summary: 'Runs browser tests.' }, { name: 'pdf-tools', summary: 'PDF tools.' }] });
+    expect(text).toContain('It can be given any of these with change_workspace (needs) or .koala/workspace.json: koala-e2e (Runs browser tests); pdf-tools (PDF tools).');
   });
 });

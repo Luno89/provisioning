@@ -10,6 +10,7 @@ import { resetForRetry } from '../lib/leaves.js';
 import { applyChange, briefIn, renderChangeNote, runsToStop, withWaitsOn, type ChangeWorld } from '../lib/item-changes.js';
 import type { EnvironmentResolver } from './sandboxes/environments.js';
 import type { TreeWorkspaces } from './sandboxes/tree-workspaces.js';
+import type { CheckNeeds } from './check-needs.js';
 
 export interface PlanAdoptionStores {
   proposals: {
@@ -34,6 +35,7 @@ export interface PlanAdoptionOptions {
   homeTree?: ((tree: Tree) => Promise<Tree>) | undefined;
   projectChoices?: ((ownerId: string, projectId: string, choices: Pick<NewTreeSpec, 'release' | 'startsFrom'>) => Promise<void>) | undefined;
   stopRun?: ((workflowId: string) => Promise<void>) | undefined;
+  checkNeeds?: CheckNeeds | undefined;
   now?: (() => string) | undefined;
 }
 
@@ -397,6 +399,10 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
         ...(outcome.reason ? { reason: outcome.reason } : {}),
         updatedAt: now(),
       });
+      if (outcome.status === 'adopted' && outcome.adopted && options.checkNeeds) {
+        const needs = await options.checkNeeds(ownerId, outcome.adopted.treeId, Object.values(outcome.adopted.taskIds));
+        if (needs.refused) console.warn(`[plan] ${proposalId}: the workspace could not be given what its checks need: ${needs.refused}`);
+      }
       if (outcome.status !== 'adopted' || !outcome.adopted || proposal.leafPlan || proposal.change || !proposal.conversationId || !options.stores.conversations) return;
       const tree = (await options.stores.trees.list()).find((entry) => entry.id === outcome.adopted!.treeId && entry.ownerId === ownerId);
       if (!tree) return;

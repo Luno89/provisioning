@@ -1,12 +1,13 @@
 import type { HostOperation } from '@koala/agent-engine/procedure';
-import { E2E_DEFAULT_SPECS } from '../../../lib/e2e.js';
+import { E2E_DEFAULT_SPECS, E2E_RUNNER } from '../../../lib/e2e.js';
 
 export const PLATFORM_OPERATIONS: readonly HostOperation[] = [
   {
     name: 'platform.run-e2e',
     title: 'Run Browser Tests',
     group: 'Testing',
-    describe: 'Runs Playwright browser tests in the workspace, against the app the workspace serves (its image\'s koala-e2e: an Odoo workspace starts a throwaway Odoo with every module under addons/) or against an address that needs no login. Reports each test, and keeps the screenshots, traces and videos of failures.',
+    needs: [E2E_RUNNER],
+    describe: 'Runs Playwright browser tests in the workspace, against the app the workspace serves (its image\'s koala-e2e: an Odoo workspace starts a throwaway Odoo with every module under addons/; any other has it once its .koala/workspace.json turns browserTests on, and serves the app with its playwright.config webServer) or against an address that needs no login. Reports each test, and keeps the screenshots, traces and videos of failures.',
     inputs: [{ name: 'environment', type: 'environment', describe: 'Where to run them. Nothing wired means the run\'s own workspace.' }],
     outputs: [
       { name: 'report', type: 'json', describe: 'How many passed, failed, were flaky or skipped, and each test with its file, status, time and error.' },

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BASES } from '@koala/agent-engine';
 import { offers, planServerImage, runsFingerprint, serverProblems, serverState, usable, type McpServerRecord } from './mcp-servers.js';
 import { PLAYWRIGHT } from '../extensions/mcp/templates.js';
+import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 
 const server = (over: Partial<McpServerRecord> = {}): McpServerRecord => ({
   id: 's1', ownerId: 'u1', name: 'playwright', runs: PLAYWRIGHT.runs, createdAt: 't0', updatedAt: 't0', ...over,
@@ -15,8 +16,8 @@ describe('a server in the catalogue', () => {
     expect(serverProblems(server(), [{ id: 's2', name: 'playwright' }])).toEqual(['you already have a server called playwright']);
     expect(serverProblems(server(), [{ id: 's1', name: 'playwright' }], 's1')).toEqual([]);
     expect(serverProblems(server({ runs: { where: 'hosted', url: 'ftp://x' } }))).toEqual(['a hosted server\'s URL has to be http or https']);
-    expect(serverProblems(server({ runs: { where: 'workspace', install: [], start: '', port: 80 } }))).toEqual([
-      'a workspace server has to say how it is installed', 'say the command that starts the server', 'the port has to be a whole number from 1024 to 65535',
+    expect(serverProblems(server({ runs: { where: 'workspace', needs: [], start: '', port: 80 } }))).toEqual([
+      'a workspace server has to name the dependencies that install it', 'say the command that starts the server', 'the port has to be a whole number from 1024 to 65535',
     ]);
     expect(serverProblems(server({ offer: ['a'], omit: ['b'] }))).toEqual(['say which tools to offer or which to omit, not both']);
   });
@@ -40,10 +41,13 @@ describe('a server in the catalogue', () => {
   });
 
   it('plans the smallest workspace that has what a workspace server needs, each line saying it is the server\'s', () => {
-    const plan = planServerImage(PLAYWRIGHT.runs as never, 'playwright', BASES);
+    const plan = planServerImage(PLAYWRIGHT.runs as never, 'playwright', BASES, SHIPPED_DEPENDENCIES);
     expect(plan.base).toContain('nodejs');
-    expect(plan.lines!.map((line) => [line.install.via, line.from])).toEqual([['npm', 'server:playwright'], ['script', 'server:playwright']]);
-    expect(planServerImage({ where: 'workspace', languages: ['python'], install: [{ via: 'pip', packages: ['mcp-server-fetch'] }], start: 'mcp-server-fetch', port: 9000 }, 'fetch', BASES).base).toContain('python');
-    expect(() => planServerImage({ where: 'workspace', install: [{ via: 'npm', packages: ['x'] }], needsBinaries: ['ffmpeg'], start: 'x', port: 9000 }, 'x', BASES)).toThrow('x needs ffmpeg, which its workspace does not have and its install does not add');
+    expect(plan.lines!.map((line) => [line.dependency, line.install.via, line.from])).toEqual([
+      ['chromium-libraries', 'script', 'server:playwright'], ['playwright-mcp', 'npm', 'server:playwright'], ['playwright-mcp', 'script', 'server:playwright'],
+    ]);
+    const fetcher = { name: 'fetch-server', summary: 'fetch.', provides: ['mcp-server-fetch'], install: [{ via: 'pip' as const, packages: ['mcp-server-fetch'] }] };
+    expect(planServerImage({ where: 'workspace', languages: ['python'], needs: ['fetch-server'], start: 'mcp-server-fetch', port: 9000 }, 'fetch', BASES, [...SHIPPED_DEPENDENCIES, fetcher]).base).toContain('python');
+    expect(() => planServerImage({ where: 'workspace', needs: ['ffmpeg'], start: 'x', port: 9000 }, 'x', BASES, SHIPPED_DEPENDENCIES)).toThrow('server:x needs "ffmpeg", which no dependency is called');
   });
 });

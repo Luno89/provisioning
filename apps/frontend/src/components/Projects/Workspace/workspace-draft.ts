@@ -5,6 +5,7 @@ export interface WorkspaceDraft {
   languages: string[]
   env: { name: string; value: string }[]
   script: string
+  needs: string[]
 }
 
 export function draftOf(file: WorkspaceFile | undefined, managers: readonly string[]): WorkspaceDraft {
@@ -13,6 +14,7 @@ export function draftOf(file: WorkspaceFile | undefined, managers: readonly stri
     languages: [...(file?.languages ?? [])],
     env: (file?.env ?? []).map((entry) => ({ ...entry })),
     script: file?.script ?? '',
+    needs: [...(file?.needs ?? [])],
   }
 }
 
@@ -26,6 +28,7 @@ export function fileOf(draft: WorkspaceDraft): WorkspaceFile {
     ...(draft.script.trim() ? { script: draft.script.trim() } : {}),
     ...(draft.languages.length > 0 ? { languages: [...draft.languages] } : {}),
     ...(env.length > 0 ? { env } : {}),
+    ...(draft.needs.length > 0 ? { needs: [...draft.needs] } : {}),
   }
 }
 

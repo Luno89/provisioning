@@ -1,4 +1,4 @@
-import type { EngineTool, Install } from '../../api/engineTools'
+import type { EngineTool } from '../../api/engineTools'
 
 const BLANK = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g
 
@@ -10,10 +10,6 @@ export function commandProblems(command: string, args: string[]): string[] {
   return blanksIn(command)
     .filter((blank) => !args.includes(blank))
     .map((blank) => `the command fills in {${blank}}, which is not an argument`)
-}
-
-export function packagesOf(install: Install | undefined): string {
-  return install && 'packages' in install ? install.packages.join(', ') : ''
 }
 
 export function blankTool(name: string): EngineTool {
@@ -28,8 +24,7 @@ export function blankTool(name: string): EngineTool {
     returns: '',
     failures: [{ when: '', says: '' }],
     command: '',
-    needsBinaries: [],
-    install: { via: 'base' },
+    needs: [],
     mine: true,
     grantedTo: [],
   }

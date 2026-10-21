@@ -46,7 +46,7 @@ describe('a tree\'s workspace', () => {
     expect(language).toBeUndefined();
     const merged = mergeWorkspaceAgents([agent('executor')], 'grove-runner', language ? [language] : [])!;
     expect(planWorkspace(merged, [])).toBeDefined();
-    expect(() => planWorkspace(mergeWorkspaceAgents([agent('executor')], 'grove-runner', ['base'])!, [])).toThrow(/no language called "base"/);
+    expect(() => planWorkspace(mergeWorkspaceAgents([agent('executor')], 'grove-runner', ['base'])!, [])).toThrow(/language:base needs "base", which no dependency is called/);
   });
 
   it('asks for that language when it describes the shared workspace', async () => {

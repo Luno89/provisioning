@@ -100,6 +100,7 @@ export interface ImageBuilder {
 const jobName = (plan: ImagePlan): string => `ws-build-${plan.fingerprint.slice(0, 16)}`;
 
 const NOISE = /^(INFO|DEBUG|WARN)\b/;
+const PROOF_FAILED = /^the dependency \S+ said it puts .+ in the workspace, and once it was installed .+ is not there$/;
 
 export function lastComplaint(logs: string): string | undefined {
   const lines = logs
@@ -107,6 +108,8 @@ export function lastComplaint(logs: string): string | undefined {
     .map((line) => line.replace(/\u001b\[[0-9;]*m/g, '').trim())
     .filter((line) => line && !NOISE.test(line));
 
+  const unproved = lines.filter((line) => PROOF_FAILED.test(line));
+  if (unproved.length) return unproved.join('; ');
   return lines.find((line) => /error|failed|no match|not found|cannot/i.test(line)) ?? lines.at(-1);
 }
 

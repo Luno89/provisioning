@@ -33,7 +33,7 @@ import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import { MARK_MESSAGE_CHARS, type RunMark, type TurnLogEntry } from './turn-log.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
-import { kindOfGrant, type GrantKind, type PersonaRecord as EnginePersona, type ToolDefinition as EngineTool, type ToolGrant } from '@koala/agent-engine';
+import { kindOfGrant, type GrantKind, type PersonaRecord as EnginePersona, type ToolDefinition as EngineTool, type ToolGrant, type WorkspaceDependency } from '@koala/agent-engine';
 import type { PublishedWorkspace } from './published-workspace.js';
 import type { McpServerRecord } from './mcp-servers.js';
 import { evalRecordKey, type EvalCollection, type EvalRecord } from './eval-run.js';
@@ -107,6 +107,7 @@ export class MemoryDB implements Database {
   private toolGrants: ToolGrant[] = [];
   private publishedWorkspaces: PublishedWorkspace[] = [];
   private mcpServers: McpServerRecord[] = [];
+  private workspaceDependencies: (WorkspaceDependency & { ownerId: string })[] = [];
   private engineTools: EngineTool[] = [];
   private evalRecords = new Map<EvalCollection, Map<string, EvalRecord & { state?: unknown; startedAt?: unknown }>>();
   private bindingTypes: BindingTypeRecord[] = [];
@@ -347,6 +348,7 @@ export class MemoryDB implements Database {
     this.toolGrants = sweep('toolGrants', this.toolGrants);
     this.publishedWorkspaces = sweep('publishedWorkspaces', this.publishedWorkspaces);
     this.mcpServers = sweep('mcpServers', this.mcpServers);
+    this.workspaceDependencies = sweep('workspaceDependencies', this.workspaceDependencies);
     this.engineTools = sweep('engineTools', this.engineTools);
     this.leaves = sweep('leaves', this.leaves);
     this.localAgentDevices = sweep('localAgentDevices', this.localAgentDevices);
@@ -1235,6 +1237,22 @@ export class MemoryDB implements Database {
 
   async deleteMcpServer(ownerId: string, id: string): Promise<void> {
     this.mcpServers = this.mcpServers.filter((one) => !(one.ownerId === ownerId && one.id === id));
+  }
+
+  async getWorkspaceDependencies(ownerId: string): Promise<WorkspaceDependency[]> {
+    return this.workspaceDependencies.filter((one) => one.ownerId === ownerId).sort((a, b) => a.name.localeCompare(b.name)).map((one) => structuredClone(one));
+  }
+
+  async saveWorkspaceDependency(dependency: WorkspaceDependency & { ownerId: string }): Promise<void> {
+    this.workspaceDependencies = [...this.workspaceDependencies.filter((one) => !(one.ownerId === dependency.ownerId && one.name === dependency.name)), structuredClone(dependency)];
+  }
+
+  async deleteWorkspaceDependency(ownerId: string, name: string): Promise<void> {
+    this.workspaceDependencies = this.workspaceDependencies.filter((one) => !(one.ownerId === ownerId && one.name === name));
+  }
+
+  async getPublishedWorkspaces(ownerId: string): Promise<PublishedWorkspace[]> {
+    return this.publishedWorkspaces.filter((one) => one.ownerId === ownerId).map((one) => structuredClone(one));
   }
 
   async deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void> {

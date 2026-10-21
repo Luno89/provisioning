@@ -1,8 +1,18 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TreeWorkspaceFilePanel } from './TreeWorkspaceFilePanel.js'
 import * as groveApi from '../../../api/grove.js'
+
+vi.mock('../../../api/workspaceDependencies', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../api/workspaceDependencies')>()),
+  useDependencies: () => ({ isPending: false, data: [{ name: 'koala-e2e', summary: 'koala-e2e: runs a project\'s Playwright specs.', provides: ['koala-e2e'], install: [], mine: false, script: true, usedBy: { tools: [], servers: [], dependencies: [], trees: [] } }] }),
+}))
+
+vi.mock('@tanstack/react-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@tanstack/react-router')>()),
+  Link: ({ children }: { children: unknown }) => children,
+}))
 
 vi.mock('../../../api/grove.js', async (importOriginal) => ({
   ...(await importOriginal<typeof groveApi>()),
@@ -55,6 +65,19 @@ describe('TreeWorkspaceFilePanel', () => {
 
     await waitFor(() => expect(groveApi.saveTreeWorkspaceFile).toHaveBeenCalledWith('t1', { packages: { dnf: ['jq'], pip: ['cowsay'] } }, 'jq for the reports'))
     expect(await screen.findByText(/being rebuilt/)).toBeTruthy()
+  })
+
+  it('adds a dependency the project needs from the catalogue and commits it', async () => {
+    vi.mocked(groveApi.getTreeWorkspaceFile).mockResolvedValue(VIEW)
+    vi.mocked(groveApi.saveTreeWorkspaceFile).mockResolvedValue({ ...VIEW, file: { packages: { pip: ['cowsay'] }, needs: ['koala-e2e'] }, committed: true })
+    renderPanel()
+
+    const add = await screen.findByLabelText('Add to dependencies')
+    await waitFor(() => expect(within(add).getByRole('option', { name: /^koala-e2e/ })).toBeTruthy())
+    fireEvent.change(add, { target: { value: 'koala-e2e' } })
+    fireEvent.click(screen.getByText('Commit to main'))
+
+    await waitFor(() => expect(groveApi.saveTreeWorkspaceFile).toHaveBeenCalledWith('t1', { packages: { pip: ['cowsay'] }, needs: ['koala-e2e'] }, undefined))
   })
 
   it('shows why a save was refused', async () => {

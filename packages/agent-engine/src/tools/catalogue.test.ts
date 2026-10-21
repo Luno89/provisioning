@@ -72,20 +72,10 @@ describe('what a tool definition must carry', () => {
     expect(complaints(tool({ name: 'read_file' }))).toEqual([]);
   });
 
-  it('refuses installing on a tool that never runs in the workspace', () => {
-    expect(complaints(tool({ binding: 'platform', needsBinaries: ['psql'] })))
+  it('refuses needs on a tool that never runs in the workspace', () => {
+    expect(complaints(tool({ binding: 'platform', needs: ['psql'] })))
       .toContain('only an environment-bound tool runs inside the workspace, so only it can need installing');
-  });
-
-  it('refuses a binary with no way to install it', () => {
-    expect(complaints(tool({ binding: 'environment', needsBinaries: ['psql'] })))
-      .toContain('needs psql but does not say how to install it');
-
-    expect(complaints(tool({
-      binding: 'environment',
-      needsBinaries: ['psql'],
-      install: { via: 'dnf', packages: ['postgresql'] },
-    }))).toEqual([]);
+    expect(complaints(tool({ binding: 'environment', needs: ['psql'] }))).toEqual([]);
   });
 
   it('refuses a tool that never says what it returns', () => {

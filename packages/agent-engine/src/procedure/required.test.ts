@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { missingGrants, requiredGrants } from './required.js';
+import { missingGrants, requiredGrants, stepNeeds } from './required.js';
 import { DO_ONE_TASK_V2, TOOL_ROUNDS_V2 } from './seeds/procedures.js';
 import { BUILT_IN_GROUPS } from './seeds/groups.js';
 
@@ -54,5 +54,24 @@ describe('what a persona is missing for the procedure it runs', () => {
     );
 
     expect(missing).toEqual([]);
+  });
+});
+
+describe('what a procedure\'s steps need in the workspace', () => {
+  const operations = [{ name: 'platform.run-e2e', needs: ['koala-e2e'] }, { name: 'platform.quiet' }];
+  const procedure = (nodes: { id: string; kind: string; settings: Record<string, unknown> }[]) =>
+    ({ ...TOOL_ROUNDS_V2, nodes: [...TOOL_ROUNDS_V2.nodes, ...nodes] }) as never;
+
+  it('is what each host step it runs declares, once each', () => {
+    expect(stepNeeds(procedure([
+      { id: 'e2e', kind: 'host-op', settings: { operation: 'platform.run-e2e' } },
+      { id: 'again', kind: 'host-op', settings: { operation: 'platform.run-e2e' } },
+      { id: 'quiet', kind: 'host-op', settings: { operation: 'platform.quiet' } },
+    ]), operations, BUILT_IN_GROUPS)).toEqual(['koala-e2e']);
+  });
+
+  it('is nothing for a procedure with no such step, or none at all', () => {
+    expect(stepNeeds(TOOL_ROUNDS_V2, operations, BUILT_IN_GROUPS)).toEqual([]);
+    expect(stepNeeds(undefined, operations)).toEqual([]);
   });
 });

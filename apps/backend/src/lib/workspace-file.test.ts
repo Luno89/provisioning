@@ -13,7 +13,7 @@ describe('a project\'s .koala/workspace.json', () => {
   it('says what is wrong with one it cannot use', () => {
     expect(readWorkspaceFile('{ nope')).toEqual({ problems: [expect.stringMatching(/^\.koala\/workspace\.json is not JSON/)] });
     expect(workspaceFileProblems({ packages: { brew: ['x'], dnf: ['ok', 'not ok'] }, script: ' ', languages: ['cobol'], env: [{ name: 'DB_PASSWORD', value: 'x' }, { name: '1X', value: 'y' }], extra: 1 })).toEqual([
-      '"extra" is not something .koala/workspace.json can say; it can say packages, script, languages, env',
+      '"extra" is not something .koala/workspace.json can say; it can say packages, script, languages, needs, env',
       '"brew" is not a package manager it can use; it can use dnf, apt, pip, npm',
       '"not ok" in packages.dnf is not a package name',
       'script has to be the shell commands to run, as one string',
@@ -70,5 +70,14 @@ describe('what the file on main has that the published workspace does not', () =
 
   it('is nothing before the tree has a workspace, which is composed from main when it is first wanted', () => {
     expect(pendingChanges(undefined, { packages: { dnf: ['jq'] } })).toEqual([]);
+  });
+
+  it('names the dependencies the workspace needs, adds them by a change once each, and never drops one', () => {
+    expect(workspaceFileProblems({ needs: 'koala-e2e' })).toEqual(['needs has to be a list of dependency names']);
+    expect(workspaceFileProblems({ needs: ['Koala E2E'] })).toEqual(['"Koala E2E" in needs is not a dependency name']);
+    expect(contributionsOf({ needs: ['koala-e2e'] })).toEqual([]);
+    expect(withChange({ packages: { dnf: ['jq'] } }, { needs: ['koala-e2e'] })).toEqual({ file: { packages: { dnf: ['jq'] }, needs: ['koala-e2e'] }, added: ['the koala-e2e dependency'] });
+    expect(withChange({ needs: ['koala-e2e'] }, { needs: ['koala-e2e', 'jq'] })).toEqual({ file: { needs: ['koala-e2e', 'jq'] }, added: ['the jq dependency'] });
+    expect(pendingChanges({}, { needs: ['koala-e2e'] })).toEqual(['the koala-e2e dependency']);
   });
 });

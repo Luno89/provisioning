@@ -1,5 +1,6 @@
 import type { TaskChecks } from '../engine-host/tools/tasks.js';
-import { E2E_REPORT, E2E_RUNNER, E2E_RUNNER_MISSING, e2eCommand, e2eSummary, e2eTarget, printedTail, readE2EReport, type E2ERequest } from './e2e.js';
+import { browserTestsMissing } from './browser-tests.js';
+import { E2E_REPORT, E2E_RUNNER_MISSING, e2eCommand, e2eSummary, e2eTarget, printedTail, readE2EReport, type E2ERequest } from './e2e.js';
 
 /**
  * The checks a task carries, run where the claim says the work is.
@@ -90,7 +91,7 @@ async function browserTests(environment: CheckEnvironment, request: E2ERequest):
   const check = `the browser tests in ${request.specs.join(', ')} pass against ${e2eTarget(request)}`;
   const outcome = await environment.exec(e2eCommand(request));
   if (outcome.exitCode === E2E_RUNNER_MISSING) {
-    return [{ check, passed: false, says: request.url ? 'this workspace has no Playwright to run them with' : `this workspace's image has no ${E2E_RUNNER}, so it cannot serve its app to a browser` }];
+    return [{ check, passed: false, says: browserTestsMissing(request) }];
   }
   const report = readE2EReport(await environment.readFile(E2E_REPORT));
   if (!report) return [{ check, passed: false, says: `they left no report — it exited ${outcome.exitCode}: ${printedTail(outcome) || 'no output'}` }];

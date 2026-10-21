@@ -1,4 +1,5 @@
-import type { Install } from '@koala/agent-engine';
+import { dependencyProblems, type Install, type WorkspaceDependency } from '@koala/agent-engine';
+import { unknownNeeds, unknownNeedsSaid } from './workspace-dependencies.js';
 import { serverNameFrom, serverProblems, serverState, type McpServerRecord, type McpServerTemplate, type ServerRuns } from './mcp-servers.js';
 import { code, fields, section, text, type ProposalSection } from './proposal-sections.js';
 
@@ -12,6 +13,7 @@ export interface ServerProposal {
   dependsOn?: string | undefined;
   offer?: string[] | undefined;
   omit?: string[] | undefined;
+  dependencies?: WorkspaceDependency[] | undefined;
   agents: string[];
   why: string;
 }
@@ -20,6 +22,7 @@ export interface ProposalKnown {
   servers: readonly McpServerRecord[];
   templates: readonly McpServerTemplate[];
   agents: readonly { slug: string; servers?: readonly string[] | undefined }[];
+  dependencies: readonly WorkspaceDependency[];
 }
 
 export type DraftedProposal = { proposal: ServerProposal; summary: string; sections: ProposalSection[] } | { problem: string };
@@ -37,25 +40,24 @@ const object = (value: unknown): unknown => {
   try { return JSON.parse(value) as unknown; } catch { return value; }
 };
 
-const installLine = (install: Install): string => {
-  if (install.via === 'script') return `Install script: ${install.run}`;
-  if (install.via === 'base') return 'Install: what the base image has';
-  return `Install with ${install.via}: ${install.packages.join(', ')}`;
-};
-
 const where = (runs: ServerRuns): string => (runs.where === 'workspace' ? 'runs in the workspace' : 'url' in runs ? 'hosted' : 'one of your deployments');
 
 export function howItRuns(runs: ServerRuns): ProposalSection {
   if (runs.where === 'hosted') return section('How it runs', [fields('url' in runs ? ['At', runs.url, 'code'] : ['Deployment', runs.deploymentId])]);
-  const packages = runs.install.flatMap((install) => (install.via === 'script' || install.via === 'base' ? [] : [[install.via, install.packages.join(' ')] as const]));
-  const scripts = runs.install.flatMap((install) => (install.via === 'script' ? [install.run] : []));
   const answers = `127.0.0.1:${runs.port}${runs.path ?? '/mcp'}`;
   return section('How it runs', [
-    fields(...packages, ...(runs.languages?.length ? [['languages', runs.languages.join(', ')] as const] : [])),
-    ...scripts.map((script) => code(script, 'install script')),
+    fields(['needs', runs.needs.join(', ')], ...(runs.languages?.length ? [['languages', runs.languages.join(', ')] as const] : [])),
     code(runs.start, 'start'),
     fields(['answers', answers, 'code']),
-  ], [...packages.map(([via, names]) => `${via} ${names}`), `port ${runs.port}`].join(', '));
+  ], [`needs ${runs.needs.join(', ')}`, `port ${runs.port}`].join(', '));
+}
+
+export function newDependencies(dependencies: readonly WorkspaceDependency[]): ProposalSection[] {
+  if (!dependencies.length) return [];
+  return [section('New dependencies it adds', dependencies.flatMap((dependency) => [
+    text(`${dependency.name}: ${dependency.summary} Puts ${[...dependency.provides, ...(dependency.libraries ?? [])].join(', ')} in the workspace${dependency.needs?.length ? `, after ${dependency.needs.join(', ')}` : ''}.`),
+    ...dependency.install.map((install) => (install.via === 'script' ? code(install.run, `${dependency.name} install script`) : fields([`${dependency.name} with ${install.via}`, install.via === 'base' ? '' : install.packages.join(' ')]))),
+  ]), dependencies.map((dependency) => dependency.name).join(', '))];
 }
 
 const givenText = (to: readonly string[], workspace: boolean): string =>
@@ -65,7 +67,7 @@ export function runsLines(runs: ServerRuns): string[] {
   if (runs.where === 'hosted') return ['url' in runs ? `Runs hosted at ${runs.url}` : `Runs as your deployment ${runs.deploymentId}`];
   return [
     `Runs in the workspace${runs.languages?.length ? ` (${runs.languages.join(', ')})` : ''}`,
-    ...runs.install.map(installLine),
+    `Needs: ${runs.needs.join(', ')}`,
     `Started with: ${runs.start}`,
     `Answers on port ${runs.port}${runs.path ? `, ${runs.path}` : ''}`,
   ];
@@ -156,14 +158,44 @@ export function draftServerProposal(parsed: Record<string, unknown>, known: Prop
   const runs = object(parsed.runs) as ServerRuns;
   const problems = serverProblems({ name, runs, offer: extras.offer, omit: extras.omit }, known.servers);
   if (problems.length > 0) return { problem: problems.join('; ') };
+  const fresh = proposedDependencies(parsed.dependencies, known.dependencies);
+  if (typeof fresh === 'string') return { problem: fresh };
+  if (runs.where === 'workspace') {
+    const all = [...known.dependencies, ...fresh];
+    const unknownNeed = unknownNeeds(runs.needs, all);
+    if (unknownNeed.length) return { problem: `${unknownNeedsSaid(unknownNeed, all)}; propose it in dependencies` };
+  }
   return {
-    proposal: { name, runs, ...extras, agents: agents ?? [], why },
+    proposal: { name, runs, ...extras, ...(fresh.length ? { dependencies: fresh } : {}), agents: agents ?? [], why },
     summary: `add the MCP server ${name}${agents?.length ? ` for ${agents.join(', ')}` : ''}`,
     sections: [
       section('What it is', [text(`${name} · new server · ${where(runs)}`), ...(extras.summary ? [text(extras.summary)] : []), text('Its tools are captured as soon as it is added.')]),
       ...whoGets(name, runs.where === 'workspace'),
       ...extraSections,
       howItRuns(runs),
+      ...newDependencies(fresh),
     ],
   };
+}
+
+function proposedDependencies(raw: unknown, catalogue: readonly WorkspaceDependency[]): WorkspaceDependency[] | string {
+  const value = object(raw);
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return 'dependencies has to be a list of { name, summary, provides, needs, install }';
+  const fresh = value as WorkspaceDependency[];
+  for (const dependency of fresh) {
+    const problems = dependencyProblems(dependency);
+    if (catalogue.some((entry) => entry.name === dependency.name)) problems.push(`${dependency.name} already exists; name it in the server's needs instead`);
+    const unknown = unknownNeeds(dependency.needs, [...catalogue, ...fresh]);
+    if (unknown.length) problems.push(`${dependency.name} needs ${unknownNeedsSaid(unknown, [...catalogue, ...fresh])}`);
+    if (problems.length) return problems.join('; ');
+  }
+  return fresh.map((dependency) => ({
+    name: dependency.name,
+    summary: dependency.summary,
+    provides: [...dependency.provides],
+    ...(dependency.libraries?.length ? { libraries: [...dependency.libraries] } : {}),
+    ...(dependency.needs?.length ? { needs: [...dependency.needs] } : {}),
+    install: dependency.install.map((install) => ({ ...install })) as Install[],
+  }));
 }

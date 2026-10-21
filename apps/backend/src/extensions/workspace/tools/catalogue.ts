@@ -8,7 +8,7 @@ export const MARK_WAITING = 'mark_waiting';
 export const WORKSPACE_TOOLS: ToolDefinition[] = [
   {
     name: CHANGE_WORKSPACE,
-    summary: 'Add a system package, a language, an environment value or an install script to the tree\'s workspace, for every run of the tree from now on',
+    summary: 'Add a dependency, a system package, a language, an environment value or an install script to the tree\'s workspace, for every run of the tree from now on',
     guidance: 'For something the work needs that the workspace does not have — a binary a command could not find, a library a build needs. '
       + 'Installing it yourself with dnf or pip in the workspace does not last: the next workspace is built from its image, so ask here instead. '
       + 'It is committed to .koala/workspace.json on main and the workspace is rebuilt; it is not there until the rebuild is published, which takes minutes, and longer when it carries a new install script, which waits for the person to approve it. '
@@ -33,7 +33,8 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
         apt: { ...NAMES, description: 'System packages, by their Debian names, for a Debian-based image only.' },
         pip: { ...NAMES, description: 'Python packages.' },
         npm: { ...NAMES, description: 'Node packages, installed globally.' },
-        languages: { ...NAMES, description: 'Languages the workspace should have: python, node, go, java, rust.' },
+        languages: { ...NAMES, description: 'Languages the workspace should have: node, python, go.' },
+        needs: { ...NAMES, description: 'Dependencies the workspace should have, by name: koala-e2e (Playwright, Chromium and the runner browser test checks use), playwright, jq, node, python, go, and the person\'s own (list them in the Studio under Dependencies). Odoo workspaces have koala-e2e already.' },
         env: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, value: { type: 'string' } }, required: ['name', 'value'] }, description: 'Plain environment values, never a credential.' },
         script: { type: 'string', description: 'Shell commands to run at the end of the image build, for what no package manager has. The person approves it before it runs.' },
         treeId: { type: 'string', description: 'The tree. Leave out when working in one, or in a chat about one.' },

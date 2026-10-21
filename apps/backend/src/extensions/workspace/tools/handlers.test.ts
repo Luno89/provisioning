@@ -72,6 +72,7 @@ describe('reading what was asked for', () => {
   it('takes lists as JSON or as text, and env as JSON text', () => {
     expect(changeFrom({ dnf: 'jq ripgrep', languages: ['python'], env: '[{"name":"MODE","value":"test"}]' })).toEqual({ packages: { dnf: ['jq', 'ripgrep'] }, languages: ['python'], env: [{ name: 'MODE', value: 'test' }] });
     expect(changeFrom({ env: [{ name: 'MODE' }] })).toBe('env has to be a list of { name, value }, both text');
+    expect(changeFrom({ needs: '["koala-e2e"]' })).toEqual({ needs: ['koala-e2e'] });
   });
 });
 

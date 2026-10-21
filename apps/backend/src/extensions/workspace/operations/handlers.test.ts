@@ -66,6 +66,10 @@ describe('composing the workspace', () => {
     const script = { from: 'project', install: { via: 'script' as const, run: 'curl -fsSL https://x.test | sh' } };
     expect(changesFrom({ ...PLAN, lines: [...PLAN.lines, script] }, PUBLISHED).script).toBe('curl -fsSL https://x.test | sh');
     expect(changesFrom({ ...PLAN, lines: [...PLAN.lines, script] }, { ...PUBLISHED, lines: [script] }).script).toBeUndefined();
+    const own = { install: { via: 'script' as const, run: 'make install' }, from: 'tool:pdf_text', dependency: 'pdf-tools', own: true as const };
+    const shipped = { install: { via: 'script' as const, run: 'write koala-e2e' }, from: 'project', dependency: 'koala-e2e' };
+    expect(changesFrom({ ...PLAN, lines: [...PLAN.lines, own] }, PUBLISHED).script).toBe('make install');
+    expect(changesFrom({ ...PLAN, lines: [...PLAN.lines, shipped] }, PUBLISHED).script).toBeUndefined();
   });
 
   it('calls the first workspace of a tree its first, and notices an environment change alone', () => {

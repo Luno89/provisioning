@@ -198,12 +198,7 @@ describe('describeLocalContainerSandbox', () => {
 describe('the image catalogue', () => {
   it('ships git everywhere a commit could happen', () => {
     for (const [language, entry] of Object.entries(BY_LANGUAGE)) {
-      if (language === 'base') {
-        expect(entry.absent).toContain('git');
-        expect(entry.summary).toMatch(/no git/i);
-        continue;
-      }
-      expect(entry.available.join(' ')).toMatch(/\bgit\b/);
+      expect(entry.available.join(' '), language).toMatch(/\bgit\b/);
     }
   });
 
@@ -271,7 +266,7 @@ describe('what the brief says about installing packages', () => {
 
   it('says nothing about a manager the image does not have', () => {
     const brief = describeSandbox(IMAGES, {
-      image: BY_LANGUAGE.base.image,
+      image: 'registry.access.redhat.com/ubi9/ubi-minimal',
       egress: [{ namespace: 'gitea', ports: [3000] }],
       env: [],
     });
@@ -318,8 +313,8 @@ describe('the package sources a language needs', () => {
     expect(env.find((e) => e.name === 'GOPROXY')?.value).toContain('proxy.golang.org');
   });
 
-  it('gives the bare image nothing, because it has no package manager', () => {
-    expect(packageAccess(IMAGES, 'base')).toEqual({ env: [], egress: [] });
+  it('gives a workspace with no particular language the Node workspace\'s access, which is what it runs in', () => {
+    expect(packageAccess(IMAGES, 'base')).toEqual(packageAccess(IMAGES, 'node'));
   });
 
   it('gives an unknown language the default toolchain\'s access', () => {

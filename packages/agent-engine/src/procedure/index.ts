@@ -57,7 +57,7 @@ export {
 } from './groups.js';
 export { fillTemplate } from './template.js';
 export { checkProcedure, procedureErrors, type ProcedureProblem, type CheckOptions } from './validate.js';
-export { requiredGrants, missingGrants, type RequiredGrant } from './required.js';
+export { requiredGrants, missingGrants, stepNeeds, type RequiredGrant } from './required.js';
 export { handledSteps, handledTools, describeHandles, describeHandledSteps, type HandledStep, type HandledTools } from './handled.js';
 export { agentsHandedTo, callsModel, outlineProcedure, describeOutline, type ProcedureOutline } from './outline.js';
 export { capForTrace, TRACE_TEXT_LIMIT } from './trace.js';

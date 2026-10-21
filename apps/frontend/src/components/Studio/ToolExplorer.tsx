@@ -91,7 +91,7 @@ export default function ToolExplorer() {
         <div className="max-w-xl space-y-4 pt-10 text-sm text-slate-400">
           <h1 className="flex items-center gap-2 text-lg font-semibold text-slate-200"><Wrench size={20} className="text-[var(--leaf)]" /> Tools</h1>
           <p>A tool is something an agent may call. The ones on the left are grouped by what they act on and how far they go: your workspace, the web, or the platform — looking, proposing, or changing.</p>
-          <p>A tool you write is a command run in the workspace, with the arguments it takes and the binary it needs. Saying how to install that binary is what puts it in the workspace image, so changing it rebuilds the workspace of every agent granted it. An MCP server, with the tools it serves, is added under MCP Servers instead.</p>
+          <p>A tool you write is a command run in the workspace, with the arguments it takes and the dependencies it needs. Naming a dependency is what puts it in the workspace image, so changing what a tool needs rebuilds the workspace of every agent granted it; new ones are added under Dependencies. An MCP server, with the tools it serves, is added under MCP Servers instead.</p>
         </div>
       ) : tools.isPending ? null : !tool ? (
         <p className="text-sm text-slate-400">There is no tool called “{name}”.</p>

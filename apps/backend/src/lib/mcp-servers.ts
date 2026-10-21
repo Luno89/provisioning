@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { DEFAULT_BASE, LANGUAGE_IDS, UnbuildableError, planImage, type BaseImage, type ImagePlan, type Install } from '@koala/agent-engine';
+import { DEFAULT_BASE, DEPENDENCY_NAME, LANGUAGE_IDS, UnbuildableError, planImage, type BaseImage, type ImagePlan, type Need, type WorkspaceDependency } from '@koala/agent-engine';
 import type { McpTool, McpToolAnnotations } from './mcp-client.js';
 
 export type McpToolKind = 'read-only' | 'safe-write' | 'destructive';
@@ -11,8 +11,7 @@ export type ServerRuns =
   | {
     where: 'workspace';
     languages?: string[] | undefined;
-    install: Install[];
-    needsBinaries?: string[] | undefined;
+    needs: string[];
     start: string;
     port: number;
     path?: string | undefined;
@@ -67,18 +66,9 @@ export function runsFingerprint(runs: ServerRuns): string {
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const names = (value: unknown): value is string[] => Array.isArray(value) && value.every((entry) => typeof entry === 'string' && entry.trim().length > 0);
 
-function installProblems(install: unknown): string[] {
-  if (!Array.isArray(install) || install.length === 0) return ['a workspace server has to say how it is installed'];
-  const problems: string[] = [];
-  for (const step of install) {
-    if (!isRecord(step)) { problems.push('each install step has to be an object'); continue; }
-    if (step.via === 'script') {
-      if (typeof step.run !== 'string' || !step.run.trim()) problems.push('an install script has to say what it runs');
-    } else if (['dnf', 'apt', 'pip', 'npm'].includes(String(step.via))) {
-      if (!names(step.packages) || step.packages.length === 0) problems.push(`an install with ${String(step.via)} has to name its packages`);
-    } else problems.push(`"${String(step.via)}" is not a way to install; it can be dnf, apt, pip, npm or script`);
-  }
-  return problems;
+function needsProblems(needs: unknown): string[] {
+  if (!Array.isArray(needs) || needs.length === 0) return ['a workspace server has to name the dependencies that install it'];
+  return needs.flatMap((need) => (typeof need === 'string' && DEPENDENCY_NAME.test(need) ? [] : [`"${String(need)}" is not a dependency name`]));
 }
 
 export function runsProblems(runs: unknown): string[] {
@@ -95,12 +85,11 @@ export function runsProblems(runs: unknown): string[] {
     return typeof runs.deploymentId === 'string' && runs.deploymentId ? [] : ['a hosted server needs its URL or the deployment it is'];
   }
   if (runs.where !== 'workspace') return ['a server runs hosted or in the workspace'];
-  const problems = installProblems(runs.install);
+  const problems = needsProblems(runs.needs);
   if (typeof runs.start !== 'string' || !runs.start.trim()) problems.push('say the command that starts the server');
   if (!Number.isInteger(runs.port) || (runs.port as number) < 1024 || (runs.port as number) > 65535) problems.push('the port has to be a whole number from 1024 to 65535');
   if (runs.path !== undefined && (typeof runs.path !== 'string' || !runs.path.startsWith('/'))) problems.push('the path has to start with /');
   if (runs.languages !== undefined && (!names(runs.languages) || runs.languages.some((language) => !LANGUAGE_IDS.includes(language)))) problems.push(`languages can be ${LANGUAGE_IDS.join(', ')}`);
-  if (runs.needsBinaries !== undefined && !names(runs.needsBinaries)) problems.push('needsBinaries has to be a list of program names');
   return problems;
 }
 
@@ -151,22 +140,18 @@ export const isWorkspaceServer = (server: Pick<McpServerRecord, 'runs'>): server
 
 export const serverSource = (name: string): string => `server:${name}`;
 
-export function serverContributions(server: Pick<McpServerRecord, 'name' | 'runs'>): { from: string; install: Install }[] {
+export function serverNeeds(server: Pick<McpServerRecord, 'name' | 'runs'>): Need[] {
   if (server.runs.where !== 'workspace') return [];
-  return server.runs.install.map((install) => ({ from: serverSource(server.name), install }));
+  return server.runs.needs.map((name) => ({ name, from: serverSource(server.name) }));
 }
 
-export function planServerImage(runs: WorkspaceRuns, name: string, bases: readonly BaseImage[]): ImagePlan {
+export function planServerImage(runs: WorkspaceRuns, name: string, bases: readonly BaseImage[], dependencies: readonly WorkspaceDependency[]): ImagePlan {
   const languages = runs.languages ?? [];
   const base = languages.find((language) => bases.some((candidate) => candidate.id === language)) ?? DEFAULT_BASE;
-  const plan = planImage({ base, languages, tools: [], contributions: serverContributions({ name, runs }), bases });
-  const missing = [...new Set(['curl', ...(runs.needsBinaries ?? [])])].filter((binary) => !plan.provides.includes(binary) && !installsBinary(runs, binary));
-  if (missing.length > 0) throw new UnbuildableError(`${name} needs ${missing.join(', ')}, which its workspace does not have and its install does not add`);
+  const plan = planImage({ base, languages, tools: [], needs: serverNeeds({ name, runs }), bases, dependencies });
+  if (!plan.provides.includes('curl')) throw new UnbuildableError(`${name} is reached with curl, which its workspace does not have`);
   return plan;
 }
-
-const installsBinary = (runs: WorkspaceRuns, binary: string): boolean =>
-  runs.install.some((install) => install.via !== 'script' && install.via !== 'base' && install.packages.includes(binary));
 
 export function withKind(declared: McpToolAnnotations | undefined, kind: McpToolKind | undefined): McpToolAnnotations | undefined {
   if (!kind) return declared;

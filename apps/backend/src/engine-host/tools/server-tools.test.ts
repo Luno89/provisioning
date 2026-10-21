@@ -6,7 +6,7 @@ import type { RunTicket } from '../temporal/contracts.js';
 const ticket: RunTicket = { runId: 'run-1', depth: 0, ownerId: 'u1', agentSlug: 'executor', trigger: 'user', conversationId: 'c1' };
 const sandbox = { id: 'sandbox-1', spec: { kind: 'sandbox', lifecycle: 'invocation' } } as never;
 
-const WORKSPACE: ServerRuns = { where: 'workspace', install: [{ via: 'npm', packages: ['@playwright/mcp'] }], start: 'playwright-mcp --port 8931', port: 8931 };
+const WORKSPACE: ServerRuns = { where: 'workspace', needs: ['playwright-mcp'], start: 'playwright-mcp --port 8931', port: 8931 };
 const HOSTED: ServerRuns = { where: 'hosted', url: 'http://docs.test/mcp' };
 
 const server = (name: string, runs: ServerRuns, over: Partial<McpServerRecord> = {}): McpServerRecord => ({

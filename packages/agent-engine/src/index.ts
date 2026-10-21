@@ -142,7 +142,6 @@ export {
   BASES,
   DEFAULT_BASE,
   UnbuildableError,
-  LANGUAGES,
   LANGUAGE_IDS,
   baseFor,
   languagesFor,
@@ -151,12 +150,25 @@ export {
   imageReference,
   needsBuilding,
   renderDockerfile,
+  proofScript,
+  type DependencyProof,
   type ImagePlan,
   type PlanLine,
   type Contribution,
   type BaseImage,
-  type Language,
 } from './environment/image.js';
+export {
+  LANGUAGE_DEPENDENCIES,
+  MANAGER_NEEDS,
+  DEPENDENCY_NAME,
+  dependencyProblems,
+  resolveNeeds,
+  UnknownDependencyError,
+  DependencyCycleError,
+  type WorkspaceDependency,
+  type Need,
+  type ResolvedDependency,
+} from './environment/dependencies.js';
 export type { ModelProvider } from './model/model-registry.js';
 
 // Builder Tool Schemas

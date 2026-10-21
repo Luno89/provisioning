@@ -7,7 +7,7 @@ import type { ActionProposal } from '../lib/action-proposals.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../lib/mcp-servers.js';
 import type { ImageNow } from '../lib/proposal-progress.js';
 
-const WORKSPACE: ServerRuns = { where: 'workspace', install: [{ via: 'npm', packages: ['@playwright/mcp'] }], start: 'playwright-mcp', port: 8931 };
+const WORKSPACE: ServerRuns = { where: 'workspace', needs: ['playwright-mcp'], start: 'playwright-mcp', port: 8931 };
 
 const post = (url: string) => axios.post(url, {}, { validateStatus: () => true });
 

@@ -1,3 +1,4 @@
+import type { WorkspaceDependency } from '@koala/agent-engine';
 import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import type { ActionProposal, McpRequest } from '@koala/harness-types';
@@ -25,6 +26,7 @@ const refuse = (reason: string): ToolOutcome => ({ ok: false, digest: reason, co
 export interface McpProposalAccess {
   templates: () => readonly McpServerTemplate[];
   agents: (ownerId: string) => Promise<readonly { slug: string; servers?: readonly string[] | undefined }[]>;
+  dependencies: (ownerId: string) => Promise<readonly WorkspaceDependency[]>;
   proposals: {
     list(ownerId: string): Promise<ActionProposal[]>;
     save(proposal: ActionProposal): Promise<void>;
@@ -63,8 +65,8 @@ export function createMcpRequestTools(options: {
 
     async propose_mcp_server({ parsed, caller }: Parameters<ToolHandler>[0]): Promise<ToolOutcome> {
       if (!caller.ownerId) return refuse('this run has no owner to propose a server for');
-      const [servers, agents] = await Promise.all([options.catalogue(caller.ownerId), proposing.agents(caller.ownerId)]);
-      const drafted = draftServerProposal(parsed, { servers, templates: proposing.templates(), agents });
+      const [servers, agents, dependencies] = await Promise.all([options.catalogue(caller.ownerId), proposing.agents(caller.ownerId), proposing.dependencies(caller.ownerId)]);
+      const drafted = draftServerProposal(parsed, { servers, templates: proposing.templates(), agents, dependencies });
       if ('problem' in drafted) return refuse(`${drafted.problem}; nothing was proposed`);
       const params = { spec: JSON.stringify(drafted.proposal) };
       const open = (await proposing.proposals.list(caller.ownerId)).find((entry) => entry.status === 'proposed' && sameAction(entry, 'add_mcp_server', params));

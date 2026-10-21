@@ -1,23 +1,13 @@
 import { useState } from 'react'
 import { Loader2, Plus, X } from 'lucide-react'
-import type { EngineTool, InstallVia, ToolArgument, WorkspaceBuildFailure } from '../../api/engineTools'
+import type { EngineTool, ToolArgument, WorkspaceBuildFailure } from '../../api/engineTools'
+import NeedsPicker from '../NeedsPicker'
 import { errorMessage, useDeleteEngineTool, useSaveEngineTool } from './shared'
-import { commandProblems, packagesOf } from './tool-forms'
+import { commandProblems } from './tool-forms'
 
 const field = 'w-full rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)] px-2 py-1 text-xs text-slate-200 outline-none focus:border-[var(--leaf-stem)]'
 
 const label = 'text-[10px] font-semibold uppercase tracking-wider text-slate-400'
-
-const VIA: InstallVia[] = ['base', 'dnf', 'apt', 'pip', 'npm', 'script']
-
-const VIA_SAYS: Record<InstallVia, string> = {
-  base: 'nothing to install — the workspace already has it',
-  dnf: 'system packages (Red Hat bases)',
-  apt: 'system packages (Debian bases)',
-  pip: 'python packages',
-  npm: 'node packages, installed globally',
-  script: 'a command run as root while the image is built',
-}
 
 export default function ToolEditor({ tool, onClose, onDeleted }: { tool: EngineTool; onClose?: (() => void) | undefined; onDeleted?: (() => void) | undefined }) {
   // A tool stored before these two were required carries neither, and an unticked box sends nothing
@@ -76,12 +66,6 @@ export default function ToolEditor({ tool, onClose, onDeleted }: { tool: EngineT
     const { [name]: _gone, ...rest } = current.parameters.properties
     return { ...current, parameters: { ...current.parameters, properties: rest } }
   })
-
-  const setVia = (via: InstallVia) => {
-    if (via === 'base') return set('install', { via })
-    if (via === 'script') return set('install', { via, run: draft.install && 'run' in draft.install ? draft.install.run : '' })
-    return set('install', { via, packages: draft.install && 'packages' in draft.install ? draft.install.packages : [] })
-  }
 
   const local = commandProblems(draft.command ?? '', args.map(([name]) => name))
 
@@ -172,54 +156,7 @@ export default function ToolEditor({ tool, onClose, onDeleted }: { tool: EngineT
           ))}
         </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="space-y-1">
-          <span className={label}>Binaries it needs in the image</span>
-          <input
-            className={`${field} font-mono`}
-            placeholder="rg, jq"
-            value={(draft.needsBinaries ?? []).join(', ')}
-            onChange={(event) => set('needsBinaries', event.target.value.split(',').map((entry) => entry.trim()).filter(Boolean))}
-          />
-        </label>
-        <label className="space-y-1">
-          <span className={label}>How they get installed</span>
-          <select className={field} value={draft.install?.via ?? 'base'} onChange={(event) => setVia(event.target.value as InstallVia)}>
-            {VIA.map((via) => <option key={via} value={via}>{via} — {VIA_SAYS[via]}</option>)}
-          </select>
-        </label>
-      </div>
-
-      {draft.install && 'packages' in draft.install && (
-        <label className="block space-y-1">
-          <span className={label}>Packages</span>
-          <input
-            className={`${field} font-mono`}
-            placeholder="ripgrep, jq"
-            value={packagesOf(draft.install)}
-            onChange={(event) => set('install', {
-              via: (draft.install as { via: 'dnf' | 'apt' | 'pip' | 'npm' }).via,
-              packages: event.target.value.split(',').map((entry) => entry.trim()).filter(Boolean),
-            })}
-          />
-        </label>
-      )}
-
-      {draft.install?.via === 'script' && (
-        <label className="block space-y-1">
-          <span className={label}>Install script</span>
-          <textarea
-            className={`${field} font-mono`}
-            rows={3}
-            placeholder="curl -fsSL https://example.com/tool.sh | sh"
-            value={draft.install.run}
-            onChange={(event) => set('install', { via: 'script', run: event.target.value })}
-          />
-          <span className="block text-[11px] text-amber-300">
-            This runs as root while the image is built. Only put in what you would run on your own machine.
-          </span>
-        </label>
-      )}
+      <NeedsPicker label="What it needs in the workspace" value={draft.needs ?? []} onChange={(needs) => set('needs', needs)} />
 
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1">

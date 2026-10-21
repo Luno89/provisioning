@@ -21,6 +21,12 @@ describe('editing a workspace file', () => {
     expect(isEdited(draft, file, MANAGERS)).toBe(false)
     expect(isEdited({ ...draft, packages: { ...draft.packages, pip: 'cowsay, ' } }, file, MANAGERS)).toBe(false)
     expect(isEdited({ ...draft, languages: ['go'] }, file, MANAGERS)).toBe(true)
+    expect(isEdited({ ...draft, needs: ['koala-e2e'] }, file, MANAGERS)).toBe(true)
+  })
+
+  it('keeps the dependencies named through the form, and leaves the list out when empty', () => {
+    expect(fileOf(draftOf({ needs: ['koala-e2e'] }, MANAGERS))).toEqual({ needs: ['koala-e2e'] })
+    expect(fileOf({ ...draftOf({ needs: ['koala-e2e'] }, MANAGERS), needs: [] })).toEqual({})
   })
 
   it('marks the lines main has that the published workspace does not', () => {

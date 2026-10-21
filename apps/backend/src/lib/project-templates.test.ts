@@ -3,7 +3,9 @@ import { execSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { NODE_SERVICE_FILES, MCP_SERVER_FILES, LIBRARY_FILES } from './project-templates.js';
+import { NODE_SERVICE_FILES, MCP_SERVER_FILES, LIBRARY_FILES, UI_APP_FILES } from './project-templates.js';
+import { readWorkspaceFile, WORKSPACE_FILE } from './workspace-file.js';
+import { PLAYWRIGHT_VERSION } from './e2e.js';
 import { renderStarterFiles } from './tree-types.js';
 import { TREE_TYPE_SEEDS } from './tree-type-seeds.js';
 
@@ -84,3 +86,21 @@ describe('every shipped type\'s Dockerfile', () => {
   });
 });
 
+
+describe('the ui-app starter', () => {
+  const file = (path: string) => UI_APP_FILES.find((entry) => entry.path === path)!.content;
+
+  it('turns browser tests on, with the Playwright whose Chromium the workspace has', () => {
+    expect(readWorkspaceFile(file(WORKSPACE_FILE))).toEqual({ file: { needs: ['koala-e2e'] } });
+    expect(JSON.parse(file('package.json')).devDependencies['@playwright/test']).toBe(PLAYWRIGHT_VERSION);
+    expect(file('e2e/app.spec.ts')).toContain("from '@playwright/test'");
+    expect(file('.gitignore')).toContain('node_modules/');
+  });
+
+  it('builds and serves the app for the tests, with a wait Node\'s timers can hold', () => {
+    const config = file('playwright.config.ts');
+    expect(config).toContain("command: 'npm run build && npm run preview");
+    const timeout = Number(/timeout: ([\d_]+)/.exec(config)![1]!.replace(/_/g, ''));
+    expect(timeout).toBe(2 ** 31 - 1);
+  });
+});

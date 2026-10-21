@@ -1,4 +1,5 @@
 import { GiteaConflictError } from './GiteaService.js';
+import { unknownNeeds, unknownNeedsSaid } from '../lib/workspace-dependencies.js';
 import { readWorkspaceFile, WORKSPACE_FILE, withChange, workspaceFileProblems, writeWorkspaceFile, type WorkspaceChange, type WorkspaceFile } from '../lib/workspace-file.js';
 
 export interface WorkspaceFileDeps {
@@ -7,6 +8,7 @@ export interface WorkspaceFileDeps {
   read: (ownerId: string, repo: string, path: string, ref: string) => Promise<string | undefined>;
   write: (ownerId: string, repo: string, path: string, content: string, message: string, branch: string) => Promise<{ changed: boolean; commit?: string | undefined }>;
   branch: string;
+  dependencies?: ((ownerId: string) => Promise<readonly { name: string }[]>) | undefined;
 }
 
 export type WorkspaceFileRead =
@@ -41,6 +43,8 @@ export class WorkspaceFileService {
     if (!current.ok) return current;
     const changed = withChange(current.file, change);
     if ('problems' in changed) return { ok: false, why: changed.problems.join('; ') };
+    const unknown = await this.unknownNeeds(ownerId, changed.file);
+    if (unknown) return { ok: false, why: unknown };
     if (changed.added.length === 0) return { ok: true, file: current.file, added: [], written: false };
     return this.commit(ownerId, current.repo, changed.file, changed.added, `Workspace: add ${changed.added.join('; ')}\n\n${said}`);
   }
@@ -48,9 +52,18 @@ export class WorkspaceFileService {
   async save(ownerId: string, treeId: string, value: unknown, said: string): Promise<WorkspaceFileWrite> {
     const problems = workspaceFileProblems(value);
     if (problems.length > 0) return { ok: false, why: problems.join('; ') };
+    const unknown = await this.unknownNeeds(ownerId, value as WorkspaceFile);
+    if (unknown) return { ok: false, why: unknown };
     const repo = await this.repoOf(ownerId, treeId);
     if (typeof repo !== 'string') return { ok: false, ...repo };
     return this.commit(ownerId, repo, value as WorkspaceFile, [], `Workspace: ${said}`);
+  }
+
+  private async unknownNeeds(ownerId: string, file: WorkspaceFile): Promise<string | undefined> {
+    if (!this.deps.dependencies || !file.needs?.length) return undefined;
+    const catalogue = await this.deps.dependencies(ownerId);
+    const unknown = unknownNeeds(file.needs, catalogue);
+    return unknown.length ? unknownNeedsSaid(unknown, catalogue) : undefined;
   }
 
   private async commit(ownerId: string, repo: string, file: WorkspaceFile, added: string[], message: string): Promise<WorkspaceFileWrite> {

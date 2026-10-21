@@ -18,6 +18,7 @@ export interface HostOperation {
   summary: string;
   idempotent: boolean;
   spends?: readonly BudgetSpend[] | undefined;
+  needs?: readonly string[] | undefined;
 }
 
 const OPERATION_NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$/;

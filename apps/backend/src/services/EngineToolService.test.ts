@@ -1,3 +1,4 @@
+import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { describe, it, expect, vi } from 'vitest';
 import { EngineToolService, toolProblems } from './EngineToolService.js';
 import { toRecord, type Persona, type ToolDefinition } from '@koala/agent-engine';
@@ -21,8 +22,7 @@ const tool = (over: Partial<ToolDefinition> = {}): ToolDefinition => ({
     },
   },
   command: 'rg --count {pattern} {path}',
-  needsBinaries: ['rg'],
-  install: { via: 'dnf', packages: ['ripgrep'] },
+  needs: ['jq'],
   ...over,
 });
 
@@ -98,12 +98,12 @@ describe('what a tool is refused for', () => {
   });
 
   it('needs a command when nothing here already runs a tool of that name', () => {
-    expect(toolProblems(tool({ command: undefined, needsBinaries: undefined, install: undefined }), { implemented: IMPLEMENTED }))
+    expect(toolProblems(tool({ command: undefined, needs: undefined }), { implemented: IMPLEMENTED }))
       .toContain('nothing here runs this tool, so it needs a command to run in the workspace; an MCP server is added to the catalogue of MCP servers instead');
   });
 
   it('lets a copy of a built-in stand without a command, because one already runs it', () => {
-    const copy = tool({ name: 'read_file', command: undefined, needsBinaries: undefined, install: undefined });
+    const copy = tool({ name: 'read_file', command: undefined, needs: undefined });
 
     expect(toolProblems(copy, { implemented: IMPLEMENTED })).toEqual([]);
   });
@@ -114,39 +114,24 @@ describe('what a tool is refused for', () => {
   });
 
   it('refuses a command on a tool that has no workspace to run it in', () => {
-    const problems = toolProblems(tool({ binding: 'network', needsBinaries: undefined, install: undefined }), { implemented: IMPLEMENTED });
+    const problems = toolProblems(tool({ binding: 'network', needs: undefined }), { implemented: IMPLEMENTED });
 
     expect(problems.join(' ')).toContain('only an environment-bound tool can run a command');
   });
 
-  it('refuses an install that names no packages, and a script that is empty', () => {
-    expect(toolProblems(tool({ install: { via: 'dnf', packages: [] } }), { implemented: IMPLEMENTED }))
-      .toContain('the install names no packages, so it would install nothing');
-    expect(toolProblems(tool({ install: { via: 'script', run: '  ' } }), { implemented: IMPLEMENTED }))
-      .toContain('the install script is empty, so it would install nothing');
-  });
-
-  it('takes a script install when it says which binary it gives', () => {
-    const scripted = tool({ needsBinaries: ['gh'], install: { via: 'script', run: 'curl -fsSL https://example.com/gh | sh' } });
-
-    expect(toolProblems(scripted, { implemented: IMPLEMENTED })).toEqual([]);
-  });
-
-  it('refuses an install that never says what binary it provides', () => {
-    expect(toolProblems(tool({ needsBinaries: [], install: { via: 'dnf', packages: ['ripgrep'] } }), { implemented: IMPLEMENTED }))
-      .toContain('it installs something but never says which binary that gives it');
-  });
-
-  it('refuses a binary with no way to install it', () => {
-    expect(toolProblems(tool({ install: undefined }), { implemented: IMPLEMENTED }).join(' '))
-      .toContain('does not say how to install it');
+  it('takes needs only by the name of a dependency there is', () => {
+    expect(toolProblems(tool({ needs: ['ripgrep'] }), { implemented: IMPLEMENTED }))
+      .toEqual([expect.stringMatching(/^no dependency is called "ripgrep"; there are .*koala-e2e.*, or add one of your own$/)]);
+    const own = { name: 'ripgrep', summary: 'rg.', provides: ['rg'], install: [{ via: 'dnf' as const, packages: ['ripgrep'] }], ownerId: 'user-1' };
+    expect(toolProblems(tool({ needs: ['ripgrep'] }), { implemented: IMPLEMENTED, dependencies: [...SHIPPED_DEPENDENCIES, own] })).toEqual([]);
+    expect(toolProblems(tool({ needs: 'jq' as never }), { implemented: IMPLEMENTED })).toContain('needs has to be a list of dependency names');
   });
 });
 
 describe('the tools a person can edit', () => {
   it('says which are theirs and which agents were granted them', async () => {
     const { tools } = await setup({
-      stored: [tool({ ownerId: undefined }), tool({ name: 'read_file', ownerId: 'user-1', command: undefined, needsBinaries: undefined, install: undefined })],
+      stored: [tool({ ownerId: undefined }), tool({ name: 'read_file', ownerId: 'user-1', command: undefined, needs: undefined })],
       personas: [persona()],
     });
 
@@ -186,7 +171,7 @@ describe('the tools a person can edit', () => {
   it('rebuilds the workspace of every agent granted the tool it just changed', async () => {
     const { tools, start } = await setup({ stored: [tool({ ownerId: undefined })], personas: [persona(), persona({ slug: 'judge', tools: [] })] });
 
-    const outcome = await tools.save('user-1', tool({ install: { via: 'dnf', packages: ['ripgrep', 'jq'] } }));
+    const outcome = await tools.save('user-1', tool({ needs: ['jq', 'node'] }));
 
     expect(start).toHaveBeenCalledTimes(1);
     expect(outcome).toMatchObject({ saved: true, rebuilding: ['executor'] });
@@ -199,7 +184,7 @@ describe('the tools a person can edit', () => {
       images: 'unreachable',
     });
 
-    const outcome = await tools.save('user-1', tool({ install: { via: 'dnf', packages: ['ripgrep'] } }));
+    const outcome = await tools.save('user-1', tool({ needs: ['jq', 'go'] }));
 
     expect(outcome).toMatchObject({
       saved: true,
@@ -214,7 +199,7 @@ describe('the tools a person can edit', () => {
   it('passes on a build that reported itself failed, so the person hears it at the save', async () => {
     const { tools } = await setup({ stored: [tool({ ownerId: undefined })], personas: [persona()], images: 'reported' });
 
-    const outcome = await tools.save('user-1', tool({ install: { via: 'dnf', packages: ['ripgrep'] } }));
+    const outcome = await tools.save('user-1', tool({ needs: ['jq', 'go'] }));
 
     expect(outcome).toMatchObject({
       saved: true,

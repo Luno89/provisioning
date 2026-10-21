@@ -3,7 +3,7 @@ import { scriptProblems, type CheckScript } from '../../lib/check-script.js';
 import { stepProcedure, stepProcedureId, type StepUnderTest } from '../../lib/step-check.js';
 import { TURN_PROCEDURE_ID, turnChoiceProblems, type TurnChoice } from '../../lib/turn-check.js';
 import { platformCatalogue } from '../../extensions/installed.js';
-import { checkDefinition, type ToolDefinition } from '@koala/agent-engine';
+import { checkDefinition, dependencyProblems, type ToolDefinition, type WorkspaceDependency } from '@koala/agent-engine';
 import { SEPARATOR, slugify } from '../../lib/mcp-tools.js';
 import { serverProblems, type McpServerRecord } from '../../lib/mcp-servers.js';
 import type { TaskStatus } from '../../engine-host/tools/tasks.js';
@@ -37,6 +37,7 @@ export interface ScenarioWorld {
   agents?: Record<string, Record<string, unknown>> | undefined;
   tools?: ToolDefinition[] | undefined;
   mcpServers?: WorldServer[] | undefined;
+  dependencies?: WorkspaceDependency[] | undefined;
   project?: { name: string } | undefined;
   apps?: Array<{ name: string; appType: string }> | undefined;
   treeTypes?: Record<string, Record<string, unknown>> | undefined;
@@ -304,6 +305,10 @@ export function scenarioProblems(
     worldServers.map((server) => `${slugify(server.name)}${SEPARATOR}`),
   );
   if (scenario.world?.mcpServers !== undefined && !Array.isArray(scenario.world.mcpServers)) problems.push('its world\'s MCP servers have to be a list');
+  if (scenario.world?.dependencies !== undefined && !Array.isArray(scenario.world.dependencies)) problems.push('its world\'s dependencies have to be a list');
+  for (const dependency of Array.isArray(scenario.world?.dependencies) ? scenario.world.dependencies : []) {
+    for (const problem of dependencyProblems(dependency)) problems.push(`its world's dependency: ${problem}`);
+  }
   worldServers.forEach((server, at) => {
     for (const problem of serverProblems(server, worldServers.slice(0, at).map((other, index) => ({ id: String(index), name: other.name })))) problems.push(`its world's MCP server ${String(server.name)}: ${problem}`);
   });

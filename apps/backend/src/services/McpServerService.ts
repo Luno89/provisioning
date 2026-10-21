@@ -1,3 +1,6 @@
+import type { WorkspaceDependency } from '@koala/agent-engine';
+import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
+import { unknownNeeds, unknownNeedsSaid } from '../lib/workspace-dependencies.js';
 import { randomUUID } from 'node:crypto';
 import type { StartRunRequest, StartedRun } from '../engine-host/registries/run-starter.js';
 import { MCP_CAPTURE_AGENT } from '../extensions/mcp/personas.js';
@@ -22,6 +25,7 @@ export interface McpServerDeps {
   names: (ownerId: string, deployment: DeploymentMetadata) => Promise<{ treeName?: string | undefined; projectName?: string | undefined; declared?: string | undefined }>;
   grants?: ServerFollowers | undefined;
   notes?: ServerFollowers | undefined;
+  dependencies?: ((ownerId: string) => Promise<readonly WorkspaceDependency[]>) | undefined;
   now?: (() => Date) | undefined;
   newId?: (() => string) | undefined;
 }
@@ -200,7 +204,7 @@ export class McpServerService {
       from = { template: template.id };
     }
     const shaped = this.shaped(seed, {});
-    const problems = serverProblems(shaped, existing);
+    const problems = [...serverProblems(shaped, existing), ...await this.needsProblems(ownerId, shaped.runs)];
     if (problems.length > 0) return { ok: false, status: problems.some((problem) => problem.startsWith('you already have')) ? 409 : 400, error: problems.join('; ') };
     const stamp = this.now().toISOString();
     const server: McpServerRecord = { ...shaped, id: this.deps.newId?.() ?? randomUUID(), ownerId, ...(from ? { from } : {}), createdAt: stamp, updatedAt: stamp };
@@ -213,7 +217,7 @@ export class McpServerService {
     const current = existing.find((server) => server.id === id);
     if (!current) return { ok: false, status: 404, error: 'Server not found' };
     const shaped = this.shaped(input, current);
-    const problems = serverProblems(shaped, existing, id);
+    const problems = [...serverProblems(shaped, existing, id), ...await this.needsProblems(ownerId, shaped.runs)];
     if (problems.length > 0) return { ok: false, status: problems.some((problem) => problem.startsWith('you already have')) ? 409 : 400, error: problems.join('; ') };
     const saved: McpServerRecord = { ...shaped, id, ownerId, createdAt: current.createdAt, updatedAt: this.now().toISOString() };
     await this.deps.store.save(saved);
@@ -223,6 +227,13 @@ export class McpServerService {
     }
     const changed = runsFingerprint(saved.runs) !== runsFingerprint(current.runs);
     return { ok: true, server: this.view(changed ? await this.capture(saved) : saved) };
+  }
+
+  private async needsProblems(ownerId: string, runs: McpServerRecord['runs']): Promise<string[]> {
+    if (runs?.where !== 'workspace' || !Array.isArray(runs.needs)) return [];
+    const catalogue = this.deps.dependencies ? await this.deps.dependencies(ownerId) : SHIPPED_DEPENDENCIES;
+    const unknown = unknownNeeds(runs.needs, catalogue);
+    return unknown.length ? [unknownNeedsSaid(unknown, catalogue)] : [];
   }
 
   async recapture(ownerId: string, id: string): Promise<McpServerOutcome> {

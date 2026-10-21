@@ -100,7 +100,7 @@ export const ACCOUNT_DATA = {
     'evalAgentChanges', 'evalCases', 'evalLevel1Runs', 'evalPrompts', 'evalRuns', 'evalScenarioProposals', 'evalScenarioRuns',
     'evalScenarios', 'instanceJoinTokens', 'instances', 'leaves', 'localAgentDevices', 'machineJoinCodes', 'mcpRequests', 'mcpToolHints', 'memories',
     'modelEndpoints', 'mcpServers', 'monitoringAlertEpisodes', 'monitoringAlertRules', 'monitoringSettings', 'odooReleases', 'pendingApprovals', 'planProposals', 'procedures', 'projects', 'publishedWorkspaces', 'secretRequests', 'tasks', 'toolGrants', 'treeTypes', 'trees', 'workFailures',
-    'scriptedRequests', 'turnLogs', 'workspaceImages',
+    'scriptedRequests', 'turnLogs', 'workspaceDependencies', 'workspaceImages',
   ],
   byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts', 'keeperSettings', 'notificationSettings'],
   related: { memoryWatermarks: 'the keys of its conversations', crawl_frontier: 'its ingests', pipelineRuns: 'its projects' },

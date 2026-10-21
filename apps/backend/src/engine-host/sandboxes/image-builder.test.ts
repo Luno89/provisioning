@@ -16,8 +16,7 @@ const needsPsql: ToolDefinition = {
   returns: 'rows',
   failures: [{ when: 'the query is bad', says: 'the query failed' }],
   parameters: { type: 'object', properties: { sql: { type: 'string', description: 'the query' } } },
-  needsBinaries: ['psql'],
-  install: { via: 'dnf', packages: ['postgresql'] },
+  needs: ['go'],
 };
 
 const PLAIN = planImage({ tools: [] });
@@ -118,8 +117,8 @@ describe('building what does', () => {
 
     const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
     expect(applied).toContain('ConfigMap');
-    expect(applied).toContain('microdnf install -y postgresql');
-    expect(applied).toContain('dnf install -y postgresql');
+    expect(applied).toContain('microdnf install -y go-toolset');
+    expect(applied).toContain('dnf install -y go-toolset');
     expect(applied).toContain('--context=dir:///workspace');
   });
 
@@ -289,6 +288,11 @@ describe('saying why a build failed', () => {
 
   it('falls back to the last thing said when nothing looks like a complaint', () => {
     expect(lastComplaint('INFO[0001] Unpacking rootfs\nsomething happened')).toBe('something happened');
+    expect(lastComplaint([
+      'the dependency liar said it puts rg in the workspace, and once it was installed rg is not there',
+      'the dependency fonts said it puts libfreetype.so.6 in the workspace, and once it was installed libfreetype.so.6 is not there',
+      'error building image: error building stage: failed to execute command: waiting for process to exit: exit status 1',
+    ].join('\n'))).toBe('the dependency liar said it puts rg in the workspace, and once it was installed rg is not there; the dependency fonts said it puts libfreetype.so.6 in the workspace, and once it was installed libfreetype.so.6 is not there');
   });
 
   it('has nothing to say about empty logs', () => {

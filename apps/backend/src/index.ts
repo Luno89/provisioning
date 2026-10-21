@@ -49,7 +49,7 @@ import { conversationsRouter } from './routes/conversations.js';
 import { engineRouter } from './routes/engine.js';
 import { proceduresRouter } from './routes/procedures.js';
 import { ProcedureService } from './services/ProcedureService.js';
-import { createProcedureStore } from './engine-host/registries/procedure-store.js';
+import { createProcedureStore, stepNeedsReader } from './engine-host/registries/procedure-store.js';
 import { createModelNodes, createProcedureExecutor, hostNodesFor } from './engine-host/nodes/index.js';
 import { agentsRouter } from './routes/agents.js';
 import { autoModeRouter } from './routes/auto-mode.js';
@@ -239,6 +239,8 @@ import { releasesRouter } from './routes/releases.js';
 import { artifactsRouter } from './routes/artifacts.js';
 import { CHART_FILE, ODOO_RELEASE_SECRETS, OWN_SECRET_FILE } from './lib/odoo-release.js';
 import { providerServing } from './lib/model-registry.js';
+import { WorkspaceDependencyService } from './services/WorkspaceDependencyService.js';
+import { workspaceDependenciesRouter } from './routes/workspace-dependencies.js';
 import { createArtifactService } from './services/artifact-service-factory.js';
 
 dotenv.config();
@@ -417,7 +419,24 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
 
   const extensions = extensionServiceFor(db);
+  const dependencyFollowers: { tools?: EngineToolService; servers?: McpServerService } = {};
+  const workspaceDependencies = new WorkspaceDependencyService({
+    store: db,
+    tools: (ownerId) => db.getEngineTools(ownerId),
+    servers: (ownerId) => db.getMcpServers(ownerId),
+    workspaces: (ownerId) => db.getPublishedWorkspaces(ownerId),
+    changed: async (ownerId, _name, use) => {
+      if (use.tools.length) await dependencyFollowers.tools?.rebuildNeeding(ownerId, use.tools);
+      const servers = await db.getMcpServers(ownerId);
+      for (const name of use.servers) {
+        const server = servers.find((entry) => entry.name === name);
+        if (server) await dependencyFollowers.servers?.recapture(ownerId, server.id);
+      }
+    },
+  });
+  const dependenciesOf = (ownerId: string) => workspaceDependencies.catalogue(ownerId);
   const agentDirectory = directoryFromDatabase(db, {
+    stepNeeds: stepNeedsReader({ sources: { list: (ownerId?: string) => db.getProcedures(ownerId) }, published: (ownerId: string) => extensions.groups(ownerId) }),
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     onChanged: (ownerId: string) => void bench.service?.changed(ownerId).catch(() => undefined),
   });
@@ -1220,6 +1239,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const evalWeb = await buildWebTools(db).catch(() => undefined);
   const evalHost = createEngineHost({
+    dependencies: dependenciesOf,
     customizations: { drift: (...args) => customizations.drift(...args), propose: (...args) => customizations.propose(...args), exportItems: (...args) => customizations.exportItems(...args) },
     treeModels: {
       describe: (ownerId, treeId) => treeModels.describe(ownerId, treeId),
@@ -1428,11 +1448,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       list: (ownerId: string) => db.getTasks(ownerId),
       save: (task) => db.saveTask(task),
     },
+    ...(evalHost.acceptedNeeds ? { accepted: evalHost.acceptedNeeds } : {}),
   }));
 
   tenant.use('/api/engine-tools', engineToolsRouter({
-    tools: new EngineToolService({
+    tools: dependencyFollowers.tools = new EngineToolService({
       catalogue: draftCatalogue,
+      dependencies: dependenciesOf,
       tools: {
         list: (ownerId?: string) => db.getEngineTools(ownerId),
         save: (tool) => db.saveEngineTool(tool),
@@ -1459,6 +1481,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       procedures: (ownerId: string) => engineRegistry.procedures(ownerId),
       treeTypes: async (ownerId: string) => treeTypeChoices(await db.getTreeTypes(ownerId), ownerId),
       servers: (ownerId: string) => db.getMcpServers(ownerId),
+      dependencies: dependenciesOf,
       images: evalHost.images,
     }),
   }));
@@ -1492,6 +1515,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.use('/api/memories', memoriesRouter({ db, temporalBridge }));
 
   const treeTypeDescriptions = new TreeTypeDescriptions({
+    dependencies: dependenciesOf,
     releaseAgents: (ownerId) => releaseSettings.agents(ownerId),
     restores: restoringApp,
     treeTypes: (ownerId) => db.getTreeTypes(ownerId),
@@ -1607,7 +1631,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault: infisicalService }) }));
   tenant.use('/api/branches', branchesRouter({ db, deletion: groveDeletion, order: groveOrder }));
 
-  const mcpCatalogue = new McpServerService({
+  const mcpCatalogue = dependencyFollowers.servers = new McpServerService({
+    dependencies: dependenciesOf,
     store: { list: (ownerId) => db.getMcpServers(ownerId), save: (server) => db.saveMcpServer(server), remove: (ownerId, id) => db.deleteMcpServer(ownerId, id) },
     templates: () => MCP_SERVER_TEMPLATES,
     runs: engineRuns,
@@ -1621,6 +1646,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       return { ...(tree?.name ? { treeName: tree.name } : {}), ...(project?.name ? { projectName: project.name } : {}), declared: (tree as { serviceName?: unknown } | undefined)?.serviceName as string | undefined };
     },
   });
+  tenant.use('/api/workspace-dependencies', workspaceDependenciesRouter({ dependencies: workspaceDependencies }));
   tenant.use('/api/mcp', mcpRouter({ mcp: new McpService({ store: db, catalogue: (ownerId) => db.getMcpServers(ownerId) }), catalogue: mcpCatalogue }));
   tenant.use('/api/actions', actionsRouter({ actions: new ActionService({
     store: db,
@@ -1632,6 +1658,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       remove: (ownerId, ruleId) => monitoring.removeRule({ id: ownerId }, ruleId),
     },
     servers: { add: (ownerId, input) => mcpCatalogue.add(ownerId, input), list: (ownerId) => db.getMcpServers(ownerId) },
+    dependencies: workspaceDependencies,
     agents: {
       agents: (ownerId) => agentDirectory.agents(ownerId),
       holdServer: async (ownerId, slug, server, meta) => {

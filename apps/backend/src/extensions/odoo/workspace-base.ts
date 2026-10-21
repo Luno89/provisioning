@@ -1,3 +1,4 @@
+import { ODOO_BASE_HAS } from '../workspace-dependencies.js';
 import type { BaseImage } from '@koala/agent-engine';
 import { ODOO_CHECK_SCRIPT } from './odoo-check.js';
 import { KOALA_E2E_SCRIPT, ODOO_E2E_HELPERS_AT, ODOO_E2E_SCRIPT } from './odoo-e2e.js';
@@ -26,7 +27,9 @@ const base64 = (text: string): string => {
 export const odooBase = (id: string, version: string): BaseImage => ({
   id,
   image: `odoo:${version}`,
-  provides: ['bash', 'git', 'python3', 'odoo', 'odoo-check', 'odoo-e2e', 'koala-e2e', 'postgres', 'psql', 'helm', 'node', 'npm', 'playwright', 'curl', 'tar'],
+  provides: ['bash', 'git', 'python3', 'pip', 'odoo', 'odoo-check', 'odoo-e2e', 'koala-e2e', 'postgres', 'psql', 'helm', 'node', 'npm', 'playwright', 'curl', 'tar'],
+  has: [...ODOO_BASE_HAS],
+  family: 'debian',
   env: [
     { name: 'PLAYWRIGHT_BROWSERS_PATH', value: PLAYWRIGHT_BROWSERS },
     { name: 'NODE_PATH', value: '/usr/local/lib/node_modules' },

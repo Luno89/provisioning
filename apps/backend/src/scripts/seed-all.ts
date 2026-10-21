@@ -11,6 +11,8 @@ import { retireStoredBuiltInPersonas } from '../lib/built-in-personas.js';
 import { seedEngineTools } from '../lib/engine-tool-seeds.js';
 import { migrateAgentTools } from '../lib/tool-grant-migration.js';
 import { migrateMcpServers } from '../lib/mcp-server-migration.js';
+import { migrateToDependencies } from '../lib/dependency-migration.js';
+import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
 
 export async function seedAll(db: Record<string, unknown>) {
@@ -34,6 +36,11 @@ export async function seedAll(db: Record<string, unknown>) {
   counts.agentServerListsMoved = servers.agentServerListsMoved;
   counts.servingToolsMoved = servers.servingToolsMoved;
   counts.mcpToolKindsMoved = servers.toolKindsMoved;
+  const needs = await migrateToDependencies(db as never, SHIPPED_DEPENDENCIES);
+  counts.toolsNamingNeeds = needs.toolsMoved;
+  counts.serversNamingNeeds = needs.serversMoved;
+  counts.dependenciesMade = needs.dependenciesMade;
+  for (const left of needs.left) console.warn(`[seed] left as it was: ${left}`);
   return counts;
 }
 

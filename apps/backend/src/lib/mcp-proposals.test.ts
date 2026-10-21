@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { draftServerProposal, type ProposalKnown } from './mcp-proposals.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from './mcp-servers.js';
 import { MCP_SERVER_TEMPLATES } from '../extensions/mcp/templates.js';
+import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 
 const HOSTED: ServerRuns = { where: 'hosted', url: 'http://docs.test/mcp' };
 const docs: McpServerRecord = {
@@ -12,6 +13,7 @@ const docs: McpServerRecord = {
 const known = (over: Partial<ProposalKnown> = {}): ProposalKnown => ({
   servers: [docs],
   templates: MCP_SERVER_TEMPLATES,
+  dependencies: SHIPPED_DEPENDENCIES,
   agents: [{ slug: 'koala' }, { slug: 'executor', servers: ['docs'] }, { slug: 'planner' }],
   ...over,
 });
@@ -26,7 +28,7 @@ describe('a proposed MCP server', () => {
       ['What it is', undefined],
       ['Who gets it', undefined],
       ['Notes for the agents', undefined],
-      ['How it runs', expect.stringMatching(/^npm @playwright\/mcp@[\d.]+, port 8931$/)],
+      ['How it runs', 'needs playwright-mcp, port 8931'],
     ]);
     expect(drafted.sections[0]!.parts[0]).toEqual({ kind: 'text', text: 'playwright · known server · runs in the workspace' });
     expect(drafted.sections[1]!.parts).toEqual([{ kind: 'text', text: 'executor — its workspace image is rebuilt with it' }]);
@@ -34,7 +36,7 @@ describe('a proposed MCP server', () => {
     const running = drafted.sections[3]!.parts;
     expect(running).toEqual(expect.arrayContaining([
       { kind: 'code', label: 'start', code: expect.stringContaining('playwright-mcp --browser chromium') },
-      { kind: 'code', label: 'install script', code: expect.stringContaining('install chromium') },
+      { kind: 'fields', fields: [{ label: 'needs', value: 'playwright-mcp' }, { label: 'languages', value: 'node' }] },
       { kind: 'fields', fields: [{ label: 'answers', value: '127.0.0.1:8931/mcp', code: true }] },
     ]));
   });
@@ -60,6 +62,18 @@ describe('a proposed MCP server', () => {
     expect(draftServerProposal({ name: 'Tickets!', runs, why: 'w' }, known())).toMatchObject({ problem: expect.stringMatching(/^the name has to be/) });
     expect(draftServerProposal({ name: 'tickets', runs: { where: 'hosted', url: 'ftp://x' }, why: 'w' }, known())).toEqual({ problem: 'a hosted server\'s URL has to be http or https' });
     expect(draftServerProposal({ name: 'docs', runs, why: 'w' }, known())).toEqual({ problem: 'you already have a server called docs' });
+  });
+
+  it('adds a workspace server with the new dependency it needs, shown on the card, and refuses a need nothing gives', () => {
+    const runs = { where: 'workspace', languages: ['node'], needs: ['tickets-server'], start: 'tickets-mcp', port: 9100 };
+    const dependency = { name: 'tickets-server', summary: 'The tickets MCP server.', provides: ['tickets-mcp'], needs: ['node'], install: [{ via: 'npm', packages: ['tickets-mcp@1.2.0'] }] };
+    const drafted = draftServerProposal({ name: 'tickets', runs, dependencies: [dependency], agents: ['executor'], why: 'w' }, known());
+    expect(drafted).toMatchObject({ proposal: { name: 'tickets', runs, dependencies: [dependency] } });
+    expect('sections' in drafted && drafted.sections.find((entry) => entry.title === 'New dependencies it adds')?.folded).toBe('tickets-server');
+
+    expect(draftServerProposal({ name: 'tickets', runs, agents: ['executor'], why: 'w' }, known())).toEqual({ problem: expect.stringMatching(/^no dependency is called "tickets-server"; there are .*; propose it in dependencies$/) });
+    expect(draftServerProposal({ name: 'tickets', runs, dependencies: [{ ...dependency, name: 'jq' }], why: 'w' }, known())).toMatchObject({ problem: expect.stringContaining('jq already exists; name it in the server\'s needs instead') });
+    expect(draftServerProposal({ name: 'tickets', runs, dependencies: [{ ...dependency, provides: [] }], why: 'w' }, known())).toMatchObject({ problem: expect.stringContaining('has to say which programs it puts on the PATH') });
   });
 
   it('refuses what it cannot tell apart, what does not exist, a template already added, and no reason', () => {

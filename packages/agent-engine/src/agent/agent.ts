@@ -31,6 +31,7 @@ export interface Persona {
   tools: string[];
   maxEffect?: ToolEffect | undefined;
   servers?: string[] | undefined;
+  needs?: string[] | undefined;
   agents?: string[] | undefined;
   budget?: RunBudget | undefined;
   sampling?: SamplingConfig | undefined;
@@ -42,7 +43,7 @@ export interface Persona {
   concludeAfterMinutes?: number | undefined;
 }
 
-export type PersonaRecord = Omit<Persona, 'tools' | 'servers'>;
+export type PersonaRecord = Omit<Persona, 'tools' | 'servers' | 'needs'>;
 
 export function visibleAgents<T extends PersonaRecord>(all: readonly T[], ownerId: string): T[] {
   return withBuiltIns(all, ownerId, (agent) => agent.slug);

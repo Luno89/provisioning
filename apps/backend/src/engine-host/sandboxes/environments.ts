@@ -9,6 +9,7 @@ import {
   planFor,
   type ImagePlan,
   type ToolDefinition,
+  type WorkspaceDependency,
 } from '@koala/agent-engine';
 import { machineChoice } from '@koala/agent-engine/procedure';
 import { createNoneDriver } from '@koala/engine-core';
@@ -72,6 +73,7 @@ export interface EnvironmentResolverOptions {
   images: ImageBuilder;
   tools: (ownerId: string) => Promise<ToolDefinition[]>;
   servers?: ((ownerId: string) => Promise<readonly McpServerRecord[]>) | undefined;
+  dependencies?: ((ownerId: string) => Promise<readonly WorkspaceDependency[]>) | undefined;
   workspaces?: WorkspaceSource | undefined;
   machineBackend?: MachineBackend | undefined;
   approval?: ApprovalGate | undefined;
@@ -120,8 +122,9 @@ export async function composeRunWorkspace(input: {
   file?: WorkspaceFile | undefined;
   published?: PublishedWorkspace | undefined;
   servers?: readonly McpServerRecord[] | undefined;
+  dependencies?: readonly WorkspaceDependency[] | undefined;
 }): Promise<ComposedRunWorkspace> {
-  const composed = input.published ? undefined : composeWithBases(input.agent, input.tools, input.file, input.servers);
+  const composed = input.published ? undefined : composeWithBases(input.agent, input.tools, input.file, input.servers, input.dependencies);
   if (!input.published && !composed) throw new Error(`${input.agent.slug} does not run in a sandbox, so it has no workspace image`);
   const plan = composed?.plan;
   const fileEnv = input.published ? input.published.env : composed!.env;
@@ -185,6 +188,7 @@ export function mergeWorkspaceAgents(
     slug,
     tools: unique(working.flatMap((agent) => agent.tools)),
     servers: unique(working.flatMap((agent) => agent.servers ?? [])),
+    needs: unique(working.flatMap((agent) => agent.needs ?? [])),
     environment: {
       ...Object.assign({}, ...working.map((agent) => agent.environment)),
       languages: merged,
@@ -195,6 +199,7 @@ export function mergeWorkspaceAgents(
 
 export function createEnvironmentResolver(options: EnvironmentResolverOptions): EnvironmentResolver {
   const serversOf = async (ownerId: string): Promise<readonly McpServerRecord[]> => (options.servers ? options.servers(ownerId) : []);
+  const dependenciesOf = async (ownerId: string): Promise<readonly WorkspaceDependency[] | undefined> => (options.dependencies ? options.dependencies(ownerId) : undefined);
   const approval = options.approval ?? allowAll();
   const egressFor_ = async (ownerId: string, agentSlug: string) => (options.egress
     ? { grants: await options.egress.grants(ownerId, agentSlug), proxyUrl: options.egress.proxyUrl(ownerId, agentSlug) }
@@ -221,7 +226,7 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
       const found = await Promise.all(agents.map((slug) => options.registry.agent(ticket.ownerId, slug)));
       const merged = mergeWorkspaceAgents(found, ticket.agentSlug, languages);
       if (!merged) throw new NothingToShareError(agents);
-      const composed = composeWithBases(merged, await options.tools(ticket.ownerId), file, await serversOf(ticket.ownerId));
+      const composed = composeWithBases(merged, await options.tools(ticket.ownerId), file, await serversOf(ticket.ownerId), await dependenciesOf(ticket.ownerId));
       if (!composed) throw new NothingToShareError(agents);
       return composed;
     },
@@ -234,10 +239,11 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
       const store = treeId ? options.published : undefined;
       const tools = await options.tools(ticket.ownerId);
       const servers = await serversOf(ticket.ownerId);
+      const dependencies = await dependenciesOf(ticket.ownerId);
       const published = store ? await store.get(ticket.ownerId, treeId!) : undefined;
       const read = store && !published ? readWorkspaceFile(await store.file(ticket.ownerId, treeId!).catch(() => undefined)) : undefined;
       const file = published ? published.file : read && 'file' in read ? read.file : undefined;
-      const current = published && composeWithBases(merged, tools, file, servers)?.plan.fingerprint === published.fingerprint ? published : undefined;
+      const current = published && composeWithBases(merged, tools, file, servers, dependencies)?.plan.fingerprint === published.fingerprint ? published : undefined;
       const onMain = published ? readWorkspaceFile(await store!.file(ticket.ownerId, treeId!).catch(() => undefined)) : undefined;
       const coming = published && onMain && 'file' in onMain ? pendingChanges(published.file, onMain.file) : [];
       const { workspace, plan, fileEnv } = await composeRunWorkspace({
@@ -246,6 +252,7 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
         agent: merged,
         tools,
         servers,
+        ...(dependencies ? { dependencies } : {}),
         images: options.images,
         egressMode: merged.egressMode ?? 'declared',
         ...(file ? { file } : {}),
@@ -318,6 +325,7 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
           agent,
           tools: await options.tools(ticket.ownerId),
           servers: await serversOf(ticket.ownerId),
+          ...(await dependenciesOf(ticket.ownerId).then((dependencies) => (dependencies ? { dependencies } : {}))),
           images: options.images,
           egressMode,
           wallClockLimitMs,

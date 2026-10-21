@@ -1,7 +1,7 @@
 import { Context } from '@temporalio/activity';
 import type { AxiosInstance } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import { grantChanges, type GrantKind, type ToolDefinition, type ToolGrant } from '@koala/agent-engine';
+import { grantChanges, type GrantKind, type ToolDefinition, type ToolGrant, type WorkspaceDependency } from '@koala/agent-engine';
 import type { McpServerRecord } from '../lib/mcp-servers.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { Scenario } from '../eval/level2/scenario.js';
@@ -54,6 +54,8 @@ interface Persona { slug: string; ownerId?: string | undefined; prompt?: string 
 interface ToolRecord { ownerId?: string | undefined }
 
 export interface CheckRunStore {
+  getWorkspaceDependencies(ownerId: string): Promise<WorkspaceDependency[]>;
+  saveWorkspaceDependency(dependency: WorkspaceDependency & { ownerId: string }): Promise<void>;
   getUserById(id: string): Promise<UserMetadata | undefined>;
   saveUser(user: UserMetadata): Promise<void>;
   saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void>;
@@ -248,6 +250,8 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           for (const server of changes.grant) await store.saveToolGrant({ ownerId: spaceId, agent: slug, tool: server, kind: 'server', grantedAt: stamp, why: 'the check\'s world gives it this server' });
         }
       }
+      for (const dependency of await store.getWorkspaceDependencies(person)) await store.saveWorkspaceDependency({ ...dependency, ownerId: spaceId });
+      for (const dependency of scenario.world?.dependencies ?? []) await store.saveWorkspaceDependency({ ...dependency, ownerId: spaceId });
       for (const server of spaceServers(await store.getMcpServers(person), spaceId)) await store.saveMcpServer(server);
       for (const server of scenario.world?.mcpServers ?? []) {
         await store.saveMcpServer({ ...server, id: worldServerId(server.name), ownerId: spaceId, createdAt: stamp, updatedAt: stamp });

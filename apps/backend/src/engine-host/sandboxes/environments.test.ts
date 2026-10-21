@@ -182,10 +182,10 @@ describe('describing a run environment', () => {
       registry: createAgentRegistry({ agentStore: { list: async () => [odd] } }),
     });
 
-    await expect(resolver.describe(ticket('odd'))).rejects.toThrow(/no language called "cobol"/);
+    await expect(resolver.describe(ticket('odd'))).rejects.toThrow(/language:cobol needs "cobol", which no dependency is called/);
   });
 
-  it('refuses when a granted tool needs a binary nothing can install', async () => {
+  it('refuses when a granted tool needs a dependency nothing gives', async () => {
     const needy = { ...scratchAgent(), slug: 'needy', tools: ['query_db'] };
 
     const { resolver } = setup({
@@ -200,11 +200,11 @@ describe('describing a run environment', () => {
         returns: 'rows',
         failures: [{ when: 'a bad query', says: 'the query failed' }],
         parameters: { type: 'object' as const, properties: { sql: { type: 'string', description: 'the query' } } },
-        needsBinaries: ['psql'],
+        needs: ['psql'],
       }],
     });
 
-    await expect(resolver.describe(ticket('needy'))).rejects.toThrow(/query_db needs psql/);
+    await expect(resolver.describe(ticket('needy'))).rejects.toThrow(/tool:query_db needs "psql", which no dependency is called/);
   });
 
   it('keeps a sandbox alive a quarter longer than the run may take, and for as long as the run when it has no time limit', async () => {
@@ -474,7 +474,7 @@ describe('a tree\'s published workspace', () => {
     const { resolver } = setup({ published: kept.published, images: images(built), tools: async () => catalogue });
     await resolver.describeShared({ ticket: treeTicket(), agents: ['executor'], treeId: 't1' });
 
-    catalogue = [{ name: 'run_command', binding: 'environment', needsBinaries: ['jq'], install: { via: 'dnf', packages: ['jq'] } } as ToolDefinition];
+    catalogue = [{ name: 'run_command', binding: 'environment', needs: ['jq'] } as ToolDefinition];
     const after = await resolver.describeShared({ ticket: treeTicket(), agents: ['executor'], treeId: 't1' });
 
     expect(built).toHaveLength(2);

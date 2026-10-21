@@ -4,7 +4,7 @@ import type { CheckScript } from '../../lib/check-script.js';
 import { seededProcedures } from '../../extensions/seeds.js';
 import { CATCH_ALL_TREE_TYPE, ODOO_TREE_TYPE } from '../../lib/tree-type-seeds.js';
 import { MCP_SERVER_FILES } from '../../lib/project-templates.js';
-import type { ToolDefinition } from '@koala/agent-engine';
+import type { ToolDefinition, WorkspaceDependency } from '@koala/agent-engine';
 
 const NOTHING = { when: {}, reply: { say: 'Nothing to do here.' } };
 const DECIDE = { when: { asked: '^Question: ' }, reply: { say: 'yes' } };
@@ -82,6 +82,22 @@ export const ECHO_SERVER_PORT = 8931;
 
 const ECHO_SERVER_SOURCE = (): string => MCP_SERVER_FILES.find((file) => file.path === 'src/server.js')!.content.replaceAll('{{projectName}}', 'echoes');
 
+export const ECHOES_DEPENDENCY = (): WorkspaceDependency => ({
+  name: 'echoes-server',
+  summary: 'The echoes MCP server.',
+  provides: ['echoes-server'],
+  needs: ['node'],
+  install: [{
+    via: 'script',
+    run: [
+      'mkdir -p /opt/koala-echoes',
+      `echo ${Buffer.from(ECHO_SERVER_SOURCE(), 'utf8').toString('base64')} | base64 -d > /opt/koala-echoes/server.mjs`,
+      "printf '#!/bin/sh\\nexec node /opt/koala-echoes/server.mjs\\n' > /usr/local/bin/echoes-server",
+      'chmod 755 /usr/local/bin/echoes-server',
+    ].join(' && '),
+  }],
+});
+
 export const ECHOES_SERVER = (): WorldServer => ({
   name: 'echoes',
   summary: 'A small server in the workspace that says back what it is told',
@@ -89,15 +105,7 @@ export const ECHOES_SERVER = (): WorldServer => ({
   runs: {
     where: 'workspace',
     languages: ['node'],
-    install: [{
-      via: 'script',
-      run: [
-        'mkdir -p /opt/koala-echoes',
-        `echo ${Buffer.from(ECHO_SERVER_SOURCE(), 'utf8').toString('base64')} | base64 -d > /opt/koala-echoes/server.mjs`,
-        "printf '#!/bin/sh\\nexec node /opt/koala-echoes/server.mjs\\n' > /usr/local/bin/echoes-server",
-        'chmod 755 /usr/local/bin/echoes-server',
-      ].join(' && '),
-    }],
+    needs: ['echoes-server'],
     start: `PORT=${ECHO_SERVER_PORT} echoes-server`,
     port: ECHO_SERVER_PORT,
   },
@@ -137,6 +145,7 @@ const servedInWorkspace: Scenario = {
   input: { message: 'Judge this. Work: a server in the workspace. Expected: it answers twice from one process.', inputs: { work: 'a server in the workspace', expected: 'it answers twice from one process' } },
   world: {
     mcpServers: [ECHOES_SERVER()],
+    dependencies: [ECHOES_DEPENDENCY()],
     agents: { judge: { tools: ['read_file', 'list_dir', 'run_command', 'record_verdict'], servers: ['echoes'] } },
   },
   script: { rules: [
@@ -164,7 +173,7 @@ const proposedServer: Scenario = {
   script: { rules: [
     { when: { called: ['propose_mcp_server'] }, reply: { say: 'It waits for you on a card.' } },
     { when: { called: ['list_mcp_servers'] }, reply: { call: [{ tool: 'propose_mcp_server', arguments: {
-      name: 'echoes', summary: ECHOES_SERVER().summary, notes: ECHOES_SERVER().notes, runs: ECHOES_SERVER().runs, agents: ['executor'], why: 'the executor needs to echo',
+      name: 'echoes', summary: ECHOES_SERVER().summary, notes: ECHOES_SERVER().notes, runs: ECHOES_SERVER().runs, dependencies: [ECHOES_DEPENDENCY()], agents: ['executor'], why: 'the executor needs to echo',
     } }] } },
     { when: { offered: ['list_mcp_servers'] }, reply: { call: [{ tool: 'list_mcp_servers', arguments: {} }] } },
     NOTHING,

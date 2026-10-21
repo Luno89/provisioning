@@ -1,12 +1,5 @@
 import { api } from './client'
 
-export type InstallVia = 'dnf' | 'apt' | 'pip' | 'npm' | 'script' | 'base'
-
-export type Install =
-  | { via: 'dnf' | 'apt' | 'pip' | 'npm'; packages: string[] }
-  | { via: 'script'; run: string }
-  | { via: 'base' }
-
 export interface ToolArgument {
   type: string
   description: string
@@ -26,8 +19,7 @@ export interface EngineTool {
   returns: string
   failures: { when: string; says: string }[]
   command?: string
-  needsBinaries?: string[]
-  install?: Install
+  needs?: string[]
   mine: boolean
   grantedTo: string[]
 }

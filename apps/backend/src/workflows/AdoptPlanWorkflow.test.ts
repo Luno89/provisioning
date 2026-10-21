@@ -155,6 +155,7 @@ function world(start: PlanProposal[], options: { saved?: string[]; homes?: boole
     ],
   }] as TreeTypeSpec[];
 
+  const needsAsked: { ownerId: string; treeId: string; taskIds: string[] }[] = [];
   const planAdoption = createPlanAdoption({
     stores: {
       proposals: {
@@ -198,13 +199,14 @@ function world(start: PlanProposal[], options: { saved?: string[]; homes?: boole
     } : {}),
     stopRun: async (workflowId: string) => { stopped.push(workflowId); },
     projectChoices: async (ownerId: string, projectId: string, choices: unknown) => { chosen.push({ ownerId, projectId, choices }); },
+    checkNeeds: async (ownerId: string, treeId: string, taskIds: readonly string[]) => { needsAsked.push({ ownerId, treeId, taskIds: [...taskIds] }); return { added: [], waiting: [] }; },
     now: () => 'now',
   });
 
   const activities = createEngineActivities({ planAdoption } as never);
 
   const told: string[] = [];
-  return { told, chosen, stopped, proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, brought, bound, markRepoExists: (...present: string[]) => { repoExists = true; repoFiles.push(...present); } };
+  return { needsAsked, told, chosen, stopped, proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, brought, bound, markRepoExists: (...present: string[]) => { repoExists = true; repoFiles.push(...present); } };
 }
 
 async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: () => never): Promise<AdoptPlanResult> {
@@ -276,6 +278,7 @@ describe('AdoptPlanWorkflow', () => {
       status: 'adopted',
       adopted: { treeId: 'plan-p1-tree', branchIds: ['plan-p1-b0'], leafIds: { health: 'plan-p1-b0-l0', deploy: 'plan-p1-b0-l1' }, commit: 'c0ffee' },
     });
+    expect(w.needsAsked, 'once the plan is written, its tasks\' checks are given what they need').toEqual([{ ownerId: 'user-1', treeId: 'plan-p1-tree', taskIds: ['plan-p1-b0-l0-t0', 'plan-p1-b0-l0-t1'] }]);
   }, 60_000);
 
   it("adds only the starter files an existing repository lacks when a plan makes a tree in it, leaving its own alone", async () => {

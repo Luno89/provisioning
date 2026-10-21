@@ -19,6 +19,7 @@ import ProcedureExplorer from './components/Studio/ProcedureExplorer';
 import AgentExplorer from './components/Studio/AgentExplorer';
 import ToolExplorer from './components/Studio/ToolExplorer';
 import McpServerExplorer from './components/Studio/McpServerExplorer';
+import DependencyExplorer from './components/Studio/DependencyExplorer';
 import ExtensionsView from './components/Studio/ExtensionsView';
 import ModelsView from './components/Studio/ModelsView';
 import StudioFrame from './components/Studio/StudioFrame';
@@ -274,6 +275,18 @@ export const studioMcpServerPartRoute = createRoute({
   component: McpServerExplorer,
 });
 
+export const studioDependenciesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/studio/dependencies',
+  component: DependencyExplorer,
+});
+
+export const studioDependencyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/studio/dependencies/$name',
+  component: DependencyExplorer,
+});
+
 export const studioProceduresRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/studio/procedures',
@@ -406,6 +419,8 @@ export const routeTree = rootRoute.addChildren([
   studioMcpServersRoute,
   studioMcpServerRoute,
   studioMcpServerPartRoute,
+  studioDependenciesRoute,
+  studioDependencyRoute,
   studioToolPartRoute,
   studioProceduresRoute,
   studioProcedureRoute,

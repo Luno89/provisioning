@@ -1,8 +1,11 @@
-import { BUILDER_TOOLS, type Persona, type ProcedureSource, type ToolDefinition } from '@koala/agent-engine';
+import { BUILDER_TOOLS, type Persona, type ProcedureSource, type ToolDefinition, type WorkspaceDependency } from '@koala/agent-engine';
+import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { BUILT_IN_SCENARIOS } from '../eval/level2/scenarios.js';
 import { environmentHandlers, type EnvironmentDriver } from '@koala/engine-core';
 import { createAgentDirectory, grantStoreFrom, type AgentRecordStore, type ToolGrantStore } from './registries/agent-directory.js';
 import { createStoredAgentRegistry, type AgentRegistry } from './registries/registry.js';
+import { stepNeedsReader } from './registries/procedure-store.js';
+import { createCheckNeeds, needsOfAccepted, type CheckNeeds } from './check-needs.js';
 import { treeTypeChoices } from '../lib/tree-types.js';
 import { createStoredToolCatalogue, type StoredToolCatalogue } from './registries/tool-catalogue-store.js';
 import { createEndpointResolver, type ModelServiceLike } from './registries/endpoints.js';
@@ -103,6 +106,7 @@ export interface EngineHostStores {
 }
 
 export interface EngineHostOptions {
+  dependencies?: ((ownerId: string) => Promise<readonly WorkspaceDependency[]>) | undefined;
   treeModels?: import('../extensions/grove/tools/grove-tools.js').TreeModelChoices | undefined;
   customizations?: Pick<import('../services/CustomizationsService.js').CustomizationsService, 'drift' | 'propose' | 'exportItems'> | undefined;
   monitoring?: import('../extensions/monitoring/handlers.js').MonitoringReading | undefined;
@@ -167,6 +171,8 @@ export interface EngineHost {
   implemented: ReadonlySet<string>;
   treeWorkspaceFiles: TreeWorkspaceFiles | undefined;
   machineWork: MachineWork | undefined;
+  checkNeeds: CheckNeeds | undefined;
+  acceptedNeeds: ReturnType<typeof needsOfAccepted> | undefined;
 }
 
 export interface TreeWorkspaceFiles {
@@ -176,11 +182,13 @@ export interface TreeWorkspaceFiles {
 
 export function createEngineHost(options: EngineHostOptions): EngineHost {
   const { stores } = options;
+  const dependenciesOf = async (ownerId: string): Promise<readonly WorkspaceDependency[]> => (options.dependencies ? options.dependencies(ownerId) : SHIPPED_DEPENDENCIES);
 
   const catalogue = createStoredToolCatalogue({ tools: stores.tools });
   const agents = createAgentDirectory({
     records: stores.agentRecords,
     grants: stores.toolGrants,
+    stepNeeds: stepNeedsReader({ sources: stores.procedures, ...(options.published ? { published: options.published } : {}) }),
     ...(options.hidden ? { hidden: options.hidden } : {}),
   });
   const registry = createStoredAgentRegistry({
@@ -229,12 +237,22 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
 
   const treeWorkspacesFor: { current?: TreeWorkspaces | undefined } = {};
   const workspaceFiles = options.readRepoFile && options.writeRepoFile ? new WorkspaceFileService({
+    dependencies: dependenciesOf,
     trees: () => stores.grove.trees.list(),
     repoOf: (treeId) => repoFor(treeWorkspaceRunId(treeId)),
     read: options.readRepoFile,
     write: options.writeRepoFile,
     branch: LANDING_BASE,
   }) : undefined;
+  const checkNeeds = workspaceFiles && options.workspaceBuild && options.publishedWorkspaces ? createCheckNeeds({
+    tasks: stores.tasks,
+    published: options.publishedWorkspaces.get,
+    dependencies: dependenciesOf,
+    change: (ownerId, treeId, change, said) => workspaceFiles.change(ownerId, treeId, change, said),
+    build: options.workspaceBuild,
+  }) : undefined;
+
+  const acceptedNeeds = checkNeeds ? needsOfAccepted(checkNeeds, stores.grove) : undefined;
   const published = options.publishedWorkspaces ? {
     get: options.publishedWorkspaces.get,
     save: options.publishedWorkspaces.save,
@@ -253,6 +271,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     images,
     tools: (ownerId: string) => catalogue.list(ownerId),
     ...(options.mcpServers ? { servers: options.mcpServers.list } : {}),
+    dependencies: dependenciesOf,
     machineBackend: createMachineBackend(),
     ...(stores.machines ? { workspaces: createMachineWorkspaces(stores.machines) } : {}),
     ...(stores.egress && options.egressSecret
@@ -278,6 +297,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
   const web = options.web;
   const treeTypeDescriptions = stores.grove.treeTypeSpecs && stores.grove.workspaceImages
     ? new TreeTypeDescriptions({
+      dependencies: dependenciesOf,
       treeTypes: stores.grove.treeTypeSpecs,
       images: stores.grove.workspaceImages,
       releaseAgents: (ownerId) => releaseAgentsOf({
@@ -348,7 +368,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       mcp: { operations: {
         servers: options.mcpServers,
         hostedUrl: options.mcpServers.hostedUrl,
-        plan: (runs: WorkspaceRuns, name: string) => planServerImage(runs, name, WORKSPACE_BASES),
+        plan: async (runs: WorkspaceRuns, name: string, ownerId: string) => planServerImage(runs, name, WORKSPACE_BASES, await dependenciesOf(ownerId)),
         images,
         environments,
       } },
@@ -389,6 +409,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
         toolNames: (ownerId: string) => catalogue.names(ownerId),
       },
       tasks: stores.tasks,
+      ...(acceptedNeeds ? { accepted: acceptedNeeds } : {}),
       extensions: toolHandlers(runtimes),
       ...(stores.grove.binding ? { binding: stores.grove.binding } : {}),
       ...(stores.secrets ? { secrets: { stores: stores.secrets, ...(options.vault ? { vault: options.vault } : {}) } } : {}),
@@ -397,6 +418,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
         stores: stores.mcp,
         ...(options.projects?.proposals ? { proposing: {
           templates: () => MCP_SERVER_TEMPLATES,
+          dependencies: dependenciesOf,
           agents: (ownerId: string) => registry.agents(ownerId),
           proposals: options.projects.proposals,
         } } : {}),
@@ -488,6 +510,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     personas: (ownerId?: string) => registry.agents(ownerId ?? ''),
     tools: (ownerId?: string) => stores.tools.list(ownerId),
     ...(options.mcpServers ? { servers: options.mcpServers.list } : {}),
+    dependencies: dependenciesOf,
     ...(options.owners ? { owners: options.owners } : {}),
   });
 
@@ -517,7 +540,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
 
   return {
     efforts, workspaceImages, registry, catalogue, endpoints, environments,
-    runEnvironments, treeWorkspaces, conversationWorkspaces, images, imagePruner, tools, services, implemented, treeWorkspaceFiles, machineWork,
+    runEnvironments, treeWorkspaces, conversationWorkspaces, images, imagePruner, tools, services, implemented, treeWorkspaceFiles, machineWork, checkNeeds, acceptedNeeds,
   };
 }
 

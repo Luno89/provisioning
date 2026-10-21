@@ -23,6 +23,7 @@ export interface TaskStore {
 export interface TaskToolOptions {
   store: TaskStore;
   binding?: ((ownerId: string, conversationId: string) => Promise<{ treeId?: string | undefined; projectId?: string | undefined } | undefined>) | undefined;
+  accepted?: ((ownerId: string, task: Task) => Promise<import('../check-needs.js').CheckNeedsOutcome | undefined>) | undefined;
   newId?: (() => string) | undefined;
   now?: (() => string) | undefined;
 }
@@ -192,6 +193,14 @@ export function createTaskTools(options: TaskToolOptions): Record<string, ToolHa
       if (!caller.ownerId) return refuse('this run has no owner');
       const settled = await settle(parsed, caller.ownerId, 'accepted');
       if ('ok' in settled) return settled;
+      const needs = await options.accepted?.(caller.ownerId, settled.task);
+      if (needs?.waiting.includes(settled.task.id)) {
+        return {
+          ok: true,
+          digest: `accepted ${settled.task.id} — ${settled.task.title}; it waits for the workspace to get ${needs.added.join(', ') || 'what its checks need'}`,
+          content: JSON.stringify({ taskId: settled.task.id, status: 'waiting', waitsFor: needs.added }),
+        };
+      }
 
       return {
         ok: true,

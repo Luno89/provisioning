@@ -5,7 +5,6 @@ import { handleFor, ticketFor, type EnvironmentHandleRef, type RunEnvironment, t
 import { keepFailureArtifacts, type KeepArtifacts } from '../../../lib/artifacts.js';
 import {
   E2E_REPORT,
-  E2E_RUNNER,
   E2E_RUNNER_MISSING,
   e2eCommand,
   e2ePassed,
@@ -17,6 +16,7 @@ import {
   readE2EReport,
   type E2EReport,
 } from '../../../lib/e2e.js';
+import { browserTestsMissing } from '../../../lib/browser-tests.js';
 
 export interface PlatformOperationDeps {
   environments: { forRun(request: { ticket: RunTicket; environment?: EnvironmentHandleRef | undefined }): Promise<EnvironmentDriver | undefined> };
@@ -51,7 +51,7 @@ export function createPlatformOperations(deps: PlatformOperationDeps): Record<st
 
       const ran = await driver.exec({ command: e2eCommand(asked), ...(minutes ? { timeoutMs: minutes * 60_000 } : {}) });
       if (ran.exitCode === E2E_RUNNER_MISSING) {
-        return unavailable(asked.url ? 'this workspace has no Playwright to run them with' : `this workspace's image has no ${E2E_RUNNER}, so it cannot serve its app to a browser`);
+        return unavailable(browserTestsMissing(asked));
       }
 
       const report = readE2EReport(await driver.readFile(E2E_REPORT).catch(() => undefined));

@@ -7,8 +7,8 @@ describe('seed-all', () => {
     const db = new MemoryDB();
     await db.init();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, ...counts } = await seedAll(db as never);
-    expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped]).toEqual([0, 0, 0, 0]);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, ...counts } = await seedAll(db as never);
+    expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade]).toEqual([0, 0, 0, 0, 0, 0, 0]);
     expect(removedBuiltInProcedures).toBe(0);
     expect(removedBuiltInPersonas).toBe(0);
     expect(agentToolListsMoved).toBe(0);

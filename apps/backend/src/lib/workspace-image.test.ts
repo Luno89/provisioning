@@ -14,8 +14,13 @@ describe('choosing an image for what the work needs', () => {
   });
 
   it('upgrades away from an image that cannot do what is asked', () => {
-    expect(BY_LANGUAGE.base.absent).toContain('git');
-    expect(capableImage(IMAGES, 'base', ['git'])).not.toBe(BY_LANGUAGE.base.image);
+    expect(BY_LANGUAGE.node.absent).toContain('go');
+    expect(capableImage(IMAGES, 'node', ['go'])).not.toBe(BY_LANGUAGE.node.image);
+  });
+
+  it('keeps the image a workspace with no particular language is really built in, which has git', () => {
+    expect(BY_LANGUAGE.base.image).toBe(BY_LANGUAGE.node.image);
+    expect(capableImage(IMAGES, 'base', ['git'])).toBe(BY_LANGUAGE.node.image);
   });
 
   it('upgrades to an image that really has the requirement', () => {

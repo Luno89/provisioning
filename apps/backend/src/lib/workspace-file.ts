@@ -1,4 +1,4 @@
-import { LANGUAGE_IDS, type Contribution } from '@koala/agent-engine';
+import { DEPENDENCY_NAME, LANGUAGE_IDS, type Contribution } from '@koala/agent-engine';
 
 export const WORKSPACE_FILE = '.koala/workspace.json';
 export const FROM_PROJECT = 'project';
@@ -11,6 +11,7 @@ export interface WorkspaceFile {
   script?: string | undefined;
   languages?: string[] | undefined;
   env?: { name: string; value: string }[] | undefined;
+  needs?: string[] | undefined;
 }
 
 export type ReadWorkspaceFile =
@@ -27,7 +28,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 export function workspaceFileProblems(value: unknown): string[] {
   if (!isRecord(value)) return [`${WORKSPACE_FILE} has to be a JSON object`];
   const problems: string[] = [];
-  const known = new Set(['packages', 'script', 'languages', 'env']);
+  const known = new Set(['packages', 'script', 'languages', 'needs', 'env']);
   for (const key of Object.keys(value)) if (!known.has(key)) problems.push(`"${key}" is not something ${WORKSPACE_FILE} can say; it can say ${[...known].join(', ')}`);
 
   if (value.packages !== undefined) {
@@ -45,6 +46,11 @@ export function workspaceFileProblems(value: unknown): string[] {
         for (const name of listed as string[]) if (!PACKAGE.test(name)) problems.push(`"${name}" in packages.${manager} is not a package name`);
       }
     }
+  }
+
+  if (value.needs !== undefined) {
+    if (!Array.isArray(value.needs) || value.needs.some((need) => typeof need !== 'string')) problems.push('needs has to be a list of dependency names');
+    else for (const need of value.needs as string[]) if (!DEPENDENCY_NAME.test(need)) problems.push(`"${need}" in needs is not a dependency name`);
   }
 
   if (value.script !== undefined && (typeof value.script !== 'string' || !value.script.trim())) problems.push('script has to be the shell commands to run, as one string');
@@ -106,6 +112,7 @@ export interface WorkspaceChange {
   languages?: string[] | undefined;
   env?: { name: string; value: string }[] | undefined;
   script?: string | undefined;
+  needs?: string[] | undefined;
 }
 
 export type ChangedWorkspaceFile =
@@ -136,12 +143,15 @@ export function withChange(file: WorkspaceFile, change: WorkspaceChange): Change
   const freshScript = asked && !(file.script ?? '').includes(asked) ? asked : undefined;
   const script = freshScript ? [file.script?.trim(), freshScript].filter(Boolean).join('\n') : file.script;
   if (freshScript) added.push('an install script');
+  const needs = (change.needs ?? []).filter((need) => !(file.needs ?? []).includes(need));
+  if (needs.length) added.push(`the ${needs.join(', ')} dependenc${needs.length === 1 ? 'y' : 'ies'}`);
 
   const next: WorkspaceFile = {
     ...(Object.keys(packages).length ? { packages } : {}),
     ...(script ? { script } : {}),
     ...(file.languages || languages.length ? { languages: union(file.languages, languages) } : {}),
     ...(env.length ? { env } : {}),
+    ...(file.needs || needs.length ? { needs: union(file.needs, needs) } : {}),
   };
   const problems = workspaceFileProblems(next);
   return problems.length > 0 ? { problems } : { file: next, added };
@@ -154,6 +164,7 @@ export function pendingChanges(published: WorkspaceFile | undefined, onMain: Wor
     languages: onMain.languages,
     env: onMain.env,
     script: onMain.script,
+    needs: onMain.needs,
   });
   return 'added' in changed ? changed.added : [];
 }

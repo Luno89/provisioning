@@ -17,7 +17,7 @@ export interface McpOperationDeps {
     save(server: McpServerRecord): Promise<void>;
   };
   hostedUrl(ownerId: string, runs: Extract<ServerRuns, { where: 'hosted' }>): Promise<string | undefined>;
-  plan(runs: Extract<ServerRuns, { where: 'workspace' }>, name: string): ImagePlan;
+  plan(runs: Extract<ServerRuns, { where: 'workspace' }>, name: string, ownerId: string): Promise<ImagePlan>;
   images: { ensure(plan: ImagePlan): Promise<string> };
   environments: {
     forRun(request: { ticket: RunTicket; environment?: EnvironmentHandleRef | undefined }): Promise<EnvironmentDriver | undefined>;
@@ -114,7 +114,7 @@ export function createMcpOperations(deps: McpOperationDeps): Record<string, Host
       if (server.runs.where !== 'workspace') throw new Error(`${server.name} is hosted, so there is nothing to build`);
       let plan: ImagePlan;
       try {
-        plan = deps.plan(server.runs, server.name);
+        plan = await deps.plan(server.runs, server.name, ticketOf(request).ownerId);
       } catch (err) {
         return { exit: 'failed', outputs: { reason: (err as Error).message } };
       }
@@ -137,7 +137,7 @@ export function createMcpOperations(deps: McpOperationDeps): Record<string, Host
         environment: {
           id: environmentIdFor(ticket.runId),
           spec: { kind: 'sandbox', lifecycle: 'invocation' },
-          workspace: captureWorkspace(ticket, image, deps.plan(runs, server.name).provides),
+          workspace: captureWorkspace(ticket, image, (await deps.plan(runs, server.name, ticket.ownerId)).provides),
         },
       });
       if (!driver) return { exit: 'failed', outputs: { reason: 'no sandbox could be started to run it in' } };

@@ -228,7 +228,7 @@ describe('agents you can edit', () => {
   });
 
   it('gives an agent a server, keeping what it held, and starts its image with the server in it', async () => {
-    const runs: ServerRuns = { where: 'workspace', install: [{ via: 'npm', packages: ['echoes'] }], start: 'echoes', port: 8931 };
+    const runs: ServerRuns = { where: 'workspace', needs: ['jq'], start: 'echoes', port: 8931 };
     const echoes: McpServerRecord = { id: 's1', ownerId: 'user-1', name: 'echoes', runs, createdAt: 't', updatedAt: 't' };
     const { agents, images } = service({ servers: [echoes] });
     await agents.save('user-1', agent({ tools: ['run_command', 'read_file'] }));

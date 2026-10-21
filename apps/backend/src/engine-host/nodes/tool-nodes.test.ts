@@ -13,7 +13,7 @@ const koala: AgentDefinition = {
 };
 
 const HOSTED: ServerRuns = { where: 'hosted', url: 'http://gitea.test/mcp' };
-const WORKSPACE: ServerRuns = { where: 'workspace', install: [{ via: 'npm', packages: ['echoes'] }], start: 'echoes', port: 8931 };
+const WORKSPACE: ServerRuns = { where: 'workspace', needs: ['jq'], start: 'echoes', port: 8931 };
 const record = (name: string, runs: ServerRuns, tools: McpTool[]): McpServerRecord => ({
   id: name, ownerId: 'u1', name, runs, createdAt: 't0', updatedAt: 't0', captured: { tools, at: 't1', fingerprint: runsFingerprint(runs) },
 });

@@ -1,3 +1,4 @@
+import { browserTestsMissing } from './browser-tests.js';
 import { describe, it, expect } from 'vitest';
 import { runTaskChecks, checksFailed, checkReport, type CheckEnvironment } from './task-checks.js';
 import { E2E_IGNORED } from './e2e.js';
@@ -204,6 +205,6 @@ describe('browser tests a task carries', () => {
   it('says so when the workspace image cannot serve its app to a browser', async () => {
     const outcomes = await runTaskChecks(environment(() => ({ exitCode: 127 })), { e2e: { specs: ['e2e'] } });
 
-    expect(outcomes).toEqual([{ check: 'the browser tests in e2e pass against the workspace\'s own app', passed: false, says: 'this workspace\'s image has no koala-e2e, so it cannot serve its app to a browser' }]);
+    expect(outcomes).toEqual([{ check: 'the browser tests in e2e pass against the workspace\'s own app', passed: false, says: browserTestsMissing({}) }]);
   });
 });

@@ -27,6 +27,7 @@ export interface EngineToolDeps {
   procedures: ProcedureSourceStore;
   scope: ProcedureScope;
   tasks: TaskStore;
+  accepted?: ((ownerId: string, task: import('./tasks.js').Task) => Promise<import('../check-needs.js').CheckNeedsOutcome | undefined>) | undefined;
   extensions: Record<string, ToolHandler>;
   binding?: GroveToolOptions['stores']['binding'];
   platform: PlatformToolOptions;
@@ -48,7 +49,7 @@ export interface EngineToolDeps {
 export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, ToolHandler> {
   return {
     ...createProcedureTools({ store: deps.procedures, scope: deps.scope }),
-    ...createTaskTools({ store: deps.tasks, binding: deps.binding }),
+    ...createTaskTools({ store: deps.tasks, binding: deps.binding, ...(deps.accepted ? { accepted: deps.accepted } : {}) }),
     ...createVerdictTools(),
     ...deps.extensions,
     ...createPlatformTools(deps.platform),

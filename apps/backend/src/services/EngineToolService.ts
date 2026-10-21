@@ -5,7 +5,10 @@ import {
   visibleAgents,
   type Persona,
   type ToolDefinition,
+  type WorkspaceDependency,
 } from '@koala/agent-engine';
+import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
+import { unknownNeeds, unknownNeedsSaid } from '../lib/workspace-dependencies.js';
 import type { AgentDirectory } from '../engine-host/registries/agent-directory.js';
 import { withBuiltIns } from '../lib/ownership.js';
 import type { ImageStanding } from '../engine-host/sandboxes/image-builder.js';
@@ -26,6 +29,7 @@ export interface EngineToolServiceOptions {
   agents: AgentDirectory;
   catalogue?: { list(ownerId: string): Promise<ToolDefinition[]> } | undefined;
   servers?: ((ownerId: string) => Promise<readonly McpServerRecord[]>) | undefined;
+  dependencies?: ((ownerId: string) => Promise<readonly WorkspaceDependency[]>) | undefined;
   implemented: ReadonlySet<string>;
   images?: {
     start(plan: NonNullable<ReturnType<typeof planFor>>): Promise<ImageStanding>;
@@ -41,11 +45,9 @@ export type SaveToolOutcome =
   | { saved: true; tool: EditableTool; rebuilding: string[]; failed: WorkspaceBuildFailure[] }
   | { saved: false; problems: string[] };
 
-const VIA = ['dnf', 'apt', 'pip', 'npm', 'script', 'base'];
-
 export function toolProblems(
   value: unknown,
-  known: { implemented: ReadonlySet<string> },
+  known: { implemented: ReadonlySet<string>; dependencies?: readonly WorkspaceDependency[] | undefined },
 ): string[] {
   if (typeof value !== 'object' || value === null) return ['a tool has to be an object'];
   const tool = value as Partial<ToolDefinition>;
@@ -63,18 +65,12 @@ export function toolProblems(
     problems.push('nothing here runs this tool, so it needs a command to run in the workspace; an MCP server is added to the catalogue of MCP servers instead');
   }
 
-  if (whole.install && !VIA.includes(whole.install.via)) {
-    problems.push(`"${whole.install.via}" is not a way to install anything`);
-  }
-  if (whole.install?.via === 'script' && !whole.install.run.trim()) {
-    problems.push('the install script is empty, so it would install nothing');
-  }
-  if (whole.install && whole.install.via !== 'script' && whole.install.via !== 'base'
-    && whole.install.packages.length === 0) {
-    problems.push('the install names no packages, so it would install nothing');
-  }
-  if (whole.install && !whole.needsBinaries?.length && whole.install.via !== 'base') {
-    problems.push('it installs something but never says which binary that gives it');
+  if (whole.needs !== undefined && (!Array.isArray(whole.needs) || whole.needs.some((need) => typeof need !== 'string'))) {
+    problems.push('needs has to be a list of dependency names');
+  } else {
+    const catalogue = known.dependencies ?? SHIPPED_DEPENDENCIES;
+    const unknown = unknownNeeds(whole.needs, catalogue);
+    if (unknown.length) problems.push(unknownNeedsSaid(unknown, catalogue));
   }
 
   return problems;
@@ -117,7 +113,7 @@ export class EngineToolService {
   }
 
   async save(ownerId: string, input: unknown): Promise<SaveToolOutcome> {
-    const problems = toolProblems(input, { implemented: this.options.implemented });
+    const problems = toolProblems(input, { implemented: this.options.implemented, dependencies: await this.dependencies(ownerId) });
     if (problems.length > 0) return { saved: false, problems };
 
     const tool: ToolDefinition = { ...(input as ToolDefinition), ownerId };
@@ -141,6 +137,16 @@ export class EngineToolService {
     return true;
   }
 
+  private async dependencies(ownerId: string): Promise<readonly WorkspaceDependency[]> {
+    return this.options.dependencies ? this.options.dependencies(ownerId) : SHIPPED_DEPENDENCIES;
+  }
+
+  async rebuildNeeding(ownerId: string, tools: readonly string[]): Promise<{ rebuilding: string[]; failed: WorkspaceBuildFailure[] }> {
+    const personas = await this.agents(ownerId);
+    const held = personas.filter((persona) => persona.tools.some((tool) => tools.includes(tool))).map((persona) => persona.slug);
+    return held.length ? this.rebuild(ownerId, tools[0]!, held) : { rebuilding: [], failed: [] };
+  }
+
   private async holders(ownerId: string, name: string): Promise<string[]> {
     return (await this.agents(ownerId)).filter((persona) => persona.tools.includes(name)).map((persona) => persona.slug);
   }
@@ -148,14 +154,20 @@ export class EngineToolService {
   private async rebuild(ownerId: string, name: string, held?: readonly string[]): Promise<{ rebuilding: string[]; failed: WorkspaceBuildFailure[] }> {
     if (!this.options.images) return { rebuilding: [], failed: [] };
 
-    const [tools, personas, servers] = await Promise.all([this.visible(ownerId), this.agents(ownerId), this.options.servers?.(ownerId) ?? Promise.resolve([])]);
+    const [tools, personas, servers, dependencies] = await Promise.all([this.visible(ownerId), this.agents(ownerId), this.options.servers?.(ownerId) ?? Promise.resolve([]), this.dependencies(ownerId)]);
     const wanted = new Set(held ?? personas.filter((persona) => persona.tools.includes(name)).map((persona) => persona.slug));
     const affected = personas.filter((persona) => wanted.has(persona.slug));
     const rebuilding: string[] = [];
     const failed: WorkspaceBuildFailure[] = [];
 
     for (const persona of affected) {
-      const plan = planWorkspace(persona, tools, servers);
+      let plan;
+      try {
+        plan = planWorkspace(persona, tools, servers, undefined, dependencies);
+      } catch (err) {
+        failed.push({ agent: persona.slug, detail: (err as Error).message });
+        continue;
+      }
       if (!plan) continue;
 
       // Taken the same way AgentService.save takes it: a workspace that cannot start building is

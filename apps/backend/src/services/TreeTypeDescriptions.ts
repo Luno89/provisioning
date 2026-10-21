@@ -1,5 +1,5 @@
 import { agentsHandedTo, describeOutline, outlineProcedure, type Procedure } from '@koala/agent-engine/procedure';
-import { groveAgentOf, resolveTreeType, treeLanguage, type TreeTypeSpec } from '../lib/tree-types.js';
+import { builtLanguage, groveAgentOf, resolveTreeType, treeLanguage, type TreeTypeSpec } from '../lib/tree-types.js';
 import { describeTreeType, type ReleaseWay, type ReleaseWays } from '../lib/tree-type-description.js';
 import { releaseHowOf } from '../lib/release-run.js';
 import { CHART_FILE } from '../lib/odoo-release.js';
@@ -12,6 +12,7 @@ export interface TreeTypeDescriptionDeps {
   agentOf: (ownerId: string, agent: string) => Promise<{ describe?: string | undefined; procedure?: Procedure | undefined } | undefined>;
   releaseAgents?: ((ownerId: string) => Promise<ReleaseAgent[]>) | undefined;
   restores?: ((app: string) => { title: string } | undefined) | undefined;
+  dependencies?: ((ownerId: string) => Promise<readonly { name: string; summary: string; provides: string[] }[]>) | undefined;
 }
 
 export class TreeTypeDescriptions {
@@ -20,8 +21,11 @@ export class TreeTypeDescriptions {
   async describe(ownerId: string, typeId: string): Promise<string | undefined> {
     const type = await resolveTreeType({ getTreeTypes: () => this.deps.treeTypes(ownerId) }, ownerId, typeId);
     if (!type) return undefined;
-    const [images, growing, releasing] = await Promise.all([this.deps.images(ownerId), this.growing(ownerId, groveAgentOf(type)), this.releasing(ownerId, type)]);
-    return describeTreeType({ type, image: images.find((image) => image.id === treeLanguage(type, { version: type.versions?.default })), growing, releasing });
+    const [images, growing, releasing, dependencies] = await Promise.all([this.deps.images(ownerId), this.growing(ownerId, groveAgentOf(type)), this.releasing(ownerId, type), this.deps.dependencies?.(ownerId) ?? []]);
+    const image = images.find((entry) => entry.id === builtLanguage(treeLanguage(type, { version: type.versions?.default })));
+    const has = new Set((image?.available ?? []).map((entry) => entry.split(' ')[0]!));
+    const canGet = dependencies.filter((dependency) => dependency.provides.length === 0 || !dependency.provides.every((program) => has.has(program))).map(({ name, summary }) => ({ name, summary }));
+    return describeTreeType({ type, image, growing, releasing, canGet });
   }
 
   async releasingOf(ownerId: string, typeId: string): Promise<ReleaseWays | undefined> {

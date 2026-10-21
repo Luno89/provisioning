@@ -7,6 +7,7 @@ import { createServerTools } from './server-tools.js';
 import { createToolRuntime } from './tool-runtime.js';
 import { createAgentRegistry } from '../registries/registry.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../lib/mcp-servers.js';
+import { SHIPPED_DEPENDENCIES } from '../../extensions/workspace-dependencies.js';
 
 const HOSTED: ServerRuns = { where: 'hosted', url: 'http://x/mcp' };
 const GITEA: McpServerRecord = {
@@ -118,6 +119,7 @@ describe('list_mcp_servers and propose_mcp_server', () => {
       stores: w.stores,
       proposing: {
         templates: () => MCP_SERVER_TEMPLATES,
+        dependencies: async () => SHIPPED_DEPENDENCIES,
         agents: async () => [{ slug: 'koala', servers: ['gitea'] }, { slug: 'executor' }],
         proposals: { list: async () => proposals, save: async (proposal) => { proposals.push(proposal); } },
       },

@@ -5,13 +5,14 @@ import type { McpServer, McpServerRuns, McpToolKind } from '../../api/mcp'
 import type { Agent } from '../../api/agents'
 import Explorer, { FileHeader, type ExplorerGroup } from './Explorer'
 import ToolNotesPanel from '../Checks/ToolNotesPanel'
+import NeedsPicker from '../NeedsPicker'
 import { errorMessage, useAddMcpServer, useAgents, useCaptureMcpServer, useMcpCatalogue, useRemoveMcpServer, useSaveAgent, useSaveMcpServer } from './shared'
 import {
-  MANAGERS, PLACE_TITLES, declaredKind, formOf, groupServers, isOffered, placeOf, runsOf, statusText, withOffered, withToolSaid, type WorkspaceForm,
+  PLACE_TITLES, declaredKind, formOf, groupServers, isOffered, placeOf, runsOf, statusText, withOffered, withToolSaid, type WorkspaceForm,
 } from './mcp-server-forms'
 
 const FILES = [
-  { id: 'runs', title: 'How it runs', icon: Server, says: 'Where it runs, and for one in the workspace what installs it and the command that starts it. Saving a change here captures it again.' },
+  { id: 'runs', title: 'How it runs', icon: Server, says: 'Where it runs, and for one in the workspace the dependencies that install it and the command that starts it. Saving a change here captures it again.' },
   { id: 'tools', title: 'Tools', icon: Wrench, says: 'What it serves, as it said when it was captured: which of them to offer, what each really does, and a note the model reads beside it.' },
   { id: 'notes', title: 'Notes', icon: NotebookPen, says: 'What you want every agent holding it to know, and what it depends on. The model reads both under the server\'s own instructions.' },
   { id: 'learned', title: 'Learned notes', icon: Lightbulb, says: 'What runs taught about using it and its tools, shown to every agent holding it once the bench shows it breaks nothing.' },
@@ -101,7 +102,7 @@ function Landing({ templates, naming, onDone }: { templates: { id: string; name:
   const [how, setHow] = useState<'url' | 'workspace'>('url')
   const [name, setName] = useState(naming ?? '')
   const [url, setUrl] = useState('')
-  const [form, setForm] = useState<WorkspaceForm>(() => formOf({ where: 'workspace', install: [], start: '', port: 8931 }))
+  const [form, setForm] = useState<WorkspaceForm>(() => formOf({ where: 'workspace', needs: [], start: '', port: 8931 }))
 
   return (
     <div className="max-w-3xl space-y-6 pt-4 text-sm text-slate-400">
@@ -163,18 +164,7 @@ function WorkspaceFields({ form, onChange }: { form: WorkspaceForm; onChange: (f
   const set = <K extends keyof WorkspaceForm>(key: K, value: WorkspaceForm[K]) => onChange({ ...form, [key]: value })
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-[3rem_1fr] items-center gap-x-2 gap-y-1">
-        {MANAGERS.map((manager) => (
-          <label key={manager} className="contents">
-            <span className="text-xs text-slate-500">{manager}</span>
-            <input aria-label={`${manager} packages`} className={`${field} font-mono`} value={form.packages[manager] ?? ''} onChange={(event) => set('packages', { ...form.packages, [manager]: event.target.value })} placeholder="packages, by name" />
-          </label>
-        ))}
-      </div>
-      <label className="block space-y-1">
-        <span className={label}>Install script — runs while its image builds, with network access</span>
-        <textarea aria-label="Install script" rows={3} className={`${field} font-mono`} value={form.script} onChange={(event) => set('script', event.target.value)} />
-      </label>
+      <NeedsPicker label="What it needs installed" value={form.needs} onChange={(needs) => set('needs', needs)} />
       <label className="block space-y-1">
         <span className={label}>Command that starts it</span>
         <input aria-label="Start command" className={`${field} font-mono`} value={form.start} onChange={(event) => set('start', event.target.value)} placeholder="my-server --port 8931" />

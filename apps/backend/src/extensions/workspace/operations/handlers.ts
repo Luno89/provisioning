@@ -77,7 +77,7 @@ export function changesFrom(plan: ComposedPlan, published: PublishedWorkspace | 
   const removed = (published?.lines ?? []).filter((line) => !plan.lines.some((own) => lineKey(own) === lineKey(line)));
   const envChanged = !published || !sameEnv(plan.env, published.env);
   const changed = !published || published.fingerprint !== plan.fingerprint || envChanged;
-  const script = added.find((line) => line.install.via === 'script' && line.from === 'project');
+  const script = added.find((line) => line.install.via === 'script' && (line.own || (line.from === 'project' && !line.dependency)));
   const parts = [
     ...(added.length ? [`adds ${added.map(describeLine).join('; ')}`] : []),
     ...(removed.length ? [`drops ${removed.map(describeLine).join('; ')}`] : []),

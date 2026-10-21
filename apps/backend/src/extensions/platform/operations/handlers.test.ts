@@ -1,3 +1,4 @@
+import { browserTestsMissing } from '../../../lib/browser-tests.js';
 import { describe, it, expect } from 'vitest';
 import type { NodeRequest } from '@koala/agent-engine/procedure';
 import type { EnvironmentDriver, ExecResult } from '@koala/engine-core';
@@ -105,8 +106,8 @@ describe('Run Browser Tests', () => {
   });
 
   it('is unavailable where the image has no runner, or there is no workspace', async () => {
-    expect((await setUp({ exitCode: 127 }).run()).outputs.reason).toBe('this workspace\'s image has no koala-e2e, so it cannot serve its app to a browser');
-    expect((await setUp({ exitCode: 127 }).run({ url: 'http://shop.local' })).outputs.reason).toBe('this workspace has no Playwright to run them with');
+    expect((await setUp({ exitCode: 127 }).run()).outputs.reason).toBe(browserTestsMissing({}));
+    expect((await setUp({ exitCode: 127 }).run({ url: 'http://shop.local' })).outputs.reason).toBe(browserTestsMissing({ url: 'http://shop.local' }));
     expect(await setUp({}, true).run()).toEqual({ exit: 'unavailable', outputs: { reason: 'this run has no workspace to run browser tests in' } });
   });
 

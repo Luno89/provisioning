@@ -1,5 +1,6 @@
 import { expandGroups, groupLibrary } from './groups.js';
 import type { GroupDefinition, PlacedNode, Procedure } from './schema.js';
+import type { HostOperation } from './host-operations.js';
 
 export interface RequiredGrant {
   name: string;
@@ -69,4 +70,17 @@ export function missingGrants(
 
   return requiredGrants(procedure, shared)
     .filter((required) => !(required.kind === 'tool' ? tools : agents).has(required.name));
+}
+
+export function stepNeeds(
+  procedure: Procedure | undefined,
+  operations: readonly Pick<HostOperation, 'name' | 'needs'>[],
+  shared: readonly GroupDefinition[] = [],
+): string[] {
+  if (!procedure) return [];
+  const byName = new Map(operations.map((operation) => [operation.name, operation.needs ?? []]));
+  const needs = nodesOf(procedure, shared).nodes
+    .filter((node) => node.kind === 'host-op')
+    .flatMap((node) => byName.get(textOf(node.settings, 'operation')) ?? []);
+  return [...new Set(needs)].sort();
 }

@@ -43,9 +43,7 @@ export interface ToolDefinition {
 
   command?: string | undefined;
   requires?: EnvironmentRequirement | undefined;
-  needsBinaries?: string[] | undefined;
-  provides?: string[] | undefined;
-  install?: Install | undefined;
+  needs?: string[] | undefined;
   reaches?: Reachability | undefined;
   secrets?: string[] | undefined;
 
@@ -79,7 +77,7 @@ export function checkDefinition(tool: ToolDefinition): CatalogueProblem[] {
   }
 
   if (tool.binding !== 'environment') {
-    if (tool.needsBinaries?.length || tool.requires || tool.install || tool.provides?.length) {
+    if (tool.needs?.length || tool.requires) {
       say('only an environment-bound tool runs inside the workspace, so only it can need installing');
     }
     if (tool.reaches?.build?.length) {
@@ -94,10 +92,6 @@ export function checkDefinition(tool: ToolDefinition): CatalogueProblem[] {
     for (const blank of placeholdersIn(tool.command)) {
       if (!names.includes(blank)) say(`its command fills in "${blank}", which it does not take as an argument`);
     }
-  }
-
-  if (tool.needsBinaries?.length && !tool.install) {
-    say(`needs ${tool.needsBinaries.join(', ')} but does not say how to install it`);
   }
 
   if (!tool.returns.trim()) say('does not say what it returns, so the model cannot plan past it');

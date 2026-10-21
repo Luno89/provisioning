@@ -1,6 +1,6 @@
 import { sanitiseNamespaceName } from './projects.js';
 import type { WorkspaceLanguage } from './workspace-spec.js';
-import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
+import { DEFAULT_WORKSPACE_LANGUAGE, type WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { PersonaEgressRule } from '@koala/harness-types';
 import { TREE_TYPE_SEEDS as TREE_TYPE_SEEDS_VALUE } from './tree-type-seeds.js';
 import { sameSeededRow } from './seed-diff.js';
@@ -235,6 +235,9 @@ export async function resolveTreeType<T extends { id: string; ownerId?: string |
 }
 
 export const NO_PARTICULAR_LANGUAGE = 'base';
+
+export const builtLanguage = (language: WorkspaceLanguage): WorkspaceLanguage =>
+  (language === NO_PARTICULAR_LANGUAGE ? DEFAULT_WORKSPACE_LANGUAGE : language);
 
 export function treeLanguageFrom(store: {
   getTrees(): Promise<{ id: string; ownerId?: string | undefined; type?: string | undefined; version?: string | undefined }[]>;

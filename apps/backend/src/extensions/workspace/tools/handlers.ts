@@ -16,14 +16,15 @@ export interface WorkspaceToolDeps {
 const refuse = (reason: string): ToolOutcome => ({ ok: false, digest: reason, content: reason });
 
 const text = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() ? value.trim() : undefined);
-const names = (value: unknown): string[] | undefined => {
-  const listed = typeof value === 'string' ? value.split(/[\s,]+/) : Array.isArray(value) ? value : undefined;
-  const kept = listed?.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '').map((entry) => entry.trim());
-  return kept?.length ? kept : undefined;
-};
 const parsedJson = (value: unknown): unknown => {
   if (typeof value !== 'string') return value;
   try { return JSON.parse(value); } catch { return value; }
+};
+const names = (raw: unknown): string[] | undefined => {
+  const value = typeof raw === 'string' && raw.trim().startsWith('[') ? parsedJson(raw) : raw;
+  const listed = typeof value === 'string' ? value.split(/[\s,]+/) : Array.isArray(value) ? value : undefined;
+  const kept = listed?.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '').map((entry) => entry.trim());
+  return kept?.length ? kept : undefined;
 };
 
 export function changeFrom(parsed: Record<string, unknown>): WorkspaceChange | string {
@@ -40,8 +41,9 @@ export function changeFrom(parsed: Record<string, unknown>): WorkspaceChange | s
     ...(names(parsed.languages) ? { languages: names(parsed.languages) } : {}),
     ...(Array.isArray(env) && env.length ? { env: env as { name: string; value: string }[] } : {}),
     ...(text(parsed.script) ? { script: text(parsed.script) } : {}),
+    ...(names(parsed.needs) ? { needs: names(parsed.needs) } : {}),
   };
-  return Object.keys(change).length ? change : 'say what to add: dnf, apt, pip or npm packages, languages, env or a script';
+  return Object.keys(change).length ? change : 'say what to add: needs, dnf, apt, pip or npm packages, languages, env or a script';
 }
 
 export function createWorkspaceTools(deps: WorkspaceToolDeps): Record<string, ToolHandler> {

@@ -1,5 +1,7 @@
 import { ODOO_CHART_FILES } from './odoo-chart-template.js';
 import { ODOO_E2E_HELPERS, ODOO_E2E_HELPERS_PATH } from './odoo-e2e-helpers.js';
+import { E2E_RUNNER, PLAYWRIGHT_VERSION } from './e2e.js';
+import { WORKSPACE_FILE, writeWorkspaceFile } from './workspace-file.js';
 
 export interface TemplateFile {
   path: string;
@@ -271,6 +273,57 @@ export const LIBRARY_FILES = [
   { path: 'README.md', content: README('{{projectName}}', 'library') },
 ];
 
+const UI_PREVIEW_PORT = 8080;
+
+export const UI_PLAYWRIGHT_CONFIG = `import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: 'e2e',
+  outputDir: 'e2e-results/artifacts',
+  use: { baseURL: 'http://127.0.0.1:${UI_PREVIEW_PORT}', trace: 'retain-on-failure', screenshot: 'only-on-failure' },
+  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  webServer: {
+    command: 'npm run build && npm run preview -- --host 127.0.0.1 --port ${UI_PREVIEW_PORT} --strictPort',
+    url: 'http://127.0.0.1:${UI_PREVIEW_PORT}',
+    reuseExistingServer: false,
+    timeout: 2_147_483_647,
+  },
+});
+`;
+
+export const UI_E2E_EXAMPLE = `import { test, expect } from '@playwright/test';
+
+test('the app opens and counts a click', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await page.getByRole('button', { name: /count/i }).click();
+  await expect(page.getByRole('button', { name: 'Count: 1' })).toBeVisible();
+});
+`;
+
+const UI_APP_README = `# {{projectName}}
+
+Interactive Vite + React user interface application.
+
+## Browser tests
+
+Changes a person would see come with a browser test in \`e2e/\` (TypeScript Playwright; \`e2e/app.spec.ts\` shows
+the shape). Run them with:
+
+\`\`\`
+koala-e2e e2e
+\`\`\`
+
+\`koala-e2e\` installs the packages if they are missing, builds the app and serves it with \`playwright.config.ts\`'s
+\`webServer\`, then runs the specs in Chromium and says \`koala-e2e: PASSED\` or \`koala-e2e: FAILED\`. Screenshots and
+traces of failures land in \`e2e-results/\`. Keep \`@playwright/test\` at ${PLAYWRIGHT_VERSION}: that is the Chromium
+the workspace has. A task checks them with:
+
+\`\`\`
+"checks": { "e2e": { "specs": ["e2e/<the spec>.spec.ts"] } }
+\`\`\`
+`;
+
 export const UI_APP_FILES = [
   {
     path: 'package.json',
@@ -283,12 +336,14 @@ export const UI_APP_FILES = [
         dev: 'vite',
         build: 'vite build',
         preview: 'vite preview',
+        'test:e2e': 'koala-e2e',
       },
       dependencies: {
         react: '^19.0.0',
         'react-dom': '^19.0.0',
       },
       devDependencies: {
+        '@playwright/test': PLAYWRIGHT_VERSION,
         '@vitejs/plugin-react': '^4.3.4',
         typescript: '^5.7.2',
         vite: '^6.0.7',
@@ -392,8 +447,12 @@ CMD ["nginx", "-g", "daemon off;"]
   },
   {
     path: 'README.md',
-    content: `# {{projectName}}\n\nInteractive Vite + React user interface application.\n`,
+    content: UI_APP_README,
   },
+  { path: '.gitignore', content: 'node_modules/\ndist/\ne2e-results/\ntest-results/\n' },
+  { path: WORKSPACE_FILE, content: writeWorkspaceFile({ needs: [E2E_RUNNER] }) },
+  { path: 'playwright.config.ts', content: UI_PLAYWRIGHT_CONFIG },
+  { path: 'e2e/app.spec.ts', content: UI_E2E_EXAMPLE },
 ];
 
 export const RESEARCH_PAPER_FILES = [

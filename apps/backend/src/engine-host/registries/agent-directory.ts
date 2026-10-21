@@ -57,6 +57,7 @@ export interface AgentDirectoryOptions {
   shipped?: (() => readonly ToolGrant[]) | undefined;
   now?: (() => string) | undefined;
   onChanged?: ((ownerId: string) => void) | undefined;
+  stepNeeds?: ((ownerId: string, procedureId: string) => Promise<string[]>) | undefined;
 }
 
 export function createAgentDirectory(options: AgentDirectoryOptions): AgentDirectory {
@@ -98,10 +99,23 @@ export function createAgentDirectory(options: AgentDirectoryOptions): AgentDirec
     };
   };
 
+  const withNeeds = async (ownerId: string, agents: Persona[]): Promise<Persona[]> => {
+    if (!options.stepNeeds) return agents;
+    const byProcedure = new Map<string, Promise<string[]>>();
+    const needsOf = (procedure: string) => {
+      if (!byProcedure.has(procedure)) byProcedure.set(procedure, options.stepNeeds!(ownerId, procedure).catch(() => []));
+      return byProcedure.get(procedure)!;
+    };
+    return Promise.all(agents.map(async (agent) => {
+      const needs = agent.procedure ? await needsOf(agent.procedure) : [];
+      return needs.length ? { ...agent, needs } : agent;
+    }));
+  };
+
   return {
     async agents(ownerId, read) {
       const { records, shipped, person } = await view(ownerId, read);
-      return withGrants(records, shipped, person);
+      return withNeeds(ownerId, withGrants(records, shipped, person));
     },
 
     async sourced(ownerId, read) {
@@ -112,7 +126,7 @@ export function createAgentDirectory(options: AgentDirectoryOptions): AgentDirec
         sources[record.slug] ??= sourcedTools(record.slug, shipped, person);
         serverSources[record.slug] ??= sourcedTools(record.slug, shipped, person, 'server');
       }
-      return { agents: withGrants(records, shipped, person), sources, serverSources };
+      return { agents: await withNeeds(ownerId, withGrants(records, shipped, person)), sources, serverSources };
     },
 
     setTools: (ownerId, slug, wanted, meta = {}) => setGranted(ownerId, slug, wanted, 'tool', meta),
@@ -139,7 +153,7 @@ export function createAgentDirectory(options: AgentDirectoryOptions): AgentDirec
 
 export function directoryFromDatabase(
   db: Parameters<typeof grantStoreFrom>[0] & { getEnginePersonas(ownerId?: string): Promise<PersonaRecord[]> },
-  extra: Pick<AgentDirectoryOptions, 'hidden' | 'onChanged'> = {},
+  extra: Pick<AgentDirectoryOptions, 'hidden' | 'onChanged' | 'stepNeeds'> = {},
 ): AgentDirectory {
   return createAgentDirectory({
     records: { list: (ownerId) => db.getEnginePersonas(ownerId) },

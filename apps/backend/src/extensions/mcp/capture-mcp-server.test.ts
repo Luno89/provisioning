@@ -58,7 +58,7 @@ function capture(server: McpServerRecord, over: { buildFails?: string | undefine
   const operations = createMcpOperations({
     servers: { get: async (_ownerId, id) => records.get(id), save: async (saved) => { records.set(saved.id, saved); } },
     hostedUrl: async (_ownerId, runs) => (over.unreachable ? undefined : 'url' in runs ? runs.url : undefined),
-    plan: (runs) => ({ base: 'ubi-node', installs: runs.install, provides: ['node', 'curl'], fingerprint: 'fp' }),
+    plan: async () => ({ base: 'ubi-node', installs: [], provides: ['node', 'curl'], fingerprint: 'fp' }),
     images: { ensure: async () => { if (over.buildFails) throw new Error(over.buildFails); return 'reg/ws:fp'; } },
     environments: { forRun: async (request) => { opened.push(request.environment); return driver; }, release: async (runId) => { released.push(runId); } },
     fetch: hostedFetch,

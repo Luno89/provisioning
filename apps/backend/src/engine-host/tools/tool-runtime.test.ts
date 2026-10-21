@@ -286,7 +286,7 @@ describe('tool runtime', () => {
 });
 
 describe('calling a tool a workspace server serves', () => {
-  const runs: ServerRuns = { where: 'workspace', install: [{ via: 'npm', packages: ['echoes'] }], start: 'serve', port: 8931 };
+  const runs: ServerRuns = { where: 'workspace', needs: ['jq'], start: 'serve', port: 8931 };
   const echoes: McpServerRecord = { id: 'e1', ownerId: 'user-1', name: 'echoes', runs, createdAt: 't0', updatedAt: 't0', captured: { tools: [{ name: 'echo', annotations: { idempotentHint: true, readOnlyHint: true } }], at: 't1', fingerprint: runsFingerprint(runs) } };
   const calls: unknown[] = [];
   const tools = (servers: string[]) => createToolRuntime({

@@ -1,4 +1,4 @@
-import { needsBuilding, planFor, type Persona, type ToolDefinition } from '@koala/agent-engine';
+import { needsBuilding, planFor, type Persona, type ToolDefinition, type WorkspaceDependency } from '@koala/agent-engine';
 import type { ImageBuilder, ImageStanding } from './image-builder.js';
 import { mergeWorkspaceAgents } from './environments.js';
 import { GROVE_WORKSPACE_AGENTS } from './tree-workspaces.js';
@@ -21,6 +21,7 @@ export interface WarmImagesOptions {
   personas(ownerId?: string): Promise<Persona[]>;
   tools(ownerId?: string): Promise<ToolDefinition[]>;
   servers?: ((ownerId: string) => Promise<readonly McpServerRecord[]>) | undefined;
+  dependencies?: ((ownerId: string) => Promise<readonly WorkspaceDependency[]>) | undefined;
   /** Everyone whose agents could run. Without it, only the owners who have rows of their own. */
   owners?(): Promise<string[]>;
   onProblem?: ((agent: string, problem: string) => void) | undefined;
@@ -41,11 +42,20 @@ export function sayWaiting(image: WorkspaceImage | undefined): string | undefine
 
 export function createWorkspaceImages(options: WarmImagesOptions): WorkspaceImages {
   const serversOf = async (ownerId: string | undefined): Promise<readonly McpServerRecord[]> => (ownerId && options.servers ? options.servers(ownerId) : []);
+  const dependenciesOf = async (ownerId: string | undefined): Promise<readonly WorkspaceDependency[] | undefined> => (ownerId && options.dependencies ? options.dependencies(ownerId) : undefined);
+  const safely = (persona: Persona, tools: readonly ToolDefinition[], servers: readonly McpServerRecord[], dependencies: readonly WorkspaceDependency[] | undefined) => {
+    try {
+      return planWorkspace(persona, tools, servers, undefined, dependencies);
+    } catch (err) {
+      options.onProblem?.(persona.slug, (err as Error).message);
+      return undefined;
+    }
+  };
   const planned = async (ownerId?: string) => {
-    const [personas, tools, servers] = await Promise.all([options.personas(ownerId), options.tools(ownerId), serversOf(ownerId)]);
+    const [personas, tools, servers, dependencies] = await Promise.all([options.personas(ownerId), options.tools(ownerId), serversOf(ownerId), dependenciesOf(ownerId)]);
 
     return personas.flatMap((persona) => {
-      const plan = planWorkspace(persona, tools, servers);
+      const plan = safely(persona, tools, servers, dependencies);
       return plan ? [{ agent: persona.slug, plan }] : [];
     });
   };
@@ -78,7 +88,7 @@ export function createWorkspaceImages(options: WarmImagesOptions): WorkspaceImag
       const [persona] = (await options.personas(ownerId)).filter((candidate) => candidate.slug === agentSlug);
       if (!persona) return undefined;
 
-      const plan = planWorkspace(persona, await options.tools(ownerId), await serversOf(ownerId));
+      const plan = planWorkspace(persona, await options.tools(ownerId), await serversOf(ownerId), undefined, await dependenciesOf(ownerId));
       if (!plan) return undefined;
 
       const state = await options.images.standing(plan);
@@ -106,10 +116,10 @@ export function createWorkspaceImages(options: WarmImagesOptions): WorkspaceImag
       };
 
       for (const ownerId of owners) {
-        const [personas, tools, servers] = await Promise.all([options.personas(ownerId), options.tools(ownerId), serversOf(ownerId)]);
+        const [personas, tools, servers, dependencies] = await Promise.all([options.personas(ownerId), options.tools(ownerId), serversOf(ownerId), dependenciesOf(ownerId)]);
 
         for (const persona of personas) {
-          const plan = planWorkspace(persona, tools, servers);
+          const plan = safely(persona, tools, servers, dependencies);
           if (plan && needsBuilding(plan)) want(plan.fingerprint, persona.slug);
         }
 
@@ -118,7 +128,7 @@ export function createWorkspaceImages(options: WarmImagesOptions): WorkspaceImag
           GROVE_WORKSPACE_AGENTS.map((slug) => personas.find((persona) => persona.slug === slug)),
           'grove-runner',
         );
-        const plan = shared ? planWorkspace(shared, tools, servers) : undefined;
+        const plan = shared ? safely(shared, tools, servers, dependencies) : undefined;
         if (plan && needsBuilding(plan)) want(plan.fingerprint, 'tree workspaces');
       }
 

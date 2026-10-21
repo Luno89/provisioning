@@ -26,8 +26,7 @@ const counter = (over: Partial<ToolDefinition> = {}): ToolDefinition => ({
     },
   },
   command: 'rg --count {pattern} {path}',
-  needsBinaries: ['rg'],
-  install: { via: 'dnf', packages: ['ripgrep'] },
+  needs: ['jq'],
   ...over,
 });
 

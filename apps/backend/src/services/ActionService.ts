@@ -54,6 +54,7 @@ export class ActionService {
     store: ActionStore;
     deployer: ActionDeployer;
     servers?: ActionServers | undefined;
+    dependencies?: Pick<import('./WorkspaceDependencyService.js').WorkspaceDependencyService, 'save'> | undefined;
     agents?: ActionAgents | undefined;
     releases?: Pick<ReleaseSettings, 'setForType' | 'setForProject'> | undefined;
     treeModels?: Pick<TreeModelsService, 'set'> | undefined;
@@ -130,6 +131,11 @@ export class ActionService {
     let server = spec.server ? (await servers.list(ownerId)).find((candidate) => candidate.name === spec.server) : undefined;
     if (spec.server && !server) throw new Error(`there is no MCP server called ${spec.server} any more`);
     if (!server) {
+      for (const dependency of spec.dependencies ?? []) {
+        if (!this.deps.dependencies) throw new Error('dependencies cannot be added from here');
+        const saved = await this.deps.dependencies.save(ownerId, dependency);
+        if (!saved.saved) throw new Error(`the dependency ${dependency.name} could not be added: ${saved.problems.join('; ')}`);
+      }
       const added = await servers.add(ownerId, {
         ...(spec.template ? { template: spec.template } : { runs: spec.runs }),
         name: spec.name, summary: spec.summary, notes: spec.notes, dependsOn: spec.dependsOn, offer: spec.offer, omit: spec.omit,

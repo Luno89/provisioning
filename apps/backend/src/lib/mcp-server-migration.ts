@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { grantChanges, kindOfGrant, type PersonaRecord, type ToolDefinition, type ToolGrant } from '@koala/agent-engine';
+import { grantChanges, kindOfGrant, type Install, type PersonaRecord, type ToolDefinition, type ToolGrant } from '@koala/agent-engine';
 import { looksLikeMcp } from './mcp-registry.js';
 import { MCP_TOOL_KINDS, deploymentOf, serverNameFrom, type McpServerRecord, type McpToolKind } from './mcp-servers.js';
 import type { McpToolHint } from './mcp-tool-hints.js';
@@ -33,7 +33,7 @@ export interface McpServerMigration {
 
 const WHY = 'held by this agent before MCP servers were granted';
 
-type ServingTool = ToolDefinition & { ownerId?: string | undefined; serves?: { start: string; port: number; path?: string | undefined; offer?: string[] | undefined; omit?: string[] | undefined } };
+type ServingTool = ToolDefinition & { ownerId?: string | undefined; install?: Install | undefined; needsBinaries?: string[] | undefined; serves?: { start: string; port: number; path?: string | undefined; offer?: string[] | undefined; omit?: string[] | undefined } };
 
 export async function migrateMcpServers(store: McpServerMigrationStore, now: string, newId: () => string = randomUUID): Promise<McpServerMigration> {
   const moved: McpServerMigration = { agentServerListsMoved: 0, servingToolsMoved: 0, toolKindsMoved: 0 };
@@ -70,7 +70,7 @@ export async function migrateMcpServers(store: McpServerMigrationStore, now: str
           start: tool.serves.start,
           port: tool.serves.port,
           ...(tool.serves.path ? { path: tool.serves.path } : {}),
-        },
+        } as unknown as McpServerRecord['runs'],
         ...(tool.serves.offer ? { offer: tool.serves.offer } : {}),
         ...(tool.serves.omit ? { omit: tool.serves.omit } : {}),
         createdAt: now,

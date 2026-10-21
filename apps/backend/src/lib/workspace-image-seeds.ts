@@ -94,15 +94,14 @@ export const WORKSPACE_IMAGE_SEEDS: WorkspaceImageSpec[] = [
   },
   odooImage('odoo', '18'),
   odooImage('odoo-20', '20'),
-  {
-    id: 'base',
-    image: 'registry.access.redhat.com/ubi9/ubi',
-    summary: 'Minimal shell environment. No git, no compilers — shell and text editing only.',
-    available: ['bash', 'python3 3.9', 'curl', 'tar'],
-    absent: ['git', 'node', 'npm', 'go', 'pip', 'gcc', 'make', 'wget', 'jq'],
-    packageAccess: { env: [], egress: [] },
-  },
 ];
+
+const nodeSeed = WORKSPACE_IMAGE_SEEDS.find((seed) => seed.id === 'node')!;
+WORKSPACE_IMAGE_SEEDS.push({
+  ...nodeSeed,
+  id: 'base',
+  summary: `No language in particular, so it works in the Node.js workspace: ${nodeSeed.summary}`,
+});
 
 export const DEFAULT_WORKSPACE_LANGUAGE: WorkspaceLanguage = 'node';
 

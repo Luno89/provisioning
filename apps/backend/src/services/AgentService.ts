@@ -10,6 +10,8 @@ import {
   type PersonaRecord,
   type SourcedTool,
   type ToolDefinition,
+  type ImagePlan,
+  type WorkspaceDependency,
 } from '@koala/agent-engine';
 import type { AgentDirectory, GrantMeta } from '../engine-host/registries/agent-directory.js';
 import { sameSeededRow } from '../lib/seed-diff.js';
@@ -39,6 +41,7 @@ export interface AgentServiceOptions {
   tools(ownerId: string): Promise<ToolDefinition[]>;
   procedures(ownerId: string): Promise<readonly Procedure[]>;
   servers?: ((ownerId: string) => Promise<readonly McpServerRecord[]>) | undefined;
+  dependencies?: ((ownerId: string) => Promise<readonly WorkspaceDependency[]>) | undefined;
   images?: {
     start(plan: NonNullable<ReturnType<typeof planFor>>): Promise<ImageStanding>;
     standing(plan: NonNullable<ReturnType<typeof planFor>>): Promise<ImageStanding>;
@@ -170,6 +173,21 @@ export class AgentService {
     return this.options.servers?.(ownerId) ?? Promise.resolve([]);
   }
 
+  private async planned(ownerId: string, agent: Persona, tools: readonly ToolDefinition[], servers: readonly McpServerRecord[]): Promise<ImagePlan | ImageStanding | undefined> {
+    try {
+      return planWorkspace(agent, tools, servers, undefined, this.options.dependencies ? await this.options.dependencies(ownerId) : undefined);
+    } catch (err) {
+      return { state: 'failed', reference: '', detail: (err as Error).message };
+    }
+  }
+
+  private async started(ownerId: string, agent: Persona, tools: readonly ToolDefinition[], servers: readonly McpServerRecord[]): Promise<ImageStanding | undefined> {
+    const plan = await this.planned(ownerId, agent, tools, servers);
+    if (!plan || 'state' in plan) return plan;
+    if (!this.options.images) return undefined;
+    return this.options.images.start(plan).catch((err: Error) => ({ state: 'failed' as const, reference: '', detail: err.message }));
+  }
+
   async grantable(ownerId: string): Promise<{ name: string; summary: string; binding: string; effect: ToolDefinition['effect']; needs: string[] }[]> {
     return (await this.options.tools(ownerId))
       .map((tool) => ({
@@ -189,15 +207,16 @@ export class AgentService {
     const usage = agentUsage({ agents, procedures, treeTypes, groups: platformGroups() });
     return Promise.all(agents
       .sort((a, b) => a.slug.localeCompare(b.slug))
-      .map(async (agent) => ({ ...agent, mine: isFork(agent), recallsMemories: recallsMemories(agent, procedures), usedBy: usage.get(agent.slug) ?? [], toolSources: sources[agent.slug] ?? [], serverSources: serverSources[agent.slug] ?? [], ...(await this.imageOf(agent, tools, servers)) })));
+      .map(async (agent) => ({ ...agent, mine: isFork(agent), recallsMemories: recallsMemories(agent, procedures), usedBy: usage.get(agent.slug) ?? [], toolSources: sources[agent.slug] ?? [], serverSources: serverSources[agent.slug] ?? [], ...(await this.imageOf(ownerId, agent, tools, servers)) })));
   }
 
   async get(ownerId: string, slug: string): Promise<EditableAgent | undefined> {
     return (await this.list(ownerId)).find((agent) => agent.slug === slug);
   }
 
-  private async imageOf(agent: Persona, tools: readonly ToolDefinition[], servers: readonly McpServerRecord[]): Promise<{ image?: ImageStanding }> {
-    const plan = planWorkspace(agent, tools, servers);
+  private async imageOf(ownerId: string, agent: Persona, tools: readonly ToolDefinition[], servers: readonly McpServerRecord[]): Promise<{ image?: ImageStanding }> {
+    const plan = await this.planned(ownerId, agent, tools, servers);
+    if (plan && 'state' in plan) return { image: plan };
     if (!plan || !this.options.images) return {};
 
     const image = await this.options.images.standing(plan).catch((err: Error) => ({
@@ -219,9 +238,7 @@ export class AgentService {
     if (!agent) throw new Error(`there is no agent called ${slug}`);
     if (!(agent.servers ?? []).includes(server)) await this.options.agents.setServers(ownerId, slug, [...(agent.servers ?? []), server], meta);
     const [tools, servers, { agents: after }] = await Promise.all([this.options.tools(ownerId), this.servers(ownerId), this.all(ownerId)]);
-    const plan = planWorkspace(after.find((one) => one.slug === slug) ?? agent, tools, servers);
-    if (!plan || !this.options.images) return undefined;
-    return this.options.images.start(plan).catch((err: Error) => ({ state: 'failed' as const, reference: '', detail: err.message }));
+    return this.started(ownerId, after.find((one) => one.slug === slug) ?? agent, tools, servers);
   }
 
   async save(ownerId: string, input: unknown): Promise<SaveAgentOutcome> {
@@ -253,10 +270,7 @@ export class AgentService {
     const saved = await this.all(ownerId);
     const agent = saved.agents.find((one) => one.slug === wanted.slug) ?? wanted;
 
-    const plan = planWorkspace(agent, tools, servers);
-    const image = plan && this.options.images
-      ? await this.options.images.start(plan).catch((err: Error) => ({ state: 'failed' as const, reference: '', detail: err.message }))
-      : undefined;
+    const image = await this.started(ownerId, agent, tools, servers);
 
     const treeTypes = await this.options.treeTypes?.(ownerId) ?? [];
     const usage = agentUsage({ agents: [...agents.filter((one) => one.slug !== agent.slug), agent], procedures, treeTypes, groups: platformGroups() });

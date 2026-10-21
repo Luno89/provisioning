@@ -46,6 +46,7 @@ export interface EngineRouterDeps {
   registry: AgentRegistry;
   traces?: TraceAccess | undefined;
   tasks?: TaskAccess | undefined;
+  accepted?: ((ownerId: string, task: Task) => Promise<{ waiting: string[] } | undefined>) | undefined;
   images?: WorkspaceImageAccess | undefined;
   /** Deleting images is everybody's business, so only an administrator starts a sweep by hand. */
   admin?: RequestHandler | undefined;
@@ -183,7 +184,8 @@ export function engineRouter(deps: EngineRouterDeps): Router {
 
     const updated = withStatus(task, status, new Date().toISOString());
     await deps.tasks.save(updated);
-    return res.json(updated);
+    const needs = status === 'accepted' ? await deps.accepted?.(userOf(req).id, updated) : undefined;
+    return res.json(needs?.waiting.includes(updated.id) ? (await deps.tasks.list(userOf(req).id)).find((candidate) => candidate.id === updated.id) ?? updated : updated);
   });
 
   router.post('/tasks/:taskId/accept', decide('accepted'));

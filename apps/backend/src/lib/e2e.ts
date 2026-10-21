@@ -2,6 +2,7 @@ import { E2E_RESULTS_DIR } from './artifacts.js';
 
 export const PLAYWRIGHT_VERSION = '1.48.2';
 export const E2E_RUNNER = 'koala-e2e';
+export const SHARED_BROWSERS_PATH = '/opt/ms-playwright';
 export const E2E_ROOT = 'e2e-results';
 export const E2E_REPORT = `${E2E_ROOT}/report.json`;
 export const E2E_DEFAULT_SPECS = ['e2e'];
@@ -70,7 +71,8 @@ export function e2eCommand(request: E2ERequest): string {
   if (!request.url) return `${fresh} && ${E2E_RUNNER} ${specs}`;
   return [
     `command -v playwright >/dev/null || exit ${E2E_RUNNER_MISSING};`,
-    `${fresh} && BASE_URL=${quote(request.url)} PLAYWRIGHT_JSON_OUTPUT_NAME="$PWD/${E2E_REPORT}"`,
+    `${fresh} && export PLAYWRIGHT_BROWSERS_PATH="\${PLAYWRIGHT_BROWSERS_PATH:-${SHARED_BROWSERS_PATH}}" NODE_PATH="\${NODE_PATH:-$(npm root -g)}" &&`,
+    `BASE_URL=${quote(request.url)} PLAYWRIGHT_JSON_OUTPUT_NAME="$PWD/${E2E_REPORT}"`,
     `playwright test ${specs} --reporter=line,json --output="$PWD/${E2E_RESULTS_DIR}"`,
   ].join(' ');
 }

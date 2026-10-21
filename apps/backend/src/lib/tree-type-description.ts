@@ -1,7 +1,10 @@
 import { deliveryFor } from './delivery.js';
 import { needsProject } from './tree-home.js';
-import { treeLanguage, versionChoices, versionsLine, type TreeTypeSecret, type TreeTypeSpec } from './tree-types.js';
+import { builtLanguage, treeLanguage, versionChoices, versionsLine, type TreeTypeSecret, type TreeTypeSpec } from './tree-types.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
+import { readWorkspaceFile, WORKSPACE_FILE } from './workspace-file.js';
+import { E2E_RUNNER } from './e2e.js';
+import { TURN_ON_BROWSER_TESTS } from './browser-tests.js';
 
 export interface ReleaseWay {
   slug: string;
@@ -21,6 +24,7 @@ export interface TreeTypeParts {
   image?: Pick<WorkspaceImageSpec, 'summary' | 'available' | 'absent'> | undefined;
   growing?: string | undefined;
   releasing?: ReleaseWays | undefined;
+  canGet?: readonly { name: string; summary: string }[] | undefined;
 }
 
 const wayOf = (way: ReleaseWay): string => `the ${way.slug} agent${way.description ? ` (${way.description})` : ''}${way.app ? `, with the ${way.app} adapter` : ''}`;
@@ -53,10 +57,10 @@ const FROM: Record<TreeTypeSecret['source'], string> = {
 const secretLine = (secret: TreeTypeSecret): string =>
   `- ${secret.key}: ${secret.describe} Put in the project's vault when the project is made (${FROM[secret.source]}); the app reads it as an environment variable${secret.signInAs ? `, and the person can see it to sign in as ${secret.signInAs}` : ''}.`;
 
-export function describeTreeType({ type, image, growing, releasing }: TreeTypeParts): string {
+export function describeTreeType({ type, image, growing, releasing, canGet }: TreeTypeParts): string {
   const delivery = deliveryFor(type);
   const project = needsProject(type, {});
-  const language = treeLanguage(type, { version: type.versions?.default });
+  const language = builtLanguage(treeLanguage(type, { version: type.versions?.default }));
   return [
     `${type.label} (${type.id}): ${type.summary}`,
     ...section('VERSIONS', type.versions ? [
@@ -70,6 +74,8 @@ export function describeTreeType({ type, image, growing, releasing }: TreeTypePa
     ...section('WHERE EACH LEAF IS WORKED', image
       ? [`Its own worktree in the ${language} workspace${type.versions ? ` (${type.versions.of} ${type.versions.default})` : ''}: ${image.summary}`, ...(image.available.length ? [`Installed: ${image.available.join(', ')}.`] : []), ...(image.absent.length ? [`Not there: ${image.absent.join(', ')}.`] : [])]
       : [`A ${language} workspace, which this install does not describe.`]).concat(
+      [browserTestsLine(type, image)],
+      canGet?.length ? [`It can be given any of these with change_workspace (needs) or .koala/workspace.json: ${canGet.map((entry) => `${entry.name} (${entry.summary.replace(/\.$/, '')})`).join('; ')}.`] : [],
       (type.env ?? []).length ? [`Every leaf runs with ${(type.env ?? []).map((entry) => `${entry.name}=${entry.value}`).join(', ')}.`] : [],
       (type.egress ?? []).length ? [`It may also reach ${(type.egress ?? []).map((rule) => `${rule.cidr ?? `namespace ${rule.namespace}`}${rule.ports?.length ? ` on ${rule.ports.join(', ')}` : ''}`).join('; ')}.`] : [],
     ),
@@ -82,4 +88,12 @@ export function describeTreeType({ type, image, growing, releasing }: TreeTypePa
     ...section('SECRETS THE PLATFORM PROVIDES, SO NEVER PLAN MAKING OR STORING THEM', (type.secrets ?? []).map(secretLine)),
     ...section('DONE MEANS', [type.doneMeans]),
   ].join('\n');
+}
+
+export function browserTestsLine(type: Pick<TreeTypeSpec, 'files'>, image: Pick<WorkspaceImageSpec, 'available'> | undefined): string {
+  if (image?.available.includes(E2E_RUNNER)) return `Browser tests: yes. Its image has ${E2E_RUNNER}, so e2e checks and Run Browser Tests serve the app to a browser.`;
+  const starter = type.files.find((file) => file.path === WORKSPACE_FILE);
+  const read = starter ? readWorkspaceFile(starter.content) : undefined;
+  if (read && 'file' in read && read.file.needs?.includes(E2E_RUNNER)) return `Browser tests: yes. The starter's ${WORKSPACE_FILE} turns them on, so e2e checks and Run Browser Tests serve the app with its playwright.config webServer.`;
+  return `Browser tests: not built in. Before a task carries an e2e check, ${TURN_ON_BROWSER_TESTS}; or check with a command.`;
 }

@@ -1,19 +1,30 @@
 import { createHash } from 'crypto';
 import { environmentFor, type AgentDefinition } from '../agent/agent.js';
 import type { Install, ToolDefinition } from '../tools/catalogue.js';
+import { DependencyCycleError, LANGUAGE_DEPENDENCIES, LANGUAGE_IDS, MANAGER_NEEDS, UnknownDependencyError, resolveNeeds, type Need, type WorkspaceDependency } from './dependencies.js';
 
 export interface ImagePlan {
   base: string;
   installs: Install[];
   provides: string[];
   fingerprint: string;
+  has?: string[] | undefined;
   env?: { name: string; value: string }[] | undefined;
   lines?: PlanLine[] | undefined;
+  proves?: DependencyProof[] | undefined;
+}
+
+export interface DependencyProof {
+  dependency: string;
+  programs: string[];
+  libraries: string[];
 }
 
 export interface PlanLine {
   install: Install;
   from: string;
+  dependency?: string | undefined;
+  own?: true | undefined;
 }
 
 export interface Contribution {
@@ -26,6 +37,8 @@ export interface BaseImage {
   id: string;
   image: string;
   provides: string[];
+  has?: string[] | undefined;
+  family?: 'debian' | undefined;
   setup?: Install[] | undefined;
   env?: { name: string; value: string }[] | undefined;
 }
@@ -40,39 +53,25 @@ export const BASES: BaseImage[] = [
     id: 'node',
     image: 'registry.access.redhat.com/ubi9/nodejs-22',
     provides: ['bash', 'git', 'node', 'npm', 'npx', 'python3', 'gcc', 'make', 'curl', 'tar'],
+    has: ['node'],
   },
   {
     id: 'python',
     image: 'registry.access.redhat.com/ubi9/python-312',
     provides: ['bash', 'git', 'python3', 'pip', 'venv', 'node', 'npm', 'gcc', 'make', 'curl', 'wget', 'tar'],
+    has: ['python', 'node'],
   },
   {
     id: 'go',
     image: 'registry.access.redhat.com/ubi9/go-toolset',
     provides: ['bash', 'git', 'go', 'node', 'npm', 'python3', 'gcc', 'make', 'curl', 'wget', 'tar'],
+    has: ['go', 'node'],
   },
 ];
 
 export const DEFAULT_BASE = 'node';
 
-export interface Language {
-  id: string;
-  binaries: string[];
-  install: Install;
-}
-
-export const LANGUAGES: Language[] = [
-  { id: 'node', binaries: ['node', 'npm'], install: { via: 'dnf', packages: ['nodejs', 'npm'] } },
-  { id: 'python', binaries: ['python3', 'pip'], install: { via: 'dnf', packages: ['python3', 'python3-pip'] } },
-  { id: 'go', binaries: ['go'], install: { via: 'dnf', packages: ['go-toolset'] } },
-];
-
-export const LANGUAGE_IDS: string[] = LANGUAGES.map((language) => language.id);
-
-const MANAGED_BY: Partial<Record<Install['via'], { binary: string; language: string }>> = {
-  pip: { binary: 'pip', language: 'python' },
-  npm: { binary: 'npm', language: 'node' },
-};
+export { LANGUAGE_IDS };
 
 export class UnbuildableError extends Error {
   constructor(detail: string) {
@@ -104,69 +103,58 @@ export function planImage(input: {
   base?: string | undefined;
   languages?: readonly string[] | undefined;
   tools: readonly ToolDefinition[];
+  needs?: readonly Need[] | undefined;
   contributions?: readonly Contribution[] | undefined;
   bases?: readonly BaseImage[] | undefined;
+  dependencies?: readonly WorkspaceDependency[] | undefined;
 }): ImagePlan {
   const base = (input.bases ?? BASES).find((candidate) => candidate.id === (input.base ?? DEFAULT_BASE));
   if (!base) throw new UnbuildableError(`There is no base image called "${input.base}"`);
 
   const provides = new Set(base.provides);
+  const has = new Set([...(base.has ?? []), base.id]);
   const lines: PlanLine[] = (base.setup ?? []).map((install) => ({ install, from: `base:${base.id}` }));
+  const contributions = (input.contributions ?? []).filter((contribution) => contribution.install.via !== 'base'
+    && !(contribution.provides?.length && contribution.provides.every((binary) => provides.has(binary))));
 
-  for (const asked of input.languages ?? []) {
-    if (asked === base.id) continue;
-    const language = LANGUAGES.find((candidate) => candidate.id === asked);
-    if (!language) {
-      throw new UnbuildableError(
-        `There is no language called "${asked}" — a workspace can ask for ${LANGUAGE_IDS.join(', ')}`,
-      );
-    }
+  const catalogue = input.dependencies ?? LANGUAGE_DEPENDENCIES;
+  const needs: Need[] = [
+    ...(input.languages ?? [])
+      .filter((name) => !(name === base.id || ((input.bases ?? BASES).some((candidate) => candidate.id === name) && !catalogue.some((dependency) => dependency.name === name))))
+      .map((name) => ({ name, from: `language:${name}` })),
+    ...input.tools.filter((tool) => tool.binding === 'environment').flatMap((tool) => (tool.needs ?? []).map((name) => ({ name, from: `tool:${tool.name}` }))),
+    ...(input.needs ?? []),
+    ...contributions.flatMap((contribution) => {
+      const manager = MANAGER_NEEDS[contribution.install.via];
+      return manager ? [{ name: manager, from: contribution.from }] : [];
+    }),
+  ];
 
-    if (language.binaries.every((binary) => provides.has(binary))) continue;
-
-    lines.push({ install: language.install, from: `language:${language.id}` });
-    for (const binary of language.binaries) provides.add(binary);
+  let resolved;
+  try {
+    resolved = resolveNeeds(needs, catalogue, has, provides);
+  } catch (err) {
+    if (err instanceof UnknownDependencyError || err instanceof DependencyCycleError) throw new UnbuildableError(err.message);
+    throw err;
   }
-
-  const withManager = (install: Install, from: string): void => {
-    const manager = MANAGED_BY[install.via];
-    const language = manager && !provides.has(manager.binary) ? LANGUAGES.find((candidate) => candidate.id === manager.language) : undefined;
-    if (language) {
-      lines.push({ install: language.install, from: `language:${language.id}` });
-      for (const binary of language.binaries) provides.add(binary);
-    }
-    lines.push({ install, from });
-  };
-
-  for (const contribution of input.contributions ?? []) {
-    if (contribution.install.via === 'base') continue;
-    withManager(contribution.install, contribution.from);
+  for (const { dependency, from } of resolved) {
+    const installs = base.family === 'debian' && dependency.onDebian?.length ? dependency.onDebian : dependency.install;
+    for (const install of installs) lines.push({ install, from, dependency: dependency.name, ...(dependency.ownerId ? { own: true as const } : {}) });
+  }
+  for (const contribution of contributions) {
+    lines.push({ install: contribution.install, from: contribution.from });
     for (const binary of contribution.provides ?? []) provides.add(binary);
   }
 
-  for (const tool of input.tools) {
-    if (tool.binding !== 'environment') continue;
-
-    const missing = (tool.needsBinaries ?? []).filter((binary) => !provides.has(binary));
-    if (missing.length === 0) continue;
-
-    if (!tool.install || tool.install.via === 'base') {
-      throw new UnbuildableError(
-        `${tool.name} needs ${missing.join(', ')}, which ${base.image} does not have, and it does not say how to install it`,
-      );
-    }
-
-    withManager(tool.install, `tool:${tool.name}`);
-    for (const binary of tool.needsBinaries ?? []) provides.add(binary);
-    for (const binary of tool.provides ?? []) provides.add(binary);
-  }
-
   const installs = lines.map((line) => line.install);
+  const proves = resolved.map(({ dependency }) => ({ dependency: dependency.name, programs: [...dependency.provides], libraries: [...(dependency.libraries ?? [])] }));
   return {
     base: base.image,
     installs,
     lines,
     provides: [...provides].sort(),
+    has: [...has].sort(),
+    ...(proves.length ? { proves } : {}),
     fingerprint: fingerprint(base.image, installs),
     ...(base.env?.length ? { env: base.env.map((entry) => ({ ...entry })) } : {}),
   };
@@ -192,7 +180,22 @@ export function renderDockerfile(plan: ImagePlan): string {
   }
 
   lines.push('USER 1000');
+  if (plan.proves?.length) lines.push(`RUN ${proofScript(plan.proves)}`);
   return `${lines.join('\n')}\n`;
+}
+
+const quoted = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
+
+export function proofScript(proves: readonly DependencyProof[]): string {
+  const checks = proves.flatMap((proof) => [
+    ...proof.programs.map((program) => `command -v ${quoted(program)} >/dev/null 2>&1 || missing="$missing ${proof.dependency}:${program}"`),
+    ...proof.libraries.map((library) => `{ ldconfig -p 2>/dev/null | grep -qF ${quoted(library)} || ls /usr/lib*/${quoted(library)}* /usr/lib*/*/${quoted(library)}* >/dev/null 2>&1; } || missing="$missing ${proof.dependency}:${library}"`),
+  ]);
+  return [
+    'missing=""',
+    ...checks,
+    'if [ -n "$missing" ]; then for gap in $missing; do echo "the dependency ${gap%%:*} said it puts ${gap#*:} in the workspace, and once it was installed ${gap#*:} is not there" >&2; done; exit 1; fi',
+  ].join('; ');
 }
 
 export const WORKSPACE_IMAGE = 'workspace';
@@ -226,6 +229,7 @@ export function planFor(
   catalogue: readonly ToolDefinition[],
   bases: readonly BaseImage[] = BASES,
   contributions: readonly Contribution[] = [],
+  extra: { needs?: readonly Need[] | undefined; dependencies?: readonly WorkspaceDependency[] | undefined } = {},
 ): ImagePlan | undefined {
   if (environmentFor(agent).kind !== 'sandbox') return undefined;
 
@@ -234,7 +238,9 @@ export function planFor(
     base: baseFor(agent, bases),
     languages: languagesFor(agent),
     tools: catalogue.filter((tool) => granted.has(tool.name)),
+    needs: [...(agent.needs ?? []).map((name) => ({ name, from: `agent:${agent.slug}` })), ...(extra.needs ?? [])],
     contributions,
     bases,
+    ...(extra.dependencies ? { dependencies: extra.dependencies } : {}),
   });
 }
