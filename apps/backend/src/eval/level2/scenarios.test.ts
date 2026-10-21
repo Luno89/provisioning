@@ -21,7 +21,7 @@ describe('the scenarios the platform ships', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('keep off the bench what holds the model or a cluster for long: the model stories of Odoo, and the monitoring check that deploys a real app', () => {
-    expect(BUILT_IN_SCENARIOS.filter((scenario) => scenario.onBench === false).map((scenario) => scenario.id).sort()).toEqual(['mechanics-monitoring', 'story-odoo-client-project', 'story-odoo-field']);
+  it('keep off the bench what holds the model or a cluster for long: the model stories of Odoo, the monitoring check that deploys a real app, and the one that builds Chromium into a workspace', () => {
+    expect(BUILT_IN_SCENARIOS.filter((scenario) => scenario.onBench === false).map((scenario) => scenario.id).sort()).toEqual(['mechanics-monitoring', 'mechanics-workspace-needs', 'story-odoo-client-project', 'story-odoo-field']);
   });
 });

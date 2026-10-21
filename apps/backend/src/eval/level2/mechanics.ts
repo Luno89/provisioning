@@ -506,6 +506,58 @@ const workspaceChange: Scenario = {
   ],
 };
 
+const PAGE_TASK = 'Make the page and its browser test';
+
+const PAGE_FILES: Record<string, string> = {
+  'package.json': `${JSON.stringify({ name: 'needs-check', private: true, devDependencies: { '@playwright/test': '1.48.2' } }, null, 2)}\n`,
+  'index.html': '<!doctype html><html><body><h1>Needs check</h1></body></html>\n',
+  'server.js': "require('http').createServer((req, res) => { res.setHeader('content-type', 'text/html'); res.end(require('fs').readFileSync('index.html')); }).listen(4173, '127.0.0.1');\n",
+  'playwright.config.ts': "import { defineConfig } from '@playwright/test';\n\nexport default defineConfig({\n  testDir: 'e2e',\n  use: { baseURL: 'http://127.0.0.1:4173' },\n  webServer: { command: 'node server.js', url: 'http://127.0.0.1:4173', reuseExistingServer: false, timeout: 2_147_483_647 },\n});\n",
+  'e2e/page.spec.ts': "import { test, expect } from '@playwright/test';\n\ntest('the page says what it is', async ({ page }) => {\n  await page.goto('/');\n  await expect(page.getByRole('heading', { name: 'Needs check' })).toBeVisible();\n});\n",
+};
+
+const workspaceNeeds: Scenario = {
+  id: 'mechanics-workspace-needs',
+  name: 'A browser test check gets the workspace it needs',
+  describe: 'Mechanics, on a script: a plan whose task carries a browser test check is approved into a tree whose workspace has no koala-e2e. Approving it adds koala-e2e to .koala/workspace.json on main and starts the build, and the task waits; the story is put aside until the build is published and proves koala-e2e is there, then the executor writes a page, its server, a Playwright config and a spec, the check serves the page to Chromium, and the story is verified and lands. Off the bench, since the workspace builds Chromium in.',
+  agent: 'planner',
+  procedure: { id: 'planning' },
+  onBench: false,
+  input: { message: 'Plan the workspace needs check.', inputs: { goal: 'workspace needs check' } },
+  script: { rules: [
+    { when: { offered: ['propose_plan'], notCalled: ['propose_plan'] }, reply: { call: [{ tool: 'propose_plan', arguments: {
+      tree: { name: 'Workspace needs check', type: CATCH_ALL_TREE_TYPE, goal: 'A page whose browser test runs as a check.' },
+      planDoc: '# Workspace needs check\n\n## Destination\nA page and a browser test that passes against it.\n\n## Not yet specified\nNothing.\n\n## Out of scope\nEverything else.\n',
+      branches: [{ title: 'Page', leaves: [{
+        key: 'page', title: 'A page with a browser test', body: 'index.html says Needs check, and a Playwright spec proves it in a browser', brief: 'Serve index.html with server.js; playwright.config.ts starts it.',
+        tasks: [{ key: 'make', title: PAGE_TASK, description: 'Write the page, its server, the Playwright config and the spec.', role: 'All of it.', doneMeans: 'the spec passes against the page', checks: { e2e: { specs: ['e2e'] } } }],
+      }] }],
+    } }] } },
+    { when: { offered: ['propose_plan'] }, reply: { say: 'Proposed; it waits for your approval.' } },
+    DECIDE,
+    { when: { offered: ['settle_leaf'], notCalled: ['settle_leaf'] }, reply: { call: [{ tool: 'settle_leaf', arguments: { leafId: '{{mentioned.leaf}}', verdict: 'verified', note: 'scripted' } }] } },
+    { when: { offered: ['settle_leaf'] }, reply: { say: 'Settled.' } },
+    { when: { offered: ['record_verdict'], notCalled: ['record_verdict'] }, reply: { call: [{ tool: 'record_verdict', arguments: { verdict: 'met', reasoning: 'scripted' } }] } },
+    { when: { offered: ['record_verdict'] }, reply: { say: 'Met.' } },
+    { when: { asked: `Work the task ${PAGE_TASK}`, notCalled: ['write_file'] }, reply: { call: Object.entries(PAGE_FILES).map(([path, content]) => ({ tool: 'write_file', arguments: { path, content } })) } },
+    { when: { asked: `Work the task ${PAGE_TASK}` }, reply: { say: 'Done: the page, its server, the config and the spec are written.' } },
+    NOTHING,
+  ] },
+  expect: { outcome: 'ok', toolsSucceeded: ['propose_plan'] },
+  then: [
+    { name: 'approving the plan gives the workspace koala-e2e', do: { approvePlan: true }, expect: {
+      trees: 1,
+      repository: { of: 'tree', files: [{ path: '.koala/workspace.json', contains: ['"koala-e2e"'] }] },
+    } },
+    { name: 'the tree runs until the story waits', do: { runTree: true }, expect: { outcome: 'ok' } },
+    { name: 'the workspace is built and the story taken up, its browser test passing as a check', do: { settleTree: true }, expect: {
+      leaves: { verified: 1, landed: { 'A page with a browser test': 'merged' }, retried: { 'A page with a browser test': 0 } },
+      repository: { of: 'tree', files: [{ path: 'e2e/page.spec.ts', contains: ['Needs check'] }] },
+    } },
+    { name: 'deleting the tree', do: { deleteTree: true }, expect: { workspace: { of: 'tree', exists: false } } },
+  ],
+};
+
 const deletedProject: Scenario = {
   id: 'mechanics-project-deletion',
   name: 'Deleting a project takes its tree with it',
@@ -695,4 +747,4 @@ const odooBrowserFailure: Scenario = {
   ],
 };
 
-export const MECHANICS_CHECKS = (): Scenario[] => [judged, circling, longCommand, unaskedInSandbox, servedInWorkspace, proposedServer, proposedRelease, treeModel, monitored, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, deletedProject, itemChats, odooModule, odooBrowserFailure];
+export const MECHANICS_CHECKS = (): Scenario[] => [judged, circling, longCommand, unaskedInSandbox, servedInWorkspace, proposedServer, proposedRelease, treeModel, monitored, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, workspaceNeeds, deletedProject, itemChats, odooModule, odooBrowserFailure];
