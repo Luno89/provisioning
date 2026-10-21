@@ -10,6 +10,9 @@ import { mongoTarget } from '../apps/backend/src/lib/mongo-db.js';
 import { signJWT } from '../apps/backend/src/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/lib/keys.js';
 import { HUB_DATABASE_PREFIX } from '../apps/backend/src/lib/hub.js';
+import { HUB_REPO, hubOrgOf } from '../apps/backend/src/services/HubRepos.js';
+import { GiteaService } from '../apps/backend/src/services/GiteaService.js';
+import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
 
 const ROOT = process.env.HUB_LIVE_ROOT ?? 'http://localhost:3001';
 const HUB = process.env.HUB_LIVE_HUB ?? ROOT;
@@ -77,6 +80,7 @@ async function main(): Promise<void> {
   assert.ok(admin?.isAdmin, `${ADMIN} is not an admin`);
   const adminHttp = client(ROOT, `session=${signJWT({ userId: admin.id, email: admin.email }, loadKeys(process.env).session, 3600)}`);
   const mongo = await MongoClient.connect(mongoTarget(process.env).uri);
+  const gitea = new GiteaService(new InfrastructureService(), loadKeys(process.env).data, '/tmp/kubeconfig-provisioning-lunorica');
 
   const removeAccount = async (who: Person): Promise<void> => {
     const removed = await who.root!.delete('/account', { data: { confirm: who.email } });
@@ -91,20 +95,28 @@ async function main(): Promise<void> {
   const cy = person('cy');
   const eve = person('eve');
   const everyone = [ann, bo, cy, eve];
-  const projects: { id: string; name: string }[] = [];
+  const projects: { id: string; name: string; onInstance: string }[] = [];
 
   try {
     await stage('an owner signs up with an admin\'s invite and makes two shared projects', async () => {
       const invite = (await adminHttp.post('/admin/invites')).data as { code: string };
       await signUp(ann, invite.code);
       for (const name of [`Shop ${stamp}`, `Other ${stamp}`]) {
-        const made = await ann.hub!.post('/hub/projects', { name });
-        assert.equal(made.status, 201, JSON.stringify(made.data));
+        const project = await ann.root!.post('/projects', { name });
+        assert.ok(project.status < 300, JSON.stringify(project.data));
+        const before = await ann.root!.get(`/project-sharing/${project.data.id}`);
+        assert.equal(before.status, 200, JSON.stringify(before.data));
+        assert.equal(before.data.canShare, true);
+        assert.equal(before.data.shared, undefined, 'a project was on the hub before it was shared');
+        const shared = await ann.root!.post(`/project-sharing/${project.data.id}`);
+        assert.equal(shared.status, 200, JSON.stringify(shared.data));
+        const made = await ann.hub!.get(`/hub/projects/${shared.data.shared.hubProjectId}`);
         assert.deepEqual([made.data.role, made.data.members.map((m: { email: string }) => m.email)], ['owner', [ann.email]]);
-        projects.push(made.data.project);
+        projects.push({ ...made.data.project, onInstance: project.data.id });
       }
+      assert.equal((await ann.hub!.post('/hub/projects', { name: 'made on the hub' })).status, 404, 'the hub made a shared project that no instance shared');
     });
-    const [shop, other] = projects as [{ id: string; name: string }, { id: string; name: string }];
+    const [shop, other] = projects as [typeof projects[number], typeof projects[number]];
 
     const links = await stage('the owner invites a collaborator and a client to Shop, and someone else only to Other', async () => {
       const sent: Record<string, { code: string; project: string }> = {};
@@ -204,10 +216,13 @@ async function main(): Promise<void> {
     await stage('the owner deletes one project by its name; removing their account deletes the one only they are on; nothing of either is left on the hub', async () => {
       assert.equal((await ann.hub!.delete(`/hub/projects/${other.id}`, { data: { name: 'not its name' } })).status, 400);
       assert.equal((await ann.hub!.delete(`/hub/projects/${other.id}`, { data: { name: other.name } })).status, 200);
+      for (let tries = 0; tries < 30 && (await ann.root!.get(`/project-sharing/${other.onInstance}`)).data.shared; tries += 1) await sleep(1_000);
+      assert.equal((await ann.root!.get(`/project-sharing/${other.onInstance}`)).data.shared, undefined, 'the instance still took Other as shared after it was deleted on the hub');
       assert.deepEqual((await ann.root!.get('/account/removal')).data.blockers, []);
       await removeAccount(ann);
       const databases = (await mongo.db().admin().listDatabases()).databases.map((entry) => entry.name);
       for (const project of projects) assert.ok(!databases.includes(`${HUB_DATABASE_PREFIX}${project.id}`), `${HUB_DATABASE_PREFIX}${project.id} is still there`);
+      for (const project of projects) assert.equal(await gitea.findRepo(hubOrgOf(project.id), HUB_REPO), null, `${hubOrgOf(project.id)}/${HUB_REPO} is still in Gitea`);
       const registry = mongo.db(HUB_DATABASE);
       const ids = projects.map((project) => project.id);
       assert.equal(await registry.collection('shared_projects').countDocuments({ _id: { $in: ids as never[] } }), 0);

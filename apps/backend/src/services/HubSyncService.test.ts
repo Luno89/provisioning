@@ -87,4 +87,16 @@ describe('keeping a shared project\'s board in step with the hub', () => {
     await sync.once();
     expect([await db.hubDirty(10), (await onHub.records('trees')).length]).toEqual([[], 1]);
   });
+
+  it('stops sharing on the instance when the project was deleted on the hub', async () => {
+    const { db, hub, sync, hubId } = await setUp();
+    await db.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
+    await db.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
+    await sync.once();
+    await hub.delete('ann', hubId, 'Shop');
+    await db.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop again', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
+    await sync.once();
+    expect([await db.getHubLinks(), await db.hubSnapshot('trees', 't1'), await db.hubDirty(10)]).toEqual([[], undefined, []]);
+  });
 });
+

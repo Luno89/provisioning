@@ -79,7 +79,8 @@ export class HubSyncService {
       try {
         await this.deps.transport.push(link, mine.map((item) => item.change));
       } catch (err) {
-        this.deps.log?.(`hub sync: ${link.projectId} not sent yet: ${(err as Error).message}`);
+        if (await this.goneFromHub(link, err)) settled.push(...mine.map((item) => item.entry));
+        else this.deps.log?.(`hub sync: ${link.projectId} not sent yet: ${(err as Error).message}`);
         continue;
       }
       for (const item of mine) {
@@ -93,6 +94,14 @@ export class HubSyncService {
     return sent;
   }
 
+  private async goneFromHub(link: HubLink, err: unknown): Promise<boolean> {
+    if ((err as { status?: number }).status !== 404) return false;
+    await this.deps.store.deleteHubLink(link.projectId);
+    await this.deps.store.deleteHubSnapshots(link.projectId);
+    this.deps.log?.(`hub sync: ${link.projectId} is no longer on the hub, so it is no longer shared`);
+    return true;
+  }
+
   async pullOnce(): Promise<number> {
     let applied = 0;
     for (const link of await this.deps.store.getHubLinks()) {
@@ -100,7 +109,7 @@ export class HubSyncService {
       try {
         answer = await this.deps.transport.pull(link, link.pulledThrough);
       } catch (err) {
-        this.deps.log?.(`hub sync: ${link.projectId} not read yet: ${(err as Error).message}`);
+        if (!await this.goneFromHub(link, err)) this.deps.log?.(`hub sync: ${link.projectId} not read yet: ${(err as Error).message}`);
         continue;
       }
       for (const { origin, change } of answer.changes) {
@@ -179,12 +188,12 @@ export function localHubSync(hub: { receive: HubService['receive']; changesSince
   return {
     async push(link, changes) {
       const outcome = await hub.receive(origin(link), link.hubProjectId, changes);
-      if (!outcome.ok) throw new Error(outcome.why);
+      if (!outcome.ok) throw Object.assign(new Error(outcome.why), { status: outcome.status });
       return outcome.value;
     },
     async pull(link, after) {
       const outcome = await hub.changesSince(origin(link), link.hubProjectId, after);
-      if (!outcome.ok) throw new Error(outcome.why);
+      if (!outcome.ok) throw Object.assign(new Error(outcome.why), { status: outcome.status });
       return outcome.value;
     },
   };
