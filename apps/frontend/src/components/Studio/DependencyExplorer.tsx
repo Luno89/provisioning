@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { Package } from 'lucide-react'
 import { errorMessage } from '../../api/client'
-import { useDependencies, useRemoveDependency, useSaveDependency, type DependencyView } from '../../api/workspaceDependencies'
-import Explorer, { FileHeader, type ExplorerGroup } from './Explorer'
+import { useRemoveDependency, useSaveDependency, type DependencyView } from '../../api/workspaceDependencies'
+import Explorer, { FileHeader } from './Explorer'
+import { DEPENDENCIES_GROUP, DEPENDENCIES_SAY, dependencyItem, useToolbox } from './toolbox'
 import NeedsPicker from '../NeedsPicker'
 import { INSTALL_MANAGERS, dependencyForm, dependencyOf, installLines, usedByLines, type DependencyForm, type InstallForm } from './dependency-forms'
 
@@ -14,49 +15,33 @@ const primary = 'rounded bg-[var(--leaf-stem)] px-2.5 py-1 text-xs font-medium t
 
 export default function DependencyExplorer() {
   const { name } = useParams({ strict: false }) as { name?: string }
-  const dependencies = useDependencies()
+  const toolbox = useToolbox()
+  const dependencies = toolbox.dependencies
   const [adding, setAdding] = useState<string | undefined>()
   const all = dependencies.data ?? []
   const chosen = all.find((dependency) => dependency.name === name)
 
-  const groups: ExplorerGroup[] = [
-    { id: 'mine', title: 'Yours', items: all.filter((dependency) => dependency.mine) },
-    { id: 'shipped', title: 'Shipped with Koala', items: all.filter((dependency) => !dependency.mine) },
-  ].filter((group) => group.items.length > 0).map((group) => ({
-    id: group.id,
-    title: group.title,
-    items: group.items.map((dependency) => ({
-      id: dependency.name,
-      label: dependency.name,
-      mono: true,
-      mine: dependency.mine,
-      icon: Package,
-      link: { to: '/studio/dependencies/$name', params: { name: dependency.name } },
-      files: [],
-    })),
-  }))
-
   return (
     <Explorer
-      title="Dependencies"
-      groups={groups}
-      selected={name ? { item: name } : undefined}
-      path={[{ label: 'Dependencies', link: { to: '/studio/dependencies' } }, ...(name ? [{ label: name }] : [])]}
+      title="Tools"
+      groups={toolbox.groups}
+      selected={name ? { item: dependencyItem(name) } : undefined}
+      path={[{ label: 'Tools', link: { to: '/studio/tools' } }, { label: DEPENDENCIES_GROUP, link: { to: '/studio/dependencies' } }, ...(name ? [{ label: name }] : [])]}
       onNew={(fresh) => setAdding(fresh)}
-      newPlaceholder="New dependency's name, then Enter"
-      loading={dependencies.isPending}
-      error={dependencies.isError ? errorMessage(dependencies.error) : undefined}
+      newPlaceholder="New workspace dependency's name, then Enter"
+      loading={toolbox.loading}
+      error={toolbox.error ? errorMessage(toolbox.error) : undefined}
     >
       {adding !== undefined ? (
         <Editor key={`new-${adding}`} form={dependencyForm({ name: adding })} fresh onDone={() => setAdding(undefined)} />
       ) : !name ? (
         <Landing />
       ) : dependencies.isPending ? null : !chosen ? (
-        <p className="text-sm text-slate-400">There is no dependency called {name}.</p>
+        <p className="text-sm text-slate-400">There is no workspace dependency called {name}.</p>
       ) : chosen.mine ? (
         <Editor key={chosen.name} form={dependencyForm(chosen)} view={chosen} />
       ) : (
-        <Shipped dependency={chosen} />
+        <BuiltIn dependency={chosen} />
       )}
     </Explorer>
   )
@@ -65,9 +50,9 @@ export default function DependencyExplorer() {
 function Landing() {
   return (
     <div className="max-w-3xl space-y-3 pt-4 text-sm text-slate-400">
-      <h1 className="flex items-center gap-2 text-lg font-semibold text-slate-200"><Package size={20} className="text-[var(--leaf)]" /> Dependencies</h1>
-      <p>A dependency is something a workspace can have: how it is installed, and the programs or libraries it puts there. Tools, MCP servers, procedure steps, checks and a project&apos;s <span className="font-mono">.koala/workspace.json</span> name the dependencies they need, and each workspace image is built from them, each installed once, with what they need first.</p>
-      <p>After every build Koala checks each one put in what it said it would, so a workspace never says it has something it does not. Add your own with the name box above; one that runs a script waits for your approval before a tree&apos;s workspace is built with it.</p>
+      <h1 className="flex items-center gap-2 text-lg font-semibold text-slate-200"><Package size={20} className="text-[var(--leaf)]" /> {DEPENDENCIES_GROUP}</h1>
+      <p>{DEPENDENCIES_SAY} Each is installed once per image, with what it needs first, and every build checks it put in what it said it would.</p>
+      <p>The built-in ones cover what Koala's own tools, servers and steps need. Add your own with the name box above when a tool or server of yours needs something none of them installs; one that runs a script waits for your approval before a tree&apos;s workspace is built with it.</p>
     </div>
   )
 }
@@ -76,16 +61,17 @@ function UsedBy({ view }: { view: DependencyView }) {
   const lines = usedByLines(view)
   return (
     <section className="space-y-1">
-      <span className={label}>Used by</span>
-      {lines.length === 0 ? <p className="text-xs text-slate-500">Nothing names it yet.</p> : <ul className="list-disc space-y-0.5 pl-5 text-xs text-slate-300">{lines.map((line) => <li key={line}>{line}</li>)}</ul>}
+      <span className={label}>Needed by</span>
+      {lines.length === 0 ? <p className="text-xs text-slate-500">Nothing needs it yet, so no workspace installs it.</p> : <ul className="list-disc space-y-0.5 pl-5 text-xs text-slate-300">{lines.map((line) => <li key={line}>{line}</li>)}</ul>}
     </section>
   )
 }
 
-function Shipped({ dependency }: { dependency: DependencyView }) {
+function BuiltIn({ dependency }: { dependency: DependencyView }) {
   return (
     <div className="max-w-3xl space-y-4">
-      <FileHeader title={dependency.name} says={`${dependency.summary} Shipped with Koala, so it cannot be changed here.`} />
+      <FileHeader title={dependency.name} says={`${dependency.summary} Built in, so it cannot be changed here.`} />
+      <UsedBy view={dependency} />
       <section className="space-y-1 text-xs text-slate-300">
         {dependency.provides.length > 0 && <p><span className={label}>Puts on the PATH</span> <span className="font-mono">{dependency.provides.join(', ')}</span></p>}
         {dependency.libraries?.length ? <p><span className={label}>Libraries</span> <span className="font-mono">{dependency.libraries.join(', ')}</span></p> : null}
@@ -96,7 +82,6 @@ function Shipped({ dependency }: { dependency: DependencyView }) {
         <pre className="whitespace-pre-wrap rounded bg-[var(--bark-950)] p-2 font-mono text-[11px] text-slate-300">{installLines(dependency.install).join('\n')}</pre>
         {dependency.onDebian?.length ? <pre className="whitespace-pre-wrap rounded bg-[var(--bark-950)] p-2 font-mono text-[11px] text-slate-400">{`On a Debian base:\n${installLines(dependency.onDebian).join('\n')}`}</pre> : null}
       </section>
-      <UsedBy view={dependency} />
     </div>
   )
 }
@@ -136,7 +121,8 @@ function Editor({ form: initial, view, fresh = false, onDone }: { form: Dependen
 
   return (
     <div className="max-w-3xl space-y-4">
-      <FileHeader title={form.name} says={fresh ? 'A new dependency of your own.' : 'Yours. Saving rebuilds every workspace that uses it.'} />
+      <FileHeader title={form.name} says={fresh ? 'A new workspace dependency of your own: something a tool, MCP server or tree of yours needs installed.' : 'Yours. Saving rebuilds every workspace that installs it.'} />
+      {view && <UsedBy view={view} />}
       <label className="block space-y-1">
         <span className={label}>What it gives a workspace, in one line</span>
         <input aria-label="Summary" className={field} value={form.summary} onChange={(event) => set('summary', event.target.value)} />
@@ -151,7 +137,7 @@ function Editor({ form: initial, view, fresh = false, onDone }: { form: Dependen
           <input aria-label="Libraries" className={`${field} font-mono`} value={form.libraries} onChange={(event) => set('libraries', event.target.value)} placeholder="libfoo.so.1" />
         </label>
       </div>
-      <NeedsPicker label="Needs first" value={form.needs} onChange={(needs) => set('needs', needs.filter((need) => need !== form.name))} />
+      <NeedsPicker label="Workspace dependencies installed before it" value={form.needs} onChange={(needs) => set('needs', needs.filter((need) => need !== form.name))} />
       <InstallFields title="Install" form={form.install} onChange={(install) => set('install', install)} />
       <InstallFields title="On a Debian base, instead" form={form.onDebian} onChange={(onDebian) => set('onDebian', onDebian)} />
       <p className="text-[11px] text-amber-300">A script runs as root while the image is built; a tree&apos;s workspace waits for your approval before it is built with a new one.</p>
@@ -161,7 +147,6 @@ function Editor({ form: initial, view, fresh = false, onDone }: { form: Dependen
         {fresh && <button type="button" className={button} onClick={() => onDone?.()}>Cancel</button>}
         {!fresh && <button type="button" className={button} disabled={remove.isPending} onClick={() => remove.mutate(form.name, { onError: failure })}>Delete</button>}
       </div>
-      {view && <UsedBy view={view} />}
     </div>
   )
 }

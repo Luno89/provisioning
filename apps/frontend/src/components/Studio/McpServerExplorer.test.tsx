@@ -26,6 +26,13 @@ const SERVERS = [
   { id: 'd1', name: 'docs', runs: { where: 'hosted' as const, url: 'http://docs.test/mcp' }, status: { state: 'failed', why: 'connection refused' }, createdAt: 't', updatedAt: 't' },
 ]
 
+vi.mock('../../api/workspaceDependencies', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/workspaceDependencies')>()),
+  useDependencies: () => ({ isPending: false, isError: false, error: null, data: [{ name: 'jq', summary: 'jq.', provides: ['jq'], install: [], mine: false, script: false, usedBy: { tools: [], servers: [], dependencies: [], trees: [] } }] }),
+}))
+
+vi.mock('../Checks/shared', async (importOriginal) => ({ ...(await importOriginal<typeof import('../Checks/shared')>()), useScenarios: () => ({ data: [] }), useLevel2Runs: () => ({ data: [] }) }))
+
 vi.mock('./shared', () => {
   const mutation = (into: unknown[]) => ({ mutate: (value: unknown) => { into.push(value) }, isPending: false, error: null })
   return {
@@ -37,6 +44,7 @@ vi.mock('./shared', () => {
     useRemoveMcpServer: () => mutation([]),
     useSaveAgent: () => mutation(calls.agent),
     useAgents: () => ({ data: [{ slug: 'executor', tools: [], servers: ['playwright'] }, { slug: 'koala', tools: [], servers: [] }] }),
+    useEngineTools: () => ({ isPending: false, isError: false, error: null, data: [] }),
   }
 })
 
@@ -52,9 +60,9 @@ beforeEach(() => {
 describe('the MCP servers explorer', () => {
   it('groups servers by where they run, and adds a known one or one at an address', async () => {
     render(<McpServerExplorer />)
-    const tree = within(screen.getByRole('complementary', { name: 'MCP Servers' }))
-    expect(tree.getByText('Run in the workspace')).toBeInTheDocument()
-    expect(tree.getByText('Hosted at an address')).toBeInTheDocument()
+    const tree = within(screen.getByRole('complementary', { name: 'Tools' }))
+    expect(tree.getByText('MCP servers · Run in the workspace')).toBeInTheDocument()
+    expect(tree.getByText('MCP servers · Hosted at an address')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Add another' }))
     expect(calls.add).toEqual([{ template: 'playwright' }])

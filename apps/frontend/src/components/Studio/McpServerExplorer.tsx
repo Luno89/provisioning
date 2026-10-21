@@ -1,22 +1,18 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { AlertTriangle, CheckCircle2, FileText, Lightbulb, Loader2, NotebookPen, RefreshCw, Server, Wrench } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, FileText, Loader2, RefreshCw, Server } from 'lucide-react'
 import type { McpServer, McpServerRuns, McpToolKind } from '../../api/mcp'
 import type { Agent } from '../../api/agents'
-import Explorer, { FileHeader, type ExplorerGroup } from './Explorer'
+import Explorer, { FileHeader } from './Explorer'
+import { SERVER_FILES, serverItem, useToolbox } from './toolbox'
 import ToolNotesPanel from '../Checks/ToolNotesPanel'
 import NeedsPicker from '../NeedsPicker'
-import { errorMessage, useAddMcpServer, useAgents, useCaptureMcpServer, useMcpCatalogue, useRemoveMcpServer, useSaveAgent, useSaveMcpServer } from './shared'
+import { errorMessage, useAddMcpServer, useAgents, useCaptureMcpServer, useRemoveMcpServer, useSaveAgent, useSaveMcpServer } from './shared'
 import {
-  PLACE_TITLES, declaredKind, formOf, groupServers, isOffered, placeOf, runsOf, statusText, withOffered, withToolSaid, type WorkspaceForm,
+  PLACE_TITLES, declaredKind, formOf, isOffered, placeOf, runsOf, statusText, withOffered, withToolSaid, type WorkspaceForm,
 } from './mcp-server-forms'
 
-const FILES = [
-  { id: 'runs', title: 'How it runs', icon: Server, says: 'Where it runs, and for one in the workspace the dependencies that install it and the command that starts it. Saving a change here captures it again.' },
-  { id: 'tools', title: 'Tools', icon: Wrench, says: 'What it serves, as it said when it was captured: which of them to offer, what each really does, and a note the model reads beside it.' },
-  { id: 'notes', title: 'Notes', icon: NotebookPen, says: 'What you want every agent holding it to know, and what it depends on. The model reads both under the server\'s own instructions.' },
-  { id: 'learned', title: 'Learned notes', icon: Lightbulb, says: 'What runs taught about using it and its tools, shown to every agent holding it once the bench shows it breaks nothing.' },
-] as const
+const FILES = SERVER_FILES
 
 type ServerFile = 'overview' | typeof FILES[number]['id']
 
@@ -40,43 +36,26 @@ function Status({ server }: { server: McpServer }) {
 
 export default function McpServerExplorer() {
   const { id, part } = useParams({ strict: false }) as { id?: string; part?: string }
-  const catalogue = useMcpCatalogue({ polling: true })
+  const toolbox = useToolbox((one, entry) => (entry === 'tools' ? <span className="ml-auto"><Status server={one} /></span> : null))
+  const catalogue = toolbox.catalogue
   const [adding, setAdding] = useState<string | undefined>()
 
   const servers = catalogue.data?.servers ?? []
   const server = servers.find((one) => one.id === id)
   const file: ServerFile | undefined = part === undefined ? (id ? 'overview' : undefined) : isFile(part) ? part : undefined
 
-  const groups: ExplorerGroup[] = groupServers(servers).map((group) => ({
-    id: group.place,
-    title: group.title,
-    items: group.servers.map((one) => ({
-      id: one.id,
-      label: one.name,
-      mono: true,
-      icon: Server,
-      link: { to: '/studio/mcp-servers/$id', params: { id: one.id } },
-      files: FILES.map((entry) => ({
-        id: entry.id,
-        title: entry.title,
-        icon: entry.icon,
-        link: { to: '/studio/mcp-servers/$id/$part', params: { id: one.id, part: entry.id } },
-        ...(entry.id === 'tools' ? { badge: <span className="ml-auto"><Status server={one} /></span> } : {}),
-      })),
-    })),
-  }))
-
   const path = [
-    { label: 'MCP Servers', link: { to: '/studio/mcp-servers' } },
+    { label: 'Tools', link: { to: '/studio/tools' } },
+    { label: 'MCP servers', link: { to: '/studio/mcp-servers' } },
     ...(server ? [{ label: server.name, link: { to: '/studio/mcp-servers/$id', params: { id: server.id } } }] : []),
     ...(server && file && file !== 'overview' ? [{ label: FILES.find((entry) => entry.id === file)?.title ?? file }] : []),
   ]
 
   return (
     <Explorer
-      title="MCP Servers"
-      groups={groups}
-      selected={id ? { item: id, file: file === 'overview' ? undefined : file } : undefined}
+      title="Tools"
+      groups={toolbox.groups}
+      selected={id ? { item: serverItem(id), file: file === 'overview' ? undefined : file } : undefined}
       path={path}
       onNew={(name) => setAdding(name)}
       newPlaceholder="New server's name, then Enter"
@@ -164,7 +143,7 @@ function WorkspaceFields({ form, onChange }: { form: WorkspaceForm; onChange: (f
   const set = <K extends keyof WorkspaceForm>(key: K, value: WorkspaceForm[K]) => onChange({ ...form, [key]: value })
   return (
     <div className="space-y-3">
-      <NeedsPicker label="What it needs installed" value={form.needs} onChange={(needs) => set('needs', needs)} />
+      <NeedsPicker value={form.needs} onChange={(needs) => set('needs', needs)} />
       <label className="block space-y-1">
         <span className={label}>Command that starts it</span>
         <input aria-label="Start command" className={`${field} font-mono`} value={form.start} onChange={(event) => set('start', event.target.value)} placeholder="my-server --port 8931" />

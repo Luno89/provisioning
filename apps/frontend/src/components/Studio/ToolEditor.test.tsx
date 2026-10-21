@@ -142,7 +142,7 @@ describe('the tools a person can edit', () => {
     await edit('jq_query')
     expect(screen.getByText('jq')).toBeInTheDocument()
 
-    await userEvent.selectOptions(screen.getByLabelText('Add to what it needs in the workspace'), 'koala-e2e')
+    await userEvent.selectOptions(screen.getByLabelText('Add to workspace dependencies it needs'), 'koala-e2e')
     await userEvent.click(screen.getByRole('button', { name: 'Stop needing jq' }))
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
 

@@ -3,7 +3,7 @@ import { useRouter, type NavigateOptions } from '@tanstack/react-router';
 import { useShellStore, type ViewName } from '../stores/shell';
 import {
   Trees as TreesIcon, ChevronDown, ChevronRight,
-  Plus, Trash2, GitBranch, Layers, Bot, Wrench, Network, Puzzle, Server, Cpu, Package,
+  Plus, Trash2, GitBranch, Layers, Bot, Wrench, Network, Puzzle, Server, Cpu, 
 } from 'lucide-react';
 import { Koala } from './Koala';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -41,8 +41,6 @@ function useSafeRouter() {
 const STUDIO_SECTIONS = [
   { path: 'agents', label: 'Agents', icon: Bot },
   { path: 'tools', label: 'Tools', icon: Wrench },
-  { path: 'mcp-servers', label: 'MCP Servers', icon: Server },
-  { path: 'dependencies', label: 'Dependencies', icon: Package },
   { path: 'procedures', label: 'Procedures', icon: Network },
   { path: 'tree-types', label: 'Tree Types', icon: GitBranch },
   { path: 'extensions', label: 'Extensions', icon: Puzzle },

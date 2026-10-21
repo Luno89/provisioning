@@ -156,7 +156,7 @@ export default function ToolEditor({ tool, onClose, onDeleted }: { tool: EngineT
           ))}
         </div>
 
-      <NeedsPicker label="What it needs in the workspace" value={draft.needs ?? []} onChange={(needs) => set('needs', needs)} />
+      <NeedsPicker value={draft.needs ?? []} onChange={(needs) => set('needs', needs)} />
 
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1">

@@ -439,7 +439,7 @@ save. Check spaces copy the person's grants, and a world's `agents.<slug>.tools`
 stored agent's old tool list onto grants (`lib/tool-grant-migration.ts`, in `seedAll`) and drops a copy of a built-in
 that differed only in its tools.
 
-**MCP servers are a catalogue of their own** (`mcpServers`, `lib/mcp-servers.ts`, Studio → MCP Servers, `/api/mcp/catalogue`).
+**MCP servers are a catalogue of their own** (`mcpServers`, `lib/mcp-servers.ts`, Studio → Tools, under MCP servers, `/api/mcp/catalogue`).
 A server runs hosted (at a URL, or one of the person's MCP deployments, recorded as they run, `from: { projectId }`) or in
 the workspace (what installs it, the command that starts it, its port and path). Known ones ship as templates
 (`extensions/mcp/templates.ts`: Playwright, with Chromium installed against the Playwright its package bundles). Adding
@@ -574,7 +574,7 @@ often everything runs).
 
 ## The sidebar
 
-Koala (chats), Projects, Studio (Agents, Tools, MCP Servers, Procedures, Tree Types, Extensions, and **Models**: the LLM
+Koala (chats), Projects, Studio (Agents, Tools — one explorer of tools, MCP servers and workspace dependencies, `Studio/toolbox.tsx` —, Procedures, Tree Types, Extensions, and **Models**: the LLM
 providers and the default model, `Studio/ModelsView.tsx`; **Connect OpenRouter** signs the person in to OpenRouter and gets a
 key on their own account and bill by OAuth PKCE, `lib/openrouter-connect.ts`: the verifier only in a sealed, httpOnly
 cookie bound to the person, the state checked before OpenRouter is asked, the key stored like a pasted one, which stays
@@ -831,7 +831,7 @@ version (`stampTreeVersions` in `seedAll`). The Studio keeps a type's versions w
 
 **Workspace images are built from named dependencies** (plan `~/.claude/plans/workspace-dependencies.md`). One catalogue
 (`extensions/workspace-dependencies.ts`: node, python, go, jq, chromium-libraries, playwright, koala-e2e, playwright-mcp; each person's own in
-`workspaceDependencies`, Studio → Dependencies, `/api/workspace-dependencies`, `WorkspaceDependencyService`) says how each installs (`onDebian` for an
+`workspaceDependencies`, Studio → Tools, under Workspace dependencies, `/api/workspace-dependencies`, `WorkspaceDependencyService`) says how each installs (`onDebian` for an
 apt base), what programs or libraries it puts there and what it needs first. Everything names what it needs: a tool (`needs`), an MCP server
 (`runs.needs`), a procedure step (`needs` on its `HostOperation`, resolved onto the agent by the directory's `stepNeeds`), a check (`checksNeed`: an
 `e2e` check needs `koala-e2e`), the project's `.koala/workspace.json` (`needs`) and a base (`has`). `planImage` resolves them in order, once each,

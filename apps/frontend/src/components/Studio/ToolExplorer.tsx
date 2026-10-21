@@ -1,25 +1,20 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { FileText, FlaskConical, Lightbulb, ListChecks, Wrench } from 'lucide-react'
+import { Wrench } from 'lucide-react'
 import type { EngineTool } from '../../api/engineTools'
 import ToolEditor from './ToolEditor'
-import Explorer, { FileHeader, type ExplorerGroup } from './Explorer'
+import Explorer, { FileHeader } from './Explorer'
 import CheckList from '../Checks/CheckList'
 import Coverage from '../Checks/Coverage'
 import ToolNotesPanel from '../Checks/ToolNotesPanel'
 import { describeNotes, notesIn } from '../Checks/tool-notes'
 import { useLevel2Runs, useScenarios, useToolNotes } from '../Checks/shared'
-import { errorMessage, useAgents, useEngineTools, useProcedureList } from './shared'
+import { errorMessage, useAgents, useProcedureList } from './shared'
+import { DEPENDENCIES_SAY, TOOL_FILES, toolItem, useToolbox } from './toolbox'
 import { blankTool } from './tool-forms'
-import { groupTools } from '../../lib/studio-groups'
 import { checksSummary, describeChecks } from '../../lib/subject-summary'
 
-const FILES = [
-  { id: 'definition', title: 'Definition', icon: FileText, says: 'What it does, the arguments it takes, the command it runs, and what it needs installed.' },
-  { id: 'checks', title: 'Checks', icon: FlaskConical, says: 'Every check that expects it to be called or chosen, or calls it as its step.' },
-  { id: 'coverage', title: 'Coverage', icon: ListChecks, says: 'How reliably a model picks it when it should, and what no check covers yet.' },
-  { id: 'learned', title: 'Learned notes', icon: Lightbulb, says: 'What runs taught about using it, shown beside it to every agent offered it once the bench shows it breaks nothing.' },
-] as const
+const FILES = TOOL_FILES
 
 type ToolFile = 'overview' | typeof FILES[number]['id']
 
@@ -28,39 +23,13 @@ const isFile = (value: string | undefined): value is ToolFile => value === 'over
 export default function ToolExplorer() {
   const { name, part } = useParams({ strict: false }) as { name?: string; part?: string }
   const navigate = useNavigate()
-  const tools = useEngineTools()
-  const scenarios = useScenarios()
-  const runs = useLevel2Runs()
+  const toolbox = useToolbox()
+  const tools = toolbox.tools
   const [fresh, setFresh] = useState<EngineTool>()
 
   const all = tools.data ?? []
   const tool = all.find((one) => one.name === name)
   const file: ToolFile | undefined = part === undefined ? (name ? 'overview' : undefined) : isFile(part) ? part : undefined
-
-  const groups: ExplorerGroup[] = groupTools(all).map((group) => ({
-    id: group.id,
-    title: group.title,
-    items: group.items.map((one) => {
-      const checks = checksSummary(scenarios.data ?? [], runs.data ?? [], { tool: one.name })
-      return {
-        id: one.name,
-        label: one.name,
-        mono: true,
-        mine: one.mine,
-        icon: Wrench,
-        link: { to: '/studio/tools/$name', params: { name: one.name } },
-        files: FILES.map((entry) => ({
-          id: entry.id,
-          title: entry.title,
-          icon: entry.icon,
-          link: { to: '/studio/tools/$name/$part', params: { name: one.name, part: entry.id } },
-          badge: entry.id === 'checks' && checks.count > 0
-            ? <span className={`ml-auto text-[10px] ${checks.failing > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{checks.failing > 0 ? `${checks.failing} ✕` : `${checks.passing} ✓`}</span>
-            : null,
-        })),
-      }
-    }),
-  }))
 
   const start = (wanted: string) => {
     const slug = wanted.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
@@ -77,22 +46,18 @@ export default function ToolExplorer() {
   return (
     <Explorer
       title="Tools"
-      groups={groups}
-      selected={name ? { item: name, file: file === 'overview' ? undefined : file } : undefined}
+      groups={toolbox.groups}
+      selected={name ? { item: toolItem(name), file: file === 'overview' ? undefined : file } : undefined}
       path={path}
       onNew={start}
       newPlaceholder="New tool's name, then Enter"
-      loading={tools.isPending}
-      error={tools.isError ? errorMessage(tools.error) : undefined}
+      loading={toolbox.loading}
+      error={toolbox.error ? errorMessage(toolbox.error) : undefined}
     >
       {fresh ? (
         <ToolEditor key={fresh.name} tool={fresh} onClose={() => { setFresh(undefined); void navigate({ to: '/studio/tools/$name', params: { name: fresh.name } }) }} />
       ) : !name ? (
-        <div className="max-w-xl space-y-4 pt-10 text-sm text-slate-400">
-          <h1 className="flex items-center gap-2 text-lg font-semibold text-slate-200"><Wrench size={20} className="text-[var(--leaf)]" /> Tools</h1>
-          <p>A tool is something an agent may call. The ones on the left are grouped by what they act on and how far they go: your workspace, the web, or the platform — looking, proposing, or changing.</p>
-          <p>A tool you write is a command run in the workspace, with the arguments it takes and the dependencies it needs. Naming a dependency is what puts it in the workspace image, so changing what a tool needs rebuilds the workspace of every agent granted it; new ones are added under Dependencies. An MCP server, with the tools it serves, is added under MCP Servers instead.</p>
-        </div>
+        <ToolboxLanding />
       ) : tools.isPending ? null : !tool ? (
         <p className="text-sm text-slate-400">There is no tool called “{name}”.</p>
       ) : !file ? (
@@ -159,6 +124,17 @@ function ToolFileView({ tool, file }: { tool: EngineTool; file: ToolFile }) {
       {file === 'checks' && <CheckList scope={{ tool: tool.name }} agents={tool.grantedTo.length > 0 ? tool.grantedTo : slugs} procedures={procedureIds} />}
       {file === 'coverage' && <Coverage scope={{ tool: tool.name }} />}
       {file === 'learned' && <ToolNotesPanel scope={{ tool: tool.name }} />}
+    </div>
+  )
+}
+
+function ToolboxLanding() {
+  return (
+    <div className="max-w-xl space-y-4 pt-10 text-sm text-slate-400">
+      <h1 className="flex items-center gap-2 text-lg font-semibold text-slate-200"><Wrench size={20} className="text-[var(--leaf)]" /> Tools</h1>
+      <p><span className="text-slate-200">Tools</span> are what an agent may call, grouped by what they act on and how far they go: your workspace, the web, or the platform — looking, proposing, or changing. One you write is a command run in the workspace, with the arguments it takes; start it with the name box above.</p>
+      <p><span className="text-slate-200">MCP servers</span> serve tools of their own; adding one captures what it serves, and agents holding it are offered those tools. <Link to="/studio/mcp-servers" className="text-sky-300 hover:underline">Add an MCP server</Link></p>
+      <p><span className="text-slate-200">Workspace dependencies</span>: {DEPENDENCIES_SAY} Changing what something needs rebuilds the workspace of every agent it reaches. <Link to="/studio/dependencies" className="text-sky-300 hover:underline">Add a workspace dependency</Link></p>
     </div>
   )
 }

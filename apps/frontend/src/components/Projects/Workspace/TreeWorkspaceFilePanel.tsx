@@ -94,7 +94,7 @@ function Editor({ treeId, view, onSaved }: { treeId: string; view: TreeWorkspace
         <button type="button" onClick={addEnv} className="self-start flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer"><Plus size={11} /> add a value</button>
       </div>
 
-      <NeedsPicker label="dependencies" value={draft.needs} onChange={(needs) => setDraft((current) => ({ ...current, needs }))} />
+      <NeedsPicker label="workspace dependencies" value={draft.needs} onChange={(needs) => setDraft((current) => ({ ...current, needs }))} />
 
       <label className="flex flex-col gap-1">
         <span className="text-slate-500">install script <span className="text-[10px]">— a new one waits for you to approve it before it is built</span></span>

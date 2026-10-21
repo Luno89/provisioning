@@ -72,7 +72,7 @@ describe('TreeWorkspaceFilePanel', () => {
     vi.mocked(groveApi.saveTreeWorkspaceFile).mockResolvedValue({ ...VIEW, file: { packages: { pip: ['cowsay'] }, needs: ['koala-e2e'] }, committed: true })
     renderPanel()
 
-    const add = await screen.findByLabelText('Add to dependencies')
+    const add = await screen.findByLabelText('Add to workspace dependencies')
     await waitFor(() => expect(within(add).getByRole('option', { name: /^koala-e2e/ })).toBeTruthy())
     fireEvent.change(add, { target: { value: 'koala-e2e' } })
     fireEvent.click(screen.getByText('Commit to main'))
