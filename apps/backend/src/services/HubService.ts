@@ -4,6 +4,13 @@ import {
   type HubAction, type HubInvite, type HubMember, type HubRole, type SharedProject,
 } from '../lib/hub.js';
 import type { HubStore, SharedProjectStore } from '../lib/hub-store.js';
+import { applyPatch, isSyncedKind, type HubChange, type RecordChange } from '../lib/hub-sync.js';
+
+export type SyncOrigin = { kind: 'instance'; personId: string; instanceId: string } | { kind: 'person'; personId: string };
+
+export const originName = (origin: SyncOrigin): string => (origin.kind === 'instance' ? `instance:${origin.instanceId}` : `person:${origin.personId}`);
+
+const CHANGES_PAGE = 500;
 
 export interface Person {
   id: string;
@@ -43,7 +50,53 @@ const refuse = (why: string) => ({ ok: false as const, status: 403 as const, why
 const wrong = (why: string) => ({ ok: false as const, status: 400 as const, why });
 
 export class HubService {
+  private readonly queues = new Map<string, Promise<unknown>>();
+
   constructor(private readonly deps: HubServiceDeps) {}
+
+  private inOrder<T>(projectId: string, work: () => Promise<T>): Promise<T> {
+    const before = this.queues.get(projectId) ?? Promise.resolve();
+    const next = before.then(work, work);
+    this.queues.set(projectId, next.catch(() => undefined));
+    return next;
+  }
+
+  private async fromOwnerInstance(origin: SyncOrigin, projectId: string): Promise<HubOutcome<Access>> {
+    const access = await this.access(origin.personId, projectId);
+    if (!access) return NOT_FOUND;
+    if (origin.kind !== 'instance') return refuse('Only the owner\'s instance syncs a project.');
+    if (access.member.role !== 'owner') return refuse('Only an owner\'s instance syncs a project.');
+    if (access.project.createdBy !== origin.personId || access.project.origin?.instanceId !== origin.instanceId) return refuse('This project is worked on another instance.');
+    return { ok: true, value: access };
+  }
+
+  async receive(origin: SyncOrigin, projectId: string, changes: unknown): Promise<HubOutcome<{ through: number }>> {
+    const allowed = await this.fromOwnerInstance(origin, projectId);
+    if (!allowed.ok) return allowed;
+    if (!Array.isArray(changes) || changes.some((entry) => !entry || !isSyncedKind((entry as RecordChange).kind) || typeof (entry as RecordChange).id !== 'string' || !(entry as RecordChange).id)) {
+      return wrong('each change names a kind of record, its id, and a patch or that it was deleted');
+    }
+    return this.record(allowed.value, originName(origin), changes as RecordChange[]);
+  }
+
+  private record(access: Access, origin: string, changes: readonly RecordChange[]): Promise<HubOutcome<{ through: number }>> {
+    return this.inOrder(access.project.id, async () => {
+      let through = 0;
+      for (const change of changes) {
+        if ('deleted' in change) await access.store.deleteRecord(change.kind, change.id);
+        else await access.store.putRecord(change.kind, applyPatch(await access.store.record(change.kind, change.id), change.id, change.patch));
+        through = (await access.store.logChange({ origin, change, at: this.now() })).seq;
+      }
+      return { ok: true as const, value: { through } };
+    });
+  }
+
+  async changesSince(origin: SyncOrigin, projectId: string, after: number): Promise<HubOutcome<{ changes: HubChange[]; through: number }>> {
+    const allowed = await this.fromOwnerInstance(origin, projectId);
+    if (!allowed.ok) return allowed;
+    const changes = await allowed.value.store.changes(Number.isFinite(after) && after > 0 ? after : 0, CHANGES_PAGE);
+    return { ok: true, value: { changes, through: changes.at(-1)?.seq ?? after } };
+  }
 
   private now(): string {
     return this.deps.now?.() ?? new Date().toISOString();

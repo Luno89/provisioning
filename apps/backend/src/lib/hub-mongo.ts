@@ -1,6 +1,7 @@
 import { MongoClient, type Db } from 'mongodb';
 import { projectDatabase, type HubInvite, type HubMember, type SharedProject } from './hub.js';
 import type { HubStore, SharedProjectStore } from './hub-store.js';
+import type { HubChange, SyncedDoc } from './hub-sync.js';
 
 const without = <T>(doc: Record<string, unknown> | null, key: string, as: string): T | undefined => {
   if (!doc) return undefined;
@@ -35,6 +36,24 @@ export function mongoHubStore(uri: string, registry: string): HubStore {
         await own().collection('invites').replaceOne({ _id: token as never }, rest, { upsert: true });
       },
       async deleteInvite(token) { await own().collection('invites').deleteOne({ _id: token as never }); },
+      async records(kind) {
+        return (await own().collection(`board_${kind}`).find({}).toArray()).map((doc) => without<SyncedDoc>(doc, '_id', 'id')!);
+      },
+      async record(kind, recordId) { return without<SyncedDoc>(await own().collection(`board_${kind}`).findOne({ _id: recordId as never }), '_id', 'id'); },
+      async putRecord(kind, doc) {
+        const { id: recordId, ...rest } = doc;
+        await own().collection(`board_${kind}`).replaceOne({ _id: recordId as never }, rest, { upsert: true });
+      },
+      async deleteRecord(kind, recordId) { await own().collection(`board_${kind}`).deleteOne({ _id: recordId as never }); },
+      async logChange(entry) {
+        const counter = await own().collection<{ _id: string; seq: number }>('counters').findOneAndUpdate({ _id: 'changes' }, { $inc: { seq: 1 } }, { upsert: true, returnDocument: 'after' });
+        const change = { ...entry, seq: counter!.seq } as HubChange;
+        await own().collection('changes').insertOne({ _id: change.seq as never, ...change });
+        return change;
+      },
+      async changes(after, limit) {
+        return (await own().collection('changes').find({ _id: { $gt: after } as never }).sort({ _id: 1 }).limit(limit).toArray()).map(({ _id, ...rest }) => rest as unknown as HubChange);
+      },
       async drop() { await own().dropDatabase(); },
     };
   };

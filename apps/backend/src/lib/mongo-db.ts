@@ -1,4 +1,5 @@
 import type { Conversation, ConversationMessage } from './conversations.js';
+import type { HubDirty, HubLink, SyncedDoc, SyncedKind } from './hub-sync.js';
 import { hintKey, type McpToolHint } from './mcp-tool-hints.js';
 import type { BenchSettings, BenchState } from './bench.js';
 import type { ExtensionSettings } from './extension-settings.js';
@@ -223,6 +224,80 @@ export class MongoDB implements Database {
 
   private get planProposals(): Collection {
     return this.db!.collection('planProposals');
+  }
+
+  private get hubLinks(): Collection {
+    return this.db!.collection('hubLinks');
+  }
+
+  private get hubDirtyRecords(): Collection {
+    return this.db!.collection('hubDirty');
+  }
+
+  private get hubSnapshots(): Collection {
+    return this.db!.collection('hubSnapshots');
+  }
+
+  private syncedCollection(kind: SyncedKind): Collection {
+    return { trees: this.trees, branches: this.branches, leaves: this.leaves, tasks: this.tasks, conversations: this.conversations, planProposals: this.planProposals }[kind];
+  }
+
+  async getHubLinks(): Promise<HubLink[]> {
+    return (await this.hubLinks.find({}).toArray()).map(({ _id, ...rest }) => ({ ...rest, projectId: String(_id) }) as HubLink);
+  }
+
+  async saveHubLink(link: HubLink): Promise<void> {
+    const { projectId, ...rest } = link;
+    await this.hubLinks.replaceOne({ _id: projectId as any }, rest, { upsert: true });
+  }
+
+  async deleteHubLink(projectId: string): Promise<void> {
+    await this.hubLinks.deleteOne({ _id: projectId as any });
+  }
+
+  async markForHub(kind: SyncedKind, id: string, deleted: boolean): Promise<void> {
+    if (await this.hubLinks.estimatedDocumentCount() === 0) return;
+    const at = `${String(Date.now()).padStart(15, '0')}-${Math.random().toString(36).slice(2, 10)}`;
+    await this.hubDirtyRecords.replaceOne({ _id: `${kind}/${id}` as any }, { kind, id, deleted, at }, { upsert: true });
+  }
+
+  async hubDirty(limit: number): Promise<HubDirty[]> {
+    return (await this.hubDirtyRecords.find({}).sort({ at: 1 }).limit(limit).toArray()).map(({ _id, ...rest }) => rest as unknown as HubDirty);
+  }
+
+  async clearHubDirty(entries: readonly HubDirty[]): Promise<void> {
+    for (const entry of entries) await this.hubDirtyRecords.deleteOne({ _id: `${entry.kind}/${entry.id}` as any, at: entry.at });
+  }
+
+  async syncedRecord(kind: SyncedKind, id: string): Promise<SyncedDoc | undefined> {
+    const doc = await this.syncedCollection(kind).findOne({ _id: id as any });
+    return doc ? fromDoc<SyncedDoc>(doc) : undefined;
+  }
+
+  async writeSyncedRecord(kind: SyncedKind, doc: SyncedDoc): Promise<void> {
+    const { _id, ...rest } = toDoc(doc);
+    await this.syncedCollection(kind).replaceOne({ _id }, rest, { upsert: true });
+  }
+
+  async deleteSyncedRecord(kind: SyncedKind, id: string): Promise<void> {
+    await this.syncedCollection(kind).deleteOne({ _id: id as any });
+  }
+
+  async hubSnapshot(kind: SyncedKind, id: string): Promise<{ projectId: string; doc: SyncedDoc } | undefined> {
+    const found = await this.hubSnapshots.findOne({ _id: `${kind}/${id}` as any });
+    return found ? { projectId: String(found.projectId), doc: found.doc as SyncedDoc } : undefined;
+  }
+
+  async saveHubSnapshot(projectId: string, kind: SyncedKind, doc: SyncedDoc): Promise<void> {
+    await this.hubSnapshots.replaceOne({ _id: `${kind}/${doc.id}` as any }, { projectId, kind, doc }, { upsert: true });
+  }
+
+  async deleteHubSnapshot(kind: SyncedKind, id: string): Promise<void> {
+    await this.hubSnapshots.deleteOne({ _id: `${kind}/${id}` as any });
+  }
+
+  async deleteHubSnapshots(projectId: string): Promise<void> {
+    await this.hubSnapshots.deleteMany({ projectId });
   }
 
   private get artifacts(): Collection {
@@ -842,6 +917,7 @@ export class MongoDB implements Database {
     if (related.watermarkKeys.length) await count('memoryWatermarks', { _id: { $in: [...related.watermarkKeys] } });
     if (related.ingestIds.length) await count('crawl_frontier', { ingestId: { $in: [...related.ingestIds] } });
     if (related.projectIds.length) await count('pipelineRuns', { projectId: { $in: [...related.projectIds] } });
+    if (related.projectIds.length) await count('hubSnapshots', { projectId: { $in: [...related.projectIds] } });
     for (const name of ACCOUNT_DATA.byOwner) await count(name, { ownerId });
     for (const name of ACCOUNT_DATA.byId) await count(name, { _id: ownerId });
     await count(ACCOUNT_DATA.last, { _id: ownerId });

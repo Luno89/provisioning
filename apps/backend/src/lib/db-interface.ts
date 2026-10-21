@@ -15,6 +15,7 @@ import type { GiteaAccount } from './projects.js';
 import type { MemoryItem } from './memory-store.js';
 import type { Task } from '../engine-host/tools/tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
+import { markingHubWrites, type HubSyncStore } from './hub-sync.js';
 import type { SecretRequest } from './secret-requests.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import type { ExtensionSettings } from './extension-settings.js';
@@ -85,7 +86,7 @@ export interface AccountIds {
   ingestIds: string[];
 }
 
-export interface Database {
+export interface Database extends HubSyncStore {
   init(): Promise<void>;
   close(): Promise<void>;
 
@@ -349,7 +350,7 @@ export function sharedPayloadBlobs(): PayloadBlobs {
 
 export function createDatabase(env: Readonly<Record<string, string | undefined>> = process.env): Database {
   if (env.USE_MEMORY_DB === 'true' || (env.NODE_ENV === 'test' && !env.IS_E2E)) {
-    return new MemoryDB();
+    return markingHubWrites(new MemoryDB());
   }
-  return new MongoDB(env);
+  return markingHubWrites(new MongoDB(env));
 }

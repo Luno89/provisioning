@@ -1,4 +1,5 @@
 import type { HubInvite, HubMember, SharedProject } from './hub.js';
+import type { HubChange, SyncedDoc, SyncedKind } from './hub-sync.js';
 
 export interface SharedProjectStore {
   members(): Promise<HubMember[]>;
@@ -7,6 +8,12 @@ export interface SharedProjectStore {
   invites(): Promise<HubInvite[]>;
   saveInvite(invite: HubInvite): Promise<void>;
   deleteInvite(token: string): Promise<void>;
+  records(kind: SyncedKind): Promise<SyncedDoc[]>;
+  record(kind: SyncedKind, id: string): Promise<SyncedDoc | undefined>;
+  putRecord(kind: SyncedKind, doc: SyncedDoc): Promise<void>;
+  deleteRecord(kind: SyncedKind, id: string): Promise<void>;
+  logChange(entry: Omit<HubChange, 'seq'>): Promise<HubChange>;
+  changes(after: number, limit: number): Promise<HubChange[]>;
   drop(): Promise<void>;
 }
 
@@ -29,12 +36,13 @@ export function memoryHubStore(): HubStore {
   const projects = new Map<string, SharedProject>();
   const memberships = new Map<string, Set<string>>();
   const inviteIndex = new Map<string, string>();
-  const parts = new Map<string, { members: Map<string, HubMember>; invites: Map<string, HubInvite> }>();
+  const parts = new Map<string, { members: Map<string, HubMember>; invites: Map<string, HubInvite>; records: Map<string, SyncedDoc>; log: HubChange[] }>();
   const partOf = (id: string) => {
     let part = parts.get(id);
-    if (!part) { part = { members: new Map(), invites: new Map() }; parts.set(id, part); }
+    if (!part) { part = { members: new Map(), invites: new Map(), records: new Map(), log: [] }; parts.set(id, part); }
     return part;
   };
+  const copy = (doc: SyncedDoc): SyncedDoc => JSON.parse(JSON.stringify(doc)) as SyncedDoc;
   return {
     async init() {},
     async close() {},
@@ -55,6 +63,12 @@ export function memoryHubStore(): HubStore {
         async invites() { return [...partOf(id).invites.values()].map((invite) => ({ ...invite })); },
         async saveInvite(invite) { partOf(id).invites.set(invite.token, { ...invite }); },
         async deleteInvite(token) { partOf(id).invites.delete(token); },
+        async records(kind) { return [...partOf(id).records.entries()].filter(([key]) => key.startsWith(`${kind}/`)).map(([, doc]) => copy(doc)); },
+        async record(kind, recordId) { const found = partOf(id).records.get(`${kind}/${recordId}`); return found ? copy(found) : undefined; },
+        async putRecord(kind, doc) { partOf(id).records.set(`${kind}/${doc.id}`, copy(doc)); },
+        async deleteRecord(kind, recordId) { partOf(id).records.delete(`${kind}/${recordId}`); },
+        async logChange(entry) { const log = partOf(id).log; const change = { ...JSON.parse(JSON.stringify(entry)), seq: log.length + 1 } as HubChange; log.push(change); return change; },
+        async changes(after, limit) { return partOf(id).log.filter((entry) => entry.seq > after).slice(0, limit).map((entry) => JSON.parse(JSON.stringify(entry)) as HubChange); },
         async drop() { parts.delete(id); },
       };
     },

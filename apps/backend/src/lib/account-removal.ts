@@ -98,14 +98,14 @@ export const ACCOUNT_DATA = {
     'accessRequests', 'actionProposals', 'appSpecs', 'artifactChunks', 'artifacts', 'authoredExtensions', 'bindingTypes', 'branches', 'clusters', 'conversations',
     'corpus', 'deferredConclusions', 'deployments', 'egressGrants', 'egressRequests', 'enginePersonas', 'engineRunEffort', 'engineRunTraces', 'engineTools',
     'evalAgentChanges', 'evalCases', 'evalLevel1Runs', 'evalPrompts', 'evalRuns', 'evalScenarioProposals', 'evalScenarioRuns',
-    'evalScenarios', 'fileShares', 'instanceJoinTokens', 'instances', 'leaves', 'localAgentDevices', 'machineJoinCodes', 'mcpRequests', 'mcpToolHints', 'memories',
+    'evalScenarios', 'fileShares', 'hubLinks', 'instanceJoinTokens', 'instances', 'leaves', 'localAgentDevices', 'machineJoinCodes', 'mcpRequests', 'mcpToolHints', 'memories',
     'modelEndpoints', 'mcpServers', 'monitoringAlertEpisodes', 'monitoringAlertRules', 'monitoringSettings', 'odooReleases', 'pendingApprovals', 'planProposals', 'procedures', 'projects', 'publishedWorkspaces', 'secretRequests', 'tasks', 'toolGrants', 'treeTypes', 'trees', 'workFailures',
     'scriptedRequests', 'turnLogs', 'workspaceDependencies', 'workspaceImages',
   ],
   byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts', 'keeperSettings', 'notificationSettings', 'fileSettings'],
-  related: { memoryWatermarks: 'the keys of its conversations', crawl_frontier: 'its ingests', pipelineRuns: 'its projects' },
+  related: { memoryWatermarks: 'the keys of its conversations', crawl_frontier: 'its ingests', pipelineRuns: 'its projects', hubSnapshots: 'its projects' },
   last: 'users',
-  shared: ['clusterProviders', 'identityHandoffs', 'invites', 'model_thinking_profiles', 'poolSettings', 'temporal_payload_chunks'],
+  shared: ['clusterProviders', 'hubDirty', 'identityHandoffs', 'invites', 'model_thinking_profiles', 'poolSettings', 'temporal_payload_chunks'],
 } as const;
 
 export interface AccountRelated {

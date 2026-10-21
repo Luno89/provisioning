@@ -125,5 +125,30 @@ describe('a shared project and its people', () => {
     expect(valueOf(await hub.view('bo', shop)).members?.map((member) => member.personId)).toEqual(['bo']);
     expect(valueOf(await hub.view('bo', guest)).members?.map((member) => member.personId)).toEqual(['bo']);
   });
+
+  it('takes changes only from the owner\'s own instance, in order, and hands back what changed since a point', async () => {
+    const { hub, store, tokenOf } = setUp();
+    const id = valueOf(await hub.create(ann, { name: 'Shop', origin: { instanceId: 'i-ann', projectId: 'p1' } })).project.id;
+    await hub.invite(ann, id, { email: 'bo@example.com', role: 'owner' });
+    await hub.accept(bo, tokenOf(0));
+    const fromAnn = { kind: 'instance' as const, personId: 'ann', instanceId: 'i-ann' };
+
+    expect(valueOf(await hub.receive(fromAnn, id, [
+      { kind: 'leaves', id: 'l1', patch: { set: { title: 'Checkout', status: 'pending' } } },
+      { kind: 'leaves', id: 'l1', patch: { set: { status: 'running' } } },
+      { kind: 'leaves', id: 'l2', patch: { set: { title: 'Gone' } } },
+      { kind: 'leaves', id: 'l2', deleted: true },
+    ]))).toEqual({ through: 4 });
+    expect(await store.project(id).records('leaves')).toEqual([{ id: 'l1', title: 'Checkout', status: 'running' }]);
+    const since = valueOf(await hub.changesSince(fromAnn, id, 2));
+    expect([since.through, since.changes.map((entry) => [entry.seq, entry.origin])]).toEqual([4, [[3, 'instance:i-ann'], [4, 'instance:i-ann']]]);
+
+    for (const origin of [{ ...fromAnn, instanceId: 'i-other' }, { kind: 'instance' as const, personId: 'bo', instanceId: 'i-ann' }, { kind: 'person' as const, personId: 'ann' }]) {
+      expect((await hub.receive(origin, id, [{ kind: 'leaves', id: 'l1', deleted: true }])).ok).toBe(false);
+    }
+    expect(await hub.receive({ kind: 'instance', personId: 'eve', instanceId: 'i-ann' }, id, [])).toMatchObject({ status: 404 });
+    expect(await hub.receive(fromAnn, id, [{ kind: 'secrets', id: 'x', deleted: true }])).toMatchObject({ status: 400 });
+    expect(await store.project(id).records('leaves')).toHaveLength(1);
+  });
 });
 

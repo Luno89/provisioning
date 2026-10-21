@@ -1,4 +1,5 @@
 import type { Conversation, ConversationMessage } from './conversations.js';
+import type { HubDirty, HubLink, SyncedDoc, SyncedKind } from './hub-sync.js';
 import { hintKey, type McpToolHint } from './mcp-tool-hints.js';
 import type { BenchSettings, BenchState } from './bench.js';
 import type { ExtensionSettings } from './extension-settings.js';
@@ -73,6 +74,84 @@ export class MemoryDB implements Database {
   private memories: MemoryItem[] = [];
   private tasks: Task[] = [];
   private planProposals: PlanProposal[] = [];
+
+  private hubLinkList: HubLink[] = [];
+  private hubDirtyList = new Map<string, HubDirty>();
+  private hubSnapshotList = new Map<string, { projectId: string; doc: SyncedDoc }>();
+  private hubDirtyCount = 0;
+
+  private syncedList(kind: SyncedKind): { id: string }[] {
+    return { trees: this.trees, branches: this.branches, leaves: this.leaves, tasks: this.tasks, conversations: this.conversations, planProposals: this.planProposals }[kind] as { id: string }[];
+  }
+
+  private setSyncedList(kind: SyncedKind, list: { id: string }[]): void {
+    if (kind === 'trees') this.trees = list as Tree[];
+    else if (kind === 'branches') this.branches = list as Branch[];
+    else if (kind === 'leaves') this.leaves = list as Leaf[];
+    else if (kind === 'tasks') this.tasks = list as Task[];
+    else if (kind === 'conversations') this.conversations = list as Conversation[];
+    else this.planProposals = list as PlanProposal[];
+  }
+
+  async getHubLinks(): Promise<HubLink[]> {
+    return this.hubLinkList.map((link) => ({ ...link }));
+  }
+
+  async saveHubLink(link: HubLink): Promise<void> {
+    this.hubLinkList = [...this.hubLinkList.filter((entry) => entry.projectId !== link.projectId), { ...link }];
+  }
+
+  async deleteHubLink(projectId: string): Promise<void> {
+    this.hubLinkList = this.hubLinkList.filter((entry) => entry.projectId !== projectId);
+  }
+
+  async markForHub(kind: SyncedKind, id: string, deleted: boolean): Promise<void> {
+    if (this.hubLinkList.length === 0) return;
+    this.hubDirtyCount += 1;
+    this.hubDirtyList.set(`${kind}/${id}`, { kind, id, deleted, at: String(this.hubDirtyCount).padStart(15, '0') });
+  }
+
+  async hubDirty(limit: number): Promise<HubDirty[]> {
+    return [...this.hubDirtyList.values()].sort((a, b) => a.at.localeCompare(b.at)).slice(0, limit).map((entry) => ({ ...entry }));
+  }
+
+  async clearHubDirty(entries: readonly HubDirty[]): Promise<void> {
+    for (const entry of entries) {
+      const key = `${entry.kind}/${entry.id}`;
+      if (this.hubDirtyList.get(key)?.at === entry.at) this.hubDirtyList.delete(key);
+    }
+  }
+
+  async syncedRecord(kind: SyncedKind, id: string): Promise<SyncedDoc | undefined> {
+    const found = this.syncedList(kind).find((entry) => entry.id === id);
+    return found ? JSON.parse(JSON.stringify(found)) as SyncedDoc : undefined;
+  }
+
+  async writeSyncedRecord(kind: SyncedKind, doc: SyncedDoc): Promise<void> {
+    const copy = JSON.parse(JSON.stringify(doc)) as { id: string };
+    this.setSyncedList(kind, [...this.syncedList(kind).filter((entry) => entry.id !== doc.id), copy]);
+  }
+
+  async deleteSyncedRecord(kind: SyncedKind, id: string): Promise<void> {
+    this.setSyncedList(kind, this.syncedList(kind).filter((entry) => entry.id !== id));
+  }
+
+  async hubSnapshot(kind: SyncedKind, id: string): Promise<{ projectId: string; doc: SyncedDoc } | undefined> {
+    const found = this.hubSnapshotList.get(`${kind}/${id}`);
+    return found ? JSON.parse(JSON.stringify(found)) as { projectId: string; doc: SyncedDoc } : undefined;
+  }
+
+  async saveHubSnapshot(projectId: string, kind: SyncedKind, doc: SyncedDoc): Promise<void> {
+    this.hubSnapshotList.set(`${kind}/${doc.id}`, JSON.parse(JSON.stringify({ projectId, doc })) as { projectId: string; doc: SyncedDoc });
+  }
+
+  async deleteHubSnapshot(kind: SyncedKind, id: string): Promise<void> {
+    this.hubSnapshotList.delete(`${kind}/${id}`);
+  }
+
+  async deleteHubSnapshots(projectId: string): Promise<void> {
+    for (const [key, entry] of this.hubSnapshotList) if (entry.projectId === projectId) this.hubSnapshotList.delete(key);
+  }
   private secretRequests: SecretRequest[] = [];
   private odooReleases: OdooRelease[] = [];
   private artifacts: StoredArtifact[] = [];
@@ -336,6 +415,8 @@ export class MemoryDB implements Database {
     for (const key of related.watermarkKeys) if (this.memoryWatermarks.delete(key)) note('memoryWatermarks', 1);
     this.frontier = sweep('crawl_frontier', this.frontier, (entry) => related.ingestIds.includes((entry as { ingestId?: string }).ingestId ?? ''));
     this.pipelineRuns = sweep('pipelineRuns', this.pipelineRuns, (entry) => related.projectIds.includes(entry.projectId ?? ''));
+    sweepMap('hubSnapshots', this.hubSnapshotList, (_key, entry) => related.projectIds.includes(entry.projectId));
+    this.hubLinkList = sweep('hubLinks', this.hubLinkList);
 
     this.accessRequests = sweep('accessRequests', this.accessRequests);
     this.actionProposals = sweep('actionProposals', this.actionProposals);
