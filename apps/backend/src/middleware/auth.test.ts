@@ -170,6 +170,8 @@ describe('what is open without a session, by role', () => {
     expect(await opens('root', '/hub-link/invite')).toBe(true);
     expect(await opens('root', '/hub-link/invitation')).toBe(true);
     expect(await opens('instance', '/hub-link/invite')).toBe(false);
+    expect(await opens('hub', '/hub-root/people/u1')).toBe(true);
+    expect(await opens('combined', '/hub-root/people/u1')).toBe(false);
   });
 
     it('lets anyone open a shared file\'s link, and nothing else of a person\'s files', async () => {

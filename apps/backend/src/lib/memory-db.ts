@@ -488,6 +488,10 @@ export class MemoryDB implements Database {
     return this.users.find(u => u.id === id);
   }
 
+  async deleteUser(id: string): Promise<void> {
+    this.users = this.users.filter((u) => u.id !== id);
+  }
+
   async getModelEndpoints(): Promise<ModelEndpointMetadata[]> {
     return this.modelEndpoints;
   }

@@ -219,6 +219,8 @@ import { HubService } from './services/HubService.js';
 import { HubRootClient } from './services/HubRootClient.js';
 import { hubRouter } from './routes/hub.js';
 import { hubLinkRouter } from './routes/hub-link.js';
+import { hubRootRouter } from './routes/hub-root.js';
+import { localHubPeople, RemoteHubPeople, type HubPeople } from './services/HubPeople.js';
 import { memoryHubStore } from './lib/hub-store.js';
 import { mongoHubStore } from './lib/hub-mongo.js';
 import { machinePayloads, type GetAnswer, type PutAnswer, type RingAnswer } from './lib/machine-payloads.js';
@@ -967,6 +969,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
     app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(repoRoot, 'scripts/setup-gpu.sh')));
   }
+  let hubService: HubService | undefined;
   if (signsInThroughRoot(role.role)) app.use('/api/auth', handoffRouter({ identity, auth, sessionKey: keys.session }));
   const projectInvites = holdsAccounts(role) ? new ProjectInviteService({ invites: db, mail, rootUrl: PUBLIC_URL }) : undefined;
   if (projectInvites) app.use('/api/hub-link', hubLinkRouter({ invites: projectInvites, credentialHash: role.hubLink?.credentialHash, hash: hashCredential }));
@@ -977,8 +980,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     await hubStore.init();
     const sender = role.hub ? new HubRootClient(role.hub) : projectInvites;
     if (!sender) throw new Error('a hub needs root to send its invites');
-    app.use('/api/hub', hubRouter({ hub: new HubService({ store: hubStore, invites: sender }) }));
+    hubService = new HubService({ store: hubStore, invites: sender });
+    app.use('/api/hub', hubRouter({ hub: hubService }));
+    if (role.role === 'hub' && role.trusted) app.use('/api/hub-root', hubRootRouter({ hub: hubService, trusted: role.trusted, forget: (id) => db.deleteUser(id) }));
   }
+  const hubPeople: HubPeople | undefined = hubService
+    ? localHubPeople(hubService)
+    : role.hubLink && role.signing ? new RemoteHubPeople({ url: role.hubLink.url, signing: role.signing }) : undefined;
 
   tenant.get('/ingress/verify', async (req, res) => {
     const domain = String(req.query.domain ?? '');
@@ -1255,6 +1263,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const accountRemoval = servesTenants(role) ? new AccountRemovalService({
     store: db,
     workflows: temporalRemovalWorkflows(() => temporalBridge.client, process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE),
+    hub: hubPeople,
   }) : undefined;
   tenant.use('/api/checks', checksRouter({ scripted: new ScriptedModelService({ store: db, dataKey: keys.data }) }));
   const rootRemoval = holdsAccounts(role) && !servesTenants(role) ? new AccountRemovalService({
@@ -1263,6 +1272,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     workflowType: ROOT_REMOVAL_WORKFLOW,
     steps: ROOT_REMOVAL_STEPS,
     instances: () => db.getInstances(),
+    hub: hubPeople,
   }) : undefined;
   const peopleRemoval = rootRemoval ?? accountRemoval;
   if (holdsAccounts(role) && peopleRemoval) app.use('/api/account', accountRouter({ removal: peopleRemoval, clearSession: (res) => res.clearCookie('session', auth.sessionCookieOptions) }));

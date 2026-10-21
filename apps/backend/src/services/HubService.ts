@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import {
-  can, inviteProblem, INVITE_TOKEN, leavingProblem, roleChangeProblem, sameEmail, SHARED_PROJECT_ID, sharedProjectProblem,
+  can, inviteProblem, INVITE_TOKEN, leavingAll, leavingProblem, roleChangeProblem, sameEmail, SHARED_PROJECT_ID, sharedProjectProblem,
   type HubAction, type HubInvite, type HubMember, type HubRole, type SharedProject,
 } from '../lib/hub.js';
 import type { HubStore, SharedProjectStore } from '../lib/hub-store.js';
@@ -180,11 +180,56 @@ export class HubService {
     if (!access) return NOT_FOUND;
     if (!can(access.member.role, 'change-settings')) return refuse('Only an owner can delete this project.');
     if (typeof typedName !== 'string' || typedName.trim() !== access.project.name) return wrong(`type the project's name, ${access.project.name}, to delete it`);
-    for (const invite of await access.store.invites()) await this.deps.store.forgetInvite(invite.token);
-    for (const member of access.members) await this.deps.store.removeMembership(member.personId, projectId);
-    await this.deps.store.deleteProject(projectId);
-    await access.store.drop();
+    await this.dropProject(access);
     return { ok: true, value: { deleted: projectId } };
+  }
+
+  private async dropProject(access: Access): Promise<void> {
+    for (const invite of await access.store.invites()) await this.deps.store.forgetInvite(invite.token);
+    for (const member of access.members) await this.deps.store.removeMembership(member.personId, access.project.id);
+    await this.deps.store.deleteProject(access.project.id);
+    await access.store.drop();
+  }
+
+  private async everywhere(personId: string): Promise<{ access: Access; leaving: ReturnType<typeof leavingAll> }[]> {
+    const found = [];
+    for (const id of await this.deps.store.projectsOf(personId)) {
+      const access = await this.access(personId, id);
+      if (access) found.push({ access, leaving: leavingAll(access.project, access.members, personId) });
+      else await this.deps.store.removeMembership(personId, id);
+    }
+    return found;
+  }
+
+  async leaving(personId: string): Promise<{ blockers: string[]; deletes: string[]; leaves: string[] }> {
+    const all = await this.everywhere(personId);
+    return {
+      blockers: all.flatMap(({ leaving }) => (leaving.kind === 'blocked' ? [leaving.why] : [])),
+      deletes: all.filter(({ leaving }) => leaving.kind === 'delete').map(({ access }) => access.project.name),
+      leaves: all.filter(({ leaving }) => leaving.kind === 'leave').map(({ access }) => access.project.name),
+    };
+  }
+
+  async letGo(personId: string): Promise<{ deleted: string[]; left: string[] }> {
+    const all = await this.everywhere(personId);
+    const blocked = all.flatMap(({ leaving }) => (leaving.kind === 'blocked' ? [leaving.why] : []));
+    if (blocked.length > 0) throw new Error(blocked.join('; '));
+    const done = { deleted: [] as string[], left: [] as string[] };
+    for (const { access, leaving } of all) {
+      if (leaving.kind === 'delete') {
+        await this.dropProject(access);
+        done.deleted.push(access.project.id);
+      } else {
+        for (const invite of (await access.store.invites()).filter((entry) => entry.invitedBy === personId)) {
+          await access.store.deleteInvite(invite.token);
+          await this.deps.store.forgetInvite(invite.token);
+        }
+        await access.store.deleteMember(personId);
+        await this.deps.store.removeMembership(personId, access.project.id);
+        done.left.push(access.project.id);
+      }
+    }
+    return done;
   }
 
   async remove(personId: string, projectId: string, memberId: string): Promise<HubOutcome<{ removed: string }>> {

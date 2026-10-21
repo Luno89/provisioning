@@ -80,7 +80,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
       '/machines/join',
       '/machines/agent.tgz',
     ];
-    const publicPrefixes = role === 'instance' ? [...PUBLIC_PREFIXES, '/move/'] : [...PUBLIC_PREFIXES, '/instances/monitoring/', '/instances/move/parts/'];
+    const publicPrefixes = role === 'instance' ? [...PUBLIC_PREFIXES, '/move/'] : role === 'hub' ? [...PUBLIC_PREFIXES, '/hub-root/'] : [...PUBLIC_PREFIXES, '/instances/monitoring/', '/instances/move/parts/'];
     if (publicPaths.includes(req.path) || publicPrefixes.some((prefix) => req.path.startsWith(prefix))) {
       return next();
     }

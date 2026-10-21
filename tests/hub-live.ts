@@ -35,7 +35,7 @@ async function stage<T>(name: string, run: () => Promise<T>): Promise<T> {
 const client = (base: string, cookie?: string): AxiosInstance => axios.create({ baseURL: `${base}/api`, proxy: false, maxRedirects: 0, headers: cookie ? { Cookie: cookie } : {}, validateStatus: () => true });
 const sessionOf = (headers: Record<string, unknown>): string | undefined => ([] as string[]).concat((headers['set-cookie'] as string[] | undefined) ?? []).map((line) => line.split(';')[0]!).find((pair) => pair.startsWith('session=') && pair !== 'session=');
 
-interface Person { name: string; email: string; password: string; id?: string; root?: AxiosInstance; hub?: AxiosInstance }
+interface Person { name: string; email: string; password: string; id?: string; root?: AxiosInstance; hub?: AxiosInstance; removed?: boolean }
 
 const stamp = Date.now().toString(36);
 const person = (name: string): Person => ({ name, email: `hub-live-${name}-${stamp}@nowrinkles.test`, password: crypto.randomBytes(18).toString('base64url') });
@@ -77,6 +77,14 @@ async function main(): Promise<void> {
   assert.ok(admin?.isAdmin, `${ADMIN} is not an admin`);
   const adminHttp = client(ROOT, `session=${signJWT({ userId: admin.id, email: admin.email }, loadKeys(process.env).session, 3600)}`);
   const mongo = await MongoClient.connect(mongoTarget(process.env).uri);
+
+  const removeAccount = async (who: Person): Promise<void> => {
+    const removed = await who.root!.delete('/account', { data: { confirm: who.email } });
+    assert.equal(removed.status, 202, `${who.name}'s removal answered ${removed.status}: ${JSON.stringify(removed.data)}`);
+    who.removed = true;
+    for (let tries = 0; tries < 150 && await db.getUserById(who.id!); tries += 1) await sleep(2_000);
+    assert.equal(await db.getUserById(who.id!), undefined, `${who.email} was not removed`);
+  };
 
   const ann = person('ann');
   const bo = person('bo');
@@ -182,13 +190,22 @@ async function main(): Promise<void> {
       assert.equal(lastOwner.status, 400, JSON.stringify(lastOwner.data));
     });
 
-    await stage('the owner deletes both projects, and nothing of them is left on the hub', async () => {
-      for (const project of projects) {
-        assert.equal((await ann.hub!.delete(`/hub/projects/${project.id}`, { data: { name: 'not its name' } })).status, 400);
-        assert.equal((await ann.hub!.delete(`/hub/projects/${project.id}`, { data: { name: project.name } })).status, 200);
-      }
-      assert.deepEqual((await eve.hub!.get('/hub/projects')).data, []);
-      assert.equal((await eve.hub!.get(`/hub/projects/${other.id}`)).status, 404);
+    await stage('the owner cannot remove their account while they alone own a project someone else is on; the outsider removes theirs and is taken off it', async () => {
+      const preview = (await ann.root!.get('/account/removal')).data as { blockers: string[] };
+      assert.ok(preview.blockers.some((line) => line.includes(`"${other.name}"`)), JSON.stringify(preview));
+      assert.ok(!preview.blockers.some((line) => line.includes(`"${shop.name}"`)), 'a project only the owner is on blocked the removal');
+      const refused = await ann.root!.delete('/account', { data: { confirm: ann.email } });
+      assert.equal(refused.status, 409, JSON.stringify(refused.data));
+      assert.equal((await ann.hub!.get(`/hub/projects/${shop.id}`)).status, 200, 'a refused removal still let the owner go');
+      await removeAccount(eve);
+      assert.deepEqual(((await ann.hub!.get(`/hub/projects/${other.id}`)).data.members as { email: string }[]).map((member) => member.email), [ann.email]);
+    });
+
+    await stage('the owner deletes one project by its name; removing their account deletes the one only they are on; nothing of either is left on the hub', async () => {
+      assert.equal((await ann.hub!.delete(`/hub/projects/${other.id}`, { data: { name: 'not its name' } })).status, 400);
+      assert.equal((await ann.hub!.delete(`/hub/projects/${other.id}`, { data: { name: other.name } })).status, 200);
+      assert.deepEqual((await ann.root!.get('/account/removal')).data.blockers, []);
+      await removeAccount(ann);
       const databases = (await mongo.db().admin().listDatabases()).databases.map((entry) => entry.name);
       for (const project of projects) assert.ok(!databases.includes(`${HUB_DATABASE_PREFIX}${project.id}`), `${HUB_DATABASE_PREFIX}${project.id} is still there`);
       const registry = mongo.db(HUB_DATABASE);
@@ -200,14 +217,7 @@ async function main(): Promise<void> {
     });
   } finally {
     for (const project of projects) await ann.hub?.delete(`/hub/projects/${project.id}`, { data: { name: project.name } }).catch(() => undefined);
-    for (const who of everyone.filter((entry) => entry.root)) {
-      const removed = await who.root!.delete('/account', { data: { confirm: who.email } });
-      if (removed.status !== 202) console.log(`    could not remove ${who.email}: ${removed.status} ${JSON.stringify(removed.data)}`);
-    }
-    for (const who of everyone.filter((entry) => entry.id)) {
-      for (let tries = 0; tries < 150 && await db.getUserById(who.id!); tries += 1) await sleep(2_000);
-      assert.equal(await db.getUserById(who.id!), undefined, `${who.email} was not removed`);
-    }
+    for (const who of everyone.filter((entry) => entry.root && !entry.removed)) await removeAccount(who).catch((err: Error) => console.log(`    could not remove ${who.email}: ${err.message}`));
     console.log(`    removed ${everyone.filter((entry) => entry.id).length} test accounts`);
     await mongo.close();
     await db.close?.();

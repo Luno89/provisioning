@@ -52,13 +52,6 @@ export interface HubInvite {
   createdAt: string;
 }
 
-export interface HubPerson {
-  id: string;
-  email: string;
-  firstSeen: string;
-  lastSeen: string;
-}
-
 export const HUB_DATABASE_PREFIX = 'hub_';
 export const SHARED_PROJECT_ID = /^[a-f0-9]{24}$/;
 export const INVITE_TOKEN = /^[A-Za-z0-9_-]{32}$/;
@@ -94,6 +87,16 @@ export function leavingProblem(members: readonly HubMember[], personId: string):
   if (!member) return 'that person is not on this project';
   if (member.role === 'owner' && members.filter((entry) => entry.role === 'owner').length === 1) return 'the last owner cannot leave; make someone else an owner first';
   return undefined;
+}
+
+export type LeavingAll = { kind: 'delete' } | { kind: 'leave' } | { kind: 'blocked'; why: string };
+
+export function leavingAll(project: Pick<SharedProject, 'name'>, members: readonly HubMember[], personId: string): LeavingAll {
+  const others = members.filter((member) => member.personId !== personId);
+  if (others.length === 0) return { kind: 'delete' };
+  const owner = members.find((member) => member.personId === personId)?.role === 'owner';
+  if (owner && !others.some((member) => member.role === 'owner')) return { kind: 'blocked', why: `you are the only owner of the shared project "${project.name}", which others are on; make one of them an owner first` };
+  return { kind: 'leave' };
 }
 
 export function sharedProjectProblem(input: { name: unknown }): string | undefined {

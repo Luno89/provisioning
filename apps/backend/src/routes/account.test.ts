@@ -7,6 +7,9 @@ import { adminRouter } from './admin.js';
 import { AccountRemovalService, type AccountRemovalWorkflows, type RemovalWorkflowState } from '../services/AccountRemovalService.js';
 import type { Database } from '../lib/db-interface.js';
 import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-removal.js';
+import { HubService } from '../services/HubService.js';
+import { localHubPeople, type HubPeople } from '../services/HubPeople.js';
+import { memoryHubStore } from '../lib/hub-store.js';
 
 const ADMIN = { id: 'ana', email: 'ana@example.com', isAdmin: true };
 const PERSON = { ...TEST_USER };
@@ -29,13 +32,13 @@ const seedPeople = async (db: Database) => {
 const requireAdmin = (req: Request, res: Response, next: NextFunction) =>
   ((req as unknown as { user?: { isAdmin?: boolean } }).user?.isAdmin ? next() : res.status(403).json({ error: 'Admin only' }));
 
-const mount = async (prefix: '/api/account' | '/api/admin') => {
+const mount = async (prefix: '/api/account' | '/api/admin', hub?: HubPeople) => {
   harness = await mountRouter({
     prefix,
     user: PERSON,
     router: async (db) => {
       await seedPeople(db);
-      const removal = new AccountRemovalService({ store: db, workflows, now: () => 'now' });
+      const removal = new AccountRemovalService({ store: db, workflows, now: () => 'now', hub });
       return prefix === '/api/account'
         ? accountRouter({ removal, clearSession: (res) => { cleared += 1; res.clearCookie('session'); } })
         : adminRouter({ db, requireAdmin, removal });
@@ -179,3 +182,29 @@ describe('a person removing their own account on root', () => {
   });
 });
 
+
+describe('removing an account that is on shared projects', () => {
+  it('is refused while they alone own a project others are on, and otherwise lets them go from every project first', async () => {
+    const tokens: string[] = [];
+    const sent = new HubService({ store: memoryHubStore(), invites: { send: async (request) => { tokens.push(request.join); return { link: 'l', emailed: false }; } } });
+    const shop = await sent.create(PERSON, { name: 'Shop' });
+    const alone = await sent.create(PERSON, { name: 'Alone' });
+    if (!shop.ok || !alone.ok) throw new Error('not made');
+    await sent.invite(PERSON, shop.value.project.id, { email: ADMIN.email, role: 'collaborator' });
+    await sent.accept(ADMIN, tokens[0]!);
+    await mount('/api/account', localHubPeople(sent));
+
+    expect((await call('get', '/api/account/removal')).data.blockers).toEqual(['you are the only owner of the shared project "Shop", which others are on; make one of them an owner first']);
+    const refused = await call('delete', '/api/account', { confirm: PERSON.email });
+    expect(refused.status).toBe(409);
+    expect(started).toEqual([]);
+    expect((await sent.mine(PERSON.id)).length).toBe(2);
+
+    await sent.changeRole(PERSON.id, shop.value.project.id, ADMIN.id, 'owner');
+    expect((await call('delete', '/api/account', { confirm: PERSON.email })).status).toBe(202);
+    expect(started.length).toBe(1);
+    expect(await sent.mine(PERSON.id)).toEqual([]);
+    expect((await sent.view(ADMIN.id, alone.value.project.id)).ok).toBe(false);
+    expect((await sent.mine(ADMIN.id)).map((entry) => entry.project.name)).toEqual(['Shop']);
+  });
+});

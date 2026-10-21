@@ -100,4 +100,30 @@ describe('a shared project and its people', () => {
     expect(await hub.delete('ann', id, 'Shop')).toEqual({ ok: true, value: { deleted: id } });
     expect([await hub.mine('ann'), await hub.mine('bo'), await store.getProject(id), await store.projectOfInvite(tokenOf(1)), await store.project(id).members()]).toEqual([[], [], undefined, undefined, []]);
   });
+
+  it('lets a person go from every project when their account goes: deleting those only they are on, leaving the rest, refused while they alone own one others are on', async () => {
+    const { hub, store, tokenOf } = setUp();
+    const alone = valueOf(await hub.create(ann, { name: 'Alone' })).project.id;
+    const shop = valueOf(await hub.create(ann, { name: 'Shop' })).project.id;
+    const guest = valueOf(await hub.create(bo, { name: 'Guest' })).project.id;
+    await hub.invite(ann, shop, { email: 'bo@example.com', role: 'collaborator' });
+    await hub.accept(bo, tokenOf(0));
+    await hub.invite(bo, guest, { email: 'ann@example.com', role: 'client' });
+    await hub.accept(ann, tokenOf(1));
+    await hub.invite(ann, shop, { email: 'cy@example.com', role: 'client' });
+
+    expect(await hub.leaving('ann')).toEqual({ blockers: ['you are the only owner of the shared project "Shop", which others are on; make one of them an owner first'], deletes: ['Alone'], leaves: ['Guest'] });
+    await expect(hub.letGo('ann')).rejects.toThrow(/only owner of the shared project "Shop"/);
+    expect(await store.getProject(alone)).toBeDefined();
+
+    await hub.changeRole('ann', shop, 'bo', 'owner');
+    expect((await hub.leaving('ann')).blockers).toEqual([]);
+    const done = await hub.letGo('ann');
+    expect(done.deleted).toEqual([alone]);
+    expect(done.left.sort()).toEqual([guest, shop].sort());
+    expect([await hub.mine('ann'), await store.getProject(alone), await store.projectOfInvite(tokenOf(2))]).toEqual([[], undefined, undefined]);
+    expect(valueOf(await hub.view('bo', shop)).members?.map((member) => member.personId)).toEqual(['bo']);
+    expect(valueOf(await hub.view('bo', guest)).members?.map((member) => member.personId)).toEqual(['bo']);
+  });
 });
+

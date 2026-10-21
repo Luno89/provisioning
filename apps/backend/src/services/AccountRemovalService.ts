@@ -1,6 +1,7 @@
 import type { ClusterMetadata, DeploymentMetadata, UserMetadata } from '../lib/types.js';
 import type { InstanceRecord, InstanceStatus } from '../lib/instances.js';
 import type { Client } from '@temporalio/client';
+import type { HubPeople } from './HubPeople.js';
 import { startedFor } from '../lib/workflow-owner.js';
 import {
   REMOVAL_PROGRESS_QUERY,
@@ -71,6 +72,7 @@ export interface AccountRemovalDeps {
   workflowType?: string | undefined;
   steps?: readonly RemovalStep[] | undefined;
   instances?: (() => Promise<InstanceRecord[]>) | undefined;
+  hub?: HubPeople | undefined;
   now?: () => string;
 }
 
@@ -118,7 +120,8 @@ export class AccountRemovalService {
     const user = world.users.find((entry) => entry.id === ownerId);
     if (!user) return undefined;
     const instance = this.deps.instances ? (await this.deps.instances()).find((entry) => entry.ownerId === ownerId) : undefined;
-    return { email: user.email, blockers: removalBlockers(ownerId, world), ...(instance ? { instance: instanceOf(instance) } : {}) };
+    const blockers = [...removalBlockers(ownerId, world), ...(this.deps.hub ? await this.deps.hub.blockers(ownerId) : [])];
+    return { email: user.email, blockers, ...(instance ? { instance: instanceOf(instance) } : {}) };
   }
 
   async remove(request: RemovalRequest): Promise<{ ok: true; state: RemovalWorkflowState } | { ok: false; refusal: RemovalRefusal }> {
@@ -131,6 +134,11 @@ export class AccountRemovalService {
     const workflowId = removeAccountWorkflowId(request.ownerId);
     const current = await this.deps.workflows.state(workflowId);
     if (current.state === 'running') return { ok: true, state: current };
+    if (this.deps.hub) {
+      const blockers = await this.deps.hub.blockers(request.ownerId);
+      if (blockers.length > 0) return { ok: false, refusal: { status: 409, error: 'The account cannot be removed yet', blockers } };
+      await this.deps.hub.letGo(request.ownerId);
+    }
     await this.deps.store.saveUser({ ...target!, removal: { startedAt: this.now(), requestedBy: request.requestedBy } });
     await this.deps.workflows.start(this.deps.workflowType ?? REMOVE_ACCOUNT_WORKFLOW, workflowId, [{ ownerId: request.ownerId }], request.ownerId);
     return { ok: true, state: await this.deps.workflows.state(workflowId) };

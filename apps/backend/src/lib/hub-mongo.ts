@@ -1,5 +1,5 @@
 import { MongoClient, type Db } from 'mongodb';
-import { projectDatabase, type HubInvite, type HubMember, type HubPerson, type SharedProject } from './hub.js';
+import { projectDatabase, type HubInvite, type HubMember, type SharedProject } from './hub.js';
 import type { HubStore, SharedProjectStore } from './hub-store.js';
 
 const without = <T>(doc: Record<string, unknown> | null, key: string, as: string): T | undefined => {
@@ -44,7 +44,6 @@ export function mongoHubStore(uri: string, registry: string): HubStore {
       await client.connect();
       db = client.db(registry);
       await db.collection('shared_memberships').createIndex({ personId: 1, projectId: 1 }, { unique: true });
-      await db.collection('shared_handoffs').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     },
     async close() { await client.close(); },
     async saveProject(shared) {
@@ -59,20 +58,6 @@ export function mongoHubStore(uri: string, registry: string): HubStore {
     async indexInvite(token, projectId) { await reg().collection('shared_invites').replaceOne({ _id: token as never }, { projectId }, { upsert: true }); },
     async projectOfInvite(token) { const doc = await reg().collection('shared_invites').findOne({ _id: token as never }); return doc ? String(doc.projectId) : undefined; },
     async forgetInvite(token) { await reg().collection('shared_invites').deleteOne({ _id: token as never }); },
-    async savePerson(person) {
-      const { id, ...rest } = person;
-      await reg().collection('shared_people').replaceOne({ _id: id as never }, rest, { upsert: true });
-    },
-    async getPerson(id) { return without<HubPerson>(await reg().collection('shared_people').findOne({ _id: id as never }), '_id', 'id'); },
-    async claimHandoff(jti, expiresAt) {
-      try {
-        await reg().collection('shared_handoffs').insertOne({ _id: jti as never, expiresAt: new Date(expiresAt) });
-        return true;
-      } catch (err) {
-        if ((err as { code?: number }).code === 11000) return false;
-        throw err;
-      }
-    },
     project,
   };
 }

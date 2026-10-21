@@ -1,4 +1,4 @@
-import type { HubInvite, HubMember, HubPerson, SharedProject } from './hub.js';
+import type { HubInvite, HubMember, SharedProject } from './hub.js';
 
 export interface SharedProjectStore {
   members(): Promise<HubMember[]>;
@@ -22,9 +22,6 @@ export interface HubStore {
   indexInvite(token: string, projectId: string): Promise<void>;
   projectOfInvite(token: string): Promise<string | undefined>;
   forgetInvite(token: string): Promise<void>;
-  savePerson(person: HubPerson): Promise<void>;
-  getPerson(id: string): Promise<HubPerson | undefined>;
-  claimHandoff(jti: string, expiresAt: string): Promise<boolean>;
   project(id: string): SharedProjectStore;
 }
 
@@ -32,8 +29,6 @@ export function memoryHubStore(): HubStore {
   const projects = new Map<string, SharedProject>();
   const memberships = new Map<string, Set<string>>();
   const inviteIndex = new Map<string, string>();
-  const people = new Map<string, HubPerson>();
-  const handoffs = new Set<string>();
   const parts = new Map<string, { members: Map<string, HubMember>; invites: Map<string, HubInvite> }>();
   const partOf = (id: string) => {
     let part = parts.get(id);
@@ -52,9 +47,6 @@ export function memoryHubStore(): HubStore {
     async indexInvite(token, projectId) { inviteIndex.set(token, projectId); },
     async projectOfInvite(token) { return inviteIndex.get(token); },
     async forgetInvite(token) { inviteIndex.delete(token); },
-    async savePerson(person) { people.set(person.id, { ...person }); },
-    async getPerson(id) { const found = people.get(id); return found ? { ...found } : undefined; },
-    async claimHandoff(jti) { if (handoffs.has(jti)) return false; handoffs.add(jti); return true; },
     project(id) {
       return {
         async members() { return [...partOf(id).members.values()].map((member) => ({ ...member })); },

@@ -928,6 +928,10 @@ export class MongoDB implements Database {
     return doc ? fromDoc<UserMetadata>(doc) : undefined;
   }
 
+  async deleteUser(id: string): Promise<void> {
+    await this.users.deleteOne({ _id: id as any });
+  }
+
   async getMemories(ownerId?: string): Promise<MemoryItem[]> {
     const filter = ownerId ? { ownerId } : {};
     const docs = await this.memories.find(filter).toArray();

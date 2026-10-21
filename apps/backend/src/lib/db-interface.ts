@@ -114,6 +114,7 @@ export interface Database {
   saveUserList(users: UserMetadata[]): Promise<void>;
   getUserByEmail(email: string): Promise<UserMetadata | undefined>;
   getUserById(id: string): Promise<UserMetadata | undefined>;
+  deleteUser(id: string): Promise<void>;
 
   getProjects(): Promise<ProjectMetadata[]>;
   saveProject(project: ProjectMetadata): Promise<void>;

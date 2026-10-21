@@ -83,3 +83,34 @@ describe('/api/hub-link, on root', () => {
     expect((await axios.get(site.url('/api/hub-link/invitation?code=nope'), ask)).status).toBe(404);
   });
 });
+
+describe('/api/hub-root, on the hub', () => {
+  it('tells only root what a person is on, and lets them go only when root asks and nothing stops it', async () => {
+    const { generateIdentityKey, identityKeysFrom, issueMoveToken, publicKeyPem, trustedKeys } = await import('../lib/identity-token.js');
+    const { hubRootRouter } = await import('./hub-root.js');
+    const { hubPersonPart, RemoteHubPeople } = await import('../services/HubPeople.js');
+    const root = identityKeysFrom(generateIdentityKey());
+    const stranger = identityKeysFrom(generateIdentityKey());
+    const store = memoryHubStore();
+    const tokens: string[] = [];
+    const hub = new HubService({ store, invites: { send: async (request) => { tokens.push(request.join); return { link: 'l', emailed: false }; } } });
+    const forgotten: string[] = [];
+    const site = await mountRouter({ prefix: '/api/hub-root', router: async () => hubRootRouter({ hub, trusted: trustedKeys([publicKeyPem(root.publicKey)]), forget: async (id) => { forgotten.push(id); } }) });
+    harnesses.push(site);
+    const ann = { id: 'ann', email: 'ann@example.com' };
+    const shop = await hub.create(ann, { name: 'Shop' });
+    if (!shop.ok) throw new Error(shop.why);
+    await hub.invite(ann, shop.value.project.id, { email: 'bo@example.com', role: 'client' });
+    await hub.accept({ id: 'bo', email: 'bo@example.com' }, tokens[0]!);
+
+    const people = new RemoteHubPeople({ url: site.url(''), signing: root });
+    expect(await people.blockers('ann')).toEqual(['you are the only owner of the shared project "Shop", which others are on; make one of them an owner first']);
+    await expect(people.letGo('ann')).rejects.toThrow(/409/);
+    for (const token of ['', issueMoveToken(stranger, 'hub', hubPersonPart('bo', 'let-go')), issueMoveToken(root, 'hub', hubPersonPart('ann', 'let-go')), issueMoveToken(root, 'hub', hubPersonPart('bo', 'leaving')), issueMoveToken(root, 'inst-1', hubPersonPart('bo', 'let-go'))]) {
+      expect((await axios.delete(site.url('/api/hub-root/people/bo'), { ...ask, headers: { authorization: `Bearer ${token}` } })).status).toBe(401);
+    }
+    expect(await people.blockers('bo')).toEqual([]);
+    await people.letGo('bo');
+    expect([forgotten, await hub.mine('bo')]).toEqual([['bo'], []]);
+  });
+});
