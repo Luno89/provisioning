@@ -59,6 +59,9 @@ export interface AppEnvArgs {
   crawl4aiShmSize?: string | undefined;
   minioRootUser?: string | undefined;
   minioRootPassword?: string | undefined;
+  nextcloudAdminPassword?: string | undefined;
+  nextcloudDbPassword?: string | undefined;
+  nextcloudDbRootPassword?: string | undefined;
   minioStorage?: string | undefined;
   qdrantApiKey?: string | undefined;
   qdrantStorage?: string | undefined;
@@ -112,6 +115,15 @@ export function resolveMinioDefaults(dep: DeploymentMetadata): DeploymentMetadat
   return Object.assign({}, dep, {
     minioRootUser: dep.minioRootUser || 'koala',
     minioRootPassword: dep.minioRootPassword || randomBytes(24).toString('hex'),
+  });
+}
+
+export function resolveNextcloudDefaults(dep: DeploymentMetadata): DeploymentMetadata {
+  if (dep.appType !== 'nextcloud') return dep;
+  return Object.assign({}, dep, {
+    nextcloudAdminPassword: dep.nextcloudAdminPassword || randomBytes(24).toString('hex'),
+    nextcloudDbPassword: dep.nextcloudDbPassword || randomBytes(24).toString('hex'),
+    nextcloudDbRootPassword: dep.nextcloudDbRootPassword || randomBytes(24).toString('hex'),
   });
 }
 
@@ -243,6 +255,9 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     CRAWL4AI_SHM_SIZE: a.crawl4aiShmSize || '',
     MINIO_ROOT_USER: a.minioRootUser || '',
     MINIO_ROOT_PASSWORD: a.minioRootPassword || '',
+    NEXTCLOUD_ADMIN_PASSWORD: a.nextcloudAdminPassword || '',
+    NEXTCLOUD_DB_PASSWORD: a.nextcloudDbPassword || '',
+    NEXTCLOUD_DB_ROOT_PASSWORD: a.nextcloudDbRootPassword || '',
     MINIO_STORAGE: a.minioStorage || '',
     QDRANT_API_KEY: a.qdrantApiKey || '',
     QDRANT_STORAGE: a.qdrantStorage || '',

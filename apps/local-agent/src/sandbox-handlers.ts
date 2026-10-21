@@ -82,11 +82,11 @@ export async function readLocalFile(rootDir: string, relativePath: string): Prom
   }
 }
 
-export async function writeLocalFile(rootDir: string, relativePath: string, content: string): Promise<{ error: string } | undefined> {
+export async function writeLocalFile(rootDir: string, relativePath: string, content: string | Buffer): Promise<{ error: string } | undefined> {
   try {
     const target = resolveInRoot(rootDir, relativePath);
     await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(target, content, 'utf8');
+    await fs.writeFile(target, content);
     return undefined;
   } catch (err: unknown) {
     return { error: err instanceof Error ? err.message : String(err) };

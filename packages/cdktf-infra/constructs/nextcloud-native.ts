@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
@@ -16,8 +17,15 @@ export interface NextcloudNativeConfig extends VpnConfig {
   readonly dbRepo?: string;
   readonly dbTag?: string;
   readonly dbStorage?: string;
+  readonly webStorage?: string;
   readonly serviceType?: string;
+  readonly adminPassword?: string;
+  readonly dbPassword?: string;
+  readonly dbRootPassword?: string;
 }
+
+export const NEXTCLOUD_ADMIN = "admin";
+export const NEXTCLOUD_TRUSTED_HOST = "nextcloud";
 
 export class NextcloudNativeApp extends Construct {
   constructor(scope: Construct, id: string, config: NextcloudNativeConfig = {}) {
@@ -27,6 +35,10 @@ export class NextcloudNativeApp extends Construct {
     const webImage = `${config.webRepo || "library/nextcloud"}:${config.webTag || "30.0-apache"}`;
     const dbImage = `${config.dbRepo || "library/mariadb"}:${config.dbTag || "11.4"}`;
     const dbSize = config.dbStorage || "2Gi";
+    const webSize = config.webStorage || "10Gi";
+    const adminPassword = config.adminPassword || randomBytes(24).toString("hex");
+    const dbPassword = config.dbPassword || randomBytes(24).toString("hex");
+    const dbRootPassword = config.dbRootPassword || randomBytes(24).toString("hex");
 
     const serviceType = config.serviceType || defaultServiceType();
 
@@ -42,8 +54,20 @@ export class NextcloudNativeApp extends Construct {
         namespace: ns.metadata.name,
       },
       data: {
-        "mysql-root-password": Buffer.from("nextcloud_root_password").toString("base64"),
-        "mysql-password": Buffer.from("nextcloud_secure_password").toString("base64"),
+        "mysql-root-password": dbRootPassword,
+        "mysql-password": dbPassword,
+        "admin-password": adminPassword,
+      },
+    });
+
+    const webPvc = new PersistentVolumeClaim(this, "web-pvc", {
+      metadata: {
+        name: "nextcloud-web-pvc",
+        namespace: ns.metadata.name,
+      },
+      spec: {
+        accessModes: ["ReadWriteOnce"],
+        resources: { requests: { storage: webSize } },
       },
     });
 
@@ -157,12 +181,23 @@ export class NextcloudNativeApp extends Construct {
               },
             },
             { name: "MYSQL_DATABASE", value: "nextcloud" },
-            { name: "NEXTCLOUD_ADMIN_USER", value: "admin" },
-            { name: "NEXTCLOUD_ADMIN_PASSWORD", value: "admin_secure_password" },
+            { name: "NEXTCLOUD_ADMIN_USER", value: NEXTCLOUD_ADMIN },
+            {
+              name: "NEXTCLOUD_ADMIN_PASSWORD",
+              valueFrom: {
+                secretKeyRef: {
+                  name: dbSecret.metadata.name,
+                  key: "admin-password",
+                },
+              },
+            },
+            { name: "NEXTCLOUD_TRUSTED_DOMAINS", value: `${NEXTCLOUD_TRUSTED_HOST} localhost ${namespaceName}.apps.local` },
           ],
           port: [{ containerPort: 80 }],
+          volumeMount: [{ name: "web-data", mountPath: "/var/www/html" }],
         },
       ],
+      volume: [{ name: "web-data", persistentVolumeClaim: { claimName: webPvc.metadata.name } }],
     };
 
     VpnService.apply(this, ns.metadata.name, podSpec, config);

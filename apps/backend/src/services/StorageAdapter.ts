@@ -6,7 +6,7 @@ export class StorageAdapter {
       case 'wordpress':
         return strategy === 'helm' ? ['db', 'web'] : ['db'];
       case 'nextcloud':
-        return strategy === 'helm' ? ['db', 'web'] : ['db'];
+        return ['db', 'web'];
       case 'audiobookshelf':
         return ['library', 'metadata', 'config'];
       case 'prometheus':

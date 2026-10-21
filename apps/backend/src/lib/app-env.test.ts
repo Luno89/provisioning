@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveMinioDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from './app-env.js';
+import { resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from './app-env.js';
 import { appTypeFromName } from './app-spec.js';
 import { describeSandbox } from './workspace-spec.js';
 import type { DeploymentMetadata } from './types.js';
@@ -117,5 +117,17 @@ describe('what the sandbox tells the agent about installing', () => {
     expect(out).toMatch(/`npm install` works/);
     expect(out).toContain('http://verdaccio.koala-registry.svc.cluster.local:4873');
     expect(out).not.toMatch(/WILL fail/i);
+  });
+});
+
+describe('resolveNextcloudDefaults', () => {
+  it('gives a new Nextcloud its own admin and database passwords, never a fixed one, and keeps them once set', () => {
+    const first = resolveNextcloudDefaults(dep({ appType: 'nextcloud' }));
+    const second = resolveNextcloudDefaults(dep({ appType: 'nextcloud' }));
+    expect(first.nextcloudAdminPassword).toMatch(/^[0-9a-f]{48}$/);
+    expect(first.nextcloudAdminPassword).not.toBe(second.nextcloudAdminPassword);
+    expect(first.nextcloudDbPassword).not.toBe(first.nextcloudDbRootPassword);
+    expect(resolveNextcloudDefaults(first)).toEqual(first);
+    expect(resolveNextcloudDefaults(dep({ appType: 'minio' })).nextcloudAdminPassword).toBeUndefined();
   });
 });

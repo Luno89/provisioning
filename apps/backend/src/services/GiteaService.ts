@@ -737,6 +737,34 @@ export class GiteaService {
     return { sha: body.content.sha };
   }
 
+  async commitDrop(
+    token: string,
+    owner: string,
+    name: string,
+    files: readonly { path: string; bytes: Buffer }[],
+    message: string,
+    branch?: string,
+  ): Promise<{ commit: string }> {
+    const repo = `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+    const ref = branch ? `?ref=${encodeURIComponent(branch)}` : '';
+    const operations = await Promise.all(files.map(async (file) => {
+      const found = await this.tokenFetch(token, `${repo}/contents/${file.path}${ref}`);
+      if (!found.ok && found.status !== 404) throw new Error(`Could not read "${file.path}" in "${owner}/${name}": HTTP ${found.status} ${(await found.text()).slice(0, 200)}`);
+      const current = found.ok ? await found.json() as { sha?: string; type?: string } | unknown[] : undefined;
+      if (Array.isArray(current) || (current && current.type && current.type !== 'file')) throw new GiteaConflictError(`"${file.path}" is a folder in "${owner}/${name}", so a file cannot go there.`);
+      const sha = (current as { sha?: string } | undefined)?.sha;
+      return { operation: sha ? 'update' : 'create', path: file.path, content: file.bytes.toString('base64'), ...(sha ? { sha } : {}) };
+    }));
+    const res = await this.tokenFetch(token, `${repo}/contents`, {
+      method: 'POST',
+      body: JSON.stringify({ message, files: operations, ...(branch ? { branch } : {}) }),
+    });
+    if (res.status === 409 || res.status === 422) throw new GiteaConflictError(`Something in this drop changed while it was being committed; drop it again. (${(await res.text()).slice(0, 160)})`);
+    if (!res.ok) throw new Error(`Could not commit ${files.length} file${files.length === 1 ? '' : 's'} to "${owner}/${name}": HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+    const body = await res.json() as { commit?: { sha?: string } };
+    return { commit: body.commit?.sha ?? '' };
+  }
+
   async deleteFile(
     token: string,
     owner: string,

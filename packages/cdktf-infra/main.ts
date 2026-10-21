@@ -211,6 +211,10 @@ class AppStack extends TerraformStack {
       } else if (appType === 'nextcloud') {
         new NextcloudNativeApp(this, "nextcloud-native", {
           namespace: deploymentName,
+          ...(process.env.NEXTCLOUD_ADMIN_PASSWORD ? { adminPassword: process.env.NEXTCLOUD_ADMIN_PASSWORD } : {}),
+          ...(process.env.NEXTCLOUD_DB_PASSWORD ? { dbPassword: process.env.NEXTCLOUD_DB_PASSWORD } : {}),
+          ...(process.env.NEXTCLOUD_DB_ROOT_PASSWORD ? { dbRootPassword: process.env.NEXTCLOUD_DB_ROOT_PASSWORD } : {}),
+          ...(storageWeb ? { webStorage: storageWeb } : {}),
           ...(webRepo ? { webRepo } : {}),
           ...(webTag ? { webTag } : {}),
           ...(dbRepo ? { dbRepo } : {}),
@@ -473,6 +477,9 @@ class AppStack extends TerraformStack {
       } else if (appType === 'nextcloud') {
         new NextcloudApp(this, "nextcloud-app", {
           namespace: deploymentName,
+          ...(process.env.NEXTCLOUD_ADMIN_PASSWORD ? { adminPassword: process.env.NEXTCLOUD_ADMIN_PASSWORD } : {}),
+          ...(process.env.NEXTCLOUD_DB_PASSWORD ? { dbPassword: process.env.NEXTCLOUD_DB_PASSWORD } : {}),
+          ...(process.env.NEXTCLOUD_DB_ROOT_PASSWORD ? { dbRootPassword: process.env.NEXTCLOUD_DB_ROOT_PASSWORD } : {}),
           ...(webRepo ? { webRepo } : {}),
           ...(webTag ? { webTag } : {}),
           ...(dbRepo ? { dbRepo } : {}),

@@ -14,6 +14,9 @@ export interface NextcloudConfig {
   readonly dbStorage?: string;
   readonly webStorage?: string;
   readonly serviceType?: string;
+  readonly adminPassword?: string;
+  readonly dbPassword?: string;
+  readonly dbRootPassword?: string;
 }
 
 function resolveBitnamiImage(inputRepo: string, defaultRepo: string) {
@@ -61,6 +64,13 @@ export class NextcloudApp extends Construct {
       { name: "mariadb.image.tag", value: config.dbTag || "11.4.5-debian-12-r1" }
     ];
 
+    if (config.adminPassword) {
+      helmValues.push({ name: "nextcloudUsername", value: "admin" });
+      helmValues.push({ name: "nextcloudPassword", value: config.adminPassword });
+      helmValues.push({ name: "nextcloudHost", value: "nextcloud" });
+    }
+    if (config.dbPassword) helmValues.push({ name: "mariadb.auth.password", value: config.dbPassword });
+    if (config.dbRootPassword) helmValues.push({ name: "mariadb.auth.rootPassword", value: config.dbRootPassword });
     if (config.dbStorage) {
       helmValues.push({ name: "mariadb.primary.persistence.size", value: config.dbStorage });
     }

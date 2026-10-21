@@ -121,9 +121,10 @@ export async function readFileOnDevice(deviceId: string, ownerId: string, leafId
   return answered(await ask<{ content: string } | { error: string }>(deviceId, conn, 'sandbox:readFile', { leafId, path })).content;
 }
 
-export async function writeFileOnDevice(deviceId: string, ownerId: string, leafId: string, path: string, content: string): Promise<void> {
+export async function writeFileOnDevice(deviceId: string, ownerId: string, leafId: string, path: string, content: string | Buffer): Promise<void> {
   const conn = connectionFor(deviceId, ownerId);
-  answered(await ask<Record<string, never> | { error: string } | undefined>(deviceId, conn, 'sandbox:writeFile', { leafId, path, content }) ?? {});
+  const sent = typeof content === 'string' ? { content } : { content: content.toString('base64'), encoding: 'base64' as const };
+  answered(await ask<Record<string, never> | { error: string } | undefined>(deviceId, conn, 'sandbox:writeFile', { leafId, path, ...sent }) ?? {});
 }
 
 export interface LocalDirEntry {

@@ -99,6 +99,9 @@ export interface DeployAppArgs {
   crawl4aiShmSize?: string | undefined;
   minioRootUser?: string | undefined;
   minioRootPassword?: string | undefined;
+  nextcloudAdminPassword?: string | undefined;
+  nextcloudDbPassword?: string | undefined;
+  nextcloudDbRootPassword?: string | undefined;
   minioStorage?: string | undefined;
   qdrantApiKey?: string | undefined;
   qdrantStorage?: string | undefined;
@@ -456,6 +459,9 @@ export async function DeployAppActivity(
     crawl4aiShmSize: args.crawl4aiShmSize,
     minioRootUser: args.minioRootUser,
     minioRootPassword: args.minioRootPassword,
+    nextcloudAdminPassword: args.nextcloudAdminPassword,
+    nextcloudDbPassword: args.nextcloudDbPassword,
+    nextcloudDbRootPassword: args.nextcloudDbRootPassword,
     minioStorage: args.minioStorage,
     qdrantApiKey: args.qdrantApiKey,
     qdrantStorage: args.qdrantStorage,

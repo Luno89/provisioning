@@ -45,7 +45,7 @@ import { executeResizeDiskWorkflow } from '../workflows/ResizeDiskWorkflow.js'
 import { executeSyncConfigWorkflow } from '../workflows/SyncConfigWorkflow.js'
 import { executePipelineRunWorkflow } from '../workflows/PipelineRunWorkflow.js'
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
-  resolveMinioDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js'
+  resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js'
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js'
 import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../lib/tabby-cache-path.js'
 import type { Server as SocketServer } from 'socket.io'
@@ -1005,7 +1005,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     dep = resolveTabbyDefaults(dep)
     dep = resolveCrawl4aiDefaults(dep)
     dep = resolveSearxngDefaults(dep)
-    dep = resolveMinioDefaults(dep)
+    dep = resolveNextcloudDefaults(resolveMinioDefaults(dep))
     dep = resolveQdrantDefaults(dep)
     dep = resolveQuickwitDefaults(dep, deployments)
     dep = resolveAppSettingsDefaults(dep)
@@ -1069,6 +1069,9 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       crawl4aiShmSize: dep.crawl4aiShmSize,
       minioRootUser: dep.minioRootUser,
       minioRootPassword: dep.minioRootPassword,
+      nextcloudAdminPassword: dep.nextcloudAdminPassword,
+      nextcloudDbPassword: dep.nextcloudDbPassword,
+      nextcloudDbRootPassword: dep.nextcloudDbRootPassword,
       minioStorage: dep.minioStorage,
       qdrantApiKey: dep.qdrantApiKey,
       qdrantStorage: dep.qdrantStorage,

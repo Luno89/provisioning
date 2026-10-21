@@ -1,8 +1,9 @@
-import { Router, type Request } from 'express';
+import express, { Router, type Request } from 'express';
 import crypto from 'crypto';
 import path from 'path';
 import { asyncRoute } from '../middleware/async-route.js';
 import { isSafeRepoDir, isSafeRepoFilePath } from '../lib/project-file-paths.js';
+import { DROP_TYPE, readDrop } from '../lib/drops.js';
 import { GiteaConflictError } from '../services/GiteaService.js';
 import { listDirOnDevice, readFileOnDevice, writeFileOnDevice, deleteFileOnDevice } from '../lib/local-agent-registry.js';
 
@@ -33,8 +34,24 @@ async function readLocalContent(deviceId: string, ownerId: string, target: strin
 }
 
 export function projectFilesRouter(deps: Record<string, any>): Router {
-  const { projectRepoService, giteaService, getOwnedProject } = deps;
+  const { projectRepoService, giteaService, getOwnedProject, drops } = deps;
   const router = Router();
+
+  router.post('/:id/files/drop', express.json({ type: DROP_TYPE, limit: '1gb' }), asyncRoute(async (req, res) => {
+    const project = await getOwnedProject(idOf(req), userOf(req));
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const read = readDrop(req.body);
+    if (!read.ok) return res.status(400).json({ error: read.why });
+    const { ref, message } = req.body as { ref?: unknown; message?: unknown };
+    try {
+      const outcome = await drops.drop(project, read.files, { ref: typeof ref === 'string' && ref ? ref : undefined, message: typeof message === 'string' ? message : undefined });
+      if (!outcome.ok) return res.status(409).json({ error: outcome.why });
+      res.status(201).json(outcome);
+    } catch (err) {
+      if (err instanceof GiteaConflictError) return res.status(409).json({ error: err.message });
+      throw err;
+    }
+  }));
 
   router.get('/:id/files', asyncRoute(async (req, res) => {
     const project = await getOwnedProject(idOf(req), userOf(req));

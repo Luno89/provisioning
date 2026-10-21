@@ -78,6 +78,7 @@ import { AgentChangeService } from './services/AgentChangeService.js';
 import { fingerprintOf } from './lib/bench.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
+import { RepositoryDropService } from './services/RepositoryDropService.js';
 import { projectFilesRouter } from './routes/project-files.js';
 import { meshRouter } from './routes/mesh.js';
 import { localAgentsRouter } from './routes/local-agents.js';
@@ -94,7 +95,7 @@ import { MOVE_FINISHED, MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } f
 import { PoolMonitoringService } from './services/PoolMonitoringService.js';
 import { poolMonitor, poolMonitorFrom } from './services/PoolMonitor.js';
 import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from './lib/pool-trial.js';
-import { askDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from './lib/local-agent-registry.js';
+import { askDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDevice, unregisterDevice, writeFileOnDevice } from './lib/local-agent-registry.js';
 import { MachineService } from './services/MachineService.js';
 import { MachineBundle } from './services/MachineBundle.js';
 import { RootMeshKeys } from './services/RootMeshKeys.js';
@@ -1061,7 +1062,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }));
   tenant.use('/api/items', itemChatsRouter({ items: itemChats }));
   tenant.use('/api/projects', projectChannelRouter({ channels, conversations: async (ownerId) => (await db.getConversations()).filter((conversation) => conversation.ownerId === ownerId), getOwnedProject }));
-  tenant.use('/api/projects', projectFilesRouter({ projectRepoService, giteaService, getOwnedProject }));
+  const repositoryDrops = new RepositoryDropService({
+    credential: (ownerId) => projectRepoService.editorCredential(ownerId),
+    commit: (token, owner, repo, files, message, branch) => giteaService.commitDrop(token, owner, repo, files, message, branch),
+    writeOnDevice: (deviceId, ownerId, leafId, target, bytes) => writeFileOnDevice(deviceId, ownerId, leafId, target, bytes),
+  });
+  tenant.use('/api/projects', projectFilesRouter({ projectRepoService, giteaService, getOwnedProject, drops: repositoryDrops }));
   const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
     const releaseWhen = (await treeTypeOfProject(db, project))?.releaseWhen;
     if (!releaseWhen?.length || !project.giteaOwner || !project.giteaRepo) return { release: true };

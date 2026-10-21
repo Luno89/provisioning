@@ -166,16 +166,17 @@ async function main() {
   });
 
   socket.on('sandbox:writeFile', (
-    { leafId, path: relativePath, content }: { leafId: string; path: string; content: string },
+    { leafId, path: relativePath, content, encoding }: { leafId: string; path: string; content: string; encoding?: 'base64' },
     ack: (result?: { error: string }) => void,
   ) => {
+    const bytes = Buffer.from(content, encoding === 'base64' ? 'base64' : 'utf8');
     if (activeContainers.has(leafId)) {
-      writeFileInContainer(leafId, relativePath, content).then(
+      writeFileInContainer(leafId, relativePath, bytes).then(
         () => ack(),
         (err: Error) => ack({ error: err.message }),
       );
     } else {
-      writeLocalFile(rootDir, relativePath, content).then(ack);
+      writeLocalFile(rootDir, relativePath, bytes).then(ack);
     }
   });
 

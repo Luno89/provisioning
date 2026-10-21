@@ -118,6 +118,9 @@ export interface DeploymentMetadata {
   crawl4aiShmSize?: string;
   minioRootUser?: string;
   minioRootPassword?: string;
+  nextcloudAdminPassword?: string;
+  nextcloudDbPassword?: string;
+  nextcloudDbRootPassword?: string;
   minioStorage?: string;
   qdrantApiKey?: string;
   qdrantStorage?: string;

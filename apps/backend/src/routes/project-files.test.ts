@@ -6,6 +6,8 @@ import { projectFilesRouter } from './project-files.js';
 import { mountRouter, type Harness, TEST_USER } from './test-harness.js';
 import { ownsProject } from '../lib/ownership.js';
 import { GiteaConflictError } from '../services/GiteaService.js';
+import { RepositoryDropService } from '../services/RepositoryDropService.js';
+import { DROP_TYPE } from '../lib/drops.js';
 import { registerDevice } from '../lib/local-agent-registry.js';
 import type { Database } from '../lib/db-interface.js';
 
@@ -40,6 +42,11 @@ async function mount(gitea: Record<string, unknown>, opts: { seedProject?: boole
       return projectFilesRouter({
         projectRepoService,
         giteaService: gitea,
+        drops: new RepositoryDropService({
+          credential: projectRepoService.editorCredential,
+          commit: (...args) => (gitea.commitDrop as (...given: unknown[]) => Promise<{ commit: string }>)(...args),
+          writeOnDevice: vi.fn(),
+        }),
         getOwnedProject: async (id: string, user: any) => {
           const p = (await db.getProjects()).find((x: any) => x.id === id);
           return p && ownsProject(p, user) ? p : undefined;
@@ -254,5 +261,27 @@ describe('a project scoped to a local machine', () => {
 
     const err = await axios.delete(harness.url('/api/projects/proj-device/files/content?path=old.ts&sha=abc123')).catch((e) => e);
     expect(err.response.status).toBe(409);
+  });
+});
+
+describe('POST /:id/files/drop', () => {
+  const sent = (body: unknown) => ({ headers: { 'Content-Type': DROP_TYPE }, validateStatus: () => true, data: body });
+
+  it('commits what was dropped, under the folder it was dropped on, bytes intact', async () => {
+    const commitDrop = vi.fn(async () => ({ commit: 'c1' }));
+    const harness = await mount({ commitDrop });
+    const png = Buffer.from([0x89, 0x50, 0x00, 0xff]);
+    const res = await axios.post(harness.url('/api/projects/proj-1/files/drop'), JSON.stringify({ dir: 'public', files: [{ path: 'logo.png', content: png.toString('base64') }], ref: 'story-1' }), sent(undefined));
+    expect(res.status).toBe(201);
+    expect(res.data).toEqual({ ok: true, paths: ['public/logo.png'], commit: 'c1' });
+    expect(commitDrop).toHaveBeenCalledWith('tok-1', 'acme', 'demo', [{ path: 'public/logo.png', bytes: png }], 'Add public/logo.png', 'story-1');
+  });
+
+  it('refuses a file that would land outside the repository, and a drop into someone else\'s project', async () => {
+    const harness = await mount({ commitDrop: vi.fn() });
+    const outside = await axios.post(harness.url('/api/projects/proj-1/files/drop'), JSON.stringify({ files: [{ path: '../x', content: '' }] }), sent(undefined));
+    expect(outside.status).toBe(400);
+    const missing = await axios.post(harness.url('/api/projects/nope/files/drop'), JSON.stringify({ files: [{ path: 'x', content: '' }] }), sent(undefined));
+    expect(missing.status).toBe(404);
   });
 });

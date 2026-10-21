@@ -8,7 +8,7 @@ import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectM
 import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-capacity.js';
 import { executeDeployAppWorkflow } from '../workflows/AppDeployWorkflow.js';
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
-  resolveMinioDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js';
+  resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js';
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js';
 import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../lib/tabby-cache-path.js';
 import { PLATFORM_OWNER, startedFor } from '../lib/workflow-owner.js';
@@ -122,7 +122,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
       dep = resolveTabbyDefaults(dep as DeploymentMetadata)
       dep = resolveCrawl4aiDefaults(dep as DeploymentMetadata)
       dep = resolveSearxngDefaults(dep as DeploymentMetadata)
-      dep = resolveMinioDefaults(dep as DeploymentMetadata)
+      dep = resolveNextcloudDefaults(resolveMinioDefaults(dep as DeploymentMetadata))
       dep = resolveQdrantDefaults(dep as DeploymentMetadata)
       dep = resolveQuickwitDefaults(dep as DeploymentMetadata, await deps.db.getDeployments())
       dep = resolveAppSettingsDefaults(dep as DeploymentMetadata)
@@ -237,6 +237,9 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
       crawl4aiShmSize: dep.crawl4aiShmSize,
       minioRootUser: dep.minioRootUser,
       minioRootPassword: dep.minioRootPassword,
+      nextcloudAdminPassword: dep.nextcloudAdminPassword,
+      nextcloudDbPassword: dep.nextcloudDbPassword,
+      nextcloudDbRootPassword: dep.nextcloudDbRootPassword,
       minioStorage: dep.minioStorage,
       qdrantApiKey: dep.qdrantApiKey,
       qdrantStorage: dep.qdrantStorage,

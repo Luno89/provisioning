@@ -169,10 +169,10 @@ export async function execInContainer(
   );
 }
 
-export async function writeFileInContainer(leafId: string, relativePath: string, content: string): Promise<void> {
+export async function writeFileInContainer(leafId: string, relativePath: string, content: string | Buffer): Promise<void> {
   const result = await runDocker(
     ['exec', '-i', containerName(leafId), 'sh', '-c', 'mkdir -p "$(dirname "$1")" && base64 -d > "$1"', 'sh', relativePath],
-    { stdin: Buffer.from(content, 'utf8').toString('base64') },
+    { stdin: (typeof content === 'string' ? Buffer.from(content, 'utf8') : content).toString('base64') },
   );
   if (result.exitCode !== 0) throw new Error(`Could not write ${relativePath}: ${result.stderr}`);
 }

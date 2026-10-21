@@ -71,7 +71,13 @@ describe('readLocalFile / writeLocalFile', () => {
     expect(read).toEqual({ content: 'hello' });
   });
 
-  it('returns an error instead of throwing when the file does not exist', async () => {
+  it('writes bytes exactly, so an image or an archive arrives whole', async () => {
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0xfe]);
+    expect(await writeLocalFile(rootDir, 'logo.png', bytes)).toBeUndefined();
+    expect(await fs.readFile(path.join(rootDir, 'logo.png'))).toEqual(bytes);
+  });
+
+    it('returns an error instead of throwing when the file does not exist', async () => {
     const read = await readLocalFile(rootDir, 'missing.txt');
     expect(read).toHaveProperty('error');
   });
