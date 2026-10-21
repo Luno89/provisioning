@@ -25,7 +25,9 @@ export const SERVER_FILES = [
   { id: 'learned', title: 'Learned notes', icon: Lightbulb, says: 'What runs taught about using it and its tools, shown to every agent holding it once the bench shows it breaks nothing.' },
 ] as const
 
-export const DEPENDENCIES_GROUP = 'Workspace dependencies'
+export const DEPENDENCIES_GROUP = 'Dependencies'
+export const TOOLS_FOLDER = 'Tools'
+export const SERVERS_FOLDER = 'MCP Servers'
 export const DEPENDENCIES_SAY = 'What agents\' workspaces install so their tools, MCP servers and steps can run. Each tool, server or step names the ones it needs, and an agent\'s workspace image is built from them.'
 
 export const toolItem = (name: string): string => `tool:${name}`
@@ -41,7 +43,8 @@ export function toolboxGroups(input: {
 }): ExplorerGroup[] {
   const tools: ExplorerGroup[] = groupTools([...input.tools]).map((group) => ({
     id: `tools-${group.id}`,
-    title: `Tools · ${group.title}`,
+    title: group.title,
+    folder: TOOLS_FOLDER,
     items: group.items.map((one) => ({
       id: toolItem(one.name),
       label: one.name,
@@ -60,7 +63,8 @@ export function toolboxGroups(input: {
   }))
   const servers: ExplorerGroup[] = groupServers(input.servers).map((group) => ({
     id: `servers-${group.place}`,
-    title: `MCP servers · ${group.title}`,
+    title: group.title,
+    folder: SERVERS_FOLDER,
     items: group.servers.map((one) => ({
       id: serverItem(one.id),
       label: one.name,
@@ -79,6 +83,7 @@ export function toolboxGroups(input: {
   const dependencies: ExplorerGroup[] = input.dependencies.length ? [{
     id: 'dependencies',
     title: DEPENDENCIES_GROUP,
+    folder: DEPENDENCIES_GROUP,
     items: input.dependencies.map((one) => ({
       id: dependencyItem(one.name),
       label: one.name,

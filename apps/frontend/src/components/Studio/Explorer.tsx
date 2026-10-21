@@ -1,6 +1,7 @@
 import { Fragment, useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ChevronDown, ChevronRight, Plus, Search, type LucideIcon } from 'lucide-react'
+import { shelvesOf } from './explorer-shelves'
 
 export interface ExplorerLink {
   to: string
@@ -30,6 +31,7 @@ export interface ExplorerGroup {
   id: string
   title: string
   items: readonly ExplorerItem[]
+  folder?: string | undefined
 }
 
 export interface PathStep {
@@ -80,6 +82,54 @@ export default function Explorer({ title, groups, selected, path, onNew, newPlac
     onNew(name)
   }
 
+  const renderItems = (group: ExplorerGroup) => group.items.map((item) => {
+    const open = openItems.has(item.id)
+    const active = selected?.item === item.id
+    return (
+      <div key={item.id}>
+        <div className={`${row} ${active && !selected?.file ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-300 hover:bg-[var(--bark-800)]'}`}>
+          <button type="button" aria-label={open ? `Close ${item.id}` : `Open ${item.id}`} onClick={() => setOpenItems((current) => toggle(current, item.id))} className="text-slate-500 hover:text-slate-200">
+            {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          </button>
+          <Link to={item.link.to} params={item.link.params ?? {}} onClick={() => setOpenItems((current) => new Set([...current, item.id]))} className="flex min-w-0 flex-1 items-center gap-1.5">
+            <item.icon size={13} className="shrink-0 text-[var(--leaf)]" />
+            <span className={`truncate ${item.mono ? 'font-mono' : ''}`}>{item.label}</span>
+            {item.mine && <span className="text-[9px] text-[var(--leaf-light)]">yours</span>}
+          </Link>
+        </div>
+        {open && (
+          <ul className="ml-4 border-l border-[var(--bark-700)] pl-1">
+            {item.files.map((file) => (
+              <li key={file.id} className={file.startsGroup ? 'mt-1 border-t border-[var(--bark-800)] pt-1' : ''}>
+                <Link
+                  to={file.link.to}
+                  params={file.link.params ?? {}}
+                  className={`${row} ${active && selected?.file === file.id ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-800)] hover:text-slate-200'}`}
+                >
+                  <file.icon size={12} className="shrink-0 text-slate-500" /> {file.title}
+                  {file.badge}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    )
+  })
+
+  const renderGroup = (group: ExplorerGroup, nested: boolean) => {
+    const closed = closedGroups.has(group.id)
+    return (
+      <div key={group.id} className="mt-1">
+        <button type="button" onClick={() => setClosedGroups((current) => toggle(current, group.id))} className={`${row} ${nested ? 'text-[10px] normal-case tracking-normal' : 'text-[10px] uppercase tracking-wider'} font-semibold text-slate-500 hover:text-slate-300`}>
+          {closed ? <ChevronRight size={12} /> : <ChevronDown size={12} />} {group.title}
+          <span className="ml-auto font-normal text-slate-600">{group.items.length}</span>
+        </button>
+        {!closed && renderItems(group)}
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full min-h-0">
       <aside aria-label={title} className="flex w-72 shrink-0 flex-col border-r border-[var(--bark-700)] bg-[var(--bark-900)]/50">
@@ -113,48 +163,22 @@ export default function Explorer({ title, groups, selected, path, onNew, newPlac
         <nav className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-4">
           {loading && <p className="px-2 text-xs text-slate-500">Loading…</p>}
           {error && <p className="px-2 text-xs text-red-300">{error}</p>}
-          {shown.map((group) => {
-            const closed = closedGroups.has(group.id)
+          {shelvesOf(shown).map((shelf) => {
+            if (!shelf.folder) return shelf.groups.map((group) => renderGroup(group, false))
+            const key = `folder:${shelf.folder}`
+            const closed = closedGroups.has(key)
+            const lone = shelf.groups.length === 1 && shelf.groups[0]!.title === shelf.folder
             return (
-              <div key={group.id} className="mt-1">
-                <button type="button" onClick={() => setClosedGroups((current) => toggle(current, group.id))} className={`${row} text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300`}>
-                  {closed ? <ChevronRight size={12} /> : <ChevronDown size={12} />} {group.title}
-                  <span className="ml-auto font-normal text-slate-600">{group.items.length}</span>
+              <div key={key} className="mt-1">
+                <button type="button" onClick={() => setClosedGroups((current) => toggle(current, key))} className={`${row} text-[11px] font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-200`}>
+                  {closed ? <ChevronRight size={12} /> : <ChevronDown size={12} />} {shelf.folder}
+                  <span className="ml-auto font-normal text-slate-600">{shelf.groups.reduce((sum, group) => sum + group.items.length, 0)}</span>
                 </button>
-                {!closed && group.items.map((item) => {
-                  const open = openItems.has(item.id)
-                  const active = selected?.item === item.id
-                  return (
-                    <div key={item.id}>
-                      <div className={`${row} ${active && !selected?.file ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-300 hover:bg-[var(--bark-800)]'}`}>
-                        <button type="button" aria-label={open ? `Close ${item.id}` : `Open ${item.id}`} onClick={() => setOpenItems((current) => toggle(current, item.id))} className="text-slate-500 hover:text-slate-200">
-                          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                        </button>
-                        <Link to={item.link.to} params={item.link.params ?? {}} onClick={() => setOpenItems((current) => new Set([...current, item.id]))} className="flex min-w-0 flex-1 items-center gap-1.5">
-                          <item.icon size={13} className="shrink-0 text-[var(--leaf)]" />
-                          <span className={`truncate ${item.mono ? 'font-mono' : ''}`}>{item.label}</span>
-                          {item.mine && <span className="text-[9px] text-[var(--leaf-light)]">yours</span>}
-                        </Link>
-                      </div>
-                      {open && (
-                        <ul className="ml-4 border-l border-[var(--bark-700)] pl-1">
-                          {item.files.map((file) => (
-                            <li key={file.id} className={file.startsGroup ? 'mt-1 border-t border-[var(--bark-800)] pt-1' : ''}>
-                              <Link
-                                to={file.link.to}
-                                params={file.link.params ?? {}}
-                                className={`${row} ${active && selected?.file === file.id ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-800)] hover:text-slate-200'}`}
-                              >
-                                <file.icon size={12} className="shrink-0 text-slate-500" /> {file.title}
-                                {file.badge}
-                              </Link>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  )
-                })}
+                {!closed && (
+                  <div className="ml-2 border-l border-[var(--bark-800)] pl-1">
+                    {lone ? renderItems(shelf.groups[0]!) : shelf.groups.map((group) => renderGroup(group, true))}
+                  </div>
+                )}
               </div>
             )
           })}

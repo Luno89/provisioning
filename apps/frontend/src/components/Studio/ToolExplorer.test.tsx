@@ -49,8 +49,8 @@ const tree = () => within(screen.getByRole('complementary', { name: 'Tools' }))
 describe('the tools explorer', () => {
   it('groups tools by what they act on and how far they go', () => {
     render(<ToolExplorer />)
-    for (const title of ['Work in the workspace', 'Reach the web', 'Look things up', 'Propose and ask you']) expect(tree().getByText(`Tools · ${title}`)).toBeInTheDocument()
-    expect(tree().getByText('Workspace dependencies')).toBeInTheDocument()
+    for (const title of ['Work in the workspace', 'Reach the web', 'Look things up', 'Propose and ask you']) expect(tree().getByText(title)).toBeInTheDocument()
+    for (const folder of ['Tools', 'Dependencies']) expect(tree().getByRole('button', { name: new RegExp(`^${folder}`) })).toBeInTheDocument()
     expect(tree().queryByText('Change things on the platform')).toBeNull()
   })
 

@@ -61,8 +61,9 @@ describe('the MCP servers explorer', () => {
   it('groups servers by where they run, and adds a known one or one at an address', async () => {
     render(<McpServerExplorer />)
     const tree = within(screen.getByRole('complementary', { name: 'Tools' }))
-    expect(tree.getByText('MCP servers · Run in the workspace')).toBeInTheDocument()
-    expect(tree.getByText('MCP servers · Hosted at an address')).toBeInTheDocument()
+    expect(tree.getByRole('button', { name: /^MCP Servers/ })).toBeInTheDocument()
+    expect(tree.getByText('Run in the workspace')).toBeInTheDocument()
+    expect(tree.getByText('Hosted at an address')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Add another' }))
     expect(calls.add).toEqual([{ template: 'playwright' }])
