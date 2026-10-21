@@ -1,7 +1,7 @@
 import { describe, expect, it, afterEach } from 'vitest';
 import axios from 'axios';
 import { Readable } from 'node:stream';
-import { filesRouter, FILE_TYPE_HEADER } from './files.js';
+import { filesRouter, FILE_TYPE_HEADER, shareRouter } from './files.js';
 import { mountRouter, type Harness, TEST_USER } from './test-harness.js';
 import { FileService } from '../services/FileService.js';
 import type { FileStore } from '../services/FileStores.js';
@@ -15,6 +15,8 @@ function memoryStore(kept: Map<string, { bytes: Buffer; type: string }>, folder:
   const key = (path: string) => `${folder}/${path}`;
   return {
     list: async (dir) => [...kept.keys()].filter((name) => name.startsWith(key(dir ? `${dir}/` : ''))).map((name): FileEntry => ({ name: name.split('/').pop()!, path: name.slice(folder.length + 1), type: 'file', size: kept.get(name)!.bytes.length })),
+    search: async (query) => [...kept.keys()].filter((name) => name.startsWith(`${folder}/`) && name.split('/').pop()!.includes(query)).map((name): FileEntry => ({ name: name.split('/').pop()!, path: name.slice(folder.length + 1), type: 'file' })),
+    makeFolder: async (path) => { kept.set(key(`${path}/.keep`), { bytes: Buffer.alloc(0), type: 'application/x-directory' }); },
     download: async (path) => {
       const found = kept.get(key(path));
       return found ? { stream: Readable.from([found.bytes]), size: found.bytes.length, contentType: found.type } : undefined;
@@ -30,6 +32,8 @@ function memoryStore(kept: Map<string, { bytes: Buffer; type: string }>, folder:
   };
 }
 
+let shared: FileService | undefined;
+
 async function mount(): Promise<{ harness: Harness; kept: Map<string, { bytes: Buffer; type: string }> }> {
   const kept = new Map<string, { bytes: Buffer; type: string }>();
   const harness = await mountRouter({
@@ -39,6 +43,7 @@ async function mount(): Promise<{ harness: Harness; kept: Map<string, { bytes: B
       await db.saveProjectInfo({ id: 'p1', name: 'Shop', appType: 'gitapp', ownerId: TEST_USER.id, createdAt: 'now' } as never);
       await db.saveProjectInfo({ id: 'p2', name: 'Theirs', appType: 'gitapp', ownerId: 'someone-else', createdAt: 'now' } as never);
       const files = new FileService({ store: db, open: async (_ownerId, place) => memoryStore(kept, place.folder), deployMinio: async () => ({ deploymentId: 'x' }), defaultCluster: 'c1' });
+      shared = files;
       return filesRouter({
         files,
         getOwnedProject: async (id) => (await db.getProjects()).find((project) => project.id === id && project.ownerId === TEST_USER.id),
@@ -97,4 +102,33 @@ describe('/api/files', () => {
     expect([...kept.keys()]).toEqual(['personal/chats/c1/photo.jpg']);
     expect((await axios.get(harness.url('/api/files/servers'))).data).toEqual({ servers: [{ kind: 'minio', deploymentId: 'm1', name: 'minio', clusterId: 'c1' }], defaultId: 'm1' });
   });
+
+  it('makes a folder, finds files by name, and shares one by a link that works signed out until it is revoked', async () => {
+    const { harness, kept } = await mount();
+    await axios.put(harness.url('/api/files/projects/p1/place'), { deploymentId: 'm1' });
+    expect((await axios.post(harness.url('/api/files/projects/p1/folder'), { path: 'empty' })).status).toBe(201);
+    expect([...kept.keys()]).toContain('shop/empty/.keep');
+    await put(harness, '/api/files/projects/p1/content?path=docs/brief.pdf', Buffer.from('%PDF'), 'application/pdf');
+    await put(harness, '/api/files/projects/p1/content?path=page.html', Buffer.from('<script>alert(1)</script>'), 'text/html');
+    expect((await axios.get(harness.url('/api/files/projects/p1/search?q=brief'))).data).toEqual([{ name: 'brief.pdf', path: 'docs/brief.pdf', type: 'file' }]);
+
+    expect((await axios.post(harness.url('/api/files/projects/p1/shares'), { path: 'docs/brief.pdf', days: 3 }, { validateStatus: () => true })).status).toBe(400);
+    const made = (await axios.post(harness.url('/api/files/projects/p1/shares'), { path: 'docs/brief.pdf', days: 7 })).data as { id: string; name: string };
+    const page = (await axios.post(harness.url('/api/files/projects/p1/shares'), { path: 'page.html', days: 1 })).data as { id: string };
+    expect(((await axios.get(harness.url('/api/files/shares'))).data as { id: string }[]).map((share) => share.id).sort()).toEqual([made.id, page.id].sort());
+
+    const publicSite = await mountRouter({ prefix: '/api/share', user: { ...TEST_USER, id: 'a-stranger', email: 'stranger@example.com' }, router: async () => shareRouter({ files: shared! }) });
+    try {
+      const opened = await axios.get(publicSite.url(`/api/share/${made.id}`), { responseType: 'arraybuffer' });
+      expect(Buffer.from(opened.data)).toEqual(Buffer.from('%PDF'));
+      expect(opened.headers['content-disposition']).toBe("inline; filename*=UTF-8''brief.pdf");
+      expect(opened.headers['content-security-policy']).toBeUndefined();
+      expect((await axios.get(publicSite.url(`/api/share/${page.id}`))).headers['content-security-policy']).toContain('sandbox');
+      expect((await axios.delete(harness.url(`/api/files/shares/${made.id}`))).status).toBe(200);
+      expect((await axios.get(publicSite.url(`/api/share/${made.id}`), { validateStatus: () => true })).status).toBe(404);
+    } finally {
+      await publicSite.close();
+    }
+  });
 });
+

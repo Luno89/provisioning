@@ -36,7 +36,7 @@ export interface Auth {
   ) => Promise<string | null>;
 }
 
-export const PUBLIC_PREFIXES = ['/checks/scripted/', '/machines/git/'];
+export const PUBLIC_PREFIXES = ['/checks/scripted/', '/machines/git/', '/share/'];
 
 export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: AuthDeps): Auth {
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);

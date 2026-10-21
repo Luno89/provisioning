@@ -3,6 +3,8 @@ import { asyncRoute } from '../middleware/async-route.js';
 import { cleanPath } from '../lib/file-places.js';
 import type { ProjectMetadata } from '../lib/types.js';
 import type { FileScope, FileService, FilesOutcome } from '../services/FileService.js';
+import { isShareDays, SHARE_DAYS } from '../lib/file-shares.js';
+import { servingHeaders } from '../lib/file-serving.js';
 
 export const FILE_TYPE_HEADER = 'x-file-type';
 
@@ -45,6 +47,14 @@ export function filesRouter(deps: FilesRouterDeps): Router {
     answer(res, await deps.files.setDefault(userOf(req).id, wanted));
   }));
 
+  router.get('/shares', asyncRoute(async (req, res) => {
+    res.json(await deps.files.shares(userOf(req).id));
+  }));
+
+  router.delete('/shares/:shareId', asyncRoute(async (req, res) => {
+    answer(res, await deps.files.unshare(userOf(req).id, String(req.params.shareId ?? '')));
+  }));
+
   router.get('/projects/:id/place', asyncRoute(async (req, res) => {
     const scope = await scopeOf(req, res, 'projects');
     if (!scope) return;
@@ -72,6 +82,29 @@ export function filesRouter(deps: FilesRouterDeps): Router {
     answer(res, await deps.files.list(userOf(req).id, scope, dir));
   }));
 
+  router.get('/:scope/:id?/search', asyncRoute(async (req, res) => {
+    const scope = await scopeOf(req, res);
+    if (!scope) return;
+    answer(res, await deps.files.search(userOf(req).id, scope, typeof req.query.q === 'string' ? req.query.q : ''));
+  }));
+
+  router.post('/:scope/:id?/folder', asyncRoute(async (req, res) => {
+    const scope = await scopeOf(req, res);
+    if (!scope) return;
+    const path = pathOf(req, res, 'path');
+    if (path === undefined) return;
+    answer(res, await deps.files.makeFolder(userOf(req).id, scope, path), 201);
+  }));
+
+  router.post('/:scope/:id?/shares', asyncRoute(async (req, res) => {
+    const scope = await scopeOf(req, res);
+    if (!scope) return;
+    const path = pathOf(req, res, 'path');
+    if (path === undefined) return;
+    if (!isShareDays(req.body?.days)) return res.status(400).json({ error: `a link lasts ${SHARE_DAYS.join(', ')} days` });
+    answer(res, await deps.files.share(userOf(req).id, scope, path, req.body.days), 201);
+  }));
+
   router.put('/:scope/:id?/content', asyncRoute(async (req, res) => {
     const scope = await scopeOf(req, res);
     if (!scope) return;
@@ -89,9 +122,8 @@ export function filesRouter(deps: FilesRouterDeps): Router {
     if (path === undefined) return;
     const found = await deps.files.download(userOf(req).id, scope, path);
     if (!found.ok) return answer(res, found);
-    res.setHeader('Content-Type', found.value.contentType);
+    res.set(servingHeaders(found.value.contentType, path.split('/').pop() ?? path, req.query.inline === '1'));
     if (found.value.size !== undefined) res.setHeader('Content-Length', String(found.value.size));
-    res.setHeader('Content-Disposition', `${req.query.inline === '1' ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(path.split('/').pop() ?? path)}`);
     found.value.stream.pipe(res);
   }));
 
@@ -113,5 +145,17 @@ export function filesRouter(deps: FilesRouterDeps): Router {
     answer(res, await deps.files.move(userOf(req).id, scope, from, to));
   }));
 
+  return router;
+}
+
+export function shareRouter(deps: { files: Pick<FileService, 'shared'> }): Router {
+  const router = Router();
+  router.get('/:token', asyncRoute(async (req, res) => {
+    const found = await deps.files.shared(String(req.params.token ?? ''));
+    if (!found.ok) return res.status(found.status).type('text/plain').send(found.why);
+    res.set(servingHeaders(found.value.contentType, found.value.name, req.query.download !== '1'));
+    if (found.value.size !== undefined) res.setHeader('Content-Length', String(found.value.size));
+    found.value.stream.pipe(res);
+  }));
   return router;
 }

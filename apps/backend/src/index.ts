@@ -83,7 +83,7 @@ import { StoryDropService } from './services/StoryDropService.js';
 import { FileStores } from './services/FileStores.js';
 import { FileService } from './services/FileService.js';
 import { DEFAULT_TARGET_CLUSTER } from './lib/project-shipping.js';
-import { filesRouter } from './routes/files.js';
+import { filesRouter, shareRouter } from './routes/files.js';
 import { projectFilesRouter } from './routes/project-files.js';
 import { meshRouter } from './routes/mesh.js';
 import { localAgentsRouter } from './routes/local-agents.js';
@@ -1095,6 +1095,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     } },
   }));
   tenant.use('/api/files', filesRouter({ files: fileService, getOwnedProject }));
+  tenant.use('/api/share', shareRouter({ files: fileService }));
   const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
     const releaseWhen = (await treeTypeOfProject(db, project))?.releaseWhen;
     if (!releaseWhen?.length || !project.giteaOwner || !project.giteaRepo) return { release: true };

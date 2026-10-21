@@ -23,6 +23,7 @@ import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
 import type { AlertRuleRecord } from './monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
 import type { FileSettings } from './file-places.js';
+import type { FileShare } from './file-shares.js';
 import type { PoolPolicy } from './pool.js';
 import type { WorkFailure } from './work-failures.js';
 import type { AuthoredExtension } from './authored-extensions.js';
@@ -254,6 +255,10 @@ export interface Database {
   saveNotificationSettings(settings: NotificationSettings): Promise<void>;
   getFileSettings(ownerId: string): Promise<FileSettings | undefined>;
   saveFileSettings(settings: FileSettings): Promise<void>;
+  getFileShares(ownerId: string): Promise<FileShare[]>;
+  getFileShare(id: string): Promise<FileShare | undefined>;
+  saveFileShare(share: FileShare): Promise<void>;
+  deleteFileShare(id: string): Promise<void>;
   getPoolPolicy(): Promise<PoolPolicy | undefined>;
   savePoolPolicy(policy: PoolPolicy): Promise<void>;
   saveMonitoringSetting(setting: MonitoringSetting): Promise<void>;

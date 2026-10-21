@@ -1,9 +1,8 @@
-export type FileServerKind = 'minio' | 'nextcloud';
+export type FileServerKind = 'minio';
 
 export const FILES_BUCKET = 'koala-files';
-export const NEXTCLOUD_ROOT = 'Koala';
-export const NEXTCLOUD_USER = 'admin';
-export const NEXTCLOUD_HOST = 'nextcloud';
+export const FOLDER_MARK = '.keep';
+export const SEARCH_LIMIT = 200;
 
 export interface FileSettings {
   ownerId: string;
@@ -39,16 +38,12 @@ export interface ServerCandidate {
   clusterId: string;
   ownerId?: string | undefined;
   minioRootPassword?: string | undefined;
-  nextcloudAdminPassword?: string | undefined;
 }
-
-const KINDS: readonly FileServerKind[] = ['minio', 'nextcloud'];
 
 export function fileServersOf(deployments: readonly ServerCandidate[], ownerId: string): FileServer[] {
   return deployments
-    .filter((entry) => entry.ownerId === ownerId && entry.status === 'running' && KINDS.includes(entry.appType as FileServerKind))
-    .filter((entry) => (entry.appType === 'minio' ? Boolean(entry.minioRootPassword) : Boolean(entry.nextcloudAdminPassword)))
-    .map((entry) => ({ kind: entry.appType as FileServerKind, deploymentId: entry.id, name: entry.name, clusterId: entry.clusterId }))
+    .filter((entry) => entry.ownerId === ownerId && entry.status === 'running' && entry.appType === 'minio' && Boolean(entry.minioRootPassword))
+    .map((entry) => ({ kind: 'minio' as const, deploymentId: entry.id, name: entry.name, clusterId: entry.clusterId }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -69,12 +64,16 @@ export function cleanPath(input: string, options: { allowRoot?: boolean } = {}):
 
 export const within = (folder: string, path: string): string => [folder, path].filter(Boolean).join('/');
 
-export function storyFolder(leafId: string): string {
-  return `stories/${leafId}`;
+export const isFolderMark = (path: string): boolean => path === FOLDER_MARK || path.endsWith(`/${FOLDER_MARK}`);
+
+export function matchesSearch(path: string, query: string): boolean {
+  const wanted = query.trim().toLowerCase();
+  if (!wanted || isFolderMark(path)) return false;
+  return (path.split('/').pop() ?? path).toLowerCase().includes(wanted);
 }
 
-export function chatFolder(conversationId: string): string {
-  return `chats/${conversationId}`;
+export function storyFolder(leafId: string): string {
+  return `stories/${leafId}`;
 }
 
 export function placeProblem(place: FilePlace | undefined, servers: readonly FileServer[]): string | undefined {

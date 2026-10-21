@@ -7,6 +7,7 @@ import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
 import type { AlertRuleRecord } from './monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
 import type { FileSettings } from './file-places.js';
+import type { FileShare } from './file-shares.js';
 import type { PoolPolicy } from './pool.js';
 import type { WorkFailure } from './work-failures.js';
 import type { AuthoredExtension } from './authored-extensions.js';
@@ -849,7 +850,7 @@ export class MongoDB implements Database {
 
   async removeProjectRecords(projectId: string): Promise<Record<string, number>> {
     const removed: Record<string, number> = {};
-    for (const name of ['pipelineRuns', 'odooReleases', 'corpus', 'secretRequests', 'pendingApprovals', 'tasks']) {
+    for (const name of ['pipelineRuns', 'odooReleases', 'corpus', 'secretRequests', 'pendingApprovals', 'tasks', 'fileShares']) {
       const { deletedCount } = await this.db!.collection(name).deleteMany({ projectId });
       if (deletedCount) removed[name] = deletedCount;
     }
@@ -1186,6 +1187,27 @@ export class MongoDB implements Database {
 
   async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
     await this.db!.collection('deferredConclusions').deleteOne({ _id: id as never, ownerId });
+  }
+
+  async getFileShares(ownerId: string): Promise<FileShare[]> {
+    const docs = await this.db!.collection('fileShares').find({ ownerId }).sort({ createdAt: -1 }).toArray();
+    return docs.map(({ _id, ...rest }) => ({ ...(rest as Omit<FileShare, 'id'>), id: String(_id) }));
+  }
+
+  async getFileShare(id: string): Promise<FileShare | undefined> {
+    const doc = await this.db!.collection('fileShares').findOne({ _id: id as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc;
+    return { ...(rest as Omit<FileShare, 'id'>), id: String(_id) };
+  }
+
+  async saveFileShare(share: FileShare): Promise<void> {
+    const { id, ...rest } = share;
+    await this.db!.collection('fileShares').replaceOne({ _id: id as never }, rest, { upsert: true });
+  }
+
+  async deleteFileShare(id: string): Promise<void> {
+    await this.db!.collection('fileShares').deleteOne({ _id: id as never });
   }
 
   async getFileSettings(ownerId: string): Promise<FileSettings | undefined> {

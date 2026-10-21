@@ -4,16 +4,23 @@ import { FileService } from './FileService.js';
 import type { FileStore } from './FileStores.js';
 import type { DeploymentMetadata, ProjectMetadata } from '../lib/types.js';
 import type { FilePlace, FileSettings } from '../lib/file-places.js';
+import type { FileShare } from '../lib/file-shares.js';
 
 const deployment = (over: Partial<DeploymentMetadata>): DeploymentMetadata => ({ id: 'm1', name: 'minio', appType: 'minio', status: 'running', clusterId: 'c1', ownerId: 'u1', minioRootPassword: 'pw', ...over } as DeploymentMetadata);
+
+const clock = { now: '2026-10-21T10:00:00.000Z' };
 
 function setUp(deployments: DeploymentMetadata[], settings?: FileSettings) {
   const projects = new Map<string, ProjectMetadata>([['p1', { id: 'p1', name: 'Web Portal', appType: 'gitapp', ownerId: 'u1', createdAt: 'now' } as ProjectMetadata]]);
   const saved = settings ? new Map([[settings.ownerId, settings]]) : new Map<string, FileSettings>();
   const opened: FilePlace[] = [];
+  const kept = new Map<string, Buffer>([['a.pdf', Buffer.from('%PDF')]]);
+  const shares = new Map<string, FileShare>();
   const store: FileStore = {
     list: vi.fn(async () => [{ name: 'a.pdf', path: 'a.pdf', type: 'file' as const }]),
-    download: vi.fn(async () => undefined),
+    search: vi.fn(async () => [{ name: 'a.pdf', path: 'a.pdf', type: 'file' as const }]),
+    makeFolder: vi.fn(async () => undefined),
+    download: vi.fn(async (path: string) => (kept.has(path) ? { stream: Readable.from([kept.get(path)!]), size: kept.get(path)!.length, contentType: 'application/pdf' } : undefined)),
     upload: vi.fn(async () => undefined),
     remove: vi.fn(async () => undefined),
     move: vi.fn(async () => undefined),
@@ -28,13 +35,19 @@ function setUp(deployments: DeploymentMetadata[], settings?: FileSettings) {
       getDeployments: async () => deployments,
       getFileSettings: async (ownerId) => saved.get(ownerId),
       saveFileSettings: async (next) => { saved.set(next.ownerId, next); },
+      getFileShares: async (ownerId) => [...shares.values()].filter((share) => share.ownerId === ownerId),
+      getFileShare: async (id) => shares.get(id),
+      saveFileShare: async (share) => { shares.set(share.id, share); },
+      deleteFileShare: async (id) => { shares.delete(id); },
+      getProjects: async () => [...projects.values()],
       saveProjectInfo: async (patch) => { const next = { ...projects.get(patch.id)!, ...patch } as ProjectMetadata; projects.set(patch.id, next); return next; },
     },
     open: async (_ownerId, place) => { opened.push(place); return store; },
     deployMinio,
     defaultCluster: 'system',
+    now: () => clock.now,
   });
-  return { files, projects, store, opened, deployMinio, project: () => projects.get('p1')! };
+  return { files, projects, store, opened, deployMinio, shares, project: () => projects.get('p1')! };
 }
 
 describe('where a project\'s files go', () => {
@@ -89,4 +102,27 @@ describe('where a project\'s files go', () => {
     await world.files.list('u1', { kind: 'mine' }, 'chats/c1');
     expect(world.opened.at(-1)).toEqual({ kind: 'minio', deploymentId: 'm1', folder: 'personal' });
   });
+
+  it('shares one file by a link that serves it to anyone until it expires, and only the person can see or revoke it', async () => {
+    clock.now = '2026-10-21T10:00:00.000Z';
+    const world = setUp([deployment({})]);
+    await world.files.choose('u1', world.project(), 'm1');
+    const scope = { kind: 'project' as const, project: world.project() };
+    expect(await world.files.share('u1', scope, 'nope.pdf', 7)).toMatchObject({ ok: false, status: 404 });
+    const made = await world.files.share('u1', scope, 'a.pdf', 1);
+    if (!made.ok) throw new Error(made.why);
+    expect(made.value).toMatchObject({ ownerId: 'u1', projectId: 'p1', path: 'a.pdf', name: 'a.pdf', expiresAt: '2026-10-22T10:00:00.000Z' });
+    expect(made.value.id).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    const served = await world.files.shared(made.value.id);
+    expect(served).toMatchObject({ ok: true, value: { name: 'a.pdf', contentType: 'application/pdf' } });
+    expect((await world.files.shares('u1')).map((share) => share.id)).toEqual([made.value.id]);
+    expect(await world.files.shares('u2')).toEqual([]);
+    expect(await world.files.unshare('u2', made.value.id)).toMatchObject({ ok: false, status: 404 });
+
+    clock.now = '2026-10-22T10:00:01.000Z';
+    expect(await world.files.shared(made.value.id)).toMatchObject({ ok: false, status: 404 });
+    expect(world.shares.size).toBe(0);
+    expect(await world.files.shared('../../etc/passwd')).toMatchObject({ ok: false, status: 404 });
+  });
 });
+

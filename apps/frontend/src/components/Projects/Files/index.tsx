@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { AlertTriangle, Folder, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { FileTree } from '../../ProjectEditor/FileTree.js'
 import { EditorPane } from '../../ProjectEditor/EditorPane.js'
@@ -7,6 +8,7 @@ import { isDirty } from '../../ProjectEditor/shared.js'
 import Reading from '../Reading'
 import RepositoryFiles from '../../Files/RepositoryFiles'
 import ProjectStoredFiles from '../../Files/ProjectStoredFiles'
+import StoredFilePreview from '../../Files/StoredFilePreview'
 import { panel, resizeHandle } from '../Workspace/shared.js'
 import { useResizableWidth } from '../Workspace/useResizableWidth.js'
 import { useProjectWork } from '../useProjectWork'
@@ -20,6 +22,7 @@ export default function ProjectFiles({ treeId, projectId }: { treeId?: string | 
     loadingPath, savingPath, conflictPath,
     loadFile, openFile, closeFile, changeContent, saveFile,
   } = useOpenFiles(project?.id ?? '')
+  const [storedOpen, setStoredOpen] = useState<string | undefined>()
   const explorer = useResizableWidth('files-explorer-width', 256, 180, () => Math.max(240, Math.round((typeof window !== 'undefined' ? window.innerWidth : 1200) * 0.35)))
 
   if (reading) return <Reading label="Reading its files…" className="px-3 py-6" />
@@ -40,10 +43,10 @@ export default function ProjectFiles({ treeId, projectId }: { treeId?: string | 
             </div>
             <div className="flex-1 overflow-y-auto p-2 min-h-0 space-y-3">
               <RepositoryFiles projectId={project.id}>
-                {(onDropFiles) => <FileTree projectId={project.id} activePath={activePath} onOpen={(path) => void openFile(path)} onDropFiles={onDropFiles} />}
+                {(onDropFiles) => <FileTree projectId={project.id} activePath={activePath} onOpen={(path) => { setStoredOpen(undefined); void openFile(path) }} onDropFiles={onDropFiles} />}
               </RepositoryFiles>
               <div className="border-t border-[var(--bark-700)] pt-2">
-                <ProjectStoredFiles projectId={project.id} />
+                <ProjectStoredFiles projectId={project.id} onOpen={setStoredOpen} />
               </div>
             </div>
           </div>
@@ -59,11 +62,12 @@ export default function ProjectFiles({ treeId, projectId }: { treeId?: string | 
             </button>
           )}
           <div className="flex items-center min-w-0 flex-1 overflow-x-auto">
-            <TabBar files={openFiles} activePath={activePath} onSelect={setActivePath} onClose={closeFile} />
+            <TabBar files={openFiles} activePath={activePath} onSelect={(path) => { setStoredOpen(undefined); setActivePath(path) }} onClose={closeFile} />
           </div>
         </div>
-        {!active && <div className="flex-1 flex items-center justify-center text-[13px] text-slate-500">Pick a file on the left to open it.</div>}
-        {active && (
+        {storedOpen && <StoredFilePreview scope={{ kind: 'project', projectId: project.id }} path={storedOpen} onClose={() => setStoredOpen(undefined)} />}
+        {!storedOpen && !active && <div className="flex-1 flex items-center justify-center text-[13px] text-slate-500">Pick a file on the left to open it.</div>}
+        {!storedOpen && active && (
           <div className="flex-1 flex flex-col min-h-0">
             <div className="flex items-center justify-between px-3 py-1.5 border-b border-[var(--bark-700)] shrink-0">
               <span className="text-[11px] text-slate-500 truncate">{active.path}</span>

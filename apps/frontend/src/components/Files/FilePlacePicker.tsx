@@ -32,7 +32,7 @@ export default function FilePlacePicker({ projectId, compact = false }: { projec
               className="rounded border border-[var(--bark-600)] bg-[var(--bark-900)] px-2 py-1 text-[12px] text-slate-200"
             >
               <option value="">{state?.state === 'ready' && !state.chosen ? 'Your default' : 'Choose a file server…'}</option>
-              {listed.map((server) => <option key={server.deploymentId} value={server.deploymentId}>{server.name} ({server.kind === 'minio' ? 'MinIO' : 'Nextcloud'})</option>)}
+              {listed.map((server) => <option key={server.deploymentId} value={server.deploymentId}>{server.name}</option>)}
             </select>
           )}
           {(state?.state === 'none' || state?.state === 'gone') && (

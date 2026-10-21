@@ -1,9 +1,10 @@
 /**
  * ── DUPLICATED, KNOWINGLY ──
  * Authority: `FileServer`, `FilePlace` and `FileEntry` in apps/backend/src/lib/file-places.ts,
- * `PlaceState` in apps/backend/src/services/FileService.ts, `MessageAttachment` in apps/backend/src/lib/attachments.ts.
+ * `PlaceState` in apps/backend/src/services/FileService.ts, `MessageAttachment` in apps/backend/src/lib/attachments.ts,
+ * `FileShare` and `SHARE_DAYS` in apps/backend/src/lib/file-shares.ts.
  */
-export type FileServerKind = 'minio' | 'nextcloud'
+export type FileServerKind = 'minio'
 
 export interface FileServer {
   kind: FileServerKind
@@ -41,3 +42,16 @@ export interface MessageAttachment {
 }
 
 export type FileScope = { kind: 'project'; projectId: string } | { kind: 'mine' }
+
+export interface FileShare {
+  id: string
+  ownerId: string
+  projectId?: string
+  path: string
+  name: string
+  createdAt: string
+  expiresAt: string
+}
+
+export const SHARE_DAYS = [1, 7, 30] as const
+export type ShareDays = typeof SHARE_DAYS[number]

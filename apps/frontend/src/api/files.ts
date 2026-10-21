@@ -1,5 +1,5 @@
 import { api, API_BASE } from './client'
-import type { FileScope, FileServer, PlaceState, StoredFile } from '../types/files'
+import type { FileScope, FileServer, FileShare, PlaceState, ShareDays, StoredFile } from '../types/files'
 
 export const FILE_TYPE_HEADER = 'X-File-Type'
 
@@ -10,6 +10,8 @@ export const fileKeys = {
   place: (projectId: string) => ['files', 'place', projectId] as const,
   list: (scope: FileScope, dir: string) => ['files', 'list', scope.kind === 'project' ? scope.projectId : 'mine', dir] as const,
   all: ['files'] as const,
+  search: (scope: FileScope, query: string) => ['files', 'search', scope.kind === 'project' ? scope.projectId : 'mine', query] as const,
+  shares: ['files', 'shares'] as const,
 }
 
 export const getFileServers = (): Promise<{ servers: FileServer[]; defaultId?: string }> =>
@@ -47,3 +49,23 @@ export const moveStoredFile = (scope: FileScope, from: string, to: string): Prom
 
 export const storedFileUrl = (scope: FileScope, path: string, inline = false): string =>
   `${API_BASE}${base(scope)}/content?path=${encodeURIComponent(path)}${inline ? '&inline=1' : ''}`
+
+export const makeStoredFolder = (scope: FileScope, path: string): Promise<{ path: string }> =>
+  api.post<{ path: string }>(`${base(scope)}/folder`, { path }).then((r) => r.data)
+
+export const searchStoredFiles = (scope: FileScope, query: string): Promise<StoredFile[]> =>
+  api.get<StoredFile[]>(`${base(scope)}/search`, { params: { q: query } }).then((r) => r.data)
+
+export const shareStoredFile = (scope: FileScope, path: string, days: ShareDays): Promise<FileShare> =>
+  api.post<FileShare>(`${base(scope)}/shares`, { path, days }).then((r) => r.data)
+
+export const listFileShares = (): Promise<FileShare[]> =>
+  api.get<FileShare[]>('/files/shares').then((r) => r.data)
+
+export const revokeFileShare = (id: string): Promise<{ id: string }> =>
+  api.delete<{ id: string }>(`/files/shares/${encodeURIComponent(id)}`).then((r) => r.data)
+
+export const shareUrl = (id: string, origin: string): string => new URL(`${API_BASE}/share/${encodeURIComponent(id)}`, origin).toString()
+
+export const readStoredText = (scope: FileScope, path: string): Promise<string> =>
+  api.get<string>(`${base(scope)}/content`, { params: { path, inline: '1' }, responseType: 'text', transformResponse: (raw: unknown) => raw }).then((r) => String(r.data))

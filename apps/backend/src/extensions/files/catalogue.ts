@@ -10,7 +10,7 @@ const PROJECT = { type: 'string', description: 'The project, by name or id. Leav
 export const FILES_TOOLS: ToolDefinition[] = [
   {
     name: LIST_FILES,
-    summary: 'List the files a project keeps on its file server (MinIO or Nextcloud), outside its repository: documents, images, spreadsheets, uploads',
+    summary: 'List the files a project keeps on the person\'s MinIO, outside its repository: documents, images, spreadsheets, uploads',
     guidance: 'Use this when the person mentions a file they uploaded or attached, or a document that is not code. A project\'s files are separate from its repository: code is in the repository, everything else is here. List a folder to see what is in it; stories keep theirs under stories/<story id>/, chats under attachments/.',
     binding: 'platform',
     effect: 'read',

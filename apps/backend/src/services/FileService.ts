@@ -1,7 +1,9 @@
+import { randomBytes } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import type { DeploymentMetadata, ProjectMetadata } from '../lib/types.js';
 import { fileServersOf, folderFor, type FileEntry, type FilePlace, type FileServer, type FileSettings } from '../lib/file-places.js';
 import type { Download, FileStore } from './FileStores.js';
+import { shareExpires, shareLive, SHARE_TOKEN, type FileShare, type ShareDays } from '../lib/file-shares.js';
 
 export const PERSONAL_FOLDER = 'personal';
 export const FILES_APP_NAME = 'koala-files';
@@ -10,12 +12,18 @@ export interface FileServiceDeps {
   store: {
     getDeployments(): Promise<DeploymentMetadata[]>;
     getFileSettings(ownerId: string): Promise<FileSettings | undefined>;
+    getFileShares(ownerId: string): Promise<FileShare[]>;
+    getFileShare(id: string): Promise<FileShare | undefined>;
+    saveFileShare(share: FileShare): Promise<void>;
+    deleteFileShare(id: string): Promise<void>;
+    getProjects(): Promise<ProjectMetadata[]>;
     saveFileSettings(settings: FileSettings): Promise<void>;
     saveProjectInfo(project: Partial<ProjectMetadata> & { id: string }): Promise<ProjectMetadata>;
   };
   open: (ownerId: string, place: FilePlace) => Promise<FileStore>;
   deployMinio?: ((ownerId: string, request: { name: string; clusterId: string }) => Promise<{ deploymentId: string }>) | undefined;
   defaultCluster: string;
+  now?: (() => string) | undefined;
 }
 
 export type FileScope = { kind: 'project'; project: ProjectMetadata } | { kind: 'mine' };
@@ -129,6 +137,68 @@ export class FileService {
     if (!store.ok) return store;
     await store.value.move(from, to);
     return { ok: true, value: { path: to } };
+  }
+
+  async makeFolder(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<{ path: string }>> {
+    const store = await this.storeFor(ownerId, scope);
+    if (!store.ok) return store;
+    await store.value.makeFolder(path);
+    return { ok: true, value: { path } };
+  }
+
+  async search(ownerId: string, scope: FileScope, query: string): Promise<FilesOutcome<FileEntry[]>> {
+    if (!query.trim()) return { ok: true, value: [] };
+    const store = await this.storeFor(ownerId, scope);
+    return store.ok ? { ok: true, value: await store.value.search(query) } : store;
+  }
+
+  private now(): string {
+    return this.deps.now?.() ?? new Date().toISOString();
+  }
+
+  async share(ownerId: string, scope: FileScope, path: string, days: ShareDays): Promise<FilesOutcome<FileShare>> {
+    const found = await this.download(ownerId, scope, path);
+    if (!found.ok) return found;
+    found.value.stream.destroy();
+    const now = this.now();
+    const share: FileShare = {
+      id: randomBytes(24).toString('base64url'),
+      ownerId,
+      ...(scope.kind === 'project' ? { projectId: scope.project.id } : {}),
+      path,
+      name: path.split('/').pop() ?? path,
+      createdAt: now,
+      expiresAt: shareExpires(now, days),
+    };
+    await this.deps.store.saveFileShare(share);
+    return { ok: true, value: share };
+  }
+
+  async shares(ownerId: string): Promise<FileShare[]> {
+    const now = this.now();
+    return (await this.deps.store.getFileShares(ownerId)).filter((share) => shareLive(share, now));
+  }
+
+  async unshare(ownerId: string, id: string): Promise<FilesOutcome<{ id: string }>> {
+    const share = await this.deps.store.getFileShare(id);
+    if (!share || share.ownerId !== ownerId) return { ok: false, status: 404, why: 'There is no such link.' };
+    await this.deps.store.deleteFileShare(id);
+    return { ok: true, value: { id } };
+  }
+
+  async shared(token: string): Promise<FilesOutcome<Download & { name: string }>> {
+    const gone = { ok: false as const, status: 404 as const, why: 'This link does not exist, or it has expired.' };
+    if (!SHARE_TOKEN.test(token)) return gone;
+    const share = await this.deps.store.getFileShare(token);
+    if (!share) return gone;
+    if (!shareLive(share, this.now())) {
+      await this.deps.store.deleteFileShare(share.id);
+      return gone;
+    }
+    const project = share.projectId ? (await this.deps.store.getProjects()).find((entry) => entry.id === share.projectId && entry.ownerId === share.ownerId) : undefined;
+    if (share.projectId && !project) return gone;
+    const found = await this.download(share.ownerId, project ? { kind: 'project', project } : { kind: 'mine' }, share.path);
+    return found.ok ? { ok: true, value: { ...found.value, name: share.name } } : gone;
   }
 
   async removeProjectFiles(ownerId: string, project: ProjectMetadata): Promise<'removed' | 'none' | 'unreachable'> {

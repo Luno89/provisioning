@@ -98,7 +98,7 @@ export const ACCOUNT_DATA = {
     'accessRequests', 'actionProposals', 'appSpecs', 'artifactChunks', 'artifacts', 'authoredExtensions', 'bindingTypes', 'branches', 'clusters', 'conversations',
     'corpus', 'deferredConclusions', 'deployments', 'egressGrants', 'egressRequests', 'enginePersonas', 'engineRunEffort', 'engineRunTraces', 'engineTools',
     'evalAgentChanges', 'evalCases', 'evalLevel1Runs', 'evalPrompts', 'evalRuns', 'evalScenarioProposals', 'evalScenarioRuns',
-    'evalScenarios', 'instanceJoinTokens', 'instances', 'leaves', 'localAgentDevices', 'machineJoinCodes', 'mcpRequests', 'mcpToolHints', 'memories',
+    'evalScenarios', 'fileShares', 'instanceJoinTokens', 'instances', 'leaves', 'localAgentDevices', 'machineJoinCodes', 'mcpRequests', 'mcpToolHints', 'memories',
     'modelEndpoints', 'mcpServers', 'monitoringAlertEpisodes', 'monitoringAlertRules', 'monitoringSettings', 'odooReleases', 'pendingApprovals', 'planProposals', 'procedures', 'projects', 'publishedWorkspaces', 'secretRequests', 'tasks', 'toolGrants', 'treeTypes', 'trees', 'workFailures',
     'scriptedRequests', 'turnLogs', 'workspaceDependencies', 'workspaceImages',
   ],

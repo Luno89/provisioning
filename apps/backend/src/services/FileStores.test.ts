@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PassThrough, Readable } from 'node:stream';
-import { minioStore, nextcloudStore, readPropfind, webAddress, type davRequest } from './FileStores.js';
+import { Readable } from 'node:stream';
+import { minioStore } from './FileStores.js';
 
 const listing = <T>(items: T[]) => Readable.from(items);
 
@@ -28,7 +28,8 @@ function fakeMinio(objects: Record<string, Buffer>) {
       return { size: objects[key]!.length, metaData: { 'content-type': 'application/pdf' } };
     }),
     getObject: vi.fn(async (_bucket: string, key: string) => Readable.from([objects[key]!])),
-    putObject: vi.fn(async (_bucket: string, key: string, body: Readable) => {
+    putObject: vi.fn(async (_bucket: string, key: string, body: Readable | Buffer) => {
+      if (Buffer.isBuffer(body)) { objects[key] = body; return; }
       const parts: Buffer[] = [];
       for await (const part of body) parts.push(Buffer.from(part as Buffer));
       objects[key] = Buffer.concat(parts);
@@ -65,54 +66,21 @@ describe('a project\'s files in MinIO', () => {
     expect(objects).toEqual({});
   });
 
-  it('removes everything a project kept, and nothing of another project', async () => {
+  it('keeps an empty folder with a mark the listing leaves out, and finds files by name anywhere in the project', async () => {
+    const objects: Record<string, Buffer> = { 'shop/docs/Client Brief.pdf': Buffer.from('pdf'), 'shop/brief/notes.txt': Buffer.from('n'), 'other/brief.pdf': Buffer.from('x') };
+    const { client } = fakeMinio(objects);
+    const store = minioStore(client as never, 'shop');
+    await store.makeFolder('empty');
+    expect(Object.keys(objects)).toContain('shop/empty/.keep');
+    expect((await store.list('')).map((entry) => `${entry.type} ${entry.path}`)).toEqual(['dir brief', 'dir docs', 'dir empty']);
+    expect(await store.list('empty')).toEqual([]);
+    expect((await store.search('brief')).map((entry) => entry.path)).toEqual(['docs/Client Brief.pdf']);
+  });
+
+    it('removes everything a project kept, and nothing of another project', async () => {
     const objects = { 'shop/a': Buffer.from('a'), 'shop/b/c': Buffer.from('c'), 'blog/d': Buffer.from('d') };
     const { client } = fakeMinio(objects);
     await minioStore(client as never, 'shop').removeAll();
     expect(Object.keys(objects)).toEqual(['blog/d']);
-  });
-});
-
-const PROPFIND = `<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">
-<d:response><d:href>/remote.php/dav/files/admin/Koala/shop/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response>
-<d:response><d:href>/remote.php/dav/files/admin/Koala/shop/My%20photos/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype><d:getlastmodified>Tue, 20 Oct 2026 10:00:00 GMT</d:getlastmodified></d:prop></d:propstat></d:response>
-<d:response><d:href>/remote.php/dav/files/admin/Koala/shop/brief.pdf</d:href><d:propstat><d:prop><d:resourcetype/><d:getcontentlength>1234</d:getcontentlength><d:getlastmodified>Tue, 20 Oct 2026 10:00:00 GMT</d:getlastmodified></d:prop></d:propstat></d:response>
-</d:multistatus>`;
-
-describe('a project\'s files in Nextcloud', () => {
-  it('reads a folder\'s listing, leaving the folder itself out', () => {
-    expect(readPropfind(PROPFIND, 'Koala/shop')).toEqual([
-      { name: 'My photos', path: 'My photos', type: 'dir', modified: '2026-10-20T10:00:00.000Z' },
-      { name: 'brief.pdf', path: 'brief.pdf', type: 'file', size: 1234, modified: '2026-10-20T10:00:00.000Z' },
-    ]);
-  });
-
-  it('makes the folders a file goes in, then stores it under the project\'s folder, and moves without overwriting', async () => {
-    const calls: { method: string; path: string; headers?: Record<string, string> }[] = [];
-    const answer = (status: number) => {
-      const stream = new PassThrough();
-      stream.end();
-      return { status, headers: {}, stream } as never;
-    };
-    const request = (async (_dav, method, path, options = {}) => {
-      calls.push({ method, path, ...(options.headers ? { headers: options.headers } : {}) });
-      if (method === 'MKCOL') return answer(path === 'Koala' ? 405 : 201);
-      if (method === 'PUT') { if (options.body instanceof Readable) options.body.resume(); return answer(201); }
-      return answer(201);
-    }) as typeof davRequest;
-    const store = nextcloudStore({ host: 'h', port: 1, user: 'admin', password: 'pw' }, 'Koala/shop', request);
-    await store.upload('docs/a.pdf', Readable.from([Buffer.from('x')]), 1, 'application/pdf');
-    expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual(['MKCOL Koala', 'MKCOL Koala/shop', 'MKCOL Koala/shop/docs', 'PUT Koala/shop/docs/a.pdf']);
-    calls.length = 0;
-    await store.move('docs/a.pdf', 'old/a.pdf');
-    expect(calls.at(-1)).toEqual({ method: 'MOVE', path: 'Koala/shop/docs/a.pdf', headers: { Destination: 'http://nextcloud/remote.php/dav/files/admin/Koala/shop/old/a.pdf', Overwrite: 'F' } });
-  });
-});
-
-describe('reaching a web server in a cluster', () => {
-  it('takes its node port on the node, or its load balancer', () => {
-    expect(webAddress({ spec: { ports: [{ port: 80, nodePort: 31080 }] } }, '10.0.0.2')).toEqual({ host: '10.0.0.2', port: 31080 });
-    expect(webAddress({ spec: { ports: [{ name: 'http', port: 8080 }] }, status: { loadBalancer: { ingress: [{ ip: '1.2.3.4' }] } } }, undefined)).toEqual({ host: '1.2.3.4', port: 8080 });
-    expect(webAddress({ spec: { ports: [{ port: 443 }] } }, '10.0.0.2')).toBeUndefined();
   });
 });

@@ -163,7 +163,15 @@ describe('what is open without a session, by role', () => {
     return call.result().nexted;
   };
 
-  it('lets anyone reach an instance\'s sign-in exchange, and nothing of root\'s sign-in', async () => {
+  it('lets anyone open a shared file\'s link, and nothing else of a person\'s files', async () => {
+    for (const role of ['instance', 'combined'] as const) {
+      expect(await opens(role, '/share/abcdefghijklmnopqrstuvwxyz012345')).toBe(true);
+      expect(await opens(role, '/files/shares')).toBe(false);
+      expect(await opens(role, '/files/mine/content')).toBe(false);
+    }
+  });
+
+    it('lets anyone reach an instance\'s sign-in exchange, and nothing of root\'s sign-in', async () => {
     expect(await opens('instance', '/auth/handoff')).toBe(true);
     expect(await opens('instance', '/auth/sign-in')).toBe(true);
     expect(await opens('instance', '/auth/login')).toBe(false);

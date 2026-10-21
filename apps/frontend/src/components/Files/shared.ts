@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import {
-  chooseFileServer, fileKeys, getFilePlace, getFileServers, listStoredFiles, moveStoredFile, removeStoredFile,
-  setDefaultFileServer, startProjectMinio, uploadStoredFile,
+  chooseFileServer, fileKeys, getFilePlace, getFileServers, listFileShares, listStoredFiles, makeStoredFolder, moveStoredFile, removeStoredFile,
+  revokeFileShare, searchStoredFiles, setDefaultFileServer, shareStoredFile, startProjectMinio, uploadStoredFile,
 } from '../../api/files'
 import { dropIntoRepository, projectFileKeys } from '../../api/project-files'
 import { groveKeys } from '../../api/grove'
 import { base64Of, joinPath, type PickedFile } from '../../lib/file-drop'
-import type { FileScope, PlaceState } from '../../types/files'
+import type { FileScope, PlaceState, ShareDays } from '../../types/files'
 
 export const STARTING_POLL_MS = 3000
 
@@ -80,7 +80,41 @@ export function useStoredChanges(scope: FileScope) {
   const refresh = () => { void client.invalidateQueries({ queryKey: fileKeys.all }) }
   const remove = useMutation({ mutationFn: (path: string) => removeStoredFile(scope, path), onSuccess: refresh })
   const move = useMutation({ mutationFn: ({ from, to }: { from: string; to: string }) => moveStoredFile(scope, from, to), onSuccess: refresh })
-  return { remove, move }
+  const removeMany = useMutation({
+    mutationFn: async (paths: readonly string[]) => { for (const path of paths) await removeStoredFile(scope, path) },
+    onSettled: refresh,
+  })
+  const moveMany = useMutation({
+    mutationFn: async (moves: readonly { from: string; to: string }[]) => { for (const one of moves) await moveStoredFile(scope, one.from, one.to) },
+    onSettled: refresh,
+  })
+  const makeFolder = useMutation({ mutationFn: (path: string) => makeStoredFolder(scope, path), onSuccess: refresh })
+  return { remove, move, removeMany, moveMany, makeFolder }
+}
+
+export function useStoredSearch(scope: FileScope, query: string) {
+  const wanted = query.trim()
+  return useQuery({ queryKey: fileKeys.search(scope, wanted), queryFn: () => searchStoredFiles(scope, wanted), enabled: wanted.length > 0 })
+}
+
+export function useFileShares() {
+  return useQuery({ queryKey: fileKeys.shares, queryFn: listFileShares })
+}
+
+export function useShareFile(scope: FileScope) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ path, days }: { path: string; days: ShareDays }) => shareStoredFile(scope, path, days),
+    onSuccess: () => { void client.invalidateQueries({ queryKey: fileKeys.shares }) },
+  })
+}
+
+export function useRevokeShare() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => revokeFileShare(id),
+    onSuccess: () => { void client.invalidateQueries({ queryKey: fileKeys.shares }) },
+  })
 }
 
 export function useRepositoryDrop(projectId: string, ref?: string | undefined, leafId?: string | undefined) {
@@ -103,7 +137,7 @@ export function useRepositoryDrop(projectId: string, ref?: string | undefined, l
 
 export const placeText = (state: PlaceState | undefined): string => {
   if (!state) return ''
-  if (state.state === 'ready') return `${state.server.name} (${state.server.kind === 'minio' ? 'MinIO' : 'Nextcloud'}), in the folder ${state.place.folder}${state.chosen ? '' : ', your default'}`
+  if (state.state === 'ready') return `${state.server.name} (MinIO), in the folder ${state.place.folder}${state.chosen ? '' : ', your default'}`
   if (state.state === 'starting') return `${state.server} is starting; files can be added once it is running`
   if (state.state === 'gone') return `its file server cannot be reached: ${state.why}`
   return 'no file server yet'

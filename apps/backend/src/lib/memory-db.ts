@@ -7,6 +7,7 @@ import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
 import type { AlertRuleRecord } from './monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
 import type { FileSettings } from './file-places.js';
+import type { FileShare } from './file-shares.js';
 import type { PoolPolicy } from './pool.js';
 import type { WorkFailure } from './work-failures.js';
 import type { AuthoredExtension } from './authored-extensions.js';
@@ -85,6 +86,7 @@ export class MemoryDB implements Database {
   private monitoringSettings = new Map<string, MonitoringSetting>();
   private notificationSettings = new Map<string, NotificationSettings>();
   private fileSettings = new Map<string, FileSettings>();
+  private fileShares = new Map<string, FileShare>();
   private poolPolicy: PoolPolicy | undefined;
   private alertRules = new Map<string, AlertRuleRecord>();
   private alertEpisodes = new Map<string, AlertEpisode>();
@@ -366,6 +368,8 @@ export class MemoryDB implements Database {
     this.artifacts = sweep('artifacts', this.artifacts);
     this.artifactChunks = sweep('artifactChunks', this.artifactChunks);
     this.tasks = sweep('tasks', this.tasks);
+    const shares = sweep('fileShares', [...this.fileShares.values()]);
+    this.fileShares = new Map(shares.map((share) => [share.id, share]));
     this.treeTypes = sweep('treeTypes', this.treeTypes);
     this.trees = sweep('trees', this.trees);
     this.turnLogs = sweep('turnLogs', this.turnLogs);
@@ -988,6 +992,23 @@ export class MemoryDB implements Database {
 
   async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
     this.deferredConclusions = this.deferredConclusions.filter((entry) => !(entry.id === id && entry.ownerId === ownerId));
+  }
+
+  async getFileShares(ownerId: string): Promise<FileShare[]> {
+    return [...this.fileShares.values()].filter((share) => share.ownerId === ownerId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((share) => ({ ...share }));
+  }
+
+  async getFileShare(id: string): Promise<FileShare | undefined> {
+    const found = this.fileShares.get(id);
+    return found ? { ...found } : undefined;
+  }
+
+  async saveFileShare(share: FileShare): Promise<void> {
+    this.fileShares.set(share.id, { ...share });
+  }
+
+  async deleteFileShare(id: string): Promise<void> {
+    this.fileShares.delete(id);
   }
 
   async getFileSettings(ownerId: string): Promise<FileSettings | undefined> {

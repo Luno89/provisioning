@@ -12,7 +12,6 @@ import { workflowOfRun } from '../apps/backend/src/engine-host/temporal/contract
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 
 const BASE = process.env.FILES_LIVE_URL ?? 'http://localhost:3001/api';
-const CLUSTER = 'provisioning-lunorica';
 const STAMP = Date.now().toString(36);
 const DROP_TYPE = 'application/vnd.koala.drop+json';
 const TOKEN = `KOALA-FILES-LIVE-${STAMP.toUpperCase()}`;
@@ -42,7 +41,6 @@ let closeDb: (() => Promise<void>) | undefined;
 let retire: (() => Promise<void>) | undefined;
 const projects: Project[] = [];
 const conversations: string[] = [];
-let nextcloudId: string | undefined;
 
 const put = (scope: string, path: string, bytes: Buffer, type: string) =>
   api!.put(`/files/${scope}/content`, bytes, { params: { path }, headers: { 'Content-Type': 'application/octet-stream', 'X-File-Type': type }, maxBodyLength: Infinity });
@@ -94,6 +92,23 @@ async function exercise(scope: string, label: string): Promise<void> {
   assert.equal((await api!.delete(`/files/${scope}/content`, { params: { path: 'data.json' } })).status, 200);
   assert.deepEqual((await list(scope)).map((entry) => entry.path), ['archive']);
   console.log(`  ${label}: a PDF's bytes and a JSON file came back exactly, a folder moved, a file was removed`);
+
+  assert.equal((await api!.post(`/files/${scope}/folder`, { path: 'invoices' })).status, 201);
+  assert.deepEqual((await list(scope)).map((entry) => `${entry.type} ${entry.path}`), ['dir archive', 'dir invoices']);
+  assert.deepEqual(await list(scope, 'invoices'), []);
+  const found = (await api!.get(`/files/${scope}/search`, { params: { q: 'BRIEF' } })).data as { path: string }[];
+  assert.deepEqual(found.map((entry) => entry.path), ['archive/docs/brief.pdf']);
+  console.log('  an empty folder was made and listed, and a search found the PDF in a folder two down');
+
+  const share = await api!.post(`/files/${scope}/shares`, { path: 'archive/docs/brief.pdf', days: 1 });
+  assert.equal(share.status, 201, JSON.stringify(share.data));
+  const link = `${BASE}/share/${(share.data as { id: string }).id}`;
+  const stranger = await axios.get(link, { proxy: false, responseType: 'arraybuffer', validateStatus: () => true });
+  assert.equal(stranger.status, 200, 'the link did not open signed out');
+  assert.equal(sha(Buffer.from(stranger.data as ArrayBuffer)), sha(pdf));
+  assert.equal((await api!.delete(`/files/shares/${(share.data as { id: string }).id}`)).status, 200);
+  assert.equal((await axios.get(link, { proxy: false, validateStatus: () => true })).status, 404);
+  console.log('  a link to the PDF opened with no session at all, gave its bytes, and stopped working once revoked');
 }
 
 async function main(): Promise<void> {
@@ -167,39 +182,12 @@ async function main(): Promise<void> {
   await deleteProject(again);
   console.log('  nothing of it was left in MinIO');
 
-  step('a Nextcloud deployed for the person gets its own password and keeps a project\'s files over WebDAV');
-  const nextcloudName = `files-live-cloud-${STAMP}`;
-  const made = await api.post('/deployments', { name: nextcloudName, clusterId: CLUSTER, appType: 'nextcloud', strategy: 'native' });
-  assert.ok(made.status < 300, JSON.stringify(made.data));
-  nextcloudId = (made.data as { id: string }).id;
-  const deployed = (await db.getDeployments()).find((entry) => entry.id === nextcloudId);
-  assert.match(deployed?.nextcloudAdminPassword ?? '', /^[0-9a-f]{48}$/, 'Nextcloud got no generated admin password');
-  await until('Nextcloud to run and answer', async () => {
-    const found = ((await api!.get('/files/servers')).data as { servers: Server[] }).servers.find((server) => server.deploymentId === nextcloudId);
-    return found ? true : undefined;
-  });
-  const blog = await newProject(`files-live-blog-${STAMP}`);
-  assert.equal((await api.put(`/files/projects/${blog.id}/place`, { deploymentId: nextcloudId })).status, 200);
-  await until('Nextcloud to finish installing', async () => ((await api!.get(`/files/projects/${blog.id}/list`)).status === 200 ? true : undefined));
-  await exercise(`projects/${blog.id}`, 'Nextcloud');
-  await deleteProject(blog);
-  const blogAgain = await newProject(blog.name);
-  await api.put(`/files/projects/${blogAgain.id}/place`, { deploymentId: nextcloudId });
-  assert.deepEqual(await list(`projects/${blogAgain.id}`), []);
-  await deleteProject(blogAgain);
-  console.log('  and deleting the project removed its folder from Nextcloud');
-
   console.log('\nfiles live — PASS');
 }
 
 async function teardown(): Promise<void> {
   for (const project of [...projects]) await api?.delete(`/projects/${project.id}`, { data: { confirm: project.name } }).catch(() => undefined);
   for (const id of conversations) await api?.delete(`/conversations/${id}`).catch(() => undefined);
-  if (api && nextcloudId) {
-    await api.delete(`/deployments/${nextcloudId}`).catch(() => undefined);
-    await until('the Nextcloud to go', async () => (((await api!.get('/deployments')).data as { id: string }[]).some((entry) => entry.id === nextcloudId) ? undefined : true)).catch(() => undefined);
-    console.log('  the test Nextcloud is destroyed');
-  }
   await retire?.().catch((err: Error) => console.error(`  what the memory keeper kept could not be retired: ${err.message}`));
   await closeDb?.();
 }
