@@ -9,7 +9,8 @@ describe('the first model a person picks', () => {
   it('asks to connect when there is no model, to choose when there are some and none is the default, and nothing once one is', () => {
     expect(firstModelStep([], null)).toBe('connect')
     expect(firstModelStep([model('a')], null)).toBe('choose')
-    expect(firstModelStep([model('a')], 'gone')).toBe('choose')
+    expect(firstModelStep([model('a')], 'gone')).toBe('none')
+    expect(firstModelStep([], 'tabby-down-for-now')).toBe('none')
     expect(firstModelStep([model('a')], 'a')).toBe('none')
   })
 
@@ -31,10 +32,9 @@ describe('the first model a person picks', () => {
 describe('an agent on the person\'s machine as the first model', () => {
   const row = (id: string, ready: boolean, label = id) => ({ id, agentTitle: 'Claude Code', deviceName: 'laptop', label, ready }) as never
 
-  it('counts as a default while its machine is still theirs, and offers a ready one to choose', () => {
-    expect(firstModelStep([], 'machine:d1:claude-code', [row('machine:d1:claude-code', true)])).toBe('none')
+  it('never asks someone who has a default, wherever it is, and offers a ready one to someone who has none', () => {
     expect(firstModelStep([], 'machine:d1:claude-code', [row('machine:d1:claude-code', false)])).toBe('none')
-    expect(firstModelStep([], 'machine:gone:claude-code', [row('machine:d1:claude-code', true)])).toBe('choose')
+    expect(firstModelStep([], 'machine:gone:claude-code', [row('machine:d1:claude-code', true)])).toBe('none')
     expect(firstModelStep([], null, [row('machine:d1:claude-code', false)])).toBe('connect')
     expect(firstModelStep([], null, [row('machine:d1:claude-code', true)])).toBe('choose')
   })

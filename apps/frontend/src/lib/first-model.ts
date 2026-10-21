@@ -1,4 +1,3 @@
-import { machineChoice } from '@koala/agent-engine/procedure'
 import type { ModelProvider } from '../api/models'
 import type { MachineRow } from './machine-rows'
 import { isFree, isLocal } from './model-groups'
@@ -6,8 +5,7 @@ import { isFree, isLocal } from './model-groups'
 export type FirstModelStep = 'none' | 'connect' | 'choose'
 
 export function firstModelStep(models: readonly ModelProvider[], defaultModelId: string | null | undefined, machines: readonly MachineRow[] = []): FirstModelStep {
-  if (defaultModelId && machineChoice(defaultModelId) && machines.some((row) => row.id === defaultModelId)) return 'none'
-  if (defaultModelId && models.some((model) => model.id === defaultModelId)) return 'none'
+  if (defaultModelId) return 'none'
   return models.length === 0 && !machines.some((row) => row.ready) ? 'connect' : 'choose'
 }
 
