@@ -146,6 +146,27 @@ describe('retrying a failed engine leaf', () => {
     expect(needsAsked.map((asked) => [asked.treeId, [...asked.taskIds].sort()])).toEqual([['t1', ['k1', 'k2']]]);
   });
 
+  it('leaves a story its checks park to the build that will put it back, starting no run', async () => {
+    const launcher = {
+      startGroveRun: vi.fn(async () => ({ started: true as const, workflowId: 'grove-run-t1' })),
+      groveRunStatus: vi.fn(async () => ({ state: 'running' as const, startedAt: 'then' })),
+      signalGroveRun: vi.fn(async () => true),
+    };
+    h = await mountRouter({
+      prefix: '/api/leaves',
+      router: (db) => leavesRouter({ db, runs: new GroveRunService({ store: db, launcher, checkNeeds: async () => {
+        const parked = (await db.getLeaves()).find((entry) => entry.id === 'e2')!;
+        await db.saveLeaf({ ...parked, waitingFor: { reason: 'the workspace getting koala-e2e', since: 'later' } });
+        return { parked: ['e2'] };
+      }, now: () => 'later' }), deletion: deletionFor(db) }),
+    });
+    await h.db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', createdAt: 'now', updatedAt: 'now' } as never);
+    await h.db.saveLeaf(leaf({ id: 'e2', status: 'failed', findings: 'no koala-e2e' }) as never);
+    const res = await axios.post(h.url('/api/leaves/e2/retry'));
+    expect(res.data).toMatchObject({ status: 'pending', waitingFor: { reason: 'the workspace getting koala-e2e' } });
+    expect(launcher.startGroveRun).not.toHaveBeenCalled();
+  });
+
   it('refuses a leaf that has not failed', async () => {
     const harness = await mount();
     await harness.db.saveLeaf(leaf({ id: 'busy', status: 'running' }) as never);

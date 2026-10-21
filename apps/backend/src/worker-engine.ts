@@ -2,6 +2,7 @@
 /* eslint-disable no-console */
 import { machineChoiceProblem } from './lib/machines.js';
 import { catalogueOf } from './lib/workspace-dependencies.js';
+import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
 import { accountDefaultOf } from './lib/machine-runs.js';
 import path from 'path';
@@ -265,7 +266,7 @@ async function buildActivities() {
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
     models,
-    stores: { ...engineStores, grove: { ...engineStores.grove, growing: { start: (ownerId, treeId) => groving().startGroveRun(ownerId, treeId), status: (treeId) => groving().groveRunStatus(treeId) } } },
+    stores: { ...engineStores, grove: { ...engineStores.grove, growing: { start: (ownerId, treeId) => startOnceQuiet(groving(), ownerId, treeId), status: (treeId) => groving().groveRunStatus(treeId) } } },
     vault,
     egressSecret: keys.egress,
     corpus: {

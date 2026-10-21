@@ -98,3 +98,18 @@ export function createGroveLauncher(deps: GroveLauncherDeps): GroveRunLauncher {
     },
   };
 }
+
+export const RUN_END_POLL_MS = 5_000;
+
+export async function startOnceQuiet(
+  launcher: Pick<ReturnType<typeof createGroveLauncher>, 'startGroveRun' | 'groveRunStatus'>,
+  ownerId: string,
+  treeId: string,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<Awaited<ReturnType<ReturnType<typeof createGroveLauncher>['startGroveRun']>>> {
+  for (;;) {
+    const started = await launcher.startGroveRun(ownerId, treeId);
+    if (started.started || started.reason !== 'running') return started;
+    while ((await launcher.groveRunStatus(treeId)).state === 'running') await wait(RUN_END_POLL_MS);
+  }
+}

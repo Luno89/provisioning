@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createGroveLauncher } from './grove-launcher.js';
+import { createGroveLauncher, RUN_END_POLL_MS, startOnceQuiet } from './grove-launcher.js';
 import { EngineUnavailableError, type StartRunRequest } from './registries/run-starter.js';
 import { workflowOfRun } from './temporal/contracts.js';
 
@@ -110,5 +110,24 @@ describe('the grove launcher', () => {
     expect(await launcher.signalGroveRun('t2', 'stopRun')).toBe(false);
     expect(await launcher.signalGroveRun('t1', 'cancelLeaf', 'leafZ')).toBe(false);
     expect(signalled).toEqual([['grove-run-t1', 'cancelRun'], ['grove-run-t1-grove-leaf-2', 'cancelRun']]);
+  });
+});
+
+describe('growing a tree whose run is still going', () => {
+  it('waits for that run to end, then starts a fresh one that sees what was put back', async () => {
+    const states = ['running', 'running', 'finished'];
+    let starts = 0;
+    const waited: number[] = [];
+    const launcher = {
+      startGroveRun: async () => (++starts === 1 ? { started: false as const, reason: 'running' as const } : { started: true as const, workflowId: 'grove-run-t1' }),
+      groveRunStatus: async () => ({ state: states.shift() ?? 'finished' }) as never,
+    };
+    expect(await startOnceQuiet(launcher, 'u1', 't1', async (ms) => { waited.push(ms); })).toEqual({ started: true, workflowId: 'grove-run-t1' });
+    expect([starts, waited]).toEqual([2, [RUN_END_POLL_MS, RUN_END_POLL_MS]]);
+  });
+
+  it('gives back any other reason it could not start', async () => {
+    const launcher = { startGroveRun: async () => ({ started: false as const, reason: 'switched-off' as const }), groveRunStatus: async () => ({ state: 'none' }) as never };
+    expect(await startOnceQuiet(launcher, 'u1', 't1', async () => undefined)).toEqual({ started: false, reason: 'switched-off' });
   });
 });

@@ -29,7 +29,7 @@ export class GroveRunService {
     store: GroveRunStore;
     launcher: GroveRunLauncher;
     asking?: ((runId: string) => Promise<string[]>) | undefined;
-    checkNeeds?: ((ownerId: string, treeId: string, taskIds: readonly string[]) => Promise<{ refused?: string | undefined }>) | undefined;
+    checkNeeds?: ((ownerId: string, treeId: string, taskIds: readonly string[]) => Promise<{ refused?: string | undefined; parked?: string[] | undefined }>) | undefined;
     now?: () => string;
   }) {}
 
@@ -106,6 +106,7 @@ export class GroveRunService {
     for (const task of reset.tasks) await this.deps.store.saveTask(task);
     const needs = await this.deps.checkNeeds?.(ownerId, branch.treeId, tasks.map((task) => task.id));
     if (needs?.refused) return { ok: false, status: 409, error: `The leaf is reset, but its workspace could not be given what its checks need: ${needs.refused}` };
+    if (needs?.parked?.includes(leaf.id)) return { ok: true, value: { ...reset.leaf, ...((await this.deps.store.getLeaves()).find((entry) => entry.id === leaf.id) ?? {}) } };
 
     const started = await this.deps.launcher.startGroveRun(ownerId, branch.treeId);
     if (!started.started && started.reason === 'unavailable') return { ok: false, status: 503, error: 'The leaf is reset, but Temporal is not reachable to run the tree.' };
