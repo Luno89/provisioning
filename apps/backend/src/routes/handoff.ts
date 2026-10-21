@@ -6,14 +6,14 @@ import type { Auth } from '../middleware/auth.js';
 import type { IdentityService } from '../services/IdentityService.js';
 
 export function handoffRouter(deps: {
-  identity: Pick<IdentityService, 'acceptHandoff' | 'signInUrl' | 'removalUrl'>;
+  identity: Pick<IdentityService, 'acceptHandoff' | 'signInUrl' | 'removalUrl' | 'hubUrl'>;
   auth: Pick<Auth, 'setSessionCookie'>;
   sessionKey: SecretKey;
 }): Router {
   const router = Router();
 
   router.get('/sign-in', (_req: Request, res: Response) => {
-    res.json({ url: deps.identity.signInUrl() ?? null });
+    res.json({ url: deps.identity.signInUrl() ?? null, hub: deps.identity.hubUrl() ?? null });
   });
 
   router.get('/account-removal', (_req: Request, res: Response) => {

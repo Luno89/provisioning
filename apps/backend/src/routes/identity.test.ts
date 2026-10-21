@@ -51,7 +51,7 @@ describe('an instance\'s sign-in exchange', () => {
       },
     });
 
-    expect((await axios.get(h.url('/api/auth/sign-in'))).data).toEqual({ url: 'https://app.example.com/api/identity/go' });
+    expect((await axios.get(h.url('/api/auth/sign-in'))).data).toEqual({ url: 'https://app.example.com/api/identity/go', hub: 'https://app.example.com/api/identity/go?to=hub' });
     expect((await axios.get(h.url('/api/auth/account-removal'))).data).toEqual({ url: 'https://app.example.com/#/remove-account' });
 
     const token = issueHandoff(signing, { userId: 'u1', email: 'u1@example.com' }, 'inst-u1');

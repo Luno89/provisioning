@@ -17,6 +17,7 @@ export interface AuthRouterDeps {
   publicUrl: string;
   appUrl: string;
   accounts?: boolean | undefined;
+  hub?: boolean | undefined;
 }
 
 export function authRouter(deps: AuthRouterDeps): Router {
@@ -155,6 +156,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       createdAt: user.createdAt,
       isAdmin: user.isAdmin === true,
       holdsAccounts: deps.accounts !== false,
+      ...(deps.hub ? { onHub: true } : {}),
     });
   });
 

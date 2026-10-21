@@ -887,7 +887,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   app.use('/api/auth', authRouter({
-    db, authService, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, accounts: holdsAccounts(role),
+    db, authService, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, accounts: holdsAccounts(role), hub: role.role === 'hub',
   }));
   if (holdsAccounts(role)) app.use('/api/identity', identityRouter({ identity, servesTenants: servesTenants(role), signedIn: (req) => auth.userFromSessionCookie(req.headers.cookie) }));
   if (holdsAccounts(role)) {

@@ -16,7 +16,7 @@ async function main(): Promise<void> {
 
   step('signed out, the instance sends you to root to sign in');
   const where = await call(`${instanceUrl}/api/auth/sign-in`);
-  assert.deepEqual(where.body, { url: `${rootUrl}/api/identity/go` });
+  assert.deepEqual(where.body, { url: `${rootUrl}/api/identity/go`, hub: `${rootUrl}/api/identity/go?to=hub` });
   assert.equal((await call(`${instanceUrl}/api/conversations`)).status, 401);
 
   step('you sign in at root, through its Google sign-in as it runs on a dev machine');

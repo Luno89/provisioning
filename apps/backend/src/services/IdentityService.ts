@@ -53,6 +53,10 @@ export class IdentityService {
     return this.role.instance ? `${this.role.instance.rootUrl}/api/identity/go` : undefined;
   }
 
+  hubUrl(): string | undefined {
+    return this.role.instance ? `${this.role.instance.rootUrl}/api/identity/go?to=hub` : undefined;
+  }
+
   removalUrl(): string | undefined {
     return this.role.instance ? `${this.role.instance.rootUrl}/#/remove-account` : undefined;
   }

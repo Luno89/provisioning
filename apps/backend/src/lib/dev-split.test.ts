@@ -8,7 +8,7 @@ const owner: UserMetadata = {
 };
 
 const plan = (name = 'dev', existing?: Parameters<typeof devSplitPlan>[0]['existing']) => devSplitPlan({
-  name, owner, instanceId: 'inst-1', credential: 'cred', credentialHash: 'hashed', rootPublicKeys: '-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n',
+  name, owner, instanceId: 'inst-1', credential: 'cred', credentialHash: 'hashed', hubCredential: 'hub-cred', hubCredentialHash: 'hub-hashed', rootPublicKeys: '-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n',
   mongoUri: 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin', now: '2026-10-17T22:00:00Z', existing,
 });
 
@@ -17,10 +17,17 @@ describe('root and an instance on one machine', () => {
     const { rootEnv, instanceEnv, rootUrl, instanceUrl } = plan();
     expect(rootUrl).toBe('http://koala.localhost:5175');
     expect(instanceUrl).toBe('http://dev.localhost:5173');
-    expect(rootEnv).toEqual({ ROLE: 'root', PORT: '3002', MONGO_URI: 'mongodb://admin:admin@localhost:27017/koala_root?authSource=admin', PUBLIC_URL: rootUrl, APP_URL: rootUrl });
+    expect(rootEnv).toEqual({ ROLE: 'root', PORT: '3002', MONGO_URI: 'mongodb://admin:admin@localhost:27017/koala_root?authSource=admin', PUBLIC_URL: rootUrl, APP_URL: rootUrl, HUB_URL: 'http://hub.localhost:5176', HUB_CREDENTIAL_HASH: 'hub-hashed' });
     expect(instanceEnv).toMatchObject({ ROLE: 'instance', PORT: '3001', PUBLIC_URL: instanceUrl, INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'u-1', INSTANCE_CREDENTIAL: 'cred', ROOT_URL: rootUrl });
     expect(instanceEnv.MONGO_URI).toBeUndefined();
     expect(Buffer.from(instanceEnv.ROOT_PUBLIC_KEYS!, 'base64').toString()).toContain('BEGIN PUBLIC KEY');
+  });
+
+  it('runs the hub on its own database and address, trusting root and holding the credential root knows it by', () => {
+    const { hubEnv, hubUrl, rootUrl, instanceEnv } = plan();
+    expect(hubUrl).toBe('http://hub.localhost:5176');
+    expect(hubEnv).toMatchObject({ ROLE: 'hub', PORT: '3003', MONGO_URI: 'mongodb://admin:admin@localhost:27017/koala_hub?authSource=admin', HUB_DATABASE: 'koala_hub', PUBLIC_URL: hubUrl, ROOT_URL: rootUrl, HUB_CREDENTIAL: 'hub-cred', ROOT_PUBLIC_KEYS: instanceEnv.ROOT_PUBLIC_KEYS });
+    expect(() => plan('hub')).toThrow(/kept for the platform/);
   });
 
   it('registers the instance as ready at its address, keeping when it was first made', () => {

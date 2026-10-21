@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { exchangeHandoff, signInElsewhere, type SessionUser } from '../api/auth'
 import { errorMessage } from '../api/client'
+import { safeNext } from '../lib/pending-join'
 
 export interface HandoffPageProps {
   token: string | null
+  next?: string | null | undefined
   onSignedIn: (user: SessionUser) => void
 }
 
-export default function HandoffPage({ token, onSignedIn }: HandoffPageProps) {
+export default function HandoffPage({ token, next, onSignedIn }: HandoffPageProps) {
   const [failure, setFailure] = useState<string | null>(token ? null : 'There is no sign-in token in this link.')
 
   useEffect(() => {
@@ -17,12 +19,12 @@ export default function HandoffPage({ token, onSignedIn }: HandoffPageProps) {
     exchangeHandoff(token)
       .then((user) => {
         if (cancelled) return
-        window.history.replaceState(null, '', '#/chat')
+        window.history.replaceState(null, '', `#${safeNext(next) ?? (user.onHub ? '/shared' : '/chat')}`)
         onSignedIn(user)
       })
       .catch((err: unknown) => { if (!cancelled) setFailure(errorMessage(err)) })
     return () => { cancelled = true }
-  }, [token, onSignedIn])
+  }, [token, next, onSignedIn])
 
   const again = async () => {
     const url = await signInElsewhere()

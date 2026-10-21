@@ -62,6 +62,10 @@ export class HubService {
   async create(person: Person, input: { name: unknown; origin?: { instanceId?: string | undefined; projectId: string } | undefined }): Promise<HubOutcome<ProjectView>> {
     const problem = sharedProjectProblem(input);
     if (problem) return wrong(problem);
+    if (input.origin) {
+      const already = (await this.mine(person.id)).find((entry) => entry.project.origin?.projectId === input.origin!.projectId && entry.project.origin?.instanceId === input.origin!.instanceId);
+      if (already) return this.view(person.id, already.project.id);
+    }
     const project: SharedProject = {
       id: randomBytes(12).toString('hex'),
       name: (input.name as string).trim(),
@@ -169,6 +173,18 @@ export class HubService {
     const member = access.members.find((entry) => entry.personId === memberId)!;
     await access.store.saveMember({ ...member, role: role as HubRole });
     return this.view(personId, projectId);
+  }
+
+  async delete(personId: string, projectId: string, typedName: unknown): Promise<HubOutcome<{ deleted: string }>> {
+    const access = await this.access(personId, projectId);
+    if (!access) return NOT_FOUND;
+    if (!can(access.member.role, 'change-settings')) return refuse('Only an owner can delete this project.');
+    if (typeof typedName !== 'string' || typedName.trim() !== access.project.name) return wrong(`type the project's name, ${access.project.name}, to delete it`);
+    for (const invite of await access.store.invites()) await this.deps.store.forgetInvite(invite.token);
+    for (const member of access.members) await this.deps.store.removeMembership(member.personId, projectId);
+    await this.deps.store.deleteProject(projectId);
+    await access.store.drop();
+    return { ok: true, value: { deleted: projectId } };
   }
 
   async remove(personId: string, projectId: string, memberId: string): Promise<HubOutcome<{ removed: string }>> {

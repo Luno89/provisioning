@@ -5,6 +5,7 @@ export interface SessionUser {
   email: string
   isAdmin?: boolean
   holdsAccounts?: boolean
+  onHub?: boolean
   twoFactorEnabled?: boolean
   twoFactorPhone?: string
   twoFactorPreferredMethod?: string

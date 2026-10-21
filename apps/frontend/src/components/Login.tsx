@@ -5,13 +5,14 @@ import { login, verifyTwoFactor, type LoginResult, type SessionUser } from '../a
 
 interface LoginProps {
   onSuccess: (user: SessionUser) => void;
+  invite?: { code: string; email?: string | undefined } | undefined;
 }
 
-export default function Login({ onSuccess }: LoginProps) {
-  const [isRegister, setIsRegister] = useState(false);
-  const [email, setEmail] = useState('');
+export default function Login({ onSuccess, invite }: LoginProps) {
+  const [isRegister, setIsRegister] = useState(Boolean(invite));
+  const [email, setEmail] = useState(invite?.email ?? '');
   const [password, setPassword] = useState('');
-  const [inviteCode, setInviteCode] = useState('');
+  const [inviteCode, setInviteCode] = useState(invite?.code ?? '');
   
   const [twoFactorRequired, setTwoFactorRequired] = useState(false);
   const [userId, setUserId] = useState('');

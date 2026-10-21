@@ -9,6 +9,10 @@ export const DEV_SPLIT = {
   rootWebPort: 5175,
   instanceApiPort: 3001,
   instanceWebPort: 5173,
+  hubDatabase: 'koala_hub',
+  hubHost: 'hub',
+  hubApiPort: 3003,
+  hubWebPort: 5176,
   defaultName: 'dev',
 } as const;
 
@@ -18,6 +22,8 @@ export interface DevSplitInput {
   instanceId: string;
   credential: string;
   credentialHash: string;
+  hubCredential: string;
+  hubCredentialHash: string;
   rootPublicKeys: string;
   mongoUri: string;
   now: string;
@@ -27,8 +33,10 @@ export interface DevSplitInput {
 export interface DevSplitPlan {
   rootUrl: string;
   instanceUrl: string;
+  hubUrl: string;
   rootEnv: Record<string, string>;
   instanceEnv: Record<string, string>;
+  hubEnv: Record<string, string>;
   rootUser: UserMetadata;
   instance: InstanceRecord;
 }
@@ -42,20 +50,25 @@ export function withDatabase(uri: string, database: string): string {
 }
 
 export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
-  const problem = nameProblem(input.name, [DEV_SPLIT.rootHost]);
+  const problem = nameProblem(input.name, [DEV_SPLIT.rootHost, DEV_SPLIT.hubHost]);
   if (problem) throw new Error(`DEV_INSTANCE_NAME "${input.name}": ${problem}`);
   const rootUrl = webUrl(DEV_SPLIT.rootHost, DEV_SPLIT.rootWebPort);
   const instanceUrl = webUrl(input.name, DEV_SPLIT.instanceWebPort);
+  const hubUrl = webUrl(DEV_SPLIT.hubHost, DEV_SPLIT.hubWebPort);
+  const rootPublicKeys = Buffer.from(input.rootPublicKeys, 'utf8').toString('base64');
 
   return {
     rootUrl,
     instanceUrl,
+    hubUrl,
     rootEnv: {
       ROLE: 'root',
       PORT: String(DEV_SPLIT.rootApiPort),
       MONGO_URI: withDatabase(input.mongoUri, DEV_SPLIT.rootDatabase),
       PUBLIC_URL: rootUrl,
       APP_URL: rootUrl,
+      HUB_URL: hubUrl,
+      HUB_CREDENTIAL_HASH: input.hubCredentialHash,
     },
     instanceEnv: {
       ROLE: 'instance',
@@ -67,7 +80,18 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
       INSTANCE_NAME: input.name,
       INSTANCE_CREDENTIAL: input.credential,
       ROOT_URL: rootUrl,
-      ROOT_PUBLIC_KEYS: Buffer.from(input.rootPublicKeys, 'utf8').toString('base64'),
+      ROOT_PUBLIC_KEYS: rootPublicKeys,
+    },
+    hubEnv: {
+      ROLE: 'hub',
+      PORT: String(DEV_SPLIT.hubApiPort),
+      MONGO_URI: withDatabase(input.mongoUri, DEV_SPLIT.hubDatabase),
+      HUB_DATABASE: DEV_SPLIT.hubDatabase,
+      PUBLIC_URL: hubUrl,
+      APP_URL: hubUrl,
+      ROOT_URL: rootUrl,
+      ROOT_PUBLIC_KEYS: rootPublicKeys,
+      HUB_CREDENTIAL: input.hubCredential,
     },
     rootUser: accountOf(input.owner),
     instance: {

@@ -31,6 +31,10 @@ export function hubRouter(deps: { hub: HubService }): Router {
     answer(res, await deps.hub.view(personOf(req).id, param(req, 'id')));
   }));
 
+  router.delete('/projects/:id', asyncRoute(async (req, res) => {
+    answer(res, await deps.hub.delete(personOf(req).id, param(req, 'id'), req.body?.name));
+  }));
+
   router.post('/projects/:id/invites', asyncRoute(async (req, res) => {
     answer(res, await deps.hub.invite(personOf(req), param(req, 'id'), { email: req.body?.email, role: req.body?.role }), 201);
   }));

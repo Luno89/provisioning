@@ -115,15 +115,18 @@ if [ "$SPLIT" = true ]; then
   echo "═══════════════════════════════════════════════════════════════════════"
   echo "  Root:         ${ROOT_WEB}   (sign in here)"
   echo "  Instance:     ${INSTANCE_WEB}"
-  echo "  APIs:         root :3002, instance :3001"
+  echo "  Hub:          $(grep '^PUBLIC_URL=' "${SPLIT_ENV}/hub.env" | cut -d= -f2-)   (shared projects)"
+  echo "  APIs:         root :3002, instance :3001, hub :3003"
   echo "═══════════════════════════════════════════════════════════════════════"
   exec npx concurrently --kill-others \
-    --names "root,instance,web-root,web-instance,worker-host,worker-cluster,worker-engine" \
-    --prefix-colors "red,blue,gray,cyan,yellow,magenta,green" \
+    --names "root,instance,hub,web-root,web-instance,web-hub,worker-host,worker-cluster,worker-engine" \
+    --prefix-colors "red,blue,white,gray,cyan,gray,yellow,magenta,green" \
     "bash -c \"$(with_env root 'npm run dev -w apps/backend')\"" \
     "bash -c \"$(with_env instance 'npm run dev -w apps/backend')\"" \
+    "bash -c \"$(with_env hub 'npm run dev -w apps/backend')\"" \
     "KOALA_BACKEND=http://localhost:3002 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5175 --strictPort" \
     "KOALA_BACKEND=http://localhost:3001 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5173 --strictPort" \
+    "KOALA_BACKEND=http://localhost:3003 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5176 --strictPort" \
     "bash -c \"$(with_env instance 'npm run dev:worker -w apps/backend')\"" \
     "bash -c \"$(with_env instance 'npm run dev:worker:cluster -w apps/backend')\"" \
     "bash -c \"$(with_env instance 'npm run dev:worker:engine -w apps/backend')\""

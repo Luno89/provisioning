@@ -1,4 +1,5 @@
 import React, { useState, useEffect, startTransition } from 'react';
+import SharedProjectsLink from './Hub/SharedProjectsLink';
 import { useRouter, type NavigateOptions } from '@tanstack/react-router';
 import { useShellStore, type ViewName } from '../stores/shell';
 import {
@@ -289,6 +290,8 @@ export default function Sidebar({ pages, onLogout }: {
             })}
           </div>
         )}
+
+        <SharedProjectsLink className={groupHeader(isCurrentView('shared'))} active={isCurrentView('shared')} />
 
         <button
           type="button"

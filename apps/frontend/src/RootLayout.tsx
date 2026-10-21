@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Outlet, useLocation, useNavigate } from '@tanstack/react-router';
+import { Navigate, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
+import RootJoinPage from './components/Hub/RootJoinPage';
+import HubShell from './components/Hub/HubShell';
+import { HUB_GO_URL } from './api/hub';
+import { pendingJoin } from './lib/pending-join';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, BellRing, Loader2, X } from 'lucide-react';
 import { releaseNotice, toastOf, type ToastKind } from './lib/toast';
@@ -109,17 +113,23 @@ export function RootLayout() {
     }
   };
 
-  const handoffToken = new URLSearchParams(location.searchStr ?? '').get('token');
+  const searched = new URLSearchParams(location.searchStr ?? '');
+  const handoffToken = searched.get('token');
+  const joinPage = location.pathname === '/join';
   const signInUrl = useQuery({ queryKey: ['auth', 'sign-in'], queryFn: signInElsewhere, enabled: !authLoading && !user, staleTime: Infinity });
-  const placement = useQuery({ queryKey: identityKeys.mine(), queryFn: getMyInstance, enabled: Boolean(user), staleTime: Infinity });
+  const placement = useQuery({ queryKey: identityKeys.mine(), queryFn: getMyInstance, enabled: Boolean(user) && !user?.onHub, staleTime: Infinity });
   useEffect(() => {
-    if (!user && signInUrl.data) window.location.assign(signInUrl.data);
-  }, [user, signInUrl.data]);
+    if (!user && signInUrl.data && !joinPage) window.location.assign(signInUrl.data);
+  }, [user, signInUrl.data, joinPage]);
+  useEffect(() => {
+    const pending = user && !joinPage ? pendingJoin() : undefined;
+    if (pending) void navigate({ to: '/join', search: pending });
+  }, [user, joinPage, navigate]);
   const adminPage = (location.pathname === '/pool' || location.pathname === '/admin') && Boolean(user?.isAdmin);
   const removalPage = location.pathname === '/remove-account';
   useEffect(() => {
-    if (placement.data && !placement.data.servesTenants && placement.data.instance && !adminPage && !removalPage) window.location.assign(INSTANCE_GO_URL);
-  }, [placement.data, adminPage, removalPage]);
+    if (placement.data && !placement.data.servesTenants && placement.data.instance && !adminPage && !removalPage && !joinPage) window.location.assign(INSTANCE_GO_URL);
+  }, [placement.data, adminPage, removalPage, joinPage]);
 
   const { data: clusters = [] } = useQuery({ queryKey: clusterKeys.list(), queryFn: listClusters, refetchInterval: 3000 });
   const { data: deployments = [] } = useQuery({ queryKey: deploymentKeys.list(), queryFn: listDeployments, refetchInterval: 3000 });
@@ -253,7 +263,23 @@ export function RootLayout() {
   };
 
   if (location.pathname === '/handoff') {
-    return <HandoffPage token={handoffToken} onSignedIn={setUser} />;
+    return <HandoffPage token={handoffToken} next={searched.get('next')} onSignedIn={setUser} />;
+  }
+
+  if (joinPage && !authLoading && !(user && placement.isPending)) {
+    return (
+      <RootJoinPage
+        code={searched.get('code') ?? ''}
+        project={searched.get('project') ?? ''}
+        user={user}
+        onSignedIn={setUser}
+        onSignOut={() => void handleLogout()}
+        onContinue={(project) => {
+          if (placement.data && !placement.data.servesTenants) window.location.assign(HUB_GO_URL(`/hub/join/${project}`));
+          else void navigate({ to: '/hub/join/$token', params: { token: project } });
+        }}
+      />
+    );
   }
 
   if (authLoading || (!user && signInUrl.isPending) || (signInUrl.data && !user) || (user && placement.isPending)) {
@@ -266,6 +292,15 @@ export function RootLayout() {
 
   if (!user) {
     return <Login onSuccess={setUser} />;
+  }
+
+  if (user.onHub) {
+    const hubPage = ['/shared', '/shared-new', '/hub/join'].some((prefix) => location.pathname.startsWith(prefix));
+    return (
+      <HubShell email={user.email} onLogout={() => void handleLogout()}>
+        {hubPage ? <Outlet /> : <Navigate to="/shared" replace />}
+      </HubShell>
+    );
   }
 
   if (placement.data && !placement.data.servesTenants && removalPage) {

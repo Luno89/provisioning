@@ -80,4 +80,24 @@ describe('a shared project and its people', () => {
     expect(await hub.takeBack('bo', id, 'CY@example.com')).toEqual({ ok: true, value: { email: 'cy@example.com' } });
     expect(await hub.accept(cy, tokenOf(1))).toMatchObject({ ok: false, status: 404 });
   });
+
+  it('opens the shared project a project already has rather than making a second', async () => {
+    const { hub } = setUp();
+    const first = valueOf(await hub.create(ann, { name: 'Shop', origin: { instanceId: 'i1', projectId: 'p1' } }));
+    expect(valueOf(await hub.create(ann, { name: 'Shop again', origin: { instanceId: 'i1', projectId: 'p1' } })).project.id).toBe(first.project.id);
+    expect(valueOf(await hub.create(ann, { name: 'Other', origin: { instanceId: 'i1', projectId: 'p2' } })).project.id).not.toBe(first.project.id);
+  });
+
+  it('lets only an owner delete a project, by typing its name, and leaves nothing of it', async () => {
+    const { hub, store, tokenOf } = setUp();
+    const id = valueOf(await hub.create(ann, { name: 'Shop' })).project.id;
+    await hub.invite(ann, id, { email: 'bo@example.com', role: 'collaborator' });
+    await hub.accept(bo, tokenOf(0));
+    await hub.invite(ann, id, { email: 'cy@example.com', role: 'client' });
+    expect(await hub.delete('bo', id, 'Shop')).toMatchObject({ ok: false, status: 403 });
+    expect(await hub.delete('eve', id, 'Shop')).toMatchObject({ ok: false, status: 404 });
+    expect(await hub.delete('ann', id, 'shop')).toMatchObject({ ok: false, status: 400 });
+    expect(await hub.delete('ann', id, 'Shop')).toEqual({ ok: true, value: { deleted: id } });
+    expect([await hub.mine('ann'), await hub.mine('bo'), await store.getProject(id), await store.projectOfInvite(tokenOf(1)), await store.project(id).members()]).toEqual([[], [], undefined, undefined, []]);
+  });
 });
