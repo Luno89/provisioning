@@ -78,7 +78,7 @@ describe('engine routes', () => {
     const grove = res.data.find((extension: { id: string }) => extension.id === 'grove');
     expect(grove).toMatchObject({ requires: ['platform'], personas: expect.arrayContaining(['grove', 'grove-leaf']), procedures: expect.arrayContaining(['grove-run', 'grove-leaf']) });
     expect(grove.operations).toEqual(JSON.parse(JSON.stringify(INSTALLED_EXTENSIONS.find((extension) => extension.id === 'grove')!.operations)));
-    expect(res.data.map((extension: { id: string; enabled: boolean; alwaysOn: boolean }) => [extension.id, extension.enabled, extension.alwaysOn])).toEqual([['platform', true, true], ['grove', true, false], ['workspace', true, false], ['mcp', true, false], ['external-agents', true, false], ['releases', true, false], ['monitoring', true, false]]);
+    expect(res.data.map((extension: { id: string; enabled: boolean; alwaysOn: boolean }) => [extension.id, extension.enabled, extension.alwaysOn])).toEqual([['platform', true, true], ['grove', true, false], ['workspace', true, false], ['mcp', true, false], ['external-agents', true, false], ['releases', true, false], ['monitoring', true, false], ['files', true, false]]);
 
     const needed = await axios.put(h.url('/api/engine/extensions/grove/enabled'), { enabled: false }, { validateStatus: () => true });
     expect(needed.status).toBe(409);
@@ -129,7 +129,7 @@ describe('engine routes', () => {
     const gone = await axios.delete(h.url('/api/engine/extensions/loud/operations/shout'));
     expect(gone.data.find((extension: { id: string }) => extension.id === 'loud').latest).toEqual([]);
     const deleted = await axios.delete(h.url('/api/engine/extensions/loud'));
-    expect(deleted.data.map((extension: { id: string }) => extension.id)).toEqual(['platform', 'grove', 'workspace', 'mcp', 'external-agents', 'releases', 'monitoring']);
+    expect(deleted.data.map((extension: { id: string }) => extension.id)).toEqual(['platform', 'grove', 'workspace', 'mcp', 'external-agents', 'releases', 'monitoring', 'files']);
     await h.close();
   });
 

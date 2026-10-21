@@ -17,7 +17,7 @@ beforeEach(async () => {
 describe('an owner\'s extensions', () => {
   it('are all on until the owner switches one off, and the platform says it is always on', async () => {
     const states = await service.list('u1');
-    expect(states.map((state) => [state.extension.id, state.enabled, state.alwaysOn])).toEqual([['platform', true, true], ['grove', true, false], ['workspace', true, false], ['mcp', true, false], ['external-agents', true, false], ['releases', true, false], ['monitoring', true, false]]);
+    expect(states.map((state) => [state.extension.id, state.enabled, state.alwaysOn])).toEqual([['platform', true, true], ['grove', true, false], ['workspace', true, false], ['mcp', true, false], ['external-agents', true, false], ['releases', true, false], ['monitoring', true, false], ['files', true, false]]);
   });
 
   it('switch off for that owner alone, hiding what the extension brings, and back on again', async () => {

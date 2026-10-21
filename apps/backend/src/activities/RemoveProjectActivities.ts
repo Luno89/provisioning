@@ -1,4 +1,5 @@
 import { Context } from '@temporalio/activity';
+import type { FilePlace } from '../lib/file-places.js';
 import type { ClusterMetadata, ProjectMetadata, DeploymentMetadata, PipelineRunMetadata } from '../lib/types.js';
 import { destroyAppArgs, destroyAppWorkflowId, type DestroyAppArgs } from '../lib/app-destroy.js';
 import type { Tree } from '../lib/trees.js';
@@ -72,6 +73,7 @@ export interface ProjectRemovalDeps {
   repositories: { deleteRepo(owner: string, name: string): Promise<void> };
   secrets: { removeProject(projectId: string): Promise<{ workspace: boolean; readers: number }> };
   artifacts?: { removeRun(ownerId: string, runId: string): Promise<number> } | undefined;
+  files?: { removeAll(ownerId: string, place: FilePlace): Promise<'removed' | 'unreachable'> } | undefined;
 }
 
 export interface ProjectRemovalActivities {
@@ -80,6 +82,7 @@ export interface ProjectRemovalActivities {
   RemoveProjectWorkspacesActivity(args: RemoveProjectArgs): Promise<number>;
   RemoveProjectSecretsActivity(args: RemoveProjectArgs): Promise<{ workspace: boolean; readers: number }>;
   RemoveProjectRepositoriesActivity(args: RemoveProjectArgs): Promise<string[]>;
+  RemoveProjectFilesActivity(args: RemoveProjectArgs): Promise<'removed' | 'unreachable' | 'none'>;
   RemoveProjectRecordsActivity(args: RemoveProjectArgs): Promise<Record<string, number>>;
 }
 
@@ -151,6 +154,13 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
         heartbeat();
       }
       return repos.map((repo) => `${repo.owner}/${repo.name}`);
+    },
+
+    async RemoveProjectFilesActivity({ projectId }) {
+      const found = await scopeOf(projectId);
+      const place = found?.project.files;
+      if (!found || !place || !deps.files) return 'none';
+      return deps.files.removeAll(found.project.ownerId ?? '', place);
     },
 
     async RemoveProjectRecordsActivity({ projectId }) {

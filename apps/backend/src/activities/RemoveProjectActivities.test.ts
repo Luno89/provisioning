@@ -62,7 +62,17 @@ describe('the steps that delete a project', () => {
     expect(await steps.RemoveProjectRepositoriesActivity({ projectId: 'p1' })).toEqual(['koala-bo/shop-p1', 'koala-bo/tree-t1', 'koala-bo/research-c1']);
   });
 
-  it('deletes its records, unlinks what only mentions it, and leaves the other project whole', async () => {
+  it('deletes its files on its file server, and does nothing for a project that never kept any', async () => {
+    const removed: string[] = [];
+    const files = { removeAll: async (ownerId: string, place: { folder: string }) => { removed.push(`${ownerId}:${place.folder}`); return 'removed' as const; } };
+    await db.saveProjectInfo({ id: 'p1', files: { kind: 'minio', deploymentId: 'm1', folder: 'shop' } } as never);
+    const steps = createProjectRemovalActivities({ ...deps(), files });
+    expect(await steps.RemoveProjectFilesActivity({ projectId: 'p1' })).toBe('removed');
+    expect(await steps.RemoveProjectFilesActivity({ projectId: 'p2' })).toBe('none');
+    expect(removed).toEqual(['bo:shop']);
+  });
+
+    it('deletes its records, unlinks what only mentions it, and leaves the other project whole', async () => {
     const removed = await createProjectRemovalActivities(deps()).RemoveProjectRecordsActivity({ projectId: 'p1' });
 
     expect(removed).toMatchObject({ trees: 1, branches: 1, leaves: 1, conversations: 1, 'trees unlinked': 1, pipelineRuns: 1, 'conversations unlinked': 1, projects: 1 });

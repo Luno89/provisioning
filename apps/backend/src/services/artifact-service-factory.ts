@@ -4,10 +4,10 @@ import type { ClusterService } from './ClusterService.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider } from '../lib/cluster-topology.js';
 import { ArtifactService } from './ArtifactService.js';
-import { MinioArtifactStores, minioReachFrom } from './MinioArtifactStore.js';
+import { MinioArtifactStores, minioReachFrom, type MinioReach } from './MinioArtifactStore.js';
 
-export function createArtifactService(db: Database, infra: InfrastructureService, clusters: ClusterService): { artifacts: ArtifactService; minio: MinioArtifactStores } {
-  const minio = new MinioArtifactStores(minioReachFrom({
+export function createArtifactService(db: Database, infra: InfrastructureService, clusters: ClusterService): { artifacts: ArtifactService; minio: MinioArtifactStores; reach: MinioReach } {
+  const reach = minioReachFrom({
     db,
     systemCluster: () => clusters.getSystemClusterEntry(),
     kubeconfigOf: (cluster) => clusters.getKubeconfigPath(cluster),
@@ -15,6 +15,7 @@ export function createArtifactService(db: Database, infra: InfrastructureService
     hostGatewayIp: () => infra.getHostGatewayIp(),
     k3dServerIp: (name) => infra.getK3dServerIp(name),
     isMockCloud: (cluster) => isMockCloudProvider(cluster.provider, hasCloudCredentials),
-  }));
-  return { artifacts: new ArtifactService({ records: db, minioFor: (ownerId) => minio.storeFor(ownerId) }), minio };
+  });
+  const minio = new MinioArtifactStores(reach);
+  return { artifacts: new ArtifactService({ records: db, minioFor: (ownerId) => minio.storeFor(ownerId) }), minio, reach };
 }

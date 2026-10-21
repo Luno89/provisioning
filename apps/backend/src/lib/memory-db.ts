@@ -6,6 +6,7 @@ import type { AutoModeSettings } from './auto-mode.js';
 import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
 import type { AlertRuleRecord } from './monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
+import type { FileSettings } from './file-places.js';
 import type { PoolPolicy } from './pool.js';
 import type { WorkFailure } from './work-failures.js';
 import type { AuthoredExtension } from './authored-extensions.js';
@@ -83,6 +84,7 @@ export class MemoryDB implements Database {
   private autoModeSettings = new Map<string, AutoModeSettings>();
   private monitoringSettings = new Map<string, MonitoringSetting>();
   private notificationSettings = new Map<string, NotificationSettings>();
+  private fileSettings = new Map<string, FileSettings>();
   private poolPolicy: PoolPolicy | undefined;
   private alertRules = new Map<string, AlertRuleRecord>();
   private alertEpisodes = new Map<string, AlertEpisode>();
@@ -986,6 +988,15 @@ export class MemoryDB implements Database {
 
   async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
     this.deferredConclusions = this.deferredConclusions.filter((entry) => !(entry.id === id && entry.ownerId === ownerId));
+  }
+
+  async getFileSettings(ownerId: string): Promise<FileSettings | undefined> {
+    const found = this.fileSettings.get(ownerId);
+    return found ? { ...found } : undefined;
+  }
+
+  async saveFileSettings(settings: FileSettings): Promise<void> {
+    this.fileSettings.set(settings.ownerId, { ...settings });
   }
 
   async getNotificationSettings(ownerId: string): Promise<NotificationSettings | undefined> {

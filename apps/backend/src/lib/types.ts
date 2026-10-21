@@ -183,6 +183,7 @@ export interface ProjectMetadata {
   releaseName?: string | undefined;
   release?: import('./release-run.js').ReleaseHow | undefined;
   channelId?: string | undefined;
+  files?: import('./file-places.js').FilePlace | undefined;
   createdAt: string;
   /**
    * Where this project's leaves execute. Absent means the K8s sandbox (today's only behaviour).

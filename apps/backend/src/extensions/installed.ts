@@ -6,8 +6,9 @@ import { MCP } from './mcp/manifest.js';
 import { EXTERNAL_AGENTS } from './external-agents/manifest.js';
 import { RELEASES } from './releases/manifest.js';
 import { MONITORING } from './monitoring/manifest.js';
+import { FILES } from './files/manifest.js';
 
-export const INSTALLED_EXTENSIONS: readonly EngineExtension[] = [PLATFORM, GROVE, WORKSPACE, MCP, EXTERNAL_AGENTS, RELEASES, MONITORING];
+export const INSTALLED_EXTENSIONS: readonly EngineExtension[] = [PLATFORM, GROVE, WORKSPACE, MCP, EXTERNAL_AGENTS, RELEASES, MONITORING, FILES];
 
 export const HOST_OPERATIONS: readonly HostOperation[] = operationsOf(INSTALLED_EXTENSIONS);
 

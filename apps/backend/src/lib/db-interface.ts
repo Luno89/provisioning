@@ -22,6 +22,7 @@ import type { AutoModeSettings } from './auto-mode.js';
 import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
 import type { AlertRuleRecord } from './monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
+import type { FileSettings } from './file-places.js';
 import type { PoolPolicy } from './pool.js';
 import type { WorkFailure } from './work-failures.js';
 import type { AuthoredExtension } from './authored-extensions.js';
@@ -251,6 +252,8 @@ export interface Database {
   getMonitoringSettings(): Promise<MonitoringSetting[]>;
   getNotificationSettings(ownerId: string): Promise<NotificationSettings | undefined>;
   saveNotificationSettings(settings: NotificationSettings): Promise<void>;
+  getFileSettings(ownerId: string): Promise<FileSettings | undefined>;
+  saveFileSettings(settings: FileSettings): Promise<void>;
   getPoolPolicy(): Promise<PoolPolicy | undefined>;
   savePoolPolicy(policy: PoolPolicy): Promise<void>;
   saveMonitoringSetting(setting: MonitoringSetting): Promise<void>;

@@ -9,7 +9,8 @@ export const removeProjectWorkflowId = (projectId: string): string => `remove-pr
 export const REMOVE_PROJECT_WORKFLOW = 'RemoveProjectWorkflow';
 export const PROJECT_REMOVAL_PROGRESS_QUERY = 'projectRemovalProgress';
 
-export type ProjectRemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'records';
+export type ProjectRemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'files' | 'records';
+export const PROJECT_FILES_PATCH = 'project-files';
 
 export interface ProjectWorld extends GroveWorld {
   trees: readonly Pick<Tree, 'id' | 'name' | 'ownerId' | 'projectIds'>[];
@@ -28,6 +29,7 @@ export interface ProjectRemovalScope {
   pipelineRunIds: string[];
   runningBuildWorkflowIds: string[];
   apps: { id: string; name: string }[];
+  files?: { server: string; folder: string } | undefined;
 }
 
 export function projectApps(project: Pick<ProjectMetadata, 'id' | 'name'>, deployments: readonly DeploymentMetadata[]): DeploymentMetadata[] {
@@ -37,7 +39,8 @@ export function projectApps(project: Pick<ProjectMetadata, 'id' | 'name'>, deplo
 
 const RUNNING_BUILDS = ['queued', 'running'];
 
-export function projectRemovalScope(project: Pick<ProjectMetadata, 'id' | 'name' | 'ownerId' | 'giteaOwner' | 'giteaRepo'>, world: ProjectWorld): ProjectRemovalScope {
+export function projectRemovalScope(project: Pick<ProjectMetadata, 'id' | 'name' | 'ownerId' | 'giteaOwner' | 'giteaRepo' | 'files'>, world: ProjectWorld): ProjectRemovalScope {
+  const fileServer = project.files ? world.deployments.find((deployment) => deployment.id === project.files!.deploymentId) : undefined;
   const owned = world.trees.filter((tree) => tree.ownerId === project.ownerId && (tree.projectIds ?? []).includes(project.id));
   const trees = owned.filter((tree) => primaryProjectId(tree) === project.id)
     .map((tree) => ({ id: tree.id, name: tree.name, scope: deletionScope({ kind: 'tree', id: tree.id }, world) }));
@@ -53,6 +56,7 @@ export function projectRemovalScope(project: Pick<ProjectMetadata, 'id' | 'name'
     pipelineRunIds: runs.map((run) => run.id),
     runningBuildWorkflowIds: runs.filter((run) => RUNNING_BUILDS.includes(run.status) && run.temporalWorkflowId).map((run) => run.temporalWorkflowId!),
     apps: projectApps(project, world.deployments.filter((deployment) => deployment.ownerId === project.ownerId)).map((deployment) => ({ id: deployment.id, name: deployment.name })),
+    ...(project.files ? { files: { server: fileServer?.name ?? project.files.deploymentId, folder: project.files.folder } } : {}),
   };
 }
 
@@ -75,6 +79,7 @@ export interface ProjectRemovalPreview {
   keptConversations: number;
   builds: number;
   apps: string[];
+  files?: { server: string; folder: string } | undefined;
 }
 
 export function projectRemovalPreview(project: Pick<ProjectMetadata, 'id' | 'name'>, scope: ProjectRemovalScope): ProjectRemovalPreview {
@@ -85,5 +90,6 @@ export function projectRemovalPreview(project: Pick<ProjectMetadata, 'id' | 'nam
     keptConversations: scope.keptConversationIds.length,
     builds: scope.pipelineRunIds.length,
     apps: scope.apps.map((app) => app.name),
+    ...(scope.files ? { files: scope.files } : {}),
   };
 }

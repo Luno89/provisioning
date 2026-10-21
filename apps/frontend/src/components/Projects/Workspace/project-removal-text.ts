@@ -6,6 +6,7 @@ const STEPS: { step: ProjectRemovalStep; doing: string }[] = [
   { step: 'workspaces', doing: 'Deleting its workspaces' },
   { step: 'secrets', doing: 'Deleting its secrets' },
   { step: 'repositories', doing: 'Deleting its repositories' },
+  { step: 'files', doing: 'Deleting its files' },
   { step: 'records', doing: 'Deleting its trees, conversations and records' },
 ]
 
@@ -23,6 +24,7 @@ export function projectRemovalLines(preview: ProjectRemovalPreview): string[] {
   return [
     ...preview.apps.map((app) => `The app “${app}” running on its cluster, with its databases and files`),
     ...(preview.repository ? [`The repository ${preview.repository}, with its history and its build webhook`] : []),
+    ...(preview.files ? [`Its files: the folder ${preview.files.folder} on ${preview.files.server}, with everything in it`] : []),
     ...preview.trees.map((tree) => `The tree “${tree.name}”, with ${plural(tree.leaves, 'leaf', 'leaves')}, their tasks and plans, ${plural(tree.conversations, 'conversation', 'conversations')} and its sandbox`),
     ...(preview.builds ? [`${plural(preview.builds, 'build', 'builds')} and their logs`] : []),
     'Its secrets, and anything still running for it',

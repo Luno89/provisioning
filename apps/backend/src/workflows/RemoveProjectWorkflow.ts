@@ -2,7 +2,7 @@ import { defineQuery, executeChild, patched, proxyActivities, setHandler, sleep,
 import { DESTROY_RETRY } from '../lib/activity-retry.js';
 import { ACTIVITY_STOP_GRACE_MS } from '../lib/account-removal.js';
 import { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
-import { PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../lib/project-removal.js';
+import { PROJECT_FILES_PATCH, PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../lib/project-removal.js';
 import type { ProjectRemovalActivities, RemoveProjectArgs } from '../activities/RemoveProjectActivities.js';
 import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
 import { DEFAULT_STREAM_TASK_QUEUE, GROVE_CHANGED_PATCH } from '../engine-host/temporal/contracts.js';
@@ -27,6 +27,7 @@ export interface ProjectRemoved {
   workspaces: number;
   secrets: { workspace: boolean; readers: number };
   repositories: string[];
+  files: 'removed' | 'unreachable' | 'none';
   records: Record<string, number>;
 }
 
@@ -46,10 +47,12 @@ export async function RemoveProjectWorkflow(args: RemoveProjectArgs): Promise<Pr
   done.push('secrets');
   const repositories = await steps.RemoveProjectRepositoriesActivity(args);
   done.push('repositories');
+  const files = patched(PROJECT_FILES_PATCH) ? await steps.RemoveProjectFilesActivity(args) : 'none';
+  if (patched(PROJECT_FILES_PATCH)) done.push('files');
   const records = await steps.RemoveProjectRecordsActivity(args);
   done.push('records');
   const owner = ownerIn(workflowInfo().typedSearchAttributes);
   if (owner && patched(GROVE_CHANGED_PATCH)) await told.EngineGroveChangedActivity({ ownerId: owner }).catch(() => undefined);
 
-  return { stoppedWorkflows, apps: apps.length, workspaces, secrets, repositories, records };
+  return { stoppedWorkflows, apps: apps.length, workspaces, secrets, repositories, files, records };
 }

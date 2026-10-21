@@ -90,6 +90,8 @@ import { WorkspaceBuildService } from './services/WorkspaceBuildService.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
 import type { GroveRunLauncher } from './services/GroveRunService.js';
 import { createArtifactService } from './services/artifact-service-factory.js';
+import { FileServerUnreachableError, FileStores } from './services/FileStores.js';
+import { FileService } from './services/FileService.js';
 import { treeOfGroveRun, workflowOfRun } from './engine-host/temporal/contracts.js';
 import { TreeModelsService, treeAgentsFrom } from './services/TreeModelsService.js';
 import { platformGroups } from './extensions/installed.js';
@@ -151,6 +153,7 @@ async function buildActivities() {
   const kubeInfra = new InfrastructureService();
   const clusterService = new ClusterService(db, kubeInfra, keys.data);
   const artifactStore = createArtifactService(db, kubeInfra, clusterService);
+  const fileStores = new FileStores(artifactStore.reach);
   const vault = createSecretVault({
     backend: infisical,
     minters: { readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token },
@@ -202,7 +205,14 @@ async function buildActivities() {
     apply: async (cluster, manifest) => { await kubeInfra.applyManifest(manifest, await clusterService.getKubeconfigPath(cluster)); },
     helm: async (cluster, args) => String(await kubeInfra.runHelm(args, await clusterService.getKubeconfigPath(cluster))),
   });
+  const engineFiles = new FileService({ store: db, open: (ownerId, place) => fileStores.open(ownerId, place), defaultCluster: DEFAULT_TARGET_CLUSTER });
   const host = createEngineHost({
+    files: {
+      files: engineFiles,
+      projects: async (ownerId) => (await db.getProjects()).filter((project) => project.ownerId === ownerId),
+      projectOfTree: async (ownerId, treeId) => (await db.getTrees()).find((tree) => tree.id === treeId && tree.ownerId === ownerId)?.projectIds?.[0],
+      projectOfConversation: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.projectId,
+    },
     dependencies: async (ownerId) => catalogueOf(SHIPPED_DEPENDENCIES, await db.getWorkspaceDependencies(ownerId)),
     accountDefault: async (ownerId) => accountDefaultOf(await db.getUserById(ownerId)),
     customizations,
@@ -499,6 +509,17 @@ async function buildActivities() {
       repositories: gitea,
       secrets: infisical,
       artifacts: artifactStore.artifacts,
+      files: {
+        removeAll: async (ownerId, place) => {
+          try {
+            await (await fileStores.open(ownerId, place)).removeAll();
+            return 'removed';
+          } catch (err) {
+            if (err instanceof FileServerUnreachableError) return 'unreachable';
+            throw err;
+          }
+        },
+      },
     }),
     ReleaseBrowserTestsActivity: releaseBrowser.ReleaseBrowserTestsActivity,
     ...createCheckRunActivities({

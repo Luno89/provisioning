@@ -3,7 +3,7 @@
  * Authority: `ProjectRemovalPreview` and `ProjectRemovalStep` in apps/backend/src/lib/project-removal.ts,
  * `ProjectRemovalState` in apps/backend/src/services/ProjectRemovalService.ts.
  */
-export type ProjectRemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'records'
+export type ProjectRemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'files' | 'records'
 
 export type ProjectRemovalState =
   | { state: 'running'; done: ProjectRemovalStep[] }
@@ -18,5 +18,6 @@ export interface ProjectRemovalPreview {
   keptConversations: number
   builds: number
   apps: string[]
+  files?: { server: string; folder: string }
   state: ProjectRemovalState
 }

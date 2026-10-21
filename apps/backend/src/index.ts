@@ -79,6 +79,10 @@ import { fingerprintOf } from './lib/bench.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
 import { RepositoryDropService } from './services/RepositoryDropService.js';
+import { FileStores } from './services/FileStores.js';
+import { FileService } from './services/FileService.js';
+import { DEFAULT_TARGET_CLUSTER } from './lib/project-shipping.js';
+import { filesRouter } from './routes/files.js';
 import { projectFilesRouter } from './routes/project-files.js';
 import { meshRouter } from './routes/mesh.js';
 import { localAgentsRouter } from './routes/local-agents.js';
@@ -411,6 +415,17 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   );
 
   const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, headscaleService);
+  const fileStores = new FileStores(artifactStore.reach);
+  const fileService = new FileService({
+    store: db,
+    open: (ownerId, place) => fileStores.open(ownerId, place),
+    deployMinio: async (ownerId, request) => {
+      const started = await temporalBridge.deployApp({ ...request, appType: 'minio', strategy: 'native' }, ownerId);
+      if (!started.resourceId) throw new Error(`MinIO could not be started on ${request.clusterId}.`);
+      return { deploymentId: started.resourceId };
+    },
+    defaultCluster: DEFAULT_TARGET_CLUSTER,
+  });
   clusterService.setTemporalBridge(temporalBridge);
   appService.setTemporalBridge(temporalBridge);
   if (servesTenants(role)) {
@@ -1068,6 +1083,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     writeOnDevice: (deviceId, ownerId, leafId, target, bytes) => writeFileOnDevice(deviceId, ownerId, leafId, target, bytes),
   });
   tenant.use('/api/projects', projectFilesRouter({ projectRepoService, giteaService, getOwnedProject, drops: repositoryDrops }));
+  tenant.use('/api/files', filesRouter({ files: fileService, getOwnedProject }));
   const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
     const releaseWhen = (await treeTypeOfProject(db, project))?.releaseWhen;
     if (!releaseWhen?.length || !project.giteaOwner || !project.giteaRepo) return { release: true };

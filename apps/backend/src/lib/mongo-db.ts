@@ -6,6 +6,7 @@ import type { AutoModeSettings } from './auto-mode.js';
 import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
 import type { AlertRuleRecord } from './monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
+import type { FileSettings } from './file-places.js';
 import type { PoolPolicy } from './pool.js';
 import type { WorkFailure } from './work-failures.js';
 import type { AuthoredExtension } from './authored-extensions.js';
@@ -1185,6 +1186,18 @@ export class MongoDB implements Database {
 
   async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
     await this.db!.collection('deferredConclusions').deleteOne({ _id: id as never, ownerId });
+  }
+
+  async getFileSettings(ownerId: string): Promise<FileSettings | undefined> {
+    const doc = await this.db!.collection('fileSettings').findOne({ _id: ownerId as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc;
+    return { ...(rest as Omit<FileSettings, 'ownerId'>), ownerId: String(_id) };
+  }
+
+  async saveFileSettings(settings: FileSettings): Promise<void> {
+    const { ownerId, ...rest } = settings;
+    await this.db!.collection('fileSettings').replaceOne({ _id: ownerId as never }, rest, { upsert: true });
   }
 
   async getNotificationSettings(ownerId: string): Promise<NotificationSettings | undefined> {

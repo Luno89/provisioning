@@ -111,6 +111,7 @@ export interface EngineHostOptions {
   treeModels?: import('../extensions/grove/tools/grove-tools.js').TreeModelChoices | undefined;
   customizations?: Pick<import('../services/CustomizationsService.js').CustomizationsService, 'drift' | 'propose' | 'exportItems'> | undefined;
   monitoring?: import('../extensions/monitoring/handlers.js').MonitoringReading | undefined;
+  files?: import('../extensions/files/handlers.js').FilesToolDeps | undefined;
   publishedWorkspaces?: {
     get(ownerId: string, treeId: string): Promise<PublishedWorkspace | undefined>;
     save(workspace: PublishedWorkspace): Promise<void>;
@@ -345,6 +346,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       } } : {}),
     },
     monitoring: stores.actions ? { tools: { reading: options.monitoring, proposals: stores.actions } } : {},
+    files: options.files ? { tools: options.files } : {},
     platform: { operations: { environments, ...(options.artifacts ? { artifacts: options.artifacts } : {}) } },
     grove: {
       tools: { stores: {

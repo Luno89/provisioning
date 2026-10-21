@@ -22,7 +22,7 @@ afterAll(async () => {
 });
 
 describe('deleting a project through Temporal', () => {
-  it('stops its runs, destroys its app on the cluster worker, then deletes its workspaces, secrets, repositories and records, saying how far it has got', async () => {
+  it('stops its runs, destroys its app on the cluster worker, then deletes its workspaces, secrets, repositories, files and records, saying how far it has got', async () => {
     const seen: string[] = [];
     const clusterQueue = `remove-project-apps-${Math.random().toString(36).slice(2, 8)}`;
     const clusterWorker = await Worker.create({
@@ -42,6 +42,7 @@ describe('deleting a project through Temporal', () => {
       RemoveProjectWorkspacesActivity: async () => { seen.push('workspaces'); return 2; },
       RemoveProjectSecretsActivity: async () => { seen.push('secrets'); await held; return { workspace: true, readers: 1 }; },
       RemoveProjectRepositoriesActivity: async () => { seen.push('repositories'); return ['koala-bo/shop']; },
+      RemoveProjectFilesActivity: async () => { seen.push('files'); return 'removed'; },
       RemoveProjectRecordsActivity: async () => { seen.push('records'); return { projects: 1 }; },
     };
     const taskQueue = `remove-project-test-${Math.random().toString(36).slice(2, 8)}`;
@@ -65,10 +66,10 @@ describe('deleting a project through Temporal', () => {
       expect(await workflows.state(removeProjectWorkflowId('p1'))).toEqual({ state: 'running', done: ['workflows', 'apps', 'workspaces'] });
       release();
       expect(await env.client.workflow.getHandle(removeProjectWorkflowId('p1')).result()).toEqual({
-        stoppedWorkflows: 0, apps: 1, workspaces: 2, secrets: { workspace: true, readers: 1 }, repositories: ['koala-bo/shop'], records: { projects: 1 },
+        stoppedWorkflows: 0, apps: 1, workspaces: 2, secrets: { workspace: true, readers: 1 }, repositories: ['koala-bo/shop'], files: 'removed', records: { projects: 1 },
       });
     })));
-    expect(seen).toEqual(['workflows', 'apps', 'destroy shop in shop-1a2b3c', 'workspaces', 'secrets', 'repositories', 'records']);
+    expect(seen).toEqual(['workflows', 'apps', 'destroy shop in shop-1a2b3c', 'workspaces', 'secrets', 'repositories', 'files', 'records']);
     expect(told, 'the owner\'s browsers are told the grove changed').toEqual(['bo']);
   }, 60_000);
 });
