@@ -1,3 +1,4 @@
+import type { ImageContent } from '@koala/agent-engine';
 import { LANGUAGE_IDS } from '@koala/agent-engine';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import { PACKAGE_MANAGERS, WORKSPACE_FILE, pendingChanges, type WorkspaceFile } from '../lib/workspace-file.js';
@@ -28,7 +29,7 @@ export interface TreeWorkspaceView {
   path: string;
   file?: WorkspaceFile | undefined;
   unreadable?: string | undefined;
-  composed?: { lines: WorkspaceLine[]; env: { name: string; value: string }[] } | undefined;
+  composed?: { lines: WorkspaceLine[]; env: { name: string; value: string }[]; contents: ImageContent[] } | undefined;
   unbuildable?: string | undefined;
   published?: {
     image: string;
@@ -71,7 +72,7 @@ export class TreeWorkspaceService {
     if (read.ok) {
       try {
         const plan = await this.deps.compose(ownerId, treeId, read.file);
-        composed = { lines: (plan.plan.lines ?? []).map(lineOf), env: plan.env };
+        composed = { lines: (plan.plan.lines ?? []).map(lineOf), env: plan.env, contents: plan.plan.contents ?? [] };
       } catch (err) {
         unbuildable = (err as Error).message;
       }

@@ -154,6 +154,7 @@ export {
   renderDockerfile,
   proofScript,
   type DependencyProof,
+  type ImageContent,
   type ImagePlan,
   type PlanLine,
   type Contribution,

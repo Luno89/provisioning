@@ -12,6 +12,13 @@ export interface ImagePlan {
   env?: { name: string; value: string }[] | undefined;
   lines?: PlanLine[] | undefined;
   proves?: DependencyProof[] | undefined;
+  contents?: ImageContent[] | undefined;
+}
+
+export interface ImageContent {
+  dependency: string;
+  why: string[];
+  installed: boolean;
 }
 
 export interface DependencyProof {
@@ -131,8 +138,9 @@ export function planImage(input: {
   ];
 
   let resolved;
+  const why = new Map<string, Set<string>>();
   try {
-    resolved = resolveNeeds(needs, catalogue, has, provides);
+    resolved = resolveNeeds(needs, catalogue, has, provides, why);
   } catch (err) {
     if (err instanceof UnknownDependencyError || err instanceof DependencyCycleError) throw new UnbuildableError(err.message);
     throw err;
@@ -148,6 +156,11 @@ export function planImage(input: {
 
   const installs = lines.map((line) => line.install);
   const proves = resolved.map(({ dependency }) => ({ dependency: dependency.name, programs: [...dependency.provides], libraries: [...(dependency.libraries ?? [])] }));
+  const installed = new Set(resolved.map(({ dependency }) => dependency.name));
+  const contents: ImageContent[] = [
+    ...resolved.map(({ dependency }) => dependency.name),
+    ...[...why.keys()].filter((name) => !installed.has(name)).sort(),
+  ].map((name) => ({ dependency: name, why: [...(why.get(name) ?? [])].sort(), installed: installed.has(name) }));
   return {
     base: base.image,
     installs,
@@ -155,6 +168,7 @@ export function planImage(input: {
     provides: [...provides].sort(),
     has: [...has].sort(),
     ...(proves.length ? { proves } : {}),
+    ...(contents.length ? { contents } : {}),
     fingerprint: fingerprint(base.image, installs),
     ...(base.env?.length ? { env: base.env.map((entry) => ({ ...entry })) } : {}),
   };
@@ -238,7 +252,7 @@ export function planFor(
     base: baseFor(agent, bases),
     languages: languagesFor(agent),
     tools: catalogue.filter((tool) => granted.has(tool.name)),
-    needs: [...(agent.needs ?? []).map((name) => ({ name, from: `agent:${agent.slug}` })), ...(extra.needs ?? [])],
+    needs: [...(agent.needsFrom?.length ? agent.needsFrom : (agent.needs ?? []).map((name) => ({ name, from: `agent:${agent.slug}` }))), ...(extra.needs ?? [])],
     contributions,
     bases,
     ...(extra.dependencies ? { dependencies: extra.dependencies } : {}),

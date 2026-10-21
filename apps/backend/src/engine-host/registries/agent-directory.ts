@@ -4,6 +4,7 @@ import {
   sourcedTools,
   withGrants,
   type GrantKind,
+  type Need,
   type Persona,
   type PersonaRecord,
   type SourcedTool,
@@ -57,7 +58,7 @@ export interface AgentDirectoryOptions {
   shipped?: (() => readonly ToolGrant[]) | undefined;
   now?: (() => string) | undefined;
   onChanged?: ((ownerId: string) => void) | undefined;
-  stepNeeds?: ((ownerId: string, procedureId: string) => Promise<string[]>) | undefined;
+  stepNeeds?: ((ownerId: string, procedureId: string) => Promise<Need[]>) | undefined;
 }
 
 export function createAgentDirectory(options: AgentDirectoryOptions): AgentDirectory {
@@ -101,14 +102,14 @@ export function createAgentDirectory(options: AgentDirectoryOptions): AgentDirec
 
   const withNeeds = async (ownerId: string, agents: Persona[]): Promise<Persona[]> => {
     if (!options.stepNeeds) return agents;
-    const byProcedure = new Map<string, Promise<string[]>>();
+    const byProcedure = new Map<string, Promise<Need[]>>();
     const needsOf = (procedure: string) => {
       if (!byProcedure.has(procedure)) byProcedure.set(procedure, options.stepNeeds!(ownerId, procedure).catch(() => []));
       return byProcedure.get(procedure)!;
     };
     return Promise.all(agents.map(async (agent) => {
-      const needs = agent.procedure ? await needsOf(agent.procedure) : [];
-      return needs.length ? { ...agent, needs } : agent;
+      const needsFrom = agent.procedure ? await needsOf(agent.procedure) : [];
+      return needsFrom.length ? { ...agent, needs: [...new Set(needsFrom.map((need) => need.name))].sort(), needsFrom } : agent;
     }));
   };
 

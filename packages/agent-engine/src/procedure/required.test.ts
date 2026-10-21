@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { missingGrants, requiredGrants, stepNeeds } from './required.js';
+import { missingGrants, requiredGrants, stepNeeds, stepNeedsFrom } from './required.js';
 import { DO_ONE_TASK_V2, TOOL_ROUNDS_V2 } from './seeds/procedures.js';
 import { BUILT_IN_GROUPS } from './seeds/groups.js';
 
@@ -58,7 +58,7 @@ describe('what a persona is missing for the procedure it runs', () => {
 });
 
 describe('what a procedure\'s steps need in the workspace', () => {
-  const operations = [{ name: 'platform.run-e2e', needs: ['koala-e2e'] }, { name: 'platform.quiet' }];
+  const operations = [{ name: 'platform.run-e2e', title: 'Run Browser Tests', needs: ['koala-e2e'] }, { name: 'platform.quiet', title: 'Quiet' }];
   const procedure = (nodes: { id: string; kind: string; settings: Record<string, unknown> }[]) =>
     ({ ...TOOL_ROUNDS_V2, nodes: [...TOOL_ROUNDS_V2.nodes, ...nodes] }) as never;
 
@@ -68,6 +68,13 @@ describe('what a procedure\'s steps need in the workspace', () => {
       { id: 'again', kind: 'host-op', settings: { operation: 'platform.run-e2e' } },
       { id: 'quiet', kind: 'host-op', settings: { operation: 'platform.quiet' } },
     ]), operations, BUILT_IN_GROUPS)).toEqual(['koala-e2e']);
+  });
+
+  it('names the step each need comes from', () => {
+    expect(stepNeedsFrom(procedure([
+      { id: 'e2e', kind: 'host-op', settings: { operation: 'platform.run-e2e' } },
+      { id: 'again', kind: 'host-op', settings: { operation: 'platform.run-e2e' } },
+    ]), operations, BUILT_IN_GROUPS)).toEqual([{ name: 'koala-e2e', from: 'step:Run Browser Tests' }]);
   });
 
   it('is nothing for a procedure with no such step, or none at all', () => {

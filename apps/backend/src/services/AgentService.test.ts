@@ -236,11 +236,11 @@ describe('agents you can edit', () => {
 
     const image = await agents.holdServer('user-1', 'digger', 'echoes', { why: 'echo things', proposalId: 'a1' });
 
-    expect(image).toEqual({ state: 'building', reference: 'registry/koala:abc' });
+    expect(image).toEqual({ state: 'building', reference: 'registry/koala:abc', base: 'registry.access.redhat.com/ubi9/nodejs-22', contents: [{ dependency: 'jq', why: ['server:echoes'], installed: true }] });
     expect(images.start).toHaveBeenCalledOnce();
     expect(images.start.mock.calls[0]![0]).toMatchObject({ lines: expect.arrayContaining([expect.objectContaining({ from: 'server:echoes' })]) });
     expect((await agents.get('user-1', 'digger'))?.servers).toEqual(['echoes']);
-    expect(await agents.image('user-1', 'digger')).toEqual({ state: 'ready', reference: 'registry/koala:abc' });
+    expect(await agents.image('user-1', 'digger')).toMatchObject({ state: 'ready', reference: 'registry/koala:abc', contents: [{ dependency: 'jq', why: ['server:echoes'], installed: true }] });
     await expect(agents.holdServer('user-1', 'ghost', 'echoes')).rejects.toThrow('there is no agent called ghost');
   });
 

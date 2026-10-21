@@ -190,6 +190,7 @@ export function mergeWorkspaceAgents(
     tools: unique(working.flatMap((agent) => agent.tools)),
     servers: unique(working.flatMap((agent) => agent.servers ?? [])),
     needs: unique(working.flatMap((agent) => agent.needs ?? [])),
+    needsFrom: [...new Map(working.flatMap((agent) => agent.needsFrom?.length ? agent.needsFrom : (agent.needs ?? []).map((name) => ({ name, from: `agent:${agent.slug}` }))).map((need) => [`${need.name} ${need.from}`, need])).values()],
     environment: {
       ...Object.assign({}, ...working.map((agent) => agent.environment)),
       languages: merged,

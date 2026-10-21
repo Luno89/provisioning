@@ -1,9 +1,12 @@
+import type { ImageContent } from '../types/image'
 import { api } from './client'
 
 export interface AgentImage {
   state: 'ready' | 'building' | 'failed' | 'unbuilt'
   reference: string
   detail?: string
+  base?: string
+  contents?: ImageContent[]
 }
 
 export interface AgentEnvironment {

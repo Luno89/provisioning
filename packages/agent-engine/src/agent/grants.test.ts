@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Persona } from './agent.js';
 import { grantChanges, grantsFrom, sourcedTools, toolsOf, toRecord, withGrants, type ToolGrant } from './grants.js';
 import type { PersonaRecord } from './agent.js';
 
@@ -67,6 +68,11 @@ describe('the MCP servers an agent holds', () => {
     const [resolved] = withGrants([{ slug: 'executor', name: 'Executor' } as PersonaRecord], shipped, person);
     expect(resolved!.servers).toEqual(['playwright', 'read_file']);
     expect(toRecord(resolved!)).toEqual({ slug: 'executor', name: 'Executor' });
+  });
+
+  it('never stores what its steps need, which is worked out each time it is read', () => {
+    const resolved = { slug: 'executor', name: 'Executor', tools: [], needs: ['koala-e2e'], needsFrom: [{ name: 'koala-e2e', from: 'step:Run Browser Tests' }] } as unknown as Persona;
+    expect(toRecord(resolved)).toEqual({ slug: 'executor', name: 'Executor' });
   });
 
   it('change on their own', () => {

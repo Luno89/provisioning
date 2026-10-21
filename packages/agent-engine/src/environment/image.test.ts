@@ -287,7 +287,23 @@ describe('dependencies that need other dependencies', () => {
       .toEqual([{ install: { via: 'apt', packages: ['libnss3'] }, from: 'project', dependency: 'chromium' }]);
   });
 
-  it('refuses dependencies that need each other in a circle', () => {
+  it('says what is in the image and every reason each is there, the base\'s own included', () => {
+    const needs = [{ name: 'koala-e2e', from: 'step:Run Browser Tests' }, { name: 'chromium', from: 'project' }, { name: 'playwright', from: 'tool:browse' }]
+    expect(planImage({ base: 'minimal', tools: [], needs, bases, dependencies }).contents).toEqual([
+      { dependency: 'chromium', why: ['dependency:playwright', 'project'], installed: true },
+      { dependency: 'node', why: ['dependency:playwright'], installed: true },
+      { dependency: 'playwright', why: ['dependency:koala-e2e', 'tool:browse'], installed: true },
+      { dependency: 'koala-e2e', why: ['step:Run Browser Tests'], installed: true },
+    ]);
+    expect(planImage({ base: 'ready', tools: [], needs, bases, dependencies }).contents).toEqual([
+      { dependency: 'chromium', why: ['dependency:playwright', 'project'], installed: false },
+      { dependency: 'koala-e2e', why: ['step:Run Browser Tests'], installed: false },
+      { dependency: 'node', why: ['dependency:playwright'], installed: false },
+      { dependency: 'playwright', why: ['dependency:koala-e2e', 'tool:browse'], installed: false },
+    ]);
+  });
+
+    it('refuses dependencies that need each other in a circle', () => {
     const a: WorkspaceDependency = { name: 'a', summary: 'a.', provides: ['a'], needs: ['b'], install: [{ via: 'dnf', packages: ['a'] }] };
     const b: WorkspaceDependency = { name: 'b', summary: 'b.', provides: ['b'], needs: ['a'], install: [{ via: 'dnf', packages: ['b'] }] };
     expect(() => planImage({ tools: [], needs: [{ name: 'a', from: 'project' }], dependencies: [a, b] })).toThrow('these dependencies need each other in a circle: a → b → a');

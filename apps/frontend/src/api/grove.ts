@@ -1,3 +1,4 @@
+import type { ImageContent } from '../types/image'
 import { api } from './client'
 import type { Tree, Branch, Leaf, TreeType } from '../types/grove'
 
@@ -46,7 +47,7 @@ export interface TreeWorkspaceView {
   path: string
   file?: WorkspaceFile
   unreadable?: string
-  composed?: { lines: WorkspaceLine[]; env: { name: string; value: string }[] }
+  composed?: { lines: WorkspaceLine[]; env: { name: string; value: string }[]; contents?: ImageContent[] }
   unbuildable?: string
   published?: { image: string; commit?: string; publishedAt: string; lines: WorkspaceLine[]; env: { name: string; value: string }[] }
   pending: string[]

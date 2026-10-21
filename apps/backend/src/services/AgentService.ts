@@ -10,6 +10,7 @@ import {
   type PersonaRecord,
   type SourcedTool,
   type ToolDefinition,
+  type ImageContent,
   type ImagePlan,
   type WorkspaceDependency,
 } from '@koala/agent-engine';
@@ -29,8 +30,15 @@ export interface EditableAgent extends Persona {
   usedBy: AgentUsage[];
   toolSources: SourcedTool[];
   serverSources: SourcedTool[];
-  image?: ImageStanding | undefined;
+  image?: AgentImage | undefined;
 }
+
+export interface AgentImage extends ImageStanding {
+  base?: string | undefined;
+  contents?: ImageContent[] | undefined;
+}
+
+const withContents = (standing: ImageStanding, plan: ImagePlan): AgentImage => ({ ...standing, base: plan.base, contents: plan.contents ?? [] });
 
 export interface AgentServiceOptions {
   agents: AgentDirectory;
@@ -181,11 +189,12 @@ export class AgentService {
     }
   }
 
-  private async started(ownerId: string, agent: Persona, tools: readonly ToolDefinition[], servers: readonly McpServerRecord[]): Promise<ImageStanding | undefined> {
+  private async started(ownerId: string, agent: Persona, tools: readonly ToolDefinition[], servers: readonly McpServerRecord[]): Promise<AgentImage | undefined> {
     const plan = await this.planned(ownerId, agent, tools, servers);
     if (!plan || 'state' in plan) return plan;
     if (!this.options.images) return undefined;
-    return this.options.images.start(plan).catch((err: Error) => ({ state: 'failed' as const, reference: '', detail: err.message }));
+    const standing = await this.options.images.start(plan).catch((err: Error) => ({ state: 'failed' as const, reference: '', detail: err.message }));
+    return withContents(standing, plan);
   }
 
   async grantable(ownerId: string): Promise<{ name: string; summary: string; binding: string; effect: ToolDefinition['effect']; needs: string[] }[]> {
@@ -214,7 +223,7 @@ export class AgentService {
     return (await this.list(ownerId)).find((agent) => agent.slug === slug);
   }
 
-  private async imageOf(ownerId: string, agent: Persona, tools: readonly ToolDefinition[], servers: readonly McpServerRecord[]): Promise<{ image?: ImageStanding }> {
+  private async imageOf(ownerId: string, agent: Persona, tools: readonly ToolDefinition[], servers: readonly McpServerRecord[]): Promise<{ image?: AgentImage }> {
     const plan = await this.planned(ownerId, agent, tools, servers);
     if (plan && 'state' in plan) return { image: plan };
     if (!plan || !this.options.images) return {};
@@ -225,10 +234,10 @@ export class AgentService {
       detail: err.message,
     }));
 
-    return { image };
+    return { image: withContents(image, plan) };
   }
 
-  async image(ownerId: string, slug: string): Promise<ImageStanding | undefined> {
+  async image(ownerId: string, slug: string): Promise<AgentImage | undefined> {
     return (await this.get(ownerId, slug))?.image;
   }
 

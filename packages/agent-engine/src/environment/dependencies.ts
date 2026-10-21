@@ -44,16 +44,26 @@ export function dependencyProblems(dependency: Partial<WorkspaceDependency>): st
 }
 
 export class UnknownDependencyError extends Error {
-  constructor(readonly names: string[], readonly known: string[], readonly wantedBy: string) {
+  readonly names: string[];
+  readonly known: string[];
+  readonly wantedBy: string;
+
+  constructor(names: string[], known: string[], wantedBy: string) {
     super(`${wantedBy} needs ${names.map((name) => `"${name}"`).join(', ')}, which no dependency is called; the workspace can have ${known.join(', ')}`);
     this.name = 'UnknownDependencyError';
+    this.names = names;
+    this.known = known;
+    this.wantedBy = wantedBy;
   }
 }
 
 export class DependencyCycleError extends Error {
-  constructor(readonly path: string[]) {
+  readonly path: string[];
+
+  constructor(path: string[]) {
     super(`these dependencies need each other in a circle: ${path.join(' → ')}`);
     this.name = 'DependencyCycleError';
+    this.path = path;
   }
 }
 
@@ -67,6 +77,7 @@ export function resolveNeeds(
   catalogue: readonly WorkspaceDependency[],
   has: Set<string>,
   provides: Set<string>,
+  why?: Map<string, Set<string>>,
 ): ResolvedDependency[] {
   const byName = new Map(catalogue.map((dependency) => [dependency.name, dependency]));
   const known = [...byName.keys()].sort();
@@ -74,6 +85,11 @@ export function resolveNeeds(
   const resolved: ResolvedDependency[] = [];
 
   const visit = (name: string, from: string, path: readonly string[]): void => {
+    if (why) {
+      const reasons = why.get(name) ?? new Set<string>();
+      reasons.add(path.length ? `dependency:${path[path.length - 1]}` : from);
+      why.set(name, reasons);
+    }
     if (placed.has(name)) return;
     if (path.includes(name)) throw new DependencyCycleError([...path, name]);
     const dependency = byName.get(name);

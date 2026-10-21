@@ -14,6 +14,8 @@ import ChangesPanel from '../Checks/ChangesPanel'
 import { useChanges, useLevel2Runs, usePractices, useProposals, useScenarios } from '../Checks/shared'
 import { useAgents, useEngineAgents, useProcedureList } from './shared'
 import { AGENT_FILES, type AgentFileId } from './agent-files'
+import ImageContents from '../ImageContents'
+import { imageStateText } from '../../lib/image-contents'
 import { describeUsage } from '../../lib/agent-groups'
 import { checksSummary, describeChecks, describePractices, waitingFor } from '../../lib/subject-summary'
 
@@ -62,6 +64,7 @@ function Body({ agent, file }: { agent: Agent; file: AgentFileId }) {
     return (
       <div className="space-y-3">
         <AgentEditor agent={agent} agents={agents.data ?? []} only={file as AgentSection} onSaved={() => undefined} onDeleted={() => void navigate({ to: '/studio/agents' })} />
+        {file === 'workspace' && <AgentImagePanel agent={agent} />}
       </div>
     )
   }
@@ -179,5 +182,20 @@ function Overview({ agent }: { agent: Agent }) {
         </ul>
       </section>
     </div>
+  )
+}
+
+function AgentImagePanel({ agent }: { agent: Agent }) {
+  const image = agent.image
+  if (!image) return <p className="text-xs text-slate-500">It runs with no workspace image of its own.</p>
+  return (
+    <section className="space-y-2" data-testid="agent-image">
+      <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Its image</h2>
+      <p className={`text-xs ${image.state === 'failed' ? 'text-red-300' : image.state === 'ready' ? 'text-emerald-300/90' : 'text-amber-200'}`}>
+        {imageStateText(image.state)}{image.detail ? `: ${image.detail}` : ''}
+      </p>
+      {image.base && <p className="text-xs text-slate-400">Built on <span className="font-mono">{image.base}</span>, with:</p>}
+      <ImageContents contents={image.contents ?? []} empty="Nothing on top of the base: none of its tools, servers or steps needs a workspace dependency." />
+    </section>
   )
 }

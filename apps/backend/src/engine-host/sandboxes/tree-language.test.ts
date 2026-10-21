@@ -22,6 +22,16 @@ describe('the image a shared workspace gets', () => {
     expect(baseFor(merged, WORKSPACE_BASES)).toBe('odoo');
     expect(merged.tools).toEqual(['executor_tool', 'judge_tool']);
   });
+
+  it('keeps why every agent needs each dependency, not only the first agent\'s', () => {
+    const merged = mergeWorkspaceAgents([
+      agent('executor', { needs: ['koala-e2e'], needsFrom: [{ name: 'koala-e2e', from: 'step:Run Browser Tests' }] }),
+      agent('judge', { needs: ['jq'] }),
+    ], 'grove-runner')!;
+
+    expect(merged.needs).toEqual(['koala-e2e', 'jq']);
+    expect(merged.needsFrom).toEqual([{ name: 'koala-e2e', from: 'step:Run Browser Tests' }, { name: 'jq', from: 'agent:judge' }]);
+  });
 });
 
 describe('a tree\'s workspace', () => {

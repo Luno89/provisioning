@@ -121,7 +121,7 @@ describe('what an agent needs in its workspace', () => {
       grants: grantStoreFrom(db),
       builtIn: () => [{ ...record('tester'), procedure: 'browser-check' }, { ...record('other'), procedure: 'browser-check' }, { ...record('plain'), procedure: 'tool-rounds' }],
       shipped: () => [],
-      stepNeeds: async (_ownerId, procedure) => { asked.push(procedure); return procedure === 'browser-check' ? ['koala-e2e'] : []; },
+      stepNeeds: async (_ownerId, procedure) => { asked.push(procedure); return procedure === 'browser-check' ? [{ name: 'koala-e2e', from: 'step:Run Browser Tests' }] : []; },
     });
     const listed = await agents.agents('user-1');
     expect(listed.map((agent) => [agent.slug, agent.needs])).toEqual([['tester', ['koala-e2e']], ['other', ['koala-e2e']], ['plain', undefined]]);

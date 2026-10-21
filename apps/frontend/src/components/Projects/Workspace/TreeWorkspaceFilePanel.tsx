@@ -5,6 +5,7 @@ import { getTreeWorkspaceFile, groveKeys, saveTreeWorkspaceFile, type TreeWorksp
 import { errorMessage } from '../../../api/client.js'
 import Reading from '../Reading'
 import NeedsPicker from '../../NeedsPicker'
+import ImageContents from '../../ImageContents'
 import { draftOf, fileOf, isEdited, newOnMain, type WorkspaceDraft } from './workspace-draft.js'
 
 const UNDER_WAY_POLL_MS = 5_000
@@ -164,6 +165,12 @@ export function TreeWorkspaceFilePanel({ treeId }: { treeId: string }) {
 
       {view.unreadable && <p className="text-red-300">{view.unreadable}</p>}
       {view.unbuildable && <p className="text-red-300">It cannot be built: {view.unbuildable}</p>}
+      {view.composed && (
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">What it has, and why</span>
+          <ImageContents contents={view.composed.contents ?? []} empty="No workspace dependency: nothing in this tree or its project needs one." />
+        </div>
+      )}
       {view.composed && <Lines view={view} />}
 
       {view.file && <Editor key={JSON.stringify(view.file)} treeId={treeId} view={view} onSaved={onSaved} />}

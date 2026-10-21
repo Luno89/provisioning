@@ -1,12 +1,12 @@
 import {
   formatProcedureProblems,
   readAndCheckProcedure,
-  stepNeeds,
+  stepNeedsFrom,
   type GroupDefinition,
   type NodeCatalogue,
   type Procedure,
 } from '@koala/agent-engine/procedure';
-import type { ProcedureSource } from '@koala/agent-engine';
+import type { Need, ProcedureSource } from '@koala/agent-engine';
 import { withBuiltIns } from '../../lib/ownership.js';
 import { HOST_OPERATIONS, platformCatalogue, platformGroups } from '../../extensions/installed.js';
 import { seededProcedures } from '../../extensions/seeds.js';
@@ -82,11 +82,11 @@ export function createProcedureStore(options: ProcedureStoreOptions): ProcedureS
   };
 }
 
-export function stepNeedsReader(options: Pick<ProcedureStoreOptions, 'sources' | 'published'>): (ownerId: string, procedureId: string) => Promise<string[]> {
+export function stepNeedsReader(options: Pick<ProcedureStoreOptions, 'sources' | 'published'>): (ownerId: string, procedureId: string) => Promise<Need[]> {
   const store = createProcedureStore(options);
   return async (ownerId, procedureId) => {
     const procedure = await store.get(ownerId, procedureId);
     const published = await options.published?.(ownerId) ?? [];
-    return stepNeeds(procedure, HOST_OPERATIONS, [...platformGroups(), ...published]);
+    return stepNeedsFrom(procedure, HOST_OPERATIONS, [...platformGroups(), ...published]);
   };
 }

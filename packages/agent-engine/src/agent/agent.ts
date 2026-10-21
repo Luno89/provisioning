@@ -1,4 +1,5 @@
 import type { SamplingConfig } from '@koala/harness-types';
+import type { Need } from '../environment/dependencies.js';
 import { withBuiltIns } from '../lib/ownership.js';
 import { capabilitiesOf, type EnvironmentCapabilities, type EnvironmentRequirement, type EnvironmentSpec } from '@koala/engine-core/contracts';
 import { agentAsTool, type ToolContract, type ToolEffect } from '@koala/engine-core/contracts';
@@ -32,6 +33,7 @@ export interface Persona {
   maxEffect?: ToolEffect | undefined;
   servers?: string[] | undefined;
   needs?: string[] | undefined;
+  needsFrom?: Need[] | undefined;
   agents?: string[] | undefined;
   budget?: RunBudget | undefined;
   sampling?: SamplingConfig | undefined;
@@ -43,7 +45,7 @@ export interface Persona {
   concludeAfterMinutes?: number | undefined;
 }
 
-export type PersonaRecord = Omit<Persona, 'tools' | 'servers' | 'needs'>;
+export type PersonaRecord = Omit<Persona, 'tools' | 'servers' | 'needs' | 'needsFrom'>;
 
 export function visibleAgents<T extends PersonaRecord>(all: readonly T[], ownerId: string): T[] {
   return withBuiltIns(all, ownerId, (agent) => agent.slug);

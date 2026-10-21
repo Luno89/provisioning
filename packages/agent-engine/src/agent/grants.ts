@@ -78,7 +78,7 @@ export function grantChanges(slug: string, wanted: readonly string[], shipped: r
 }
 
 export function toRecord(persona: Persona | PersonaRecord): PersonaRecord {
-  const { tools: _tools, servers: _servers, ...record } = persona as Persona;
+  const { tools: _tools, servers: _servers, needs: _needs, needsFrom: _needsFrom, ...record } = persona as Persona;
   return record;
 }
 

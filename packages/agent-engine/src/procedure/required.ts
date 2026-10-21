@@ -1,4 +1,5 @@
 import { expandGroups, groupLibrary } from './groups.js';
+import type { Need } from '../environment/dependencies.js';
 import type { GroupDefinition, PlacedNode, Procedure } from './schema.js';
 import type { HostOperation } from './host-operations.js';
 
@@ -72,15 +73,28 @@ export function missingGrants(
     .filter((required) => !(required.kind === 'tool' ? tools : agents).has(required.name));
 }
 
+export function stepNeedsFrom(
+  procedure: Procedure | undefined,
+  operations: readonly Pick<HostOperation, 'name' | 'title' | 'needs'>[],
+  shared: readonly GroupDefinition[] = [],
+): Need[] {
+  if (!procedure) return [];
+  const byName = new Map(operations.map((operation) => [operation.name, operation]));
+  const found = new Map<string, Need>();
+  for (const node of nodesOf(procedure, shared).nodes.filter((entry) => entry.kind === 'host-op')) {
+    const operation = byName.get(textOf(node.settings, 'operation'));
+    for (const name of operation?.needs ?? []) {
+      const need = { name, from: `step:${operation!.title}` };
+      found.set(`${need.name} ${need.from}`, need);
+    }
+  }
+  return [...found.values()].sort((a, b) => a.name.localeCompare(b.name) || a.from.localeCompare(b.from));
+}
+
 export function stepNeeds(
   procedure: Procedure | undefined,
-  operations: readonly Pick<HostOperation, 'name' | 'needs'>[],
+  operations: readonly Pick<HostOperation, 'name' | 'title' | 'needs'>[],
   shared: readonly GroupDefinition[] = [],
 ): string[] {
-  if (!procedure) return [];
-  const byName = new Map(operations.map((operation) => [operation.name, operation.needs ?? []]));
-  const needs = nodesOf(procedure, shared).nodes
-    .filter((node) => node.kind === 'host-op')
-    .flatMap((node) => byName.get(textOf(node.settings, 'operation')) ?? []);
-  return [...new Set(needs)].sort();
+  return [...new Set(stepNeedsFrom(procedure, operations, shared).map((need) => need.name))].sort();
 }
