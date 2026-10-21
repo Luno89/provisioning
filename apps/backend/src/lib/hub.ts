@@ -104,3 +104,13 @@ export function sharedProjectProblem(input: { name: unknown }): string | undefin
   if (input.name.trim().length > 120) return 'a shared project\'s name is at most 120 characters';
   return undefined;
 }
+
+export const hubInstancePart = (instanceId: string, personId: string, email: string): string => `instance/${instanceId}/${personId}/${email.trim().toLowerCase()}`;
+
+export interface HubAccess {
+  token: string;
+  hubUrl: string;
+  personId: string;
+  email: string;
+  instanceId: string;
+}

@@ -14,7 +14,7 @@ export default function ShareProject({ project }: { project: { id: string; name:
 
   if (preview.isPending) return <p className="p-3 text-[12px] text-slate-500"><Loader2 size={12} className="inline animate-spin" /> Reading…</p>
   if (preview.isError) return <p className="p-3 text-[12px] text-red-300">{errorMessage(preview.error)}</p>
-  const { shared, moves, stays } = preview.data
+  const { shared, moves, stays, canShare } = preview.data
   const failure = share.error ?? takeBack.error
 
   if (shared) {
@@ -33,6 +33,8 @@ export default function ShareProject({ project }: { project: { id: string; name:
       </div>
     )
   }
+
+  if (!canShare) return <p className="p-3 text-[12px] text-slate-400" data-testid="share-project">Sharing a project with other people needs a hub, and this Koala has none; {project.name} stays on your instance.</p>
 
   return (
     <div className="space-y-2 p-3 text-[12px]" data-testid="share-project">

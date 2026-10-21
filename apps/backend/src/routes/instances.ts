@@ -10,6 +10,7 @@ import { parsePoolRule, parseProbes } from '../lib/pool-monitoring.js';
 import { isMovePart } from '../lib/instance-move.js';
 import { volumeOfPart } from '../lib/app-move.js';
 import type { MoveRelay } from '../services/MoveRelay.js';
+import type { HubAccess } from '../lib/hub.js';
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;
 
@@ -47,6 +48,7 @@ export function instancesRouter(deps: {
   poolMonitoring?: PoolMonitoringService | undefined;
   moveRelay?: MoveRelay | undefined;
   requireAdmin?: RequestHandler | undefined;
+  hubAccess?: ((instanceId: string, ownerId: string) => Promise<HubAccess | undefined>) | undefined;
 }): Router {
   const router = Router();
 
@@ -273,6 +275,15 @@ export function instancesRouter(deps: {
     } catch (err) {
       return answered(res, err);
     }
+  }));
+
+  router.post('/hub-token', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    const owner = await deps.instances.ownerOf(instanceId, credential);
+    if (!owner.ok) return res.status(owner.status).json({ error: owner.error });
+    const access = deps.hubAccess ? await deps.hubAccess(instanceId, owner.value.ownerId) : undefined;
+    if (!access) return res.status(404).json({ error: 'this root has no hub' });
+    res.json(access);
   }));
 
   router.post('/mail', asyncRoute(async (req: Request, res: Response) => {

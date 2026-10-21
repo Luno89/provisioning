@@ -117,3 +117,38 @@ describe('/api/hub-root, on the hub', () => {
     expect([forgotten, await hub.mine('bo')]).toEqual([['bo'], []]);
   });
 });
+
+describe('/api/hub-instance, on the hub', () => {
+  it('lets an instance root vouches for share, sync and take back, and turns away a token for anyone else', async () => {
+    const { generateIdentityKey, identityKeysFrom, issueMoveToken, publicKeyPem, trustedKeys } = await import('../lib/identity-token.js');
+    const { hubInstanceRouter } = await import('./hub-instance.js');
+    const { RemoteHub } = await import('../services/HubRemote.js');
+    const { HUB_AUDIENCE, hubInstancePart } = await import('../lib/hub.js');
+    const root = identityKeysFrom(generateIdentityKey());
+    const store = memoryHubStore();
+    const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) } });
+    const site = await mountRouter({ prefix: '/api/hub-instance', router: async () => hubInstanceRouter({ hub, trusted: trustedKeys([publicKeyPem(root.publicKey)]) }) });
+    harnesses.push(site);
+    const accessFor = (person: string, email: string, signer = root) => ({
+      access: async () => ({ token: issueMoveToken(signer, HUB_AUDIENCE, hubInstancePart('inst-ann', person, email)), hubUrl: site.url(''), personId: person, email, instanceId: 'inst-ann' }),
+    });
+    const remote = new RemoteHub(accessFor('ann', 'ann@example.com'));
+
+    expect(await remote.reachable()).toBe(true);
+    const shared = await remote.share({ id: 'ann', email: 'ann@example.com' }, { id: 'p1', name: 'Shop' });
+    const link = { projectId: 'p1', ownerId: 'ann', hubProjectId: shared.hubProjectId, pulledThrough: 0, sharedAt: 't' };
+    expect(await remote.push(link, [{ kind: 'leaves', id: 'l1', patch: { set: { title: 'Checkout' } } }])).toEqual({ through: 1 });
+    expect((await remote.pull(link, 0)).changes.map((entry) => entry.origin)).toEqual(['instance:inst-ann']);
+    expect((await hub.mine('ann'))[0]?.project.origin).toEqual({ instanceId: 'inst-ann', projectId: 'p1' });
+
+    const forged = new RemoteHub(accessFor('ann', 'ann@example.com', identityKeysFrom(generateIdentityKey())));
+    await expect(forged.push(link, [])).rejects.toThrow(/401/);
+    const someoneElse = new RemoteHub({ access: async () => ({ ...(await accessFor('eve', 'eve@example.com').access()), personId: 'ann' }) });
+    await expect(someoneElse.push(link, [])).rejects.toThrow(/401/);
+    await expect(new RemoteHub(accessFor('eve', 'eve@example.com')).pull(link, 0)).rejects.toThrow(/404/);
+
+    await remote.unshare('ann', shared.hubProjectId);
+    expect(await hub.mine('ann')).toEqual([]);
+    await remote.unshare('ann', shared.hubProjectId);
+  });
+});

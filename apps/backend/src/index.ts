@@ -220,6 +220,9 @@ import { HubRootClient } from './services/HubRootClient.js';
 import { hubRouter } from './routes/hub.js';
 import { hubLinkRouter } from './routes/hub-link.js';
 import { hubRootRouter } from './routes/hub-root.js';
+import { hubInstanceRouter } from './routes/hub-instance.js';
+import { RemoteHub, RootHubAccess } from './services/HubRemote.js';
+import { HUB_AUDIENCE, hubInstancePart } from './lib/hub.js';
 import { projectSharingRouter } from './routes/project-sharing.js';
 import { giteaHubRepos } from './services/HubRepos.js';
 import { HubSyncService, localHubSync } from './services/HubSyncService.js';
@@ -968,7 +971,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       kubeconfig: kubeconfigFile(poolWatched.kubeconfig),
       sign: (instanceId, part) => issueMoveToken(role.signing!, instanceId, part),
     });
-    app.use('/api/instances', instancesRouter({ instances: instanceService, chart: () => instanceChart.path(), mail, requireAdmin, poolMonitoring, moveRelay }));
+    const hubAccess = role.signing && role.hubLink
+      ? async (instanceId: string, ownerId: string) => {
+        const owner = await db.getUserById(ownerId);
+        if (!owner) return undefined;
+        return { token: issueMoveToken(role.signing!, HUB_AUDIENCE, hubInstancePart(instanceId, ownerId, owner.email)), hubUrl: role.hubLink!.url, personId: ownerId, email: owner.email, instanceId };
+      }
+      : undefined;
+    app.use('/api/instances', instancesRouter({ instances: instanceService, chart: () => instanceChart.path(), mail, requireAdmin, poolMonitoring, moveRelay, hubAccess }));
     const installer = (await fs.readFile(path.join(repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', PUBLIC_URL);
     app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
     app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(repoRoot, 'scripts/setup-gpu.sh')));
@@ -986,14 +996,23 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     if (!sender) throw new Error('a hub needs root to send its invites');
     hubService = new HubService({ store: hubStore, invites: sender, repos: giteaHubRepos(giteaService) });
     app.use('/api/hub', hubRouter({ hub: hubService }));
+    if (role.role === 'hub' && role.trusted) app.use('/api/hub-instance', hubInstanceRouter({ hub: hubService, trusted: role.trusted }));
     if (role.role === 'hub' && role.trusted) app.use('/api/hub-root', hubRootRouter({ hub: hubService, trusted: role.trusted, forget: (id) => db.deleteUser(id) }));
   }
-  if (servesTenants(role) && hubService) {
-    const instanceId = 'combined';
+  const remoteHub = role.instance && process.env.INSTANCE_CREDENTIAL
+    ? new RemoteHub(new RootHubAccess({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: process.env.INSTANCE_CREDENTIAL }))
+    : undefined;
+  const hubReach = servesTenants(role) && hubService
+    ? { instanceId: 'combined', transport: localHubSync(hubService, 'combined'), sharing: localHubSharing(hubService, 'combined') }
+    : servesTenants(role) && remoteHub && role.instance
+      ? { instanceId: role.instance.id, transport: remoteHub, sharing: remoteHub }
+      : undefined;
+  if (hubReach) {
+    const instanceId = hubReach.instanceId;
     let sharingService: ProjectSharingService | undefined;
     const hubSync = new HubSyncService({
       store: db,
-      transport: localHubSync(hubService, instanceId),
+      transport: hubReach.transport,
       origin: `instance:${instanceId}`,
       repos: {
         ends: (link) => sharingService!.repoSides().ends(link),
@@ -1003,7 +1022,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     });
     sharingService = new ProjectSharingService({
       store: db,
-      sharing: localHubSharing(hubService, instanceId),
+      sharing: hubReach.sharing,
       sync: hubSync,
       dataKey: keys.data,
       ownerRepo: async (project) => {

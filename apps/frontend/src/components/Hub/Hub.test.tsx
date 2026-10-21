@@ -105,7 +105,7 @@ describe('taking an invite', () => {
 })
 
 describe('sharing a project from its settings', () => {
-  const unshared = { moves: { epics: 1, features: 2, stories: 5, tasks: 3, chats: 4, repository: 'shop' }, stays: ['the project\'s secrets'] }
+  const unshared = { canShare: true, moves: { epics: 1, features: 2, stories: 5, tasks: 3, chats: 4, repository: 'shop' }, stays: ['the project\'s secrets'] }
 
   it('says what goes and what stays before sharing, and shares only when asked', async () => {
     api.getSharing.mockResolvedValue(unshared)
@@ -119,6 +119,13 @@ describe('sharing a project from its settings', () => {
     expect(api.shareProject).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Share Shop' }))
     expect(await screen.findByRole('button', { name: /People on Shop/ })).toBeTruthy()
+  })
+
+  it('says sharing needs a hub where there is none, and offers nothing to press', async () => {
+    api.getSharing.mockResolvedValue({ ...unshared, canShare: false })
+    wrap(<ShareProject project={{ id: 'p1', name: 'Shop' }} />)
+    expect((await screen.findByTestId('share-project')).textContent).toContain('needs a hub')
+    expect(screen.queryByRole('button')).toBeNull()
   })
 
   it('takes it back only once its name is typed', async () => {

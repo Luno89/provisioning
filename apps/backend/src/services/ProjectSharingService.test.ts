@@ -35,7 +35,7 @@ describe('sharing a project from its owner\'s instance', () => {
   it('shows what would move and what stays, moves nothing until asked, then moves the board and its chats with their history', async () => {
     const { db, store, hub, sharing } = await setUp();
     const before = await sharing.preview('ann', 'p1');
-    expect(before).toEqual({ ok: true, value: { moves: { epics: 1, features: 1, stories: 1, tasks: 0, chats: 1 }, stays: expect.arrayContaining(['the project\'s secrets']) } });
+    expect(before).toEqual({ ok: true, value: { canShare: true, moves: { epics: 1, features: 1, stories: 1, tasks: 0, chats: 1 }, stays: expect.arrayContaining(['the project\'s secrets']) } });
     expect(await hub.mine('ann')).toEqual([]);
     expect(await sharing.preview('bo', 'p1')).toMatchObject({ ok: false, status: 404 });
 

@@ -10,11 +10,13 @@ import type { HubRepoSides } from './HubSyncService.js';
 import type { HubService } from './HubService.js';
 
 export interface HubSharing {
+  reachable(): Promise<boolean>;
   share(owner: { id: string; email: string }, project: { id: string; name: string }): Promise<{ hubProjectId: string; repo?: HubRepoAccess | undefined }>;
   unshare(ownerId: string, hubProjectId: string): Promise<void>;
 }
 
 export interface SharingPreview {
+  canShare: boolean;
   shared?: { hubProjectId: string; sharedAt: string } | undefined;
   moves: { epics: number; features: number; stories: number; tasks: number; chats: number; repository?: string | undefined };
   stays: string[];
@@ -80,6 +82,7 @@ export class ProjectSharingService {
     return {
       ok: true,
       value: {
+        canShare: link ? true : await this.deps.sharing.reachable(),
         ...(link ? { shared: { hubProjectId: link.hubProjectId, sharedAt: link.sharedAt } } : {}),
         moves: {
           epics: count('trees'), features: count('branches'), stories: count('leaves'), tasks: count('tasks'), chats: count('conversations'),
@@ -94,6 +97,7 @@ export class ProjectSharingService {
     const project = await this.project(owner.id, projectId);
     if (!project) return { ok: false, status: 404, why: 'There is no such project.' };
     if (!(await this.deps.store.getHubLinks()).some((entry) => entry.projectId === projectId)) {
+      if (!await this.deps.sharing.reachable()) return { ok: false, status: 409, why: 'Sharing needs a hub, and this Koala has none.' };
       const shared = await this.deps.sharing.share(owner, { id: project.id, name: project.name });
       await this.deps.store.saveHubLink({
         projectId, ownerId: owner.id, hubProjectId: shared.hubProjectId, pulledThrough: 0, sharedAt: this.now(),
@@ -141,6 +145,7 @@ export class ProjectSharingService {
 
 export function localHubSharing(hub: { share: HubService['share']; unshare: HubService['unshare'] }, instanceId: string): HubSharing {
   return {
+    reachable: async () => true,
     async share(owner, project) {
       const outcome = await hub.share({ kind: 'instance', personId: owner.id, instanceId, email: owner.email }, { name: project.name, projectId: project.id });
       if (!outcome.ok) throw new Error(outcome.why);

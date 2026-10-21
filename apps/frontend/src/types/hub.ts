@@ -69,6 +69,7 @@ export interface RootInvitation {
  * Authority: `SharingPreview` in apps/backend/src/services/ProjectSharingService.ts.
  */
 export interface SharingPreview {
+  canShare: boolean
   shared?: { hubProjectId: string; sharedAt: string }
   moves: { epics: number; features: number; stories: number; tasks: number; chats: number; repository?: string }
   stays: string[]
