@@ -17,8 +17,16 @@ export const authKeys = {
   me: () => ['auth', 'me'] as const,
 }
 
+export const signedOut = (err: unknown): boolean => {
+  const status = (err as { response?: { status?: number } }).response?.status
+  return status === 401 || status === 403
+}
+
 export const getMe = (): Promise<SessionUser | null> =>
-  api.get<SessionUser>('/auth/me').then((r) => r.data).catch(() => null)
+  api.get<SessionUser>('/auth/me').then((r) => r.data).catch((err: unknown) => {
+    if (signedOut(err)) return null
+    throw err
+  })
 
 export const logout = (): Promise<void> =>
   api.post('/auth/logout', {}).then(() => undefined)

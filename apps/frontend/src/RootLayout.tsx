@@ -46,6 +46,8 @@ const TOAST_TONE: Record<ToastKind, { border: string; icon: string }> = {
   error: { border: 'border-rose-500', icon: 'text-rose-400' },
 };
 
+const ME_RETRY_MS = 2000;
+
 export function RootLayout() {
   const queryClient = useQueryClient();
   const location = useLocation();
@@ -82,9 +84,19 @@ export function RootLayout() {
   }, [user]);
 
   useEffect(() => {
-    getMe()
-      .then((data) => { if (data) setUser(data); })
-      .finally(() => setAuthLoading(false));
+    let stopped = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const ask = () => {
+      getMe()
+        .then((data) => {
+          if (stopped) return;
+          if (data) setUser(data);
+          setAuthLoading(false);
+        })
+        .catch(() => { if (!stopped) retry = setTimeout(ask, ME_RETRY_MS); });
+    };
+    ask();
+    return () => { stopped = true; if (retry) clearTimeout(retry); };
   }, [setUser, setAuthLoading]);
 
   const handleLogout = async () => {

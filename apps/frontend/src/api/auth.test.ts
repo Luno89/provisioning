@@ -26,9 +26,16 @@ describe('getMe', () => {
   });
 
   it('resolves null — not a rejection — when nobody is signed in', async () => {
-    mocked.get.mockRejectedValue(new Error('401'));
+    mocked.get.mockRejectedValue(Object.assign(new Error('401'), { response: { status: 401 } }));
 
     await expect(getMe()).resolves.toBeNull();
+  });
+
+  it('rejects when the backend did not answer, so a restart is never taken for being signed out', async () => {
+    mocked.get.mockRejectedValue(Object.assign(new Error('Network Error'), { response: undefined }));
+    await expect(getMe()).rejects.toThrow('Network Error');
+    mocked.get.mockRejectedValue(Object.assign(new Error('502'), { response: { status: 502 } }));
+    await expect(getMe()).rejects.toThrow('502');
   });
 });
 
