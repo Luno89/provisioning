@@ -51,6 +51,7 @@ npm run test:monitoring-live      # a throwaway app on the system cluster → Mo
 npm run test:infrastructure-live   # Infrastructure reads the system cluster → a workload that cannot pull its image, put there by hand, shows in Needs attention and on the cluster page as not deployed through Koala, then leaves once removed → a Koala chat turn on a model that does not exist shows as failed work, opens its chat and clears → whatever the memory keeper keeps from the run and the quiet conversation is retired, ~15 min
 npm run test:dev-split-live        # against a running `npm run dev:split`: the instance sends a signed-out person to root → root's Google sign-in (the dev mock) → root knows the instance and serves none of its routes → its one-time token signs you into the instance, and not twice → your work is there and the instance makes no accounts → the instance's credential is taken by root and a wrong one refused, ~10 s
 npm run test:hub-live              # against the running dev stack (combined): an admin's invite signs up an owner, who makes two shared projects and invites a collaborator and a client to one and someone else to the other → root shows each invite signed out and signs up only the address invited → the outsider reaches nothing of the first project by id, guess or another's invite → each role can do only what it may → roles change, an invite is taken back, people are removed and leave, the last owner cannot → the owner's removal refused while they alone own a project someone else is on, the outsider's removal taking them off it → one project deleted by name and the owner's removal deleting the other, their databases gone, ~1 min
+npm run test:project-sharing-live  # against the running dev stack (combined): a throwaway project with a repository and a channel someone talked in → the preview says what goes and stays, nothing is on the hub → shared, the channel arrives with its history and a new message follows → a commit on the owner's main reaches the hub's and one pushed to the hub's reaches the owner's → taken back by its name: the hub's database and repository are gone, everything stays on the instance; the account removes itself, ~30 s
 npm run test:openrouter-connect-live # against a running `npm run dev:split`: signed in through root, Connect OpenRouter sends you to OpenRouter's sign-in with a PKCE challenge and a state → a state Koala did not make is refused before OpenRouter is asked → OpenRouter's refusal of a made-up code is told in plain words → nothing changed; approving on OpenRouter is yours, ~5 s
 npm run test:machine-story-live    # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine by hand → the planner, on it, proposes a one-story tree through propose_plan → approved, the first run stopped → every agent in the tree's work put on the machine → the story is worked in a checkout on the machine, checked with run_in_workspace and its task check in the tree's workspace, judged and settled by the scripted judges → it succeeds, label.txt is on main and no machine branch is left; removes the tree, the conversation and the agent, retires what the memory keeper kept, ~30 min (most of it the keeper)
 npm run test:machine-odoo-live     # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine and every agent of an Odoo 20 tree is put on it → the module is written without its test, odoo-check runs as the task check, the judge on the machine says not met, the story fails and the planner, in its checkout on the machine, reads leaves/<story>.failed.md and proposes a replan → approved, the test is met and the browser task's judge ends without a verdict, so that task fails and is never taken as met → replanned again, the browser task is met, the leaf judge verifies, it lands on main with no machine branch left, the starter is live in slot a and the landed build previews in slot b with the module installed; removes the project, the conversation and the agent, ~30 min
@@ -383,7 +384,24 @@ signed requests to the hub's `/api/hub-root/people/:id`, a token for audience `h
 `issueMoveToken`). It is refused while they are the only owner of a shared project someone else is on (`leavingAll` in
 `lib/hub.ts`, listed among the removal's blockers); a project only they are on is deleted; from every other one they are
 taken off, with the invites they sent; the hub forgets its copy of them. Not yet: the board, channel and repository on the
-hub (step 2), members working stories (3), the View tab (4).
+hub (step 2's member screens), members working stories (3), the View tab (4).
+
+**Sharing a project (step 2).** A project stays entirely on its owner's instance until they share it from its Settings →
+People, which first lists what goes (the board, the channel and story and feature chats with their history, the
+repository) and what stays (other chats, secrets, builds and releases, the app; `ProjectSharingService`,
+`/api/project-sharing/:id`). Sharing makes the hub's copy (`HubService.share`, only from an instance: in process when
+combined, else `/api/hub-instance/*` with a token root signs for the instance and its owner, `POST /api/instances/hub-token`,
+`RemoteHub`) and a repository in the project's own Gitea organisation (`shared-<id>/project`, a bot with write access whose
+token only the owner's instance holds; `HubRepos`). **The owner's instance keeps a working copy** and the engine is
+unchanged: every write to a tree, branch, leaf, task, conversation or plan proposal marks it (`markingHubWrites` wraps
+`createDatabase()`, so every process does; `hubDirty`, only while anything is shared), and `HubSyncService` (every 3 s)
+sends a shared project's records as field patches against what the hub last agreed (`hubSnapshots`; chat messages one by
+one, `lib/hub-sync.ts`), pulls what others changed (applied without marking), and syncs `main` with git (`HubRepoSync`:
+fast-forward whichever is behind, merge when both moved, on a conflict neither changes, the hub's main is kept as
+`hub/main-<time>` and the channel is told). The hub orders changes per project (`changes`, `board_*` in `hub_<id>`) and
+takes them only from the sharer's own instance. **Taking it back** (typing its name) deletes the hub's copy and
+repository; a project deleted on the hub stops being shared on its instance at its next sync. Where root has no hub,
+Share says so. `npm run test:project-sharing-live` proves it combined.
 
 **Trial instances on Koala's servers (the pool, per-user instances step 5c; plan `~/.claude/plans/pool-instances.md`).**
 Someone with no machine of their own can try Koala on a **pool node**: root's own k3s (`bootstrap.sh` sets it up) or a server of
