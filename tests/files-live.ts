@@ -67,7 +67,13 @@ async function newProject(name: string): Promise<Project> {
 async function deleteProject(project: Project): Promise<void> {
   const removing = await api!.delete(`/projects/${project.id}`, { data: { confirm: project.name } });
   assert.ok(removing.status < 300, JSON.stringify(removing.data));
-  await until(`${project.name} to be deleted`, async () => ((await api!.get(`/projects/${project.id}/removal`)).data as { state: string }).state === 'finished' ? true : undefined);
+  await until(`${project.name} to be deleted`, async () => {
+    const answer = await api!.get(`/projects/${project.id}/removal`);
+    if (answer.status === 404) return true;
+    const state = (answer.data as { state?: { state: string; reason?: string } }).state;
+    if (state?.state === 'failed') throw new Error(`deleting ${project.name} failed: ${state.reason}`);
+    return state?.state === 'finished' ? true : undefined;
+  });
   projects.splice(projects.indexOf(project), 1);
 }
 
