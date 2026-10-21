@@ -295,7 +295,7 @@ export function RootLayout() {
   }
 
   if (user.onHub) {
-    const hubPage = ['/shared', '/shared-new', '/hub/join'].some((prefix) => location.pathname.startsWith(prefix));
+    const hubPage = ['/shared', '/hub/join'].some((prefix) => location.pathname.startsWith(prefix));
     return (
       <HubShell email={user.email} onLogout={() => void handleLogout()}>
         {hubPage ? <Outlet /> : <Navigate to="/shared" replace />}

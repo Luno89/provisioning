@@ -20,13 +20,6 @@ export function hubRouter(deps: { hub: HubService }): Router {
     res.json(await deps.hub.mine(personOf(req).id));
   }));
 
-  router.post('/projects', asyncRoute(async (req, res) => {
-    const origin = req.body?.origin && typeof req.body.origin.projectId === 'string'
-      ? { projectId: String(req.body.origin.projectId), ...(typeof req.body.origin.instanceId === 'string' ? { instanceId: String(req.body.origin.instanceId) } : {}) }
-      : undefined;
-    answer(res, await deps.hub.create(personOf(req), { name: req.body?.name, ...(origin ? { origin } : {}) }), 201);
-  }));
-
   router.get('/projects/:id', asyncRoute(async (req, res) => {
     answer(res, await deps.hub.view(personOf(req).id, param(req, 'id')));
   }));

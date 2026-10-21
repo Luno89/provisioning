@@ -102,6 +102,9 @@ export interface HubLink {
   hubProjectId: string;
   pulledThrough: number;
   sharedAt: string;
+  repo?: { url: string; username: string; tokenEnc: string } | undefined;
+  repoHeads?: { owner?: string | undefined; hub?: string | undefined } | undefined;
+  repoConflict?: { owner?: string | undefined; hub?: string | undefined; kept: string } | undefined;
 }
 
 export interface HubDirty {

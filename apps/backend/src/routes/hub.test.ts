@@ -24,15 +24,16 @@ async function hubFor(people: { id: string; email: string }[]) {
     harnesses.push(site);
     sites.push(site);
   }
-  return { sites, invites };
+  return { sites, invites, hub };
 }
 
 describe('/api/hub', () => {
   it('makes a shared project, invites by email, and lets the person invited in with their role', async () => {
-    const { sites: [ann, cy, eve], invites } = await hubFor([{ id: 'ann', email: 'ann@example.com' }, { id: 'cy', email: 'cy@example.com' }, { id: 'eve', email: 'eve@example.com' }]);
-    const made = await axios.post(ann!.url('/api/hub/projects'), { name: 'Shop', origin: { projectId: 'p1' } }, ask);
-    expect(made.status).toBe(201);
-    const id = (made.data as { project: { id: string } }).project.id;
+    const { sites: [ann, cy, eve], invites, hub } = await hubFor([{ id: 'ann', email: 'ann@example.com' }, { id: 'cy', email: 'cy@example.com' }, { id: 'eve', email: 'eve@example.com' }]);
+    const made = await hub.share({ kind: 'instance', personId: 'ann', instanceId: 'i1', email: 'ann@example.com' }, { name: 'Shop', projectId: 'p1' });
+    if (!made.ok) throw new Error(made.why);
+    const id = made.value.view.project.id;
+    expect((await axios.post(ann!.url('/api/hub/projects'), { name: 'Shop' }, ask)).status).toBe(404);
 
     const invited = await axios.post(ann!.url(`/api/hub/projects/${id}/invites`), { email: 'cy@example.com', role: 'client' }, ask);
     expect(invited.status).toBe(201);
@@ -47,8 +48,10 @@ describe('/api/hub', () => {
   });
 
   it('shows someone not on a project nothing of it, and lets no client invite or change roles', async () => {
-    const { sites: [ann, cy, eve], invites } = await hubFor([{ id: 'ann', email: 'ann@example.com' }, { id: 'cy', email: 'cy@example.com' }, { id: 'eve', email: 'eve@example.com' }]);
-    const id = ((await axios.post(ann!.url('/api/hub/projects'), { name: 'Shop' })).data as { project: { id: string } }).project.id;
+    const { sites: [ann, cy, eve], invites, hub } = await hubFor([{ id: 'ann', email: 'ann@example.com' }, { id: 'cy', email: 'cy@example.com' }, { id: 'eve', email: 'eve@example.com' }]);
+    const made = await hub.share({ kind: 'instance', personId: 'ann', instanceId: 'i1', email: 'ann@example.com' }, { name: 'Shop', projectId: 'p1' });
+    if (!made.ok) throw new Error(made.why);
+    const id = made.value.view.project.id;
     await axios.post(ann!.url(`/api/hub/projects/${id}/invites`), { email: 'cy@example.com', role: 'client' });
     await axios.post(cy!.url(`/api/hub/invitations/${invites[0]!.project!.join}/accept`));
 

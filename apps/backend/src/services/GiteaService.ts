@@ -858,6 +858,29 @@ export class GiteaService {
     }
   }
 
+  async ensureOrg(org: string): Promise<void> {
+    const found = await this.apiFetch(`/api/v1/orgs/${encodeURIComponent(org)}`);
+    if (found.ok) return;
+    const res = await this.apiFetch('/api/v1/orgs', { method: 'POST', body: JSON.stringify({ username: org, visibility: 'private' }) });
+    if (!res.ok && res.status !== 422) throw new Error(`Gitea would not make the organisation ${org} (HTTP ${res.status}): ${(await res.text()).slice(0, 200)}`);
+  }
+
+  async ensureOrgRepo(org: string, name: string): Promise<void> {
+    if (await this.findRepo(org, name)) return;
+    const res = await this.apiFetch(`/api/v1/orgs/${encodeURIComponent(org)}/repos`, { method: 'POST', body: JSON.stringify({ name, private: true, auto_init: false }) });
+    if (!res.ok && res.status !== 409) throw new Error(`Gitea would not make ${org}/${name} (HTTP ${res.status}): ${(await res.text()).slice(0, 200)}`);
+  }
+
+  async letWrite(owner: string, name: string, username: string): Promise<void> {
+    const res = await this.apiFetch(`/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/collaborators/${encodeURIComponent(username)}`, { method: 'PUT', body: JSON.stringify({ permission: 'write' }) });
+    if (!res.ok) throw new Error(`Gitea would not let ${username} write to ${owner}/${name} (HTTP ${res.status}): ${(await res.text()).slice(0, 200)}`);
+  }
+
+  async deleteOrg(org: string): Promise<void> {
+    const res = await this.apiFetch(`/api/v1/orgs/${encodeURIComponent(org)}`, { method: 'DELETE' });
+    if (!res.ok && res.status !== 404) throw new Error(`Gitea would not delete the organisation ${org} (HTTP ${res.status}): ${(await res.text()).slice(0, 200)}`);
+  }
+
   async deleteUser(username: string): Promise<boolean> {
     const res = await this.apiFetch(`/api/v1/admin/users/${encodeURIComponent(username)}?purge=true`, { method: 'DELETE' });
     if (res.status === 404) return false;

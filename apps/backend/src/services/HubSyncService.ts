@@ -1,15 +1,22 @@
 import { applyPatch, diffRecord, type HubChange, type HubDirty, type HubLink, type HubSyncStore, type RecordChange, type SyncedDoc, type SyncedKind } from '../lib/hub-sync.js';
 import type { HubService } from './HubService.js';
+import { mainHeads, syncMain, type GitEnd } from './HubRepoSync.js';
 
 export interface HubSyncTransport {
   push(link: HubLink, changes: RecordChange[]): Promise<{ through: number }>;
   pull(link: HubLink, after: number): Promise<{ changes: HubChange[]; through: number }>;
 }
 
+export interface HubRepoSides {
+  ends(link: HubLink): Promise<{ owner: GitEnd; hub: GitEnd } | undefined>;
+  conflicted(link: HubLink, conflict: { files: string[]; kept: string }): Promise<void>;
+}
+
 export interface HubSyncDeps {
   store: HubSyncStore;
   transport: HubSyncTransport;
   origin: string;
+  repos?: HubRepoSides | undefined;
   log?: ((line: string) => void) | undefined;
 }
 
@@ -114,12 +121,42 @@ export class HubSyncService {
     return applied;
   }
 
+  async syncRepos(): Promise<number> {
+    let moved = 0;
+    if (!this.deps.repos) return moved;
+    for (const link of await this.deps.store.getHubLinks()) {
+      if (!link.repo) continue;
+      try {
+        const ends = await this.deps.repos.ends(link);
+        if (!ends) continue;
+        const heads = await mainHeads(ends.owner, ends.hub);
+        const unchanged = (known: { owner?: string | undefined; hub?: string | undefined } | undefined) => known?.owner === heads.owner && known?.hub === heads.hub;
+        if (unchanged(link.repoHeads) || unchanged(link.repoConflict)) continue;
+        const synced = await syncMain(ends.owner, ends.hub, () => `hub/main-${new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14)}`);
+        const fresh = (await this.deps.store.getHubLinks()).find((entry) => entry.projectId === link.projectId);
+        if (!fresh) continue;
+        if (synced.outcome === 'conflict') {
+          await this.deps.store.saveHubLink({ ...fresh, repoConflict: { ...heads, kept: synced.kept } });
+          await this.deps.repos.conflicted(fresh, { files: synced.files, kept: synced.kept });
+        } else {
+          const { repoConflict: _cleared, ...rest } = fresh;
+          await this.deps.store.saveHubLink({ ...rest, repoHeads: { owner: synced.head, hub: synced.head } });
+          if (synced.outcome !== 'same') moved += 1;
+        }
+      } catch (err) {
+        this.deps.log?.(`hub sync: ${link.projectId}'s main not synced yet: ${(err as Error).message}`);
+      }
+    }
+    return moved;
+  }
+
   async once(): Promise<void> {
     if (this.busy) return;
     this.busy = true;
     try {
       await this.pushOnce();
       await this.pullOnce();
+      await this.syncRepos();
     } finally {
       this.busy = false;
     }

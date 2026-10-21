@@ -4,9 +4,10 @@ import {
   type HubAction, type HubInvite, type HubMember, type HubRole, type SharedProject,
 } from '../lib/hub.js';
 import type { HubStore, SharedProjectStore } from '../lib/hub-store.js';
+import type { HubRepoAccess, HubRepos } from './HubRepos.js';
 import { applyPatch, isSyncedKind, type HubChange, type RecordChange } from '../lib/hub-sync.js';
 
-export type SyncOrigin = { kind: 'instance'; personId: string; instanceId: string } | { kind: 'person'; personId: string };
+export type SyncOrigin = { kind: 'instance'; personId: string; instanceId: string; email?: string | undefined } | { kind: 'person'; personId: string };
 
 export const originName = (origin: SyncOrigin): string => (origin.kind === 'instance' ? `instance:${origin.instanceId}` : `person:${origin.personId}`);
 
@@ -24,6 +25,7 @@ export interface InviteSender {
 export interface HubServiceDeps {
   store: HubStore;
   invites: InviteSender;
+  repos?: HubRepos | undefined;
   now?: (() => string) | undefined;
 }
 
@@ -237,7 +239,25 @@ export class HubService {
     return { ok: true, value: { deleted: projectId } };
   }
 
+  async share(origin: SyncOrigin, input: { name: unknown; projectId: unknown }): Promise<HubOutcome<{ view: ProjectView; repo?: HubRepoAccess | undefined }>> {
+    if (origin.kind !== 'instance') return refuse('A project is shared from the instance it is worked on.');
+    if (typeof input.projectId !== 'string' || !input.projectId) return wrong('name the project being shared');
+    if (!origin.email) return wrong('the instance did not say whose project this is');
+    const made = await this.create({ id: origin.personId, email: origin.email }, { name: input.name, origin: { instanceId: origin.instanceId, projectId: input.projectId } });
+    if (!made.ok) return made;
+    const repo = this.deps.repos ? await this.deps.repos.create(made.value.project.id) : undefined;
+    return { ok: true, value: { view: made.value, ...(repo ? { repo } : {}) } };
+  }
+
+  async unshare(origin: SyncOrigin, projectId: string): Promise<HubOutcome<{ deleted: string }>> {
+    const allowed = await this.fromOwnerInstance(origin, projectId);
+    if (!allowed.ok) return allowed;
+    await this.dropProject(allowed.value);
+    return { ok: true, value: { deleted: projectId } };
+  }
+
   private async dropProject(access: Access): Promise<void> {
+    if (this.deps.repos) await this.deps.repos.remove(access.project.id);
     for (const invite of await access.store.invites()) await this.deps.store.forgetInvite(invite.token);
     for (const member of access.members) await this.deps.store.removeMembership(member.personId, access.project.id);
     await this.deps.store.deleteProject(access.project.id);

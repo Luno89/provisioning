@@ -150,5 +150,22 @@ describe('a shared project and its people', () => {
     expect(await hub.receive(fromAnn, id, [{ kind: 'secrets', id: 'x', deleted: true }])).toMatchObject({ status: 400 });
     expect(await store.project(id).records('leaves')).toHaveLength(1);
   });
+
+  it('is shared only from an instance, with a repository on the hub, and is taken back only by that instance, which deletes everything of it', async () => {
+    const repos = { create: vi.fn(async (id: string) => ({ url: `http://gitea/shared-${id}/project.git`, username: `shared-${id}-bot`, token: 't' })), remove: vi.fn(async () => undefined) };
+    const store = memoryHubStore();
+    const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) }, repos });
+    const fromAnn = { kind: 'instance' as const, personId: 'ann', instanceId: 'i-ann', email: 'ann@example.com' };
+    expect(await hub.share({ kind: 'person', personId: 'ann' }, { name: 'Shop', projectId: 'p1' })).toMatchObject({ ok: false, status: 403 });
+    const shared = valueOf(await hub.share(fromAnn, { name: 'Shop', projectId: 'p1' }));
+    expect(shared.view).toMatchObject({ role: 'owner', project: { name: 'Shop', createdBy: 'ann', origin: { instanceId: 'i-ann', projectId: 'p1' } } });
+    expect(shared.repo?.url).toBe(`http://gitea/shared-${shared.view.project.id}/project.git`);
+    expect(valueOf(await hub.share(fromAnn, { name: 'Shop', projectId: 'p1' })).view.project.id).toBe(shared.view.project.id);
+
+    expect(await hub.unshare({ ...fromAnn, instanceId: 'i-other' }, shared.view.project.id)).toMatchObject({ ok: false, status: 403 });
+    expect(valueOf(await hub.unshare(fromAnn, shared.view.project.id))).toEqual({ deleted: shared.view.project.id });
+    expect(repos.remove).toHaveBeenCalledWith(shared.view.project.id);
+    expect([await store.getProject(shared.view.project.id), await hub.mine('ann')]).toEqual([undefined, []]);
+  });
 });
 

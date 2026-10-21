@@ -63,3 +63,13 @@ export interface RootInvitation {
   project?: { name: string; role: string; join: string }
   used: boolean
 }
+
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Authority: `SharingPreview` in apps/backend/src/services/ProjectSharingService.ts.
+ */
+export interface SharingPreview {
+  shared?: { hubProjectId: string; sharedAt: string }
+  moves: { epics: number; features: number; stories: number; tasks: number; chats: number; repository?: string }
+  stays: string[]
+}

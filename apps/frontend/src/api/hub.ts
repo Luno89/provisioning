@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { HubRole, Invitation, InviteSent, RootInvitation, SharedProject, SharedProjectView } from '../types/hub'
+import type { HubRole, Invitation, InviteSent, RootInvitation, SharedProject, SharedProjectView, SharingPreview } from '../types/hub'
 
 export const hubKeys = {
   all: ['hub'] as const,
@@ -13,9 +13,6 @@ const project = (id: string) => `/hub/projects/${encodeURIComponent(id)}`
 
 export const listSharedProjects = (): Promise<{ project: SharedProject; role: HubRole }[]> =>
   api.get<{ project: SharedProject; role: HubRole }[]>('/hub/projects').then((r) => r.data)
-
-export const createSharedProject = (body: { name: string; origin?: { projectId: string; instanceId?: string } }): Promise<SharedProjectView> =>
-  api.post<SharedProjectView>('/hub/projects', body).then((r) => r.data)
 
 export const getSharedProject = (id: string): Promise<SharedProjectView> =>
   api.get<SharedProjectView>(project(id)).then((r) => r.data)
@@ -48,3 +45,14 @@ export const HUB_GO_URL = (next: string): string => `/api/identity/go?to=hub&nex
 
 export const hubElsewhere = (): Promise<string | null> =>
   api.get<{ hub?: string | null }>('/auth/sign-in').then((r) => r.data.hub ?? null).catch(() => null)
+
+export const sharingKeys = { of: (projectId: string) => ['project-sharing', projectId] as const }
+
+export const getSharing = (projectId: string): Promise<SharingPreview> =>
+  api.get<SharingPreview>(`/project-sharing/${encodeURIComponent(projectId)}`).then((r) => r.data)
+
+export const shareProject = (projectId: string): Promise<SharingPreview> =>
+  api.post<SharingPreview>(`/project-sharing/${encodeURIComponent(projectId)}`).then((r) => r.data)
+
+export const takeProjectBack = (projectId: string, confirm: string): Promise<SharingPreview> =>
+  api.delete<SharingPreview>(`/project-sharing/${encodeURIComponent(projectId)}`, { data: { confirm } }).then((r) => r.data)

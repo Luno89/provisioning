@@ -139,3 +139,13 @@ export function postedNotice(value: Readonly<Record<string, unknown>>): Conversa
     actions,
   };
 }
+
+export function hubConflictNotice(project: { id: string; name: string }, conflict: { files: readonly string[]; kept: string }, treeId: string | undefined): ConversationNotice {
+  return {
+    key: `hub-main-conflict:${project.id}:${conflict.kept}`,
+    kind: 'hub-main-conflict',
+    text: `${project.name}'s main and the shared main on the hub changed the same lines (${conflict.files.join(', ') || 'files git could not name'}), so neither was changed. The hub's main is kept as the branch ${conflict.kept}; merge it into main and the two are joined again.`,
+    refs: { projectId: project.id, ...(treeId ? { treeId } : {}) },
+    actions: ['open-tree'],
+  };
+}

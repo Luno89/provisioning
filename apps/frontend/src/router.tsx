@@ -25,7 +25,7 @@ import ModelsView from './components/Studio/ModelsView';
 import StudioFrame from './components/Studio/StudioFrame';
 import TreeTypes from './components/TreeTypes/index.js';
 import SettingsView from './components/SettingsView';
-import { HubJoinRoute, NewSharedProjectRoute, SharedProjectRoute, SharedProjectsRoute } from './components/Hub/HubRoutes';
+import { HubJoinRoute, SharedProjectRoute, SharedProjectsRoute } from './components/Hub/HubRoutes';
 
 export const rootRoute = createRootRoute({
   component: RootLayout,
@@ -387,17 +387,6 @@ export const sharedProjectRoute = createRoute({
   component: SharedProjectRoute,
 });
 
-export const newSharedProjectRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/shared-new',
-  validateSearch: (search: Record<string, unknown>) => ({
-    ...(typeof search.name === 'string' ? { name: search.name } : {}),
-    ...(typeof search.project === 'string' ? { project: search.project } : {}),
-    ...(typeof search.instance === 'string' ? { instance: search.instance } : {}),
-  }),
-  component: NewSharedProjectRoute,
-});
-
 export const hubJoinRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/hub/join/$token',
@@ -419,7 +408,6 @@ export const routeTree = rootRoute.addChildren([
   joinRoute,
   sharedProjectsRoute,
   sharedProjectRoute,
-  newSharedProjectRoute,
   hubJoinRoute,
   poolRoute,
   adminRoute,

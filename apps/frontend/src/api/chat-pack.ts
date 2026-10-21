@@ -13,7 +13,7 @@ export const chatPackKeys = {
  * ── DUPLICATED, KNOWINGLY ──
  * Authority: `ConversationNotice` and `MessageAuthor` in apps/backend/src/lib/conversations.ts.
  */
-export type NoticeKind = 'preview-ready' | 'release-live' | 'release-failed' | 'tree-quiet' | 'leaf-failed' | 'secret-needed' | 'workspace-ready' | 'workspace-waiting' | 'workspace-failed' | 'client-database-awaited' | 'alert-firing' | 'alert-resolved'
+export type NoticeKind = 'hub-main-conflict' | 'preview-ready' | 'release-live' | 'release-failed' | 'tree-quiet' | 'leaf-failed' | 'secret-needed' | 'workspace-ready' | 'workspace-waiting' | 'workspace-failed' | 'client-database-awaited' | 'alert-firing' | 'alert-resolved'
 export type NoticeAction = 'open-preview' | 'open-app' | 'cut-over' | 'open-tree' | 'open-story' | 'enter-secret' | 'open-workspace' | 'open-settings' | 'open-monitoring'
 
 export interface ConversationNotice {

@@ -220,6 +220,10 @@ import { HubRootClient } from './services/HubRootClient.js';
 import { hubRouter } from './routes/hub.js';
 import { hubLinkRouter } from './routes/hub-link.js';
 import { hubRootRouter } from './routes/hub-root.js';
+import { projectSharingRouter } from './routes/project-sharing.js';
+import { giteaHubRepos } from './services/HubRepos.js';
+import { HubSyncService, localHubSync } from './services/HubSyncService.js';
+import { localHubSharing, ProjectSharingService } from './services/ProjectSharingService.js';
 import { localHubPeople, RemoteHubPeople, type HubPeople } from './services/HubPeople.js';
 import { memoryHubStore } from './lib/hub-store.js';
 import { mongoHubStore } from './lib/hub-mongo.js';
@@ -980,9 +984,36 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     await hubStore.init();
     const sender = role.hub ? new HubRootClient(role.hub) : projectInvites;
     if (!sender) throw new Error('a hub needs root to send its invites');
-    hubService = new HubService({ store: hubStore, invites: sender });
+    hubService = new HubService({ store: hubStore, invites: sender, repos: giteaHubRepos(giteaService) });
     app.use('/api/hub', hubRouter({ hub: hubService }));
     if (role.role === 'hub' && role.trusted) app.use('/api/hub-root', hubRootRouter({ hub: hubService, trusted: role.trusted, forget: (id) => db.deleteUser(id) }));
+  }
+  if (servesTenants(role) && hubService) {
+    const instanceId = 'combined';
+    let sharingService: ProjectSharingService | undefined;
+    const hubSync = new HubSyncService({
+      store: db,
+      transport: localHubSync(hubService, instanceId),
+      origin: `instance:${instanceId}`,
+      repos: {
+        ends: (link) => sharingService!.repoSides().ends(link),
+        conflicted: (link, conflict) => sharingService!.repoSides().conflicted(link, conflict),
+      },
+      log: (line) => console.warn(`[HubSync] ${line}`),
+    });
+    sharingService = new ProjectSharingService({
+      store: db,
+      sharing: localHubSharing(hubService, instanceId),
+      sync: hubSync,
+      dataKey: keys.data,
+      ownerRepo: async (project) => {
+        const admin = await giteaService.getAdminCredentials();
+        return { url: await giteaService.repoGitUrl(project.giteaOwner, project.giteaRepo), auth: { username: admin.username, token: admin.password } };
+      },
+      notify: (ownerId, scope, notice) => notices.post(ownerId, scope, notice),
+    });
+    hubSync.start(3_000);
+    tenant.use('/api/project-sharing', projectSharingRouter({ sharing: sharingService }));
   }
   const hubPeople: HubPeople | undefined = hubService
     ? localHubPeople(hubService)

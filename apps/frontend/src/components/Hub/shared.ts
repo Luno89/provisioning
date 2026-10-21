@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  acceptInvitation, changeMemberRole, createSharedProject, deleteSharedProject, getInvitation, getRootInvitation, getSharedProject, hubKeys,
+  acceptInvitation, changeMemberRole, deleteSharedProject, getSharing, shareProject, sharingKeys, takeProjectBack, getInvitation, getRootInvitation, getSharedProject, hubKeys,
   inviteToProject, listSharedProjects, removeMember, takeInviteBack,
 } from '../../api/hub'
 import type { HubRole } from '../../types/hub'
@@ -19,15 +19,16 @@ export function useSharedProject(id: string) {
   return useQuery({ queryKey: hubKeys.project(id), queryFn: () => getSharedProject(id), retry: false })
 }
 
-export function useShareProject() {
+export function useSharing(projectId: string) {
   const client = useQueryClient()
-  return useMutation({
-    mutationFn: createSharedProject,
-    onSuccess: (view) => {
-      client.setQueryData(hubKeys.project(view.project.id), view)
-      void client.invalidateQueries({ queryKey: hubKeys.mine })
-    },
-  })
+  const preview = useQuery({ queryKey: sharingKeys.of(projectId), queryFn: () => getSharing(projectId) })
+  const settle = (next: Awaited<ReturnType<typeof getSharing>>) => {
+    client.setQueryData(sharingKeys.of(projectId), next)
+    void client.invalidateQueries({ queryKey: hubKeys.mine })
+  }
+  const share = useMutation({ mutationFn: () => shareProject(projectId), onSuccess: settle })
+  const takeBack = useMutation({ mutationFn: (confirm: string) => takeProjectBack(projectId, confirm), onSuccess: settle })
+  return { preview, share, takeBack }
 }
 
 export function usePeopleChanges(id: string) {
