@@ -7,6 +7,7 @@ import { Invites } from './Account/Invites';
 import { InstanceAddresses } from './Account/InstanceAddresses';
 import { InstanceMove } from './Move/InstanceMove';
 import { Notifications } from './Account/Notifications';
+import DefaultFileServer from './Files/DefaultFileServer'
 import GoogleDriveCard from './GoogleDriveCard';
 
 export default function SettingsView() {
@@ -112,6 +113,7 @@ export default function SettingsView() {
       <InstanceAddresses />
       <InstanceMove />
       <Notifications />
+      <DefaultFileServer />
       <GoogleDriveCard />
 
       {user.isAdmin && user.holdsAccounts !== false && <People />}

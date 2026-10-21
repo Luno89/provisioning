@@ -32,3 +32,22 @@ export const saveProjectFileContent = (
 
 export const deleteProjectFile = (projectId: string, path: string, sha: string): Promise<{ success: boolean }> =>
   api.delete<{ success: boolean }>(`/projects/${projectId}/files/content`, { params: { path, sha } }).then((r) => r.data)
+
+export const DROP_TYPE = 'application/vnd.koala.drop+json'
+
+export interface DroppedCode {
+  path: string
+  content: string
+}
+
+export const dropIntoRepository = (
+  projectId: string,
+  body: { dir: string; files: DroppedCode[]; ref?: string; message?: string },
+  onProgress?: (share: number) => void,
+): Promise<{ ok: true; paths: string[]; commit?: string }> =>
+  api.post<{ ok: true; paths: string[]; commit?: string }>(`/projects/${projectId}/files/drop`, JSON.stringify(body), {
+    headers: { 'Content-Type': DROP_TYPE },
+    timeout: 0,
+    maxBodyLength: Infinity,
+    onUploadProgress: (event) => onProgress?.(event.total ? event.loaded / event.total : 0),
+  }).then((r) => r.data)

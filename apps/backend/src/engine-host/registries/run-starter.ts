@@ -1,4 +1,5 @@
 import type { ModelReach } from '@koala/harness-types';
+import { attachmentsText, type MessageAttachment } from '../../lib/attachments.js';
 import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_ENGINE_TASK_QUEUE, RUN_ABOUT_MEMO, RUN_AGENT_MEMO, RUN_CONVERSATION_MEMO, RUN_ID_MEMO, workflowOfRun } from '../temporal/contracts.js';
 import type { SamplingConfig } from '@koala/harness-types';
@@ -35,6 +36,7 @@ export interface StartRunRequest {
   bound?: Record<string, string> | undefined;
   asks?: string | undefined;
   about?: string | undefined;
+  attachments?: MessageAttachment[] | undefined;
 }
 
 export interface StartedRun {
@@ -84,7 +86,7 @@ export interface RunStarterOptions {
   closing?: ((ownerId: string) => Promise<string | undefined>) | undefined;
   machines?: ((ownerId: string, choice: MachineChoice) => Promise<string | undefined>) | undefined;
   turns?: {
-    open(turn: { ownerId: string; conversationId: string; runId: string; message: string; asks?: string | undefined }): Promise<void>;
+    open(turn: { ownerId: string; conversationId: string; runId: string; message: string; asks?: string | undefined; attachments?: MessageAttachment[] | undefined }): Promise<void>;
     fail(turn: { ownerId: string; conversationId: string; runId: string }, why: string): Promise<void>;
   } | undefined;
 }
@@ -148,7 +150,7 @@ export function createRunStarter(options: RunStarterOptions) {
           ...(bound ?? {}),
           ...(request.bound ?? {}),
           ...(request.conversationId ? { conversationId: request.conversationId } : {}),
-          message: request.message,
+          message: `${request.message}${attachmentsText(request.attachments)}`,
         },
         ...(options.continueAfterEvents ? { continueAfterEvents: options.continueAfterEvents } : {}),
       };
@@ -156,7 +158,7 @@ export function createRunStarter(options: RunStarterOptions) {
       const turn = request.conversationId && options.turns && savesConversation(runnable.procedure)
         ? { ownerId: request.ownerId, conversationId: request.conversationId, runId }
         : undefined;
-      if (turn) await options.turns!.open({ ...turn, message: request.message, ...(request.asks ? { asks: request.asks } : {}) });
+      if (turn) await options.turns!.open({ ...turn, message: request.message, ...(request.asks ? { asks: request.asks } : {}), ...(request.attachments?.length ? { attachments: request.attachments } : {}) });
 
       try {
         await workflows.start('AgentRunWorkflow', {

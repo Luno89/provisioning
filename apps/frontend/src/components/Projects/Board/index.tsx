@@ -16,6 +16,8 @@ import type { LeafStatus } from '../../leaf-types'
 import { useResizableWidth } from '../Workspace/useResizableWidth'
 import { resizeHandle } from '../Workspace/shared'
 import { useProjectWork } from '../useProjectWork'
+import ProjectStoredFiles from '../../Files/ProjectStoredFiles'
+import { storyFolder } from '../../../lib/file-drop'
 import Reading from '../Reading'
 import { useRouteSync } from '../useRouteSync'
 import { buildBoard, byRank, featureOnly, type Epic } from './board'
@@ -228,6 +230,11 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
             <div className="mt-4">
               <StoryTasks tasks={(tasks.data ?? []).filter((task) => task.leafId === openLeaf.id).sort((a, b) => (openLeaf.tasks ?? []).indexOf(a.id) - (openLeaf.tasks ?? []).indexOf(b.id) || byRank(a, b))} />
             </div>
+            {project && (
+              <div className="mt-4 rounded border border-[var(--bark-700)] p-2" data-testid="story-files">
+                <ProjectStoredFiles projectId={project.id} dir={storyFolder(openLeaf.id)} title="Files for this story" />
+              </div>
+            )}
           </article>
         )}
         {main.kind === 'story' && !openLeaf && reading && <Reading label="Opening the story…" className="p-3" />}

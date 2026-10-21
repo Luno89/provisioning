@@ -1,4 +1,5 @@
 import type { ExtensionService, ExtensionState } from '../services/ExtensionService.js';
+import { readAttachments } from '../lib/attachments.js';
 import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import { NoNoteToAskError } from '../lib/conversations.js';
@@ -42,6 +43,7 @@ export interface WorkspaceImageAccess {
 
 export interface EngineRouterDeps {
   runs: RunStarter;
+  projects?: ((ownerId: string) => Promise<{ id: string; name: string }[]>) | undefined;
   approvals: Pick<ApprovalService, 'approve'>;
   registry: AgentRegistry;
   traces?: TraceAccess | undefined;
@@ -192,7 +194,7 @@ export function engineRouter(deps: EngineRouterDeps): Router {
   router.post('/tasks/:taskId/drop', decide('dropped'));
 
   router.post('/runs', asyncRoute(async (req: Request, res: Response) => {
-    const { agent, message, inputs, conversationId, modelId, modelReach, temperature, procedure, asks } = req.body ?? {};
+    const { agent, message, inputs, conversationId, modelId, modelReach, temperature, procedure, asks, attachments } = req.body ?? {};
 
     if (typeof agent !== 'string' || !agent.trim()) {
       return res.status(400).json({ error: 'agent is required' });
@@ -206,9 +208,13 @@ export function engineRouter(deps: EngineRouterDeps): Router {
       return res.status(400).json({ error: 'asks names the time of a posted message, and needs its conversationId' });
     }
 
+    const attached = readAttachments(attachments, attachments === undefined || !deps.projects ? [] : await deps.projects(userOf(req).id));
+    if (!attached.ok) return res.status(400).json({ error: attached.why });
+
     try {
       const started = await deps.runs.start({
         ownerId: userOf(req).id,
+        ...(attached.attachments.length ? { attachments: attached.attachments } : {}),
         agentSlug: agent,
         message,
         ...(inputs && typeof inputs === 'object' ? { inputs: inputs as Record<string, unknown> } : {}),

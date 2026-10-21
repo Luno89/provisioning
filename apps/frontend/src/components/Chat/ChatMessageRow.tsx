@@ -4,6 +4,7 @@ import Markdown from '../Markdown.js';
 import { KoalaSpot, type KoalaMood } from '../Koala.js';
 import ChatToolCallCard, { type FileArtifact, type ToolCallData } from './ChatToolCallCard.js';
 import { ChatParser } from '../../lib/chat-parser/chat-parser.js';
+import MessageAttachments from './MessageAttachments.js';
 import type { ChannelAddress } from '../../lib/channel-asks.js';
 
 export interface ChatMessageData {
@@ -15,6 +16,7 @@ export interface ChatMessageData {
   runId?: string | undefined;
   toolCalls?: ToolCallData[] | undefined;
   interruptedReason?: string | undefined;
+  attachments?: import('../../types/files.js').MessageAttachment[] | undefined;
 }
 
 export function ThinkingDisclosure({
@@ -173,13 +175,17 @@ export const ChatMessageRow = memo(function ChatMessageRow({
           </div>
         )}
 
-        <div className="text-[13.5px] leading-relaxed text-slate-200 prose prose-invert max-w-none">
-          {parsed.cleanContent ? (
-            <Markdown>{parsed.cleanContent}</Markdown>
-          ) : isThinkingNow || allThoughts.length > 0 ? null : (
-            <span className="italic text-slate-500 text-xs">[No textual response]</span>
-          )}
-        </div>
+        {(parsed.cleanContent || !message.attachments?.length) && (
+          <div className="text-[13.5px] leading-relaxed text-slate-200 prose prose-invert max-w-none">
+            {parsed.cleanContent ? (
+              <Markdown>{parsed.cleanContent}</Markdown>
+            ) : isThinkingNow || allThoughts.length > 0 ? null : (
+              <span className="italic text-slate-500 text-xs">[No textual response]</span>
+            )}
+          </div>
+        )}
+
+        {message.attachments && message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} />}
 
         {message.interruptedReason && (
           <div className="mt-2 text-xs text-amber-400 bg-amber-950/40 border border-amber-800/60 rounded-lg px-3 py-2 flex items-center gap-2 select-none">

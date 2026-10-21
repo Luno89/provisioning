@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { SentAttachment } from '../lib/file-drop'
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
@@ -16,8 +17,8 @@ export const projectChannelKeys = {
 export const getProjectChannel = (projectId: string): Promise<ProjectChannel> =>
   api.get<ProjectChannel>(`/projects/${encodeURIComponent(projectId)}/channel`).then((r) => r.data)
 
-export const postChannelMessage = (conversationId: string, content: string): Promise<void> =>
-  api.post(`/conversations/${encodeURIComponent(conversationId)}/messages`, { content }).then(() => undefined)
+export const postChannelMessage = (conversationId: string, content: string, attachments: SentAttachment[] = []): Promise<void> =>
+  api.post(`/conversations/${encodeURIComponent(conversationId)}/messages`, { content, ...(attachments.length ? { attachments } : {}) }).then(() => undefined)
 
 /** Mirrors `mentionsKoala` in apps/backend/src/lib/conversations.ts. */
 export const mentionsKoala = (text: string): boolean => /(^|\s)@koala\b/i.test(text)

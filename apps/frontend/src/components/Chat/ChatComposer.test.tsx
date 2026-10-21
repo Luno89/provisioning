@@ -92,3 +92,29 @@ describe('one control for who answers, one for what runs it', () => {
     expect(screen.queryByTitle(/which model answers/i)).not.toBeInTheDocument();
   });
 });
+
+describe('ChatComposer — attachments', () => {
+  it('picks files with the paperclip, shows each uploading, and waits for them before sending', () => {
+    const onAttach = vi.fn();
+    const onSend = vi.fn();
+    const { rerender } = render(<ChatComposer {...base} onSend={onSend} onAttach={onAttach} attachments={[{ key: 'k1', name: 'brief.pdf', state: 'uploading', share: 0.4 }]} />);
+    const file = new File(['x'], 'brief.pdf');
+    fireEvent.change(screen.getByLabelText('Files to attach'), { target: { files: [file] } });
+    expect(onAttach).toHaveBeenCalledWith([{ path: 'brief.pdf', file }]);
+    expect(screen.getByText('40%')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
+
+    rerender(<ChatComposer {...base} onSend={onSend} onAttach={onAttach} attachments={[{ key: 'k1', name: 'brief.pdf', state: 'ready', share: 1 }]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(onSend).toHaveBeenCalledWith('');
+  });
+
+  it('says why an attachment did not go, and lets it be removed', () => {
+    const onRemoveAttachment = vi.fn();
+    render(<ChatComposer {...base} onAttach={vi.fn()} onRemoveAttachment={onRemoveAttachment} attachments={[{ key: 'k1', name: 'big.zip', state: 'failed', share: 0, why: 'This project has no file server yet.' }]} />);
+    expect(screen.getByTitle('Not attached: This project has no file server yet.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove big.zip' }));
+    expect(onRemoveAttachment).toHaveBeenCalledWith('k1');
+  });
+});
+

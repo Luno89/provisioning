@@ -30,6 +30,7 @@ export type MessageAuthor = { kind: 'person'; id: string } | { kind: 'agent'; sl
 export interface ChatConversationMessage {
   role: 'user' | 'assistant' | 'notice';
   author?: MessageAuthor | undefined;
+  attachments?: import('../types/files').MessageAttachment[] | undefined;
   notice?: ConversationNotice | undefined;
   content: string;
   at?: string | undefined;

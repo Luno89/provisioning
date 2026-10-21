@@ -1,4 +1,5 @@
 import type { ModelReach } from '@koala/harness-types';
+import { attachmentsText, type MessageAttachment } from './attachments.js';
 import type { Artifact, ChildSteps } from '@koala/agent-engine/procedure';
 
 export type MessageAuthor = { kind: 'person'; id: string } | { kind: 'agent'; slug: string } | { kind: 'platform' };
@@ -30,6 +31,7 @@ export interface ConversationMessage {
   at: string;
 
   toolCalls?: ConversationToolCall[];
+  attachments?: MessageAttachment[] | undefined;
   runId?: string;
   /** Set when this message is a salvaged partial reply — the turn was stopped or failed mid-stream
    * rather than completing normally. Names why, so it reads as "cut short" rather than a finished
@@ -94,13 +96,13 @@ export class NoNoteToAskError extends Error {
 export const noteAt = (conversation: Pick<Conversation, 'messages'> | undefined, at: string, content: string): number =>
   conversation?.messages.findIndex((message) => message.role === 'user' && !message.runId && message.at === at && message.content === content) ?? -1;
 
-export function openTurn(existing: Conversation | undefined, turn: { ownerId: string; conversationId: string; runId: string; message: string; now: string; asks?: string | undefined }): Conversation {
+export function openTurn(existing: Conversation | undefined, turn: { ownerId: string; conversationId: string; runId: string; message: string; now: string; asks?: string | undefined; attachments?: MessageAttachment[] | undefined }): Conversation {
   const base: Conversation = existing ?? { id: turn.conversationId, ownerId: turn.ownerId, title: titleFrom(turn.message), messages: [], createdAt: turn.now, updatedAt: turn.now };
   if (base.messages.some((message) => message.runId === turn.runId)) return base;
   const note = turn.asks ? noteAt(base, turn.asks, turn.message) : -1;
   if (turn.asks && note === -1) throw new NoNoteToAskError(turn.asks);
   const messages = note === -1
-    ? [...base.messages, { role: 'user' as const, author: { kind: 'person' as const, id: turn.ownerId }, content: turn.message, at: turn.now, runId: turn.runId }]
+    ? [...base.messages, { role: 'user' as const, author: { kind: 'person' as const, id: turn.ownerId }, content: turn.message, at: turn.now, runId: turn.runId, ...(turn.attachments?.length ? { attachments: turn.attachments } : {}) }]
     : base.messages.map((message, index) => (index === note ? { ...message, runId: turn.runId } : message));
   return {
     ...base,
@@ -125,11 +127,11 @@ export const channelIdFor = (projectId: string): string => `channel-${projectId}
 
 export const MAX_POSTED = 20_000;
 
-export function personMessage(ownerId: string, content: string, at: string): ConversationMessage | { problem: string } {
+export function personMessage(ownerId: string, content: string, at: string, attachments: readonly MessageAttachment[] = []): ConversationMessage | { problem: string } {
   const text = String(content ?? '').trim();
-  if (!text) return { problem: 'the message is empty' };
+  if (!text && !attachments.length) return { problem: 'the message is empty' };
   if (text.length > MAX_POSTED) return { problem: `a message is at most ${MAX_POSTED} characters` };
-  return { role: 'user', author: { kind: 'person', id: ownerId }, content: text, at };
+  return { role: 'user', author: { kind: 'person', id: ownerId }, content: text, at, ...(attachments.length ? { attachments: [...attachments] } : {}) };
 }
 
 export const mentionsKoala = (text: string): boolean => /(^|\s)@koala\b/i.test(text);
@@ -140,11 +142,12 @@ export const postedNotToYou = (who: string): string => `${who} posted, not to yo
 
 export const SOMEONE = 'Someone';
 
-export function heardAs(message: Pick<ConversationMessage, 'role' | 'author' | 'content' | 'runId'>, kind: ChatKind, names: Readonly<Record<string, string>>): string {
-  if (!kind || message.role !== 'user' || message.author?.kind !== 'person') return message.content;
+export function heardAs(message: Pick<ConversationMessage, 'role' | 'author' | 'content' | 'runId' | 'attachments'>, kind: ChatKind, names: Readonly<Record<string, string>>): string {
+  const said = `${message.content}${message.role === 'user' ? attachmentsText(message.attachments) : ''}`;
+  if (!kind || message.role !== 'user' || message.author?.kind !== 'person') return said;
   const who = names[message.author.id] ?? SOMEONE;
-  if (kind === 'channel' && !message.runId) return `${postedNotToYou(who)}${message.content}`;
-  return `${who}: ${message.content}`;
+  if (kind === 'channel' && !message.runId) return `${postedNotToYou(who)}${said}`;
+  return `${who}: ${said}`;
 }
 
 export const peopleIn = (messages: readonly Pick<ConversationMessage, 'author'>[]): string[] =>

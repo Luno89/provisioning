@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Send, Square, Sliders, Cpu, Sparkles, Paperclip, X, MessageSquare, Zap } from 'lucide-react';
 import { goesToKoala } from '../../lib/channel-asks.js';
+import { pickedFiles, type PickedFile } from '../../lib/file-drop.js';
+import DropTarget from '../Files/DropTarget.js';
 
 export interface PersonaPackOption {
   id: string;
@@ -10,8 +12,11 @@ export interface PersonaPackOption {
 }
 
 export interface ComposerAttachment {
-  path: string;
-  type: 'file' | 'dir';
+  key: string;
+  name: string;
+  state: 'uploading' | 'ready' | 'failed';
+  share: number;
+  why?: string | undefined;
 }
 
 export interface ChatComposerProps {
@@ -34,7 +39,8 @@ export interface ChatComposerProps {
   placeholder?: string;
   className?: string;
   attachments?: ComposerAttachment[] | undefined;
-  onRemoveAttachment?: ((path: string) => void) | undefined;
+  onRemoveAttachment?: ((key: string) => void) | undefined;
+  onAttach?: ((picked: PickedFile[]) => void) | undefined;
   channelAsk?: { on: boolean; onToggle: () => void } | undefined;
   autoMode?: { on: boolean; switching: boolean; onToggle: () => void } | undefined;
 }
@@ -53,11 +59,15 @@ export function ChatComposer({
   className = '',
   attachments,
   onRemoveAttachment,
+  onAttach,
   channelAsk,
   autoMode,
 }: ChatComposerProps) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const picker = useRef<HTMLInputElement | null>(null);
+  const readyCount = (attachments ?? []).filter((attachment) => attachment.state === 'ready').length;
+  const uploading = (attachments ?? []).some((attachment) => attachment.state === 'uploading');
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
@@ -74,9 +84,9 @@ export function ChatComposer({
   }, [input]);
 
   const send = () => {
-    if (isStreaming) return;
+    if (isStreaming || uploading) return;
     const text = input.trim();
-    if (!text) return;
+    if (!text && readyCount === 0) return;
     setInput('');
     onSend(text);
   };
@@ -88,26 +98,33 @@ export function ChatComposer({
     }
   };
 
-  return (
+  const body = (
     <div
       className={`w-full bg-[var(--bark-900,#111814)] border border-[var(--bark-700,#24332b)] focus-within:border-emerald-500/70 rounded-lg p-2.5 shadow-sm transition-colors flex flex-col gap-2 font-sans ${className}`}
+      onPaste={(event) => {
+        if (!onAttach || !event.clipboardData.files.length) return;
+        event.preventDefault();
+        onAttach(pickedFiles(event.clipboardData.files));
+      }}
     >
       {attachments && attachments.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 px-0.5">
+        <div className="flex flex-wrap gap-1.5 px-0.5" data-testid="composer-attachments">
           {attachments.map((a) => (
             <span
-              key={a.path}
-              className="flex items-center gap-1 pl-2 pr-1 py-0.5 rounded bg-[var(--bark-800,#1b2620)] border border-[var(--bark-700,#24332b)] text-[11px] text-slate-300 max-w-[220px]"
-              title={a.path}
+              key={a.key}
+              className={`flex items-center gap-1 pl-2 pr-1 py-0.5 rounded border text-[11px] max-w-[260px] ${a.state === 'failed' ? 'border-red-500/50 text-red-200' : 'bg-[var(--bark-800,#1b2620)] border-[var(--bark-700,#24332b)] text-slate-300'}`}
+              title={a.state === 'failed' ? `Not attached: ${a.why ?? 'the upload failed'}` : a.name}
             >
-              <Paperclip size={10} className="text-emerald-400 shrink-0" />
-              <span className="truncate">{a.path.split('/').pop()}</span>
+              <Paperclip size={10} className={a.state === 'failed' ? 'text-red-300 shrink-0' : 'text-emerald-400 shrink-0'} />
+              <span className="truncate">{a.name}</span>
+              {a.state === 'uploading' && <span className="shrink-0 text-[10px] text-sky-300">{Math.round(a.share * 100)}%</span>}
+              {a.state === 'failed' && <span className="shrink-0 text-[10px]">failed</span>}
               {onRemoveAttachment && (
                 <button
                   type="button"
-                  onClick={() => onRemoveAttachment(a.path)}
+                  onClick={() => onRemoveAttachment(a.key)}
                   className="shrink-0 text-slate-500 hover:text-white"
-                  aria-label={`Remove ${a.path}`}
+                  aria-label={`Remove ${a.name}`}
                 >
                   <X size={11} />
                 </button>
@@ -201,6 +218,27 @@ export function ChatComposer({
         </div>
 
         <div className="flex items-center gap-2 ml-auto">
+          {onAttach && (
+            <>
+              <button
+                type="button"
+                onClick={() => picker.current?.click()}
+                aria-label="Attach files"
+                title="Attach files: they are stored on the file server and Koala is told where"
+                className="p-1 rounded text-slate-400 hover:text-white hover:bg-[var(--bark-800,#1b2620)] cursor-pointer"
+              >
+                <Paperclip size={12} />
+              </button>
+              <input
+                ref={picker}
+                type="file"
+                multiple
+                hidden
+                aria-label="Files to attach"
+                onChange={(event) => { const picked = pickedFiles(event.target.files); event.target.value = ''; if (picked.length) onAttach(picked); }}
+              />
+            </>
+          )}
           <span className="hidden sm:inline text-[11px] text-slate-500 font-sans whitespace-nowrap">
             ↵ send · shift+↵ newline
           </span>
@@ -220,9 +258,9 @@ export function ChatComposer({
               type="button"
               aria-label="Send message"
               onClick={send}
-              disabled={!input.trim()}
+              disabled={uploading || (!input.trim() && readyCount === 0)}
               className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 text-white transition-colors cursor-pointer disabled:cursor-not-allowed flex items-center gap-1 text-xs font-medium"
-              title="Send message (Enter)"
+              title={uploading ? 'Waiting for the attachments to finish uploading' : 'Send message (Enter)'}
             >
               {channelAsk && !goesToKoala(input, channelAsk.on) ? <MessageSquare size={11} /> : <Send size={11} />}
               <span>{channelAsk ? (goesToKoala(input, channelAsk.on) ? 'Ask Koala' : 'Post') : 'Send'}</span>
@@ -232,6 +270,8 @@ export function ChatComposer({
       </div>
     </div>
   );
+
+  return onAttach ? <DropTarget label="Drop to attach" onFiles={onAttach}>{body}</DropTarget> : body;
 }
 
 export default ChatComposer;

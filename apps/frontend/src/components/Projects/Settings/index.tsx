@@ -8,6 +8,7 @@ import { TreeModels } from '../Workspace/TreeModels'
 import { ProjectRelease } from '../Workspace/ProjectRelease'
 import { LiveCustomizations } from './LiveCustomizations'
 import { ClientImport } from './ClientImport'
+import FilePlacePicker from '../../Files/FilePlacePicker'
 import { useClientImport } from './useClientImport'
 import { TreeDeletePanel } from '../Workspace/TreeDeletePanel'
 import { ProjectDeletePanel } from '../Workspace/ProjectDeletePanel'
@@ -66,6 +67,11 @@ export default function ProjectSettings({ treeId, projectId, onDeleted }: {
         {tree && (
           <Section title="Sandbox">
             <TreeSandboxPanel treeId={tree.id} />
+          </Section>
+        )}
+        {project && (
+          <Section title="Files">
+            <div className="p-3"><FilePlacePicker projectId={project.id} /></div>
           </Section>
         )}
         {project && (

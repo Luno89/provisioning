@@ -193,7 +193,7 @@ describe('ChatSurface in a channel', () => {
     const input = screen.getByPlaceholderText(/post to the channel/i);
     fireEvent.change(input, { target: { value: 'the shop opens at 9' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
-    await waitFor(() => expect(channelApi.postChannelMessage).toHaveBeenCalledWith('channel-p1', 'the shop opens at 9'));
+    await waitFor(() => expect(channelApi.postChannelMessage).toHaveBeenCalledWith('channel-p1', 'the shop opens at 9', []));
     expect(engineApi.startRun).not.toHaveBeenCalled();
   });
 

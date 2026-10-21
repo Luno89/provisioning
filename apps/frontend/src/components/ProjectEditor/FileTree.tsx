@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, ChevronDown, Folder, File, Loader2, Paperclip } from 'lucide-react'
 import { listProjectFiles, projectFileKeys } from '../../api/project-files.js'
 import type { RepoFileEntry } from './shared.js'
+import DropTarget from '../Files/DropTarget'
+import type { PickedFile } from '../../lib/file-drop'
 
 function sortedEntries(entries: RepoFileEntry[]): RepoFileEntry[] {
   return [...entries].sort((a, b) => {
@@ -11,13 +13,14 @@ function sortedEntries(entries: RepoFileEntry[]): RepoFileEntry[] {
   })
 }
 
-function DirNode({ projectId, path, depth, activePath, onOpen, onAttach }: {
+function DirNode({ projectId, path, depth, activePath, onOpen, onAttach, onDropFiles }: {
   projectId: string
   path: string
   depth: number
   activePath: string | null
   onOpen: (path: string) => void
   onAttach?: ((path: string, type: 'file' | 'dir') => void) | undefined
+  onDropFiles?: ((dir: string, picked: PickedFile[]) => void) | undefined
 }) {
   const [open, setOpen] = useState(depth === 0)
   const { data, isLoading, isError } = useQuery({
@@ -26,7 +29,7 @@ function DirNode({ projectId, path, depth, activePath, onOpen, onAttach }: {
     enabled: open,
   })
 
-  return (
+  const body = (
     <div>
       {depth > 0 && (
         <div className="group flex items-center" style={{ paddingLeft: depth * 12 }}>
@@ -66,7 +69,7 @@ function DirNode({ projectId, path, depth, activePath, onOpen, onAttach }: {
             entry.type === 'dir' ? (
               <DirNode
                 key={entry.path} projectId={projectId} path={entry.path} depth={depth + 1}
-                activePath={activePath} onOpen={onOpen} onAttach={onAttach}
+                activePath={activePath} onOpen={onOpen} onAttach={onAttach} onDropFiles={onDropFiles}
               />
             ) : (
               <div key={entry.path} className="group flex items-center" style={{ paddingLeft: (depth + 1) * 12 + 14 }}>
@@ -100,15 +103,18 @@ function DirNode({ projectId, path, depth, activePath, onOpen, onAttach }: {
       )}
     </div>
   )
+  if (!onDropFiles || depth === 0) return body
+  return <DropTarget label={`Drop to commit into ${path}`} onFiles={(picked) => onDropFiles(path, picked)}>{body}</DropTarget>
 }
 
-export function FileTree({ projectId, activePath, onOpen, onAttach }: {
+export function FileTree({ projectId, activePath, onOpen, onAttach, onDropFiles }: {
   projectId: string
   activePath: string | null
   onOpen: (path: string) => void
   onAttach?: ((path: string, type: 'file' | 'dir') => void) | undefined
+  onDropFiles?: ((dir: string, picked: PickedFile[]) => void) | undefined
 }) {
-  return <DirNode projectId={projectId} path="" depth={0} activePath={activePath} onOpen={onOpen} onAttach={onAttach} />
+  return <DirNode projectId={projectId} path="" depth={0} activePath={activePath} onOpen={onOpen} onAttach={onAttach} onDropFiles={onDropFiles} />
 }
 
 export default FileTree

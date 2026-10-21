@@ -27,6 +27,8 @@ import { useSocketEvent } from '../../../stores/socket.js';
 import { errorMessage } from '../../../api/client.js';
 import { childEventToFrame, engineEventToFrame } from '../engine-event-frames.js';
 import { planKeys } from '../../../api/plans';
+import { sentAttachment } from '../../../lib/file-drop';
+import type { MessageAttachment } from '../../../types/files';
 import { assistantMsgFromRenderState, type ChatMessageRecord } from '../chat-stream.js';
 
 const EMPTY_MESSAGES: ChatMessageRecord[] = [];
@@ -342,7 +344,7 @@ export function useConversationTurn({
   }, [enabled, activeConversation?.id, liveTurnOf, apply]);
 
   // --- sending a turn ----------------------------------------------------------
-  const sendConversationTurn = async (text: string, options: { asks?: string | undefined } = {}) => {
+  const sendConversationTurn = async (text: string, options: { asks?: string | undefined; attachments?: MessageAttachment[] | undefined } = {}) => {
     let targetConvId = selectedConvId;
     if (!targetConvId) {
       setCreatingConversation(true);
@@ -365,6 +367,7 @@ export function useConversationTurn({
       role: 'user',
       content: text,
       at: new Date().toISOString(),
+      ...(options.attachments?.length ? { attachments: options.attachments } : {}),
     };
     if (!options.asks) appendLocalMessage(targetConvId, userMsg);
     useLiveTurnsStore.getState().start(key);
@@ -380,6 +383,7 @@ export function useConversationTurn({
         conversationId: targetConvId,
         ...(pinnedModelId ? { modelId: pinnedModelId, modelReach } : {}),
         ...(options.asks ? { asks: options.asks } : {}),
+        ...(options.attachments?.length ? { attachments: options.attachments.map(sentAttachment) } : {}),
       });
       if (options.asks) qc.invalidateQueries({ queryKey: chatPackKeys.conversation(targetConvId) });
     } catch (err) {

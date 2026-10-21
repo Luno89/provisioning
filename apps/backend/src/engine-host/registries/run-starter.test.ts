@@ -23,7 +23,20 @@ describe('starting a run that is a conversation turn', () => {
     expect(order).toEqual(['open', 'start']);
   });
 
-  it('hands the run the conversation its turn was opened in, whatever the inputs said', async () => {
+  it('keeps a message\'s attachments on the person\'s message, and tells the run where each is', async () => {
+    const start = vi.fn(async (_type: string, _options: { args: unknown[] }) => ({ workflowId: 'run-1' }));
+    const t = turns();
+    const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), newRunId: () => 'run-1', turns: t });
+    const attachments = [{ name: 'brief.pdf', path: 'attachments/brief.pdf', type: 'application/pdf', project: { id: 'p1', name: 'Shop' } }];
+
+    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'see this', conversationId: 'c1', attachments });
+
+    expect(t.open).toHaveBeenCalledWith({ ownerId: 'u1', conversationId: 'c1', runId: 'run-1', message: 'see this', attachments });
+    const input = start.mock.calls[0]![1].args[0] as ProcedureRunInput;
+    expect(input.inputs.message).toBe('see this\n\nAttached to this message (read each with read_stored_file, naming the project and the path):\n- brief.pdf (application/pdf), in the project Shop\'s files at attachments/brief.pdf');
+  });
+
+    it('hands the run the conversation its turn was opened in, whatever the inputs said', async () => {
     const start = vi.fn(async (_type: string, _options: { args: unknown[] }) => ({ workflowId: 'run-1' }));
     const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), newRunId: () => 'run-1', turns: turns() });
 

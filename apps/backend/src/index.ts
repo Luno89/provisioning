@@ -1463,6 +1463,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const autoModeService = new AutoModeService({ store: db, agentExists: async (ownerId, slug) => Boolean(await engineRegistry.agent(ownerId, slug)) });
   tenant.use('/api/engine', engineRouter({
     runs: engineRuns,
+    projects: async (ownerId) => (await db.getProjects()).filter((project) => project.ownerId === ownerId).map((project) => ({ id: project.id, name: project.name })),
     approvals: new ApprovalService({ store: db, runs: engineRuns, autoMode: autoModeService, treeOfRun: treeOfGroveRun }),
     registry: engineRegistry,
     admin: requireAdmin,

@@ -1,6 +1,7 @@
 import type { ModelReach } from '@koala/harness-types'
 import type { Artifact, ChildSteps, GroupDefinition, HostOperation, NodeTrace } from '@koala/agent-engine/procedure'
 import { api } from './client'
+import type { SentAttachment } from '../lib/file-drop'
 
 export interface AgentInputSchema {
   type?: string
@@ -182,6 +183,7 @@ export async function startRun(input: {
   modelReach?: ModelReach
   procedure?: string
   asks?: string
+  attachments?: SentAttachment[]
 }): Promise<StartedRun> {
   const { data } = await api.post<StartedRun>('/engine/runs', input)
   return data

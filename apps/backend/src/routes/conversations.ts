@@ -1,4 +1,5 @@
 import type { ModelReach } from '@koala/harness-types';
+import { readAttachments } from '../lib/attachments.js';
 import { Router } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import type { Database } from '../lib/db-interface.js';
@@ -85,7 +86,9 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
     const found = (await deps.ownedConversations(userId)).find((c) => c.id === req.params.id);
     if (!found) return res.status(404).json({ error: 'No such conversation' });
     if (found.kind !== 'channel') return res.status(409).json({ error: 'Only a project\'s channel takes messages without a turn; this conversation answers every message' });
-    const message = personMessage(userId, String(req.body?.content ?? ''), new Date().toISOString());
+    const attached = readAttachments(req.body?.attachments, (await db.getProjects()).filter((project: { ownerId?: string }) => project.ownerId === userId));
+    if (!attached.ok) return res.status(400).json({ error: attached.why });
+    const message = personMessage(userId, String(req.body?.content ?? ''), new Date().toISOString(), attached.attachments);
     if ('problem' in message) return res.status(400).json({ error: message.problem });
     if (!(await db.appendMessage(found.ownerId, found.id, message))) return res.status(404).json({ error: 'No such conversation' });
     deps.posted?.(found.ownerId, found.id);

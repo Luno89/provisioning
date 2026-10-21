@@ -1,4 +1,5 @@
 import { closeTurn, openTurn, type Conversation } from '../lib/conversations.js';
+import type { MessageAttachment } from '../lib/attachments.js';
 import { replyFromLog, type TurnLogEntry } from '../lib/turn-log.js';
 
 export const ENDED_UNSAVED = 'the run ended before it saved its reply';
@@ -18,7 +19,7 @@ export class ConversationTurnService {
     return this.deps.now?.() ?? new Date().toISOString();
   }
 
-  async open(turn: { ownerId: string; conversationId: string; runId: string; message: string; asks?: string | undefined }): Promise<void> {
+  async open(turn: { ownerId: string; conversationId: string; runId: string; message: string; asks?: string | undefined; attachments?: MessageAttachment[] | undefined }): Promise<void> {
     const existing = await this.deps.store.getConversation(turn.ownerId, turn.conversationId);
     await this.deps.store.saveConversation(openTurn(existing, { ...turn, now: this.now() }));
   }

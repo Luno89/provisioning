@@ -5,6 +5,8 @@ import { TabBar } from '../../ProjectEditor/TabBar.js'
 import { useOpenFiles } from '../../ProjectEditor/useOpenFiles.js'
 import { isDirty } from '../../ProjectEditor/shared.js'
 import Reading from '../Reading'
+import RepositoryFiles from '../../Files/RepositoryFiles'
+import ProjectStoredFiles from '../../Files/ProjectStoredFiles'
 import { panel, resizeHandle } from '../Workspace/shared.js'
 import { useResizableWidth } from '../Workspace/useResizableWidth.js'
 import { useProjectWork } from '../useProjectWork'
@@ -36,8 +38,13 @@ export default function ProjectFiles({ treeId, projectId }: { treeId?: string | 
                 <PanelLeftClose size={14} />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-2 min-h-0">
-              <FileTree projectId={project.id} activePath={activePath} onOpen={(path) => void openFile(path)} />
+            <div className="flex-1 overflow-y-auto p-2 min-h-0 space-y-3">
+              <RepositoryFiles projectId={project.id}>
+                {(onDropFiles) => <FileTree projectId={project.id} activePath={activePath} onOpen={(path) => void openFile(path)} onDropFiles={onDropFiles} />}
+              </RepositoryFiles>
+              <div className="border-t border-[var(--bark-700)] pt-2">
+                <ProjectStoredFiles projectId={project.id} />
+              </div>
             </div>
           </div>
           <div role="separator" aria-orientation="vertical" aria-label="Resize file panel" onMouseDown={explorer.startResize(1)} onDoubleClick={explorer.toggleCollapse} title="Drag to resize, double-click to collapse" className={resizeHandle} />

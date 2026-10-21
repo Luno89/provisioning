@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chatFraming, heardAs, peopleIn, postedNotToYou, titleFrom } from './conversations.js';
+import { chatFraming, heardAs, openTurn, peopleIn, personMessage, postedNotToYou, titleFrom } from './conversations.js';
 
 describe('naming a thread', () => {
   it('uses the first thing the user said', () => {
@@ -61,5 +61,19 @@ describe('saying who is talking, and to whom', () => {
     expect(channel).toContain('bo@example.com is asking you now.');
     expect(chatFraming({ kind: 'item', item: 'feature' }, 'bo@example.com')).toBe('This is the chat about the feature below. Every message here is to you; each says who wrote it. bo@example.com is talking with you now.');
     expect(chatFraming({ kind: undefined }, 'bo@example.com')).toBeUndefined();
+  });
+});
+
+describe('a person\'s message with files attached', () => {
+  it('keeps them on the message, and the model hears where they are in every later turn', () => {
+    const attachments = [{ name: 'x.png', path: 'chats/c1/x.png' }];
+    const opened = openTurn(undefined, { ownerId: 'bo', conversationId: 'c1', runId: 'r1', message: 'look', now: 't', attachments });
+    expect(opened.messages[0]).toMatchObject({ content: 'look', attachments });
+    expect(heardAs(opened.messages[0]!, undefined, {})).toBe('look\n\nAttached to this message (read each with read_stored_file, naming the project and the path):\n- x.png, in the person\'s own files at chats/c1/x.png');
+  });
+
+  it('may be all a channel post is', () => {
+    expect(personMessage('bo', '  ', 't', [{ name: 'x.png', path: 'x.png' }])).toMatchObject({ content: '', attachments: [{ name: 'x.png', path: 'x.png' }] });
+    expect(personMessage('bo', '  ', 't')).toEqual({ problem: 'the message is empty' });
   });
 });

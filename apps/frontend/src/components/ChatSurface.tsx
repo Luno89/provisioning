@@ -45,6 +45,9 @@ import { useAccessRequests } from './Chat/hooks/useAccessRequests.js';
 import { ChatHeader } from './Chat/ChatHeader.js';
 import { ChatCardMarker, ChatCards, type CardFocus } from './Chat/ChatCards.js';
 import { cardMarkers, chatCards, isWaiting, type ChatCard } from './Chat/chat-cards.js';
+import { useChatAttachments } from './Chat/hooks/useChatAttachments.js';
+import { sentAttachment } from '../lib/file-drop.js';
+import { listProjects, projectKeys } from '../api/projects.js';
 import { useCardsLayout } from './Chat/hooks/useCardsLayout.js';
 
 export type { ChatMessageRecord };
@@ -99,6 +102,10 @@ export default function ChatSurface({
 
   const { streaming, error, setError } = conv;
   const planProposals = usePlanProposals(conv.selectedConvId, streaming);
+  const chatProjectId = binding?.projectId ?? conv.activeConversation?.projectId;
+  const projects = useQuery({ queryKey: projectKeys.list(), queryFn: () => listProjects<{ id: string; name: string }>(), enabled: Boolean(chatProjectId) });
+  const chatProject = chatProjectId ? projects.data?.find((project) => project.id === chatProjectId) : undefined;
+  const chatAttachments = useChatAttachments(chatProject ? { id: chatProject.id, name: chatProject.name } : undefined);
   const secretRequests = useSecretRequests(
     secretRequestKeys.forConversation(conv.selectedConvId ?? ''),
     () => listConversationSecretRequests(conv.selectedConvId!),
@@ -255,19 +262,21 @@ export default function ChatSurface({
 
   const handleSend = (rawText: string) => {
     const text = rawText.trim();
-    if (!text || streaming) return;
+    const attachments = chatAttachments.ready;
+    if ((!text && !attachments.length) || streaming || chatAttachments.uploading) return;
+    chatAttachments.clear();
 
     setError(null);
     setIsAtBottom(true);
     requestAnimationFrame(scrollToBottomInstant);
     if (channel && conv.selectedConvId && !goesToKoala(text, askingKoala)) {
       const id = conv.selectedConvId;
-      void postChannelMessage(id, text)
+      void postChannelMessage(id, text, attachments.map(sentAttachment))
         .then(() => qc.invalidateQueries({ queryKey: chatPackKeys.conversation(id) }))
         .catch((err: unknown) => setError(errorMessage(err)));
       return;
     }
-    void conv.sendConversationTurn(text);
+    void conv.sendConversationTurn(text, { attachments });
   };
 
   const autoSentRef = useRef<string | null>(null);
@@ -296,6 +305,9 @@ export default function ChatSurface({
   const composer = (
     <ChatComposer
       onSend={handleSend}
+      attachments={chatAttachments.attached}
+      onRemoveAttachment={chatAttachments.remove}
+      onAttach={chatAttachments.attach}
       onStop={handleStop}
       isStreaming={streaming}
       {...(activePack ? { activePack } : {})}

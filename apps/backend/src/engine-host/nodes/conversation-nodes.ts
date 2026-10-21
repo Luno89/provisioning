@@ -54,7 +54,7 @@ export interface Speakers {
 
 export function asChatMessages(stored: readonly ConversationMessage[], speakers: Speakers = {}): ChatMessage[] {
   return stored
-    .filter((message: ConversationMessage) => message.content.trim())
+    .filter((message: ConversationMessage) => message.content.trim() || message.attachments?.length)
     .map((message: ConversationMessage) => (message.role === 'notice'
       ? { role: 'user' as const, content: `${NOTICE_PREFIX}${message.content}` }
       : { role: message.role, content: heardAs(message, speakers.kind, speakers.names ?? {}) }));
