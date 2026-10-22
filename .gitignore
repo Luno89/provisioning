@@ -30,6 +30,7 @@ cdktf.out/
 !/apps/backend/data/caddy/apps/.gitkeep
 /apps/backend/data/.gitea-admin-password
 /apps/backend/data/.gitea-admin-token
+/apps/backend/data/.gitea-pull-token
 /apps/backend/data/.headscale-api-key
 /apps/backend/data/.infisical-encryption-key
 /apps/backend/data/.infisical-auth-secret
