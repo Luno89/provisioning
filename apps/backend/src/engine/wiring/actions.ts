@@ -6,7 +6,7 @@ import {
 } from '../../infrastructure/index.js';
 import { SecretRequestService, secretRequestsRouter } from '../../projects/index.js';
 import type { MonitoringService } from '../../monitoring/index.js';
-import type { TreeModelsService } from '../../models/services/TreeModelsService.js';
+import type { TreeModelsService } from '../../models/index.js';
 import type { McpServerService } from '../services/McpServerService.js';
 import type { WorkspaceDependencyService } from '../services/WorkspaceDependencyService.js';
 import type { AgentService } from '../services/AgentService.js';

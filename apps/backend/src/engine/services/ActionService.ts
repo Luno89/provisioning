@@ -9,7 +9,7 @@ import type { McpServerInput, McpServerOutcome } from './McpServerService.js';
 import type { GrantMeta } from '../../engine-host/registries/agent-directory.js';
 import type { ProposalProgress, ProposalStarted } from '@koala/harness-types';
 import { serverProgress, type ImageNow } from '../../projects/index.js';
-import type { TreeModelsService } from '../../models/services/TreeModelsService.js';
+import type { TreeModelsService } from '../../models/index.js';
 import { alertSpec, isAlertKind, type AlertSpec } from '../../monitoring/index.js';
 
 export interface ActionServers {

@@ -2,7 +2,7 @@ import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
 import { getHfModelFiles, downloadHfFiles, type DownloadProgress } from '../infrastructure/index.js';
-import { computeModelFolderName } from '../models/lib/model-folder-name.js';
+import { computeModelFolderName } from '../models/index.js';
 
 export interface DownloadModelArgs {
   modelRepo: string;

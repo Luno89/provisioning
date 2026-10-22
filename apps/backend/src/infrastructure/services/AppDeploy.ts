@@ -13,7 +13,7 @@ import { executeDeployAppWorkflow } from '../../workflows/AppDeployWorkflow.js';
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
   resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js';
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js';
-import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../../models/lib/tabby-cache-path.js';
+import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../../models/index.js';
 
 export const CLUSTER_QUEUE = 'cluster-ops-queue';
 

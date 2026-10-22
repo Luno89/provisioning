@@ -13,7 +13,7 @@ import { backupRouter } from '../routes/backup.js';
 import { clustersRouter } from '../routes/clusters.js';
 import { credentialsRouter } from '../routes/credentials.js';
 import { deploymentsRouter } from '../routes/deployments.js';
-import { llmCredentialsRouter } from '../../models/routes/llm-credentials.js';
+import { llmCredentialsRouter } from '../../models/index.js';
 import type WorkerService from '../services/WorkerService.js';
 import type { GitModuleService } from '../services/GitModuleService.js';
 import type { RegistryService } from '../services/RegistryService.js';

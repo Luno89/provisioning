@@ -10,7 +10,7 @@ import type { ReleasesStore } from '../../releases/index.js';
 import type { FilesStore } from '../../files/index.js';
 import type { MachinesStore } from '../../machines/index.js';
 import type { MonitoringStore } from '../../monitoring/index.js';
-import type { ModelsStore } from '../../models/store.js';
+import type { ModelsStore } from '../../models/index.js';
 import type { MemoryStore } from '../../memory/store.js';
 import type { ChecksStore } from '../../checks/store.js';
 import type { InfrastructureStore } from '../../infrastructure/index.js';

@@ -10,7 +10,7 @@ import type { GroveRunService } from '../services/GroveRunService.js';
 import type { TreeHomeService } from '../services/TreeHomeService.js';
 import type { GroveOrderService } from '../services/GroveOrderService.js';
 import type { TreeWorkspaceService } from '../services/TreeWorkspaceService.js';
-import type { TreeModelsService } from '../../models/services/TreeModelsService.js';
+import type { TreeModelsService } from '../../models/index.js';
 
 export interface TreesRouterDeps {
   db: Database;

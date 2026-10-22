@@ -37,7 +37,7 @@ import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
 import { askDevice, localAgentStatus, tellDevice, MachineService } from './machines/index.js';
 import { RootMeshKeys } from './instances/services/RootMeshKeys.js';
-import { modelsRouter } from './models/routes/models.js';
+import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index.js';
 
 import {
   InfrastructureService, ClusterService, AppService, RegistryService, GitModuleService, BuilderService,
@@ -49,10 +49,8 @@ import net from 'net';
 import { spawn } from 'child_process';
 import { AuthService } from './accounts/services/AuthService.js';
 import { GiteaService } from './projects/index.js';
-import { ModelService } from './models/services/ModelService.js';
 
 import { seedAll } from './scripts/seed-all.js';
-import { endpointRulesFromEnv } from './models/lib/endpoint-url-safety.js';
 import { IdentityService } from './instances/services/IdentityService.js';
 import { NotificationService } from './monitoring/index.js';
 import { artifactsRouter, createArtifactService } from './files/index.js';

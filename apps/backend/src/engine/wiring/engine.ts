@@ -11,7 +11,7 @@ import { accountDefaultOf, type MachineService } from '../../machines/index.js';
 import { PROCEDURE_CHANGE_AGENT } from '../lib/agent-usage.js';
 import { fingerprintOf } from '../../checks/lib/bench.js';
 import { scenarioSubjects } from '../../checks/lib/check-subjects.js';
-import { providerServing } from '../../models/lib/model-registry.js';
+import { providerServing, type ModelService, type TreeModelsService } from '../../models/index.js';
 import { restoringApp, type wireReleases } from '../../releases/index.js';
 import { hostedMcpUrl } from '../lib/mcp-hosted-url.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
@@ -42,8 +42,6 @@ import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import { ScriptedModelService } from '../../checks/services/ScriptedModelService.js';
 import { httpCheckAccess } from '../../checks/services/CheckToolAccess.js';
 import type { ConversationNoticeService } from '../services/ConversationNoticeService.js';
-import type { ModelService } from '../../models/services/ModelService.js';
-import type { TreeModelsService } from '../../models/services/TreeModelsService.js';
 import type { createArtifactService } from '../../files/index.js';
 import {
   createStoredToolCatalogue, createEngineHost, storesFromDatabase, createStoredAgentRegistry, directoryFromDatabase, createEndpointResolver, createRunStarter, startStreamWorker,

@@ -67,7 +67,7 @@ import { createRunStarter } from './engine-host/registries/run-starter.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
 import { createArtifactService, FileServerUnreachableError, FileStores, FileService } from './files/index.js';
 import { treeOfGroveRun, workflowOfRun } from './engine-host/temporal/contracts.js';
-import { TreeModelsService, treeAgentsFrom } from './models/services/TreeModelsService.js';
+import { TreeModelsService, treeAgentsFrom } from './models/index.js';
 import { platformGroups } from './extensions/installed.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
 
