@@ -1,9 +1,8 @@
 import { machineChoice, type GroupDefinition, type MachineChoice } from '@koala/agent-engine/procedure';
 import type { ModelProvider } from '../lib/model-registry.js';
-import { groveAgentOf, resolveTreeType } from '../../projects/lib/tree-types.js';
+import { groveAgentOf, resolveTreeType, type ProjectsStore } from '../../projects/index.js';
 import { handsWorkToMachine, modelAgentsOf, treeModelProblem, withTreeModel, type TreeAgent } from '../lib/tree-models.js';
 import { machineChoiceProblem, type ChosenMachine } from '../../machines/lib/machines.js';
-import type { ProjectsStore } from '../../projects/store.js';
 
 export type TreeModelsStore = Pick<ProjectsStore, 'getTrees' | 'saveTree' | 'getTreeTypes'>;
 

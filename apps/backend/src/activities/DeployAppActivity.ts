@@ -5,7 +5,7 @@ import {
   isMockCloudProvider, isSelfManagedCluster, buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
   parseQuantity, type HostMemoryPlan, deploymentIdFor, isValidImageTag, InfisicalService, sharedClusterProxy,
 } from '../infrastructure/index.js';
-import { readBindingCredentials } from '../projects/lib/binding-project.js';
+import { readBindingCredentials, GiteaService, sanitiseNamespaceName, syncProjectSecrets } from '../projects/index.js';
 import { createDatabase, type Database, loadKeys } from '../platform/index.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -14,10 +14,7 @@ import os from 'os';
 import { clusterAccess } from './cluster-access.js';
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
 import { appServiceType, placedOnPool } from '../monitoring/lib/cluster-monitoring.js';
-import { GiteaService } from '../projects/services/GiteaService.js';
-import { sanitiseNamespaceName } from '../projects/lib/projects.js';
 import { infisicalHostFor } from '../releases/lib/infisical-sync.js';
-import { syncProjectSecrets } from '../projects/services/ProjectSecretSync.js';
 
 async function nodeAllocatableBytes(
   infra: InfrastructureService,

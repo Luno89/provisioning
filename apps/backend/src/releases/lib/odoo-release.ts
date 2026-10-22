@@ -2,7 +2,7 @@ import { sanitiseNamespaceName } from '../../projects/lib/projects.js';
 import type { ReleaseE2E } from './release-e2e.js';
 import type { ReleaseChanges } from './release-compare.js';
 import type { ClusterMetadata, ProjectMetadata } from '../../platform/index.js';
-import type { TreeTypeSecret } from '../../projects/lib/tree-types.js';
+import type { TreeTypeSecret } from '../../projects/index.js';
 
 export type Slot = 'a' | 'b';
 

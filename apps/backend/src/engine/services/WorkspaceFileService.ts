@@ -1,4 +1,4 @@
-import { GiteaConflictError } from '../../projects/services/GiteaService.js';
+import { GiteaConflictError } from '../../projects/index.js';
 import { unknownNeeds, unknownNeedsSaid } from '../lib/workspace-dependencies.js';
 import { readWorkspaceFile, WORKSPACE_FILE, withChange, workspaceFileProblems, writeWorkspaceFile, type WorkspaceChange, type WorkspaceFile } from '../lib/workspace-file.js';
 

@@ -49,7 +49,7 @@ import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
 import net from 'net';
 import { spawn } from 'child_process';
 import { AuthService } from './accounts/services/AuthService.js';
-import { GiteaService } from './projects/services/GiteaService.js';
+import { GiteaService } from './projects/index.js';
 import { ModelService } from './models/services/ModelService.js';
 
 import { seedAll } from './scripts/seed-all.js';

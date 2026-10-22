@@ -7,7 +7,7 @@ import { MachineBundle } from '../services/MachineBundle.js';
 import { MachineGitService } from '../services/MachineGitService.js';
 import { type HeadscaleService, meshRouter } from '../../infrastructure/index.js';
 import type { MachineService } from '../services/MachineService.js';
-import type { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
+import type { ProjectRepoService } from '../../projects/index.js';
 import { localAgentsRouter } from '../routes/local-agents.js';
 import { machinesRouter } from '../routes/machines.js';
 

@@ -9,12 +9,10 @@ import { checkReport, checksFailed, runTaskChecks, type CheckOutcome } from '../
 import { keepFailureArtifacts, type KeepArtifacts } from '../../../files/lib/artifacts.js';
 import { judgeCheckout, leafBriefPath, leafContext, leafFailurePath, leafWorktree, renderLeafFailure } from '../../../projects/lib/plan-documents.js';
 import type { Parking } from '../../../engine/lib/published-workspace.js';
-import type { Branch, Leaf } from '../../../projects/lib/leaves.js';
-import type { Tree } from '../../../projects/lib/trees.js';
+import type { Branch, Leaf, Tree, PlanProposal } from '../../../projects/index.js';
 import { newTask, type Task } from '../../../engine-host/tools/tasks.js';
 import { conflictTask, landedLeaf, landingOrder, readyToLand, reopenForConflict, supersededByVerdict } from '../../../projects/lib/landing.js';
 import { primaryProjectId } from '../../../projects/lib/trees.js';
-import type { PlanProposal } from '../../../projects/lib/plan-proposals.js';
 import type { TreeSandbox, TreeWorkspaces } from '../../../engine-host/sandboxes/tree-workspaces.js';
 import type { EnvironmentResolver } from '../../../engine-host/sandboxes/environments.js';
 import type { AgentRegistry } from '../../../engine-host/registries/registry.js';

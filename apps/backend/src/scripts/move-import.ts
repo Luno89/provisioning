@@ -10,7 +10,7 @@ import { cleaned, restoreOrder, volumePart, type AppsManifest, type KubeObject }
 import { ensureClusterMonitoring } from '../activities/cluster-monitoring.js';
 import { SYSTEM_CLUSTER } from '../monitoring/lib/cluster-monitoring.js';
 import { InfrastructureService } from '../infrastructure/index.js';
-import { GiteaService } from '../projects/services/GiteaService.js';
+import { GiteaService } from '../projects/index.js';
 import { loadKeys, mongoTarget } from '../platform/index.js';
 import { GITEA_DATA, MOVED_POSTGRES, MOVE_STEP_WORDS, PG_RESTORE, drained, type MovePart } from '../instances/lib/instance-move.js';
 

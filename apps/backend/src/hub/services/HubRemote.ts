@@ -2,7 +2,7 @@ import { Readable } from 'node:stream';
 import type { ReadableStream as WebReadable } from 'node:stream/web';
 import type { HubAccess } from '../lib/hub.js';
 import type { HubSyncTransport } from './HubSyncService.js';
-import type { HubSharing } from '../../projects/services/ProjectSharingService.js';
+import type { HubSharing } from '../../projects/index.js';
 import type { InstanceCall } from './HubInstanceWork.js';
 import { RELAY_NAME_HEADER, RELAY_STATUS_HEADER, RELAY_TYPE_HEADER } from '../lib/hub-board.js';
 

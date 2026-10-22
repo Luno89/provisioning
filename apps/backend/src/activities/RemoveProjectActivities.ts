@@ -4,13 +4,9 @@ import {
   type ClusterMetadata, type ProjectMetadata, type DeploymentMetadata, type PipelineRunMetadata, CLI_CEILING,
 } from '../platform/index.js';
 import { destroyAppArgs, destroyAppWorkflowId, type DestroyAppArgs } from '../infrastructure/index.js';
-import type { Tree } from '../projects/lib/trees.js';
-import type { Branch, Leaf } from '../projects/lib/leaves.js';
+import { type Tree, type Branch, type Leaf, type PlanProposal, projectWorkflowIds, loadProjectScope } from '../projects/index.js';
 import type { Task } from '../engine-host/tools/tasks.js';
-import type { PlanProposal } from '../projects/lib/plan-proposals.js';
 import type { Conversation } from '../engine/lib/conversations.js';
-import { projectWorkflowIds } from '../projects/lib/project-removal.js';
-import { loadProjectScope } from '../projects/services/ProjectRemovalService.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { workspaceName } from '../engine-host/sandboxes/workspace.js';
 import { conversationRepoName, conversationWorkspaceRunId, treeRepoName, treeWorkspaceRunId } from '../engine-host/sandboxes/workspace-repos.js';

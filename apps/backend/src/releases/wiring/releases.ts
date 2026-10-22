@@ -1,12 +1,13 @@
 import type { Server as SocketServer } from 'socket.io';
 import { type Database, type ProjectMetadata, awaitedNotice, releaseNotice } from '../../platform/index.js';
-import { treeTypeOfProject } from '../../projects/lib/tree-types.js';
-import { ODOO_TREE_TYPE } from '../../projects/lib/tree-type-seeds.js';
+import {
+  treeTypeOfProject, ODOO_TREE_TYPE, deploymentForProject, type projectSecretsFor, type ProjectChannelService,
+  type ProjectRepoService, type GiteaService,
+} from '../../projects/index.js';
 import { latestBuildOf, odooVersionOfDockerfile, projectMajor } from '../lib/client-import.js';
 import { buildPlanAt } from '../lib/build-plan.js';
 import { changedPaths, releaseDecision, type ReleaseDecision } from '../lib/release-paths.js';
 import { releaseHowOf } from '../lib/release-run.js';
-import { deploymentForProject } from '../../projects/lib/project-status.js';
 import { CHART_FILE, ODOO_RELEASE_SECRETS, OWN_SECRET_FILE, releaseTargetOf } from '../lib/odoo-release.js';
 import { createSlotCluster } from '../../extensions/releases/slot-cluster.js';
 import { syncVaultFromProject } from '../../extensions/releases/vault-sync.js';
@@ -20,12 +21,8 @@ import { ReleaseSettings } from '../services/ReleaseSettings.js';
 import { CustomizationsService } from '../services/CustomizationsService.js';
 import { ClientImportService } from '../services/ClientImportService.js';
 import { ProjectAppService } from '../services/ProjectAppService.js';
-import type { projectSecretsFor } from '../../projects/services/ProjectSecretsService.js';
 import type { TemporalBridge, AppExposureService, ClusterService, InfrastructureService } from '../../infrastructure/index.js';
 import type { ConversationNoticeService } from '../../engine/services/ConversationNoticeService.js';
-import type { ProjectChannelService } from '../../projects/services/ProjectChannelService.js';
-import type { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
-import type { GiteaService } from '../../projects/services/GiteaService.js';
 import { releaseSettingsRouter } from '../routes/release-settings.js';
 import { projectAppRouter } from '../routes/project-app.js';
 import { customizationsRouter } from '../routes/customizations.js';

@@ -15,7 +15,10 @@ import { providerServing } from '../../models/lib/model-registry.js';
 import { restoringApp } from '../../releases/lib/release-run.js';
 import { hostedMcpUrl } from '../lib/mcp-hosted-url.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
-import { treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom } from '../../projects/lib/tree-types.js';
+import {
+  treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, TreeTypeDescriptions,
+  type GiteaService, type ProjectRepoService, treeTypesRouter,
+} from '../../projects/index.js';
 import { type RunningRecords, type WorkFailureService, type TemporalBridge, bindingTypesRouter } from '../../infrastructure/index.js';
 import { extensionServiceFor } from '../services/ExtensionService.js';
 import { EngineToolService } from '../services/EngineToolService.js';
@@ -35,15 +38,12 @@ import { ProcedureService } from '../services/ProcedureService.js';
 import { AutoModeService } from '../services/AutoModeService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
 import { DocumentService } from '../services/DocumentService.js';
-import { TreeTypeDescriptions } from '../../projects/services/TreeTypeDescriptions.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import { ScriptedModelService } from '../../checks/services/ScriptedModelService.js';
 import { httpCheckAccess } from '../../checks/services/CheckToolAccess.js';
 import type { ConversationNoticeService } from '../services/ConversationNoticeService.js';
 import type { ModelService } from '../../models/services/ModelService.js';
 import type { MachineService } from '../../machines/services/MachineService.js';
-import type { GiteaService } from '../../projects/services/GiteaService.js';
-import type { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
 import type { TreeModelsService } from '../../models/services/TreeModelsService.js';
 import type { createArtifactService } from '../../files/services/artifact-service-factory.js';
 import {
@@ -70,7 +70,6 @@ import { conversationsRouter } from '../routes/conversations.js';
 import { documentsRouter } from '../routes/documents.js';
 import { turnsRouter } from '../routes/turns.js';
 import { memoriesRouter } from '../../memory/routes/memories.js';
-import { treeTypesRouter } from '../../projects/routes/tree-types.js';
 import { autoModeRouter } from '../routes/auto-mode.js';
 import { workspaceDependenciesRouter } from '../routes/workspace-dependencies.js';
 import { mcpRouter } from '../routes/mcp.js';

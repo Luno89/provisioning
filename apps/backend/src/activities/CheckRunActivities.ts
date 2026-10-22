@@ -16,10 +16,9 @@ import { type UserMetadata, encryptValue, type SecretKey, type ModelEndpointMeta
 import type { BenchSettings } from '../checks/lib/bench.js';
 import type { ExtensionSettings } from '../engine/lib/extension-settings.js';
 import type { AuthoredExtension } from '../engine/lib/authored-extensions.js';
-import { TREE_TYPE_SEEDS, type TreeTypeSpec } from '../projects/lib/tree-types.js';
+import { TREE_TYPE_SEEDS, type TreeTypeSpec, CONFLICT_TASK_TITLE } from '../projects/index.js';
 import { reowned, scriptedEndpointId, spacePersonas, spacePractices, spaceServers, spaceUser, worldServerId, type PromptChange } from '../checks/lib/check-space.js';
 import { conversationRepoName, conversationWorkspaceRunId, treeWorkspaceRunId } from '../engine-host/sandboxes/workspace-repos.js';
-import { CONFLICT_TASK_TITLE } from '../projects/lib/landing.js';
 import { randomBytes } from 'node:crypto';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
 import { STEP_NODE, stepProcedure, stepProcedureId } from '../checks/lib/step-check.js';

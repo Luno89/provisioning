@@ -1,5 +1,5 @@
 import type { Conversation } from '../../engine/lib/conversations.js';
-import type { Branch, Leaf } from '../../projects/lib/leaves.js';
+import type { Branch, Leaf } from '../../projects/index.js';
 import {
   DEFAULT_CONCLUDE_AFTER_MINUTES,
   LEAF_JUDGE,

@@ -8,7 +8,7 @@ import {
   type WorkspaceSpec,
   type WorkspaceBinding,
 } from '../lib/workspace-spec.js';
-import { readBindingCredentials } from '../../projects/lib/binding-project.js';
+import { readBindingCredentials } from '../../projects/index.js';
 import { bindingFiles, type ResolvedBinding } from '../../infrastructure/index.js';
 import type { WorkspaceImageSpec } from '../lib/workspace-image-seeds.js';
 

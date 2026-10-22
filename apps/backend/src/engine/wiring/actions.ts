@@ -4,7 +4,7 @@ import {
   EgressService, EgressProxyService, AccessService, type TemporalBridge, type InfrastructureService,
   type InfisicalService, egressRouter, clusterAccessRouter,
 } from '../../infrastructure/index.js';
-import { SecretRequestService } from '../../projects/services/SecretRequestService.js';
+import { SecretRequestService, secretRequestsRouter } from '../../projects/index.js';
 import type { MonitoringService } from '../../monitoring/services/MonitoringService.js';
 import type { TreeModelsService } from '../../models/services/TreeModelsService.js';
 import type { McpServerService } from '../services/McpServerService.js';
@@ -12,7 +12,6 @@ import type { WorkspaceDependencyService } from '../services/WorkspaceDependency
 import type { AgentService } from '../services/AgentService.js';
 import type { directoryFromDatabase } from '../../engine-host/index.js';
 import { actionsRouter } from '../routes/actions.js';
-import { secretRequestsRouter } from '../../projects/routes/secret-requests.js';
 import type { wireReleases } from '../../releases/wiring/releases.js';
 import type { Mounts } from '../../hub/wiring/hub.js';
 

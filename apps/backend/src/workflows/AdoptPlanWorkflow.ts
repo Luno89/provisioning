@@ -3,7 +3,7 @@ import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import { AgentRunWorkflow } from './AgentRunWorkflow.js';
 import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 import type { AdoptedRecords } from '../engine-host/plan-adoption.js';
-import type { AdoptedPlan } from '../projects/lib/plan-proposals.js';
+import type { AdoptedPlan } from '../projects/index.js';
 import { DEFAULT_STREAM_TASK_QUEUE, GROVE_CHANGED_PATCH, RUN_ID_MEMO, groveRunWorkflowId, type AdoptPlanArgs, type AdoptPlanResult, type ProcedureRunInput } from '../engine-host/temporal/contracts.js';
 import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';

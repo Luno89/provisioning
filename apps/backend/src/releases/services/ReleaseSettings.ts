@@ -1,6 +1,6 @@
 import { HOST_OP_KIND, type Procedure } from '@koala/agent-engine/procedure';
 import type { ProjectMetadata } from '../../platform/index.js';
-import type { TreeTypeSpec } from '../../projects/lib/tree-types.js';
+import type { TreeTypeSpec } from '../../projects/index.js';
 import { IMAGE_ONLY_STEPS, OPEN_STEP, RELEASE_APPS, RELEASE_STEP, releaseHowOf, releaseHowProblem, type ReleaseApp, type ReleaseHow } from '../lib/release-run.js';
 
 export interface ReleaseAgent {

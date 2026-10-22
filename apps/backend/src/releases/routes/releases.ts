@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute, type ProjectMetadata } from '../../platform/index.js';
 import type { OdooReleaseService } from '../services/OdooReleaseService.js';
-import type { SignIn } from '../../projects/services/ProjectSecretsService.js';
+import type { SignIn } from '../../projects/index.js';
 
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;

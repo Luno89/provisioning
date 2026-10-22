@@ -4,7 +4,7 @@ import path from 'path';
 import { asyncRoute } from '../../platform/index.js';
 import { isSafeRepoDir, isSafeRepoFilePath } from '../lib/project-file-paths.js';
 import { DROP_TYPE, readDrop } from '../lib/drops.js';
-import { GiteaConflictError } from '../../projects/services/GiteaService.js';
+import { GiteaConflictError } from '../../projects/index.js';
 import { listDirOnDevice, readFileOnDevice, writeFileOnDevice, deleteFileOnDevice } from '../../machines/lib/local-agent-registry.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');

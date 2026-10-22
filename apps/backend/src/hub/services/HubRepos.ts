@@ -1,4 +1,4 @@
-import type { GiteaService } from '../../projects/services/GiteaService.js';
+import type { GiteaService } from '../../projects/index.js';
 
 export interface HubRepoAccess {
   url: string;

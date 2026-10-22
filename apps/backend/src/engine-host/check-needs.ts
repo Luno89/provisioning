@@ -3,7 +3,7 @@ import { checksNeed } from '../engine/lib/browser-tests.js';
 import type { PublishedWorkspace } from '../engine/lib/published-workspace.js';
 import type { WorkspaceChange } from '../engine/lib/workspace-file.js';
 import { withStatus, type Task } from './tools/tasks.js';
-import type { Leaf } from '../projects/lib/leaves.js';
+import type { Leaf } from '../projects/index.js';
 
 export interface CheckNeedsDeps {
   tasks: { list(ownerId: string): Promise<Task[]>; save(task: Task): Promise<void> };

@@ -1,9 +1,7 @@
-import type { Branch, Leaf } from '../projects/lib/leaves.js';
-import type { Tree } from '../projects/lib/trees.js';
+import type { Branch, Leaf, Tree, AdoptedPlan, PlanProposal, PlanStatus } from '../projects/index.js';
 import type { NewTreeSpec } from '@koala/harness-types';
 import { primaryProjectId } from '../projects/lib/trees.js';
 import { newTask, type Task } from './tools/tasks.js';
-import type { AdoptedPlan, PlanProposal, PlanStatus } from '../projects/lib/plan-proposals.js';
 import { leafBriefPath, leafWorktree, PLAN_DOC_PATH, planDocuments, renderLeafBrief, TREE_REPO } from '../projects/lib/plan-documents.js';
 import { renderStarterFiles, resolveTreeType, versionForNewTree, versionVars, type TreeTypeSpec } from '../projects/lib/tree-types.js';
 import { resetForRetry } from '../projects/lib/leaves.js';

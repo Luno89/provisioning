@@ -1,13 +1,11 @@
 import type { Database, ProjectMetadata } from '../../platform/index.js';
-import { DEFAULT_TARGET_CLUSTER } from '../../projects/lib/project-shipping.js';
+import { DEFAULT_TARGET_CLUSTER, type GiteaService, type ProjectRepoService } from '../../projects/index.js';
 import { writeFileOnDevice } from '../../machines/lib/local-agent-registry.js';
 import { FileStores } from '../services/FileStores.js';
 import { FileService } from '../services/FileService.js';
 import { RepositoryDropService } from '../services/RepositoryDropService.js';
 import { StoryDropService } from '../services/StoryDropService.js';
 import type { createArtifactService } from '../services/artifact-service-factory.js';
-import type { GiteaService } from '../../projects/services/GiteaService.js';
-import type { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
 import type { TemporalBridge } from '../../infrastructure/index.js';
 import { filesRouter, shareRouter } from '../routes/files.js';
 import { projectFilesRouter } from '../routes/project-files.js';

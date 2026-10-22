@@ -1,7 +1,6 @@
 import type { ImagePlan, PlanLine } from '@koala/agent-engine';
 import type { NodeRequest, StepResult } from '@koala/agent-engine/procedure';
-import type { Tree } from '../../../projects/lib/trees.js';
-import type { Branch, Leaf } from '../../../projects/lib/leaves.js';
+import type { Tree, Branch, Leaf } from '../../../projects/index.js';
 import type { Task } from '../../../engine-host/tools/tasks.js';
 import { readWorkspaceFile, type WorkspaceFile } from '../../../engine/lib/workspace-file.js';
 import { describeLine, stageText, type NextStage, type NextWorkspace, type PublishedWorkspace } from '../../../engine/lib/published-workspace.js';

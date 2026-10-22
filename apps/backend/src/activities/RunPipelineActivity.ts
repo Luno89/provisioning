@@ -4,7 +4,7 @@ import { spawn } from 'child_process';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GiteaService } from '../projects/services/GiteaService.js';
+import { GiteaService } from '../projects/index.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { buildPlanAt, isCommitSha } from '../releases/lib/build-plan.js';
 import { buildArgEntries } from '../releases/lib/pipeline-config.js';

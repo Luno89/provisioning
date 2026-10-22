@@ -4,7 +4,7 @@ import {
   descriptionProblem, keyProblem, secretReference, sourceFor, withRequired,
   type SecretRequest, type SecretRequestFilter,
 } from '../../projects/lib/secret-requests.js';
-import type { Tree } from '../../projects/lib/trees.js';
+import type { Tree } from '../../projects/index.js';
 import { projectFor as scopedProject } from './project-scope.js';
 import type { ProjectMetadata } from '../../platform/index.js';
 

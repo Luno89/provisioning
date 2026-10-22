@@ -5,7 +5,7 @@ import { MCP_TOOL_KINDS, deploymentOf, serverNameFrom, type McpServerRecord, typ
 import type { McpToolHint } from './mcp-tool-hints.js';
 import { serviceNameFor, usableServiceName } from '../../infrastructure/lib/service-name.js';
 import type { DeploymentMetadata, ProjectMetadata } from '../../platform/index.js';
-import type { Tree } from '../../projects/lib/trees.js';
+import type { Tree } from '../../projects/index.js';
 
 export interface McpServerMigrationStore {
   accounts: {

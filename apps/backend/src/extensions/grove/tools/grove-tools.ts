@@ -1,8 +1,7 @@
-import type { ReleaseWays } from '../../../projects/lib/tree-type-description.js';
+import type { ReleaseWays, Tree, ItemChange } from '../../../projects/index.js';
 import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import { awaitingReview, settleClaim, type Branch, type Leaf } from '../../../projects/lib/leaves.js';
-import type { Tree } from '../../../projects/lib/trees.js';
 import { SETTLED, type Task, type TaskStatus } from '../../../engine-host/tools/tasks.js';
 import { parseLeafPlan, parsePlan, planSummary, type PlanProposal } from '../../../projects/lib/plan-proposals.js';
 import { proposedPlanPath, renderProposedPlan } from '../../../projects/lib/plan-documents.js';
@@ -12,7 +11,6 @@ import { versionsLine, type VersionChoices } from '../../../projects/lib/tree-ty
 import { nextLeafStep, taskItem } from '../../../projects/lib/grove-leaf.js';
 import { workOrder } from '../../../projects/lib/work-order.js';
 import { changeSummary, parseCancel, parseNewStories, parseStoryEdit, type ChangeWorld } from '../../../projects/lib/item-changes.js';
-import type { ItemChange } from '../../../projects/lib/plan-proposals.js';
 import { sameAction, type ActionProposal } from '../../../engine/lib/action-proposals.js';
 
 export interface GroveStores {

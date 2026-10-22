@@ -26,7 +26,7 @@ import { createMachineWorkspaces, type KnownMachine } from './sandboxes/machine-
 import { createMachineBackend } from './drivers/machine-backend.js';
 import { createToolRuntime } from './tools/tool-runtime.js';
 import { createEngineToolHandlers } from './tools/engine-tools.js';
-import { TreeTypeDescriptions } from '../projects/services/TreeTypeDescriptions.js';
+import { TreeTypeDescriptions } from '../projects/index.js';
 import { WorkspaceImageService } from '../engine/services/WorkspaceImageService.js';
 import { WorkspaceFileService } from '../engine/services/WorkspaceFileService.js';
 import type { ComposedWorkspace } from '../engine/lib/workspace-composition.js';
@@ -72,17 +72,17 @@ export interface EngineHostStores {
   tools: { list(ownerId?: string): Promise<ToolDefinition[]> };
   tasks: TaskStore;
   grove: {
-    trees: { list(): Promise<import('../projects/lib/trees.js').Tree[]>; save(tree: import('../projects/lib/trees.js').Tree): Promise<void> };
-    branches: { list(): Promise<import('../projects/lib/leaves.js').Branch[]>; save(branch: import('../projects/lib/leaves.js').Branch): Promise<void> };
-    leaves: { list(): Promise<import('../projects/lib/leaves.js').Leaf[]>; save(leaf: import('../projects/lib/leaves.js').Leaf): Promise<void> };
+    trees: { list(): Promise<import('../projects/index.js').Tree[]>; save(tree: import('../projects/index.js').Tree): Promise<void> };
+    branches: { list(): Promise<import('../projects/index.js').Branch[]>; save(branch: import('../projects/index.js').Branch): Promise<void> };
+    leaves: { list(): Promise<import('../projects/index.js').Leaf[]>; save(leaf: import('../projects/index.js').Leaf): Promise<void> };
     /** optional: when absent, no leaf has tasks (P0 planner world) */
     tasks?: { list(): Promise<import('./tools/tasks.js').Task[]> };
     plans?: {
-      save(proposal: import('../projects/lib/plan-proposals.js').PlanProposal): Promise<void>;
-      list(ownerId: string, conversationId?: string): Promise<import('../projects/lib/plan-proposals.js').PlanProposal[]>;
+      save(proposal: import('../projects/index.js').PlanProposal): Promise<void>;
+      list(ownerId: string, conversationId?: string): Promise<import('../projects/index.js').PlanProposal[]>;
     };
     treeTypes?: (ownerId: string) => Promise<import('../extensions/grove/tools/grove-tools.js').TreeTypeChoice[]>;
-    treeTypeSpecs?: (ownerId: string) => Promise<import('../projects/lib/tree-types.js').TreeTypeSpec[]>;
+    treeTypeSpecs?: (ownerId: string) => Promise<import('../projects/index.js').TreeTypeSpec[]>;
     workspaceImages?: (ownerId: string) => Promise<import('../engine/lib/workspace-image-seeds.js').WorkspaceImageSpec[]>;
     binding?: (ownerId: string, conversationId: string) => Promise<{ treeId?: string | undefined; projectId?: string | undefined; leafId?: string | undefined; branchId?: string | undefined } | undefined>;
     growing?: import('../extensions/grove/tools/grove-tools.js').TreeGrowing | undefined;

@@ -10,7 +10,7 @@ import { InfrastructureViewService } from '../services/InfrastructureViewService
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { MonitoringService } from '../../monitoring/services/MonitoringService.js';
 import type { Level2Service } from '../../checks/services/Level2Service.js';
-import type { GroveRunService } from '../../projects/services/GroveRunService.js';
+import type { GroveRunService } from '../../projects/index.js';
 import type { BenchService } from '../../checks/services/BenchService.js';
 import type { MemoryKeeperService } from '../../memory/services/MemoryKeeperService.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';

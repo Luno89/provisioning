@@ -2,7 +2,7 @@
 
 import { createDatabase, type Database, runOnce, type MigrationLedger } from '../platform/index.js';
 import { seedBindingTypes, seedAppSpecs, seedConstructBackedTypes, seedClusterProviders } from '../infrastructure/index.js';
-import { seedTreeTypes, stampTreeVersions } from '../projects/lib/tree-types.js';
+import { seedTreeTypes, stampTreeVersions } from '../projects/index.js';
 import { seedWorkspaceImages } from '../engine/lib/workspace-image-seeds.js';
 import { retireStoredBuiltInProcedures } from '../engine/lib/built-in-procedures.js';
 import { retireStoredBuiltInPersonas } from '../engine/lib/built-in-personas.js';

@@ -5,7 +5,12 @@ import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
 import { accountDefaultOf } from './machines/lib/machine-runs.js';
 import path from 'path';
-import { DEFAULT_TARGET_CLUSTER } from './projects/lib/project-shipping.js';
+import {
+  DEFAULT_TARGET_CLUSTER, GiteaService, projectSecretsFor, ProjectChannelService, ODOO_TREE_TYPE,
+  treeTypeOfProject, giteaUsernameFor, ProjectRepoService, createSecretVault, treeTypeChoices, treeLanguageFrom,
+  treeExtrasFrom, dependencyNamespaceFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars,
+  TreeHomeService, webhookAddress, type GroveRunLauncher,
+} from './projects/index.js';
 import {
   stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, failureReason,
   signJWT, clusterOwnership, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor,
@@ -18,7 +23,6 @@ import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 import { createPlanAdoption } from './engine-host/plan-adoption.js';
-import { GiteaService } from './projects/services/GiteaService.js';
 import {
   InfrastructureService, LOG_DIR, InfisicalService, HeadscaleService, deployProjectBuild, sharedClusterProxy,
   ClusterService, visibleAppSpecs, resolveBindings, healthPort, serveHealth,
@@ -26,14 +30,10 @@ import {
 import { createModelService } from './models/wiring/model-wiring.js';
 import { createAccountRemovalActivities } from './activities/RemoveAccountActivities.js';
 import { createProjectRemovalActivities, type AppTeardown } from './activities/RemoveProjectActivities.js';
-import { projectSecretsFor } from './projects/services/ProjectSecretsService.js';
-import { ProjectChannelService } from './projects/services/ProjectChannelService.js';
 import { createCheckReleases, createReleaseBrowserTestActivities, namespacedCluster } from './activities/ReleaseBrowserTestsActivity.js';
 import { createSlotCluster } from './extensions/releases/slot-cluster.js';
 import { CustomizationsService } from './releases/services/CustomizationsService.js';
-import { ODOO_TREE_TYPE } from './projects/lib/tree-type-seeds.js';
 import { releaseHowOf } from './releases/lib/release-run.js';
-import { treeTypeOfProject } from './projects/lib/tree-types.js';
 import { ODOO_RELEASE_ADAPTER } from './extensions/odoo/release-adapter.js';
 import { projectChoicesPatch, type ClientImport } from './releases/lib/client-import.js';
 import { syncVaultFromProject } from './extensions/releases/vault-sync.js';
@@ -42,19 +42,13 @@ import { createCheckProgressActivity, createCheckRunActivities } from './activit
 import { withSeedBundle } from './engine-host/sandboxes/seed-bundle.js';
 import { scriptedModelBase } from './checks/lib/check-space.js';
 import { labelValue } from './engine-host/sandboxes/workspace.js';
-import { giteaUsernameFor } from './projects/lib/projects.js';
 import { itSays, wasReported } from './eval/level2/reported.js';
 import { createProcedureExecutor } from './engine-host/nodes/index.js';
 import axios from 'axios';
 import { httpCheckAccess } from './checks/services/CheckToolAccess.js';
 import { MonitoringService, prometheusAt } from './monitoring/services/MonitoringService.js';
 import { poolMonitor, poolMonitorFrom } from './monitoring/services/PoolMonitor.js';
-import { ProjectRepoService } from './projects/services/ProjectRepoService.js';
-import { createSecretVault } from './projects/services/SecretRequestService.js';
 import { resolveMcpProbeUrl } from './engine/lib/mcp-probe-url.js';
-import { treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars } from './projects/lib/tree-types.js';
-import { TreeHomeService } from './projects/services/TreeHomeService.js';
-import { webhookAddress } from './projects/services/webhook-address.js';
 import { runCancelledVia, runEndedVia } from './engine-host/temporal/run-cancellation.js';
 import { createKubeRunner } from './engine-host/sandboxes/kube.js';
 
@@ -76,7 +70,6 @@ import { createGroveLauncher } from './engine-host/grove-launcher.js';
 import { createRunStarter } from './engine-host/registries/run-starter.js';
 import { WorkspaceBuildService } from './engine/services/WorkspaceBuildService.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
-import type { GroveRunLauncher } from './projects/services/GroveRunService.js';
 import { createArtifactService } from './files/services/artifact-service-factory.js';
 import { FileServerUnreachableError, FileStores } from './files/services/FileStores.js';
 import { FileService } from './files/services/FileService.js';

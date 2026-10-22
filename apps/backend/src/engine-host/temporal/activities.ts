@@ -46,9 +46,7 @@ import type { TreeWorkspaces } from '../sandboxes/tree-workspaces.js';
 import type { AdoptedRecords, PlanAdoption } from '../plan-adoption.js';
 import { groveAgentOf, resolveTreeType } from '../../projects/lib/tree-types.js';
 
-import type { AdoptedPlan } from '../../projects/lib/plan-proposals.js';
-import type { Tree } from '../../projects/lib/trees.js';
-import type { Branch, Leaf } from '../../projects/lib/leaves.js';
+import type { AdoptedPlan, Tree, Branch, Leaf } from '../../projects/index.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { EnvironmentResolver } from '../sandboxes/environments.js';
 import { platformCatalogue } from '../../extensions/installed.js';
@@ -97,7 +95,7 @@ export interface EngineServices extends StreamServices {
   conversationWorkspaces?: Pick<ConversationWorkspaces, 'conclude'> | undefined;
   conversationAgent?: ((ownerId: string, conversationId: string) => Promise<string | undefined>) | undefined;
   planAdoption?: PlanAdoption | undefined;
-  plans?: { list(ownerId: string): Promise<import('../../projects/lib/plan-proposals.js').PlanProposal[]> } | undefined;
+  plans?: { list(ownerId: string): Promise<import('../../projects/index.js').PlanProposal[]> } | undefined;
 }
 
 /** Read-side of a grove's stores: just enough for the ready-leaves partition. */

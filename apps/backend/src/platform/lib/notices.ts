@@ -3,7 +3,7 @@ import { workflowOfRun } from './workflow-ids.js';
 import type { OdooRelease } from '../../releases/lib/odoo-release.js';
 import { changesSentence } from '../../releases/lib/release-compare.js';
 import { importedSentence } from '../../releases/lib/client-import.js';
-import type { Leaf } from '../../projects/lib/leaves.js';
+import type { Leaf } from '../../projects/index.js';
 
 const short = (commit: string): string => commit.slice(0, 8);
 

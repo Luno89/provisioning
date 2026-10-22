@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import type { Leaf } from '../../projects/lib/leaves.js';
+import type { Leaf } from '../../projects/index.js';
 import { dropMessage, type DroppedFile } from '../lib/drops.js';
 import { dropBranchName, dropSaid, withDrop, type StoryDrop } from '../lib/story-drops.js';
 import type { StoryDropWork } from '../../engine-host/sandboxes/story-drop-work.js';

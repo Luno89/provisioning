@@ -6,7 +6,7 @@ import { ODOO_DATABASE_PASSWORD, ODOO_PROJECT_APP, ODOO_RELEASE_SECRETS, chartDa
 import type { ReleaseDecision } from '../lib/release-paths.js';
 import { HELD_FOR_CLIENT, awaits, missingFrom, missingSentence, restorable, wrongVersionFrom, type ClientImport } from '../lib/client-import.js';
 import { vaultSecretName } from '../lib/infisical-sync.js';
-import type { TreeTypeSecret } from '../../projects/lib/tree-types.js';
+import type { TreeTypeSecret } from '../../projects/index.js';
 import { isMockCloudProvider, hasCloudCredentials } from '../../infrastructure/index.js';
 import {
   CUT_OVER, CUT_OVER_LOSING, DECISION_NODE, DEFAULT_RELEASE_APP, DISCARD, LOSING_DECISION_NODE, RELEASE_AGENT, RETEST, ROLL_BACK_AGENT, UNSETTLED_STATES,

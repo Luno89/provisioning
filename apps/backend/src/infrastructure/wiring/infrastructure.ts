@@ -5,7 +5,7 @@ import type { AppExposureService } from '../services/AppExposureService.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { CredentialService } from '../services/CredentialService.js';
-import type { GiteaService } from '../../projects/services/GiteaService.js';
+import type { GiteaService } from '../../projects/index.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';

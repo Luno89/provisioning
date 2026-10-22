@@ -1,6 +1,6 @@
 import { ApplicationFailure } from '@temporalio/common';
 import { type InfrastructureService, InfisicalService, sharedClusterProxy } from '../../infrastructure/index.js';
-import { syncProjectSecrets } from '../../projects/services/ProjectSecretSync.js';
+import { syncProjectSecrets } from '../../projects/index.js';
 import { createDatabase } from '../../platform/lib/db-interface.js';
 import { loadKeys } from '../../platform/lib/keys.js';
 import type { VaultSync } from './slot-cluster.js';
