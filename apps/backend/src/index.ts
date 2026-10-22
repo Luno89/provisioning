@@ -2,13 +2,11 @@ import { getModelRateLimiterSnapshot } from '@koala/agent-engine';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 
-const LOG_TAIL_LINES = 200;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,17 +36,15 @@ import { hubInstanceWork, wireHub } from './wiring/hub.js';
 import { InstanceSide, wireInstances, wireMoveExport } from './wiring/instances.js';
 import { projectsCore, wireProjects } from './wiring/projects.js';
 import { engineCore, wireEngine, startEngineStream } from './wiring/engine.js';
-import { userRoom } from './engine-host/temporal/stream-worker.js';
+import { wireSockets } from './wiring/sockets.js';
+import { workFailuresFor, wireRunning } from './wiring/running.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
-import { labelValue } from './engine-host/sandboxes/workspace.js';
-import { runWaitingVia } from './engine-host/temporal/run-cancellation.js';
 import { getTemporalClient, resolveOwnersWith } from './lib/temporal-client.js';
 import { PayloadStorageService } from './services/PayloadStorageService.js';
-import { workflowOfRun } from './engine-host/temporal/contracts.js';
 import { createAuth } from './middleware/auth.js';
 import { keepTrying } from './lib/keep-trying.js';
 import { mongoTarget } from './lib/mongo-db.js';
-import { askDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from './lib/local-agent-registry.js';
+import { askDevice, localAgentStatus, tellDevice } from './lib/local-agent-registry.js';
 import { MachineService } from './services/MachineService.js';
 import { RootMeshKeys } from './services/RootMeshKeys.js';
 import { asyncRoute } from './middleware/async-route.js';
@@ -64,7 +60,6 @@ import { RegistryService } from './services/RegistryService.js';
 import { GitModuleService } from './services/GitModuleService.js';
 import { BuilderService } from './services/BuilderService.js';
 import { AppExposureService } from './services/AppExposureService.js';
-import type { UserMetadata } from './lib/types.js';
 import { VpsCatalogService } from './services/VpsCatalogService.js';
 import { TemporalBridge } from './services/TemporalBridge.js';
 import WorkerService from './services/WorkerService.js';
@@ -80,19 +75,9 @@ import { ModelService } from './services/ModelService.js';
 import { decryptValue } from './lib/crypto.js';
 
 import { seedAll } from './scripts/seed-all.js';
-import { RunningService } from './services/RunningService.js';
-import { ownedQuery, ownerIn } from './lib/workflow-owner.js';
-import { DEFAULT_BENCH_SETTINGS } from './lib/bench.js';
-import { runningRouter } from './routes/running.js';
-import { infrastructureRouter } from './routes/infrastructure.js';
-import { InfrastructureViewService } from './services/InfrastructureViewService.js';
-import { ClusterContentsService } from './services/ClusterContentsService.js';
-import { WorkFailureService, type ClosedWorkflow } from './services/WorkFailureService.js';
-import type { RunningWorkflow } from './lib/running.js';
 import { endpointRulesFromEnv } from './lib/endpoint-url-safety.js';
 import { loadKeys } from './lib/keys.js';
 import { roleFromEnv, servesTenants, holdsAccounts } from './lib/platform-role.js';
-import { machinePayloads, type GetAnswer, type PutAnswer, type RingAnswer } from './lib/machine-payloads.js';
 import { IdentityService } from './services/IdentityService.js';
 import { MailService } from './services/MailService.js';
 import { NotificationService } from './services/NotificationService.js';
@@ -226,50 +211,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     extensions, agentDirectory, engineRegistry, engineRuns, workspaceBuilds, workspaceRepos, workspaceConclusions,
     memoryKeeper, concluded, runningRecords, bench, agentsHolder, workspaceDependencies,
   } = engine;
-  const workFailures = new WorkFailureService({
-    store: db,
-    onFailure: (failure) => metrics.failed(failure.kind),
-    workflows: {
-      closedSince: async (since) => {
-        if (!temporalBridge.isReady()) return [];
-        const found: ClosedWorkflow[] = [];
-        const query = `(ExecutionStatus = "Failed" OR ExecutionStatus = "TimedOut") AND CloseTime > "${since.toISOString()}"`;
-        for await (const workflow of temporalBridge.client.workflow.list({ query })) {
-          found.push({
-            workflowId: workflow.workflowId,
-            temporalRunId: workflow.runId,
-            type: workflow.type,
-            startedAt: workflow.startTime.toISOString(),
-            closedAt: (workflow.closeTime ?? new Date()).toISOString(),
-            status: workflow.status.name === 'TIMED_OUT' ? 'TIMED_OUT' : 'FAILED',
-            ownerId: ownerIn(workflow.typedSearchAttributes),
-            ...(workflow.parentExecution?.workflowId ? { parent: workflow.parentExecution.workflowId } : {}),
-            ...(workflow.memo ? { memo: workflow.memo } : {}),
-          });
-        }
-        return found;
-      },
-      failureOf: async (workflowId, temporalRunId) => {
-        try {
-          await temporalBridge.client.workflow.getHandle(workflowId, temporalRunId).result();
-          return undefined;
-        } catch (err) {
-          return { message: (err as Error).message, cause: { message: (err as { cause?: Error }).cause?.message } };
-        }
-      },
-      describeRun: async (runId) => {
-        if (!temporalBridge.isReady()) return undefined;
-        const described = await temporalBridge.client.workflow.getHandle(workflowOfRun(runId)).describe();
-        return { workflowId: described.workflowId, type: described.type, startedAt: described.startTime.toISOString(), ...(described.memo ? { memo: described.memo } : {}) };
-      },
-    },
-    records: runningRecords,
-    isPerson: async (ownerId) => {
-      const user = await db.getUserById(ownerId);
-      return Boolean(user) && !user!.space && !user!.removal;
-    },
-    log: (message) => console.warn(message),
-  });
+  const workFailures = workFailuresFor({ db, temporalBridge, metrics, records: runningRecords });
 
   startEngineStream({ role, io, db, payloadKey: keys.payload, core: engine, models: modelService, notices, postNotice, workFailures });
 
@@ -332,7 +274,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const vpsCatalogService = new VpsCatalogService(db, keys.data);
 
   const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role });
-  const { requireAdmin, userFromSessionCookie } = auth;
+  const { requireAdmin } = auth;
 
   let runningNow: (() => Promise<string[] | 'unknown'>) | undefined;
   await wireMoveExport({
@@ -346,166 +288,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.type(metrics.contentType).send(await metrics.text());
   }));
 
-  io.use(async (socket, next) => {
-    if (process.env.IS_E2E === 'true') {
-      const users = await db.getUsers();
-      socket.data.user = users[0] || { id: 'test-user-id', email: 'test@example.com' };
-      return next();
-    }
-    try {
-      const user = await userFromSessionCookie(socket.handshake.headers.cookie);
-      if (!user) return next(new Error('Unauthorized'));
-      socket.data.user = user;
-      next();
-    } catch {
-      next(new Error('Unauthorized'));
-    }
-  });
-
-  const agentNamespace = io.of('/agent');
-  const forMachines = machinePayloads({ ring: servesTenants(role) ? keys.payload : undefined, blobs: sharedPayloadBlobs() });
-  agentNamespace.use(async (socket, next) => {
-    const token = socket.handshake.auth?.token as string | undefined;
-    if (!token) return next(new Error('Missing device token'));
-    const device = findDeviceByToken(await db.getLocalAgentDevices(), token, keys.data);
-    if (!device) return next(new Error('Unauthorized'));
-    socket.data.device = device;
-    next();
-  });
-  agentNamespace.on('connection', (socket) => {
-    const device = socket.data.device as { id: string; ownerId: string; rootDir: string };
-    const containerMode = socket.handshake.auth?.containerMode === true;
-    registerDevice(device.id, device.ownerId, device.rootDir, socket, containerMode);
-    db.getLocalAgentDevices().then((devices) => {
-      const current = devices.find((d) => d.id === device.id);
-      if (current) db.saveLocalAgentDevice({ ...current, lastSeenAt: new Date().toISOString() }).catch(() => undefined);
-    }).catch(() => undefined);
-    socket.on('disconnect', () => unregisterDevice(device.id, socket));
-    socket.on('agents:found', (report: { agents?: unknown } | undefined) => {
-      machineService.recordAgents(device.id, report?.agents).catch((err: Error) => console.warn(`[machines] ${device.id}: its agents could not be recorded: ${err.message}`));
-    });
-    socket.on('agents:manual', (_request: unknown, ack: (agents: unknown) => void) => {
-      machineService.manualAgents(device.id).then(ack, () => ack([]));
-    });
-    socket.on('machine:payloads', (_request: unknown, ack: (answer: RingAnswer) => void) => ack(forMachines.ring()));
-    socket.on('payloads:put', (request: unknown, ack: (answer: PutAnswer) => void) => { void forMachines.put(request).then(ack); });
-    socket.on('payloads:get', (request: unknown, ack: (answer: GetAnswer) => void) => { void forMachines.get(request).then(ack); });
-  });
-
-  async function authorizeRoom(user: UserMetadata | undefined, id: string): Promise<any | undefined> {
-    if (!user) return undefined;
-    const cluster = await clusterService.getById(id, user.id);
-    if (cluster) return cluster;
-    const deployment = await appService.getById(id, user.id);
-    if (deployment) return deployment;
-    const run = (await db.getPipelineRuns()).find((r: any) => r.id === id);
-    if (run) {
-      const project = (await db.getProjects()).find((p: any) => p.id === run.projectId);
-      const owned = ownsProject(project, user);
-      if (owned && run.logFile) return { ...run, lastLogPath: run.logFile };
-    }
-    return undefined;
-  }
-
-  io.on('connection', (socket) => {
-    const connectedUser = (socket.data.user as { id?: string } | undefined)?.id;
-    if (connectedUser) void socket.join(userRoom(connectedUser));
-    const socketTails = new Map<string, any>();
-
-    socket.on('join-room', async (id) => {
-      const resource = await authorizeRoom(socket.data.user, id);
-      if (!resource) {
-        socket.emit('room-denied', { id });
-        return;
-      }
-      socket.join(id);
-
-      const existing = socketTails.get(id);
-      if (existing) {
-        existing.kill();
-        socketTails.delete(id);
-      }
-
-      if (resource.lastLogPath) {
-        try {
-          await fs.access(resource.lastLogPath);
-        } catch {
-          await fs.mkdir(path.dirname(resource.lastLogPath), { recursive: true }).catch(() => {});
-          await fs.writeFile(resource.lastLogPath, '').catch(() => {});
-        }
-
-        const tail = spawn('tail', ['-n', String(LOG_TAIL_LINES), '-f', resource.lastLogPath]);
-        socketTails.set(id, tail);
-
-        tail.stdout.on('data', (data) => {
-          socket.emit('log', data.toString());
-        });
-
-        tail.stderr.on('data', (data) => {
-          socket.emit('log', data.toString());
-        });
-
-        tail.on('error', (err) => {
-          console.warn(`[log-tail] ${resource.lastLogPath}: ${err.message}`);
-          socketTails.delete(id);
-        });
-
-        tail.on('close', () => {
-          socketTails.delete(id);
-        });
-      }
-    });
-
-    socket.on('join-kube-room', async (id) => {
-      if (!(await authorizeRoom(socket.data.user, id))) {
-        socket.emit('room-denied', { id });
-        return;
-      }
-      socket.join(`${id}-kube`);
-    });
-    socket.on('tail-pod', async ({ resourceId, podName, namespace }) => {
-      const user = socket.data.user as UserMetadata | undefined;
-      if (!user) return;
-      const dep = await appService.getById(resourceId, user.id);
-      if (!dep) {
-        socket.emit('room-denied', { id: resourceId });
-        return;
-      }
-      const cluster = dep.clusterId === 'provisioning-lunorica'
-        ? await clusterService.getSystemClusterEntry()
-        : await clusterService.getById(dep.clusterId, user.id);
-      if (!cluster) {
-        socket.emit('room-denied', { id: resourceId });
-        return;
-      }
-      let context: string | undefined;
-      const isMock = clusterService.isMockCloud(cluster);
-      const physicalName = clusterService.getPhysicalClusterName(cluster);
-      if (cluster.provider === 'k3d' || isMock) context = `k3d-${physicalName}`;
-      const kubeconfigPath = await clusterService.getKubeconfigPath(cluster);
-      const args = ['logs', '-n', namespace || 'default', podName, '--all-containers=true', '--tail=100', '-f'];
-      if (context) args.push('--context', context);
-      infraService.streamLogs(resourceId, args, io, `${resourceId}-kube`, kubeconfigPath);
-    });
-
-    socket.on('leave-room', (id) => {
-      socket.leave(id);
-      const tail = socketTails.get(id);
-      if (tail) {
-        tail.kill();
-        socketTails.delete(id);
-      }
-    });
-
-    socket.on('leave-kube-room', (id) => { socket.leave(`${id}-kube`); infraService.stopStream(id); });
-
-    socket.on('disconnect', () => {
-      for (const tail of socketTails.values()) {
-        tail.kill();
-      }
-      socketTails.clear();
-    });
-  });
+  wireSockets({ io, db, role, env: process.env, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService });
 
   app.use('/api/auth', authRouter({
     db, authService, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, accounts: holdsAccounts(role), hub: role.role === 'hub',
@@ -589,53 +372,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     temporalBridge, models: modelService, machines: machineService, registry: engineRegistry, runs: engineRuns, extensions, evalHost,
     workspaceBuilds, workspaceConclusions, workspaceRepos, concluded, sharing: () => hub.sharingService, getOwnedProject,
   });
-  const waitingOf = runWaitingVia(() => getTemporalClient());
-  const running = new RunningService({
-    workflows: {
-      list: async (ownerId) => {
-        if (!temporalBridge.isReady()) return undefined;
-        const found: RunningWorkflow[] = [];
-        for await (const workflow of temporalBridge.client.workflow.list({ query: `${ownedQuery(ownerId)} AND ExecutionStatus = "Running"` })) {
-          found.push({
-            workflowId: workflow.workflowId,
-            type: workflow.type,
-            startedAt: workflow.startTime.toISOString(),
-            ...(workflow.parentExecution?.workflowId ? { parent: workflow.parentExecution.workflowId } : {}),
-            ...(workflow.memo ? { memo: workflow.memo } : {}),
-          });
-        }
-        return found;
-      },
-      waiting: (workflowId) => waitingOf(workflowId),
-      cancel: (workflowId) => temporalBridge.cancelWorkflow(workflowId),
-    },
-    records: runningRecords,
-    checks: { cancel: (ownerId, id) => level2Service.cancel(ownerId, id) },
-    trees: { stop: async (ownerId, treeId) => { const outcome = await groveRuns.stop(ownerId, treeId); return outcome.ok ? { ok: true } : { ok: false, error: outcome.error }; } },
-    runs: { cancel: (runId) => engineRuns.cancel(runId) },
-    bench: {
-      settings: async (ownerId) => (bench.service ? bench.service.settings(ownerId) : { ...DEFAULT_BENCH_SETTINGS }),
-      saveSettings: async (ownerId, value) => (bench.service ? bench.service.saveSettings(ownerId, value) : { saved: false, problems: ['the bench is not set up here'] }),
-    },
-    keeper: memoryKeeper,
+  const { running } = wireRunning({
+    tenant, db, role, temporalBridge, monitoring, workFailures, records: runningRecords, checks: level2Service, trees: groveRuns, runs: engineRuns,
+    bench, keeper: memoryKeeper, infra: infraService, clusters: clusterService,
   });
   runningNow = async () => {
     const view = await running.view(role.instance?.ownerId ?? '');
     if (!view.ok) return 'unknown';
     return view.value.items.map((item) => item.title);
   };
-  tenant.use('/api/running', runningRouter({ running }));
-  const clusterContents = new ClusterContentsService({
-    monitoring,
-    deployments: () => db.getDeployments(),
-    kubectl: async (cluster, args) => String(await infraService.runKubectl(args, await clusterService.getKubeconfigPath(cluster))),
-    helm: async (cluster, args) => String(await infraService.runHelm(args, await clusterService.getKubeconfigPath(cluster))),
-    labelOf: labelValue,
-  });
-  tenant.use('/api/infrastructure', infrastructureRouter({
-    infrastructure: new InfrastructureViewService({ monitoring, contents: clusterContents, running, failures: workFailures }),
-  }));
-  if (servesTenants(role)) workFailures.start();
   tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault: infisicalService }) }));
   if (hub.reaches) {
     hub.setWork(hubInstanceWork({
