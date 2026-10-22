@@ -430,6 +430,10 @@ export class MongoDB implements Database {
     await this.corpus.createIndex({ ownerId: 1, projectId: 1 });
   }
 
+  async dropDatabase(): Promise<void> {
+    await this.db?.dropDatabase();
+  }
+
   async close(): Promise<void> {
     if (this.client) {
       await this.client.close();

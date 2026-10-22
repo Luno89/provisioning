@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryDB } from './memory-db.js';
+import { testDatabase } from './test-database.js';
 import { mergeRecord } from './merge-record.js';
 
 describe('merging a partial update', () => {
@@ -18,7 +18,7 @@ describe('merging a partial update', () => {
 
 describe('the save*Info functions', () => {
   it('does not lose a deployment field on a status-only update', async () => {
-    const db = new MemoryDB();
+    const db = await testDatabase();
     await db.saveDeploymentInfo({
       id: 'd1', name: 'crawler', clusterId: 'c1', strategy: 'native', status: 'deploying',
       crawl4aiApiToken: 'the-token', crawl4aiMemoryLimit: '3Gi',
@@ -34,7 +34,7 @@ describe('the save*Info functions', () => {
   });
 
   it('keeps a project\'s owner', async () => {
-    const db = new MemoryDB();
+    const db = await testDatabase();
     await db.saveProjectInfo({ id: 'p1', name: 'x', giteaOwner: 'o', giteaRepo: 'r', ownerId: 'u1' } as any);
     await db.saveProjectInfo({ id: 'p1', lastBuildStatus: 'succeeded' } as any);
 
@@ -44,7 +44,7 @@ describe('the save*Info functions', () => {
   });
 
   it('keeps a cluster field across a progress update', async () => {
-    const db = new MemoryDB();
+    const db = await testDatabase();
     await db.saveClusterInfo({ id: 'c1', name: 'c1', provider: 'k3d', status: 'provisioning', ownerId: 'u1' } as any);
     await db.saveClusterInfo({ id: 'c1', status: 'healthy' } as any);
 
@@ -54,7 +54,7 @@ describe('the save*Info functions', () => {
   });
 
   it('still creates a record that did not exist', async () => {
-    const db = new MemoryDB();
+    const db = await testDatabase();
     const made = await db.saveProjectInfo({ name: 'fresh', giteaOwner: 'o', giteaRepo: 'r' } as any);
     expect(made.id).toBeTruthy();
     expect((await db.getProjects())).toHaveLength(1);

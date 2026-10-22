@@ -55,6 +55,7 @@
     "@types/nodemailer": "6.4.17",
     "@types/uuid": "^10.0.0",
     "mailauth": "4.8.2",
+    "mongodb-memory-server": "^11.3.0",
     "typescript": "^5.0.0",
     "vitest": "^4.1.9"
   }
