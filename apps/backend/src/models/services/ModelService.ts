@@ -32,7 +32,7 @@ export class ModelService extends BaseService {
     const owner = await this.modelOwner(userId);
     const [deployments, endpoints] = await Promise.all([
       this.apps.getAll(owner),
-      this.db.getModelEndpoints(),
+      this.db.models.getModelEndpoints(),
     ]);
     return listProviders(deployments, endpoints.filter((e) => e.ownerId === owner));
   }
@@ -124,7 +124,7 @@ export class ModelService extends BaseService {
       await this.assertOwnsMeshAddress(userId, check.literalIp);
     }
 
-    const endpoints = await this.db.getModelEndpoints();
+    const endpoints = await this.db.models.getModelEndpoints();
     const record = endpoints.find((e) => e.id === provider.id && e.ownerId === userId);
     const apiKey = record?.apiKeyEnc ? decryptValue(record.apiKeyEnc, this.masterKey) : undefined;
 

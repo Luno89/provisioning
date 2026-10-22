@@ -10,6 +10,7 @@ import type { FrontierUrl, FrontierClaim } from './frontier.js';
 import type { MemoryItem } from '../../memory/lib/memory-store.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import type { HubStore } from '../../hub/store.js';
+import type { ModelsStore } from '../../models/store.js';
 import type { MonitoringStore } from '../../monitoring/store.js';
 import type { MachinesStore } from '../../machines/store.js';
 import type { FilesStore } from '../../files/store.js';
@@ -32,9 +33,8 @@ import type { PublishedWorkspace } from '../../engine/lib/published-workspace.js
 import type { McpServerRecord } from '../../engine/lib/mcp-servers.js';
 import type { EvalCollection, EvalRecord } from '../../checks/lib/eval-run.js';
 import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
-import type { ModelThinkingProfile } from '../../engine/lib/thinking-classifier.js';
 import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ModelEndpointMetadata, PendingApprovalMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, PendingApprovalMetadata } from './types.js';
 import type { PartialInfo } from './types.js';
 import type { DeferredConclusion, KeeperSettings } from '../../memory/lib/conclusions.js';
 
@@ -59,6 +59,7 @@ export interface ScriptedRequestRecord {
 
 export interface Database {
   hub: HubStore;
+  models: ModelsStore;
   monitoring: MonitoringStore;
   machines: MachinesStore;
   files: FilesStore;
@@ -118,10 +119,6 @@ export interface Database {
   runOrigin(ownerId: string, runId: string): Promise<{ agentId?: string | undefined; turnId: string } | undefined>;
   saveConversation(conversation: Conversation): Promise<void>;
   deleteConversation(id: string): Promise<void>;
-
-  getModelEndpoints(): Promise<ModelEndpointMetadata[]>;
-  saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void>;
-  deleteModelEndpoint(id: string): Promise<void>;
 
   getPendingApprovals(): Promise<PendingApprovalMetadata[]>;
   savePendingApproval(approval: PendingApprovalMetadata): Promise<void>;
@@ -222,8 +219,6 @@ export interface Database {
   saveBindingType(record: BindingTypeRecord): Promise<void>;
   deleteBindingType(id: string): Promise<void>;
 
-  getModelThinkingProfile?(modelId: string): Promise<ModelThinkingProfile | null>;
-  saveModelThinkingProfile?(profile: ModelThinkingProfile): Promise<void>;
 }
 
 let payloadBlobs: PayloadBlobs | undefined;

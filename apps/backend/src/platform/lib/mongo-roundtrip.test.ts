@@ -67,17 +67,17 @@ describe('model thinking profiles in real Mongo', () => {
   };
 
   it('round-trips without inventing an id', async () => {
-    await db.saveModelThinkingProfile(profile as never);
-    const back = await db.getModelThinkingProfile(MODEL);
+    await db.models.saveModelThinkingProfile(profile as never);
+    const back = await db.models.getModelThinkingProfile(MODEL);
     expect(back?.modelId).toBe(MODEL);
     expect(back?.avgSuccessEntropy).toBe(0.5);
     expect(back as unknown as Record<string, unknown>).not.toHaveProperty('id');
   });
 
   it('upserts on the model rather than accumulating rows', async () => {
-    await db.saveModelThinkingProfile(profile as never);
-    await db.saveModelThinkingProfile({ ...profile, successSamples: 9 } as never);
-    expect((await db.getModelThinkingProfile(MODEL))?.successSamples).toBe(9);
+    await db.models.saveModelThinkingProfile(profile as never);
+    await db.models.saveModelThinkingProfile({ ...profile, successSamples: 9 } as never);
+    expect((await db.models.getModelThinkingProfile(MODEL))?.successSamples).toBe(9);
   });
 });
 

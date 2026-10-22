@@ -1,5 +1,6 @@
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
 import { MongoHubStore } from '../../hub/store.js';
+import { MongoModelsStore } from '../../models/store.js';
 import { MongoMonitoringStore } from '../../monitoring/store.js';
 import { MongoMachinesStore } from '../../machines/store.js';
 import { MongoFilesStore } from '../../files/store.js';
@@ -19,7 +20,7 @@ import type { StoredAppSpec } from '../../infrastructure/lib/app-spec.js';
 import { MongoClient, type Db, type Collection } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ModelEndpointMetadata, PendingApprovalMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, PendingApprovalMetadata } from './types.js';
 import type { Database, BindingTypeRecord } from './db-interface.js';
 import type { PartialInfo } from './types.js';
 import type { CorpusPage } from '../../engine/lib/corpus.js';
@@ -35,7 +36,6 @@ import type { PublishedWorkspace } from '../../engine/lib/published-workspace.js
 import type { McpServerRecord } from '../../engine/lib/mcp-servers.js';
 import { evalRecordKey, type EvalCollection, type EvalRecord } from '../../checks/lib/eval-run.js';
 import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
-import type { ModelThinkingProfile } from '../../engine/lib/thinking-classifier.js';
 import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
 import type { ScriptedRequestRecord } from './db-interface.js';
 import type { DeferredConclusion, KeeperSettings } from '../../memory/lib/conclusions.js';
@@ -80,6 +80,7 @@ const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (ki
 export class MongoDB implements Database {
   constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {
     this.hub = new MongoHubStore(() => this.db!);
+    this.models = new MongoModelsStore(() => this.db!);
     this.monitoring = new MongoMonitoringStore(() => this.db!);
     this.machines = new MongoMachinesStore(() => this.db!);
     this.files = new MongoFilesStore(() => this.db!);
@@ -93,6 +94,7 @@ export class MongoDB implements Database {
   private client: MongoClient | null = null;
   private db: Db | null = null;
   readonly hub: MongoHubStore;
+  readonly models: MongoModelsStore;
   readonly monitoring: MongoMonitoringStore;
   readonly machines: MongoMachinesStore;
   readonly files: MongoFilesStore;
@@ -132,10 +134,6 @@ export class MongoDB implements Database {
 
   private get conversations(): Collection {
     return this.db!.collection('conversations');
-  }
-
-  private get modelEndpoints(): Collection {
-    return this.db!.collection('modelEndpoints');
   }
 
   private get pendingApprovals(): Collection {
@@ -230,10 +228,6 @@ export class MongoDB implements Database {
     return this.db!.collection('memories');
   }
 
-  private get thinkingProfiles(): Collection {
-    return this.db!.collection('model_thinking_profiles');
-  }
-
   private get bindingTypes(): Collection {
     return this.db!.collection('bindingTypes');
   }
@@ -270,6 +264,7 @@ export class MongoDB implements Database {
     await this.files.ensureIndexes();
     await this.machines.ensureIndexes();
     await this.monitoring.ensureIndexes();
+    await this.models.ensureIndexes();
   }
 
   async dropDatabase(): Promise<void> {
@@ -532,21 +527,6 @@ export class MongoDB implements Database {
       doc,
       { upsert: true },
     );
-  }
-
-  async getModelEndpoints(): Promise<ModelEndpointMetadata[]> {
-    return (await this.modelEndpoints.find({}).toArray()).map(doc => fromDoc<ModelEndpointMetadata>(doc));
-  }
-
-  async saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void> {
-    const doc = toDoc(endpoint);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.modelEndpoints.replaceOne({ _id: id }, filter, { upsert: true });
-  }
-
-  async deleteModelEndpoint(id: string): Promise<void> {
-    await this.modelEndpoints.deleteOne({ _id: id as any });
   }
 
   async getPendingApprovals(): Promise<PendingApprovalMetadata[]> {
@@ -1075,18 +1055,6 @@ export class MongoDB implements Database {
 
   async deleteBindingType(id: string): Promise<void> {
     await this.bindingTypes.deleteOne({ _id: id as any });
-  }
-
-  async getModelThinkingProfile(modelId: string): Promise<ModelThinkingProfile | null> {
-    const doc = await this.thinkingProfiles.findOne({ modelId });
-    if (!doc) return null;
-    const { _id, ...rest } = doc;
-    return rest as unknown as ModelThinkingProfile;
-  }
-
-  async saveModelThinkingProfile(profile: ModelThinkingProfile): Promise<void> {
-    const { _id: _ignored, ...doc } = profile as ModelThinkingProfile & { _id?: unknown };
-    await this.thinkingProfiles.replaceOne({ modelId: profile.modelId }, doc, { upsert: true });
   }
 
 }

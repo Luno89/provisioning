@@ -86,7 +86,9 @@ export interface CheckRunStore {
   saveMemory(memory: MemoryItem): Promise<void>;
   findRunEffort(runId: string): Promise<RunEffort | undefined>;
   reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number>;
-  saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void>;
+  models: {
+    saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void>;
+  };
 }
 
 export interface CheckRunDeps {
@@ -221,7 +223,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       await store.accounts.saveUser(spaceUser(spaceId, { person, checkRunId, scenarioId: scenario.id, ...(scenario.script ? { script: scenario.script } : {}) }, stamp));
       await store.saveBenchSettings(spaceId, { enabled: false, idleMinutes: 15, fullEveryHours: 24 });
       if (scenario.script) {
-        await store.saveModelEndpoint({
+        await store.models.saveModelEndpoint({
           id: scriptedEndpointId(spaceId),
           ownerId: spaceId,
           name: 'Scripted model',

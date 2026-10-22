@@ -75,7 +75,7 @@ describe('connecting OpenRouter with the person\'s own account', () => {
     expect(exchange.code).toBe('the-code');
     expect(exchange.code_challenge_method).toBe('S256');
     expect(challengeOf(exchange.code_verifier)).toBe(location.searchParams.get('code_challenge'));
-    const rows = (await harness.db.getModelEndpoints()).filter((row) => row.ownerId === TEST_USER.id);
+    const rows = (await harness.db.models.getModelEndpoints()).filter((row) => row.ownerId === TEST_USER.id);
     expect(rows.map((row) => row.model).sort()).toEqual(['anthropic/claude-sonnet-4', 'meta-llama/llama-3.3-70b-instruct:free']);
     expect(rows.every((row) => row.apiKeyEnc && decryptValue(row.apiKeyEnc, DATA_KEY) === 'sk-or-v1-from-oauth')).toBe(true);
     expect(back.headers['set-cookie']?.join(';')).toMatch(new RegExp(`${CONNECT_COOKIE}=;`));
@@ -88,7 +88,7 @@ describe('connecting OpenRouter with the person\'s own account', () => {
     const back = await get(harness.url('/api/credentials/llm/openrouter/callback?code=c&state=someone-elses'), cookie);
     expect(decodeURIComponent(back.headers.location as string)).toContain('does not match the one Koala started');
     expect(seen).toEqual([]);
-    expect(await harness.db.getModelEndpoints()).toEqual([]);
+    expect(await harness.db.models.getModelEndpoints()).toEqual([]);
   });
 
   it('refuses a callback it never started, and one started by someone else on this browser', async () => {
@@ -111,6 +111,6 @@ describe('connecting OpenRouter with the person\'s own account', () => {
     openRouter({ status: 400, body: '{"error":{"message":"Invalid code","code":400}}' });
     const unknown = await get(harness.url(`/api/credentials/llm/openrouter/callback?code=c&state=${again.location.searchParams.get('state')}`), again.cookie);
     expect(decodeURIComponent(unknown.headers.location as string)).toContain('did not accept the connection');
-    expect(await harness.db.getModelEndpoints()).toEqual([]);
+    expect(await harness.db.models.getModelEndpoints()).toEqual([]);
   });
 });

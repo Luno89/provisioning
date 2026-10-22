@@ -9,7 +9,9 @@ export interface ScriptedModelStore {
   accounts: {
     getUserById(id: string): Promise<UserMetadata | undefined>;
   };
-  getModelEndpoints(): Promise<ModelEndpointMetadata[]>;
+  models: {
+    getModelEndpoints(): Promise<ModelEndpointMetadata[]>;
+  };
   projects: {
     getTasks(ownerId?: string): Promise<{ id: string }[]>;
     getLeaves(): Promise<{ id: string; ownerId?: string | undefined }[]>;
@@ -38,7 +40,7 @@ export class ScriptedModelService {
   private async authorised(spaceId: string, token: string): Promise<UserMetadata | { refused: 401 | 404; error: string }> {
     const space = await this.deps.store.accounts.getUserById(spaceId);
     if (!space?.space?.script) return { refused: 404, error: 'there is no scripted check here' };
-    const endpoint = (await this.deps.store.getModelEndpoints()).find((entry) => entry.id === scriptedEndpointId(spaceId) && entry.ownerId === spaceId);
+    const endpoint = (await this.deps.store.models.getModelEndpoints()).find((entry) => entry.id === scriptedEndpointId(spaceId) && entry.ownerId === spaceId);
     const expected = endpoint?.apiKeyEnc ? decryptValue(endpoint.apiKeyEnc, this.deps.dataKey) : undefined;
     if (!expected || !sameToken(expected, token)) return { refused: 401, error: 'that is not this check\'s key' };
     return space;

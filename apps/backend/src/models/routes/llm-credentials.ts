@@ -175,12 +175,12 @@ async function connectPreset(
   if (error) return { error };
   if (models.length === 0) return { error: 'No models returned from provider' };
 
-  for (const e of await db.getModelEndpoints()) {
-    if (e.ownerId === userId && e.baseUrl === preset.baseUrl) await db.deleteModelEndpoint(e.id);
+  for (const e of await db.models.getModelEndpoints()) {
+    if (e.ownerId === userId && e.baseUrl === preset.baseUrl) await db.models.deleteModelEndpoint(e.id);
   }
 
   for (const m of models) {
-    await db.saveModelEndpoint({
+    await db.models.saveModelEndpoint({
       id: uuidv4(),
       ownerId: userId,
       name: `${preset.label} · ${m.id}`,
@@ -193,7 +193,7 @@ async function connectPreset(
     });
   }
 
-  const fresh = await db.getModelEndpoints();
+  const fresh = await db.models.getModelEndpoints();
   return { endpoints: fresh.filter((e: any) => e.ownerId === userId) };
 }
 
@@ -204,7 +204,7 @@ export function llmCredentialsRouter(deps: Record<string, any>): Router {
   const router = Router();
 
   router.get('/llm', asyncRoute(async (req, res) => {
-    const endpoints = await db.getModelEndpoints();
+    const endpoints = await db.models.getModelEndpoints();
     const userId = userOf(req).id;
     const userEndpoints = endpoints.filter((e: any) => e.ownerId === userId);
     const gateways = Object.entries(GATEWAY_PRESETS).map(([key, preset]) => {
@@ -239,10 +239,10 @@ export function llmCredentialsRouter(deps: Record<string, any>): Router {
     if (isCustom) {
       if (!model) return res.status(400).json({ error: 'model is required for custom endpoints' });
       const label = apiKey ? `Custom · ${model}` : model;
-      const existing = (await db.getModelEndpoints()).filter((e: any) => e.ownerId === userId);
+      const existing = (await db.models.getModelEndpoints()).filter((e: any) => e.ownerId === userId);
       const found = existing.find((e: any) => e.name === label && e.baseUrl === effectiveBaseUrl && e.model === model);
       if (!found) {
-        await db.saveModelEndpoint({
+        await db.models.saveModelEndpoint({
           id: uuidv4(),
           ownerId: userId,
           name: label,
@@ -252,7 +252,7 @@ export function llmCredentialsRouter(deps: Record<string, any>): Router {
           createdAt: new Date().toISOString(),
         });
       }
-      const endpoints = await db.getModelEndpoints();
+      const endpoints = await db.models.getModelEndpoints();
       return res.json({ endpoints: endpoints.filter((e: any) => e.ownerId === userId) });
     }
 
@@ -314,7 +314,7 @@ export function llmCredentialsRouter(deps: Record<string, any>): Router {
     const preset: GatewayPreset | undefined = GATEWAY_PRESETS[provider as keyof typeof GATEWAY_PRESETS];
     if (!preset) return res.status(400).json({ error: `Unknown provider: ${provider}` });
 
-    const mine = (await db.getModelEndpoints())
+    const mine = (await db.models.getModelEndpoints())
       .filter((e: any) => e.ownerId === userId && e.baseUrl === preset.baseUrl);
     if (mine.length === 0) {
       return res.status(404).json({ error: `${preset.label} is not set up on this account` });
@@ -333,7 +333,7 @@ export function llmCredentialsRouter(deps: Record<string, any>): Router {
       if (!match) continue;
       const intelligence = row.model ? intelligenceFor(row.model, scores) : undefined;
       if (intelligence !== undefined) scored++;
-      await db.saveModelEndpoint({
+      await db.models.saveModelEndpoint({
         ...row,
         ...(match.contextTokens ? { contextTokens: match.contextTokens } : {}),
         ...(match.pricing ? { pricing: match.pricing } : {}),
@@ -360,11 +360,11 @@ export function llmCredentialsRouter(deps: Record<string, any>): Router {
     }
 
     const baseUrl = preset ? preset.baseUrl : undefined;
-    const all = await db.getModelEndpoints();
+    const all = await db.models.getModelEndpoints();
     let removed = 0;
     for (const e of all) {
       if (e.ownerId === userId && (preset ? e.baseUrl === baseUrl : provider === 'custom')) {
-        await db.deleteModelEndpoint(e.id);
+        await db.models.deleteModelEndpoint(e.id);
         removed++;
       }
     }

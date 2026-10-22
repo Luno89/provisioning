@@ -21,7 +21,7 @@ const gatewayEndpoints = (ownerId: string, count: number): ModelEndpointMetadata
 
 const build = async (endpoints: ModelEndpointMetadata[], user?: Partial<UserMetadata>) => {
   const db = await testDatabase();
-  for (const e of endpoints) await db.saveModelEndpoint(e);
+  for (const e of endpoints) await db.models.saveModelEndpoint(e);
   await db.accounts.saveUser({
     id: 'u1', email: 'u@example.com', emailVerified: true,
     createdAt: new Date().toISOString(), ...user,

@@ -4,7 +4,7 @@ async function main() {
   const db = createDatabase();
   await db.init();
   
-  const endpoints = await db.getModelEndpoints();
+  const endpoints = await db.models.getModelEndpoints();
   const tabbyEps = endpoints.filter((e) => e.name.toLowerCase().includes('tabby'));
   console.log('Tabby endpoints:', tabbyEps);
 
