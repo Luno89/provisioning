@@ -131,7 +131,8 @@ Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod stat
 |---|---|
 | `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits the DB, keys, role and the platform services, then calls each area's `wire*` (`src/<area>/wiring/`), which constructs that area's services and mounts its routers. 437 lines. Three routes are inline and each has a reason: the Gitea webhook (must precede `express.json()` — it verifies an HMAC over the raw body), `/ingress/verify` (unauthenticated by design) and `/api/metrics` (its own token). `index.test.ts` guards the route order; `npm run test:routes-live` proves every router is mounted |
 | `apps/backend/src/<area>/` | **The backend is laid out by area, each with `lib/` (pure rules), `services/`, `routes/` (one router per URL prefix, a factory taking its deps) and `wiring/` (what constructs the area from the platform deps and mounts it).** The areas: `platform` (database, keys, crypto, the Temporal client and payload storage, auth middleware, mail, notices, metrics, migrations, the shared record types), `accounts` (sign-in, invites, admin, account removal), `instances` (root, instance, addresses, the pool, moves), `hub` (shared projects), `projects` (projects, repositories, channels, item chats, trees, branches, leaves, plans, secrets, tree types), `releases` (A/B releases, customizations, client imports, what is live), `files` (MinIO files, drops, artifacts, share links), `machines` (a person's machines, their agents, the sockets), `monitoring` (health, alerts, notifications), `models` (providers, the default model, OpenRouter), `memory` (the keeper, recall, practices), `checks` (Level 2, the bench, scripted models), `infrastructure` (clusters, apps, deploys, exposure, egress, credentials, backups, running work, the Temporal bridge). `engine-host/`, `extensions/`, `activities/`, `workflows/` and `eval/` stay where they were. Find a file by area first: `git ls-files apps/backend/src/hub` is the hub |
-| `apps/backend/src/platform/lib/db-interface.ts` | `Database` interface + `createDatabase()`, always MongoDB |
+| `apps/backend/src/platform/lib/db-interface.ts` | `Database` is `init`, `close` and one store per area (`db.projects`, `db.engine`, …); `createDatabase()` is always MongoDB |
+| `apps/backend/src/<area>/store.ts` | **The area's records**: `interface <Area>Store` and `Mongo<Area>Store`, its collections, indexes (`ensureIndexes`) and every read and write of them. A service reads another area's records through `db.<area>` or a `Pick` of that store, never through the driver. `MongoDB` composes the fourteen stores and wraps the projects and engine stores in the hub-write marker |
 | `apps/backend/src/platform/lib/mongo-db.ts` | The MongoDB implementation, the only one. Unit tests get a real Mongo from `platform/lib/test-database.ts`: `testDatabase()` opens a fresh database on the `mongodb-memory-server` that `vitest.global-setup.ts` starts once per run, and `vitest.setup.ts` drops every database a file opened when it ends |
 | `apps/backend/src/platform/lib/auth.ts`, `crypto.ts` | JWT sign/verify, password hashing; AES-256-GCM encrypt/decrypt/mask for stored secrets |
 | `apps/backend/src/infrastructure/lib/credential-resolver.ts` | Resolution chain for cloud creds: user-stored → `process.env` → mock mode |
@@ -222,7 +223,7 @@ records. A tree only also linked to it, and a conversation or memory that only m
 An app built from the project goes with it: once the project's workflows (its release workflow among them) are stopped, each of its deployments is destroyed on its own cluster through `executeDestroyAppWorkflow` on the cluster worker, and the popup lists the app among what goes. A project being deleted ignores pushes.
 
 `ACCOUNT_DATA` in `accounts/lib/account-removal.ts` classifies every Mongo collection as removed by owner, by id, through
-what it relates to, or shared; a test fails when a collection in `mongo-db.ts` is missing from it, so **a new
+what it relates to, or shared; a test fails when a collection in any `src/*/store.ts` is missing from it, so **a new
 collection has to say how it is removed**.
 
 ## A person's own machines
@@ -1247,9 +1248,9 @@ runs typecheck + lint + both unit suites on every push. Each rule below is here 
   `lib/` is pure and imports nothing above it — in its own area or any other; `engine-host/` and `extensions/` sit
   between services and `lib`, so `lib` never imports them either (the `Task` helpers are `projects/lib/tasks.ts`, the
   workflow ids `platform/lib/workflow-ids.ts`). `wiring/` holds what constructs services from the database and env.
-  An area reaches another's `lib` and `services` directly for now; the planned `index.ts` per area (the only thing
-  another area may import) waits on the database split, since `platform/lib/db-interface.ts` still names every
-  area's records (`~/.claude/plans/hardening-and-go-live.md`, Part C). `projects/lib/leaves.ts` (38 pure functions,
+  Each area's records are its own `store.ts`, and `platform/lib/db-interface.ts` only composes them. An area still
+  reaches another's `lib` and `services` directly; the planned `index.ts` per area (the only thing another area may
+  import) comes next, area by area (`~/.claude/plans/hardening-and-go-live.md`, Part C). `projects/lib/leaves.ts` (38 pure functions,
   no I/O) is the target shape. The backend lint enforces the arrow.
 - **A route handler does four things**: read the request, authorize, call one service method, shape
   the response. A loop, a prompt or arithmetic belongs in a service or `lib/`.
@@ -1348,7 +1349,7 @@ Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's
 
 ## Data
 
-Default persistence is MongoDB (`apps/backend/src/platform/lib/mongo-db.ts`), managed via `docker-compose.mongo.yml` / `scripts/ensure-mongo.sh`. Unit tests run on a real Mongo in memory (`testDatabase()` in `platform/lib/test-database.ts`; the in-memory fake `MemoryDB` was deleted on 2026-10-22, so the suite proves the database and not a copy of it).
+Default persistence is MongoDB (`apps/backend/src/platform/lib/mongo-db.ts` connects and composes one store per area, `src/<area>/store.ts`, split on 2026-10-22), managed via `docker-compose.mongo.yml` / `scripts/ensure-mongo.sh`. Unit tests run on a real Mongo in memory (`testDatabase()` in `platform/lib/test-database.ts`; the in-memory fake `MemoryDB` was deleted on 2026-10-22, so the suite proves the database and not a copy of it).
 
 `apps/backend/data/` still holds `logs/` (per-resource provisioning/deployment logs, tailed over
 socket.io — see `InfrastructureService`'s `LOG_DIR`) and `nginx/` (proxy config). The `*.json` files

@@ -4,6 +4,6 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 
 | Script | Last passed | Last failed |
 |---|---|---|
-| `hub-live` | 2026-10-22 13:53 | 2026-10-22 13:53 |
-| `project-sharing-live` | 2026-10-22 13:53 | 2026-10-22 13:53 |
-| `routes-live` | 2026-10-22 13:53 | 2026-10-22 13:53 |
+| `hub-live` | 2026-10-22 16:05 | 2026-10-22 13:53 |
+| `project-sharing-live` | 2026-10-22 16:05 | 2026-10-22 13:53 |
+| `routes-live` | 2026-10-22 16:05 | 2026-10-22 13:53 |
