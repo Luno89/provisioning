@@ -36,7 +36,7 @@ interface Executed {
   started?: ProposalStarted | undefined;
 }
 
-export type ActionStore = Pick<Database, 'getActionProposals' | 'getActionProposal' | 'saveActionProposal' | 'projects' | 'getPipelineRuns' | 'getDeployments' | 'getAppSpecs' | 'saveAppSpec' | 'getBindingTypes'>;
+export type ActionStore = Pick<Database, 'getActionProposals' | 'getActionProposal' | 'saveActionProposal' | 'projects' | 'releases' | 'getDeployments' | 'getAppSpecs' | 'saveAppSpec' | 'getBindingTypes'>;
 
 export interface ActionDeployer {
   deployApp(config: Record<string, unknown>, userId: string): Promise<{ id: string; resourceId?: string | undefined }>;
@@ -173,7 +173,7 @@ export class ActionService {
       }
       case 'deploy_project': {
         const project = await this.project(ownerId, params.projectId);
-        const run = (await this.deps.store.getPipelineRuns()).find((candidate) => candidate.id === params.runId && candidate.projectId === project.id);
+        const run = (await this.deps.store.releases.getPipelineRuns()).find((candidate) => candidate.id === params.runId && candidate.projectId === project.id);
         if (!run) throw new Error('that build no longer exists');
         const deal = await this.deps.deployer.promoteProjectBuild(project, run, ownerId);
         return `deploying ${project.name} from build ${run.id} (workflow ${deal.id})`;

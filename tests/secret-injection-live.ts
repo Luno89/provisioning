@@ -78,7 +78,7 @@ async function check(target: string, http: AxiosInstance, db: Database, infra: I
   const notes: string[] = [];
   let clusterId: string | undefined;
 
-  const source = (await db.getPipelineRuns()).filter((run: any) => run.status === 'succeeded' && run.imageTag).at(0) as any;
+  const source = (await db.releases.getPipelineRuns()).filter((run: any) => run.status === 'succeeded' && run.imageTag).at(0) as any;
   assert.ok(source, 'there is no built image to deploy');
   const project = { id: `secret-live-${stamp}-${target}`, name, ownerId, appType: 'gitapp', targetClusterId: cluster, createdAt: new Date().toISOString() };
   const runId = `secret-live-run-${stamp}-${target}`;
@@ -92,7 +92,7 @@ async function check(target: string, http: AxiosInstance, db: Database, infra: I
     }
 
     await db.projects.saveProject(project as any);
-    await db.savePipelineRun({ ...source, id: runId, projectId: project.id, promotedAt: undefined, deploymentId: undefined });
+    await db.releases.savePipelineRun({ ...source, id: runId, projectId: project.id, promotedAt: undefined, deploymentId: undefined });
     await provideThroughCard(http, db, ownerId, project.id, key, first);
 
     await http.post(`/projects/${project.id}/runs/${runId}/promote`);

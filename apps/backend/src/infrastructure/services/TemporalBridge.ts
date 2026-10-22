@@ -100,12 +100,12 @@ async function updatePipelineRunStatus(
   status: 'queued' | 'running' | 'succeeded' | 'failed',
   extra: { imageTag?: string; errorMessage?: string } = {},
 ): Promise<void> {
-  const runs = await db.getPipelineRuns();
+  const runs = await db.releases.getPipelineRuns();
   const existing = runs.find((r: any) => r.id === runId);
   if (!existing) return;
   const imageTag = extra.imageTag ?? existing.imageTag;
   const errorMessage = extra.errorMessage ?? existing.errorMessage;
-  await db.savePipelineRunInfo({
+  await db.releases.savePipelineRunInfo({
     ...existing,
     status,
     ...(imageTag !== undefined ? { imageTag } : {}),
@@ -403,7 +403,7 @@ export class TemporalBridge {
             } else if (name === 'COMPLETED') {
               await updatePipelineRunStatus(this.db, resourceId, 'succeeded', pipelineImageTag !== undefined ? { imageTag: pipelineImageTag } : {})
               try {
-                const [projects, runs] = await Promise.all([this.db.projects.getProjects(), this.db.getPipelineRuns()])
+                const [projects, runs] = await Promise.all([this.db.projects.getProjects(), this.db.releases.getPipelineRuns()])
                 const run = runs.find((r: any) => r.id === resourceId)
                 const project = run && projects.find((p: any) => p.id === run.projectId)
                 const released = project && run && this.onBuilt ? await this.onBuilt(project, run) : false
@@ -411,7 +411,7 @@ export class TemporalBridge {
                   const since = deploymentForProject(project, await this.db.getDeployments())?.gitappImageTag?.split(':').pop()
                   const decision = since && this.decideRelease ? await this.decideRelease(project, since, run.commitSha) : { release: true as const }
                   if (decision.release) await this.promoteProjectBuild(project, run)
-                  else await this.db.savePipelineRunInfo({ id: run.id, releaseSkipped: decision.reason })
+                  else await this.db.releases.savePipelineRunInfo({ id: run.id, releaseSkipped: decision.reason })
                 }
               } catch (err: any) {
                 console.error(`[TemporalBridge] Auto-deploy-on-build failed for pipeline run ${resourceId}: ${err.message}`)
@@ -614,7 +614,7 @@ export class TemporalBridge {
     const reconcileRuns = async () => {
       if (!this.client) return
       try {
-        const runs = await this.db.getPipelineRuns()
+        const runs = await this.db.releases.getPipelineRuns()
         for (const run of runs) {
           const current = run.status as RunStatus
           if (!(LIVE_RUN_STATUSES as readonly string[]).includes(current)) continue
@@ -630,7 +630,7 @@ export class TemporalBridge {
           }
 
           if (!next) continue
-          await this.db.savePipelineRunInfo({ ...run, status: next })
+          await this.db.releases.savePipelineRunInfo({ ...run, status: next })
           console.warn(`[Reconcile] pipeline run ${String(run.commitSha).slice(0, 8)}: ${current} -> ${next} (its workflow had already ended)`)
           if (this.io) this.io.emit('pipeline-run-updated')
         }
@@ -1229,7 +1229,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       runId,
     }
 
-    await this.db.savePipelineRunInfo({
+    await this.db.releases.savePipelineRunInfo({
       id: runId,
       projectId: project.id,
       commitSha,

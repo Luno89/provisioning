@@ -229,7 +229,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
     const checks = deps.checks();
     if (!checks) throw new Error('the checks are not wired yet');
     const [trees, projects, conversations, checkRuns, releases, agents] = await Promise.all([
-      db.projects.getTrees(), db.projects.getProjects(), db.getConversations(), checks.list(ownerId), db.getOdooReleases(ownerId), agentDirectory.agents(ownerId),
+      db.projects.getTrees(), db.projects.getProjects(), db.getConversations(), checks.list(ownerId), db.releases.getOdooReleases(ownerId), agentDirectory.agents(ownerId),
     ]);
     return {
       trees: trees.filter((entry) => entry.ownerId === ownerId),

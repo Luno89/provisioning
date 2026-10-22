@@ -62,7 +62,7 @@ describe('GET /:id/runs commit-message enrichment', () => {
   it('fetches the commit message from Gitea and persists it for next time', async () => {
     const harness = await mountWithGitea(giteaServiceStub({ message: 'Fix the thing\n\nlonger body' }));
     await harness.db.projects.saveProjectInfo(project);
-    await harness.db.savePipelineRunInfo({
+    await harness.db.releases.savePipelineRunInfo({
       id: 'run-1', projectId: project.id, commitSha: 'abc123', ref: 'main',
       status: 'succeeded', startedAt: '2026-01-01T00:00:00Z',
     });
@@ -71,7 +71,7 @@ describe('GET /:id/runs commit-message enrichment', () => {
     expect(res.data).toHaveLength(1);
     expect(res.data[0].commitMessage).toBe('Fix the thing\n\nlonger body');
 
-    const persisted = (await harness.db.getPipelineRuns()).find((r: any) => r.id === 'run-1');
+    const persisted = (await harness.db.releases.getPipelineRuns()).find((r: any) => r.id === 'run-1');
     expect(persisted?.commitMessage).toBe('Fix the thing\n\nlonger body');
 
     await harness.close();
@@ -84,7 +84,7 @@ describe('GET /:id/runs commit-message enrichment', () => {
     };
     const harness = await mountWithGitea(gitea);
     await harness.db.projects.saveProjectInfo(project);
-    await harness.db.savePipelineRunInfo({
+    await harness.db.releases.savePipelineRunInfo({
       id: 'run-1', projectId: project.id, commitSha: 'abc123', ref: 'main',
       status: 'succeeded', startedAt: '2026-01-01T00:00:00Z', commitMessage: 'Already known',
     });
@@ -100,7 +100,7 @@ describe('GET /:id/runs commit-message enrichment', () => {
     const gitea = { getCommit: async () => { throw new Error('gitea unreachable'); } };
     const harness = await mountWithGitea(gitea);
     await harness.db.projects.saveProjectInfo(project);
-    await harness.db.savePipelineRunInfo({
+    await harness.db.releases.savePipelineRunInfo({
       id: 'run-1', projectId: project.id, commitSha: 'abc123', ref: 'main',
       status: 'succeeded', startedAt: '2026-01-01T00:00:00Z',
     });

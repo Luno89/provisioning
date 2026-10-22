@@ -1,5 +1,6 @@
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
 import { MongoHubStore } from '../../hub/store.js';
+import { MongoReleasesStore } from '../../releases/store.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import { MongoProjectsStore } from '../../projects/store.js';
 import { MongoInstancesStore } from '../../instances/store.js';
@@ -21,7 +22,7 @@ import type { StoredAppSpec } from '../../infrastructure/lib/app-spec.js';
 import { MongoClient, type Db, type Collection } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, PipelineRunMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
 import type { Database, BindingTypeRecord } from './db-interface.js';
 import type { PartialInfo } from './types.js';
 import type { CorpusPage } from '../../engine/lib/corpus.js';
@@ -40,7 +41,6 @@ import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.
 import type { ModelThinkingProfile } from '../../engine/lib/thinking-classifier.js';
 import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
 import type { ScriptedRequestRecord } from './db-interface.js';
-import type { OdooRelease } from '../../releases/lib/odoo-release.js';
 import type { StoredArtifact } from '../../files/lib/artifacts.js';
 import type { ArtifactChunk } from '../../files/lib/artifacts.js';
 import type { DeferredConclusion, KeeperSettings } from '../../memory/lib/conclusions.js';
@@ -85,6 +85,7 @@ const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (ki
 export class MongoDB implements Database {
   constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {
     this.hub = new MongoHubStore(() => this.db!);
+    this.releases = new MongoReleasesStore(() => this.db!);
     this.projects = markingHubWrites(new MongoProjectsStore(() => this.db!), this.hub);
     this.instances = new MongoInstancesStore(() => this.db!);
     this.accounts = new MongoAccountsStore(() => this.db!);
@@ -94,6 +95,7 @@ export class MongoDB implements Database {
   private client: MongoClient | null = null;
   private db: Db | null = null;
   readonly hub: MongoHubStore;
+  readonly releases: MongoReleasesStore;
   readonly projects: MongoProjectsStore;
   readonly instances: MongoInstancesStore;
   readonly accounts: MongoAccountsStore;
@@ -105,10 +107,6 @@ export class MongoDB implements Database {
 
   private get deployments(): Collection {
     return this.db!.collection('deployments');
-  }
-
-  private get pipelineRuns(): Collection {
-    return this.db!.collection('pipelineRuns');
   }
 
   private get workspaceImages(): Collection {
@@ -195,10 +193,6 @@ export class MongoDB implements Database {
     return this.db!.collection('artifactChunks');
   }
 
-  private get odooReleases(): Collection {
-    return this.db!.collection('odooReleases');
-  }
-
   private get mcpToolHints(): Collection {
     return this.db!.collection('mcpToolHints');
   }
@@ -273,8 +267,6 @@ export class MongoDB implements Database {
     await this.machineJoinCodes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.toolGrants.createIndex({ ownerId: 1, agent: 1 });
     await this.runEffort.createIndex({ ownerId: 1, procedureId: 1, modelKey: 1, finishedAt: -1 });
-    await this.pipelineRuns.createIndex({ projectId: 1 });
-    await this.odooReleases.createIndex({ ownerId: 1, projectId: 1 });
     await this.artifacts.createIndex({ ownerId: 1, runId: 1 });
     await this.artifacts.createIndex({ expiresAt: 1 });
     await this.artifactChunks.createIndex({ artifactId: 1, n: 1 });
@@ -285,6 +277,7 @@ export class MongoDB implements Database {
     await this.accounts.ensureIndexes();
     await this.instances.ensureIndexes();
     await this.projects.ensureIndexes();
+    await this.releases.ensureIndexes();
   }
 
   async dropDatabase(): Promise<void> {
@@ -383,35 +376,6 @@ export class MongoDB implements Database {
     };
     await this.saveDeployment(d);
     return d;
-  }
-
-  async getPipelineRuns(): Promise<PipelineRunMetadata[]> {
-    return (await this.pipelineRuns.find({}).toArray()).map(doc => fromDoc<PipelineRunMetadata>(doc));
-  }
-
-  async savePipelineRun(run: PipelineRunMetadata): Promise<void> {
-    const doc = toDoc(run);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.pipelineRuns.replaceOne({ _id: id }, filter, { upsert: true });
-  }
-
-  async savePipelineRunInfo(run: PartialInfo<PipelineRunMetadata>): Promise<PipelineRunMetadata> {
-    const id = run.id || uuidv4();
-    const previous = (await this.getPipelineRuns()).find((x: PipelineRunMetadata) => x.id === id);
-    const merged = mergeRecord(previous, run as Partial<PipelineRunMetadata>);
-    const r: PipelineRunMetadata = {
-      ...merged,
-
-      id: id,
-      projectId: merged.projectId || '',
-      commitSha: merged.commitSha || '',
-      ref: merged.ref || '',
-      status: merged.status || 'queued',
-      startedAt: merged.startedAt || new Date().toISOString(),
-    };
-    await this.savePipelineRun(r);
-    return r;
   }
 
   async getCorpusPages(filter: { ownerId: string; ingestId?: string; projectId?: string }): Promise<CorpusPage[]> {
@@ -707,17 +671,6 @@ export class MongoDB implements Database {
 
   async deleteArtifactChunks(artifactId: string): Promise<void> {
     await this.artifactChunks.deleteMany({ artifactId });
-  }
-
-  async getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]> {
-    const docs = await this.odooReleases.find({ ownerId, ...(projectId ? { projectId } : {}) }).sort({ startedAt: -1 }).toArray();
-    return docs.map((d: Record<string, unknown>) => fromDoc<OdooRelease>(d));
-  }
-
-  async saveOdooRelease(release: OdooRelease): Promise<void> {
-    const doc = toDoc(release);
-    const { _id, ...rest } = doc;
-    await this.odooReleases.replaceOne({ _id }, rest, { upsert: true });
   }
 
   async getMcpToolHints(ownerId: string): Promise<McpToolHint[]> {

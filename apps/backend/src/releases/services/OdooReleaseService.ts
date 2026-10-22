@@ -15,8 +15,12 @@ import {
 } from '../lib/release-run.js';
 
 export interface OdooReleaseStore {
-  getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]>;
-  saveOdooRelease(release: OdooRelease): Promise<void>;
+  releases: {
+    getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]>;
+    saveOdooRelease(release: OdooRelease): Promise<void>;
+    savePipelineRunInfo(run: Partial<PipelineRunMetadata> & { id: string }): Promise<PipelineRunMetadata>;
+    getPipelineRuns(): Promise<PipelineRunMetadata[]>;
+  };
   projects: {
     getProjects(): Promise<ProjectMetadata[]>;
     saveProjectInfo(project: Partial<ProjectMetadata> & { id: string }): Promise<ProjectMetadata>;
@@ -24,8 +28,6 @@ export interface OdooReleaseStore {
   getClusters(): Promise<ClusterMetadata[]>;
   getDeployments(): Promise<DeploymentMetadata[]>;
   saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
-  savePipelineRunInfo(run: Partial<PipelineRunMetadata> & { id: string }): Promise<PipelineRunMetadata>;
-  getPipelineRuns(): Promise<PipelineRunMetadata[]>;
 }
 
 export interface ReleaseRuns {
@@ -97,7 +99,7 @@ export class OdooReleaseService {
 
   async release(project: ProjectMetadata, run: PipelineRunMetadata, options: { again?: string | undefined } = {}): Promise<OdooRelease | ReleaseRefusal | { skipped: string }> {
     const refuse = async (error: string): Promise<ReleaseRefusal> => {
-      await this.deps.store.savePipelineRunInfo({ id: run.id, releaseRefused: error });
+      await this.deps.store.releases.savePipelineRunInfo({ id: run.id, releaseRefused: error });
       return { status: 409, error };
     };
     const ownerId = project.ownerId;
@@ -109,18 +111,18 @@ export class OdooReleaseService {
     if (!cluster) return refuse('the project\'s cluster is gone');
 
     if (awaits(project.clientImport as ClientImport | undefined) && !(await this.established(ownerId, project.id))) {
-      await this.deps.store.savePipelineRunInfo({ id: run.id, releaseHeld: HELD_FOR_CLIENT });
+      await this.deps.store.releases.savePipelineRunInfo({ id: run.id, releaseHeld: HELD_FOR_CLIENT });
       this.deps.awaiting?.(ownerId, project, run);
       return { skipped: HELD_FOR_CLIENT };
     }
 
-    const since = this.deps.decide && !options.again ? (await this.deps.store.getOdooReleases(ownerId, project.id))
+    const since = this.deps.decide && !options.again ? (await this.deps.store.releases.getOdooReleases(ownerId, project.id))
       .filter((entry) => entry.state !== 'failed' && entry.state !== 'discarded' && entry.state !== 'queued')
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0]?.commit : undefined;
     if (since && this.deps.decide) {
       const decision = await this.deps.decide(project, since, run.commitSha);
       if (!decision.release) {
-        await this.deps.store.savePipelineRunInfo({ id: run.id, releaseSkipped: decision.reason });
+        await this.deps.store.releases.savePipelineRunInfo({ id: run.id, releaseSkipped: decision.reason });
         return { skipped: decision.reason };
       }
     }
@@ -129,7 +131,7 @@ export class OdooReleaseService {
     const place = releasePlace(releaseNameOf(named));
     const stamp = this.now();
     const busy = await this.deps.runs.running(project.id);
-    const fromClient = restorable(named.clientImport as ClientImport | undefined) && !(await this.deps.store.getOdooReleases(ownerId, project.id)).some((entry) => ESTABLISHED.includes(entry.state))
+    const fromClient = restorable(named.clientImport as ClientImport | undefined) && !(await this.deps.store.releases.getOdooReleases(ownerId, project.id)).some((entry) => ESTABLISHED.includes(entry.state))
       ? named.clientImport as ClientImport
       : undefined;
     const release: OdooRelease = {
@@ -147,12 +149,12 @@ export class OdooReleaseService {
       startedAt: stamp,
       updatedAt: stamp,
     };
-    await this.deps.store.saveOdooRelease(release);
+    await this.deps.store.releases.saveOdooRelease(release);
     if (fromClient) await this.deps.store.projects.saveProjectInfo({ id: project.id, clientImport: { ...fromClient, state: 'importing', releaseId: release.id, reason: undefined, missing: undefined, at: stamp } });
     await this.deploymentFor(named, ownerId, cluster, run);
 
     if (busy) {
-      const waiting = (await this.deps.store.getOdooReleases(ownerId, project.id)).some((entry) => entry.state === 'preview');
+      const waiting = (await this.deps.store.releases.getOdooReleases(ownerId, project.id)).some((entry) => entry.state === 'preview');
       if (waiting) await this.deps.runs.stop(project.id);
     } else {
       const started = await this.startRelease(named, cluster, release);
@@ -219,7 +221,7 @@ export class OdooReleaseService {
   }
 
   async established(ownerId: string, projectId: string): Promise<OdooRelease | undefined> {
-    return (await this.deps.store.getOdooReleases(ownerId, projectId)).find((entry) => ESTABLISHED.includes(entry.state) || IN_FLIGHT.includes(entry.state));
+    return (await this.deps.store.releases.getOdooReleases(ownerId, projectId)).find((entry) => ESTABLISHED.includes(entry.state) || IN_FLIGHT.includes(entry.state));
   }
 
   private async settleImport(release: OdooRelease): Promise<void> {
@@ -247,7 +249,7 @@ export class OdooReleaseService {
   private async named(project: ProjectMetadata, ownerId: string): Promise<ProjectMetadata> {
     if (project.releaseName) return project;
     const deployed = (await this.deps.store.getDeployments()).find((entry) => entry.gitappProjectId === project.id && entry.appType === ODOO_PROJECT_APP);
-    const released = deployed !== undefined || (await this.deps.store.getOdooReleases(ownerId, project.id)).length > 0;
+    const released = deployed !== undefined || (await this.deps.store.releases.getOdooReleases(ownerId, project.id)).length > 0;
     const releaseName = deployed?.namespace || (released ? releaseNameOf(project) : newReleaseName(project));
     await this.deps.store.projects.saveProjectInfo({ id: project.id, releaseName });
     return { ...project, releaseName };
@@ -279,7 +281,7 @@ export class OdooReleaseService {
   }
 
   async rollBackOffer(ownerId: string, projectId: string): Promise<RollBackOffer | undefined> {
-    const releases = await this.deps.store.getOdooReleases(ownerId, projectId);
+    const releases = await this.deps.store.releases.getOdooReleases(ownerId, projectId);
     const live = releases.find((release) => release.state === 'live');
     if (!live) return undefined;
     const target = rollBackTarget(releases, live);
@@ -288,7 +290,7 @@ export class OdooReleaseService {
   }
 
   async rollBack(ownerId: string, project: ProjectMetadata, releaseId: string): Promise<OdooRelease | ReleaseRefusal> {
-    const releases = await this.deps.store.getOdooReleases(ownerId, project.id);
+    const releases = await this.deps.store.releases.getOdooReleases(ownerId, project.id);
     const live = releases.find((entry) => entry.id === releaseId);
     if (!live) return { status: 404, error: 'You have no release with that id' };
     const target = rollBackTarget(releases, live);
@@ -328,7 +330,7 @@ export class OdooReleaseService {
   }
 
   async list(ownerId: string, projectId: string): Promise<OdooRelease[]> {
-    return this.deps.store.getOdooReleases(ownerId, projectId);
+    return this.deps.store.releases.getOdooReleases(ownerId, projectId);
   }
 
   async addresses(projectId: string): Promise<{ live?: string; preview?: string }> {
@@ -339,7 +341,7 @@ export class OdooReleaseService {
   }
 
   private async waitingPreview(ownerId: string, releaseId: string, doing: string): Promise<OdooRelease | ReleaseRefusal> {
-    const release = (await this.deps.store.getOdooReleases(ownerId)).find((entry) => entry.id === releaseId);
+    const release = (await this.deps.store.releases.getOdooReleases(ownerId)).find((entry) => entry.id === releaseId);
     if (!release) return { status: 404, error: 'You have no release with that id' };
     if (release.state !== 'preview') return { status: 409, error: `the release is ${release.state}, so it cannot be ${doing}` };
     if (release.e2e?.state === 'running') return { status: 409, error: `its browser tests are still running, so it cannot be ${doing} yet` };
@@ -369,16 +371,16 @@ export class OdooReleaseService {
   }
 
   async releaseAgain(ownerId: string, project: ProjectMetadata, releaseId: string): Promise<OdooRelease | ReleaseRefusal | { skipped: string }> {
-    const release = (await this.deps.store.getOdooReleases(ownerId, project.id)).find((entry) => entry.id === releaseId);
+    const release = (await this.deps.store.releases.getOdooReleases(ownerId, project.id)).find((entry) => entry.id === releaseId);
     if (!release) return { status: 404, error: 'This project has no release with that id' };
     if (!AGAIN_FROM.includes(release.state)) return { status: 409, error: `the release is ${release.state}, so its build cannot be released again` };
-    const run = (await this.deps.store.getPipelineRuns()).find((entry) => entry.id === release.pipelineRunId && entry.projectId === project.id);
+    const run = (await this.deps.store.releases.getPipelineRuns()).find((entry) => entry.id === release.pipelineRunId && entry.projectId === project.id);
     if (!run) return { status: 409, error: 'the build this release was made from is gone' };
     return this.release(project, run, { again: release.id });
   }
 
   async files(ownerId: string, project: ProjectMetadata, releaseId: string): Promise<ReleaseFiles | ReleaseRefusal> {
-    const releases = await this.deps.store.getOdooReleases(ownerId, project.id);
+    const releases = await this.deps.store.releases.getOdooReleases(ownerId, project.id);
     const release = releases.find((entry) => entry.id === releaseId);
     if (!release) return { status: 404, error: 'This project has no release with that id' };
     const against = release.state === 'live'
@@ -395,7 +397,7 @@ export class OdooReleaseService {
   async recover(ownerIds: readonly string[]): Promise<number> {
     let followed = 0;
     for (const ownerId of ownerIds) {
-      const projects = new Set((await this.deps.store.getOdooReleases(ownerId)).filter((release) => UNSETTLED_STATES.includes(release.state)).map((release) => release.projectId));
+      const projects = new Set((await this.deps.store.releases.getOdooReleases(ownerId)).filter((release) => UNSETTLED_STATES.includes(release.state)).map((release) => release.projectId));
       for (const projectId of projects) {
         void this.follow(ownerId, projectId);
         followed += 1;
@@ -414,16 +416,16 @@ export class OdooReleaseService {
   }
 
   private async save(release: OdooRelease): Promise<void> {
-    await this.deps.store.saveOdooRelease(release);
+    await this.deps.store.releases.saveOdooRelease(release);
     await this.settleImport(release);
     this.deps.notify?.(release.ownerId, release);
   }
 
   private async watch(ownerId: string, projectId: string): Promise<void> {
-    const seen = new Map((await this.deps.store.getOdooReleases(ownerId, projectId)).map((release) => [release.id, release.updatedAt]));
+    const seen = new Map((await this.deps.store.releases.getOdooReleases(ownerId, projectId)).map((release) => [release.id, release.updatedAt]));
     for (;;) {
       const running = await this.deps.runs.running(projectId).catch(() => true);
-      const releases = await this.deps.store.getOdooReleases(ownerId, projectId);
+      const releases = await this.deps.store.releases.getOdooReleases(ownerId, projectId);
       for (const release of releases) {
         if (seen.get(release.id) === release.updatedAt) continue;
         seen.set(release.id, release.updatedAt);

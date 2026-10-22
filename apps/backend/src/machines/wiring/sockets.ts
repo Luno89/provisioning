@@ -86,7 +86,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     if (cluster) return cluster;
     const deployment = await apps.getById(id, user.id);
     if (deployment) return deployment;
-    const run = (await db.getPipelineRuns()).find((r: any) => r.id === id);
+    const run = (await db.releases.getPipelineRuns()).find((r: any) => r.id === id);
     if (run) {
       const project = (await db.projects.getProjects()).find((p: any) => p.id === run.projectId);
       const owned = ownsProject(project, user);

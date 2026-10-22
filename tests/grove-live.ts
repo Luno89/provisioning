@@ -171,7 +171,7 @@ async function main(): Promise<void> {
   }
   console.log(`  main holds every file the landed leaves changed: ${landedFiles.join(', ')}`);
   if (project) {
-    const builds = (await db.getPipelineRuns()).filter((run: { projectId?: string }) => run.projectId === project.id);
+    const builds = (await db.releases.getPipelineRuns()).filter((run: { projectId?: string }) => run.projectId === project.id);
     console.log(`  the project's repository was pushed to, and ${builds.length} build${builds.length === 1 ? '' : 's'} started from it`);
     assert.ok(builds.length > 0, 'landing on the project\'s main started no build');
   }

@@ -121,7 +121,7 @@ async function main(): Promise<void> {
     assert.equal(edited.status, 200, JSON.stringify(edited.data));
     const releasesBefore = ((await http.get(`/projects/${odoo.id}/releases`)).data.releases as unknown[]).length;
     const docsBuild = await waitFor('the README build', 15, async () => {
-      const latest = (await db.getPipelineRuns()).filter((entry) => entry.projectId === odoo.id).sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))[0];
+      const latest = (await db.releases.getPipelineRuns()).filter((entry) => entry.projectId === odoo.id).sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))[0];
       if (latest?.status === 'failed') throw new Error(`the README build failed: ${latest.errorMessage}`);
       return latest && latest.status === 'succeeded' && latest.releaseSkipped ? latest : undefined;
     });

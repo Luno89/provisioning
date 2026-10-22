@@ -43,8 +43,8 @@ beforeEach(async () => {
   await db.projects.saveTask({ id: 'k2', ownerId: 'bo', projectId: 'p1', title: 'plain', doneMeans: 'x', dependsOn: [], status: 'accepted', runs: [], createdAt: at, updatedAt: at });
   await db.saveConversation({ id: 'c1', ownerId: 'bo', treeId: 't1', projectId: 'p1', messages: [], createdAt: at, updatedAt: at } as never);
   await db.saveConversation({ id: 'c2', ownerId: 'bo', projectId: 'p1', messages: [], createdAt: at, updatedAt: at } as never);
-  await db.savePipelineRun({ id: 'r1', projectId: 'p1', status: 'running', temporalWorkflowId: 'pipeline-r1', startedAt: at } as never);
-  await db.savePipelineRun({ id: 'r2', projectId: 'p2', status: 'running', temporalWorkflowId: 'pipeline-r2', startedAt: at } as never);
+  await db.releases.savePipelineRun({ id: 'r1', projectId: 'p1', status: 'running', temporalWorkflowId: 'pipeline-r1', startedAt: at } as never);
+  await db.releases.savePipelineRun({ id: 'r2', projectId: 'p2', status: 'running', temporalWorkflowId: 'pipeline-r2', startedAt: at } as never);
 });
 
 describe('the steps that delete a project', () => {
@@ -81,13 +81,13 @@ describe('the steps that delete a project', () => {
     expect((await db.projects.getTasks('bo')).map((task) => task.id)).toEqual([]);
     expect(await db.getConversation('bo', 'c1')).toBeUndefined();
     expect((await db.getConversation('bo', 'c2'))?.projectId).toBeUndefined();
-    expect((await db.getPipelineRuns()).map((run) => run.id)).toEqual(['r2']);
+    expect((await db.releases.getPipelineRuns()).map((run) => run.id)).toEqual(['r2']);
   });
 
   it('removes what its releases\' browser tests kept, and nothing of another project\'s', async () => {
     const artifacts = new ArtifactService({ records: db, minioFor: async () => undefined });
     for (const [id, projectId] of [['rel1', 'p1'], ['rel2', 'p2']] as const) {
-      await db.saveOdooRelease({ id, ownerId: 'bo', projectId, pipelineRunId: 'x', commit: 'c', image: 'i:t', state: 'preview', host: 'h', startedAt: at, updatedAt: at });
+      await db.releases.saveOdooRelease({ id, ownerId: 'bo', projectId, pipelineRunId: 'x', commit: 'c', image: 'i:t', state: 'preview', host: 'h', startedAt: at, updatedAt: at });
       await artifacts.put('bo', id, [{ name: 'shot.png', bytes: Buffer.from('png') }]);
     }
     const removed = await createProjectRemovalActivities({ ...deps(), artifacts }).RemoveProjectRecordsActivity({ projectId: 'p1' });

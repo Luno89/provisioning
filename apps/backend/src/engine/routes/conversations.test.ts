@@ -206,9 +206,9 @@ describe('what Koala sees in a conversation', () => {
     await harness.db.projects.saveLeaf({ id: 'ctx-l', ownerId: owner, branchId: 'ctx-b', title: 'Module installs', body: 'Add the field.', status: 'failed', findings: 'the view did not load', createdAt: 't', updatedAt: 't' });
     await harness.db.projects.saveProject({ id: 'ctx-p', ownerId: owner, name: 'Bare', giteaOwner: 'o', giteaRepo: 'r', createdAt: 't' } as never);
     const release = { ownerId: owner, projectId: 'ctx-p', image: 'i', host: 'h', updatedAt: '2026-10-09T10:00:00Z' };
-    await harness.db.saveOdooRelease({ ...release, id: 'ctx-r1', pipelineRunId: 'ctx-run1', commit: 'aaaaaaaa11', slot: 'a', state: 'live', liveAt: '2026-10-09T10:05:00Z', startedAt: '2026-10-09T10:00:00Z' });
-    await harness.db.saveOdooRelease({ ...release, id: 'ctx-r2', pipelineRunId: 'ctx-run2', commit: 'bbbbbbbb22', slot: 'b', state: 'preview', startedAt: '2026-10-10T09:00:00Z' });
-    await harness.db.savePipelineRun({ id: 'ctx-run2', projectId: 'ctx-p', commitSha: 'bbbbbbbb22', ref: 'main', status: 'succeeded', startedAt: '2026-10-10T08:55:00Z', finishedAt: '2026-10-10T08:59:00Z' });
+    await harness.db.releases.saveOdooRelease({ ...release, id: 'ctx-r1', pipelineRunId: 'ctx-run1', commit: 'aaaaaaaa11', slot: 'a', state: 'live', liveAt: '2026-10-09T10:05:00Z', startedAt: '2026-10-09T10:00:00Z' });
+    await harness.db.releases.saveOdooRelease({ ...release, id: 'ctx-r2', pipelineRunId: 'ctx-run2', commit: 'bbbbbbbb22', slot: 'b', state: 'preview', startedAt: '2026-10-10T09:00:00Z' });
+    await harness.db.releases.savePipelineRun({ id: 'ctx-run2', projectId: 'ctx-p', commitSha: 'bbbbbbbb22', ref: 'main', status: 'succeeded', startedAt: '2026-10-10T08:55:00Z', finishedAt: '2026-10-10T08:59:00Z' });
     await save('ctx-story', { treeId: 'ctx-t', leafId: 'ctx-l' });
     await save('ctx-feature', { treeId: 'ctx-t', branchId: 'ctx-b' });
     await save('ctx-channel', { treeId: 'ctx-t', projectId: 'ctx-p' });

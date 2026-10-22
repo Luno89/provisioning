@@ -150,7 +150,7 @@ export function hubInstanceWork(deps: HubWorkDeps): HubInstanceWork {
       const [releases, addresses, runs, treeRuns] = await Promise.all([
         deps.releases.list(ownerId, project.id),
         deps.releases.addresses(project.id),
-        db.getPipelineRuns(),
+        db.releases.getPipelineRuns(),
         Promise.all(treeIds.map(async (treeId) => [treeId, await deps.treeRuns.status(ownerId, treeId)] as const)),
       ]);
       return {

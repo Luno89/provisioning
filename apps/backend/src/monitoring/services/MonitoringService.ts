@@ -90,9 +90,7 @@ export interface Viewer {
   isAdmin?: boolean | undefined;
 }
 
-export type MonitoringStore = Pick<Database,
-  'getClusters' | 'getDeployments' | 'getPipelineRuns' | 'getOdooReleases'
-  | 'getMonitoringSettings' | 'saveMonitoringSetting' | 'getAlertRules' | 'saveAlertRule' | 'deleteAlertRule' | 'getAlertEpisodes'>;
+export type MonitoringStore = Pick<Database, 'getClusters' | 'getDeployments' | 'releases' | 'getMonitoringSettings' | 'saveMonitoringSetting' | 'getAlertRules' | 'saveAlertRule' | 'deleteAlertRule' | 'getAlertEpisodes'>;
 
 export interface MonitoringDeps {
   store: MonitoringStore;
@@ -382,8 +380,8 @@ export class MonitoringService {
   }
 
   private async markersFor(viewer: Viewer, dep: DeploymentMetadata, since: number): Promise<Marker[]> {
-    const runs = (await this.deps.store.getPipelineRuns()).filter((run) => run.promotedAt && (run.deploymentId === dep.id || (dep.gitappProjectId && run.projectId === dep.gitappProjectId)));
-    const releases = dep.gitappProjectId ? await this.deps.store.getOdooReleases(viewer.id, dep.gitappProjectId) : [];
+    const runs = (await this.deps.store.releases.getPipelineRuns()).filter((run) => run.promotedAt && (run.deploymentId === dep.id || (dep.gitappProjectId && run.projectId === dep.gitappProjectId)));
+    const releases = dep.gitappProjectId ? await this.deps.store.releases.getOdooReleases(viewer.id, dep.gitappProjectId) : [];
     const markers: Marker[] = [
       ...runs.map((run) => ({ at: run.promotedAt!, label: `deployed ${run.commitSha?.slice(0, 8) ?? ''}`.trim() })),
       ...releases.filter((release) => release.liveAt).map((release) => ({ at: release.liveAt!, label: `release ${release.slot ?? ''} live`.replace('  ', ' ') })),

@@ -10,6 +10,7 @@ import type { FrontierUrl, FrontierClaim } from './frontier.js';
 import type { MemoryItem } from '../../memory/lib/memory-store.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import type { HubStore } from '../../hub/store.js';
+import type { ReleasesStore } from '../../releases/store.js';
 import type { ProjectsStore } from '../../projects/store.js';
 import type { InstancesStore } from '../../instances/store.js';
 import type { AccountsStore } from '../../accounts/store.js';
@@ -36,9 +37,8 @@ import type { EvalCollection, EvalRecord } from '../../checks/lib/eval-run.js';
 import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
 import type { ModelThinkingProfile } from '../../engine/lib/thinking-classifier.js';
 import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, PipelineRunMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
 import type { PartialInfo } from './types.js';
-import type { OdooRelease } from '../../releases/lib/odoo-release.js';
 import type { StoredArtifact } from '../../files/lib/artifacts.js';
 import type { ArtifactChunk } from '../../files/lib/artifacts.js';
 import type { DeferredConclusion, KeeperSettings } from '../../memory/lib/conclusions.js';
@@ -64,6 +64,7 @@ export interface ScriptedRequestRecord {
 
 export interface Database {
   hub: HubStore;
+  releases: ReleasesStore;
   projects: ProjectsStore;
   instances: InstancesStore;
   accounts: AccountsStore;
@@ -87,10 +88,6 @@ export interface Database {
   saveScriptedRequest(request: ScriptedRequestRecord): Promise<void>;
   getScriptedRequests(ownerId: string): Promise<ScriptedRequestRecord[]>;
   reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number>;
-
-  getPipelineRuns(): Promise<PipelineRunMetadata[]>;
-  savePipelineRun(run: PipelineRunMetadata): Promise<void>;
-  savePipelineRunInfo(run: PartialInfo<PipelineRunMetadata>): Promise<PipelineRunMetadata>;
 
   getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]>;
   saveWorkspaceImage(image: WorkspaceImageSpec): Promise<void>;
@@ -139,7 +136,6 @@ export interface Database {
   getMemories(ownerId?: string): Promise<MemoryItem[]>;
   saveMemory(memory: MemoryItem): Promise<void>;
 
-  getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]>;
   saveArtifact(artifact: StoredArtifact): Promise<void>;
   getArtifacts(ownerId: string, runId?: string): Promise<StoredArtifact[]>;
   getExpiredArtifacts(now: string): Promise<StoredArtifact[]>;
@@ -147,7 +143,6 @@ export interface Database {
   saveArtifactChunk(chunk: ArtifactChunk): Promise<void>;
   getArtifactChunks(artifactId: string): Promise<ArtifactChunk[]>;
   deleteArtifactChunks(artifactId: string): Promise<void>;
-  saveOdooRelease(release: OdooRelease): Promise<void>;
 
   getMcpRequests(ownerId: string, conversationId?: string): Promise<McpRequest[]>;
   getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined>;

@@ -150,7 +150,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
     deployedTag: async (project) => deploymentForProject(project, await db.getDeployments())?.gitappImageTag?.split(':').pop(),
     decide: decideRelease,
     ensureSecrets: (project) => secrets.ensure(project, {}),
-    noteOnBuild: (run) => db.savePipelineRunInfo(run),
+    noteOnBuild: (run) => db.releases.savePipelineRunInfo(run),
   });
   temporalBridge.onBuilt = async (project, run) => {
     const how = releaseHowOf(project, await treeTypeOfProject(db.projects, project), await odooReleases.releasesByChart(project, run.commitSha));
@@ -191,7 +191,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
       const type = await treeTypeOfProject(db.projects, project) ?? (await db.projects.getTreeTypes(project.ownerId)).find((entry) => entry.id === ODOO_TREE_TYPE);
       return type?.versions?.default ? projectMajor(type.versions.default) : undefined;
     },
-    latestBuild: async (project) => latestBuildOf(await db.getPipelineRuns(), project.id),
+    latestBuild: async (project) => latestBuildOf(await db.releases.getPipelineRuns(), project.id),
     releases: odooReleases,
   });
   tenant.use('/api/projects', clientImportRouter({ imports: clientImports, getOwnedProject: deps.getOwnedProject }));

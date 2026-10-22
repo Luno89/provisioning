@@ -13,7 +13,7 @@ export function logsRouter(deps: Record<string, any>): Router {
     const resource = type === 'cluster'
       ? await clusterService.getById(id, userOf(req).id)
       : type === 'pipeline'
-      ? (await db.getPipelineRuns()).find((r: any) => r.id === id)
+      ? (await db.releases.getPipelineRuns()).find((r: any) => r.id === id)
       : (await appService.getAll(userOf(req).id)).find((d: any) => d.id === id);
     const logPath = type === 'pipeline' ? (resource as any)?.logFile : (resource as any)?.lastLogPath;
     if (!resource || !logPath) return res.json({ content: 'Initializing...' });

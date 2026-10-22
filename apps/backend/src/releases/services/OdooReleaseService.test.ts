@@ -34,7 +34,7 @@ const project = { id: 'p1', name: 'Shop', ownerId: 'bo', giteaOwner: 'bo', gitea
 const run = (id: string, commit: string) => ({ id, projectId: 'p1', commitSha: commit, imageTag: `reg/bo/shop:${commit}`, status: 'succeeded' }) as PipelineRunMetadata;
 
 const engineMarks = async (releaseId: string, mark: ReleaseMark) => {
-  for (const change of marked(await db.getOdooReleases('bo', 'p1'), releaseId, mark, now())) await db.saveOdooRelease(change);
+  for (const change of marked(await db.releases.getOdooReleases('bo', 'p1'), releaseId, mark, now())) await db.releases.saveOdooRelease(change);
 };
 const runEnds = async (svc: OdooReleaseService) => {
   running = false;
@@ -47,7 +47,7 @@ const nextStarts = async (svc: OdooReleaseService, count: number) => {
   running = false;
   await following;
 };
-const stateOf = async (id: string) => (await db.getOdooReleases('bo', 'p1')).find((entry) => entry.id === id);
+const stateOf = async (id: string) => (await db.releases.getOdooReleases('bo', 'p1')).find((entry) => entry.id === id);
 
 beforeEach(async () => {
   generation += 1;
@@ -96,7 +96,7 @@ describe('releasing a project\'s build', () => {
     await svc.release(project, run('b2', 'def'));
     expect(started.map((entry) => entry.inputs.target.namespace)).toEqual([first, first]);
 
-    await db.saveOdooRelease({ id: 'old', ownerId: 'bo', projectId: 'p9', pipelineRunId: 'x', commit: 'c', image: 'i:t', state: 'live', host: 'h', startedAt: 't', updatedAt: 't' });
+    await db.releases.saveOdooRelease({ id: 'old', ownerId: 'bo', projectId: 'p9', pipelineRunId: 'x', commit: 'c', image: 'i:t', state: 'live', host: 'h', startedAt: 't', updatedAt: 't' });
     running = false;
     await svc.release({ ...project, id: 'p9', name: 'Old Shop' }, run('b3', 'aaa'));
     expect(started.at(-1)!.inputs.target.namespace).toBe('old-shop');
@@ -124,7 +124,7 @@ describe('releasing a project\'s build', () => {
   it('carries the database password of a chart that keeps its own into the vault, and keeps reading it where the chart does', async () => {
     const kept: string[] = [];
     let seeded: string | undefined;
-    await db.saveOdooRelease({ id: 'old', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'x', commit: 'c', image: 'i:t', state: 'live', host: 'h', startedAt: 't', updatedAt: 't' });
+    await db.releases.saveOdooRelease({ id: 'old', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'x', commit: 'c', image: 'i:t', state: 'live', host: 'h', startedAt: 't', updatedAt: 't' });
     const svc = new OdooReleaseService({
       store: db, runs, chartAt: async () => true, newId: () => 'r1', pollMs: 5,
       secrets: {
@@ -152,7 +152,7 @@ describe('releasing a project\'s build', () => {
     });
     expect(await svc.release(project, run('b1', 'abc'))).toEqual({ status: 409, error: 'the project\'s secrets could not be put in its vault: waiting for the person to enter STRIPE_KEY' });
     expect(started).toEqual([]);
-    expect((await db.getOdooReleases('bo'))[0]).toMatchObject({ state: 'failed', reason: 'the project\'s secrets could not be put in its vault: waiting for the person to enter STRIPE_KEY' });
+    expect((await db.releases.getOdooReleases('bo'))[0]).toMatchObject({ state: 'failed', reason: 'the project\'s secrets could not be put in its vault: waiting for the person to enter STRIPE_KEY' });
   });
 
   it('releases nothing for a build that changed nothing the app is built from, says why on the build, and still releases the first one', async () => {
@@ -161,22 +161,22 @@ describe('releasing a project\'s build', () => {
       store: db, runs, chartAt: async () => true, newId: () => `r${(ids += 1)}`, pollMs: 5,
       decide: async (_project, since, commit) => { asked.push(`${since}..${commit}`); return commit === 'docs' ? { release: false, reason: 'only PLAN.md changed since abc' } : { release: true }; },
     });
-    await db.savePipelineRun(run('b1', 'abc'));
-    await db.savePipelineRun(run('b2', 'docs'));
+    await db.releases.savePipelineRun(run('b1', 'abc'));
+    await db.releases.savePipelineRun(run('b2', 'docs'));
     expect(await svc.release(project, run('b1', 'abc'))).toMatchObject({ state: 'preparing' });
     expect(await svc.release(project, run('b2', 'docs'))).toEqual({ skipped: 'only PLAN.md changed since abc' });
     expect(asked).toEqual(['abc..docs']);
     expect(started).toHaveLength(1);
-    expect((await db.getPipelineRuns()).find((entry) => entry.id === 'b2')?.releaseSkipped).toBe('only PLAN.md changed since abc');
+    expect((await db.releases.getPipelineRuns()).find((entry) => entry.id === 'b2')?.releaseSkipped).toBe('only PLAN.md changed since abc');
   });
 
   it('refuses a project with no cluster, and a build with no image, and says so on the build', async () => {
-    await db.savePipelineRun(run('b1', 'abc'));
-    await db.savePipelineRun(run('b2', 'def'));
+    await db.releases.savePipelineRun(run('b1', 'abc'));
+    await db.releases.savePipelineRun(run('b2', 'def'));
     expect(await service().release({ ...project, targetClusterId: undefined } as never, run('b1', 'abc'))).toEqual({ status: 409, error: 'the project has no cluster to deploy to' });
     expect(await service().release(project, { ...run('b2', 'def'), imageTag: undefined } as never)).toEqual({ status: 409, error: 'the build has no image to release' });
-    expect((await db.getPipelineRuns()).map((entry) => [entry.id, entry.status, entry.releaseRefused])).toEqual([['b1', 'succeeded', 'the project has no cluster to deploy to'], ['b2', 'succeeded', 'the build has no image to release']]);
-    expect(await db.getOdooReleases('bo')).toEqual([]);
+    expect((await db.releases.getPipelineRuns()).map((entry) => [entry.id, entry.status, entry.releaseRefused])).toEqual([['b1', 'succeeded', 'the project has no cluster to deploy to'], ['b2', 'succeeded', 'the build has no image to release']]);
+    expect(await db.releases.getOdooReleases('bo')).toEqual([]);
   });
 });
 
@@ -252,11 +252,11 @@ describe('a project that starts from a client\'s database', () => {
   it('holds the first release while the client\'s database is awaited, saying so on the build and to the channel', async () => {
     const waited: string[] = [];
     const svc = new OdooReleaseService({ store: db, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`, pollMs: 5, awaiting: (_owner, entry, built) => { waited.push(`${entry.id} ${built.commitSha}`); } });
-    await db.savePipelineRunInfo({ ...run('b1', 'abc'), startedAt: 't' } as never);
+    await db.releases.savePipelineRunInfo({ ...run('b1', 'abc'), startedAt: 't' } as never);
     expect(await svc.release({ ...project, clientImport: { state: 'awaited', mode: 'copy', bytes: 0, at: 't' } } as ProjectMetadata, run('b1', 'abc'))).toEqual({ skipped: 'waiting for the client\'s database: upload their backup on the project\'s Settings, or start without it there' });
     expect(started).toEqual([]);
     expect(waited).toEqual(['p1 abc']);
-    expect((await db.getPipelineRuns()).find((entry) => entry.id === 'b1')?.releaseHeld).toContain('waiting for the client\'s database');
+    expect((await db.releases.getPipelineRuns()).find((entry) => entry.id === 'b1')?.releaseHeld).toContain('waiting for the client\'s database');
   });
 
   it('never restores over a project that has released', async () => {
@@ -367,17 +367,17 @@ describe('releasing a build again', () => {
   });
 
   it('releases the same build without asking whether anything changed, and records which release it repeats', async () => {
-    await db.savePipelineRun(run('b1', 'abc'));
-    await db.saveOdooRelease({ id: 'live', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b0', commit: 'aaa', image: 'reg/bo/shop:aaa', state: 'live', host: 'h', startedAt: 't0', updatedAt: 't0' });
-    await db.saveOdooRelease({ id: 'old', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b1', commit: 'abc', image: 'reg/bo/shop:abc', state: 'discarded', host: 'h', startedAt: 't1', updatedAt: 't1' });
+    await db.releases.savePipelineRun(run('b1', 'abc'));
+    await db.releases.saveOdooRelease({ id: 'live', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b0', commit: 'aaa', image: 'reg/bo/shop:aaa', state: 'live', host: 'h', startedAt: 't0', updatedAt: 't0' });
+    await db.releases.saveOdooRelease({ id: 'old', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b1', commit: 'abc', image: 'reg/bo/shop:abc', state: 'discarded', host: 'h', startedAt: 't1', updatedAt: 't1' });
     const again = await deciding().releaseAgain('bo', project, 'old');
     expect(again).toMatchObject({ state: 'preparing', again: 'old', commit: 'abc', image: 'reg/bo/shop:abc', pipelineRunId: 'b1' });
     expect(started).toHaveLength(1);
   });
 
   it('queues behind a waiting preview and stops it, as a new build does', async () => {
-    await db.savePipelineRun(run('b1', 'abc'));
-    await db.saveOdooRelease({ id: 'waiting', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b1', commit: 'abc', image: 'reg/bo/shop:abc', state: 'preview', host: 'h', startedAt: 't1', updatedAt: 't1' });
+    await db.releases.savePipelineRun(run('b1', 'abc'));
+    await db.releases.saveOdooRelease({ id: 'waiting', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b1', commit: 'abc', image: 'reg/bo/shop:abc', state: 'preview', host: 'h', startedAt: 't1', updatedAt: 't1' });
     running = true;
     const svc = deciding();
     expect(await svc.releaseAgain('bo', project, 'waiting')).toMatchObject({ state: 'queued', again: 'waiting' });
@@ -387,9 +387,9 @@ describe('releasing a build again', () => {
   });
 
   it('refuses a release that is live or still in progress, one it does not know, and one whose build is gone', async () => {
-    await db.saveOdooRelease({ id: 'live', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b1', commit: 'abc', image: 'i', state: 'live', host: 'h', startedAt: 't', updatedAt: 't' });
-    await db.saveOdooRelease({ id: 'prep', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b1', commit: 'abc', image: 'i', state: 'preparing', host: 'h', startedAt: 't', updatedAt: 't' });
-    await db.saveOdooRelease({ id: 'lost', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'gone', commit: 'abc', image: 'i', state: 'failed', host: 'h', startedAt: 't', updatedAt: 't' });
+    await db.releases.saveOdooRelease({ id: 'live', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b1', commit: 'abc', image: 'i', state: 'live', host: 'h', startedAt: 't', updatedAt: 't' });
+    await db.releases.saveOdooRelease({ id: 'prep', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b1', commit: 'abc', image: 'i', state: 'preparing', host: 'h', startedAt: 't', updatedAt: 't' });
+    await db.releases.saveOdooRelease({ id: 'lost', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'gone', commit: 'abc', image: 'i', state: 'failed', host: 'h', startedAt: 't', updatedAt: 't' });
     expect(await deciding().releaseAgain('bo', project, 'live')).toEqual({ status: 409, error: 'the release is live, so its build cannot be released again' });
     expect(await deciding().releaseAgain('bo', project, 'prep')).toEqual({ status: 409, error: 'the release is preparing, so its build cannot be released again' });
     expect(await deciding().releaseAgain('bo', project, 'nope')).toEqual({ status: 404, error: 'This project has no release with that id' });
@@ -410,7 +410,7 @@ describe('the files a release changes', () => {
     releaseWhen: async () => ['addons/**'],
   });
   const save = (id: string, commit: string, state: 'live' | 'preview' | 'superseded', extra: object = {}) =>
-    db.saveOdooRelease({ id, ownerId: 'bo', projectId: 'p1', pipelineRunId: id, commit, image: `i:${commit}`, state, host: 'h', startedAt: id, updatedAt: id, ...extra });
+    db.releases.saveOdooRelease({ id, ownerId: 'bo', projectId: 'p1', pipelineRunId: id, commit, image: `i:${commit}`, state, host: 'h', startedAt: id, updatedAt: id, ...extra });
 
   beforeEach(() => { asked.length = 0; });
 
@@ -430,7 +430,7 @@ describe('the files a release changes', () => {
     expect(await reading().files('bo', project, 'one')).toMatchObject({ against: { releaseId: 'two', state: 'live' } });
     expect(asked).toEqual(['aaa..bbb', 'bbb..aaa']);
     asked.length = 0;
-    await db.saveOdooRelease({ id: 'two', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'two', commit: 'aaa', image: 'i', state: 'preview', host: 'h', startedAt: 'two', updatedAt: 'two' });
+    await db.releases.saveOdooRelease({ id: 'two', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'two', commit: 'aaa', image: 'i', state: 'preview', host: 'h', startedAt: 'two', updatedAt: 'two' });
     await save('one', 'aaa', 'live');
     expect(await reading().files('bo', project, 'two')).toEqual({ against: { releaseId: 'one', commit: 'aaa', state: 'live' }, files: [], note: 'It is the same commit as what it is compared with, so no file differs.' });
     expect(asked).toEqual([]);

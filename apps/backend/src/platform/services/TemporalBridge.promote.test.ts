@@ -31,7 +31,7 @@ describe('deploying a project\'s build', () => {
 
   beforeEach(async () => {
     db = await testDatabase();
-    await db.savePipelineRunInfo(run);
+    await db.releases.savePipelineRunInfo(run);
     starts = [];
     deps = {
       db,
@@ -49,7 +49,7 @@ describe('deploying a project\'s build', () => {
     expect(starts[0]).toMatchObject({ workflowId: started.workflowId, taskQueue: 'cluster-ops-queue' });
     expect(starts[0]!.args[0]).toMatchObject({ name: 'demo', clusterName: 'dev', appType: 'gitapp', odooRepo: 'registry.local/demo', odooTag: 'abc123' });
     expect((await db.getDeployments())[0]).toMatchObject({ id: 'demo', status: 'deploying', gitappProjectId: 'proj-1', gitappImageTag: 'registry.local/demo:abc123', temporalWorkflowId: started.workflowId });
-    const [saved] = (await db.getPipelineRuns()).filter((entry) => entry.id === 'run-1');
+    const [saved] = (await db.releases.getPipelineRuns()).filter((entry) => entry.id === 'run-1');
     expect(saved).toMatchObject({ deploymentId: 'demo', promotedAt: expect.any(String) });
   });
 
@@ -61,6 +61,6 @@ describe('deploying a project\'s build', () => {
   it('deploys nothing for a build with no image, and leaves the build unstamped', async () => {
     await expect(deployProjectBuild(deps, project, { ...run, imageTag: undefined } as never)).rejects.toThrow('Pipeline run has no built image to promote');
     expect(starts).toEqual([]);
-    expect((await db.getPipelineRuns())[0]!.promotedAt).toBeUndefined();
+    expect((await db.releases.getPipelineRuns())[0]!.promotedAt).toBeUndefined();
   });
 });

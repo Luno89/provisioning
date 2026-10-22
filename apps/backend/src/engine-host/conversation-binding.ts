@@ -4,16 +4,16 @@ import { featureOutline, storyOutline } from '../projects/lib/item-outline.js';
 import { projectOutline } from '../projects/lib/project-outline.js';
 import { chatFraming, SOMEONE } from '../engine/lib/conversations.js';
 
-type BindingSources = Pick<Database, 'getConversation' | 'projects' | 'getOdooReleases' | 'getPipelineRuns' | 'accounts'>;
+type BindingSources = Pick<Database, 'getConversation' | 'projects' | 'releases' | 'accounts'>;
 
 export function conversationBinding(db: BindingSources) {
   const statusOf = async (ownerId: string, projectIds: readonly string[]): Promise<string> => {
     const wanted = new Set(projectIds);
     const projects = (await db.projects.getProjects()).filter((project) => project.ownerId === ownerId && wanted.has(project.id));
     if (projects.length === 0) return '';
-    const runs = await db.getPipelineRuns();
+    const runs = await db.releases.getPipelineRuns();
     const statuses = await Promise.all(projects.map(async (project) =>
-      projectOutline(project, await db.getOdooReleases(ownerId, project.id), runs.filter((run) => run.projectId === project.id))));
+      projectOutline(project, await db.releases.getOdooReleases(ownerId, project.id), runs.filter((run) => run.projectId === project.id))));
     return statuses.join('\n\n');
   };
 

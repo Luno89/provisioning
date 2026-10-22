@@ -143,8 +143,8 @@ describe('an app\'s health', () => {
     await db.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
     healthyApp(prom, { namespace: 'books', services: ['audiobookshelf'] });
     prom.series.set(appQuery('up', { namespace: 'books', services: ['audiobookshelf'] })!, [[1, 1], [2, 1]]);
-    await db.savePipelineRun({ id: 'run-1', projectId: 'p', deploymentId: 'books', commitSha: 'abcdef1234567', status: 'success', startedAt: '2026-10-17T10:00:00Z', promotedAt: '2026-10-17T11:00:00Z' } as never);
-    await db.savePipelineRun({ id: 'run-0', projectId: 'p', deploymentId: 'books', commitSha: 'old', status: 'success', startedAt: '2026-10-10T10:00:00Z', promotedAt: '2026-10-10T11:00:00Z' } as never);
+    await db.releases.savePipelineRun({ id: 'run-1', projectId: 'p', deploymentId: 'books', commitSha: 'abcdef1234567', status: 'success', startedAt: '2026-10-17T10:00:00Z', promotedAt: '2026-10-17T11:00:00Z' } as never);
+    await db.releases.savePipelineRun({ id: 'run-0', projectId: 'p', deploymentId: 'books', commitSha: 'old', status: 'success', startedAt: '2026-10-10T10:00:00Z', promotedAt: '2026-10-10T11:00:00Z' } as never);
 
     const view = await monitoring.appHealth(ME, 'books', '24h');
 

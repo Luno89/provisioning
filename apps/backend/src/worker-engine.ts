@@ -227,12 +227,12 @@ async function buildActivities() {
     releases: {
       cluster: createSlotCluster({ infra: kubeInfra, repo: async () => gitea, syncVault: syncVaultFromProject(kubeInfra), beat: activityBeat }),
       adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
-      releases: { list: (ownerId, projectId) => db.getOdooReleases(ownerId, projectId), save: (release) => db.saveOdooRelease(release) },
+      releases: { list: (ownerId, projectId) => db.releases.getOdooReleases(ownerId, projectId), save: (release) => db.releases.saveOdooRelease(release) },
       browserTests: (request) => releaseBrowser.ReleaseBrowserTestsActivity(request),
       images: {
         deploy: async (projectId, pipelineRunId) => {
           const project = (await db.projects.getProjects()).find((entry) => entry.id === projectId);
-          const run = (await db.getPipelineRuns()).find((entry) => entry.id === pipelineRunId);
+          const run = (await db.releases.getPipelineRuns()).find((entry) => entry.id === pipelineRunId);
           if (!project || !run) throw new Error(project ? `the build ${pipelineRunId} is gone` : `the project ${projectId} is gone`);
           const client = await getTemporalClient();
           const started = await deployProjectBuild({
@@ -304,9 +304,9 @@ async function buildActivities() {
         const conversation = await db.getConversation(ownerId, conversationId);
         return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId } : undefined;
       },
-      runs: () => db.getPipelineRuns(),
+      runs: () => db.releases.getPipelineRuns(),
       deployments: () => db.getDeployments(),
-      releases: (ownerId, projectId) => db.getOdooReleases(ownerId, projectId),
+      releases: (ownerId, projectId) => db.releases.getOdooReleases(ownerId, projectId),
       clusters: async (ownerId) => [
         await clusterService.getSystemClusterEntry(),
         ...(await db.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem),

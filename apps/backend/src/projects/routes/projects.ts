@@ -31,7 +31,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
   router.get('/', async (req, res) => {
     const projects = await db.projects.getProjects();
     const mine = projects.filter((p: any) => ownsProject(p, userOf(req)));
-    const [runs, deployments] = await Promise.all([db.getPipelineRuns(), db.getDeployments()]);
+    const [runs, deployments] = await Promise.all([db.releases.getPipelineRuns(), db.getDeployments()]);
     res.json(mine.map((p: any) => ({
       ...p,
       ...rollupProjectStatus(p, runs, deploymentForProject(p, deployments)),
@@ -43,7 +43,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    const runs = (await db.getPipelineRuns())
+    const runs = (await db.releases.getPipelineRuns())
       .filter((r: any) => r.projectId === req.params.id)
       .sort((a: any, b: any) => b.startedAt.localeCompare(a.startedAt));
 
@@ -52,7 +52,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
       try {
         const commit = await giteaService.getCommit(project.giteaOwner, project.giteaRepo, run.commitSha);
         if (!commit?.message) return run;
-        const updated = await db.savePipelineRunInfo({ id: run.id, commitMessage: commit.message });
+        const updated = await db.releases.savePipelineRunInfo({ id: run.id, commitMessage: commit.message });
         return updated;
       } catch {
         return run;
@@ -185,7 +185,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
       const user = userOf(req);
       const project = await getOwnedProject(req.params.id, user);
       if (!project) return res.status(404).json({ error: 'Project not found' });
-      const runs = await db.getPipelineRuns();
+      const runs = await db.releases.getPipelineRuns();
       const run = runs.find((r: any) => r.id === req.params.runId && r.projectId === project.id);
       if (!run) return res.status(404).json({ error: 'Run not found' });
       if (project.removal) return res.status(409).json({ error: 'This project is being deleted' });

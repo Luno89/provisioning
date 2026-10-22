@@ -48,8 +48,8 @@ describe('the steps that remove an account', () => {
 
   it('stops its projects\' releases and running builds', async () => {
     await db.projects.saveProject({ id: 'bo-shop', name: 'shop', ownerId: 'bo', appType: 'gitapp', createdAt: 'then' });
-    await db.savePipelineRun({ id: 'r1', projectId: 'bo-shop', status: 'running', temporalWorkflowId: 'pipeline-r1', startedAt: 'then' } as never);
-    await db.savePipelineRun({ id: 'r2', projectId: 'bo-shop', status: 'succeeded', temporalWorkflowId: 'pipeline-r2', startedAt: 'then' } as never);
+    await db.releases.savePipelineRun({ id: 'r1', projectId: 'bo-shop', status: 'running', temporalWorkflowId: 'pipeline-r1', startedAt: 'then' } as never);
+    await db.releases.savePipelineRun({ id: 'r2', projectId: 'bo-shop', status: 'succeeded', temporalWorkflowId: 'pipeline-r2', startedAt: 'then' } as never);
     await createAccountRemovalActivities(deps()).RemoveAccountWorkflowsActivity({ ownerId: 'bo' });
     expect(terminated).toEqual(expect.arrayContaining(['release-bo-shop', 'pipeline-r1']));
     expect(terminated).not.toContain('pipeline-r2');

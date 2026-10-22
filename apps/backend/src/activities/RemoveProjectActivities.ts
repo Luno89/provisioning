@@ -39,10 +39,12 @@ export interface ProjectRemovalStore {
   getDeployments(): Promise<DeploymentMetadata[]>;
   saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
   deleteDeployment(id: string): Promise<void>;
-  getPipelineRuns(): Promise<PipelineRunMetadata[]>;
+  releases: {
+    getPipelineRuns(): Promise<PipelineRunMetadata[]>;
+    getOdooReleases(ownerId: string, projectId?: string): Promise<{ id: string }[]>;
+  };
   deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void>;
   deleteConversation(id: string): Promise<void>;
-  getOdooReleases(ownerId: string, projectId?: string): Promise<{ id: string }[]>;
 }
 
 export interface AppTeardown {
@@ -198,7 +200,7 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
       for (const app of found.scope.apps) await store.deleteDeployment(app.id);
       count('deployments', found.scope.apps.length);
       if (deps.artifacts && ownerId) {
-        for (const release of await store.getOdooReleases(ownerId, projectId)) count('artifacts', await deps.artifacts.removeRun(ownerId, release.id));
+        for (const release of await store.releases.getOdooReleases(ownerId, projectId)) count('artifacts', await deps.artifacts.removeRun(ownerId, release.id));
       }
       for (const [name, n] of Object.entries(await store.projects.removeProjectRecords(projectId))) count(name, n);
       return removed;

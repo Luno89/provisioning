@@ -297,6 +297,6 @@ export async function deployProjectBuild(deps: AppDeployDeps, project: ProjectMe
     gitappImageTag: run.imageTag,
     ...(project.deployEnv ? { gitappEnv: project.deployEnv } : {}),
   }, userId ?? project.ownerId);
-  await deps.db.savePipelineRunInfo({ id: run.id, promotedAt: new Date().toISOString(), deploymentId: started.deployment.id });
+  await deps.db.releases.savePipelineRunInfo({ id: run.id, promotedAt: new Date().toISOString(), deploymentId: started.deployment.id });
   return started;
 }
