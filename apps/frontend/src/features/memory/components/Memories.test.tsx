@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Memories from './Memories'
 
-vi.mock('../api/memories', async () => {
-  const actual = await vi.importActual<typeof import('../api/memories')>('../api/memories')
+vi.mock('../api', async () => {
+  const actual = await vi.importActual<typeof import('../api')>('../api')
   return {
     ...actual,
     listMemories: vi.fn(),
@@ -14,8 +14,8 @@ vi.mock('../api/memories', async () => {
     updateMemory: vi.fn(async () => ({})),
   }
 })
-vi.mock('../features/models/api', async () => {
-  const actual = await vi.importActual<typeof import('../features/models/api')>('../features/models/api')
+vi.mock('../../models/api', async () => {
+  const actual = await vi.importActual<typeof import('../../models/api')>('../../models/api')
   return {
     ...actual,
     listModels: vi.fn(async () => [
@@ -26,7 +26,7 @@ vi.mock('../features/models/api', async () => {
   }
 })
 
-const { listMemories, createMemory, updateMemory } = await import('../api/memories')
+const { listMemories, createMemory, updateMemory } = await import('../api')
 
 const memory = (id: string, title: string, model?: string) => ({
   id, ownerId: 'u', category: 'lessons_learned', scope: 'global', status: 'active', title, text: `${title} text`, createdAt: 'a', updatedAt: 'a', ...(model ? { model } : {}),

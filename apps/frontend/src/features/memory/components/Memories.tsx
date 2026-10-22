@@ -7,9 +7,9 @@ type MemoryScope = 'project' | 'global';
 import {
   listMemories, getConsolidation, createMemory, updateMemory,
   approveMemory, promoteMemory, deleteMemory, memoryKeys,
-} from '../api/memories';
-import { listModels, providerKeys, useDefaultModel } from '../features/models';
-import { ANY_MODEL, EVERY_MODEL, matchesModel, modelChoices, modelLine } from './memory-models';
+} from '../api';
+import { listModels, providerKeys, useDefaultModel } from '../../models';
+import { ANY_MODEL, EVERY_MODEL, matchesModel, modelChoices, modelLine } from '../lib/memory-models';
 
 const card = 'bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-xl';
 

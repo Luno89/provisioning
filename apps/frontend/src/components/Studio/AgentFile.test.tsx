@@ -16,7 +16,7 @@ const { stub } = vi.hoisted(() => ({
 }))
 vi.mock('./AgentEditor', () => stub('editor'))
 vi.mock('./AgentTryIt', () => stub('try'))
-vi.mock('../Memories', () => stub('memories'))
+vi.mock('../../features/memory/components/Memories', () => stub('memories'))
 vi.mock('../../features/checks/components/CheckList', () => stub('checks'))
 vi.mock('../../features/checks/components/Coverage', () => stub('coverage'))
 vi.mock('../../features/checks/components/ComparePanel', () => stub('compare'))

@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api } from '../../api/client'
 
 export const memoryKeys = {
   list: () => ['memories'] as const,

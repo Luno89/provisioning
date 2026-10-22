@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Practice } from '../api'
-import { ANY_MODEL, EVERY_MODEL, matchesModel, modelChoices } from '../../../components/memory-models'
+import { ANY_MODEL, EVERY_MODEL, matchesModel, modelChoices } from '../../memory'
 import { errorMessage } from '../../../api/client'
 import { panelClass, primaryButton, quietButton, useDecidePractice, usePractices } from '../shared'
 
