@@ -79,9 +79,9 @@ async function main(): Promise<void> {
     assert.ok(first.ok && first.value.id === `${extension}.shout@1`, first.ok ? first.value.id : first.error);
 
     console.log(`[2/5] ${procedureId} uses ${extension}.shout@1`);
-    await db.saveProcedure({ id: procedureId, ownerId: OWNER, version: '1', source: JSON.stringify(greeter(procedureId, extension, await extensions.groups(OWNER))), updatedAt: new Date().toISOString() });
+    await db.engine.saveProcedure({ id: procedureId, ownerId: OWNER, version: '1', source: JSON.stringify(greeter(procedureId, extension, await extensions.groups(OWNER))), updatedAt: new Date().toISOString() });
     if (!await host.registry.procedure(OWNER, procedureId)) {
-      const store = createProcedureStore({ sources: { list: (ownerId?: string) => db.getProcedures(ownerId) }, published: (ownerId) => extensions.groups(ownerId) });
+      const store = createProcedureStore({ sources: { list: (ownerId?: string) => db.engine.getProcedures(ownerId) }, published: (ownerId) => extensions.groups(ownerId) });
       const why = (await store.problems(OWNER)).find((problem) => problem.id === procedureId)?.report;
       assert.fail(`the stored procedure did not read back with the published group known: ${why ?? 'no reason given'}`);
     }
@@ -90,7 +90,7 @@ async function main(): Promise<void> {
     const second = await extensions.publish(OWNER, extension, 'shout', shout('!!'));
     assert.ok(second.ok, second.ok ? '' : second.error);
     assert.deepEqual(second.value.moved, [procedureId]);
-    const stored = readProcedure((await db.getProcedure(OWNER, procedureId))!.source);
+    const stored = readProcedure((await db.engine.getProcedure(OWNER, procedureId))!.source);
     assert.ok(stored.ok);
     assert.equal(stored.procedure.nodes.find((node) => node.id === 'shout')?.group, `${extension}.shout@2`);
 
@@ -110,7 +110,7 @@ async function main(): Promise<void> {
       handle.result() as Promise<AgentRunOutcome>,
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`still running after ${DEADLINE_MS / 60_000} minutes`)), DEADLINE_MS)),
     ]);
-    const traces = await db.getRunTraces(OWNER, runId);
+    const traces = await db.engine.getRunTraces(OWNER, runId);
     console.log(`      ended ${result.outcome}${result.reason ? `: ${result.reason}` : ''} — ${JSON.stringify(result.outputs)}`);
     console.log(`      ${traces.length} traces: ${traces.map((trace) => `${trace.node}(${trace.kind})`).join(' → ')}`);
 
@@ -126,7 +126,7 @@ async function main(): Promise<void> {
     await assert.rejects(host.registry.runnable(OWNER, AGENT, procedureId), /switched off/);
     console.log('passed');
   } finally {
-    await db.deleteProcedure(OWNER, procedureId);
+    await db.engine.deleteProcedure(OWNER, procedureId);
     await extensions.setEnabled(OWNER, extension, true);
     const removed = await extensions.remove(OWNER, extension);
     if (!removed.ok) console.warn(`could not remove ${extension}: ${removed.error}`);

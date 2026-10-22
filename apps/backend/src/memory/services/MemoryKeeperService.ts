@@ -15,7 +15,9 @@ import {
 import type { LifecycleEvent } from '../../engine-host/temporal/contracts.js';
 
 export interface MemoryKeeperStore {
-  getConversation(ownerId: string, id: string): Promise<Conversation | undefined>;
+  engine: {
+    getConversation(ownerId: string, id: string): Promise<Conversation | undefined>;
+  };
   projects: {
     getLeaves(): Promise<Leaf[]>;
     getBranches(): Promise<Branch[]>;
@@ -129,7 +131,7 @@ export class MemoryKeeperService {
   }
 
   private async concludeConversation(ownerId: string, conversationId: string, why: 'quiet' | 'settled', report: ConclusionReport): Promise<void> {
-    const conversation = await this.deps.store.getConversation(ownerId, conversationId);
+    const conversation = await this.deps.store.engine.getConversation(ownerId, conversationId);
     if (!conversation || conversation.agentSlug === MEMORY_KEEPER) return;
     const key = conversationWatermarkKey(conversation.id);
     const through = Number(await this.deps.store.memory.getMemoryWatermark(key)) || 0;

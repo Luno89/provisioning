@@ -31,7 +31,7 @@ const STAYS = [
   'the deployed app and its clusters',
 ];
 
-type Store = Pick<Database, 'projects' | 'getConversations' | 'hub'>;
+type Store = Pick<Database, 'projects' | 'engine' | 'hub'>;
 
 export interface ProjectSharingDeps {
   store: Store;
@@ -56,7 +56,7 @@ export class ProjectSharingService {
 
   private async scoped(ownerId: string, projectId: string) {
     const [trees, branches, leaves, conversations] = await Promise.all([
-      this.deps.store.projects.getTrees(), this.deps.store.projects.getBranches(), this.deps.store.projects.getLeaves(), this.deps.store.getConversations(),
+      this.deps.store.projects.getTrees(), this.deps.store.projects.getBranches(), this.deps.store.projects.getLeaves(), this.deps.store.engine.getConversations(),
     ]);
     const mine = <T extends { ownerId?: string | undefined }>(list: T[]) => list.filter((entry) => entry.ownerId === ownerId) as unknown as SyncedDoc[];
     const world = { trees: mine(trees), branches: mine(branches), leaves: mine(leaves), conversations: mine(conversations) };

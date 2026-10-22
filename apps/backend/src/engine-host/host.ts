@@ -554,17 +554,17 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
 
 export function storesFromDatabase(db: Database): EngineHostStores {
   return {
-    agentRecords: { list: (ownerId: string) => db.getEnginePersonas(ownerId) },
-    toolGrants: grantStoreFrom(db),
+    agentRecords: { list: (ownerId: string) => db.engine.getEnginePersonas(ownerId) },
+    toolGrants: grantStoreFrom(db.engine),
     procedures: {
-      list: (ownerId?: string) => db.getProcedures(ownerId),
-      get: (ownerId: string, id: string) => db.getProcedure(ownerId, id),
-      save: (source: ProcedureSource) => db.saveProcedure(source),
+      list: (ownerId?: string) => db.engine.getProcedures(ownerId),
+      get: (ownerId: string, id: string) => db.engine.getProcedure(ownerId, id),
+      save: (source: ProcedureSource) => db.engine.saveProcedure(source),
     },
-    tools: { list: (ownerId?: string) => db.getEngineTools(ownerId) },
+    tools: { list: (ownerId?: string) => db.engine.getEngineTools(ownerId) },
     conversations: {
-      get: (ownerId, id) => db.getConversation(ownerId, id),
-      save: (conversation) => db.saveConversation(conversation),
+      get: (ownerId, id) => db.engine.getConversation(ownerId, id),
+      save: (conversation) => db.engine.saveConversation(conversation),
       names: async (ids) => {
         const onHub = new Map((await db.hub.getHubLinks()).flatMap((link) => link.members ?? []).map((member) => [member.personId, member.email]));
         return Object.fromEntries((await Promise.all(ids.map(async (id) => [id, (await db.accounts.getUserById(id))?.email ?? onHub.get(id)] as const)))
@@ -585,7 +585,7 @@ export function storesFromDatabase(db: Database): EngineHostStores {
       treeTypeSpecs: (ownerId: string) => db.projects.getTreeTypes(ownerId),
       workspaceImages: (ownerId: string) => new WorkspaceImageService(db).list(ownerId),
       binding: async (ownerId: string, conversationId: string) => {
-        const conversation = await db.getConversation(ownerId, conversationId);
+        const conversation = await db.engine.getConversation(ownerId, conversationId);
         return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId, leafId: conversation.leafId, branchId: conversation.branchId } : undefined;
       },
     },
@@ -596,10 +596,10 @@ export function storesFromDatabase(db: Database): EngineHostStores {
       trees: { list: () => db.projects.getTrees() },
     },
     mcp: {
-      enabled: async (ownerId: string, conversationId: string) => (await db.getConversation(ownerId, conversationId))?.mcpServers ?? [],
+      enabled: async (ownerId: string, conversationId: string) => (await db.engine.getConversation(ownerId, conversationId))?.mcpServers ?? [],
       requests: {
-        list: (ownerId: string, conversationId: string) => db.getMcpRequests(ownerId, conversationId),
-        save: (request) => db.saveMcpRequest(request),
+        list: (ownerId: string, conversationId: string) => db.engine.getMcpRequests(ownerId, conversationId),
+        save: (request) => db.engine.saveMcpRequest(request),
       },
     },
     secrets: {
@@ -610,12 +610,12 @@ export function storesFromDatabase(db: Database): EngineHostStores {
       projects: { list: () => db.projects.getProjects(), save: (project) => db.projects.saveProject(project) },
       trees: { list: () => db.projects.getTrees() },
       binding: async (ownerId: string, conversationId: string) => {
-        const conversation = await db.getConversation(ownerId, conversationId);
+        const conversation = await db.engine.getConversation(ownerId, conversationId);
         return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId, leafId: conversation.leafId, branchId: conversation.branchId } : undefined;
       },
     },
-    runs: { traces: (ownerId: string, runId: string) => db.getRunTraces(ownerId, runId) },
-    actions: { list: (ownerId: string) => db.getActionProposals(ownerId), save: (proposal) => db.saveActionProposal(proposal) },
+    runs: { traces: (ownerId: string, runId: string) => db.engine.getRunTraces(ownerId, runId) },
+    actions: { list: (ownerId: string) => db.engine.getActionProposals(ownerId), save: (proposal) => db.engine.saveActionProposal(proposal) },
     projectRecords: () => db.projects.getProjects(),
     machines: { list: () => db.machines.getLocalAgentDevices() },
     proposals: {

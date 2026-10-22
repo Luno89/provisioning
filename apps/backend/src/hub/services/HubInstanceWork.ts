@@ -37,7 +37,7 @@ export interface InstanceFiles {
   remove(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<{ path: string }>>;
 }
 
-type Store = Pick<Database, 'projects' | 'getConversations'>;
+type Store = Pick<Database, 'projects' | 'engine'>;
 
 export interface HubInstanceWorkDeps {
   store: Store;
@@ -75,7 +75,7 @@ export class HubInstanceWork {
 
   async scope(link: HubLink): Promise<ShareScope & { tasks: SyncedDoc[]; proposals: SyncedDoc[]; conversations: SyncedDoc[]; branches: SyncedDoc[]; leaves: SyncedDoc[] }> {
     const [trees, branches, leaves, conversations] = await Promise.all([
-      this.deps.store.projects.getTrees(), this.deps.store.projects.getBranches(), this.deps.store.projects.getLeaves(), this.deps.store.getConversations(),
+      this.deps.store.projects.getTrees(), this.deps.store.projects.getBranches(), this.deps.store.projects.getLeaves(), this.deps.store.engine.getConversations(),
     ]);
     const mine = <T extends { ownerId?: string | undefined }>(list: T[]) => list.filter((entry) => entry.ownerId === link.ownerId) as unknown as SyncedDoc[];
     const world = { trees: mine(trees), branches: mine(branches), leaves: mine(leaves), conversations: mine(conversations) };

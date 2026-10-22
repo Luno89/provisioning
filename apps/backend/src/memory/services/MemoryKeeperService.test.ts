@@ -23,9 +23,9 @@ const keeper = () => new MemoryKeeperService({
 });
 
 const say = async (content: string) => {
-  const existing = await db.getConversation('u1', 'c1');
+  const existing = await db.engine.getConversation('u1', 'c1');
   const message = { role: 'user' as const, content, at: '2026-10-03T12:00:00Z' };
-  await db.saveConversation(existing
+  await db.engine.saveConversation(existing
     ? { ...existing, messages: [...existing.messages, message] }
     : { id: 'c1', ownerId: 'u1', title: 'chat', messages: [message], createdAt: message.at, updatedAt: message.at });
 };

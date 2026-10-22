@@ -20,7 +20,9 @@ export interface AccountRemovalDeps {
     projects: {
       getGiteaAccount(ownerId: string): Promise<{ username: string } | null>;
     };
-    reownRuns(from: string, to: string): Promise<number>;
+    engine: {
+      reownRuns(from: string, to: string): Promise<number>;
+    };
     infrastructure: {
       getDeployments(): Promise<DeploymentMetadata[]>;
       saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
@@ -70,7 +72,7 @@ export function createAccountRemovalActivities(deps: AccountRemovalDeps): Accoun
     },
 
     async RemoveAccountKeepRunsActivity({ ownerId, keepRunsFor }) {
-      return deps.store.reownRuns(ownerId, keepRunsFor);
+      return deps.store.engine.reownRuns(ownerId, keepRunsFor);
     },
 
     async RemoveAccountAppsActivity({ ownerId }) {

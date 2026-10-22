@@ -49,7 +49,7 @@ export async function SeedFrontierActivity(args: SeedFrontierArgs): Promise<{ qu
   const db = createDatabase();
   await db.init();
   try {
-    return { queued: await db.enqueueFrontier([frontierRow(args.ingestId, args.seed, 0, args.keywords)]) };
+    return { queued: await db.engine.enqueueFrontier([frontierRow(args.ingestId, args.seed, 0, args.keywords)]) };
   } finally {
     await db.close();
   }
@@ -69,8 +69,8 @@ export async function NextBatchActivity(args: NextBatchArgs): Promise<NextBatchR
   const db = createDatabase();
   await db.init();
   try {
-    const batch = await db.claimFrontier(args.ingestId, args.limit);
-    return { batch, remaining: await db.countFrontier(args.ingestId) };
+    const batch = await db.engine.claimFrontier(args.ingestId, args.limit);
+    return { batch, remaining: await db.engine.countFrontier(args.ingestId) };
   } finally {
     await db.close();
   }
@@ -137,7 +137,7 @@ export async function CrawlBatchActivity(args: CrawlBatchArgs): Promise<CrawlBat
       console.warn(`[Crawl] corpus services unavailable, stored to the database only: ${err?.message}`);
     }
 
-    await db.saveCorpusPages(stored);
+    await db.engine.saveCorpusPages(stored);
 
     const depthOf = new Map(args.batch.map((b) => [b.url, b.depth]));
     const toQueue = [];
@@ -148,9 +148,9 @@ export async function CrawlBatchActivity(args: CrawlBatchArgs): Promise<CrawlBat
         toQueue.push(frontierRow(args.ingestId, link, depth + 1, args.keywords));
       }
     }
-    const queued = await db.enqueueFrontier(toQueue);
+    const queued = await db.engine.enqueueFrontier(toQueue);
 
-    await db.completeFrontier(args.ingestId, urls);
+    await db.engine.completeFrontier(args.ingestId, urls);
 
     const bytes = stored.reduce((n, p) => n + p.bytes, 0);
     const failed = args.batch.length - stored.length;
@@ -185,7 +185,7 @@ export async function SearchCorpusActivity(
     }
 
     const { search } = await import('../engine/lib/corpus.js');
-    const pages = await db.getCorpusPages({
+    const pages = await db.engine.getCorpusPages({
       ownerId: args.ownerId,
       ...(args.ingestId ? { ingestId: args.ingestId } : {}),
       ...(args.projectId ? { projectId: args.projectId } : {}),
@@ -200,7 +200,7 @@ export async function DiscardFrontierActivity(args: { ingestId: string }): Promi
   const db = createDatabase();
   await db.init();
   try {
-    await db.deleteFrontier(args.ingestId);
+    await db.engine.deleteFrontier(args.ingestId);
   } finally {
     await db.close();
   }
@@ -212,7 +212,7 @@ export async function PurgeCorpusActivity(args: { ownerId: string; ingestId: str
   try {
     const ends: CorpusEndpoints = await corpusEndpoints(db, args.ownerId).catch(() => ({}));
     await purgeCorpus(ends, args.ingestId);
-    await db.deleteCorpus(args.ingestId);
+    await db.engine.deleteCorpus(args.ingestId);
   } finally {
     await db.close();
   }

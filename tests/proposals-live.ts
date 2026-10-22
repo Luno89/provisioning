@@ -58,7 +58,7 @@ async function main(): Promise<void> {
 
     console.log(`[2/4] the chat goes quiet; after ${QUIET_MS / 60_000} minutes the memory keeper runs on it`);
     const keeperRun = await until('the memory keeper to run on the conversation', QUIET_MS + 5 * 60_000, async () => {
-      const length = (await db.getConversation(OWNER, conversationId))?.messages.length ?? 0;
+      const length = (await db.engine.getConversation(OWNER, conversationId))?.messages.length ?? 0;
       const id = `memory-conversation-${conversationId}-${length}`;
       return (((await http.get(`/engine/runs/${id}/traces`).catch(() => ({ data: { traces: [] } }))).data.traces as Trace[]) ?? []).length > 0 ? id : undefined;
     });

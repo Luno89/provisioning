@@ -55,8 +55,27 @@ interface Persona { slug: string; ownerId?: string | undefined; prompt?: string 
 interface ToolRecord { ownerId?: string | undefined }
 
 export interface CheckRunStore {
-  getWorkspaceDependencies(ownerId: string): Promise<WorkspaceDependency[]>;
-  saveWorkspaceDependency(dependency: WorkspaceDependency & { ownerId: string }): Promise<void>;
+  engine: {
+    getWorkspaceDependencies(ownerId: string): Promise<WorkspaceDependency[]>;
+    saveWorkspaceDependency(dependency: WorkspaceDependency & { ownerId: string }): Promise<void>;
+    getEnginePersonas(ownerId?: string): Promise<Persona[]>;
+    saveEnginePersona(persona: never): Promise<void>;
+    getToolGrants(ownerId: string): Promise<ToolGrant[]>;
+    saveToolGrant(grant: ToolGrant & { ownerId: string }): Promise<void>;
+    deleteToolGrant(ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): Promise<void>;
+    getMcpServers(ownerId: string): Promise<McpServerRecord[]>;
+    saveMcpServer(server: McpServerRecord): Promise<void>;
+    getProcedures(ownerId?: string): Promise<ProcedureSource[]>;
+    saveProcedure(source: ProcedureSource): Promise<void>;
+    getEngineTools(ownerId?: string): Promise<ToolRecord[]>;
+    saveEngineTool(tool: never): Promise<void>;
+    getExtensionSettings(ownerId: string): Promise<ExtensionSettings | undefined>;
+    saveExtensionSettings(settings: ExtensionSettings): Promise<void>;
+    getAuthoredExtensions(ownerId: string): Promise<AuthoredExtension[]>;
+    saveAuthoredExtension(extension: AuthoredExtension): Promise<void>;
+    findRunEffort(runId: string): Promise<RunEffort | undefined>;
+    reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number>;
+  };
   accounts: {
     getUserById(id: string): Promise<UserMetadata | undefined>;
     saveUser(user: UserMetadata): Promise<void>;
@@ -64,32 +83,15 @@ export interface CheckRunStore {
   checks: {
     saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void>;
   };
-  getEnginePersonas(ownerId?: string): Promise<Persona[]>;
-  saveEnginePersona(persona: never): Promise<void>;
-  getToolGrants(ownerId: string): Promise<ToolGrant[]>;
-  saveToolGrant(grant: ToolGrant & { ownerId: string }): Promise<void>;
-  deleteToolGrant(ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): Promise<void>;
-  getMcpServers(ownerId: string): Promise<McpServerRecord[]>;
-  saveMcpServer(server: McpServerRecord): Promise<void>;
-  getProcedures(ownerId?: string): Promise<ProcedureSource[]>;
-  saveProcedure(source: ProcedureSource): Promise<void>;
-  getEngineTools(ownerId?: string): Promise<ToolRecord[]>;
-  saveEngineTool(tool: never): Promise<void>;
   projects: {
     getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
     saveTreeType(treeType: TreeTypeSpec): Promise<void>;
     saveTask(task: Task): Promise<void>;
   };
-  getExtensionSettings(ownerId: string): Promise<ExtensionSettings | undefined>;
-  saveExtensionSettings(settings: ExtensionSettings): Promise<void>;
-  getAuthoredExtensions(ownerId: string): Promise<AuthoredExtension[]>;
-  saveAuthoredExtension(extension: AuthoredExtension): Promise<void>;
   memory: {
     getMemories(ownerId?: string): Promise<MemoryItem[]>;
     saveMemory(memory: MemoryItem): Promise<void>;
   };
-  findRunEffort(runId: string): Promise<RunEffort | undefined>;
-  reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number>;
   models: {
     saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void>;
   };
@@ -239,9 +241,9 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         } as ModelEndpointMetadata);
       }
 
-      const personas = spacePersonas(await store.getEnginePersonas(person), person, spaceId, promptOverride);
+      const personas = spacePersonas(await store.engine.getEnginePersonas(person), person, spaceId, promptOverride);
       const builtIn = seededPersonas();
-      for (const grant of reowned(await store.getToolGrants(person), person, spaceId)) await store.saveToolGrant(grant as ToolGrant & { ownerId: string });
+      for (const grant of reowned(await store.engine.getToolGrants(person), person, spaceId)) await store.engine.saveToolGrant(grant as ToolGrant & { ownerId: string });
       for (const [slug, settings] of Object.entries(scenario.world?.agents ?? {})) {
         const base = personas.find((persona) => persona.slug === slug) ?? builtIn.find((persona) => persona.slug === slug);
         if (!base) throw new Error(`the check's world changes the agent "${slug}", and there is no such agent`);
@@ -250,36 +252,36 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         const at = personas.findIndex((persona) => persona.slug === slug);
         if (at >= 0) personas[at] = changed; else personas.push(changed);
         if (tools) {
-          const changes = grantChanges(slug, tools, seededGrants(), await store.getToolGrants(spaceId));
-          for (const tool of changes.drop) await store.deleteToolGrant(spaceId, slug, tool);
-          for (const tool of changes.grant) await store.saveToolGrant({ ownerId: spaceId, agent: slug, tool, grantedAt: stamp, why: 'the check\'s world grants it' });
-          for (const tool of changes.revoke) await store.saveToolGrant({ ownerId: spaceId, agent: slug, tool, revoked: true, grantedAt: stamp, why: 'the check\'s world takes it away' });
+          const changes = grantChanges(slug, tools, seededGrants(), await store.engine.getToolGrants(spaceId));
+          for (const tool of changes.drop) await store.engine.deleteToolGrant(spaceId, slug, tool);
+          for (const tool of changes.grant) await store.engine.saveToolGrant({ ownerId: spaceId, agent: slug, tool, grantedAt: stamp, why: 'the check\'s world grants it' });
+          for (const tool of changes.revoke) await store.engine.saveToolGrant({ ownerId: spaceId, agent: slug, tool, revoked: true, grantedAt: stamp, why: 'the check\'s world takes it away' });
         }
         if (servers) {
-          const changes = grantChanges(slug, servers, seededGrants(), await store.getToolGrants(spaceId), 'server');
-          for (const server of changes.drop) await store.deleteToolGrant(spaceId, slug, server, 'server');
-          for (const server of changes.grant) await store.saveToolGrant({ ownerId: spaceId, agent: slug, tool: server, kind: 'server', grantedAt: stamp, why: 'the check\'s world gives it this server' });
+          const changes = grantChanges(slug, servers, seededGrants(), await store.engine.getToolGrants(spaceId), 'server');
+          for (const server of changes.drop) await store.engine.deleteToolGrant(spaceId, slug, server, 'server');
+          for (const server of changes.grant) await store.engine.saveToolGrant({ ownerId: spaceId, agent: slug, tool: server, kind: 'server', grantedAt: stamp, why: 'the check\'s world gives it this server' });
         }
       }
-      for (const dependency of await store.getWorkspaceDependencies(person)) await store.saveWorkspaceDependency({ ...dependency, ownerId: spaceId });
-      for (const dependency of scenario.world?.dependencies ?? []) await store.saveWorkspaceDependency({ ...dependency, ownerId: spaceId });
-      for (const server of spaceServers(await store.getMcpServers(person), spaceId)) await store.saveMcpServer(server);
+      for (const dependency of await store.engine.getWorkspaceDependencies(person)) await store.engine.saveWorkspaceDependency({ ...dependency, ownerId: spaceId });
+      for (const dependency of scenario.world?.dependencies ?? []) await store.engine.saveWorkspaceDependency({ ...dependency, ownerId: spaceId });
+      for (const server of spaceServers(await store.engine.getMcpServers(person), spaceId)) await store.engine.saveMcpServer(server);
       for (const server of scenario.world?.mcpServers ?? []) {
-        await store.saveMcpServer({ ...server, id: worldServerId(server.name), ownerId: spaceId, createdAt: stamp, updatedAt: stamp });
+        await store.engine.saveMcpServer({ ...server, id: worldServerId(server.name), ownerId: spaceId, createdAt: stamp, updatedAt: stamp });
       }
-      for (const persona of personas) await store.saveEnginePersona(persona as never);
-      for (const procedure of reowned(await store.getProcedures(person), person, spaceId)) await store.saveProcedure(procedure);
-      for (const tool of reowned(await store.getEngineTools(person), person, spaceId)) await store.saveEngineTool(tool as never);
-      for (const tool of scenario.world?.tools ?? []) await store.saveEngineTool({ ...tool, ownerId: spaceId } as never);
+      for (const persona of personas) await store.engine.saveEnginePersona(persona as never);
+      for (const procedure of reowned(await store.engine.getProcedures(person), person, spaceId)) await store.engine.saveProcedure(procedure);
+      for (const tool of reowned(await store.engine.getEngineTools(person), person, spaceId)) await store.engine.saveEngineTool(tool as never);
+      for (const tool of scenario.world?.tools ?? []) await store.engine.saveEngineTool({ ...tool, ownerId: spaceId } as never);
       for (const treeType of reowned(await store.projects.getTreeTypes(person), person, spaceId)) await store.projects.saveTreeType(treeType);
       for (const [id, settings] of Object.entries(scenario.world?.treeTypes ?? {})) {
         const base = (await store.projects.getTreeTypes(spaceId)).find((type) => type.id === id) ?? TREE_TYPE_SEEDS.find((type) => type.id === id);
         if (!base) throw new Error(`the check's world changes the tree type "${id}", and there is no such type`);
         await store.projects.saveTreeType({ ...base, ...settings, id, ownerId: spaceId } as TreeTypeSpec);
       }
-      const settings = await store.getExtensionSettings(person);
-      if (settings) await store.saveExtensionSettings({ ...settings, ownerId: spaceId });
-      for (const extension of reowned(await store.getAuthoredExtensions(person), person, spaceId)) await store.saveAuthoredExtension(extension);
+      const settings = await store.engine.getExtensionSettings(person);
+      if (settings) await store.engine.saveExtensionSettings({ ...settings, ownerId: spaceId });
+      for (const extension of reowned(await store.engine.getAuthoredExtensions(person), person, spaceId)) await store.engine.saveAuthoredExtension(extension);
       for (const practice of spacePractices(await store.memory.getMemories(person), person, spaceId, trialPractice)) await store.memory.saveMemory(practice);
 
       for (const memory of scenario.world?.memories ?? []) {
@@ -293,15 +295,15 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       if (scenario.step) {
         const built = stepProcedure(scenario.id, scenario.step, platformCatalogue());
         if ('problems' in built) throw new Error(`the step cannot be checked: ${built.problems.join('; ')}`);
-        await store.saveProcedure({ id: built.procedure.id, ownerId: spaceId, version: built.procedure.version, source: JSON.stringify(built.procedure), updatedAt: stamp });
+        await store.engine.saveProcedure({ id: built.procedure.id, ownerId: spaceId, version: built.procedure.version, source: JSON.stringify(built.procedure), updatedAt: stamp });
       }
       if (scenario.turn) {
         const procedure = turnProcedure(platformCatalogue(), platformGroups());
-        await store.saveProcedure({ id: procedure.id, ownerId: spaceId, version: procedure.version, source: JSON.stringify(procedure), updatedAt: stamp });
+        await store.engine.saveProcedure({ id: procedure.id, ownerId: spaceId, version: procedure.version, source: JSON.stringify(procedure), updatedAt: stamp });
       }
       for (const procedure of scenario.world?.procedures ?? []) {
         const declared = procedure as { id: string; version: string };
-        await store.saveProcedure({ id: declared.id, ownerId: spaceId, version: declared.version, source: JSON.stringify(procedure), updatedAt: stamp });
+        await store.engine.saveProcedure({ id: declared.id, ownerId: spaceId, version: declared.version, source: JSON.stringify(procedure), updatedAt: stamp });
       }
       for (const seed of scenario.world?.tasks ?? []) {
         const task = newTask({
@@ -372,7 +374,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       world.conversationId = conversationId;
       const talkingIn = conversationId;
       if (Object.keys(files).length > 0) await deps.seedFiles(spaceId, conversationRepoName(conversationId), files);
-      const before = new Map((await store.getProcedures(spaceId)).filter((source) => source.ownerId === spaceId).map((source) => [source.id, source.updatedAt]));
+      const before = new Map((await store.engine.getProcedures(spaceId)).filter((source) => source.ownerId === spaceId).map((source) => [source.id, source.updatedAt]));
       const fill = <T>(value: T): T => {
         if (typeof value === 'string') return value.replace(/\{\{\s*world\.([a-zA-Z0-9_.]+)\s*\}\}/g, (whole, path: string) => {
           const found = path.split('.').reduce<unknown>((at, key) => (at && typeof at === 'object' ? (at as Record<string, unknown>)[key] : undefined), world);
@@ -904,7 +906,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
             for (const path of wanted) foundFiles[path] = await readFile(conversationWorkspaceRunId(conversationId), [`${agent}/${ran.runId}/${path}`, path]);
             let effort: RunEffort | undefined;
             for (let tries = 0; tries < 20 && !effort; tries += 1) {
-              effort = await store.findRunEffort(ran.runId);
+              effort = await store.engine.findRunEffort(ran.runId);
               if (!effort) await wait();
             }
             const calls = observedCalls(ran.events);
@@ -918,7 +920,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
               counters: { rounds: effort?.rounds ?? 0, toolCalls: effort?.toolCalls ?? calls.length, totalTokens: effort?.totalTokens ?? 0 },
               answer: ran.answer,
               saved: index === 0
-                ? (await store.getProcedures(spaceId)).filter((source) => source.ownerId === spaceId && before.get(source.id) !== source.updatedAt).map((source): StoredProcedure => ({ id: source.id, source: source.source }))
+                ? (await store.engine.getProcedures(spaceId)).filter((source) => source.ownerId === spaceId && before.get(source.id) !== source.updatedAt).map((source): StoredProcedure => ({ id: source.id, source: source.source }))
                 : [],
             };
             if (index === 0) {

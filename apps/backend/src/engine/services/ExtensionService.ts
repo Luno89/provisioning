@@ -49,7 +49,7 @@ function asExtension(authored: AuthoredExtension): EngineExtension {
 
 export class ExtensionService {
   constructor(private readonly deps: {
-    store: Pick<Database, 'getExtensionSettings' | 'saveExtensionSettings' | 'getAuthoredExtensions' | 'saveAuthoredExtension' | 'deleteAuthoredExtension' | 'getProcedures' | 'saveProcedure'>;
+    store: Pick<Database, 'engine'>;
     installed: readonly EngineExtension[];
     catalogue?: (() => NodeCatalogue) | undefined;
     sharedGroups?: (() => GroupDefinition[]) | undefined;
@@ -62,13 +62,13 @@ export class ExtensionService {
   }
 
   private async everything(ownerId: string): Promise<{ all: EngineExtension[]; authored: AuthoredExtension[] }> {
-    const authored = await this.deps.store.getAuthoredExtensions(ownerId);
+    const authored = await this.deps.store.engine.getAuthoredExtensions(ownerId);
     return { all: [...this.deps.installed, ...authored.map(asExtension)], authored };
   }
 
   async list(ownerId: string): Promise<ExtensionState[]> {
     const { all, authored } = await this.everything(ownerId);
-    const on = new Set(enabledExtensions(all, await this.deps.store.getExtensionSettings(ownerId)).map((extension) => extension.id));
+    const on = new Set(enabledExtensions(all, await this.deps.store.engine.getExtensionSettings(ownerId)).map((extension) => extension.id));
     return all.map((extension) => {
       const own = authored.find((entry) => entry.id === extension.id);
       return {
@@ -82,24 +82,24 @@ export class ExtensionService {
   }
 
   async enabled(ownerId: string): Promise<EngineExtension[]> {
-    return enabledExtensions(this.deps.installed, await this.deps.store.getExtensionSettings(ownerId));
+    return enabledExtensions(this.deps.installed, await this.deps.store.engine.getExtensionSettings(ownerId));
   }
 
   async hidden(ownerId: string): Promise<HiddenVocabulary> {
     const { all } = await this.everything(ownerId);
-    return hiddenBy(all, await this.deps.store.getExtensionSettings(ownerId));
+    return hiddenBy(all, await this.deps.store.engine.getExtensionSettings(ownerId));
   }
 
   async groups(ownerId: string): Promise<GroupDefinition[]> {
-    return (await this.deps.store.getAuthoredExtensions(ownerId)).flatMap(authoredGroups);
+    return (await this.deps.store.engine.getAuthoredExtensions(ownerId)).flatMap(authoredGroups);
   }
 
   async setEnabled(ownerId: string, id: string, enabled: boolean): Promise<ExtensionOutcome<ExtensionState[]>> {
     const { all } = await this.everything(ownerId);
-    const settings = await this.deps.store.getExtensionSettings(ownerId);
+    const settings = await this.deps.store.engine.getExtensionSettings(ownerId);
     const problem = switchProblem(all, settings?.disabled ?? [], id, enabled);
     if (problem) return { ok: false, status: all.some((extension) => extension.id === id) ? 409 : 404, error: problem };
-    await this.deps.store.saveExtensionSettings(withSwitch(settings, ownerId, id, enabled, this.now()));
+    await this.deps.store.engine.saveExtensionSettings(withSwitch(settings, ownerId, id, enabled, this.now()));
     return { ok: true, value: await this.list(ownerId) };
   }
 
@@ -109,7 +109,7 @@ export class ExtensionService {
     const problem = extensionProblem(candidate, new Set(all.map((extension) => extension.id)));
     if (problem) return { ok: false, status: 400, error: problem };
     const now = this.now();
-    await this.deps.store.saveAuthoredExtension({
+    await this.deps.store.engine.saveAuthoredExtension({
       ownerId, ...candidate, describe: String(input.describe ?? '').trim(), operations: [], tools: [], personas: [], procedures: [], createdAt: now, updatedAt: now,
     });
     return { ok: true, value: await this.list(ownerId) };
@@ -130,7 +130,7 @@ export class ExtensionService {
     const procedures = pick(input.procedures, owned?.procedures, 'procedures');
     for (const picked of [tools, personas, procedures]) if (typeof picked === 'string' && picked) return { ok: false, status: 400, error: picked };
     if (input.title !== undefined && !String(input.title).trim()) return { ok: false, status: 400, error: 'an extension needs a title' };
-    await this.deps.store.saveAuthoredExtension({
+    await this.deps.store.engine.saveAuthoredExtension({
       ...found,
       ...(input.title !== undefined ? { title: String(input.title).trim() } : {}),
       ...(input.describe !== undefined ? { describe: String(input.describe).trim() } : {}),
@@ -161,7 +161,7 @@ export class ExtensionService {
     const now = this.now();
     const moved: { source: ProcedureSource; procedure: Procedure }[] = [];
     const broken: string[] = [];
-    for (const source of await this.deps.store.getProcedures(ownerId)) {
+    for (const source of await this.deps.store.engine.getProcedures(ownerId)) {
       if (source.ownerId !== ownerId) continue;
       const read = readProcedure(source.source);
       if (!read.ok || !usesOperation(read.procedure, id, name)) continue;
@@ -176,9 +176,9 @@ export class ExtensionService {
     const operations = existing
       ? found.operations.map((operation) => (operation.name === name ? { ...operation, versions: [...operation.versions, { version, group: published, savedAt: now }] } : operation))
       : [...found.operations, { name, versions: [{ version, group: published, savedAt: now }] }];
-    await this.deps.store.saveAuthoredExtension({ ...found, operations, updatedAt: now });
+    await this.deps.store.engine.saveAuthoredExtension({ ...found, operations, updatedAt: now });
     for (const { source, procedure } of moved) {
-      await this.deps.store.saveProcedure({ ...source, source: JSON.stringify(procedure, null, 2), updatedAt: now });
+      await this.deps.store.engine.saveProcedure({ ...source, source: JSON.stringify(procedure, null, 2), updatedAt: now });
     }
     return { ok: true, value: { id: published.id, version, moved: moved.map(({ procedure }) => procedure.id) } };
   }
@@ -189,7 +189,7 @@ export class ExtensionService {
     if (!found.operations.some((operation) => operation.name === name)) return { ok: false, status: 404, error: `${found.title} has no operation called "${name}"` };
     const users = await this.usersOf(ownerId, id, name);
     if (users.length > 0) return { ok: false, status: 409, error: `${users.join(', ')} still ${users.length === 1 ? 'uses' : 'use'} it` };
-    await this.deps.store.saveAuthoredExtension({ ...found, operations: found.operations.filter((operation) => operation.name !== name), updatedAt: this.now() });
+    await this.deps.store.engine.saveAuthoredExtension({ ...found, operations: found.operations.filter((operation) => operation.name !== name), updatedAt: this.now() });
     return { ok: true, value: await this.list(ownerId) };
   }
 
@@ -198,17 +198,17 @@ export class ExtensionService {
     if (!found) return { ok: false, status: 404, error: `you have no extension called "${id}"` };
     const users = (await Promise.all(found.operations.map((operation) => this.usersOf(ownerId, id, operation.name)))).flat();
     if (users.length > 0) return { ok: false, status: 409, error: `${[...new Set(users)].join(', ')} still ${users.length === 1 ? 'uses' : 'use'} its operations` };
-    await this.deps.store.deleteAuthoredExtension(ownerId, id);
+    await this.deps.store.engine.deleteAuthoredExtension(ownerId, id);
     return { ok: true, value: await this.list(ownerId) };
   }
 
   private async authored(ownerId: string, id: string): Promise<AuthoredExtension | undefined> {
-    return (await this.deps.store.getAuthoredExtensions(ownerId)).find((extension) => extension.id === id);
+    return (await this.deps.store.engine.getAuthoredExtensions(ownerId)).find((extension) => extension.id === id);
   }
 
   private async usersOf(ownerId: string, id: string, name: string): Promise<string[]> {
     const users: string[] = [];
-    for (const source of await this.deps.store.getProcedures(ownerId)) {
+    for (const source of await this.deps.store.engine.getProcedures(ownerId)) {
       if (source.ownerId !== ownerId) continue;
       const read = readProcedure(source.source);
       if (read.ok && usesOperation(read.procedure, id, name)) users.push(read.procedure.id);
@@ -224,9 +224,9 @@ export function extensionServiceFor(db: Database): ExtensionService {
     catalogue: platformCatalogue,
     sharedGroups: platformGroups,
     owned: async (ownerId: string) => ({
-      agents: new Set((await db.getEnginePersonas(ownerId)).filter((row) => row.ownerId === ownerId).map((row) => row.slug)),
-      tools: new Set((await db.getEngineTools(ownerId)).filter((row) => row.ownerId === ownerId).map((row) => row.name)),
-      procedures: new Set((await db.getProcedures(ownerId)).filter((row) => row.ownerId === ownerId).map((row) => row.id)),
+      agents: new Set((await db.engine.getEnginePersonas(ownerId)).filter((row) => row.ownerId === ownerId).map((row) => row.slug)),
+      tools: new Set((await db.engine.getEngineTools(ownerId)).filter((row) => row.ownerId === ownerId).map((row) => row.name)),
+      procedures: new Set((await db.engine.getProcedures(ownerId)).filter((row) => row.ownerId === ownerId).map((row) => row.id)),
     }),
   });
 }

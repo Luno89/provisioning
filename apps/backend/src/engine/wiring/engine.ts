@@ -118,17 +118,17 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
   const extensions = extensionServiceFor(db);
   const dependencyFollowers: { tools?: EngineToolService; servers?: McpServerService } = {};
   const workspaceDependencies = new WorkspaceDependencyService({
-    store: db,
-    tools: (ownerId) => db.getEngineTools(ownerId),
-    servers: (ownerId) => db.getMcpServers(ownerId),
+    store: db.engine,
+    tools: (ownerId) => db.engine.getEngineTools(ownerId),
+    servers: (ownerId) => db.engine.getMcpServers(ownerId),
     workspaces: async (ownerId) => {
-      const [published, trees] = await Promise.all([db.getPublishedWorkspaces(ownerId), db.projects.getTrees()]);
+      const [published, trees] = await Promise.all([db.engine.getPublishedWorkspaces(ownerId), db.projects.getTrees()]);
       const names = new Map(trees.filter((tree) => tree.ownerId === ownerId).map((tree) => [tree.id, tree.name]));
       return published.map((workspace) => ({ ...workspace, treeName: names.get(workspace.treeId) }));
     },
     changed: async (ownerId, _name, use) => {
       if (use.tools.length) await dependencyFollowers.tools?.rebuildNeeding(ownerId, use.tools);
-      const servers = await db.getMcpServers(ownerId);
+      const servers = await db.engine.getMcpServers(ownerId);
       for (const name of use.servers) {
         const server = servers.find((entry) => entry.name === name);
         if (server) await dependencyFollowers.servers?.recapture(ownerId, server.id);
@@ -138,21 +138,21 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
   const dependenciesOf = (ownerId: string) => workspaceDependencies.catalogue(ownerId);
   const bench: { service?: BenchService } = {};
   const agentsHolder: { service?: AgentService } = {};
-  const agentDirectory = directoryFromDatabase(db, {
-    stepNeeds: stepNeedsReader({ sources: { list: (ownerId?: string) => db.getProcedures(ownerId) }, published: (ownerId: string) => extensions.groups(ownerId) }),
+  const agentDirectory = directoryFromDatabase(db.engine, {
+    stepNeeds: stepNeedsReader({ sources: { list: (ownerId?: string) => db.engine.getProcedures(ownerId) }, published: (ownerId: string) => extensions.groups(ownerId) }),
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     onChanged: (ownerId: string) => void bench.service?.changed(ownerId).catch(() => undefined),
   });
   const engineRegistry = createStoredAgentRegistry({
     agents: agentDirectory,
-    procedures: { list: (ownerId?: string) => db.getProcedures(ownerId) },
+    procedures: { list: (ownerId?: string) => db.engine.getProcedures(ownerId) },
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
     accountDefault: async (ownerId: string) => accountDefaultOf(await db.accounts.getUserById(ownerId)),
   });
   const conversationTurns = new ConversationTurnService({
-    store: db,
-    log: db,
+    store: db.engine,
+    log: db.engine,
     running: async (runId) => {
       if (!temporalBridge.isReady()) return true;
       try {
@@ -229,7 +229,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
     const checks = deps.checks();
     if (!checks) throw new Error('the checks are not wired yet');
     const [trees, projects, conversations, checkRuns, releases, agents] = await Promise.all([
-      db.projects.getTrees(), db.projects.getProjects(), db.getConversations(), checks.list(ownerId), db.releases.getOdooReleases(ownerId), agentDirectory.agents(ownerId),
+      db.projects.getTrees(), db.projects.getProjects(), db.engine.getConversations(), checks.list(ownerId), db.releases.getOdooReleases(ownerId), agentDirectory.agents(ownerId),
     ]);
     return {
       trees: trees.filter((entry) => entry.ownerId === ownerId),
@@ -281,19 +281,19 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   const { extensions, dependenciesOf, agentDirectory, engineRegistry, engineRuns, workspaceBuilds, bench, agentsHolder, workspaceRepos, workspaceConclusions, conversationTurns } = core;
   const engineQueue = env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
   const ownedTrees = async (userId: string) => ownedBy(await db.projects.getTrees(), userId);
-  const ownedConversations = async (userId: string) => (await db.getConversations()).filter((c) => c.ownerId === userId);
+  const ownedConversations = async (userId: string) => (await db.engine.getConversations()).filter((c) => c.ownerId === userId);
 
   tenant.use('/api/checks', checksRouter({ scripted: new ScriptedModelService({ store: db, dataKey: deps.dataKey }) }));
 
   const draftRegistry = createStoredAgentRegistry({
     agents: agentDirectory,
-    procedures: { list: (ownerId?: string) => db.getProcedures(ownerId) },
-    tools: { list: (ownerId?: string) => db.getEngineTools(ownerId) },
+    procedures: { list: (ownerId?: string) => db.engine.getProcedures(ownerId) },
+    tools: { list: (ownerId?: string) => db.engine.getEngineTools(ownerId) },
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
   });
   const draftCatalogue = createStoredToolCatalogue({
-    tools: { list: (ownerId?: string) => db.getEngineTools(ownerId) },
+    tools: { list: (ownerId?: string) => db.engine.getEngineTools(ownerId) },
   });
 
   const evalWeb = await buildWebTools(db).catch(() => undefined);
@@ -305,12 +305,12 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       problem: (ownerId, treeId, agent, modelId) => deps.treeModels().problem(ownerId, treeId, agent, modelId),
     },
     mcpServers: {
-      list: (ownerId) => db.getMcpServers(ownerId),
-      get: async (ownerId, id) => (await db.getMcpServers(ownerId)).find((server) => server.id === id),
-      save: (server) => db.saveMcpServer(server),
+      list: (ownerId) => db.engine.getMcpServers(ownerId),
+      get: async (ownerId, id) => (await db.engine.getMcpServers(ownerId)).find((server) => server.id === id),
+      save: (server) => db.engine.saveMcpServer(server),
       hostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: resolveMcpProbeUrl }),
     },
-    publishedWorkspaces: { get: (ownerId: string, treeId: string) => db.getPublishedWorkspace(ownerId, treeId), save: (workspace) => db.savePublishedWorkspace(workspace) },
+    publishedWorkspaces: { get: (ownerId: string, treeId: string) => db.engine.getPublishedWorkspace(ownerId, treeId), save: (workspace) => db.engine.savePublishedWorkspace(workspace) },
     readRepoFile: async (ownerId: string, repo: string, path: string, ref: string) => (await projectRepos.readDocument(ownerId, repo, path, ref))?.content,
     writeRepoFile: (ownerId, repo, path, content, message, branch) => projectRepos.putDocument(ownerId, repo, path, content, message, branch),
     workspaceBuild: (ownerId, treeId, commit) => workspaceBuilds.start(ownerId, treeId, commit),
@@ -341,7 +341,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       username: gitea.adminUsername,
       password: (await gitea.createDeployToken()).token,
     }),
-    efforts: { save: (effort) => db.saveRunEffort(effort), list: (ownerId, procedureId, modelKey) => db.getRunEffort(ownerId, procedureId, modelKey) },
+    efforts: { save: (effort) => db.engine.saveRunEffort(effort), list: (ownerId, procedureId, modelKey) => db.engine.getRunEffort(ownerId, procedureId, modelKey) },
   });
 
   const practiceService = new PracticeService({ store: db.memory });
@@ -357,7 +357,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     handOff: async (ownerId, message) => {
       const at = new Date().toISOString();
       const conversationId = randomUUID();
-      await db.saveConversation({ id: conversationId, ownerId, title: 'Procedure change request', messages: [], agentSlug: PROCEDURE_CHANGE_AGENT, createdAt: at, updatedAt: at });
+      await db.engine.saveConversation({ id: conversationId, ownerId, title: 'Procedure change request', messages: [], agentSlug: PROCEDURE_CHANGE_AGENT, createdAt: at, updatedAt: at });
       const started = await engineRuns.start({ ownerId, agentSlug: PROCEDURE_CHANGE_AGENT, procedureId: 'interactive-chat', message, conversationId, inputs: { conversationId } });
       return { conversationId, runId: started.runId };
     },
@@ -448,14 +448,14 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   const procedureService = new ProcedureService({
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
-    procedures: createProcedureStore({ sources: { list: (ownerId?: string) => db.getProcedures(ownerId) }, published: (ownerId: string) => extensions.groups(ownerId) }),
+    procedures: createProcedureStore({ sources: { list: (ownerId?: string) => db.engine.getProcedures(ownerId) }, published: (ownerId: string) => extensions.groups(ownerId) }),
     sources: {
-      get: (ownerId, id) => db.getProcedure(ownerId, id),
+      get: (ownerId, id) => db.engine.getProcedure(ownerId, id),
       save: async (source) => {
-        await db.saveProcedure(source);
+        await db.engine.saveProcedure(source);
         if (source.ownerId) void bench.service?.changed(source.ownerId).catch(() => undefined);
       },
-      delete: (ownerId, id) => db.deleteProcedure(ownerId, id),
+      delete: (ownerId, id) => db.engine.deleteProcedure(ownerId, id),
     },
     known: async (ownerId) => ({
       tools: await (async () => {
@@ -464,7 +464,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       })(),
       agents: new Set((await engineRegistry.agents(ownerId)).map((agent) => agent.slug)),
     }),
-    effort: { list: (ownerId, procedureId) => db.getRunEffort(ownerId, procedureId) },
+    effort: { list: (ownerId, procedureId) => db.engine.getRunEffort(ownerId, procedureId) },
   });
   tenant.use('/api/procedures', proceduresRouter({ procedures: procedureService }));
 
@@ -472,7 +472,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   tenant.use('/api/engine', engineRouter({
     runs: engineRuns,
     projects: async (ownerId) => (await db.projects.getProjects()).filter((project) => project.ownerId === ownerId).map((project) => ({ id: project.id, name: project.name })),
-    approvals: new ApprovalService({ store: db, runs: engineRuns, autoMode: autoModeService, treeOfRun: treeOfGroveRun }),
+    approvals: new ApprovalService({ store: db.engine, runs: engineRuns, autoMode: autoModeService, treeOfRun: treeOfGroveRun }),
     registry: engineRegistry,
     admin: deps.requireAdmin,
     extensions,
@@ -480,7 +480,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       standing: (ownerId?: string) => evalHost.workspaceImages.standing(ownerId),
       prune: async () => evalHost.imagePruner?.prune(),
     },
-    traces: { list: (ownerId: string, runId: string) => db.getRunTraces(ownerId, runId) },
+    traces: { list: (ownerId: string, runId: string) => db.engine.getRunTraces(ownerId, runId) },
     tasks: {
       list: (ownerId: string) => db.projects.getTasks(ownerId),
       save: (task) => db.projects.saveTask(task),
@@ -493,12 +493,12 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       catalogue: draftCatalogue,
       dependencies: dependenciesOf,
       tools: {
-        list: (ownerId?: string) => db.getEngineTools(ownerId),
-        save: (tool) => db.saveEngineTool(tool),
-        remove: (ownerId, name) => db.deleteEngineTool(ownerId, name),
+        list: (ownerId?: string) => db.engine.getEngineTools(ownerId),
+        save: (tool) => db.engine.saveEngineTool(tool),
+        remove: (ownerId, name) => db.engine.deleteEngineTool(ownerId, name),
       },
       agents: agentDirectory,
-      servers: (ownerId: string) => db.getMcpServers(ownerId),
+      servers: (ownerId: string) => db.engine.getMcpServers(ownerId),
       implemented: evalHost.implemented,
       images: evalHost.images,
     }),
@@ -509,15 +509,15 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       agents: agentDirectory,
       records: {
         save: async (record: PersonaRecord) => {
-          await db.saveEnginePersona(record);
+          await db.engine.saveEnginePersona(record);
           if (record.ownerId) void bench.service?.changed(record.ownerId).catch(() => undefined);
         },
-        remove: (ownerId: string | undefined, slug: string) => db.deleteEnginePersona(ownerId, slug),
+        remove: (ownerId: string | undefined, slug: string) => db.engine.deleteEnginePersona(ownerId, slug),
       },
       tools: (ownerId: string) => draftCatalogue.list(ownerId),
       procedures: (ownerId: string) => engineRegistry.procedures(ownerId),
       treeTypes: async (ownerId: string) => treeTypeChoices(await db.projects.getTreeTypes(ownerId), ownerId),
-      servers: (ownerId: string) => db.getMcpServers(ownerId),
+      servers: (ownerId: string) => db.engine.getMcpServers(ownerId),
       dependencies: dependenciesOf,
       images: evalHost.images,
     }),
@@ -547,7 +547,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     read: (userId, repo, path, ref) => projectRepos.readDocument(userId, repo, path, ref),
   });
   tenant.use('/api/documents', documentsRouter({ documents: documentService }));
-  tenant.use('/api/turns', turnsRouter({ log: { read: (ownerId, turnId, after) => db.getTurnLog(ownerId, turnId, after), recent: (ownerId, since, limit) => db.recentTurns(ownerId, since, limit) } }));
+  tenant.use('/api/turns', turnsRouter({ log: { read: (ownerId, turnId, after) => db.engine.getTurnLog(ownerId, turnId, after), recent: (ownerId, since, limit) => db.engine.recentTurns(ownerId, since, limit) } }));
   tenant.use('/api/memories', memoriesRouter({ db, temporalBridge }));
 
   const treeTypeDescriptions = new TreeTypeDescriptions({
@@ -572,10 +572,10 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
 
   const mcpCatalogue = core.dependencyFollowers.servers = new McpServerService({
     dependencies: dependenciesOf,
-    store: { list: (ownerId) => db.getMcpServers(ownerId), save: (server) => db.saveMcpServer(server), remove: (ownerId, id) => db.deleteMcpServer(ownerId, id) },
+    store: { list: (ownerId) => db.engine.getMcpServers(ownerId), save: (server) => db.engine.saveMcpServer(server), remove: (ownerId, id) => db.engine.deleteMcpServer(ownerId, id) },
     templates: () => MCP_SERVER_TEMPLATES,
     runs: engineRuns,
-    finished: async (runId) => db.findRunEffort(runId),
+    finished: async (runId) => db.engine.findRunEffort(runId),
     deployments: () => db.infrastructure.getDeployments(),
     grants: agentDirectory,
     notes: toolNoteService,
@@ -586,7 +586,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     },
   });
   tenant.use('/api/workspace-dependencies', workspaceDependenciesRouter({ dependencies: core.workspaceDependencies }));
-  tenant.use('/api/mcp', mcpRouter({ mcp: new McpService({ store: db, catalogue: (ownerId) => db.getMcpServers(ownerId) }), catalogue: mcpCatalogue }));
+  tenant.use('/api/mcp', mcpRouter({ mcp: new McpService({ store: db.engine, catalogue: (ownerId) => db.engine.getMcpServers(ownerId) }), catalogue: mcpCatalogue }));
 
   return { evalHost, level2Service, procedureService, autoModeService, mcpCatalogue };
 }
@@ -610,7 +610,7 @@ export function startEngineStream(deps: EngineStreamDeps): void {
   void keepTrying('[engine] stream worker not started yet, runs do not stream until it is', async () => {
     const worker = await startStreamWorker({
       io,
-      turnLogs: db,
+      turnLogs: db.engine,
       encryptionKey: deps.payloadKey,
       services: {
         registry: engineRegistry,

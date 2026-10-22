@@ -208,10 +208,10 @@ async function main(): Promise<void> {
   if (EXPECT_STOPPED) {
     const failedTasks = tasks.filter((task) => task.status === 'failed');
     const stoppedLeaves = leaves.filter((leaf) => failedTasks.some((task) => task.leafId === leaf.id));
-    const judgeRuns = (await db.getRunEffort(OWNER, 'tool-rounds'))
+    const judgeRuns = (await db.engine.getRunEffort(OWNER, 'tool-rounds'))
       .filter((effort) => effort.agentSlug === 'leaf-judge' && effort.runId.startsWith(groveRunWorkflowId(treeId)))
       .map((effort) => effort.runId);
-    const judgeTraces = (await Promise.all(judgeRuns.map((runId) => db.getRunTraces(OWNER, runId)))).flat();
+    const judgeTraces = (await Promise.all(judgeRuns.map((runId) => db.engine.getRunTraces(OWNER, runId)))).flat();
     const readRuns = judgeTraces
       .filter((trace) => trace.kind === 'run-tool-calls')
       .flatMap((trace) => (trace.outputs as { results?: { name: string; ok: boolean }[] } | undefined)?.results ?? [])

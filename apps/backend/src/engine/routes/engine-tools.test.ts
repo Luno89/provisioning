@@ -35,11 +35,11 @@ const harness = (): Promise<Harness> => mountRouter({
   router: (db) => engineToolsRouter({
     tools: new EngineToolService({
       tools: {
-        list: (ownerId?: string) => db.getEngineTools(ownerId),
-        save: (tool) => db.saveEngineTool(tool),
-        remove: (ownerId, name) => db.deleteEngineTool(ownerId, name),
+        list: (ownerId?: string) => db.engine.getEngineTools(ownerId),
+        save: (tool) => db.engine.saveEngineTool(tool),
+        remove: (ownerId, name) => db.engine.deleteEngineTool(ownerId, name),
       },
-      agents: directoryFromDatabase(db),
+      agents: directoryFromDatabase(db.engine),
       implemented: new Set(ENGINE_TOOL_SEEDS.map((tool) => tool.name)),
       images: { start: async () => ({ state: 'building', reference: 'registry/koala:abc' }) },
     }),

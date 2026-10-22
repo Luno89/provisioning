@@ -18,8 +18,8 @@ const service = (db: MongoDB) => new ItemChatService({
   leaves: () => db.projects.getLeaves(),
   branches: () => db.projects.getBranches(),
   trees: () => db.projects.getTrees(),
-  conversation: (ownerId, id) => db.getConversation(ownerId, id),
-  save: (conversation) => db.saveConversation(conversation),
+  conversation: (ownerId, id) => db.engine.getConversation(ownerId, id),
+  save: (conversation) => db.engine.saveConversation(conversation),
   now: () => 'now',
 });
 
@@ -33,7 +33,7 @@ describe('a story\'s or a feature\'s own chat', () => {
     const items = service(db);
     const story = await items.ensure('bo', { kind: 'story', leafId: 'l1' });
     expect(story).toEqual({ id: 'story-l1', ownerId: 'bo', title: 'Module installs', kind: 'item', treeId: 't1', leafId: 'l1', messages: [], createdAt: 'now', updatedAt: 'now' });
-    await db.appendMessage('bo', 'story-l1', { role: 'user', content: 'why did it fail?', at: 't' });
+    await db.engine.appendMessage('bo', 'story-l1', { role: 'user', content: 'why did it fail?', at: 't' });
     expect((await items.ensure('bo', { kind: 'story', leafId: 'l1' }))!.messages).toHaveLength(1);
     expect(await items.ensure('bo', { kind: 'feature', branchId: 'b1' })).toMatchObject({ id: 'feature-b1', title: 'The field', branchId: 'b1', treeId: 't1' });
   });

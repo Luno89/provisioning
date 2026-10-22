@@ -36,7 +36,7 @@ interface Executed {
   started?: ProposalStarted | undefined;
 }
 
-export type ActionStore = Pick<Database, 'getActionProposals' | 'getActionProposal' | 'saveActionProposal' | 'projects' | 'releases' | 'infrastructure'>;
+export type ActionStore = Pick<Database, 'engine' | 'projects' | 'releases' | 'infrastructure'>;
 
 export interface ActionDeployer {
   deployApp(config: Record<string, unknown>, userId: string): Promise<{ id: string; resourceId?: string | undefined }>;
@@ -66,11 +66,11 @@ export class ActionService {
   }
 
   list(ownerId: string, filter: { conversationId?: string | undefined; treeId?: string | undefined } = {}): Promise<ActionProposal[]> {
-    return this.deps.store.getActionProposals(ownerId, filter);
+    return this.deps.store.engine.getActionProposals(ownerId, filter);
   }
 
   private async decidable(ownerId: string, id: string): Promise<{ found: ActionProposal } | ActionDecision> {
-    const proposal = await this.deps.store.getActionProposal(ownerId, id);
+    const proposal = await this.deps.store.engine.getActionProposal(ownerId, id);
     if (!proposal) return { ok: false, status: 404, error: 'Proposal not found' };
     if (!DECIDABLE.includes(proposal.status)) return { ok: false, status: 409, error: `This proposal is already ${proposal.status}.` };
     return { found: proposal };
@@ -81,17 +81,17 @@ export class ActionService {
     if (!('found' in checked)) return checked;
     const proposal = checked.found;
 
-    await this.deps.store.saveActionProposal({ ...proposal, status: 'applying', updatedAt: this.now() });
+    await this.deps.store.engine.saveActionProposal({ ...proposal, status: 'applying', updatedAt: this.now() });
     try {
       const { result, started } = await this.execute(ownerId, proposal);
       const applied: ActionProposal = { ...proposal, status: 'applied', result, ...(started ? { started } : {}), updatedAt: this.now() };
       delete applied.reason;
-      await this.deps.store.saveActionProposal(applied);
+      await this.deps.store.engine.saveActionProposal(applied);
       this.deps.onSettled?.(ownerId, proposal.conversationId);
       return { ok: true, proposal: applied };
     } catch (err) {
       const failed: ActionProposal = { ...proposal, status: 'failed', reason: (err as Error).message, updatedAt: this.now() };
-      await this.deps.store.saveActionProposal(failed);
+      await this.deps.store.engine.saveActionProposal(failed);
       return { ok: true, proposal: failed };
     }
   }
@@ -100,7 +100,7 @@ export class ActionService {
     const checked = await this.decidable(ownerId, id);
     if (!('found' in checked)) return checked;
     const rejected: ActionProposal = { ...checked.found, status: 'rejected', updatedAt: this.now() };
-    await this.deps.store.saveActionProposal(rejected);
+    await this.deps.store.engine.saveActionProposal(rejected);
     return { ok: true, proposal: rejected };
   }
 
@@ -111,7 +111,7 @@ export class ActionService {
   }
 
   async progress(ownerId: string, id: string): Promise<ProposalProgress | undefined> {
-    const proposal = await this.deps.store.getActionProposal(ownerId, id);
+    const proposal = await this.deps.store.engine.getActionProposal(ownerId, id);
     if (!proposal?.started || !this.deps.servers || !this.deps.agents) return undefined;
     const started = proposal.started;
     const server = started.server ? (await this.deps.servers.list(ownerId)).find((entry) => entry.id === started.server!.id) : undefined;

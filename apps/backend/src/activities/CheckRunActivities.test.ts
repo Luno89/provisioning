@@ -73,8 +73,8 @@ describe('reading what a run did from its turn log', () => {
 
 describe('a check\'s space', () => {
   it('starts with the person\'s own agents and live practices, a practice on trial, a changed prompt, and the scenario\'s world', async () => {
-    await db.saveEnginePersona({ slug: 'executor', ownerId: 'bo', prompt: 'mine', name: 'Executor' } as never);
-    await db.saveEnginePersona({ slug: 'judge', ownerId: 'cy', prompt: 'not mine', name: 'Judge' } as never);
+    await db.engine.saveEnginePersona({ slug: 'executor', ownerId: 'bo', prompt: 'mine', name: 'Executor' } as never);
+    await db.engine.saveEnginePersona({ slug: 'judge', ownerId: 'cy', prompt: 'not mine', name: 'Judge' } as never);
     await db.memory.saveMemory({ id: 'p1', ownerId: 'bo', title: 'p1', text: 'live', category: 'practice', status: 'active', createdAt: '', updatedAt: '' });
     await db.memory.saveMemory({ id: 'p2', ownerId: 'bo', title: 'p2', text: 'on trial', category: 'practice', status: 'trial', createdAt: '', updatedAt: '' });
     await db.memory.saveMemory({ id: 'm1', ownerId: 'bo', title: 'private', text: 'not copied', category: 'lessons_learned', createdAt: '', updatedAt: '' });
@@ -83,24 +83,24 @@ describe('a check\'s space', () => {
 
     expect(await db.accounts.getUserById('space-1')).toMatchObject({ email: 'space-1@checks.internal', space: { person: 'bo', checkRunId: 'c1', scenarioId: 'executor-does-one-task' } });
     expect(await db.checks.getBenchSettings('space-1')).toMatchObject({ enabled: false });
-    const personas = (await db.getEnginePersonas('space-1')).filter((persona) => persona.ownerId === 'space-1');
+    const personas = (await db.engine.getEnginePersonas('space-1')).filter((persona) => persona.ownerId === 'space-1');
     expect(personas.map((persona) => [persona.slug, persona.prompt]).sort()).toEqual([['executor', 'mine']]);
     const memories = (await db.memory.getMemories('space-1')).filter((memory) => memory.ownerId === 'space-1');
     expect(memories.map((memory) => memory.text).sort()).toEqual(['Say hello, not hi.', 'live', 'on trial']);
     expect((await db.projects.getTasks('space-1')).map((task) => [task.id, task.status])).toEqual([['write-greeting', 'accepted']]);
-    expect((await db.getProcedures('space-1')).some((procedure) => procedure.id === 'tidy' && procedure.ownerId === 'space-1')).toBe(true);
+    expect((await db.engine.getProcedures('space-1')).some((procedure) => procedure.id === 'tidy' && procedure.ownerId === 'space-1')).toBe(true);
   });
 
   it('holds the tools the person granted, and the ones its world grants or takes away, as grants of the space', async () => {
-    await db.saveToolGrant({ ownerId: 'bo', agent: 'executor', tool: 'browser', grantedAt: 't' });
-    await db.saveToolGrant({ ownerId: 'cy', agent: 'executor', tool: 'other', grantedAt: 't' });
+    await db.engine.saveToolGrant({ ownerId: 'bo', agent: 'executor', tool: 'browser', grantedAt: 't' });
+    await db.engine.saveToolGrant({ ownerId: 'cy', agent: 'executor', tool: 'other', grantedAt: 't' });
 
     await activities().CheckCreateSpaceActivity({ spaceId: 'space-1', checkRunId: 'c1', person: 'bo', scenario: { ...SCENARIO, world: { ...SCENARIO.world, agents: { judge: { tools: ['read_file', 'browser'] } } } } });
 
-    const grants = await db.getToolGrants('space-1');
+    const grants = await db.engine.getToolGrants('space-1');
     expect(toolsOf('executor', seededGrants(), grants)).toEqual([...seededAgents().find((agent) => agent.slug === 'executor')!.tools, 'browser']);
     expect(toolsOf('judge', seededGrants(), grants)).toEqual(['read_file', 'browser']);
-    expect((await db.getEnginePersonas('space-1')).some((persona) => 'tools' in persona)).toBe(false);
+    expect((await db.engine.getEnginePersonas('space-1')).some((persona) => 'tools' in persona)).toBe(false);
   });
 
   it('is made once, however often the step is retried', async () => {

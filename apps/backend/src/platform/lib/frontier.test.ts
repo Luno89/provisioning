@@ -45,33 +45,33 @@ describe('the frontier as a queue', () => {
   beforeEach(async () => { db = await testDatabase(); });
 
   it('counts only what was genuinely new', async () => {
-    const first = await db.enqueueFrontier([frontierRow('i1', 'https://a/x', 0, [])]);
-    const again = await db.enqueueFrontier([
+    const first = await db.engine.enqueueFrontier([frontierRow('i1', 'https://a/x', 0, [])]);
+    const again = await db.engine.enqueueFrontier([
       frontierRow('i1', 'https://a/x', 1, []),
       frontierRow('i1', 'https://a/y', 1, []),
     ]);
     expect(first).toBe(1);
     expect(again).toBe(1);
-    expect(await db.countFrontier('i1')).toBe(2);
+    expect(await db.engine.countFrontier('i1')).toBe(2);
   });
 
   it('hands out the same batch twice, because claiming does not mutate', async () => {
-    await db.enqueueFrontier([frontierRow('i1', 'https://a/x', 0, []), frontierRow('i1', 'https://a/y', 0, [])]);
-    const once = await db.claimFrontier('i1', 1);
-    expect(await db.claimFrontier('i1', 1)).toEqual(once);
+    await db.engine.enqueueFrontier([frontierRow('i1', 'https://a/x', 0, []), frontierRow('i1', 'https://a/y', 0, [])]);
+    const once = await db.engine.claimFrontier('i1', 1);
+    expect(await db.engine.claimFrontier('i1', 1)).toEqual(once);
   });
 
   it('only drops a page from the queue once it is stored', async () => {
-    await db.enqueueFrontier([frontierRow('i1', 'https://a/x', 0, [])]);
-    await db.completeFrontier('i1', ['https://a/x']);
-    expect(await db.claimFrontier('i1', 8)).toEqual([]);
-    expect(await db.countFrontier('i1')).toBe(0);
+    await db.engine.enqueueFrontier([frontierRow('i1', 'https://a/x', 0, [])]);
+    await db.engine.completeFrontier('i1', ['https://a/x']);
+    expect(await db.engine.claimFrontier('i1', 8)).toEqual([]);
+    expect(await db.engine.countFrontier('i1')).toBe(0);
   });
 
   it('keeps one ingest out of another\'s queue', async () => {
-    await db.enqueueFrontier([frontierRow('i1', 'https://a/x', 0, []), frontierRow('i2', 'https://a/x', 0, [])]);
-    expect(await db.countFrontier('i1')).toBe(1);
-    await db.deleteFrontier('i1');
-    expect(await db.countFrontier('i2')).toBe(1);
+    await db.engine.enqueueFrontier([frontierRow('i1', 'https://a/x', 0, []), frontierRow('i2', 'https://a/x', 0, [])]);
+    expect(await db.engine.countFrontier('i1')).toBe(1);
+    await db.engine.deleteFrontier('i1');
+    expect(await db.engine.countFrontier('i2')).toBe(1);
   });
 });

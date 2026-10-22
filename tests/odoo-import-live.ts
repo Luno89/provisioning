@@ -198,7 +198,7 @@ async function main(): Promise<void> {
     assert.deepEqual(drift.items.map((item) => item.kind).sort(), ['edited-view', 'field']);
     const copySignIn = ((await http.get(`/projects/${copy.id}/sign-in`)).data as { signIns: { login: string; password: string }[] }).signIns[0]!;
     assert.notEqual(copySignIn.password, signIn.password, 'the copy\'s sign-in is the client\'s');
-    const channel = await db.getConversation(OWNER, channelIdFor(copy.id));
+    const channel = await db.engine.getConversation(OWNER, channelIdFor(copy.id));
     const notice = channel?.messages.find((message) => message.role === 'notice' && message.content.startsWith('The client\'s database'));
     assert.ok(notice, `no notice that the client's database is live: ${JSON.stringify(channel?.messages.map((message) => message.content))}`);
     assert.match(notice.content, /2 things were made in their app/);

@@ -51,7 +51,7 @@ export function wireActions(deps: ActionsWiringDeps): void {
       add: (ownerId, deploymentId, spec, conversationId) => deps.monitoring.addRule({ id: ownerId }, deploymentId, spec, conversationId),
       remove: (ownerId, ruleId) => deps.monitoring.removeRule({ id: ownerId }, ruleId),
     },
-    servers: { add: (ownerId, input) => deps.mcpCatalogue.add(ownerId, input), list: (ownerId) => db.getMcpServers(ownerId) },
+    servers: { add: (ownerId, input) => deps.mcpCatalogue.add(ownerId, input), list: (ownerId) => db.engine.getMcpServers(ownerId) },
     dependencies: deps.workspaceDependencies,
     agents: {
       agents: (ownerId) => deps.agentDirectory.agents(ownerId),

@@ -76,7 +76,7 @@ async function main(): Promise<void> {
     await (async () => {
       const deadline = Date.now() + 5 * 60_000;
       for (;;) {
-        const pages = await db.getCorpusPages({ ownerId });
+        const pages = await db.engine.getCorpusPages({ ownerId });
         const mine = pages.filter((entry) => entry.url.includes('example.com'));
         if (mine.length > 0) { ingestId = mine[0]!.ingestId; return; }
         if (Date.now() > deadline) throw new Error('the crawl stored no page');
@@ -91,7 +91,7 @@ async function main(): Promise<void> {
     console.log(`  search_corpus: ${hit.digest}`);
     console.log('corpus live — PASS');
   } finally {
-    if (ingestId) await db.deleteCorpus(ingestId).catch(() => undefined);
+    if (ingestId) await db.engine.deleteCorpus(ingestId).catch(() => undefined);
     if (crawler) {
       const dep = ((await http.get('/deployments').catch(() => ({ data: [] }))).data as { id: string; name: string }[]).find((entry) => entry.name === crawler);
       if (dep) await http.delete(`/deployments/${encodeURIComponent(dep.id)}`).catch(() => undefined);

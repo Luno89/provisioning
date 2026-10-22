@@ -188,7 +188,7 @@ export function hubInstanceWork(deps: HubWorkDeps): HubInstanceWork {
     },
     live: {
       turns: async (ownerId, turnId, after, under) => {
-        const entries = (await db.getTurnLog(ownerId, turnId, after)).map(({ ownerId: _ownerId, ...entry }) => entry);
+        const entries = (await db.engine.getTurnLog(ownerId, turnId, after)).map(({ ownerId: _ownerId, ...entry }) => entry);
         return under ? runsUnder(entries, under) : { entries };
       },
       procedure: async (ownerId, id) => (await deps.procedures.get(ownerId, id)) ?? undefined,

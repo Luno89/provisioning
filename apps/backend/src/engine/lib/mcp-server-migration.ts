@@ -11,17 +11,19 @@ export interface McpServerMigrationStore {
   accounts: {
     getUsers(): Promise<{ id: string }[]>;
   };
-  getEnginePersonas(): Promise<PersonaRecord[]>;
-  saveEnginePersona(persona: PersonaRecord): Promise<void>;
-  getEngineTools(ownerId?: string): Promise<ToolDefinition[]>;
-  deleteEngineTool(ownerId: string | undefined, name: string): Promise<void>;
-  getToolGrants(ownerId: string): Promise<ToolGrant[]>;
-  saveToolGrant(grant: ToolGrant & { ownerId: string }): Promise<void>;
-  deleteToolGrant(ownerId: string, agent: string, tool: string, kind?: 'tool' | 'server' | undefined): Promise<void>;
-  getMcpServers(ownerId: string): Promise<McpServerRecord[]>;
-  saveMcpServer(server: McpServerRecord): Promise<void>;
-  getMcpToolHints(ownerId: string): Promise<McpToolHint[]>;
-  deleteMcpToolHint(ownerId: string, server: string, tool: string): Promise<void>;
+  engine: {
+    getEnginePersonas(): Promise<PersonaRecord[]>;
+    saveEnginePersona(persona: PersonaRecord): Promise<void>;
+    getEngineTools(ownerId?: string): Promise<ToolDefinition[]>;
+    deleteEngineTool(ownerId: string | undefined, name: string): Promise<void>;
+    getToolGrants(ownerId: string): Promise<ToolGrant[]>;
+    saveToolGrant(grant: ToolGrant & { ownerId: string }): Promise<void>;
+    deleteToolGrant(ownerId: string, agent: string, tool: string, kind?: 'tool' | 'server' | undefined): Promise<void>;
+    getMcpServers(ownerId: string): Promise<McpServerRecord[]>;
+    saveMcpServer(server: McpServerRecord): Promise<void>;
+    getMcpToolHints(ownerId: string): Promise<McpToolHint[]>;
+    deleteMcpToolHint(ownerId: string, server: string, tool: string): Promise<void>;
+  };
   infrastructure: {
     getDeployments(): Promise<DeploymentMetadata[]>;
   };
@@ -44,26 +46,26 @@ type ServingTool = ToolDefinition & { ownerId?: string | undefined; install?: In
 export async function migrateMcpServers(store: McpServerMigrationStore, now: string, newId: () => string = randomUUID): Promise<McpServerMigration> {
   const moved: McpServerMigration = { agentServerListsMoved: 0, servingToolsMoved: 0, toolKindsMoved: 0 };
 
-  for (const row of await store.getEnginePersonas()) {
+  for (const row of await store.engine.getEnginePersonas()) {
     const listed = (row as PersonaRecord & { mcp?: unknown }).mcp;
     if (listed === undefined) continue;
     const { mcp: _mcp, ...record } = row as PersonaRecord & { mcp?: unknown };
     if (row.ownerId !== undefined && Array.isArray(listed)) {
       const wanted = listed.filter((name): name is string => typeof name === 'string');
-      const changes = grantChanges(row.slug, wanted, [], await store.getToolGrants(row.ownerId), 'server');
-      for (const name of changes.grant) await store.saveToolGrant({ ownerId: row.ownerId, agent: row.slug, tool: name, kind: 'server', grantedAt: now, why: WHY });
+      const changes = grantChanges(row.slug, wanted, [], await store.engine.getToolGrants(row.ownerId), 'server');
+      for (const name of changes.grant) await store.engine.saveToolGrant({ ownerId: row.ownerId, agent: row.slug, tool: name, kind: 'server', grantedAt: now, why: WHY });
     }
-    await store.saveEnginePersona(record);
+    await store.engine.saveEnginePersona(record);
     moved.agentServerListsMoved += 1;
   }
 
-  for (const tool of (await store.getEngineTools()) as ServingTool[]) {
+  for (const tool of (await store.engine.getEngineTools()) as ServingTool[]) {
     if (!tool.serves || !tool.ownerId) continue;
     const ownerId = tool.ownerId;
-    const servers = await store.getMcpServers(ownerId);
+    const servers = await store.engine.getMcpServers(ownerId);
     const name = servers.some((server) => server.name === tool.name.replace(/_/g, '-')) ? undefined : serverNameFrom(tool.name.replace(/_/g, '-'), new Set(servers.map((server) => server.name)));
     if (name) {
-      await store.saveMcpServer({
+      await store.engine.saveMcpServer({
         id: newId(),
         ownerId,
         name,
@@ -84,19 +86,19 @@ export async function migrateMcpServers(store: McpServerMigrationStore, now: str
       });
     }
     const serverName = name ?? tool.name.replace(/_/g, '-');
-    for (const grant of (await store.getToolGrants(ownerId)).filter((entry) => kindOfGrant(entry) === 'tool' && entry.tool === tool.name)) {
-      await store.deleteToolGrant(ownerId, grant.agent, tool.name);
-      if (!grant.revoked) await store.saveToolGrant({ ownerId, agent: grant.agent, tool: serverName, kind: 'server', grantedAt: grant.grantedAt ?? now, why: grant.why ?? WHY });
+    for (const grant of (await store.engine.getToolGrants(ownerId)).filter((entry) => kindOfGrant(entry) === 'tool' && entry.tool === tool.name)) {
+      await store.engine.deleteToolGrant(ownerId, grant.agent, tool.name);
+      if (!grant.revoked) await store.engine.saveToolGrant({ ownerId, agent: grant.agent, tool: serverName, kind: 'server', grantedAt: grant.grantedAt ?? now, why: grant.why ?? WHY });
     }
-    await store.deleteEngineTool(ownerId, tool.name);
+    await store.engine.deleteEngineTool(ownerId, tool.name);
     moved.servingToolsMoved += 1;
   }
 
   const [deployments, projects, trees] = await Promise.all([store.infrastructure.getDeployments(), store.projects.getProjects(), store.projects.getTrees()]);
   for (const user of await store.accounts.getUsers()) {
-    const hints = await store.getMcpToolHints(user.id);
+    const hints = await store.engine.getMcpToolHints(user.id);
     if (hints.length === 0) continue;
-    const servers = await store.getMcpServers(user.id);
+    const servers = await store.engine.getMcpServers(user.id);
     for (const deployment of deployments.filter((entry) => entry.ownerId === user.id && looksLikeMcp(entry))) {
       if (servers.some((server) => deploymentOf(server) === deployment.id)) continue;
       const project = projects.find((entry) => entry.id === deployment.gitappProjectId && entry.ownerId === user.id);
@@ -111,7 +113,7 @@ export async function migrateMcpServers(store: McpServerMigrationStore, now: str
         createdAt: now,
         updatedAt: now,
       };
-      await store.saveMcpServer(server);
+      await store.engine.saveMcpServer(server);
       servers.push(server);
     }
     for (const hint of hints) {
@@ -119,10 +121,10 @@ export async function migrateMcpServers(store: McpServerMigrationStore, now: str
       if (server && (MCP_TOOL_KINDS as readonly string[]).includes(hint.choice)) {
         const tools = { ...(server.tools ?? {}), [hint.tool]: { ...(server.tools?.[hint.tool] ?? {}), kind: hint.choice as McpToolKind } };
         Object.assign(server, { tools, updatedAt: now });
-        await store.saveMcpServer(server);
+        await store.engine.saveMcpServer(server);
         moved.toolKindsMoved += 1;
       }
-      await store.deleteMcpToolHint(user.id, hint.server, hint.tool);
+      await store.engine.deleteMcpToolHint(user.id, hint.server, hint.tool);
     }
   }
 

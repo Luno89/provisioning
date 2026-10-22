@@ -142,9 +142,9 @@ async function buildActivities() {
     secrets: projectSecretsFor({ db, backend: infisical, readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token }),
     saveNeeds: (project, needs) => db.projects.saveProjectInfo({ id: project.id, needs }),
     channel: (project) => new ProjectChannelService({
-      conversation: (ownerId, id) => db.getConversation(ownerId, id),
-      save: (conversation) => db.saveConversation(conversation),
-      bind: (ownerId, conversationId, binding) => db.bindConversation(ownerId, conversationId, binding),
+      conversation: (ownerId, id) => db.engine.getConversation(ownerId, id),
+      save: (conversation) => db.engine.saveConversation(conversation),
+      bind: (ownerId, conversationId, binding) => db.engine.bindConversation(ownerId, conversationId, binding),
       trees: () => db.projects.getTrees(),
       saveProjectInfo: (entry) => db.projects.saveProjectInfo(entry),
     }).ensure(project),
@@ -210,9 +210,9 @@ async function buildActivities() {
       files: engineFiles,
       projects: async (ownerId) => (await db.projects.getProjects()).filter((project) => project.ownerId === ownerId),
       projectOfTree: async (ownerId, treeId) => (await db.projects.getTrees()).find((tree) => tree.id === treeId && tree.ownerId === ownerId)?.projectIds?.[0],
-      projectOfConversation: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.projectId,
+      projectOfConversation: async (ownerId, conversationId) => (await db.engine.getConversation(ownerId, conversationId))?.projectId,
     },
-    dependencies: async (ownerId) => catalogueOf(SHIPPED_DEPENDENCIES, await db.getWorkspaceDependencies(ownerId)),
+    dependencies: async (ownerId) => catalogueOf(SHIPPED_DEPENDENCIES, await db.engine.getWorkspaceDependencies(ownerId)),
     accountDefault: async (ownerId) => accountDefaultOf(await db.accounts.getUserById(ownerId)),
     customizations,
     monitoring: {
@@ -259,7 +259,7 @@ async function buildActivities() {
         },
       },
     },
-    publishedWorkspaces: { get: (ownerId: string, treeId: string) => db.getPublishedWorkspace(ownerId, treeId), save: (workspace) => db.savePublishedWorkspace(workspace) },
+    publishedWorkspaces: { get: (ownerId: string, treeId: string) => db.engine.getPublishedWorkspace(ownerId, treeId), save: (workspace) => db.engine.savePublishedWorkspace(workspace) },
     readRepoFile: async (ownerId: string, repo: string, path: string, ref: string) => (await projectRepos.readDocument(ownerId, repo, path, ref))?.content,
     writeRepoFile: (ownerId, repo, path, content, message, branch) => projectRepos.putDocument(ownerId, repo, path, content, message, branch),
     workspaceBuild: async (ownerId, treeId, commit) => {
@@ -295,13 +295,13 @@ async function buildActivities() {
           return { state: 'unknown', error: (err as Error).message };
         }
       },
-      pages: (filter) => db.getCorpusPages({ ownerId: filter.ownerId, ...(filter.ingestId ? { ingestId: filter.ingestId } : {}) }),
+      pages: (filter) => db.engine.getCorpusPages({ ownerId: filter.ownerId, ...(filter.ingestId ? { ingestId: filter.ingestId } : {}) }),
     },
     projects: {
       projects: { list: () => db.projects.getProjects() },
       trees: { list: () => db.projects.getTrees() },
       binding: async (ownerId, conversationId) => {
-        const conversation = await db.getConversation(ownerId, conversationId);
+        const conversation = await db.engine.getConversation(ownerId, conversationId);
         return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId } : undefined;
       },
       runs: () => db.releases.getPipelineRuns(),
@@ -320,7 +320,7 @@ async function buildActivities() {
         const binding = bindings[0];
         return binding ? { name: binding.name, type: binding.type } : { problem: problems[0] ?? `cannot bind to "${service}"` };
       },
-      proposals: { list: (ownerId) => db.getActionProposals(ownerId), save: (proposal) => db.saveActionProposal(proposal) },
+      proposals: { list: (ownerId) => db.engine.getActionProposals(ownerId), save: (proposal) => db.engine.saveActionProposal(proposal) },
     },
     kube: {
       clusters: async (ownerId) => [
@@ -330,16 +330,16 @@ async function buildActivities() {
       deployments: () => db.infrastructure.getDeployments(),
       kubectl: async (cluster, argv) => String(await kubeInfra.runKubectl(argv, await clusterService.getKubeconfigPath(cluster))),
       isAdmin: async (ownerId) => (await db.accounts.getUserById(ownerId))?.isAdmin === true,
-      openNamespaces: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.platformNamespaces ?? [],
+      openNamespaces: async (ownerId, conversationId) => (await db.engine.getConversation(ownerId, conversationId))?.platformNamespaces ?? [],
       accessRequests: {
         list: (ownerId, conversationId) => db.infrastructure.getAccessRequests(ownerId, conversationId),
         save: (request) => db.infrastructure.saveAccessRequest(request),
       },
     },
     mcpServers: {
-      list: (ownerId) => db.getMcpServers(ownerId),
-      get: async (ownerId, id) => (await db.getMcpServers(ownerId)).find((server) => server.id === id),
-      save: (server) => db.saveMcpServer(server),
+      list: (ownerId) => db.engine.getMcpServers(ownerId),
+      get: async (ownerId, id) => (await db.engine.getMcpServers(ownerId)).find((server) => server.id === id),
+      save: (server) => db.engine.saveMcpServer(server),
       hostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: resolveMcpProbeUrl }),
     },
     ...(web ? { web } : {}),
@@ -421,8 +421,8 @@ async function buildActivities() {
     ...(host.machineWork ? { machineWork: host.machineWork } : {}),
     machineName: async (ownerId, deviceId) => (await db.machines.getLocalAgentDevices()).find((device) => device.id === deviceId && device.ownerId === ownerId)?.name,
     conversationWorkspaces: host.conversationWorkspaces,
-    conversationAgent: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.agentSlug,
-    allowedTools: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.allowedTools ?? [],
+    conversationAgent: async (ownerId, conversationId) => (await db.engine.getConversation(ownerId, conversationId))?.agentSlug,
+    allowedTools: async (ownerId, conversationId) => (await db.engine.getConversation(ownerId, conversationId))?.allowedTools ?? [],
     autoMode: (args) => autoMode.unasked({ ...args, treeId: args.workspaceRunId ? treeOfWorkspace(args.workspaceRunId) : undefined }),
     treeModel: async (ownerId, turnId, agentSlug) => {
       const treeId = treeOfGroveRun(turnId);
@@ -436,7 +436,7 @@ async function buildActivities() {
         branches: { list: () => db.projects.getBranches(), save: (branch) => db.projects.saveBranch(branch) },
         leaves: { list: () => db.projects.getLeaves(), save: (leaf) => db.projects.saveLeaf(leaf) },
         tasks: { list: (ownerId) => db.projects.getTasks(ownerId), save: (task) => db.projects.saveTask(task) },
-        conversations: { bind: (ownerId, conversationId, binding) => db.bindConversation(ownerId, conversationId, binding) },
+        conversations: { bind: (ownerId, conversationId, binding) => db.engine.bindConversation(ownerId, conversationId, binding) },
       },
       treeWorkspaces: host.treeWorkspaces,
       environments: host.environments,
@@ -464,13 +464,13 @@ async function buildActivities() {
       models,
       registry,
       store: {
-        save: (effort) => db.saveRunEffort(effort),
-        list: (ownerId, procedureId, modelKey) => db.getRunEffort(ownerId, procedureId, modelKey),
+        save: (effort) => db.engine.saveRunEffort(effort),
+        list: (ownerId, procedureId, modelKey) => db.engine.getRunEffort(ownerId, procedureId, modelKey),
       },
     }),
     traces: {
       record: ({ ownerId, runId, agentSlug, procedureId, procedureVersion, traces }: RecordTracesArgs) =>
-        db.saveRunTraces(traces.map((trace) => ({ ...trace, ownerId, runId, agentSlug, procedureId, procedureVersion }))),
+        db.engine.saveRunTraces(traces.map((trace) => ({ ...trace, ownerId, runId, agentSlug, procedureId, procedureVersion }))),
     },
     merges: {
       run: async ({ children }: MergeArgs) => ({

@@ -8,8 +8,10 @@ export interface AccessStore {
     getAccessRequest(ownerId: string, id: string): Promise<AccessRequest | undefined>;
     saveAccessRequest(request: AccessRequest): Promise<void>;
   };
-  getConversation(ownerId: string, id: string): Promise<Conversation | undefined>;
-  saveConversation(conversation: Conversation): Promise<void>;
+  engine: {
+    getConversation(ownerId: string, id: string): Promise<Conversation | undefined>;
+    saveConversation(conversation: Conversation): Promise<void>;
+  };
 }
 
 export type AccessDecision =
@@ -41,11 +43,11 @@ export class AccessService {
     const request = found.opened;
     const problem = namespacesProblem(request.namespaces);
     if (problem) return { ok: false, status: 409, error: problem };
-    const conversation = await this.deps.store.getConversation(user.id, request.conversationId);
+    const conversation = await this.deps.store.engine.getConversation(user.id, request.conversationId);
     if (!conversation) return { ok: false, status: 404, error: 'The conversation this was asked in no longer exists' };
 
     const stamp = this.now();
-    await this.deps.store.saveConversation({
+    await this.deps.store.engine.saveConversation({
       ...conversation,
       platformNamespaces: [...new Set([...(conversation.platformNamespaces ?? []), ...request.namespaces])],
       updatedAt: stamp,

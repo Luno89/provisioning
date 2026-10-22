@@ -21,9 +21,11 @@ export interface GroveDeletionStore {
     deleteTask(id: string): Promise<void>;
     deletePlanProposal(ownerId: string, id: string): Promise<void>;
   };
-  getConversations(): Promise<Conversation[]>;
-  deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void>;
-  deleteConversation(id: string): Promise<void>;
+  engine: {
+    getConversations(): Promise<Conversation[]>;
+    deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void>;
+    deleteConversation(id: string): Promise<void>;
+  };
 }
 
 export interface GroveDeletionDeps {
@@ -65,7 +67,7 @@ export class GroveDeletionService {
       leaves: (await store.projects.getLeaves()).filter((leaf) => leaf.ownerId === ownerId),
       tasks: await store.projects.getTasks(ownerId),
       proposals: await store.projects.getPlanProposals(ownerId),
-      conversations: (await store.getConversations()).filter((conversation) => conversation.ownerId === ownerId),
+      conversations: (await store.engine.getConversations()).filter((conversation) => conversation.ownerId === ownerId),
     });
 
     const reason = `${target.kind} ${target.id} was deleted`;
@@ -76,10 +78,10 @@ export class GroveDeletionService {
     for (const id of scope.taskIds) await store.projects.deleteTask(id);
     for (const id of scope.leafIds) await store.projects.deleteLeaf(id);
     for (const id of scope.proposalIds) await store.projects.deletePlanProposal(ownerId, id);
-    for (const id of scope.conversationIds) await store.deleteConversation(id);
+    for (const id of scope.conversationIds) await store.engine.deleteConversation(id);
     for (const id of scope.branchIds) await store.projects.deleteBranch(id);
     if (scope.treeId) await store.projects.deleteTree(scope.treeId);
-    if (scope.treeId) await store.deletePublishedWorkspace(ownerId, scope.treeId);
+    if (scope.treeId) await store.engine.deletePublishedWorkspace(ownerId, scope.treeId);
     return { ok: true, value: { scope, stoppedRun } };
   }
 }

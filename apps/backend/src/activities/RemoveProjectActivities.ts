@@ -35,7 +35,11 @@ export interface ProjectRemovalStore {
     deletePlanProposal(ownerId: string, id: string): Promise<void>;
     removeProjectRecords(projectId: string): Promise<Record<string, number>>;
   };
-  getConversations(): Promise<Conversation[]>;
+  engine: {
+    getConversations(): Promise<Conversation[]>;
+    deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void>;
+    deleteConversation(id: string): Promise<void>;
+  };
   infrastructure: {
     getDeployments(): Promise<DeploymentMetadata[]>;
     saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
@@ -45,8 +49,6 @@ export interface ProjectRemovalStore {
     getPipelineRuns(): Promise<PipelineRunMetadata[]>;
     getOdooReleases(ownerId: string, projectId?: string): Promise<{ id: string }[]>;
   };
-  deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void>;
-  deleteConversation(id: string): Promise<void>;
 }
 
 export interface AppTeardown {
@@ -179,10 +181,10 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
         for (const id of scope.taskIds) await store.projects.deleteTask(id);
         for (const id of scope.leafIds) await store.projects.deleteLeaf(id);
         for (const id of scope.proposalIds) await store.projects.deletePlanProposal(ownerId, id);
-        for (const id of scope.conversationIds) await store.deleteConversation(id);
+        for (const id of scope.conversationIds) await store.engine.deleteConversation(id);
         for (const id of scope.branchIds) await store.projects.deleteBranch(id);
         if (scope.treeId) await store.projects.deleteTree(scope.treeId);
-        if (scope.treeId) await store.deletePublishedWorkspace(ownerId, scope.treeId);
+        if (scope.treeId) await store.engine.deletePublishedWorkspace(ownerId, scope.treeId);
         count('tasks', scope.taskIds.length);
         count('leaves', scope.leafIds.length);
         count('planProposals', scope.proposalIds.length);
@@ -197,7 +199,7 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
         if (tree) await store.projects.saveTree({ ...tree, projectIds: (tree.projectIds ?? []).filter((linked) => linked !== projectId) });
       }
       count('trees unlinked', found.scope.unlinkedTreeIds.length);
-      for (const id of found.scope.channelIds) await store.deleteConversation(id);
+      for (const id of found.scope.channelIds) await store.engine.deleteConversation(id);
       count('conversations', found.scope.channelIds.length);
       for (const app of found.scope.apps) await store.infrastructure.deleteDeployment(app.id);
       count('deployments', found.scope.apps.length);

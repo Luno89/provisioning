@@ -31,10 +31,10 @@ const harness = (): Promise<Harness> => mountRouter({
   prefix: '/api/agents',
   router: (db) => agentsRouter({
     agents: new AgentService({
-      agents: directoryFromDatabase(db),
+      agents: directoryFromDatabase(db.engine),
       records: {
-        save: (record) => db.saveEnginePersona(record),
-        remove: (ownerId, slug) => db.deleteEnginePersona(ownerId, slug),
+        save: (record) => db.engine.saveEnginePersona(record),
+        remove: (ownerId, slug) => db.engine.deleteEnginePersona(ownerId, slug),
       },
       tools: async () => [...ENGINE_TOOL_SEEDS],
       procedures: async () => PROCEDURES,

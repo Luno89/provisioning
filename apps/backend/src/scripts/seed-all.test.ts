@@ -20,20 +20,20 @@ describe('seed-all', () => {
 
   it('moves an agent stored with its own tool list onto grants, once', async () => {
     const db = await testDatabase();
-    await db.saveEnginePersona({ slug: 'helper', ownerId: 'user-1', name: 'Helper', tools: ['read_file'] } as never);
+    await db.engine.saveEnginePersona({ slug: 'helper', ownerId: 'user-1', name: 'Helper', tools: ['read_file'] } as never);
 
     expect(await seedAll(db)).toMatchObject({ agentToolListsMoved: 1, toolGrantsWritten: 1 });
     expect(await seedAll(db)).toMatchObject({ agentToolListsMoved: 0, toolGrantsWritten: 0 });
-    expect((await db.getToolGrants('user-1')).map((grant) => grant.tool)).toEqual(['read_file']);
+    expect((await db.engine.getToolGrants('user-1')).map((grant) => grant.tool)).toEqual(['read_file']);
   });
 
   it('moves an agent stored with its own list of MCP servers onto server grants, once', async () => {
     const db = await testDatabase();
-    await db.saveEnginePersona({ slug: 'helper', ownerId: 'user-1', name: 'Helper', mcp: ['gitea'] } as never);
+    await db.engine.saveEnginePersona({ slug: 'helper', ownerId: 'user-1', name: 'Helper', mcp: ['gitea'] } as never);
 
     expect(await seedAll(db)).toMatchObject({ agentServerListsMoved: 1 });
     expect(await seedAll(db)).toMatchObject({ agentServerListsMoved: 0 });
-    expect(await db.getToolGrants('user-1')).toEqual([expect.objectContaining({ agent: 'helper', tool: 'gitea', kind: 'server' })]);
+    expect(await db.engine.getToolGrants('user-1')).toEqual([expect.objectContaining({ agent: 'helper', tool: 'gitea', kind: 'server' })]);
   });
 
   it('writes nothing on a second run', async () => {

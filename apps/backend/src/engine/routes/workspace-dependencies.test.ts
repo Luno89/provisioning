@@ -12,7 +12,7 @@ describe('a person\'s workspace dependencies', () => {
       prefix: '/api/workspace-dependencies',
       router: (db) => workspaceDependenciesRouter({
         dependencies: new WorkspaceDependencyService({
-          store: db,
+          store: db.engine,
           tools: async () => [{ name: 'fetch_pdf', needs: ['pdf-tools'] } as never],
           servers: async () => [],
         }),

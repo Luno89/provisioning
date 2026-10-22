@@ -11,7 +11,7 @@ describe('/api/cluster-access', () => {
 
   beforeEach(async () => {
     harness = await mountRouter({ prefix: '/api/cluster-access', router: (db) => clusterAccessRouter({ access: new AccessService({ store: db }) }) });
-    await harness.db.saveConversation({ id: 'c1', ownerId: TEST_USER.id, title: 't', messages: [], createdAt: 'x', updatedAt: 'x' });
+    await harness.db.engine.saveConversation({ id: 'c1', ownerId: TEST_USER.id, title: 't', messages: [], createdAt: 'x', updatedAt: 'x' });
     await harness.db.infrastructure.saveAccessRequest({ id: 'q1', ownerId: TEST_USER.id, conversationId: 'c1', namespaces: ['monitoring'], why: 'prometheus', status: 'requested', createdAt: 'x', updatedAt: 'x' });
   });
 
@@ -20,14 +20,14 @@ describe('/api/cluster-access', () => {
   it('refuses anyone who is not an administrator', async () => {
     const res = await post(harness.url('/api/cluster-access/q1/grant'));
     expect(res.status).toBe(403);
-    expect((await harness.db.getConversation(TEST_USER.id, 'c1'))?.platformNamespaces).toBeUndefined();
+    expect((await harness.db.engine.getConversation(TEST_USER.id, 'c1'))?.platformNamespaces).toBeUndefined();
   });
 
   it('opens exactly the asked namespaces for that conversation when an administrator grants it', async () => {
     harness.setUser({ ...TEST_USER, isAdmin: true });
     const res = await post(harness.url('/api/cluster-access/q1/grant'));
     expect(res.data.status).toBe('granted');
-    expect((await harness.db.getConversation(TEST_USER.id, 'c1'))?.platformNamespaces).toEqual(['monitoring']);
+    expect((await harness.db.engine.getConversation(TEST_USER.id, 'c1'))?.platformNamespaces).toEqual(['monitoring']);
     expect((await post(harness.url('/api/cluster-access/q1/grant'))).status).toBe(409);
   });
 

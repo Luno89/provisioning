@@ -41,8 +41,8 @@ beforeEach(async () => {
   await db.projects.saveLeaf({ id: 'l1', ownerId: 'bo', branchId: 'b1', title: 'l', status: 'pending', createdAt: at, updatedAt: at } as never);
   await db.projects.saveTask({ id: 'k1', ownerId: 'bo', leafId: 'l1', title: 'k', doneMeans: 'x', dependsOn: [], status: 'accepted', runs: [], createdAt: at, updatedAt: at });
   await db.projects.saveTask({ id: 'k2', ownerId: 'bo', projectId: 'p1', title: 'plain', doneMeans: 'x', dependsOn: [], status: 'accepted', runs: [], createdAt: at, updatedAt: at });
-  await db.saveConversation({ id: 'c1', ownerId: 'bo', treeId: 't1', projectId: 'p1', messages: [], createdAt: at, updatedAt: at } as never);
-  await db.saveConversation({ id: 'c2', ownerId: 'bo', projectId: 'p1', messages: [], createdAt: at, updatedAt: at } as never);
+  await db.engine.saveConversation({ id: 'c1', ownerId: 'bo', treeId: 't1', projectId: 'p1', messages: [], createdAt: at, updatedAt: at } as never);
+  await db.engine.saveConversation({ id: 'c2', ownerId: 'bo', projectId: 'p1', messages: [], createdAt: at, updatedAt: at } as never);
   await db.releases.savePipelineRun({ id: 'r1', projectId: 'p1', status: 'running', temporalWorkflowId: 'pipeline-r1', startedAt: at } as never);
   await db.releases.savePipelineRun({ id: 'r2', projectId: 'p2', status: 'running', temporalWorkflowId: 'pipeline-r2', startedAt: at } as never);
 });
@@ -79,8 +79,8 @@ describe('the steps that delete a project', () => {
     expect((await db.projects.getProjects()).map((project) => project.id)).toEqual(['p2']);
     expect((await db.projects.getTrees()).map((tree) => [tree.id, tree.projectIds])).toEqual([['t2', ['p2']]]);
     expect((await db.projects.getTasks('bo')).map((task) => task.id)).toEqual([]);
-    expect(await db.getConversation('bo', 'c1')).toBeUndefined();
-    expect((await db.getConversation('bo', 'c2'))?.projectId).toBeUndefined();
+    expect(await db.engine.getConversation('bo', 'c1')).toBeUndefined();
+    expect((await db.engine.getConversation('bo', 'c2'))?.projectId).toBeUndefined();
     expect((await db.releases.getPipelineRuns()).map((run) => run.id)).toEqual(['r2']);
   });
 

@@ -5,7 +5,7 @@ import { seedWorkspaceImages } from '../lib/workspace-image-seeds.js';
 
 const seeded = async () => {
   const db = await testDatabase();
-  await seedWorkspaceImages(db);
+  await seedWorkspaceImages(db.engine);
   return db;
 };
 
@@ -27,7 +27,7 @@ describe('the workspace images a pack can choose from', () => {
     const db = await seeded();
     const svc = new WorkspaceImageService(db);
     const shipped = (await svc.list('u1')).find((i) => i.id === 'node')!;
-    await db.saveWorkspaceImage({ ...shipped, ownerId: 'u1', image: 'ghcr.io/mine/node:24' });
+    await db.engine.saveWorkspaceImage({ ...shipped, ownerId: 'u1', image: 'ghcr.io/mine/node:24' });
 
     expect(await svc.imageFor('u1', 'node')).toBe('ghcr.io/mine/node:24');
     expect(await svc.imageFor('u2', 'node')).toBe('registry.access.redhat.com/ubi9/nodejs-22');

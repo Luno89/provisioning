@@ -5,7 +5,7 @@ import type { WorkspaceImageSpec } from '../lib/workspace-image-seeds.js';
 
 export class WorkspaceImageService extends BaseService {
   async list(userId: string): Promise<WorkspaceImageSpec[]> {
-    return withBuiltIns(await this.db.getWorkspaceImages(), userId, (i) => i.id);
+    return withBuiltIns(await this.db.engine.getWorkspaceImages(), userId, (i) => i.id);
   }
 
   async imageFor(userId: string, language?: string): Promise<string> {

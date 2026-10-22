@@ -31,7 +31,7 @@ const known = () => ({ tools: tools(), procedures: PROCEDURES, agents: AGENTS })
 
 async function service(over: { image?: ImageStanding; treeTypes?: { id: string; label: string; agent?: string }[]; servers?: McpServerRecord[] } = {}) {
   const db = await testDatabase();
-  const stored = () => db.getEnginePersonas();
+  const stored = () => db.engine.getEnginePersonas();
   const started: string[] = [];
 
   const images = {
@@ -48,10 +48,10 @@ async function service(over: { image?: ImageStanding; treeTypes?: { id: string; 
     started,
     images,
     agents: new AgentService({
-      agents: directoryFromDatabase(db),
+      agents: directoryFromDatabase(db.engine),
       records: {
-        save: (record) => db.saveEnginePersona(record),
-        remove: (ownerId, slug) => db.deleteEnginePersona(ownerId, slug),
+        save: (record) => db.engine.saveEnginePersona(record),
+        remove: (ownerId, slug) => db.engine.deleteEnginePersona(ownerId, slug),
       },
       tools: async () => tools(),
       procedures: async () => [...PROCEDURES],
@@ -295,7 +295,7 @@ describe('agents you can edit', () => {
       ...rest.map((tool) => ({ tool, source: 'shipped' })),
       { tool: 'run_command', source: 'granted' },
     ]);
-    expect((await db.getToolGrants('user-1')).map((grant) => [grant.tool, grant.revoked === true])).toEqual([['run_command', false], [first, true]]);
+    expect((await db.engine.getToolGrants('user-1')).map((grant) => [grant.tool, grant.revoked === true])).toEqual([['run_command', false], [first, true]]);
     expect((await agents.get('user-2', 'research'))?.tools).toEqual(research.tools);
   });
 
@@ -317,7 +317,7 @@ describe('agents you can edit', () => {
 
     expect(await agents.remove('user-1', 'research')).toBe(true);
     expect((await agents.get('user-1', 'research'))?.tools).toEqual(research.tools);
-    expect(await db.getToolGrants('user-1')).toEqual([]);
+    expect(await db.engine.getToolGrants('user-1')).toEqual([]);
   });
 
   it('will not delete a built-in, because it was never yours', async () => {

@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   for await (const execution of client.workflow.list({ query: `WorkflowId = '${runId}'` })) runs.push(`${execution.runId} ${execution.status.name}`);
   for (const line of runs) console.log(`      ${line}`);
 
-  const traces = await db.getRunTraces(OWNER, runId);
+  const traces = await db.engine.getRunTraces(OWNER, runId);
   console.log(`[3/3] ${traces.length} node traces under ${runId}: ${traces.map((trace) => trace.kind).join(' → ')}`);
   console.log(`      answer: ${JSON.stringify(result.outputs).slice(0, 400)}`);
 

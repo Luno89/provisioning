@@ -175,7 +175,7 @@ async function main(): Promise<void> {
       assert.equal(channel.status, 200, JSON.stringify(channel.data));
       const contents = (((channel.data.conversation ?? channel.data).messages ?? []) as { content: string }[]).map((message) => message.content);
       assert.ok(contents.includes('said before sharing') && contents.includes('said after sharing'), JSON.stringify(contents));
-      assert.equal((await db.getHubLinks()).filter((link) => link.projectId === project.id).length, 0);
+      assert.equal((await db.hub.getHubLinks()).filter((link) => link.projectId === project.id).length, 0);
     });
   } finally {
     if (member && memberId) {

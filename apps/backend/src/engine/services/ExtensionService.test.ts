@@ -26,7 +26,7 @@ describe('an owner\'s extensions', () => {
     expect((await service.hidden('u1')).agents.has('workspace')).toBe(true);
     expect((await service.hidden('u1')).operations.has('workspace.read')).toBe(true);
     expect((await service.hidden('u2')).agents.size).toBe(0);
-    expect(await db.getExtensionSettings('u1')).toEqual({ ownerId: 'u1', disabled: ['workspace'], updatedAt: 'now' });
+    expect(await db.engine.getExtensionSettings('u1')).toEqual({ ownerId: 'u1', disabled: ['workspace'], updatedAt: 'now' });
 
     await service.setEnabled('u1', 'workspace', true);
     expect((await service.hidden('u1')).agents.size).toBe(0);
@@ -127,10 +127,10 @@ describe('an extension of the owner\'s own', () => {
   it('moves every procedure using an operation onto its new version when it is saved, keeping the old versions', async () => {
     await service.create('u1', { id: 'loud', title: 'Loud' });
     await service.publish('u1', 'loud', 'shout', shout());
-    await db.saveProcedure(using(1));
+    await db.engine.saveProcedure(using(1));
 
     expect(await service.publish('u1', 'loud', 'shout', shout())).toMatchObject({ ok: true, value: { id: 'loud.shout@2', version: 2, moved: ['greeter'] } });
-    const saved = JSON.parse((await db.getProcedures('u1')).find((source) => source.id === 'greeter')!.source) as Procedure;
+    const saved = JSON.parse((await db.engine.getProcedures('u1')).find((source) => source.id === 'greeter')!.source) as Procedure;
     expect(saved.nodes.find((node) => node.id === 'shout')?.group).toBe('loud.shout@2');
     expect((await service.groups('u1')).map((group) => group.id)).toEqual(['loud.shout@1', 'loud.shout@2']);
   });
@@ -138,16 +138,16 @@ describe('an extension of the owner\'s own', () => {
   it('refuses a version that would break a procedure using it, and says which', async () => {
     await service.create('u1', { id: 'loud', title: 'Loud' });
     await service.publish('u1', 'loud', 'shout', shout());
-    await db.saveProcedure(using(1));
+    await db.engine.saveProcedure(using(1));
 
     expect(await service.publish('u1', 'loud', 'shout', shout('said'))).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/would break greeter/) });
-    expect(JSON.parse((await db.getProcedures('u1'))[0]!.source).nodes.find((node: { id: string }) => node.id === 'shout').group).toBe('loud.shout@1');
+    expect(JSON.parse((await db.engine.getProcedures('u1'))[0]!.source).nodes.find((node: { id: string }) => node.id === 'shout').group).toBe('loud.shout@1');
   });
 
   it('will not remove an operation, or the extension, while a procedure uses it', async () => {
     await service.create('u1', { id: 'loud', title: 'Loud' });
     await service.publish('u1', 'loud', 'shout', shout());
-    await db.saveProcedure(using(1));
+    await db.engine.saveProcedure(using(1));
 
     expect(await service.removeOperation('u1', 'loud', 'shout')).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/greeter still uses it/) });
     expect(await service.remove('u1', 'loud')).toMatchObject({ ok: false, status: 409 });

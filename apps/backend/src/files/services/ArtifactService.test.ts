@@ -93,7 +93,7 @@ describe('a check\'s space handing its runs to the person', () => {
   it('hands over the runs\' artifacts too, so they outlive the space', async () => {
     const db = await testDatabase();
     const kept = await service(db).put('space-1', 'run-9', [{ name: 'a.png', bytes: Buffer.from('shot') }]);
-    await db.reownRuns('space-1', 'bo');
+    await db.engine.reownRuns('space-1', 'bo');
     const before = await service(db).put('space-1', 'run-10', [{ name: 'b.png', bytes: Buffer.from('gone') }]);
     const removed = await db.accounts.removeAccountRecords('space-1', { watermarkKeys: [], ingestIds: [], projectIds: [] });
     expect(removed).toMatchObject({ artifacts: 1, artifactChunks: 1 });

@@ -123,7 +123,7 @@ async function main(): Promise<void> {
     const builderCalls = builderTraces.filter((trace) => trace.kind === 'run-tool-calls').flatMap((trace) => trace.outputs?.results ?? []).map((call) => call.name);
     console.log(`  the builder called: ${builderCalls.join(', ') || 'nothing'}`);
     assert.ok(builderCalls.includes('read_procedure'), 'the agent builder did not read the procedure it was asked to change');
-    const replied = await db.getConversation(OWNER, conversationId);
+    const replied = await db.engine.getConversation(OWNER, conversationId);
     const reply = replied?.messages.filter((message) => message.role === 'assistant').at(-1)?.content ?? '';
     console.log(`  conversation ${conversationId} (${replied?.agentSlug}): ${replied?.messages.length ?? 0} messages; the builder said: ${reply.slice(0, 200).replace(/\n/g, ' ')}`);
     assert.ok(reply, 'the agent builder\'s turn was not saved in the conversation');

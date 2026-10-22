@@ -55,7 +55,7 @@ describe('the tree-type catalogue', () => {
       router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
     });
     await seedTreeTypes(h.db.projects);
-    await seedWorkspaceImages(h.db);
+    await seedWorkspaceImages(h.db.engine);
     const before = (await axios.get(h.url('/api/tree-types'))).data as { id: string; ownerId?: string }[];
     const target = before.find((t) => t.id === 'mcp-server')!;
     const occurrencesBefore = before.filter((t) => t.id === 'mcp-server').length;
@@ -76,7 +76,7 @@ describe('the tree-type catalogue', () => {
       router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
     });
     await seedTreeTypes(h.db.projects);
-    await seedWorkspaceImages(h.db);
+    await seedWorkspaceImages(h.db.engine);
     const paper = ((await axios.get(h.url('/api/tree-types'))).data as { id: string }[]).find((t) => t.id === 'research-paper')!;
 
     const saved = await axios.put(h.url('/api/tree-types/research-paper'), { ...paper, agent: 'research' });
@@ -93,7 +93,7 @@ describe('the tree-type catalogue', () => {
       router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
     });
     await seedTreeTypes(h.db.projects);
-    await seedWorkspaceImages(h.db);
+    await seedWorkspaceImages(h.db.engine);
     const shipped = ((await axios.get(h.url('/api/tree-types'))).data as { id: string; summary: string }[]).find((t) => t.id === 'api-service')!;
     await axios.put(h.url('/api/tree-types/api-service'), { ...shipped, summary: 'Mine' });
     await h.db.projects.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'shortener', type: 'api-service', createdAt: 'x', updatedAt: 'x' } as never);
@@ -110,7 +110,7 @@ describe('the tree-type catalogue', () => {
       router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
     });
     await seedTreeTypes(h.db.projects);
-    await seedWorkspaceImages(h.db);
+    await seedWorkspaceImages(h.db.engine);
     const shipped = ((await axios.get(h.url('/api/tree-types'))).data as { id: string }[]).find((t) => t.id === 'api-service')!;
     await axios.put(h.url('/api/tree-types/my-own-kind'), { ...shipped, id: 'my-own-kind', label: 'Mine' });
     await h.db.projects.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'thing', type: 'my-own-kind', createdAt: 'x', updatedAt: 'x' } as never);

@@ -107,7 +107,7 @@ describe('a tree\'s workspace', () => {
     await db.projects.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'L', status: 'pending', createdAt: stamp, updatedAt: stamp } as never);
     await db.projects.saveLeaf({ id: 'l-keep', ownerId: TEST_USER.id, branchId: 'b-keep', title: 'L', status: 'pending', createdAt: stamp, updatedAt: stamp } as never);
     await db.projects.saveTask({ id: 'k1', ownerId: TEST_USER.id, leafId: 'l1', title: 'T', doneMeans: 'd', dependsOn: [], status: 'accepted', runs: [], createdAt: stamp, updatedAt: stamp } as never);
-    await db.saveConversation({ id: 'c1', ownerId: TEST_USER.id, title: 'about t1', treeId: 't1', messages: [], createdAt: stamp, updatedAt: stamp });
+    await db.engine.saveConversation({ id: 'c1', ownerId: TEST_USER.id, title: 'about t1', treeId: 't1', messages: [], createdAt: stamp, updatedAt: stamp });
     await db.projects.savePlanProposal({ id: 'p1', ownerId: TEST_USER.id, status: 'adopting', leafPlan: { treeId: 't1', leafId: 'l1', leafTitle: 'L', mode: 'replan', why: 'w', brief: 'b', tasks: [] }, createdAt: stamp, updatedAt: stamp });
 
     const res = await axios.delete(harness.url('/api/trees/t1'));
@@ -120,7 +120,7 @@ describe('a tree\'s workspace', () => {
     expect((await db.projects.getBranches()).map((b) => b.id)).toEqual(['b-keep']);
     expect((await db.projects.getLeaves()).map((l) => l.id)).toEqual(['l-keep']);
     expect(await db.projects.getTasks(TEST_USER.id)).toEqual([]);
-    expect(await db.getConversation(TEST_USER.id, 'c1')).toBeUndefined();
+    expect(await db.engine.getConversation(TEST_USER.id, 'c1')).toBeUndefined();
     expect(await db.projects.getPlanProposals(TEST_USER.id)).toEqual([]);
   });
 
@@ -181,7 +181,7 @@ describe('running a tree on the engine', () => {
     await harness.db.projects.saveTree(tree() as never);
     await harness.db.projects.saveBranch(branch as never);
     await harness.db.projects.saveLeaf(leafOf({ runId: 'g~1-leaf-1' }) as never);
-    await harness.db.appendTurnLog({ turnId: 'g~1', ownerId: TEST_USER.id, seq: 1, at: 'now', events: [
+    await harness.db.engine.appendTurnLog({ turnId: 'g~1', ownerId: TEST_USER.id, seq: 1, at: 'now', events: [
       { type: 'run.started', runId: 'g~1-leaf-1', parentRunId: 'g~1', agentId: 'grove-leaf', loopId: 'l', at: 'now' },
       { type: 'run.started', runId: 'g~1-leaf-1-executor-1', parentRunId: 'g~1-leaf-1', agentId: 'executor', loopId: 'l', at: 'now' },
       { type: 'notice', runId: 'g~1-leaf-1-executor-1', level: 'warn', callId: 'c1', tool: 'delete_project', message: 'executor wants to run delete_project on this run: {}', at: 'now' },

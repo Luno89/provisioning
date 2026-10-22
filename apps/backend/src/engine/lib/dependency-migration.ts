@@ -9,12 +9,14 @@ export interface DependencyMigrationStore {
   accounts: {
     getUsers(): Promise<{ id: string }[]>;
   };
-  getEngineTools(ownerId?: string): Promise<ToolDefinition[]>;
-  saveEngineTool(tool: ToolDefinition): Promise<void>;
-  getMcpServers(ownerId: string): Promise<McpServerRecord[]>;
-  saveMcpServer(server: McpServerRecord): Promise<void>;
-  getWorkspaceDependencies(ownerId: string): Promise<WorkspaceDependency[]>;
-  saveWorkspaceDependency(dependency: WorkspaceDependency & { ownerId: string }): Promise<void>;
+  engine: {
+    getEngineTools(ownerId?: string): Promise<ToolDefinition[]>;
+    saveEngineTool(tool: ToolDefinition): Promise<void>;
+    getMcpServers(ownerId: string): Promise<McpServerRecord[]>;
+    saveMcpServer(server: McpServerRecord): Promise<void>;
+    getWorkspaceDependencies(ownerId: string): Promise<WorkspaceDependency[]>;
+    saveWorkspaceDependency(dependency: WorkspaceDependency & { ownerId: string }): Promise<void>;
+  };
 }
 
 export interface DependencyMigration {
@@ -39,7 +41,7 @@ export async function migrateToDependencies(store: DependencyMigrationStore, shi
   const out: DependencyMigration = { toolsMoved: 0, serversMoved: 0, dependenciesMade: 0, left: [] };
   const owned = new Map<string, WorkspaceDependency[]>();
   const ownOf = async (ownerId: string) => {
-    if (!owned.has(ownerId)) owned.set(ownerId, await store.getWorkspaceDependencies(ownerId));
+    if (!owned.has(ownerId)) owned.set(ownerId, await store.engine.getWorkspaceDependencies(ownerId));
     return owned.get(ownerId)!;
   };
 
@@ -55,13 +57,13 @@ export async function migrateToDependencies(store: DependencyMigrationStore, shi
     let name = dependencyNameFor(named);
     for (let n = 2; taken.has(name); n += 1) name = `${dependencyNameFor(named).slice(0, 36)}-${n}`;
     const made: WorkspaceDependency = { name, summary, provides: [...provides], install: real.map((install) => ({ ...install })) as Install[], ownerId };
-    await store.saveWorkspaceDependency({ ...made, ownerId });
+    await store.engine.saveWorkspaceDependency({ ...made, ownerId });
     (await ownOf(ownerId)).push(made);
     out.dependenciesMade += 1;
     return name;
   };
 
-  for (const raw of (await store.getEngineTools()) as LegacyTool[]) {
+  for (const raw of (await store.engine.getEngineTools()) as LegacyTool[]) {
     if (!raw.install && !raw.needsBinaries && !raw.provides) continue;
     const { install, needsBinaries, provides: _provides, ...tool } = raw;
     const named = install && install.via !== 'base' && install.via !== 'script' ? install.packages[0] ?? tool.name : tool.name;
@@ -70,12 +72,12 @@ export async function migrateToDependencies(store: DependencyMigrationStore, shi
       out.left.push(`the tool ${tool.name}${tool.ownerId ? '' : ' (shipped)'}: its install matches no dependency${needsBinaries?.length ? '' : ' and it names no program it gives'}`);
       continue;
     }
-    await store.saveEngineTool({ ...tool, ...(need ? { needs: [...new Set([...(tool.needs ?? []), need])] } : {}) });
+    await store.engine.saveEngineTool({ ...tool, ...(need ? { needs: [...new Set([...(tool.needs ?? []), need])] } : {}) });
     out.toolsMoved += 1;
   }
 
   for (const { id: ownerId } of await store.accounts.getUsers()) {
-    for (const server of await store.getMcpServers(ownerId)) {
+    for (const server of await store.engine.getMcpServers(ownerId)) {
       if (server.runs.where !== 'workspace') continue;
       const legacy = server.runs as LegacyRuns;
       if (!legacy.install && !legacy.needsBinaries) continue;
@@ -90,7 +92,7 @@ export async function migrateToDependencies(store: DependencyMigrationStore, shi
       }
       const next: McpServerRecord = { ...server, runs: { ...runs, needs: [...new Set([...(runs.needs ?? []), ...(need ? [need] : [])])] } };
       const after = runsFingerprint(next.runs);
-      await store.saveMcpServer({
+      await store.engine.saveMcpServer({
         ...next,
         ...(server.captured?.fingerprint === before ? { captured: { ...server.captured, fingerprint: after } } : {}),
         ...(server.failed?.fingerprint === before ? { failed: { ...server.failed, fingerprint: after } } : {}),

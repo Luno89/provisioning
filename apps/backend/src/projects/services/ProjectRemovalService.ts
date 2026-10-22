@@ -24,7 +24,7 @@ export async function loadProjectScope(store: ProjectRemovalStore, projectId: st
   const ownerId = project.ownerId ?? '';
   const [trees, branches, leaves, tasks, proposals, conversations, deployments, pipelineRuns] = await Promise.all([
     store.projects.getTrees(), store.projects.getBranches(), store.projects.getLeaves(), store.projects.getTasks(ownerId), store.projects.getPlanProposals(ownerId),
-    store.getConversations(), store.infrastructure.getDeployments(), store.releases.getPipelineRuns(),
+    store.engine.getConversations(), store.infrastructure.getDeployments(), store.releases.getPipelineRuns(),
   ]);
   const mine = <T extends { ownerId?: string | undefined }>(list: T[]) => list.filter((entry) => entry.ownerId === ownerId);
   const world = { trees, branches: mine(branches), leaves: mine(leaves), tasks, proposals, conversations: mine(conversations), deployments, pipelineRuns };

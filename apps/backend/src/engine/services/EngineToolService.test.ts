@@ -48,13 +48,13 @@ async function agentsOf(personas: readonly Persona[], builtIn: readonly Persona[
   const shippedAgents = [...builtIn, ...personas.filter((one) => one.ownerId === undefined)];
   const shipped = shippedAgents.flatMap((one) => one.tools.map((name) => ({ agent: one.slug, tool: name })));
   const directory = createAgentDirectory({
-    records: { list: (ownerId) => db.getEnginePersonas(ownerId) },
-    grants: grantStoreFrom(db),
+    records: { list: (ownerId) => db.engine.getEnginePersonas(ownerId) },
+    grants: grantStoreFrom(db.engine),
     builtIn: () => shippedAgents.map(toRecord),
     shipped: () => shipped,
   });
   for (const one of personas.filter((agent) => agent.ownerId !== undefined)) {
-    await db.saveEnginePersona(toRecord(one));
+    await db.engine.saveEnginePersona(toRecord(one));
     await directory.setTools(one.ownerId!, one.slug, one.tools);
   }
   return { db, directory };
@@ -219,14 +219,14 @@ describe('the tools a person can edit', () => {
 
     expect(await tools.remove('user-1', 'count_lines')).toBe(true);
     expect(stored.map((one) => one.ownerId)).toEqual([undefined]);
-    expect((await db.getToolGrants('user-1')).map((grant) => grant.tool)).toEqual(['count_lines']);
+    expect((await db.engine.getToolGrants('user-1')).map((grant) => grant.tool)).toEqual(['count_lines']);
   });
 
   it('takes a deleted tool away from every agent of yours that held it, and rebuilds their workspaces without it', async () => {
     const { tools, db, start } = await setup({ stored: [tool({ ownerId: 'user-1' })], personas: [persona({ slug: 'helper', ownerId: 'user-1' })] });
 
     expect(await tools.remove('user-1', 'count_lines')).toBe(true);
-    expect(await db.getToolGrants('user-1')).toEqual([]);
+    expect(await db.engine.getToolGrants('user-1')).toEqual([]);
     expect(start).toHaveBeenCalledTimes(1);
   });
 });

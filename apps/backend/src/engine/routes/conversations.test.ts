@@ -9,7 +9,7 @@ const harness: Harness = await mountRouter({
   router: (db: Database) => conversationsRouter({
     db,
     ownedConversations: async (userId: string) =>
-      db.getConversations().then((c: any) => c.filter((x: any) => x.ownerId === userId)),
+      db.engine.getConversations().then((c: any) => c.filter((x: any) => x.ownerId === userId)),
     ownedTrees: async (userId: string) => (await db.projects.getTrees()).filter((tree) => tree.ownerId === userId),
     ownedProjects: async (userId: string) => (await db.projects.getProjects()).filter((project) => project.ownerId === userId),
     workspaces: { conclude: async (ownerId: string, conversationId: string) => {
@@ -48,8 +48,8 @@ describe('reading a conversation with a turn under way', () => {
   it('settles the turn first, so a turn whose run is gone never reads as still going', async () => {
     const id = ((await (await fetch(harness.url('/api/conversations'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json()) as { id: string }).id;
     const db = harness.db as Database;
-    const found = (await db.getConversations()).find((conversation) => conversation.id === id)!;
-    await db.saveConversation({ ...found, liveTurn: { runId: 'r1', startedAt: 'then' } });
+    const found = (await db.engine.getConversations()).find((conversation) => conversation.id === id)!;
+    await db.engine.saveConversation({ ...found, liveTurn: { runId: 'r1', startedAt: 'then' } });
 
     const read = await (await fetch(harness.url(`/api/conversations/${id}`))).json() as { title: string; liveTurn?: unknown };
 
@@ -81,7 +81,7 @@ describe('conversation CRUD', () => {
 
     const delRes = await fetch(harness.url(`/api/conversations/${created.id}`), { method: 'DELETE' });
     expect(delRes.status).toBe(200);
-    const afterDel = (await harness.db.getConversations()).find((c: any) => c.id === created.id);
+    const afterDel = (await harness.db.engine.getConversations()).find((c: any) => c.id === created.id);
     expect(afterDel).toBeUndefined();
   });
 });
@@ -101,7 +101,7 @@ describe('a conversation about a tree', () => {
     expect(bound.status).toBe(200);
     const created = (await bound.json()) as { id: string; treeId?: string };
     expect(created.treeId).toBe('mine');
-    expect((await harness.db.getConversation(TEST_USER.id, created.id))?.treeId).toBe('mine');
+    expect((await harness.db.engine.getConversation(TEST_USER.id, created.id))?.treeId).toBe('mine');
 
     expect((await create('theirs')).status).toBe(404);
     expect((await create('nowhere')).status).toBe(404);
@@ -184,7 +184,7 @@ describe('conversation chat-owned picks', () => {
 });
 
 describe('what Koala sees in a conversation', () => {
-  const save = (id: string, bound: Record<string, string>, ownerId = TEST_USER.id) => harness.db.saveConversation({ id, ownerId, title: id, messages: [], createdAt: 't', updatedAt: 't', ...bound } as never);
+  const save = (id: string, bound: Record<string, string>, ownerId = TEST_USER.id) => harness.db.engine.saveConversation({ id, ownerId, title: id, messages: [], createdAt: 't', updatedAt: 't', ...bound } as never);
   const context = async (id: string) => {
     const response = await fetch(harness.url(`/api/conversations/${id}/context`));
     return { status: response.status, body: response.status === 200 ? await response.json() as { given: Record<string, string>; text: string } : undefined };

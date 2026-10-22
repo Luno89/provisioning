@@ -80,7 +80,7 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
       createdAt: now,
       updatedAt: now,
     };
-    await db.saveConversation(conversation);
+    await db.engine.saveConversation(conversation);
     res.json(conversation);
   }));
 
@@ -93,7 +93,7 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
     if (!attached.ok) return res.status(400).json({ error: attached.why });
     const message = personMessage(userId, String(req.body?.content ?? ''), new Date().toISOString(), attached.attachments);
     if ('problem' in message) return res.status(400).json({ error: message.problem });
-    if (!(await db.appendMessage(found.ownerId, found.id, message))) return res.status(404).json({ error: 'No such conversation' });
+    if (!(await db.engine.appendMessage(found.ownerId, found.id, message))) return res.status(404).json({ error: 'No such conversation' });
     deps.posted?.(found.ownerId, found.id);
     return res.status(201).json({ message });
   }));
@@ -102,7 +102,7 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
     const found = (await deps.ownedConversations((req as any).user.id)).find((c) => c.id === req.params.id);
     if (!found) return res.status(404).json({ error: 'No such conversation' });
     await deps.workspaces?.conclude((req as any).user.id, found.id);
-    await db.deleteConversation(found.id);
+    await db.engine.deleteConversation(found.id);
     res.json({ success: true });
   }));
 
@@ -142,7 +142,7 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
     }
     if (!changed) return res.status(400).json({ error: 'Nothing to update' });
     next.updatedAt = new Date().toISOString();
-    await db.saveConversation(next);
+    await db.engine.saveConversation(next);
     res.json(next);
   }));
 

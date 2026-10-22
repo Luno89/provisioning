@@ -72,7 +72,7 @@ async function main(): Promise<void> {
     await sleep(5 * 60_000);
     await chat(http, first, 'One more thing for later: we never deploy on Fridays.');
     const secondEnded = Date.now();
-    const keeperRunId = async () => `memory-conversation-${first}-${(await db.getConversation(OWNER, first))?.messages.length ?? 0}`;
+    const keeperRunId = async () => `memory-conversation-${first}-${(await db.engine.getConversation(OWNER, first))?.messages.length ?? 0}`;
     const startedAt = async (id: string) => {
       const found = await traces(http, id).catch(() => []);
       return found.length > 0 ? found : undefined;

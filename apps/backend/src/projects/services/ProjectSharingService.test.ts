@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import { memoryHubStore } from '../../hub/lib/hub-store.js';
 import { HubService } from '../../hub/services/HubService.js';
 import { HubSyncService, localHubSync } from '../../hub/services/HubSyncService.js';
@@ -10,8 +9,7 @@ const now = '2026-10-21T00:00:00Z';
 const ann = { id: 'ann', email: 'ann@example.com' };
 
 async function setUp() {
-  const raw = await testDatabase();
-  const db = markingHubWrites(raw, raw.hub);
+  const db = await testDatabase();
   const store = memoryHubStore();
   const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) } });
   const sync = new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined' });
@@ -26,8 +24,8 @@ async function setUp() {
   await db.projects.saveTree({ id: 't2', ownerId: 'ann', name: 'Mine', type: 'odoo' as never, projectIds: ['p2'], createdAt: now, updatedAt: now });
   await db.projects.saveBranch({ id: 'b1', ownerId: 'ann', treeId: 't1', title: 'Pay', createdAt: now, updatedAt: now });
   await db.projects.saveLeaf({ id: 'l1', ownerId: 'ann', branchId: 'b1', title: 'Checkout', status: 'pending', createdAt: now, updatedAt: now });
-  await db.saveConversation({ id: 'channel-p1', ownerId: 'ann', kind: 'channel', treeId: 't1', projectId: 'p1', messages: [{ role: 'user', content: 'earlier talk', at: now }], createdAt: now, updatedAt: now } as never);
-  await db.saveConversation({ id: 'mine', ownerId: 'ann', treeId: 't1', projectId: 'p1', messages: [], createdAt: now, updatedAt: now } as never);
+  await db.engine.saveConversation({ id: 'channel-p1', ownerId: 'ann', kind: 'channel', treeId: 't1', projectId: 'p1', messages: [{ role: 'user', content: 'earlier talk', at: now }], createdAt: now, updatedAt: now } as never);
+  await db.engine.saveConversation({ id: 'mine', ownerId: 'ann', treeId: 't1', projectId: 'p1', messages: [], createdAt: now, updatedAt: now } as never);
   return { db, hub, store, sharing };
 }
 

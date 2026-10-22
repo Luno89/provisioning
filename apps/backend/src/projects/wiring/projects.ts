@@ -75,9 +75,9 @@ export function projectsCore(deps: ProjectsCoreDeps): ProjectsCore {
   const { db, io, gitea } = deps;
   const projectRepoService = new ProjectRepoService(db, gitea, deps.dataKey, webhookAddress(deps.infra, deps.kubeconfig, deps.env.PORT || 3001));
   const channels = new ProjectChannelService({
-    conversation: (ownerId, id) => db.getConversation(ownerId, id),
-    save: (conversation) => db.saveConversation(conversation),
-    bind: (ownerId, conversationId, binding) => db.bindConversation(ownerId, conversationId, binding),
+    conversation: (ownerId, id) => db.engine.getConversation(ownerId, id),
+    save: (conversation) => db.engine.saveConversation(conversation),
+    bind: (ownerId, conversationId, binding) => db.engine.bindConversation(ownerId, conversationId, binding),
     trees: () => db.projects.getTrees(),
     saveProjectInfo: (project) => db.projects.saveProjectInfo(project),
   });
@@ -85,12 +85,12 @@ export function projectsCore(deps: ProjectsCoreDeps): ProjectsCore {
     leaves: () => db.projects.getLeaves(),
     branches: () => db.projects.getBranches(),
     trees: () => db.projects.getTrees(),
-    conversation: (ownerId, id) => db.getConversation(ownerId, id),
-    save: (conversation) => db.saveConversation(conversation),
+    conversation: (ownerId, id) => db.engine.getConversation(ownerId, id),
+    save: (conversation) => db.engine.saveConversation(conversation),
   });
   const notices = new ConversationNoticeService({
-    conversations: () => db.getConversations(),
-    append: (ownerId, conversationId, message) => db.appendNotice(ownerId, conversationId, message),
+    conversations: () => db.engine.getConversations(),
+    append: (ownerId, conversationId, message) => db.engine.appendNotice(ownerId, conversationId, message),
     told: (ownerId, conversationId) => { io.to(`user:${ownerId}`).emit('conversation-notice', { conversationId }); },
     channelOf: async (ownerId, projectId) => {
       const project = (await db.projects.getProjects()).find((entry) => entry.id === projectId && entry.ownerId === ownerId);
@@ -174,7 +174,7 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
   tenant.use('/api/items', itemChatsRouter({ items: itemChats }));
   tenant.use('/api/projects', projectChannelRouter({
     channels,
-    conversations: async (ownerId) => (await db.getConversations()).filter((conversation) => conversation.ownerId === ownerId),
+    conversations: async (ownerId) => (await db.engine.getConversations()).filter((conversation) => conversation.ownerId === ownerId),
     getOwnedProject: deps.getOwnedProject,
   }));
 
@@ -206,8 +206,8 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
     trees: () => db.projects.getTrees(),
     files: evalHost.treeWorkspaceFiles.files,
     compose: evalHost.treeWorkspaceFiles.compose,
-    published: (ownerId, treeId) => db.getPublishedWorkspace(ownerId, treeId),
-    builds: (ownerId) => db.getRunEffort(ownerId, BUILD_WORKSPACE.id),
+    published: (ownerId, treeId) => db.engine.getPublishedWorkspace(ownerId, treeId),
+    builds: (ownerId) => db.engine.getRunEffort(ownerId, BUILD_WORKSPACE.id),
     startBuild: (ownerId, treeId, commit) => deps.workspaceBuilds.start(ownerId, treeId, commit),
   }) : undefined;
   tenant.use('/api/trees', treesRouter({

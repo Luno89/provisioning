@@ -20,7 +20,7 @@ export async function seedAll(db: Database) {
   const counts: Record<string, number> = {};
   counts.bindingTypes = await seedBindingTypes(db);
   // Images before tree types: a tree type's language must name one that exists.
-  counts.workspaceImages = await seedWorkspaceImages(db);
+  counts.workspaceImages = await seedWorkspaceImages(db.engine);
   counts.treeTypes = await seedTreeTypes(db.projects);
   const ledger: MigrationLedger = db.platform;
   const now = new Date().toISOString();
@@ -28,11 +28,11 @@ export async function seedAll(db: Database) {
   counts.appSpecs = await seedAppSpecs(db.infrastructure);
   counts.constructBackedTypes = await seedConstructBackedTypes(db.infrastructure);
   counts.clusterProviders = await seedClusterProviders(db.infrastructure);
-  counts.removedBuiltInProcedures = await retireStoredBuiltInProcedures(db);
-  counts.engineTools = await seedEngineTools(db);
-  counts.removedBuiltInPersonas = await retireStoredBuiltInPersonas(db);
+  counts.removedBuiltInProcedures = await retireStoredBuiltInProcedures(db.engine);
+  counts.engineTools = await seedEngineTools(db.engine);
+  counts.removedBuiltInPersonas = await retireStoredBuiltInPersonas(db.engine);
   Object.assign(counts, { agentToolListsMoved: 0, toolGrantsWritten: 0, builtInCopiesDropped: 0 }, await runOnce(ledger, 'tool-grants', now, async () => {
-    const moved = await migrateAgentTools(db, seededPersonas(), seededGrants(), now);
+    const moved = await migrateAgentTools(db.engine, seededPersonas(), seededGrants(), now);
     return { agentToolListsMoved: moved.agents, toolGrantsWritten: moved.granted + moved.revoked, builtInCopiesDropped: moved.copiesDropped };
   }));
   Object.assign(counts, { agentServerListsMoved: 0, servingToolsMoved: 0, mcpToolKindsMoved: 0 }, await runOnce(ledger, 'mcp-servers', now, async () => {

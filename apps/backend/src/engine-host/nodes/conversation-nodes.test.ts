@@ -487,9 +487,9 @@ describe('the store a run reads conversations from', () => {
 
   it('reads one conversation by owner and id, without listing the collection', async () => {
     const db = await testDatabase();
-    await db.saveConversation({ id: 'c-1', ownerId: 'user-1', title: 'Counting', createdAt: 'x', updatedAt: 'x', messages: [] } as Conversation);
-    await db.saveConversation({ id: 'c-2', ownerId: 'someone-else', title: 'Theirs', createdAt: 'x', updatedAt: 'x', messages: [] } as Conversation);
-    const listed = vi.spyOn(db, 'getConversations');
+    await db.engine.saveConversation({ id: 'c-1', ownerId: 'user-1', title: 'Counting', createdAt: 'x', updatedAt: 'x', messages: [] } as Conversation);
+    await db.engine.saveConversation({ id: 'c-2', ownerId: 'someone-else', title: 'Theirs', createdAt: 'x', updatedAt: 'x', messages: [] } as Conversation);
+    const listed = vi.spyOn(db.engine, 'getConversations');
 
     const stores = storesFromDatabase(db);
 

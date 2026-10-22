@@ -59,7 +59,7 @@ function harnessWith(workflows: WorkflowStarter | undefined, extensions?: Engine
     prefix: '/api/engine',
     router: (db) => {
       harnessDb = db;
-      return engineRouter({ runs, registry, approvals: new ApprovalService({ store: db, runs }), tasks: taskAccess, traces: { list: (ownerId, runId) => db.getRunTraces(ownerId, runId) }, ...(extensions ? { extensions } : {}) });
+      return engineRouter({ runs, registry, approvals: new ApprovalService({ store: db.engine, runs }), tasks: taskAccess, traces: { list: (ownerId, runId) => db.engine.getRunTraces(ownerId, runId) }, ...(extensions ? { extensions } : {}) });
     },
   });
 }
@@ -201,8 +201,8 @@ describe('engine routes', () => {
     await db!.projects.saveTree({ id: 'tree-1', ownerId: TEST_USER.id, name: 'Greeter', type: 'software', goal: 'greets', projectIds: [], createdAt: stamp, updatedAt: stamp });
     await db!.projects.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 'tree-1', title: 'Core', createdAt: stamp, updatedAt: stamp });
     await db!.projects.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'Hello', body: 'hello.txt says hello', status: 'pending', createdAt: stamp, updatedAt: stamp });
-    await db!.saveConversation({ id: 'about-tree', ownerId: TEST_USER.id, title: 't', treeId: 'tree-1', messages: [], createdAt: stamp, updatedAt: stamp });
-    await db!.saveConversation({ id: 'free', ownerId: TEST_USER.id, title: 't', messages: [], createdAt: stamp, updatedAt: stamp });
+    await db!.engine.saveConversation({ id: 'about-tree', ownerId: TEST_USER.id, title: 't', treeId: 'tree-1', messages: [], createdAt: stamp, updatedAt: stamp });
+    await db!.engine.saveConversation({ id: 'free', ownerId: TEST_USER.id, title: 't', messages: [], createdAt: stamp, updatedAt: stamp });
 
     const inputsOf = async (conversationId: string, inputs: Record<string, unknown>) => {
       workflows.start.mockClear();
@@ -220,7 +220,7 @@ describe('engine routes', () => {
     expect(free).toEqual({ conversationId: 'free', message: 'more please' });
 
     await db!.projects.saveProjectInfo({ id: 'proj-1', name: 'gateway', ownerId: TEST_USER.id, appType: 'local', createdAt: stamp } as never);
-    await db!.saveConversation({ id: 'about-project', ownerId: TEST_USER.id, title: 't', projectId: 'proj-1', messages: [], createdAt: stamp, updatedAt: stamp });
+    await db!.engine.saveConversation({ id: 'about-project', ownerId: TEST_USER.id, title: 't', projectId: 'proj-1', messages: [], createdAt: stamp, updatedAt: stamp });
     const project = await inputsOf('about-project', { conversationId: 'about-project' });
     expect(project.projectId).toBe('proj-1');
     expect(project.project).toContain('Project "gateway" (proj-1)');
@@ -236,21 +236,21 @@ describe('engine routes', () => {
       prefix: '/api/engine',
       router: (database) => {
         db = database;
-        const turns = new ConversationTurnService({ store: database, log: database, running: async () => true });
+        const turns = new ConversationTurnService({ store: database.engine, log: database.engine, running: async () => true });
         let n = 0;
         const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => workflows, newRunId: () => `run-${(n += 1)}`, turns });
         return engineRouter({ runs, registry: createAgentRegistry(), approvals: new ApprovalService({ store: { ownsRun: async () => true, runOrigin: async () => undefined, allowToolInConversation: async () => true }, runs }) });
       },
     });
     const stamp = '2026-10-11T17:59:09.231Z';
-    await db!.saveConversation({ id: 'channel-p1', ownerId: TEST_USER.id, title: 'Shop', kind: 'channel', projectId: 'p1', messages: [
+    await db!.engine.saveConversation({ id: 'channel-p1', ownerId: TEST_USER.id, title: 'Shop', kind: 'channel', projectId: 'p1', messages: [
       { role: 'user', author: { kind: 'person', id: TEST_USER.id }, content: 'add an e2e test', at: stamp },
     ], createdAt: stamp, updatedAt: stamp } as never);
     const ask = (body: Record<string, unknown>) => axios.post(h.url('/api/engine/runs'), { agent: 'koala', message: 'add an e2e test', conversationId: 'channel-p1', ...body }, { validateStatus: () => true });
 
     const asked = await ask({ asks: stamp });
     expect(asked.status).toBe(201);
-    const after = await db!.getConversation(TEST_USER.id, 'channel-p1');
+    const after = await db!.engine.getConversation(TEST_USER.id, 'channel-p1');
     expect(after!.messages.map((one) => [one.content, one.runId])).toEqual([['add an e2e test', 'run-1']]);
     expect(after!.liveTurn).toMatchObject({ runId: 'run-1' });
 
@@ -300,14 +300,14 @@ describe('engine routes', () => {
       router: (database) => {
         db = database;
         const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => undefined });
-        return engineRouter({ runs, registry: createAgentRegistry(), approvals: new ApprovalService({ store: database, runs }), traces: { list: (ownerId, runId) => database.getRunTraces(ownerId, runId) } });
+        return engineRouter({ runs, registry: createAgentRegistry(), approvals: new ApprovalService({ store: database.engine, runs }), traces: { list: (ownerId, runId) => database.engine.getRunTraces(ownerId, runId) } });
       },
     });
     const trace = (sequence: number, ownerId: string) => ({
       sequence, step: sequence, node: `n${sequence}`, origin: `n${sequence}`, kind: 'finish', role: 'step' as const, cleanup: false,
       startedAt: 0, durationMs: 1, inputs: {}, runId: 'run-1', ownerId, agentSlug: 'koala', procedureId: 'p', procedureVersion: '1',
     });
-    await db!.saveRunTraces([trace(2, TEST_USER.id), trace(1, TEST_USER.id), trace(3, 'someone-else')]);
+    await db!.engine.saveRunTraces([trace(2, TEST_USER.id), trace(1, TEST_USER.id), trace(3, 'someone-else')]);
 
     const res = await axios.get(h.url('/api/engine/runs/run-1/traces'));
 
@@ -330,7 +330,7 @@ describe('engine routes', () => {
   it('signals an approval decision, carrying whether it stands for the rest of the run', async () => {
     const workflows = starter();
     const h: Harness = await harnessWith(workflows);
-    await harnessDb!.appendTurnLog({ turnId: 'run-1', ownerId: TEST_USER.id, seq: 1, at: 'now', events: [] });
+    await harnessDb!.engine.appendTurnLog({ turnId: 'run-1', ownerId: TEST_USER.id, seq: 1, at: 'now', events: [] });
 
     await axios.post(h.url('/api/engine/runs/run-1/approve'), { callId: 'c1', allowed: true, forRun: true });
 
@@ -342,7 +342,7 @@ describe('engine routes', () => {
   it('refuses to approve a run that is not the person\'s', async () => {
     const workflows = starter();
     const h: Harness = await harnessWith(workflows);
-    await harnessDb!.appendTurnLog({ turnId: 'run-theirs', ownerId: 'someone-else', seq: 1, at: 'now', events: [] });
+    await harnessDb!.engine.appendTurnLog({ turnId: 'run-theirs', ownerId: 'someone-else', seq: 1, at: 'now', events: [] });
 
     await expect(axios.post(h.url('/api/engine/runs/run-theirs/approve'), { callId: 'c1', allowed: true })).rejects.toMatchObject({ response: { status: 404 } });
     expect(workflows.signal).not.toHaveBeenCalled();

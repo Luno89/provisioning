@@ -4,7 +4,7 @@ import { featureOutline, storyOutline } from '../projects/lib/item-outline.js';
 import { projectOutline } from '../projects/lib/project-outline.js';
 import { chatFraming, SOMEONE } from '../engine/lib/conversations.js';
 
-type BindingSources = Pick<Database, 'getConversation' | 'projects' | 'releases' | 'accounts'>;
+type BindingSources = Pick<Database, 'engine' | 'projects' | 'releases' | 'accounts'>;
 
 export function conversationBinding(db: BindingSources) {
   const statusOf = async (ownerId: string, projectIds: readonly string[]): Promise<string> => {
@@ -17,7 +17,7 @@ export function conversationBinding(db: BindingSources) {
     return statuses.join('\n\n');
   };
 
-  const subjectOf = async (ownerId: string, conversation: Awaited<ReturnType<BindingSources['getConversation']>>): Promise<Record<string, string> | undefined> => {
+  const subjectOf = async (ownerId: string, conversation: Awaited<ReturnType<BindingSources['engine']['getConversation']>>): Promise<Record<string, string> | undefined> => {
     if (conversation?.leafId || conversation?.branchId) {
       const leaves = await db.projects.getLeaves();
       const leaf = conversation.leafId ? leaves.find((candidate) => candidate.id === conversation.leafId && candidate.ownerId === ownerId) : undefined;
@@ -56,7 +56,7 @@ export function conversationBinding(db: BindingSources) {
   };
 
   return async (ownerId: string, conversationId: string): Promise<Record<string, string> | undefined> => {
-    const conversation = await db.getConversation(ownerId, conversationId);
+    const conversation = await db.engine.getConversation(ownerId, conversationId);
     const subject = await subjectOf(ownerId, conversation);
     if (!subject || !conversation?.kind) return subject;
     const who = (await db.accounts.getUserById(ownerId))?.email ?? SOMEONE;

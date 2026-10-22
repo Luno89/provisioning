@@ -13,14 +13,14 @@ const harness = (): Promise<Harness> => mountRouter({
   prefix: '/api/procedures',
   router: (db) => proceduresRouter({
     procedures: new ProcedureService({
-      procedures: createProcedureStore({ sources: { list: (ownerId) => db.getProcedures(ownerId) } }),
+      procedures: createProcedureStore({ sources: { list: (ownerId) => db.engine.getProcedures(ownerId) } }),
       sources: {
-        get: (ownerId, id) => db.getProcedure(ownerId, id),
-        save: (source) => db.saveProcedure(source),
-        delete: (ownerId, id) => db.deleteProcedure(ownerId, id),
+        get: (ownerId, id) => db.engine.getProcedure(ownerId, id),
+        save: (source) => db.engine.saveProcedure(source),
+        delete: (ownerId, id) => db.engine.deleteProcedure(ownerId, id),
       },
       known: async () => ({ tools: new Set(['list_tasks']), agents: new Set(['research']) }),
-      effort: { list: (ownerId, procedureId) => db.getRunEffort(ownerId, procedureId) },
+      effort: { list: (ownerId, procedureId) => db.engine.getRunEffort(ownerId, procedureId) },
       now: () => '2026-09-16T00:00:00.000Z',
     }),
   }),
@@ -130,15 +130,15 @@ describe('procedures routes', () => {
         db = database;
         return proceduresRouter({
           procedures: new ProcedureService({
-            procedures: createProcedureStore({ sources: { list: (ownerId) => database.getProcedures(ownerId) } }),
+            procedures: createProcedureStore({ sources: { list: (ownerId) => database.engine.getProcedures(ownerId) } }),
             sources: { get: async () => undefined, save: async () => undefined, delete: async () => undefined },
             known: async () => ({ tools: new Set(), agents: new Set() }),
-            effort: { list: (ownerId, procedureId) => database.getRunEffort(ownerId, procedureId) },
+            effort: { list: (ownerId, procedureId) => database.engine.getRunEffort(ownerId, procedureId) },
           }),
         });
       },
     });
-    const effort = (runId: string, ownerId: string, rounds: number) => db!.saveRunEffort({
+    const effort = (runId: string, ownerId: string, rounds: number) => db!.engine.saveRunEffort({
       runId, ownerId, agentSlug: 'research', procedureId: 'research', procedureVersion: '2', modelKey: 'tabby', modelLabel: 'Tabby',
       outcome: 'ok', rounds, toolCalls: 2, totalTokens: 900, childRuns: 0, longestReply: 0, cappedAt: 0, steps: 12, wallClockMs: 30_000, ask: 'q', limits: {},
       finishedAt: `2026-09-17T00:00:0${runId.slice(-1)}.000Z`,
@@ -164,12 +164,12 @@ describe('procedures routes', () => {
         const published = (ownerId: string) => extensions!.groups(ownerId);
         return proceduresRouter({
           procedures: new ProcedureService({
-            procedures: createProcedureStore({ sources: { list: (ownerId) => database.getProcedures(ownerId) }, published }),
-            sources: { get: (ownerId, id) => database.getProcedure(ownerId, id), save: (source) => database.saveProcedure(source), delete: (ownerId, id) => database.deleteProcedure(ownerId, id) },
+            procedures: createProcedureStore({ sources: { list: (ownerId) => database.engine.getProcedures(ownerId) }, published }),
+            sources: { get: (ownerId, id) => database.engine.getProcedure(ownerId, id), save: (source) => database.engine.saveProcedure(source), delete: (ownerId, id) => database.engine.deleteProcedure(ownerId, id) },
             known: async () => ({ tools: new Set(), agents: new Set() }),
             hidden: (ownerId) => extensions!.hidden(ownerId),
             published,
-            effort: { list: (ownerId, procedureId) => database.getRunEffort(ownerId, procedureId) },
+            effort: { list: (ownerId, procedureId) => database.engine.getRunEffort(ownerId, procedureId) },
           }),
         });
       },

@@ -8,23 +8,23 @@ const harness: Harness = await mountRouter({
   prefix: '/api/turns',
   router: (db) => {
     void Promise.all([
-      db.appendTurnLog({ turnId: 'r1', ownerId: TEST_USER.id, seq: 1, at, events: [{ type: 'run.started', runId: 'r1', at, agentId: 'koala', loopId: 'interactive-chat' } as never] }),
-      db.appendTurnLog({ turnId: 'r-old', ownerId: TEST_USER.id, seq: 1, at: '2026-10-03T00:00:00.000Z', events: [] }),
-      db.appendTurnLog({ turnId: 'r1', ownerId: TEST_USER.id, seq: 2, at, events: [] }),
-      db.appendTurnLog({ turnId: 'r2', ownerId: 'someone-else', seq: 1, at, events: [] }),
-      db.appendTurnLog({ turnId: 'grove', ownerId: TEST_USER.id, seq: 1, at: before, events: [
+      db.engine.appendTurnLog({ turnId: 'r1', ownerId: TEST_USER.id, seq: 1, at, events: [{ type: 'run.started', runId: 'r1', at, agentId: 'koala', loopId: 'interactive-chat' } as never] }),
+      db.engine.appendTurnLog({ turnId: 'r-old', ownerId: TEST_USER.id, seq: 1, at: '2026-10-03T00:00:00.000Z', events: [] }),
+      db.engine.appendTurnLog({ turnId: 'r1', ownerId: TEST_USER.id, seq: 2, at, events: [] }),
+      db.engine.appendTurnLog({ turnId: 'r2', ownerId: 'someone-else', seq: 1, at, events: [] }),
+      db.engine.appendTurnLog({ turnId: 'grove', ownerId: TEST_USER.id, seq: 1, at: before, events: [
         { type: 'run.started', runId: 'grove', at, agentId: 'grove-runner', loopId: 'grove-run' },
         { type: 'run.started', runId: 'leaf-1', at, agentId: 'grove-leaf', loopId: 'grove-leaf', parentRunId: 'grove' },
       ] as never }),
-      db.appendTurnLog({ turnId: 'grove', ownerId: TEST_USER.id, seq: 2, at: before, events: [{ type: 'run.started', runId: 'leaf-2', at, agentId: 'grove-leaf', loopId: 'grove-leaf', parentRunId: 'grove' }] as never }),
-      db.appendTurnLog({ turnId: 'grove', ownerId: TEST_USER.id, seq: 3, at: before, events: [
+      db.engine.appendTurnLog({ turnId: 'grove', ownerId: TEST_USER.id, seq: 2, at: before, events: [{ type: 'run.started', runId: 'leaf-2', at, agentId: 'grove-leaf', loopId: 'grove-leaf', parentRunId: 'grove' }] as never }),
+      db.engine.appendTurnLog({ turnId: 'grove', ownerId: TEST_USER.id, seq: 3, at: before, events: [
         { type: 'run.started', runId: 'leaf-1-exec', at, agentId: 'executor', loopId: 'do-one-task', parentRunId: 'leaf-1' },
         { type: 'thinking', runId: 'leaf-2', at, nodeId: 'turn.call', delta: 'not this story' },
         { type: 'thinking', runId: 'leaf-1-exec', at, nodeId: 'turn.call', delta: 'this story' },
       ] as never }),
-      db.appendTurnLog({ turnId: 'grove', ownerId: TEST_USER.id, seq: 4, at: before, events: [{ type: 'content', runId: 'grove', at, nodeId: 'n', delta: 'the tree' }] as never }),
+      db.engine.appendTurnLog({ turnId: 'grove', ownerId: TEST_USER.id, seq: 4, at: before, events: [{ type: 'content', runId: 'grove', at, nodeId: 'n', delta: 'the tree' }] as never }),
     ]);
-    return turnsRouter({ log: { read: (ownerId, turnId, after) => db.getTurnLog(ownerId, turnId, after), recent: (ownerId, since, limit) => db.recentTurns(ownerId, since, limit) }, now: () => new Date('2026-10-05T12:00:00.000Z') });
+    return turnsRouter({ log: { read: (ownerId, turnId, after) => db.engine.getTurnLog(ownerId, turnId, after), recent: (ownerId, since, limit) => db.engine.recentTurns(ownerId, since, limit) }, now: () => new Date('2026-10-05T12:00:00.000Z') });
   },
 });
 

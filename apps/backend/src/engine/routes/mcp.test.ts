@@ -17,18 +17,18 @@ describe('/api/mcp', () => {
     harness = await mountRouter({
       prefix: '/api/mcp',
       router: (db) => mcpRouter({
-        mcp: new McpService({ store: db, catalogue: (ownerId) => db.getMcpServers(ownerId) }),
+        mcp: new McpService({ store: db.engine, catalogue: (ownerId) => db.engine.getMcpServers(ownerId) }),
       }),
     });
     const runs = { where: 'hosted' as const, url: 'http://gitea.test/mcp' };
-    await harness.db.saveMcpServer({
+    await harness.db.engine.saveMcpServer({
       id: 'd1', ownerId: TEST_USER.id, name: 'gitea', runs, createdAt: 'x', updatedAt: 'x',
       tools: { create_issue: { kind: 'safe-write' } },
       captured: { tools: [{ name: 'list_repos', annotations: { readOnlyHint: true } }, { name: 'create_issue' }], at: 'x', fingerprint: runsFingerprint(runs) },
     });
-    await harness.db.saveMcpServer({ id: 'd2', ownerId: TEST_USER.id, name: 'uncaptured', runs: { where: 'hosted', url: 'http://other.test/mcp' }, createdAt: 'x', updatedAt: 'x' });
-    await harness.db.saveConversation({ id: 'c1', ownerId: TEST_USER.id, title: 't', messages: [], createdAt: 'x', updatedAt: 'x' });
-    await harness.db.saveMcpRequest({ id: 'q1', ownerId: TEST_USER.id, conversationId: 'c1', server: 'gitea', why: 'read the repo', status: 'requested', createdAt: 'x', updatedAt: 'x' });
+    await harness.db.engine.saveMcpServer({ id: 'd2', ownerId: TEST_USER.id, name: 'uncaptured', runs: { where: 'hosted', url: 'http://other.test/mcp' }, createdAt: 'x', updatedAt: 'x' });
+    await harness.db.engine.saveConversation({ id: 'c1', ownerId: TEST_USER.id, title: 't', messages: [], createdAt: 'x', updatedAt: 'x' });
+    await harness.db.engine.saveMcpRequest({ id: 'q1', ownerId: TEST_USER.id, conversationId: 'c1', server: 'gitea', why: 'read the repo', status: 'requested', createdAt: 'x', updatedAt: 'x' });
   });
 
   afterEach(() => harness.close());
@@ -45,13 +45,13 @@ describe('/api/mcp', () => {
     const res = await post(harness.url('/api/mcp/requests/q1/enable'));
     expect(res.status).toBe(200);
     expect(res.data.request.status).toBe('enabled');
-    expect((await harness.db.getConversation(TEST_USER.id, 'c1'))?.mcpServers).toEqual(['gitea']);
+    expect((await harness.db.engine.getConversation(TEST_USER.id, 'c1'))?.mcpServers).toEqual(['gitea']);
     expect((await post(harness.url('/api/mcp/requests/q1/enable'))).status).toBe(409);
   });
 
   it('dismissing leaves the conversation alone', async () => {
     expect((await post(harness.url('/api/mcp/requests/q1/dismiss'))).data.request.status).toBe('dismissed');
-    expect((await harness.db.getConversation(TEST_USER.id, 'c1'))?.mcpServers).toBeUndefined();
+    expect((await harness.db.engine.getConversation(TEST_USER.id, 'c1'))?.mcpServers).toBeUndefined();
   });
 
   it('sets a conversation\'s servers, refusing one the person does not run', async () => {
@@ -73,9 +73,9 @@ describe('/api/mcp/catalogue', () => {
     harness = await mountRouter({
       prefix: '/api/mcp',
       router: (db) => mcpRouter({
-        mcp: new McpService({ store: db, catalogue: async () => [] }),
+        mcp: new McpService({ store: db.engine, catalogue: async () => [] }),
         catalogue: new McpServerService({
-          store: { list: (ownerId) => db.getMcpServers(ownerId), save: (server) => db.saveMcpServer(server), remove: (ownerId, id) => db.deleteMcpServer(ownerId, id) },
+          store: { list: (ownerId) => db.engine.getMcpServers(ownerId), save: (server) => db.engine.saveMcpServer(server), remove: (ownerId, id) => db.engine.deleteMcpServer(ownerId, id) },
           templates: () => MCP_SERVER_TEMPLATES,
           runs: { start: async (request) => { started.push(request.runId!); return { runId: request.runId!, agentSlug: request.agentSlug, loopId: 'capture-mcp-server' }; } },
           finished: async () => undefined,
@@ -99,7 +99,7 @@ describe('/api/mcp/catalogue', () => {
     expect((await post(harness.url(`/api/mcp/catalogue/${id}/capture`))).status).toBe(409);
     expect((await put(harness.url(`/api/mcp/catalogue/${id}`), { name: 'Bad Name' })).status).toBe(400);
 
-    await harness.db.saveMcpServer({ id: 'theirs', ownerId: 'someone-else', name: 'theirs', runs: { where: 'hosted', url: 'http://x.test/mcp' }, createdAt: 't', updatedAt: 't' });
+    await harness.db.engine.saveMcpServer({ id: 'theirs', ownerId: 'someone-else', name: 'theirs', runs: { where: 'hosted', url: 'http://x.test/mcp' }, createdAt: 't', updatedAt: 't' });
     expect((await axios.get(harness.url('/api/mcp/catalogue/theirs'), { validateStatus: () => true })).status).toBe(404);
     expect((await axios.delete(harness.url('/api/mcp/catalogue/theirs'), { validateStatus: () => true })).status).toBe(404);
 

@@ -10,8 +10,8 @@ const nothingHidden: HiddenVocabulary = { extensions: new Set(), operations: new
 async function directory(over: { hidden?: HiddenVocabulary; onChanged?: (ownerId: string) => void } = {}) {
   const db = await testDatabase();
   const agents = createAgentDirectory({
-    records: { list: (ownerId) => db.getEnginePersonas(ownerId) },
-    grants: grantStoreFrom(db),
+    records: { list: (ownerId) => db.engine.getEnginePersonas(ownerId) },
+    grants: grantStoreFrom(db.engine),
     builtIn: () => [record('executor'), record('judge')],
     shipped: () => [{ agent: 'executor', tool: 'run_command' }, { agent: 'executor', tool: 'settle_leaf' }, { agent: 'judge', tool: 'read_file' }],
     hidden: async (ownerId) => (ownerId === 'user-1' && over.hidden ? over.hidden : nothingHidden),
@@ -27,7 +27,7 @@ const toolsOf = async (agents: Awaited<ReturnType<typeof directory>>['agents'], 
 describe('the agent directory', () => {
   it('reads every agent with its tools: the built-in ones as shipped, the person\'s own from their grants', async () => {
     const { db, agents } = await directory();
-    await db.saveEnginePersona(record('helper', 'user-1'));
+    await db.engine.saveEnginePersona(record('helper', 'user-1'));
     await agents.setTools('user-1', 'helper', ['read_file']);
 
     expect((await agents.agents('user-1')).map((agent) => [agent.slug, agent.tools])).toEqual([
@@ -65,7 +65,7 @@ describe('the agent directory', () => {
     expect(await agents.setTools('user-1', 'executor', ['run_command', 'settle_leaf', 'browser'], { why: 'to see the page', proposalId: 'p1' })).toBe(true);
     expect(await agents.setTools('user-1', 'executor', ['run_command', 'settle_leaf', 'browser'])).toBe(false);
 
-    expect(await db.getToolGrants('user-1')).toEqual([
+    expect(await db.engine.getToolGrants('user-1')).toEqual([
       { ownerId: 'user-1', agent: 'executor', tool: 'browser', grantedAt: '2026-10-12T00:00:00Z', why: 'to see the page', proposalId: 'p1' },
     ]);
     expect(changed).toHaveBeenCalledTimes(1);
@@ -117,8 +117,8 @@ describe('what an agent needs in its workspace', () => {
     const db = await testDatabase();
     const asked: string[] = [];
     const agents = createAgentDirectory({
-      records: { list: (ownerId) => db.getEnginePersonas(ownerId) },
-      grants: grantStoreFrom(db),
+      records: { list: (ownerId) => db.engine.getEnginePersonas(ownerId) },
+      grants: grantStoreFrom(db.engine),
       builtIn: () => [{ ...record('tester'), procedure: 'browser-check' }, { ...record('other'), procedure: 'browser-check' }, { ...record('plain'), procedure: 'tool-rounds' }],
       shipped: () => [],
       stepNeeds: async (_ownerId, procedure) => { asked.push(procedure); return procedure === 'browser-check' ? [{ name: 'koala-e2e', from: 'step:Run Browser Tests' }] : []; },
