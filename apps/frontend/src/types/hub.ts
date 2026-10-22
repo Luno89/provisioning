@@ -17,6 +17,7 @@ export interface SharedProject {
   createdAt: string
   createdBy: string
   origin?: { instanceId?: string; projectId: string }
+  group?: string
 }
 
 export interface HubMember {
@@ -66,13 +67,22 @@ export interface RootInvitation {
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `SharingPreview` in apps/backend/src/projects/services/ProjectSharingService.ts.
+ * Authority: `SharingPreview` and `GroupCheck` in apps/backend/src/projects/services/ProjectSharingService.ts.
  */
 export interface SharingPreview {
   canShare: boolean
   shared?: { hubProjectId: string; sharedAt: string }
+  group?: string
+  addresses: { scope: 'owner' | 'group'; example?: string }
   moves: { epics: number; features: number; stories: number; tasks: number; chats: number; repository?: string }
   stays: string[]
+}
+
+export interface GroupCheck {
+  ok: boolean
+  problem?: string
+  suggested: string
+  example?: string
 }
 
 /**

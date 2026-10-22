@@ -49,6 +49,10 @@ export default function SharedProjectPage({ id, me, onLeft, embedded = false }: 
         </header>
       )}
 
+      {project.group && (
+        <p className="text-[12px] text-slate-400" data-testid="shared-group">Its apps are addressed under the group <span className="font-mono text-slate-200">{project.group}</span>, as <span className="font-mono text-slate-200">&lt;app&gt;-{project.group}</span>.</p>
+      )}
+
       <section className="space-y-2">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">People</h2>
         <ul className="divide-y divide-[var(--bark-800)] rounded-md border border-[var(--bark-700)]">

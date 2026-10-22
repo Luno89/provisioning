@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useDebounce } from '../../lib/use-debounce'
 import {
-  acceptInvitation, changeMemberRole, deleteSharedProject, getSharing, shareProject, sharingKeys, takeProjectBack, getInvitation, getRootInvitation, getSharedProject, hubKeys,
+  acceptInvitation, checkGroup, changeMemberRole, deleteSharedProject, getSharing, shareProject, sharingKeys, takeProjectBack, getInvitation, getRootInvitation, getSharedProject, hubKeys,
   inviteToProject, listSharedProjects, removeMember, takeInviteBack,
 } from '../../api/hub'
 import type { HubRole } from '../../types/hub'
@@ -26,9 +27,15 @@ export function useSharing(projectId: string) {
     client.setQueryData(sharingKeys.of(projectId), next)
     void client.invalidateQueries({ queryKey: hubKeys.mine })
   }
-  const share = useMutation({ mutationFn: () => shareProject(projectId), onSuccess: settle })
+  const share = useMutation({ mutationFn: (group: string) => shareProject(projectId, group), onSuccess: settle })
   const takeBack = useMutation({ mutationFn: (confirm: string) => takeProjectBack(projectId, confirm), onSuccess: settle })
   return { preview, share, takeBack }
+}
+
+export function useGroupCheck(projectId: string, name: string, enabled: boolean) {
+  const settled = useDebounce(name)
+  const check = useQuery({ queryKey: sharingKeys.group(projectId, settled), queryFn: () => checkGroup(projectId, settled), staleTime: 5000, enabled })
+  return { check, settled: settled === name }
 }
 
 export function usePeopleChanges(id: string) {

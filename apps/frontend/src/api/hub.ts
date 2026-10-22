@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { HubBoardView, HubPosted, HubRequest, HubRequestKind, HubRole, Invitation, InviteSent, RootInvitation, SharedProject, SharedProjectView, SharingPreview } from '../types/hub'
+import type { GroupCheck, HubBoardView, HubPosted, HubRequest, HubRequestKind, HubRole, Invitation, InviteSent, RootInvitation, SharedProject, SharedProjectView, SharingPreview } from '../types/hub'
 import type { ChatConversation } from './chat-pack'
 import type { TurnLogEntry } from '../types/turns'
 
@@ -52,13 +52,19 @@ export const HUB_GO_URL = (next: string): string => `/api/identity/go?to=hub&nex
 export const hubElsewhere = (): Promise<string | null> =>
   api.get<{ hub?: string | null }>('/auth/sign-in').then((r) => r.data.hub ?? null).catch(() => null)
 
-export const sharingKeys = { of: (projectId: string) => ['project-sharing', projectId] as const }
+export const sharingKeys = {
+  of: (projectId: string) => ['project-sharing', projectId] as const,
+  group: (projectId: string, name: string) => ['project-sharing', projectId, 'group', name] as const,
+}
 
 export const getSharing = (projectId: string): Promise<SharingPreview> =>
   api.get<SharingPreview>(`/project-sharing/${encodeURIComponent(projectId)}`).then((r) => r.data)
 
-export const shareProject = (projectId: string): Promise<SharingPreview> =>
-  api.post<SharingPreview>(`/project-sharing/${encodeURIComponent(projectId)}`).then((r) => r.data)
+export const shareProject = (projectId: string, group: string): Promise<SharingPreview> =>
+  api.post<SharingPreview>(`/project-sharing/${encodeURIComponent(projectId)}`, { group }).then((r) => r.data)
+
+export const checkGroup = (projectId: string, name: string): Promise<GroupCheck> =>
+  api.get<GroupCheck>(`/project-sharing/${encodeURIComponent(projectId)}/group-check`, { params: { name } }).then((r) => r.data)
 
 export const takeProjectBack = (projectId: string, confirm: string): Promise<SharingPreview> =>
   api.delete<SharingPreview>(`/project-sharing/${encodeURIComponent(projectId)}`, { data: { confirm } }).then((r) => r.data)

@@ -5,7 +5,6 @@ import type { ReactNode } from 'react'
 import * as hubApi from '../../api/hub'
 import SharedProjectPage from './SharedProjectPage'
 import JoinPage from './JoinPage'
-import ShareProject from './ShareProject'
 import type { SharedProjectView } from '../../types/hub'
 
 vi.mock('@tanstack/react-router', () => ({
@@ -23,9 +22,6 @@ vi.mock('../../api/hub', async (orig) => ({
   deleteSharedProject: vi.fn(async (id: string) => ({ deleted: id })),
   getInvitation: vi.fn(),
   acceptInvitation: vi.fn(),
-  getSharing: vi.fn(),
-  shareProject: vi.fn(),
-  takeProjectBack: vi.fn(),
 }))
 
 const api = vi.mocked(hubApi)
@@ -55,6 +51,12 @@ describe('a shared project\'s people', () => {
     await waitFor(() => expect(api.inviteToProject).toHaveBeenCalledWith('p1', { email: 'dee@example.com', role: 'collaborator' }))
     expect(((await screen.findByLabelText('The invite link')) as HTMLInputElement).value).toBe('http://root/#/join?code=C&project=J')
     expect(screen.getByTestId('invite-sent').textContent).toContain('this root sends no email')
+  })
+
+  it('shows everyone on the project the group its apps are addressed under', async () => {
+    api.getSharedProject.mockResolvedValue({ ...asOwner, project: { ...shop, group: 'acme' } })
+    wrap(<SharedProjectPage id="p1" me="ann" />)
+    expect((await screen.findByTestId('shared-group')).textContent).toBe('Its apps are addressed under the group acme, as <app>-acme.')
   })
 
   it('lets an owner change a role, remove someone, and delete only once the name is typed', async () => {
@@ -101,42 +103,5 @@ describe('taking an invite', () => {
     wrap(<JoinPage token="T" me="eve@example.com" onJoined={joined} />)
     expect(await screen.findByText(/This invite is for cy@example.com, and you are signed in as eve@example.com/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Join Shop' })).toBeNull()
-  })
-})
-
-describe('sharing a project from its settings', () => {
-  const unshared = { canShare: true, moves: { epics: 1, features: 2, stories: 5, tasks: 3, chats: 4, repository: 'shop' }, stays: ['the project\'s secrets'] }
-
-  it('says what goes and what stays before sharing, and shares only when asked', async () => {
-    api.getSharing.mockResolvedValue(unshared)
-    api.shareProject.mockResolvedValue({ ...unshared, shared: { hubProjectId: 'h1', sharedAt: 't' } })
-    wrap(<ShareProject project={{ id: 'p1', name: 'Shop' }} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Share this project…' }))
-    const confirm = screen.getByTestId('share-confirm').textContent ?? ''
-    expect(confirm).toContain('1 epic, 2 features, 5 stories, 3 tasks')
-    expect(confirm).toContain('the repository shop')
-    expect(confirm).toContain('the project\'s secrets')
-    expect(api.shareProject).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'Share Shop' }))
-    expect(await screen.findByRole('button', { name: /People on Shop/ })).toBeTruthy()
-  })
-
-  it('says sharing needs a hub where there is none, and offers nothing to press', async () => {
-    api.getSharing.mockResolvedValue({ ...unshared, canShare: false })
-    wrap(<ShareProject project={{ id: 'p1', name: 'Shop' }} />)
-    expect((await screen.findByTestId('share-project')).textContent).toContain('needs a hub')
-    expect(screen.queryByRole('button')).toBeNull()
-  })
-
-  it('takes it back only once its name is typed', async () => {
-    api.getSharing.mockResolvedValue({ ...unshared, shared: { hubProjectId: 'h1', sharedAt: 't' } })
-    api.takeProjectBack.mockResolvedValue(unshared)
-    wrap(<ShareProject project={{ id: 'p1', name: 'Shop' }} />)
-    const back = await screen.findByRole('button', { name: /Take it back/ }) as HTMLButtonElement
-    expect(back.disabled).toBe(true)
-    fireEvent.change(screen.getByLabelText('The project\'s name, to take it back'), { target: { value: 'Shop' } })
-    fireEvent.click(back)
-    await waitFor(() => expect(api.takeProjectBack).toHaveBeenCalledWith('p1', 'Shop'))
-    expect(await screen.findByRole('button', { name: 'Share this project…' })).toBeTruthy()
   })
 })
