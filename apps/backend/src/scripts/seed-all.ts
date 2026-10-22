@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 
-import { createDatabase } from '../platform/lib/db-interface.js';
+import { createDatabase, type Database } from '../platform/lib/db-interface.js';
 import { seedBindingTypes } from '../infrastructure/lib/binding-type-seeds.js';
 import { seedAppSpecs, seedConstructBackedTypes } from '../infrastructure/lib/app-spec.js';
 import { seedClusterProviders } from '../infrastructure/lib/cluster-providers.js';
@@ -16,31 +16,31 @@ import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
 import { runOnce, type MigrationLedger } from '../platform/lib/migrations.js';
 
-export async function seedAll(db: Record<string, unknown>) {
+export async function seedAll(db: Database) {
   const counts: Record<string, number> = {};
-  counts.bindingTypes = await seedBindingTypes(db as never);
+  counts.bindingTypes = await seedBindingTypes(db);
   // Images before tree types: a tree type's language must name one that exists.
-  counts.workspaceImages = await seedWorkspaceImages(db as never);
-  counts.treeTypes = await seedTreeTypes(db as never);
-  const ledger = db as unknown as MigrationLedger;
+  counts.workspaceImages = await seedWorkspaceImages(db);
+  counts.treeTypes = await seedTreeTypes(db);
+  const ledger: MigrationLedger = db.platform;
   const now = new Date().toISOString();
-  counts.treeVersionsStamped = (await runOnce(ledger, 'tree-versions', now, async () => ({ stamped: await stampTreeVersions(db as never) }))).stamped ?? 0;
-  counts.appSpecs = await seedAppSpecs(db as never);
-  counts.constructBackedTypes = await seedConstructBackedTypes(db as never);
-  counts.clusterProviders = await seedClusterProviders(db as never);
-  counts.removedBuiltInProcedures = await retireStoredBuiltInProcedures(db as never);
-  counts.engineTools = await seedEngineTools(db as never);
-  counts.removedBuiltInPersonas = await retireStoredBuiltInPersonas(db as never);
+  counts.treeVersionsStamped = (await runOnce(ledger, 'tree-versions', now, async () => ({ stamped: await stampTreeVersions(db) }))).stamped ?? 0;
+  counts.appSpecs = await seedAppSpecs(db);
+  counts.constructBackedTypes = await seedConstructBackedTypes(db);
+  counts.clusterProviders = await seedClusterProviders(db);
+  counts.removedBuiltInProcedures = await retireStoredBuiltInProcedures(db);
+  counts.engineTools = await seedEngineTools(db);
+  counts.removedBuiltInPersonas = await retireStoredBuiltInPersonas(db);
   Object.assign(counts, { agentToolListsMoved: 0, toolGrantsWritten: 0, builtInCopiesDropped: 0 }, await runOnce(ledger, 'tool-grants', now, async () => {
-    const moved = await migrateAgentTools(db as never, seededPersonas(), seededGrants(), now);
+    const moved = await migrateAgentTools(db, seededPersonas(), seededGrants(), now);
     return { agentToolListsMoved: moved.agents, toolGrantsWritten: moved.granted + moved.revoked, builtInCopiesDropped: moved.copiesDropped };
   }));
   Object.assign(counts, { agentServerListsMoved: 0, servingToolsMoved: 0, mcpToolKindsMoved: 0 }, await runOnce(ledger, 'mcp-servers', now, async () => {
-    const servers = await migrateMcpServers(db as never, now);
+    const servers = await migrateMcpServers(db, now);
     return { agentServerListsMoved: servers.agentServerListsMoved, servingToolsMoved: servers.servingToolsMoved, mcpToolKindsMoved: servers.toolKindsMoved };
   }));
   Object.assign(counts, { toolsNamingNeeds: 0, serversNamingNeeds: 0, dependenciesMade: 0 }, await runOnce(ledger, 'workspace-dependencies', now, async () => {
-    const needs = await migrateToDependencies(db as never, SHIPPED_DEPENDENCIES);
+    const needs = await migrateToDependencies(db, SHIPPED_DEPENDENCIES);
     for (const left of needs.left) console.warn(`[seed] left as it was: ${left}`);
     return { toolsNamingNeeds: needs.toolsMoved, serversNamingNeeds: needs.serversMoved, dependenciesMade: needs.dependenciesMade };
   }));
@@ -51,7 +51,7 @@ async function main() {
   const db = createDatabase();
   await db.init();
   try {
-    const counts = await seedAll(db as never);
+    const counts = await seedAll(db);
     const written = Object.entries(counts).filter(([, n]) => n > 0);
     console.log(written.length
       ? `[seed] ${written.map(([k, n]) => `${k}=${n}`).join(' ')}`

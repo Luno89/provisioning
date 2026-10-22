@@ -15,6 +15,7 @@ import type { Task } from '../../projects/lib/tasks.js';
 import type { PlanProposal } from '../../projects/lib/plan-proposals.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import type { HubStore } from '../../hub/store.js';
+import type { PlatformStore } from '../store.js';
 import type { SecretRequest } from '../../projects/lib/secret-requests.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import type { ExtensionSettings } from '../../engine/lib/extension-settings.js';
@@ -23,7 +24,6 @@ import type { MonitoringSetting, AlertEpisode } from '../../monitoring/lib/monit
 import type { AlertRuleRecord } from '../../monitoring/lib/monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
 import type { FileSettings } from '../../files/lib/file-places.js';
-import type { MigrationRecord } from './migrations.js';
 import type { FileShare } from '../../files/lib/file-shares.js';
 import type { PoolPolicy } from '../../instances/lib/pool.js';
 import type { WorkFailure } from '../../infrastructure/lib/work-failures.js';
@@ -88,6 +88,7 @@ export interface AccountIds {
 
 export interface Database {
   hub: HubStore;
+  platform: PlatformStore;
   init(): Promise<void>;
   close(): Promise<void>;
 
@@ -258,8 +259,6 @@ export interface Database {
   saveNotificationSettings(settings: NotificationSettings): Promise<void>;
   getFileSettings(ownerId: string): Promise<FileSettings | undefined>;
   saveFileSettings(settings: FileSettings): Promise<void>;
-  hasMigration(name: string): Promise<boolean>;
-  recordMigration(record: MigrationRecord): Promise<void>;
   getFileShares(ownerId: string): Promise<FileShare[]>;
   getFileShare(id: string): Promise<FileShare | undefined>;
   saveFileShare(share: FileShare): Promise<void>;

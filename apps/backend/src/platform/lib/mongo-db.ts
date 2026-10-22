@@ -1,5 +1,6 @@
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
 import { MongoHubStore } from '../../hub/store.js';
+import { MongoPlatformStore } from '../store.js';
 import { hintKey, type McpToolHint } from '../../engine/lib/mcp-tool-hints.js';
 import type { BenchSettings, BenchState } from '../../checks/lib/bench.js';
 import type { ExtensionSettings } from '../../engine/lib/extension-settings.js';
@@ -8,7 +9,6 @@ import type { MonitoringSetting, AlertEpisode } from '../../monitoring/lib/monit
 import type { AlertRuleRecord } from '../../monitoring/lib/monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
 import type { FileSettings } from '../../files/lib/file-places.js';
-import type { MigrationRecord } from './migrations.js';
 import type { FileShare } from '../../files/lib/file-shares.js';
 import type { PoolPolicy } from '../../instances/lib/pool.js';
 import type { WorkFailure } from '../../infrastructure/lib/work-failures.js';
@@ -90,11 +90,13 @@ const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (ki
 export class MongoDB implements Database {
   constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {
     this.hub = new MongoHubStore(() => this.db!);
+    this.platform = new MongoPlatformStore(() => this.db!);
   }
 
   private client: MongoClient | null = null;
   private db: Db | null = null;
   readonly hub: MongoHubStore;
+  readonly platform: MongoPlatformStore;
 
   private get clusters(): Collection {
     return this.db!.collection('clusters');
@@ -353,6 +355,7 @@ export class MongoDB implements Database {
     await this.frontier.createIndex({ ingestId: 1, state: 1, depth: 1, rank: -1, url: 1 });
     await this.corpus.createIndex({ ownerId: 1, ingestId: 1 });
     await this.corpus.createIndex({ ownerId: 1, projectId: 1 });
+    await this.platform.ensureIndexes();
   }
 
   async dropDatabase(): Promise<void> {
@@ -1224,15 +1227,6 @@ export class MongoDB implements Database {
     if (!doc) return undefined;
     const { _id, ...rest } = doc;
     return { ...(rest as Omit<FileSettings, 'ownerId'>), ownerId: String(_id) };
-  }
-
-  async hasMigration(name: string): Promise<boolean> {
-    return Boolean(await this.db!.collection('migrations').findOne({ _id: name as never }));
-  }
-
-  async recordMigration(record: MigrationRecord): Promise<void> {
-    const { name, ...rest } = record;
-    await this.db!.collection('migrations').replaceOne({ _id: name as never }, rest, { upsert: true });
   }
 
   async saveFileSettings(settings: FileSettings): Promise<void> {

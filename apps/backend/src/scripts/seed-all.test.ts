@@ -6,7 +6,7 @@ describe('seed-all', () => {
   it('fills every catalogue the platform expects to find in the database', async () => {
     const db = await testDatabase();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, ...counts } = await seedAll(db as never);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, ...counts } = await seedAll(db);
     expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade]).toEqual([0, 0, 0, 0, 0, 0, 0]);
     expect(removedBuiltInProcedures).toBe(0);
     expect(removedBuiltInPersonas).toBe(0);
@@ -22,8 +22,8 @@ describe('seed-all', () => {
     const db = await testDatabase();
     await db.saveEnginePersona({ slug: 'helper', ownerId: 'user-1', name: 'Helper', tools: ['read_file'] } as never);
 
-    expect(await seedAll(db as never)).toMatchObject({ agentToolListsMoved: 1, toolGrantsWritten: 1 });
-    expect(await seedAll(db as never)).toMatchObject({ agentToolListsMoved: 0, toolGrantsWritten: 0 });
+    expect(await seedAll(db)).toMatchObject({ agentToolListsMoved: 1, toolGrantsWritten: 1 });
+    expect(await seedAll(db)).toMatchObject({ agentToolListsMoved: 0, toolGrantsWritten: 0 });
     expect((await db.getToolGrants('user-1')).map((grant) => grant.tool)).toEqual(['read_file']);
   });
 
@@ -31,16 +31,16 @@ describe('seed-all', () => {
     const db = await testDatabase();
     await db.saveEnginePersona({ slug: 'helper', ownerId: 'user-1', name: 'Helper', mcp: ['gitea'] } as never);
 
-    expect(await seedAll(db as never)).toMatchObject({ agentServerListsMoved: 1 });
-    expect(await seedAll(db as never)).toMatchObject({ agentServerListsMoved: 0 });
+    expect(await seedAll(db)).toMatchObject({ agentServerListsMoved: 1 });
+    expect(await seedAll(db)).toMatchObject({ agentServerListsMoved: 0 });
     expect(await db.getToolGrants('user-1')).toEqual([expect.objectContaining({ agent: 'helper', tool: 'gitea', kind: 'server' })]);
   });
 
   it('writes nothing on a second run', async () => {
     const db = await testDatabase();
-    await seedAll(db as never);
+    await seedAll(db);
 
-    const again = await seedAll(db as never);
+    const again = await seedAll(db);
     expect(Object.values(again).reduce((a, b) => a + b, 0)).toBe(0);
   });
 });

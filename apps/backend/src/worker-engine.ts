@@ -522,7 +522,7 @@ async function buildActivities() {
     }),
     ReleaseBrowserTestsActivity: releaseBrowser.ReleaseBrowserTestsActivity,
     ...createCheckRunActivities({
-      store: db as never,
+      store: db,
       api: (space) => axios.create({
         baseURL: process.env.CHECKS_API_URL || `http://localhost:${process.env.PORT || 3001}/api`,
         proxy: false,

@@ -131,7 +131,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   await db.init();
   resolveOwnersWith(async (owner) => (await db.getUserById(owner))?.space?.person ?? owner);
   await migrateLegacyOwnership(db);
-  await seedAll(db as never);
+  await seedAll(db);
 
   const keys = loadKeys(process.env);
   const role = roleFromEnv(process.env);
