@@ -33,12 +33,14 @@ function setUp(deployments: DeploymentMetadata[], settings?: FileSettings) {
   const files = new FileService({
     store: {
       getDeployments: async () => deployments,
-      getFileSettings: async (ownerId) => saved.get(ownerId),
-      saveFileSettings: async (next) => { saved.set(next.ownerId, next); },
-      getFileShares: async (ownerId) => [...shares.values()].filter((share) => share.ownerId === ownerId),
-      getFileShare: async (id) => shares.get(id),
-      saveFileShare: async (share) => { shares.set(share.id, share); },
-      deleteFileShare: async (id) => { shares.delete(id); },
+      files: {
+        getFileSettings: async (ownerId) => saved.get(ownerId),
+        saveFileSettings: async (next) => { saved.set(next.ownerId, next); },
+        getFileShares: async (ownerId) => [...shares.values()].filter((share) => share.ownerId === ownerId),
+        getFileShare: async (id) => shares.get(id),
+        saveFileShare: async (share) => { shares.set(share.id, share); },
+        deleteFileShare: async (id) => { shares.delete(id); },
+      },
       projects: {
         getProjects: async () => [...projects.values()],
         saveProjectInfo: async (patch) => { const next = { ...projects.get(patch.id)!, ...patch } as ProjectMetadata; projects.set(patch.id, next); return next; },

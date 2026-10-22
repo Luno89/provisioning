@@ -1,5 +1,6 @@
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
 import { MongoHubStore } from '../../hub/store.js';
+import { MongoFilesStore } from '../../files/store.js';
 import { MongoReleasesStore } from '../../releases/store.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import { MongoProjectsStore } from '../../projects/store.js';
@@ -13,8 +14,6 @@ import type { AutoModeSettings } from '../../engine/lib/auto-mode.js';
 import type { MonitoringSetting, AlertEpisode } from '../../monitoring/lib/monitoring-records.js';
 import type { AlertRuleRecord } from '../../monitoring/lib/monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
-import type { FileSettings } from '../../files/lib/file-places.js';
-import type { FileShare } from '../../files/lib/file-shares.js';
 import type { WorkFailure } from '../../infrastructure/lib/work-failures.js';
 import type { AuthoredExtension } from '../../engine/lib/authored-extensions.js';
 import type { MachineJoinCode } from '../../machines/lib/machines.js';
@@ -41,8 +40,6 @@ import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.
 import type { ModelThinkingProfile } from '../../engine/lib/thinking-classifier.js';
 import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
 import type { ScriptedRequestRecord } from './db-interface.js';
-import type { StoredArtifact } from '../../files/lib/artifacts.js';
-import type { ArtifactChunk } from '../../files/lib/artifacts.js';
 import type { DeferredConclusion, KeeperSettings } from '../../memory/lib/conclusions.js';
 
 export const databaseOf = (uri: string): string => {
@@ -85,6 +82,7 @@ const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (ki
 export class MongoDB implements Database {
   constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {
     this.hub = new MongoHubStore(() => this.db!);
+    this.files = new MongoFilesStore(() => this.db!);
     this.releases = new MongoReleasesStore(() => this.db!);
     this.projects = markingHubWrites(new MongoProjectsStore(() => this.db!), this.hub);
     this.instances = new MongoInstancesStore(() => this.db!);
@@ -95,6 +93,7 @@ export class MongoDB implements Database {
   private client: MongoClient | null = null;
   private db: Db | null = null;
   readonly hub: MongoHubStore;
+  readonly files: MongoFilesStore;
   readonly releases: MongoReleasesStore;
   readonly projects: MongoProjectsStore;
   readonly instances: MongoInstancesStore;
@@ -267,9 +266,6 @@ export class MongoDB implements Database {
     await this.machineJoinCodes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.toolGrants.createIndex({ ownerId: 1, agent: 1 });
     await this.runEffort.createIndex({ ownerId: 1, procedureId: 1, modelKey: 1, finishedAt: -1 });
-    await this.artifacts.createIndex({ ownerId: 1, runId: 1 });
-    await this.artifacts.createIndex({ expiresAt: 1 });
-    await this.artifactChunks.createIndex({ artifactId: 1, n: 1 });
     await this.frontier.createIndex({ ingestId: 1, state: 1, depth: 1, rank: -1, url: 1 });
     await this.corpus.createIndex({ ownerId: 1, ingestId: 1 });
     await this.corpus.createIndex({ ownerId: 1, projectId: 1 });
@@ -278,6 +274,7 @@ export class MongoDB implements Database {
     await this.instances.ensureIndexes();
     await this.projects.ensureIndexes();
     await this.releases.ensureIndexes();
+    await this.files.ensureIndexes();
   }
 
   async dropDatabase(): Promise<void> {
@@ -641,38 +638,6 @@ export class MongoDB implements Database {
     await this.memories.deleteOne({ _id: id as any });
   }
 
-  async saveArtifact(artifact: StoredArtifact): Promise<void> {
-    const { _id, ...rest } = toDoc(artifact);
-    await this.artifacts.replaceOne({ _id }, rest, { upsert: true });
-  }
-
-  async getArtifacts(ownerId: string, runId?: string): Promise<StoredArtifact[]> {
-    const docs = await this.artifacts.find({ ownerId, ...(runId ? { runId } : {}) }).sort({ createdAt: 1 }).toArray();
-    return docs.map((d: Record<string, unknown>) => fromDoc<StoredArtifact>(d));
-  }
-
-  async getExpiredArtifacts(now: string): Promise<StoredArtifact[]> {
-    const docs = await this.artifacts.find({ expiresAt: { $lte: now } }).toArray();
-    return docs.map((d: Record<string, unknown>) => fromDoc<StoredArtifact>(d));
-  }
-
-  async deleteArtifact(id: string): Promise<void> {
-    await this.artifacts.deleteOne({ _id: id as never });
-  }
-
-  async saveArtifactChunk(chunk: ArtifactChunk): Promise<void> {
-    await this.artifactChunks.replaceOne({ _id: `${chunk.artifactId}:${chunk.n}` as never }, { artifactId: chunk.artifactId, ownerId: chunk.ownerId, n: chunk.n, data: chunk.data }, { upsert: true });
-  }
-
-  async getArtifactChunks(artifactId: string): Promise<ArtifactChunk[]> {
-    const docs = await this.artifactChunks.find({ artifactId }).sort({ n: 1 }).toArray();
-    return docs.map((d) => ({ artifactId: d.artifactId as string, ownerId: d.ownerId as string, n: d.n as number, data: Buffer.from((d.data as { buffer: ArrayBuffer }).buffer ?? d.data) }));
-  }
-
-  async deleteArtifactChunks(artifactId: string): Promise<void> {
-    await this.artifactChunks.deleteMany({ artifactId });
-  }
-
   async getMcpToolHints(ownerId: string): Promise<McpToolHint[]> {
     const docs = await this.mcpToolHints.find({ ownerId }).toArray();
     return docs.map(({ _id, ...hint }) => hint as unknown as McpToolHint);
@@ -775,39 +740,6 @@ export class MongoDB implements Database {
 
   async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
     await this.db!.collection('deferredConclusions').deleteOne({ _id: id as never, ownerId });
-  }
-
-  async getFileShares(ownerId: string): Promise<FileShare[]> {
-    const docs = await this.db!.collection('fileShares').find({ ownerId }).sort({ createdAt: -1 }).toArray();
-    return docs.map(({ _id, ...rest }) => ({ ...(rest as Omit<FileShare, 'id'>), id: String(_id) }));
-  }
-
-  async getFileShare(id: string): Promise<FileShare | undefined> {
-    const doc = await this.db!.collection('fileShares').findOne({ _id: id as never });
-    if (!doc) return undefined;
-    const { _id, ...rest } = doc;
-    return { ...(rest as Omit<FileShare, 'id'>), id: String(_id) };
-  }
-
-  async saveFileShare(share: FileShare): Promise<void> {
-    const { id, ...rest } = share;
-    await this.db!.collection('fileShares').replaceOne({ _id: id as never }, rest, { upsert: true });
-  }
-
-  async deleteFileShare(id: string): Promise<void> {
-    await this.db!.collection('fileShares').deleteOne({ _id: id as never });
-  }
-
-  async getFileSettings(ownerId: string): Promise<FileSettings | undefined> {
-    const doc = await this.db!.collection('fileSettings').findOne({ _id: ownerId as never });
-    if (!doc) return undefined;
-    const { _id, ...rest } = doc;
-    return { ...(rest as Omit<FileSettings, 'ownerId'>), ownerId: String(_id) };
-  }
-
-  async saveFileSettings(settings: FileSettings): Promise<void> {
-    const { ownerId, ...rest } = settings;
-    await this.db!.collection('fileSettings').replaceOne({ _id: ownerId as never }, rest, { upsert: true });
   }
 
   async getNotificationSettings(ownerId: string): Promise<NotificationSettings | undefined> {

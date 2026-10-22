@@ -21,7 +21,7 @@ const bucket = () => {
 let clock = '2026-10-08T12:00:00.000Z';
 let ids = 0;
 const service = (records: MongoDB, minio?: ObjectStore) => new ArtifactService({
-  records,
+  records: records.files,
   minioFor: async () => minio,
   now: () => clock,
   newId: () => `a${++ids}`,
@@ -36,7 +36,7 @@ describe('keeping a run\'s failure artifacts', () => {
     expect(kept.place).toBe('mongo');
     expect(kept.minioMissing).toBe(true);
     expect(kept.stored[0]).toMatchObject({ name: 'test-failed-1.png', contentType: 'image/png', size: big.length, expiresAt: '2026-10-22T12:00:00.000Z' });
-    expect(await db.getArtifactChunks(kept.stored[0]!.id)).toHaveLength(3);
+    expect(await db.files.getArtifactChunks(kept.stored[0]!.id)).toHaveLength(3);
 
     const read = await service(db).get('bo', kept.stored[0]!.id);
     expect(read!.bytes.equals(big)).toBe(true);
@@ -49,7 +49,7 @@ describe('keeping a run\'s failure artifacts', () => {
 
     expect(kept).toMatchObject({ place: 'minio', minioMissing: false });
     expect([...objects.keys()]).toEqual([objectKey(kept.stored[0]!)]);
-    expect(await db.getArtifactChunks(kept.stored[0]!.id)).toEqual([]);
+    expect(await db.files.getArtifactChunks(kept.stored[0]!.id)).toEqual([]);
     expect((await service(db, store).get('bo', kept.stored[0]!.id))!.bytes.toString()).toBe('zip');
   });
 
@@ -82,7 +82,7 @@ describe('keeping a run\'s failure artifacts', () => {
     clock = '2026-10-23T12:00:00.000Z';
     expect(await service(db, store).sweep()).toBe(2);
 
-    expect(await db.getArtifactChunks(inMongo.stored[0]!.id)).toEqual([]);
+    expect(await db.files.getArtifactChunks(inMongo.stored[0]!.id)).toEqual([]);
     expect(objects.size).toBe(0);
     expect(await service(db).list('bo', 'run-2')).toEqual([]);
     expect(inMinio.stored).toHaveLength(1);
@@ -97,7 +97,7 @@ describe('a check\'s space handing its runs to the person', () => {
     const before = await service(db).put('space-1', 'run-10', [{ name: 'b.png', bytes: Buffer.from('gone') }]);
     const removed = await db.accounts.removeAccountRecords('space-1', { watermarkKeys: [], ingestIds: [], projectIds: [] });
     expect(removed).toMatchObject({ artifacts: 1, artifactChunks: 1 });
-    expect(await db.getArtifactChunks(before.stored[0]!.id)).toEqual([]);
+    expect(await db.files.getArtifactChunks(before.stored[0]!.id)).toEqual([]);
 
     expect(await service(db).list('space-1', 'run-9')).toEqual([]);
     expect((await service(db).get('bo', kept.stored[0]!.id))!.bytes.toString()).toBe('shot');

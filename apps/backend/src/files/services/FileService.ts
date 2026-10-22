@@ -12,16 +12,18 @@ export const FILES_APP_NAME = 'koala-files';
 export interface FileServiceDeps {
   store: {
     getDeployments(): Promise<DeploymentMetadata[]>;
-    getFileSettings(ownerId: string): Promise<FileSettings | undefined>;
-    getFileShares(ownerId: string): Promise<FileShare[]>;
-    getFileShare(id: string): Promise<FileShare | undefined>;
-    saveFileShare(share: FileShare): Promise<void>;
-    deleteFileShare(id: string): Promise<void>;
+    files: {
+      getFileSettings(ownerId: string): Promise<FileSettings | undefined>;
+      getFileShares(ownerId: string): Promise<FileShare[]>;
+      getFileShare(id: string): Promise<FileShare | undefined>;
+      saveFileShare(share: FileShare): Promise<void>;
+      deleteFileShare(id: string): Promise<void>;
+      saveFileSettings(settings: FileSettings): Promise<void>;
+    };
     projects: {
       getProjects(): Promise<ProjectMetadata[]>;
       saveProjectInfo(project: Partial<ProjectMetadata> & { id: string }): Promise<ProjectMetadata>;
     };
-    saveFileSettings(settings: FileSettings): Promise<void>;
   };
   open: (ownerId: string, place: FilePlace) => Promise<FileStore>;
   deployMinio?: ((ownerId: string, request: { name: string; clusterId: string }) => Promise<{ deploymentId: string }>) | undefined;
@@ -45,7 +47,7 @@ export class FileService {
   constructor(private readonly deps: FileServiceDeps) {}
 
   async servers(ownerId: string): Promise<{ servers: FileServer[]; defaultId?: string | undefined }> {
-    const [deployments, settings] = await Promise.all([this.deps.store.getDeployments(), this.deps.store.getFileSettings(ownerId)]);
+    const [deployments, settings] = await Promise.all([this.deps.store.getDeployments(), this.deps.store.files.getFileSettings(ownerId)]);
     const servers = fileServersOf(deployments, ownerId);
     const defaultId = settings?.deploymentId && servers.some((server) => server.deploymentId === settings.deploymentId) ? settings.deploymentId : undefined;
     return { servers, ...(defaultId ? { defaultId } : {}) };
@@ -55,7 +57,7 @@ export class FileService {
     if (deploymentId !== null && !(await this.servers(ownerId)).servers.some((server) => server.deploymentId === deploymentId)) {
       return { ok: false, status: 400, why: 'That is not one of your running file servers.' };
     }
-    await this.deps.store.saveFileSettings({ ownerId, ...(deploymentId ? { deploymentId } : {}) });
+    await this.deps.store.files.saveFileSettings({ ownerId, ...(deploymentId ? { deploymentId } : {}) });
     return { ok: true, value: deploymentId ? { defaultId: deploymentId } : {} };
   }
 
@@ -197,29 +199,29 @@ export class FileService {
       createdAt: now,
       expiresAt: shareExpires(now, days),
     };
-    await this.deps.store.saveFileShare(share);
+    await this.deps.store.files.saveFileShare(share);
     return { ok: true, value: share };
   }
 
   async shares(ownerId: string): Promise<FileShare[]> {
     const now = this.now();
-    return (await this.deps.store.getFileShares(ownerId)).filter((share) => shareLive(share, now));
+    return (await this.deps.store.files.getFileShares(ownerId)).filter((share) => shareLive(share, now));
   }
 
   async unshare(ownerId: string, id: string): Promise<FilesOutcome<{ id: string }>> {
-    const share = await this.deps.store.getFileShare(id);
+    const share = await this.deps.store.files.getFileShare(id);
     if (!share || share.ownerId !== ownerId) return { ok: false, status: 404, why: 'There is no such link.' };
-    await this.deps.store.deleteFileShare(id);
+    await this.deps.store.files.deleteFileShare(id);
     return { ok: true, value: { id } };
   }
 
   async shared(token: string): Promise<FilesOutcome<Download & { name: string }>> {
     const gone = { ok: false as const, status: 404 as const, why: 'This link does not exist, or it has expired.' };
     if (!SHARE_TOKEN.test(token)) return gone;
-    const share = await this.deps.store.getFileShare(token);
+    const share = await this.deps.store.files.getFileShare(token);
     if (!share) return gone;
     if (!shareLive(share, this.now())) {
-      await this.deps.store.deleteFileShare(share.id);
+      await this.deps.store.files.deleteFileShare(share.id);
       return gone;
     }
     const project = share.projectId ? (await this.deps.store.projects.getProjects()).find((entry) => entry.id === share.projectId && entry.ownerId === share.ownerId) : undefined;

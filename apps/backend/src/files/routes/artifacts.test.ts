@@ -16,7 +16,7 @@ describe('/api/artifacts', () => {
     harness = await mountRouter({
       prefix: '/api/artifacts',
       router: async (db) => {
-        const artifacts = new ArtifactService({ records: db, minioFor: async () => undefined });
+        const artifacts = new ArtifactService({ records: db.files, minioFor: async () => undefined });
         stored = (await artifacts.put(TEST_USER.id, 'run-1', [
           { name: 'signs-in/test-failed-1.png', bytes: Buffer.from('png-bytes') },
           { name: 'signs-in/trace.zip', bytes: Buffer.from('zip') },
@@ -49,7 +49,7 @@ describe('/api/artifacts', () => {
   });
 
   it('never serves or lists someone else\'s', async () => {
-    const theirs = (await harness.db.getArtifacts('someone-else'))[0]!;
+    const theirs = (await harness.db.files.getArtifacts('someone-else'))[0]!;
     expect((await get(harness.url(`/api/artifacts/${theirs.id}`))).status).toBe(404);
     expect((await axios.get(harness.url('/api/artifacts/runs/run-2'))).data.artifacts).toEqual([]);
   });

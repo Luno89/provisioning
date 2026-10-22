@@ -405,7 +405,7 @@ async function main(): Promise<void> {
     if (releaseIds.length > 0) {
       let left = -1;
       for (let tries = 0; tries < 60 && left !== 0; tries += 1) {
-        left = (await Promise.all(releaseIds.map((id) => db.getArtifacts(OWNER!, id)))).flat().length;
+        left = (await Promise.all(releaseIds.map((id) => db.files.getArtifacts(OWNER!, id)))).flat().length;
         if (left !== 0) await sleep(5_000);
       }
       assert.equal(left, 0, 'the release artifacts outlived the project');

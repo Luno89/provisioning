@@ -85,7 +85,7 @@ describe('the steps that delete a project', () => {
   });
 
   it('removes what its releases\' browser tests kept, and nothing of another project\'s', async () => {
-    const artifacts = new ArtifactService({ records: db, minioFor: async () => undefined });
+    const artifacts = new ArtifactService({ records: db.files, minioFor: async () => undefined });
     for (const [id, projectId] of [['rel1', 'p1'], ['rel2', 'p2']] as const) {
       await db.releases.saveOdooRelease({ id, ownerId: 'bo', projectId, pipelineRunId: 'x', commit: 'c', image: 'i:t', state: 'preview', host: 'h', startedAt: at, updatedAt: at });
       await artifacts.put('bo', id, [{ name: 'shot.png', bytes: Buffer.from('png') }]);

@@ -17,5 +17,5 @@ export function createArtifactService(db: Database, infra: InfrastructureService
     isMockCloud: (cluster) => isMockCloudProvider(cluster.provider, hasCloudCredentials),
   });
   const minio = new MinioArtifactStores(reach);
-  return { artifacts: new ArtifactService({ records: db, minioFor: (ownerId) => minio.storeFor(ownerId) }), minio, reach };
+  return { artifacts: new ArtifactService({ records: db.files, minioFor: (ownerId) => minio.storeFor(ownerId) }), minio, reach };
 }

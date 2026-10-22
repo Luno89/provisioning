@@ -10,6 +10,7 @@ import type { FrontierUrl, FrontierClaim } from './frontier.js';
 import type { MemoryItem } from '../../memory/lib/memory-store.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import type { HubStore } from '../../hub/store.js';
+import type { FilesStore } from '../../files/store.js';
 import type { ReleasesStore } from '../../releases/store.js';
 import type { ProjectsStore } from '../../projects/store.js';
 import type { InstancesStore } from '../../instances/store.js';
@@ -21,8 +22,6 @@ import type { AutoModeSettings } from '../../engine/lib/auto-mode.js';
 import type { MonitoringSetting, AlertEpisode } from '../../monitoring/lib/monitoring-records.js';
 import type { AlertRuleRecord } from '../../monitoring/lib/monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
-import type { FileSettings } from '../../files/lib/file-places.js';
-import type { FileShare } from '../../files/lib/file-shares.js';
 import type { WorkFailure } from '../../infrastructure/lib/work-failures.js';
 import type { AuthoredExtension } from '../../engine/lib/authored-extensions.js';
 import type { MachineJoinCode } from '../../machines/lib/machines.js';
@@ -39,8 +38,6 @@ import type { ModelThinkingProfile } from '../../engine/lib/thinking-classifier.
 import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
 import type { PartialInfo } from './types.js';
-import type { StoredArtifact } from '../../files/lib/artifacts.js';
-import type { ArtifactChunk } from '../../files/lib/artifacts.js';
 import type { DeferredConclusion, KeeperSettings } from '../../memory/lib/conclusions.js';
 
 export interface BindingTypeRecord {
@@ -64,6 +61,7 @@ export interface ScriptedRequestRecord {
 
 export interface Database {
   hub: HubStore;
+  files: FilesStore;
   releases: ReleasesStore;
   projects: ProjectsStore;
   instances: InstancesStore;
@@ -136,14 +134,6 @@ export interface Database {
   getMemories(ownerId?: string): Promise<MemoryItem[]>;
   saveMemory(memory: MemoryItem): Promise<void>;
 
-  saveArtifact(artifact: StoredArtifact): Promise<void>;
-  getArtifacts(ownerId: string, runId?: string): Promise<StoredArtifact[]>;
-  getExpiredArtifacts(now: string): Promise<StoredArtifact[]>;
-  deleteArtifact(id: string): Promise<void>;
-  saveArtifactChunk(chunk: ArtifactChunk): Promise<void>;
-  getArtifactChunks(artifactId: string): Promise<ArtifactChunk[]>;
-  deleteArtifactChunks(artifactId: string): Promise<void>;
-
   getMcpRequests(ownerId: string, conversationId?: string): Promise<McpRequest[]>;
   getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined>;
   saveMcpRequest(request: McpRequest): Promise<void>;
@@ -176,12 +166,6 @@ export interface Database {
   getMonitoringSettings(): Promise<MonitoringSetting[]>;
   getNotificationSettings(ownerId: string): Promise<NotificationSettings | undefined>;
   saveNotificationSettings(settings: NotificationSettings): Promise<void>;
-  getFileSettings(ownerId: string): Promise<FileSettings | undefined>;
-  saveFileSettings(settings: FileSettings): Promise<void>;
-  getFileShares(ownerId: string): Promise<FileShare[]>;
-  getFileShare(id: string): Promise<FileShare | undefined>;
-  saveFileShare(share: FileShare): Promise<void>;
-  deleteFileShare(id: string): Promise<void>;
   saveMonitoringSetting(setting: MonitoringSetting): Promise<void>;
   getAlertRules(ownerId?: string): Promise<AlertRuleRecord[]>;
   saveAlertRule(rule: AlertRuleRecord): Promise<void>;
