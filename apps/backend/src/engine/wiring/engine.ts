@@ -308,14 +308,14 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       list: (ownerId) => db.getMcpServers(ownerId),
       get: async (ownerId, id) => (await db.getMcpServers(ownerId)).find((server) => server.id === id),
       save: (server) => db.saveMcpServer(server),
-      hostedUrl: hostedMcpUrl({ deployments: () => db.getDeployments(), probeUrl: resolveMcpProbeUrl }),
+      hostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: resolveMcpProbeUrl }),
     },
     publishedWorkspaces: { get: (ownerId: string, treeId: string) => db.getPublishedWorkspace(ownerId, treeId), save: (workspace) => db.savePublishedWorkspace(workspace) },
     readRepoFile: async (ownerId: string, repo: string, path: string, ref: string) => (await projectRepos.readDocument(ownerId, repo, path, ref))?.content,
     writeRepoFile: (ownerId, repo, path, content, message, branch) => projectRepos.putDocument(ownerId, repo, path, content, message, branch),
     workspaceBuild: (ownerId, treeId, commit) => workspaceBuilds.start(ownerId, treeId, commit),
     treeLanguage: treeLanguageFrom(db.projects),
-    treeExtras: treeExtrasFrom(db.projects, dependencyNamespaceFrom(db)),
+    treeExtras: treeExtrasFrom(db.projects, dependencyNamespaceFrom(db.infrastructure)),
     artifacts: { keep: (ownerId, runId, files) => deps.artifacts.artifacts.put(ownerId, runId, files) },
     checks: httpCheckAccess(async (ownerId) => {
       const person = await db.accounts.getUserById(ownerId);
@@ -576,7 +576,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     templates: () => MCP_SERVER_TEMPLATES,
     runs: engineRuns,
     finished: async (runId) => db.findRunEffort(runId),
-    deployments: () => db.getDeployments(),
+    deployments: () => db.infrastructure.getDeployments(),
     grants: agentDirectory,
     notes: toolNoteService,
     names: async (ownerId, deployment) => {

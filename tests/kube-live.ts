@@ -35,7 +35,7 @@ async function turn(http: AxiosInstance, conversationId: string, message: string
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
-  const deployments = await db.getDeployments();
+  const deployments = await db.infrastructure.getDeployments();
   const target = deployments.find((dep) => dep.status === 'unhealthy' && dep.ownerId) ?? deployments.find((dep) => dep.status === 'running' && dep.ownerId);
   assert.ok(target?.ownerId, 'there is no deployment to diagnose');
   const user = await db.accounts.getUserById(target.ownerId);

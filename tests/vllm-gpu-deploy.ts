@@ -4,7 +4,7 @@
  *
  * This exercises the exact chain of bugs fixed this session:
  *   1. TemporalBridge.deployApp() resolving the target cluster via ClusterService.getById()
- *      (which knows about the synthetic system-cluster entry) instead of a raw db.getClusters()
+ *      (which knows about the synthetic system-cluster entry) instead of a raw db.infrastructure.getClusters()
  *      lookup that silently misses it.
  *   2. clusterGpuEnabled being threaded through to DeployAppActivity so it skips the k3d
  *      `image import` step (which fails for the system cluster — it isn't a real k3d cluster).
@@ -46,7 +46,7 @@ async function run() {
   const db = createDatabase();
   await db.init();
 
-  const dep = (await db.getDeployments()).find((d) => d.name === DEPLOYMENT_NAME);
+  const dep = (await db.infrastructure.getDeployments()).find((d) => d.name === DEPLOYMENT_NAME);
   if (!dep) {
     console.error(`🔴 FAIL: no deployment named "${DEPLOYMENT_NAME}" found in the DB. Create it via the UI first (Deploy App → vLLM, targeting the "System" cluster card), then re-run this test.`);
     process.exit(1);

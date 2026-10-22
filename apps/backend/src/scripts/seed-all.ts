@@ -25,9 +25,9 @@ export async function seedAll(db: Database) {
   const ledger: MigrationLedger = db.platform;
   const now = new Date().toISOString();
   counts.treeVersionsStamped = (await runOnce(ledger, 'tree-versions', now, async () => ({ stamped: await stampTreeVersions(db.projects) }))).stamped ?? 0;
-  counts.appSpecs = await seedAppSpecs(db);
-  counts.constructBackedTypes = await seedConstructBackedTypes(db);
-  counts.clusterProviders = await seedClusterProviders(db);
+  counts.appSpecs = await seedAppSpecs(db.infrastructure);
+  counts.constructBackedTypes = await seedConstructBackedTypes(db.infrastructure);
+  counts.clusterProviders = await seedClusterProviders(db.infrastructure);
   counts.removedBuiltInProcedures = await retireStoredBuiltInProcedures(db);
   counts.engineTools = await seedEngineTools(db);
   counts.removedBuiltInPersonas = await retireStoredBuiltInPersonas(db);

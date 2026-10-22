@@ -50,7 +50,7 @@ describe('deleting a project', () => {
   });
 
   it('lists the app built from it among what goes, and starts deleting it all the same', async () => {
-    await harness.db.saveDeployment({ id: 'd1', name: 'shop-web', clusterId: 'c', strategy: 'helm', gitappProjectId: 'p1', ownerId: TEST_USER.id } as never);
+    await harness.db.infrastructure.saveDeployment({ id: 'd1', name: 'shop-web', clusterId: 'c', strategy: 'helm', gitappProjectId: 'p1', ownerId: TEST_USER.id } as never);
     expect((await call('get', '/api/projects/p1/removal')).data.apps).toEqual(['shop-web']);
     expect((await call('delete', '/api/projects/p1', { confirm: 'shop' })).status).toBe(202);
     expect(started).toEqual(['remove-project-p1']);

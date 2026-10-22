@@ -8,7 +8,7 @@ async function setUp(closed: ClosedWorkflow[] = []) {
   const db = await testDatabase();
   let now = NOW;
   const service = new WorkFailureService({
-    store: db,
+    store: db.infrastructure,
     workflows: {
       closedSince: async (since) => closed.filter((workflow) => workflow.closedAt > since.toISOString()),
       failureOf: async (workflowId) => ({ message: 'Workflow execution failed', cause: { message: `${workflowId} could not reach its cluster` } }),
@@ -68,7 +68,7 @@ describe('work that failed', () => {
     expect((await service.shown('u1')).map((failure) => failure.id)).toEqual(['run:run-b']);
     later(8 * 86_400_000);
     expect(await service.shown('u1')).toEqual([]);
-    expect(await db.getWorkFailures('u1')).toHaveLength(2);
+    expect(await db.infrastructure.getWorkFailures('u1')).toHaveLength(2);
     expect(await service.clear('u1', 'all')).toBe(1);
   });
 
@@ -77,6 +77,6 @@ describe('work that failed', () => {
     await service.runEnded({ ownerId: 'u1', runId: 'run-a', outcome: 'failed', depth: 0 });
     later(31 * 86_400_000);
     await service.poll();
-    expect(await db.getWorkFailures('u1')).toEqual([]);
+    expect(await db.infrastructure.getWorkFailures('u1')).toEqual([]);
   });
 });

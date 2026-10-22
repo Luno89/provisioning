@@ -17,8 +17,10 @@ import {
 
 export interface AccountRemovalStore {
   accounts: Pick<AccountsStore, 'getUsers' | 'getUserById' | 'saveUser'>;
-  getClusters(): Promise<ClusterMetadata[]>;
-  getDeployments(): Promise<DeploymentMetadata[]>;
+  infrastructure: {
+    getClusters(): Promise<ClusterMetadata[]>;
+    getDeployments(): Promise<DeploymentMetadata[]>;
+  };
 }
 
 export type RemovalWorkflowState<Step extends string = RemovalStep> = { state: 'running'; done: Step[] } | { state: 'failed'; reason: string } | { state: 'finished' } | { state: 'none' };
@@ -110,7 +112,7 @@ export class AccountRemovalService {
   }
 
   private async world() {
-    const [users, clusters, deployments] = await Promise.all([this.deps.store.accounts.getUsers(), this.deps.store.getClusters(), this.deps.store.getDeployments()]);
+    const [users, clusters, deployments] = await Promise.all([this.deps.store.accounts.getUsers(), this.deps.store.infrastructure.getClusters(), this.deps.store.infrastructure.getDeployments()]);
     return { users, clusters, deployments };
   }
 

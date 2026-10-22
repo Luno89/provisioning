@@ -1,6 +1,14 @@
 import { clusterHost } from './cluster-dns.js';
 
-import type { BindingTypeRecord } from '../../platform/lib/db-interface.js';
+export interface BindingTypeRecord {
+  id: string;
+  label: string;
+  appType?: string | undefined;
+  protocol?: 'http' | 'https' | 'tcp' | 'grpc' | undefined;
+  defaultPort?: number | undefined;
+  description?: string | undefined;
+  requiredKeys?: string[] | undefined;
+}
 
 export const SERVICE_BINDING_ROOT = '/bindings';
 

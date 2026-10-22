@@ -26,7 +26,9 @@ function store(seed: { personas?: PersonaRecord[]; tools?: ToolDefinition[]; gra
     saveMcpServer: async (server) => { const at = servers.findIndex((one) => one.id === server.id); if (at >= 0) servers[at] = server; else servers.push(server); },
     getMcpToolHints: async (ownerId) => hints.filter((one) => one.ownerId === ownerId),
     deleteMcpToolHint: async (ownerId, server, tool) => { hints = hints.filter((one) => !(one.ownerId === ownerId && one.server === server && one.tool === tool)); },
-    getDeployments: async () => [{ id: 'd1', name: 'weather-api', ownerId: 'u1', status: 'running', appType: 'gitapp', gitappProjectId: 'p1' } as never],
+    infrastructure: {
+      getDeployments: async () => [{ id: 'd1', name: 'weather-api', ownerId: 'u1', status: 'running', appType: 'gitapp', gitappProjectId: 'p1' } as never],
+    },
     projects: {
       getProjects: async () => [{ id: 'p1', name: 'Weather', ownerId: 'u1' } as never],
       getTrees: async () => [],

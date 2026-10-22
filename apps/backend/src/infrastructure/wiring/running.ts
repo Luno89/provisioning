@@ -36,7 +36,7 @@ export function workFailuresFor(deps: WorkFailuresDeps): WorkFailureService {
   const { db, temporalBridge } = deps;
   const runningRecords = deps.records;
   const workFailures = new WorkFailureService({
-    store: db,
+    store: db.infrastructure,
     onFailure: (failure) => deps.metrics.failed(failure.kind),
     workflows: {
       closedSince: async (since) => {
@@ -135,7 +135,7 @@ export function wireRunning(deps: RunningWiringDeps): { running: RunningService 
   tenant.use('/api/running', runningRouter({ running }));
   const clusterContents = new ClusterContentsService({
     monitoring,
-    deployments: () => db.getDeployments(),
+    deployments: () => db.infrastructure.getDeployments(),
     kubectl: async (cluster, args) => String(await deps.infra.runKubectl(args, await deps.clusters.getKubeconfigPath(cluster))),
     helm: async (cluster, args) => String(await deps.infra.runHelm(args, await deps.clusters.getKubeconfigPath(cluster))),
     labelOf: labelValue,

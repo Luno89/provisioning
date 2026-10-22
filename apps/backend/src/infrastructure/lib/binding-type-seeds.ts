@@ -1,4 +1,5 @@
-import type { BindingTypeRecord, Database } from '../../platform/lib/db-interface.js';
+import type { Database } from '../../platform/lib/db-interface.js';
+import type { BindingTypeRecord } from './service-binding.js';
 
 export const BINDING_TYPE_SEEDS: BindingTypeRecord[] = [
   {
@@ -85,15 +86,15 @@ export const BINDING_TYPE_SEEDS: BindingTypeRecord[] = [
 ];
 
 export async function seedBindingTypes(
-  db: Pick<Database, 'getBindingTypes' | 'saveBindingType'>,
+  db: Pick<Database, 'infrastructure'>,
 ): Promise<number> {
-  const existing = await db.getBindingTypes().catch(() => []);
+  const existing = await db.infrastructure.getBindingTypes().catch(() => []);
   const existingIds = new Set(existing.map((t) => t.id));
   let added = 0;
 
   for (const seed of BINDING_TYPE_SEEDS) {
     if (!existingIds.has(seed.id)) {
-      await db.saveBindingType(seed);
+      await db.infrastructure.saveBindingType(seed);
       added++;
     }
   }

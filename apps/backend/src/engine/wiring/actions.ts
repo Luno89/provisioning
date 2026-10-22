@@ -64,7 +64,7 @@ export function wireActions(deps: ActionsWiringDeps): void {
     onSettled: deps.concluded,
   }) }));
   const egressService = new EgressService({
-    store: db,
+    store: db.infrastructure,
     proxy: new EgressProxyService({ kube: deps.infra, secret: deps.egressKey, kubeconfig: deps.kubeconfig }),
   });
   tenant.use('/api/egress', egressRouter({ egress: egressService }));

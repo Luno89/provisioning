@@ -1,5 +1,4 @@
 import type { Conversation } from '../../engine/lib/conversations.js';
-import type { StoredAppSpec } from '../../infrastructure/lib/app-spec.js';
 import type { McpToolHint } from '../../engine/lib/mcp-tool-hints.js';
 import { MongoDB } from './mongo-db.js';
 import { mongoPayloadBlobs } from './mongo-payload-blobs.js';
@@ -8,6 +7,7 @@ import type { CorpusPage } from '../../engine/lib/corpus.js';
 import type { FrontierUrl, FrontierClaim } from './frontier.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import type { HubStore } from '../../hub/store.js';
+import type { InfrastructureStore } from '../../infrastructure/store.js';
 import type { ChecksStore } from '../../checks/store.js';
 import type { MemoryStore } from '../../memory/store.js';
 import type { ModelsStore } from '../../models/store.js';
@@ -19,10 +19,9 @@ import type { ProjectsStore } from '../../projects/store.js';
 import type { InstancesStore } from '../../instances/store.js';
 import type { AccountsStore } from '../../accounts/store.js';
 import type { PlatformStore } from '../store.js';
-import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
+import type { ActionProposal, McpRequest } from '@koala/harness-types';
 import type { ExtensionSettings } from '../../engine/lib/extension-settings.js';
 import type { AutoModeSettings } from '../../engine/lib/auto-mode.js';
-import type { WorkFailure } from '../../infrastructure/lib/work-failures.js';
 import type { AuthoredExtension } from '../../engine/lib/authored-extensions.js';
 import type { ProcedureSource } from '../../engine/lib/procedure-source.js';
 import type { StoredNodeTrace } from '../../engine/lib/run-traces.js';
@@ -32,22 +31,10 @@ import type { GrantKind, PersonaRecord as EnginePersona, ToolDefinition as Engin
 import type { PublishedWorkspace } from '../../engine/lib/published-workspace.js';
 import type { McpServerRecord } from '../../engine/lib/mcp-servers.js';
 import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
-import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, PendingApprovalMetadata } from './types.js';
-import type { PartialInfo } from './types.js';
-
-export interface BindingTypeRecord {
-  id: string;
-  label: string;
-  appType?: string | undefined;
-  protocol?: 'http' | 'https' | 'tcp' | 'grpc' | undefined;
-  defaultPort?: number | undefined;
-  description?: string | undefined;
-  requiredKeys?: string[] | undefined;
-}
 
 export interface Database {
   hub: HubStore;
+  infrastructure: InfrastructureStore;
   checks: ChecksStore;
   memory: MemoryStore;
   models: ModelsStore;
@@ -61,18 +48,6 @@ export interface Database {
   platform: PlatformStore;
   init(): Promise<void>;
   close(): Promise<void>;
-
-  getClusters(): Promise<ClusterMetadata[]>;
-  saveCluster(cluster: ClusterMetadata): Promise<void>;
-  saveClusterList(clusters: ClusterMetadata[]): Promise<void>;
-  saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata>;
-  updateClusterProgress(clusterId: string, progress: ClusterProgress): Promise<void>;
-
-  getDeployments(): Promise<DeploymentMetadata[]>;
-  saveDeployment(deployment: DeploymentMetadata): Promise<void>;
-  saveDeploymentList(deployments: DeploymentMetadata[]): Promise<void>;
-  deleteDeployment(id: string): Promise<void>;
-  saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata>;
 
   findRunEffort(runId: string): Promise<RunEffort | undefined>;
   reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number>;
@@ -90,13 +65,6 @@ export interface Database {
   countFrontier(ingestId: string): Promise<number>;
   deleteFrontier(ingestId: string): Promise<void>;
 
-  getAppSpecs(): Promise<StoredAppSpec[]>;
-  saveAppSpec(spec: StoredAppSpec): Promise<void>;
-  deleteAppSpec(id: string): Promise<void>;
-
-  getClusterProviders(): Promise<ClusterProviderSpec[]>;
-  saveClusterProvider(provider: ClusterProviderSpec): Promise<void>;
-
   getConversations(): Promise<Conversation[]>;
   getConversation(ownerId: string, id: string): Promise<Conversation | undefined>;
   allowToolInConversation(ownerId: string, conversationId: string, tool: string): Promise<boolean>;
@@ -108,10 +76,6 @@ export interface Database {
   runOrigin(ownerId: string, runId: string): Promise<{ agentId?: string | undefined; turnId: string } | undefined>;
   saveConversation(conversation: Conversation): Promise<void>;
   deleteConversation(id: string): Promise<void>;
-
-  getPendingApprovals(): Promise<PendingApprovalMetadata[]>;
-  savePendingApproval(approval: PendingApprovalMetadata): Promise<void>;
-  deletePendingApproval(id: string): Promise<void>;
 
   getMcpRequests(ownerId: string, conversationId?: string): Promise<McpRequest[]>;
   getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined>;
@@ -129,20 +93,7 @@ export interface Database {
   deleteAuthoredExtension(ownerId: string, id: string): Promise<void>;
   saveExtensionSettings(settings: ExtensionSettings): Promise<void>;
   getAutoModeSettings(ownerId: string): Promise<AutoModeSettings | undefined>;
-  getWorkFailures(ownerId?: string): Promise<WorkFailure[]>;
-  addWorkFailure(failure: WorkFailure): Promise<void>;
-  clearWorkFailures(ownerId: string, ids: readonly string[] | 'all', at: string): Promise<number>;
-  pruneWorkFailures(before: string): Promise<void>;
   saveAutoModeSettings(settings: AutoModeSettings): Promise<void>;
-  getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]>;
-  saveEgressGrant(grant: EgressGrantRecord): Promise<void>;
-  getEgressRequests(ownerId: string, filter?: { conversationId?: string | undefined; treeId?: string | undefined }): Promise<EgressRequest[]>;
-  getEgressRequest(ownerId: string, id: string): Promise<EgressRequest | undefined>;
-  saveEgressRequest(request: EgressRequest): Promise<void>;
-
-  getAccessRequests(ownerId: string, conversationId?: string): Promise<AccessRequest[]>;
-  getAccessRequest(ownerId: string, id: string): Promise<AccessRequest | undefined>;
-  saveAccessRequest(request: AccessRequest): Promise<void>;
 
   getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined>;
   getProcedures(ownerId?: string): Promise<ProcedureSource[]>;
@@ -182,10 +133,6 @@ export interface Database {
   getEngineTools(ownerId?: string): Promise<EngineTool[]>;
   saveEngineTool(tool: EngineTool): Promise<void>;
   deleteEngineTool(ownerId: string | undefined, name: string): Promise<void>;
-
-  getBindingTypes(): Promise<BindingTypeRecord[]>;
-  saveBindingType(record: BindingTypeRecord): Promise<void>;
-  deleteBindingType(id: string): Promise<void>;
 
 }
 

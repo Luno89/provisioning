@@ -34,7 +34,7 @@ export class AppService extends BaseService {
   }
 
   async getById(id: string, userId: string) {
-    const deployments = await this.db.getDeployments();
+    const deployments = await this.db.infrastructure.getDeployments();
     const dep = deployments.find((d: any) => d.id === id);
     if (dep && dep.ownerId !== userId) return undefined;
     return dep;
@@ -43,7 +43,7 @@ export class AppService extends BaseService {
   async getAll(userId: string, io?: SocketServer) {
     const clusters = await this.clusters.reconcileAllClusters(io);
 
-    const deployments = await this.db.getDeployments();
+    const deployments = await this.db.infrastructure.getDeployments();
     const now = new Date().toISOString();
 
     const deploymentsByCluster = new Map<string, typeof deployments>();
@@ -99,7 +99,7 @@ export class AppService extends BaseService {
     }
 
     if (changed) {
-      await this.db.saveDeploymentList(cleanDeployments);
+      await this.db.infrastructure.saveDeploymentList(cleanDeployments);
     }
 
     return cleanDeployments.filter((d) => d.ownerId === userId);
@@ -110,7 +110,7 @@ export class AppService extends BaseService {
     if (!cluster) throw new Error('Cluster not found');
 
     const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
-    const dbDeployments = await this.db.getDeployments();
+    const dbDeployments = await this.db.infrastructure.getDeployments();
     const clusterDeployments = dbDeployments.filter(d => d.clusterId === clusterId);
     const now = new Date().toISOString();
 
@@ -132,7 +132,7 @@ export class AppService extends BaseService {
     } catch { /* ignored */ }
 
     const discovered: DeploymentMetadata[] = [];
-    const catalogueIds = (await this.db.getAppSpecs()).map((s) => s.id);
+    const catalogueIds = (await this.db.infrastructure.getAppSpecs()).map((s) => s.id);
 
     for (const ns of userNamespaces) {
       const alreadyTracked = clusterDeployments.some(d => (d.namespace || this.sanitize(d.name)) === ns);
@@ -177,7 +177,7 @@ export class AppService extends BaseService {
     }
 
     if (discovered.length > 0) {
-      await this.db.saveDeploymentList([...dbDeployments, ...discovered]);
+      await this.db.infrastructure.saveDeploymentList([...dbDeployments, ...discovered]);
     }
 
     return discovered;
@@ -221,7 +221,7 @@ export class AppService extends BaseService {
       vpnDedicatedIp,
       ownerId: userId,
     };
-    await this.db.saveDeployment(metadata);
+    await this.db.infrastructure.saveDeployment(metadata);
 
     const sanitizedName = this.sanitize(name);
 
@@ -290,7 +290,7 @@ export class AppService extends BaseService {
         let openaiApiBaseUrl = '';
         const targetId = appType === 'hermes' ? config.hermesTargetId : (appType === 'openwebui' ? config.openWebuiTargetId : undefined);
         if (targetId) {
-          const allDeployments = await this.db.getDeployments();
+          const allDeployments = await this.db.infrastructure.getDeployments();
           const target = allDeployments.find((d: DeploymentMetadata) => d.id === targetId);
           if (target && target.clusterId === clusterId) {
             const spec = llmAppSpec(target.appType)
@@ -352,10 +352,10 @@ export class AppService extends BaseService {
         await this.infra.deploy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
         const defaultPort = appType === 'odoo' ? '8069' : '80';
         const displayUrl = vpnEnabled && vpnDedicatedIp ? `http://${vpnDedicatedIp}:${defaultPort}` : `http://localhost:${defaultPort}`;
-        await this.db.saveDeployment({ ...metadata, status: 'running', url: displayUrl });
+        await this.db.infrastructure.saveDeployment({ ...metadata, status: 'running', url: displayUrl });
       } catch (err: any) {
         this.logger.error(`App deployment failed: ${err.message}`);
-        await this.db.saveDeployment({ ...metadata, status: 'failed' });
+        await this.db.infrastructure.saveDeployment({ ...metadata, status: 'failed' });
       }
     })().catch((err: any) => this.logger.error(`Unhandled error during app deployment: ${err.message}`));
 
@@ -367,7 +367,7 @@ export class AppService extends BaseService {
     if (!dep) throw new Error('Deployment not found');
 
     const updatedMetadata = { ...dep, modules, status: 'deploying' as const };
-    await this.db.saveDeployment(updatedMetadata);
+    await this.db.infrastructure.saveDeployment(updatedMetadata);
 
     const cluster = await this.clusters.getById(dep.clusterId, userId);
     const sanitizedName = this.sanitize(dep.name);
@@ -418,10 +418,10 @@ export class AppService extends BaseService {
           };
   
           await this.infra.deploy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
-          await this.db.saveDeployment({ ...updatedMetadata, status: 'running' });
+          await this.db.infrastructure.saveDeployment({ ...updatedMetadata, status: 'running' });
         } catch (err: any) {
           this.logger.error(`Module update failed: ${err.message}`);
-          await this.db.saveDeployment({ ...updatedMetadata, status: 'failed' });
+          await this.db.infrastructure.saveDeployment({ ...updatedMetadata, status: 'failed' });
         }
       })().catch((err: any) => this.logger.error(`Unhandled error during module update: ${err.message}`));
 
@@ -512,7 +512,7 @@ export class AppService extends BaseService {
     const cluster = await this.clusters.getById(dep.clusterId, userId);
     
     const logFile = this.infra.getLogPath(`${dep.name}-destroy`);
-    await this.db.saveDeployment({ ...dep, status: 'destroying', lastLogPath: logFile });
+    await this.db.infrastructure.saveDeployment({ ...dep, status: 'destroying', lastLogPath: logFile });
 
     (async () => {
       try {
@@ -536,11 +536,11 @@ export class AppService extends BaseService {
             await this.infra.waitForNamespaceDeletion((dep.namespace || this.sanitize(dep.name)), kubeconfigPath);
         } catch { /* ignored */ }
 
-        await this.db.deleteDeployment(id);
+        await this.db.infrastructure.deleteDeployment(id);
         if (io) io.emit('resource-destroyed', { id, type: 'deployment', name: dep.name });
       } catch (err: any) {
         this.logger.error(`App destruction failed: ${err.message}`);
-        await this.db.saveDeployment({ ...dep, status: 'failed' });
+        await this.db.infrastructure.saveDeployment({ ...dep, status: 'failed' });
       }
     })().catch((err: any) => this.logger.error(`Unhandled error during app destruction: ${err.message}`));
   }
@@ -550,7 +550,7 @@ export class AppService extends BaseService {
     if (!dep) throw new Error('Deployment not found');
 
     const logFile = this.infra.getLogPath(`${dep.name}-abort`);
-    await this.db.saveDeployment({ ...dep, status: 'destroying', lastLogPath: logFile });
+    await this.db.infrastructure.saveDeployment({ ...dep, status: 'destroying', lastLogPath: logFile });
 
     (async () => {
       try {
@@ -568,7 +568,7 @@ export class AppService extends BaseService {
           }
         }
 
-        await this.db.deleteDeployment(id);
+        await this.db.infrastructure.deleteDeployment(id);
 
         if (io) {
           io.to(id).emit('log', '\n--- DEPLOYMENT ABORTED AND CLEANED UP ---\n');
@@ -577,7 +577,7 @@ export class AppService extends BaseService {
         }
       } catch (err: any) {
         this.logger.error(`Abort failed for deployment ${dep.name}: ${err.message}`);
-        await this.db.deleteDeployment(id);
+        await this.db.infrastructure.deleteDeployment(id);
         if (io) io.emit('deployment:updated');
       }
     })().catch((err: any) => this.logger.error(`Unhandled error during deployment abort: ${err.message}`));
@@ -588,7 +588,7 @@ export class AppService extends BaseService {
     if (!dep) throw new Error('Deployment not found');
 
     const updatedMetadata = { ...dep, storage: { ...dep.storage, ...storage }, status: 'deploying' as const };
-    await this.db.saveDeployment(updatedMetadata);
+    await this.db.infrastructure.saveDeployment(updatedMetadata);
 
     const cluster = await this.clusters.getById(dep.clusterId, userId);
     const sanitizedName = this.sanitize(dep.name);
@@ -630,10 +630,10 @@ export class AppService extends BaseService {
           };
   
           await this.infra.deploy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
-          await this.db.saveDeployment({ ...updatedMetadata, status: 'running' });
+          await this.db.infrastructure.saveDeployment({ ...updatedMetadata, status: 'running' });
         } catch (err: any) {
           this.logger.error(`Disk resize failed: ${err.message}`);
-          await this.db.saveDeployment({ ...updatedMetadata, status: 'failed' });
+          await this.db.infrastructure.saveDeployment({ ...updatedMetadata, status: 'failed' });
         }
       })().catch((err: any) => this.logger.error(`Unhandled error during disk resize: ${err.message}`));
 

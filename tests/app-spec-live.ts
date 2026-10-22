@@ -55,12 +55,12 @@ async function main(): Promise<void> {
     await turn(http, conversationId, `The catalogue has no ${appId} app. Add one called ${appId} from the image traefik/whoami, which serves HTTP on port 80 and needs about 64Mi of memory.`);
     const proposal = ((await http.get('/actions', { params: { conversationId } })).data as ActionProposal[]).find((entry) => entry.kind === 'add_app_spec');
     assert.ok(proposal, 'koala did not propose the app spec');
-    assert.equal((await db.getAppSpecs()).some((spec) => spec.id === appId), false, 'the spec was stored before the card was applied');
+    assert.equal((await db.infrastructure.getAppSpecs()).some((spec) => spec.id === appId), false, 'the spec was stored before the card was applied');
     console.log(`  proposed: ${proposal.detail.join('; ')}`);
 
     const applied = (await http.post(`/actions/${proposal.id}/apply`)).data as ActionProposal;
     assert.equal(applied.status, 'applied', `applying failed: ${applied.reason}`);
-    assert.ok((await db.getAppSpecs()).some((spec) => spec.id === appId && spec.ownerId === user.id), 'the spec is not in the catalogue');
+    assert.ok((await db.infrastructure.getAppSpecs()).some((spec) => spec.id === appId && spec.ownerId === user.id), 'the spec is not in the catalogue');
     console.log(`  applied: ${appId} is in the catalogue`);
 
     await turn(http, conversationId, `Now deploy ${appId} as ${name} on the management cluster.`);
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
   } finally {
     const dep = ((await http.get('/deployments').catch(() => ({ data: [] }))).data as { id: string; name: string }[]).find((entry) => entry.name === name);
     if (dep) await http.delete(`/deployments/${encodeURIComponent(dep.id)}`).catch(() => undefined);
-    await db.deleteAppSpec(appId).catch(() => undefined);
+    await db.infrastructure.deleteAppSpec(appId).catch(() => undefined);
     await http.delete(`/conversations/${conversationId}`).catch(() => undefined);
     await db.close();
   }

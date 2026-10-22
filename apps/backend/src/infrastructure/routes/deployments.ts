@@ -38,7 +38,7 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
   // The one place both koala (list_infrastructure's deployable field) and the deploy wizard read
   // "what's deployable" from — see lib/app-spec.ts's visibleAppSpecs (built-ins + this user's own).
   router.get('/catalogue', asyncRoute(async (req, res) => {
-    const specs = visibleAppSpecs(await db.getAppSpecs(), userOf(req).id);
+    const specs = visibleAppSpecs(await db.infrastructure.getAppSpecs(), userOf(req).id);
     res.json(specs.map((s) => ({ ...s, deploysFromSpec: Boolean(s.spec) })));
   }));
 
@@ -148,7 +148,7 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
 
   router.get('/:id/resource-plan', async (req, res) => {
     const user = userOf(req);
-    const dep = (await db.getDeployments()).find((d) => d.id === idOf(req) && d.ownerId === user.id);
+    const dep = (await db.infrastructure.getDeployments()).find((d) => d.id === idOf(req) && d.ownerId === user.id);
     if (!dep) return res.status(404).json({ error: 'Deployment not found' });
     if (dep.appType !== 'tabbyapi') return res.json({ applicable: false });
 

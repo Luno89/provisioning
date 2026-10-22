@@ -7,8 +7,10 @@ const MASTER = 'test-master-key';
 function createService() {
   const saved: any[] = [];
   const db = {
-    saveClusterInfo: vi.fn(async (c: any) => { saved.push(c); return c; }),
-    getClusters: vi.fn(async () => saved),
+    infrastructure: {
+      saveClusterInfo: vi.fn(async (c: any) => { saved.push(c); return c; }),
+      getClusters: vi.fn(async () => saved),
+    },
   } as any;
   const infra = {} as any;
   return { svc: new ClusterService(db, infra, MASTER), saved, db };

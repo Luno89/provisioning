@@ -52,7 +52,7 @@ export class ClusterService extends BaseService {
     privateKey: string;
     port?: number;
   }): Promise<ClusterMetadata> {
-    return this.db.saveClusterInfo({
+    return this.db.infrastructure.saveClusterInfo({
       id: uuidv4(),
       name: args.name,
       provider: 'remote',
@@ -203,7 +203,7 @@ export class ClusterService extends BaseService {
   }
 
   async reconcileAllClusters(io?: SocketServer): Promise<ClusterMetadata[]> {
-    const dbClusters = await this.db.getClusters();
+    const dbClusters = await this.db.infrastructure.getClusters();
     const activeK3dNames = await this.infra.listLocalClusters();
     const now = new Date().toISOString();
 
@@ -243,10 +243,10 @@ export class ClusterService extends BaseService {
           }
 
           try {
-            const deployments = await this.db.getDeployments();
+            const deployments = await this.db.infrastructure.getDeployments();
             const cleanDeployments = deployments.filter(d => d.clusterId !== cluster.id);
             if (deployments.length !== cleanDeployments.length) {
-              await this.db.saveDeploymentList(cleanDeployments);
+              await this.db.infrastructure.saveDeploymentList(cleanDeployments);
             }
             await fs.rm(`/tmp/kubeconfig-${physicalName}`, { force: true }).catch(() => {});
           } catch (err: any) {
@@ -259,7 +259,7 @@ export class ClusterService extends BaseService {
     }
 
     if (changed) {
-      await this.db.saveClusterList(cleanClusters);
+      await this.db.infrastructure.saveClusterList(cleanClusters);
     }
 
     const systemCluster = await this.getSystemClusterEntry();
@@ -310,7 +310,7 @@ export class ClusterService extends BaseService {
 
   async discoverClusters(userId: string): Promise<ClusterMetadata[]> {
     const k3dNames = await this.infra.listLocalClusters();
-    const dbClusters = await this.db.getClusters();
+    const dbClusters = await this.db.infrastructure.getClusters();
     const now = new Date().toISOString();
     const discovered: ClusterMetadata[] = [];
 
@@ -352,7 +352,7 @@ export class ClusterService extends BaseService {
 
     if (discovered.length > 0) {
       const allClusters = [...dbClusters, ...discovered];
-      await this.db.saveClusterList(allClusters);
+      await this.db.infrastructure.saveClusterList(allClusters);
     }
 
     return discovered;
@@ -362,7 +362,7 @@ export class ClusterService extends BaseService {
     if (id === SYSTEM_CLUSTER_ID) {
       return this.getSystemClusterEntry();
     }
-    const clusters = await this.db.getClusters();
+    const clusters = await this.db.infrastructure.getClusters();
     return clusters.find((c: any) => c.id === id);
   }
 
@@ -376,7 +376,7 @@ export class ClusterService extends BaseService {
     const id = uuidv4();
     const logFile = this.infra.getLogPath(name);
     const metadata: ClusterMetadata = { id, name, provider, status: 'provisioning', lastLogPath: logFile, ownerId: userId };
-    await this.db.saveCluster(metadata);
+    await this.db.infrastructure.saveCluster(metadata);
 
     (async () => {
       try {
@@ -521,10 +521,10 @@ export class ClusterService extends BaseService {
 
         await this.infra.deploy(physicalName, { logFile, io, resourceId: id, env });
 
-        await this.db.saveCluster({ ...metadata, status: 'healthy', kubeconfigPath });
+        await this.db.infrastructure.saveCluster({ ...metadata, status: 'healthy', kubeconfigPath });
       } catch (err: any) {
         this.logger.error(`Provisioning failed: ${err.message}`);
-        await this.db.saveCluster({ ...metadata, status: 'failed' });
+        await this.db.infrastructure.saveCluster({ ...metadata, status: 'failed' });
       }
     })().catch((err: any) => this.logger.error(`Unhandled error during cluster provisioning: ${err.message}`));
 
@@ -537,7 +537,7 @@ export class ClusterService extends BaseService {
     if (!cluster) throw new Error('Cluster not found');
 
     const logFile = this.infra.getLogPath(`${cluster.name}-destroy`);
-    await this.db.saveCluster({ ...cluster, status: 'destroying', lastLogPath: logFile });
+    await this.db.infrastructure.saveCluster({ ...cluster, status: 'destroying', lastLogPath: logFile });
 
     (async () => {
       try {
@@ -549,8 +549,8 @@ export class ClusterService extends BaseService {
           try {
             await fs.rm(kubeconfigPath, { force: true });
           } catch { /* ignored */ }
-          const clusters = await this.db.getClusters();
-          await this.db.saveClusterList(clusters.filter((c: any) => c.id !== id));
+          const clusters = await this.db.infrastructure.getClusters();
+          await this.db.infrastructure.saveClusterList(clusters.filter((c: any) => c.id !== id));
           if (io) io.emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
           return;
         }
@@ -573,12 +573,12 @@ export class ClusterService extends BaseService {
             } catch { /* ignored */ }
         }
 
-        const clusters = await this.db.getClusters();
-        await this.db.saveClusterList(clusters.filter((c: any) => c.id !== id));
+        const clusters = await this.db.infrastructure.getClusters();
+        await this.db.infrastructure.saveClusterList(clusters.filter((c: any) => c.id !== id));
         if (io) io.emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
       } catch (err: any) {
         this.logger.error(`Destruction failed: ${err.message}`);
-        await this.db.saveCluster({ ...cluster, status: 'failed' });
+        await this.db.infrastructure.saveCluster({ ...cluster, status: 'failed' });
       }
     })().catch((err: any) => this.logger.error(`Unhandled error during cluster destruction: ${err.message}`));
   }
@@ -589,7 +589,7 @@ export class ClusterService extends BaseService {
     if (!cluster) throw new Error('Cluster not found');
 
     const logFile = this.infra.getLogPath(`${cluster.name}-abort`);
-    await this.db.saveCluster({ ...cluster, status: 'destroying', lastLogPath: logFile });
+    await this.db.infrastructure.saveCluster({ ...cluster, status: 'destroying', lastLogPath: logFile });
 
     (async () => {
       try {
@@ -615,8 +615,8 @@ export class ClusterService extends BaseService {
           }
         }
 
-        const clusters = await this.db.getClusters();
-        await this.db.saveClusterList(clusters.filter((c: any) => c.id !== id));
+        const clusters = await this.db.infrastructure.getClusters();
+        await this.db.infrastructure.saveClusterList(clusters.filter((c: any) => c.id !== id));
 
         if (io) {
           io.to(id).emit('log', '\n--- CLUSTER PROVISIONING ABORTED AND CLEANED UP ---\n');
@@ -625,8 +625,8 @@ export class ClusterService extends BaseService {
         }
       } catch (err: any) {
         this.logger.error(`Abort failed for cluster ${cluster.name}: ${err.message}`);
-        const clusters = await this.db.getClusters();
-        await this.db.saveClusterList(clusters.filter((c: any) => c.id !== id));
+        const clusters = await this.db.infrastructure.getClusters();
+        await this.db.infrastructure.saveClusterList(clusters.filter((c: any) => c.id !== id));
         if (io) io.emit('cluster:updated');
       }
     })().catch((err: any) => this.logger.error(`Unhandled error during cluster abort: ${err.message}`));

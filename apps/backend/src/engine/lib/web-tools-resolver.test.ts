@@ -6,7 +6,7 @@ const dep = (over: Record<string, unknown> = {}) => ({
 } as any);
 
 const deps = (deployments: any[], over: Record<string, unknown> = {}) => ({
-  db: { getDeployments: vi.fn(async () => deployments) },
+  db: { infrastructure: { getDeployments: vi.fn(async () => deployments) } },
   serviceUrl: vi.fn(async (_c: string, _k: string, _kc: string, t: any) => `http://localhost:4${t.remotePort}/`),
   kubeconfigFor: vi.fn(async () => '/tmp/kubeconfig'),
   env: {},
@@ -81,7 +81,7 @@ describe('precedence', () => {
   });
 
   it('survives the database being unavailable', async () => {
-    const d = deps([], { db: { getDeployments: vi.fn(async () => { throw new Error('mongo down'); }) } });
+    const d = deps([], { db: { infrastructure: { getDeployments: vi.fn(async () => { throw new Error('mongo down'); }) } } });
     await expect(resolveWebTools(d)).resolves.toMatchObject({ sources: { search: 'duckduckgo' } });
   });
 });

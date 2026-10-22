@@ -48,14 +48,14 @@ describe('deploying a project\'s build', () => {
     expect(starts).toHaveLength(1);
     expect(starts[0]).toMatchObject({ workflowId: started.workflowId, taskQueue: 'cluster-ops-queue' });
     expect(starts[0]!.args[0]).toMatchObject({ name: 'demo', clusterName: 'dev', appType: 'gitapp', odooRepo: 'registry.local/demo', odooTag: 'abc123' });
-    expect((await db.getDeployments())[0]).toMatchObject({ id: 'demo', status: 'deploying', gitappProjectId: 'proj-1', gitappImageTag: 'registry.local/demo:abc123', temporalWorkflowId: started.workflowId });
+    expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ id: 'demo', status: 'deploying', gitappProjectId: 'proj-1', gitappImageTag: 'registry.local/demo:abc123', temporalWorkflowId: started.workflowId });
     const [saved] = (await db.releases.getPipelineRuns()).filter((entry) => entry.id === 'run-1');
     expect(saved).toMatchObject({ deploymentId: 'demo', promotedAt: expect.any(String) });
   });
 
   it('deploys a build as the project\'s owner, so the person can see and remove the app it makes', async () => {
     await deployProjectBuild(deps, { ...project, ownerId: 'owner-7' }, run);
-    expect((await db.getDeployments())[0]!.ownerId).toBe('owner-7');
+    expect((await db.infrastructure.getDeployments())[0]!.ownerId).toBe('owner-7');
   });
 
   it('deploys nothing for a build with no image, and leaves the build unstamped', async () => {

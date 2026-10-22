@@ -59,7 +59,7 @@ beforeAll(async () => {
 });
 
 function createService() {
-  const db = { getDeployments: mockGetDeployments, saveDeployment: mockSaveDeployment };
+  const db = { infrastructure: { getDeployments: mockGetDeployments, saveDeployment: mockSaveDeployment } };
   const infra = { runKubectl: mockRunKubectl, getK3dServerIp: mockGetK3dServerIp };
   const clusters = {
     getById: mockGetById,
@@ -443,7 +443,7 @@ describe('an instance publishing its apps through its edge', () => {
   };
   const onEdge = (nested: boolean) => {
     const reloads: number[] = [];
-    const db = { getDeployments: mockGetDeployments, saveDeployment: mockSaveDeployment };
+    const db = { infrastructure: { getDeployments: mockGetDeployments, saveDeployment: mockSaveDeployment } };
     const infra = { runKubectl: mockRunKubectl, getK3dServerIp: mockGetK3dServerIp };
     const clusters = { getById: mockGetById, getByIdUnscoped: mockGetById, getKubeconfigPath: mockGetKubeconfigPath };
     const service = new AppExposureService(db, infra, clusters, undefined, { name: 'luno', nestedReady: () => nested, reload: async () => { reloads.push(1); } });

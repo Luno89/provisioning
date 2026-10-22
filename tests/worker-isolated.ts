@@ -19,8 +19,8 @@ async function run() {
   await db.init();
 
   // Reset test databases
-  await db.saveClusterList([]);
-  await db.saveDeploymentList([]);
+  await db.infrastructure.saveClusterList([]);
+  await db.infrastructure.saveDeploymentList([]);
 
   console.log('🔌 Connecting to local Temporal server...');
   const client = await getTemporalClient();
@@ -30,7 +30,7 @@ async function run() {
   const logFile = `/tmp/isolated-test-${clusterName}.log`;
 
   // Write initial cluster entry to DB
-  await db.saveCluster({
+  await db.infrastructure.saveCluster({
     id: clusterId,
     name: clusterName,
     provider: 'k3d',
@@ -57,7 +57,7 @@ async function run() {
     console.log('✅ ClusterProvisionWorkflow finished with result:', result);
 
     // Update DB status to healthy (simulating backend's update loop)
-    await db.saveCluster({
+    await db.infrastructure.saveCluster({
       id: clusterId,
       name: clusterName,
       provider: 'k3d',
@@ -67,7 +67,7 @@ async function run() {
     });
 
     // Verify DB updated to healthy
-    const clusters = await db.getClusters();
+    const clusters = await db.infrastructure.getClusters();
     const clusterRecord = clusters.find(c => c.name === clusterName);
     if (!clusterRecord || clusterRecord.status !== 'healthy') {
       throw new Error(`Cluster status in DB is not healthy: ${clusterRecord?.status}`);
@@ -79,7 +79,7 @@ async function run() {
     const appId = uuidv4();
     const appLogFile = `/tmp/isolated-app-${appName}.log`;
 
-    await db.saveDeployment({
+    await db.infrastructure.saveDeployment({
       id: appId,
       name: appName,
       clusterId,
@@ -114,7 +114,7 @@ async function run() {
     console.log('✅ App deploy finished with result:', depResult);
 
     // Update DB status to running (simulating backend's update loop)
-    await db.saveDeployment({
+    await db.infrastructure.saveDeployment({
       id: appId,
       name: appName,
       clusterId,
@@ -126,7 +126,7 @@ async function run() {
       lastLogPath: appLogFile,
     });
 
-    const deployments = await db.getDeployments();
+    const deployments = await db.infrastructure.getDeployments();
     const depRecord = deployments.find(d => d.name === appName);
     if (!depRecord || depRecord.status !== 'running') {
       throw new Error(`App deployment status in DB is not running: ${depRecord?.status}`);

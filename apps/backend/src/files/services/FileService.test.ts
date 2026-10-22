@@ -32,7 +32,9 @@ function setUp(deployments: DeploymentMetadata[], settings?: FileSettings) {
   });
   const files = new FileService({
     store: {
-      getDeployments: async () => deployments,
+      infrastructure: {
+        getDeployments: async () => deployments,
+      },
       files: {
         getFileSettings: async (ownerId) => saved.get(ownerId),
         saveFileSettings: async (next) => { saved.set(next.ownerId, next); },

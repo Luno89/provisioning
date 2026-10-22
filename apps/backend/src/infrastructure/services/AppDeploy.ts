@@ -47,13 +47,13 @@ export function resolveOpenaiApiBaseUrl(dep: DeploymentMetadata, allDeployments:
 
 export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: string): Promise<StartedDeploy> {
     if (userId) {
-      const cluster = (await deps.db.getClusters()).find((c: ClusterMetadata) => c.id === config.clusterId)
+      const cluster = (await deps.db.infrastructure.getClusters()).find((c: ClusterMetadata) => c.id === config.clusterId)
       const appType = config.appType || 'odoo'
       const problem = checkCapacity(appType, cluster?.capacity, requestedGpuCount(appType, config))
       if (problem) throw new CapacityError(problem)
     }
 
-    const unresolved = await deps.db.getDeployments()
+    const unresolved = await deps.db.infrastructure.getDeployments()
     let [dep] = unresolved.filter((d: DeploymentMetadata) => {
       if (config.name && d.name === config.name && d.clusterId === config.clusterId) return true
       if (config.id && d.id === config.id) return true
@@ -124,7 +124,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
       dep = resolveSearxngDefaults(dep as DeploymentMetadata)
       dep = resolveNextcloudDefaults(resolveMinioDefaults(dep as DeploymentMetadata))
       dep = resolveQdrantDefaults(dep as DeploymentMetadata)
-      dep = resolveQuickwitDefaults(dep as DeploymentMetadata, await deps.db.getDeployments())
+      dep = resolveQuickwitDefaults(dep as DeploymentMetadata, await deps.db.infrastructure.getDeployments())
       dep = resolveAppSettingsDefaults(dep as DeploymentMetadata)
     }
 
@@ -261,7 +261,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
       appSettings: dep.appSettings,
     }
 
-    deps.db.saveDeploymentInfo({
+    deps.db.infrastructure.saveDeploymentInfo({
       ...dep,
       id: dep.id || dep.name,
       status: 'deploying',

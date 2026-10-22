@@ -4,8 +4,8 @@ import {
   type Binding,
   type ServiceBindingContract,
   PLATFORM_SERVICE_CONTRACTS,
+  type BindingTypeRecord,
 } from './service-binding.js';
-import type { BindingTypeRecord } from '../../platform/lib/db-interface.js';
 import type { AppSpec } from './app-spec.js';
 
 export interface BindingRequest {

@@ -136,7 +136,7 @@ async function main(): Promise<void> {
       const runs = await runsOf(api.id);
       const broken = runs.find((entry) => entry.status === 'failed');
       if (broken) throw new Error(`the API starter's build failed: ${broken.errorMessage}`);
-      const deployment = (await db.getDeployments()).find((entry) => entry.gitappProjectId === api.id);
+      const deployment = (await db.infrastructure.getDeployments()).find((entry) => entry.gitappProjectId === api.id);
       if (deployment?.status === 'failed' || deployment?.status === 'unhealthy') throw new Error(`the API's deployment is ${deployment.status}: ${deployment.healthReason ?? ''}`);
       return deployment?.status === 'running' ? deployment : undefined;
     });
@@ -151,11 +151,11 @@ async function main(): Promise<void> {
   } finally {
     console.log('[5] removing what it made');
     for (const project of madeProjects) {
-      const deployment = (await db.getDeployments()).find((entry) => entry.gitappProjectId === project.id);
+      const deployment = (await db.infrastructure.getDeployments()).find((entry) => entry.gitappProjectId === project.id);
       if (deployment) {
         console.log(`    destroying ${deployment.name}: ${(await http.delete(`/deployments/${deployment.id}`)).status}`);
         for (let tries = 0; tries < 60; tries += 1) {
-          if (!(await db.getDeployments()).some((entry) => entry.id === deployment.id && entry.status !== 'destroyed')) break;
+          if (!(await db.infrastructure.getDeployments()).some((entry) => entry.id === deployment.id && entry.status !== 'destroyed')) break;
           await sleep(5_000);
         }
       }

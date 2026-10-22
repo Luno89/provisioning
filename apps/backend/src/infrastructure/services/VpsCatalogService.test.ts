@@ -192,7 +192,7 @@ describe('GPU is kept separate from system RAM', () => {
 });
 
 describe('one bad provider must not empty the whole catalogue', () => {
-  const stubDb = { getUserById: async () => undefined } as any;
+  const stubDb = { accounts: { getUserById: async () => undefined } } as any;
 
   const good = (provider: string): VpsCatalogAdapter => ({
     provider, requiresCredentials: false, provisionable: false,
@@ -231,7 +231,7 @@ describe('one bad provider must not empty the whole catalogue', () => {
   });
 
   it('does not reject when token resolution blows up for a credentialed provider', async () => {
-    const failingDb = { getUserById: async () => { throw new Error('mongo unavailable'); } } as any;
+    const failingDb = { accounts: { getUserById: async () => { throw new Error('mongo unavailable'); } } } as any;
     const gated: VpsCatalogAdapter = {
       provider: 'hetzner', requiresCredentials: true, provisionable: true,
       fetch: async () => ({ offers: [], skippedNoPrice: 0 }),

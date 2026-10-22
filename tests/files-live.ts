@@ -115,7 +115,7 @@ async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
   closeDb = async () => { await db.close?.(); };
-  const owner = process.env.FILES_LIVE_OWNER ?? (await db.getDeployments()).find((entry) => entry.appType === 'minio' && entry.status === 'running' && entry.minioRootPassword)?.ownerId;
+  const owner = process.env.FILES_LIVE_OWNER ?? (await db.infrastructure.getDeployments()).find((entry) => entry.appType === 'minio' && entry.status === 'running' && entry.minioRootPassword)?.ownerId;
   assert.ok(owner, 'set FILES_LIVE_OWNER, or run MinIO for someone first');
   const user = await db.accounts.getUserById(owner);
   assert.ok(user, 'no such user');

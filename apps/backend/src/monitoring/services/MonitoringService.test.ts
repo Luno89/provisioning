@@ -95,9 +95,9 @@ beforeEach(async () => {
 
 describe('the overview', () => {
   it('lists the person\'s apps worst first, with what needs attention', async () => {
-    await db.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
-    await db.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));
-    await db.saveDeploymentInfo(dep({ id: 'theirs', name: 'Theirs', namespace: 'theirs', ownerId: 'someone' }));
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'theirs', name: 'Theirs', namespace: 'theirs', ownerId: 'someone' }));
     healthyApp(prom, { namespace: 'books', services: ['audiobookshelf'] });
     healthyApp(prom, { namespace: 'shop', services: ['web'] });
     prom.set(appQuery('up', { namespace: 'shop' }), 0);
@@ -110,8 +110,8 @@ describe('the overview', () => {
   });
 
   it('shows a cluster without monitoring as getting it, and one that does not answer as unreachable', async () => {
-    await db.saveCluster(remote);
-    await db.saveDeploymentInfo(dep({ id: 'erp', name: 'ERP', namespace: 'erp', clusterId: remote.id }));
+    await db.infrastructure.saveCluster(remote);
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'erp', name: 'ERP', namespace: 'erp', clusterId: remote.id }));
     const overview = await monitoring.overview(ME);
     expect(overview.clusters.find((row) => row.id === remote.id)).toMatchObject({ state: 'installing', reasons: ['its monitoring is installed before its next app is deployed'] });
     expect(overview.apps[0]).toMatchObject({ name: 'ERP', state: 'installing' });
@@ -123,7 +123,7 @@ describe('the overview', () => {
   });
 
   it('puts a firing alert among the app\'s reasons', async () => {
-    await db.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
     healthyApp(prom, { namespace: 'books', services: ['audiobookshelf'] });
     prom.firing = [{ labels: { alertname: 'KubePodCrashLooping', namespace: 'books' }, state: 'firing' }];
     const overview = await monitoring.overview(ME);
@@ -140,7 +140,7 @@ describe('the overview', () => {
 
 describe('an app\'s health', () => {
   it('charts it over the range, marks its releases and lists its alerts and rules', async () => {
-    await db.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
     healthyApp(prom, { namespace: 'books', services: ['audiobookshelf'] });
     prom.series.set(appQuery('up', { namespace: 'books', services: ['audiobookshelf'] })!, [[1, 1], [2, 1]]);
     await db.releases.savePipelineRun({ id: 'run-1', projectId: 'p', deploymentId: 'books', commitSha: 'abcdef1234567', status: 'success', startedAt: '2026-10-17T10:00:00Z', promotedAt: '2026-10-17T11:00:00Z' } as never);
@@ -155,7 +155,7 @@ describe('an app\'s health', () => {
   });
 
   it('is refused for someone else\'s app', async () => {
-    await db.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
     await expect(monitoring.appHealth(SOMEONE, 'books', '24h')).rejects.toMatchObject({ status: 404 });
   });
 });
@@ -189,7 +189,7 @@ describe('history', () => {
 
 describe('alert rules', () => {
   beforeEach(async () => {
-    await db.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
     healthyApp(prom, { namespace: 'books', services: ['audiobookshelf'] });
   });
 
@@ -227,8 +227,8 @@ describe('watching alerts', () => {
 
   beforeEach(async () => {
     told.length = 0;
-    await db.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
-    await db.saveDeploymentInfo(dep({ id: 'theirs', name: 'Theirs', namespace: 'theirs', ownerId: 'someone' }));
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'theirs', name: 'Theirs', namespace: 'theirs', ownerId: 'someone' }));
   });
 
   it('tells each person once when their alert fires, and again when it resolves', async () => {
@@ -329,7 +329,7 @@ describe('a cluster on Koala\'s servers', () => {
   });
 
   it('asks root its named questions, never a query, and reads the app as healthy', async () => {
-    await db.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));
     const view = await monitoring.appHealth(ME, 'shop', '1h');
     expect(view.app.state).toBe('ok');
     expect(pool.asked).toContainEqual({ kind: 'app', question: 'up', subject: { namespace: 'shop', services: [] } });
@@ -345,7 +345,7 @@ describe('a cluster on Koala\'s servers', () => {
   });
 
   it('hands an alert to root to set, and refuses one on requests, which are not counted there', async () => {
-    await db.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));
     const rule = await monitoring.addRule(ME, 'shop', alertSpec('down') as AlertSpec);
     expect(pool.rules).toEqual([{ id: rule.id, namespace: 'shop', spec: rule.spec, summary: rule.summary }]);
     expect(applied).toEqual([]);

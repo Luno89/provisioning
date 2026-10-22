@@ -77,14 +77,14 @@ async function updateUserStatus(
   status: ClusterMetadata['status'],
   kubeconfigPath?: string,
 ): Promise<void> {
-  const clusters = await db.getClusters();
+  const clusters = await db.infrastructure.getClusters();
   const existing = clusters.find((c: any) => c.id === clusterId);
 
   if (status === 'destroyed') {
-    await db.saveClusterList(clusters.filter((c: any) => c.id !== clusterId));
+    await db.infrastructure.saveClusterList(clusters.filter((c: any) => c.id !== clusterId));
     return;
   }
-  await db.saveClusterInfo({
+  await db.infrastructure.saveClusterInfo({
     ...(existing ?? {}),
     id: clusterId,
     name: clusterName,
@@ -128,9 +128,9 @@ async function updateDeploymentStatus(
   status: DeploymentMetadata['status'],
   storage: Record<string, string> | undefined = undefined,
 ): Promise<void> {
-  const deployments = await db.getDeployments();
+  const deployments = await db.infrastructure.getDeployments();
   const existing = deployments.find((d: any) => d.id === deploymentId);
-  await db.saveDeploymentInfo({
+  await db.infrastructure.saveDeploymentInfo({
     ...deployment,
     id: deploymentId,
     status,
@@ -243,7 +243,7 @@ export class TemporalBridge {
     if (id === 'provisioning-lunorica' && this.clusterService) {
       return this.clusterService.getSystemClusterEntry();
     }
-    const clusters = await this.db.getClusters();
+    const clusters = await this.db.infrastructure.getClusters();
     return clusters.find((c: ClusterMetadata) => c.id === id);
   }
 
@@ -305,13 +305,13 @@ export class TemporalBridge {
               kubeconfig = (wfResult as any).kubeconfig
               const meshIp = (wfResult as any).meshIp
               if (meshIp) {
-                const current = (await this.db.getClusters()).find((c: ClusterMetadata) => c.id === resourceId)
-                await this.db.saveClusterInfo({ ...(current ?? {}), id: resourceId, name: resourceName, provider, meshIp } as any)
+                const current = (await this.db.infrastructure.getClusters()).find((c: ClusterMetadata) => c.id === resourceId)
+                await this.db.infrastructure.saveClusterInfo({ ...(current ?? {}), id: resourceId, name: resourceName, provider, meshIp } as any)
               }
               const vmHost = (wfResult as any).createdHost
               if (vmHost) {
-                const current = (await this.db.getClusters()).find((c: ClusterMetadata) => c.id === resourceId)
-                await this.db.saveClusterInfo({
+                const current = (await this.db.infrastructure.getClusters()).find((c: ClusterMetadata) => c.id === resourceId)
+                await this.db.infrastructure.saveClusterInfo({
                   ...(current ?? {}),
                   id: resourceId,
                   name: resourceName,
@@ -325,8 +325,8 @@ export class TemporalBridge {
               }
               const capacity = (wfResult as any).capacity
               if (capacity) {
-                const current = (await this.db.getClusters()).find((c: ClusterMetadata) => c.id === resourceId)
-                await this.db.saveClusterInfo({ ...(current ?? {}), id: resourceId, name: resourceName, provider, capacity } as any)
+                const current = (await this.db.infrastructure.getClusters()).find((c: ClusterMetadata) => c.id === resourceId)
+                await this.db.infrastructure.saveClusterInfo({ ...(current ?? {}), id: resourceId, name: resourceName, provider, capacity } as any)
               }
             } catch {}
           }
@@ -377,7 +377,7 @@ export class TemporalBridge {
             if (name === 'FAILED') {
               await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
             } else if (name === 'TERMINATED' || name === 'CANCELLED' || name === 'COMPLETED') {
-              await this.db.deleteDeployment(resourceId)
+              await this.db.infrastructure.deleteDeployment(resourceId)
             }
             if (this.io) this.io.emit('deployment-updated')
           } else if (action === 'app-resize') {
@@ -408,7 +408,7 @@ export class TemporalBridge {
                 const project = run && projects.find((p: any) => p.id === run.projectId)
                 const released = project && run && this.onBuilt ? await this.onBuilt(project, run) : false
                 if (!released && project?.autoDeployOnBuild && run) {
-                  const since = deploymentForProject(project, await this.db.getDeployments())?.gitappImageTag?.split(':').pop()
+                  const since = deploymentForProject(project, await this.db.infrastructure.getDeployments())?.gitappImageTag?.split(':').pop()
                   const decision = since && this.decideRelease ? await this.decideRelease(project, since, run.commitSha) : { release: true as const }
                   if (decision.release) await this.promoteProjectBuild(project, run)
                   else await this.db.releases.savePipelineRunInfo({ id: run.id, releaseSkipped: decision.reason })
@@ -458,7 +458,7 @@ export class TemporalBridge {
 
     console.log('[TemporalBridge] Running active workflow recovery check...')
 
-    const clusters = await this.db.getClusters()
+    const clusters = await this.db.infrastructure.getClusters()
     for (const cluster of clusters) {
       if (cluster.status === 'provisioning' || cluster.status === 'destroying') {
         const wfId = cluster.temporalWorkflowId
@@ -470,7 +470,7 @@ export class TemporalBridge {
       }
     }
 
-    const deployments = await this.db.getDeployments()
+    const deployments = await this.db.infrastructure.getDeployments()
     for (const dep of deployments) {
       if (dep.status === 'deploying' || dep.status === 'destroying') {
         const wfId = dep.temporalWorkflowId
@@ -489,7 +489,7 @@ export class TemporalBridge {
     const reconcile = async () => {
       if (!this.client) return
       try {
-        const clusters = await this.db.getClusters()
+        const clusters = await this.db.infrastructure.getClusters()
         for (const cluster of clusters) {
           if (cluster.status !== 'provisioning' && cluster.status !== 'destroying') continue
           const wfId = cluster.temporalWorkflowId
@@ -529,12 +529,12 @@ export class TemporalBridge {
           if (statusName === 'RUNNING' && cluster.lastLogPath) {
             const progress = inferProgressFromLog(cluster.lastLogPath)
             if (progress) {
-              await this.db.updateClusterProgress(cluster.id, progress)
+              await this.db.infrastructure.updateClusterProgress(cluster.id, progress)
             }
           }
         }
 
-        const deployments = await this.db.getDeployments()
+        const deployments = await this.db.infrastructure.getDeployments()
         for (const dep of deployments) {
           if ((dep.status === 'deploying' || dep.status === 'destroying') && dep.temporalWorkflowId) {
             this.trackWorkflow(dep.temporalWorkflowId, dep.status === 'deploying' ? 'app-deploy' : 'app-destroy', dep.id, dep.name, '', dep)
@@ -600,7 +600,7 @@ export class TemporalBridge {
                 await updateDeploymentStatus(this.db, dep.id, applied.meta, applied.status, dep.storage)
               }
             } else {
-              await this.db.deleteDeployment(dep.id)
+              await this.db.infrastructure.deleteDeployment(dep.id)
             }
             if (this.io) this.io.emit('deployment-updated')
           }
@@ -805,7 +805,7 @@ export class TemporalBridge {
       ...(meshLoginServer && meshPreAuthKey ? { meshLoginServer, meshPreAuthKey } : {}),
     }
 
-    const savedCluster = await this.db.saveClusterInfo({
+    const savedCluster = await this.db.infrastructure.saveClusterInfo({
       name: clusterName,
       provider,
       status: 'provisioning',
@@ -845,7 +845,7 @@ export class TemporalBridge {
   }
 
 async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
-  const clusters = await this.db.getClusters()
+  const clusters = await this.db.infrastructure.getClusters()
   const [cluster] = clusters.filter((c: ClusterMetadata) => c.id === clusterId)
   if (!cluster) throw new Error('ClusterMetadata not found')
 
@@ -878,7 +878,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     }
     const wfId = `cluster-destroy-${cluster.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
-    this.db.saveClusterInfo({
+    this.db.infrastructure.saveClusterInfo({
       ...cluster,
       status: 'destroying',
       temporalWorkflowId: wfId,
@@ -916,7 +916,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   }
 
   async destroyApp(deploymentId: string): Promise<WorkflowDeal> {
-    const deployments = await this.db.getDeployments()
+    const deployments = await this.db.infrastructure.getDeployments()
     const [dep] = deployments.filter((d: DeploymentMetadata) => d.id === deploymentId)
     if (!dep) throw new Error('DeploymentMetadata not found (destroyApp)')
 
@@ -927,7 +927,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
     const activityArgs = destroyAppArgs(dep, cluster, absoluteLogPath)
 
-     this.db.saveDeploymentInfo({
+     this.db.infrastructure.saveDeploymentInfo({
       ...dep,
       status: 'destroying',
       temporalWorkflowId: wfId,
@@ -950,7 +950,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   }
 
   async resizeDisk(deploymentId: string, storage: Record<string, string>): Promise<WorkflowDeal> {
-    const deployments = await this.db.getDeployments()
+    const deployments = await this.db.infrastructure.getDeployments()
     const [dep] = deployments.filter((d: DeploymentMetadata) => d.id === deploymentId)
     if (!dep) throw new Error('DeploymentMetadata not found (resizeDisk)')
 
@@ -971,7 +971,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       deploymentId: dep.deploymentId || 'default',
     }
 
-    this.db.saveDeploymentInfo({
+    this.db.infrastructure.saveDeploymentInfo({
       ...dep,
       storage: { ...dep.storage, ...storage },
       status: 'deploying',
@@ -996,7 +996,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   }
 
   async syncConfig(deploymentId: string): Promise<WorkflowDeal> {
-    const deployments = await this.db.getDeployments()
+    const deployments = await this.db.infrastructure.getDeployments()
     let [dep] = deployments.filter((d: DeploymentMetadata) => d.id === deploymentId)
     if (!dep) throw new Error('DeploymentMetadata not found (syncConfig)')
     dep = resolveVllmDefaults(dep)
@@ -1091,7 +1091,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       appSettings: dep.appSettings,
     }
 
-    this.db.saveDeploymentInfo({
+    this.db.infrastructure.saveDeploymentInfo({
       ...dep,
       status: 'deploying',
       healthReason: '',
@@ -1115,7 +1115,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   }
 
   async updateConfigAndSync(deploymentId: string, patch: Partial<DeploymentMetadata>): Promise<WorkflowDeal> {
-    const deployments = await this.db.getDeployments()
+    const deployments = await this.db.infrastructure.getDeployments()
     const dep = deployments.find((d: DeploymentMetadata) => d.id === deploymentId)
     if (!dep) throw new Error('DeploymentMetadata not found (updateConfigAndSync)')
 
@@ -1126,7 +1126,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
         merged[field] = { ...((dep as Record<string, any>)[field] ?? {}), ...incoming }
       }
     }
-    await this.db.saveDeploymentInfo(merged)
+    await this.db.infrastructure.saveDeploymentInfo(merged)
 
     return this.syncConfig(deploymentId)
   }
@@ -1195,13 +1195,13 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   }
 
   async onClusterStatus(_query: string): Promise<ClusterMetadata[]> {
-    return this.db.getClusters()
+    return this.db.infrastructure.getClusters()
   }
 
   async onClusterStatusClearup(clusterId: string): Promise<void> {
-    const deployments = await this.db.getDeployments()
+    const deployments = await this.db.infrastructure.getDeployments()
     const arr = deployments.filter((d: any) => d.clusterId !== clusterId)
-    await this.db.saveDeploymentList(arr)
+    await this.db.infrastructure.saveDeploymentList(arr)
   }
 
   async runPipeline(project: ProjectMetadata, commitSha: string, ref: string): Promise<WorkflowDeal> {

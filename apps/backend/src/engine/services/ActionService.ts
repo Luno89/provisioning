@@ -36,7 +36,7 @@ interface Executed {
   started?: ProposalStarted | undefined;
 }
 
-export type ActionStore = Pick<Database, 'getActionProposals' | 'getActionProposal' | 'saveActionProposal' | 'projects' | 'releases' | 'getDeployments' | 'getAppSpecs' | 'saveAppSpec' | 'getBindingTypes'>;
+export type ActionStore = Pick<Database, 'getActionProposals' | 'getActionProposal' | 'saveActionProposal' | 'projects' | 'releases' | 'infrastructure'>;
 
 export interface ActionDeployer {
   deployApp(config: Record<string, unknown>, userId: string): Promise<{ id: string; resourceId?: string | undefined }>;
@@ -187,10 +187,10 @@ export class ActionService {
         const spec = JSON.parse(params.spec ?? '{}') as AppSpec;
         const problems = validateSpec(spec);
         if (problems.length) throw new Error(explainSpecProblems(problems));
-        const existing = visibleAppSpecs(await this.deps.store.getAppSpecs(), ownerId).find((entry) => entry.id === spec.id);
+        const existing = visibleAppSpecs(await this.deps.store.infrastructure.getAppSpecs(), ownerId).find((entry) => entry.id === spec.id);
         if (existing?.builtIn) throw new Error(`"${spec.id}" ships with the platform and cannot be replaced`);
         const stamp = this.now();
-        await this.deps.store.saveAppSpec({ id: spec.id, spec, builtIn: false, ownerId, createdAt: existing?.createdAt ?? stamp, updatedAt: stamp });
+        await this.deps.store.infrastructure.saveAppSpec({ id: spec.id, spec, builtIn: false, ownerId, createdAt: existing?.createdAt ?? stamp, updatedAt: stamp });
         return `"${spec.id}" is in your catalogue and can be deployed`;
       }
       case 'add_mcp_server':

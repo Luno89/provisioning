@@ -1,5 +1,6 @@
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
 import { MongoHubStore } from '../../hub/store.js';
+import { MongoInfrastructureStore } from '../../infrastructure/store.js';
 import { MongoChecksStore } from '../../checks/store.js';
 import { MongoMemoryStore } from '../../memory/store.js';
 import { MongoModelsStore } from '../../models/store.js';
@@ -15,18 +16,12 @@ import { MongoPlatformStore } from '../store.js';
 import { hintKey, type McpToolHint } from '../../engine/lib/mcp-tool-hints.js';
 import type { ExtensionSettings } from '../../engine/lib/extension-settings.js';
 import type { AutoModeSettings } from '../../engine/lib/auto-mode.js';
-import type { WorkFailure } from '../../infrastructure/lib/work-failures.js';
 import type { AuthoredExtension } from '../../engine/lib/authored-extensions.js';
-import type { StoredAppSpec } from '../../infrastructure/lib/app-spec.js';
 import { MongoClient, type Db, type Collection } from 'mongodb';
-import { v4 as uuidv4 } from 'uuid';
-import { mergeRecord } from './merge-record.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, PendingApprovalMetadata } from './types.js';
-import type { Database, BindingTypeRecord } from './db-interface.js';
-import type { PartialInfo } from './types.js';
+import type { Database } from './db-interface.js';
 import type { CorpusPage } from '../../engine/lib/corpus.js';
 import { type FrontierUrl, type FrontierClaim } from './frontier.js';
-import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
+import type { ActionProposal, McpRequest } from '@koala/harness-types';
 import { procedureKey, type ProcedureSource } from '../../engine/lib/procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from '../../engine/lib/run-traces.js';
 import { MARK_MESSAGE_CHARS, TURN_LOG_RETENTION_SECONDS, type RunMark, type TurnLogEntry } from '../../engine/lib/turn-log.js';
@@ -35,7 +30,6 @@ import type { PersonaRecord as EnginePersona, ToolDefinition as EngineTool, Tool
 import type { PublishedWorkspace } from '../../engine/lib/published-workspace.js';
 import type { McpServerRecord } from '../../engine/lib/mcp-servers.js';
 import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
-import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
 
 export const databaseOf = (uri: string): string => {
   const name = uri.replace(/^mongodb(\+srv)?:\/\/[^/]+\/?/, '').split('?')[0]?.trim();
@@ -77,6 +71,7 @@ const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (ki
 export class MongoDB implements Database {
   constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {
     this.hub = new MongoHubStore(() => this.db!);
+    this.infrastructure = new MongoInfrastructureStore(() => this.db!);
     this.checks = new MongoChecksStore(() => this.db!);
     this.memory = new MongoMemoryStore(() => this.db!);
     this.models = new MongoModelsStore(() => this.db!);
@@ -93,6 +88,7 @@ export class MongoDB implements Database {
   private client: MongoClient | null = null;
   private db: Db | null = null;
   readonly hub: MongoHubStore;
+  readonly infrastructure: MongoInfrastructureStore;
   readonly checks: MongoChecksStore;
   readonly memory: MongoMemoryStore;
   readonly models: MongoModelsStore;
@@ -104,14 +100,6 @@ export class MongoDB implements Database {
   readonly instances: MongoInstancesStore;
   readonly accounts: MongoAccountsStore;
   readonly platform: MongoPlatformStore;
-
-  private get clusters(): Collection {
-    return this.db!.collection('clusters');
-  }
-
-  private get deployments(): Collection {
-    return this.db!.collection('deployments');
-  }
 
   private get workspaceImages(): Collection {
     return this.db!.collection('workspaceImages');
@@ -125,20 +113,8 @@ export class MongoDB implements Database {
     return this.db!.collection('crawl_frontier');
   }
 
-  private get appSpecs(): Collection {
-    return this.db!.collection('appSpecs');
-  }
-
-  private get clusterProviders(): Collection {
-    return this.db!.collection('clusterProviders');
-  }
-
   private get conversations(): Collection {
     return this.db!.collection('conversations');
-  }
-
-  private get pendingApprovals(): Collection {
-    return this.db!.collection('pendingApprovals');
   }
 
   private get procedures(): Collection {
@@ -213,22 +189,6 @@ export class MongoDB implements Database {
     return this.db!.collection('autoModeSettings');
   }
 
-  private get egressGrants(): Collection {
-    return this.db!.collection('egressGrants');
-  }
-
-  private get egressRequests(): Collection {
-    return this.db!.collection('egressRequests');
-  }
-
-  private get accessRequests(): Collection {
-    return this.db!.collection('accessRequests');
-  }
-
-  private get bindingTypes(): Collection {
-    return this.db!.collection('bindingTypes');
-  }
-
   async init(): Promise<void> {
     const { uri, dbName, e2e: isE2E } = mongoTarget(this.env);
 
@@ -240,9 +200,6 @@ export class MongoDB implements Database {
       await this.db.dropDatabase();
     }
 
-    await this.clusters.createIndex({ name: 1 }, { unique: true });
-    await this.deployments.createIndex({ clusterId: 1 });
-    await this.deployments.createIndex({ name: 1 }, { unique: true });
     await this.runTraces.createIndex({ ownerId: 1, runId: 1, sequence: 1 });
     await this.hub.ensureIndexes();
     await this.turnLogs.createIndex({ turnId: 1, seq: 1 }, { unique: true });
@@ -264,6 +221,7 @@ export class MongoDB implements Database {
     await this.models.ensureIndexes();
     await this.memory.ensureIndexes();
     await this.checks.ensureIndexes();
+    await this.infrastructure.ensureIndexes();
   }
 
   async dropDatabase(): Promise<void> {
@@ -276,92 +234,6 @@ export class MongoDB implements Database {
       this.client = null;
       this.db = null;
     }
-  }
-
-  async getClusters(): Promise<ClusterMetadata[]> {
-    return (await this.clusters.find({}).toArray()).map(doc => fromDoc<ClusterMetadata>(doc));
-  }
-
-  async saveCluster(cluster: ClusterMetadata): Promise<void> {
-    const doc = toDoc(cluster);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.clusters.replaceOne({ _id: id }, filter, { upsert: true });
-  }
-
-  async saveClusterList(clusters: ClusterMetadata[]): Promise<void> {
-    await this.clusters.deleteMany({});
-    if (clusters.length > 0) {
-      await this.clusters.insertMany(clusters.map(toDoc));
-    }
-  }
-
-  async saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata> {
-    const id = cluster.id || uuidv4();
-    const previous = (await this.getClusters()).find((x: ClusterMetadata) => x.id === id);
-    const merged = mergeRecord(previous, cluster as Partial<ClusterMetadata>);
-    const c: ClusterMetadata = {
-      ...merged,
-
-      id: id,
-      name: merged.name || '',
-      provider: merged.provider || 'k3d',
-      status: merged.status || 'provisioning',
-    };
-    await this.saveCluster(c);
-    return c;
-  }
-
-  async updateClusterProgress(clusterId: string, progress: ClusterProgress): Promise<void> {
-    await this.clusters.updateOne(
-      { _id: clusterId as any },
-      { $set: { progress } }
-    );
-  }
-
-  async getDeployments(): Promise<DeploymentMetadata[]> {
-    return (await this.deployments.find({}).toArray()).map(doc => fromDoc<DeploymentMetadata>(doc));
-  }
-
-  async saveDeployment(deployment: DeploymentMetadata): Promise<void> {
-    const doc = toDoc(deployment);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.deployments.replaceOne({ _id: id }, filter, { upsert: true });
-  }
-
-  async saveDeploymentList(deployments: DeploymentMetadata[]): Promise<void> {
-    const keep = deployments.map(toDoc);
-    const keepIds = keep.map((d) => d._id);
-
-    const ops: any[] = keep.map((doc) => {
-      const { _id, ...rest } = doc;
-      return { replaceOne: { filter: { _id }, replacement: rest, upsert: true } };
-    });
-    ops.push({ deleteMany: { filter: keepIds.length ? { _id: { $nin: keepIds } } : {} } });
-
-    await this.deployments.bulkWrite(ops, { ordered: false });
-  }
-
-  async deleteDeployment(id: string): Promise<void> {
-    await this.deployments.deleteOne({ _id: id as any });
-  }
-
-  async saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata> {
-    const id = deployment.id || uuidv4();
-    const previous = (await this.getDeployments()).find((x: DeploymentMetadata) => x.id === id);
-    const merged = mergeRecord(previous, deployment as Partial<DeploymentMetadata>);
-    const d: DeploymentMetadata = {
-      ...merged,
-
-      id: id,
-      name: merged.name || '',
-      clusterId: merged.clusterId || '',
-      strategy: merged.strategy || 'helm',
-      status: merged.status || 'deploying',
-    };
-    await this.saveDeployment(d);
-    return d;
   }
 
   async getCorpusPages(filter: { ownerId: string; ingestId?: string; projectId?: string }): Promise<CorpusPage[]> {
@@ -419,31 +291,6 @@ export class MongoDB implements Database {
 
   async deleteFrontier(ingestId: string): Promise<void> {
     await this.frontier.deleteMany({ ingestId });
-  }
-
-  async getAppSpecs(): Promise<StoredAppSpec[]> {
-    return (await this.appSpecs.find({}).toArray()).map((doc) => fromDoc<StoredAppSpec>(doc));
-  }
-
-  async saveAppSpec(spec: StoredAppSpec): Promise<void> {
-    const doc = toDoc(spec);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
-    await this.appSpecs.replaceOne({ _id: id }, rest, { upsert: true });
-  }
-
-  async getClusterProviders(): Promise<ClusterProviderSpec[]> {
-    const docs = (await this.clusterProviders.find({}).toArray()) as Array<Record<string, any>>;
-    return docs.map(({ _id, ...rest }) => rest as ClusterProviderSpec);
-  }
-
-  async saveClusterProvider(provider: ClusterProviderSpec): Promise<void> {
-    const { value } = provider;
-    await this.clusterProviders.replaceOne({ _id: value as any }, { _id: value, ...provider }, { upsert: true });
-  }
-
-  async deleteAppSpec(id: string): Promise<void> {
-    await this.appSpecs.deleteOne({ _id: id as any });
   }
 
   async getConversations(): Promise<Conversation[]> {
@@ -526,21 +373,6 @@ export class MongoDB implements Database {
       doc,
       { upsert: true },
     );
-  }
-
-  async getPendingApprovals(): Promise<PendingApprovalMetadata[]> {
-    return (await this.pendingApprovals.find({}).toArray()).map(doc => fromDoc<PendingApprovalMetadata>(doc));
-  }
-
-  async savePendingApproval(approval: PendingApprovalMetadata): Promise<void> {
-    const doc = toDoc(approval);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.pendingApprovals.replaceOne({ _id: id }, filter, { upsert: true });
-  }
-
-  async deletePendingApproval(id: string): Promise<void> {
-    await this.pendingApprovals.deleteOne({ _id: id as any });
   }
 
   async findRunEffort(runId: string): Promise<RunEffort | undefined> {
@@ -639,28 +471,6 @@ export class MongoDB implements Database {
     await this.extensionSettings.replaceOne({ _id: ownerId as never }, rest, { upsert: true });
   }
 
-  async getWorkFailures(ownerId?: string): Promise<WorkFailure[]> {
-    const docs = await this.db!.collection('workFailures').find(ownerId === undefined ? {} : { ownerId }).sort({ failedAt: -1 }).toArray();
-    return docs.map((doc) => fromDoc<WorkFailure>(doc as Record<string, unknown>));
-  }
-
-  async addWorkFailure(failure: WorkFailure): Promise<void> {
-    const { _id, ...doc } = toDoc(failure) as Record<string, unknown>;
-    await this.db!.collection('workFailures').updateOne({ _id: _id as never }, { $setOnInsert: doc }, { upsert: true });
-  }
-
-  async clearWorkFailures(ownerId: string, ids: readonly string[] | 'all', at: string): Promise<number> {
-    const result = await this.db!.collection('workFailures').updateMany(
-      { ownerId, clearedAt: { $exists: false }, ...(ids === 'all' ? {} : { _id: { $in: [...ids] as never[] } }) },
-      { $set: { clearedAt: at } },
-    );
-    return result.modifiedCount;
-  }
-
-  async pruneWorkFailures(before: string): Promise<void> {
-    await this.db!.collection('workFailures').deleteMany({ failedAt: { $lt: before } });
-  }
-
   async getAutoModeSettings(ownerId: string): Promise<AutoModeSettings | undefined> {
     const doc = await this.autoModeSettings.findOne({ _id: ownerId as never });
     if (!doc) return undefined;
@@ -671,56 +481,6 @@ export class MongoDB implements Database {
   async saveAutoModeSettings(settings: AutoModeSettings): Promise<void> {
     const { ownerId, ...rest } = settings;
     await this.autoModeSettings.replaceOne({ _id: ownerId as never }, rest, { upsert: true });
-  }
-
-  async getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]> {
-    const docs = await this.egressGrants.find(ownerId === undefined ? {} : { ownerId }).toArray();
-    return docs.map((d: Record<string, unknown>) => fromDoc<EgressGrantRecord>(d));
-  }
-
-  async saveEgressGrant(grant: EgressGrantRecord): Promise<void> {
-    const doc = toDoc(grant);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
-    await this.egressGrants.replaceOne({ _id: id }, rest, { upsert: true });
-  }
-
-  async getEgressRequests(ownerId: string, filter: { conversationId?: string | undefined; treeId?: string | undefined } = {}): Promise<EgressRequest[]> {
-    const query: Record<string, unknown> = { ownerId };
-    if (filter.conversationId !== undefined) query.conversationId = filter.conversationId;
-    if (filter.treeId !== undefined) query.treeId = filter.treeId;
-    const docs = await this.egressRequests.find(query).sort({ createdAt: 1 }).toArray();
-    return docs.map((d: Record<string, unknown>) => fromDoc<EgressRequest>(d));
-  }
-
-  async getEgressRequest(ownerId: string, id: string): Promise<EgressRequest | undefined> {
-    const doc = await this.egressRequests.findOne({ _id: id as any, ownerId });
-    return doc ? fromDoc<EgressRequest>(doc as Record<string, unknown>) : undefined;
-  }
-
-  async saveEgressRequest(request: EgressRequest): Promise<void> {
-    const doc = toDoc(request);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
-    await this.egressRequests.replaceOne({ _id: id }, rest, { upsert: true });
-  }
-
-  async getAccessRequests(ownerId: string, conversationId?: string): Promise<AccessRequest[]> {
-    const query = conversationId === undefined ? { ownerId } : { ownerId, conversationId };
-    const docs = await this.accessRequests.find(query).sort({ createdAt: 1 }).toArray();
-    return docs.map((d: Record<string, unknown>) => fromDoc<AccessRequest>(d));
-  }
-
-  async getAccessRequest(ownerId: string, id: string): Promise<AccessRequest | undefined> {
-    const doc = await this.accessRequests.findOne({ _id: id as any, ownerId });
-    return doc ? fromDoc<AccessRequest>(doc as Record<string, unknown>) : undefined;
-  }
-
-  async saveAccessRequest(request: AccessRequest): Promise<void> {
-    const doc = toDoc(request);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
-    await this.accessRequests.replaceOne({ _id: id }, rest, { upsert: true });
   }
 
   async saveMcpRequest(request: McpRequest): Promise<void> {
@@ -931,21 +691,6 @@ export class MongoDB implements Database {
   async deleteToolGrantsFor(ownerId: string | undefined, of: { agent?: string; tool?: string; kind?: GrantKind | undefined }): Promise<number> {
     const filter = { ...(ownerId === undefined ? {} : { ownerId }), ...(of.agent ? { agent: of.agent } : {}), ...(of.tool ? { tool: of.tool } : {}), ...kindFilter(of.kind) };
     return (await this.toolGrants.deleteMany(filter)).deletedCount;
-  }
-
-  async getBindingTypes(): Promise<BindingTypeRecord[]> {
-    return (await this.bindingTypes.find({}).toArray()).map((doc) => fromDoc<BindingTypeRecord>(doc));
-  }
-
-  async saveBindingType(record: BindingTypeRecord): Promise<void> {
-    const doc = toDoc(record);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
-    await this.bindingTypes.replaceOne({ _id: id }, rest, { upsert: true });
-  }
-
-  async deleteBindingType(id: string): Promise<void> {
-    await this.bindingTypes.deleteOne({ _id: id as any });
   }
 
 }

@@ -28,8 +28,8 @@ async function main(): Promise<void> {
 
     const { bindings, problems } = resolveBindings(
       (project as any).needs,
-      await db.getDeployments(),
-      await db.getAppSpecs(),
+      await db.infrastructure.getDeployments(),
+      await db.infrastructure.getAppSpecs(),
       (project as any).ownerId,
     );
     for (const p of problems) console.log(`  problem: ${p}`);

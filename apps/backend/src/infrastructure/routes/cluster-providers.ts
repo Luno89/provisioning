@@ -11,7 +11,7 @@ export function clusterProvidersRouter(deps: ClusterProvidersRouterDeps): Router
   const router = Router();
 
   router.get('/', asyncRoute(async (_req, res) => {
-    res.json(await db.getClusterProviders());
+    res.json(await db.infrastructure.getClusterProviders());
   }));
 
   return router;

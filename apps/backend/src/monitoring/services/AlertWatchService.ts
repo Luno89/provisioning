@@ -12,7 +12,7 @@ export type AlertChange = 'fired' | 'resolved';
 
 export interface AlertWatchDeps {
   monitoring: Pick<MonitoringService, 'allClusters' | 'reach' | 'applyHistory' | 'applyRequestMetrics' | 'syncPoolProbes'>;
-  store: Pick<Database, 'getDeployments' | 'monitoring'>;
+  store: Pick<Database, 'infrastructure' | 'monitoring'>;
   systemOwners(): Promise<string[]>;
   tell(episode: AlertEpisode, change: AlertChange, context: { app?: DeploymentMetadata | undefined; rule?: AlertRuleRecord | undefined }): Promise<void>;
   log?: (message: string) => void;
@@ -53,7 +53,7 @@ export class AlertWatchService {
 
   private async watch(): Promise<void> {
     const clusters = await this.deps.monitoring.allClusters();
-    const apps = (await this.deps.store.getDeployments()).filter((dep) => dep.status !== 'destroying');
+    const apps = (await this.deps.store.infrastructure.getDeployments()).filter((dep) => dep.status !== 'destroying');
     const rules = await this.deps.store.monitoring.getAlertRules();
     const systemOwners = await this.deps.systemOwners();
     for (const cluster of clusters) {

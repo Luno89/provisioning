@@ -31,7 +31,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
   router.get('/', async (req, res) => {
     const projects = await db.projects.getProjects();
     const mine = projects.filter((p: any) => ownsProject(p, userOf(req)));
-    const [runs, deployments] = await Promise.all([db.releases.getPipelineRuns(), db.getDeployments()]);
+    const [runs, deployments] = await Promise.all([db.releases.getPipelineRuns(), db.infrastructure.getDeployments()]);
     res.json(mine.map((p: any) => ({
       ...p,
       ...rollupProjectStatus(p, runs, deploymentForProject(p, deployments)),

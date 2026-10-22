@@ -12,7 +12,7 @@ describe('/api/cluster-access', () => {
   beforeEach(async () => {
     harness = await mountRouter({ prefix: '/api/cluster-access', router: (db) => clusterAccessRouter({ access: new AccessService({ store: db }) }) });
     await harness.db.saveConversation({ id: 'c1', ownerId: TEST_USER.id, title: 't', messages: [], createdAt: 'x', updatedAt: 'x' });
-    await harness.db.saveAccessRequest({ id: 'q1', ownerId: TEST_USER.id, conversationId: 'c1', namespaces: ['monitoring'], why: 'prometheus', status: 'requested', createdAt: 'x', updatedAt: 'x' });
+    await harness.db.infrastructure.saveAccessRequest({ id: 'q1', ownerId: TEST_USER.id, conversationId: 'c1', namespaces: ['monitoring'], why: 'prometheus', status: 'requested', createdAt: 'x', updatedAt: 'x' });
   });
 
   afterEach(() => harness.close());
@@ -33,7 +33,7 @@ describe('/api/cluster-access', () => {
 
   it('never opens the vault, even if a request for it was stored', async () => {
     harness.setUser({ ...TEST_USER, isAdmin: true });
-    await harness.db.saveAccessRequest({ id: 'q2', ownerId: TEST_USER.id, conversationId: 'c1', namespaces: ['infisical'], why: 'x', status: 'requested', createdAt: 'x', updatedAt: 'x' });
+    await harness.db.infrastructure.saveAccessRequest({ id: 'q2', ownerId: TEST_USER.id, conversationId: 'c1', namespaces: ['infisical'], why: 'x', status: 'requested', createdAt: 'x', updatedAt: 'x' });
     expect((await post(harness.url('/api/cluster-access/q2/grant'))).status).toBe(409);
   });
 

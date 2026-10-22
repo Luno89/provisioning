@@ -30,7 +30,7 @@ beforeEach(async () => {
       }),
     }),
   });
-  await harness.db.saveDeploymentInfo({ id: 'books', name: 'Books', namespace: 'books', clusterId: system.id, strategy: 'native', ownerId: TEST_USER.id, status: 'running', createdAt: 'then' });
+  await harness.db.infrastructure.saveDeploymentInfo({ id: 'books', name: 'Books', namespace: 'books', clusterId: system.id, strategy: 'native', ownerId: TEST_USER.id, status: 'running', createdAt: 'then' });
 });
 
 afterEach(async () => { await harness.close(); });

@@ -36,9 +36,11 @@ export interface ProjectRemovalStore {
     removeProjectRecords(projectId: string): Promise<Record<string, number>>;
   };
   getConversations(): Promise<Conversation[]>;
-  getDeployments(): Promise<DeploymentMetadata[]>;
-  saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
-  deleteDeployment(id: string): Promise<void>;
+  infrastructure: {
+    getDeployments(): Promise<DeploymentMetadata[]>;
+    saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
+    deleteDeployment(id: string): Promise<void>;
+  };
   releases: {
     getPipelineRuns(): Promise<PipelineRunMetadata[]>;
     getOdooReleases(ownerId: string, projectId?: string): Promise<{ id: string }[]>;
@@ -120,8 +122,8 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
     async RemoveProjectAppsActivity({ projectId }) {
       const found = await scopeOf(projectId);
       if (!found || found.scope.apps.length === 0) return [];
-      const planned = await planAppDestroys(await store.getDeployments(), found.scope.apps.map((app) => app.id), deps.apps, () => Math.random().toString(36).slice(2, 8));
-      for (const app of planned) await store.saveDeploymentInfo({ id: app.deploymentId, status: 'destroying', temporalWorkflowId: app.workflowId, lastLogPath: app.args.logFile });
+      const planned = await planAppDestroys(await store.infrastructure.getDeployments(), found.scope.apps.map((app) => app.id), deps.apps, () => Math.random().toString(36).slice(2, 8));
+      for (const app of planned) await store.infrastructure.saveDeploymentInfo({ id: app.deploymentId, status: 'destroying', temporalWorkflowId: app.workflowId, lastLogPath: app.args.logFile });
       return planned;
     },
 
@@ -197,7 +199,7 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
       count('trees unlinked', found.scope.unlinkedTreeIds.length);
       for (const id of found.scope.channelIds) await store.deleteConversation(id);
       count('conversations', found.scope.channelIds.length);
-      for (const app of found.scope.apps) await store.deleteDeployment(app.id);
+      for (const app of found.scope.apps) await store.infrastructure.deleteDeployment(app.id);
       count('deployments', found.scope.apps.length);
       if (deps.artifacts && ownerId) {
         for (const release of await store.releases.getOdooReleases(ownerId, projectId)) count('artifacts', await deps.artifacts.removeRun(ownerId, release.id));

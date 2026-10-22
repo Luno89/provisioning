@@ -78,7 +78,7 @@ describe('removing your own account', () => {
 
   it('refuses while something of yours still runs on a cluster, naming it', async () => {
     await mount('/api/account');
-    await harness.db.saveDeployment({ id: 'd1', name: 'odoo', clusterId: 'c1', ownerId: PERSON.id, strategy: 'helm' } as never);
+    await harness.db.infrastructure.saveDeployment({ id: 'd1', name: 'odoo', clusterId: 'c1', ownerId: PERSON.id, strategy: 'helm' } as never);
 
     const refused = await call('delete', '/api/account', { confirm: PERSON.email });
     expect(refused.status).toBe(409);

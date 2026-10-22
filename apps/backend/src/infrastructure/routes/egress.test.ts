@@ -20,13 +20,13 @@ describe('/api/egress', () => {
       prefix: '/api/egress',
       router: (db) => egressRouter({
         egress: new EgressService({
-          store: db,
+          store: db.infrastructure,
           newId: () => 'g1',
           proxy: { sync: async (grants) => { if (proxyDown) throw new Error('proxy unreachable'); synced.push([...grants]); } },
         }),
       }),
     });
-    await harness.db.saveEgressRequest({ id: 'e1', ownerId: TEST_USER.id, agentSlug: 'executor', host: 'api.stripe.com', why: 'tests', status: 'requested', createdAt: 'x', updatedAt: 'x' });
+    await harness.db.infrastructure.saveEgressRequest({ id: 'e1', ownerId: TEST_USER.id, agentSlug: 'executor', host: 'api.stripe.com', why: 'tests', status: 'requested', createdAt: 'x', updatedAt: 'x' });
   });
 
   afterEach(() => harness.close());
@@ -44,7 +44,7 @@ describe('/api/egress', () => {
     const res = await post(harness.url('/api/egress/requests/e1/allow'));
     expect(res.status).toBe(502);
     expect((await axios.get(harness.url('/api/egress/grants'))).data).toEqual([]);
-    expect((await harness.db.getEgressRequest(TEST_USER.id, 'e1'))?.status).toBe('requested');
+    expect((await harness.db.infrastructure.getEgressRequest(TEST_USER.id, 'e1'))?.status).toBe('requested');
   });
 
   it('revoking takes the host back out of the proxy', async () => {

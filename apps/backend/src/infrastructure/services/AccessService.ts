@@ -3,9 +3,11 @@ import type { Conversation } from '../../engine/lib/conversations.js';
 import { namespacesProblem } from '../lib/kube-diagnostics.js';
 
 export interface AccessStore {
-  getAccessRequests(ownerId: string, conversationId?: string): Promise<AccessRequest[]>;
-  getAccessRequest(ownerId: string, id: string): Promise<AccessRequest | undefined>;
-  saveAccessRequest(request: AccessRequest): Promise<void>;
+  infrastructure: {
+    getAccessRequests(ownerId: string, conversationId?: string): Promise<AccessRequest[]>;
+    getAccessRequest(ownerId: string, id: string): Promise<AccessRequest | undefined>;
+    saveAccessRequest(request: AccessRequest): Promise<void>;
+  };
   getConversation(ownerId: string, id: string): Promise<Conversation | undefined>;
   saveConversation(conversation: Conversation): Promise<void>;
 }
@@ -22,11 +24,11 @@ export class AccessService {
   }
 
   list(ownerId: string, conversationId?: string): Promise<AccessRequest[]> {
-    return this.deps.store.getAccessRequests(ownerId, conversationId);
+    return this.deps.store.infrastructure.getAccessRequests(ownerId, conversationId);
   }
 
   private async open(ownerId: string, id: string): Promise<{ opened: AccessRequest } | AccessDecision> {
-    const request = await this.deps.store.getAccessRequest(ownerId, id);
+    const request = await this.deps.store.infrastructure.getAccessRequest(ownerId, id);
     if (!request) return { ok: false, status: 404, error: 'Request not found' };
     if (request.status !== 'requested') return { ok: false, status: 409, error: `This request is already ${request.status}.` };
     return { opened: request };
@@ -49,7 +51,7 @@ export class AccessService {
       updatedAt: stamp,
     });
     const granted: AccessRequest = { ...request, status: 'granted', updatedAt: stamp };
-    await this.deps.store.saveAccessRequest(granted);
+    await this.deps.store.infrastructure.saveAccessRequest(granted);
     return { ok: true, request: granted };
   }
 
@@ -57,7 +59,7 @@ export class AccessService {
     const found = await this.open(ownerId, id);
     if (!('opened' in found)) return found;
     const dismissed: AccessRequest = { ...found.opened, status: 'dismissed', updatedAt: this.now() };
-    await this.deps.store.saveAccessRequest(dismissed);
+    await this.deps.store.infrastructure.saveAccessRequest(dismissed);
     return { ok: true, request: dismissed };
   }
 }

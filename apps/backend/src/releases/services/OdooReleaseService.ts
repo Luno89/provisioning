@@ -25,9 +25,11 @@ export interface OdooReleaseStore {
     getProjects(): Promise<ProjectMetadata[]>;
     saveProjectInfo(project: Partial<ProjectMetadata> & { id: string }): Promise<ProjectMetadata>;
   };
-  getClusters(): Promise<ClusterMetadata[]>;
-  getDeployments(): Promise<DeploymentMetadata[]>;
-  saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
+  infrastructure: {
+    getClusters(): Promise<ClusterMetadata[]>;
+    getDeployments(): Promise<DeploymentMetadata[]>;
+    saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
+  };
 }
 
 export interface ReleaseRuns {
@@ -248,7 +250,7 @@ export class OdooReleaseService {
 
   private async named(project: ProjectMetadata, ownerId: string): Promise<ProjectMetadata> {
     if (project.releaseName) return project;
-    const deployed = (await this.deps.store.getDeployments()).find((entry) => entry.gitappProjectId === project.id && entry.appType === ODOO_PROJECT_APP);
+    const deployed = (await this.deps.store.infrastructure.getDeployments()).find((entry) => entry.gitappProjectId === project.id && entry.appType === ODOO_PROJECT_APP);
     const released = deployed !== undefined || (await this.deps.store.releases.getOdooReleases(ownerId, project.id)).length > 0;
     const releaseName = deployed?.namespace || (released ? releaseNameOf(project) : newReleaseName(project));
     await this.deps.store.projects.saveProjectInfo({ id: project.id, releaseName });
@@ -259,7 +261,7 @@ export class OdooReleaseService {
     if (!project.targetClusterId) return undefined;
     return this.deps.clusterById
       ? this.deps.clusterById(project.targetClusterId)
-      : (await this.deps.store.getClusters()).find((entry) => entry.id === project.targetClusterId);
+      : (await this.deps.store.infrastructure.getClusters()).find((entry) => entry.id === project.targetClusterId);
   }
 
   private async howOf(project: ProjectMetadata): Promise<ReleaseHow> {
@@ -313,8 +315,8 @@ export class OdooReleaseService {
   }
 
   private async deploymentFor(project: ProjectMetadata, ownerId: string, cluster: ClusterMetadata, run: PipelineRunMetadata): Promise<void> {
-    const existing = (await this.deps.store.getDeployments()).find((entry) => entry.gitappProjectId === project.id);
-    await this.deps.store.saveDeploymentInfo({
+    const existing = (await this.deps.store.infrastructure.getDeployments()).find((entry) => entry.gitappProjectId === project.id);
+    await this.deps.store.infrastructure.saveDeploymentInfo({
       id: existing?.id ?? `odoo-${project.id}`,
       name: project.name,
       clusterId: cluster.id,
@@ -334,7 +336,7 @@ export class OdooReleaseService {
   }
 
   async addresses(projectId: string): Promise<{ live?: string; preview?: string }> {
-    const deployment = (await this.deps.store.getDeployments()).find((entry) => entry.gitappProjectId === projectId && entry.appType === ODOO_PROJECT_APP);
+    const deployment = (await this.deps.store.infrastructure.getDeployments()).find((entry) => entry.gitappProjectId === projectId && entry.appType === ODOO_PROJECT_APP);
     const live = deployment?.publicExposureUrl ?? deployment?.localExposureUrl;
     const preview = deployment?.previewPublicUrl ?? deployment?.previewLocalUrl;
     return { ...(live ? { live } : {}), ...(preview ? { preview } : {}) };
@@ -462,9 +464,9 @@ export class OdooReleaseService {
   }
 
   private async deploymentState(projectId: string, status: DeploymentMetadata['status'], image?: string): Promise<void> {
-    const deployment = (await this.deps.store.getDeployments()).find((entry) => entry.gitappProjectId === projectId);
+    const deployment = (await this.deps.store.infrastructure.getDeployments()).find((entry) => entry.gitappProjectId === projectId);
     if (!deployment || (deployment.status === status && (!image || deployment.gitappImageTag === image))) return;
-    await this.deps.store.saveDeploymentInfo({ id: deployment.id, status, ...(image ? { gitappImageTag: image } : {}) });
+    await this.deps.store.infrastructure.saveDeploymentInfo({ id: deployment.id, status, ...(image ? { gitappImageTag: image } : {}) });
   }
 }
 

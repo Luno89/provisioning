@@ -11,7 +11,9 @@ export const FILES_APP_NAME = 'koala-files';
 
 export interface FileServiceDeps {
   store: {
-    getDeployments(): Promise<DeploymentMetadata[]>;
+    infrastructure: {
+      getDeployments(): Promise<DeploymentMetadata[]>;
+    };
     files: {
       getFileSettings(ownerId: string): Promise<FileSettings | undefined>;
       getFileShares(ownerId: string): Promise<FileShare[]>;
@@ -47,7 +49,7 @@ export class FileService {
   constructor(private readonly deps: FileServiceDeps) {}
 
   async servers(ownerId: string): Promise<{ servers: FileServer[]; defaultId?: string | undefined }> {
-    const [deployments, settings] = await Promise.all([this.deps.store.getDeployments(), this.deps.store.files.getFileSettings(ownerId)]);
+    const [deployments, settings] = await Promise.all([this.deps.store.infrastructure.getDeployments(), this.deps.store.files.getFileSettings(ownerId)]);
     const servers = fileServersOf(deployments, ownerId);
     const defaultId = settings?.deploymentId && servers.some((server) => server.deploymentId === settings.deploymentId) ? settings.deploymentId : undefined;
     return { servers, ...(defaultId ? { defaultId } : {}) };
@@ -62,7 +64,7 @@ export class FileService {
   }
 
   async placeOf(ownerId: string, scope: FileScope): Promise<PlaceState> {
-    const deployments = await this.deps.store.getDeployments();
+    const deployments = await this.deps.store.infrastructure.getDeployments();
     const servers = fileServersOf(deployments, ownerId);
     const recorded = scope.kind === 'project' ? scope.project.files : undefined;
     if (recorded) {
@@ -91,7 +93,7 @@ export class FileService {
     const current = await this.placeOf(ownerId, { kind: 'project', project });
     if (current.state === 'ready' || current.state === 'starting') return { ok: true, value: current };
     if (!this.deps.deployMinio) return { ok: false, status: 409, why: 'A file server can only be started from the project\'s Settings.' };
-    const taken = new Set((await this.deps.store.getDeployments()).map((entry) => entry.name));
+    const taken = new Set((await this.deps.store.infrastructure.getDeployments()).map((entry) => entry.name));
     let name = FILES_APP_NAME;
     for (let n = 2; taken.has(name); n += 1) name = `${FILES_APP_NAME}-${n}`;
     const { deploymentId } = await this.deps.deployMinio(ownerId, { name, clusterId: project.targetClusterId ?? this.deps.defaultCluster });

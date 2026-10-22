@@ -17,37 +17,37 @@ beforeEach(async () => { db = await testDatabase(); });
 
 describe('deleteDeployment', () => {
   it('removes one row and leaves the rest alone', async () => {
-    await db.saveDeployment(dep('Tabbyapi-Production'));
-    await db.saveDeployment(dep('other-app'));
+    await db.infrastructure.saveDeployment(dep('Tabbyapi-Production'));
+    await db.infrastructure.saveDeployment(dep('other-app'));
 
-    await db.deleteDeployment('Tabbyapi-Production');
+    await db.infrastructure.deleteDeployment('Tabbyapi-Production');
 
-    expect((await db.getDeployments()).map((d) => d.id)).toEqual(['other-app']);
+    expect((await db.infrastructure.getDeployments()).map((d) => d.id)).toEqual(['other-app']);
   });
 
   it('is silent about a row that is already gone', async () => {
-    await db.saveDeployment(dep('gone'));
-    await db.deleteDeployment('gone');
-    await expect(db.deleteDeployment('gone')).resolves.toBeUndefined();
+    await db.infrastructure.saveDeployment(dep('gone'));
+    await db.infrastructure.deleteDeployment('gone');
+    await expect(db.infrastructure.deleteDeployment('gone')).resolves.toBeUndefined();
   });
 });
 
 describe('redeploying a name that was destroyed', () => {
   it('re-creates the record rather than colliding with it', async () => {
-    await db.saveDeployment(dep('Tabbyapi-Production', { status: 'running' }));
-    await db.deleteDeployment('Tabbyapi-Production');
-    await db.saveDeployment(dep('Tabbyapi-Production', { status: 'deploying' }));
+    await db.infrastructure.saveDeployment(dep('Tabbyapi-Production', { status: 'running' }));
+    await db.infrastructure.deleteDeployment('Tabbyapi-Production');
+    await db.infrastructure.saveDeployment(dep('Tabbyapi-Production', { status: 'deploying' }));
 
-    const all = await db.getDeployments();
+    const all = await db.infrastructure.getDeployments();
     expect(all).toHaveLength(1);
     expect(all[0]!.status).toBe('deploying');
   });
 
   it('overwrites rather than duplicating when a record survived the destroy', async () => {
-    await db.saveDeployment(dep('Tabbyapi-Production', { status: 'destroying' }));
-    await db.saveDeployment(dep('Tabbyapi-Production', { status: 'deploying' }));
+    await db.infrastructure.saveDeployment(dep('Tabbyapi-Production', { status: 'destroying' }));
+    await db.infrastructure.saveDeployment(dep('Tabbyapi-Production', { status: 'deploying' }));
 
-    const all = await db.getDeployments();
+    const all = await db.infrastructure.getDeployments();
     expect(all).toHaveLength(1);
     expect(all[0]!.status).toBe('deploying');
   });
@@ -55,19 +55,19 @@ describe('redeploying a name that was destroyed', () => {
 
 describe('saveDeploymentList', () => {
   it('reconciles to the list given', async () => {
-    await db.saveDeployment(dep('a'));
-    await db.saveDeployment(dep('b'));
+    await db.infrastructure.saveDeployment(dep('a'));
+    await db.infrastructure.saveDeployment(dep('b'));
 
-    await db.saveDeploymentList([dep('b', { status: 'failed' }), dep('c')]);
+    await db.infrastructure.saveDeploymentList([dep('b', { status: 'failed' }), dep('c')]);
 
-    const all = await db.getDeployments();
+    const all = await db.infrastructure.getDeployments();
     expect(all.map((d) => d.id).sort()).toEqual(['b', 'c']);
     expect(all.find((d) => d.id === 'b')!.status).toBe('failed');
   });
 
   it('empties the collection only when explicitly given an empty list', async () => {
-    await db.saveDeployment(dep('a'));
-    await db.saveDeploymentList([]);
-    expect(await db.getDeployments()).toEqual([]);
+    await db.infrastructure.saveDeployment(dep('a'));
+    await db.infrastructure.saveDeploymentList([]);
+    expect(await db.infrastructure.getDeployments()).toEqual([]);
   });
 });

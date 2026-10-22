@@ -90,7 +90,7 @@ export interface Viewer {
   isAdmin?: boolean | undefined;
 }
 
-export type MonitoringStore = Pick<Database, 'getClusters' | 'getDeployments' | 'releases' | 'monitoring'>;
+export type MonitoringStore = Pick<Database, 'infrastructure' | 'releases' | 'monitoring'>;
 
 export interface MonitoringDeps {
   store: MonitoringStore;
@@ -219,17 +219,17 @@ export class MonitoringService {
 
   async clustersOf(viewer: Viewer): Promise<ClusterMetadata[]> {
     const system = await this.deps.systemCluster();
-    const own = (await this.deps.store.getClusters()).filter((cluster) => cluster.ownerId === viewer.id && cluster.status !== 'destroying');
+    const own = (await this.deps.store.infrastructure.getClusters()).filter((cluster) => cluster.ownerId === viewer.id && cluster.status !== 'destroying');
     return [...(system ? [system] : []), ...own];
   }
 
   async appsOf(viewer: Viewer): Promise<DeploymentMetadata[]> {
-    return (await this.deps.store.getDeployments()).filter((dep) => dep.ownerId === viewer.id && dep.status !== 'destroying');
+    return (await this.deps.store.infrastructure.getDeployments()).filter((dep) => dep.ownerId === viewer.id && dep.status !== 'destroying');
   }
 
   async allClusters(): Promise<ClusterMetadata[]> {
     const system = await this.deps.systemCluster();
-    return [...(system ? [system] : []), ...(await this.deps.store.getClusters()).filter((cluster) => cluster.status === 'healthy')];
+    return [...(system ? [system] : []), ...(await this.deps.store.infrastructure.getClusters()).filter((cluster) => cluster.status === 'healthy')];
   }
 
   async reach(cluster: ClusterMetadata): Promise<Reached> {

@@ -22,7 +22,9 @@ export interface McpServerMigrationStore {
   saveMcpServer(server: McpServerRecord): Promise<void>;
   getMcpToolHints(ownerId: string): Promise<McpToolHint[]>;
   deleteMcpToolHint(ownerId: string, server: string, tool: string): Promise<void>;
-  getDeployments(): Promise<DeploymentMetadata[]>;
+  infrastructure: {
+    getDeployments(): Promise<DeploymentMetadata[]>;
+  };
   projects: {
     getProjects(): Promise<ProjectMetadata[]>;
     getTrees(): Promise<Tree[]>;
@@ -90,7 +92,7 @@ export async function migrateMcpServers(store: McpServerMigrationStore, now: str
     moved.servingToolsMoved += 1;
   }
 
-  const [deployments, projects, trees] = await Promise.all([store.getDeployments(), store.projects.getProjects(), store.projects.getTrees()]);
+  const [deployments, projects, trees] = await Promise.all([store.infrastructure.getDeployments(), store.projects.getProjects(), store.projects.getTrees()]);
   for (const user of await store.accounts.getUsers()) {
     const hints = await store.getMcpToolHints(user.id);
     if (hints.length === 0) continue;

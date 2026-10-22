@@ -14,7 +14,7 @@ describe('TemporalBridge.updateConfigAndSync map merging', () => {
 
   beforeEach(async () => {
     db = await testDatabase();
-    await db.saveDeployment({
+    await db.infrastructure.saveDeployment({
       id: 'dep-1',
       name: 'my-server',
       clusterId: 'cluster-1',
@@ -36,7 +36,7 @@ describe('TemporalBridge.updateConfigAndSync map merging', () => {
 
     await bridge.updateConfigAndSync('dep-1', { appSettings: { DIFFICULTY: 'Hard' } });
 
-    const [saved] = await db.getDeployments();
+    const [saved] = await db.infrastructure.getDeployments();
     expect(Object.keys(saved!.appSettings!).length).toBe(before + 0);
     expect(saved!.appSettings!.DIFFICULTY).toBe('Hard');
     expect(saved!.appSettings!.EXP_RATE).toBe('2.0');
@@ -46,20 +46,20 @@ describe('TemporalBridge.updateConfigAndSync map merging', () => {
 
   it('still deep-merges storage', async () => {
     await bridge.updateConfigAndSync('dep-1', { storage: { extra: '5Gi' } });
-    const [saved] = await db.getDeployments();
+    const [saved] = await db.infrastructure.getDeployments();
     expect(saved!.storage).toEqual({ data: '20Gi', extra: '5Gi' });
   });
 
   it('leaves appSettings untouched when the patch does not mention it', async () => {
     await bridge.updateConfigAndSync('dep-1', { webTag: 'v2' });
-    const [saved] = await db.getDeployments();
+    const [saved] = await db.infrastructure.getDeployments();
     expect(saved!.webTag).toBe('v2');
     expect(Object.keys(saved!.appSettings!).length).toBe(Object.keys(fullSettings).length);
   });
 
   it('overwrites non-map fields wholesale', async () => {
     await bridge.updateConfigAndSync('dep-1', { webRepo: 'someone/else' });
-    const [saved] = await db.getDeployments();
+    const [saved] = await db.infrastructure.getDeployments();
     expect(saved!.webRepo).toBe('someone/else');
   });
 });

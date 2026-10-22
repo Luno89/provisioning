@@ -26,7 +26,7 @@ const services = () => ({
   },
   infraService: { runKubectl: vi.fn(async () => '') },
   temporalBridge: { provision: vi.fn(async () => ({ workflowId: 'w1' })), destroy: vi.fn(async () => undefined) },
-  db: { getClusters: vi.fn(async () => [cluster()]), saveClusterList: vi.fn(async () => undefined) },
+  db: { infrastructure: { getClusters: vi.fn(async () => [cluster()]), saveClusterList: vi.fn(async () => undefined) } },
   giteaService: {},
   io: { emit: vi.fn() },
 });

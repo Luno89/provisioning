@@ -97,8 +97,8 @@ describe('the steps that delete a project', () => {
   });
 
   it('plans the destroy of each app built from it, on the app\'s own cluster and namespace, and deletes the app\'s record with the rest', async () => {
-    await db.saveDeploymentInfo({ id: 'odoo-p1', name: 'shop-p1', clusterId: 'system', strategy: 'helm', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c', ownerId: 'bo', gitappProjectId: 'p1', status: 'running' });
-    await db.saveDeploymentInfo({ id: 'odoo-p2', name: 'shop-p2', clusterId: 'system', strategy: 'helm', appType: 'odoo-project', ownerId: 'bo', gitappProjectId: 'p2', status: 'running' });
+    await db.infrastructure.saveDeploymentInfo({ id: 'odoo-p1', name: 'shop-p1', clusterId: 'system', strategy: 'helm', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c', ownerId: 'bo', gitappProjectId: 'p1', status: 'running' });
+    await db.infrastructure.saveDeploymentInfo({ id: 'odoo-p2', name: 'shop-p2', clusterId: 'system', strategy: 'helm', appType: 'odoo-project', ownerId: 'bo', gitappProjectId: 'p2', status: 'running' });
     const steps = createProjectRemovalActivities(deps());
 
     const planned = await steps.RemoveProjectAppsActivity({ projectId: 'p1' });
@@ -108,10 +108,10 @@ describe('the steps that delete a project', () => {
       taskQueue: 'cluster-ops-queue',
       args: { name: 'shop-p1', clusterId: 'system', clusterName: 'provisioning-lunorica', provider: 'k3d', strategy: 'helm', logFile: '/logs/destroy.log', deploymentId: 'default', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c' },
     }]);
-    expect((await db.getDeployments()).find((deployment) => deployment.id === 'odoo-p1')?.status).toBe('destroying');
+    expect((await db.infrastructure.getDeployments()).find((deployment) => deployment.id === 'odoo-p1')?.status).toBe('destroying');
 
     expect(await steps.RemoveProjectRecordsActivity({ projectId: 'p1' })).toMatchObject({ deployments: 1 });
-    expect((await db.getDeployments()).map((deployment) => deployment.id)).toEqual(['odoo-p2']);
+    expect((await db.infrastructure.getDeployments()).map((deployment) => deployment.id)).toEqual(['odoo-p2']);
   });
 
   it('plans nothing for a project with no app', async () => {

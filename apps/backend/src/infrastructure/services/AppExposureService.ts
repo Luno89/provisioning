@@ -191,7 +191,7 @@ export class AppExposureService extends BaseService {
     }
     const edge = this.edge;
     if (dep.publicHostname && labelOfFlat(dep.publicHostname, edge.name, domain)) return dep.publicHostname;
-    const taken = new Set((await this.db.getDeployments())
+    const taken = new Set((await this.db.infrastructure.getDeployments())
       .filter((other) => other.id !== dep.id && other.publicHostname)
       .map((other) => labelOfFlat(other.publicHostname!, edge.name, domain))
       .filter((label): label is string => Boolean(label)));
@@ -278,7 +278,7 @@ export class AppExposureService extends BaseService {
   }
 
   async exposeLocal(id: string) {
-    const deployments = await this.db.getDeployments();
+    const deployments = await this.db.infrastructure.getDeployments();
     const dep = deployments.find(d => d.id === id);
     if (!dep) throw new Error('Deployment not found');
 
@@ -299,13 +299,13 @@ export class AppExposureService extends BaseService {
       dep.previewLocalUrl = `http://${preview.key}.localhost:8000`;
     }
 
-    await this.db.saveDeployment(dep);
+    await this.db.infrastructure.saveDeployment(dep);
     if (this.io) this.io.emit('deployment-updated');
     return dep;
   }
 
   async exposePublic(id: string) {
-    const deployments = await this.db.getDeployments();
+    const deployments = await this.db.infrastructure.getDeployments();
     const dep = deployments.find(d => d.id === id);
     if (!dep) throw new Error('Deployment not found');
 
@@ -333,13 +333,13 @@ export class AppExposureService extends BaseService {
       dep.previewPublicUrl = `https://${await this.writeCaddyConf(preview.key, previewHostname, backendTarget, preview.appHostname, domain)}`;
     }
 
-    await this.db.saveDeployment(dep);
+    await this.db.infrastructure.saveDeployment(dep);
     if (this.io) this.io.emit('deployment-updated');
     return dep;
   }
 
   async syncExposedApps() {
-    const deployments = await this.db.getDeployments();
+    const deployments = await this.db.infrastructure.getDeployments();
     const exposed = deployments.filter(d => d.isExposedLocally || d.isExposedPublicly);
     let changed = false;
 
@@ -373,7 +373,7 @@ export class AppExposureService extends BaseService {
           }
         }
         this.syncDerivedFields(dep);
-        await this.db.saveDeployment(dep);
+        await this.db.infrastructure.saveDeployment(dep);
 
         changed = true;
         const modes = [dep.isExposedPublicly ? `public: ${dep.publicHostname}` : null, dep.isExposedLocally ? 'local' : null].filter(Boolean).join(', ');
@@ -432,7 +432,7 @@ export class AppExposureService extends BaseService {
   }
 
   async unexposeLocal(id: string) {
-    const deployments = await this.db.getDeployments();
+    const deployments = await this.db.infrastructure.getDeployments();
     const dep = deployments.find(d => d.id === id);
     if (!dep) throw new Error('Deployment not found');
 
@@ -457,13 +457,13 @@ export class AppExposureService extends BaseService {
       await this.removeNginxConf(namespace);
     }
 
-    await this.db.saveDeployment(dep);
+    await this.db.infrastructure.saveDeployment(dep);
     if (this.io) this.io.emit('deployment-updated');
     return dep;
   }
 
   async unexposePublic(id: string) {
-    const deployments = await this.db.getDeployments();
+    const deployments = await this.db.infrastructure.getDeployments();
     const dep = deployments.find(d => d.id === id);
     if (!dep) throw new Error('Deployment not found');
 
@@ -480,13 +480,13 @@ export class AppExposureService extends BaseService {
       delete dep.previewPublicUrl;
     }
 
-    await this.db.saveDeployment(dep);
+    await this.db.infrastructure.saveDeployment(dep);
     if (this.io) this.io.emit('deployment-updated');
     return dep;
   }
 
   async updateExposurePath(id: string, exposurePath: string) {
-    const deployments = await this.db.getDeployments();
+    const deployments = await this.db.infrastructure.getDeployments();
     const dep = deployments.find(d => d.id === id);
     if (!dep) throw new Error('Deployment not found');
 
@@ -496,7 +496,7 @@ export class AppExposureService extends BaseService {
     }
 
     dep.exposurePath = formattedPath;
-    await this.db.saveDeployment(dep);
+    await this.db.infrastructure.saveDeployment(dep);
     if (this.io) this.io.emit('deployment-updated');
 
     return dep;

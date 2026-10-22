@@ -21,7 +21,7 @@ describe('GET /api/cluster-providers', () => {
 
   it('serves seeded providers after they are stored', async () => {
     for (const p of BUILT_IN_PROVIDERS) {
-      await harness.db.saveClusterProvider(p);
+      await harness.db.infrastructure.saveClusterProvider(p);
     }
 
     const res = await fetch(harness.url('/api/cluster-providers'));

@@ -322,7 +322,7 @@ export async function DeployAppActivity(
   try {
     const specDb = createDatabase();
     await specDb.init();
-    const stored = (await specDb.getAppSpecs()).find((s) => s.id === args.appType)
+    const stored = (await specDb.infrastructure.getAppSpecs()).find((s) => s.id === args.appType)
       ?? undefined;
     await specDb.close().catch(() => undefined);
     if (stored?.spec) {
@@ -349,16 +349,16 @@ export async function DeployAppActivity(
   try {
     const bindDb = createDatabase();
     await bindDb.init();
-    const deployments = await bindDb.getDeployments();
+    const deployments = await bindDb.infrastructure.getDeployments();
     const self = deployments.find((d) => d.name === args.name || d.id === args.name);
     const project = self?.gitappProjectId
       ? (await bindDb.projects.getProjects()).find((p) => p.id === self.gitappProjectId)
       : undefined;
     const needs = project?.needs ?? [];
     const specs = needs.length && project?.ownerId
-      ? visibleAppSpecs(await bindDb.getAppSpecs(), project.ownerId)
+      ? visibleAppSpecs(await bindDb.infrastructure.getAppSpecs(), project.ownerId)
       : [];
-    const dynamicTypes = needs.length ? await bindDb.getBindingTypes().catch(() => []) : [];
+    const dynamicTypes = needs.length ? await bindDb.infrastructure.getBindingTypes().catch(() => []) : [];
     await bindDb.close().catch(() => undefined);
 
     if (needs.length && project?.ownerId) {
@@ -503,7 +503,7 @@ export async function DeployAppActivity(
     const secretDb = createDatabase();
     await secretDb.init();
     try {
-      const self = (await secretDb.getDeployments()).find((d) => d.name === args.name || d.id === args.name);
+      const self = (await secretDb.infrastructure.getDeployments()).find((d) => d.name === args.name || d.id === args.name);
       const project = self?.gitappProjectId
         ? (await secretDb.projects.getProjects()).find((p) => p.id === self.gitappProjectId)
         : undefined;

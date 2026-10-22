@@ -14,7 +14,7 @@ async function endpoint(ownerId: string) {
   try {
     const found = await crawlEndpoint(db, ownerId);
     if (found) return found;
-    const deployed = liveDeployment(await db.getDeployments(), 'crawl4ai', ownerId);
+    const deployed = liveDeployment(await db.infrastructure.getDeployments(), 'crawl4ai', ownerId);
     if (!deployed) {
       throw ApplicationFailure.nonRetryable(
         `No running Crawl4AI deployment belongs to owner ${ownerId}, so nothing can be ingested.`,

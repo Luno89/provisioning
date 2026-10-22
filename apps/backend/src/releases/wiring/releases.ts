@@ -69,7 +69,7 @@ export interface ReleasesWiring {
 export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
   const { db, gitea, infra, clusters, temporalBridge, notices, postNotice, secrets, tenant } = deps;
   const treeOfProject = async (projectId: string) => (await db.projects.getTrees()).find((tree) => tree.projectIds?.[0] === projectId);
-  const clusterById = async (id: string) => (id === 'provisioning-lunorica' ? clusters.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id));
+  const clusterById = async (id: string) => (id === 'provisioning-lunorica' ? clusters.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id));
   const slotCluster = () => createSlotCluster({ infra, repo: async () => gitea, syncVault: syncVaultFromProject(infra) });
 
   const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
@@ -147,7 +147,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
 
   const imageReleases = new ImageReleases({
     runs: deps.runs,
-    deployedTag: async (project) => deploymentForProject(project, await db.getDeployments())?.gitappImageTag?.split(':').pop(),
+    deployedTag: async (project) => deploymentForProject(project, await db.infrastructure.getDeployments())?.gitappImageTag?.split(':').pop(),
     decide: decideRelease,
     ensureSecrets: (project) => secrets.ensure(project, {}),
     noteOnBuild: (run) => db.releases.savePipelineRunInfo(run),
@@ -167,7 +167,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
 
   tenant.use('/api/projects', projectAppRouter({
     apps: new ProjectAppService({
-      deployments: () => db.getDeployments(),
+      deployments: () => db.infrastructure.getDeployments(),
       expose: (deploymentId, mode) => (mode === 'local' ? deps.exposure.exposeLocal(deploymentId) : deps.exposure.exposePublic(deploymentId)),
     }),
     getOwnedProject: deps.getOwnedProject,

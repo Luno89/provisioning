@@ -29,7 +29,7 @@ const services = () => ({
     resizeDisk: vi.fn(async () => ({ id: 'w3' })),
     updateConfigAndSync: vi.fn(async () => ({ id: 'w4' })),
   },
-  db: { getDeployments: vi.fn(async () => [deployment()]), saveDeployment: vi.fn(async () => undefined) },
+  db: { infrastructure: { getDeployments: vi.fn(async () => [deployment()]), saveDeployment: vi.fn(async () => undefined) } },
   io: { emit: vi.fn() },
 });
 

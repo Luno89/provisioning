@@ -59,7 +59,7 @@ async function main(): Promise<void> {
 
     const asked = await turn(http, conversationId, `Deploy a Qdrant vector database for me on the management cluster, call it ${name}.`);
     assert.ok(asked.some((result) => result.name === 'propose_deploy_app' && result.ok), `koala did not propose the deploy: ${JSON.stringify(asked.map((r) => `${r.name}:${r.digest}`))}`);
-    assert.equal((await db.getDeployments()).some((dep) => dep.name === name), false, 'something deployed before the card was applied');
+    assert.equal((await db.infrastructure.getDeployments()).some((dep) => dep.name === name), false, 'something deployed before the card was applied');
     const proposal = ((await http.get('/actions', { params: { conversationId } })).data as ActionProposal[]).find((entry) => entry.kind === 'deploy_app' && entry.params.name === name);
     assert.ok(proposal, 'there is no card for the deploy');
     console.log(`  koala proposed: ${proposal.summary} (${proposal.detail.join('; ')}) — nothing deployed yet`);

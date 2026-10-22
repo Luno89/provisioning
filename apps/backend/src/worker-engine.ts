@@ -179,7 +179,7 @@ async function buildActivities() {
   });
   const customizations = new CustomizationsService({
     projects: () => db.projects.getProjects(),
-    clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
+    clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id)),
     how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
     cluster: createSlotCluster({ infra: kubeInfra, repo: async () => gitea, syncVault: syncVaultFromProject(kubeInfra) }),
     adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
@@ -239,7 +239,7 @@ async function buildActivities() {
             db,
             client: () => client,
             masterKey: keys.data,
-            clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
+            clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id)),
             logDir: LOG_DIR,
           }, project, run);
           return { workflowId: started.workflowId };
@@ -267,7 +267,7 @@ async function buildActivities() {
       return builders.service.start(ownerId, treeId, commit);
     },
     treeLanguage: treeLanguageFrom(db.projects),
-    treeExtras: treeExtrasFrom(db.projects, dependencyNamespaceFrom(db)),
+    treeExtras: treeExtrasFrom(db.projects, dependencyNamespaceFrom(db.infrastructure)),
     artifacts: { keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files) },
     checks,
     documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request), pushBranch: (request) => projectRepos.pushBranch(request), pullBranch: (request) => projectRepos.pullBranch(request), deleteBranch: (request) => projectRepos.deleteBranch(request) },
@@ -279,7 +279,7 @@ async function buildActivities() {
     vault,
     egressSecret: keys.egress,
     corpus: {
-      crawlerReady: async (ownerId) => (await db.getDeployments()).some((dep) => dep.appType === 'crawl4ai' && dep.status === 'running' && dep.ownerId === ownerId),
+      crawlerReady: async (ownerId) => (await db.infrastructure.getDeployments()).some((dep) => dep.appType === 'crawl4ai' && dep.status === 'running' && dep.ownerId === ownerId),
       start: async (workflowId, args) => {
         await (await getTemporalClient()).workflow.start('executeIngestWorkflow', { taskQueue: 'host-ops-queue', workflowId, args: [args], ...startedFor(args.ownerId) });
       },
@@ -305,18 +305,18 @@ async function buildActivities() {
         return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId } : undefined;
       },
       runs: () => db.releases.getPipelineRuns(),
-      deployments: () => db.getDeployments(),
+      deployments: () => db.infrastructure.getDeployments(),
       releases: (ownerId, projectId) => db.releases.getOdooReleases(ownerId, projectId),
       clusters: async (ownerId) => [
         await clusterService.getSystemClusterEntry(),
-        ...(await db.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem),
+        ...(await db.infrastructure.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem),
       ],
-      appTypes: async (ownerId) => visibleAppSpecs(await db.getAppSpecs(), ownerId)
+      appTypes: async (ownerId) => visibleAppSpecs(await db.infrastructure.getAppSpecs(), ownerId)
         .map((spec) => ({ id: spec.id, builtIn: spec.builtIn, ...(spec.label ? { label: spec.label } : {}), ...(spec.uiDefaults?.strategies ? { strategies: spec.uiDefaults.strategies } : {}) })),
       readPath: (project, path) => projectRepos.readPath(project, path),
       bindingCheck: async (ownerId, service, as) => {
-        const dynamicTypes = await db.getBindingTypes().catch(() => []);
-        const { bindings, problems } = resolveBindings([{ service, ...(as ? { as } : {}) }], await db.getDeployments(), await db.getAppSpecs(), ownerId, { dynamicTypes });
+        const dynamicTypes = await db.infrastructure.getBindingTypes().catch(() => []);
+        const { bindings, problems } = resolveBindings([{ service, ...(as ? { as } : {}) }], await db.infrastructure.getDeployments(), await db.infrastructure.getAppSpecs(), ownerId, { dynamicTypes });
         const binding = bindings[0];
         return binding ? { name: binding.name, type: binding.type } : { problem: problems[0] ?? `cannot bind to "${service}"` };
       },
@@ -325,22 +325,22 @@ async function buildActivities() {
     kube: {
       clusters: async (ownerId) => [
         await clusterService.getSystemClusterEntry(),
-        ...(await db.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem),
+        ...(await db.infrastructure.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem),
       ],
-      deployments: () => db.getDeployments(),
+      deployments: () => db.infrastructure.getDeployments(),
       kubectl: async (cluster, argv) => String(await kubeInfra.runKubectl(argv, await clusterService.getKubeconfigPath(cluster))),
       isAdmin: async (ownerId) => (await db.accounts.getUserById(ownerId))?.isAdmin === true,
       openNamespaces: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.platformNamespaces ?? [],
       accessRequests: {
-        list: (ownerId, conversationId) => db.getAccessRequests(ownerId, conversationId),
-        save: (request) => db.saveAccessRequest(request),
+        list: (ownerId, conversationId) => db.infrastructure.getAccessRequests(ownerId, conversationId),
+        save: (request) => db.infrastructure.saveAccessRequest(request),
       },
     },
     mcpServers: {
       list: (ownerId) => db.getMcpServers(ownerId),
       get: async (ownerId, id) => (await db.getMcpServers(ownerId)).find((server) => server.id === id),
       save: (server) => db.saveMcpServer(server),
-      hostedUrl: hostedMcpUrl({ deployments: () => db.getDeployments(), probeUrl: resolveMcpProbeUrl }),
+      hostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: resolveMcpProbeUrl }),
     },
     ...(web ? { web } : {}),
     kubeconfig: process.env.KUBECONFIG_PATH,
@@ -485,7 +485,7 @@ async function buildActivities() {
     stopIfRunning: async (workflowId: string, reason: string) => (await stopIfRunning(temporal.workflow.getHandle(workflowId), reason)) !== 'not-running',
   };
   const appTeardown: AppTeardown = {
-    clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
+    clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id)),
     logFile: () => path.join(LOG_DIR, `${Date.now()}-${Math.random().toString(36).slice(2)}-D4.log`),
     taskQueue: 'cluster-ops-queue',
   };
@@ -536,7 +536,7 @@ async function buildActivities() {
         browser: releaseBrowser,
         cluster: namespacedCluster(kubeInfra),
         project: async (id) => (await db.projects.getProjects()).find((project) => project.id === id),
-        clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
+        clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id)),
       }),
       terminate: async (runId, reason) => { await temporal.workflow.getHandle(workflowOfRun(runId)).terminate(reason).catch(() => undefined); },
       leftovers: {

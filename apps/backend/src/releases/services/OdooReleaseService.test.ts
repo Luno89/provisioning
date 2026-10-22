@@ -53,7 +53,7 @@ beforeEach(async () => {
   generation += 1;
   runs = runsOfThisTest();
   db = await testDatabase();
-  await db.saveClusterInfo({ id: 'c1', name: 'dev', provider: 'k3d', status: 'healthy', ownerId: 'bo' } as ClusterMetadata);
+  await db.infrastructure.saveClusterInfo({ id: 'c1', name: 'dev', provider: 'k3d', status: 'healthy', ownerId: 'bo' } as ClusterMetadata);
   await db.projects.saveProject({ ...project, appType: 'gitapp', createdAt: 't' });
   running = false;
   started = [];
@@ -84,14 +84,14 @@ describe('releasing a project\'s build', () => {
         build: { releaseId: 'r1', image: 'reg/bo/shop:abc', source: { owner: 'bo', repo: 'shop', commit: 'abc' } },
       },
     }]);
-    expect((await db.getDeployments())[0]).toMatchObject({ name: 'Shop', appType: 'odoo-project', namespace: name, gitappProjectId: 'p1', status: 'deploying', ownerId: 'bo', clusterId: 'c1' });
+    expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ name: 'Shop', appType: 'odoo-project', namespace: name, gitappProjectId: 'p1', status: 'deploying', ownerId: 'bo', clusterId: 'c1' });
     expect((await db.projects.getProjects()).find((entry) => entry.id === 'p1')?.releaseName).toBe(name);
   });
 
   it('keeps the name a project\'s releases already have, whether it was stored or came before names were stored', async () => {
     const svc = service();
     await svc.release(project, run('b1', 'abc'));
-    const first = (await db.getDeployments())[0]!.namespace;
+    const first = (await db.infrastructure.getDeployments())[0]!.namespace;
     await runEnds(svc);
     await svc.release(project, run('b2', 'def'));
     expect(started.map((entry) => entry.inputs.target.namespace)).toEqual([first, first]);
@@ -313,7 +313,7 @@ describe('what the run records', () => {
     await engineMarks('r1', { state: 'live', slot: 'a' });
     await runEnds(svc);
     expect(seen).toEqual(['r1 live']);
-    expect((await db.getDeployments())[0]).toMatchObject({ status: 'running', gitappImageTag: 'reg/bo/shop:aaa' });
+    expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ status: 'running', gitappImageTag: 'reg/bo/shop:aaa' });
   });
 });
 
@@ -354,8 +354,8 @@ describe('where the app answers', () => {
     const svc = service();
     await svc.release(project, run('b1', 'abc'));
     expect(await svc.addresses('p1')).toEqual({});
-    const deployment = (await db.getDeployments())[0]!;
-    await db.saveDeploymentInfo({ id: deployment.id, localExposureUrl: 'http://shop.localhost:8000', previewLocalUrl: 'http://shop-preview.localhost:8000', publicExposureUrl: 'https://shop-x.dev' });
+    const deployment = (await db.infrastructure.getDeployments())[0]!;
+    await db.infrastructure.saveDeploymentInfo({ id: deployment.id, localExposureUrl: 'http://shop.localhost:8000', previewLocalUrl: 'http://shop-preview.localhost:8000', publicExposureUrl: 'https://shop-x.dev' });
     expect(await svc.addresses('p1')).toEqual({ live: 'https://shop-x.dev', preview: 'http://shop-preview.localhost:8000' });
   });
 });

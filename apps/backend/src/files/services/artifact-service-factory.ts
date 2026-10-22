@@ -8,7 +8,7 @@ import { MinioArtifactStores, minioReachFrom, type MinioReach } from './MinioArt
 
 export function createArtifactService(db: Database, infra: InfrastructureService, clusters: ClusterService): { artifacts: ArtifactService; minio: MinioArtifactStores; reach: MinioReach } {
   const reach = minioReachFrom({
-    db,
+    db: db.infrastructure,
     systemCluster: () => clusters.getSystemClusterEntry(),
     kubeconfigOf: (cluster) => clusters.getKubeconfigPath(cluster),
     kubectl: (args, kubeconfig) => infra.runKubectl(args, kubeconfig),

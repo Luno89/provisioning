@@ -21,8 +21,10 @@ export interface AccountRemovalDeps {
       getGiteaAccount(ownerId: string): Promise<{ username: string } | null>;
     };
     reownRuns(from: string, to: string): Promise<number>;
-    getDeployments(): Promise<DeploymentMetadata[]>;
-    saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
+    infrastructure: {
+      getDeployments(): Promise<DeploymentMetadata[]>;
+      saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
+    };
   };
   apps: AppTeardown;
   workflows: { stopIfRunning(workflowId: string, reason: string): Promise<boolean> };
@@ -72,11 +74,11 @@ export function createAccountRemovalActivities(deps: AccountRemovalDeps): Accoun
     },
 
     async RemoveAccountAppsActivity({ ownerId }) {
-      const deployments = await deps.store.getDeployments();
+      const deployments = await deps.store.infrastructure.getDeployments();
       const owned = deployments.filter((deployment) => deployment.ownerId === ownerId).map((deployment) => deployment.id);
       if (owned.length === 0) return [];
       const planned = await planAppDestroys(deployments, owned, deps.apps, () => Math.random().toString(36).slice(2, 8));
-      for (const app of planned) await deps.store.saveDeploymentInfo({ id: app.deploymentId, status: 'destroying', temporalWorkflowId: app.workflowId, lastLogPath: app.args.logFile });
+      for (const app of planned) await deps.store.infrastructure.saveDeploymentInfo({ id: app.deploymentId, status: 'destroying', temporalWorkflowId: app.workflowId, lastLogPath: app.args.logFile });
       return planned;
     },
 

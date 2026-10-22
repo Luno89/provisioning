@@ -301,7 +301,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.get('/ingress/verify', async (req, res) => {
     const domain = String(req.query.domain ?? '');
     if (!domain) return res.status(400).send('domain required');
-    const deployments = await db.getDeployments();
+    const deployments = await db.infrastructure.getDeployments();
     const owned = deployments.some((d) => d.isExposedPublicly && d.publicHostname === domain);
     return owned ? res.status(200).send('ok') : res.status(404).send('unknown host');
   });

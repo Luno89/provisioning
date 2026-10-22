@@ -271,7 +271,7 @@ async function main(): Promise<void> {
     console.log(`    ${candidate.e2e!.summary} on slot b, the same image as ${preview.commit.slice(0, 8)}; the live release cannot be released again`);
 
     console.log('[3b] exposing the app also exposes its preview, each on its own address');
-    const deployment = (await db.getDeployments()).find((entry) => entry.gitappProjectId === projectId)!;
+    const deployment = (await db.infrastructure.getDeployments()).find((entry) => entry.gitappProjectId === projectId)!;
     const exposed = await http.post(`/deployments/${deployment.id}/expose`, { mode: 'local' });
     assert.ok(exposed.status < 300, JSON.stringify(exposed.data));
     assert.equal(exposed.data.localExposureUrl, `http://${place.namespace}.localhost:8000`);
@@ -398,7 +398,7 @@ async function main(): Promise<void> {
     const gone = projectId;
     projectId = undefined;
     assert.equal(await run(KUBECTL, ['get', 'namespace', place.namespace], { env: { ...process.env, KUBECONFIG } }).then(() => true, () => false), false, 'the app\'s namespace outlived the project');
-    assert.equal((await db.getDeployments()).some((entry) => entry.gitappProjectId === gone), false, 'the app\'s record outlived the project');
+    assert.equal((await db.infrastructure.getDeployments()).some((entry) => entry.gitappProjectId === gone), false, 'the app\'s record outlived the project');
     const workflow = await (await getTemporalClient()).workflow.getHandle(releaseRunWorkflowId(gone)).describe();
     assert.notEqual(workflow.status.name, 'RUNNING', 'the release run outlived the project');
     console.log(`    the app, its namespace ${place.namespace} and its release run (${workflow.status.name.toLowerCase()}) went with the project`);

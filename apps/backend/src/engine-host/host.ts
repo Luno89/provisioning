@@ -591,8 +591,8 @@ export function storesFromDatabase(db: Database): EngineHostStores {
     },
     memories: { list: (ownerId: string) => db.memory.getMemories(ownerId), save: (item: MemoryItem) => db.memory.saveMemory(item) },
     egress: {
-      grants: (ownerId: string) => db.getEgressGrants(ownerId),
-      requests: { list: (ownerId: string) => db.getEgressRequests(ownerId), save: (request) => db.saveEgressRequest(request) },
+      grants: (ownerId: string) => db.infrastructure.getEgressGrants(ownerId),
+      requests: { list: (ownerId: string) => db.infrastructure.getEgressRequests(ownerId), save: (request) => db.infrastructure.saveEgressRequest(request) },
       trees: { list: () => db.projects.getTrees() },
     },
     mcp: {

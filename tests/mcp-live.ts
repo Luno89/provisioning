@@ -56,7 +56,7 @@ interface EngineEvent { type: string; runId: string; callId?: string; name?: str
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
-  const ownerId = (await db.getDeployments()).find((dep) => dep.appType === 'gitapp' && dep.status === 'running' && dep.ownerId)?.ownerId;
+  const ownerId = (await db.infrastructure.getDeployments()).find((dep) => dep.appType === 'gitapp' && dep.status === 'running' && dep.ownerId)?.ownerId;
   assert.ok(ownerId, 'nobody runs an MCP server here');
   const user = await db.accounts.getUserById(ownerId);
   assert.ok(user);

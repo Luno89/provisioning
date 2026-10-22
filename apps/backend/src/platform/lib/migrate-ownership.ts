@@ -15,22 +15,22 @@ export async function migrateLegacyOwnership(db: Database): Promise<void> {
   }
   if (!admin) return;
 
-  const clusters = await db.getClusters();
+  const clusters = await db.infrastructure.getClusters();
   let clusterCount = 0;
   for (const cluster of clusters) {
     if (!cluster.ownerId) {
       cluster.ownerId = admin.id;
-      await db.saveCluster(cluster);
+      await db.infrastructure.saveCluster(cluster);
       clusterCount++;
     }
   }
 
-  const deployments = await db.getDeployments();
+  const deployments = await db.infrastructure.getDeployments();
   let deploymentCount = 0;
   for (const deployment of deployments) {
     if (!deployment.ownerId) {
       deployment.ownerId = admin.id;
-      await db.saveDeployment(deployment);
+      await db.infrastructure.saveDeployment(deployment);
       deploymentCount++;
     }
   }

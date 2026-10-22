@@ -19,14 +19,14 @@ describe('merging a partial update', () => {
 describe('the save*Info functions', () => {
   it('does not lose a deployment field on a status-only update', async () => {
     const db = await testDatabase();
-    await db.saveDeploymentInfo({
+    await db.infrastructure.saveDeploymentInfo({
       id: 'd1', name: 'crawler', clusterId: 'c1', strategy: 'native', status: 'deploying',
       crawl4aiApiToken: 'the-token', crawl4aiMemoryLimit: '3Gi',
     } as any);
 
-    await db.saveDeploymentInfo({ id: 'd1', status: 'running' } as any);
+    await db.infrastructure.saveDeploymentInfo({ id: 'd1', status: 'running' } as any);
 
-    const [saved] = await db.getDeployments();
+    const [saved] = await db.infrastructure.getDeployments();
     expect(saved?.crawl4aiApiToken).toBe('the-token');
     expect(saved?.crawl4aiMemoryLimit).toBe('3Gi');
     expect(saved?.status).toBe('running');
@@ -45,10 +45,10 @@ describe('the save*Info functions', () => {
 
   it('keeps a cluster field across a progress update', async () => {
     const db = await testDatabase();
-    await db.saveClusterInfo({ id: 'c1', name: 'c1', provider: 'k3d', status: 'provisioning', ownerId: 'u1' } as any);
-    await db.saveClusterInfo({ id: 'c1', status: 'healthy' } as any);
+    await db.infrastructure.saveClusterInfo({ id: 'c1', name: 'c1', provider: 'k3d', status: 'provisioning', ownerId: 'u1' } as any);
+    await db.infrastructure.saveClusterInfo({ id: 'c1', status: 'healthy' } as any);
 
-    const [saved] = await db.getClusters();
+    const [saved] = await db.infrastructure.getClusters();
     expect(saved?.ownerId).toBe('u1');
     expect(saved?.status).toBe('healthy');
   });

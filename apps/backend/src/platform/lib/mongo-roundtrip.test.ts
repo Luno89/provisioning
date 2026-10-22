@@ -85,11 +85,11 @@ describe('binding types in real Mongo', () => {
   const TEST_ID = 'roundtrip-test-binding';
 
   afterAll(async () => {
-    await db.deleteBindingType(TEST_ID).catch(() => undefined);
+    await db.infrastructure.deleteBindingType(TEST_ID).catch(() => undefined);
   });
 
   it('saves, retrieves, and deletes dynamic binding types', async () => {
-    await db.saveBindingType({
+    await db.infrastructure.saveBindingType({
       id: TEST_ID,
       label: 'Roundtrip Test Service',
       protocol: 'http',
@@ -97,14 +97,14 @@ describe('binding types in real Mongo', () => {
       description: 'Dynamic binding type verification',
     });
 
-    const list = await db.getBindingTypes();
+    const list = await db.infrastructure.getBindingTypes();
     const found = list.find((b) => b.id === TEST_ID);
     expect(found).toBeDefined();
     expect(found?.label).toBe('Roundtrip Test Service');
     expect(found?.defaultPort).toBe(9999);
 
-    await db.deleteBindingType(TEST_ID);
-    const after = await db.getBindingTypes();
+    await db.infrastructure.deleteBindingType(TEST_ID);
+    const after = await db.infrastructure.getBindingTypes();
     expect(after.find((b) => b.id === TEST_ID)).toBeUndefined();
   });
 });

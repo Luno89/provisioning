@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   let crawler: string | undefined;
 
   try {
-    const running = (await db.getDeployments()).some((dep) => dep.appType === 'crawl4ai' && dep.status === 'running' && dep.ownerId === ownerId);
+    const running = (await db.infrastructure.getDeployments()).some((dep) => dep.appType === 'crawl4ai' && dep.status === 'running' && dep.ownerId === ownerId);
     if (!running) {
       const refused = (await turn(http, conversationId, 'Crawl https://example.com into the corpus — only that one page (maxDepth 0, maxPages 1).')).find((result) => result.name === 'start_ingest');
       assert.ok(refused && !refused.ok && refused.digest.includes('crawl4ai'), `start_ingest did not refuse for want of a crawler: ${JSON.stringify(refused)}`);
