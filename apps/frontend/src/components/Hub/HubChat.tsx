@@ -42,8 +42,12 @@ export default function HubChat({ projectId, chat, view, hub, me }: { projectId:
     retry: false,
   })
   const collaborator = view.role === 'collaborator'
-  const [asking, setAsking] = useState(false)
-  useEffect(() => { if (conversationId) setAsking(channelAsksKoala(conversationId)) }, [conversationId])
+  const [asking, setAsking] = useState(() => (conversationId ? channelAsksKoala(conversationId) : false))
+  const [askingIn, setAskingIn] = useState(conversationId)
+  if (askingIn !== conversationId) {
+    setAskingIn(conversationId)
+    if (conversationId) setAsking(channelAsksKoala(conversationId))
+  }
   const [notAsked, setNotAsked] = useState<string | undefined>(undefined)
   const decides = view.can.includes('approve-changes')
 
