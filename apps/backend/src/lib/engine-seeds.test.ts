@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { retireStoredBuiltInPersonas } from './built-in-personas.js';
 import { retireStoredBuiltInProcedures } from './built-in-procedures.js';
-import { ENGINE_TOOL_SEEDS, seedEngineTools } from './engine-tool-seeds.js';
+import { ENGINE_TOOL_SEEDS, seedEngineTools } from '../wiring/engine-tool-seeds.js';
 import type { Persona, ToolDefinition } from '@koala/agent-engine';
 import type { ProcedureSource } from './procedure-source.js';
 import { seededAgents } from '../extensions/seeds.js';

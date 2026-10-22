@@ -163,3 +163,10 @@ export async function keepFailureArtifacts(workspace: WorkspaceExec, keep: KeepA
     return { lines: `what the browser left behind could not be kept: ${(err as Error).message}`, stored: [] };
   }
 }
+
+export interface ArtifactChunk {
+  artifactId: string;
+  ownerId: string;
+  n: number;
+  data: Buffer;
+}

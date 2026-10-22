@@ -27,7 +27,7 @@ import { frontierOrder, type FrontierUrl, type FrontierClaim } from './frontier.
 import type { AgentStep } from '@koala/harness-types';
 import type { GiteaAccount } from './projects.js';
 import type { MemoryItem } from './memory-store.js';
-import type { Task } from '../engine-host/tools/tasks.js';
+import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 import type { SecretRequest } from './secret-requests.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
@@ -47,7 +47,7 @@ import { ACCOUNT_DATA, type AccountRelated } from './account-removal.js';
 import type { AccountIds, ScriptedRequestRecord } from './db-interface.js';
 import type { OdooRelease } from './odoo-release.js';
 import type { StoredArtifact } from './artifacts.js';
-import type { ArtifactChunk } from '../services/ArtifactService.js';
+import type { ArtifactChunk } from './artifacts.js';
 import type { DeferredConclusion, KeeperSettings } from './conclusions.js';
 
 export const databaseOf = (uri: string): string => {

@@ -12,7 +12,7 @@ import {
 } from '@koala/agent-engine';
 import { RESEARCH_V2, defineGroup, type Procedure } from '@koala/agent-engine/procedure';
 import { seededAgents } from '../../extensions/seeds.js';
-import { ENGINE_TOOL_SEEDS } from '../../lib/engine-tool-seeds.js';
+import { ENGINE_TOOL_SEEDS } from '../../wiring/engine-tool-seeds.js';
 
 const provider = (over: Partial<ModelProvider> = {}): ModelProvider => ({
   id: 'endpoint-1',

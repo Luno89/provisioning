@@ -1,5 +1,5 @@
-import type { SecretKey } from './crypto.js';
-import type { Database } from './db-interface.js';
+import type { SecretKey } from '../lib/crypto.js';
+import type { Database } from '../lib/db-interface.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { BuilderService } from '../services/BuilderService.js';
 import { ClusterService } from '../services/ClusterService.js';
@@ -7,7 +7,7 @@ import { AppService } from '../services/AppService.js';
 import { sharedClusterProxy } from '../services/ClusterProxyService.js';
 import { HeadscaleService } from '../services/HeadscaleService.js';
 import { ModelService } from '../services/ModelService.js';
-import { endpointRulesFromEnv } from './endpoint-url-safety.js';
+import { endpointRulesFromEnv } from '../lib/endpoint-url-safety.js';
 
 export function createModelService(db: Database, jwtSecret: SecretKey): ModelService {
   const infra = new InfrastructureService();

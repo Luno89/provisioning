@@ -13,7 +13,7 @@ import type { FrontierUrl, FrontierClaim } from './frontier.js';
 import type { AgentStep } from '@koala/harness-types';
 import type { GiteaAccount } from './projects.js';
 import type { MemoryItem } from './memory-store.js';
-import type { Task } from '../engine-host/tools/tasks.js';
+import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 import { markingHubWrites, type HubSyncStore } from './hub-sync.js';
 import type { SecretRequest } from './secret-requests.js';
@@ -46,7 +46,7 @@ import type { AccountRelated } from './account-removal.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
 import type { OdooRelease } from './odoo-release.js';
 import type { StoredArtifact } from './artifacts.js';
-import type { ArtifactChunk } from '../services/ArtifactService.js';
+import type { ArtifactChunk } from './artifacts.js';
 import type { DeferredConclusion, KeeperSettings } from './conclusions.js';
 
 export type PartialInfo<T> = { [K in keyof T]?: T[K] | undefined };

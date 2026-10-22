@@ -6,4 +6,4 @@
 // 2026-07-22: kept as a forwarding shim so existing import paths keep
 // working; the original body was byte-identical to the lib copy apart from
 // the missing grove line.
-export * from '../../lib/engine-tool-seeds.js';
+export * from '../../wiring/engine-tool-seeds.js';

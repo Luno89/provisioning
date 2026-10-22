@@ -1,5 +1,5 @@
 import type { Leaf } from './leaves.js';
-import type { Task } from '../engine-host/tools/tasks.js';
+import type { Task } from './tasks.js';
 
 export const CONFLICT_TASK_TITLE = 'Merge main into this leaf and resolve the conflict';
 

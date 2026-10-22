@@ -5,6 +5,10 @@ export type Plain = Record<string, unknown>;
 
 export const HUB_STATUS_BUILDS = 20;
 
+export const RELAY_STATUS_HEADER = 'x-relay-status';
+export const RELAY_TYPE_HEADER = 'x-relay-type';
+export const RELAY_NAME_HEADER = 'x-relay-name';
+
 export interface HubStatus {
   at: string;
   releases: Plain[];

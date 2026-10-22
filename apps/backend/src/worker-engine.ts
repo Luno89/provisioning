@@ -19,7 +19,7 @@ import { createDatabase, sharedPayloadBlobs } from './lib/db-interface.js';
 import { createPlanAdoption } from './engine-host/plan-adoption.js';
 import { GiteaService } from './services/GiteaService.js';
 import { InfrastructureService, LOG_DIR } from './services/InfrastructureService.js';
-import { createModelService } from './lib/model-wiring.js';
+import { createModelService } from './wiring/model-wiring.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
 import { InfisicalService } from './services/InfisicalService.js';
@@ -79,7 +79,7 @@ import {
   type RecordTracesArgs,
 } from './engine-host/index.js';
 import { createHostNodes, hostNodesFor } from './engine-host/nodes/index.js';
-import { buildWebTools } from './lib/web-tools-wiring.js';
+import { buildWebTools } from './wiring/web-tools.js';
 import { extensionServiceFor } from './services/ExtensionService.js';
 import { loadKeys } from './lib/keys.js';
 import { healthPort, serveHealth } from './lib/worker-health.js';

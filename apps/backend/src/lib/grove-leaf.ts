@@ -1,4 +1,4 @@
-import type { Task, TaskStatus } from '../engine-host/tools/tasks.js';
+import type { Task, TaskStatus } from './tasks.js';
 import { leafContext } from './plan-documents.js';
 
 export type LeafStep =

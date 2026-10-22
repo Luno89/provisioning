@@ -1,6 +1,6 @@
 import type { Branch, Leaf } from './leaves.js';
 import { byRank } from './work-order.js';
-import type { Task } from '../engine-host/tools/tasks.js';
+import type { Task } from './tasks.js';
 import type { Tree } from './trees.js';
 
 export type ItemTree = Pick<Tree, 'id' | 'name'>;

@@ -1,5 +1,5 @@
 import type { ConversationNotice, NoticeAction, NoticeKind } from './conversations.js';
-import { workflowOfRun } from '../engine-host/temporal/contracts.js';
+import { workflowOfRun } from './workflow-ids.js';
 import type { OdooRelease } from './odoo-release.js';
 import { changesSentence } from './release-compare.js';
 import { importedSentence } from './client-import.js';

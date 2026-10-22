@@ -4,7 +4,7 @@ import type { HubAccess } from '../lib/hub.js';
 import type { HubSyncTransport } from './HubSyncService.js';
 import type { HubSharing } from './ProjectSharingService.js';
 import type { InstanceCall } from './HubInstanceWork.js';
-import { RELAY_NAME_HEADER, RELAY_STATUS_HEADER, RELAY_TYPE_HEADER } from '../routes/hub-instance.js';
+import { RELAY_NAME_HEADER, RELAY_STATUS_HEADER, RELAY_TYPE_HEADER } from '../lib/hub-board.js';
 
 export class RootHubAccess {
   constructor(private readonly settings: { rootUrl: string; instanceId: string; credential: string }, private readonly fetchImpl: typeof fetch = fetch) {}

@@ -38,7 +38,6 @@ export interface ClusterMetadata {
   hetznerLocation?: string;
   hetznerImage?: string;
   hetznerServerId?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
 
@@ -141,7 +140,6 @@ export interface DeploymentMetadata {
   webuiEnableWebSearch?: boolean;
   webuiWebSearchEngine?: 'duckduckgo' | 'tavily' | 'brave' | 'serper' | 'bing';
   webuiWebSearchApiKey?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
 
@@ -200,7 +198,6 @@ export interface ProjectMetadata {
    * Absent means 'plan' for a local device (the safer default) and 'auto' otherwise.
    */
   executionApproval?: 'plan' | 'auto';
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
 
@@ -216,7 +213,6 @@ export interface LocalAgentDeviceMetadata {
   agents?: MachineAgent[] | undefined;
   agentsAt?: string | undefined;
   manualAgents?: ManualMachineAgent[] | undefined;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
 
@@ -239,7 +235,6 @@ export interface PendingApprovalMetadata {
   status: 'pending' | 'approved' | 'denied';
   createdAt: string;
   decidedAt?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
 
@@ -261,7 +256,6 @@ export interface PipelineRunMetadata {
   releaseRefused?: string;
   releaseSkipped?: string;
   releaseHeld?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
 

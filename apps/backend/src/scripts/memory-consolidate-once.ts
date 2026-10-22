@@ -1,6 +1,6 @@
 import { createDatabase } from '../lib/db-interface.js';
 import { consolidateMemories } from '../lib/memory-consolidate.js';
-import { corpusEndpoints } from '../lib/web-tools-resolver.js';
+import { corpusEndpoints } from '../wiring/web-tools.js';
 import { indexMemories, similarTo } from '../lib/memory-index.js';
 import type { MemoryItem } from '../lib/memory-store.js';
 

@@ -1,18 +1,35 @@
 import type { Database } from './db-interface.js';
-import type { DeploymentMetadata } from './types.js';
-import type { ServiceTarget } from '../services/ClusterProxyService.js';
+import type { ClusterMetadata, DeploymentMetadata } from './types.js';
 import { createWebTools, type WebTools } from './web-tools.js';
-import { InfrastructureService } from '../services/InfrastructureService.js';
-import { ClusterService } from '../services/ClusterService.js';
-import { sharedClusterProxy } from '../services/ClusterProxyService.js';
+
+export interface ProxyTarget {
+  service: string;
+  namespace: string;
+  remotePort: number;
+}
 
 const sanitize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
 export interface WebToolsDeps {
   db: Pick<Database, 'getDeployments'>;
-  serviceUrl: (clusterId: string, serviceKey: string, kubeconfigPath: string, target: ServiceTarget) => Promise<string>;
+  serviceUrl: (clusterId: string, serviceKey: string, kubeconfigPath: string, target: ProxyTarget) => Promise<string>;
   kubeconfigFor: (clusterId: string) => Promise<string | undefined>;
   env?: NodeJS.ProcessEnv;
+}
+
+export function webToolsDepsFrom(
+  db: Pick<Database, 'getDeployments'>,
+  clusters: { getByIdUnscoped(id: string): Promise<ClusterMetadata | undefined | null>; getKubeconfigPath(cluster: ClusterMetadata): string | Promise<string | undefined> | undefined },
+  proxy: { serviceUrl(clusterId: string, serviceKey: string, kubeconfigPath: string, target: ProxyTarget): Promise<string> },
+): WebToolsDeps {
+  return {
+    db,
+    serviceUrl: (clusterId, serviceKey, kubeconfigPath, target) => proxy.serviceUrl(clusterId, serviceKey, kubeconfigPath, target),
+    kubeconfigFor: async (clusterId) => {
+      const cluster = await clusters.getByIdUnscoped(clusterId);
+      return cluster ? await clusters.getKubeconfigPath(cluster) : undefined;
+    },
+  };
 }
 
 export function liveDeployment(deployments: DeploymentMetadata[], appType: string, ownerId?: string): DeploymentMetadata | undefined {
@@ -74,31 +91,11 @@ export async function resolveWebTools(deps: WebToolsDeps, ownerId?: string): Pro
   return tools;
 }
 
-export async function crawlEndpoint(
-  db: Pick<Database, 'getDeployments'>,
-  ownerId?: string,
-): Promise<{ base: string; token: string } | undefined> {
-  const infra = new InfrastructureService();
-  const clusters = new ClusterService(db as never, infra);
-  const proxy = sharedClusterProxy();
-  const deployments = await db.getDeployments().catch(() => [] as DeploymentMetadata[]);
+export async function crawlEndpointWith(deps: WebToolsDeps, ownerId?: string): Promise<{ base: string; token: string } | undefined> {
+  const deployments = await deps.db.getDeployments().catch(() => [] as DeploymentMetadata[]);
   const dep = liveDeployment(deployments, 'crawl4ai', ownerId);
   if (!dep?.crawl4aiApiToken) return undefined;
-
-  const url = await baseUrlFor(
-    {
-      db,
-      serviceUrl: (clusterId, serviceKey, kubeconfigPath, target) =>
-        proxy.serviceUrl(clusterId, serviceKey, kubeconfigPath, target),
-      kubeconfigFor: async (clusterId: string) => {
-        const cluster = await clusters.getByIdUnscoped(clusterId);
-        return cluster ? clusters.getKubeconfigPath(cluster) : undefined;
-      },
-    },
-    dep,
-    'crawl4ai',
-    11235,
-  );
+  const url = await baseUrlFor(deps, dep, 'crawl4ai', 11235);
   return url ? { base: url.replace(/\/+$/, ''), token: dep.crawl4aiApiToken } : undefined;
 }
 
@@ -109,24 +106,8 @@ export interface CorpusEndpoints {
   embeddings?: { base: string };
 }
 
-export async function corpusEndpoints(
-  db: Pick<Database, 'getDeployments'>,
-  ownerId?: string,
-): Promise<CorpusEndpoints> {
-  const infra = new InfrastructureService();
-  const clusters = new ClusterService(db as never, infra);
-  const proxy = sharedClusterProxy();
-  const deployments = await db.getDeployments().catch(() => [] as DeploymentMetadata[]);
-
-  const deps: WebToolsDeps = {
-    db,
-    serviceUrl: (clusterId, serviceKey, kubeconfigPath, target) =>
-      proxy.serviceUrl(clusterId, serviceKey, kubeconfigPath, target),
-    kubeconfigFor: async (clusterId: string) => {
-      const cluster = await clusters.getByIdUnscoped(clusterId);
-      return cluster ? clusters.getKubeconfigPath(cluster) : undefined;
-    },
-  };
+export async function corpusEndpointsWith(deps: WebToolsDeps, ownerId?: string): Promise<CorpusEndpoints> {
+  const deployments = await deps.db.getDeployments().catch(() => [] as DeploymentMetadata[]);
 
   const forward = async (appType: string, service: string, port: number) => {
     const dep = liveDeployment(deployments, appType, ownerId);

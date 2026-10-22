@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { conflictTask, landedLeaf, landingOrder, readyToLand, reopenForConflict, SUPERSEDED_NOTE, supersededByVerdict } from './landing.js';
-import type { Task } from '../engine-host/tools/tasks.js';
+import type { Task } from './tasks.js';
 import type { Leaf } from './leaves.js';
 
 const leaf = (id: string, over: Partial<Leaf> = {}): Leaf => ({ id, ownerId: 'u1', branchId: 'b1', title: `leaf ${id}`, status: 'succeeded', verified: true, createdAt: 'then', updatedAt: 'then', ...over });

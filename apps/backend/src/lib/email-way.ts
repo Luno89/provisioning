@@ -1,6 +1,10 @@
 import type { RoleConfig } from './platform-role.js';
-import type { EmailWay } from '../services/MailService.js';
 import { mailFrom } from './mail.js';
+
+export type EmailWay =
+  | { kind: 'smtp'; url: string; from: string }
+  | { kind: 'root'; rootUrl: string; instanceId: string; credential: string }
+  | { kind: 'none'; why: string };
 
 export function emailWayFrom(env: Readonly<Record<string, string | undefined>>, role: Pick<RoleConfig, 'role' | 'instance'>): EmailWay {
   if (role.role === 'instance' && role.instance) {

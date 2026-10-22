@@ -1,10 +1,9 @@
 import nodemailer from 'nodemailer';
 import type { MailMessage } from '../lib/mail.js';
 
-export type EmailWay =
-  | { kind: 'smtp'; url: string; from: string }
-  | { kind: 'root'; rootUrl: string; instanceId: string; credential: string }
-  | { kind: 'none'; why: string };
+import type { EmailWay } from '../lib/email-way.js';
+
+export type { EmailWay };
 
 export interface MailDeps {
   way: EmailWay;

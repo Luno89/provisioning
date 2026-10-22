@@ -1,6 +1,6 @@
 import { checkDefinition, type ToolDefinition } from '@koala/agent-engine';
 import { extensionTools } from '../extensions/seeds.js';
-import { sameSeededRow } from './seed-diff.js';
+import { sameSeededRow } from '../lib/seed-diff.js';
 
 export const ENGINE_TOOL_SEEDS: ToolDefinition[] = extensionTools();
 

@@ -1,12 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import { chunksOf, contentTypeOf, expiresFrom, objectKey, withinBudget, type ArtifactPlace, type StoredArtifact } from '../lib/artifacts.js';
 
-export interface ArtifactChunk {
-  artifactId: string;
-  ownerId: string;
-  n: number;
-  data: Buffer;
-}
+import type { ArtifactChunk } from '../lib/artifacts.js';
+
+export type { ArtifactChunk };
 
 export interface ArtifactRecords {
   saveArtifact(artifact: StoredArtifact): Promise<void>;

@@ -8,7 +8,7 @@ import { seedTreeTypes, stampTreeVersions } from '../lib/tree-types.js';
 import { seedWorkspaceImages } from '../lib/workspace-image-seeds.js';
 import { retireStoredBuiltInProcedures } from '../lib/built-in-procedures.js';
 import { retireStoredBuiltInPersonas } from '../lib/built-in-personas.js';
-import { seedEngineTools } from '../lib/engine-tool-seeds.js';
+import { seedEngineTools } from '../wiring/engine-tool-seeds.js';
 import { migrateAgentTools } from '../lib/tool-grant-migration.js';
 import { migrateMcpServers } from '../lib/mcp-server-migration.js';
 import { migrateToDependencies } from '../lib/dependency-migration.js';

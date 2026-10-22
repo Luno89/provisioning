@@ -27,7 +27,8 @@ import { resolveCloudCredentials } from '../lib/credential-resolver.js'
 import { decryptValue, encryptValue, type SecretKey } from '../lib/crypto.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
 import { consolidateMemories, type ConsolidationReport } from '../lib/memory-consolidate.js'
-import { corpusEndpoints } from '../lib/web-tools-resolver.js'
+import { corpusEndpointsWith, webToolsDepsFrom } from '../lib/web-tools-resolver.js'
+import { sharedClusterProxy } from './ClusterProxyService.js'
 import { indexMemories, similarTo } from '../lib/memory-index.js'
 import { assessWorkload, reconciledStatus } from '../lib/workload-health.js'
 import { InfrastructureService } from './InfrastructureService.js'
@@ -36,7 +37,7 @@ import type { Database } from '../lib/db-interface.js'
 import type { WaitingAsk } from '../lib/turn-log.js'
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata } from '../lib/types.js'
 import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-capacity.js'
-import type { ClusterService } from './ClusterService.js'
+import { ClusterService } from './ClusterService.js'
 import { ClusterProvisionWorkflow } from '../workflows/ClusterProvisionWorkflow.js'
 import { executeDestroyClusterWorkflow } from '../workflows/DestroyClusterWorkflow.js'
 import { deployProjectBuild, startAppDeploy, resolveOpenaiApiBaseUrl, type AppDeployDeps } from './AppDeploy.js'
@@ -648,7 +649,7 @@ export class TemporalBridge {
       try {
         const owners = [...new Set((await this.db.getMemories().catch(() => [])).map((memory) => memory.ownerId))]
         for (const ownerId of owners) {
-          const ends = await corpusEndpoints(this.db, ownerId).catch(() => undefined)
+          const ends = await corpusEndpointsWith(webToolsDepsFrom(this.db, this.clusterService ?? new ClusterService(this.db, new InfrastructureService()), sharedClusterProxy()), ownerId).catch(() => undefined)
           const report = await consolidateMemories({
             db: this.db as never,
             ownerId,

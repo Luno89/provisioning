@@ -1,6 +1,6 @@
 import type { Leaf } from './leaves.js';
-import type { Task } from '../engine-host/tools/tasks.js';
-import { MAX_TITLE, newTask } from '../engine-host/tools/tasks.js';
+import type { Task } from './tasks.js';
+import { MAX_TITLE, newTask } from './tasks.js';
 import { leafIndexLine } from './plan-documents.js';
 import { cycleIn, MAX_BRIEF, parseLeaf, parseTask, type ItemChange, type PlanLeaf, type PlanTask, type StoryEdit, type StorySnapshot } from './plan-proposals.js';
 

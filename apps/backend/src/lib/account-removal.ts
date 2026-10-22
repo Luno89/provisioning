@@ -1,5 +1,5 @@
 import type { ClusterMetadata, DeploymentMetadata, UserMetadata } from './types.js';
-import { adoptionWorkflowId, benchIdleId, concludeWorkspaceId, conversationConclusionId, groveRunWorkflowId } from '../engine-host/temporal/contracts.js';
+import { adoptionWorkflowId, benchIdleId, concludeWorkspaceId, conversationConclusionId, groveRunWorkflowId } from './workflow-ids.js';
 import { conversationWatermarkKey, memoryRunId } from './conclusions.js';
 import { releaseRunWorkflowId } from './release-run.js';
 

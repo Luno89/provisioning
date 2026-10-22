@@ -1,6 +1,6 @@
 import { createDatabase } from '../lib/db-interface.js';
-import { buildWebTools } from '../lib/web-tools-wiring.js';
-import { crawlEndpoint, liveDeployment, corpusEndpoints, type CorpusEndpoints } from '../lib/web-tools-resolver.js';
+import { buildWebTools, corpusEndpoints, crawlEndpoint } from '../wiring/web-tools.js';
+import { liveDeployment, type CorpusEndpoints } from '../lib/web-tools-resolver.js';
 import { ensureIndex, indexPages, ensureCollection, embedPages, searchCorpus, purgeCorpus } from '../lib/corpus-client.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { buildBatchPayload, readCrawlResults, canonical, hostOf, usableLinks } from '../lib/crawl-client.js';

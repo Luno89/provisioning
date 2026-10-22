@@ -2,7 +2,7 @@ import type { DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '.
 import type { Tree } from './trees.js';
 import { primaryProjectId } from './trees.js';
 import { deletionScope, type DeletionScope, type GroveWorld } from './grove-deletion.js';
-import { adoptionWorkflowId, concludeWorkspaceId, groveRunWorkflowId } from '../engine-host/temporal/contracts.js';
+import { adoptionWorkflowId, concludeWorkspaceId, groveRunWorkflowId } from './workflow-ids.js';
 import { releaseRunWorkflowId } from './release-run.js';
 
 export const removeProjectWorkflowId = (projectId: string): string => `remove-project-${projectId}`;

@@ -1,5 +1,5 @@
 import type { ReleaseWays } from './tree-type-description.js';
-import { describeProblem, MAX_TASK_DESCRIPTION, MAX_TASK_ROLE } from '../engine-host/tools/tasks.js';
+import { describeProblem, MAX_TASK_DESCRIPTION, MAX_TASK_ROLE } from './tasks.js';
 import { usableServiceName } from './service-name.js';
 import { claimService } from './service-claim.js';
 import { explainJsonError } from './json-error.js';

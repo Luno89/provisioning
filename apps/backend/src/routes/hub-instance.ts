@@ -13,9 +13,7 @@ const answer = <T>(res: Response, outcome: HubOutcome<T>) => (
 
 export type InstanceHub = Pick<HubService, 'share' | 'unshare' | 'receive' | 'changesSince' | 'waitingRequests' | 'settleRequest' | 'putStatus' | 'takeRelay' | 'relayed' | 'answerRelay'>;
 
-export const RELAY_STATUS_HEADER = 'x-relay-status';
-export const RELAY_TYPE_HEADER = 'x-relay-type';
-export const RELAY_NAME_HEADER = 'x-relay-name';
+import { RELAY_NAME_HEADER, RELAY_STATUS_HEADER, RELAY_TYPE_HEADER } from '../lib/hub-board.js';
 
 export function hubInstanceRouter(deps: { hub: InstanceHub; trusted: ReadonlyMap<string, crypto.KeyObject> }): Router {
   const router = Router();

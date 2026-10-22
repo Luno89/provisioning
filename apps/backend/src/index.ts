@@ -57,7 +57,7 @@ import { engineToolsRouter } from './routes/engine-tools.js';
 import { EngineToolService } from './services/EngineToolService.js';
 import { AgentService } from './services/AgentService.js';
 import { evalsLevel2Router } from './routes/evals-level2.js';
-import { buildWebTools } from './lib/web-tools-wiring.js';
+import { buildWebTools } from './wiring/web-tools.js';
 import { Level2Service, temporalCheckRunner } from './services/Level2Service.js';
 import { createStoredToolCatalogue, createEngineHost, storesFromDatabase, createStoredAgentRegistry, directoryFromDatabase, createEndpointResolver, createRunStarter, startStreamWorker } from './engine-host/index.js';
 import { notifyGroveChanged, userRoom } from './engine-host/temporal/stream-worker.js';

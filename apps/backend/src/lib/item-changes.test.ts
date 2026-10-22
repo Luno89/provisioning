@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Leaf } from './leaves.js';
-import type { Task } from '../engine-host/tools/tasks.js';
+import type { Task } from './tasks.js';
 import { applyChange, briefIn, changeSummary, parseCancel, parseNewStories, parseStoryEdit, renderChangeNote, runsToStop, withWaitsOn, type ChangeWorld } from './item-changes.js';
 
 const leaf = (id: string, status: Leaf['status'], extra: Partial<Leaf> = {}): Leaf => ({

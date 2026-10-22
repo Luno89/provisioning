@@ -17,7 +17,8 @@
     "start:worker:engine": "tsx src/worker-engine.ts",
     "keys": "tsx src/scripts/rotate-keys.ts",
     "instances": "tsx src/scripts/instances.ts",
-    "dev:split:setup": "tsx src/scripts/dev-split.ts"
+    "dev:split:setup": "tsx src/scripts/dev-split.ts",
+    "lint": "eslint ."
   },
   "keywords": [],
   "author": "",

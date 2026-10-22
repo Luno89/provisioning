@@ -29,7 +29,7 @@
     "typecheck:infra": "tsc --noEmit -p packages/cdktf-infra/tsconfig.json",
     "typecheck:local-agent": "tsc --noEmit -p apps/local-agent/tsconfig.json",
     "typecheck:agent-engine": "tsc --noEmit -p packages/agent-engine/tsconfig.json",
-    "lint": "npm run lint -w apps/frontend",
+    "lint": "npm run lint -w apps/frontend && npm run lint -w apps/backend",
     "test:unit": "npm run typecheck && npm run test:unit:context-engine && npm run test:unit:engine-core && npm run test:unit:agent-engine && npm run test:unit:frontend && npm run test:unit:backend && npm run test:unit:local-agent",
     "test:unit:context-engine": "npm run test -w packages/context-engine",
     "test:unit:agent-engine": "npm run test -w packages/agent-engine",

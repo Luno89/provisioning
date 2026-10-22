@@ -1,4 +1,4 @@
-import type { TaskChecks } from '../engine-host/tools/tasks.js';
+import type { TaskChecks } from './tasks.js';
 import { browserTestsMissing } from './browser-tests.js';
 import { E2E_REPORT, E2E_RUNNER_MISSING, e2eCommand, e2eSummary, e2eTarget, printedTail, readE2EReport, type E2ERequest } from './e2e.js';
 
