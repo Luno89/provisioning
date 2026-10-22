@@ -106,7 +106,8 @@ whose definition says `idempotent: false` — gets exactly one attempt (`engineN
 agent run can fail the run.** Wait for it to finish, or expect to start it again.
 
 Production does not watch: `npm run start` (what the root node's systemd unit runs) uses plain
-`tsx`, which is why `update.sh` restarts through the unit.
+`tsx`, which is why `update.sh` restarts through the unit. `npm run dev:steady` is the dev stack with the three
+workers on plain `tsx` too (the backend still reloads), for a long live run that a save must not kill.
 
 Note `npm run dev` uses `concurrently --kill-others`, so a worker that crashes rather than reloads
 takes the whole stack down with it.
@@ -166,6 +167,14 @@ All services live in `apps/backend/src/services/`, most extend `BaseService`. Co
 ## Auth
 
 All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAuth` from `middleware/auth.ts`'s `createAuth()`, mounted in `bootstrap()`, except `/auth/login`, `/auth/register`, `/auth/2fa/verify`, and the GitHub/Google OAuth routes. When `IS_E2E=true`, `requireAuth` short-circuits to a mock user so Playwright doesn't need to log in. GitHub/Google OAuth fall back to a zero-setup local mock flow when their client env vars are blank; 2FA SMS falls back to a logged warning when Twilio env vars are blank.
+
+**Limits and headers.** Sign-in, sign-up, 2FA, handoffs, invites, joins and share links are rate limited per address
+(`lib/http-limits.ts`, mounted on `/api` before the guard), an account is locked for fifteen minutes after ten wrong
+passwords (`lockedUntil`), every response carries `helmet`'s headers (no CSP yet), and the proxy is trusted in
+production. **Koala reports on itself** at `GET /api/metrics` (`MetricsService`, prom-client: process metrics, request
+times by route and status, failed work by kind), read with `Authorization: Bearer <METRICS_TOKEN>`; unset, nothing is
+served. **Startup migrations run once**: `scripts/seed-all.ts` runs each by name through `lib/migrations.ts` and records
+it in `migrations`; the shipped seeds (tree types, tools, providers) still upsert on every boot.
 
 The public-path allow-list lives in `middleware/auth.ts`, **not** in `routes/auth.ts` — a router
 that could exempt itself is a router that can quietly stop being protected, so adding a route that
@@ -400,7 +409,28 @@ one, `lib/hub-sync.ts`), pulls what others changed (applied without marking), an
 fast-forward whichever is behind, merge when both moved, on a conflict neither changes, the hub's main is kept as
 `hub/main-<time>` and the channel is told). The hub orders changes per project (`changes`, `board_*` in `hub_<id>`) and
 takes them only from the sharer's own instance. **Taking it back** (typing its name) deletes the hub's copy and
-repository; a project deleted on the hub stops being shared on its instance at its next sync. Where root has no hub,
+repository; a project deleted on the hub stops being shared on its instance at its next sync, and deleting a shared
+project on its instance takes it back first (the delete popup says so).
+
+**Members work a shared project on the hub** (step 2's second half). The hub's `/shared/:id` is Board · Files · People,
+the board the same screens as the instance's (`ProjectBoard` reads through a `WorkSource`, `components/Projects/work-source.ts`;
+the hub's is `components/Hub/hub-work-source.ts`, polling `GET /api/hub/projects/:id/board` every 3 s). What each role
+sees is cut on the hub (`recordFor`, `statusFor` in `lib/hub-board.ts`): a client gets stories and tasks without claims,
+runs or checks, chats without reasoning or tool calls, what is live and a waiting preview but no builds; owners and
+collaborators see everything, the run feed included, relayed from the owner's instance (`HubRelay`: the instance
+long-polls `GET /api/hub-instance/projects/:id/relay`, answers `POST /api/hub-instance/relay/:callId[/stream]`; a call
+fails cleanly when the instance is offline). Members' writes are **requests** (`POST /api/hub/projects/:id/requests`:
+approve or reject a plan, order stories or features, accept or drop a task, open a story or feature chat, ask Koala)
+that `HubSyncService` on the owner's instance carries out as the owner once the messages they refer to have synced
+(`HubInstanceWork`), and settles done or refused; the board shows what waits and why. Posting in a chat
+(`POST .../conversations/:id/messages`) syncs down like any message, named by the member's email (`authorName` on
+messages the viewer did not write, in both UIs); Koala answers owners and clients on the owner's instance (an
+`ask-koala` request starting the turn), collaborators from their own instance in step 3. The owner's instance sends a
+**status** (`PUT .../status`: releases, builds, tree runs) every 15 s or when the project moved. **Files**: the hub
+relays the owner's MinIO (`FileScope` `{kind: 'hub'}`); an owner or collaborator marks a file or folder **Shared with
+clients** (`clientFiles` on the project, `lib/client-files.ts`, `PUT .../files/for-clients`, also on the instance's
+Files page once shared), a client sees only those and may add files, which are then shared. The hub's repository is
+read-only to owners and collaborators (`GET .../repository`, `.../repository/file`). Where root has no hub,
 Share says so. `npm run test:project-sharing-live` proves it combined.
 
 **Trial instances on Koala's servers (the pool, per-user instances step 5c; plan `~/.claude/plans/pool-instances.md`).**
@@ -1168,9 +1198,10 @@ k3s it binds the host's network stack directly; on k3d it is not published witho
 
 ## Structure rules
 
-These are enforced, not aspirational: `npm run lint` is green and fails on a new violation, the
-frontend is `strict`, and CI (`.github/workflows/ci.yml`) runs typecheck + lint + both unit suites
-on every push. Each rule below is here because something in this repo broke without it.
+These are enforced, not aspirational: `npm run lint` is green and fails on a new violation (the frontend's rules, and
+the backend's layer rule in `apps/backend/eslint.config.js`: `lib` imports nothing above it, a service never imports a
+route or the wiring, a route never imports the wiring), the frontend is `strict`, and CI (`.github/workflows/ci.yml`)
+runs typecheck + lint + both unit suites on every push. Each rule below is here because something in this repo broke without it.
 
 ### Frontend
 
@@ -1205,9 +1236,11 @@ on every push. Each rule below is here because something in this repo broke with
 
 ### Backend
 
-- **One-way arrow: `index.ts → routes/ → services/ → lib/`**, with `middleware/` feeding routes.
-  `lib/` is pure and imports nothing above it. `lib/leaves.ts` (38 pure functions, no I/O) is the
-  target shape.
+- **One-way arrow: `index.ts → wiring/ → routes/ → services/ → lib/`**, with `middleware/` feeding routes.
+  `lib/` is pure and imports nothing above it; `engine-host/` and `extensions/` sit between services and `lib`, so
+  `lib` never imports them either (the `Task` helpers are `lib/tasks.ts`, the workflow ids `lib/workflow-ids.ts`).
+  `wiring/` holds what constructs services from the database and env (model wiring, web tools, the tool seeds).
+  `lib/leaves.ts` (38 pure functions, no I/O) is the target shape. The backend lint enforces the arrow.
 - **A route handler does four things**: read the request, authorize, call one service method, shape
   the response. A loop, a prompt or arithmetic belongs in a service or `lib/`.
 - **No `db.*` in a route.**
