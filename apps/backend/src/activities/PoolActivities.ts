@@ -43,12 +43,12 @@ async function withInstance<T>(instanceId: string, work: (instance: InstanceReco
   const db = createDatabase();
   await db.init();
   try {
-    const instance = (await db.getInstances()).find((entry) => entry.id === instanceId);
+    const instance = (await db.instances.getInstances()).find((entry) => entry.id === instanceId);
     if (!instance?.pool) throw ApplicationFailure.nonRetryable(`${instanceId} is not a pool instance`, 'NotPool');
     let current = instance;
     return await work(instance, async (patch) => {
       current = { ...current, ...patch, updatedAt: new Date().toISOString() };
-      await db.saveInstance(current);
+      await db.instances.saveInstance(current);
       return current;
     });
   } finally {
@@ -111,7 +111,7 @@ export async function PoolProxyActivity(): Promise<void> {
   const db = createDatabase();
   await db.init();
   try {
-    const instances = (await db.getInstances()).filter((entry) => entry.pool && entry.name);
+    const instances = (await db.instances.getInstances()).filter((entry) => entry.pool && entry.name);
     const caddyfile = proxyCaddyfile(instances.map((entry) => ({ name: entry.name!, ports: entry.pool!.ports })), pool.address);
     await new InfrastructureService().applyManifest(yaml([proxyManifests(caddyfile)[0]!]), pool.kubeconfig);
   } finally {
@@ -246,7 +246,7 @@ export async function PoolTrialNextActivity(args: { instanceId: string; now: num
   const db = createDatabase();
   await db.init();
   try {
-    const instance = (await db.getInstances()).find((entry) => entry.id === args.instanceId);
+    const instance = (await db.instances.getInstances()).find((entry) => entry.id === args.instanceId);
     if (!instance?.pool || !instance.name) return null;
     if (instance.move && instance.move.state !== 'failed') return { hold: true };
     return nextTrialStep(instance.pool, args.now);
@@ -283,12 +283,12 @@ export async function PoolRemoveActivity(args: { instanceId: string }): Promise<
   const db = createDatabase();
   await db.init();
   try {
-    const instance = (await db.getInstances()).find((entry) => entry.id === args.instanceId);
+    const instance = (await db.instances.getInstances()).find((entry) => entry.id === args.instanceId);
     if (!instance?.pool || !instance.name) return;
     const namespace = poolNamespace(instance.name);
     await infra.runHelm(['uninstall', instance.name, '-n', namespace, '--ignore-not-found', '--wait', '--timeout', '720h'], pool.kubeconfig);
     await infra.runKubectl(['delete', 'namespace', namespace, '--ignore-not-found', '--wait=true'], pool.kubeconfig);
-    await db.deleteInstance(instance.id);
+    await db.instances.deleteInstance(instance.id);
   } finally {
     await db.close();
   }
@@ -302,7 +302,7 @@ export async function PoolTrialStepActivity(args: { instanceId: string; step: Tr
   await db.init();
   let instance: InstanceRecord | undefined;
   try {
-    instance = (await db.getInstances()).find((entry) => entry.id === args.instanceId);
+    instance = (await db.instances.getInstances()).find((entry) => entry.id === args.instanceId);
   } finally {
     await db.close();
   }
@@ -331,7 +331,7 @@ async function readInstance(instanceId: string): Promise<InstanceRecord | undefi
   const db = createDatabase();
   await db.init();
   try {
-    return (await db.getInstances()).find((entry) => entry.id === instanceId);
+    return (await db.instances.getInstances()).find((entry) => entry.id === instanceId);
   } finally {
     await db.close();
   }
@@ -341,7 +341,7 @@ async function writeInstance(instance: InstanceRecord): Promise<void> {
   const db = createDatabase();
   await db.init();
   try {
-    await db.saveInstance({ ...instance, updatedAt: new Date().toISOString() });
+    await db.instances.saveInstance({ ...instance, updatedAt: new Date().toISOString() });
   } finally {
     await db.close();
   }

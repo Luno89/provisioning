@@ -1,5 +1,6 @@
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
 import { MongoHubStore } from '../../hub/store.js';
+import { MongoInstancesStore } from '../../instances/store.js';
 import { MongoAccountsStore } from '../../accounts/store.js';
 import { MongoPlatformStore } from '../store.js';
 import { hintKey, type McpToolHint } from '../../engine/lib/mcp-tool-hints.js';
@@ -11,10 +12,8 @@ import type { AlertRuleRecord } from '../../monitoring/lib/monitoring-alerts.js'
 import type { NotificationSettings } from './mail.js';
 import type { FileSettings } from '../../files/lib/file-places.js';
 import type { FileShare } from '../../files/lib/file-shares.js';
-import type { PoolPolicy } from '../../instances/lib/pool.js';
 import type { WorkFailure } from '../../infrastructure/lib/work-failures.js';
 import type { AuthoredExtension } from '../../engine/lib/authored-extensions.js';
-import type { InstanceRecord, JoinToken } from '../../instances/lib/instances.js';
 import type { MachineJoinCode } from '../../machines/lib/machines.js';
 import type { StoredAppSpec } from '../../infrastructure/lib/app-spec.js';
 import { MongoClient, type Db, type Collection } from 'mongodb';
@@ -90,6 +89,7 @@ const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (ki
 export class MongoDB implements Database {
   constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {
     this.hub = new MongoHubStore(() => this.db!);
+    this.instances = new MongoInstancesStore(() => this.db!);
     this.accounts = new MongoAccountsStore(() => this.db!);
     this.platform = new MongoPlatformStore(() => this.db!);
   }
@@ -97,6 +97,7 @@ export class MongoDB implements Database {
   private client: MongoClient | null = null;
   private db: Db | null = null;
   readonly hub: MongoHubStore;
+  readonly instances: MongoInstancesStore;
   readonly accounts: MongoAccountsStore;
   readonly platform: MongoPlatformStore;
 
@@ -248,20 +249,8 @@ export class MongoDB implements Database {
     return this.db!.collection('actionProposals');
   }
 
-  private get handoffs(): Collection {
-    return this.db!.collection('identityHandoffs');
-  }
-
-  private get joinTokens(): Collection {
-    return this.db!.collection('instanceJoinTokens');
-  }
-
   private get machineJoinCodes(): Collection {
     return this.db!.collection('machineJoinCodes');
-  }
-
-  private get instanceRegistry(): Collection {
-    return this.db!.collection('instances');
   }
 
   private get authoredExtensions(): Collection {
@@ -319,10 +308,6 @@ export class MongoDB implements Database {
     await this.turnLogs.createIndex({ turnId: 1, seq: 1 }, { unique: true });
     await this.turnLogs.createIndex({ at: 1 }, { expireAfterSeconds: TURN_LOG_RETENTION_SECONDS });
     await this.turnLogs.createIndex({ ownerId: 1, seq: 1, at: -1 });
-    await this.handoffs.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-    await this.instanceRegistry.createIndex({ ownerId: 1 });
-    await this.instanceRegistry.createIndex({ name: 1 }, { unique: true, partialFilterExpression: { name: { $type: 'string' } } });
-    await this.joinTokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.machineJoinCodes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.planProposals.createIndex({ ownerId: 1, conversationId: 1, createdAt: 1 });
     await this.secretRequests.createIndex({ ownerId: 1, projectId: 1, key: 1 });
@@ -350,6 +335,7 @@ export class MongoDB implements Database {
     await this.corpus.createIndex({ ownerId: 1, projectId: 1 });
     await this.platform.ensureIndexes();
     await this.accounts.ensureIndexes();
+    await this.instances.ensureIndexes();
   }
 
   async dropDatabase(): Promise<void> {
@@ -1016,26 +1002,6 @@ export class MongoDB implements Database {
     return { ...(rest as Omit<ExtensionSettings, 'ownerId'>), ownerId: String(_id) };
   }
 
-  async claimHandoff(jti: string, expiresAt: string): Promise<boolean> {
-    try {
-      await this.handoffs.insertOne({ _id: jti as never, expiresAt: new Date(expiresAt) });
-      return true;
-    } catch (err) {
-      if ((err as { code?: number }).code === 11000) return false;
-      throw err;
-    }
-  }
-
-  async saveJoinToken(token: JoinToken): Promise<void> {
-    await this.joinTokens.replaceOne({ _id: token.hash as never }, { ...token, expiresAt: new Date(token.expiresAt) }, { upsert: true });
-  }
-
-  async takeJoinToken(hash: string): Promise<JoinToken | undefined> {
-    const doc = await this.joinTokens.findOneAndDelete({ _id: hash as never });
-    if (!doc) return undefined;
-    return { hash, ownerId: doc.ownerId as string, instanceId: doc.instanceId as string, expiresAt: (doc.expiresAt as Date).toISOString(), ...(doc.move === true ? { move: true } : {}) };
-  }
-
   async saveMachineJoinCode(code: MachineJoinCode): Promise<void> {
     await this.machineJoinCodes.replaceOne({ _id: code.hash as never }, { ...code, expiresAt: new Date(code.expiresAt) }, { upsert: true });
   }
@@ -1044,19 +1010,6 @@ export class MongoDB implements Database {
     const doc = await this.machineJoinCodes.findOneAndDelete({ _id: hash as never });
     if (!doc) return undefined;
     return { hash, ownerId: doc.ownerId as string, expiresAt: (doc.expiresAt as Date).toISOString() };
-  }
-
-  async getInstances(ownerId?: string): Promise<InstanceRecord[]> {
-    const docs = await this.instanceRegistry.find(ownerId ? { ownerId } : {}).toArray();
-    return docs.map(({ _id, ...rest }) => rest as unknown as InstanceRecord);
-  }
-
-  async saveInstance(instance: InstanceRecord): Promise<void> {
-    await this.instanceRegistry.replaceOne({ _id: instance.id as never }, instance, { upsert: true });
-  }
-
-  async deleteInstance(id: string): Promise<void> {
-    await this.instanceRegistry.deleteOne({ _id: id as never });
   }
 
   async getAuthoredExtensions(ownerId: string): Promise<AuthoredExtension[]> {
@@ -1149,17 +1102,6 @@ export class MongoDB implements Database {
   async saveNotificationSettings(settings: NotificationSettings): Promise<void> {
     const { ownerId, ...rest } = settings;
     await this.db!.collection('notificationSettings').replaceOne({ _id: ownerId as never }, rest, { upsert: true });
-  }
-
-  async getPoolPolicy(): Promise<PoolPolicy | undefined> {
-    const doc = await this.db!.collection('poolSettings').findOne({ _id: 'pool' as never });
-    if (!doc) return undefined;
-    const { _id, ...rest } = doc as Record<string, unknown>;
-    return rest as unknown as PoolPolicy;
-  }
-
-  async savePoolPolicy(policy: PoolPolicy): Promise<void> {
-    await this.db!.collection('poolSettings').replaceOne({ _id: 'pool' as never }, { ...policy }, { upsert: true });
   }
 
   async getMonitoringSettings(): Promise<MonitoringSetting[]> {

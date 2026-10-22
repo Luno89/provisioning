@@ -67,11 +67,11 @@ describe('signing in at root and landing on your own instance', () => {
 
   it('sends no one to an instance that is still being set up', async () => {
     const root = new IdentityService(rootRole, rootDb, () => now);
-    await rootDb.saveInstance({ id: 'inst-u1', ownerId: 'u1', url: '', createdAt: 'x', updatedAt: 'x', status: 'waiting' });
+    await rootDb.instances.saveInstance({ id: 'inst-u1', ownerId: 'u1', url: '', createdAt: 'x', updatedAt: 'x', status: 'waiting' });
     expect(await root.handoffUrl({ id: 'u1', email: 'e' })).toBeUndefined();
-    await rootDb.saveInstance({ id: 'inst-u1', ownerId: 'u1', url: 'http://100.64.0.7:30320', createdAt: 'x', updatedAt: 'x', status: 'installing' });
+    await rootDb.instances.saveInstance({ id: 'inst-u1', ownerId: 'u1', url: 'http://100.64.0.7:30320', createdAt: 'x', updatedAt: 'x', status: 'installing' });
     expect(await root.handoffUrl({ id: 'u1', email: 'e' })).toBeUndefined();
-    await rootDb.saveInstance({ id: 'inst-u1', ownerId: 'u1', url: 'http://100.64.0.7:30320', createdAt: 'x', updatedAt: 'x', status: 'ready' });
+    await rootDb.instances.saveInstance({ id: 'inst-u1', ownerId: 'u1', url: 'http://100.64.0.7:30320', createdAt: 'x', updatedAt: 'x', status: 'ready' });
     expect(await root.handoffUrl({ id: 'u1', email: 'e' })).toMatch(/^http:\/\/100\.64\.0\.7:30320\/#\/handoff/);
   });
 

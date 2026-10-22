@@ -35,7 +35,7 @@ export function wireAccounts(deps: AccountsWiringDeps): { peopleRemoval: Account
     workflows: temporalRemovalWorkflows(() => getTemporalClient(), env.POOL_TASK_QUEUE || 'host-ops-queue'),
     workflowType: ROOT_REMOVAL_WORKFLOW,
     steps: ROOT_REMOVAL_STEPS,
-    instances: () => db.getInstances(),
+    instances: () => db.instances.getInstances(),
     hub: deps.hubPeople,
   }) : undefined;
   const peopleRemoval = rootRemoval ?? accountRemoval;

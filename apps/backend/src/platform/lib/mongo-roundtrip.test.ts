@@ -112,10 +112,10 @@ describe('binding types in real Mongo', () => {
 describe('join tokens in real Mongo', () => {
   it('give back whether they move an instance, once', async () => {
     const expiresAt = new Date(Date.now() + 60_000).toISOString();
-    await db.saveJoinToken({ hash: 'roundtrip-move-token', ownerId: OWNERS[0]!, instanceId: 'roundtrip-instance', expiresAt, move: true });
-    await db.saveJoinToken({ hash: 'roundtrip-join-token', ownerId: OWNERS[0]!, instanceId: 'roundtrip-instance', expiresAt });
-    expect(await db.takeJoinToken('roundtrip-move-token')).toEqual({ hash: 'roundtrip-move-token', ownerId: OWNERS[0], instanceId: 'roundtrip-instance', expiresAt, move: true });
-    expect(await db.takeJoinToken('roundtrip-join-token')).toEqual({ hash: 'roundtrip-join-token', ownerId: OWNERS[0], instanceId: 'roundtrip-instance', expiresAt });
-    expect(await db.takeJoinToken('roundtrip-move-token')).toBeUndefined();
+    await db.instances.saveJoinToken({ hash: 'roundtrip-move-token', ownerId: OWNERS[0]!, instanceId: 'roundtrip-instance', expiresAt, move: true });
+    await db.instances.saveJoinToken({ hash: 'roundtrip-join-token', ownerId: OWNERS[0]!, instanceId: 'roundtrip-instance', expiresAt });
+    expect(await db.instances.takeJoinToken('roundtrip-move-token')).toEqual({ hash: 'roundtrip-move-token', ownerId: OWNERS[0], instanceId: 'roundtrip-instance', expiresAt, move: true });
+    expect(await db.instances.takeJoinToken('roundtrip-join-token')).toEqual({ hash: 'roundtrip-join-token', ownerId: OWNERS[0], instanceId: 'roundtrip-instance', expiresAt });
+    expect(await db.instances.takeJoinToken('roundtrip-move-token')).toBeUndefined();
   });
 });

@@ -20,7 +20,7 @@ async function withDb<T>(work: (db: ReturnType<typeof createDatabase>) => Promis
 
 export async function RootRemovalInstanceActivity({ ownerId }: { ownerId: string }): Promise<{ poolInstanceId?: string | undefined }> {
   return withDb(async (db) => {
-    const instance = (await db.getInstances()).find((entry) => entry.ownerId === ownerId);
+    const instance = (await db.instances.getInstances()).find((entry) => entry.ownerId === ownerId);
     return instance?.pool ? { poolInstanceId: instance.id } : {};
   });
 }

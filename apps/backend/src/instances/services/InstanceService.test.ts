@@ -62,7 +62,7 @@ describe('bringing a user\'s own machine in as their instance', () => {
     if (!joined.ok) throw new Error(joined.error);
     const id = joined.value.instanceId;
 
-    const stored = (await db.getInstances('u1'))[0]!;
+    const stored = (await db.instances.getInstances('u1'))[0]!;
     expect(stored.credentialHash).toBeDefined();
     expect(JSON.stringify(stored)).not.toContain(joined.value.credential);
 
@@ -162,12 +162,12 @@ describe('a trial instance on Koala\'s servers', () => {
     const made = await pool.createPoolInstance('u1', 'alice');
     expect(made).toEqual({ ok: true, value: { id: instanceIdFor('u1'), name: 'alice', trialEndsAt: '2026-10-16T12:00:00.000Z' } });
     expect(started).toEqual([{ instanceId: instanceIdFor('u1'), ownerId: 'u1' }]);
-    const record = (await db.getInstances('u1'))[0]!;
+    const record = (await db.instances.getInstances('u1'))[0]!;
     expect(record).toMatchObject({ status: 'installing', name: 'alice', pool: { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: now.toISOString() } });
     expect(await pool.mine('u1')).toMatchObject({ status: 'installing', trialEndsAt: '2026-10-16T12:00:00.000Z' });
 
     expect(await pool.createPoolInstance('u2', 'bob')).toMatchObject({ ok: true });
-    expect((await db.getInstances('u2'))[0]!.pool!.ports.backend).toBe(35003);
+    expect((await db.instances.getInstances('u2'))[0]!.pool!.ports.backend).toBe(35003);
   });
 
   it('says when the pool is full, and lets nobody past it, though someone already in it is still offered theirs', async () => {
@@ -191,11 +191,11 @@ describe('a trial instance on Koala\'s servers', () => {
   it('can be tried again after its install failed, keeping its ports and freeing its slot meanwhile', async () => {
     const pool = pooled({ slots: 1, trialDays: 14 });
     await pool.createPoolInstance('u1', 'alice');
-    const record = (await db.getInstances('u1'))[0]!;
-    await db.saveInstance({ ...record, status: 'failed', detail: 'no gVisor' });
+    const record = (await db.instances.getInstances('u1'))[0]!;
+    await db.instances.saveInstance({ ...record, status: 'failed', detail: 'no gVisor' });
     expect(await pool.poolOffer('u2')).toMatchObject({ available: true });
     expect(await pool.createPoolInstance('u1', 'alice')).toMatchObject({ ok: true });
-    expect((await db.getInstances('u1'))[0]!.pool!.ports).toEqual(record.pool!.ports);
+    expect((await db.instances.getInstances('u1'))[0]!.pool!.ports).toEqual(record.pool!.ports);
     expect(started).toHaveLength(2);
   });
 
@@ -203,7 +203,7 @@ describe('a trial instance on Koala\'s servers', () => {
     const pool = pooled();
     await pool.createPoolInstance('u1', 'alice');
     expect(await pool.createJoinToken('u1', 'alice')).toMatchObject({ ok: false, status: 400, error: expect.stringContaining('moving it to your own machine keeps your work') });
-    expect((await db.getInstances('u1'))[0]!.pool).toBeDefined();
+    expect((await db.instances.getInstances('u1'))[0]!.pool).toBeDefined();
   });
 
   it('says so when its install cannot start, and leaves it failed rather than installing forever', async () => {
@@ -226,13 +226,13 @@ describe('a trial instance on Koala\'s servers', () => {
   it('lets an admin move one person\'s trial end, warning again before the new end and waking their trial', async () => {
     const pool = pooled();
     const { value } = await pool.createPoolInstance('u1', 'alice') as { value: { id: string } };
-    const record = (await db.getInstances('u1'))[0]!;
-    await db.saveInstance({ ...record, pool: { ...record.pool!, told: ['warn-3d'] } });
+    const record = (await db.instances.getInstances('u1'))[0]!;
+    await db.instances.saveInstance({ ...record, pool: { ...record.pool!, told: ['warn-3d'] } });
     expect(await pool.setTrialEnd(value.id, '2026-09-01T00:00:00Z')).toMatchObject({ ok: false, status: 400, error: 'the new end of the trial has to be in the future' });
     expect(await pool.setTrialEnd(value.id, 'soon')).toMatchObject({ ok: false, status: 400 });
     expect(await pool.setTrialEnd('nobody', '2026-12-01T00:00:00Z')).toMatchObject({ ok: false, status: 404 });
     expect(await pool.setTrialEnd(value.id, '2026-12-01T00:00:00Z')).toMatchObject({ ok: true, value: { name: 'alice', trialEndsAt: '2026-12-01T00:00:00.000Z' } });
-    expect((await db.getInstances('u1'))[0]!.pool).toMatchObject({ trialEndsAt: '2026-12-01T00:00:00.000Z', told: [] });
+    expect((await db.instances.getInstances('u1'))[0]!.pool).toMatchObject({ trialEndsAt: '2026-12-01T00:00:00.000Z', told: [] });
     expect(changed).toEqual([value.id]);
   });
 
@@ -250,8 +250,8 @@ describe('a trial instance on Koala\'s servers', () => {
     const pool = pooled();
     await pool.createPoolInstance('u1', 'alice');
     const id = instanceIdFor('u1');
-    const record = (await db.getInstances('u1'))[0]!;
-    await db.saveInstance({ ...record, credentialHash: hashCredential('secret') });
+    const record = (await db.instances.getInstances('u1'))[0]!;
+    await db.instances.saveInstance({ ...record, credentialHash: hashCredential('secret') });
     expect(await pool.trialOf(id, 'secret')).toEqual({ ok: true, value: { trialEndsAt: '2026-10-16T12:00:00.000Z' } });
     expect(await pool.trialOf(id, 'wrong')).toMatchObject({ ok: false, status: 401 });
   });
@@ -270,7 +270,7 @@ describe('moving a trial instance to the person\'s own machine', () => {
   beforeEach(async () => {
     calls.length = 0;
     service = new InstanceService(db, { ...settings, pool: { slots: 2, trialDays: 14 } }, mesh, () => now, () => { routeChanges += 1; }, workflows);
-    await db.saveInstance({ id: 'inst-bo', ownerId: 'bo', name: 'bo', url: 'https://bo.koala.dev', status: 'ready', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('pool-secret'), meshIp: '100.64.0.9', pool });
+    await db.instances.saveInstance({ id: 'inst-bo', ownerId: 'bo', name: 'bo', url: 'https://bo.koala.dev', status: 'ready', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('pool-secret'), meshIp: '100.64.0.9', pool });
   });
 
   it('gives the person a move command for the same instance, and keeps the pool copy working until the new machine has everything', async () => {
@@ -290,7 +290,7 @@ describe('moving a trial instance to the person\'s own machine', () => {
 
     await service.report('inst-bo', joined.value.credential, { status: 'installing', detail: 'Copying its secrets', meshIp: '100.64.0.20' });
     expect(await service.mine('bo')).toMatchObject({ status: 'ready', move: { state: 'copying', detail: 'Copying its secrets', machine: 'bo-desktop' } });
-    expect((await db.getInstances()).find((entry) => entry.id === 'inst-bo')?.meshIp).toBe('100.64.0.9');
+    expect((await db.instances.getInstances()).find((entry) => entry.id === 'inst-bo')?.meshIp).toBe('100.64.0.9');
     expect((await service.report('inst-bo', joined.value.credential, { status: 'ready', moved: true })).ok).toBe(false);
     await service.report('inst-bo', joined.value.credential, { status: 'ready', moved: true, url: 'https://bo.koala.dev', meshIp: '100.64.0.20' });
     expect(calls).toEqual(['move inst-bo', 'finished inst-bo']);
@@ -314,35 +314,35 @@ describe('moving a trial instance to the person\'s own machine', () => {
   });
 
   it('keeps root\'s word on a pool instance\'s state: its own check-in neither makes it ready early nor changes it while it moves', async () => {
-    const record = (await db.getInstances()).find((entry) => entry.id === 'inst-bo')!;
-    await db.saveInstance({ ...record, status: 'installing', url: '' });
+    const record = (await db.instances.getInstances()).find((entry) => entry.id === 'inst-bo')!;
+    await db.instances.saveInstance({ ...record, status: 'installing', url: '' });
     await service.report('inst-bo', 'pool-secret', { status: 'ready', detail: 'Running dev' });
     expect(await service.mine('bo')).toMatchObject({ status: 'installing', url: '' });
-    await db.saveInstance({ ...record, status: 'ready', move: { state: 'copying', startedAt: 'now' } });
+    await db.instances.saveInstance({ ...record, status: 'ready', move: { state: 'copying', startedAt: 'now' } });
     await service.report('inst-bo', 'pool-secret', { status: 'installing', detail: 'Upgrading' });
     expect(await service.mine('bo')).toMatchObject({ status: 'ready' });
-    await db.saveInstance({ ...record, status: 'ready' });
+    await db.instances.saveInstance({ ...record, status: 'ready' });
     await service.report('inst-bo', 'pool-secret', { status: 'installing', detail: 'Upgrading from a to b' });
     expect(await service.mine('bo')).toMatchObject({ status: 'installing', detail: 'Upgrading from a to b' });
   });
 
   it('never lets a normal install command take over an instance on Koala\'s servers', async () => {
-    await db.saveJoinToken({ hash: hashCredential('plain'), ownerId: 'bo', instanceId: 'inst-bo', expiresAt: '2099-01-01T00:00:00.000Z' });
+    await db.instances.saveJoinToken({ hash: hashCredential('plain'), ownerId: 'bo', instanceId: 'inst-bo', expiresAt: '2099-01-01T00:00:00.000Z' });
     expect(await service.join('plain', 'desk')).toMatchObject({ ok: false, status: 409 });
     expect((await service.ownerOf('inst-bo', 'pool-secret')).ok).toBe(true);
   });
 
   it('says a stopped instance is started again for the move before it waits for the machine', async () => {
-    await db.saveInstance({ ...(await db.getInstances()).find((entry) => entry.id === 'inst-bo')!, status: 'paused' });
+    await db.instances.saveInstance({ ...(await db.instances.getInstances()).find((entry) => entry.id === 'inst-bo')!, status: 'paused' });
     expect((await service.startMove('bo')).ok).toBe(true);
     expect(await service.moveOf('bo')).toMatchObject({ state: 'waiting', detail: 'Starting your stopped instance so it can move' });
-    expect((await db.getInstances()).find((entry) => entry.id === 'inst-bo')?.move?.wasPaused).toBe(true);
+    expect((await db.instances.getInstances()).find((entry) => entry.id === 'inst-bo')?.move?.wasPaused).toBe(true);
   });
 
   it('starts from the instance itself with its credential, and refuses what cannot move', async () => {
     expect((await service.startMoveAs('inst-bo', 'pool-secret')).ok).toBe(true);
     expect((await service.startMoveAs('inst-bo', 'wrong')).ok).toBe(false);
-    await db.saveInstance({ id: instanceIdFor('cy'), ownerId: 'cy', name: 'cy', url: 'https://cy.koala.dev', status: 'ready', createdAt: 'then', updatedAt: 'then' });
+    await db.instances.saveInstance({ id: instanceIdFor('cy'), ownerId: 'cy', name: 'cy', url: 'https://cy.koala.dev', status: 'ready', createdAt: 'then', updatedAt: 'then' });
     expect(await service.startMove('cy')).toMatchObject({ ok: false, status: 409 });
     expect(await service.startMove('nobody')).toMatchObject({ ok: false, status: 404 });
     expect(await service.stopMove('bo')).toEqual({ ok: true, value: { stopping: true } });

@@ -16,7 +16,7 @@ async function main(): Promise<void> {
   const identity = new IdentityService(roleFromEnv(process.env), db);
 
   if (command === 'list') {
-    const all = await db.getInstances();
+    const all = await db.instances.getInstances();
     if (all.length === 0) console.log('no instances registered');
     for (const instance of all) console.log(`${instance.id}\t${instance.ownerId}\t${instance.url}`);
   } else if (command === 'add' && rest.length === 3) {
@@ -26,7 +26,7 @@ async function main(): Promise<void> {
     if (!result.ok) throw new Error(result.error);
     console.log(`registered ${result.instance.id} for ${ownerId} at ${result.instance.url}`);
   } else if (command === 'remove' && rest.length === 1) {
-    await db.deleteInstance(rest[0]!);
+    await db.instances.deleteInstance(rest[0]!);
     console.log(`removed ${rest[0]}`);
   } else {
     console.error(USAGE);

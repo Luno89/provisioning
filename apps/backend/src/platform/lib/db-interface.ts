@@ -15,6 +15,7 @@ import type { Task } from '../../projects/lib/tasks.js';
 import type { PlanProposal } from '../../projects/lib/plan-proposals.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import type { HubStore } from '../../hub/store.js';
+import type { InstancesStore } from '../../instances/store.js';
 import type { AccountsStore } from '../../accounts/store.js';
 import type { PlatformStore } from '../store.js';
 import type { SecretRequest } from '../../projects/lib/secret-requests.js';
@@ -26,10 +27,8 @@ import type { AlertRuleRecord } from '../../monitoring/lib/monitoring-alerts.js'
 import type { NotificationSettings } from './mail.js';
 import type { FileSettings } from '../../files/lib/file-places.js';
 import type { FileShare } from '../../files/lib/file-shares.js';
-import type { PoolPolicy } from '../../instances/lib/pool.js';
 import type { WorkFailure } from '../../infrastructure/lib/work-failures.js';
 import type { AuthoredExtension } from '../../engine/lib/authored-extensions.js';
-import type { InstanceRecord, JoinToken } from '../../instances/lib/instances.js';
 import type { MachineJoinCode } from '../../machines/lib/machines.js';
 import type { ProcedureSource } from '../../engine/lib/procedure-source.js';
 import type { StoredNodeTrace } from '../../engine/lib/run-traces.js';
@@ -78,6 +77,7 @@ export interface ScriptedRequestRecord {
 
 export interface Database {
   hub: HubStore;
+  instances: InstancesStore;
   accounts: AccountsStore;
   platform: PlatformStore;
   init(): Promise<void>;
@@ -221,14 +221,8 @@ export interface Database {
 
   getExtensionSettings(ownerId: string): Promise<ExtensionSettings | undefined>;
   getAuthoredExtensions(ownerId: string): Promise<AuthoredExtension[]>;
-  claimHandoff(jti: string, expiresAt: string): Promise<boolean>;
-  saveJoinToken(token: JoinToken): Promise<void>;
-  takeJoinToken(hash: string): Promise<JoinToken | undefined>;
   saveMachineJoinCode(code: MachineJoinCode): Promise<void>;
   takeMachineJoinCode(hash: string): Promise<MachineJoinCode | undefined>;
-  getInstances(ownerId?: string): Promise<InstanceRecord[]>;
-  saveInstance(instance: InstanceRecord): Promise<void>;
-  deleteInstance(id: string): Promise<void>;
   saveAuthoredExtension(extension: AuthoredExtension): Promise<void>;
   deleteAuthoredExtension(ownerId: string, id: string): Promise<void>;
   saveExtensionSettings(settings: ExtensionSettings): Promise<void>;
@@ -242,8 +236,6 @@ export interface Database {
   getFileShare(id: string): Promise<FileShare | undefined>;
   saveFileShare(share: FileShare): Promise<void>;
   deleteFileShare(id: string): Promise<void>;
-  getPoolPolicy(): Promise<PoolPolicy | undefined>;
-  savePoolPolicy(policy: PoolPolicy): Promise<void>;
   saveMonitoringSetting(setting: MonitoringSetting): Promise<void>;
   getAlertRules(ownerId?: string): Promise<AlertRuleRecord[]>;
   saveAlertRule(rule: AlertRuleRecord): Promise<void>;

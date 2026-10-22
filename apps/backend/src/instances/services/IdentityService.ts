@@ -4,7 +4,7 @@ import { instanceProblem, type InstanceRecord } from '../lib/instances.js';
 import type { RoleConfig } from '../../platform/lib/platform-role.js';
 import { HUB_AUDIENCE } from '../../hub/lib/hub.js';
 
-type Store = Pick<Database, 'claimHandoff' | 'getInstances' | 'saveInstance' | 'deleteInstance' | 'accounts'>;
+type Store = Pick<Database, 'instances' | 'accounts'>;
 
 export type HandoffOutcome =
   | { ok: true; user: { id: string; email: string } }
@@ -31,7 +31,7 @@ export class IdentityService {
   }
 
   async instanceOf(ownerId: string): Promise<InstanceRecord | undefined> {
-    return (await this.store.getInstances(ownerId)).find((instance) => instance.url && (instance.status === undefined || instance.status === 'ready'));
+    return (await this.store.instances.getInstances(ownerId)).find((instance) => instance.url && (instance.status === undefined || instance.status === 'ready'));
   }
 
   async handoffUrl(user: { id: string; email: string }, to?: { hub: true; next?: string | undefined }): Promise<string | undefined> {
@@ -70,7 +70,7 @@ export class IdentityService {
     const check = checkHandoff(token, this.role.trusted, hub ? HUB_AUDIENCE : instance!.id, this.now());
     if (!check.ok) return { ok: false, status: 401, error: REFUSALS[check.reason] };
     if (!hub && check.claims.sub !== instance!.ownerId) return { ok: false, status: 403, error: 'this instance belongs to someone else' };
-    if (!await this.store.claimHandoff(check.claims.jti, new Date(check.claims.exp * 1000).toISOString())) {
+    if (!await this.store.instances.claimHandoff(check.claims.jti, new Date(check.claims.exp * 1000).toISOString())) {
       return { ok: false, status: 409, error: 'that sign-in token has already been used — sign in again' };
     }
 
@@ -89,12 +89,12 @@ export class IdentityService {
     const url = candidate.url.trim().replace(/\/+$/, '');
     const problem = instanceProblem({ ...candidate, url: `${url}/` });
     if (problem) return { ok: false, error: problem };
-    const others = await this.store.getInstances(candidate.ownerId);
+    const others = await this.store.instances.getInstances(candidate.ownerId);
     if (others.some((other) => other.id !== candidate.id)) return { ok: false, error: `${candidate.ownerId} already has an instance (${others[0]!.id})` };
     const now = new Date(this.now() * 1000).toISOString();
     const existing = others.find((other) => other.id === candidate.id);
     const instance: InstanceRecord = { id: candidate.id, ownerId: candidate.ownerId, url, createdAt: existing?.createdAt ?? now, updatedAt: now };
-    await this.store.saveInstance(instance);
+    await this.store.instances.saveInstance(instance);
     return { ok: true, instance };
   }
 }

@@ -88,7 +88,7 @@ describe('a pool instance asking root about its own apps', () => {
       prefix: '/api/instances',
       user: TEST_USER,
       router: (db) => {
-        void db.saveInstance({
+        void db.instances.saveInstance({
           id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'),
           pool: { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: 'then', trialEndsAt: '2026-11-03T00:00:00.000Z' },
         } as never);
@@ -135,7 +135,7 @@ describe('the new machine reading a moving instance through root', () => {
       prefix: '/api/instances',
       user: TEST_USER,
       router: async (db) => {
-        await db.saveInstance({
+        await db.instances.saveInstance({
           id: 'inst-1', ownerId: TEST_USER.id, name: 'alice', status: 'ready', url: 'https://alice.koala.dev', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('pool-secret'),
           pool: { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: 'then', trialEndsAt: '2026-11-03T00:00:00.000Z' },
         });

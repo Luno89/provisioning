@@ -9,7 +9,7 @@ import { moveProblem, type MoveStateName } from '../lib/instance-move.js';
 
 export const JOIN_TOKEN_TTL_SECONDS = 3600;
 
-type Store = Pick<Database, 'saveJoinToken' | 'takeJoinToken' | 'getInstances' | 'saveInstance' | 'accounts' | 'getPoolPolicy' | 'savePoolPolicy'>;
+type Store = Pick<Database, 'instances' | 'accounts'>;
 
 export interface PoolWorkflows {
   start(instanceId: string, ownerId: string): Promise<void>;
@@ -91,7 +91,7 @@ export class InstanceService {
   ) {}
 
   private async nameFor(ownerId: string, name: unknown): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
-    const existing = (await this.store.getInstances(ownerId))[0];
+    const existing = (await this.store.instances.getInstances(ownerId))[0];
     if (existing?.name) {
       return name === undefined || name === existing.name
         ? { ok: true, name: existing.name }
@@ -100,7 +100,7 @@ export class InstanceService {
     if (typeof name !== 'string') return { ok: false, error: 'pick a name for your instance' };
     const problem = nameProblem(name, this.settings.siteNames ?? []);
     if (problem) return { ok: false, error: problem };
-    const taken = (await this.store.getInstances()).some((entry) => entry.name === name && entry.ownerId !== ownerId);
+    const taken = (await this.store.instances.getInstances()).some((entry) => entry.name === name && entry.ownerId !== ownerId);
     return taken ? { ok: false, error: `"${name}" is taken` } : { ok: true, name };
   }
 
@@ -115,23 +115,23 @@ export class InstanceService {
 
   private async save(instance: InstanceRecord, patch: Partial<InstanceRecord>): Promise<InstanceRecord> {
     const next = { ...instance, ...patch, updatedAt: this.now().toISOString() };
-    await this.store.saveInstance(next);
+    await this.store.instances.saveInstance(next);
     return next;
   }
 
   async createJoinToken(ownerId: string, requestedName?: unknown): Promise<Outcome<{ token: string; command: string; expiresAt: string; name: string }>> {
-    const current = (await this.store.getInstances(ownerId))[0];
+    const current = (await this.store.instances.getInstances(ownerId))[0];
     if (current?.pool && current.status !== 'failed') return { ok: false, status: 400, error: 'your instance runs on Koala\'s servers; moving it to your own machine keeps your work, and starting afresh there would not' };
     const named = await this.nameFor(ownerId, requestedName);
     if (!named.ok) return { ok: false, status: 400, error: named.error };
     const token = crypto.randomBytes(24).toString('base64url');
     const expiresAt = new Date(this.now().getTime() + JOIN_TOKEN_TTL_SECONDS * 1000).toISOString();
     const instanceId = instanceIdFor(ownerId);
-    await this.store.saveJoinToken({ hash: hashCredential(token), ownerId, instanceId, expiresAt });
+    await this.store.instances.saveJoinToken({ hash: hashCredential(token), ownerId, instanceId, expiresAt });
 
-    const existing = (await this.store.getInstances(ownerId))[0];
+    const existing = (await this.store.instances.getInstances(ownerId))[0];
     const now = this.now().toISOString();
-    await this.store.saveInstance({
+    await this.store.instances.saveInstance({
       id: instanceId,
       ownerId,
       url: existing?.url ?? '',
@@ -150,8 +150,8 @@ export class InstanceService {
   private async poolRoom(): Promise<{ ok: true; slots: number; trialDays: number; taken: InstanceRecord[] } | { ok: false; reason: string }> {
     const pool = this.settings.pool;
     if (!pool || 'off' in pool || !this.poolWorkflows) return { ok: false, reason: pool && 'off' in pool ? pool.off : 'this root has no pool' };
-    const taken = (await this.store.getInstances()).filter((entry) => entry.pool && entry.status !== 'failed');
-    return { ok: true, slots: pool.slots, trialDays: (await this.store.getPoolPolicy())?.trialDays ?? pool.trialDays, taken };
+    const taken = (await this.store.instances.getInstances()).filter((entry) => entry.pool && entry.status !== 'failed');
+    return { ok: true, slots: pool.slots, trialDays: (await this.store.instances.getPoolPolicy())?.trialDays ?? pool.trialDays, taken };
   }
 
   async poolOffer(ownerId: string): Promise<PoolOffer> {
@@ -165,19 +165,19 @@ export class InstanceService {
   async createPoolInstance(ownerId: string, requestedName?: unknown): Promise<Outcome<{ id: string; name: string; trialEndsAt: string }>> {
     const room = await this.poolRoom();
     if (!room.ok) return { ok: false, status: 503, error: room.reason };
-    const existing = (await this.store.getInstances(ownerId))[0];
+    const existing = (await this.store.instances.getInstances(ownerId))[0];
     if (existing && existing.status && existing.status !== 'waiting' && existing.status !== 'failed') {
       return { ok: false, status: 400, error: existing.pool ? 'your instance on Koala\'s servers is already there' : 'you already have Koala on your own machine' };
     }
     if (room.taken.length >= room.slots) return { ok: false, status: 503, error: 'Koala\'s servers are full right now; use your own machine, or try again later' };
     const named = await this.nameFor(ownerId, requestedName);
     if (!named.ok) return { ok: false, status: 400, error: named.error };
-    const ports = existing?.pool?.ports ?? freePorts((await this.store.getInstances()).flatMap((entry) => (entry.pool ? [entry.pool.ports] : [])));
+    const ports = existing?.pool?.ports ?? freePorts((await this.store.instances.getInstances()).flatMap((entry) => (entry.pool ? [entry.pool.ports] : [])));
     if (!ports) return { ok: false, status: 503, error: 'Koala\'s servers have no ports left for another instance' };
     const now = this.now();
     const trialEndsAt = new Date(now.getTime() + room.trialDays * 86_400_000).toISOString();
     const instanceId = instanceIdFor(ownerId);
-    await this.store.saveInstance({
+    await this.store.instances.saveInstance({
       id: instanceId,
       ownerId,
       url: '',
@@ -192,7 +192,7 @@ export class InstanceService {
     try {
       await this.poolWorkflows!.start(instanceId, ownerId);
     } catch (error) {
-      const record = (await this.store.getInstances(ownerId)).find((entry) => entry.id === instanceId)!;
+      const record = (await this.store.instances.getInstances(ownerId)).find((entry) => entry.id === instanceId)!;
       await this.save(record, { status: 'failed', detail: `Setting it up could not start: ${(error as Error).message}` });
       return { ok: false, status: 503, error: `setting up your instance could not start: ${(error as Error).message}` };
     }
@@ -204,7 +204,7 @@ export class InstanceService {
     if (!room.ok) return { ok: false, status: 503, error: room.reason };
     const pool = this.settings.pool as { slots: number; trialDays: number };
     const instances: PoolInstanceRow[] = [];
-    for (const entry of (await this.store.getInstances()).filter((record) => record.pool && record.name)) {
+    for (const entry of (await this.store.instances.getInstances()).filter((record) => record.pool && record.name)) {
       const owner = await this.store.accounts.getUserById(entry.ownerId);
       instances.push({
         id: entry.id, name: entry.name!, owner: owner?.email ?? entry.ownerId, status: entry.status ?? 'installing', detail: entry.detail,
@@ -212,7 +212,7 @@ export class InstanceService {
       });
     }
     instances.sort((a, b) => a.trialEndsAt.localeCompare(b.trialEndsAt));
-    const policy = await this.store.getPoolPolicy();
+    const policy = await this.store.instances.getPoolPolicy();
     return { ok: true, value: { slots: room.slots, trialDays: room.trialDays, defaultTrialDays: pool.trialDays, ...(policy ? { policy } : {}), instances } };
   }
 
@@ -222,13 +222,13 @@ export class InstanceService {
     const problem = trialDaysProblem(days);
     if (problem) return { ok: false, status: 400, error: problem };
     const policy = { trialDays: days as number, updatedAt: this.now().toISOString(), updatedBy: adminId };
-    await this.store.savePoolPolicy(policy);
+    await this.store.instances.savePoolPolicy(policy);
     return { ok: true, value: policy };
   }
 
   async setTrialEnd(instanceId: string, trialEndsAt: unknown): Promise<Outcome<PoolInstanceRow>> {
     if (!this.poolWorkflows) return { ok: false, status: 503, error: 'this root has no pool' };
-    const instance = (await this.store.getInstances()).find((entry) => entry.id === instanceId);
+    const instance = (await this.store.instances.getInstances()).find((entry) => entry.id === instanceId);
     if (!instance?.pool || !instance.name) return { ok: false, status: 404, error: 'no pool instance by that id' };
     const at = typeof trialEndsAt === 'string' ? Date.parse(trialEndsAt) : NaN;
     if (!Number.isFinite(at)) return { ok: false, status: 400, error: 'send the new end of the trial as "trialEndsAt", a date and time' };
@@ -242,7 +242,7 @@ export class InstanceService {
 
   async removePoolInstance(instanceId: string, confirm: unknown): Promise<Outcome<{ removing: string }>> {
     if (!this.poolWorkflows) return { ok: false, status: 503, error: 'this root has no pool' };
-    const instance = (await this.store.getInstances()).find((entry) => entry.id === instanceId);
+    const instance = (await this.store.instances.getInstances()).find((entry) => entry.id === instanceId);
     if (!instance?.pool || !instance.name) return { ok: false, status: 404, error: 'no pool instance by that id' };
     if (confirm !== instance.name) return { ok: false, status: 400, error: `type the instance's name, "${instance.name}", to delete it and everything in it` };
     await this.save(instance, { status: 'paused', detail: 'Being deleted' });
@@ -252,13 +252,13 @@ export class InstanceService {
 
   async join(token: unknown, machine: unknown): Promise<Outcome<JoinBundle>> {
     if (typeof token !== 'string' || !token) return { ok: false, status: 400, error: 'send the join token as "token"' };
-    const found = await this.store.takeJoinToken(hashCredential(token));
+    const found = await this.store.instances.takeJoinToken(hashCredential(token));
     if (!found || found.expiresAt <= this.now().toISOString()) return { ok: false, status: 401, error: 'that join command has expired or was already used — make a new one from the app' };
     if (!this.mesh || !this.settings.meshLoginServer) return { ok: false, status: 503, error: 'this root has no mesh configured (MESH_LOGIN_SERVER), so no machine can join it' };
     if (!this.settings.registry) return { ok: false, status: 503, error: 'this root has no registry for machines to pull from (INSTANCE_REGISTRY)' };
 
     const credential = crypto.randomBytes(32).toString('base64url');
-    const instance = (await this.store.getInstances(found.ownerId)).find((entry) => entry.id === found.instanceId);
+    const instance = (await this.store.instances.getInstances(found.ownerId)).find((entry) => entry.id === found.instanceId);
     const machineName = typeof machine === 'string' ? machine.slice(0, 120) : undefined;
     if (found.move) {
       if (!instance?.move || instance.move.state === 'switching' || instance.move.state === 'failed') return { ok: false, status: 401, error: 'that move command is no longer wanted — start the move again from Koala' };
@@ -303,26 +303,26 @@ export class InstanceService {
 
   private async authenticated(instanceId: unknown, credential: unknown): Promise<InstanceRecord | undefined> {
     if (typeof instanceId !== 'string' || typeof credential !== 'string' || !credential) return undefined;
-    const instance = (await this.store.getInstances()).find((entry) => entry.id === instanceId);
+    const instance = (await this.store.instances.getInstances()).find((entry) => entry.id === instanceId);
     return instance?.credentialHash && sameHash(instance.credentialHash, hashCredential(credential)) ? instance : undefined;
   }
 
   private async mover(instanceId: unknown, credential: unknown): Promise<InstanceRecord | undefined> {
     if (typeof instanceId !== 'string' || typeof credential !== 'string' || !credential) return undefined;
-    const instance = (await this.store.getInstances()).find((entry) => entry.id === instanceId);
+    const instance = (await this.store.instances.getInstances()).find((entry) => entry.id === instanceId);
     const hash = instance?.move?.credentialHash;
     return hash && instance.move!.state !== 'failed' && sameHash(hash, hashCredential(credential)) ? instance : undefined;
   }
 
   async startMove(ownerId: string): Promise<Outcome<{ token: string; command: string; expiresAt: string }>> {
-    const instance = (await this.store.getInstances(ownerId))[0];
+    const instance = (await this.store.instances.getInstances(ownerId))[0];
     if (!instance) return { ok: false, status: 404, error: 'you have no instance to move' };
     const problem = moveProblem(instance);
     if (problem) return { ok: false, status: 409, error: problem };
     if (!this.poolWorkflows?.move) return { ok: false, status: 503, error: 'this root cannot move instances' };
     const token = crypto.randomBytes(24).toString('base64url');
     const expiresAt = new Date(this.now().getTime() + JOIN_TOKEN_TTL_SECONDS * 1000).toISOString();
-    await this.store.saveJoinToken({ hash: hashCredential(token), ownerId, instanceId: instance.id, expiresAt, move: true });
+    await this.store.instances.saveJoinToken({ hash: hashCredential(token), ownerId, instanceId: instance.id, expiresAt, move: true });
     const live = instance.move && instance.move.state !== 'failed';
     const paused = instance.status === 'paused';
     await this.save(instance, {
@@ -342,7 +342,7 @@ export class InstanceService {
   }
 
   async moveOf(ownerId: string): Promise<MoveView | null> {
-    const move = (await this.store.getInstances(ownerId))[0]?.move;
+    const move = (await this.store.instances.getInstances(ownerId))[0]?.move;
     return move ? { state: move.state, startedAt: move.startedAt, ...(move.detail ? { detail: move.detail } : {}), ...(move.target?.machine ? { machine: move.target.machine } : {}) } : null;
   }
 
@@ -353,7 +353,7 @@ export class InstanceService {
   }
 
   async stopMove(ownerId: string): Promise<Outcome<{ stopping: true }>> {
-    const instance = (await this.store.getInstances(ownerId))[0];
+    const instance = (await this.store.instances.getInstances(ownerId))[0];
     if (!instance?.move || instance.move.state === 'failed') return { ok: false, status: 404, error: 'nothing is moving' };
     if (instance.move.state === 'switching') return { ok: false, status: 409, error: 'the instance is switching to its new machine already' };
     await this.poolWorkflows?.moveStopped?.(instance.id, 'you stopped the move');
@@ -441,7 +441,7 @@ export class InstanceService {
   }
 
   async mine(ownerId: string): Promise<{ id: string; status: InstanceStatus; detail?: string | undefined; url: string; name?: string | undefined; trialEndsAt?: string | undefined; move?: MoveView | undefined } | null> {
-    const instance = (await this.store.getInstances(ownerId))[0];
+    const instance = (await this.store.instances.getInstances(ownerId))[0];
     if (!instance) return null;
     const move = await this.moveOf(ownerId);
     return {

@@ -39,11 +39,11 @@ async function main(): Promise<void> {
     rootPublicKeys: publicKeyPem(signing.publicKey),
     mongoUri,
     now: new Date().toISOString(),
-    existing: (await rootDb.getInstances(owner.id)).find((entry) => entry.id === instanceId),
+    existing: (await rootDb.instances.getInstances(owner.id)).find((entry) => entry.id === instanceId),
   });
-  for (const other of await rootDb.getInstances(owner.id)) if (other.id !== instanceId) await rootDb.deleteInstance(other.id);
+  for (const other of await rootDb.instances.getInstances(owner.id)) if (other.id !== instanceId) await rootDb.instances.deleteInstance(other.id);
   await rootDb.accounts.saveUser({ ...(await rootDb.accounts.getUserById(owner.id) ?? {}), ...plan.rootUser });
-  await rootDb.saveInstance(plan.instance);
+  await rootDb.instances.saveInstance(plan.instance);
   await rootDb.close?.();
 
   await mkdir(OUT, { recursive: true });

@@ -37,7 +37,7 @@ export function dockerCaddy(container: string, tlsAddress: string): CaddyControl
   };
 }
 
-type Store = Pick<Database, 'getInstances' | 'saveInstance'>;
+type Store = Pick<Database, 'instances'>;
 
 export class InstanceRoutes {
   private timer: NodeJS.Timeout | undefined;
@@ -101,7 +101,7 @@ export class InstanceRoutes {
   }
 
   async sync(): Promise<void> {
-    const records = await this.store.getInstances();
+    const records = await this.store.instances.getInstances();
     const wanted = wantedRoutes(records, this.domain);
     const handles = await this.write('instances', wanted.handles);
     const sites = await this.write('instance-sites', wanted.sites);
@@ -115,9 +115,9 @@ export class InstanceRoutes {
       const served = certificateCovers(await this.caddy.certificateFor(nestedSiteOf(name, this.domain).replace('*', 'koala-probe')), name, this.domain);
       const detail = served ? undefined : issuingProblem(caddyLog, name, this.domain);
       if (served || detail !== record.addresses!.detail) {
-        const fresh = (await this.store.getInstances(record.ownerId)).find((entry) => entry.id === record.id);
+        const fresh = (await this.store.instances.getInstances(record.ownerId)).find((entry) => entry.id === record.id);
         if (!fresh?.addresses?.nested || fresh.addresses.state !== 'issuing') continue;
-        await this.store.saveInstance({ ...fresh, addresses: { nested: true, state: served ? 'ready' : 'issuing', ...(detail ? { detail } : {}) }, updatedAt: new Date().toISOString() });
+        await this.store.instances.saveInstance({ ...fresh, addresses: { nested: true, state: served ? 'ready' : 'issuing', ...(detail ? { detail } : {}) }, updatedAt: new Date().toISOString() });
       }
     }
   }

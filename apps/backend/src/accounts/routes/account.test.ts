@@ -128,14 +128,14 @@ describe('an admin on root', () => {
       user: ADMIN,
       router: async (db) => {
         await seedPeople(db);
-        await db.saveInstance({ id: 'inst-1', ownerId: PERSON.id, name: 'bob', url: 'https://bob.koala.dev', status: 'ready', createdAt: 'then', updatedAt: 'then',
+        await db.instances.saveInstance({ id: 'inst-1', ownerId: PERSON.id, name: 'bob', url: 'https://bob.koala.dev', status: 'ready', createdAt: 'then', updatedAt: 'then',
           pool: { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: 'then', trialEndsAt: '2026-11-03T00:00:00.000Z' } });
         const removal = new AccountRemovalService({
           store: db,
           workflows: { ...workflows, start: async (type, workflowId) => { types.push(type); await workflows.start(type, workflowId, [{ ownerId: PERSON.id }], PERSON.id); } },
           workflowType: ROOT_REMOVAL_WORKFLOW,
           steps: ROOT_REMOVAL_STEPS,
-          instances: () => db.getInstances(),
+          instances: () => db.instances.getInstances(),
           now: () => 'now',
         });
         return adminRouter({ db, requireAdmin, removal });
@@ -161,13 +161,13 @@ describe('a person removing their own account on root', () => {
       user: PERSON,
       router: async (db) => {
         await seedPeople(db);
-        await db.saveInstance({ id: 'inst-1', ownerId: PERSON.id, name: 'bob', url: 'https://bob.koala.dev', status: 'ready', createdAt: 'then', updatedAt: 'then' });
+        await db.instances.saveInstance({ id: 'inst-1', ownerId: PERSON.id, name: 'bob', url: 'https://bob.koala.dev', status: 'ready', createdAt: 'then', updatedAt: 'then' });
         const removal = new AccountRemovalService({
           store: db,
           workflows: { ...workflows, start: async (type, workflowId) => { types.push(type); await workflows.start(type, workflowId, [{ ownerId: PERSON.id }], PERSON.id); } },
           workflowType: ROOT_REMOVAL_WORKFLOW,
           steps: ROOT_REMOVAL_STEPS,
-          instances: () => db.getInstances(),
+          instances: () => db.instances.getInstances(),
           now: () => 'now',
         });
         return accountRouter({ removal, clearSession: () => { cleared += 1; } });
