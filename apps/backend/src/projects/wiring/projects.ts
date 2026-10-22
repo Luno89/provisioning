@@ -12,7 +12,7 @@ import { ConversationNoticeService, type WorkspaceBuildService, type extensionSe
 import { projectSecretsFor } from '../services/ProjectSecretsService.js';
 import { TreeHomeService } from '../services/TreeHomeService.js';
 import { ProjectRemovalService } from '../services/ProjectRemovalService.js';
-import { temporalRemovalWorkflows } from '../../accounts/services/AccountRemovalService.js';
+import { temporalRemovalWorkflows } from '../../accounts/index.js';
 import { TreeModelsService, treeAgentsFrom, type ModelService } from '../../models/index.js';
 import { GroveRunService } from '../services/GroveRunService.js';
 import { GroveDeletionService } from '../services/GroveDeletionService.js';

@@ -12,7 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Server as SocketServer } from 'socket.io';
 
-import { authRouter } from './accounts/routes/auth.js';
+import { authRouter, AuthService } from './accounts/index.js';
 import helmet from 'helmet';
 import {
   CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, MetricsService, RATE_LIMITS, ruleFor,
@@ -47,7 +47,6 @@ import {
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
 import net from 'net';
 import { spawn } from 'child_process';
-import { AuthService } from './accounts/services/AuthService.js';
 import { GiteaService } from './projects/index.js';
 
 import { seedAll } from './scripts/seed-all.js';

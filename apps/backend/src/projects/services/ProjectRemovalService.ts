@@ -9,7 +9,7 @@ import {
   type ProjectRemovalStep,
 } from '../lib/project-removal.js';
 import type { ProjectRemovalStore } from '../../activities/RemoveProjectActivities.js';
-import type { AccountRemovalWorkflows, RemovalWorkflowState } from '../../accounts/services/AccountRemovalService.js';
+import type { AccountRemovalWorkflows, RemovalWorkflowState } from '../../accounts/index.js';
 
 export type ProjectRemovalState = RemovalWorkflowState<ProjectRemovalStep>;
 

@@ -15,7 +15,6 @@ const upward = (folders) => folders.flatMap((folder) => [`**/${folder}/*`, `**/$
 
 const AREAS = ['platform', 'accounts', 'instances', 'hub', 'projects', 'releases', 'files', 'machines', 'monitoring', 'models', 'memory', 'checks', 'infrastructure', 'engine']
 
-const WITH_INDEX = ['platform', 'infrastructure', 'projects', 'engine', 'releases', 'hub', 'files', 'machines', 'monitoring', 'models', 'memory', 'checks', 'instances']
 
 const BELOW_SERVICES = ['workflows', 'engine-host', 'extensions', 'eval']
 
@@ -50,7 +49,7 @@ const boundaries = {
         const check = (node, source, typeOnly) => {
           if (typeof source !== 'string' || !source.startsWith('.')) return
           const to = placeOf(path.resolve(path.dirname(context.filename), source).replace(/\.js$/, '.ts'))
-          if (to.kind !== 'area' || !WITH_INDEX.includes(to.name) || (from.kind === 'area' && from.name === to.name)) return
+          if (to.kind !== 'area' || (from.kind === 'area' && from.name === to.name)) return
           if (to.rest === 'index.ts') {
             if (pure(from) && !typeOnly) context.report({ node, message: `${from.rel} is pure: it takes values from ${to.name}/lib directly and only types from its index, which loads the whole area` })
             return

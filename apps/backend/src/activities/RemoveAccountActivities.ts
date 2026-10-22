@@ -1,5 +1,5 @@
 import { Context } from '@temporalio/activity';
-import { memoryWatermarkKeys, ownedWorkflowIds, type AccountIds, type AccountRelated } from '../accounts/lib/account-removal.js';
+import { memoryWatermarkKeys, ownedWorkflowIds, type AccountIds, type AccountRelated } from '../accounts/index.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { labelValue } from '../engine-host/sandboxes/workspace.js';
 import { type DeploymentMetadata, CLI_CEILING } from '../platform/index.js';
