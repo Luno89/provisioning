@@ -1242,11 +1242,15 @@ runs typecheck + lint + both unit suites on every push. Each rule below is here 
 
 ### Backend
 
-- **One-way arrow: `index.ts → wiring/ → routes/ → services/ → lib/`**, with `middleware/` feeding routes.
-  `lib/` is pure and imports nothing above it; `engine-host/` and `extensions/` sit between services and `lib`, so
-  `lib` never imports them either (the `Task` helpers are `projects/lib/tasks.ts`, the workflow ids `platform/lib/workflow-ids.ts`).
-  `wiring/` holds what constructs services from the database and env (model wiring, web tools, the tool seeds).
-  `projects/lib/leaves.ts` (38 pure functions, no I/O) is the target shape. The backend lint enforces the arrow.
+- **The backend is laid out by area** (`src/<area>/`, the list in Repo structure), and **inside every area the arrow is
+  one-way: `index.ts → wiring/ → routes/ → services/ → lib/`**, with `platform/middleware/` feeding routes.
+  `lib/` is pure and imports nothing above it — in its own area or any other; `engine-host/` and `extensions/` sit
+  between services and `lib`, so `lib` never imports them either (the `Task` helpers are `projects/lib/tasks.ts`, the
+  workflow ids `platform/lib/workflow-ids.ts`). `wiring/` holds what constructs services from the database and env.
+  An area reaches another's `lib` and `services` directly for now; the planned `index.ts` per area (the only thing
+  another area may import) waits on the database split, since `platform/lib/db-interface.ts` still names every
+  area's records (`~/.claude/plans/hardening-and-go-live.md`, Part C). `projects/lib/leaves.ts` (38 pure functions,
+  no I/O) is the target shape. The backend lint enforces the arrow.
 - **A route handler does four things**: read the request, authorize, call one service method, shape
   the response. A loop, a prompt or arithmetic belongs in a service or `lib/`.
 - **No `db.*` in a route.**
