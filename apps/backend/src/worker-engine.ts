@@ -217,7 +217,7 @@ async function buildActivities() {
     customizations,
     monitoring: {
       monitoring,
-      rules: (ownerId) => db.getAlertRules(ownerId),
+      rules: (ownerId) => db.monitoring.getAlertRules(ownerId),
       viewer: async (ownerId) => ({ id: ownerId, isAdmin: Boolean((await db.accounts.getUserById(ownerId))?.isAdmin) }),
     },
     treeModels: {

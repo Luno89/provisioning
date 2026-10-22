@@ -1,5 +1,6 @@
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
 import { MongoHubStore } from '../../hub/store.js';
+import { MongoMonitoringStore } from '../../monitoring/store.js';
 import { MongoMachinesStore } from '../../machines/store.js';
 import { MongoFilesStore } from '../../files/store.js';
 import { MongoReleasesStore } from '../../releases/store.js';
@@ -12,9 +13,6 @@ import { hintKey, type McpToolHint } from '../../engine/lib/mcp-tool-hints.js';
 import type { BenchSettings, BenchState } from '../../checks/lib/bench.js';
 import type { ExtensionSettings } from '../../engine/lib/extension-settings.js';
 import type { AutoModeSettings } from '../../engine/lib/auto-mode.js';
-import type { MonitoringSetting, AlertEpisode } from '../../monitoring/lib/monitoring-records.js';
-import type { AlertRuleRecord } from '../../monitoring/lib/monitoring-alerts.js';
-import type { NotificationSettings } from './mail.js';
 import type { WorkFailure } from '../../infrastructure/lib/work-failures.js';
 import type { AuthoredExtension } from '../../engine/lib/authored-extensions.js';
 import type { StoredAppSpec } from '../../infrastructure/lib/app-spec.js';
@@ -82,6 +80,7 @@ const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (ki
 export class MongoDB implements Database {
   constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {
     this.hub = new MongoHubStore(() => this.db!);
+    this.monitoring = new MongoMonitoringStore(() => this.db!);
     this.machines = new MongoMachinesStore(() => this.db!);
     this.files = new MongoFilesStore(() => this.db!);
     this.releases = new MongoReleasesStore(() => this.db!);
@@ -94,6 +93,7 @@ export class MongoDB implements Database {
   private client: MongoClient | null = null;
   private db: Db | null = null;
   readonly hub: MongoHubStore;
+  readonly monitoring: MongoMonitoringStore;
   readonly machines: MongoMachinesStore;
   readonly files: MongoFilesStore;
   readonly releases: MongoReleasesStore;
@@ -269,6 +269,7 @@ export class MongoDB implements Database {
     await this.releases.ensureIndexes();
     await this.files.ensureIndexes();
     await this.machines.ensureIndexes();
+    await this.monitoring.ensureIndexes();
   }
 
   async dropDatabase(): Promise<void> {
@@ -709,53 +710,6 @@ export class MongoDB implements Database {
 
   async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
     await this.db!.collection('deferredConclusions').deleteOne({ _id: id as never, ownerId });
-  }
-
-  async getNotificationSettings(ownerId: string): Promise<NotificationSettings | undefined> {
-    const doc = await this.db!.collection('notificationSettings').findOne({ _id: ownerId as never });
-    if (!doc) return undefined;
-    const { _id, ...rest } = doc as Record<string, unknown>;
-    return { ...(rest as Omit<NotificationSettings, 'ownerId'>), ownerId: String(_id) };
-  }
-
-  async saveNotificationSettings(settings: NotificationSettings): Promise<void> {
-    const { ownerId, ...rest } = settings;
-    await this.db!.collection('notificationSettings').replaceOne({ _id: ownerId as never }, rest, { upsert: true });
-  }
-
-  async getMonitoringSettings(): Promise<MonitoringSetting[]> {
-    const docs = await this.db!.collection('monitoringSettings').find({}).toArray();
-    return docs.map((doc) => {
-      const { _id, ...rest } = doc as Record<string, unknown>;
-      return { ...(rest as Omit<MonitoringSetting, 'clusterId'>), clusterId: String(_id) };
-    });
-  }
-
-  async saveMonitoringSetting(setting: MonitoringSetting): Promise<void> {
-    const { clusterId, ...rest } = setting;
-    await this.db!.collection('monitoringSettings').replaceOne({ _id: clusterId as never }, rest, { upsert: true });
-  }
-
-  async getAlertRules(ownerId?: string): Promise<AlertRuleRecord[]> {
-    const docs = await this.db!.collection('monitoringAlertRules').find(ownerId === undefined ? {} : { ownerId }).toArray();
-    return docs.map((doc) => fromDoc<AlertRuleRecord>(doc as Record<string, unknown>));
-  }
-
-  async saveAlertRule(rule: AlertRuleRecord): Promise<void> {
-    await this.db!.collection('monitoringAlertRules').replaceOne({ _id: rule.id as never }, toDoc(rule), { upsert: true });
-  }
-
-  async deleteAlertRule(id: string): Promise<void> {
-    await this.db!.collection('monitoringAlertRules').deleteOne({ _id: id as never });
-  }
-
-  async getAlertEpisodes(ownerId?: string): Promise<AlertEpisode[]> {
-    const docs = await this.db!.collection('monitoringAlertEpisodes').find(ownerId === undefined ? {} : { ownerId }).sort({ startedAt: -1 }).toArray();
-    return docs.map((doc) => fromDoc<AlertEpisode>(doc as Record<string, unknown>));
-  }
-
-  async saveAlertEpisode(episode: AlertEpisode): Promise<void> {
-    await this.db!.collection('monitoringAlertEpisodes').replaceOne({ _id: episode.id as never }, toDoc(episode), { upsert: true });
   }
 
   async getWorkFailures(ownerId?: string): Promise<WorkFailure[]> {

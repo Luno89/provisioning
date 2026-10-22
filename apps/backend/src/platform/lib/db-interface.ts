@@ -10,6 +10,7 @@ import type { FrontierUrl, FrontierClaim } from './frontier.js';
 import type { MemoryItem } from '../../memory/lib/memory-store.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import type { HubStore } from '../../hub/store.js';
+import type { MonitoringStore } from '../../monitoring/store.js';
 import type { MachinesStore } from '../../machines/store.js';
 import type { FilesStore } from '../../files/store.js';
 import type { ReleasesStore } from '../../releases/store.js';
@@ -20,9 +21,6 @@ import type { PlatformStore } from '../store.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import type { ExtensionSettings } from '../../engine/lib/extension-settings.js';
 import type { AutoModeSettings } from '../../engine/lib/auto-mode.js';
-import type { MonitoringSetting, AlertEpisode } from '../../monitoring/lib/monitoring-records.js';
-import type { AlertRuleRecord } from '../../monitoring/lib/monitoring-alerts.js';
-import type { NotificationSettings } from './mail.js';
 import type { WorkFailure } from '../../infrastructure/lib/work-failures.js';
 import type { AuthoredExtension } from '../../engine/lib/authored-extensions.js';
 import type { ProcedureSource } from '../../engine/lib/procedure-source.js';
@@ -61,6 +59,7 @@ export interface ScriptedRequestRecord {
 
 export interface Database {
   hub: HubStore;
+  monitoring: MonitoringStore;
   machines: MachinesStore;
   files: FilesStore;
   releases: ReleasesStore;
@@ -158,15 +157,6 @@ export interface Database {
   deleteAuthoredExtension(ownerId: string, id: string): Promise<void>;
   saveExtensionSettings(settings: ExtensionSettings): Promise<void>;
   getAutoModeSettings(ownerId: string): Promise<AutoModeSettings | undefined>;
-  getMonitoringSettings(): Promise<MonitoringSetting[]>;
-  getNotificationSettings(ownerId: string): Promise<NotificationSettings | undefined>;
-  saveNotificationSettings(settings: NotificationSettings): Promise<void>;
-  saveMonitoringSetting(setting: MonitoringSetting): Promise<void>;
-  getAlertRules(ownerId?: string): Promise<AlertRuleRecord[]>;
-  saveAlertRule(rule: AlertRuleRecord): Promise<void>;
-  deleteAlertRule(id: string): Promise<void>;
-  getAlertEpisodes(ownerId?: string): Promise<AlertEpisode[]>;
-  saveAlertEpisode(episode: AlertEpisode): Promise<void>;
   getWorkFailures(ownerId?: string): Promise<WorkFailure[]>;
   addWorkFailure(failure: WorkFailure): Promise<void>;
   clearWorkFailures(ownerId: string, ids: readonly string[] | 'all', at: string): Promise<number>;

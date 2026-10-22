@@ -166,7 +166,7 @@ describe('history', () => {
     expect(helm[1]).toContain('prometheus.prometheusSpec.retention=30d');
     expect(helm[1]).toContain('79.1.0');
     expect(history.days).toBe(30);
-    expect((await db.getMonitoringSettings())[0]).toMatchObject({ clusterId: system.id, historyDays: 30, appliedAt: NOW.toISOString() });
+    expect((await db.monitoring.getMonitoringSettings())[0]).toMatchObject({ clusterId: system.id, historyDays: 30, appliedAt: NOW.toISOString() });
   });
 
   it('refuses days out of range and people who do not own the cluster', async () => {
@@ -183,7 +183,7 @@ describe('history', () => {
   it('records why it could not be applied', async () => {
     monitoring = new MonitoringService({ ...deps(), helm: async () => { throw new Error('no route to the chart repository'); } });
     expect(await monitoring.applyHistory(system)).toBe(false);
-    expect((await db.getMonitoringSettings())[0]?.problem).toBe('no route to the chart repository');
+    expect((await db.monitoring.getMonitoringSettings())[0]?.problem).toBe('no route to the chart repository');
   });
 });
 
@@ -197,14 +197,14 @@ describe('alert rules', () => {
     const rule = await monitoring.addRule(ME, 'books', alertSpec('down') as AlertSpec, 'conv-1');
     expect(rule).toMatchObject({ id: 'rule-1', summary: 'Books has not answered for 5 minutes', conversationId: 'conv-1' });
     expect(JSON.parse(applied[0]!).spec.groups[0].rules[0].expr).toBe('max(probe_success{namespace="books"}) < 1');
-    expect(await db.getAlertRules('me')).toHaveLength(1);
+    expect(await db.monitoring.getAlertRules('me')).toHaveLength(1);
   });
 
   it('is removed from the cluster and the records', async () => {
     await monitoring.addRule(ME, 'books', alertSpec('down') as AlertSpec);
     await monitoring.removeRule(ME, 'rule-1');
     expect(kubectl.at(-1)).toEqual([system.id, 'delete', 'prometheusrule', 'koala-alert-rule-1', '-n', 'books', '--ignore-not-found']);
-    expect(await db.getAlertRules('me')).toEqual([]);
+    expect(await db.monitoring.getAlertRules('me')).toEqual([]);
     await expect(monitoring.removeRule(SOMEONE, 'rule-1')).rejects.toMatchObject({ status: 404 });
   });
 
@@ -242,7 +242,7 @@ describe('watching alerts', () => {
     await watch.tick();
     await watch.tick();
     expect(told.sort()).toEqual(['me fired Books is not answering', 'me fired Memory is nearly full', 'someone fired Theirs is not answering']);
-    expect((await db.getAlertEpisodes('me')).find((episode) => episode.summary === 'Books is not answering')?.startedAt).toBe('2026-10-17T11:58:00Z');
+    expect((await db.monitoring.getAlertEpisodes('me')).find((episode) => episode.summary === 'Books is not answering')?.startedAt).toBe('2026-10-17T11:58:00Z');
 
     prom.firing = [];
     await watch.tick();
@@ -250,7 +250,7 @@ describe('watching alerts', () => {
   });
 
   it('tells only the rule\'s owner about it', async () => {
-    await db.saveAlertRule({ id: 'r1', ownerId: 'me', deploymentId: 'books', clusterId: system.id, namespace: 'books', appName: 'Books', spec: alertSpec('down') as AlertSpec, summary: 'Books: down', createdAt: 'then' });
+    await db.monitoring.saveAlertRule({ id: 'r1', ownerId: 'me', deploymentId: 'books', clusterId: system.id, namespace: 'books', appName: 'Books', spec: alertSpec('down') as AlertSpec, summary: 'Books: down', createdAt: 'then' });
     prom.firing = [{ labels: { alertname: 'Koala_down', namespace: 'books', [RULE_LABEL]: 'r1' }, annotations: { summary: 'Books: down' }, state: 'firing' }];
     await watcher().tick();
     expect(told).toEqual(['me fired Books: down']);

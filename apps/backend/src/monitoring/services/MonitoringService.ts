@@ -90,7 +90,7 @@ export interface Viewer {
   isAdmin?: boolean | undefined;
 }
 
-export type MonitoringStore = Pick<Database, 'getClusters' | 'getDeployments' | 'releases' | 'getMonitoringSettings' | 'saveMonitoringSetting' | 'getAlertRules' | 'saveAlertRule' | 'deleteAlertRule' | 'getAlertEpisodes'>;
+export type MonitoringStore = Pick<Database, 'getClusters' | 'getDeployments' | 'releases' | 'monitoring'>;
 
 export interface MonitoringDeps {
   store: MonitoringStore;
@@ -257,7 +257,7 @@ export class MonitoringService {
   }
 
   private async settingOf(clusterId: string): Promise<MonitoringSetting | undefined> {
-    return (await this.deps.store.getMonitoringSettings()).find((setting) => setting.clusterId === clusterId);
+    return (await this.deps.store.monitoring.getMonitoringSettings()).find((setting) => setting.clusterId === clusterId);
   }
 
   async historyOf(viewer: Viewer | undefined, cluster: ClusterMetadata, reached?: Reached): Promise<HistoryState> {
@@ -319,7 +319,7 @@ export class MonitoringService {
   }
 
   private async scopeFor(viewer: Viewer, cluster: ClusterMetadata, apps: DeploymentMetadata[]) {
-    const rules = await this.deps.store.getAlertRules(viewer.id);
+    const rules = await this.deps.store.monitoring.getAlertRules(viewer.id);
     return {
       appsByNamespace: new Map(apps.filter((dep) => dep.clusterId === cluster.id).map((dep) => [namespaceOf(dep), { deploymentId: dep.id, name: dep.name }])),
       ownRules: new Set(rules.map((rule) => rule.id)),
@@ -412,8 +412,8 @@ export class MonitoringService {
       }));
     }
     series.sort((a, b) => APP_CHARTS.indexOf(a.chart as AppChart) - APP_CHARTS.indexOf(b.chart as AppChart));
-    const episodes = (await this.deps.store.getAlertEpisodes(viewer.id)).filter((episode) => episode.about.kind === 'app' && episode.about.deploymentId === dep.id).slice(0, 50);
-    const rules = (await this.deps.store.getAlertRules(viewer.id)).filter((rule) => rule.deploymentId === dep.id);
+    const episodes = (await this.deps.store.monitoring.getAlertEpisodes(viewer.id)).filter((episode) => episode.about.kind === 'app' && episode.about.deploymentId === dep.id).slice(0, 50);
+    const rules = (await this.deps.store.monitoring.getAlertRules(viewer.id)).filter((rule) => rule.deploymentId === dep.id);
     return {
       app: row,
       lines: appLines(dep.name, row, row.numbers, kept),
@@ -447,7 +447,7 @@ export class MonitoringService {
       }));
     }
     series.sort((a, b) => CLUSTER_CHARTS.indexOf(a.chart as ClusterChart) - CLUSTER_CHARTS.indexOf(b.chart as ClusterChart));
-    const episodes = (await this.deps.store.getAlertEpisodes(viewer.id)).filter((episode) => episode.clusterId === cluster.id).slice(0, 50);
+    const episodes = (await this.deps.store.monitoring.getAlertEpisodes(viewer.id)).filter((episode) => episode.clusterId === cluster.id).slice(0, 50);
     return {
       cluster: row,
       lines: clusterLines(cluster.name, row, row.numbers, this.isPool(cluster)),
@@ -465,7 +465,7 @@ export class MonitoringService {
       const reached = await this.reach(cluster);
       return (await this.firingOn(viewer, reached, apps)).map((alert) => ({ ...alert, clusterId: cluster.id }));
     }))).flat();
-    return { firing, episodes: (await this.deps.store.getAlertEpisodes(viewer.id)).slice(0, 100), rules: await this.deps.store.getAlertRules(viewer.id) };
+    return { firing, episodes: (await this.deps.store.monitoring.getAlertEpisodes(viewer.id)).slice(0, 100), rules: await this.deps.store.monitoring.getAlertRules(viewer.id) };
   }
 
   async setHistory(viewer: Viewer, clusterId: string, days: unknown): Promise<HistoryState> {
@@ -475,7 +475,7 @@ export class MonitoringService {
     if (!cluster) throw new MonitoringError(404, 'no such cluster');
     if (!this.ownsCluster(viewer, cluster)) throw new MonitoringError(403, 'only whoever owns this cluster can change how long it keeps history');
     if (this.deps.pool?.(cluster)) throw new MonitoringError(409, 'Koala\'s servers keep this history, for as long as they keep everyone\'s');
-    await this.deps.store.saveMonitoringSetting({ clusterId, ownerId: viewer.id, historyDays: days as number, updatedAt: this.now().toISOString() });
+    await this.deps.store.monitoring.saveMonitoringSetting({ clusterId, ownerId: viewer.id, historyDays: days as number, updatedAt: this.now().toISOString() });
     await this.applyHistory(cluster);
     return this.historyOf(viewer, cluster);
   }
@@ -512,11 +512,11 @@ export class MonitoringService {
       const version = chartVersionOf(releases);
       if (!version) throw new Error('kube-prometheus-stack is not installed by Helm on this cluster');
       await this.deps.helm(cluster, helmHistoryArgs(days, version));
-      if (setting) await this.deps.store.saveMonitoringSetting({ ...setting, appliedAt: this.now().toISOString(), problem: undefined });
+      if (setting) await this.deps.store.monitoring.saveMonitoringSetting({ ...setting, appliedAt: this.now().toISOString(), problem: undefined });
       return true;
     } catch (err) {
       const message = (err as Error).message.slice(0, 500);
-      await this.deps.store.saveMonitoringSetting({ clusterId: cluster.id, ownerId: setting?.ownerId ?? cluster.ownerId ?? 'platform', historyDays: days, updatedAt: setting?.updatedAt ?? this.now().toISOString(), problem: message });
+      await this.deps.store.monitoring.saveMonitoringSetting({ clusterId: cluster.id, ownerId: setting?.ownerId ?? cluster.ownerId ?? 'platform', historyDays: days, updatedAt: setting?.updatedAt ?? this.now().toISOString(), problem: message });
       return false;
     }
   }
@@ -619,17 +619,17 @@ export class MonitoringService {
     const pool = this.deps.pool?.(cluster);
     if (pool) await pool.setRule({ id: rule.id, namespace, spec, summary: rule.summary });
     else await this.deps.apply(cluster, JSON.stringify(alertRuleManifest(rule, expression)));
-    await this.deps.store.saveAlertRule(rule);
+    await this.deps.store.monitoring.saveAlertRule(rule);
     return rule;
   }
 
   async removeRule(viewer: Viewer, ruleId: string): Promise<void> {
-    const rule = (await this.deps.store.getAlertRules(viewer.id)).find((entry) => entry.id === ruleId);
+    const rule = (await this.deps.store.monitoring.getAlertRules(viewer.id)).find((entry) => entry.id === ruleId);
     if (!rule) throw new MonitoringError(404, 'no such alert');
     const cluster = (await this.clustersOf(viewer)).find((entry) => entry.id === rule.clusterId);
     const pool = cluster ? this.deps.pool?.(cluster) : undefined;
     if (pool) await pool.removeRule(rule.id);
     else if (cluster) await this.deps.kubectl(cluster, ['delete', 'prometheusrule', ruleResourceName(rule.id), '-n', rule.namespace, '--ignore-not-found']);
-    await this.deps.store.deleteAlertRule(rule.id);
+    await this.deps.store.monitoring.deleteAlertRule(rule.id);
   }
 }

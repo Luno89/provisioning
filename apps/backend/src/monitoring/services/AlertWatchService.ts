@@ -12,7 +12,7 @@ export type AlertChange = 'fired' | 'resolved';
 
 export interface AlertWatchDeps {
   monitoring: Pick<MonitoringService, 'allClusters' | 'reach' | 'applyHistory' | 'applyRequestMetrics' | 'syncPoolProbes'>;
-  store: Pick<Database, 'getDeployments' | 'getAlertRules' | 'getAlertEpisodes' | 'saveAlertEpisode'>;
+  store: Pick<Database, 'getDeployments' | 'monitoring'>;
   systemOwners(): Promise<string[]>;
   tell(episode: AlertEpisode, change: AlertChange, context: { app?: DeploymentMetadata | undefined; rule?: AlertRuleRecord | undefined }): Promise<void>;
   log?: (message: string) => void;
@@ -54,7 +54,7 @@ export class AlertWatchService {
   private async watch(): Promise<void> {
     const clusters = await this.deps.monitoring.allClusters();
     const apps = (await this.deps.store.getDeployments()).filter((dep) => dep.status !== 'destroying');
-    const rules = await this.deps.store.getAlertRules();
+    const rules = await this.deps.store.monitoring.getAlertRules();
     const systemOwners = await this.deps.systemOwners();
     for (const cluster of clusters) {
       const reached = await this.deps.monitoring.reach(cluster);
@@ -90,18 +90,18 @@ export class AlertWatchService {
       ownRules: new Set(rules.filter((rule) => rule.ownerId === owner).map((rule) => rule.id)),
       ownsCluster: cluster.isSystem ? systemOwners.includes(owner) : cluster.ownerId === owner,
     });
-    const open = (await this.deps.store.getAlertEpisodes(owner)).filter((episode) => episode.clusterId === cluster.id && !episode.resolvedAt);
+    const open = (await this.deps.store.monitoring.getAlertEpisodes(owner)).filter((episode) => episode.clusterId === cluster.id && !episode.resolvedAt);
     const at = this.now().toISOString();
     for (const alert of visible) {
       if (open.some((episode) => episode.key === alert.key)) continue;
       const episode = this.episodeOf(owner, cluster, alert, at);
-      await this.deps.store.saveAlertEpisode(episode);
+      await this.deps.store.monitoring.saveAlertEpisode(episode);
       await this.tellAbout(episode, 'fired', mine, rules);
     }
     for (const episode of open) {
       if (visible.some((alert) => alert.key === episode.key)) continue;
       const resolved = { ...episode, resolvedAt: at };
-      await this.deps.store.saveAlertEpisode(resolved);
+      await this.deps.store.monitoring.saveAlertEpisode(resolved);
       await this.tellAbout(resolved, 'resolved', mine, rules);
     }
   }
