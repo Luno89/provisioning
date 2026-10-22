@@ -23,6 +23,7 @@ import { ActionService } from './services/ActionService.js';
 import { SecretRequestService } from './services/SecretRequestService.js';
 import { authRouter } from './routes/auth.js';
 import helmet from 'helmet';
+import { CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine } from './lib/csp.js';
 import { MetricsService } from './services/MetricsService.js';
 import { rateLimit } from 'express-rate-limit';
 import { RATE_LIMITS, ruleFor } from './lib/http-limits.js';
@@ -262,6 +263,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.use(express.json({ limit: '20mb' }));
   app.use(metrics.middleware());
   app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, hsts: process.env.NODE_ENV === 'production' }));
+  const csp = cspHeader(cspModeFrom(process.env));
+  if (csp) app.use((_req, res, next) => { res.setHeader(csp.name, csp.value); next(); });
+  app.post(CSP_REPORT_PATH, express.json({ type: ['application/csp-report', 'application/reports+json', 'application/json'], limit: '64kb' }), (req, res) => {
+    const line = violationLine(req.body);
+    if (line) console.warn(`[csp] ${line}`);
+    res.status(204).end();
+  });
   app.use('/api', ...RATE_LIMITS.map((rule) => rateLimit({
     windowMs: rule.windowMs,
     limit: rule.max,

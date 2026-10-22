@@ -171,8 +171,11 @@ All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAu
 
 **Limits and headers.** Sign-in, sign-up, 2FA, handoffs, invites, joins and share links are rate limited per address
 (`lib/http-limits.ts`, mounted on `/api` before the guard), an account is locked for fifteen minutes after ten wrong
-passwords (`lockedUntil`), every response carries `helmet`'s headers (no CSP yet), and the proxy is trusted in
-production. **Koala reports on itself** at `GET /api/metrics` (`MetricsService`, prom-client: process metrics, request
+passwords (`lockedUntil`), every response carries `helmet`'s headers, and the proxy is trusted in production. **The SPA's
+content security policy** (`lib/csp.ts`: same-origin scripts, sockets and frames, inline styles allowed, blob workers and
+media, nothing framed from elsewhere) is sent as `Content-Security-Policy-Report-Only` in production until `CSP=enforce`
+(`CSP=off|report|enforce` sets it anywhere); the browser's reports land on `POST /csp-report` and are logged as one line
+each, so a week of a quiet log on the host is what says to enforce it. **Koala reports on itself** at `GET /api/metrics` (`MetricsService`, prom-client: process metrics, request
 times by route and status, failed work by kind), read with `Authorization: Bearer <METRICS_TOKEN>`; unset, nothing is
 served. **Startup migrations run once**: `scripts/seed-all.ts` runs each by name through `lib/migrations.ts` and records
 it in `migrations`; the shipped seeds (tree types, tools, providers) still upsert on every boot.
