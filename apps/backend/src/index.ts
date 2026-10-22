@@ -51,11 +51,12 @@ import { MetricsService } from './services/MetricsService.js';
 import { rateLimit } from 'express-rate-limit';
 import { RATE_LIMITS, ruleFor } from './lib/http-limits.js';
 import { engineRouter } from './routes/engine.js';
+import { wireReleases } from './wiring/releases.js';
 import { hubInstanceWork, wireHub } from './wiring/hub.js';
 import { proceduresRouter } from './routes/procedures.js';
 import { ProcedureService } from './services/ProcedureService.js';
 import { createProcedureStore, stepNeedsReader } from './engine-host/registries/procedure-store.js';
-import { createModelNodes, createProcedureExecutor, hostNodesFor } from './engine-host/nodes/index.js';
+import { createModelNodes, hostNodesFor } from './engine-host/nodes/index.js';
 import { agentsRouter } from './routes/agents.js';
 import { autoModeRouter } from './routes/auto-mode.js';
 import { engineToolsRouter } from './routes/engine-tools.js';
@@ -134,7 +135,7 @@ import { RegistryService } from './services/RegistryService.js';
 import { GitModuleService } from './services/GitModuleService.js';
 import { BuilderService } from './services/BuilderService.js';
 import { AppExposureService } from './services/AppExposureService.js';
-import type { ProjectMetadata, UserMetadata } from './lib/types.js';
+import type { UserMetadata } from './lib/types.js';
 import { VpsCatalogService } from './services/VpsCatalogService.js';
 import { TemporalBridge } from './services/TemporalBridge.js';
 import WorkerService from './services/WorkerService.js';
@@ -167,7 +168,7 @@ import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { seedAll } from './scripts/seed-all.js';
 import type { SearchOutcome } from './lib/web-tools.js';
 import { createGroveLauncher } from './engine-host/grove-launcher.js';
-import { groveAgentOf, resolveTreeType, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, treeTypeOfProject, renderStarterFiles, versionVars } from './lib/tree-types.js';
+import { groveAgentOf, resolveTreeType, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, renderStarterFiles, versionVars } from './lib/tree-types.js';
 import { RunningService } from './services/RunningService.js';
 import { ownedQuery, ownerIn } from './lib/workflow-owner.js';
 import { DEFAULT_BENCH_SETTINGS } from './lib/bench.js';
@@ -179,19 +180,8 @@ import { WorkFailureService, type ClosedWorkflow } from './services/WorkFailureS
 import type { RunningRecords, RunningWorkflow } from './lib/running.js';
 import { TreeHomeService } from './services/TreeHomeService.js';
 import { TreeModelsService, treeAgentsFrom } from './services/TreeModelsService.js';
-import { CustomizationsService } from './services/CustomizationsService.js';
-import { ODOO_TREE_TYPE } from './lib/tree-type-seeds.js';
-import { customizationsRouter } from './routes/customizations.js';
-import { clientImportRouter } from './routes/client-import.js';
 import { restoringApp } from './lib/release-run.js';
-import { ClientImportService } from './services/ClientImportService.js';
-import { latestBuildOf, odooVersionOfDockerfile, projectMajor } from './lib/client-import.js';
-import { createSlotCluster } from './extensions/releases/slot-cluster.js';
-import { syncVaultFromProject } from './extensions/releases/vault-sync.js';
-import { ODOO_RELEASE_ADAPTER } from './extensions/odoo/release-adapter.js';
 import { platformGroups } from './extensions/installed.js';
-import { ProjectAppService } from './services/ProjectAppService.js';
-import { projectAppRouter } from './routes/project-app.js';
 import { projectSecretsFor } from './services/ProjectSecretsService.js';
 import { ConversationNoticeService } from './services/ConversationNoticeService.js';
 import { WorkspaceBuildService } from './services/WorkspaceBuildService.js';
@@ -201,11 +191,9 @@ import { ProjectChannelService } from './services/ProjectChannelService.js';
 import { projectChannelRouter } from './routes/project-channel.js';
 import { itemChatsRouter } from './routes/item-chats.js';
 import { ItemChatService } from './services/ItemChatService.js';
-import { awaitedNotice, grovedTree, releaseNotice, secretNotice, treeNotices, postedNotice } from './lib/notices.js';
-import { changedPaths, releaseDecision, type ReleaseDecision } from './lib/release-paths.js';
+import { grovedTree, secretNotice, treeNotices, postedNotice } from './lib/notices.js';
 import { TreeTypeDescriptions } from './services/TreeTypeDescriptions.js';
 import { WorkspaceImageService } from './services/WorkspaceImageService.js';
-import { buildPlanAt } from './lib/build-plan.js';
 import { webhookAddress } from './services/webhook-address.js';
 import { endpointRulesFromEnv } from './lib/endpoint-url-safety.js';
 import { AccountRemovalService, temporalRemovalWorkflows } from './services/AccountRemovalService.js';
@@ -218,13 +206,13 @@ import { ScriptedModelService } from './services/ScriptedModelService.js';
 import { extensionServiceFor } from './services/ExtensionService.js';
 import { loadKeys } from './lib/keys.js';
 import { signJWT } from './lib/auth.js';
-import { roleFromEnv, servesTenants, holdsAccounts, servesHub, signsInThroughRoot } from './lib/platform-role.js';
+import { roleFromEnv, servesTenants, holdsAccounts, signsInThroughRoot } from './lib/platform-role.js';
 import { HUB_AUDIENCE, hubInstancePart } from './lib/hub.js';
 import { machinePayloads, type GetAnswer, type PutAnswer, type RingAnswer } from './lib/machine-payloads.js';
 import { IdentityService } from './services/IdentityService.js';
 import { identityRouter } from './routes/identity.js';
 import { handoffRouter } from './routes/handoff.js';
-import { InstanceService, hashCredential } from './services/InstanceService.js';
+import { InstanceService } from './services/InstanceService.js';
 import { InstanceRoutes, dockerCaddy } from './services/InstanceRoutes.js';
 import { InstanceAddresses, adminEdge } from './services/InstanceAddresses.js';
 import { instanceTrialRouter } from './routes/instance-trial.js';
@@ -240,16 +228,7 @@ import { AlertWatchService } from './services/AlertWatchService.js';
 import { alertNotice, alertWhere } from './lib/alert-notices.js';
 import { InstanceChart } from './services/InstanceChart.js';
 import { instancesRouter } from './routes/instances.js';
-import { OdooReleaseService } from './services/OdooReleaseService.js';
-import { engineReleaseRuns } from './engine-host/release-runs.js';
-import { ImageReleases } from './services/ImageReleases.js';
-import { ReleaseSettings } from './services/ReleaseSettings.js';
-import { releaseSettingsRouter } from './routes/release-settings.js';
-import { releaseHowOf } from './lib/release-run.js';
-import { deploymentForProject } from './lib/project-status.js';
-import { releasesRouter } from './routes/releases.js';
 import { artifactsRouter } from './routes/artifacts.js';
-import { CHART_FILE, ODOO_RELEASE_SECRETS, OWN_SECRET_FILE } from './lib/odoo-release.js';
 import { providerServing } from './lib/model-registry.js';
 import { WorkspaceDependencyService } from './services/WorkspaceDependencyService.js';
 import { workspaceDependenciesRouter } from './routes/workspace-dependencies.js';
@@ -1134,124 +1113,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }));
   tenant.use('/api/files', filesRouter({ files: fileService, getOwnedProject }));
   tenant.use('/api/share', shareRouter({ files: fileService }));
-  const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
-    const releaseWhen = (await treeTypeOfProject(db, project))?.releaseWhen;
-    if (!releaseWhen?.length || !project.giteaOwner || !project.giteaRepo) return { release: true };
-    try {
-      const [before, after] = await Promise.all([giteaService.fileHashes(project.giteaOwner, project.giteaRepo, since), giteaService.fileHashes(project.giteaOwner, project.giteaRepo, commit)]);
-      return releaseDecision(changedPaths(before, after), releaseWhen, since);
-    } catch (err) {
-      console.warn(`[releases] ${project.name}: what changed since ${since.slice(0, 8)} could not be read, so the build is released: ${(err as Error).message}`);
-      return { release: true };
-    }
-  };
-  temporalBridge.decideRelease = decideRelease;
-  const odooReleases = new OdooReleaseService({
-    store: db,
-    decide: decideRelease,
-    runs: engineReleaseRuns({ runs: engineRuns, client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined) }),
-    how: async (project) => releaseHowOf(project, await treeTypeOfProject(db, project), true),
-    chartAt: async (owner, repo, commit) => (await giteaService.getRawFile(owner, repo, CHART_FILE, commit)) !== null,
-    diff: (project, base, head) => projectRepoService.diffCommits({ ownerId: project.ownerId!, owner: project.giteaOwner!, repo: project.giteaRepo!, base, head }),
-    releaseWhen: async (project) => (await treeTypeOfProject(db, project))?.releaseWhen,
-    clusterById: async (id) => (id === 'provisioning-lunorica' ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
-    awaiting: (ownerId, project, run) => {
-      postNotice('a project waits for its client\'s database', treeOfProject(project.id).then((tree) => notices.post(ownerId, { projectId: project.id, treeId: tree?.id }, awaitedNotice(project, run.commitSha, tree?.id))));
-    },
-    notify: (ownerId, release) => {
-      io.to(`user:${ownerId}`).emit('odoo-release-updated', release);
-      postNotice('a release changed', treeOfProject(release.projectId).then(async (tree) => {
-        const made = release.restore && release.state === 'live' ? await customizations.drift(ownerId, release.projectId).then((drift) => (drift.ok ? drift.value.items.length : undefined), () => undefined) : undefined;
-        const notice = releaseNotice(release, tree?.id, made);
-        return notice ? notices.post(ownerId, { projectId: release.projectId, treeId: tree?.id }, notice) : [];
-      }));
-    },
-    secrets: {
-      ensure: (project, options) => projectSecrets.ensure(project, options),
-      keep: (projectId, key, value) => projectSecrets.keep(projectId, key, value),
-      chartKeepsOwnSecret: async (owner, repo, commit) => (await giteaService.getRawFile(owner, repo, OWN_SECRET_FILE, commit)) !== null,
-      onCluster: async (cluster, namespace, secret, key) => {
-        const data = await infraService.runKubectl(['get', 'secret', secret, '-n', namespace, '-o', 'jsonpath={.data}'], await clusterService.getKubeconfigPath(cluster)).catch(() => '');
-        const encoded = data ? (JSON.parse(data) as Record<string, string>)[key] : undefined;
-        return encoded ? Buffer.from(encoded, 'base64').toString('utf8') : undefined;
-      },
-    },
+  const releases = wireReleases({
+    tenant, db, io, gitea: giteaService, infra: infraService, clusters: clusterService, projectRepos: projectRepoService, temporalBridge,
+    runs: engineRuns, notices, postNotice, secrets: projectSecrets, agents: agentDirectory, registry: engineRegistry,
+    exposure: appExposureService, channels, getOwnedProject,
   });
-  temporalBridge.ensureSecrets = (project) => projectSecrets.ensure(project, {});
-  temporalBridge.planBuild = (project, commitSha) => buildPlanAt((file) => giteaService.getRawFile(project.giteaOwner!, project.giteaRepo!, file, commitSha).catch(() => null), commitSha);
-  const releaseSettings = new ReleaseSettings({
-    agents: async (ownerId) => (await agentDirectory.agents(ownerId)).map((agent) => ({ slug: agent.slug, name: agent.name, description: agent.description })),
-    procedureOf: async (ownerId, slug) => (await engineRegistry.runnable(ownerId, slug))?.procedure,
-    treeTypes: (ownerId) => db.getTreeTypes(ownerId),
-    saveTreeType: (type) => db.saveTreeType(type),
-    projects: () => db.getProjects(),
-    saveProject: (project) => db.saveProject(project),
-    typeOfProject: (project) => treeTypeOfProject(db, project),
-    hasChart: async (project) => Boolean(project.giteaOwner && project.giteaRepo && (await giteaService.getRawFile(project.giteaOwner, project.giteaRepo, CHART_FILE, 'main')) !== null),
-  });
-  tenant.use('/api/release-settings', releaseSettingsRouter({ settings: releaseSettings }));
-  const imageReleases = new ImageReleases({
-    runs: engineRuns,
-    deployedTag: async (project) => deploymentForProject(project, await db.getDeployments())?.gitappImageTag?.split(':').pop(),
-    decide: decideRelease,
-    ensureSecrets: (project) => projectSecrets.ensure(project, {}),
-    noteOnBuild: (run) => db.savePipelineRunInfo(run),
-  });
-  temporalBridge.onBuilt = async (project, run) => {
-    const how = releaseHowOf(project, await treeTypeOfProject(db, project), await odooReleases.releasesByChart(project, run.commitSha));
-    if (!how.app) {
-      const outcome = await imageReleases.release(project, run, how.agent);
-      if (typeof outcome === 'object') console.log(`[releases] ${project.name}: the build of ${run.commitSha.slice(0, 8)} was not deployed: ${'skipped' in outcome ? outcome.skipped : outcome.refused}`);
-      return true;
-    }
-    const started = await odooReleases.release(project, run);
-    if ('error' in started) console.error(`[releases] ${project.name}: the build of ${run.commitSha} was not released: ${started.error}`);
-    if ('skipped' in started) console.log(`[releases] ${project.name}: the build of ${run.commitSha.slice(0, 8)} has nothing to release: ${started.skipped}`);
-    return true;
-  };
-  tenant.use('/api/projects', projectAppRouter({
-    apps: new ProjectAppService({
-      deployments: () => db.getDeployments(),
-      expose: (deploymentId, mode) => (mode === 'local' ? appExposureService.exposeLocal(deploymentId) : appExposureService.exposePublic(deploymentId)),
-    }),
-    getOwnedProject,
-  }));
-  const customizations = new CustomizationsService({
-    projects: () => db.getProjects(),
-    clusterById: async (id) => (id === 'provisioning-lunorica' ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
-    how: async (project) => releaseHowOf(project, await treeTypeOfProject(db, project), true),
-    cluster: createSlotCluster({ infra: infraService, repo: async () => giteaService, syncVault: syncVaultFromProject(infraService) }),
-    adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
-    trees: () => db.getTrees(),
-    branches: () => db.getBranches(),
-    leaves: () => db.getLeaves(),
-    tasks: (ownerId) => db.getTasks(ownerId),
-    savePlan: (proposal) => db.savePlanProposal(proposal),
-    treeTypeOf: async (project) => (await treeTypeOfProject(db, project))?.id ?? ODOO_TREE_TYPE,
-  });
-  tenant.use('/api/projects', customizationsRouter({ customizations, getOwnedProject, channelOf: async (project) => (await channels.ensure(project))?.id }));
-  const clientImports = new ClientImportService({
-    projects: () => db.getProjects(),
-    saveProject: (patch) => db.saveProjectInfo(patch),
-    clusterById: async (id) => (id === 'provisioning-lunorica' ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
-    adapterOf: async (project) => {
-      const how = await releaseHowOf(project, await treeTypeOfProject(db, project), true);
-      return how.app === ODOO_RELEASE_ADAPTER.id ? ODOO_RELEASE_ADAPTER : undefined;
-    },
-    cluster: createSlotCluster({ infra: infraService, repo: async () => giteaService, syncVault: syncVaultFromProject(infraService) }),
-    odooVersion: async (project) => {
-      const tree = (await db.getTrees()).find((entry) => entry.ownerId === project.ownerId && entry.projectIds?.[0] === project.id);
-      if (tree?.version) return projectMajor(tree.version);
-      const declared = project.giteaOwner && project.giteaRepo ? odooVersionOfDockerfile(await giteaService.getRawFile(project.giteaOwner, project.giteaRepo, 'Dockerfile', 'main').catch(() => null)) : undefined;
-      if (declared) return declared;
-      const type = await treeTypeOfProject(db, project) ?? (await db.getTreeTypes(project.ownerId)).find((entry) => entry.id === ODOO_TREE_TYPE);
-      return type?.versions?.default ? projectMajor(type.versions.default) : undefined;
-    },
-    latestBuild: async (project) => latestBuildOf(await db.getPipelineRuns(), project.id),
-    releases: odooReleases,
-  });
-  tenant.use('/api/projects', clientImportRouter({ imports: clientImports, getOwnedProject }));
-  tenant.use('/api/projects', releasesRouter({ releases: odooReleases, getOwnedProject, signIns: (project) => projectSecrets.signIns(project, ODOO_RELEASE_SECRETS) }));
+  const { odooReleases, releaseSettings, customizations } = releases;
   tenant.use('/api/artifacts', artifactsRouter({ artifacts: artifactStore.artifacts, hasMinio: (ownerId) => artifactStore.minio.hasMinio(ownerId) }));
   const sweepArtifacts = () => artifactStore.artifacts.sweep().catch((err: Error) => console.warn(`[artifacts] the sweep failed: ${err.message}`));
   setInterval(sweepArtifacts, 24 * 60 * 60 * 1000).unref();
