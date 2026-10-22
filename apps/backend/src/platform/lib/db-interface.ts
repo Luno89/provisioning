@@ -13,7 +13,8 @@ import type { GiteaAccount } from '../../projects/lib/projects.js';
 import type { MemoryItem } from '../../memory/lib/memory-store.js';
 import type { Task } from '../../projects/lib/tasks.js';
 import type { PlanProposal } from '../../projects/lib/plan-proposals.js';
-import { markingHubWrites, type HubSyncStore } from '../../hub/lib/hub-sync.js';
+import { markingHubWrites } from '../../hub/lib/hub-sync.js';
+import type { HubStore } from '../../hub/store.js';
 import type { SecretRequest } from '../../projects/lib/secret-requests.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import type { ExtensionSettings } from '../../engine/lib/extension-settings.js';
@@ -85,7 +86,8 @@ export interface AccountIds {
   ingestIds: string[];
 }
 
-export interface Database extends HubSyncStore {
+export interface Database {
+  hub: HubStore;
   init(): Promise<void>;
   close(): Promise<void>;
 
@@ -350,5 +352,6 @@ export function sharedPayloadBlobs(): PayloadBlobs {
 }
 
 export function createDatabase(env: Readonly<Record<string, string | undefined>> = process.env): Database {
-  return markingHubWrites(new MongoDB(env));
+  const db = new MongoDB(env);
+  return markingHubWrites(db, db.hub);
 }

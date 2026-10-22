@@ -12,13 +12,14 @@ const ann = { id: 'ann', email: 'ann@example.com' };
 const now = '2026-10-21T00:00:00Z';
 
 async function setUp() {
-  const db = markingHubWrites(await testDatabase());
+  const raw = await testDatabase();
+  const db = markingHubWrites(raw, raw.hub);
   const store = memoryHubStore();
   const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) } });
   const made = await hub.create(ann, { name: 'Shop', origin: { instanceId: 'combined', projectId: 'p1' } });
   if (!made.ok) throw new Error(made.why);
   const hubId = made.value.project.id;
-  const sync = new HubSyncService({ store: db, transport: localHubSync(hub, 'combined'), origin: 'instance:combined' });
+  const sync = new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined' });
   const onHub = store.project(hubId);
   return { db, hub, sync, onHub, hubId };
 }
@@ -29,9 +30,9 @@ describe('keeping a shared project\'s board in step with the hub', () => {
   it('sends nothing until a project is shared, then only what belongs to it, never a private chat or another project', async () => {
     const { db, sync, onHub, hubId } = await setUp();
     await db.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
-    expect(await db.hubDirty(10)).toEqual([]);
+    expect(await db.hub.hubDirty(10)).toEqual([]);
 
-    await db.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
+    await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
     await db.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
     await db.saveTree({ id: 't2', ownerId: 'ann', name: 'Mine', type: 'odoo' as never, projectIds: ['p2'], createdAt: now, updatedAt: now });
     await db.saveBranch({ id: 'b1', ownerId: 'ann', treeId: 't1', title: 'Pay', createdAt: now, updatedAt: now });
@@ -41,7 +42,7 @@ describe('keeping a shared project\'s board in step with the hub', () => {
     await db.appendMessage('ann', 'channel-p1', { role: 'user', content: 'hello', at: '2026-10-21T00:00:01Z', author: { kind: 'person', id: 'ann' } });
 
     await sync.once();
-    expect(await db.hubDirty(10)).toEqual([]);
+    expect(await db.hub.hubDirty(10)).toEqual([]);
     expect((await onHub.records('trees')).map((doc) => doc.id)).toEqual(['t1']);
     expect((await onHub.records('leaves')).map((doc) => [doc.id, doc.status])).toEqual([['l1', 'pending']]);
     expect((await onHub.records('conversations')).map((doc) => [doc.id, (doc.messages as { content: string }[]).map((message) => message.content)])).toEqual([['channel-p1', ['hello']]]);
@@ -52,7 +53,7 @@ describe('keeping a shared project\'s board in step with the hub', () => {
 
   it('brings a member\'s change down and keeps both when the engine changed another field meanwhile; a deleted story goes on both', async () => {
     const { db, sync, onHub, hubId } = await setUp();
-    await db.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
+    await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
     await db.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
     await db.saveBranch({ id: 'b1', ownerId: 'ann', treeId: 't1', title: 'Pay', createdAt: now, updatedAt: now });
     await db.saveLeaf(leaf());
@@ -64,20 +65,20 @@ describe('keeping a shared project\'s board in step with the hub', () => {
     await db.saveLeaf(leaf({ status: 'running' }));
 
     await sync.once();
-    expect(await db.syncedRecord('leaves', 'l1')).toMatchObject({ status: 'running', priority: 1 });
+    expect(await db.hub.syncedRecord('leaves', 'l1')).toMatchObject({ status: 'running', priority: 1 });
     await sync.once();
     expect(await onHub.record('leaves', 'l1')).toMatchObject({ status: 'running', priority: 1 });
-    expect((await db.getHubLinks())[0]!.pulledThrough).toBe((await onHub.changes(0, 100)).at(-1)!.seq);
+    expect((await db.hub.getHubLinks())[0]!.pulledThrough).toBe((await onHub.changes(0, 100)).at(-1)!.seq);
 
     await db.deleteLeaf('l1');
     await sync.once();
     expect(await onHub.record('leaves', 'l1')).toBeUndefined();
-    expect(await db.hubSnapshot('leaves', 'l1')).toBeUndefined();
+    expect(await db.hub.hubSnapshot('leaves', 'l1')).toBeUndefined();
   });
 
   it('pulls every page when members changed more than one page holds', async () => {
     const { db, sync, onHub, hubId } = await setUp();
-    await db.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
+    await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
     await db.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
     await db.saveBranch({ id: 'b1', ownerId: 'ann', treeId: 't1', title: 'Pay', createdAt: now, updatedAt: now });
     await db.saveLeaf(leaf());
@@ -87,40 +88,41 @@ describe('keeping a shared project\'s board in step with the hub', () => {
       await onHub.logChange({ origin: 'person:bo', change: { kind: 'leaves', id: 'l1', patch: { set: { priority: n } } }, at: now });
     }
     await sync.once();
-    expect(await db.syncedRecord('leaves', 'l1')).toMatchObject({ priority: CHANGES_PAGE + 50 });
-    expect((await db.getHubLinks())[0]!.pulledThrough).toBe((await onHub.changes(0, 10_000)).at(-1)!.seq);
+    expect(await db.hub.syncedRecord('leaves', 'l1')).toMatchObject({ priority: CHANGES_PAGE + 50 });
+    expect((await db.hub.getHubLinks())[0]!.pulledThrough).toBe((await onHub.changes(0, 10_000)).at(-1)!.seq);
   });
 
   it('keeps a change waiting while the hub cannot be reached, and sends it once it can', async () => {
     const { db, onHub, hub, hubId } = await setUp();
     let down = true;
     const transport = localHubSync(hub, 'combined');
-    const sync = new HubSyncService({ store: db, origin: 'instance:combined', transport: { ...transport, push: (link, changes) => (down ? Promise.reject(new Error('unreachable')) : transport.push(link, changes)) } });
-    await db.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
+    const sync = new HubSyncService({ store: db.hub, origin: 'instance:combined', transport: { ...transport, push: (link, changes) => (down ? Promise.reject(new Error('unreachable')) : transport.push(link, changes)) } });
+    await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
     await db.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
     await sync.once();
-    expect((await db.hubDirty(10)).length).toBe(1);
+    expect((await db.hub.hubDirty(10)).length).toBe(1);
     down = false;
     await sync.once();
-    expect([await db.hubDirty(10), (await onHub.records('trees')).length]).toEqual([[], 1]);
+    expect([await db.hub.hubDirty(10), (await onHub.records('trees')).length]).toEqual([[], 1]);
   });
 
   it('stops sharing on the instance when the project was deleted on the hub', async () => {
     const { db, hub, sync, hubId } = await setUp();
-    await db.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
+    await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
     await db.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
     await sync.once();
     await hub.delete('ann', hubId, 'Shop');
     await db.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop again', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
     await sync.once();
-    expect([await db.getHubLinks(), await db.hubSnapshot('trees', 't1'), await db.hubDirty(10)]).toEqual([[], undefined, []]);
+    expect([await db.hub.getHubLinks(), await db.hub.hubSnapshot('trees', 't1'), await db.hub.hubDirty(10)]).toEqual([[], undefined, []]);
   });
 });
 
 
 describe('members working a shared project from the hub', () => {
   async function shared() {
-    const db = markingHubWrites(await testDatabase());
+    const raw = await testDatabase();
+    const db = markingHubWrites(raw, raw.hub);
     const store = memoryHubStore();
     const relay = new HubRelay(Date.now, 60_000);
     const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) }, relay });
@@ -159,9 +161,9 @@ describe('members working a shared project from the hub', () => {
         remove: async () => ({ ok: true, value: { path: 'x' } }),
       },
     });
-    const sync = new HubSyncService({ store: db, transport: localHubSync(hub, 'combined'), origin: 'instance:combined', work: () => work, retryMs: 10 });
+    const sync = new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined', work: () => work, retryMs: 10 });
     await db.saveProject({ id: 'p1', name: 'Shop', ownerId: 'ann', createdAt: now } as never);
-    await db.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
+    await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
     await db.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
     await db.saveBranch({ id: 'b1', ownerId: 'ann', treeId: 't1', title: 'Pay', createdAt: now, updatedAt: now });
     await db.saveLeaf(leaf());
@@ -181,7 +183,7 @@ describe('members working a shared project from the hub', () => {
     const message = (await db.getConversation('ann', 'channel-p1'))!.messages.find((entry) => entry.content === 'can the button be green?');
     expect(message?.author).toEqual({ kind: 'person', id: 'cy' });
     expect(did).toEqual([['askKoala', 'ann', 'channel-p1', { at: posted.value.message.at, content: 'can the button be green?' }]]);
-    expect((await db.getHubLinks())[0]!.members?.map((member) => member.email).sort()).toEqual(['ann@example.com', 'bo@example.com', 'cy@example.com']);
+    expect((await db.hub.getHubLinks())[0]!.members?.map((member) => member.email).sort()).toEqual(['ann@example.com', 'bo@example.com', 'cy@example.com']);
     const board = await hub.boardView('cy', hubId);
     expect(board.ok && board.value.requests.map((request) => request.state)).toEqual(['done']);
     sync.stop();

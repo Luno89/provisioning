@@ -86,7 +86,7 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
   let sharingService: ProjectSharingService | undefined;
   if (reach) {
     const hubSync = new HubSyncService({
-      store: db,
+      store: db.hub,
       transport: reach.transport,
       origin: `instance:${reach.instanceId}`,
       work: () => work,

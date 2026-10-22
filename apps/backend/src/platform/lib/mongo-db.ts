@@ -1,5 +1,5 @@
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
-import { fieldUpdate, messageUpdates, type RecordPatch, type HubDirty, type HubLink, type SyncedDoc, type SyncedKind } from '../../hub/lib/hub-sync.js';
+import { MongoHubStore } from '../../hub/store.js';
 import { hintKey, type McpToolHint } from '../../engine/lib/mcp-tool-hints.js';
 import type { BenchSettings, BenchState } from '../../checks/lib/bench.js';
 import type { ExtensionSettings } from '../../engine/lib/extension-settings.js';
@@ -88,10 +88,13 @@ function toDoc<T extends { id: string }>(entity: T): Record<string, any> {
 const toolGrantKey = (ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): string => (kind === 'server' ? `${ownerId}:${agent}:server:${tool}` : `${ownerId}:${agent}:${tool}`);
 const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (kind === 'server' ? { kind: 'server' } : kind === 'tool' ? { kind: { $ne: 'server' } } : {});
 export class MongoDB implements Database {
-  constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {}
+  constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {
+    this.hub = new MongoHubStore(() => this.db!);
+  }
 
   private client: MongoClient | null = null;
   private db: Db | null = null;
+  readonly hub: MongoHubStore;
 
   private get clusters(): Collection {
     return this.db!.collection('clusters');
@@ -221,84 +224,6 @@ export class MongoDB implements Database {
     return this.db!.collection('planProposals');
   }
 
-  private get hubLinks(): Collection {
-    return this.db!.collection('hubLinks');
-  }
-
-  private get hubDirtyRecords(): Collection {
-    return this.db!.collection('hubDirty');
-  }
-
-  private get hubSnapshots(): Collection {
-    return this.db!.collection('hubSnapshots');
-  }
-
-  private syncedCollection(kind: SyncedKind): Collection {
-    return { trees: this.trees, branches: this.branches, leaves: this.leaves, tasks: this.tasks, conversations: this.conversations, planProposals: this.planProposals }[kind];
-  }
-
-  async getHubLinks(): Promise<HubLink[]> {
-    return (await this.hubLinks.find({}).toArray()).map(({ _id, ...rest }) => ({ ...rest, projectId: String(_id) }) as HubLink);
-  }
-
-  async saveHubLink(link: HubLink): Promise<void> {
-    const { projectId, ...rest } = link;
-    await this.hubLinks.replaceOne({ _id: projectId as any }, rest, { upsert: true });
-  }
-
-  async deleteHubLink(projectId: string): Promise<void> {
-    await this.hubLinks.deleteOne({ _id: projectId as any });
-  }
-
-  async markForHub(kind: SyncedKind, id: string, deleted: boolean): Promise<void> {
-    if (await this.hubLinks.estimatedDocumentCount() === 0) return;
-    const at = `${String(Date.now()).padStart(15, '0')}-${Math.random().toString(36).slice(2, 10)}`;
-    await this.hubDirtyRecords.replaceOne({ _id: `${kind}/${id}` as any }, { kind, id, deleted, at }, { upsert: true });
-  }
-
-  async hubDirty(limit: number): Promise<HubDirty[]> {
-    return (await this.hubDirtyRecords.find({}).sort({ at: 1 }).limit(limit).toArray()).map(({ _id, ...rest }) => rest as unknown as HubDirty);
-  }
-
-  async clearHubDirty(entries: readonly HubDirty[]): Promise<void> {
-    for (const entry of entries) await this.hubDirtyRecords.deleteOne({ _id: `${entry.kind}/${entry.id}` as any, at: entry.at });
-  }
-
-  async syncedRecord(kind: SyncedKind, id: string): Promise<SyncedDoc | undefined> {
-    const doc = await this.syncedCollection(kind).findOne({ _id: id as any });
-    return doc ? fromDoc<SyncedDoc>(doc) : undefined;
-  }
-
-  async patchSyncedRecord(kind: SyncedKind, id: string, patch: RecordPatch): Promise<void> {
-    const collection = this.syncedCollection(kind);
-    const fields = fieldUpdate(patch);
-    const messages = messageUpdates(patch);
-    if (fields) await collection.updateOne({ _id: id as any }, fields, { upsert: true });
-    if (messages.pull) await collection.updateOne({ _id: id as any }, { $pull: { messages: { $or: messages.pull } } } as any);
-    if (messages.push) await collection.updateOne({ _id: id as any }, { $push: { messages: { $each: messages.push, $sort: { at: 1 } } } } as any, { upsert: true });
-  }
-
-  async deleteSyncedRecord(kind: SyncedKind, id: string): Promise<void> {
-    await this.syncedCollection(kind).deleteOne({ _id: id as any });
-  }
-
-  async hubSnapshot(kind: SyncedKind, id: string): Promise<{ projectId: string; doc: SyncedDoc } | undefined> {
-    const found = await this.hubSnapshots.findOne({ _id: `${kind}/${id}` as any });
-    return found ? { projectId: String(found.projectId), doc: found.doc as SyncedDoc } : undefined;
-  }
-
-  async saveHubSnapshot(projectId: string, kind: SyncedKind, doc: SyncedDoc): Promise<void> {
-    await this.hubSnapshots.replaceOne({ _id: `${kind}/${doc.id}` as any }, { projectId, kind, doc }, { upsert: true });
-  }
-
-  async deleteHubSnapshot(kind: SyncedKind, id: string): Promise<void> {
-    await this.hubSnapshots.deleteOne({ _id: `${kind}/${id}` as any });
-  }
-
-  async deleteHubSnapshots(projectId: string): Promise<void> {
-    await this.hubSnapshots.deleteMany({ projectId });
-  }
-
   private get artifacts(): Collection {
     return this.db!.collection('artifacts');
   }
@@ -395,7 +320,7 @@ export class MongoDB implements Database {
     await this.deployments.createIndex({ name: 1 }, { unique: true });
     await this.users.createIndex({ email: 1 }, { unique: true });
     await this.runTraces.createIndex({ ownerId: 1, runId: 1, sequence: 1 });
-    await this.hubDirtyRecords.createIndex({ at: 1 });
+    await this.hub.ensureIndexes();
     await this.turnLogs.createIndex({ turnId: 1, seq: 1 }, { unique: true });
     await this.turnLogs.createIndex({ at: 1 }, { expireAfterSeconds: TURN_LOG_RETENTION_SECONDS });
     await this.turnLogs.createIndex({ ownerId: 1, seq: 1, at: -1 });

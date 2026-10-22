@@ -10,10 +10,11 @@ const now = '2026-10-21T00:00:00Z';
 const ann = { id: 'ann', email: 'ann@example.com' };
 
 async function setUp() {
-  const db = markingHubWrites(await testDatabase());
+  const raw = await testDatabase();
+  const db = markingHubWrites(raw, raw.hub);
   const store = memoryHubStore();
   const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) } });
-  const sync = new HubSyncService({ store: db, transport: localHubSync(hub, 'combined'), origin: 'instance:combined' });
+  const sync = new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined' });
   const notices: unknown[] = [];
   const sharing = new ProjectSharingService({
     store: db, sharing: localHubSharing(hub, 'combined'), sync, dataKey: 'k'.repeat(32) as never,
@@ -45,7 +46,7 @@ describe('sharing a project from its owner\'s instance', () => {
     const onHub = store.project(hubId);
     expect((await onHub.records('trees')).map((doc) => doc.id)).toEqual(['t1']);
     expect((await onHub.records('conversations')).map((doc) => [doc.id, (doc.messages as { content: string }[]).map((message) => message.content)])).toEqual([['channel-p1', ['earlier talk']]]);
-    expect(await db.getHubLinks()).toHaveLength(1);
+    expect(await db.hub.getHubLinks()).toHaveLength(1);
 
     expect((await sharing.share(ann, 'p1')).ok).toBe(true);
     expect(await hub.mine('ann')).toHaveLength(1);
@@ -62,7 +63,7 @@ describe('sharing a project from its owner\'s instance', () => {
     const back = await sharing.takeBack('ann', 'p1', 'Shop');
     expect(back).toMatchObject({ ok: true, value: { moves: { stories: 1 } } });
     expect(back.ok && back.value.shared).toBeUndefined();
-    expect([await store.getProject(hubId), await hub.mine('ann'), await db.getHubLinks(), await db.hubSnapshot('leaves', 'l1')]).toEqual([undefined, [], [], undefined]);
+    expect([await store.getProject(hubId), await hub.mine('ann'), await db.hub.getHubLinks(), await db.hub.hubSnapshot('leaves', 'l1')]).toEqual([undefined, [], [], undefined]);
     expect((await db.getLeaves())[0]).toMatchObject({ status: 'running' });
     expect(await sharing.takeBack('ann', 'p1', 'Shop')).toMatchObject({ ok: false, status: 409 });
   });

@@ -31,7 +31,7 @@ const STAYS = [
   'the deployed app and its clusters',
 ];
 
-type Store = Pick<Database, 'getProjects' | 'getTrees' | 'getBranches' | 'getLeaves' | 'getConversations' | 'getTasks' | 'getPlanProposals' | 'getHubLinks' | 'saveHubLink' | 'deleteHubLink' | 'deleteHubSnapshots' | 'markForHub'>;
+type Store = Pick<Database, 'getProjects' | 'getTrees' | 'getBranches' | 'getLeaves' | 'getConversations' | 'getTasks' | 'getPlanProposals' | 'hub'>;
 
 export interface ProjectSharingDeps {
   store: Store;
@@ -77,7 +77,7 @@ export class ProjectSharingService {
   async preview(ownerId: string, projectId: string): Promise<SharingOutcome<SharingPreview>> {
     const project = await this.project(ownerId, projectId);
     if (!project) return { ok: false, status: 404, why: 'There is no such project.' };
-    const link = (await this.deps.store.getHubLinks()).find((entry) => entry.projectId === projectId);
+    const link = (await this.deps.store.hub.getHubLinks()).find((entry) => entry.projectId === projectId);
     const { count } = await this.scoped(ownerId, projectId);
     return {
       ok: true,
@@ -96,15 +96,15 @@ export class ProjectSharingService {
   async share(owner: { id: string; email: string }, projectId: string): Promise<SharingOutcome<SharingPreview>> {
     const project = await this.project(owner.id, projectId);
     if (!project) return { ok: false, status: 404, why: 'There is no such project.' };
-    if (!(await this.deps.store.getHubLinks()).some((entry) => entry.projectId === projectId)) {
+    if (!(await this.deps.store.hub.getHubLinks()).some((entry) => entry.projectId === projectId)) {
       if (!await this.deps.sharing.reachable()) return { ok: false, status: 409, why: 'Sharing needs a hub, and this Koala has none.' };
       const shared = await this.deps.sharing.share(owner, { id: project.id, name: project.name });
-      await this.deps.store.saveHubLink({
+      await this.deps.store.hub.saveHubLink({
         projectId, ownerId: owner.id, hubProjectId: shared.hubProjectId, pulledThrough: 0, sharedAt: this.now(),
         ...(shared.repo && project.giteaOwner && project.giteaRepo ? { repo: { url: shared.repo.url, username: shared.repo.username, tokenEnc: encryptValue(shared.repo.token, this.deps.dataKey) } } : {}),
       });
       const { records } = await this.scoped(owner.id, projectId);
-      for (const [kind, docs] of records) for (const doc of docs) await this.deps.store.markForHub(kind, doc.id, false);
+      for (const [kind, docs] of records) for (const doc of docs) await this.deps.store.hub.markForHub(kind, doc.id, false);
     }
     await this.deps.sync.once();
     return this.preview(owner.id, projectId);
@@ -114,26 +114,26 @@ export class ProjectSharingService {
     const project = await this.project(ownerId, projectId);
     if (!project) return { ok: false, status: 404, why: 'There is no such project.' };
     if (typeof confirm !== 'string' || confirm.trim() !== project.name) return { ok: false, status: 400, why: `Type the project's name, ${project.name}, to take it back.` };
-    const link = (await this.deps.store.getHubLinks()).find((entry) => entry.projectId === projectId);
+    const link = (await this.deps.store.hub.getHubLinks()).find((entry) => entry.projectId === projectId);
     if (!link) return { ok: false, status: 409, why: `${project.name} is not shared.` };
     await this.release(ownerId, link);
     return this.preview(ownerId, projectId);
   }
 
   async shared(projectId: string): Promise<boolean> {
-    return (await this.deps.store.getHubLinks()).some((entry) => entry.projectId === projectId);
+    return (await this.deps.store.hub.getHubLinks()).some((entry) => entry.projectId === projectId);
   }
 
   async takeBackForDeletion(ownerId: string, projectId: string): Promise<void> {
-    const link = (await this.deps.store.getHubLinks()).find((entry) => entry.projectId === projectId && entry.ownerId === ownerId);
+    const link = (await this.deps.store.hub.getHubLinks()).find((entry) => entry.projectId === projectId && entry.ownerId === ownerId);
     if (link) await this.release(ownerId, link);
   }
 
   private async release(ownerId: string, link: HubLink): Promise<void> {
     await this.deps.sync.once();
     await this.deps.sharing.unshare(ownerId, link.hubProjectId);
-    await this.deps.store.deleteHubLink(link.projectId);
-    await this.deps.store.deleteHubSnapshots(link.projectId);
+    await this.deps.store.hub.deleteHubLink(link.projectId);
+    await this.deps.store.hub.deleteHubSnapshots(link.projectId);
   }
 
   repoSides(): HubRepoSides {

@@ -27,6 +27,9 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      MONGOMS_DOWNLOAD_DIR: ${{ github.workspace }}/.mongodb-binaries
+      MONGOMS_VERSION: 8.2.6
 
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +44,12 @@ jobs:
       # same dependency tree a developer has, not a resolved-today approximation of it.
       - name: Install
         run: npm ci
+
+      - name: Mongo binary for the backend's unit tests
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}-8.2.6
 
       # First because it is the fastest (~11s) and catches the largest class of mistake — every
       # broken import path, every changed shape crossing `@koala/harness-types`. During the router

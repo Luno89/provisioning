@@ -192,7 +192,7 @@ export const HUB_WRITES: Readonly<Record<string, WriteOf>> = {
   deletePlanProposal: { kind: 'planProposals', id: second, deleted: true },
 };
 
-export function markingHubWrites<T extends object & Pick<HubSyncStore, 'markForHub'>>(db: T): T {
+export function markingHubWrites<T extends object>(db: T, hub: Pick<HubSyncStore, 'markForHub'>): T {
   return new Proxy(db, {
     get(target, property, receiver) {
       const value = Reflect.get(target, property, receiver) as unknown;
@@ -201,7 +201,7 @@ export function markingHubWrites<T extends object & Pick<HubSyncStore, 'markForH
       return async (...args: unknown[]) => {
         const result = await (value as (...given: unknown[]) => unknown).apply(receiver, args);
         const id = write.id(args);
-        if (typeof id === 'string' && id) await target.markForHub(write.kind, id, write.deleted === true);
+        if (typeof id === 'string' && id) await hub.markForHub(write.kind, id, write.deleted === true);
         return result;
       };
     },

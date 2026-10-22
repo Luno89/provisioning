@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ACCOUNT_DATA, memoryWatermarkKeys, ownedWorkflowIds, refuseRemoval, removalBlockers, type RemovalWorld } from './account-removal.js';
 import { EVAL_COLLECTIONS } from '../../checks/lib/eval-run.js';
 
@@ -58,8 +60,10 @@ describe('what an account owns outside the records', () => {
 
 describe('the records an account leaves', () => {
   it('cover every collection the database uses: each is removed by owner, by id, through what it relates to, or is shared', () => {
-    const source = readFileSync(new URL('../../platform/lib/mongo-db.ts', import.meta.url), 'utf8');
-    const used = new Set([...source.matchAll(/collection\('([A-Za-z_]+)'\)/g)].map((match) => match[1]!));
+    const src = fileURLToPath(new URL('../..', import.meta.url));
+    const stores = readdirSync(src).map((area) => join(src, area, 'store.ts')).filter((file) => existsSync(file));
+    const source = [join(src, 'platform/lib/mongo-db.ts'), ...stores].map((file) => readFileSync(file, 'utf8')).join('\n');
+    const used = new Set([...source.matchAll(/collection\('([A-Za-z_]+)'\)|new Records\(\w+, '([A-Za-z_]+)'\)/g)].map((match) => (match[1] ?? match[2])!));
     for (const name of EVAL_COLLECTIONS) used.add(name);
     const classified = new Set<string>([...ACCOUNT_DATA.byOwner, ...ACCOUNT_DATA.byId, ...Object.keys(ACCOUNT_DATA.related), ACCOUNT_DATA.last, ...ACCOUNT_DATA.shared]);
 

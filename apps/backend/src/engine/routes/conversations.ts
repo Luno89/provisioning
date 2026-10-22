@@ -52,7 +52,7 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
     const found = (await deps.ownedConversations(viewer)).find((c) => c.id === req.params.id);
     if (!found) return res.status(404).json({ error: 'No such conversation' });
     const settled = deps.turns ? await deps.turns.settle(found) : found;
-    const members = new Map((await db.getHubLinks()).flatMap((link) => link.members ?? []).map((member) => [member.personId, member.email]));
+    const members = new Map((await db.hub.getHubLinks()).flatMap((link) => link.members ?? []).map((member) => [member.personId, member.email]));
     res.json(members.size > 0 ? withAuthorNames(settled, viewer, members) : settled);
   }));
 
