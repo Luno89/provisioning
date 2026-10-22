@@ -131,7 +131,7 @@ Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod stat
 | Path | What |
 |---|---|
 | `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits the DB, keys, role and the platform services, then calls each area's `wire*` (`src/<area>/wiring/`), which constructs that area's services and mounts its routers. 437 lines. Three routes are inline and each has a reason: the Gitea webhook (must precede `express.json()` — it verifies an HMAC over the raw body), `/ingress/verify` (unauthenticated by design) and `/api/metrics` (its own token). `index.test.ts` guards the route order; `npm run test:routes-live` proves every router is mounted |
-| `apps/backend/src/<area>/` | **The backend is laid out by area, each with `lib/` (pure rules), `services/`, `routes/` (one router per URL prefix, a factory taking its deps) and `wiring/` (what constructs the area from the platform deps and mounts it).** The areas: `platform` (database, keys, crypto, the Temporal client and payload storage, auth middleware, mail, notices, metrics, migrations, the shared record types), `accounts` (sign-in, invites, admin, account removal), `instances` (root, instance, addresses, the pool, moves), `hub` (shared projects), `projects` (projects, repositories, channels, item chats, trees, branches, leaves, plans, secrets, tree types), `releases` (A/B releases, customizations, client imports, what is live), `files` (MinIO files, drops, artifacts, share links), `machines` (a person's machines, their agents, the sockets), `monitoring` (health, alerts, notifications), `models` (providers, the default model, OpenRouter), `memory` (the keeper, recall, practices), `checks` (Level 2, the bench, scripted models), `infrastructure` (clusters, apps, deploys, exposure, egress, credentials, backups, running work, the Temporal bridge). `engine-host/`, `extensions/`, `activities/`, `workflows/` and `eval/` stay where they were. Find a file by area first: `git ls-files apps/backend/src/hub` is the hub |
+| `apps/backend/src/<area>/` | **The backend is laid out by area, each with `lib/` (pure rules), `services/`, `routes/` (one router per URL prefix, a factory taking its deps) `wiring/` (what constructs the area from the platform deps and mounts it), `store.ts` (its records) and `index.ts` (all another area may import).** The areas: `platform` (database, keys, crypto, the Temporal client and payload storage, auth middleware, mail, notices, metrics, migrations, the shared record types), `accounts` (sign-in, invites, admin, account removal), `instances` (root, instance, addresses, the pool, moves), `hub` (shared projects), `projects` (projects, repositories, channels, item chats, trees, branches, leaves, plans, secrets, tree types), `releases` (A/B releases, customizations, client imports, what is live), `files` (MinIO files, drops, artifacts, share links), `machines` (a person's machines, their agents, the sockets), `monitoring` (health, alerts, notifications), `models` (providers, the default model, OpenRouter), `memory` (the keeper, recall, practices), `checks` (Level 2, the bench, scripted models), `infrastructure` (clusters, apps, deploys, exposure, egress, credentials, backups, running work, the Temporal bridge), `engine` (runs, conversations, agents, procedures, tools, MCP, workspaces, auto mode). `engine-host/`, `extensions/`, `activities/`, `workflows/` and `eval/` stay where they were. Find a file by area first: `git ls-files apps/backend/src/hub` is the hub |
 | `apps/backend/src/platform/lib/db-interface.ts` | `Database` is `init`, `close` and one store per area (`db.projects`, `db.engine`, …); `createDatabase()` is always MongoDB |
 | `apps/backend/src/<area>/store.ts` | **The area's records**: `interface <Area>Store` and `Mongo<Area>Store`, its collections, indexes (`ensureIndexes`) and every read and write of them. A service reads another area's records through `db.<area>` or a `Pick` of that store, never through the driver. `MongoDB` composes the fourteen stores and wraps the projects and engine stores in the hub-write marker |
 | `apps/backend/src/platform/lib/mongo-db.ts` | The MongoDB implementation, the only one. Unit tests get a real Mongo from `platform/lib/test-database.ts`: `testDatabase()` opens a fresh database on the `mongodb-memory-server` that `vitest.global-setup.ts` starts once per run, and `vitest.setup.ts` drops every database a file opened when it ends |
@@ -1230,8 +1230,9 @@ k3s it binds the host's network stack directly; on k3d it is not published witho
 ## Structure rules
 
 These are enforced, not aspirational: `npm run lint` is green and fails on a new violation (the frontend's rules, and
-the backend's rules in `apps/backend/eslint.config.js`: no unused import, variable or parameter, and the layer rule — `lib`
-imports nothing above it, a service never imports a route or the wiring, a route never imports the wiring), the frontend is `strict`, and CI (`.github/workflows/ci.yml`)
+the backend's rules in `apps/backend/eslint.config.js`: no unused import, variable or parameter, the layer rule — `lib`
+imports nothing above it, a service never imports a route or the wiring, a route never imports the wiring — and
+`boundaries/areas`, an area imported only through its `index.ts`), the frontend is `strict`, and CI (`.github/workflows/ci.yml`)
 runs typecheck + lint + both unit suites on every push. Each rule below is here because something in this repo broke without it.
 
 ### Frontend
@@ -1275,14 +1276,43 @@ runs typecheck + lint + both unit suites on every push. Each rule below is here 
 ### Backend
 
 - **The backend is laid out by area** (`src/<area>/`, the list in Repo structure), and **inside every area the arrow is
-  one-way: `index.ts → wiring/ → routes/ → services/ → lib/`**, with `platform/middleware/` feeding routes.
+  one-way: `wiring/ → routes/ → services/ → lib/`**, with `platform/middleware/` feeding routes.
   `lib/` is pure and imports nothing above it — in its own area or any other; `engine-host/` and `extensions/` sit
   between services and `lib`, so `lib` never imports them either (the `Task` helpers are `projects/lib/tasks.ts`, the
   workflow ids `platform/lib/workflow-ids.ts`). `wiring/` holds what constructs services from the database and env.
-  Each area's records are its own `store.ts`, and `platform/lib/db-interface.ts` only composes them. An area still
-  reaches another's `lib` and `services` directly; the planned `index.ts` per area (the only thing another area may
-  import) comes next, area by area (`~/.claude/plans/hardening-and-go-live.md`, Part C). `projects/lib/leaves.ts` (38 pure functions,
-  no I/O) is the target shape. The backend lint enforces the arrow.
+  Each area's records are its own `store.ts`, and `platform/lib/db-interface.ts` only composes them.
+  `projects/lib/leaves.ts` (38 pure functions, no I/O) is the target shape. The backend lint enforces the arrow.
+- **An area imports another only through its `index.ts`** (`src/<area>/index.ts`), which re-exports exactly what other
+  areas use: one `export … from` per module and kind, values apart from `export type`, in path order. A cross-area
+  import that is only types is `import type`, since under `verbatimModuleSyntax` `import { type X }` still loads the
+  module. Past an index go only: **values from another area's `lib/`**, taken directly by a pure file (a `lib/`, a
+  `store.ts`, a workflow) and by `engine-host/`, `extensions/` and `eval/`, because an index loads its whole area,
+  services included, and a workflow's bundle may hold only pure code (a pure file takes only types from an index);
+  **an area's `wiring/`**, which the root (`src/index.ts`, `worker-*.ts`) composes directly, since a wiring builds on
+  areas that build on its own; **`platform/lib/mongo-db.ts`** composing every `store.ts`; and the eight imports in
+  `DIRECT_TO_STAY_ACYCLIC` (`apps/backend/eslint.config.js`), each of which would close a loop through an index (hub's
+  wiring and engine's routes, projects' channel and engine's conversations, …). The `boundaries/areas` rule there
+  enforces all of it; tests are exempt and mock by path. **The backend has no value-import cycle**, and a direct
+  import is how one comes back: a cycle fails only at runtime (`Cannot access X before initialization`), which tsc
+  cannot see, so check with `npx dpdm -T --no-tree --no-warning --transform 'src/**/*.ts'` in `apps/backend` (the one
+  it lists, `pack-sampling` ↔ `tunables`, is inside `agent-engine`).
+- **The packages, and what may import what.** Apps import packages; no package imports an app. `@koala/harness-types`
+  is types only (interfaces and type aliases, no dependencies): the shapes the backend, the frontend, `agent-engine` and
+  `context-engine` share. `@koala/engine-core` is what every process that runs tools shares: the tool and environment
+  contracts (`./contracts`), tool execution, scopes, fingerprints, the external-agent shapes, `heartbeatWhileRunning`,
+  and the payload codec (`./payloads`, `buildDataConverter`); it depends only on `@temporalio/common`, uses Node's
+  `crypto`, `path` and `zlib`, and is imported by the backend, the machine agent (`apps/local-agent`) and
+  `agent-engine`. `@koala/context-engine` is what fits in a model's context (compaction settings, token budgets,
+  observation masking, the state vector); it depends on `harness-types` and is imported by `agent-engine`, the machine
+  agent, and once by the backend (`memory/lib/memory-store.ts`). `@koala/agent-engine` is procedures, their nodes,
+  agents, the model layer (`patientFetch`, the rate limiter) and the procedure builder, over `engine-core`,
+  `context-engine` and `harness-types`; its root export uses Node, so a workflow takes values only from its
+  `./workflow` and `./procedure` subpaths and only types from its root and from `engine-core`; the frontend imports
+  `./procedure` and `./procedure-builder`. `cdktf-infra` is imported by nothing: `InfrastructureService` runs it as a
+  CDKTF app from `packages/cdktf-infra`, the stack picked by `STACK_TYPE`. **A new shared type** goes to
+  `harness-types` when it is a shape with no code that crosses the wire to the frontend, to `engine-core` when the
+  backend's workers and the machine agent both run with it, and otherwise stays in its area's `lib/`, the frontend
+  duplicating it knowingly (`── DUPLICATED, KNOWINGLY ──`, naming the backend file that wins).
 - **A route handler does four things**: read the request, authorize, call one service method, shape
   the response. A loop, a prompt or arithmetic belongs in a service or `lib/`.
 - **No `db.*` in a route.**
