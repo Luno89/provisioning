@@ -3,7 +3,7 @@ import { DROP_TYPE } from '../files/lib/drops.js';
 import type { AxiosInstance } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { grantChanges, type GrantKind, type ToolDefinition, type ToolGrant, type WorkspaceDependency } from '@koala/agent-engine';
-import type { McpServerRecord } from '../engine/lib/mcp-servers.js';
+import { type McpServerRecord, type ProcedureSource, type ExtensionSettings, type AuthoredExtension, modelsOf } from '../engine/index.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { Scenario } from '../eval/level2/scenario.js';
 import { scoreScenario, type Check, type ObservedBrowserTests, type Observed, type ObservedFlow, type ObservedHandOff, type StoredProcedure, type ToolCallLog } from '../eval/level2/score.js';
@@ -11,11 +11,8 @@ import type { ChatPlace, FlowAction, ScenarioExpectations } from '../eval/level2
 import type { ScenarioResult } from '../eval/level2/results.js';
 import { newTask, type Task } from '../engine-host/tools/tasks.js';
 import type { MemoryItem } from '../memory/lib/memory-store.js';
-import type { ProcedureSource } from '../engine/lib/procedure-source.js';
 import { type UserMetadata, encryptValue, type SecretKey, type ModelEndpointMetadata } from '../platform/index.js';
 import type { BenchSettings } from '../checks/lib/bench.js';
-import type { ExtensionSettings } from '../engine/lib/extension-settings.js';
-import type { AuthoredExtension } from '../engine/lib/authored-extensions.js';
 import { TREE_TYPE_SEEDS, type TreeTypeSpec, CONFLICT_TASK_TITLE } from '../projects/index.js';
 import { reowned, scriptedEndpointId, spacePersonas, spacePractices, spaceServers, spaceUser, worldServerId, type PromptChange } from '../checks/lib/check-space.js';
 import { conversationRepoName, conversationWorkspaceRunId, treeWorkspaceRunId } from '../engine-host/sandboxes/workspace-repos.js';
@@ -26,7 +23,6 @@ import { platformCatalogue, platformGroups } from '../extensions/installed.js';
 import type { ReleaseE2E } from '../releases/lib/release-e2e.js';
 import type { Slot } from '../releases/lib/odoo-release.js';
 import { TURN_CALL_KIND, TURN_PROCEDURE_ID, turnProcedure, type TurnReply } from '../checks/lib/turn-check.js';
-import { modelsOf } from '../engine/lib/run-traces.js';
 
 export interface CheckSpaceArgs {
   spaceId: string;

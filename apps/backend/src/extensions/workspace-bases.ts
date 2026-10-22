@@ -2,8 +2,7 @@ import { BASES, type AgentDefinition, type BaseImage, type ImagePlan, type ToolD
 import { SHIPPED_DEPENDENCIES } from './workspace-dependencies.js';
 import { ODOO_20_BASE, ODOO_BASE } from './odoo/workspace-base.js';
 import { composeWorkspace, type ComposedWorkspace } from '../engine/lib/workspace-composition.js';
-import type { WorkspaceFile } from '../engine/lib/workspace-file.js';
-import type { McpServerRecord } from '../engine/lib/mcp-servers.js';
+import type { WorkspaceFile, McpServerRecord } from '../engine/index.js';
 
 export const WORKSPACE_BASES: readonly BaseImage[] = [...BASES, ODOO_BASE, ODOO_20_BASE];
 

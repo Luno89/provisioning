@@ -4,7 +4,7 @@ import { describeTreeType, type ReleaseWay, type ReleaseWays } from '../lib/tree
 import { releaseHowOf } from '../../releases/lib/release-run.js';
 import { CHART_FILE } from '../../releases/lib/odoo-release.js';
 import type { ReleaseAgent } from '../../releases/services/ReleaseSettings.js';
-import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
+import type { WorkspaceImageSpec } from '../../engine/index.js';
 
 export interface TreeTypeDescriptionDeps {
   treeTypes: (ownerId: string) => Promise<TreeTypeSpec[]>;

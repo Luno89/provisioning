@@ -5,7 +5,7 @@ import type { GroveToolOptions } from '../../extensions/grove/tools/grove-tools.
 import { createPlatformTools, type PlatformToolOptions } from './platform-tools.js';
 import { createSecretTools, type SecretToolOptions } from './secret-tools.js';
 import { createMcpRequestTools, type McpProposalAccess, type McpToolStores } from './mcp-tools.js';
-import type { McpServerRecord } from '../../engine/lib/mcp-servers.js';
+import type { McpServerRecord } from '../../engine/index.js';
 import { createKubeTools, type KubeAccess } from './kube-tools.js';
 import { createProjectTools, type ProjectToolStores } from './project-tools.js';
 import { createEgressTools, type EgressToolStores } from './egress-tools.js';

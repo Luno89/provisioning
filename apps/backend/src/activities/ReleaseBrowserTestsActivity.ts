@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto';
 import { Context } from '@temporalio/activity';
 import { CancelledFailure } from '@temporalio/common';
 import { readFailureArtifacts, readWhole, type KeepArtifacts, type WorkspaceExec } from '../files/lib/artifacts.js';
-import { E2E_REPORT, e2ePassed, plain, readE2EReport } from '../engine/lib/e2e.js';
+import { E2E_REPORT, e2ePassed, plain, readE2EReport } from '../engine/index.js';
 import { databaseOf, databaseSecretFrom, releaseTargetOf, vaultDatabaseSecret, type Slot } from '../releases/lib/odoo-release.js';
 import type { ClusterMetadata, ProjectMetadata } from '../platform/index.js';
 import {

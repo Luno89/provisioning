@@ -5,7 +5,7 @@ import {
   fuseRRF, type FusedHit, type MemoryDoc,
 } from './memory-rank.js';
 import type { MemoryItem } from './memory-store.js';
-import type { CorpusEndpoints } from '../../engine/lib/web-tools-resolver.js';
+import type { CorpusEndpoints } from '../../engine/index.js';
 
 export type MemoryEndpoints = Pick<CorpusEndpoints, 'vectors' | 'embeddings' | 'index'>;
 

@@ -1,12 +1,11 @@
 import type { ImageContent } from '@koala/agent-engine';
 import { LANGUAGE_IDS } from '@koala/agent-engine';
 import type { RunEffort } from '@koala/agent-engine/procedure';
-import { PACKAGE_MANAGERS, WORKSPACE_FILE, pendingChanges, type WorkspaceFile } from '../../engine/lib/workspace-file.js';
-import { installText, stageText, type PublishedWorkspace } from '../../engine/lib/published-workspace.js';
-import { isWorkspaceBuildOf } from '../../engine/lib/workspace-builds.js';
-import type { ComposedWorkspace } from '../../engine/lib/workspace-composition.js';
-import type { WorkspaceFileRead, WorkspaceFileWrite } from '../../engine/services/WorkspaceFileService.js';
-import type { WorkspaceBuildStart } from '../../engine/services/WorkspaceBuildService.js';
+import {
+  PACKAGE_MANAGERS, WORKSPACE_FILE, pendingChanges, type WorkspaceFile, installText, stageText,
+  type PublishedWorkspace, isWorkspaceBuildOf, type ComposedWorkspace, type WorkspaceFileRead,
+  type WorkspaceFileWrite, type WorkspaceBuildStart,
+} from '../../engine/index.js';
 
 export interface TreeWorkspaceDeps {
   trees: () => Promise<readonly { id: string; ownerId: string }[]>;

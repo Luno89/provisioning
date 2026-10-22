@@ -1,7 +1,7 @@
 import { deliveryFor } from './delivery.js';
 import { needsProject } from './tree-home.js';
 import { builtLanguage, treeLanguage, versionChoices, versionsLine, type TreeTypeSecret, type TreeTypeSpec } from './tree-types.js';
-import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
+import type { WorkspaceImageSpec } from '../../engine/index.js';
 import { readWorkspaceFile, WORKSPACE_FILE } from '../../engine/lib/workspace-file.js';
 import { E2E_RUNNER } from '../../engine/lib/e2e.js';
 import { TURN_ON_BROWSER_TESTS } from '../../engine/lib/browser-tests.js';

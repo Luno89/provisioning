@@ -1,5 +1,5 @@
 import { McpClient, type Fetcher } from '../../engine/lib/mcp-client.js';
-import type { ServerRuns } from '../../engine/lib/mcp-servers.js';
+import type { ServerRuns } from '../../engine/index.js';
 import type { HostedServers } from './server-tools.js';
 
 export function hostedCaller(

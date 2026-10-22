@@ -11,7 +11,7 @@ import {
   isRequestKind, koalaAnswersOnOwners, recordFor, relayProblem, requestInput, requestProblem, statusFor,
   type HubBoard, type HubRequest, type HubRequestKind, type HubStatus, type Plain, type RelayOp,
 } from '../lib/hub-board.js';
-import { mentionsKoala, personMessage, withAuthorNames, type ConversationMessage } from '../../engine/lib/conversations.js';
+import { mentionsKoala, personMessage, withAuthorNames, type ConversationMessage } from '../../engine/index.js';
 import { InstanceOffline, type HubRelay, type RelayAnswer, type RelayCall } from './HubRelay.js';
 
 export type SyncOrigin = { kind: 'instance'; personId: string; instanceId: string; email?: string | undefined } | { kind: 'person'; personId: string };

@@ -1,5 +1,5 @@
 import type { AccessRequest } from '@koala/harness-types';
-import type { Conversation } from '../../engine/lib/conversations.js';
+import type { Conversation } from '../../engine/index.js';
 import { namespacesProblem } from '../lib/kube-diagnostics.js';
 
 export interface AccessStore {

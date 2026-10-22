@@ -6,8 +6,7 @@ import {
 import { memoryHubStore } from '../lib/hub-store.js';
 import { mongoHubStore } from '../lib/hub-mongo.js';
 import { HUB_STATUS_BUILDS } from '../lib/hub-board.js';
-import { runsUnder } from '../../engine/lib/turn-log.js';
-import type { ConversationNotice } from '../../engine/lib/conversations.js';
+import { runsUnder, type ConversationNotice } from '../../engine/index.js';
 import { hashCredential } from '../../instances/services/InstanceService.js';
 import { HubService } from '../services/HubService.js';
 import { HubRootClient } from '../services/HubRootClient.js';

@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
-import type { ChatItem } from '../../engine/lib/conversations.js';
+import type { ChatItem } from '../../engine/index.js';
 import type { ItemChatService } from '../services/ItemChatService.js';
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;

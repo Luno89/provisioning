@@ -5,9 +5,11 @@ import {
   type ClusterMetadata, type ClusterProgress, type DeploymentMetadata, type ProjectMetadata,
   type PipelineRunMetadata, PLATFORM_OWNER, ownerIn, startedFor,
 } from '../../platform/index.js'
-import { looksLikeMcp, namespaceOfDeployment } from '../../engine/lib/mcp-registry.js'
+import {
+  looksLikeMcp, namespaceOfDeployment, cachedProbes, reconcileRun, reconcileMissingWorkflow, LIVE_RUN_STATUSES,
+  type RunStatus, corpusEndpointsWith, webToolsDepsFrom, type WaitingAsk,
+} from '../../engine/index.js'
 import { namespaceOf } from '../lib/app-namespace.js'
-import { cachedProbes } from '../../engine/lib/mcp-probe-url.js'
 import { healthFromProbe } from '../lib/service-health.js'
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -23,19 +25,16 @@ export type GroveRunStatus =
   | { state: 'running'; startedAt: string; turnId?: string | undefined; asking?: WaitingAsk[] | undefined }
   | { state: 'finished'; startedAt: string; closedAt?: string; result: GroveRunResult; turnId?: string | undefined }
   | { state: 'failed'; startedAt: string; closedAt?: string; reason: string; turnId?: string | undefined }
-import { reconcileRun, reconcileMissingWorkflow, LIVE_RUN_STATUSES, type RunStatus } from '../../engine/lib/run-reconcile.js'
 import { deploymentForProject } from '../../projects/index.js'
 import { destroyAppArgs, destroyAppWorkflowId } from '../lib/app-destroy.js'
 import { resolveCloudCredentials } from '../lib/credential-resolver.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
 import { consolidateMemories, type ConsolidationReport } from '../../memory/lib/memory-consolidate.js'
-import { corpusEndpointsWith, webToolsDepsFrom } from '../../engine/lib/web-tools-resolver.js'
 import { sharedClusterProxy } from './ClusterProxyService.js'
 import { indexMemories, similarTo } from '../../memory/lib/memory-index.js'
 import { assessWorkload, reconciledStatus } from '../lib/workload-health.js'
 import { InfrastructureService } from './InfrastructureService.js'
 import { isModelKind } from '../../models/lib/model-registry.js'
-import type { WaitingAsk } from '../../engine/lib/turn-log.js'
 import { ClusterService } from './ClusterService.js'
 import { ClusterProvisionWorkflow } from '../../workflows/ClusterProvisionWorkflow.js'
 import { executeDestroyClusterWorkflow } from '../../workflows/DestroyClusterWorkflow.js'

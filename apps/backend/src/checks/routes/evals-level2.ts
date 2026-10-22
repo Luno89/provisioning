@@ -3,8 +3,7 @@ import { asyncRoute } from '../../platform/index.js';
 import type { Level2Service } from '../services/Level2Service.js';
 import type { BenchService } from '../services/BenchService.js';
 import type { PracticeService } from '../../memory/services/PracticeService.js';
-import type { AgentChangeService } from '../../engine/services/AgentChangeService.js';
-import { samplingAt, temperatureProblem } from '../../engine/lib/run-knobs.js';
+import { type AgentChangeService, samplingAt, temperatureProblem } from '../../engine/index.js';
 
 export interface Level2RouterDeps {
   level2: Level2Service;

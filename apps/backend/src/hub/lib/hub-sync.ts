@@ -1,4 +1,4 @@
-import type { ConversationMessage } from '../../engine/lib/conversations.js';
+import type { ConversationMessage } from '../../engine/index.js';
 
 export const SYNCED_KINDS = ['trees', 'branches', 'leaves', 'tasks', 'conversations', 'planProposals'] as const;
 export type SyncedKind = typeof SYNCED_KINDS[number];

@@ -1,4 +1,4 @@
-import type { ConversationNotice } from '../../engine/lib/conversations.js';
+import type { ConversationNotice } from '../../engine/index.js';
 import type { AlertEpisode } from './monitoring-records.js';
 
 export interface AlertWhere {

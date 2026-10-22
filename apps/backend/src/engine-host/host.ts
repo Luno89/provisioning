@@ -27,9 +27,7 @@ import { createMachineBackend } from './drivers/machine-backend.js';
 import { createToolRuntime } from './tools/tool-runtime.js';
 import { createEngineToolHandlers } from './tools/engine-tools.js';
 import { TreeTypeDescriptions } from '../projects/index.js';
-import { WorkspaceImageService } from '../engine/services/WorkspaceImageService.js';
-import { WorkspaceFileService } from '../engine/services/WorkspaceFileService.js';
-import type { ComposedWorkspace } from '../engine/lib/workspace-composition.js';
+import { WorkspaceImageService, WorkspaceFileService, type ComposedWorkspace, type WebTools } from '../engine/index.js';
 import { WORKSPACE_BASES } from '../extensions/workspace-bases.js';
 import { planServerImage, type McpServerRecord, type ServerRuns, type WorkspaceRuns } from '../engine/lib/mcp-servers.js';
 import { MCP_SERVER_TEMPLATES } from '../extensions/mcp/templates.js';
@@ -40,7 +38,6 @@ import { extensionRuntimes, operationHandlers, toolHandlers } from '../extension
 import { releaseAgentsOf, releaseProblemOf } from '../releases/services/ReleaseSettings.js';
 import { restoringApp } from '../releases/lib/release-run.js';
 import type { RunTicket, ToolRuntime } from './temporal/contracts.js';
-import type { WebTools } from '../engine/lib/web-tools.js';
 import type { Database } from '../platform/index.js';
 import { createEffortTracker, type EffortTracker, type EffortTrackerOptions } from './registries/effort.js';
 import { createCodeRunner } from './nodes/code-runner.js';
@@ -83,7 +80,7 @@ export interface EngineHostStores {
     };
     treeTypes?: (ownerId: string) => Promise<import('../extensions/grove/tools/grove-tools.js').TreeTypeChoice[]>;
     treeTypeSpecs?: (ownerId: string) => Promise<import('../projects/index.js').TreeTypeSpec[]>;
-    workspaceImages?: (ownerId: string) => Promise<import('../engine/lib/workspace-image-seeds.js').WorkspaceImageSpec[]>;
+    workspaceImages?: (ownerId: string) => Promise<import('../engine/index.js').WorkspaceImageSpec[]>;
     binding?: (ownerId: string, conversationId: string) => Promise<{ treeId?: string | undefined; projectId?: string | undefined; leafId?: string | undefined; branchId?: string | undefined } | undefined>;
     growing?: import('../extensions/grove/tools/grove-tools.js').TreeGrowing | undefined;
   };
@@ -102,8 +99,8 @@ export interface EngineHostStores {
     save(proposal: import('../checks/lib/scenario-proposals.js').ScenarioProposal): Promise<void>;
   } | undefined;
   agentChanges?: {
-    list(ownerId: string): Promise<import('../engine/lib/agent-changes.js').AgentChange[]>;
-    save(change: import('../engine/lib/agent-changes.js').AgentChange): Promise<void>;
+    list(ownerId: string): Promise<import('../engine/index.js').AgentChange[]>;
+    save(change: import('../engine/index.js').AgentChange): Promise<void>;
   } | undefined;
 }
 
@@ -152,7 +149,7 @@ export interface EngineHostOptions {
   checks?: import('./tools/check-tools.js').CheckAccess | undefined;
   /** Everyone whose agents could run, so the image sweep asks what each of them wants. */
   owners?: (() => Promise<string[]>) | undefined;
-  hidden?: ((ownerId: string) => Promise<import('../engine/lib/extension-settings.js').HiddenVocabulary>) | undefined;
+  hidden?: ((ownerId: string) => Promise<import('../engine/index.js').HiddenVocabulary>) | undefined;
   published?: ((ownerId: string) => Promise<import('@koala/agent-engine/procedure').GroupDefinition[]>) | undefined;
   documents?: DocumentRepos | undefined;
   repoFor?: WorkspaceRepoResolver | undefined;

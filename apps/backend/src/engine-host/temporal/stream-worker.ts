@@ -6,8 +6,7 @@ import { buildDataConverter } from '../../platform/lib/temporal-codec.js';
 import { sharedPayloadBlobs } from '../../platform/lib/db-interface.js';
 import type { SecretKey } from '../../platform/index.js';
 import { loadKeys } from '../../platform/lib/keys.js';
-import { TurnLogWriter } from '../../engine/services/TurnLogWriter.js';
-import type { TurnLogEntry } from '../../engine/lib/turn-log.js';
+import { TurnLogWriter, type TurnLogEntry } from '../../engine/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
 
 export interface SocketLike {

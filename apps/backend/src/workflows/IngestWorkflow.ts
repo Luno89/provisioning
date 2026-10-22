@@ -2,7 +2,7 @@ import { proxyActivities, continueAsNew, log } from '@temporalio/workflow';
 import type {
   SeedFrontierArgs, NextBatchArgs, NextBatchResult, CrawlBatchArgs, CrawlBatchResult,
 } from '../activities/CrawlActivity.js';
-import type { IngestReceipt } from '../engine/lib/corpus.js';
+import type { IngestReceipt } from '../engine/index.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { canonical, hostOf } from '../engine/lib/crawl-client.js';
 import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';

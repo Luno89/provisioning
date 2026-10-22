@@ -1,5 +1,5 @@
 import { createDatabase } from '../platform/index.js';
-import { corpusEndpoints } from '../engine/wiring/web-tools.js';
+import { corpusEndpoints } from '../engine/index.js';
 import { indexMemories, searchMemories } from '../memory/lib/memory-index.js';
 import { recallMemories, recallQuery } from '../memory/lib/memory-recall.js';
 import { buildMemoryContext, type MemoryItem } from '../memory/lib/memory-store.js';

@@ -5,7 +5,7 @@ import type { Task } from '../../../engine-host/tools/tasks.js';
 import { readWorkspaceFile, type WorkspaceFile } from '../../../engine/lib/workspace-file.js';
 import { describeLine, stageText, type NextStage, type NextWorkspace, type PublishedWorkspace } from '../../../engine/lib/published-workspace.js';
 import { workspaceNotice, type WorkspaceNoticeKind } from '../../../platform/lib/notices.js';
-import type { ComposedWorkspace } from '../../../engine/lib/workspace-composition.js';
+import type { ComposedWorkspace } from '../../../engine/index.js';
 import type { HostOperationRun } from '../../types.js';
 
 export interface WorkspaceOperationDeps {

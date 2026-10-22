@@ -1,7 +1,7 @@
 import type { Server as SocketServer } from 'socket.io';
 import { type Database, type MailService, type RoleConfig, servesTenants, clusterOwnership } from '../../platform/index.js';
 import type { sharedClusterProxy, ClusterService, InfrastructureService } from '../../infrastructure/index.js';
-import type { ConversationNoticeService } from '../../engine/services/ConversationNoticeService.js';
+import type { ConversationNoticeService } from '../../engine/index.js';
 import type { NotificationService } from '../services/NotificationService.js';
 import { AlertWatchService } from '../services/AlertWatchService.js';
 import { MonitoringService, prometheusAt } from '../services/MonitoringService.js';

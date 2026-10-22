@@ -2,7 +2,7 @@ import { resetForRetry, settleClaim, type Leaf, type Branch } from '../lib/leave
 import type { Tree } from '../lib/trees.js';
 import type { Task } from '../../engine-host/tools/tasks.js';
 import type { GroveRunStatus } from '../../infrastructure/index.js';
-import { ASK_MARKS, unansweredAsks, type RunMark } from '../../engine/lib/turn-log.js';
+import { ASK_MARKS, unansweredAsks, type RunMark } from '../../engine/index.js';
 
 export interface GroveRunStore {
   projects: {

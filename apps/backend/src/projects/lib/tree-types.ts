@@ -1,5 +1,5 @@
 import { sanitiseNamespaceName } from './projects.js';
-import type { WorkspaceLanguage } from '../../engine/lib/workspace-spec.js';
+import type { WorkspaceLanguage } from '../../engine/index.js';
 import { DEFAULT_WORKSPACE_LANGUAGE, type WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
 import type { PersonaEgressRule } from '@koala/harness-types';
 import { TREE_TYPE_SEEDS as TREE_TYPE_SEEDS_VALUE } from './tree-type-seeds.js';

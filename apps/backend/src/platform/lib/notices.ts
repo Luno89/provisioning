@@ -1,4 +1,4 @@
-import type { ConversationNotice, NoticeAction, NoticeKind } from '../../engine/lib/conversations.js';
+import type { ConversationNotice, NoticeAction, NoticeKind } from '../../engine/index.js';
 import { workflowOfRun } from './workflow-ids.js';
 import type { OdooRelease } from '../../releases/lib/odoo-release.js';
 import { changesSentence } from '../../releases/lib/release-compare.js';

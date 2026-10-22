@@ -6,7 +6,7 @@ import {
 import { destroyAppArgs, destroyAppWorkflowId, type DestroyAppArgs } from '../infrastructure/index.js';
 import { type Tree, type Branch, type Leaf, type PlanProposal, projectWorkflowIds, loadProjectScope } from '../projects/index.js';
 import type { Task } from '../engine-host/tools/tasks.js';
-import type { Conversation } from '../engine/lib/conversations.js';
+import type { Conversation } from '../engine/index.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { workspaceName } from '../engine-host/sandboxes/workspace.js';
 import { conversationRepoName, conversationWorkspaceRunId, treeRepoName, treeWorkspaceRunId } from '../engine-host/sandboxes/workspace-repos.js';

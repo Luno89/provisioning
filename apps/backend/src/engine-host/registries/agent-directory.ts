@@ -10,7 +10,7 @@ import {
   type SourcedTool,
   type ToolGrant,
 } from '@koala/agent-engine';
-import type { HiddenVocabulary } from '../../engine/lib/extension-settings.js';
+import type { HiddenVocabulary } from '../../engine/index.js';
 import { seededGrants, seededPersonas } from '../../extensions/seeds.js';
 
 export interface AgentRecordStore {

@@ -22,7 +22,7 @@ import { CustomizationsService } from '../services/CustomizationsService.js';
 import { ClientImportService } from '../services/ClientImportService.js';
 import { ProjectAppService } from '../services/ProjectAppService.js';
 import type { TemporalBridge, AppExposureService, ClusterService, InfrastructureService } from '../../infrastructure/index.js';
-import type { ConversationNoticeService } from '../../engine/services/ConversationNoticeService.js';
+import type { ConversationNoticeService } from '../../engine/index.js';
 import { releaseSettingsRouter } from '../routes/release-settings.js';
 import { projectAppRouter } from '../routes/project-app.js';
 import { customizationsRouter } from '../routes/customizations.js';

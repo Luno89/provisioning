@@ -1,4 +1,4 @@
-import type { McpServerRecord } from '../../engine/lib/mcp-servers.js';
+import type { McpServerRecord } from '../../engine/index.js';
 import type { UserMetadata } from '../../platform/index.js';
 import type { MemoryItem } from '../../memory/lib/memory-store.js';
 import type { CheckScript } from './check-script.js';

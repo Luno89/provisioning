@@ -3,13 +3,10 @@
 import { createDatabase, type Database, runOnce, type MigrationLedger } from '../platform/index.js';
 import { seedBindingTypes, seedAppSpecs, seedConstructBackedTypes, seedClusterProviders } from '../infrastructure/index.js';
 import { seedTreeTypes, stampTreeVersions } from '../projects/index.js';
-import { seedWorkspaceImages } from '../engine/lib/workspace-image-seeds.js';
-import { retireStoredBuiltInProcedures } from '../engine/lib/built-in-procedures.js';
-import { retireStoredBuiltInPersonas } from '../engine/lib/built-in-personas.js';
-import { seedEngineTools } from '../engine/wiring/engine-tool-seeds.js';
-import { migrateAgentTools } from '../engine/lib/tool-grant-migration.js';
-import { migrateMcpServers } from '../engine/lib/mcp-server-migration.js';
-import { migrateToDependencies } from '../engine/lib/dependency-migration.js';
+import {
+  seedWorkspaceImages, retireStoredBuiltInProcedures, retireStoredBuiltInPersonas, seedEngineTools,
+  migrateAgentTools, migrateMcpServers, migrateToDependencies,
+} from '../engine/index.js';
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
 

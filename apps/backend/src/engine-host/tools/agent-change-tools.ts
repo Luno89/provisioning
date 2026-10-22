@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
-import type { AgentChange } from '../../engine/lib/agent-changes.js';
+import type { AgentChange } from '../../engine/index.js';
 
 export interface AgentChangeAccess {
   agent(ownerId: string, slug: string): Promise<{ prompt: string; procedure: string } | undefined>;

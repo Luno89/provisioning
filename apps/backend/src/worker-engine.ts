@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { machineChoiceProblem } from './machines/lib/machines.js';
-import { catalogueOf } from './engine/lib/workspace-dependencies.js';
+import {
+  catalogueOf, AutoModeService, resolveMcpProbeUrl, extensionServiceFor, WorkspaceBuildService, hostedMcpUrl,
+} from './engine/index.js';
 import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
 import { accountDefaultOf } from './machines/lib/machine-runs.js';
@@ -16,7 +18,6 @@ import {
   signJWT, clusterOwnership, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor,
 } from './platform/index.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
-import { AutoModeService } from './engine/services/AutoModeService.js';
 import dotenv from 'dotenv';
 import { Worker, NativeConnection, Runtime } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
@@ -48,7 +49,6 @@ import axios from 'axios';
 import { httpCheckAccess } from './checks/services/CheckToolAccess.js';
 import { MonitoringService, prometheusAt } from './monitoring/services/MonitoringService.js';
 import { poolMonitor, poolMonitorFrom } from './monitoring/services/PoolMonitor.js';
-import { resolveMcpProbeUrl } from './engine/lib/mcp-probe-url.js';
 import { runCancelledVia, runEndedVia } from './engine-host/temporal/run-cancellation.js';
 import { createKubeRunner } from './engine-host/sandboxes/kube.js';
 
@@ -65,10 +65,8 @@ import {
 } from './engine-host/index.js';
 import { createHostNodes, hostNodesFor } from './engine-host/nodes/index.js';
 import { buildWebTools } from './engine/wiring/web-tools.js';
-import { extensionServiceFor } from './engine/services/ExtensionService.js';
 import { createGroveLauncher } from './engine-host/grove-launcher.js';
 import { createRunStarter } from './engine-host/registries/run-starter.js';
-import { WorkspaceBuildService } from './engine/services/WorkspaceBuildService.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
 import { createArtifactService } from './files/services/artifact-service-factory.js';
 import { FileServerUnreachableError, FileStores } from './files/services/FileStores.js';
@@ -76,7 +74,6 @@ import { FileService } from './files/services/FileService.js';
 import { treeOfGroveRun, workflowOfRun } from './engine-host/temporal/contracts.js';
 import { TreeModelsService, treeAgentsFrom } from './models/services/TreeModelsService.js';
 import { platformGroups } from './extensions/installed.js';
-import { hostedMcpUrl } from './engine/lib/mcp-hosted-url.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

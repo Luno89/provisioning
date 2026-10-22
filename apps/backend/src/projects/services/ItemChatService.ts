@@ -1,5 +1,4 @@
-import type { ChatItem, Conversation } from '../../engine/lib/conversations.js';
-import { itemChatIdFor } from '../../engine/lib/conversations.js';
+import { type ChatItem, type Conversation, itemChatIdFor } from '../../engine/index.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
 import type { Tree } from '../lib/trees.js';
 

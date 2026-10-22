@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
-import type { ActionKind, ActionProposal } from '../../engine/lib/action-proposals.js';
+import type { ActionKind, ActionProposal } from '../../engine/index.js';
 import { envChanges, parseEnv, pickStrategy, sameAction } from '../../engine/lib/action-proposals.js';
 import { deploymentForProject, rollupProjectStatus } from '../../projects/lib/project-status.js';
 import { explainSpecProblems, validateSpec } from '../../infrastructure/lib/app-spec-validate.js';

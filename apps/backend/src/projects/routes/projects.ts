@@ -1,7 +1,6 @@
 import { Router, type Request } from 'express';
 import { asyncRoute, ownsProject } from '../../platform/index.js';
-import { isWorkspaceLanguage } from '../../engine/lib/workspace-image-catalogue.js';
-import { WorkspaceImageService } from '../../engine/services/WorkspaceImageService.js';
+import { isWorkspaceLanguage, WorkspaceImageService } from '../../engine/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { rollupProjectStatus, deploymentForProject } from '../lib/project-status.js';
 import { validateLocalEgressRules } from '../../infrastructure/index.js';

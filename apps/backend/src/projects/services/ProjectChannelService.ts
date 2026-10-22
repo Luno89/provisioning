@@ -1,4 +1,4 @@
-import type { Conversation } from '../../engine/lib/conversations.js';
+import type { Conversation } from '../../engine/index.js';
 import { channelIdFor } from '../../engine/lib/conversations.js';
 import type { ProjectMetadata } from '../../platform/index.js';
 import type { Tree } from '../lib/trees.js';

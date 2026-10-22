@@ -1,6 +1,5 @@
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
-import type { WorkspaceChange } from '../../../engine/lib/workspace-file.js';
-import type { WorkspaceFileWrite } from '../../../engine/services/WorkspaceFileService.js';
+import type { WorkspaceChange, WorkspaceFileWrite } from '../../../engine/index.js';
 import { withStatus, type Task } from '../../../engine-host/tools/tasks.js';
 import { CHANGE_WORKSPACE, MARK_WAITING } from './catalogue.js';
 

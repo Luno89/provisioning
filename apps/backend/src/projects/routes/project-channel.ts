@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute, type ProjectMetadata } from '../../platform/index.js';
-import type { Conversation } from '../../engine/lib/conversations.js';
+import type { Conversation } from '../../engine/index.js';
 import type { ProjectChannelService } from '../services/ProjectChannelService.js';
 
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>

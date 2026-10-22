@@ -14,7 +14,7 @@ import type { ModelsStore } from '../../models/store.js';
 import type { MemoryStore } from '../../memory/store.js';
 import type { ChecksStore } from '../../checks/store.js';
 import type { InfrastructureStore } from '../../infrastructure/index.js';
-import type { EngineStore } from '../../engine/store.js';
+import type { EngineStore } from '../../engine/index.js';
 
 export interface Database {
   init(): Promise<void>;

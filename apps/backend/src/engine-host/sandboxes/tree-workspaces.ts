@@ -1,6 +1,5 @@
 import type { RunEnvironment } from '../temporal/contracts.js';
-import type { WorkspaceFile } from '../../engine/lib/workspace-file.js';
-import type { ComposedWorkspace } from '../../engine/lib/workspace-composition.js';
+import type { WorkspaceFile, ComposedWorkspace } from '../../engine/index.js';
 import type { EnvironmentResolver, WorkspaceExtras } from './environments.js';
 import { destroyWorkspace, retirePod, workspaceRunning, type KubeRunner } from './kube.js';
 import { POD, workspaceName } from './workspace.js';

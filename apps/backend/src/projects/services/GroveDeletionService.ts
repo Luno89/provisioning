@@ -3,7 +3,7 @@ import type { Branch, Leaf } from '../lib/leaves.js';
 import type { Task } from '../../engine-host/tools/tasks.js';
 import type { Tree } from '../lib/trees.js';
 import type { PlanProposal } from '../lib/plan-proposals.js';
-import type { Conversation } from '../../engine/lib/conversations.js';
+import type { Conversation } from '../../engine/index.js';
 import { adoptionWorkflowId, groveRunWorkflowId } from '../../engine-host/temporal/contracts.js';
 
 export { adoptionWorkflowId };

@@ -8,7 +8,7 @@ import { PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../lib/
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { ProjectChannelService } from '../services/ProjectChannelService.js';
 import { ItemChatService } from '../services/ItemChatService.js';
-import { ConversationNoticeService } from '../../engine/services/ConversationNoticeService.js';
+import { ConversationNoticeService, type WorkspaceBuildService, type extensionServiceFor } from '../../engine/index.js';
 import { projectSecretsFor } from '../services/ProjectSecretsService.js';
 import { TreeHomeService } from '../services/TreeHomeService.js';
 import { ProjectRemovalService } from '../services/ProjectRemovalService.js';
@@ -24,9 +24,7 @@ import type { GiteaService } from '../services/GiteaService.js';
 import type { InfisicalService, InfrastructureService, ClusterService, AppService, TemporalBridge } from '../../infrastructure/index.js';
 import type { ModelService } from '../../models/services/ModelService.js';
 import type { MachineService } from '../../machines/services/MachineService.js';
-import type { WorkspaceBuildService } from '../../engine/services/WorkspaceBuildService.js';
 import type { WorkspaceConclusionService } from '../../memory/services/WorkspaceConclusionService.js';
-import type { extensionServiceFor } from '../../engine/services/ExtensionService.js';
 import type { ProjectSharingService } from '../services/ProjectSharingService.js';
 import type { createEngineHost, createRunStarter, createStoredAgentRegistry } from '../../engine-host/index.js';
 import { createGroveLauncher } from '../../engine-host/grove-launcher.js';

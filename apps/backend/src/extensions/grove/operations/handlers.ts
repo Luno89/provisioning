@@ -8,7 +8,7 @@ import { claimEvidenceFor, leavesNeedingPlan, nextLeafStep, runEvidence, taskIte
 import { checkReport, checksFailed, runTaskChecks, type CheckOutcome } from '../../../engine/lib/task-checks.js';
 import { keepFailureArtifacts, type KeepArtifacts } from '../../../files/lib/artifacts.js';
 import { judgeCheckout, leafBriefPath, leafContext, leafFailurePath, leafWorktree, renderLeafFailure } from '../../../projects/lib/plan-documents.js';
-import type { Parking } from '../../../engine/lib/published-workspace.js';
+import type { Parking } from '../../../engine/index.js';
 import type { Branch, Leaf, Tree, PlanProposal } from '../../../projects/index.js';
 import { newTask, type Task } from '../../../engine-host/tools/tasks.js';
 import { conflictTask, landedLeaf, landingOrder, readyToLand, reopenForConflict, supersededByVerdict } from '../../../projects/lib/landing.js';

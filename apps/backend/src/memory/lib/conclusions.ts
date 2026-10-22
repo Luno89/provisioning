@@ -1,4 +1,4 @@
-import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
+import type { Conversation, ConversationMessage } from '../../engine/index.js';
 import type { Leaf } from '../../projects/index.js';
 
 export const DEFAULT_CONCLUDE_AFTER_MINUTES = 10;
