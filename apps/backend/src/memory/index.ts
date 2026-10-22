@@ -1,0 +1,12 @@
+export { consolidateMemories } from './lib/memory-consolidate.js';
+export type { ConsolidationReport } from './lib/memory-consolidate.js';
+export { indexMemories, searchMemories, similarTo } from './lib/memory-index.js';
+export { recallMemories, recallQuery } from './lib/memory-recall.js';
+export { buildMemoryContext } from './lib/memory-store.js';
+export type { MemoryItem, PracticeTrial } from './lib/memory-store.js';
+export { memoriesRouter } from './routes/memories.js';
+export { MemoryKeeperService } from './services/MemoryKeeperService.js';
+export type { KeeperState } from './services/MemoryKeeperService.js';
+export { PracticeService } from './services/PracticeService.js';
+export { WorkspaceConclusionService } from './services/WorkspaceConclusionService.js';
+export type { MemoryStore } from './store.js';

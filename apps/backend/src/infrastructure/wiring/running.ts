@@ -12,7 +12,7 @@ import type { MonitoringService } from '../../monitoring/index.js';
 import type { Level2Service } from '../../checks/services/Level2Service.js';
 import type { GroveRunService } from '../../projects/index.js';
 import type { BenchService } from '../../checks/services/BenchService.js';
-import type { MemoryKeeperService } from '../../memory/services/MemoryKeeperService.js';
+import type { MemoryKeeperService } from '../../memory/index.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { createRunStarter } from '../../engine-host/index.js';

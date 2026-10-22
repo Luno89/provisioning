@@ -1,6 +1,6 @@
 import type { McpServerRecord } from '../../engine/index.js';
 import type { UserMetadata } from '../../platform/index.js';
-import type { MemoryItem } from '../../memory/lib/memory-store.js';
+import type { MemoryItem } from '../../memory/index.js';
 import type { CheckScript } from './check-script.js';
 
 export const SPACE_EMAIL_DOMAIN = 'checks.internal';

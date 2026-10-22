@@ -8,7 +8,7 @@ import {
 } from '../lib/bench.js';
 import type { BenchIdleOutcome, LifecycleEvent } from '../../engine-host/temporal/contracts.js';
 import type { Level2Run } from './Level2Service.js';
-import type { MemoryItem, PracticeTrial } from '../../memory/lib/memory-store.js';
+import type { MemoryItem, PracticeTrial } from '../../memory/index.js';
 import { compareWithEarlier, type PromptChange, type PromptComparison, checksForNote, noteSubject } from '../../engine/index.js';
 
 export interface BenchStore {

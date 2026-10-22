@@ -10,7 +10,7 @@ import { scoreScenario, type Check, type ObservedBrowserTests, type Observed, ty
 import type { ChatPlace, FlowAction, ScenarioExpectations } from '../eval/level2/scenario.js';
 import type { ScenarioResult } from '../eval/level2/results.js';
 import { newTask, type Task } from '../engine-host/tools/tasks.js';
-import type { MemoryItem } from '../memory/lib/memory-store.js';
+import type { MemoryItem } from '../memory/index.js';
 import { type UserMetadata, encryptValue, type SecretKey, type ModelEndpointMetadata } from '../platform/index.js';
 import type { BenchSettings } from '../checks/lib/bench.js';
 import { TREE_TYPE_SEEDS, type TreeTypeSpec, CONFLICT_TASK_TITLE } from '../projects/index.js';

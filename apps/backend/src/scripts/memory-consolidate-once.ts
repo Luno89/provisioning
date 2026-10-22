@@ -1,8 +1,6 @@
 import { createDatabase } from '../platform/index.js';
-import { consolidateMemories } from '../memory/lib/memory-consolidate.js';
+import { consolidateMemories, indexMemories, similarTo, type MemoryItem } from '../memory/index.js';
 import { corpusEndpoints } from '../engine/index.js';
-import { indexMemories, similarTo } from '../memory/lib/memory-index.js';
-import type { MemoryItem } from '../memory/lib/memory-store.js';
 
 async function main(): Promise<void> {
   const apply = process.argv.includes('--apply');

@@ -1,5 +1,5 @@
 import type { ToolContract } from '@koala/engine-core';
-import type { MemoryItem } from '../../memory/lib/memory-store.js';
+import type { MemoryItem } from '../../memory/index.js';
 import { SEPARATOR, qualify, slugify } from './mcp-tools.js';
 
 export interface LearnedNotes {

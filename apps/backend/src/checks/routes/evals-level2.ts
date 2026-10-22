@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import type { Level2Service } from '../services/Level2Service.js';
 import type { BenchService } from '../services/BenchService.js';
-import type { PracticeService } from '../../memory/services/PracticeService.js';
+import type { PracticeService } from '../../memory/index.js';
 import { type AgentChangeService, samplingAt, temperatureProblem } from '../../engine/index.js';
 
 export interface Level2RouterDeps {
