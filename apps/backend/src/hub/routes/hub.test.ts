@@ -135,11 +135,11 @@ describe('/api/hub-instance, on the hub', () => {
     const remote = new RemoteHub(accessFor('ann', 'ann@example.com'));
 
     expect(await remote.reachable()).toBe(true);
-    const shared = await remote.share({ id: 'ann', email: 'ann@example.com' }, { id: 'p1', name: 'Shop' });
+    const shared = await remote.share({ id: 'ann', email: 'ann@example.com' }, { id: 'p1', name: 'Shop', group: 'acme' });
     const link = { projectId: 'p1', ownerId: 'ann', hubProjectId: shared.hubProjectId, pulledThrough: 0, sharedAt: 't' };
     expect(await remote.push(link, [{ kind: 'leaves', id: 'l1', patch: { set: { title: 'Checkout' } } }])).toEqual({ through: 1 });
     expect((await remote.pull(link, 0)).changes.map((entry) => entry.origin)).toEqual(['instance:inst-ann']);
-    expect((await hub.mine('ann'))[0]?.project.origin).toEqual({ instanceId: 'inst-ann', projectId: 'p1' });
+    expect((await hub.mine('ann'))[0]?.project).toMatchObject({ origin: { instanceId: 'inst-ann', projectId: 'p1' }, group: 'acme' });
 
     const forged = new RemoteHub(accessFor('ann', 'ann@example.com', identityKeysFrom(generateIdentityKey())));
     await expect(forged.push(link, [])).rejects.toThrow(/401/);
@@ -168,7 +168,7 @@ describe('relaying a member\'s file to and from the owner\'s instance over HTTP'
     const forAnn = await mountRouter({ prefix: '/api/hub', user: { ...TEST_USER, id: 'ann', email: 'ann@example.com' }, router: async () => hubRouter({ hub }) });
     harnesses.push(forInstance, forAnn);
     const remote = new RemoteHub({ access: async () => ({ token: issueMoveToken(root, HUB_AUDIENCE, hubInstancePart('inst-ann', 'ann', 'ann@example.com')), hubUrl: forInstance.url(''), personId: 'ann', email: 'ann@example.com', instanceId: 'inst-ann' }) });
-    const shared = await remote.share({ id: 'ann', email: 'ann@example.com' }, { id: 'p1', name: 'Shop' });
+    const shared = await remote.share({ id: 'ann', email: 'ann@example.com' }, { id: 'p1', name: 'Shop', group: 'acme' });
     const link = { projectId: 'p1', ownerId: 'ann', hubProjectId: shared.hubProjectId, pulledThrough: 0, sharedAt: 't' };
 
     const bytes = Buffer.from(Array.from({ length: 300_000 }, (_, at) => at % 251));

@@ -17,7 +17,8 @@ import { giteaHubRepos } from '../services/HubRepos.js';
 import { RemoteHub, RootHubAccess } from '../services/HubRemote.js';
 import { HubSyncService, localHubSync } from '../services/HubSyncService.js';
 import { HubInstanceWork, type HubInstanceWorkDeps } from '../services/HubInstanceWork.js';
-import { localHubSharing, ProjectSharingService } from '../../projects/services/ProjectSharingService.js';
+import { localHubSharing, localProjectGroups, ProjectSharingService } from '../../projects/services/ProjectSharingService.js';
+import { InstanceGroups } from '../../instances/services/InstanceGroups.js';
 import { localHubPeople, RemoteHubPeople, type HubPeople } from '../services/HubPeople.js';
 import { ProjectInviteService } from '../services/ProjectInviteService.js';
 import { decideTask, type Accepted } from '../services/TaskDecisions.js';
@@ -43,6 +44,7 @@ export interface HubWiringDeps {
   dataKey: SecretKey;
   gitea: Pick<GiteaService, 'ensureOrg' | 'ensureOrgRepo' | 'letWrite' | 'createUserAccount' | 'createPushToken' | 'deleteUser' | 'deleteRepo' | 'deleteOrg' | 'repoGitUrl' | 'listPaths' | 'getRawFile' | 'getAdminCredentials'>;
   notify: (ownerId: string, scope: { projectId: string; treeId?: string | undefined }, notice: ConversationNotice) => Promise<unknown>;
+  republish: () => Promise<void>;
   syncEveryMs?: number | undefined;
 }
 
@@ -77,9 +79,9 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
     ? new RemoteHub(new RootHubAccess({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: env.INSTANCE_CREDENTIAL }))
     : undefined;
   const reach = servesTenants(role) && hubService
-    ? { instanceId: 'combined', transport: localHubSync(hubService, 'combined'), sharing: localHubSharing(hubService, 'combined') }
-    : servesTenants(role) && remoteHub && role.instance
-      ? { instanceId: role.instance.id, transport: remoteHub, sharing: remoteHub }
+    ? { instanceId: 'combined', transport: localHubSync(hubService, 'combined'), sharing: localHubSharing(hubService, 'combined'), groups: localProjectGroups(db) }
+    : servesTenants(role) && remoteHub && role.instance && env.INSTANCE_CREDENTIAL
+      ? { instanceId: role.instance.id, transport: remoteHub, sharing: remoteHub, groups: new InstanceGroups({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: env.INSTANCE_CREDENTIAL }) }
       : undefined;
 
   let work: HubInstanceWork | undefined;
@@ -106,6 +108,11 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
         return { url: await deps.gitea.repoGitUrl(project.giteaOwner, project.giteaRepo), auth: { username: admin.username, token: admin.password } };
       },
       notify: deps.notify,
+      groups: reach.groups,
+      republish: async () => {
+        await deps.republish().catch((err: Error) => console.warn(`[sharing] republishing the apps failed: ${err.message}`));
+      },
+      domain: env.INGRESS_DOMAIN || undefined,
     });
     hubSync.start(deps.syncEveryMs ?? 3_000);
     tenant.use('/api/project-sharing', projectSharingRouter({ sharing: sharingService }));

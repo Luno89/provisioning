@@ -18,3 +18,9 @@ export function suggestedName(email: string): string {
   const base = lettered.slice(0, 20);
   return base.length >= 3 && !RESERVED_NAMES.includes(base) ? base : `${base}home`.slice(0, 20);
 }
+
+export function suggestedGroup(projectName: string): string {
+  const letters = projectName.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^[0-9]+/, '').slice(0, 20);
+  if (letters.length >= 3 && !RESERVED_NAMES.includes(letters)) return letters;
+  return `${letters}group`.slice(0, 20);
+}

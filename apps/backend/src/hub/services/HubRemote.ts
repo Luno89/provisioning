@@ -105,7 +105,7 @@ export class RemoteHub implements HubSyncTransport, HubSharing {
   pull: HubSyncTransport['pull'] = (link, after) => this.call('GET', `/projects/${encodeURIComponent(link.hubProjectId)}/changes?after=${after}`);
 
   share: HubSharing['share'] = async (_owner, project) => {
-    const shared = await this.call<{ view: { project: { id: string } }; repo?: { url: string; username: string; token: string } }>('POST', '/share', { name: project.name, projectId: project.id });
+    const shared = await this.call<{ view: { project: { id: string } }; repo?: { url: string; username: string; token: string } }>('POST', '/share', { name: project.name, projectId: project.id, group: project.group });
     return { hubProjectId: shared.view.project.id, ...(shared.repo ? { repo: shared.repo } : {}) };
   };
 

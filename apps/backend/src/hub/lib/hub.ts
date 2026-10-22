@@ -33,6 +33,7 @@ export interface SharedProject {
   createdAt: string;
   createdBy: string;
   origin?: { instanceId?: string | undefined; projectId: string } | undefined;
+  group?: string | undefined;
 }
 
 export interface HubMember {

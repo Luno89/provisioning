@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nameProblem, suggestedName } from './instance-names.js';
+import { nameProblem, suggestedGroup, suggestedName } from './instance-names.js';
 
 describe('instance names', () => {
   it('takes lowercase letters and digits starting with a letter', () => {
@@ -26,5 +26,18 @@ describe('instance names', () => {
     expect(suggestedName('42@x.io')).toBe('home');
     expect(suggestedName('admin@x.io')).toBe('adminhome');
     expect(nameProblem(suggestedName('ab@x.io'))).toBeNull();
+  });
+});
+
+describe('the group a shared project is suggested', () => {
+  it('is made from the project\'s name by the same alphabet, and always passes the rules', () => {
+    expect(suggestedGroup('Shop')).toBe('shop');
+    expect(suggestedGroup('Acme Corp — Odoo 20!')).toBe('acmecorpodoo20');
+    expect(suggestedGroup('42 Things')).toBe('things');
+    expect(suggestedGroup('App')).toBe('appgroup');
+    expect(suggestedGroup('Xy')).toBe('xygroup');
+    expect(suggestedGroup('???')).toBe('group');
+    expect(suggestedGroup('A very long project name indeed')).toBe('averylongprojectname');
+    for (const name of ['Shop', 'App', '???', '42', 'Xy', 'A very long project name indeed']) expect(nameProblem(suggestedGroup(name))).toBeNull();
   });
 });

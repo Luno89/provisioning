@@ -4,6 +4,7 @@ import {
   type HubAction, type HubInvite, type HubMember, type HubRole, type SharedProject,
 } from '../lib/hub.js';
 import type { HubStore, SharedProjectStore } from '../lib/hub-store.js';
+import { nameProblem } from '../../instances/lib/instance-names.js';
 import type { HubRepoAccess, HubRepos } from './HubRepos.js';
 import { applyPatch, isSyncedKind, SYNCED_KINDS, type HubChange, type RecordChange, type SyncedDoc, type SyncedKind } from '../lib/hub-sync.js';
 import {
@@ -293,12 +294,20 @@ export class HubService {
     return member ? { project, store, member, members } : undefined;
   }
 
-  async create(person: Person, input: { name: unknown; origin?: { instanceId?: string | undefined; projectId: string } | undefined }): Promise<HubOutcome<ProjectView>> {
+  async create(person: Person, input: { name: unknown; origin?: { instanceId?: string | undefined; projectId: string } | undefined; group?: unknown }): Promise<HubOutcome<ProjectView>> {
     const problem = sharedProjectProblem(input);
     if (problem) return wrong(problem);
+    if (input.group !== undefined) {
+      const groupProblem = typeof input.group === 'string' ? nameProblem(input.group) : 'a group is a name';
+      if (groupProblem) return wrong(groupProblem);
+    }
+    const group = typeof input.group === 'string' ? input.group : undefined;
     if (input.origin) {
       const already = (await this.mine(person.id)).find((entry) => entry.project.origin?.projectId === input.origin!.projectId && entry.project.origin?.instanceId === input.origin!.instanceId);
-      if (already) return this.view(person.id, already.project.id);
+      if (already) {
+        if (group && already.project.group !== group) await this.deps.store.saveProject({ ...already.project, group });
+        return this.view(person.id, already.project.id);
+      }
     }
     const project: SharedProject = {
       id: randomBytes(12).toString('hex'),
@@ -306,6 +315,7 @@ export class HubService {
       createdAt: this.now(),
       createdBy: person.id,
       ...(input.origin ? { origin: input.origin } : {}),
+      ...(group ? { group } : {}),
     };
     await this.deps.store.saveProject(project);
     await this.deps.store.project(project.id).saveMember({ personId: person.id, email: person.email, role: 'owner', joinedAt: this.now() });
@@ -418,11 +428,11 @@ export class HubService {
     return { ok: true, value: { deleted: projectId } };
   }
 
-  async share(origin: SyncOrigin, input: { name: unknown; projectId: unknown }): Promise<HubOutcome<{ view: ProjectView; repo?: HubRepoAccess | undefined }>> {
+  async share(origin: SyncOrigin, input: { name: unknown; projectId: unknown; group?: unknown }): Promise<HubOutcome<{ view: ProjectView; repo?: HubRepoAccess | undefined }>> {
     if (origin.kind !== 'instance') return refuse('A project is shared from the instance it is worked on.');
     if (typeof input.projectId !== 'string' || !input.projectId) return wrong('name the project being shared');
     if (!origin.email) return wrong('the instance did not say whose project this is');
-    const made = await this.create({ id: origin.personId, email: origin.email }, { name: input.name, origin: { instanceId: origin.instanceId, projectId: input.projectId } });
+    const made = await this.create({ id: origin.personId, email: origin.email }, { name: input.name, origin: { instanceId: origin.instanceId, projectId: input.projectId }, ...(input.group === undefined || input.group === null ? {} : { group: input.group }) });
     if (!made.ok) return made;
     const repo = this.deps.repos ? await this.deps.repos.create(made.value.project.id) : undefined;
     return { ok: true, value: { view: made.value, ...(repo ? { repo } : {}) } };

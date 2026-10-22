@@ -31,7 +31,7 @@ export function hubInstanceRouter(deps: { hub: InstanceHub; trusted: ReadonlyMap
     await work(origin, req, res);
   });
 
-  router.post('/share', withOrigin(async (origin, req, res) => answer(res, await deps.hub.share(origin, { name: req.body?.name, projectId: req.body?.projectId }))));
+  router.post('/share', withOrigin(async (origin, req, res) => answer(res, await deps.hub.share(origin, { name: req.body?.name, projectId: req.body?.projectId, group: req.body?.group }))));
   router.delete('/projects/:id', withOrigin(async (origin, req, res) => answer(res, await deps.hub.unshare(origin, String(req.params.id)))));
   router.post('/projects/:id/changes', withOrigin(async (origin, req, res) => answer(res, await deps.hub.receive(origin, String(req.params.id), req.body?.changes))));
   router.get('/projects/:id/changes', withOrigin(async (origin, req, res) => answer(res, await deps.hub.changesSince(origin, String(req.params.id), Number(req.query.after ?? 0)))));

@@ -16,9 +16,13 @@ export function projectSharingRouter(deps: { sharing: ProjectSharingService }): 
     answer(res, await deps.sharing.preview(personOf(req).id, id(req)));
   }));
 
+  router.get('/:id/group-check', asyncRoute(async (req, res) => {
+    answer(res, await deps.sharing.groupCheck(personOf(req).id, id(req), req.query.name));
+  }));
+
   router.post('/:id', asyncRoute(async (req, res) => {
     const person = personOf(req);
-    answer(res, await deps.sharing.share({ id: person.id, email: person.email }, id(req)));
+    answer(res, await deps.sharing.share({ id: person.id, email: person.email }, id(req), req.body?.group));
   }));
 
   router.delete('/:id', asyncRoute(async (req, res) => {

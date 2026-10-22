@@ -296,6 +296,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const hub = await wireHub({
     role, env: process.env, app, tenant, db, mail, publicUrl: PUBLIC_URL, dataKey: keys.data, gitea: giteaService,
     notify: (ownerId, scope, notice) => notices.post(ownerId, scope, notice),
+    republish: () => appExposureService.syncExposedApps(),
   });
 
   tenant.get('/ingress/verify', async (req, res) => {

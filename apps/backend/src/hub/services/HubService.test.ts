@@ -167,5 +167,15 @@ describe('a shared project and its people', () => {
     expect(repos.remove).toHaveBeenCalledWith(shared.view.project.id);
     expect([await store.getProject(shared.view.project.id), await hub.mine('ann')]).toEqual([undefined, []]);
   });
-});
 
+  it('keeps the group the sharer named, so everyone on the project sees what its apps are addressed under', async () => {
+    const hub = new HubService({ store: memoryHubStore(), invites: { send: async () => ({ link: 'l', emailed: false }) } });
+    const fromAnn = { kind: 'instance' as const, personId: 'ann', instanceId: 'i-ann', email: 'ann@example.com' };
+    expect(await hub.share(fromAnn, { name: 'Shop', projectId: 'p1', group: 'ac-me' })).toMatchObject({ ok: false, status: 400 });
+    const shared = valueOf(await hub.share(fromAnn, { name: 'Shop', projectId: 'p1', group: 'acme' }));
+    expect(shared.view.project.group).toBe('acme');
+    expect(valueOf(await hub.view('ann', shared.view.project.id)).project.group).toBe('acme');
+    expect((await hub.mine('ann'))[0]?.project.group).toBe('acme');
+    expect(valueOf(await hub.share(fromAnn, { name: 'Other', projectId: 'p2' })).view.project.group).toBeUndefined();
+  });
+});
