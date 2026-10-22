@@ -18,12 +18,12 @@ vi.mock('../../../api/project-app', async (original) => ({
   getProjectApp: vi.fn(async () => ({ id: 'd1', name: 'Shop', status: 'running', local: {}, public: {} })),
 }))
 
-vi.mock('../../../api/artifacts', async (original) => ({
-  ...(await original<typeof import('../../../api/artifacts')>()),
+vi.mock('../../../features/files/api/artifacts', async (original) => ({
+  ...(await original<typeof import('../../../features/files/api/artifacts')>()),
   getArtifactStorage: vi.fn().mockResolvedValue({ minio: true }),
 }))
 const { listReleases, decideRelease, retestRelease, rollBackRelease, releaseFiles, releaseAgain } = await import('../../../api/releases')
-const { artifactUrl } = await import('../../../api/artifacts')
+const { artifactUrl } = await import('../../../features/files/api/artifacts')
 
 const release = (id: string, state: OdooRelease['state'], over: Partial<OdooRelease> = {}): OdooRelease => ({
   id, projectId: 'p1', pipelineRunId: 'b', commit: `${id}c0ffee00`, image: 'i:t', state, host: 'shop.apps.local', startedAt: '2026-10-08T12:00:00Z', updatedAt: '2026-10-08T12:00:00Z', ...over,

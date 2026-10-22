@@ -1,5 +1,5 @@
 import { api } from '../../../api/client'
-import type { SentAttachment } from '../../../lib/file-drop'
+import type { SentAttachment } from '../../files'
 
 /**
  * ── DUPLICATED, KNOWINGLY ──

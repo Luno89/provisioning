@@ -1,8 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Send, Square, Sliders, Cpu, Sparkles, Paperclip, X, MessageSquare, Zap } from 'lucide-react';
 import { goesToKoala } from '../../features/projects';
-import { pickedFiles, type PickedFile } from '../../lib/file-drop.js';
-import DropTarget from '../Files/DropTarget.js';
+import { pickedFiles, type PickedFile } from '../../features/files';
+import { DropTarget } from '../../features/files';
 
 export interface PersonaPackOption {
   id: string;

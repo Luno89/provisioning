@@ -1,6 +1,6 @@
 import { Loader2, Server } from 'lucide-react'
-import { errorMessage } from '../../api/client'
-import { placeText, useFilePlace, useFileServers, usePlaceChange } from './shared'
+import { errorMessage } from '../../../api/client'
+import { placeText, useFilePlace, useFileServers, usePlaceChange } from '../shared'
 
 export default function FilePlacePicker({ projectId, compact = false }: { projectId: string; compact?: boolean | undefined }) {
   const place = useFilePlace(projectId)

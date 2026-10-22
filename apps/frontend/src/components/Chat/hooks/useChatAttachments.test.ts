@@ -1,9 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import * as filesApi from '../../../api/files'
+import * as filesApi from '../../../features/files/api/files'
 import { useChatAttachments } from './useChatAttachments'
 
-vi.mock('../../../api/files', async (orig) => ({
+vi.mock('../../../features/files/api/files', async (orig) => ({
   ...(await orig<typeof filesApi>()),
   uploadStoredFile: vi.fn(),
 }))

@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router'
-import { errorMessage } from '../../api/client'
-import { useFileServers, useSetDefaultFileServer } from './shared'
+import { errorMessage } from '../../../api/client'
+import { useFileServers, useSetDefaultFileServer } from '../shared'
 import StoredFiles from './StoredFiles'
 import FileShares from './FileShares'
 

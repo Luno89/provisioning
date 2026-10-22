@@ -12,7 +12,7 @@ vi.mock('@tanstack/react-router', () => ({
   useRouter: () => undefined,
 }))
 
-vi.mock('../Files/StoredFiles', () => ({ default: ({ clients }: { clients?: string }) => <div data-testid="stored-files">{clients}</div> }))
+vi.mock('../../features/files/components/StoredFiles', () => ({ default: ({ clients }: { clients?: string }) => <div data-testid="stored-files">{clients}</div> }))
 vi.mock('../../features/projects/components/LeafDetail', () => ({ default: ({ leaf }: { leaf: { title: string } }) => <div data-testid="leaf-detail">{leaf.title}</div> }))
 vi.mock('./HubRepository', () => ({ default: () => <div data-testid="hub-repository" /> }))
 

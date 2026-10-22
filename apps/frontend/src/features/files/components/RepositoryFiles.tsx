@@ -1,9 +1,9 @@
 import { useRef, type ReactNode } from 'react'
 import { Upload } from 'lucide-react'
-import { errorMessage } from '../../api/client'
-import { pickedFiles, type PickedFile } from '../../lib/file-drop'
+import { errorMessage } from '../../../api/client'
+import { pickedFiles, type PickedFile } from '../lib/file-drop'
 import DropTarget from './DropTarget'
-import { useRepositoryDrop } from './shared'
+import { useRepositoryDrop } from '../shared'
 
 export default function RepositoryFiles({ projectId, branch, leafId, title = 'Repository', children }: {
   projectId: string

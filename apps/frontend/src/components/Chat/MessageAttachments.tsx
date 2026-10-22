@@ -1,7 +1,7 @@
 import { Paperclip } from 'lucide-react'
-import { storedFileUrl } from '../../api/files'
-import { sizeText } from '../../lib/file-drop'
-import type { MessageAttachment } from '../../types/files'
+import { storedFileUrl } from '../../features/files'
+import { sizeText } from '../../features/files'
+import type { MessageAttachment } from '../../features/files'
 
 export default function MessageAttachments({ attachments }: { attachments: readonly MessageAttachment[] }) {
   return (

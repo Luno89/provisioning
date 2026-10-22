@@ -1,5 +1,5 @@
-import { api, API_BASE } from './client'
-import type { FileScope, FileServer, FileShare, PlaceState, ShareDays, StoredFile } from '../types/files'
+import { api, API_BASE } from '../../../api/client'
+import type { FileScope, FileServer, FileShare, PlaceState, ShareDays, StoredFile } from '../types'
 
 export const FILE_TYPE_HEADER = 'X-File-Type'
 

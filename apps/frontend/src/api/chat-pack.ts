@@ -31,7 +31,7 @@ export interface ChatConversationMessage {
   role: 'user' | 'assistant' | 'notice';
   author?: MessageAuthor | undefined;
   authorName?: string | undefined;
-  attachments?: import('../types/files').MessageAttachment[] | undefined;
+  attachments?: import('../features/files').MessageAttachment[] | undefined;
   notice?: ConversationNotice | undefined;
   content: string;
   at?: string | undefined;

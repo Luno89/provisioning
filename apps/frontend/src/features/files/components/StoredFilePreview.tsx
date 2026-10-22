@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { Download, X } from 'lucide-react'
-import { fileKeys, readStoredText, storedFileUrl } from '../../api/files'
-import { previewKind } from '../../lib/file-browser'
-import type { FileScope } from '../../types/files'
+import { fileKeys, readStoredText, storedFileUrl } from '../api/files'
+import { previewKind } from '../lib/file-browser'
+import type { FileScope } from '../types'
 import ShareFile from './ShareFile'
 
 const TEXT_LIMIT = 200_000

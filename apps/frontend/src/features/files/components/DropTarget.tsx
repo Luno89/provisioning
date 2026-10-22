@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { droppedFiles, type PickedFile } from '../../lib/file-drop'
+import { droppedFiles, type PickedFile } from '../lib/file-drop'
 
 export default function DropTarget({ onFiles, label, disabled = false, className = '', children }: {
   onFiles: (picked: PickedFile[]) => void

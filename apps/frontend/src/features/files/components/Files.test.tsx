@@ -2,21 +2,21 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
-import * as filesApi from '../../api/files'
-import * as projectFilesApi from '../../features/projects/api/project-files'
+import * as filesApi from '../api/files'
+import * as projectFilesApi from '../../projects/api/project-files'
 import FilePlacePicker from './FilePlacePicker'
 import StoredFiles from './StoredFiles'
 import ProjectStoredFiles from './ProjectStoredFiles'
 import RepositoryFiles from './RepositoryFiles'
 import DefaultFileServer from './DefaultFileServer'
 import FileShares from './FileShares'
-import type { PlaceState } from '../../types/files'
+import type { PlaceState } from '../types'
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, className }: { children: ReactNode; className?: string }) => <a className={className}>{children}</a>,
 }))
 
-vi.mock('../../api/files', async (orig) => ({
+vi.mock('../api/files', async (orig) => ({
   ...(await orig<typeof filesApi>()),
   getFileServers: vi.fn(),
   setDefaultFileServer: vi.fn(async (deploymentId: string | null) => (deploymentId ? { defaultId: deploymentId } : {})),
@@ -35,7 +35,7 @@ vi.mock('../../api/files', async (orig) => ({
   readStoredText: vi.fn(async () => 'the brief, in words'),
 }))
 
-vi.mock('../../features/projects/api/project-files', async (orig) => ({
+vi.mock('../../projects/api/project-files', async (orig) => ({
   ...(await orig<typeof projectFilesApi>()),
   dropIntoRepository: vi.fn(async (_id: string, body: { files: { path: string }[] }) => ({ ok: true, paths: body.files.map((file) => file.path), commit: 'c1' })),
 }))

@@ -1,8 +1,8 @@
 import { ExternalLink, Trash2 } from 'lucide-react'
-import { errorMessage } from '../../api/client'
-import { shareUrl } from '../../api/files'
-import { expiresText } from '../../lib/file-browser'
-import { useFileShares, useRevokeShare } from './shared'
+import { errorMessage } from '../../../api/client'
+import { shareUrl } from '../api/files'
+import { expiresText } from '../lib/file-browser'
+import { useFileShares, useRevokeShare } from '../shared'
 
 export default function FileShares() {
   const shares = useFileShares()

@@ -1,4 +1,4 @@
-import { API_BASE, api } from './client'
+import { API_BASE, api } from '../../../api/client'
 
 export interface ArtifactStorage {
   minio: boolean

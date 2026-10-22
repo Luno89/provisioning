@@ -3,8 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, ChevronDown, Folder, File, Loader2, Paperclip } from 'lucide-react'
 import { listProjectFiles, projectFileKeys } from '../../api/project-files.js'
 import type { RepoFileEntry } from './shared.js'
-import DropTarget from '../../../../components/Files/DropTarget'
-import type { PickedFile } from '../../../../lib/file-drop'
+import { DropTarget } from '../../../files'
+import type { PickedFile } from '../../../files'
 
 function sortedEntries(entries: RepoFileEntry[]): RepoFileEntry[] {
   return [...entries].sort((a, b) => {

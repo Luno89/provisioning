@@ -17,7 +17,7 @@ export interface ChatMessageData {
   runId?: string | undefined;
   toolCalls?: ToolCallData[] | undefined;
   interruptedReason?: string | undefined;
-  attachments?: import('../../types/files.js').MessageAttachment[] | undefined;
+  attachments?: import('../../features/files').MessageAttachment[] | undefined;
 }
 
 export function ThinkingDisclosure({

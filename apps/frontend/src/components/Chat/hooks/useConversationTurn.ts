@@ -27,8 +27,8 @@ import { useSocketEvent } from '../../../features/platform';
 import { errorMessage } from '../../../api/client.js';
 import { childEventToFrame, engineEventToFrame } from '../engine-event-frames.js';
 import { planKeys } from '../../../features/projects';
-import { sentAttachment } from '../../../lib/file-drop';
-import type { MessageAttachment } from '../../../types/files';
+import { sentAttachment } from '../../../features/files';
+import type { MessageAttachment } from '../../../features/files';
 import { assistantMsgFromRenderState, type ChatMessageRecord } from '../chat-stream.js';
 
 const EMPTY_MESSAGES: ChatMessageRecord[] = [];

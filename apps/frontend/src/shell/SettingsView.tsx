@@ -7,7 +7,7 @@ import { Invites } from '../components/Account/Invites';
 import { InstanceAddresses } from '../components/Account/InstanceAddresses';
 import { InstanceMove } from '../components/Move/InstanceMove';
 import { Notifications } from '../components/Account/Notifications';
-import DefaultFileServer from '../components/Files/DefaultFileServer'
+import { DefaultFileServer } from '../features/files'
 import GoogleDriveCard from '../components/GoogleDriveCard';
 
 export default function SettingsView() {

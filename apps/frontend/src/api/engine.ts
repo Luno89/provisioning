@@ -1,7 +1,7 @@
 import type { ModelReach } from '@koala/harness-types'
 import type { Artifact, ChildSteps, GroupDefinition, HostOperation, NodeTrace } from '@koala/agent-engine/procedure'
 import { api } from './client'
-import type { SentAttachment } from '../lib/file-drop'
+import type { SentAttachment } from '../features/files'
 
 export interface AgentInputSchema {
   type?: string

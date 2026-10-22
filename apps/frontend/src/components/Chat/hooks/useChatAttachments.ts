@@ -1,8 +1,8 @@
 import { useCallback, useState } from 'react'
 import { errorMessage } from '../../../api/client'
-import { uploadStoredFile } from '../../../api/files'
-import { attachmentPath, type PickedFile } from '../../../lib/file-drop'
-import type { MessageAttachment } from '../../../types/files'
+import { uploadStoredFile } from '../../../features/files'
+import { attachmentPath, type PickedFile } from '../../../features/files'
+import type { MessageAttachment } from '../../../features/files'
 
 export interface ChatAttachment {
   key: string

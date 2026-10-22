@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { API_BASE } from './client'
+import { API_BASE } from '../../../api/client'
 import { artifactUrl, withArtifactAddresses } from './artifacts'
 
 describe('artifact addresses', () => {

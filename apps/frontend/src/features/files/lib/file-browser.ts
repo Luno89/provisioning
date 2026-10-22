@@ -1,4 +1,4 @@
-import type { StoredFile } from '../types/files'
+import type { StoredFile } from '../types'
 
 export type SortBy = 'name' | 'size' | 'modified'
 

@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { Clock } from 'lucide-react'
-import type { PickedFile } from '../../lib/file-drop'
+import type { PickedFile } from '../lib/file-drop'
 import DropTarget from './DropTarget'
 import FilePlacePicker from './FilePlacePicker'
 import StoredFiles from './StoredFiles'
-import { useFilePlace, useSharedWithHub } from './shared'
+import { useFilePlace, useSharedWithHub } from '../shared'
 
 export default function ProjectStoredFiles({ projectId, dir = '', title = 'Files', onOpen }: { projectId: string; dir?: string | undefined; title?: string | undefined; onOpen?: ((path: string) => void) | undefined }) {
   const place = useFilePlace(projectId)

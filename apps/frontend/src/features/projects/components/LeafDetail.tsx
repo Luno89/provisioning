@@ -9,9 +9,9 @@ import { STATE_STYLE, STATE_HINT, stateFor, leafDocuments, storyLine, type Leaf 
 import type { DocumentAddress } from '../../../types/documents';
 import { cancelLeaf, retryLeaf, deleteLeaf } from '../api/grove';
 import { errorMessage } from '../../../api/client';
-import ArtifactStoragePrompt from '../../../components/ArtifactStoragePrompt'
-import { mentionsArtifacts } from '../../../lib/artifact-storage'
-import { withArtifactAddresses } from '../../../api/artifacts'
+import { ArtifactStoragePrompt } from '../../files'
+import { mentionsArtifacts } from '../../files'
+import { withArtifactAddresses } from '../../files'
 import { useWorkSource } from '../lib/work-source'
 
 const ERROR_PREVIEW_CHARS = 240;

@@ -46,7 +46,7 @@ import { ChatHeader } from './Chat/ChatHeader.js';
 import { ChatCardMarker, ChatCards, type CardFocus } from './Chat/ChatCards.js';
 import { cardMarkers, chatCards, isWaiting, type ChatCard } from './Chat/chat-cards.js';
 import { useChatAttachments } from './Chat/hooks/useChatAttachments.js';
-import { sentAttachment } from '../lib/file-drop.js';
+import { sentAttachment } from '../features/files';
 import { listProjects, projectKeys } from '../features/projects';
 import { useCardsLayout } from './Chat/hooks/useCardsLayout.js';
 

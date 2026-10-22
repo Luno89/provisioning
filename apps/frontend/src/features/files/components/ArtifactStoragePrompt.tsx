@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { artifactKeys, getArtifactStorage } from '../api/artifacts'
 import { dismissPrompt, promptDismissed } from '../lib/artifact-storage'
-import { useShellStore } from '../features/platform'
+import { useShellStore } from '../../platform'
 
 export default function ArtifactStoragePrompt() {
   const [dismissed, setDismissed] = useState(promptDismissed)
