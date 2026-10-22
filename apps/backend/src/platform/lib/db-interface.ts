@@ -3,7 +3,7 @@ import { mongoPayloadBlobs } from './mongo-payload-blobs.js';
 import { inMemoryPayloadBlobs, type PayloadBlobs } from './payload-storage.js';
 import type { PlatformStore } from '../store.js';
 import type { AccountsStore } from '../../accounts/store.js';
-import type { InstancesStore } from '../../instances/store.js';
+import type { InstancesStore } from '../../instances/index.js';
 import type { HubStore } from '../../hub/index.js';
 import type { ProjectsStore } from '../../projects/index.js';
 import type { ReleasesStore } from '../../releases/index.js';

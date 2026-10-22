@@ -1,5 +1,5 @@
 import { type ClusterMetadata, type DeploymentMetadata, startedFor } from '../../platform/index.js';
-import type { InstanceRecord, InstanceStatus } from '../../instances/lib/instances.js';
+import type { InstanceRecord, InstanceStatus } from '../../instances/index.js';
 import type { Client } from '@temporalio/client';
 import type { AccountsStore } from '../store.js';
 import type { HubPeople } from '../../hub/index.js';

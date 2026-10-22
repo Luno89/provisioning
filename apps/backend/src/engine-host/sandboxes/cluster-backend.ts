@@ -10,7 +10,7 @@ import {
 } from './kube.js';
 import { READ_WHOLE_FILE, wholeFile, type DirEntry, type ExecResult } from '@koala/engine-core';
 import type { SandboxBackend } from '../drivers/sandbox.js';
-import type { RegistryLoginSource } from '../../instances/lib/registry-pull.js';
+import type { RegistryLoginSource } from '../../instances/index.js';
 
 export { WorkspaceUnavailableError } from './kube.js';
 export type ClusterBackend = SandboxBackend;

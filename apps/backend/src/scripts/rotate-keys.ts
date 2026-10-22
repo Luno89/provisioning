@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { MongoClient } from 'mongodb';
 import { KEY_NAMES, generateKey, loadKeys, reencrypt, keyId } from '../platform/index.js';
-import { generateIdentityKey } from '../instances/lib/identity-token.js';
+import { generateIdentityKey } from '../instances/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ENV_FILE = resolve(here, '../../.env');

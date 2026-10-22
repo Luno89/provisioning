@@ -6,8 +6,7 @@ import fs from 'fs/promises';
 import { promisify } from 'util';
 import { encryptValue, decryptValue, type SecretKey } from '../../platform/index.js';
 import type { InfrastructureService } from '../../infrastructure/index.js';
-import { registryHosts, type RegistryHosts } from '../../instances/lib/registry-hosts.js';
-import type { RegistryLogin } from '../../instances/lib/registry-pull.js';
+import { registryHosts, type RegistryHosts, type RegistryLogin } from '../../instances/index.js';
 import { privatePatches, type GiteaListedUser } from '../lib/gitea-visibility.js';
 
 const run = promisify(execFile);

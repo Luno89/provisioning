@@ -4,7 +4,7 @@ import {
   type HubAction, type HubInvite, type HubMember, type HubRole, type SharedProject,
 } from '../lib/hub.js';
 import type { HubStore, SharedProjectStore } from '../lib/hub-store.js';
-import { nameProblem } from '../../instances/lib/instance-names.js';
+import { nameProblem } from '../../instances/index.js';
 import type { HubRepoAccess, HubRepos } from './HubRepos.js';
 import { applyPatch, isSyncedKind, SYNCED_KINDS, type HubChange, type RecordChange, type SyncedDoc, type SyncedKind } from '../lib/hub-sync.js';
 import {

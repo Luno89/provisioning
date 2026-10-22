@@ -36,7 +36,7 @@ import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js
 import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
 import { askDevice, localAgentStatus, tellDevice, MachineService } from './machines/index.js';
-import { RootMeshKeys } from './instances/services/RootMeshKeys.js';
+import { RootMeshKeys, IdentityService } from './instances/index.js';
 import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index.js';
 
 import {
@@ -51,7 +51,6 @@ import { AuthService } from './accounts/services/AuthService.js';
 import { GiteaService } from './projects/index.js';
 
 import { seedAll } from './scripts/seed-all.js';
-import { IdentityService } from './instances/services/IdentityService.js';
 import { NotificationService } from './monitoring/index.js';
 import { artifactsRouter, createArtifactService } from './files/index.js';
 

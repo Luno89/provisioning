@@ -1,5 +1,5 @@
 import { HUB_AUDIENCE } from '../lib/hub.js';
-import { issueMoveToken, type IdentityKeyPair } from '../../instances/lib/identity-token.js';
+import { issueMoveToken, type IdentityKeyPair } from '../../instances/index.js';
 import type { HubService } from './HubService.js';
 
 export interface HubPeople {

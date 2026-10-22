@@ -2,7 +2,7 @@ import type crypto from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import { HUB_AUDIENCE, hubInstancePart } from '../lib/hub.js';
-import { checkMoveToken } from '../../instances/lib/identity-token.js';
+import { checkMoveToken } from '../../instances/index.js';
 import type { HubOutcome, HubService, SyncOrigin } from '../services/HubService.js';
 
 const header = (req: Request, name: string): string => String(req.headers[name] ?? '');

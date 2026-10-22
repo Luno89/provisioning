@@ -1,8 +1,7 @@
 import { decryptValue, encryptValue, type SecretKey, hubConflictNotice, type Database } from '../../platform/index.js';
 import { inScope, scopeOf, type HubLink, type SyncedDoc, type SyncedKind } from '../../hub/lib/hub-sync.js';
 import { primaryProjectId } from '../lib/trees.js';
-import { nameProblem, suggestedGroup } from '../../instances/lib/instance-names.js';
-import { appLabel, flatHost, labelOfFlat } from '../../instances/lib/edge-addresses.js';
+import { nameProblem, suggestedGroup, appLabel, flatHost, labelOfFlat } from '../../instances/index.js';
 import type { ConversationNotice } from '../../engine/index.js';
 import type { HubRepoAccess, GitEnd, HubRepoSides, HubService } from '../../hub/index.js';
 

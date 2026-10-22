@@ -8,8 +8,7 @@ import { GiteaService } from '../projects/index.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { buildPlanAt, isCommitSha, buildArgEntries } from '../releases/index.js';
 import { loadKeys } from '../platform/index.js';
-import { forPushing, kanikoRegistryArgs } from '../instances/lib/registry-hosts.js';
-import { dockerConfigJson } from '../instances/lib/registry-pull.js';
+import { forPushing, kanikoRegistryArgs, dockerConfigJson } from '../instances/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

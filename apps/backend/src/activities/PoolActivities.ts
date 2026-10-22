@@ -5,18 +5,13 @@ import path from 'path';
 import { ApplicationFailure } from '@temporalio/common';
 import { createDatabase, roleFromEnv, emailWayFrom, MailService } from '../platform/index.js';
 import { InfrastructureService } from '../infrastructure/index.js';
-import { hashCredential } from '../instances/services/InstanceService.js';
-import { publicKeyPem } from '../instances/lib/identity-token.js';
-import { afterStep, nextTrialStep, trialMessage, type DueStep, type TrialStep } from '../instances/lib/pool-trial.js';
-import { MoveRelay, kubeconfigFile } from '../instances/services/MoveRelay.js';
-import { issueMoveToken } from '../instances/lib/identity-token.js';
-import type { InstanceRecord } from '../instances/lib/instances.js';
-import { BLACKBOX_VALUES, POOL_MONITORING, poolAppAlerts, poolStackValues, probeIngressPolicy } from '../monitoring/index.js';
 import {
-  admissionManifests, COMPONENT_RESOURCES, INSTANCE_RELEASE, namespaceManifest, POOL_LABEL, poolChartValues, poolNamespace,
-  poolSettingsFrom, PROXY, proxyCaddyfile, proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterAddress, vclusterValues,
-  type PoolSettings,
-} from '../instances/lib/pool.js';
+  hashCredential, publicKeyPem, afterStep, nextTrialStep, trialMessage, type DueStep, type TrialStep, MoveRelay,
+  kubeconfigFile, issueMoveToken, type InstanceRecord, admissionManifests, COMPONENT_RESOURCES, INSTANCE_RELEASE,
+  namespaceManifest, POOL_LABEL, poolChartValues, poolNamespace, poolSettingsFrom, PROXY, proxyCaddyfile,
+  proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterAddress, vclusterValues, type PoolSettings,
+} from '../instances/index.js';
+import { BLACKBOX_VALUES, POOL_MONITORING, poolAppAlerts, poolStackValues, probeIngressPolicy } from '../monitoring/index.js';
 
 const DEFAULT_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
 const ADMISSION_CHECK_NAMESPACE = 'pool-admission-check';

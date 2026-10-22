@@ -12,7 +12,7 @@ import {
 } from '../releases/index.js';
 import type { ClusterMetadata, ProjectMetadata } from '../platform/index.js';
 import { reachCluster } from './cluster-access.js';
-import { manifestList, registryPullManifests, type RegistryLoginSource } from '../instances/lib/registry-pull.js';
+import { manifestList, registryPullManifests, type RegistryLoginSource } from '../instances/index.js';
 import { inNamespace, runClusterJob, type NamespacedCluster } from './cluster-jobs.js';
 
 const vaultKeys = (data: string): string[] => {

@@ -2,7 +2,7 @@ import type crypto from 'node:crypto';
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import { HUB_AUDIENCE } from '../lib/hub.js';
-import { checkMoveToken } from '../../instances/lib/identity-token.js';
+import { checkMoveToken } from '../../instances/index.js';
 import { hubPersonPart } from '../services/HubPeople.js';
 import type { HubService } from '../services/HubService.js';
 
