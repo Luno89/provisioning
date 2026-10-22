@@ -109,7 +109,7 @@ async function main(): Promise<void> {
         assert.equal(before.status, 200, JSON.stringify(before.data));
         assert.equal(before.data.canShare, true);
         assert.equal(before.data.shared, undefined, 'a project was on the hub before it was shared');
-        const shared = await ann.root!.post(`/project-sharing/${project.data.id}`);
+        const shared = await ann.root!.post(`/project-sharing/${project.data.id}`, { group: `${name.split(' ')[0]!.toLowerCase()}${stamp}` });
         assert.equal(shared.status, 200, JSON.stringify(shared.data));
         const made = await ann.hub!.get(`/hub/projects/${shared.data.shared.hubProjectId}`);
         const admin = await gitea.getAdminCredentials();

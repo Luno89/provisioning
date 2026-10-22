@@ -43,6 +43,8 @@ async function until<T>(what: string, probe: () => Promise<T | undefined>, tries
 }
 
 const client = (cookie?: string): AxiosInstance => axios.create({ baseURL: `${BASE}/api`, proxy: false, headers: cookie ? { Cookie: cookie } : {}, validateStatus: () => true });
+const groupOf = (stamp: string, mark: string): string => `${mark}${stamp}`.slice(0, 20);
+
 const sessionOf = (headers: Record<string, unknown>): string | undefined => ([] as string[]).concat((headers['set-cookie'] as string[] | undefined) ?? []).map((line) => line.split(';')[0]!).find((pair) => pair.startsWith('session=') && pair !== 'session=');
 
 async function main(): Promise<void> {
@@ -79,16 +81,62 @@ async function main(): Promise<void> {
       return { id: made.data.id as string, name: made.data.name as string, giteaOwner: made.data.giteaOwner as string, giteaRepo: made.data.giteaRepo as string, channelId };
     });
 
-    const hubId = await stage('the preview says what goes and what stays; nothing is on the hub until it is shared', async () => {
+    const group = groupOf(stamp, 'sl');
+    await stage('the group check refuses a dashed name and a reserved one and suggests one from the project\'s name; sharing without a group is refused', async () => {
+      const ask = async (name: string) => {
+        const answer = await owner!.get(`/project-sharing/${project.id}/group-check`, { params: { name } });
+        assert.equal(answer.status, 200, JSON.stringify(answer.data));
+        return answer.data as { ok: boolean; problem?: string; suggested: string; example?: string };
+      };
+      const suggested = await ask('');
+      assert.equal(suggested.ok, false);
+      assert.equal(suggested.suggested, `shared${stamp}`.slice(0, 20));
+      const dashed = await ask('sl-dash');
+      assert.equal(dashed.ok, false);
+      assert.match(dashed.problem ?? '', /no dashes/);
+      const reserved = await ask('mail');
+      assert.equal(reserved.ok, false);
+      assert.match(reserved.problem ?? '', /kept for the platform/);
+      const fine = await ask(group);
+      assert.equal(fine.ok, true, JSON.stringify(fine));
+      if (process.env.INGRESS_DOMAIN) assert.match(fine.example ?? '', new RegExp(`-${group}\\.`));
+      const without = await owner!.post(`/project-sharing/${project.id}`, {});
+      assert.equal(without.status, 400, JSON.stringify(without.data));
+      const dashedShare = await owner!.post(`/project-sharing/${project.id}`, { group: 'sl-dash' });
+      assert.equal(dashedShare.status, 400, JSON.stringify(dashedShare.data));
+      assert.deepEqual((await owner!.get('/hub/projects')).data, []);
+    });
+
+    const hubId = await stage('the preview says what goes and what stays; nothing is on the hub until it is shared under its group', async () => {
       const preview = (await owner!.get(`/project-sharing/${project.id}`)).data;
       assert.equal(preview.shared, undefined);
+      assert.equal(preview.group, undefined);
+      assert.equal(preview.addresses.scope, 'owner');
       assert.equal(preview.moves.chats, 1);
       assert.equal(preview.moves.repository, project.giteaRepo);
       assert.ok(preview.stays.length > 0);
       assert.deepEqual((await owner!.get('/hub/projects')).data, []);
-      const shared = await owner!.post(`/project-sharing/${project.id}`);
+      const shared = await owner!.post(`/project-sharing/${project.id}`, { group });
       assert.equal(shared.status, 200, JSON.stringify(shared.data));
+      assert.equal(shared.data.group, group);
+      assert.equal(shared.data.addresses.scope, 'group');
+      const again = (await owner!.get(`/project-sharing/${project.id}`)).data;
+      assert.equal(again.group, group);
+      const onTheHub = await owner!.get(`/hub/projects/${shared.data.shared.hubProjectId}`);
+      assert.equal(onTheHub.status, 200, JSON.stringify(onTheHub.data));
+      assert.equal(onTheHub.data.project.group, group, 'the hub\'s project does not carry the group');
       return shared.data.shared.hubProjectId as string;
+    });
+
+    const second = await stage('a second project cannot be shared under the group the first holds', async () => {
+      const made = await owner!.post('/projects', { name: `Second ${stamp}`, giteaRepo: `second-${stamp}`, createRepo: true });
+      assert.ok(made.status < 300, JSON.stringify(made.data));
+      const check = await owner!.get(`/project-sharing/${made.data.id}/group-check`, { params: { name: group } });
+      assert.equal(check.data.ok, false, JSON.stringify(check.data));
+      assert.match(check.data.problem ?? '', /is taken/);
+      const refused = await owner!.post(`/project-sharing/${made.data.id}`, { group });
+      assert.equal(refused.status, 409, JSON.stringify(refused.data));
+      return { id: made.data.id as string, name: made.data.name as string };
     });
     const onHub = mongo.db(`${HUB_DATABASE_PREFIX}${hubId}`);
     const hubChannel = () => onHub.collection('board_conversations').findOne({ _id: project.channelId as never });
@@ -176,6 +224,17 @@ async function main(): Promise<void> {
       const contents = (((channel.data.conversation ?? channel.data).messages ?? []) as { content: string }[]).map((message) => message.content);
       assert.ok(contents.includes('said before sharing') && contents.includes('said after sharing'), JSON.stringify(contents));
       assert.equal((await db.hub.getHubLinks()).filter((link) => link.projectId === project.id).length, 0);
+      assert.equal(back.data.group, undefined);
+      assert.equal(back.data.addresses.scope, 'owner');
+    });
+
+    await stage('the group is free once the first project is taken back: the second is shared under it, then taken back too', async () => {
+      const shared = await owner!.post(`/project-sharing/${second.id}`, { group });
+      assert.equal(shared.status, 200, JSON.stringify(shared.data));
+      assert.equal(shared.data.group, group);
+      const back = await owner!.delete(`/project-sharing/${second.id}`, { data: { confirm: second.name } });
+      assert.equal(back.status, 200, JSON.stringify(back.data));
+      assert.equal(back.data.shared, undefined);
     });
   } finally {
     if (member && memberId) {
