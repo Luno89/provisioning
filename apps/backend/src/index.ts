@@ -54,6 +54,7 @@ import { engineRouter } from './routes/engine.js';
 import { wireReleases } from './wiring/releases.js';
 import { storyDropsFor, wireFiles } from './wiring/files.js';
 import { wireMachines } from './wiring/machines.js';
+import { wireMonitoring } from './wiring/monitoring.js';
 import { hubInstanceWork, wireHub } from './wiring/hub.js';
 import { proceduresRouter } from './routes/procedures.js';
 import { ProcedureService } from './services/ProcedureService.js';
@@ -97,7 +98,6 @@ import { MoveRelay, kubeconfigFile } from './services/MoveRelay.js';
 import { issueMoveToken } from './lib/identity-token.js';
 import { MOVE_FINISHED, MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } from './lib/instance-move.js';
 import { PoolMonitoringService } from './services/PoolMonitoringService.js';
-import { poolMonitor, poolMonitorFrom } from './services/PoolMonitor.js';
 import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from './lib/pool-trial.js';
 import { askDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from './lib/local-agent-registry.js';
 import { MachineService } from './services/MachineService.js';
@@ -208,14 +208,9 @@ import { InstanceAddresses, adminEdge } from './services/InstanceAddresses.js';
 import { instanceTrialRouter } from './routes/instance-trial.js';
 import { InstanceTrial } from './services/InstanceTrial.js';
 import { instanceAddressesRouter } from './routes/instance-addresses.js';
-import { monitoringRouter } from './routes/monitoring.js';
-import { notificationsRouter } from './routes/notifications.js';
 import { MailService } from './services/MailService.js';
 import { NotificationService } from './services/NotificationService.js';
 import { emailWayFrom } from './lib/email-way.js';
-import { MonitoringService, prometheusAt } from './services/MonitoringService.js';
-import { AlertWatchService } from './services/AlertWatchService.js';
-import { alertNotice, alertWhere } from './lib/alert-notices.js';
 import { InstanceChart } from './services/InstanceChart.js';
 import { instancesRouter } from './routes/instances.js';
 import { artifactsRouter } from './routes/artifacts.js';
@@ -971,36 +966,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const systemOwners = async (): Promise<string[]> => (role.instance
     ? [role.instance.ownerId]
     : (await db.getUsers()).filter((user) => user.isAdmin).map((user) => user.id));
-  const placeOnPool = poolMonitorFrom(process.env);
-  const onPool = placeOnPool ? poolMonitor(placeOnPool) : undefined;
-  const monitoring = new MonitoringService({
-    store: db,
-    systemCluster: () => clusterService.getSystemClusterEntry(),
-    ownsSystem: (viewer) => (role.instance ? viewer.id === role.instance.ownerId : Boolean(viewer.isAdmin)),
-    pool: (cluster) => (cluster.isSystem ? onPool : undefined),
-    prometheus: async (cluster) => prometheusAt(await clusterProxyService.serviceUrl(cluster.id, 'prometheus', await clusterService.getKubeconfigPath(cluster))),
-    kubectl: async (cluster, args) => String(await infraService.runKubectl(args, await clusterService.getKubeconfigPath(cluster))),
-    apply: async (cluster, manifest) => { await infraService.applyManifest(manifest, await clusterService.getKubeconfigPath(cluster)); },
-    helm: async (cluster, args) => String(await infraService.runHelm(args, await clusterService.getKubeconfigPath(cluster))),
-  });
-  tenant.use('/api/monitoring', monitoringRouter({ monitoring }));
-  tenant.use('/api/notifications', notificationsRouter({ notifications, mail }));
-  if (servesTenants(role)) {
-    new AlertWatchService({
-      monitoring,
-      store: db,
-      systemOwners,
-      tell: async (episode, change, { app, rule }) => {
-        io.to(`user:${episode.ownerId}`).emit('monitoring-alert', { change, episode });
-        const where = alertWhere(app?.gitappProjectId, rule?.conversationId);
-        const notice = alertNotice(episode, change);
-        if (where.projectId) await notices.post(episode.ownerId, { projectId: where.projectId }, { ...notice, refs: { ...notice.refs, projectId: where.projectId } });
-        else if (where.conversationId) await notices.postTo(episode.ownerId, where.conversationId, notice);
-        await notifications.alert(episode, change).catch((err: Error) => console.warn(`[alerts] could not email ${episode.ownerId}: ${err.message}`));
-      },
-      log: (message) => console.warn(message),
-    }).start();
-  }
+  const { monitoring } = wireMonitoring({ tenant, db, role, env: process.env, io, clusters: clusterService, infra: infraService, proxy: clusterProxyService, notices, notifications, mail, systemOwners });
   tenant.use('/api/credentials', llmCredentialsRouter({ db, dataKey: keys.data, credentialService, publicUrl: PUBLIC_URL, appUrl: APP_URL }));
   tenant.use('/api/credentials', credentialsRouter({
     credentialService,
