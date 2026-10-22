@@ -6,6 +6,7 @@ export function GpuPanel({ clusterId, passthrough }: { clusterId: string; passth
   const gpu = useGpuStatus(clusterId)
   if (gpu.isPending) return <Section title="GPUs"><Loader2 size={12} className="animate-spin text-slate-500" /></Section>
   const status = gpu.data
+  if (status === null) return null
   if (!status) return <Section title="GPUs"><p className="text-[11px] text-slate-500">GPU status could not be read.</p></Section>
   const enabled = passthrough || status.passthroughEnabled
   const total = status.totalCapacity ?? 0

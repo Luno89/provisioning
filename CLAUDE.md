@@ -707,7 +707,9 @@ failed jobs; finished jobs left out; memory and CPU from Prometheus when it answ
 Koala's work (sandboxes, release slots, builds; a namespace a check's space left is marked so), the platform, and
 anything put there another way; then the platform services (`infrastructure/lib/platform-services.ts`, with Open dashboard and how each signs you in), nodes,
 GPUs and Helm releases. Whoever owns the cluster sees all of it; anyone else sees only their own namespaces (their apps,
-`koala.dev/owner`), and no services, nodes or releases. Reads are cached per cluster for 20 s.
+`koala.dev/owner`), and no services, nodes or releases. Reads are cached per cluster for 20 s. The same rule (`clusterOwnership` in
+`platform/lib/ownership.ts`, which monitoring uses too) guards the dashboard proxies (`/api/clusters/:id/proxy/<service>`, which sign
+in as admin) and `/api/clusters/:id/gpu-status`: anyone but the owner gets the 404 an unknown cluster gets, and Open in Grafana shows only to the owner.
 
 **Failed work** (`WorkFailureService`, `workFailures`): a top-level run that ends `failed` (from `run-ended`, never a
 check's space), and any workflow Temporal closes as Failed or TimedOut (polled every 30 s; deploys and provisioning are
@@ -1364,7 +1366,9 @@ Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's
 
 ## Data
 
-Default persistence is MongoDB (`apps/backend/src/platform/lib/mongo-db.ts` connects and composes one store per area, `src/<area>/store.ts`, split on 2026-10-22), managed via `docker-compose.mongo.yml` / `scripts/ensure-mongo.sh`. Unit tests run on a real Mongo in memory (`testDatabase()` in `platform/lib/test-database.ts`; the in-memory fake `MemoryDB` was deleted on 2026-10-22, so the suite proves the database and not a copy of it).
+Default persistence is MongoDB (`apps/backend/src/platform/lib/mongo-db.ts` connects and composes one store per area, `src/<area>/store.ts`, split on 2026-10-22), managed via `docker-compose.mongo.yml` / `scripts/ensure-mongo.sh`. Unit tests run on a real Mongo in memory (`testDatabase()` in `platform/lib/test-database.ts`; the in-memory fake `MemoryDB` was deleted on 2026-10-22, so the suite proves the database and not a copy of it). A deployment's passwords, keys and tokens (`DEPLOYMENT_SECRET_FIELDS` in `infrastructure/lib/deployment-secrets.ts`) are
+sealed with `DATA_KEY` at the store boundary (`MongoInfrastructureStore` seals on save and unseals on read, so every reader sees plain
+values), and the startup migration `deployment-secrets-sealed` seals records stored plain before.
 
 `apps/backend/data/` still holds `logs/` (per-resource provisioning/deployment logs, tailed over
 socket.io — see `InfrastructureService`'s `LOG_DIR`) and `nginx/` (proxy config). The `*.json` files

@@ -1,3 +1,4 @@
+import type { ClusterOwnership } from '../../platform/lib/ownership.js';
 import { randomUUID } from 'node:crypto';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import type { Database } from '../../platform/lib/db-interface.js';
@@ -95,7 +96,7 @@ export type MonitoringSources = Pick<Database, 'infrastructure' | 'releases' | '
 export interface MonitoringDeps {
   store: MonitoringSources;
   systemCluster(): Promise<ClusterMetadata | undefined>;
-  ownsSystem(viewer: Viewer): boolean;
+  ownsCluster: ClusterOwnership;
   prometheus(cluster: ClusterMetadata): Promise<PrometheusClient>;
   pool?(cluster: ClusterMetadata): PoolMonitor | undefined;
   kubectl(cluster: ClusterMetadata, args: string[]): Promise<string>;
@@ -212,7 +213,7 @@ export class MonitoringService {
   }
 
   ownsCluster(viewer: Viewer, cluster: ClusterMetadata): boolean {
-    return cluster.isSystem ? this.deps.ownsSystem(viewer) : cluster.ownerId === viewer.id;
+    return this.deps.ownsCluster(viewer, cluster);
   }
 
   async clustersOf(viewer: Viewer): Promise<ClusterMetadata[]> {
@@ -364,7 +365,7 @@ export class MonitoringService {
       return { row, rows, firing: firing.map((alert) => ({ ...alert, clusterId: cluster.id })) };
     }));
     const appRows = worstFirst(per.flatMap((entry) => entry.rows));
-    const clusterRows = worstFirst(per.map((entry) => entry.row).filter((row) => row.apps > 0 || !row.isSystem || this.deps.ownsSystem(viewer)));
+    const clusterRows = worstFirst(per.map((entry) => entry.row).filter((row) => row.apps > 0 || !row.isSystem || this.deps.ownsCluster(viewer, { isSystem: true })));
     const attention = worstFirst([
       ...clusterRows.filter((row) => row.state !== 'ok').map((row) => ({ subject: { kind: 'cluster' as const, id: row.id, name: row.name }, state: row.state, reasons: row.reasons, name: row.name })),
       ...appRows.filter((row) => row.state !== 'ok').map((row) => ({ subject: { kind: 'app' as const, id: row.id, name: row.name }, state: row.state, reasons: row.reasons, name: row.name })),

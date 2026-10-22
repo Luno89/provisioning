@@ -12,6 +12,7 @@ import type { InfrastructureService } from '../services/InfrastructureService.js
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import { backupRouter } from '../routes/backup.js';
 import { clustersRouter } from '../routes/clusters.js';
+import { clusterOwnership } from '../../platform/lib/ownership.js';
 import { credentialsRouter } from '../routes/credentials.js';
 import { deploymentsRouter } from '../routes/deployments.js';
 import { llmCredentialsRouter } from '../../models/routes/llm-credentials.js';
@@ -64,6 +65,7 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   tenant.use('/api/clusters', clustersRouter({
     clusterService: deps.clusters, appService: deps.apps, clusterProxyService: deps.proxy, infraService: deps.infra,
     temporalBridge: deps.temporalBridge, db: db.infrastructure, io, giteaService: deps.gitea, infisicalService: deps.infisical, dataKey: deps.dataKey,
+    ownsCluster: clusterOwnership(deps.instanceOwner),
   }));
   tenant.use('/api/deployments', deploymentsRouter({
     appService: deps.apps, clusterService: deps.clusters, appExposureService: deps.exposure, infraService: deps.infra, temporalBridge: deps.temporalBridge, db, io,

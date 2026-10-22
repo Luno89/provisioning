@@ -12,6 +12,7 @@ import type { InfisicalService } from '../services/InfisicalService.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { InfrastructureStore } from '../store.js';
+import type { ClusterOwnership } from '../../platform/lib/ownership.js';
 
 export interface ClustersRouterDeps {
   clusterService: ClusterService;
@@ -24,6 +25,7 @@ export interface ClustersRouterDeps {
   db: Pick<InfrastructureStore, 'getClusters' | 'saveClusterList'>;
   io: SocketServer;
   dataKey: SecretKey;
+  ownsCluster: ClusterOwnership;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -49,11 +51,17 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
     return { username: 'admin', password: Buffer.from(raw.trim(), 'base64').toString('utf8') };
   }
 
+  async function ownedCluster(req: Request) {
+    const viewer = userOf(req);
+    const cluster = await clusterService.getById(idOf(req), viewer.id);
+    return cluster && deps.ownsCluster(viewer, cluster) ? cluster : undefined;
+  }
+
   for (const serviceKey of PROXY_SERVICES) {
     router.get(`/:id/proxy/${serviceKey}`, async (req, res) => {
       try {
         const clusterId = idOf(req);
-        const cluster = await clusterService.getById(clusterId, userOf(req).id);
+        const cluster = await ownedCluster(req);
         if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
 
         const kubeconfigPath = await clusterService.getKubeconfigPath(cluster);
@@ -220,7 +228,10 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
     }
   });
 
-  router.get('/:id/gpu-status', asyncRoute(async (req, res) => res.json(await clusterService.getGpuStatus(idOf(req), userOf(req).id))));
+  router.get('/:id/gpu-status', asyncRoute(async (req, res) => {
+    if (!(await ownedCluster(req))) return res.status(404).json({ error: 'Cluster not found' });
+    return res.json(await clusterService.getGpuStatus(idOf(req), userOf(req).id));
+  }));
 
   return router;
 }

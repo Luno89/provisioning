@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
+import { clusterOwnership } from '../../platform/lib/ownership.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import { appQuery, appWindowQuery, clusterQuery, type AppSubject } from '../lib/monitoring-questions.js';
@@ -67,7 +68,7 @@ beforeEach(async () => {
   deps = (): MonitoringDeps => ({
     store: db,
     systemCluster: async () => system,
-    ownsSystem: (viewer) => viewer.id === 'me',
+    ownsCluster: clusterOwnership('me'),
     prometheus: async (cluster) => {
       if (cluster.id === system.id) return prom;
       if (remoteProm) return remoteProm;

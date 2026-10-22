@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { api, API_BASE } from './client'
 import type { Cluster, GpuStatus } from '../types/cluster'
 
@@ -16,10 +17,19 @@ export const destroyCluster = (id: string): Promise<void> =>
 
 const GPU_REFETCH_MS = 10_000
 
+export const getGpuStatus = async (id: string): Promise<GpuStatus | null> => {
+  try {
+    return (await api.get<GpuStatus>(`/clusters/${id}/gpu-status`)).data
+  } catch (err) {
+    if (isAxiosError(err) && err.response?.status === 404) return null
+    throw err
+  }
+}
+
 export function useGpuStatus(id: string) {
   return useQuery({
     queryKey: clusterKeys.gpu(id),
-    queryFn: () => api.get<GpuStatus>(`/clusters/${id}/gpu-status`).then((r) => r.data),
+    queryFn: () => getGpuStatus(id),
     refetchInterval: GPU_REFETCH_MS,
   })
 }

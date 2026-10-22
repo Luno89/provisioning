@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import axios from 'axios';
 import { clustersRouter } from './clusters.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
+import { clusterOwnership } from '../../platform/lib/ownership.js';
 
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
@@ -31,11 +32,11 @@ const services = () => ({
   io: { emit: vi.fn() },
 });
 
-const mount = async (svc = services(), user: typeof TEST_USER | null = TEST_USER) => {
+const mount = async (svc = services(), user: typeof TEST_USER | null = TEST_USER, instanceOwner?: string) => {
   h = await mountRouter({
     prefix: '/api/clusters',
     user,
-    router: () => clustersRouter({ ...svc, dataKey: 'test-secret' } as never),
+    router: () => clustersRouter({ ...svc, dataKey: 'test-secret', ownsCluster: clusterOwnership(instanceOwner) } as never),
   });
   return { h: h!, svc };
 };
@@ -76,7 +77,7 @@ describe('reading one cluster', () => {
     const { h, svc } = await mount();
     h.setUser({ id: 'someone-else', email: 'other@example.com', isAdmin: false });
     await axios.get(h.url('/api/clusters/c1/gpu-status')).catch(() => undefined);
-    expect(svc.clusterService.getGpuStatus).toHaveBeenCalledWith('c1', 'someone-else');
+    expect(svc.clusterService.getById).toHaveBeenCalledWith('c1', 'someone-else');
   });
 });
 
@@ -104,6 +105,61 @@ describe('the dashboard proxies', () => {
       const err = await axios.get(h.url(`/api/clusters/c1/proxy/${service}`)).catch((e) => e);
       expect(err.response?.status, service).toBe(404);
     }
+  });
+});
+
+describe('what only whoever owns a cluster may open', () => {
+  const PROXIES = ['prometheus', 'grafana', 'traefik', 'gitea', 'alertmanager', 'infisical'];
+  const system = cluster({ id: 'provisioning-lunorica', isSystem: true, ownerId: undefined });
+  const onSystem = () => {
+    const svc = services();
+    svc.clusterService.getById.mockImplementation(async (id: string) => (id === system.id ? system : undefined) as never);
+    return svc;
+  };
+  const someone = { id: 'someone', email: 'someone@example.com', isAdmin: false };
+  const admin = { id: 'an-admin', email: 'admin@example.com', isAdmin: true };
+
+  it('answers someone who only sees the system cluster exactly as for an unknown one, and opens nothing', async () => {
+    const { h, svc } = await mount(onSystem(), someone);
+    for (const service of PROXIES) {
+      const err = await axios.get(h.url(`/api/clusters/${system.id}/proxy/${service}`), { maxRedirects: 0 }).catch((e) => e);
+      expect(err.response?.status, service).toBe(404);
+      expect(err.response?.data, service).toEqual({ error: 'Cluster not found' });
+    }
+    const gpu = await axios.get(h.url(`/api/clusters/${system.id}/gpu-status`)).catch((e) => e);
+    expect(gpu.response?.status).toBe(404);
+    expect(gpu.response?.data).toEqual({ error: 'Cluster not found' });
+    expect(svc.clusterProxyService.ensurePortForward).not.toHaveBeenCalled();
+    expect(svc.clusterProxyService.getAutoLoginCookies).not.toHaveBeenCalled();
+    expect(svc.infraService.runKubectl).not.toHaveBeenCalled();
+    expect(svc.clusterService.getGpuStatus).not.toHaveBeenCalled();
+  });
+
+  it('on an instance, refuses an admin who is not its owner', async () => {
+    const { h, svc } = await mount(onSystem(), admin, 'the-owner');
+    const err = await axios.get(h.url(`/api/clusters/${system.id}/proxy/grafana`), { maxRedirects: 0 }).catch((e) => e);
+    expect(err.response?.status).toBe(404);
+    expect(svc.clusterProxyService.ensurePortForward).not.toHaveBeenCalled();
+  });
+
+  it('opens the system cluster\'s dashboards and GPUs for an admin when combined, and for the owner on an instance', async () => {
+    for (const [user, instanceOwner] of [[admin, undefined], [someone, 'someone']] as const) {
+      const { h, svc } = await mount(onSystem(), user, instanceOwner);
+      const res = await axios.get(h.url(`/api/clusters/${system.id}/proxy/grafana`), { maxRedirects: 0 }).catch((e) => e);
+      expect(res.response?.status).toBe(302);
+      expect(svc.clusterProxyService.getAutoLoginCookies).toHaveBeenCalled();
+      expect((await axios.get(h.url(`/api/clusters/${system.id}/gpu-status`))).data).toEqual({ gpus: 0 });
+      await h.close();
+    }
+    h = undefined;
+  });
+
+  it('opens a cluster of the caller\'s own', async () => {
+    const { h, svc } = await mount();
+    const res = await axios.get(h.url('/api/clusters/c1/proxy/prometheus'));
+    expect(res.status).toBe(200);
+    expect(svc.clusterProxyService.ensurePortForward).toHaveBeenCalledWith('c1', 'prometheus', '/tmp/kubeconfig');
+    expect((await axios.get(h.url('/api/clusters/c1/gpu-status'))).data).toEqual({ gpus: 0 });
   });
 });
 

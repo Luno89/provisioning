@@ -50,7 +50,8 @@ import { signJWT } from './platform/lib/auth.js';
 import axios from 'axios';
 import { httpCheckAccess } from './checks/services/CheckToolAccess.js';
 import { sharedClusterProxy } from './infrastructure/services/ClusterProxyService.js';
-import { MonitoringService, prometheusAt, type Viewer } from './monitoring/services/MonitoringService.js';
+import { MonitoringService, prometheusAt } from './monitoring/services/MonitoringService.js';
+import { clusterOwnership } from './platform/lib/ownership.js';
 import { poolMonitor, poolMonitorFrom } from './monitoring/services/PoolMonitor.js';
 import { roleFromEnv } from './platform/lib/platform-role.js';
 import { ProjectRepoService } from './projects/services/ProjectRepoService.js';
@@ -191,13 +192,12 @@ async function buildActivities() {
     treeTypeOf: async (project) => (await treeTypeOfProject(db.projects, project))?.id ?? ODOO_TREE_TYPE,
   });
   const engineRole = roleFromEnv(process.env);
-  const ownsSystem = (viewer: Viewer) => (engineRole.instance ? viewer.id === engineRole.instance.ownerId : Boolean(viewer.isAdmin));
   const placeOnPool = poolMonitorFrom(process.env);
   const onPool = placeOnPool ? poolMonitor(placeOnPool) : undefined;
   const monitoring = new MonitoringService({
     store: db,
     systemCluster: () => clusterService.getSystemClusterEntry(),
-    ownsSystem,
+    ownsCluster: clusterOwnership(engineRole.instance?.ownerId),
     pool: (cluster) => (cluster.isSystem ? onPool : undefined),
     prometheus: async (cluster) => prometheusAt(await sharedClusterProxy().serviceUrl(cluster.id, 'prometheus', await clusterService.getKubeconfigPath(cluster))),
     kubectl: async (cluster, args) => String(await kubeInfra.runKubectl(args, await clusterService.getKubeconfigPath(cluster))),

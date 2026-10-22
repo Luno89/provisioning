@@ -30,7 +30,7 @@ export function ClusterHealth({ clusterId, standalone = false, actions }: { clus
         <div className="flex flex-wrap items-center gap-2">
           {actions}
           <RangePicker range={range} onPick={setRange} />
-          {!cluster.history.byKoala && (
+          {!cluster.history.byKoala && cluster.history.canChange && (
             <a href={clusterDashboardUrl(cluster.id, 'grafana')} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded border border-[var(--bark-600)] px-2 py-0.5 text-[11px] text-slate-300 hover:bg-[var(--bark-700)]">
               Open in Grafana <ExternalLink size={11} />
             </a>

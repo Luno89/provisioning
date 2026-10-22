@@ -14,6 +14,7 @@ import { monitoringRouter } from '../routes/monitoring.js';
 import { notificationsRouter } from '../routes/notifications.js';
 import { poolMonitor, poolMonitorFrom } from '../services/PoolMonitor.js';
 import { servesTenants } from '../../platform/lib/platform-role.js';
+import { clusterOwnership } from '../../platform/lib/ownership.js';
 import type { Mounts } from '../../hub/wiring/hub.js';
 
 export interface MonitoringWiringDeps {
@@ -38,7 +39,7 @@ export function wireMonitoring(deps: MonitoringWiringDeps): { monitoring: Monito
   const monitoring = new MonitoringService({
     store: db,
     systemCluster: () => clusters.getSystemClusterEntry(),
-    ownsSystem: (viewer) => (role.instance ? viewer.id === role.instance.ownerId : Boolean(viewer.isAdmin)),
+    ownsCluster: clusterOwnership(role.instance?.ownerId),
     pool: (cluster) => (cluster.isSystem ? onPool : undefined),
     prometheus: async (cluster) => prometheusAt(await deps.proxy.serviceUrl(cluster.id, 'prometheus', await clusters.getKubeconfigPath(cluster))),
     kubectl: async (cluster, args) => String(await infra.runKubectl(args, await clusters.getKubeconfigPath(cluster))),

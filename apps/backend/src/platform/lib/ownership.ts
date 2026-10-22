@@ -23,6 +23,18 @@ export function clusterVisible<T extends OwnedRecord & { isSystem?: boolean | un
   return !!cluster && (cluster.isSystem === true || cluster.ownerId === userId);
 }
 
+export type ClusterOwnership = (
+  viewer: OwnershipUser,
+  cluster: { isSystem?: boolean | undefined; ownerId?: string | undefined },
+) => boolean;
+
+export function clusterOwnership(instanceOwnerId: string | undefined): ClusterOwnership {
+  return (viewer, cluster) => {
+    if (!cluster.isSystem) return cluster.ownerId === viewer.id;
+    return instanceOwnerId !== undefined ? viewer.id === instanceOwnerId : viewer.isAdmin === true;
+  };
+}
+
 export function ownedBy<T extends { ownerId?: string | undefined }>(
   records: readonly T[],
   userId: string,

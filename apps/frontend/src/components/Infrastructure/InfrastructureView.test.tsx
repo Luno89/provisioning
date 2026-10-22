@@ -314,6 +314,24 @@ describe('the Infrastructure page', () => {
     expect(screen.queryByRole('spinbutton')).toBeNull()
   })
 
+  it('offers Grafana only to whoever owns the cluster, on the cluster and on an app on it', async () => {
+    const notOwned = { ...cluster.history, canChange: false }
+    params.kind = 'cluster'
+    params.id = cluster.id
+    vi.mocked(monitoringApi.getClusterHealth).mockResolvedValue({ cluster: { ...cluster, history: notOwned }, lines: [], range: '24h', series: [], firing: [], episodes: [], apps: [] })
+    const { unmount } = show()
+    expect(await screen.findByText('Only whoever owns this cluster can change it.')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Open in Grafana/ })).toBeNull()
+    unmount()
+
+    params.kind = 'app'
+    params.id = 'books'
+    vi.mocked(monitoringApi.getAppHealth).mockResolvedValue({ ...appView, history: notOwned })
+    show()
+    expect(await screen.findByText('Books is healthy.')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Open in Grafana/ })).toBeNull()
+  })
+
   it('on Koala\'s servers, says root keeps the history and offers no Grafana, for the cluster and its apps', async () => {
     const byKoala = { days: 10, kept: 10, applied: true, canChange: false, byKoala: true }
     params.kind = 'cluster'
