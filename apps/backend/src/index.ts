@@ -52,6 +52,7 @@ import { rateLimit } from 'express-rate-limit';
 import { RATE_LIMITS, ruleFor } from './lib/http-limits.js';
 import { engineRouter } from './routes/engine.js';
 import { wireReleases } from './wiring/releases.js';
+import { storyDropsFor, wireFiles } from './wiring/files.js';
 import { hubInstanceWork, wireHub } from './wiring/hub.js';
 import { proceduresRouter } from './routes/procedures.js';
 import { ProcedureService } from './services/ProcedureService.js';
@@ -84,13 +85,6 @@ import { AgentChangeService } from './services/AgentChangeService.js';
 import { fingerprintOf } from './lib/bench.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
-import { RepositoryDropService } from './services/RepositoryDropService.js';
-import { StoryDropService } from './services/StoryDropService.js';
-import { FileStores } from './services/FileStores.js';
-import { FileService } from './services/FileService.js';
-import { DEFAULT_TARGET_CLUSTER } from './lib/project-shipping.js';
-import { filesRouter, shareRouter } from './routes/files.js';
-import { projectFilesRouter } from './routes/project-files.js';
 import { meshRouter } from './routes/mesh.js';
 import { localAgentsRouter } from './routes/local-agents.js';
 import { pendingApprovalsRouter } from './routes/pending-approvals.js';
@@ -106,7 +100,7 @@ import { MOVE_FINISHED, MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } f
 import { PoolMonitoringService } from './services/PoolMonitoringService.js';
 import { poolMonitor, poolMonitorFrom } from './services/PoolMonitor.js';
 import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from './lib/pool-trial.js';
-import { askDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDevice, unregisterDevice, writeFileOnDevice } from './lib/local-agent-registry.js';
+import { askDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from './lib/local-agent-registry.js';
 import { MachineService } from './services/MachineService.js';
 import { MachineBundle } from './services/MachineBundle.js';
 import { RootMeshKeys } from './services/RootMeshKeys.js';
@@ -402,17 +396,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   );
 
   const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, headscaleService);
-  const fileStores = new FileStores(artifactStore.reach);
-  const fileService = new FileService({
-    store: db,
-    open: (ownerId, place) => fileStores.open(ownerId, place),
-    deployMinio: async (ownerId, request) => {
-      const started = await temporalBridge.deployApp({ ...request, appType: 'minio', strategy: 'native' }, ownerId);
-      if (!started.resourceId) throw new Error(`MinIO could not be started on ${request.clusterId}.`);
-      return { deploymentId: started.resourceId };
-    },
-    defaultCluster: DEFAULT_TARGET_CLUSTER,
-  });
   clusterService.setTemporalBridge(temporalBridge);
   appService.setTemporalBridge(temporalBridge);
   if (servesTenants(role)) {
@@ -1095,24 +1078,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }));
   tenant.use('/api/items', itemChatsRouter({ items: itemChats }));
   tenant.use('/api/projects', projectChannelRouter({ channels, conversations: async (ownerId) => (await db.getConversations()).filter((conversation) => conversation.ownerId === ownerId), getOwnedProject }));
-  const repositoryDrops = new RepositoryDropService({
-    credential: (ownerId) => projectRepoService.editorCredential(ownerId),
-    commit: (token, owner, repo, files, message, branch) => giteaService.commitDrop(token, owner, repo, files, message, branch),
-    writeOnDevice: (deviceId, ownerId, leafId, target, bytes) => writeFileOnDevice(deviceId, ownerId, leafId, target, bytes),
-  });
-  let storyDrops: StoryDropService | undefined;
-  tenant.use('/api/projects', projectFilesRouter({
-    projectRepoService,
-    giteaService,
-    getOwnedProject,
-    drops: repositoryDrops,
-    storyDrops: { drop: (...args: Parameters<StoryDropService['drop']>) => {
-      if (!storyDrops) throw new Error('stories cannot take dropped code here');
-      return storyDrops.drop(...args);
-    } },
-  }));
-  tenant.use('/api/files', filesRouter({ files: fileService, getOwnedProject }));
-  tenant.use('/api/share', shareRouter({ files: fileService }));
+  const files = wireFiles({ tenant, db, reach: artifactStore.reach, temporalBridge, projectRepos: projectRepoService, gitea: giteaService, getOwnedProject });
   const releases = wireReleases({
     tenant, db, io, gitea: giteaService, infra: infraService, clusters: clusterService, projectRepos: projectRepoService, temporalBridge,
     runs: engineRuns, notices, postNotice, secrets: projectSecrets, agents: agentDirectory, registry: engineRegistry,
@@ -1231,17 +1197,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }),
     efforts: { save: (effort) => db.saveRunEffort(effort), list: (ownerId, procedureId, modelKey) => db.getRunEffort(ownerId, procedureId, modelKey) },
   });
-  storyDrops = evalHost.storyDrops ? new StoryDropService({
-    leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
-    treeOfLeaf: async (leaf) => {
-      const branch = (await db.getBranches()).find((entry) => entry.id === leaf.branchId);
-      return branch ? (await db.getTrees()).find((tree) => tree.id === branch.treeId) : undefined;
-    },
-    account: (ownerId) => projectRepoService.ensureAccountFor(ownerId),
-    credential: (ownerId) => projectRepoService.editorCredential(ownerId),
-    commit: (token, owner, repo, files, message, branch, newBranch) => giteaService.commitDrop(token, owner, repo, files, message, branch, newBranch),
-    work: evalHost.storyDrops,
-  }) : undefined;
+  if (evalHost.storyDrops) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));
 
   const practiceService = new PracticeService({ store: db });
   const toolNoteService = new PracticeService({ store: db, category: 'tool_note' });
@@ -1593,7 +1549,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   if (hub.reaches) {
     hub.setWork(hubInstanceWork({
       db, releases: odooReleases, treeRuns: groveRuns, plans: planService, order: groveOrder, accepted: evalHost.acceptedNeeds,
-      itemChats, runs: engineRuns, procedures: procedureService, extensions, files: fileService,
+      itemChats, runs: engineRuns, procedures: procedureService, extensions, files: files.fileService,
     }));
   }
 
