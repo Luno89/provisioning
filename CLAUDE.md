@@ -129,7 +129,7 @@ Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod stat
 
 | Path | What |
 |---|---|
-| `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits the DB, keys, role and the platform services, then calls each area's `wire*` (`src/wiring/`), which constructs that area's services and mounts its routers. 719 lines. Three routes are inline and each has a reason: the Gitea webhook (must precede `express.json()` — it verifies an HMAC over the raw body), `/ingress/verify` (unauthenticated by design) and `/api/metrics` (its own token). `index.test.ts` guards the route order; `npm run test:routes-live` proves every router is mounted |
+| `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits the DB, keys, role and the platform services, then calls each area's `wire*` (`src/wiring/`), which constructs that area's services and mounts its routers. 437 lines. Three routes are inline and each has a reason: the Gitea webhook (must precede `express.json()` — it verifies an HMAC over the raw body), `/ingress/verify` (unauthenticated by design) and `/api/metrics` (its own token). `index.test.ts` guards the route order; `npm run test:routes-live` proves every router is mounted |
 | `apps/backend/src/lib/db-interface.ts` | `Database` interface + `createDatabase()` — MongoDB unless `NODE_ENV=test` and not E2E, in which case `MemoryDB` |
 | `apps/backend/src/lib/mongo-db.ts` / `memory-db.ts` | MongoDB native driver impl / in-memory mock for unit tests |
 | `apps/backend/src/lib/auth.ts`, `crypto.ts` | JWT sign/verify, password hashing; AES-256-GCM encrypt/decrypt/mask for stored secrets |

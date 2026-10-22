@@ -12,15 +12,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Server as SocketServer } from 'socket.io';
 
-import { secretRequestsRouter } from './routes/secret-requests.js';
-import { actionsRouter } from './routes/actions.js';
-import { egressRouter } from './routes/egress.js';
-import { clusterAccessRouter } from './routes/cluster-access.js';
-import { AccessService } from './services/AccessService.js';
-import { EgressService } from './services/EgressService.js';
-import { EgressProxyService } from './services/EgressProxyService.js';
-import { ActionService } from './services/ActionService.js';
-import { SecretRequestService } from './services/SecretRequestService.js';
 import { authRouter } from './routes/auth.js';
 import helmet from 'helmet';
 import { CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine } from './lib/csp.js';
@@ -39,6 +30,7 @@ import { projectsCore, wireProjects } from './wiring/projects.js';
 import { engineCore, wireEngine, startEngineStream } from './wiring/engine.js';
 import { wireSockets } from './wiring/sockets.js';
 import { workFailuresFor, wireRunning } from './wiring/running.js';
+import { wireActions } from './wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
 import { getTemporalClient, resolveOwnersWith } from './lib/temporal-client.js';
 import { PayloadStorageService } from './services/PayloadStorageService.js';
@@ -389,7 +381,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     if (!view.ok) return 'unknown';
     return view.value.items.map((item) => item.title);
   };
-  tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault: infisicalService }) }));
   if (hub.reaches) {
     hub.setWork(hubInstanceWork({
       db, releases: odooReleases, treeRuns: groveRuns, plans: planService, order: groveOrder, accepted: evalHost.acceptedNeeds,
@@ -397,36 +388,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }));
   }
 
-  tenant.use('/api/actions', actionsRouter({ actions: new ActionService({
-    store: db,
-    deployer: temporalBridge,
-    releases: releaseSettings,
-    treeModels,
-    alerts: {
-      add: (ownerId, deploymentId, spec, conversationId) => monitoring.addRule({ id: ownerId }, deploymentId, spec, conversationId),
-      remove: (ownerId, ruleId) => monitoring.removeRule({ id: ownerId }, ruleId),
-    },
-    servers: { add: (ownerId, input) => mcpCatalogue.add(ownerId, input), list: (ownerId) => db.getMcpServers(ownerId) },
-    dependencies: workspaceDependencies,
-    agents: {
-      agents: (ownerId) => agentDirectory.agents(ownerId),
-      holdServer: async (ownerId, slug, server, meta) => {
-        if (!agentsHolder.service) throw new Error('agents cannot be changed yet');
-        return agentsHolder.service.holdServer(ownerId, slug, server, meta);
-      },
-      image: async (ownerId, slug) => agentsHolder.service?.image(ownerId, slug),
-    },
-    onSettled: concluded,
-  }) }));
-  const egressService = new EgressService({
-    store: db,
-    proxy: new EgressProxyService({ kube: infraService, secret: keys.egress, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica' }),
+  wireActions({
+    tenant, db, env: process.env, egressKey: keys.egress, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica', temporalBridge, monitoring, releaseSettings,
+    treeModels, mcpCatalogue, workspaceDependencies, agentDirectory, agentsHolder, concluded, infra: infraService, infisical: infisicalService,
   });
-  tenant.use('/api/egress', egressRouter({ egress: egressService }));
-  tenant.use('/api/cluster-access', clusterAccessRouter({ access: new AccessService({ store: db }) }));
-  if (process.env.NODE_ENV !== 'test') {
-    egressService.syncProxy().catch((err: Error) => console.warn(`[egress] could not sync the proxy's grants: ${err.message}`));
-  }
 
   if (process.env.NODE_ENV !== 'test') {
     appExposureService.syncExposedApps().catch((e) => {
