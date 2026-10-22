@@ -116,7 +116,7 @@ describe('GET /:id/runs commit-message enrichment', () => {
 describe('POST / — execution target', () => {
   it('persists executionTarget when the device belongs to the requesting user', async () => {
     const harness = await mountForCreate();
-    await harness.db.saveLocalAgentDevice({
+    await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
@@ -133,7 +133,7 @@ describe('POST / — execution target', () => {
 
   it('refuses a device that does not belong to the requesting user', async () => {
     const harness = await mountForCreate();
-    await harness.db.saveLocalAgentDevice({
+    await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: 'someone-else', name: 'Not mine', rootDir: '/x',
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
@@ -160,7 +160,7 @@ describe('POST / — execution target', () => {
 
   it('accepts and persists valid egress hints alongside a local device', async () => {
     const harness = await mountForCreate();
-    await harness.db.saveLocalAgentDevice({
+    await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
@@ -180,7 +180,7 @@ describe('POST / — execution target', () => {
 
   it('refuses an egress rule that is not a valid hostname', async () => {
     const harness = await mountForCreate();
-    await harness.db.saveLocalAgentDevice({
+    await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
@@ -210,7 +210,7 @@ describe('POST / — execution target', () => {
 
   it('refuses a device already claimed by another project', async () => {
     const harness = await mountForCreate();
-    await harness.db.saveLocalAgentDevice({
+    await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
@@ -227,7 +227,7 @@ describe('POST / — execution target', () => {
 
   it('allows a second project on the same device at a different subfolder', async () => {
     const harness = await mountForCreate();
-    await harness.db.saveLocalAgentDevice({
+    await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
@@ -247,7 +247,7 @@ describe('POST / — execution target', () => {
 
   it('still refuses the same device and the same subfolder', async () => {
     const harness = await mountForCreate();
-    await harness.db.saveLocalAgentDevice({
+    await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
@@ -264,7 +264,7 @@ describe('POST / — execution target', () => {
 
   it('creates a project with no repo at all when running on a local device', async () => {
     const harness = await mountForCreate();
-    await harness.db.saveLocalAgentDevice({
+    await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
@@ -296,7 +296,7 @@ describe('PATCH /:id — execution target', () => {
   it('lets an existing project pick up a registered device', async () => {
     const harness = await mountForCreate();
     await harness.db.projects.saveProjectInfo(project);
-    await harness.db.saveLocalAgentDevice({
+    await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
@@ -333,7 +333,7 @@ describe('PATCH /:id — execution target', () => {
     await harness.db.projects.saveProjectInfo({
       ...project, id: 'proj-other', giteaRepo: 'other', executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
     });
-    await harness.db.saveLocalAgentDevice({
+    await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
@@ -350,7 +350,7 @@ describe('PATCH /:id — execution target', () => {
     await harness.db.projects.saveProjectInfo({
       ...project, executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
     });
-    await harness.db.saveLocalAgentDevice({
+    await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });

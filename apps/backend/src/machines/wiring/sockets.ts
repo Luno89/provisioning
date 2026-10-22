@@ -55,7 +55,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
   agentNamespace.use(async (socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) return next(new Error('Missing device token'));
-    const device = findDeviceByToken(await db.getLocalAgentDevices(), token, dataKey);
+    const device = findDeviceByToken(await db.machines.getLocalAgentDevices(), token, dataKey);
     if (!device) return next(new Error('Unauthorized'));
     socket.data.device = device;
     next();
@@ -64,9 +64,9 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     const device = socket.data.device as { id: string; ownerId: string; rootDir: string };
     const containerMode = socket.handshake.auth?.containerMode === true;
     registerDevice(device.id, device.ownerId, device.rootDir, socket, containerMode);
-    db.getLocalAgentDevices().then((devices) => {
+    db.machines.getLocalAgentDevices().then((devices) => {
       const current = devices.find((d) => d.id === device.id);
-      if (current) db.saveLocalAgentDevice({ ...current, lastSeenAt: new Date().toISOString() }).catch(() => undefined);
+      if (current) db.machines.saveLocalAgentDevice({ ...current, lastSeenAt: new Date().toISOString() }).catch(() => undefined);
     }).catch(() => undefined);
     socket.on('disconnect', () => unregisterDevice(device.id, socket));
     socket.on('agents:found', (report: { agents?: unknown } | undefined) => {

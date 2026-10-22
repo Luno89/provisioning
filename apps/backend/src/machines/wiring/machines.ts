@@ -33,7 +33,7 @@ export function wireMachines(deps: MachinesWiringDeps): void {
   tenant.use('/api/mesh/local-agents', localAgentsRouter({ machines: deps.machines }));
   const bundle = new MachineBundle(deps.repoRoot);
   const git = new MachineGitService({
-    deviceFor: async (token) => findDeviceByToken(await db.getLocalAgentDevices(), token, deps.dataKey),
+    deviceFor: async (token) => findDeviceByToken(await db.machines.getLocalAgentDevices(), token, deps.dataKey),
     remote: (ownerId, repo) => deps.projectRepos.gitRemote(ownerId, repo),
   });
   tenant.use('/api/machines', machinesRouter({ machines: deps.machines, bundle: () => bundle.path(), git }));

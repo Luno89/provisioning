@@ -617,7 +617,7 @@ export function storesFromDatabase(db: Database): EngineHostStores {
     runs: { traces: (ownerId: string, runId: string) => db.getRunTraces(ownerId, runId) },
     actions: { list: (ownerId: string) => db.getActionProposals(ownerId), save: (proposal) => db.saveActionProposal(proposal) },
     projectRecords: () => db.projects.getProjects(),
-    machines: { list: () => db.getLocalAgentDevices() },
+    machines: { list: () => db.machines.getLocalAgentDevices() },
     proposals: {
       scenarioIds: async (ownerId: string) => [
         ...BUILT_IN_SCENARIOS.map((scenario) => scenario.id),

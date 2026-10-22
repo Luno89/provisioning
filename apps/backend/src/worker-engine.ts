@@ -359,7 +359,7 @@ async function buildActivities() {
     store: db,
     models,
     agentOf: treeAgentsFrom(registry),
-    machines: async (ownerId) => (await db.getLocalAgentDevices())
+    machines: async (ownerId) => (await db.machines.getLocalAgentDevices())
       .filter((device) => device.ownerId === ownerId)
       .map((device) => ({ id: device.id, name: device.name, online: false, agents: device.agents ?? [] })),
     groups: platformGroups,
@@ -376,7 +376,7 @@ async function buildActivities() {
     binding: conversationBinding(db),
     closing: async (ownerId: string) => ((await db.accounts.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
     machines: async (ownerId, choice) => {
-      const device = (await db.getLocalAgentDevices()).find((one) => one.id === choice.deviceId && one.ownerId === ownerId);
+      const device = (await db.machines.getLocalAgentDevices()).find((one) => one.id === choice.deviceId && one.ownerId === ownerId);
       return machineChoiceProblem(device ? { name: device.name, online: false, agents: device.agents ?? [] } : undefined, choice.agent, { waitsToConnect: true, model: choice.model });
     },
   });
@@ -419,7 +419,7 @@ async function buildActivities() {
     },
     treeWorkspaces: host.treeWorkspaces,
     ...(host.machineWork ? { machineWork: host.machineWork } : {}),
-    machineName: async (ownerId, deviceId) => (await db.getLocalAgentDevices()).find((device) => device.id === deviceId && device.ownerId === ownerId)?.name,
+    machineName: async (ownerId, deviceId) => (await db.machines.getLocalAgentDevices()).find((device) => device.id === deviceId && device.ownerId === ownerId)?.name,
     conversationWorkspaces: host.conversationWorkspaces,
     conversationAgent: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.agentSlug,
     allowedTools: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.allowedTools ?? [],

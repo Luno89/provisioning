@@ -11,7 +11,7 @@ import {
   type MachineAgent, type ManualMachineAgent,
 } from '../lib/machines.js';
 
-type Store = Pick<Database, 'getLocalAgentDevices' | 'saveLocalAgentDevice' | 'deleteLocalAgentDevice' | 'saveMachineJoinCode' | 'takeMachineJoinCode'>;
+type Store = Pick<Database, 'machines'>;
 
 export interface MachineSettings {
   url: string;
@@ -71,7 +71,7 @@ export class MachineService {
   }
 
   private async owned(ownerId: string, id: string): Promise<LocalAgentDeviceMetadata | undefined> {
-    return (await this.deps.store.getLocalAgentDevices()).find((device) => device.id === id && device.ownerId === ownerId);
+    return (await this.deps.store.machines.getLocalAgentDevices()).find((device) => device.id === id && device.ownerId === ownerId);
   }
 
   private view(device: LocalAgentDeviceMetadata): MachineView {
@@ -98,13 +98,13 @@ export class MachineService {
   }
 
   async list(ownerId: string): Promise<MachineView[]> {
-    return (await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId).map((device) => this.view(device));
+    return (await this.deps.store.machines.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId).map((device) => this.view(device));
   }
 
   async createJoinCode(ownerId: string): Promise<{ code: string; command: string; expiresAt: string }> {
     const code = newMachineCode();
     const expiresAt = new Date(this.now().getTime() + MACHINE_CODE_TTL_SECONDS * 1000).toISOString();
-    await this.deps.store.saveMachineJoinCode({ hash: hashMachineCode(code), ownerId, expiresAt });
+    await this.deps.store.machines.saveMachineJoinCode({ hash: hashMachineCode(code), ownerId, expiresAt });
     return { code, expiresAt, command: machineCommand(this.deps.settings.url, code) };
   }
 
@@ -115,18 +115,18 @@ export class MachineService {
     const { settings } = this.deps;
     const mesh = meshUsable(settings.meshLoginServer);
     if (mesh && !this.deps.mesh) return { ok: false, status: 503, error: 'this Koala has a mesh address but cannot reach Headscale to let the machine join it' };
-    const found = await this.deps.store.takeMachineJoinCode(hashMachineCode(code));
+    const found = await this.deps.store.machines.takeMachineJoinCode(hashMachineCode(code));
     if (!found || found.expiresAt <= this.now().toISOString()) return { ok: false, status: 401, error: 'that command has expired or was already used: make a new one on My Machines' };
 
     const replaced = typeof machine.replaces === 'string' && machine.replaces
-      ? findDeviceByToken((await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === found.ownerId), machine.replaces, this.deps.dataKey)
+      ? findDeviceByToken((await this.deps.store.machines.getLocalAgentDevices()).filter((device) => device.ownerId === found.ownerId), machine.replaces, this.deps.dataKey)
       : undefined;
     const id = replaced?.id ?? uuidv4();
     const token = crypto.randomBytes(32).toString('base64url');
     const name = text(machine.hostname, 80) ?? 'machine';
     const os = text(machine.os, 80);
     const { os: _formerOs, ...kept } = replaced ?? { os: undefined };
-    await this.deps.store.saveLocalAgentDevice({
+    await this.deps.store.machines.saveLocalAgentDevice({
       ...kept,
       id,
       ownerId: found.ownerId,
@@ -160,13 +160,13 @@ export class MachineService {
   }
 
   async recordAgents(deviceId: string, raw: unknown): Promise<void> {
-    const device = (await this.deps.store.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId);
+    const device = (await this.deps.store.machines.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId);
     if (!device) return;
-    await this.deps.store.saveLocalAgentDevice({ ...device, agents: machineAgentsFrom(raw), agentsAt: this.now().toISOString() });
+    await this.deps.store.machines.saveLocalAgentDevice({ ...device, agents: machineAgentsFrom(raw), agentsAt: this.now().toISOString() });
   }
 
   async manualAgents(deviceId: string): Promise<ManualMachineAgent[]> {
-    const device = (await this.deps.store.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId);
+    const device = (await this.deps.store.machines.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId);
     return device?.manualAgents ?? [];
   }
 
@@ -176,7 +176,7 @@ export class MachineService {
     const problem = manualAgentsProblem(raw);
     if (problem) return { ok: false, status: 400, error: problem };
     const next = { ...device, manualAgents: manualAgentsOf(raw) };
-    await this.deps.store.saveLocalAgentDevice(next);
+    await this.deps.store.machines.saveLocalAgentDevice(next);
     this.deps.devices.tell(deviceId, 'agents:changed');
     return { ok: true, value: this.view(next) };
   }
@@ -194,7 +194,7 @@ export class MachineService {
   async remove(ownerId: string, deviceId: string): Promise<boolean> {
     const device = await this.owned(ownerId, deviceId);
     if (!device) return false;
-    await this.deps.store.deleteLocalAgentDevice(device.id);
+    await this.deps.store.machines.deleteLocalAgentDevice(device.id);
     return true;
   }
 }

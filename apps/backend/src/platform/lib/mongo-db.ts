@@ -1,5 +1,6 @@
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
 import { MongoHubStore } from '../../hub/store.js';
+import { MongoMachinesStore } from '../../machines/store.js';
 import { MongoFilesStore } from '../../files/store.js';
 import { MongoReleasesStore } from '../../releases/store.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
@@ -16,12 +17,11 @@ import type { AlertRuleRecord } from '../../monitoring/lib/monitoring-alerts.js'
 import type { NotificationSettings } from './mail.js';
 import type { WorkFailure } from '../../infrastructure/lib/work-failures.js';
 import type { AuthoredExtension } from '../../engine/lib/authored-extensions.js';
-import type { MachineJoinCode } from '../../machines/lib/machines.js';
 import type { StoredAppSpec } from '../../infrastructure/lib/app-spec.js';
 import { MongoClient, type Db, type Collection } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ModelEndpointMetadata, PendingApprovalMetadata } from './types.js';
 import type { Database, BindingTypeRecord } from './db-interface.js';
 import type { PartialInfo } from './types.js';
 import type { CorpusPage } from '../../engine/lib/corpus.js';
@@ -82,6 +82,7 @@ const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (ki
 export class MongoDB implements Database {
   constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {
     this.hub = new MongoHubStore(() => this.db!);
+    this.machines = new MongoMachinesStore(() => this.db!);
     this.files = new MongoFilesStore(() => this.db!);
     this.releases = new MongoReleasesStore(() => this.db!);
     this.projects = markingHubWrites(new MongoProjectsStore(() => this.db!), this.hub);
@@ -93,6 +94,7 @@ export class MongoDB implements Database {
   private client: MongoClient | null = null;
   private db: Db | null = null;
   readonly hub: MongoHubStore;
+  readonly machines: MongoMachinesStore;
   readonly files: MongoFilesStore;
   readonly releases: MongoReleasesStore;
   readonly projects: MongoProjectsStore;
@@ -134,10 +136,6 @@ export class MongoDB implements Database {
 
   private get modelEndpoints(): Collection {
     return this.db!.collection('modelEndpoints');
-  }
-
-  private get localAgentDevices(): Collection {
-    return this.db!.collection('localAgentDevices');
   }
 
   private get pendingApprovals(): Collection {
@@ -204,10 +202,6 @@ export class MongoDB implements Database {
     return this.db!.collection('actionProposals');
   }
 
-  private get machineJoinCodes(): Collection {
-    return this.db!.collection('machineJoinCodes');
-  }
-
   private get authoredExtensions(): Collection {
     return this.db!.collection('authoredExtensions');
   }
@@ -263,7 +257,6 @@ export class MongoDB implements Database {
     await this.turnLogs.createIndex({ turnId: 1, seq: 1 }, { unique: true });
     await this.turnLogs.createIndex({ at: 1 }, { expireAfterSeconds: TURN_LOG_RETENTION_SECONDS });
     await this.turnLogs.createIndex({ ownerId: 1, seq: 1, at: -1 });
-    await this.machineJoinCodes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.toolGrants.createIndex({ ownerId: 1, agent: 1 });
     await this.runEffort.createIndex({ ownerId: 1, procedureId: 1, modelKey: 1, finishedAt: -1 });
     await this.frontier.createIndex({ ingestId: 1, state: 1, depth: 1, rank: -1, url: 1 });
@@ -275,6 +268,7 @@ export class MongoDB implements Database {
     await this.projects.ensureIndexes();
     await this.releases.ensureIndexes();
     await this.files.ensureIndexes();
+    await this.machines.ensureIndexes();
   }
 
   async dropDatabase(): Promise<void> {
@@ -554,21 +548,6 @@ export class MongoDB implements Database {
     await this.modelEndpoints.deleteOne({ _id: id as any });
   }
 
-  async getLocalAgentDevices(): Promise<LocalAgentDeviceMetadata[]> {
-    return (await this.localAgentDevices.find({}).toArray()).map(doc => fromDoc<LocalAgentDeviceMetadata>(doc));
-  }
-
-  async saveLocalAgentDevice(device: LocalAgentDeviceMetadata): Promise<void> {
-    const doc = toDoc(device);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.localAgentDevices.replaceOne({ _id: id }, filter, { upsert: true });
-  }
-
-  async deleteLocalAgentDevice(id: string): Promise<void> {
-    await this.localAgentDevices.deleteOne({ _id: id as any });
-  }
-
   async getPendingApprovals(): Promise<PendingApprovalMetadata[]> {
     return (await this.pendingApprovals.find({}).toArray()).map(doc => fromDoc<PendingApprovalMetadata>(doc));
   }
@@ -683,16 +662,6 @@ export class MongoDB implements Database {
     if (!doc) return undefined;
     const { _id, ...rest } = doc as Record<string, unknown>;
     return { ...(rest as Omit<ExtensionSettings, 'ownerId'>), ownerId: String(_id) };
-  }
-
-  async saveMachineJoinCode(code: MachineJoinCode): Promise<void> {
-    await this.machineJoinCodes.replaceOne({ _id: code.hash as never }, { ...code, expiresAt: new Date(code.expiresAt) }, { upsert: true });
-  }
-
-  async takeMachineJoinCode(hash: string): Promise<MachineJoinCode | undefined> {
-    const doc = await this.machineJoinCodes.findOneAndDelete({ _id: hash as never });
-    if (!doc) return undefined;
-    return { hash, ownerId: doc.ownerId as string, expiresAt: (doc.expiresAt as Date).toISOString() };
   }
 
   async getAuthoredExtensions(ownerId: string): Promise<AuthoredExtension[]> {

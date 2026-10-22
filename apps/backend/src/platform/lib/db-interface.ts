@@ -10,6 +10,7 @@ import type { FrontierUrl, FrontierClaim } from './frontier.js';
 import type { MemoryItem } from '../../memory/lib/memory-store.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import type { HubStore } from '../../hub/store.js';
+import type { MachinesStore } from '../../machines/store.js';
 import type { FilesStore } from '../../files/store.js';
 import type { ReleasesStore } from '../../releases/store.js';
 import type { ProjectsStore } from '../../projects/store.js';
@@ -24,7 +25,6 @@ import type { AlertRuleRecord } from '../../monitoring/lib/monitoring-alerts.js'
 import type { NotificationSettings } from './mail.js';
 import type { WorkFailure } from '../../infrastructure/lib/work-failures.js';
 import type { AuthoredExtension } from '../../engine/lib/authored-extensions.js';
-import type { MachineJoinCode } from '../../machines/lib/machines.js';
 import type { ProcedureSource } from '../../engine/lib/procedure-source.js';
 import type { StoredNodeTrace } from '../../engine/lib/run-traces.js';
 import type { RunMark, TurnLogEntry } from '../../engine/lib/turn-log.js';
@@ -36,7 +36,7 @@ import type { EvalCollection, EvalRecord } from '../../checks/lib/eval-run.js';
 import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
 import type { ModelThinkingProfile } from '../../engine/lib/thinking-classifier.js';
 import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ModelEndpointMetadata, PendingApprovalMetadata } from './types.js';
 import type { PartialInfo } from './types.js';
 import type { DeferredConclusion, KeeperSettings } from '../../memory/lib/conclusions.js';
 
@@ -61,6 +61,7 @@ export interface ScriptedRequestRecord {
 
 export interface Database {
   hub: HubStore;
+  machines: MachinesStore;
   files: FilesStore;
   releases: ReleasesStore;
   projects: ProjectsStore;
@@ -123,10 +124,6 @@ export interface Database {
   saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void>;
   deleteModelEndpoint(id: string): Promise<void>;
 
-  getLocalAgentDevices(): Promise<LocalAgentDeviceMetadata[]>;
-  saveLocalAgentDevice(device: LocalAgentDeviceMetadata): Promise<void>;
-  deleteLocalAgentDevice(id: string): Promise<void>;
-
   getPendingApprovals(): Promise<PendingApprovalMetadata[]>;
   savePendingApproval(approval: PendingApprovalMetadata): Promise<void>;
   deletePendingApproval(id: string): Promise<void>;
@@ -157,8 +154,6 @@ export interface Database {
 
   getExtensionSettings(ownerId: string): Promise<ExtensionSettings | undefined>;
   getAuthoredExtensions(ownerId: string): Promise<AuthoredExtension[]>;
-  saveMachineJoinCode(code: MachineJoinCode): Promise<void>;
-  takeMachineJoinCode(hash: string): Promise<MachineJoinCode | undefined>;
   saveAuthoredExtension(extension: AuthoredExtension): Promise<void>;
   deleteAuthoredExtension(ownerId: string, id: string): Promise<void>;
   saveExtensionSettings(settings: ExtensionSettings): Promise<void>;

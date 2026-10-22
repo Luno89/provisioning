@@ -80,7 +80,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
 
       let executionTarget: { kind: 'k8s' } | { kind: 'local-device'; deviceId: string; path?: string; egress?: any[] } | undefined;
       if (executionTargetDeviceId) {
-        const owned = (await db.getLocalAgentDevices())
+        const owned = (await db.machines.getLocalAgentDevices())
           .find((d: any) => d.id === executionTargetDeviceId && d.ownerId === userOf(req).id);
         if (!owned) return res.status(400).json({ error: 'Unknown local execution device' });
 
@@ -144,7 +144,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
 
     if (executionTargetDeviceId !== undefined) {
       if (executionTargetDeviceId) {
-        const owned = (await db.getLocalAgentDevices())
+        const owned = (await db.machines.getLocalAgentDevices())
           .find((d: any) => d.id === executionTargetDeviceId && d.ownerId === userOf(req).id);
         if (!owned) return res.status(400).json({ error: 'Unknown local execution device' });
 

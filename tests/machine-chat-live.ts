@@ -55,7 +55,7 @@ async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
   closeDb = async () => { await db.close?.(); };
-  const owner = (await db.getLocalAgentDevices()).find((entry) => entry.id === deviceId)?.ownerId;
+  const owner = (await db.machines.getLocalAgentDevices()).find((entry) => entry.id === deviceId)?.ownerId;
   assert.ok(owner, `there is no machine ${deviceId}`);
   const user = await db.accounts.getUserById(owner);
   assert.ok(user, 'the machine\'s owner is gone');
