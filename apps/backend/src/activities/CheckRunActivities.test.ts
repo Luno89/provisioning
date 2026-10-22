@@ -82,7 +82,7 @@ describe('a check\'s space', () => {
     await activities().CheckCreateSpaceActivity({ spaceId: 'space-1', checkRunId: 'c1', person: 'bo', scenario: SCENARIO, trialPractice: 'p2', promptOverride: { agent: 'koala', prompt: 'proposed' } });
 
     expect(await db.accounts.getUserById('space-1')).toMatchObject({ email: 'space-1@checks.internal', space: { person: 'bo', checkRunId: 'c1', scenarioId: 'executor-does-one-task' } });
-    expect(await db.getBenchSettings('space-1')).toMatchObject({ enabled: false });
+    expect(await db.checks.getBenchSettings('space-1')).toMatchObject({ enabled: false });
     const personas = (await db.getEnginePersonas('space-1')).filter((persona) => persona.ownerId === 'space-1');
     expect(personas.map((persona) => [persona.slug, persona.prompt]).sort()).toEqual([['executor', 'mine']]);
     const memories = (await db.memory.getMemories('space-1')).filter((memory) => memory.ownerId === 'space-1');

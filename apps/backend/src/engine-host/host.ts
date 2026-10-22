@@ -621,14 +621,14 @@ export function storesFromDatabase(db: Database): EngineHostStores {
     proposals: {
       scenarioIds: async (ownerId: string) => [
         ...BUILT_IN_SCENARIOS.map((scenario) => scenario.id),
-        ...(await db.getEvalRecords<{ id: string; ownerId: string }>('evalScenarios', ownerId, 1000)).map((scenario) => scenario.id),
+        ...(await db.checks.getEvalRecords<{ id: string; ownerId: string }>('evalScenarios', ownerId, 1000)).map((scenario) => scenario.id),
       ],
-      list: (ownerId: string) => db.getEvalRecords('evalScenarioProposals', ownerId, 1000),
-      save: (proposal) => db.saveEvalRecord('evalScenarioProposals', proposal),
+      list: (ownerId: string) => db.checks.getEvalRecords('evalScenarioProposals', ownerId, 1000),
+      save: (proposal) => db.checks.saveEvalRecord('evalScenarioProposals', proposal),
     },
     agentChanges: {
-      list: (ownerId: string) => db.getEvalRecords('evalAgentChanges', ownerId, 1000),
-      save: (change) => db.saveEvalRecord('evalAgentChanges', change),
+      list: (ownerId: string) => db.checks.getEvalRecords('evalAgentChanges', ownerId, 1000),
+      save: (change) => db.checks.saveEvalRecord('evalAgentChanges', change),
     },
   };
 }

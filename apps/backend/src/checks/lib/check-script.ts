@@ -1,3 +1,12 @@
+export interface ScriptedRequestRecord {
+  ownerId: string;
+  at: string;
+  text: string;
+  tools: string[];
+  rule?: number | undefined;
+  miss?: string | undefined;
+}
+
 export interface ScriptWhen {
   offered?: string[] | undefined;
   called?: string[] | undefined;

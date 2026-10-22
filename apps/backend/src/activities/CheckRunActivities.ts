@@ -61,7 +61,9 @@ export interface CheckRunStore {
     getUserById(id: string): Promise<UserMetadata | undefined>;
     saveUser(user: UserMetadata): Promise<void>;
   };
-  saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void>;
+  checks: {
+    saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void>;
+  };
   getEnginePersonas(ownerId?: string): Promise<Persona[]>;
   saveEnginePersona(persona: never): Promise<void>;
   getToolGrants(ownerId: string): Promise<ToolGrant[]>;
@@ -223,7 +225,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       if (await store.accounts.getUserById(spaceId)) return spaceId;
       const stamp = now();
       await store.accounts.saveUser(spaceUser(spaceId, { person, checkRunId, scenarioId: scenario.id, ...(scenario.script ? { script: scenario.script } : {}) }, stamp));
-      await store.saveBenchSettings(spaceId, { enabled: false, idleMinutes: 15, fullEveryHours: 24 });
+      await store.checks.saveBenchSettings(spaceId, { enabled: false, idleMinutes: 15, fullEveryHours: 24 });
       if (scenario.script) {
         await store.models.saveModelEndpoint({
           id: scriptedEndpointId(spaceId),

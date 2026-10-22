@@ -13,10 +13,12 @@ import { compareWithEarlier, type PromptChange, type PromptComparison } from '..
 import { checksForNote, noteSubject } from '../../engine/lib/tool-notes.js';
 
 export interface BenchStore {
-  getBenchSettings(ownerId: string): Promise<BenchSettings | undefined>;
-  saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void>;
-  getBenchState(ownerId: string): Promise<BenchState | undefined>;
-  saveBenchState(state: BenchState): Promise<void>;
+  checks: {
+    getBenchSettings(ownerId: string): Promise<BenchSettings | undefined>;
+    saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void>;
+    getBenchState(ownerId: string): Promise<BenchState | undefined>;
+    saveBenchState(state: BenchState): Promise<void>;
+  };
   accounts: {
     getUserById(id: string): Promise<{ space?: unknown; removal?: unknown } | undefined>;
   };
@@ -66,7 +68,7 @@ export class BenchService {
   }
 
   async settings(ownerId: string): Promise<BenchSettings> {
-    return (await this.deps.store.getBenchSettings(ownerId)) ?? { ...DEFAULT_BENCH_SETTINGS };
+    return (await this.deps.store.checks.getBenchSettings(ownerId)) ?? { ...DEFAULT_BENCH_SETTINGS };
   }
 
   async saveSettings(ownerId: string, value: unknown): Promise<SaveBenchSettingsOutcome> {
@@ -74,13 +76,13 @@ export class BenchService {
     if (problems.length > 0) return { saved: false, problems };
     const { enabled, idleMinutes, fullEveryHours } = value as BenchSettings;
     const settings = { enabled, idleMinutes, fullEveryHours };
-    await this.deps.store.saveBenchSettings(ownerId, settings);
+    await this.deps.store.checks.saveBenchSettings(ownerId, settings);
     if (settings.enabled) await this.deps.idleTimer(ownerId, settings.idleMinutes * 60_000);
     return { saved: true, settings };
   }
 
   async state(ownerId: string): Promise<BenchState> {
-    return (await this.deps.store.getBenchState(ownerId)) ?? { ownerId, benched: {} };
+    return (await this.deps.store.checks.getBenchState(ownerId)) ?? { ownerId, benched: {} };
   }
 
   async activity(event: LifecycleEvent): Promise<void> {
@@ -142,7 +144,7 @@ export class BenchService {
 
     await this.deps.start(ownerId, plan);
     const ran = plan.trigger.kind === 'full' ? Object.keys(fingerprints) : plan.trigger.kind === 'changed' ? plan.trigger.agents : [];
-    await this.deps.store.saveBenchState({
+    await this.deps.store.checks.saveBenchState({
       ownerId,
       benched: { ...state.benched, ...Object.fromEntries(ran.filter((agent) => fingerprints[agent]).map((agent) => [agent, fingerprints[agent]!])) },
       lastFullAt: plan.trigger.kind === 'full' ? new Date(this.now()).toISOString() : state.lastFullAt,

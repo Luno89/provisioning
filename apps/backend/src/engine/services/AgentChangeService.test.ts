@@ -10,7 +10,7 @@ let handed: string[];
 let refuse: string[] | undefined;
 
 const changes = () => new AgentChangeService({
-  store: db,
+  store: db.checks,
   savePrompt: async (_ownerId, agent, prompt) => {
     if (refuse) return { saved: false, problems: refuse };
     savedPrompts.push([agent, prompt]);
@@ -32,24 +32,24 @@ beforeEach(async () => {
 
 describe('a proposed prompt change', () => {
   it('is accepted only once the bench has compared it, saving the agent with the new prompt — or the person\'s edit of it', async () => {
-    await db.saveEvalRecord('evalAgentChanges', prompt({ status: 'comparing' }));
+    await db.checks.saveEvalRecord('evalAgentChanges', prompt({ status: 'comparing' }));
     expect(await changes().accept('u1', 'c1')).toMatchObject({ accepted: false, status: 409 });
 
-    await db.saveEvalRecord('evalAgentChanges', prompt());
+    await db.checks.saveEvalRecord('evalAgentChanges', prompt());
     expect(await changes().accept('u1', 'c1', 'edited prompt')).toMatchObject({ accepted: true, change: { status: 'accepted', prompt: 'edited prompt' } });
     expect(savedPrompts).toEqual([['koala', 'edited prompt']]);
   });
 
   it('stays waiting when the agent cannot be saved with it, saying why', async () => {
-    await db.saveEvalRecord('evalAgentChanges', prompt());
+    await db.checks.saveEvalRecord('evalAgentChanges', prompt());
     refuse = ['the prompt is empty'];
     expect(await changes().accept('u1', 'c1')).toEqual({ accepted: false, status: 400, problems: ['the prompt is empty'] });
     expect((await changes().list('u1'))[0]!.status).toBe('ready');
   });
 
   it('only counts waiting ones as pending for the bench, and can be dismissed', async () => {
-    await db.saveEvalRecord('evalAgentChanges', prompt({ status: 'proposed' }));
-    await db.saveEvalRecord('evalAgentChanges', prompt({ id: 'c2', status: 'accepted' }));
+    await db.checks.saveEvalRecord('evalAgentChanges', prompt({ status: 'proposed' }));
+    await db.checks.saveEvalRecord('evalAgentChanges', prompt({ id: 'c2', status: 'accepted' }));
     expect((await changes().pending('u1')).map((change) => change.id)).toEqual(['c1']);
     expect(await changes().dismiss('u1', 'c1')).toBe(true);
     expect(await changes().dismiss('u1', 'c2')).toBe(false);
@@ -58,7 +58,7 @@ describe('a proposed prompt change', () => {
 
 describe('a procedure change request', () => {
   it('is handed to the agent builder with what should change and why, and remembers which conversation took it', async () => {
-    await db.saveEvalRecord('evalAgentChanges', request());
+    await db.checks.saveEvalRecord('evalAgentChanges', request());
 
     const outcome = await changes().handOver('u1', 'r1');
 

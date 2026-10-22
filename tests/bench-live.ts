@@ -67,7 +67,7 @@ async function main(): Promise<void> {
       const runnable = await host.registry.runnable(OWNER, name).catch(() => undefined);
       if (runnable) benched[name] = fingerprintOf({ agent: runnable.agent, procedure: runnable.procedure });
     }
-    await db.saveBenchState({ ownerId: OWNER, benched, lastFullAt: new Date().toISOString() });
+    await db.checks.saveBenchState({ ownerId: OWNER, benched, lastFullAt: new Date().toISOString() });
 
     console.log('[2/4] a new agent and its scenario; saving it starts the countdown, and the bench runs it');
     const savedAt = Date.now();
@@ -98,7 +98,7 @@ async function main(): Promise<void> {
     await http.delete(`/evals/level2/scenarios/${scenarioId}`).catch(() => undefined);
     await http.delete(`/agents/${slug}`).catch(() => undefined);
     await http.put('/evals/level2/bench', before.settings).catch(() => undefined);
-    await db.saveBenchState({ ownerId: OWNER, benched: before.state.benched, ...(before.state.lastFullAt ? { lastFullAt: before.state.lastFullAt } : {}) });
+    await db.checks.saveBenchState({ ownerId: OWNER, benched: before.state.benched, ...(before.state.lastFullAt ? { lastFullAt: before.state.lastFullAt } : {}) });
     await db.close();
   }
 }

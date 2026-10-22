@@ -1,5 +1,6 @@
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
 import { MongoHubStore } from '../../hub/store.js';
+import { MongoChecksStore } from '../../checks/store.js';
 import { MongoMemoryStore } from '../../memory/store.js';
 import { MongoModelsStore } from '../../models/store.js';
 import { MongoMonitoringStore } from '../../monitoring/store.js';
@@ -12,7 +13,6 @@ import { MongoInstancesStore } from '../../instances/store.js';
 import { MongoAccountsStore } from '../../accounts/store.js';
 import { MongoPlatformStore } from '../store.js';
 import { hintKey, type McpToolHint } from '../../engine/lib/mcp-tool-hints.js';
-import type { BenchSettings, BenchState } from '../../checks/lib/bench.js';
 import type { ExtensionSettings } from '../../engine/lib/extension-settings.js';
 import type { AutoModeSettings } from '../../engine/lib/auto-mode.js';
 import type { WorkFailure } from '../../infrastructure/lib/work-failures.js';
@@ -34,10 +34,8 @@ import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { PersonaRecord as EnginePersona, ToolDefinition as EngineTool, ToolGrant, GrantKind, WorkspaceDependency } from '@koala/agent-engine';
 import type { PublishedWorkspace } from '../../engine/lib/published-workspace.js';
 import type { McpServerRecord } from '../../engine/lib/mcp-servers.js';
-import { evalRecordKey, type EvalCollection, type EvalRecord } from '../../checks/lib/eval-run.js';
 import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
 import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
-import type { ScriptedRequestRecord } from './db-interface.js';
 
 export const databaseOf = (uri: string): string => {
   const name = uri.replace(/^mongodb(\+srv)?:\/\/[^/]+\/?/, '').split('?')[0]?.trim();
@@ -79,6 +77,7 @@ const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (ki
 export class MongoDB implements Database {
   constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {
     this.hub = new MongoHubStore(() => this.db!);
+    this.checks = new MongoChecksStore(() => this.db!);
     this.memory = new MongoMemoryStore(() => this.db!);
     this.models = new MongoModelsStore(() => this.db!);
     this.monitoring = new MongoMonitoringStore(() => this.db!);
@@ -94,6 +93,7 @@ export class MongoDB implements Database {
   private client: MongoClient | null = null;
   private db: Db | null = null;
   readonly hub: MongoHubStore;
+  readonly checks: MongoChecksStore;
   readonly memory: MongoMemoryStore;
   readonly models: MongoModelsStore;
   readonly monitoring: MongoMonitoringStore;
@@ -263,6 +263,7 @@ export class MongoDB implements Database {
     await this.monitoring.ensureIndexes();
     await this.models.ensureIndexes();
     await this.memory.ensureIndexes();
+    await this.checks.ensureIndexes();
   }
 
   async dropDatabase(): Promise<void> {
@@ -542,15 +543,6 @@ export class MongoDB implements Database {
     await this.pendingApprovals.deleteOne({ _id: id as any });
   }
 
-  async saveScriptedRequest(request: ScriptedRequestRecord): Promise<void> {
-    await this.db!.collection('scriptedRequests').insertOne({ ...request });
-  }
-
-  async getScriptedRequests(ownerId: string): Promise<ScriptedRequestRecord[]> {
-    const docs = await this.db!.collection('scriptedRequests').find({ ownerId }).sort({ at: 1, _id: 1 }).toArray();
-    return docs.map(({ _id, ...rest }) => rest as unknown as ScriptedRequestRecord);
-  }
-
   async findRunEffort(runId: string): Promise<RunEffort | undefined> {
     const doc = await this.runEffort.findOne({ _id: runId as never });
     if (!doc) return undefined;
@@ -777,28 +769,6 @@ export class MongoDB implements Database {
     await this.runEffort.replaceOne({ _id: effort.runId as any }, { ...effort }, { upsert: true });
   }
 
-  async getBenchSettings(ownerId: string): Promise<BenchSettings | undefined> {
-    const doc = await this.db!.collection('benchSettings').findOne({ _id: ownerId as any });
-    if (!doc) return undefined;
-    const { _id, ...settings } = doc;
-    return settings as unknown as BenchSettings;
-  }
-
-  async saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void> {
-    await this.db!.collection('benchSettings').replaceOne({ _id: ownerId as any }, { ...settings }, { upsert: true });
-  }
-
-  async getBenchState(ownerId: string): Promise<BenchState | undefined> {
-    const doc = await this.db!.collection('benchStates').findOne({ _id: ownerId as any });
-    if (!doc) return undefined;
-    const { _id, ...state } = doc;
-    return state as unknown as BenchState;
-  }
-
-  async saveBenchState(state: BenchState): Promise<void> {
-    await this.db!.collection('benchStates').replaceOne({ _id: state.ownerId as any }, { ...state }, { upsert: true });
-  }
-
   async getRunEffort(ownerId: string, procedureId: string, modelKey?: string): Promise<RunEffort[]> {
     const docs = await this.runEffort
       .find({ ownerId, procedureId, ...(modelKey ? { modelKey } : {}) })
@@ -873,31 +843,6 @@ export class MongoDB implements Database {
       const { _id, ...rest } = doc;
       return rest as unknown as EngineTool;
     });
-  }
-
-  async getEvalRecords<T extends EvalRecord>(collection: EvalCollection, ownerId: string, limit = 200): Promise<T[]> {
-    const docs = await this.db!.collection(collection).find({ ownerId }).sort({ startedAt: -1, _id: 1 }).limit(limit).toArray();
-    return docs.map(({ _id, ...rest }) => rest as unknown as T);
-  }
-
-  async getEvalRecordsInState<T extends EvalRecord>(collection: EvalCollection, state: string): Promise<T[]> {
-    const docs = await this.db!.collection(collection).find({ state }).toArray();
-    return docs.map(({ _id, ...rest }) => rest as unknown as T);
-  }
-
-  async getEvalRecord<T extends EvalRecord>(collection: EvalCollection, ownerId: string, id: string): Promise<T | null> {
-    const doc = await this.db!.collection(collection).findOne({ _id: evalRecordKey(ownerId, id) as any });
-    if (!doc) return null;
-    const { _id, ...rest } = doc;
-    return rest as unknown as T;
-  }
-
-  async saveEvalRecord<T extends EvalRecord>(collection: EvalCollection, record: T): Promise<void> {
-    await this.db!.collection(collection).replaceOne({ _id: evalRecordKey(record.ownerId, record.id) as any }, { ...record }, { upsert: true });
-  }
-
-  async deleteEvalRecord(collection: EvalCollection, ownerId: string, id: string): Promise<void> {
-    await this.db!.collection(collection).deleteOne({ _id: evalRecordKey(ownerId, id) as any });
   }
 
   async saveEngineTool(tool: EngineTool): Promise<void> {

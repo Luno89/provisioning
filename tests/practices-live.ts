@@ -71,7 +71,7 @@ async function main(): Promise<void> {
       const runnable = await host.registry.runnable(OWNER, name).catch(() => undefined);
       if (runnable) benched[name] = fingerprintOf({ agent: runnable.agent, procedure: runnable.procedure });
     }
-    await db.saveBenchState({ ownerId: OWNER, benched, lastFullAt: new Date().toISOString() });
+    await db.checks.saveBenchState({ ownerId: OWNER, benched, lastFullAt: new Date().toISOString() });
     await http.put(`/evals/level2/scenarios/${scenarioId}`, {
       id: scenarioId, name: 'Checks infrastructure before counting deployments', describe: 'It calls list_infrastructure before saying what is deployed.',
       agent: 'koala', procedure: { id: 'interactive-chat' }, input: { message: 'How many apps do I have deployed right now?' }, expect: { toolsCalled: ['list_infrastructure'] },
@@ -128,7 +128,7 @@ async function main(): Promise<void> {
     for (const id of conversations) await http.delete(`/conversations/${id}`).catch(() => undefined);
     await http.delete(`/evals/level2/scenarios/${scenarioId}`).catch(() => undefined);
     await http.put('/evals/level2/bench', before.settings).catch(() => undefined);
-    await db.saveBenchState({ ownerId: OWNER, benched: before.state.benched, ...(before.state.lastFullAt ? { lastFullAt: before.state.lastFullAt } : {}) });
+    await db.checks.saveBenchState({ ownerId: OWNER, benched: before.state.benched, ...(before.state.lastFullAt ? { lastFullAt: before.state.lastFullAt } : {}) });
     console.log(`  forgot ${await forgetWhatRunsLeft(db, OWNER, touched)} things the test's own runs left behind`);
     await db.close();
   }

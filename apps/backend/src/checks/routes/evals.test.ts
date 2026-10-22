@@ -32,7 +32,7 @@ const level2Harness = (): Promise<Harness> => mountRouter({
       tools: async () => [...BUILDER_TOOLS, ...ENGINE_TOOL_SEEDS],
       agents: async () => seededPersonas().map((agent) => agent.slug),
       procedures: async () => ['tool-rounds'],
-      store: db,
+      store: db.checks,
       builtIn: [SCENARIO],
       newId: () => 'run-2',
     }),
@@ -83,8 +83,8 @@ describe('level 2 eval routes', () => {
         id, ownerId: TEST_USER.id, status: 'proposed', why: 'it guessed', createdAt: `2026-10-03T12:00:0${id.length % 10}Z`,
         scenario: { id, name: 'Saves when asked', describe: 'It saves.', agent: 'agent-builder', procedure: { id: 'tool-rounds' }, input: { message: 'save it' }, expect: { outcome: 'ok' } },
       });
-      await harness.db.saveEvalRecord('evalScenarioProposals', proposal('agent-builder-saves') as never);
-      await harness.db.saveEvalRecord('evalScenarioProposals', proposal('agent-builder-other') as never);
+      await harness.db.checks.saveEvalRecord('evalScenarioProposals', proposal('agent-builder-saves') as never);
+      await harness.db.checks.saveEvalRecord('evalScenarioProposals', proposal('agent-builder-other') as never);
 
       expect((await axios.get(harness.url('/api/evals/level2/proposals'))).data.proposals.map((entry: { id: string }) => entry.id).sort()).toEqual(['agent-builder-other', 'agent-builder-saves']);
 
@@ -105,7 +105,7 @@ describe('level 2 eval routes', () => {
   it('refuses to accept a proposed test that does not check out, and keeps it waiting', async () => {
     const harness = await level2Harness();
     try {
-      await harness.db.saveEvalRecord('evalScenarioProposals', {
+      await harness.db.checks.saveEvalRecord('evalScenarioProposals', {
         id: 'broken', ownerId: TEST_USER.id, status: 'proposed', why: 'x', createdAt: 'now',
         scenario: { id: 'broken', name: 'Broken', describe: 'x', agent: 'nobody', procedure: { id: 'tool-rounds' }, input: { message: 'x' }, expect: { outcome: 'ok' } },
       } as never);

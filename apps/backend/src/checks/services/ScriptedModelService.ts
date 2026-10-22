@@ -1,8 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { decryptValue, type SecretKey } from '../../platform/lib/crypto.js';
-import { answerFrom, type ScriptAnswer, type ScriptMessage, type ScriptRequest } from '../lib/check-script.js';
+import { answerFrom, type ScriptAnswer, type ScriptMessage, type ScriptRequest, type ScriptedRequestRecord } from '../lib/check-script.js';
 import { scriptedEndpointId } from '../lib/check-space.js';
-import type { ScriptedRequestRecord } from '../../platform/lib/db-interface.js';
 import type { ModelEndpointMetadata, UserMetadata } from '../../platform/lib/types.js';
 
 export interface ScriptedModelStore {
@@ -16,8 +15,10 @@ export interface ScriptedModelStore {
     getTasks(ownerId?: string): Promise<{ id: string }[]>;
     getLeaves(): Promise<{ id: string; ownerId?: string | undefined }[]>;
   };
-  saveScriptedRequest(request: ScriptedRequestRecord): Promise<void>;
-  getScriptedRequests(ownerId: string): Promise<ScriptedRequestRecord[]>;
+  checks: {
+    saveScriptedRequest(request: ScriptedRequestRecord): Promise<void>;
+    getScriptedRequests(ownerId: string): Promise<ScriptedRequestRecord[]>;
+  };
 }
 
 export type ScriptedAnswer =
@@ -60,7 +61,7 @@ export class ScriptedModelService {
       leaves: leaves.filter((leaf) => leaf.ownerId === spaceId).map((leaf) => leaf.id),
       world: space.space!.world ?? {},
     });
-    await this.deps.store.saveScriptedRequest({
+    await this.deps.store.checks.saveScriptedRequest({
       ownerId: spaceId,
       at: this.deps.now?.() ?? new Date().toISOString(),
       text: textOf(request.messages),
@@ -75,6 +76,6 @@ export class ScriptedModelService {
   }
 
   async requests(spaceId: string): Promise<ScriptedRequestRecord[]> {
-    return this.deps.store.getScriptedRequests(spaceId);
+    return this.deps.store.checks.getScriptedRequests(spaceId);
   }
 }

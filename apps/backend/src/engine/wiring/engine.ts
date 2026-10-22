@@ -347,7 +347,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   const practiceService = new PracticeService({ store: db.memory });
   const toolNoteService = new PracticeService({ store: db.memory, category: 'tool_note' });
   const agentChanges = new AgentChangeService({
-    store: db,
+    store: db.checks,
     savePrompt: async (ownerId, slug, prompt) => {
       const current = await engineRegistry.agent(ownerId, slug);
       if (!current || !agentsHolder.service) return { saved: false, problems: [`there is no agent called "${slug}"`] };
@@ -373,7 +373,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     tools: (ownerId: string) => draftCatalogue.list(ownerId),
     agents: async (ownerId: string) => (await draftRegistry.agents(ownerId)).map((agent) => agent.slug),
     procedures: async (ownerId: string) => (await engineRegistry.procedures(ownerId)).map((procedure) => procedure.id),
-    store: db,
+    store: db.checks,
     onFinished: async (run) => { await bench.service?.finished(run); },
   });
 

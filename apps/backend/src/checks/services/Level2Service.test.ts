@@ -51,7 +51,7 @@ async function world(over: { builtIn?: Scenario[]; onFinished?: (run: Level2Run)
     tools: async () => [...BUILDER_TOOLS, ...ENGINE_TOOL_SEEDS],
     agents: async () => seededPersonas().map((agent) => agent.slug),
     procedures: async () => ['tool-rounds', 'research'],
-    store: db,
+    store: db.checks,
     builtIn: over.builtIn ?? [SCENARIO],
     newId: () => `run-${(ids += 1)}`,
     now: () => new Date(Date.parse('2026-10-03T12:00:00Z') + (ticks += 1) * 1000).toISOString(),
@@ -139,7 +139,7 @@ describe('Level 2 scenarios run as checks', () => {
 
   it('follows runs still going after the server restarts, rather than marking them interrupted', async () => {
     const { service, db, fake } = await world();
-    await db.saveEvalRecord('evalScenarioRuns', { id: 'old', ownerId: 'user-1', state: 'running', startedAt: '2026-10-03T00:00:00Z', scenarios: ['builder-saves'], finished: 0, results: [] });
+    await db.checks.saveEvalRecord('evalScenarioRuns', { id: 'old', ownerId: 'user-1', state: 'running', startedAt: '2026-10-03T00:00:00Z', scenarios: ['builder-saves'], finished: 0, results: [] });
 
     expect(await service.recover()).toBe(1);
     fake.finish('check-run-old', { cancelled: false, results: [result('builder-saves', true)] });
@@ -148,7 +148,7 @@ describe('Level 2 scenarios run as checks', () => {
 
   it('marks a run whose checks can no longer be found as interrupted', async () => {
     const { service, db, fake } = await world();
-    await db.saveEvalRecord('evalScenarioRuns', { id: 'lost', ownerId: 'user-1', state: 'running', startedAt: '2026-10-03T00:00:00Z', scenarios: ['builder-saves'], finished: 0, results: [] });
+    await db.checks.saveEvalRecord('evalScenarioRuns', { id: 'lost', ownerId: 'user-1', state: 'running', startedAt: '2026-10-03T00:00:00Z', scenarios: ['builder-saves'], finished: 0, results: [] });
     await service.recover();
     fake.finish('check-run-lost', { missing: true });
     expect(await settled(service, 'lost')).toMatchObject({ state: 'interrupted' });

@@ -547,7 +547,7 @@ async function buildActivities() {
       reported: (run, says, answer) => wasReported(createProcedureExecutor(host.services, { registry: host.registry }), { runId: run.runId, ownerId: run.spaceId, agent: run.agent, modelId: run.modelId }, says, answer),
       says: (run, means, answer, index) => itSays(createProcedureExecutor(host.services, { registry: host.registry }), { runId: run.runId, ownerId: run.spaceId, agent: run.agent, modelId: run.modelId }, means, answer, index),
     }),
-    ...createCheckProgressActivity(db as never),
+    ...createCheckProgressActivity(db.checks as never),
   };
 }
 

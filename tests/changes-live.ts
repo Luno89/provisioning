@@ -65,7 +65,7 @@ async function main(): Promise<void> {
       const runnable = await host.registry.runnable(OWNER, name).catch(() => undefined);
       if (runnable) benched[name] = fingerprintOf({ agent: runnable.agent, procedure: runnable.procedure });
     }
-    await db.saveBenchState({ ownerId: OWNER, benched, lastFullAt: new Date().toISOString() });
+    await db.checks.saveBenchState({ ownerId: OWNER, benched, lastFullAt: new Date().toISOString() });
     const baselineId = ((await http.post('/evals/level2/runs', { only: [scenarioId] })).data as Run).id;
     const baseline = await until('the baseline run', 20 * 60_000, async () => {
       const run = (await http.get(`/evals/level2/runs/${baselineId}`)).data as Run;
@@ -134,7 +134,7 @@ async function main(): Promise<void> {
     await http.delete(`/evals/level2/scenarios/${scenarioId}`).catch(() => undefined);
     await http.delete(`/agents/${slug}`).catch(() => undefined);
     await http.put('/evals/level2/bench', before.settings).catch(() => undefined);
-    await db.saveBenchState({ ownerId: OWNER, benched: before.state.benched, ...(before.state.lastFullAt ? { lastFullAt: before.state.lastFullAt } : {}) });
+    await db.checks.saveBenchState({ ownerId: OWNER, benched: before.state.benched, ...(before.state.lastFullAt ? { lastFullAt: before.state.lastFullAt } : {}) });
     console.log(`  forgot ${await forgetWhatRunsLeft(db, OWNER, touched)} things the test's own runs left behind`);
     await db.close();
   }

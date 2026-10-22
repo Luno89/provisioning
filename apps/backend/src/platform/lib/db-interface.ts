@@ -1,7 +1,6 @@
 import type { Conversation } from '../../engine/lib/conversations.js';
 import type { StoredAppSpec } from '../../infrastructure/lib/app-spec.js';
 import type { McpToolHint } from '../../engine/lib/mcp-tool-hints.js';
-import type { BenchSettings, BenchState } from '../../checks/lib/bench.js';
 import { MongoDB } from './mongo-db.js';
 import { mongoPayloadBlobs } from './mongo-payload-blobs.js';
 import { inMemoryPayloadBlobs, type PayloadBlobs } from './payload-storage.js';
@@ -9,6 +8,7 @@ import type { CorpusPage } from '../../engine/lib/corpus.js';
 import type { FrontierUrl, FrontierClaim } from './frontier.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import type { HubStore } from '../../hub/store.js';
+import type { ChecksStore } from '../../checks/store.js';
 import type { MemoryStore } from '../../memory/store.js';
 import type { ModelsStore } from '../../models/store.js';
 import type { MonitoringStore } from '../../monitoring/store.js';
@@ -31,7 +31,6 @@ import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { GrantKind, PersonaRecord as EnginePersona, ToolDefinition as EngineTool, ToolGrant, WorkspaceDependency } from '@koala/agent-engine';
 import type { PublishedWorkspace } from '../../engine/lib/published-workspace.js';
 import type { McpServerRecord } from '../../engine/lib/mcp-servers.js';
-import type { EvalCollection, EvalRecord } from '../../checks/lib/eval-run.js';
 import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
 import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, PendingApprovalMetadata } from './types.js';
@@ -47,17 +46,9 @@ export interface BindingTypeRecord {
   requiredKeys?: string[] | undefined;
 }
 
-export interface ScriptedRequestRecord {
-  ownerId: string;
-  at: string;
-  text: string;
-  tools: string[];
-  rule?: number | undefined;
-  miss?: string | undefined;
-}
-
 export interface Database {
   hub: HubStore;
+  checks: ChecksStore;
   memory: MemoryStore;
   models: ModelsStore;
   monitoring: MonitoringStore;
@@ -84,8 +75,6 @@ export interface Database {
   saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata>;
 
   findRunEffort(runId: string): Promise<RunEffort | undefined>;
-  saveScriptedRequest(request: ScriptedRequestRecord): Promise<void>;
-  getScriptedRequests(ownerId: string): Promise<ScriptedRequestRecord[]>;
   reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number>;
 
   getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]>;
@@ -128,10 +117,6 @@ export interface Database {
   getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined>;
   saveMcpRequest(request: McpRequest): Promise<void>;
   getMcpToolHints(ownerId: string): Promise<McpToolHint[]>;
-  getBenchSettings(ownerId: string): Promise<BenchSettings | undefined>;
-  saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void>;
-  getBenchState(ownerId: string): Promise<BenchState | undefined>;
-  saveBenchState(state: BenchState): Promise<void>;
   deleteMcpToolHint(ownerId: string, server: string, tool: string): Promise<void>;
 
   getActionProposals(ownerId: string, filter?: { conversationId?: string | undefined; treeId?: string | undefined }): Promise<ActionProposal[]>;
@@ -197,12 +182,6 @@ export interface Database {
   getEngineTools(ownerId?: string): Promise<EngineTool[]>;
   saveEngineTool(tool: EngineTool): Promise<void>;
   deleteEngineTool(ownerId: string | undefined, name: string): Promise<void>;
-
-  getEvalRecords<T extends EvalRecord>(collection: EvalCollection, ownerId: string, limit?: number): Promise<T[]>;
-  getEvalRecordsInState<T extends EvalRecord>(collection: EvalCollection, state: string): Promise<T[]>;
-  getEvalRecord<T extends EvalRecord>(collection: EvalCollection, ownerId: string, id: string): Promise<T | null>;
-  saveEvalRecord<T extends EvalRecord>(collection: EvalCollection, record: T): Promise<void>;
-  deleteEvalRecord(collection: EvalCollection, ownerId: string, id: string): Promise<void>;
 
   getBindingTypes(): Promise<BindingTypeRecord[]>;
   saveBindingType(record: BindingTypeRecord): Promise<void>;
