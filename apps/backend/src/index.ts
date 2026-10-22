@@ -18,8 +18,6 @@ import { Server as SocketServer } from 'socket.io';
 
 import { treeTypesRouter } from './routes/tree-types.js';
 import { bindingTypesRouter } from './routes/binding-types.js';
-import { treesRouter } from './routes/trees.js';
-import { plansRouter } from './routes/plans.js';
 import { secretRequestsRouter } from './routes/secret-requests.js';
 import { mcpRouter } from './routes/mcp.js';
 import { actionsRouter } from './routes/actions.js';
@@ -29,15 +27,9 @@ import { AccessService } from './services/AccessService.js';
 import { EgressService } from './services/EgressService.js';
 import { EgressProxyService } from './services/EgressProxyService.js';
 import { ActionService } from './services/ActionService.js';
-import { GroveOrderService } from './services/GroveOrderService.js';
 import { AutoModeService } from './services/AutoModeService.js';
 import { McpService } from './services/McpService.js';
 import { SecretRequestService } from './services/SecretRequestService.js';
-import { PlanService } from './services/PlanService.js';
-import { GroveRunService } from './services/GroveRunService.js';
-import { GroveDeletionService } from './services/GroveDeletionService.js';
-import { branchesRouter } from './routes/branches.js';
-import { leavesRouter } from './routes/leaves.js';
 import { memoriesRouter } from './routes/memories.js';
 import { authRouter } from './routes/auth.js';
 import { conversationsRouter } from './routes/conversations.js';
@@ -54,6 +46,7 @@ import { wireInfrastructure } from './wiring/infrastructure.js';
 import { wireAccounts } from './wiring/accounts.js';
 import { hubInstanceWork, wireHub } from './wiring/hub.js';
 import { InstanceSide, wireInstances, wireMoveExport } from './wiring/instances.js';
+import { projectsCore, wireProjects } from './wiring/projects.js';
 import { proceduresRouter } from './routes/procedures.js';
 import { ProcedureService } from './services/ProcedureService.js';
 import { createProcedureStore, stepNeedsReader } from './engine-host/registries/procedure-store.js';
@@ -67,12 +60,12 @@ import { evalsLevel2Router } from './routes/evals-level2.js';
 import { buildWebTools } from './wiring/web-tools.js';
 import { Level2Service, temporalCheckRunner } from './services/Level2Service.js';
 import { createStoredToolCatalogue, createEngineHost, storesFromDatabase, createStoredAgentRegistry, directoryFromDatabase, createEndpointResolver, createRunStarter, startStreamWorker } from './engine-host/index.js';
-import { notifyGroveChanged, userRoom } from './engine-host/temporal/stream-worker.js';
-import { createWorkspaceRepoResolver, treeWorkspaceRunId } from './engine-host/sandboxes/workspace-repos.js';
+import { userRoom } from './engine-host/temporal/stream-worker.js';
+import { createWorkspaceRepoResolver } from './engine-host/sandboxes/workspace-repos.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
 import { labelValue } from './engine-host/sandboxes/workspace.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
-import { runAskingVia, runCancelledVia, runWaitingVia } from './engine-host/temporal/run-cancellation.js';
+import { runCancelledVia, runWaitingVia } from './engine-host/temporal/run-cancellation.js';
 import { getTemporalClient, resolveOwnersWith } from './lib/temporal-client.js';
 import { PayloadStorageService } from './services/PayloadStorageService.js';
 import { MemoryKeeperService } from './services/MemoryKeeperService.js';
@@ -84,7 +77,6 @@ import { randomUUID } from 'node:crypto';
 import { AgentChangeService } from './services/AgentChangeService.js';
 import { fingerprintOf } from './lib/bench.js';
 import { createAuth } from './middleware/auth.js';
-import { projectsRouter } from './routes/projects.js';
 import { startedFor } from './lib/workflow-owner.js';
 import { keepTrying } from './lib/keep-trying.js';
 import { mongoTarget } from './lib/mongo-db.js';
@@ -118,7 +110,6 @@ import { AuthService } from './services/AuthService.js';
 import { CredentialService } from './services/CredentialService.js';
 import { GiteaService } from './services/GiteaService.js';
 import { InfisicalService } from './services/InfisicalService.js';
-import { ProjectRepoService } from './services/ProjectRepoService.js';
 import { WorkspaceConclusionService } from './services/WorkspaceConclusionService.js';
 import { ConversationTurnService } from './services/ConversationTurnService.js';
 import { turnsRouter } from './routes/turns.js';
@@ -133,8 +124,7 @@ import { hostedMcpUrl } from './lib/mcp-hosted-url.js';
 import { MCP_SERVER_TEMPLATES } from './extensions/mcp/templates.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
 import { seedAll } from './scripts/seed-all.js';
-import { createGroveLauncher } from './engine-host/grove-launcher.js';
-import { groveAgentOf, resolveTreeType, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, renderStarterFiles, versionVars } from './lib/tree-types.js';
+import { treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom } from './lib/tree-types.js';
 import { RunningService } from './services/RunningService.js';
 import { ownedQuery, ownerIn } from './lib/workflow-owner.js';
 import { DEFAULT_BENCH_SETTINGS } from './lib/bench.js';
@@ -144,27 +134,12 @@ import { InfrastructureViewService } from './services/InfrastructureViewService.
 import { ClusterContentsService } from './services/ClusterContentsService.js';
 import { WorkFailureService, type ClosedWorkflow } from './services/WorkFailureService.js';
 import type { RunningRecords, RunningWorkflow } from './lib/running.js';
-import { TreeHomeService } from './services/TreeHomeService.js';
-import { TreeModelsService, treeAgentsFrom } from './services/TreeModelsService.js';
 import { restoringApp } from './lib/release-run.js';
-import { platformGroups } from './extensions/installed.js';
-import { projectSecretsFor } from './services/ProjectSecretsService.js';
-import { ConversationNoticeService } from './services/ConversationNoticeService.js';
 import { WorkspaceBuildService } from './services/WorkspaceBuildService.js';
-import { TreeWorkspaceService } from './services/TreeWorkspaceService.js';
-import { BUILD_WORKSPACE } from './extensions/workspace/procedures.js';
-import { ProjectChannelService } from './services/ProjectChannelService.js';
-import { projectChannelRouter } from './routes/project-channel.js';
-import { itemChatsRouter } from './routes/item-chats.js';
-import { ItemChatService } from './services/ItemChatService.js';
-import { grovedTree, secretNotice, treeNotices, postedNotice } from './lib/notices.js';
+import { grovedTree, treeNotices, postedNotice } from './lib/notices.js';
 import { TreeTypeDescriptions } from './services/TreeTypeDescriptions.js';
 import { WorkspaceImageService } from './services/WorkspaceImageService.js';
-import { webhookAddress } from './services/webhook-address.js';
 import { endpointRulesFromEnv } from './lib/endpoint-url-safety.js';
-import { temporalRemovalWorkflows } from './services/AccountRemovalService.js';
-import { ProjectRemovalService } from './services/ProjectRemovalService.js';
-import { PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from './lib/project-removal.js';
 import { checksRouter } from './routes/checks.js';
 import { ScriptedModelService } from './services/ScriptedModelService.js';
 import { extensionServiceFor } from './services/ExtensionService.js';
@@ -270,48 +245,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     undefined,
     clusterProxyService,
   );
-  const projectRepoService = new ProjectRepoService(db, giteaService, keys.data, webhookAddress(infraService, '/tmp/kubeconfig-provisioning-lunorica', process.env.PORT || 3001));
-  const channels = new ProjectChannelService({
-    conversation: (ownerId, id) => db.getConversation(ownerId, id),
-    save: (conversation) => db.saveConversation(conversation),
-    bind: (ownerId, conversationId, binding) => db.bindConversation(ownerId, conversationId, binding),
-    trees: () => db.getTrees(),
-    saveProjectInfo: (project) => db.saveProjectInfo(project),
-  });
-  const itemChats = new ItemChatService({
-    leaves: () => db.getLeaves(),
-    branches: () => db.getBranches(),
-    trees: () => db.getTrees(),
-    conversation: (ownerId, id) => db.getConversation(ownerId, id),
-    save: (conversation) => db.saveConversation(conversation),
-  });
-  const notices = new ConversationNoticeService({
-    conversations: () => db.getConversations(),
-    append: (ownerId, conversationId, message) => db.appendNotice(ownerId, conversationId, message),
-    told: (ownerId, conversationId) => { io.to(`user:${ownerId}`).emit('conversation-notice', { conversationId }); },
-    channelOf: async (ownerId, projectId) => {
-      const project = (await db.getProjects()).find((entry) => entry.id === projectId && entry.ownerId === ownerId);
-      return project ? (await channels.ensure(project))?.id : undefined;
-    },
-    itemChatOf: async (ownerId, item) => (await itemChats.ensure(ownerId, item))?.id,
-  });
-  const postNotice = (what: string, posting: Promise<unknown>) => { posting.catch((err: Error) => console.warn(`[notices] ${what}: ${err.message}`)); };
-  const projectSecrets = projectSecretsFor({
-    db,
-    backend: infisicalService,
-    readToken: async (ownerId) => (await projectRepoService.mintReadToken(ownerId)).token,
-    asked: (request) => { if (request.projectId) postNotice('a secret was asked for', notices.post(request.ownerId, { projectId: request.projectId, treeId: request.treeId }, secretNotice({ ...request, projectId: request.projectId }))); },
-  });
-  const treeHome = new TreeHomeService({
-    treeTypes: (ownerId) => db.getTreeTypes(ownerId),
-    projects: () => db.getProjects(),
-    createProject: (ownerId, project) => projectRepoService.createProject(ownerId, project),
-    starter: async (type, tree) => renderStarterFiles(type.files, { projectName: tree.name, registryHost: await giteaService.getRegistryHost(), ...versionVars(type, tree) }),
-    saveTree: (tree) => db.saveTree(tree),
-    secrets: projectSecrets,
-    channel: (project) => channels.ensure(project),
-    saveNeeds: (project, needs) => db.saveProjectInfo({ id: project.id, needs }),
-  });
+  const core = projectsCore({ db, io, env: process.env, dataKey: keys.data, gitea: giteaService, infra: infraService, infisical: infisicalService, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica' });
+  const { projectRepoService, channels, itemChats, notices, postNotice, projectSecrets } = core;
   const headscaleService = new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080');
   const machineService = new MachineService({
     store: db,
@@ -837,20 +772,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
 
 
-  const projectRemoval = new ProjectRemovalService({
-    store: db,
-    hub: {
-      shared: async (projectId) => (hub.sharingService ? hub.sharingService.shared(projectId) : false),
-      takeBack: async (ownerId, projectId) => { await hub.sharingService?.takeBackForDeletion(ownerId, projectId); },
-    },
-    workflows: temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => temporalBridge.client, process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE, PROJECT_REMOVAL_PROGRESS_QUERY),
-  });
-  tenant.use('/api/projects', projectsRouter({
-    db, projectRepoService, appService, temporalBridge, getOwnedProject,
-    giteaService, clusterService, infraService, dataKey: keys.data, removal: projectRemoval, channels,
-  }));
-  tenant.use('/api/items', itemChatsRouter({ items: itemChats }));
-  tenant.use('/api/projects', projectChannelRouter({ channels, conversations: async (ownerId) => (await db.getConversations()).filter((conversation) => conversation.ownerId === ownerId), getOwnedProject }));
   const files = wireFiles({ tenant, db, reach: artifactStore.reach, temporalBridge, projectRepos: projectRepoService, gitea: giteaService, getOwnedProject });
   const releases = wireReleases({
     tenant, db, io, gitea: giteaService, infra: infraService, clusters: clusterService, projectRepos: projectRepoService, temporalBridge,
@@ -1177,41 +1098,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   tenant.use('/api/tree-types', treeTypesRouter({ db, agents: async (ownerId: string) => (await engineRegistry.agents(ownerId)).map((agent) => agent.slug), describe: (ownerId, typeId) => treeTypeDescriptions.describe(ownerId, typeId), releaseProblem: (ownerId, how) => releaseSettings.problem(ownerId, how) }));
   tenant.use('/api/binding-types', bindingTypesRouter({ db }));
-  const treeModels = new TreeModelsService({ store: db, models: modelService, agentOf: treeAgentsFrom(engineRegistry), machines: (ownerId) => machineService.list(ownerId), groups: platformGroups });
-  const groveRuns = new GroveRunService({
-    store: db,
-    asking: runAskingVia(() => getTemporalClient()),
-    ...(evalHost.checkNeeds ? { checkNeeds: evalHost.checkNeeds } : {}),
-    launcher: createGroveLauncher({
-      hidden: (ownerId: string) => extensions.hidden(ownerId),
-      runs: engineRuns,
-      client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined),
-      agentFor: async (ownerId: string, treeId: string) => {
-        const tree = (await db.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
-        return groveAgentOf(await resolveTreeType(db, ownerId, tree?.type));
-      },
-      leafRun: async (leafId: string) => (await db.getLeaves()).find((leaf) => leaf.id === leafId)?.runId,
-      modelFor: (ownerId, treeId, agentSlug) => treeModels.modelFor(ownerId, treeId, agentSlug),
-    }),
+  const { treeModels, groveRuns, groveOrder, planService } = wireProjects({
+    tenant, db, io, env: process.env, dataKey: keys.data, core, gitea: giteaService, infra: infraService, clusters: clusterService, apps: appService,
+    temporalBridge, models: modelService, machines: machineService, registry: engineRegistry, runs: engineRuns, extensions, evalHost,
+    workspaceBuilds, workspaceConclusions, workspaceRepos, concluded, sharing: () => hub.sharingService, getOwnedProject,
   });
-  const treeConclusions = { release: (treeId: string, ownerId: string) => workspaceConclusions.conclude(ownerId, { kind: 'tree', id: treeId }) };
-  const groveDeletion = new GroveDeletionService({
-    store: db,
-    workflows: { stop: (workflowId, reason) => temporalBridge.stopIfRunning(workflowId, reason) },
-    workspaces: treeConclusions,
-  });
-  const groveOrder = new GroveOrderService({ store: db });
   tenant.use('/api/auto-mode', autoModeRouter({
     autoMode: autoModeService,
   }));
-  const treeWorkspace = evalHost.treeWorkspaceFiles ? new TreeWorkspaceService({
-    trees: () => db.getTrees(),
-    files: evalHost.treeWorkspaceFiles.files,
-    compose: evalHost.treeWorkspaceFiles.compose,
-    published: (ownerId, treeId) => db.getPublishedWorkspace(ownerId, treeId),
-    builds: (ownerId) => db.getRunEffort(ownerId, BUILD_WORKSPACE.id),
-    startBuild: (ownerId, treeId, commit) => workspaceBuilds.start(ownerId, treeId, commit),
-  }) : undefined;
   const waitingOf = runWaitingVia(() => getTemporalClient());
   const running = new RunningService({
     workflows: {
@@ -1259,29 +1153,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     infrastructure: new InfrastructureViewService({ monitoring, contents: clusterContents, running, failures: workFailures }),
   }));
   if (servesTenants(role)) workFailures.start();
-  tenant.use('/api/trees', treesRouter({
-    db,
-    ...(treeWorkspace ? { workspaceFile: treeWorkspace } : {}),
-    order: groveOrder,
-    home: treeHome,
-    workspaces: { state: (treeId) => evalHost.treeWorkspaces.state(treeId), ...treeConclusions },
-    runs: groveRuns,
-    models: treeModels,
-    changed: notifyGroveChanged(io),
-    deletion: groveDeletion,
-    landings: {
-      pullRequests: async (ownerId, treeId) => {
-        const repo = await workspaceRepos(treeWorkspaceRunId(treeId));
-        const account = await db.getGiteaAccount(ownerId);
-        if (!repo || !account) return [];
-        return (await giteaService.findRepo(account.username, repo.repo)) ? giteaService.pullRequests(account.username, repo.repo) : [];
-      },
-    },
-  }));
-  const planService = new PlanService({ store: db, adopter: temporalBridge, onSettled: concluded, stories: async (ownerId) => (await db.getLeaves()).filter((leaf) => leaf.ownerId === ownerId).map((leaf) => ({ id: leaf.id, title: leaf.title, status: leaf.status })) });
-  tenant.use('/api/plans', plansRouter({ plans: planService }));
   tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault: infisicalService }) }));
-  tenant.use('/api/branches', branchesRouter({ db, deletion: groveDeletion, order: groveOrder }));
   if (hub.reaches) {
     hub.setWork(hubInstanceWork({
       db, releases: odooReleases, treeRuns: groveRuns, plans: planService, order: groveOrder, accepted: evalHost.acceptedNeeds,
@@ -1336,8 +1208,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   if (process.env.NODE_ENV !== 'test') {
     egressService.syncProxy().catch((err: Error) => console.warn(`[egress] could not sync the proxy's grants: ${err.message}`));
   }
-
-  tenant.use('/api/leaves', leavesRouter({ db, runs: groveRuns, deletion: groveDeletion }));
 
   if (process.env.NODE_ENV !== 'test') {
     appExposureService.syncExposedApps().catch((e) => {
