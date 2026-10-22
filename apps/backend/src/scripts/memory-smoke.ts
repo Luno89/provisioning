@@ -17,7 +17,7 @@ async function main(): Promise<void> {
   await db.init();
 
   try {
-    const all = await db.getMemories();
+    const all = await db.memory.getMemories();
     const owners = [...new Set(all.map((m) => m.ownerId))];
     console.log(`\nBank: ${all.length} memories across ${owners.length} owner(s).`);
     console.log(`  active: ${all.filter((m) => m.status !== 'pending_review' && !m.invalidAt).length}`

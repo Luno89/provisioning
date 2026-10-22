@@ -36,7 +36,7 @@ const level2Harness = (): Promise<Harness> => mountRouter({
       builtIn: [SCENARIO],
       newId: () => 'run-2',
     }),
-    notes: new PracticeService({ store: db, category: 'tool_note' }),
+    notes: new PracticeService({ store: db.memory, category: 'tool_note' }),
     bench: new BenchService({
       store: db,
       scenarios: async () => [],
@@ -60,7 +60,7 @@ describe('level 2 eval routes', () => {
   it('lists the person\'s tool notes, makes one held for them live, and retires one', async () => {
     const harness = await level2Harness();
     try {
-      const note = (id: string, status: 'pending_review' | 'active') => harness.db.saveMemory({ id, ownerId: TEST_USER.id, category: 'tool_note', tool: 'start_task', status, title: id, text: id, createdAt: 'a', updatedAt: id });
+      const note = (id: string, status: 'pending_review' | 'active') => harness.db.memory.saveMemory({ id, ownerId: TEST_USER.id, category: 'tool_note', tool: 'start_task', status, title: id, text: id, createdAt: 'a', updatedAt: id });
       await note('held', 'pending_review');
       await note('live', 'active');
 

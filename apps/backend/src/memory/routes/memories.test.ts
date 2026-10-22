@@ -25,11 +25,11 @@ describe('/api/memories', () => {
 
     const everyone = await axios.put(harness.url(`/api/memories/${made.data.id}`), { model: null });
     expect(everyone.data).not.toHaveProperty('model');
-    expect((await harness.db.getMemories(TEST_USER.id))[0]).not.toHaveProperty('model');
+    expect((await harness.db.memory.getMemories(TEST_USER.id))[0]).not.toHaveProperty('model');
   });
 
   it('lists memories without the notes learned about tools, which live on the tools\' pages', async () => {
-    await harness.db.saveMemory({ id: 'n1', ownerId: TEST_USER.id, category: 'tool_note', tool: 'start_task', status: 'active', title: 'Claim', text: 'Claim first.', createdAt: 'a', updatedAt: 'a' });
+    await harness.db.memory.saveMemory({ id: 'n1', ownerId: TEST_USER.id, category: 'tool_note', tool: 'start_task', status: 'active', title: 'Claim', text: 'Claim first.', createdAt: 'a', updatedAt: 'a' });
     await axios.post(harness.url('/api/memories'), { category: 'lessons_learned', title: 'Kept', text: 'A lesson.', scope: 'global' });
     expect((await axios.get(harness.url('/api/memories'))).data.map((memory: { title: string }) => memory.title)).toEqual(['Kept']);
   });

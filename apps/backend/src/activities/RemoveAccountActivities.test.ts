@@ -23,9 +23,9 @@ const seed = async (ownerId: string) => {
   await db.accounts.saveUser({ id: ownerId, email: `${ownerId}@example.com`, twoFactorEnabled: false, emailVerified: true, createdAt: 'then' });
   await db.saveConversation({ id: `${ownerId}-c1`, ownerId, title: 'chat', messages: [], liveTurn: { runId: 'run-live', startedAt: 'then' }, createdAt: 'then', updatedAt: 'then' } as never);
   await db.projects.saveTree({ id: `${ownerId}-t1`, ownerId, name: 'tree', projectIds: [], createdAt: 'then', updatedAt: 'then' } as never);
-  await db.saveMemory({ id: `${ownerId}-m1`, ownerId, title: 'm', text: 't', createdAt: 'then', updatedAt: 'then' } as never);
+  await db.memory.saveMemory({ id: `${ownerId}-m1`, ownerId, title: 'm', text: 't', createdAt: 'then', updatedAt: 'then' } as never);
   await db.projects.saveGiteaAccount({ ownerId, username: `koala-${ownerId}`, passwordEnc: 'x', createdAt: 'then' });
-  await db.saveMemoryWatermark(`conversation:${ownerId}-c1`, '4');
+  await db.memory.saveMemoryWatermark(`conversation:${ownerId}-c1`, '4');
 };
 
 beforeEach(async () => {
@@ -88,12 +88,12 @@ describe('the steps that remove an account', () => {
     expect(removed).toMatchObject({ conversations: 1, trees: 1, memories: 1, giteaAccounts: 1, memoryWatermarks: 1, users: 1 });
     expect(await db.accounts.getUserById('bo')).toBeUndefined();
     expect(await db.getConversation('bo', 'bo-c1')).toBeUndefined();
-    expect(await db.getMemoryWatermark('conversation:bo-c1')).toBeUndefined();
+    expect(await db.memory.getMemoryWatermark('conversation:bo-c1')).toBeUndefined();
     expect(await db.accounts.getUserById('ana')).toBeDefined();
     expect(await db.getConversation('ana', 'ana-c1')).toBeDefined();
     expect((await db.projects.getTrees()).map((tree) => tree.id)).toEqual(['ana-t1']);
     expect(await db.projects.getGiteaAccount('ana')).not.toBeNull();
-    expect(await db.getMemoryWatermark('conversation:ana-c1')).toBe('4');
+    expect(await db.memory.getMemoryWatermark('conversation:ana-c1')).toBe('4');
   });
 
   it('can run again after it has finished, finding nothing left', async () => {

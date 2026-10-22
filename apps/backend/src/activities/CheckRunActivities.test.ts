@@ -75,9 +75,9 @@ describe('a check\'s space', () => {
   it('starts with the person\'s own agents and live practices, a practice on trial, a changed prompt, and the scenario\'s world', async () => {
     await db.saveEnginePersona({ slug: 'executor', ownerId: 'bo', prompt: 'mine', name: 'Executor' } as never);
     await db.saveEnginePersona({ slug: 'judge', ownerId: 'cy', prompt: 'not mine', name: 'Judge' } as never);
-    await db.saveMemory({ id: 'p1', ownerId: 'bo', title: 'p1', text: 'live', category: 'practice', status: 'active', createdAt: '', updatedAt: '' });
-    await db.saveMemory({ id: 'p2', ownerId: 'bo', title: 'p2', text: 'on trial', category: 'practice', status: 'trial', createdAt: '', updatedAt: '' });
-    await db.saveMemory({ id: 'm1', ownerId: 'bo', title: 'private', text: 'not copied', category: 'lessons_learned', createdAt: '', updatedAt: '' });
+    await db.memory.saveMemory({ id: 'p1', ownerId: 'bo', title: 'p1', text: 'live', category: 'practice', status: 'active', createdAt: '', updatedAt: '' });
+    await db.memory.saveMemory({ id: 'p2', ownerId: 'bo', title: 'p2', text: 'on trial', category: 'practice', status: 'trial', createdAt: '', updatedAt: '' });
+    await db.memory.saveMemory({ id: 'm1', ownerId: 'bo', title: 'private', text: 'not copied', category: 'lessons_learned', createdAt: '', updatedAt: '' });
 
     await activities().CheckCreateSpaceActivity({ spaceId: 'space-1', checkRunId: 'c1', person: 'bo', scenario: SCENARIO, trialPractice: 'p2', promptOverride: { agent: 'koala', prompt: 'proposed' } });
 
@@ -85,7 +85,7 @@ describe('a check\'s space', () => {
     expect(await db.getBenchSettings('space-1')).toMatchObject({ enabled: false });
     const personas = (await db.getEnginePersonas('space-1')).filter((persona) => persona.ownerId === 'space-1');
     expect(personas.map((persona) => [persona.slug, persona.prompt]).sort()).toEqual([['executor', 'mine']]);
-    const memories = (await db.getMemories('space-1')).filter((memory) => memory.ownerId === 'space-1');
+    const memories = (await db.memory.getMemories('space-1')).filter((memory) => memory.ownerId === 'space-1');
     expect(memories.map((memory) => memory.text).sort()).toEqual(['Say hello, not hi.', 'live', 'on trial']);
     expect((await db.projects.getTasks('space-1')).map((task) => [task.id, task.status])).toEqual([['write-greeting', 'accepted']]);
     expect((await db.getProcedures('space-1')).some((procedure) => procedure.id === 'tidy' && procedure.ownerId === 'space-1')).toBe(true);
@@ -107,7 +107,7 @@ describe('a check\'s space', () => {
     const steps = activities();
     await steps.CheckCreateSpaceActivity({ spaceId: 'space-1', checkRunId: 'c1', person: 'bo', scenario: SCENARIO });
     await steps.CheckCreateSpaceActivity({ spaceId: 'space-1', checkRunId: 'c1', person: 'bo', scenario: SCENARIO });
-    expect((await db.getMemories('space-1')).filter((memory) => memory.ownerId === 'space-1')).toHaveLength(1);
+    expect((await db.memory.getMemories('space-1')).filter((memory) => memory.ownerId === 'space-1')).toHaveLength(1);
   });
 });
 

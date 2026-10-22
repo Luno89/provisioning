@@ -207,8 +207,10 @@ describe('a whole pass', () => {
       store,
       deps: {
         db: {
-          getMemories: async (ownerId?: string) => [...store.values()].filter((m) => !ownerId || m.ownerId === ownerId),
-          saveMemory: async (m: MemoryItem) => { store.set(m.id, m); },
+          memory: {
+            getMemories: async (ownerId?: string) => [...store.values()].filter((m) => !ownerId || m.ownerId === ownerId),
+            saveMemory: async (m: MemoryItem) => { store.set(m.id, m); },
+          },
           projects: {
             getLeaves: async () => leaves,
           },

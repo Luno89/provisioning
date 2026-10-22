@@ -25,7 +25,7 @@ export function memoriesRouter(deps: MemoriesRouterDeps): Router {
 
   router.get('/', asyncRoute(async (req, res) => {
     const ownerId = userOf(req).id;
-    const memories = await db.getMemories(ownerId);
+    const memories = await db.memory.getMemories(ownerId);
     res.json(memories.filter((memory) => !isToolNote(memory)));
   }));
 
@@ -58,39 +58,39 @@ export function memoriesRouter(deps: MemoriesRouterDeps): Router {
     const unreachable = unreachableMemory(item);
     if (unreachable) return res.status(400).json({ error: unreachable });
 
-    await db.saveMemory(item);
+    await db.memory.saveMemory(item);
     res.status(201).json(item);
   }));
 
   router.put('/:id/approve', asyncRoute(async (req, res) => {
     const ownerId = userOf(req).id;
-    const existing = (await db.getMemories(ownerId)).find((m) => m.id === idOf(req));
+    const existing = (await db.memory.getMemories(ownerId)).find((m) => m.id === idOf(req));
     if (!existing) return res.status(404).json({ error: 'No such memory item' });
     const updated: MemoryItem = {
       ...existing,
       status: 'active',
       updatedAt: new Date().toISOString(),
     };
-    await db.saveMemory(updated);
+    await db.memory.saveMemory(updated);
     res.json(updated);
   }));
 
   router.put('/:id/promote', asyncRoute(async (req, res) => {
     const ownerId = userOf(req).id;
-    const existing = (await db.getMemories(ownerId)).find((m) => m.id === idOf(req));
+    const existing = (await db.memory.getMemories(ownerId)).find((m) => m.id === idOf(req));
     if (!existing) return res.status(404).json({ error: 'No such memory item' });
     const updated: MemoryItem = {
       ...existing,
       scope: 'global',
       updatedAt: new Date().toISOString(),
     };
-    await db.saveMemory(updated);
+    await db.memory.saveMemory(updated);
     res.json(updated);
   }));
 
   router.put('/:id', asyncRoute(async (req, res) => {
     const ownerId = userOf(req).id;
-    const existing = (await db.getMemories(ownerId)).find((m) => m.id === idOf(req));
+    const existing = (await db.memory.getMemories(ownerId)).find((m) => m.id === idOf(req));
     if (!existing) return res.status(404).json({ error: 'No such memory item' });
     const { category, title, text, scope, status, projectId } = req.body;
     const { model: _model, ...kept } = existing;
@@ -106,15 +106,15 @@ export function memoriesRouter(deps: MemoriesRouterDeps): Router {
       ...(projectId !== undefined ? { projectId } : {}),
       updatedAt: new Date().toISOString(),
     };
-    await db.saveMemory(updated);
+    await db.memory.saveMemory(updated);
     res.json(updated);
   }));
 
   router.delete('/:id', asyncRoute(async (req, res) => {
     const ownerId = userOf(req).id;
-    const existing = (await db.getMemories(ownerId)).find((m) => m.id === idOf(req));
+    const existing = (await db.memory.getMemories(ownerId)).find((m) => m.id === idOf(req));
     if (!existing) return res.status(404).json({ error: 'No such memory item' });
-    await db.deleteMemory(idOf(req));
+    await db.memory.deleteMemory(idOf(req));
     res.json({ deleted: true });
   }));
   return router;

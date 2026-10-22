@@ -98,7 +98,7 @@ async function main(): Promise<void> {
     assert.equal(kept.find((trace) => trace.kind === 'finish' && trace.finish)?.finish?.outcome, 'ok', 'the memory keeper did not finish ok');
 
     console.log('[5/5] the memory bank holds it, and a new chat recalls it');
-    const remembered = (await db.getMemories(OWNER)).filter((memory) => !memory.invalidAt && `${memory.title} ${memory.text}`.includes(marker));
+    const remembered = (await db.memory.getMemories(OWNER)).filter((memory) => !memory.invalidAt && `${memory.title} ${memory.text}`.includes(marker));
     assert.ok(remembered.length > 0, `nothing remembered mentions ${marker}`);
     for (const memory of remembered) console.log(`  ${memory.id} [${memory.category}, ${memory.scope}] ${memory.title}: ${memory.text} (saved by ${memory.provenance?.experimentId ?? memory.source})`);
 
@@ -111,7 +111,7 @@ async function main(): Promise<void> {
     assert.ok(recalled, 'the memory was not recalled into the new chat');
     assert.ok(answer.includes(marker), 'koala did not answer from what it remembered');
 
-    for (const memory of remembered) await db.saveMemory({ ...memory, invalidAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    for (const memory of remembered) await db.memory.saveMemory({ ...memory, invalidAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
     console.log('memory live — PASS');
   } finally {
     for (const id of conversations) await http.delete(`/conversations/${id}`).catch(() => undefined);

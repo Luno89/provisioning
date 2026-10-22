@@ -130,8 +130,10 @@ export function planUnreachable(memories: MemoryItem[], now: string): MemoryItem
 
 export interface ConsolidateDeps {
   db: {
-    getMemories(ownerId?: string): Promise<MemoryItem[]>;
-    saveMemory(m: MemoryItem): Promise<void>;
+    memory: {
+      getMemories(ownerId?: string): Promise<MemoryItem[]>;
+      saveMemory(m: MemoryItem): Promise<void>;
+    };
     projects: {
       getLeaves(): Promise<PromotableLeaf[]>;
     };
@@ -147,16 +149,16 @@ export async function consolidateMemories(deps: ConsolidateDeps): Promise<Consol
   const now = (deps.now ?? (() => new Date().toISOString()))();
   const newId = deps.newId ?? (() => `mem_dream_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
 
-  let memories = await deps.db.getMemories(deps.ownerId);
+  let memories = await deps.db.memory.getMemories(deps.ownerId);
 
   const unreachable = planUnreachable(memories, now);
-  for (const m of unreachable) await deps.db.saveMemory(m).catch(() => undefined);
+  for (const m of unreachable) await deps.db.memory.saveMemory(m).catch(() => undefined);
   const unreachableIds = new Set(unreachable.map((m) => m.id));
   memories = memories.map((m) => (unreachableIds.has(m.id) ? { ...m, invalidAt: now } : m));
 
   const leaves = (await deps.db.projects.getLeaves().catch(() => [])).filter((leaf) => !deps.ownerId || leaf.ownerId === deps.ownerId);
   const promoted = planPromotions(leaves, memories, now, newId);
-  for (const m of promoted) await deps.db.saveMemory(m).catch(() => undefined);
+  for (const m of promoted) await deps.db.memory.saveMemory(m).catch(() => undefined);
   memories = [...memories, ...promoted];
 
   const byTitle = planTitleDedupe(memories, now);
@@ -168,11 +170,11 @@ export async function consolidateMemories(deps: ConsolidateDeps): Promise<Consol
     : [];
 
   const deduped = [...byTitle, ...bySimilarity];
-  for (const m of deduped) await deps.db.saveMemory(m).catch(() => undefined);
+  for (const m of deduped) await deps.db.memory.saveMemory(m).catch(() => undefined);
   for (const m of deduped) retiredIds.add(m.id);
 
   const decayed = planDecay(memories.filter((m) => !retiredIds.has(m.id)), now);
-  for (const m of decayed) await deps.db.saveMemory(m).catch(() => undefined);
+  for (const m of decayed) await deps.db.memory.saveMemory(m).catch(() => undefined);
   for (const m of decayed) retiredIds.add(m.id);
 
   const survivors = memories.filter((m) => !m.invalidAt && !retiredIds.has(m.id) && m.status !== 'pending_review');

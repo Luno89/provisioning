@@ -10,7 +10,7 @@ async function main(): Promise<void> {
   await db.init();
 
   try {
-    const before = await db.getMemories();
+    const before = await db.memory.getMemories();
     const ownerId = before[0]?.ownerId;
     const ends = ownerId ? await corpusEndpoints(db, ownerId).catch(() => undefined) : undefined;
 
@@ -21,13 +21,15 @@ async function main(): Promise<void> {
     const written: MemoryItem[] = [];
     const report = await consolidateMemories({
       db: {
-        getMemories: () => db.getMemories(),
+        memory: {
+          getMemories: () => db.memory.getMemories(),
+          saveMemory: async (m: MemoryItem) => {
+            written.push(m);
+            if (apply) await db.memory.saveMemory(m);
+          },
+        },
         projects: {
           getLeaves: () => db.projects.getLeaves() as never,
-        },
-        saveMemory: async (m: MemoryItem) => {
-          written.push(m);
-          if (apply) await db.saveMemory(m);
         },
       },
       ...(ends ? {

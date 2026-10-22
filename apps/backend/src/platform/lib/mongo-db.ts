@@ -1,5 +1,6 @@
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
 import { MongoHubStore } from '../../hub/store.js';
+import { MongoMemoryStore } from '../../memory/store.js';
 import { MongoModelsStore } from '../../models/store.js';
 import { MongoMonitoringStore } from '../../monitoring/store.js';
 import { MongoMachinesStore } from '../../machines/store.js';
@@ -25,7 +26,6 @@ import type { Database, BindingTypeRecord } from './db-interface.js';
 import type { PartialInfo } from './types.js';
 import type { CorpusPage } from '../../engine/lib/corpus.js';
 import { type FrontierUrl, type FrontierClaim } from './frontier.js';
-import type { MemoryItem } from '../../memory/lib/memory-store.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import { procedureKey, type ProcedureSource } from '../../engine/lib/procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from '../../engine/lib/run-traces.js';
@@ -38,7 +38,6 @@ import { evalRecordKey, type EvalCollection, type EvalRecord } from '../../check
 import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
 import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
 import type { ScriptedRequestRecord } from './db-interface.js';
-import type { DeferredConclusion, KeeperSettings } from '../../memory/lib/conclusions.js';
 
 export const databaseOf = (uri: string): string => {
   const name = uri.replace(/^mongodb(\+srv)?:\/\/[^/]+\/?/, '').split('?')[0]?.trim();
@@ -80,6 +79,7 @@ const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (ki
 export class MongoDB implements Database {
   constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {
     this.hub = new MongoHubStore(() => this.db!);
+    this.memory = new MongoMemoryStore(() => this.db!);
     this.models = new MongoModelsStore(() => this.db!);
     this.monitoring = new MongoMonitoringStore(() => this.db!);
     this.machines = new MongoMachinesStore(() => this.db!);
@@ -94,6 +94,7 @@ export class MongoDB implements Database {
   private client: MongoClient | null = null;
   private db: Db | null = null;
   readonly hub: MongoHubStore;
+  readonly memory: MongoMemoryStore;
   readonly models: MongoModelsStore;
   readonly monitoring: MongoMonitoringStore;
   readonly machines: MongoMachinesStore;
@@ -224,10 +225,6 @@ export class MongoDB implements Database {
     return this.db!.collection('accessRequests');
   }
 
-  private get memories(): Collection {
-    return this.db!.collection('memories');
-  }
-
   private get bindingTypes(): Collection {
     return this.db!.collection('bindingTypes');
   }
@@ -265,6 +262,7 @@ export class MongoDB implements Database {
     await this.machines.ensureIndexes();
     await this.monitoring.ensureIndexes();
     await this.models.ensureIndexes();
+    await this.memory.ensureIndexes();
   }
 
   async dropDatabase(): Promise<void> {
@@ -581,23 +579,6 @@ export class MongoDB implements Database {
     return moved.reduce((total, result) => total + result.modifiedCount, 0);
   }
 
-  async getMemories(ownerId?: string): Promise<MemoryItem[]> {
-    const filter = ownerId ? { ownerId } : {};
-    const docs = await this.memories.find(filter).toArray();
-    return docs.map((d) => fromDoc<MemoryItem>(d));
-  }
-
-  async saveMemory(memory: MemoryItem): Promise<void> {
-    const doc = toDoc(memory);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.memories.replaceOne({ _id: id }, filter, { upsert: true });
-  }
-
-  async deleteMemory(id: string): Promise<void> {
-    await this.memories.deleteOne({ _id: id as any });
-  }
-
   async getMcpToolHints(ownerId: string): Promise<McpToolHint[]> {
     const docs = await this.mcpToolHints.find({ ownerId }).toArray();
     return docs.map(({ _id, ...hint }) => hint as unknown as McpToolHint);
@@ -664,32 +645,6 @@ export class MongoDB implements Database {
   async saveExtensionSettings(settings: ExtensionSettings): Promise<void> {
     const { ownerId, ...rest } = settings;
     await this.extensionSettings.replaceOne({ _id: ownerId as never }, rest, { upsert: true });
-  }
-
-  async getKeeperSettings(ownerId: string): Promise<KeeperSettings | undefined> {
-    const doc = await this.db!.collection('keeperSettings').findOne({ _id: ownerId as never });
-    if (!doc) return undefined;
-    const { _id, ...rest } = doc as Record<string, unknown>;
-    return { ...(rest as Omit<KeeperSettings, 'ownerId'>), ownerId: String(_id) };
-  }
-
-  async saveKeeperSettings(settings: KeeperSettings): Promise<void> {
-    const { ownerId, ...rest } = settings;
-    await this.db!.collection('keeperSettings').replaceOne({ _id: ownerId as never }, rest, { upsert: true });
-  }
-
-  async getDeferredConclusions(ownerId: string): Promise<DeferredConclusion[]> {
-    const docs = await this.db!.collection('deferredConclusions').find({ ownerId }).sort({ at: 1 }).toArray();
-    return docs.map(({ _id, ...rest }) => ({ ...(rest as Omit<DeferredConclusion, 'id'>), id: String(_id) }));
-  }
-
-  async saveDeferredConclusion(deferred: DeferredConclusion): Promise<void> {
-    const { id, ...rest } = deferred;
-    await this.db!.collection('deferredConclusions').replaceOne({ _id: id as never }, rest, { upsert: true });
-  }
-
-  async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
-    await this.db!.collection('deferredConclusions').deleteOne({ _id: id as never, ownerId });
   }
 
   async getWorkFailures(ownerId?: string): Promise<WorkFailure[]> {
@@ -842,15 +797,6 @@ export class MongoDB implements Database {
 
   async saveBenchState(state: BenchState): Promise<void> {
     await this.db!.collection('benchStates').replaceOne({ _id: state.ownerId as any }, { ...state }, { upsert: true });
-  }
-
-  async getMemoryWatermark(key: string): Promise<string | undefined> {
-    const doc = await this.db!.collection('memoryWatermarks').findOne({ _id: key as any });
-    return typeof doc?.value === 'string' ? doc.value : undefined;
-  }
-
-  async saveMemoryWatermark(key: string, value: string): Promise<void> {
-    await this.db!.collection('memoryWatermarks').replaceOne({ _id: key as any }, { value }, { upsert: true });
   }
 
   async getRunEffort(ownerId: string, procedureId: string, modelKey?: string): Promise<RunEffort[]> {

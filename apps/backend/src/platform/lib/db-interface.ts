@@ -7,9 +7,9 @@ import { mongoPayloadBlobs } from './mongo-payload-blobs.js';
 import { inMemoryPayloadBlobs, type PayloadBlobs } from './payload-storage.js';
 import type { CorpusPage } from '../../engine/lib/corpus.js';
 import type { FrontierUrl, FrontierClaim } from './frontier.js';
-import type { MemoryItem } from '../../memory/lib/memory-store.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import type { HubStore } from '../../hub/store.js';
+import type { MemoryStore } from '../../memory/store.js';
 import type { ModelsStore } from '../../models/store.js';
 import type { MonitoringStore } from '../../monitoring/store.js';
 import type { MachinesStore } from '../../machines/store.js';
@@ -36,7 +36,6 @@ import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.
 import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, PendingApprovalMetadata } from './types.js';
 import type { PartialInfo } from './types.js';
-import type { DeferredConclusion, KeeperSettings } from '../../memory/lib/conclusions.js';
 
 export interface BindingTypeRecord {
   id: string;
@@ -59,6 +58,7 @@ export interface ScriptedRequestRecord {
 
 export interface Database {
   hub: HubStore;
+  memory: MemoryStore;
   models: ModelsStore;
   monitoring: MonitoringStore;
   machines: MachinesStore;
@@ -124,24 +124,14 @@ export interface Database {
   savePendingApproval(approval: PendingApprovalMetadata): Promise<void>;
   deletePendingApproval(id: string): Promise<void>;
 
-  getMemories(ownerId?: string): Promise<MemoryItem[]>;
-  saveMemory(memory: MemoryItem): Promise<void>;
-
   getMcpRequests(ownerId: string, conversationId?: string): Promise<McpRequest[]>;
   getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined>;
   saveMcpRequest(request: McpRequest): Promise<void>;
   getMcpToolHints(ownerId: string): Promise<McpToolHint[]>;
-  getKeeperSettings(ownerId: string): Promise<KeeperSettings | undefined>;
-  saveKeeperSettings(settings: KeeperSettings): Promise<void>;
-  getDeferredConclusions(ownerId: string): Promise<DeferredConclusion[]>;
-  saveDeferredConclusion(deferred: DeferredConclusion): Promise<void>;
-  deleteDeferredConclusion(ownerId: string, id: string): Promise<void>;
-  getMemoryWatermark(key: string): Promise<string | undefined>;
   getBenchSettings(ownerId: string): Promise<BenchSettings | undefined>;
   saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void>;
   getBenchState(ownerId: string): Promise<BenchState | undefined>;
   saveBenchState(state: BenchState): Promise<void>;
-  saveMemoryWatermark(key: string, value: string): Promise<void>;
   deleteMcpToolHint(ownerId: string, server: string, tool: string): Promise<void>;
 
   getActionProposals(ownerId: string, filter?: { conversationId?: string | undefined; treeId?: string | undefined }): Promise<ActionProposal[]>;
@@ -168,7 +158,6 @@ export interface Database {
   getAccessRequests(ownerId: string, conversationId?: string): Promise<AccessRequest[]>;
   getAccessRequest(ownerId: string, id: string): Promise<AccessRequest | undefined>;
   saveAccessRequest(request: AccessRequest): Promise<void>;
-  deleteMemory(id: string): Promise<void>;
 
   getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined>;
   getProcedures(ownerId?: string): Promise<ProcedureSource[]>;

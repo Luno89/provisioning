@@ -20,13 +20,15 @@ export interface MemoryKeeperStore {
     getLeaves(): Promise<Leaf[]>;
     getBranches(): Promise<Branch[]>;
   };
-  getMemoryWatermark(key: string): Promise<string | undefined>;
-  saveMemoryWatermark(key: string, value: string): Promise<void>;
-  getKeeperSettings(ownerId: string): Promise<KeeperSettings | undefined>;
-  saveKeeperSettings(settings: KeeperSettings): Promise<void>;
-  getDeferredConclusions(ownerId: string): Promise<DeferredConclusion[]>;
-  saveDeferredConclusion(deferred: DeferredConclusion): Promise<void>;
-  deleteDeferredConclusion(ownerId: string, id: string): Promise<void>;
+  memory: {
+    getMemoryWatermark(key: string): Promise<string | undefined>;
+    saveMemoryWatermark(key: string, value: string): Promise<void>;
+    getKeeperSettings(ownerId: string): Promise<KeeperSettings | undefined>;
+    saveKeeperSettings(settings: KeeperSettings): Promise<void>;
+    getDeferredConclusions(ownerId: string): Promise<DeferredConclusion[]>;
+    saveDeferredConclusion(deferred: DeferredConclusion): Promise<void>;
+    deleteDeferredConclusion(ownerId: string, id: string): Promise<void>;
+  };
 }
 
 export type StartMemoryRun = (request: {
@@ -71,17 +73,17 @@ export class MemoryKeeperService {
   }
 
   async state(ownerId: string): Promise<KeeperState> {
-    const [settings, held] = await Promise.all([this.deps.store.getKeeperSettings(ownerId), this.deps.store.getDeferredConclusions(ownerId)]);
+    const [settings, held] = await Promise.all([this.deps.store.memory.getKeeperSettings(ownerId), this.deps.store.memory.getDeferredConclusions(ownerId)]);
     return { paused: settings?.paused === true, held: held.length };
   }
 
   async setPaused(ownerId: string, paused: boolean): Promise<KeeperState & { started: string[] }> {
-    await this.deps.store.saveKeeperSettings({ ownerId, paused, updatedAt: this.now() });
+    await this.deps.store.memory.saveKeeperSettings({ ownerId, paused, updatedAt: this.now() });
     const report: ConclusionReport = { started: [] };
     if (!paused) {
-      for (const deferred of await this.deps.store.getDeferredConclusions(ownerId)) {
+      for (const deferred of await this.deps.store.memory.getDeferredConclusions(ownerId)) {
         await this.startNow(deferred.conclusion, report);
-        await this.deps.store.deleteDeferredConclusion(ownerId, deferred.id);
+        await this.deps.store.memory.deleteDeferredConclusion(ownerId, deferred.id);
       }
     }
     return { ...(await this.state(ownerId)), started: report.started };
@@ -130,17 +132,17 @@ export class MemoryKeeperService {
     const conversation = await this.deps.store.getConversation(ownerId, conversationId);
     if (!conversation || conversation.agentSlug === MEMORY_KEEPER) return;
     const key = conversationWatermarkKey(conversation.id);
-    const through = Number(await this.deps.store.getMemoryWatermark(key)) || 0;
+    const through = Number(await this.deps.store.memory.getMemoryWatermark(key)) || 0;
     const conclusion = conversationConclusion(conversation, through, why);
     if (!conclusion) return;
     await this.begin(conclusion, report);
-    await this.deps.store.saveMemoryWatermark(key, String(conversation.messages.length));
+    await this.deps.store.memory.saveMemoryWatermark(key, String(conversation.messages.length));
   }
 
   private async begin(conclusion: Conclusion, report: ConclusionReport): Promise<void> {
     if (this.deps.remembersFor && !(await this.deps.remembersFor(conclusion.ownerId))) return;
-    if ((await this.deps.store.getKeeperSettings(conclusion.ownerId))?.paused) {
-      await this.deps.store.saveDeferredConclusion({ id: conclusion.runId, ownerId: conclusion.ownerId, conclusion, at: this.now() });
+    if ((await this.deps.store.memory.getKeeperSettings(conclusion.ownerId))?.paused) {
+      await this.deps.store.memory.saveDeferredConclusion({ id: conclusion.runId, ownerId: conclusion.ownerId, conclusion, at: this.now() });
       report.deferred = [...(report.deferred ?? []), conclusion.runId];
       return;
     }

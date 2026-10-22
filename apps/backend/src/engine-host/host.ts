@@ -589,7 +589,7 @@ export function storesFromDatabase(db: Database): EngineHostStores {
         return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId, leafId: conversation.leafId, branchId: conversation.branchId } : undefined;
       },
     },
-    memories: { list: (ownerId: string) => db.getMemories(ownerId), save: (item: MemoryItem) => db.saveMemory(item) },
+    memories: { list: (ownerId: string) => db.memory.getMemories(ownerId), save: (item: MemoryItem) => db.memory.saveMemory(item) },
     egress: {
       grants: (ownerId: string) => db.getEgressGrants(ownerId),
       requests: { list: (ownerId: string) => db.getEgressRequests(ownerId), save: (request) => db.saveEgressRequest(request) },

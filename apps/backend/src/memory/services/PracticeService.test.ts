@@ -5,16 +5,16 @@ import type { MemoryItem } from '../lib/memory-store.js';
 import { PracticeService } from './PracticeService.js';
 
 let db: MongoDB;
-const practices = () => new PracticeService({ store: db, now: () => 'now' });
+const practices = () => new PracticeService({ store: db.memory, now: () => 'now' });
 const practice = (over: Partial<MemoryItem>): MemoryItem => ({
   id: 'p1', ownerId: 'u1', category: 'practice', agent: 'koala', status: 'trial', title: 'Check before answering', text: 'Call list_infrastructure first.', createdAt: 'then', updatedAt: 'then', ...over,
 });
 
 beforeEach(async () => {
   db = await testDatabase();
-  await db.saveMemory(practice({}));
-  await db.saveMemory(practice({ id: 'fact', category: 'environment_facts', status: 'active' }));
-  await db.saveMemory(practice({ id: 'theirs', ownerId: 'someone-else' }));
+  await db.memory.saveMemory(practice({}));
+  await db.memory.saveMemory(practice({ id: 'fact', category: 'environment_facts', status: 'active' }));
+  await db.memory.saveMemory(practice({ id: 'theirs', ownerId: 'someone-else' }));
 });
 
 describe('practices', () => {
@@ -40,13 +40,13 @@ describe('practices', () => {
 });
 
 describe('tool notes', () => {
-  const notes = () => new PracticeService({ store: db, category: 'tool_note', now: () => 'now' });
+  const notes = () => new PracticeService({ store: db.memory, category: 'tool_note', now: () => 'now' });
   const note = (over: Partial<MemoryItem>): MemoryItem => ({ id: 'n1', ownerId: 'u1', category: 'tool_note', status: 'trial', title: 'Note', text: 'A note.', createdAt: 'then', updatedAt: 'then', ...over });
 
   beforeEach(async () => {
-    await db.saveMemory(note({ server: 'playwright', tool: 'browser_click' }));
-    await db.saveMemory(note({ id: 'n2', server: 'playwright', status: 'active' }));
-    await db.saveMemory(note({ id: 'n3', tool: 'start_task' }));
+    await db.memory.saveMemory(note({ server: 'playwright', tool: 'browser_click' }));
+    await db.memory.saveMemory(note({ id: 'n2', server: 'playwright', status: 'active' }));
+    await db.memory.saveMemory(note({ id: 'n3', tool: 'start_task' }));
   });
 
   it('are kept apart from practices, and go through the same trial', async () => {

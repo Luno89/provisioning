@@ -344,8 +344,8 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     efforts: { save: (effort) => db.saveRunEffort(effort), list: (ownerId, procedureId, modelKey) => db.getRunEffort(ownerId, procedureId, modelKey) },
   });
 
-  const practiceService = new PracticeService({ store: db });
-  const toolNoteService = new PracticeService({ store: db, category: 'tool_note' });
+  const practiceService = new PracticeService({ store: db.memory });
+  const toolNoteService = new PracticeService({ store: db.memory, category: 'tool_note' });
   const agentChanges = new AgentChangeService({
     store: db,
     savePrompt: async (ownerId, slug, prompt) => {

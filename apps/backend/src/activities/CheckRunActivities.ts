@@ -82,8 +82,10 @@ export interface CheckRunStore {
   saveExtensionSettings(settings: ExtensionSettings): Promise<void>;
   getAuthoredExtensions(ownerId: string): Promise<AuthoredExtension[]>;
   saveAuthoredExtension(extension: AuthoredExtension): Promise<void>;
-  getMemories(ownerId?: string): Promise<MemoryItem[]>;
-  saveMemory(memory: MemoryItem): Promise<void>;
+  memory: {
+    getMemories(ownerId?: string): Promise<MemoryItem[]>;
+    saveMemory(memory: MemoryItem): Promise<void>;
+  };
   findRunEffort(runId: string): Promise<RunEffort | undefined>;
   reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number>;
   models: {
@@ -276,10 +278,10 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       const settings = await store.getExtensionSettings(person);
       if (settings) await store.saveExtensionSettings({ ...settings, ownerId: spaceId });
       for (const extension of reowned(await store.getAuthoredExtensions(person), person, spaceId)) await store.saveAuthoredExtension(extension);
-      for (const practice of spacePractices(await store.getMemories(person), person, spaceId, trialPractice)) await store.saveMemory(practice);
+      for (const practice of spacePractices(await store.memory.getMemories(person), person, spaceId, trialPractice)) await store.memory.saveMemory(practice);
 
       for (const memory of scenario.world?.memories ?? []) {
-        await store.saveMemory({
+        await store.memory.saveMemory({
           id: `${spaceId}-${uuidv4()}`, ownerId: spaceId, title: memory.title, text: memory.text, category: (memory.category ?? 'lessons_learned') as MemoryItem['category'],
           ...(memory.category === 'tool_note' ? { status: 'active' as const } : {}),
           ...(memory.model ? { model: memory.model } : {}), ...(memory.tool ? { tool: memory.tool } : {}), ...(memory.server ? { server: memory.server } : {}),
