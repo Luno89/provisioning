@@ -1,54 +1,32 @@
-import { Fragment, useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Fragment, useState, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { ArrowDown, AlertTriangle, X } from 'lucide-react';
 import CollapsibleHistoryList from './CollapsibleHistoryList.js';
 import AgentConfigDrawer from './AgentConfigDrawer.js';
 import { ModelConfigDrawer } from '../../models';
-import { useMachineChoiceLabel } from '../../machines';
 import KoalaLoading from '../../../shared/components/KoalaLoading.js';
 import ChatHero from './Chat/ChatHero.js';
 import { ConversationContext } from './Chat/ConversationContext.js';
-import ChatComposer, { type PersonaPackOption } from './Chat/ChatComposer.js';
+import ChatComposer from './Chat/ChatComposer.js';
 import ChatMessageRow from './Chat/ChatMessageRow.js';
 import { noticeRepeats } from './Chat/notice-repeats.js';
 import ChatNotice, { type StoryAddress } from './Chat/ChatNotice.js';
 import DocumentPanel from './DocumentPanel.js';
 import type { FileArtifact } from './Chat/ChatToolCallCard.js';
-import { listAgents, agentKeys, type Agent } from '../api/agents';
-import { listModels, providerKeys, useDefaultModel, type ModelProvider } from '../../models';
-import { chatPackKeys, type ConversationBinding } from '../api/chat-pack.js';
-import { postChannelMessage } from '../../projects';
-import { addressOf, channelAsksKoala, goesToKoala, rememberChannelAsks } from '../../projects';
-import { errorMessage } from '../../../api/client.js';
-import { useConversationAutoMode } from '../hooks/useAutoMode.js';
-import { modelOptionLabel } from '../../models';
+import { type ConversationBinding } from '../api/chat-pack.js';
+import { addressOf } from '../../projects';
 import { type ChatMessageRecord } from './Chat/chat-stream.js';
 import { useChatScroll } from '../hooks/useChatScroll.js';
 import { useConversationTurn } from '../hooks/useConversationTurn.js';
-import ChatApprovalCard from './Chat/ChatApprovalCard.js';
-import PlanProposalCard from './Chat/PlanProposalCard.js';
-import { usePlanProposals } from '../hooks/usePlanProposals.js';
-import SecretRequestCard from './Chat/SecretRequestCard.js';
-import { useSecretRequests } from '../hooks/useSecretRequests.js';
-import { listConversationSecretRequests, secretRequestKeys } from '../../projects';
-import McpRequestCard from './Chat/McpRequestCard.js';
 import McpServersMenu from './Chat/McpServersMenu.js';
-import { useConversationMcp, useMcpServers } from '../hooks/useMcp.js';
-import ActionProposalCard from './Chat/ActionProposalCard.js';
-import { useActionProposals } from '../hooks/useActionProposals.js';
-import { actionKeys, listConversationActions } from '../api/actions.js';
-import EgressRequestCard from './Chat/EgressRequestCard.js';
-import { useEgressRequests } from '../hooks/useEgressRequests.js';
-import { egressKeys, listEgressRequests } from '../../infrastructure';
-import AccessRequestCard from './Chat/AccessRequestCard.js';
-import { useAccessRequests } from '../hooks/useAccessRequests.js';
+import { useMcpServers } from '../hooks/useMcp.js';
 import { ChatHeader } from './Chat/ChatHeader.js';
 import { ChatCardMarker, ChatCards, type CardFocus } from './Chat/ChatCards.js';
-import { cardMarkers, chatCards, isWaiting, type ChatCard } from './Chat/chat-cards.js';
-import { useChatAttachments } from '../hooks/useChatAttachments.js';
-import { sentAttachment } from '../../files';
-import { listProjects, projectKeys } from '../../projects';
+import { ChatCardBody } from './Chat/ChatCardBody.js';
+import { cardMarkers, isWaiting, type ChatCard } from './Chat/chat-cards.js';
 import { useCardsLayout } from '../hooks/useCardsLayout.js';
+import { useChatCards } from '../hooks/useChatCards.js';
+import { useChatComposer } from '../hooks/useChatComposer.js';
+import { channelPlaceholder } from '../lib/chat-composer';
 
 export type { ChatMessageRecord };
 
@@ -89,7 +67,6 @@ export default function ChatSurface({
   const [openDocument, setOpenDocument] = useState<FileArtifact | undefined>(undefined);
   const showDocument = useCallback((file: FileArtifact) => setOpenDocument(file), []);
 
-  const qc = useQueryClient();
   const conv = useConversationTurn({
     externalConvId,
     externalSessionId,
@@ -101,46 +78,9 @@ export default function ChatSurface({
   });
 
   const { streaming, error, setError } = conv;
-  const planProposals = usePlanProposals(conv.selectedConvId, streaming);
-  const chatProjectId = binding?.projectId ?? conv.activeConversation?.projectId;
-  const projects = useQuery({ queryKey: projectKeys.list(), queryFn: () => listProjects<{ id: string; name: string }>(), enabled: Boolean(chatProjectId) });
-  const chatProject = chatProjectId ? projects.data?.find((project) => project.id === chatProjectId) : undefined;
-  const chatAttachments = useChatAttachments(chatProject ? { id: chatProject.id, name: chatProject.name } : undefined);
-  const secretRequests = useSecretRequests(
-    secretRequestKeys.forConversation(conv.selectedConvId ?? ''),
-    () => listConversationSecretRequests(conv.selectedConvId!),
-    Boolean(conv.selectedConvId),
-    streaming,
-  );
-  const mcp = useConversationMcp(conv.selectedConvId, streaming);
+  const from = useChatCards(conv.selectedConvId, streaming, conv.pendingApprovals);
+  const { mcp, cards } = from;
   const { data: mcpServers = [] } = useMcpServers();
-  const access = useAccessRequests(conv.selectedConvId, streaming);
-  const egress = useEgressRequests(
-    egressKeys.requests('conversation', conv.selectedConvId ?? ''),
-    () => listEgressRequests('conversationId', conv.selectedConvId!),
-    Boolean(conv.selectedConvId),
-    streaming,
-  );
-  const actions = useActionProposals(
-    actionKeys.forConversation(conv.selectedConvId ?? ''),
-    () => listConversationActions(conv.selectedConvId!),
-    Boolean(conv.selectedConvId),
-    streaming,
-  );
-
-  const { data: agents = [] } = useQuery<Agent[]>({
-    queryKey: agentKeys.all,
-    queryFn: listAgents,
-  });
-
-  const { data: defaultSetting } = useDefaultModel();
-  const accountDefaultId = defaultSetting?.defaultModelId ?? null;
-
-  const { data: models = [] } = useQuery<ModelProvider[]>({
-    queryKey: providerKeys.list(),
-    queryFn: listModels,
-    staleTime: 5 * 60_000,
-  });
 
   const renderedMessages = conv.renderedMessages;
 
@@ -163,44 +103,30 @@ export default function ChatSurface({
     ],
   });
 
-  const machineLabel = useMachineChoiceLabel(conv.pinnedModelId);
-  const selectedAgent = agents.find((a) => a.slug === conv.selectedAgentSlug);
-  const activePack: PersonaPackOption | undefined = selectedAgent
-    ? { id: selectedAgent.slug, name: selectedAgent.name, label: selectedAgent.name.toUpperCase(), desc: selectedAgent.description ?? '' }
-    : undefined;
-
-  const effectiveModel = models.find((m) => m.id === (conv.pinnedModelId ?? accountDefaultId));
-  const modelLabel = machineLabel ?? (effectiveModel
-    ? modelOptionLabel(effectiveModel)
-    : conv.pinnedModelId ?? 'No model');
-
-  const toolCount = selectedAgent?.tools.length;
+  const composerState = useChatComposer({
+    conv,
+    binding,
+    channel,
+    externalConvId,
+    autoSend,
+    jumpToLatest: () => {
+      setIsAtBottom(true);
+      requestAnimationFrame(scrollToBottomInstant);
+    },
+  });
+  const { activePack, modelLabel, toolCount, askingKoala, toggleAskingKoala, askKoalaAbout, handleSend, autoMode, switchAutoMode } = composerState;
+  const chatAttachments = composerState.attachments;
   const openPersonaDrawer = () => setShowPersonaDrawer(true);
 
   const isLoadingThread = conv.loadingConversation && renderedMessages.length === 0 && !streaming;
   const isConversationEmpty = renderedMessages.length === 0 && !streaming && !isLoadingThread;
 
-  const [askingKoala, setAskingKoala] = useState(() => Boolean(channel && externalConvId && channelAsksKoala(externalConvId)));
-  const toggleAskingKoala = () => {
-    const next = !askingKoala;
-    setAskingKoala(next);
-    if (conv.selectedConvId) rememberChannelAsks(conv.selectedConvId, next);
-  };
   const localFrom = renderedMessages.length - conv.localMessages.length;
 
   const rowRef = useRef<HTMLDivElement>(null);
   const cardsLayout = useCardsLayout(rowRef);
   const [cardsTab, setCardsTab] = useState<'chat' | 'cards'>('chat');
   const [cardFocus, setCardFocus] = useState<CardFocus | undefined>(undefined);
-  const cards = useMemo(() => chatCards({
-    plans: planProposals.plans,
-    actions: actions.proposals,
-    secrets: secretRequests.requests,
-    mcp: mcp.requests,
-    egress: egress.requests,
-    access: access.requests,
-    approvals: conv.pendingApprovals,
-  }), [planProposals.plans, actions.proposals, secretRequests.requests, mcp.requests, egress.requests, access.requests, conv.pendingApprovals]);
   const repeats = useMemo(() => noticeRepeats(renderedMessages), [renderedMessages]);
   const cardsAt = useMemo(() => cardMarkers(renderedMessages, cards), [renderedMessages, cards]);
   const waitingCards = cards.filter(isWaiting).length;
@@ -210,97 +136,17 @@ export default function ChatSurface({
     setCardFocus((was) => ({ id, n: (was?.n ?? 0) + 1 }));
   };
 
-  const renderCard = (card: ChatCard): ReactNode => {
-    switch (card.kind) {
-      case 'plan':
-        return (
-          <PlanProposalCard
-            proposal={card.item}
-            deciding={planProposals.deciding}
-            onApprove={() => planProposals.approve(card.id)}
-            onReject={(reason) => planProposals.reject(card.id, reason)}
-            onOpenTree={onOpenTree}
-            onOpenStory={onOpenStory}
-          />
-        );
-      case 'access':
-        return <AccessRequestCard request={card.item} busy={access.busy} error={access.error} onGrant={() => access.grant(card.id)} onDismiss={() => access.dismiss(card.id)} />;
-      case 'egress':
-        return <EgressRequestCard request={card.item} busy={egress.busy} error={egress.error} onAllow={() => egress.allow(card.id)} onDismiss={() => egress.dismiss(card.id)} />;
-      case 'action':
-        return <ActionProposalCard proposal={card.item} busy={actions.busy} error={actions.error} onApply={() => actions.apply(card.id)} onReject={() => actions.reject(card.id)} />;
-      case 'mcp':
-        return <McpRequestCard request={card.item} busy={mcp.busy} error={mcp.error} onEnable={() => mcp.enable(card.id)} onDismiss={() => mcp.dismiss(card.id)} />;
-      case 'secret':
-        return (
-          <SecretRequestCard
-            request={card.item}
-            busy={secretRequests.busy}
-            error={secretRequests.error}
-            onSubmit={(value, done) => secretRequests.submit(card.id, value, done)}
-            onDismiss={() => secretRequests.dismiss(card.id)}
-          />
-        );
-      case 'approval':
-        return (
-          <ChatApprovalCard
-            reason={card.item.reason}
-            {...(card.item.toolName ? { toolName: card.item.toolName } : {})}
-            {...(card.item.args ? { args: card.item.args } : {})}
-            onDecide={(decision) => void (decision === 'auto-chat' ? switchAutoMode(true) : conv.decideApproval(card.item, decision))}
-          />
-        );
-    }
-  };
-  const askKoalaAbout = (message: ChatMessageRecord) => {
-    if (streaming || !message.at) return;
-    setError(null);
-    setIsAtBottom(true);
-    requestAnimationFrame(scrollToBottomInstant);
-    void conv.sendConversationTurn(message.content, { asks: message.at });
-  };
-
-  const handleSend = (rawText: string) => {
-    const text = rawText.trim();
-    const attachments = chatAttachments.ready;
-    if ((!text && !attachments.length) || streaming || chatAttachments.uploading) return;
-    chatAttachments.clear();
-
-    setError(null);
-    setIsAtBottom(true);
-    requestAnimationFrame(scrollToBottomInstant);
-    if (channel && conv.selectedConvId && !goesToKoala(text, askingKoala)) {
-      const id = conv.selectedConvId;
-      void postChannelMessage(id, text, attachments.map(sentAttachment))
-        .then(() => qc.invalidateQueries({ queryKey: chatPackKeys.conversation(id) }))
-        .catch((err: unknown) => setError(errorMessage(err)));
-      return;
-    }
-    void conv.sendConversationTurn(text, { attachments });
-  };
-
-  const autoSentRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!autoSend || streaming || !conv.selectedConvId) return;
-    const key = `${conv.selectedConvId}:${autoSend.text}`;
-    if (autoSentRef.current === key) return;
-    autoSentRef.current = key;
-    handleSend(autoSend.text);
-    autoSend.onSent?.();
-  }, [autoSend, conv.selectedConvId, streaming, handleSend]);
+  const renderCard = (card: ChatCard): ReactNode => (
+    <ChatCardBody
+      card={card}
+      from={from}
+      onOpenTree={onOpenTree}
+      onOpenStory={onOpenStory}
+      onApproval={(approval, decision) => void (decision === 'auto-chat' ? switchAutoMode(true) : conv.decideApproval(approval, decision))}
+    />
+  );
 
   const handleStop = () => conv.handleStop();
-
-  const autoMode = useConversationAutoMode(conv.selectedConvId, conv.activeConversation);
-  const switchAutoMode = async (on: boolean) => {
-    try {
-      await autoMode.turnTo(on);
-    } catch (err) {
-      setError(`Auto mode could not be switched ${on ? 'on' : 'off'}: ${errorMessage(err)}`);
-      return;
-    }
-    if (on) await Promise.all(conv.pendingApprovals.map((approval) => conv.decideApproval(approval, 'allow')));
-  };
 
   const composer = (
     <ChatComposer
@@ -317,7 +163,7 @@ export default function ChatSurface({
       onOpenModelDrawer={() => setShowModelDrawer(true)}
       {...(conv.selectedConvId && autoMode.on !== undefined ? { autoMode: { on: autoMode.on, switching: autoMode.switching, onToggle: () => void switchAutoMode(!autoMode.on) } } : {})}
       {...(channel ? {
-        placeholder: askingKoala ? 'Ask Koala — it answers in the channel' : 'Post to the channel — start with @koala to ask Koala',
+        placeholder: channelPlaceholder(askingKoala),
         channelAsk: { on: askingKoala, onToggle: toggleAskingKoala },
       } : {})}
     />
