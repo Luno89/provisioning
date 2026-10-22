@@ -125,7 +125,7 @@ describe('trees', () => {
   const mount = async () => {
     h = await mountRouter({
       prefix: '/api/trees',
-      router: (db) => treesRouter({ db, workspaces: { state: async () => 'none', release: async () => ({ saved: false as const, why: 'no documents in this test' }) }, runs: new GroveRunService({ store: db, launcher: { startGroveRun: async () => ({ started: false, reason: 'unavailable' }), groveRunStatus: async () => ({ state: 'none' }), signalGroveRun: async () => false } }), deletion: deletionFor(db), order: new GroveOrderService({ store: db, now: () => 'now' }), home: { home: async (tree) => tree }, models: { view: async () => ({ ok: true as const, value: { rows: [] } }), set: async () => ({ ok: true as const, value: { rows: [] } }) } }),
+      router: (db) => treesRouter({ db, workspaces: { state: async () => 'none', release: async () => ({ saved: false as const, why: 'no documents in this test' }) }, runs: new GroveRunService({ store: db, launcher: { startGroveRun: async () => ({ started: false, reason: 'unavailable' }), groveRunStatus: async () => ({ state: 'none' }), signalGroveRun: async () => false } }), deletion: deletionFor(db), order: new GroveOrderService({ store: db.projects, now: () => 'now' }), home: { home: async (tree) => tree }, models: { view: async () => ({ ok: true as const, value: { rows: [] } }), set: async () => ({ ok: true as const, value: { rows: [] } }) } }),
     });
     await seedTreeTypes(h.db.projects);
     return h!;
@@ -174,7 +174,7 @@ describe('branches', () => {
   const mount = async () => {
     h = await mountRouter({
       prefix: '/api/branches',
-      router: (db) => branchesRouter({ db, deletion: deletionFor(db), order: new GroveOrderService({ store: db, now: () => 'now' }) }),
+      router: (db) => branchesRouter({ db: db.projects, deletion: deletionFor(db), order: new GroveOrderService({ store: db.projects, now: () => 'now' }) }),
     });
     return h!;
   };

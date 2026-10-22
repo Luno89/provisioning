@@ -140,7 +140,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     way: emailWayFrom(process.env, role),
     emailOf: async (ownerId) => (await db.accounts.getUserById(ownerId))?.email,
   });
-  const notifications = new NotificationService({ store: db, mail, publicUrl: PUBLIC_URL, log: (message) => console.warn(message) });
+  const notifications = new NotificationService({ store: db.monitoring, mail, publicUrl: PUBLIC_URL, log: (message) => console.warn(message) });
   const tenant: express.Router = servesTenants(role) ? (app as unknown as express.Router) : express.Router();
   const identity = new IdentityService(role, db);
   console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);
@@ -169,7 +169,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const { projectRepoService, channels, itemChats, notices, postNotice, projectSecrets } = core;
   const headscaleService = new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080');
   const machineService = new MachineService({
-    store: db,
+    store: db.machines,
     dataKey: keys.data,
     settings: {
       url: PUBLIC_URL,

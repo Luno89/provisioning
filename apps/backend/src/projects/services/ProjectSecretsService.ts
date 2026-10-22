@@ -4,8 +4,8 @@ import type { Tree } from '../lib/trees.js';
 import { primaryProjectId } from '../lib/trees.js';
 import { resolveTreeType, type TreeTypeSecret, type TreeTypeSpec } from '../lib/tree-types.js';
 import { secretReference, withRequired, type SecretRequest, type SecretRequestFilter } from '../lib/secret-requests.js';
-import type { Database } from '../../platform/lib/db-interface.js';
 import { createSecretVault, type VaultBackend } from './SecretRequestService.js';
+import type { ProjectsStore } from '../store.js';
 
 export interface DeclaredSecretVault {
   has(projectId: string, key: string): Promise<boolean>;
@@ -124,7 +124,7 @@ export class ProjectSecretsService {
 }
 
 export function projectSecretsFor(deps: {
-  db: Pick<Database, 'projects'>;
+  db: Pick<ProjectsStore, 'getTreeTypes' | 'getTrees' | 'getSecretRequests' | 'saveSecretRequest' | 'saveProjectInfo'>;
   backend: VaultBackend & { getSecret(projectId: string, key: string): Promise<string | null>; listSecrets(projectId: string): Promise<{ key: string }[]> };
   readToken: (ownerId: string) => Promise<string>;
   asked?: ((request: SecretRequest) => void) | undefined;
@@ -137,10 +137,10 @@ export function projectSecretsFor(deps: {
       read: (projectId, key) => deps.backend.getSecret(projectId, key),
       put: async (projectId, key, value, comment) => { await deps.backend.setSecret(projectId, key, value, comment); },
     },
-    treeTypes: (ownerId) => deps.db.projects.getTreeTypes(ownerId),
-    trees: () => deps.db.projects.getTrees(),
-    requests: { list: (ownerId, filter) => deps.db.projects.getSecretRequests(ownerId, filter), save: (request) => deps.db.projects.saveSecretRequest(request) },
-    saveProjectInfo: (project) => deps.db.projects.saveProjectInfo(project),
+    treeTypes: (ownerId) => deps.db.getTreeTypes(ownerId),
+    trees: () => deps.db.getTrees(),
+    requests: { list: (ownerId, filter) => deps.db.getSecretRequests(ownerId, filter), save: (request) => deps.db.saveSecretRequest(request) },
+    saveProjectInfo: (project) => deps.db.saveProjectInfo(project),
     ...(deps.asked ? { asked: deps.asked } : {}),
   });
 }

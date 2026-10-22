@@ -235,7 +235,7 @@ describe('a card choosing a tree\'s model', () => {
         store: db,
         deployer: { deployApp: vi.fn(), promoteProjectBuild: vi.fn() },
         treeModels: new TreeModelsService({
-          store: db,
+          store: db.projects,
           models: { list: async () => [{ id: 'tabby' }, { id: 'vllm' }] as never, route: async () => ({ provider: { id: 'tabby' } as never }) },
           agentOf: async (_owner, slug) => (slug === 'executor' ? executor : slug === 'grove' ? grove : undefined),
         }),

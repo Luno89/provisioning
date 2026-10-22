@@ -49,7 +49,7 @@ const homeFor = (db: Database) => new TreeHomeService({
 const executor = { slug: 'executor', name: 'Executor', procedure: { nodes: [{ id: 'm', kind: 'call-model', settings: {} }], groups: [] } } as never;
 const grower = { slug: 'grove', name: 'Grove', procedure: { nodes: [{ id: 'w', kind: 'fan-out', settings: { agent: 'executor' } }], groups: [] } } as never;
 const modelsFor = (db: Database) => new TreeModelsService({
-  store: db,
+  store: db.projects,
   models: { list: async () => [{ id: 'tabby' }] as ModelProvider[], route: async () => ({ provider: { id: 'tabby' } as ModelProvider }) },
   agentOf: async (_owner, slug) => (slug === 'executor' ? executor : slug === 'grove' ? grower : undefined),
 });
@@ -64,7 +64,7 @@ const mount = async (): Promise<Harness> => {
   running = false;
   h = await mountRouter({
     prefix: '/api/trees',
-    router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db }), home: homeFor(db), models: modelsFor(db), changed: (ownerId) => { changed.push(ownerId); } }),
+    router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db.projects }), home: homeFor(db), models: modelsFor(db), changed: (ownerId) => { changed.push(ownerId); } }),
   });
   return h!;
 };
@@ -176,7 +176,7 @@ describe('running a tree on the engine', () => {
     const status = { state: 'running' as const, startedAt: 'then', turnId: 'g~1' };
     const harness = await mountRouter({
       prefix: '/api/trees',
-      router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher: { ...launcher, groveRunStatus: vi.fn(async () => status) }, asking }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db }), home: homeFor(db), models: modelsFor(db) }),
+      router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher: { ...launcher, groveRunStatus: vi.fn(async () => status) }, asking }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db.projects }), home: homeFor(db), models: modelsFor(db) }),
     });
     await harness.db.projects.saveTree(tree() as never);
     await harness.db.projects.saveBranch(branch as never);
@@ -289,7 +289,7 @@ describe('a tree\'s workspace file', () => {
           builds: async () => [],
           startBuild: async (_ownerId, treeId, commit) => { builds.push(`${treeId}@${commit}`); return { started: true, runId: `workspace-build-${treeId}-${commit.slice(0, 12)}` }; },
         });
-        return treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db }), home: homeFor(db), models: modelsFor(db), workspaceFile });
+        return treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db.projects }), home: homeFor(db), models: modelsFor(db), workspaceFile });
       },
     });
     return { harness: h!, repo, builds };

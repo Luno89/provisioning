@@ -27,7 +27,7 @@ beforeEach(async () => {
     certificateFor: async (serverName) => (serverName === 'koala-probe.luno.koala.dev' ? served : undefined),
     recentLog: async () => log,
   };
-  routes = new InstanceRoutes(db, 'koala.dev', dir, caddy);
+  routes = new InstanceRoutes(db.instances, 'koala.dev', dir, caddy);
 });
 
 describe('root\'s routes to instances', () => {

@@ -646,7 +646,7 @@ export class TemporalBridge {
       try {
         const owners = [...new Set((await this.db.memory.getMemories().catch(() => [])).map((memory) => memory.ownerId))]
         for (const ownerId of owners) {
-          const ends = await corpusEndpointsWith(webToolsDepsFrom(this.db, this.clusterService ?? new ClusterService(this.db, new InfrastructureService()), sharedClusterProxy()), ownerId).catch(() => undefined)
+          const ends = await corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, this.clusterService ?? new ClusterService(this.db, new InfrastructureService()), sharedClusterProxy()), ownerId).catch(() => undefined)
           const report = await consolidateMemories({
             db: this.db,
             ownerId,

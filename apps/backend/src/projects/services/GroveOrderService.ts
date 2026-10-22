@@ -1,7 +1,7 @@
-import type { Database } from '../../platform/lib/db-interface.js';
 import { orderProblem, ranked } from '../lib/work-order.js';
+import type { ProjectsStore } from '../store.js';
 
-export type GroveOrderStore = Pick<Database, 'projects'>;
+export type GroveOrderStore = Pick<ProjectsStore, 'getBranches' | 'getLeaves' | 'saveLeaf' | 'getTrees' | 'saveBranch'>;
 
 export type OrderOutcome = { ok: true; value: { ordered: number } } | { ok: false; status: 400 | 404; error: string };
 
@@ -13,24 +13,24 @@ export class GroveOrderService {
   }
 
   async orderStories(ownerId: string, branchId: string, order: unknown): Promise<OrderOutcome> {
-    const branch = (await this.deps.store.projects.getBranches()).find((entry) => entry.id === branchId && entry.ownerId === ownerId);
+    const branch = (await this.deps.store.getBranches()).find((entry) => entry.id === branchId && entry.ownerId === ownerId);
     if (!branch) return { ok: false, status: 404, error: 'Feature not found' };
-    const leaves = (await this.deps.store.projects.getLeaves()).filter((leaf) => leaf.branchId === branch.id && leaf.ownerId === ownerId);
+    const leaves = (await this.deps.store.getLeaves()).filter((leaf) => leaf.branchId === branch.id && leaf.ownerId === ownerId);
     const problem = orderProblem(order, leaves.map((leaf) => leaf.id), 'stories');
     if (problem) return { ok: false, status: 400, error: problem };
     const changed = ranked(leaves, order as string[], this.now());
-    for (const leaf of changed) await this.deps.store.projects.saveLeaf(leaf);
+    for (const leaf of changed) await this.deps.store.saveLeaf(leaf);
     return { ok: true, value: { ordered: changed.length } };
   }
 
   async orderFeatures(ownerId: string, treeId: string, order: unknown): Promise<OrderOutcome> {
-    const tree = (await this.deps.store.projects.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
+    const tree = (await this.deps.store.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
     if (!tree) return { ok: false, status: 404, error: 'Tree not found' };
-    const branches = (await this.deps.store.projects.getBranches()).filter((branch) => branch.treeId === tree.id && branch.ownerId === ownerId);
+    const branches = (await this.deps.store.getBranches()).filter((branch) => branch.treeId === tree.id && branch.ownerId === ownerId);
     const problem = orderProblem(order, branches.map((branch) => branch.id), 'features');
     if (problem) return { ok: false, status: 400, error: problem };
     const changed = ranked(branches, order as string[], this.now());
-    for (const branch of changed) await this.deps.store.projects.saveBranch(branch);
+    for (const branch of changed) await this.deps.store.saveBranch(branch);
     return { ok: true, value: { ordered: changed.length } };
   }
 }

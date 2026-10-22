@@ -12,7 +12,7 @@ let sent: Array<{ from: string; to: string; subject: string }>;
 
 const service = (way: ConstructorParameters<typeof MailService>[0]['way']) => {
   const mail = new MailService({ way, emailOf: async (id) => (id === 'o' ? 'owner@example.com' : undefined), transport: () => ({ sendMail: async (message) => { sent.push(message); } }) });
-  return { mail, notifications: new NotificationService({ store: db, mail, publicUrl: 'https://app.koala.dev', now: () => 'now' }) };
+  return { mail, notifications: new NotificationService({ store: db.monitoring, mail, publicUrl: 'https://app.koala.dev', now: () => 'now' }) };
 };
 
 beforeEach(async () => {

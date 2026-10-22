@@ -100,7 +100,7 @@ export function projectsCore(deps: ProjectsCoreDeps): ProjectsCore {
   });
   const postNotice = (what: string, posting: Promise<unknown>) => { posting.catch((err: Error) => console.warn(`[notices] ${what}: ${err.message}`)); };
   const projectSecrets = projectSecretsFor({
-    db,
+    db: db.projects,
     backend: deps.infisical,
     readToken: async (ownerId) => (await projectRepoService.mintReadToken(ownerId)).token,
     asked: (request) => { if (request.projectId) postNotice('a secret was asked for', notices.post(request.ownerId, { projectId: request.projectId, treeId: request.treeId }, secretNotice({ ...request, projectId: request.projectId }))); },
@@ -178,7 +178,7 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
     getOwnedProject: deps.getOwnedProject,
   }));
 
-  const treeModels = new TreeModelsService({ store: db, models: deps.models, agentOf: treeAgentsFrom(deps.registry), machines: (ownerId) => deps.machines.list(ownerId), groups: platformGroups });
+  const treeModels = new TreeModelsService({ store: db.projects, models: deps.models, agentOf: treeAgentsFrom(deps.registry), machines: (ownerId) => deps.machines.list(ownerId), groups: platformGroups });
   const groveRuns = new GroveRunService({
     store: db,
     asking: runAskingVia(() => getTemporalClient()),
@@ -201,7 +201,7 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
     workflows: { stop: (workflowId, reason) => temporalBridge.stopIfRunning(workflowId, reason) },
     workspaces: treeConclusions,
   });
-  const groveOrder = new GroveOrderService({ store: db });
+  const groveOrder = new GroveOrderService({ store: db.projects });
   const treeWorkspace = evalHost.treeWorkspaceFiles ? new TreeWorkspaceService({
     trees: () => db.projects.getTrees(),
     files: evalHost.treeWorkspaceFiles.files,
@@ -236,7 +236,7 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
     stories: async (ownerId) => (await db.projects.getLeaves()).filter((leaf) => leaf.ownerId === ownerId).map((leaf) => ({ id: leaf.id, title: leaf.title, status: leaf.status })),
   });
   tenant.use('/api/plans', plansRouter({ plans: planService }));
-  tenant.use('/api/branches', branchesRouter({ db, deletion: groveDeletion, order: groveOrder }));
+  tenant.use('/api/branches', branchesRouter({ db: db.projects, deletion: groveDeletion, order: groveOrder }));
   tenant.use('/api/leaves', leavesRouter({ db: db.projects, runs: groveRuns, deletion: groveDeletion }));
   return { treeModels, groveRuns, groveDeletion, groveOrder, planService };
 }

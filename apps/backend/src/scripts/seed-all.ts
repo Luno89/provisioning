@@ -18,7 +18,7 @@ import { runOnce, type MigrationLedger } from '../platform/lib/migrations.js';
 
 export async function seedAll(db: Database) {
   const counts: Record<string, number> = {};
-  counts.bindingTypes = await seedBindingTypes(db);
+  counts.bindingTypes = await seedBindingTypes(db.infrastructure);
   // Images before tree types: a tree type's language must name one that exists.
   counts.workspaceImages = await seedWorkspaceImages(db.engine);
   counts.treeTypes = await seedTreeTypes(db.projects);

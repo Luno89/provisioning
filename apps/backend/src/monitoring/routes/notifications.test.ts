@@ -22,7 +22,7 @@ describe('/api/notifications', () => {
     sent = [];
     harness = await mountRouter({ prefix: '/api/notifications', router: (db) => {
       const mail = mailWith(way);
-      return notificationsRouter({ notifications: new NotificationService({ store: db, mail }), mail });
+      return notificationsRouter({ notifications: new NotificationService({ store: db.monitoring, mail }), mail });
     } });
   };
 

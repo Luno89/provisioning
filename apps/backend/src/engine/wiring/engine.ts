@@ -567,7 +567,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     describe: (ownerId, typeId) => treeTypeDescriptions.describe(ownerId, typeId),
     releaseProblem: (ownerId, how) => deps.releaseSettings.problem(ownerId, how),
   }));
-  tenant.use('/api/binding-types', bindingTypesRouter({ db }));
+  tenant.use('/api/binding-types', bindingTypesRouter({ db: db.infrastructure }));
   tenant.use('/api/auto-mode', autoModeRouter({ autoMode: autoModeService }));
 
   const mcpCatalogue = core.dependencyFollowers.servers = new McpServerService({

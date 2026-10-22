@@ -1,7 +1,7 @@
-import type { Database } from '../../platform/lib/db-interface.js';
 import { DEFAULT_EMAIL, alertMail, emailWanted, isEmailChoice, type EmailChoice, type NotificationSettings } from '../../platform/lib/mail.js';
 import type { AlertEpisode } from '../lib/monitoring-records.js';
 import type { MailService } from '../../platform/services/MailService.js';
+import type { MonitoringStore } from '../store.js';
 
 export interface NotificationView {
   email: EmailChoice;
@@ -10,7 +10,7 @@ export interface NotificationView {
 
 export class NotificationService {
   constructor(private readonly deps: {
-    store: Pick<Database, 'monitoring'>;
+    store: Pick<MonitoringStore, 'getNotificationSettings' | 'saveNotificationSettings'>;
     mail: Pick<MailService, 'available' | 'toOwner'>;
     publicUrl?: string | undefined;
     now?: () => string;
@@ -18,7 +18,7 @@ export class NotificationService {
   }) {}
 
   async choiceOf(ownerId: string): Promise<EmailChoice> {
-    return (await this.deps.store.monitoring.getNotificationSettings(ownerId))?.email ?? DEFAULT_EMAIL;
+    return (await this.deps.store.getNotificationSettings(ownerId))?.email ?? DEFAULT_EMAIL;
   }
 
   async view(ownerId: string): Promise<NotificationView> {
@@ -28,7 +28,7 @@ export class NotificationService {
   async set(ownerId: string, email: unknown): Promise<{ ok: true; value: NotificationView } | { ok: false; error: string }> {
     if (!isEmailChoice(email)) return { ok: false, error: 'email is off, all or down' };
     const settings: NotificationSettings = { ownerId, email, updatedAt: (this.deps.now ?? (() => new Date().toISOString()))() };
-    await this.deps.store.monitoring.saveNotificationSettings(settings);
+    await this.deps.store.saveNotificationSettings(settings);
     return { ok: true, value: await this.view(ownerId) };
   }
 

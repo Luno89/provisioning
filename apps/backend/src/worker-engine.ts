@@ -139,7 +139,7 @@ async function buildActivities() {
     createProject: (ownerId, project) => projectRepos.createProject(ownerId, project),
     starter: async (type, tree) => renderStarterFiles(type.files, { projectName: tree.name, registryHost: await gitea.getRegistryHost(), ...versionVars(type, tree) }),
     saveTree: (tree) => db.projects.saveTree(tree),
-    secrets: projectSecretsFor({ db, backend: infisical, readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token }),
+    secrets: projectSecretsFor({ db: db.projects, backend: infisical, readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token }),
     saveNeeds: (project, needs) => db.projects.saveProjectInfo({ id: project.id, needs }),
     channel: (project) => new ProjectChannelService({
       conversation: (ownerId, id) => db.engine.getConversation(ownerId, id),
@@ -356,7 +356,7 @@ async function buildActivities() {
   const { registry, endpoints, environments, tools } = host;
   const autoMode = new AutoModeService({ store: db, agentExists: async (ownerId, slug) => Boolean(await registry.agent(ownerId, slug)) });
   const treeModels = new TreeModelsService({
-    store: db,
+    store: db.projects,
     models,
     agentOf: treeAgentsFrom(registry),
     machines: async (ownerId) => (await db.machines.getLocalAgentDevices())

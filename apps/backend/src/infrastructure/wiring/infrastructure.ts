@@ -63,7 +63,7 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   tenant.use('/api/backup', backupRouter({ repoRoot: deps.repoRoot }));
   tenant.use('/api/clusters', clustersRouter({
     clusterService: deps.clusters, appService: deps.apps, clusterProxyService: deps.proxy, infraService: deps.infra,
-    temporalBridge: deps.temporalBridge, db, io, giteaService: deps.gitea, infisicalService: deps.infisical, dataKey: deps.dataKey,
+    temporalBridge: deps.temporalBridge, db: db.infrastructure, io, giteaService: deps.gitea, infisicalService: deps.infisical, dataKey: deps.dataKey,
   }));
   tenant.use('/api/deployments', deploymentsRouter({
     appService: deps.apps, clusterService: deps.clusters, appExposureService: deps.exposure, infraService: deps.infra, temporalBridge: deps.temporalBridge, db, io,

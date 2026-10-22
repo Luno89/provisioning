@@ -160,7 +160,7 @@ describe('procedures routes', () => {
     const h = await mountRouter({
       prefix: '/api/procedures',
       router: (database) => {
-        extensions = new ExtensionService({ store: database, installed: INSTALLED_EXTENSIONS, catalogue: platformCatalogue, sharedGroups: platformGroups });
+        extensions = new ExtensionService({ store: database.engine, installed: INSTALLED_EXTENSIONS, catalogue: platformCatalogue, sharedGroups: platformGroups });
         const published = (ownerId: string) => extensions!.groups(ownerId);
         return proceduresRouter({
           procedures: new ProcedureService({

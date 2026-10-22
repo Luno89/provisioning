@@ -4,7 +4,6 @@ import { asyncRoute } from '../../platform/middleware/async-route.js';
 import { validateClusterName } from '../lib/cluster-name.js';
 import { decryptValue, type SecretKey } from '../../platform/lib/crypto.js';
 import { generateSshKeypair } from '../lib/ssh-keypair.js';
-import type { Database } from '../../platform/lib/db-interface.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterProxyService } from '../services/ClusterProxyService.js';
@@ -12,6 +11,7 @@ import type { GiteaService } from '../../projects/services/GiteaService.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
+import type { InfrastructureStore } from '../store.js';
 
 export interface ClustersRouterDeps {
   clusterService: ClusterService;
@@ -21,7 +21,7 @@ export interface ClustersRouterDeps {
   infisicalService: InfisicalService;
   infraService: Pick<InfrastructureService, 'runKubectl'>;
   temporalBridge: TemporalBridge;
-  db: Pick<Database, 'infrastructure'>;
+  db: Pick<InfrastructureStore, 'getClusters' | 'saveClusterList'>;
   io: SocketServer;
   dataKey: SecretKey;
 }
@@ -164,8 +164,8 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
         ...(cluster.remoteSshPort !== undefined ? { port: cluster.remoteSshPort } : {}),
       });
 
-      const all = await db.infrastructure.getClusters();
-      await db.infrastructure.saveClusterList(all.filter((c) => c.id !== cluster.id));
+      const all = await db.getClusters();
+      await db.saveClusterList(all.filter((c) => c.id !== cluster.id));
 
       res.status(202).json({ message: 'Provisioning started', id: info.resourceId, workflowId: info.id });
     } catch (err: any) {

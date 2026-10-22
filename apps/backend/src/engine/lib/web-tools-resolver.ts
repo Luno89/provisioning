@@ -1,6 +1,6 @@
-import type { Database } from '../../platform/lib/db-interface.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import { createWebTools, type WebTools } from './web-tools.js';
+import type { InfrastructureStore } from '../../infrastructure/store.js';
 
 export interface ProxyTarget {
   service: string;
@@ -11,14 +11,14 @@ export interface ProxyTarget {
 const sanitize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
 export interface WebToolsDeps {
-  db: Pick<Database, 'infrastructure'>;
+  db: Pick<InfrastructureStore, 'getDeployments'>;
   serviceUrl: (clusterId: string, serviceKey: string, kubeconfigPath: string, target: ProxyTarget) => Promise<string>;
   kubeconfigFor: (clusterId: string) => Promise<string | undefined>;
   env?: NodeJS.ProcessEnv;
 }
 
 export function webToolsDepsFrom(
-  db: Pick<Database, 'infrastructure'>,
+  db: Pick<InfrastructureStore, 'getDeployments'>,
   clusters: { getByIdUnscoped(id: string): Promise<ClusterMetadata | undefined | null>; getKubeconfigPath(cluster: ClusterMetadata): string | Promise<string | undefined> | undefined },
   proxy: { serviceUrl(clusterId: string, serviceKey: string, kubeconfigPath: string, target: ProxyTarget): Promise<string> },
 ): WebToolsDeps {
@@ -65,7 +65,7 @@ async function baseUrlFor(
 
 export async function resolveWebTools(deps: WebToolsDeps, ownerId?: string): Promise<WebTools> {
   const env = deps.env ?? process.env;
-  const deployments = await deps.db.infrastructure.getDeployments().catch(() => [] as DeploymentMetadata[]);
+  const deployments = await deps.db.getDeployments().catch(() => [] as DeploymentMetadata[]);
 
   const searxDep = liveDeployment(deployments, 'searxng', ownerId);
   const crawlDep = liveDeployment(deployments, 'crawl4ai', ownerId);
@@ -92,7 +92,7 @@ export async function resolveWebTools(deps: WebToolsDeps, ownerId?: string): Pro
 }
 
 export async function crawlEndpointWith(deps: WebToolsDeps, ownerId?: string): Promise<{ base: string; token: string } | undefined> {
-  const deployments = await deps.db.infrastructure.getDeployments().catch(() => [] as DeploymentMetadata[]);
+  const deployments = await deps.db.getDeployments().catch(() => [] as DeploymentMetadata[]);
   const dep = liveDeployment(deployments, 'crawl4ai', ownerId);
   if (!dep?.crawl4aiApiToken) return undefined;
   const url = await baseUrlFor(deps, dep, 'crawl4ai', 11235);
@@ -107,7 +107,7 @@ export interface CorpusEndpoints {
 }
 
 export async function corpusEndpointsWith(deps: WebToolsDeps, ownerId?: string): Promise<CorpusEndpoints> {
-  const deployments = await deps.db.infrastructure.getDeployments().catch(() => [] as DeploymentMetadata[]);
+  const deployments = await deps.db.getDeployments().catch(() => [] as DeploymentMetadata[]);
 
   const forward = async (appType: string, service: string, port: number) => {
     const dep = liveDeployment(deployments, appType, ownerId);

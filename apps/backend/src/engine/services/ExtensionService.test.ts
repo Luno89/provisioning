@@ -11,7 +11,7 @@ let service: ExtensionService;
 
 beforeEach(async () => {
   db = await testDatabase();
-  service = new ExtensionService({ store: db, installed: INSTALLED_EXTENSIONS, now: () => 'now' });
+  service = new ExtensionService({ store: db.engine, installed: INSTALLED_EXTENSIONS, now: () => 'now' });
 });
 
 describe('an owner\'s extensions', () => {
@@ -88,7 +88,7 @@ describe('an extension of the owner\'s own', () => {
 
   beforeEach(() => {
     service = new ExtensionService({
-      store: db,
+      store: db.engine,
       installed: INSTALLED_EXTENSIONS,
       catalogue: platformCatalogue,
       sharedGroups: platformGroups,

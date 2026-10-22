@@ -16,7 +16,7 @@ const URL_OF_KOALA = 'https://koala.example';
 let service: MachineService | undefined;
 const machinesOf = (db: Database, mesh?: string) => {
   service = new MachineService({
-    store: db,
+    store: db.machines,
     dataKey: DATA_KEY,
     settings: { url: URL_OF_KOALA, temporalAddress: 'localhost:7233', temporalNamespace: 'default', meshLoginServer: mesh },
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice },

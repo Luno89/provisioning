@@ -135,7 +135,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   const instanceChart = new InstanceChart(deps.repoRoot);
   const routingDomain = env.INGRESS_DOMAIN || undefined;
   const instanceRoutes = routingDomain
-    ? new InstanceRoutes(db, routingDomain, path.join(deps.dataDir, 'caddy'), dockerCaddy(env.CADDY_CONTAINER || 'nowrinkles-caddy', env.CADDY_TLS_ADDRESS || '127.0.0.1:443'), (message) => console.error(message))
+    ? new InstanceRoutes(db.instances, routingDomain, path.join(deps.dataDir, 'caddy'), dockerCaddy(env.CADDY_CONTAINER || 'nowrinkles-caddy', env.CADDY_TLS_ADDRESS || '127.0.0.1:443'), (message) => console.error(message))
     : undefined;
   const siteNames = [env.APP_DOMAIN, env.MESH_DOMAIN]
     .filter((site): site is string => Boolean(site && routingDomain && site.endsWith(`.${routingDomain}`)))

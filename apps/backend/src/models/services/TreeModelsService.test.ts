@@ -25,7 +25,7 @@ const setUp = async () => {
   await seedTreeTypes(db.projects);
   await db.projects.saveTree({ id: 't1', ownerId: 'u1', name: 'shop', type: 'api-service', createdAt: 'x', updatedAt: 'x' } as never);
   const service = new TreeModelsService({
-    store: db,
+    store: db.projects,
     models: {
       list: async () => providers,
       route: async (_owner, _model, endpointId) => {

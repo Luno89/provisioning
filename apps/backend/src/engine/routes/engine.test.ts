@@ -71,7 +71,7 @@ const starter = (): WorkflowStarter & { start: ReturnType<typeof vi.fn>; signal:
 
 describe('engine routes', () => {
   it('serves each installed extension\'s vocabulary and whether the caller has it on, and switches one for them', async () => {
-    const h = await harnessWith(undefined, new ExtensionService({ store: await testDatabase(), installed: INSTALLED_EXTENSIONS }));
+    const h = await harnessWith(undefined, new ExtensionService({ store: (await testDatabase()).engine, installed: INSTALLED_EXTENSIONS }));
     const res = await axios.get(h.url('/api/engine/extensions'));
 
     expect(res.status).toBe(200);
@@ -94,7 +94,7 @@ describe('engine routes', () => {
   });
 
   it('makes an extension of the caller\'s own, publishes a group into it as versioned operations, and refuses what it must', async () => {
-    const h = await harnessWith(undefined, new ExtensionService({ store: await testDatabase(), installed: INSTALLED_EXTENSIONS, catalogue: platformCatalogue, sharedGroups: platformGroups }));
+    const h = await harnessWith(undefined, new ExtensionService({ store: (await testDatabase()).engine, installed: INSTALLED_EXTENSIONS, catalogue: platformCatalogue, sharedGroups: platformGroups }));
     const shout = defineGroup('shout', {
       title: 'Shout', describe: 'Passes it on.',
       inputs: { text: { type: 'text', describe: 'What to say.', required: true } },

@@ -1,11 +1,11 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../../platform/middleware/async-route.js';
-import type { Database } from '../../platform/lib/db-interface.js';
 import type { BindingTypeRecord } from '../lib/service-binding.js';
 import { seedBindingTypes } from '../lib/binding-type-seeds.js';
+import type { InfrastructureStore } from '../store.js';
 
 export interface BindingTypesRouterDeps {
-  db: Pick<Database, 'infrastructure'>;
+  db: Pick<InfrastructureStore, 'getBindingTypes' | 'saveBindingType' | 'deleteBindingType'>;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '').trim();
@@ -29,7 +29,7 @@ export function validateBindingType(candidate: unknown): string | null {
 }
 
 export function bindingTypesRouter(
-  deps: BindingTypesRouterDeps | Pick<Database, 'infrastructure'>,
+  deps: BindingTypesRouterDeps | Pick<InfrastructureStore, 'getBindingTypes' | 'saveBindingType' | 'deleteBindingType'>,
 ): Router {
   const db = 'db' in deps ? deps.db : deps;
   const router = Router();
@@ -38,7 +38,7 @@ export function bindingTypesRouter(
     await seedBindingTypes(db).catch((err: Error) =>
       console.warn(`[binding-types] could not seed: ${err.message}`),
     );
-    res.json(await db.infrastructure.getBindingTypes());
+    res.json(await db.getBindingTypes());
   }));
 
   router.put('/:id', asyncRoute(async (req, res) => {
@@ -51,14 +51,14 @@ export function bindingTypesRouter(
     const invalid = validateBindingType(candidate);
     if (invalid) return res.status(400).json({ error: invalid });
 
-    await db.infrastructure.saveBindingType(candidate);
+    await db.saveBindingType(candidate);
     res.json({ ok: true, bindingType: candidate });
   }));
 
   router.delete('/:id', asyncRoute(async (req, res) => {
     const id = idOf(req);
     if (!id) return res.status(400).json({ error: 'id required' });
-    await db.infrastructure.deleteBindingType(id);
+    await db.deleteBindingType(id);
     res.json({ ok: true });
   }));
 

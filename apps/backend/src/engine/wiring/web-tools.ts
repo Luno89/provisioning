@@ -8,7 +8,7 @@ import { InfrastructureService } from '../../infrastructure/services/Infrastruct
 export type { CorpusEndpoints };
 
 export const webToolsDeps = (db: Pick<Database, 'infrastructure'>): WebToolsDeps =>
-  webToolsDepsFrom(db, new ClusterService(db as never, new InfrastructureService()), sharedClusterProxy());
+  webToolsDepsFrom(db.infrastructure, new ClusterService(db as never, new InfrastructureService()), sharedClusterProxy());
 
 export const buildWebTools = (db: Database, ownerId?: string): Promise<WebTools> => resolveWebTools(webToolsDeps(db), ownerId);
 
