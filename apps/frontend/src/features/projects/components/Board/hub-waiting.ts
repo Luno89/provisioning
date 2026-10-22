@@ -1,4 +1,4 @@
-import type { HubRequestKind } from '../../../../types/hub'
+import type { HubRequestKind } from '../../../hub'
 import type { HubPlace } from '../../lib/work-source'
 
 const DOING: Record<HubRequestKind, string> = {

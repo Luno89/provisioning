@@ -1,8 +1,8 @@
 import type { QueryClient } from '@tanstack/react-query'
-import { getHubBoard, getHubProcedure, hubKeys, listHubExtensions, readHubRunsUnder, sendHubRequest } from '../../api/hub'
-import type { HubBoardView, HubRequestKind } from '../../types/hub'
-import type { WorkSource } from '../../features/projects'
-import { withOrder } from '../../features/projects'
+import { getHubBoard, getHubProcedure, hubKeys, listHubExtensions, readHubRunsUnder, sendHubRequest } from '../api'
+import type { HubBoardView, HubRequestKind } from '../types'
+import type { WorkSource } from '../../projects'
+import { withOrder } from '../../projects'
 
 export const HUB_BOARD_EVERY_MS = 3_000
 

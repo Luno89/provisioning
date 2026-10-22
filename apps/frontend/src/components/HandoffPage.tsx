@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { exchangeHandoff, signInElsewhere, type SessionUser } from '../features/platform'
 import { errorMessage } from '../api/client'
-import { safeNext } from '../lib/pending-join'
+import { safeNext } from '../features/hub'
 
 export interface HandoffPageProps {
   token: string | null

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, startTransition } from 'react';
-import SharedProjectsLink from '../components/Hub/SharedProjectsLink';
+import { SharedProjectsLink } from '../features/hub';
 import { useRouter, type NavigateOptions } from '@tanstack/react-router';
 import { useShellStore, type ViewName } from '../features/platform';
 import {

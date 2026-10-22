@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { Users } from 'lucide-react'
-import { hubElsewhere, hubKeys } from '../../api/hub'
+import { hubElsewhere, hubKeys } from '../api'
 
 export default function SharedProjectsLink({ className, active }: { className: string; active: boolean }) {
   const navigate = useNavigate()

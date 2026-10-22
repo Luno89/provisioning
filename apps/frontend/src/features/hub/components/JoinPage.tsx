@@ -1,6 +1,6 @@
 import { Loader2 } from 'lucide-react'
-import { errorMessage } from '../../api/client'
-import { ROLE_SAID, useAcceptInvitation, useInvitation } from './shared'
+import { errorMessage } from '../../../api/client'
+import { ROLE_SAID, useAcceptInvitation, useInvitation } from '../shared'
 
 export default function JoinPage({ token, me, onJoined }: { token: string; me: string; onJoined: (projectId: string) => void }) {
   const invitation = useInvitation(token)

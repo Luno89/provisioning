@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { FileText, Loader2 } from 'lucide-react'
-import { errorMessage } from '../../api/client'
-import { hubKeys, listHubRepository, readHubRepositoryFile } from '../../api/hub'
+import { errorMessage } from '../../../api/client'
+import { hubKeys, listHubRepository, readHubRepositoryFile } from '../api'
 
 export default function HubRepository({ projectId }: { projectId: string }) {
   const [path, setPath] = useState<string | undefined>(undefined)

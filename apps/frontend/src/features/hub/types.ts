@@ -92,10 +92,10 @@ export interface GroupCheck {
  */
 export interface HubStatus {
   at: string
-  releases: import('../api/releases').OdooRelease[]
+  releases: import('../../api/releases').OdooRelease[]
   addresses?: { live?: string; preview?: string }
-  runs: import('../features/projects').PipelineRun[]
-  treeRuns: Record<string, import('../features/projects').TreeRunStatus>
+  runs: import('../projects').PipelineRun[]
+  treeRuns: Record<string, import('../projects').TreeRunStatus>
 }
 
 export type HubRequestKind = 'approve-plan' | 'reject-plan' | 'order-stories' | 'order-features' | 'accept-task' | 'drop-task' | 'ask-koala' | 'open-chat'
@@ -126,10 +126,10 @@ export interface HubBoardView {
   online: boolean
   members: { personId: string; email: string; role: HubRole }[]
   board: {
-    trees: import('../features/projects').WorkTree[]
-    branches: import('../features/projects').Branch[]
-    leaves: import('../features/projects').Leaf[]
-    tasks: import('../api/engine').EngineTask[]
+    trees: import('../projects').WorkTree[]
+    branches: import('../projects').Branch[]
+    leaves: import('../projects').Leaf[]
+    tasks: import('../../api/engine').EngineTask[]
     planProposals: import('@koala/harness-types').PlanProposal[]
     status?: HubStatus
   }
@@ -138,7 +138,7 @@ export interface HubBoardView {
 }
 
 export interface HubPosted {
-  message: import('../api/chat-pack').ChatConversationMessage
+  message: import('../../api/chat-pack').ChatConversationMessage
   asked?: HubRequest
   notAsked?: string
 }

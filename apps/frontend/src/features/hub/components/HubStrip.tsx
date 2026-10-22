@@ -1,8 +1,8 @@
-import { workingOn } from '../../features/projects'
-import { projectStatus } from '../../features/projects'
-import { waitingLine } from '../../features/projects'
-import type { HubBoardView } from '../../types/hub'
-import { hubPlaceOf } from './hub-chat'
+import { workingOn } from '../../projects'
+import { projectStatus } from '../../projects'
+import { waitingLine } from '../../projects'
+import type { HubBoardView } from '../types'
+import { hubPlaceOf } from '../lib/hub-chat'
 
 const KIND_SAID: Record<string, string> = {
   'approve-plan': 'Approving a plan',

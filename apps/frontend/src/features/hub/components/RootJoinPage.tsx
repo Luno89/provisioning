@@ -1,11 +1,11 @@
 import { useEffect } from 'react'
 import { Loader2, Users } from 'lucide-react'
-import { errorMessage } from '../../api/client'
-import type { SessionUser } from '../../features/platform'
-import Login from '../Login'
-import { rememberJoin, forgetJoin } from '../../lib/pending-join'
-import { ROLE_SAID, useRootInvitation } from './shared'
-import type { HubRole } from '../../types/hub'
+import { errorMessage } from '../../../api/client'
+import type { SessionUser } from '../../platform'
+import Login from '../../../components/Login'
+import { rememberJoin, forgetJoin } from '../lib/pending-join'
+import { ROLE_SAID, useRootInvitation } from '../shared'
+import type { HubRole } from '../types'
 
 export default function RootJoinPage({ code, project, user, onSignedIn, onContinue, onSignOut }: {
   code: string

@@ -1,4 +1,4 @@
-import { getSharing, sharingKeys } from '../../api/hub'
+import { getSharing, sharingKeys } from '../hub'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import {

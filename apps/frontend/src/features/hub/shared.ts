@@ -3,8 +3,8 @@ import { useDebounce } from '../../shared/lib/use-debounce'
 import {
   acceptInvitation, checkGroup, changeMemberRole, deleteSharedProject, getSharing, shareProject, sharingKeys, takeProjectBack, getInvitation, getRootInvitation, getSharedProject, hubKeys,
   inviteToProject, listSharedProjects, removeMember, takeInviteBack,
-} from '../../api/hub'
-import type { HubRole } from '../../types/hub'
+} from './api'
+import type { HubRole } from './types'
 
 export const ROLE_SAID: Record<HubRole, { title: string; can: string }> = {
   owner: { title: 'Owner', can: 'Everything: releases, secrets, settings, and who is on the project.' },

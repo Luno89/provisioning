@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Loader2, Undo2, Users } from 'lucide-react'
-import { errorMessage } from '../../api/client'
-import { useGroupCheck, useSharing } from './shared'
+import { errorMessage } from '../../../api/client'
+import { useGroupCheck, useSharing } from '../shared'
 
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 

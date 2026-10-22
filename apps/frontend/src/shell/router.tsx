@@ -25,7 +25,7 @@ import ModelsView from '../components/Studio/ModelsView';
 import StudioFrame from '../components/Studio/StudioFrame';
 import { TreeTypes } from '../features/projects';
 import SettingsView from './SettingsView';
-import { HubJoinRoute, SharedProjectRoute, SharedProjectsRoute } from '../components/Hub/HubRoutes';
+import { HubJoinRoute, SharedProjectRoute, SharedProjectsRoute } from '../features/hub';
 
 export const rootRoute = createRootRoute({
   component: RootLayout,

@@ -2,17 +2,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
-import * as hubApi from '../../api/hub'
+import * as hubApi from '../api'
 import SharedProjectPage from './SharedProjectPage'
 import JoinPage from './JoinPage'
-import type { SharedProjectView } from '../../types/hub'
+import type { SharedProjectView } from '../types'
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, className }: { children: ReactNode; className?: string }) => <a className={className}>{children}</a>,
   useNavigate: () => vi.fn(),
 }))
 
-vi.mock('../../api/hub', async (orig) => ({
+vi.mock('../api', async (orig) => ({
   ...(await orig<typeof hubApi>()),
   getSharedProject: vi.fn(),
   inviteToProject: vi.fn(),

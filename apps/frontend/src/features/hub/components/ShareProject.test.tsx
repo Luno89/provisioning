@@ -2,17 +2,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
-import * as hubApi from '../../api/hub'
+import * as hubApi from '../api'
 import ShareProject from './ShareProject'
-import type { GroupCheck, SharingPreview } from '../../types/hub'
+import type { GroupCheck, SharingPreview } from '../types'
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }))
 
-vi.mock('../../shared/lib/use-debounce', () => ({ DEBOUNCE_MS: 0, useDebounce: <T,>(value: T) => value }))
+vi.mock('../../../shared/lib/use-debounce', () => ({ DEBOUNCE_MS: 0, useDebounce: <T,>(value: T) => value }))
 
-vi.mock('../../api/hub', async (orig) => ({
+vi.mock('../api', async (orig) => ({
   ...(await orig<typeof hubApi>()),
   getSharing: vi.fn(),
   shareProject: vi.fn(),

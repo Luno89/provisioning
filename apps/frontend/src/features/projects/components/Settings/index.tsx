@@ -9,7 +9,7 @@ import { ProjectRelease } from '../../../../components/Projects/Workspace/Projec
 import { LiveCustomizations } from '../../../../components/Projects/Settings/LiveCustomizations'
 import { ClientImport } from '../../../../components/Projects/Settings/ClientImport'
 import { FilePlacePicker } from '../../../files'
-import ShareProject from '../../../../components/Hub/ShareProject'
+import { ShareProject } from '../../../hub'
 import { useClientImport } from '../../../../components/Projects/Settings/useClientImport'
 import { TreeDeletePanel } from '../Workspace/TreeDeletePanel'
 import { ProjectDeletePanel } from '../Workspace/ProjectDeletePanel'

@@ -1,7 +1,7 @@
-import type { HubBoardView, HubChat } from '../../types/hub'
-import type { HubRole } from '../../types/hub'
-import { ROLE_SAID } from './shared'
-import type { BoardChat } from '../../features/projects'
+import type { HubBoardView, HubChat } from '../types'
+import type { HubRole } from '../types'
+import { ROLE_SAID } from '../shared'
+import type { BoardChat } from '../../projects'
 
 export const HUB_CHAT_EVERY_MS = 3_000
 

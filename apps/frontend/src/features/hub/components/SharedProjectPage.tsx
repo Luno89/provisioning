@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { Check, Copy, Loader2, Mail, UserMinus, Users } from 'lucide-react'
-import { errorMessage } from '../../api/client'
-import { HUB_ROLES, type HubRole, type InviteSent } from '../../types/hub'
-import { youAre } from './hub-chat'
-import { ROLE_SAID, usePeopleChanges, useSharedProject } from './shared'
+import { errorMessage } from '../../../api/client'
+import { HUB_ROLES, type HubRole, type InviteSent } from '../types'
+import { youAre } from '../lib/hub-chat'
+import { ROLE_SAID, usePeopleChanges, useSharedProject } from '../shared'
 
 const field = 'rounded border border-[var(--bark-600)] bg-[var(--bark-900)] px-2 py-1 text-[12px] text-slate-200'
 const button = 'rounded bg-[var(--leaf-stem)] px-2.5 py-1 text-[12px] font-medium text-white hover:brightness-110 disabled:opacity-50'

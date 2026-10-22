@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import { Loader2, Users } from 'lucide-react'
-import { errorMessage } from '../../api/client'
-import { ROLE_SAID, useSharedProjects } from './shared'
+import { errorMessage } from '../../../api/client'
+import { ROLE_SAID, useSharedProjects } from '../shared'
 
 export default function SharedProjects() {
   const mine = useSharedProjects()

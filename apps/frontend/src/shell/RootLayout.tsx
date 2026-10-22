@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
-import RootJoinPage from '../components/Hub/RootJoinPage';
-import HubShell from '../components/Hub/HubShell';
-import { HUB_GO_URL } from '../api/hub';
-import { pendingJoin } from '../lib/pending-join';
+import { RootJoinPage } from '../features/hub';
+import { HubShell } from '../features/hub';
+import { HUB_GO_URL } from '../features/hub';
+import { pendingJoin } from '../features/hub';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, BellRing, Loader2, X } from 'lucide-react';
 import { releaseNotice, toastOf, type ToastKind } from '../features/platform';
