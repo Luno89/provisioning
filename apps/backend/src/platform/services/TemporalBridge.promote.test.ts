@@ -48,9 +48,13 @@ describe('deploying a project\'s build', () => {
     expect(starts).toHaveLength(1);
     expect(starts[0]).toMatchObject({ workflowId: started.workflowId, taskQueue: 'cluster-ops-queue' });
     expect(starts[0]!.args[0]).toMatchObject({ name: 'demo', clusterName: 'dev', appType: 'gitapp', odooRepo: 'registry.local/demo', odooTag: 'abc123' });
-    expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ id: 'demo', status: 'deploying', gitappProjectId: 'proj-1', gitappImageTag: 'registry.local/demo:abc123', temporalWorkflowId: started.workflowId });
+    const [deployment] = await db.infrastructure.getDeployments();
+    expect(deployment).toMatchObject({ status: 'deploying', gitappProjectId: 'proj-1', gitappImageTag: 'registry.local/demo:abc123', temporalWorkflowId: started.workflowId });
+    expect(deployment!.id).not.toBe('demo');
+    expect(deployment!.namespace).toMatch(/^demo-[a-f0-9]{6}$/);
+    expect(starts[0]!.args[0]).toMatchObject({ namespace: deployment!.namespace });
     const [saved] = (await db.releases.getPipelineRuns()).filter((entry) => entry.id === 'run-1');
-    expect(saved).toMatchObject({ deploymentId: 'demo', promotedAt: expect.any(String) });
+    expect(saved).toMatchObject({ deploymentId: deployment!.id, promotedAt: expect.any(String) });
   });
 
   it('deploys a build as the project\'s owner, so the person can see and remove the app it makes', async () => {
