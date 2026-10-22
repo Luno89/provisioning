@@ -4,7 +4,7 @@ import { ArrowDown, AlertTriangle, X } from 'lucide-react';
 import CollapsibleHistoryList from './CollapsibleHistoryList.js';
 import AgentConfigDrawer from './AgentConfigDrawer.js';
 import ModelConfigDrawer from './ModelConfigDrawer.js';
-import { useMachineChoiceLabel } from '../api/local-agents';
+import { useMachineChoiceLabel } from '../features/machines';
 import KoalaLoading from '../shared/components/KoalaLoading.js';
 import ChatHero from './Chat/ChatHero.js';
 import { ConversationContext } from './Chat/ConversationContext.js';

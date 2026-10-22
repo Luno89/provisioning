@@ -3,8 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Check, ChevronDown, Cpu, Globe, Laptop, Search, Server } from 'lucide-react'
 import { listModels, providerKeys, useDefaultModel, type ModelProvider } from '../../api/models'
 import { isLocal, sourceOf } from '../../lib/model-groups'
-import { useMachineChoiceLabel } from '../../api/local-agents'
-import { MachineChoices } from '../MachineChoices'
+import { useMachineChoiceLabel } from '../../features/machines'
+import { MachineChoices } from '../../features/machines'
 
 export interface ModelSelectorProps {
   value: string | null | undefined

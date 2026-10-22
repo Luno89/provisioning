@@ -5,7 +5,7 @@ import { type ModelProvider } from '../api/models';
 import { listLlmProviders, credentialKeys, type LlmProviderStatus } from '../features/infrastructure';
 import { listClusters, clusterKeys } from '../features/infrastructure';
 import { modelOptionLabel } from '../lib/model-label';
-import { MachineChoices } from './MachineChoices';
+import { MachineChoices } from '../features/machines';
 import {
   tierModels, modelRowLabel, formatPrice, formatContext, formatIntelligence, sourceOf,
   type ModelGroup,

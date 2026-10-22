@@ -4,7 +4,7 @@ import { Sliders, X, Loader2, ExternalLink, Check } from 'lucide-react';
 import { agentKeys, listAgents, type Agent } from '../api/agents';
 import { listModels, providerKeys, type ModelProvider } from '../api/models';
 import { modelOptionLabel } from '../lib/model-label';
-import { useMachineChoiceLabel } from '../api/local-agents';
+import { useMachineChoiceLabel } from '../features/machines';
 import { useShellStore } from '../features/platform';
 
 /**

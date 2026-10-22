@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { machineChoice } from '@koala/agent-engine/procedure'
-import { api } from './client'
-import { machineChoiceLabel } from '../lib/machine-rows'
+import { api } from '../../api/client'
+import { machineChoiceLabel } from './lib/machine-rows'
 
 export const localAgentKeys = {
   list: () => ['local-agent-devices'] as const,

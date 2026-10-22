@@ -4,8 +4,8 @@ import { Loader2, Plus, X } from 'lucide-react';
 import {
   installMachineAdapter, localAgentKeys, setMachineAgents,
   type LocalAgentDevice, type MachineAgent, type MachineAgentState,
-} from '../api/local-agents';
-import { errorMessage } from '../api/client';
+} from '../api';
+import { errorMessage } from '../../../api/client';
 
 const STATE_LABEL: Record<MachineAgentState, string> = {
   checking: 'checking…',

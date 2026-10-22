@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { GitBranch, Plus, Loader2 } from 'lucide-react'
 import { listTrees, groveKeys } from '../api/grove.js'
 import { listProjects, projectKeys } from '../api/projects.js'
-import { listLocalAgentDevices, localAgentKeys, type LocalAgentDevice } from '../../../api/local-agents.js'
+import { listLocalAgentDevices, localAgentKeys, type LocalAgentDevice } from '../../machines'
 import { joinProjectRows, type ProjectListTree, type ProjectListProject } from '../shared.js'
 import { ProjectCard } from './ProjectCard.js'
 

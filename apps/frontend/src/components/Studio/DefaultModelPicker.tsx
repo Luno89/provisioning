@@ -8,7 +8,7 @@ import {
 import { modelOptionLabel } from '../../lib/model-label';
 import { ModelPicker } from '../ModelPicker';
 import { errorMessage } from '../../api/client';
-import { useMachineChoiceLabel } from '../../api/local-agents';
+import { useMachineChoiceLabel } from '../../features/machines';
 import { useShellStore } from '../../features/platform';
 
 export function DefaultModelPicker() {

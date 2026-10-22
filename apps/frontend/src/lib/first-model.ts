@@ -1,5 +1,5 @@
 import type { ModelProvider } from '../api/models'
-import type { MachineRow } from './machine-rows'
+import type { MachineRow } from '../features/machines'
 import { isFree, isLocal } from './model-groups'
 
 export type FirstModelStep = 'none' | 'connect' | 'choose'

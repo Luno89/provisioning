@@ -6,8 +6,8 @@ import * as groveApi from '../../api/grove'
 import * as modelsApi from '../../../../api/models'
 import * as credentialsApi from '../../../infrastructure/api/credentials'
 import * as clustersApi from '../../../infrastructure/api/clusters'
-import * as localAgentsApi from '../../../../api/local-agents'
-import { machineChoiceLabel } from '../../../../lib/machine-rows'
+import * as localAgentsApi from '../../../machines/api'
+import { machineChoiceLabel } from '../../../machines/lib/machine-rows'
 import type { ModelProvider } from '../../../../api/models'
 
 vi.mock('../../api/grove', async (orig) => ({
@@ -33,7 +33,7 @@ const desk = [{
   agents: [{ id: 'antigravity', title: 'Antigravity', state: 'ready', source: 'found' }],
 }] as unknown as localAgentsApi.LocalAgentDevice[]
 
-vi.mock('../../../../api/local-agents', async (orig) => ({
+vi.mock('../../../machines/api', async (orig) => ({
   ...(await orig<typeof localAgentsApi>()),
   useLocalAgentDevices: vi.fn(() => ({ data: desk })),
   useMachineChoiceLabel: vi.fn((id: string | null | undefined) => machineChoiceLabel(id, desk)),

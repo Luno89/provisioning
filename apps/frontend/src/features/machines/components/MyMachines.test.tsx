@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import MyMachines from './MyMachines';
-import * as localAgentsApi from '../api/local-agents';
+import * as localAgentsApi from '../api';
 
-vi.mock('../api/local-agents', async (importOriginal) => ({
+vi.mock('../api', async (importOriginal) => ({
   ...(await importOriginal<typeof localAgentsApi>()),
   listLocalAgentDevices: vi.fn(),
   createMachineJoinCode: vi.fn(),

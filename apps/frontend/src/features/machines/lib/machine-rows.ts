@@ -1,5 +1,5 @@
 import { machineChoice, machineChoiceId } from '@koala/agent-engine/procedure'
-import type { LocalAgentDevice } from '../api/local-agents'
+import type { LocalAgentDevice } from '../api'
 
 export interface MachineRow {
   id: string

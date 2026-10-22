@@ -5,7 +5,7 @@ import { Box, ShieldCheck, AlertTriangle, History, Terminal } from 'lucide-react
 import PipelineLogModal from '../PipelineLogModal.js'
 import { PipelineRunRow, type PipelineRun } from '../PipelineRunRow.js'
 import { listProjectRuns, listProjects, patchProject, projectKeys } from '../../api/projects.js'
-import { listLocalAgentDevices, localAgentKeys, type LocalAgentDevice } from '../../../../api/local-agents.js'
+import { listLocalAgentDevices, localAgentKeys, type LocalAgentDevice } from '../../../machines'
 import { ProjectStatusBadge } from '../StatusBadge.js'
 import { ReleasesPanel } from '../../../releases'
 import { SignInReveal } from '../../../releases'

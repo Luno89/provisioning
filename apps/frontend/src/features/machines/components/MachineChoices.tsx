@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Check, ChevronRight, Laptop } from 'lucide-react'
-import { useLocalAgentDevices } from '../api/local-agents'
+import { useLocalAgentDevices } from '../api'
 import { machineGroups, type MachineAgentGroup, type MachineRow } from '../lib/machine-rows'
 
 interface MachineChoicesProps {

@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, X } from 'lucide-react'
 import { createProject as createProjectApi } from '../api/projects.js'
-import { listLocalAgentDevices, localAgentKeys, type LocalAgentDevice } from '../../../api/local-agents.js'
+import { listLocalAgentDevices, localAgentKeys, type LocalAgentDevice } from '../../machines'
 
 interface Cluster {
   id: string

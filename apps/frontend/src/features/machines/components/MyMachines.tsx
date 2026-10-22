@@ -2,8 +2,8 @@ import { useState } from 'react';
 import {
   listLocalAgentDevices, createMachineJoinCode, deleteLocalAgentDevice, localAgentKeys,
   type LocalAgentDevice, type MachineJoinCode,
-} from '../api/local-agents';
-import { errorMessage } from '../api/client';
+} from '../api';
+import { errorMessage } from '../../../api/client';
 import MachineAgents from './MachineAgents';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {

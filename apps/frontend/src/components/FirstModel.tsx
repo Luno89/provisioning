@@ -6,8 +6,8 @@ import { openRouterConnectUrl } from '../features/infrastructure'
 import { errorMessage } from '../api/client'
 import { firstModelChoices, firstModelStep } from '../lib/first-model'
 import { formatIntelligence, formatPrice } from '../lib/model-groups'
-import { useLocalAgentDevices } from '../api/local-agents'
-import { machineRows, type MachineRow } from '../lib/machine-rows'
+import { useLocalAgentDevices } from '../features/machines'
+import { machineRows, type MachineRow } from '../features/machines'
 
 const LATER_KEY = 'koala.firstModel.later'
 

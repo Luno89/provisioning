@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { machineChoiceLabel, machineGroups, machineRows } from './machine-rows'
-import type { LocalAgentDevice } from '../api/local-agents'
+import type { LocalAgentDevice } from '../api'
 
 const desk: LocalAgentDevice = {
   id: 'd1', name: 'desk', rootDir: '/home/me/koala', createdAt: 't', online: true, manualAgents: [],

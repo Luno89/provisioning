@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { FirstModel } from './FirstModel'
 import * as modelsApi from '../api/models'
-import * as agentsApi from '../api/local-agents'
+import * as agentsApi from '../features/machines/api'
 
 vi.mock('../api/models', async (importOriginal) => ({
   ...(await importOriginal<typeof modelsApi>()),
@@ -12,7 +12,7 @@ vi.mock('../api/models', async (importOriginal) => ({
   setDefaultModel: vi.fn(),
 }))
 
-vi.mock('../api/local-agents', async (importOriginal) => ({
+vi.mock('../features/machines/api', async (importOriginal) => ({
   ...(await importOriginal<typeof agentsApi>()),
   useLocalAgentDevices: vi.fn(() => ({ data: [] })),
 }))

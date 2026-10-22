@@ -3,14 +3,14 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NewProjectDialog } from './NewProjectDialog.js';
 import * as projectsApi from '../api/projects.js';
-import * as localAgentsApi from '../../../api/local-agents.js';
+import * as localAgentsApi from '../../machines/api.js';
 
 vi.mock('../api/projects.js', async (importOriginal) => ({
   ...(await importOriginal<typeof projectsApi>()),
   createProject: vi.fn(),
 }));
 
-vi.mock('../../../api/local-agents.js', async (importOriginal) => ({
+vi.mock('../../machines/api.js', async (importOriginal) => ({
   ...(await importOriginal<typeof localAgentsApi>()),
   listLocalAgentDevices: vi.fn(),
 }));

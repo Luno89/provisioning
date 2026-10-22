@@ -13,7 +13,7 @@ import { TemporalPanel } from '../features/infrastructure';
 import { InfrastructureView } from '../features/infrastructure';
 import { MonitoringDetailRedirect } from '../features/infrastructure';
 import { CloudAccounts } from '../features/infrastructure';
-import MyMachines from '../components/MyMachines.js';
+import { MyMachines } from '../features/machines';
 import { Cpu, Puzzle } from 'lucide-react';
 import ProcedureExplorer from '../components/Studio/ProcedureExplorer';
 import AgentExplorer from '../components/Studio/AgentExplorer';
