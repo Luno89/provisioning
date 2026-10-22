@@ -1,6 +1,5 @@
 import type { Conversation } from '../../engine/lib/conversations.js';
 import type { StoredAppSpec } from '../../infrastructure/lib/app-spec.js';
-import { MemoryDB } from './memory-db.js';
 import type { McpToolHint } from '../../engine/lib/mcp-tool-hints.js';
 import type { BenchSettings, BenchState } from '../../checks/lib/bench.js';
 import { MongoDB } from './mongo-db.js';
@@ -344,15 +343,12 @@ let payloadBlobs: PayloadBlobs | undefined;
 
 export function sharedPayloadBlobs(): PayloadBlobs {
   if (!payloadBlobs) {
-    const inMemory = process.env.USE_MEMORY_DB === 'true' || (process.env.NODE_ENV === 'test' && !process.env.IS_E2E);
+    const inMemory = process.env.NODE_ENV === 'test' && !process.env.IS_E2E;
     payloadBlobs = inMemory ? inMemoryPayloadBlobs() : mongoPayloadBlobs();
   }
   return payloadBlobs;
 }
 
 export function createDatabase(env: Readonly<Record<string, string | undefined>> = process.env): Database {
-  if (env.USE_MEMORY_DB === 'true' || (env.NODE_ENV === 'test' && !env.IS_E2E)) {
-    return markingHubWrites(new MemoryDB());
-  }
   return markingHubWrites(new MongoDB(env));
 }

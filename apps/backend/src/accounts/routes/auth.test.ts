@@ -3,7 +3,7 @@ import express from 'express';
 import http from 'http';
 import { authRouter } from './auth.js';
 import { createAuth } from '../../platform/middleware/auth.js';
-import { createDatabase } from '../../platform/lib/db-interface.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { AuthService } from '../services/AuthService.js';
 
@@ -35,7 +35,7 @@ describe('auth router', () => {
 
   beforeEach(async () => {
     delete process.env.IS_E2E;
-    db = createDatabase();
+    db = await testDatabase();
     await db.init();
     ctx = await serve(db);
   });
@@ -97,7 +97,7 @@ describe('auth router', () => {
 
   it('consumes an invite exactly once', async () => {
     await registerAndLogin('first@example.com', 'hunter2hunter2');
-    await db.saveInvite({ code: 'LETMEIN', createdAt: new Date().toISOString() } as never);
+    await db.saveInvite({ id: 'inv-letmein', code: 'LETMEIN', createdAt: new Date().toISOString() } as never);
 
     const ok = await fetch(ctx.url('/api/auth/register'), {
       method: 'POST',

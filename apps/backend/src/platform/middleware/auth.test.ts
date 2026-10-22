@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseCookie, createAuth } from './auth.js';
-import { createDatabase } from '../lib/db-interface.js';
+import { testDatabase } from '../lib/test-database.js';
 import { signJWT } from '../lib/auth.js';
 import type { Request, Response } from 'express';
 
@@ -41,7 +41,7 @@ describe('requireAuth', () => {
   const sessionKey = 'test-secret';
 
   async function build() {
-    const db = createDatabase();
+    const db = await testDatabase();
     await db.init();
     return { db, auth: createAuth({ db, sessionKey, publicUrl: 'http://localhost:3001' }) };
   }
@@ -156,7 +156,7 @@ describe('what is open without a session, by role', () => {
     return call;
   };
   const opens = async (role: 'root' | 'instance' | 'combined' | 'hub', path: string): Promise<boolean> => {
-    const db = createDatabase();
+    const db = await testDatabase();
     await db.init();
     const call = at(path);
     await createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role }).requireAuth(call.req, call.res, call.next);
@@ -201,7 +201,7 @@ describe('what is open without a session, by role', () => {
   });
 
   it('marks an instance\'s session cookie Secure only when the request really came over https', async () => {
-    const db = createDatabase();
+    const db = await testDatabase();
     await db.init();
     const auth = createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role: 'instance' });
     const cookies: Array<{ secure: boolean }> = [];
@@ -216,7 +216,7 @@ describe('what is open without a session, by role', () => {
 
 describe('an invite to sign up', () => {
   const withInvite = async (email?: string) => {
-    const db = createDatabase();
+    const db = await testDatabase();
     await db.init();
     await db.saveInvite({ id: 'i1', code: 'CODE', createdBy: 'ann', createdAt: 't', ...(email ? { email } : {}) });
     return { db, auth: createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001' }) };

@@ -331,7 +331,7 @@ describe('PATCH /:id — execution target', () => {
     const harness = await mountForCreate();
     await harness.db.saveProjectInfo(project);
     await harness.db.saveProjectInfo({
-      ...project, id: 'proj-other', executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
+      ...project, id: 'proj-other', giteaRepo: 'other', executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
     });
     await harness.db.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',

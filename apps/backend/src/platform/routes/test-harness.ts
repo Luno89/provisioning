@@ -1,7 +1,7 @@
 import express, { type Router, type Request, type Response, type NextFunction } from 'express';
 import http from 'http';
 import axios from 'axios';
-import { createDatabase } from '../lib/db-interface.js';
+import { testDatabase } from '../lib/test-database.js';
 import type { Database } from '../lib/db-interface.js';
 import { errorResponder } from '../middleware/async-route.js';
 
@@ -22,8 +22,7 @@ export interface Harness {
 
 export async function mountRouter(opts: HarnessOptions): Promise<Harness> {
   axios.defaults.proxy = false;
-  const db = createDatabase();
-  await db.init();
+  const db = await testDatabase();
 
   let current: typeof TEST_USER | null = opts.user === undefined ? TEST_USER : opts.user;
 

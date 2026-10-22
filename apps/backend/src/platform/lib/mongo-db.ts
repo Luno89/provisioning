@@ -411,13 +411,13 @@ export class MongoDB implements Database {
     try {
       await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, {
         unique: true,
-        partialFilterExpression: { giteaOwner: { $type: 'string' }, giteaRepo: { $type: 'string' } },
+        partialFilterExpression: { giteaOwner: { $gt: '' }, giteaRepo: { $gt: '' } },
       });
     } catch {
       await this.projects.dropIndex('giteaOwner_1_giteaRepo_1');
       await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, {
         unique: true,
-        partialFilterExpression: { giteaOwner: { $type: 'string' }, giteaRepo: { $type: 'string' } },
+        partialFilterExpression: { giteaOwner: { $gt: '' }, giteaRepo: { $gt: '' } },
       });
     }
     await this.pipelineRuns.createIndex({ projectId: 1 });

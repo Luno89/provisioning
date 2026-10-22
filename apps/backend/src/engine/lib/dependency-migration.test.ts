@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createDatabase } from '../../platform/lib/db-interface.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import { migrateToDependencies, programOf } from './dependency-migration.js';
 import { runsFingerprint, serverState, type McpServerRecord } from './mcp-servers.js';
 import { SHIPPED_DEPENDENCIES } from '../../extensions/workspace-dependencies.js';
@@ -11,7 +11,7 @@ const tool = (over: Record<string, unknown>) => ({
 
 describe('moving inline installs onto dependencies', () => {
   it('points a tool at the shipped dependency that installs the same, or one of the person\'s own, once', async () => {
-    const db = createDatabase();
+    const db = await testDatabase();
     await db.init();
     await db.saveUser({ id: 'u1', email: 'u1@test' } as never);
     await db.saveEngineTool(tool({ name: 'json_query', ownerId: 'u1', needsBinaries: ['jq'], install: { via: 'dnf', packages: ['jq'] } }));
@@ -29,7 +29,7 @@ describe('moving inline installs onto dependencies', () => {
   });
 
   it('moves a workspace server onto what it needs and keeps its capture, so it stays usable', async () => {
-    const db = createDatabase();
+    const db = await testDatabase();
     await db.init();
     await db.saveUser({ id: 'u1', email: 'u1@test' } as never);
     const legacy = { where: 'workspace', languages: ['node'], install: [{ via: 'npm', packages: ['@playwright/mcp@0.0.83'] }], start: 'PLAYWRIGHT_BROWSERS_PATH=/x playwright-mcp --port 8931', port: 8931 } as never;
