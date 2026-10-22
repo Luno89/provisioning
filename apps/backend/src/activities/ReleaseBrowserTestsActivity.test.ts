@@ -147,13 +147,22 @@ describe('running a release\'s browser tests against its preview', () => {
 });
 
 describe('reaching the release\'s namespace', () => {
-  it('puts everything it applies into the release\'s namespace, whatever the manifest says', async () => {
+  it('lets the namespace pull Koala-built images once, then puts everything it applies into the release\'s namespace, whatever the manifest says', async () => {
     const { namespacedCluster } = await import('./ReleaseBrowserTestsActivity.js');
     const applied: string[] = [];
     const infra = { applyManifest: async (manifest: string) => { applied.push(manifest); return ''; }, runKubectl: async () => '' };
     const target = { clusterName: 'box', provider: 'remote', namespace: 'shop', release: 'shop', kubeconfigPath: '/tmp/kubeconfig-box' };
-    await namespacedCluster(infra as never)(target).apply({ kind: 'Secret', metadata: { name: 'shop-e2e-login' } });
-    expect(JSON.parse(applied[0]!)).toEqual({ kind: 'Secret', metadata: { name: 'shop-e2e-login', namespace: 'shop' } });
+    const login = { hosts: { push: 'gitea:3000', pull: 'gitea:3000' }, username: 'provisioning-bot', password: 'tok' };
+    const reach = namespacedCluster(infra as never, async () => login)(target);
+    await reach.apply({ kind: 'Secret', metadata: { name: 'shop-e2e-login' } });
+    await reach.apply({ kind: 'Job', metadata: { name: 'shop-e2e' } });
+    expect(JSON.parse(applied[0]!)).toMatchObject({ kind: 'List', items: [
+      { kind: 'Secret', type: 'kubernetes.io/dockerconfigjson', metadata: { name: 'koala-registry-pull', namespace: 'shop' } },
+      { kind: 'ServiceAccount', metadata: { name: 'default', namespace: 'shop' }, imagePullSecrets: [{ name: 'koala-registry-pull' }] },
+    ] });
+    expect(JSON.parse(applied[1]!)).toEqual({ kind: 'Secret', metadata: { name: 'shop-e2e-login', namespace: 'shop' } });
+    expect(JSON.parse(applied[2]!)).toEqual({ kind: 'Job', metadata: { name: 'shop-e2e', namespace: 'shop' } });
+    expect(applied).toHaveLength(3);
   });
 });
 

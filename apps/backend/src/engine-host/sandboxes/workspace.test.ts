@@ -63,3 +63,26 @@ describe('labelling a workspace', () => {
     }
   });
 });
+
+describe('a workspace pulling a Koala-built image', () => {
+  const login = { hosts: { push: 'gitea-http.gitea.svc.cluster.local:3000', pull: '127.0.0.1:35010' }, username: 'provisioning-bot', password: 'tok' };
+
+  it('carries the registry login as a secret of its namespace, before the pod that names it', () => {
+    const manifests = buildManifests(workspace(), login);
+    const kinds = manifests.map((manifest) => manifest.kind);
+    const secret = manifests.find((manifest) => manifest.kind === 'Secret') as { type: string; metadata: { name: string; namespace: string; labels: Record<string, string> }; data: Record<string, string> };
+    expect(kinds.indexOf('Secret')).toBeGreaterThan(kinds.indexOf('Namespace'));
+    expect(kinds.indexOf('Secret')).toBeLessThan(kinds.indexOf('Pod'));
+    expect(secret.type).toBe('kubernetes.io/dockerconfigjson');
+    expect(secret.metadata).toMatchObject({ name: 'koala-registry-pull', namespace: workspaceName('run-1'), labels: { 'koala.dev/run': 'run-1' } });
+    expect(Object.keys(JSON.parse(Buffer.from(secret.data['.dockerconfigjson']!, 'base64').toString()).auths)).toEqual(['gitea-http.gitea.svc.cluster.local:3000', '127.0.0.1:35010']);
+    const pod = manifests.find((manifest) => manifest.kind === 'Pod') as { spec: { imagePullSecrets?: unknown } };
+    expect(pod.spec.imagePullSecrets).toEqual([{ name: 'koala-registry-pull' }]);
+  });
+
+  it('asks for no secret when it is given no login', () => {
+    const manifests = buildManifests(workspace());
+    expect(manifests.some((manifest) => manifest.kind === 'Secret')).toBe(false);
+    expect((manifests.find((manifest) => manifest.kind === 'Pod') as { spec: Record<string, unknown> }).spec.imagePullSecrets).toBeUndefined();
+  });
+});

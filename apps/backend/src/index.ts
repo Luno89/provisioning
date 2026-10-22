@@ -353,6 +353,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   if (evalHost.storyDrops) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));
   if (servesTenants(role)) void db.accounts.getUsers().then((users) => odooReleases.recover(users.map((user) => user.id))).catch(() => undefined);
+  if (servesTenants(role)) void releases.letReleasesPull().catch((err: Error) => console.warn(`[releases] could not give release namespaces their registry login: ${err.message}`));
 
   const payloadStorage = new PayloadStorageService(sharedPayloadBlobs(), () => getTemporalClient());
   const sweepPayloads = async (): Promise<void> => {

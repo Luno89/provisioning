@@ -1,5 +1,6 @@
 import { BYPASS_ENV, type EgressMode } from '@koala/agent-engine';
 import { WORKSPACE_STAMP, workspaceStamp } from '../../engine/lib/published-workspace.js';
+import { POD_PULL_SECRETS, REGISTRY_PULL_SECRET, registryPullSecret, type RegistryLogin } from '../../instances/lib/registry-pull.js';
 
 export type EgressRule =
   | { cidr: string; namespace?: undefined; ports?: number[] }
@@ -136,7 +137,7 @@ export function egressFor(
     other.namespace === rule.namespace && other.cidr === rule.cidr) === index);
 }
 
-export function buildManifests(workspace: RunWorkspace): Record<string, unknown>[] {
+export function buildManifests(workspace: RunWorkspace, pull?: RegistryLogin | undefined): Record<string, unknown>[] {
   const namespace = workspaceName(workspace.runId);
   const seconds = workspace.lifetimeMs ? Math.ceil(workspace.lifetimeMs / 1000) : undefined;
 
@@ -163,6 +164,7 @@ export function buildManifests(workspace: RunWorkspace): Record<string, unknown>
       metadata: { name: namespace, labels },
     },
     ...volume,
+    ...(pull ? [{ ...registryPullSecret(namespace, pull), metadata: { name: REGISTRY_PULL_SECRET, namespace, labels } }] : []),
     {
       apiVersion: 'networking.k8s.io/v1',
       kind: 'NetworkPolicy',
@@ -190,6 +192,7 @@ export function buildManifests(workspace: RunWorkspace): Record<string, unknown>
       metadata: { name: POD, namespace, labels, annotations: { [WORKSPACE_STAMP]: workspaceStamp(workspace) } },
       spec: {
         automountServiceAccountToken: false,
+        ...(pull ? { imagePullSecrets: [...POD_PULL_SECRETS] } : {}),
         restartPolicy: 'Never',
         terminationGracePeriodSeconds: 1,
         ...(seconds ? { activeDeadlineSeconds: seconds } : {}),

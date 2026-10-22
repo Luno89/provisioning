@@ -74,6 +74,8 @@ echo "  ▶  Ensuring Gitea is installed (helm upgrade --install is a cheap no-o
   --set valkey-cluster.enabled=false \
   --set strategy.type=Recreate \
   --set-string gitea.config.security.ALLOWED_HOST_LIST='private\,loopback' \
+  --set-string gitea.config.service.REQUIRE_SIGNIN_VIEW=true \
+  --set-string gitea.config.service.DEFAULT_USER_VISIBILITY=private \
   --wait --timeout 720h
   # strategy=Recreate: the chart's default RollingUpdate brings up a second pod (sharing the
   # same ReadWriteOnce PVC) before killing the first — Gitea's local leveldb queue can't be

@@ -473,6 +473,12 @@ worker, `POOL_TASK_QUEUE`):
 - waits until the proxy reaches the backend, then marks it ready; `InstanceRoutes` sends `<name>.<domain>` to its ports.
 In pool mode an instance pushes images to Gitea by its in-cluster name and gives pods the loopback name
 (`instances/lib/registry-hosts.ts`, `REGISTRY_PULL_HOST`, `KOALA_REGISTRY_PUSH`). kubectl port-forward cannot reach a gVisor pod.
+**Gitea answers nobody signed out** (`REQUIRE_SIGNIN_VIEW` in `scripts/ensure-gitea.sh`) and its users are private (made so,
+and every existing one patched at boot, `GiteaService.makeUsersPrivate`), so every pull of a Koala-built image needs a login:
+each namespace Koala pulls one into gets the secret `koala-registry-pull` (the bot's read-only package token,
+`GiteaService.registryLogin`; shapes in `instances/lib/registry-pull.ts`) and its `default` service account names it (release
+namespaces through `SlotCluster`, at every release step and for every released project at boot; browser tests through
+`namespacedCluster`), and a sandbox pod names it itself. A move copies a `default` service account only for its pull secrets.
 **The trial** (`PoolTrialWorkflow`, rules in `instances/lib/pool-trial.ts`): emails 3 days and 1 day before the end, stops the
 vcluster at the end (status `paused`, so sign-in and routes skip it), warns again 3 days before deleting it 30 days later.
 While a move runs the trial holds (`PoolTrialNextActivity` answers `hold`).

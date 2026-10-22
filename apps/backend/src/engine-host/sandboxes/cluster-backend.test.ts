@@ -79,6 +79,19 @@ describe('standing a workspace up', () => {
     expect(applied).toContain('"koala.dev/run":"run-abc"');
   });
 
+  it('pulls the workspace image with the registry login it is handed, and asks for none without one', async () => {
+    const login = { hosts: { push: '10.0.0.130:31737', pull: '10.0.0.130:31737' }, username: 'provisioning-bot', password: 'tok' };
+    const withLogin = kube({ get: notRunning });
+    await createClusterBackend({ run: withLogin.run, workspace, registry: async () => login }).exec({ sandboxId: 'x', command: 'echo' });
+    const docs = (withLogin.calls.find((call) => call.args[0] === 'apply')?.input ?? '').split('\n---\n').map((doc) => JSON.parse(doc));
+    expect(docs.find((doc) => doc.kind === 'Secret')).toMatchObject({ type: 'kubernetes.io/dockerconfigjson', metadata: { name: 'koala-registry-pull', namespace: NAMESPACE } });
+    expect(docs.find((doc) => doc.kind === 'Pod').spec.imagePullSecrets).toEqual([{ name: 'koala-registry-pull' }]);
+
+    const without = kube({ get: notRunning });
+    await createClusterBackend({ run: without.run, workspace }).exec({ sandboxId: 'x', command: 'echo' });
+    expect(without.calls.find((call) => call.args[0] === 'apply')?.input ?? '').not.toContain('imagePullSecrets');
+  });
+
   it('gives the pod a deadline matching the run, not a fixed hour', async () => {
     const { run, calls } = kube({ get: notRunning });
     const long = { ...workspace, lifetimeMs: 4 * 60 * 60_000 };

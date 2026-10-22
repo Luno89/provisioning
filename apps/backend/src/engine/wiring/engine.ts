@@ -341,6 +341,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       username: gitea.adminUsername,
       password: (await gitea.createDeployToken()).token,
     }),
+    registryLogin: () => gitea.registryLogin(),
     efforts: { save: (effort) => db.engine.saveRunEffort(effort), list: (ownerId, procedureId, modelKey) => db.engine.getRunEffort(ownerId, procedureId, modelKey) },
   });
 

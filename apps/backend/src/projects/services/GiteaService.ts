@@ -7,6 +7,8 @@ import { promisify } from 'util';
 import { encryptValue, decryptValue, type SecretKey } from '../../platform/lib/crypto.js';
 import type { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
 import { registryHosts, type RegistryHosts } from '../../instances/lib/registry-hosts.js';
+import type { RegistryLogin } from '../../instances/lib/registry-pull.js';
+import { privatePatches, type GiteaListedUser } from '../lib/gitea-visibility.js';
 
 const run = promisify(execFile);
 
@@ -16,6 +18,8 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 const PASSWORD_FILE = path.join(DATA_DIR, '.gitea-admin-password');
 const TOKEN_FILE = path.join(DATA_DIR, '.gitea-admin-token');
 const TOKEN_SCOPES_FILE = path.join(DATA_DIR, '.gitea-admin-token.scopes');
+const PULL_TOKEN_FILE = path.join(DATA_DIR, '.gitea-pull-token');
+const USERS_PAGE = 50;
 const TOKEN_SCOPES = ['write:repository', 'write:package', 'write:admin', 'write:user', 'write:organization'];
 
 export class GiteaConflictError extends Error {}
@@ -38,6 +42,7 @@ const MERGEABILITY_TRIES = 15;
 export class GiteaService {
   private baseUrlCache: string | null = null;
   private tokenCache: string | null = null;
+  private pullLogin: Promise<RegistryLogin> | null = null;
 
   constructor(
     private readonly infra: InfrastructureService,
@@ -287,7 +292,7 @@ export class GiteaService {
         'Content-Type': 'application/json',
         Authorization: `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`,
       },
-      body: JSON.stringify({ username, email, password, must_change_password: false }),
+      body: JSON.stringify({ username, email, password, must_change_password: false, visibility: 'private' }),
     });
     if (!res.ok) throw new Error(`Failed to create Gitea account ${username}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
     return { password };
@@ -902,5 +907,50 @@ export class GiteaService {
 
   async getRegistryHosts(): Promise<RegistryHosts> {
     return registryHosts(await this.resolveBaseUrl(), process.env.REGISTRY_PULL_HOST);
+  }
+
+  async registryLogin(): Promise<RegistryLogin> {
+    this.pullLogin ??= this.loadRegistryLogin().catch((err: unknown) => {
+      this.pullLogin = null;
+      throw err;
+    });
+    return this.pullLogin;
+  }
+
+  private async loadRegistryLogin(): Promise<RegistryLogin> {
+    const hosts = await this.getRegistryHosts();
+    const stored = await fs.readFile(PULL_TOKEN_FILE, 'utf8').then((raw) => decryptValue(raw.trim(), this.masterKey), () => undefined);
+    if (stored && await this.registryAccepts(stored)) return { hosts, username: ADMIN_USERNAME, password: stored };
+    const minted = await this.mintUserToken(ADMIN_USERNAME, await this.readAdminPassword(), 'registry-pull', ['read:package']);
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.writeFile(PULL_TOKEN_FILE, encryptValue(minted.token, this.masterKey), { mode: 0o600 });
+    return { hosts, username: ADMIN_USERNAME, password: minted.token };
+  }
+
+  private async registryAccepts(token: string): Promise<boolean> {
+    const res = await fetch(`${await this.resolveBaseUrl()}/v2/`, {
+      headers: { Authorization: `Basic ${Buffer.from(`${ADMIN_USERNAME}:${token}`).toString('base64')}` },
+    });
+    return res.ok;
+  }
+
+  async makeUsersPrivate(): Promise<string[]> {
+    const users: GiteaListedUser[] = [];
+    for (let page = 1; ; page += 1) {
+      const res = await this.apiFetch(`/api/v1/admin/users?page=${page}&limit=${USERS_PAGE}`);
+      if (!res.ok) throw new Error(`Gitea would not list its users (HTTP ${res.status}): ${(await res.text().catch(() => '')).slice(0, 200)}`);
+      const listed = (await res.json()) as GiteaListedUser[];
+      users.push(...listed);
+      if (listed.length < USERS_PAGE) break;
+    }
+    const changed: string[] = [];
+    const refused: string[] = [];
+    for (const patch of privatePatches(users)) {
+      const res = await this.apiFetch(`/api/v1/admin/users/${encodeURIComponent(patch.username)}`, { method: 'PATCH', body: JSON.stringify(patch.body) });
+      if (res.ok) changed.push(patch.username);
+      else refused.push(`${patch.username} (HTTP ${res.status}: ${(await res.text().catch(() => '')).slice(0, 120)})`);
+    }
+    if (refused.length) throw new Error(`Gitea would not make ${refused.join(', ')} private; ${changed.length} made private`);
+    return changed;
   }
 }

@@ -31,6 +31,7 @@ const cluster: SlotCluster = {
   remove: async (_target, kind, name) => { await act(`remove ${kind} ${name}`); },
   running: async () => undefined,
   pipe: async () => '',
+  pullAccess: async () => undefined,
 } as SlotCluster;
 
 const adapter: SlotAdapter = {

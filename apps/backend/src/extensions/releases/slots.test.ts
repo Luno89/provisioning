@@ -71,6 +71,7 @@ function world(over: { state: SlotState; records: OdooRelease[]; answers?: strin
     remove: async (_target, kind, name) => { await act(`remove ${kind} ${name}`); },
     running: async () => undefined,
     pipe: async () => '',
+    pullAccess: async () => undefined,
   } as SlotCluster;
   const adapter: SlotAdapter = {
     id: 'fake', title: 'Fake',

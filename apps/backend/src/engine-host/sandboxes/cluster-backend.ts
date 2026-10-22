@@ -10,6 +10,7 @@ import {
 } from './kube.js';
 import { READ_WHOLE_FILE, wholeFile, type DirEntry, type ExecResult } from '@koala/engine-core';
 import type { SandboxBackend } from '../drivers/sandbox.js';
+import type { RegistryLoginSource } from '../../instances/lib/registry-pull.js';
 
 export { WorkspaceUnavailableError } from './kube.js';
 export type ClusterBackend = SandboxBackend;
@@ -19,6 +20,7 @@ export interface ClusterBackendOptions {
   workspace: RunWorkspace;
   readyPollMs?: number | undefined;
   onStarted?: (() => Promise<void>) | undefined;
+  registry?: RegistryLoginSource | undefined;
 }
 
 const starting = new Map<string, Promise<void>>();
@@ -60,7 +62,7 @@ export function createClusterBackend(options: ClusterBackendOptions): SandboxBac
     if (standingNow.running && (!persistent || standingNow.stamp === undefined || standingNow.stamp === wanted)) return;
     if (persistent) await retirePod(run, namespace, POD);
     await applyWorkspace(run, {
-      manifests: buildManifests(options.workspace),
+      manifests: buildManifests(options.workspace, await options.registry?.()),
       namespace,
       pod: POD,
       ...(options.readyPollMs ? { pollMs: options.readyPollMs } : {}),

@@ -50,11 +50,14 @@ export function volumeOfPart(part: string): { namespace: string; claim: string }
 const LEFT_OUT_SECRETS = new Set(['kubernetes.io/service-account-token']);
 const LEFT_OUT_NAMES = new Set(['kube-root-ca.crt', 'default']);
 
+const pullsWithSecrets = (object: KubeObject): boolean =>
+  object.metadata?.name === 'default' && Array.isArray(object.imagePullSecrets) && object.imagePullSecrets.length > 0;
+
 export function copied(object: KubeObject): boolean {
   const name = object.metadata?.name ?? '';
   if (object.kind === 'Secret' && LEFT_OUT_SECRETS.has(object.type ?? '')) return false;
   if (object.kind === 'ConfigMap' && name === 'kube-root-ca.crt') return false;
-  if (object.kind === 'ServiceAccount' && LEFT_OUT_NAMES.has(name)) return false;
+  if (object.kind === 'ServiceAccount' && LEFT_OUT_NAMES.has(name)) return pullsWithSecrets(object);
   if (object.metadata && Array.isArray((object.metadata as { ownerReferences?: unknown[] }).ownerReferences) && object.kind !== 'Secret') return false;
   return true;
 }
@@ -91,6 +94,9 @@ const DROPPED_METADATA = ['ownerReferences', 'uid', 'resourceVersion', 'creation
 const DROPPED_ANNOTATIONS = /^(pv\.kubernetes\.io\/|volume\.beta\.kubernetes\.io\/|volume\.kubernetes\.io\/|kubectl\.kubernetes\.io\/last-applied-configuration$|deployment\.kubernetes\.io\/revision$)/;
 
 export function cleaned(object: KubeObject, from: string, to: string): KubeObject {
+  if (object.kind === 'ServiceAccount' && pullsWithSecrets(object)) {
+    return { apiVersion: object.apiVersion ?? 'v1', kind: 'ServiceAccount', metadata: { name: 'default', ...(object.metadata?.namespace ? { namespace: object.metadata.namespace } : {}) }, imagePullSecrets: object.imagePullSecrets };
+  }
   const copy = JSON.parse(JSON.stringify(object)) as KubeObject;
   delete copy.status;
   const metadata = copy.metadata ?? {};

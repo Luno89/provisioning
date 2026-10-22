@@ -1,7 +1,8 @@
 import { imageReference, needsBuilding, renderDockerfile, type ImagePlan } from '@koala/agent-engine';
 import type { KubeRunner } from './kube.js';
 import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
-import { forPushing, kanikoRegistryArgs, registryAuths, type RegistryHosts } from '../../instances/lib/registry-hosts.js';
+import { forPushing, kanikoRegistryArgs, type RegistryHosts } from '../../instances/lib/registry-hosts.js';
+import { dockerConfigJson } from '../../instances/lib/registry-pull.js';
 
 export const BUILD_NAMESPACE = 'pipeline-builds';
 
@@ -76,10 +77,6 @@ export interface ImageBuilderOptions {
   published?: ((reference: string) => Promise<boolean>) | undefined;
   account?: (() => Promise<RegistryAccount>) | undefined;
   pushToken?: (() => Promise<{ username: string; password: string }>) | undefined;
-}
-
-export function dockerConfigFor(hosts: RegistryHosts, login: { username: string; password: string }): string {
-  return JSON.stringify({ auths: registryAuths(hosts, Buffer.from(`${login.username}:${login.password}`).toString('base64')) });
 }
 
 export type ImageState = 'ready' | 'building' | 'failed' | 'unbuilt';
@@ -242,9 +239,9 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
   const apply = async (plan: ImagePlan, reference: string): Promise<void> => {
     const push = await (options.pushToken ?? options.account)?.();
     const registryHosts = await hosts();
-    const dockerConfigJson = push ? dockerConfigFor(registryHosts, push) : undefined;
+    const config = push ? dockerConfigJson(registryHosts, push) : undefined;
     const manifests = buildManifests({
-      plan, namespace, reference, hosts: registryHosts, ...(dockerConfigJson ? { dockerConfigJson } : {}),
+      plan, namespace, reference, hosts: registryHosts, ...(config ? { dockerConfigJson: config } : {}),
     });
     const doc = manifests.map((manifest) => JSON.stringify(manifest)).join('\n---\n');
     const applied = await run(['apply', '-f', '-'], doc);

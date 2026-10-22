@@ -10,6 +10,7 @@ import { inNamespace, runClusterJob, waitUntilRolledOut, type NamespacedCluster 
 import { labelValue } from '../../engine-host/sandboxes/workspace.js';
 import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
 import type { SecretTarget } from '../../releases/lib/infisical-sync.js';
+import { manifestList, registryPullManifests, type RegistryLogin, type RegistryLoginSource } from '../../instances/lib/registry-pull.js';
 
 export interface VaultSyncArgs {
   projectId: string;
@@ -40,6 +41,7 @@ export interface SlotCluster {
   remove(target: ReleaseTarget, kind: string, name: string, wait?: boolean): Promise<void>;
   running(target: ReleaseTarget, pod: string): Promise<void>;
   pipe(target: ReleaseTarget, pod: string, command: string[], input: NodeJS.ReadableStream): Promise<string>;
+  pullAccess(target: ReleaseTarget): Promise<void>;
 }
 
 const POLL_MS = 5_000;
@@ -57,7 +59,11 @@ export function releaseNamespace(target: Pick<ReleaseTarget, 'namespace' | 'owne
   };
 }
 
-export function createSlotCluster(deps: { infra: InfrastructureService; repo: () => Promise<RepoFiles>; syncVault: VaultSync; beat?: ((detail?: unknown) => void) | undefined }): SlotCluster {
+export function preparedNamespace(target: Pick<ReleaseTarget, 'namespace' | 'owner'>, login: RegistryLogin): Record<string, unknown> {
+  return manifestList([releaseNamespace(target), ...registryPullManifests(target.namespace, login)]);
+}
+
+export function createSlotCluster(deps: { infra: InfrastructureService; repo: () => Promise<RepoFiles>; registry: RegistryLoginSource; syncVault: VaultSync; beat?: ((detail?: unknown) => void) | undefined }): SlotCluster {
   const { infra } = deps;
   const beat = deps.beat ?? (() => {});
   const kubeconfigOf = (target: ReleaseTarget) => reachCluster(infra, target);
@@ -66,6 +72,9 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
     kubectl: (args) => kubectl(target, args),
     apply: async (manifest) => { await infra.applyManifest(JSON.stringify(inNamespace(manifest, target.namespace)), await kubeconfigOf(target)); },
   });
+  const prepare = async (target: ReleaseTarget, kubeconfig: string): Promise<void> => {
+    await infra.applyManifest(JSON.stringify(preparedNamespace(target, await deps.registry())), kubeconfig);
+  };
 
   return {
     async state(target) {
@@ -100,7 +109,7 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
           await fs.mkdir(path.dirname(local), { recursive: true });
           await fs.writeFile(local, content);
         }
-        await infra.applyManifest(JSON.stringify(releaseNamespace(target)), await kubeconfigOf(target));
+        await prepare(target, await kubeconfigOf(target));
         await infra.runHelmWithChart(
           (at) => ['upgrade', '--install', target.release, at, '-n', target.namespace, '--create-namespace', ...sets],
           chart,
@@ -113,7 +122,7 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
 
     async vault(target, vault, secretTarget) {
       const kubeconfig = await kubeconfigOf(target);
-      await infra.applyManifest(JSON.stringify(releaseNamespace(target)), kubeconfig);
+      await prepare(target, kubeconfig);
       await deps.syncVault({ projectId: vault.projectId, namespace: target.namespace, secretName: vault.secret, kubeconfig, target: secretTarget });
       let missing = vault.keys;
       for (;;) {
@@ -136,6 +145,7 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
     },
 
     async job(target, name, manifest) {
+      await prepare(target, await kubeconfigOf(target));
       await runClusterJob(namespaced(target), { name, namespace: target.namespace, manifest }, { beat });
     },
 
@@ -145,7 +155,7 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
 
     async put(target, manifest) {
       const kubeconfig = await kubeconfigOf(target);
-      await infra.applyManifest(JSON.stringify(releaseNamespace(target)), kubeconfig);
+      await prepare(target, kubeconfig);
       await infra.applyManifest(JSON.stringify(inNamespace(manifest, target.namespace)), kubeconfig);
     },
 
@@ -165,6 +175,10 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
         if (health?.health === 'unhealthy') throw ApplicationFailure.nonRetryable(`${pod} cannot run: ${health.reason}`);
         await sleep(POLL_MS);
       }
+    },
+
+    async pullAccess(target) {
+      await prepare(target, await kubeconfigOf(target));
     },
 
     async pipe(target, pod, command, input) {

@@ -26,6 +26,18 @@ describe('copying an app\'s namespace to the new machine', () => {
     expect(copied({ kind: 'Secret', type: 'helm.sh/release.v1', metadata: { name: 'sh.helm.release.v1.books.v1' } })).toBe(true);
   });
 
+  it('keeps only the pull secrets of a namespace\'s default service account, so its pods pull from the new registry with a login', () => {
+    const account: KubeObject = {
+      apiVersion: 'v1', kind: 'ServiceAccount',
+      metadata: { name: 'default', namespace: 'books', uid: 'u', resourceVersion: '3' },
+      secrets: [{ name: 'default-token-abc' }],
+      imagePullSecrets: [{ name: 'koala-registry-pull' }],
+    };
+    expect(copied(account)).toBe(true);
+    expect(cleaned(account, FROM, TO)).toEqual({ apiVersion: 'v1', kind: 'ServiceAccount', metadata: { name: 'default', namespace: 'books' }, imagePullSecrets: [{ name: 'koala-registry-pull' }] });
+    expect(copied({ kind: 'ServiceAccount', metadata: { name: 'default' }, imagePullSecrets: [] })).toBe(false);
+  });
+
   it('starts each workload with the copies it had, from the old registry\'s images on the new one\'s', () => {
     const deployment: KubeObject = {
       apiVersion: 'apps/v1', kind: 'Deployment',

@@ -1,3 +1,4 @@
+import type { RegistryLoginSource } from '../instances/lib/registry-pull.js';
 import { BUILDER_TOOLS, type ProcedureSource, type ToolDefinition, type WorkspaceDependency } from '@koala/agent-engine';
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { BUILT_IN_SCENARIOS } from '../eval/level2/scenarios.js';
@@ -132,6 +133,7 @@ export interface EngineHostOptions {
   pushRegistryHost?: string | undefined;
   registryAccount?: (() => Promise<RegistryAccount>) | undefined;
   registryPushToken?: (() => Promise<{ username: string; password: string }>) | undefined;
+  registryLogin?: RegistryLoginSource | undefined;
   onSandbox?: ((driver: EnvironmentDriver, ticket: RunTicket) => Promise<void>) | undefined;
   onLeak?: ((runId: string, ageMs: number) => void) | undefined;
   runEnded?: ((runId: string) => Promise<boolean>) | undefined;
@@ -220,6 +222,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
         backend: createClusterBackend({
           run: kube,
           workspace,
+          ...(options.registryLogin ? { registry: options.registryLogin } : {}),
           ...(documents && repoForWorkspace(workspace.runId)
             ? { onStarted: async () => { await documents.restore({ ownerId: ticket.ownerId, workspaceRunId: workspace.runId, ...(await repoFor(workspace.runId))! }); } }
             : {}),

@@ -26,6 +26,7 @@ import {
   type ReleaseE2E,
 } from '../releases/lib/release-e2e.js';
 import { reachCluster } from './cluster-access.js';
+import { manifestList, registryPullManifests, type RegistryLoginSource } from '../instances/lib/registry-pull.js';
 import { inNamespace, runClusterJob, type NamespacedCluster } from './cluster-jobs.js';
 import type { ReleaseSource, ReleaseTarget } from '../releases/lib/release-run.js';
 
@@ -77,11 +78,27 @@ const notFound = (err: unknown): boolean => /not found|NotFound/i.test(String((e
 const activityBeat = (detail?: unknown) => { try { Context.current().heartbeat(detail); } catch { return; } };
 const activityCancelled = (): boolean => { try { return Context.current().cancellationSignal.aborted; } catch { return false; } };
 
-export function namespacedCluster(infra: InfrastructureService): (target: ReleaseTarget) => NamespacedCluster {
-  return (target) => ({
-    kubectl: async (args) => infra.runKubectl(['-n', target.namespace, ...args], await reachCluster(infra, target)),
-    apply: async (manifest) => { await infra.applyManifest(JSON.stringify(inNamespace(manifest, target.namespace)), await reachCluster(infra, target)); },
-  });
+export function namespacedCluster(infra: InfrastructureService, registry: RegistryLoginSource): (target: ReleaseTarget) => NamespacedCluster {
+  return (target) => {
+    let pulling: Promise<void> | undefined;
+    const pullAccess = (kubeconfig: string): Promise<void> => {
+      pulling ??= (async () => {
+        await infra.applyManifest(JSON.stringify(manifestList(registryPullManifests(target.namespace, await registry()))), kubeconfig);
+      })().catch((err: unknown) => {
+        pulling = undefined;
+        throw err;
+      });
+      return pulling;
+    };
+    return {
+      kubectl: async (args) => infra.runKubectl(['-n', target.namespace, ...args], await reachCluster(infra, target)),
+      apply: async (manifest) => {
+        const kubeconfig = await reachCluster(infra, target);
+        await pullAccess(kubeconfig);
+        await infra.applyManifest(JSON.stringify(inNamespace(manifest, target.namespace)), kubeconfig);
+      },
+    };
+  };
 }
 
 function podExec(cluster: NamespacedCluster, pod: string): WorkspaceExec {

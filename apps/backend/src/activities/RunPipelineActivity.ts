@@ -10,7 +10,8 @@ import { ApplicationFailure } from '@temporalio/common';
 import { buildPlanAt, isCommitSha } from '../releases/lib/build-plan.js';
 import { buildArgEntries } from '../releases/lib/pipeline-config.js';
 import { loadKeys } from '../platform/lib/keys.js';
-import { forPushing, kanikoRegistryArgs, registryAuths } from '../instances/lib/registry-hosts.js';
+import { forPushing, kanikoRegistryArgs } from '../instances/lib/registry-hosts.js';
+import { dockerConfigJson } from '../instances/lib/registry-pull.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -89,7 +90,7 @@ export async function RunPipelineActivity(args: RunPipelineArgs): Promise<RunPip
 
   const deployToken = await gitea.createDeployToken();
   const authBasic = Buffer.from(`${gitea.adminUsername}:${deployToken.token}`).toString('base64');
-  const dockerConfigJson = JSON.stringify({ auths: registryAuths(registry, authBasic) });
+  const registryConfig = dockerConfigJson(registry, { username: gitea.adminUsername, password: deployToken.token });
 
   const manifest = `
 apiVersion: v1
@@ -108,7 +109,7 @@ metadata:
   namespace: ${BUILD_NAMESPACE}
 type: kubernetes.io/dockerconfigjson
 stringData:
-  .dockerconfigjson: '${dockerConfigJson}'
+  .dockerconfigjson: '${registryConfig}'
 ---
 apiVersion: batch/v1
 kind: Job

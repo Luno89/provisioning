@@ -46,6 +46,7 @@ import { projectChannelRouter } from '../routes/project-channel.js';
 import { itemChatsRouter } from '../routes/item-chats.js';
 import { treesRouter } from '../routes/trees.js';
 import { plansRouter } from '../routes/plans.js';
+import { roleFromEnv, servesTenants } from '../../platform/lib/platform-role.js';
 import { branchesRouter } from '../routes/branches.js';
 import { leavesRouter } from '../routes/leaves.js';
 import type { Mounts } from '../../hub/wiring/hub.js';
@@ -158,6 +159,12 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
   const { tenant, db, io, env, core, gitea, temporalBridge, evalHost } = deps;
   const { projectRepoService, channels, itemChats, treeHome } = core;
   const engineQueue = env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
+
+  if (servesTenants(roleFromEnv(env))) {
+    void gitea.makeUsersPrivate()
+      .then((changed) => { if (changed.length) console.log(`[gitea] made ${changed.length} user(s) private: ${changed.join(', ')}`); })
+      .catch((err: Error) => console.warn(`[gitea] could not make every Gitea user private at startup: ${err.message}`));
+  }
 
   const projectRemoval = new ProjectRemovalService({
     store: db,

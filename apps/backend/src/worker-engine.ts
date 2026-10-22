@@ -174,7 +174,7 @@ async function buildActivities() {
   const activityBeat = (detail?: unknown) => { try { ActivityContext.current().heartbeat(detail); } catch { return; } };
   const builders: { service?: WorkspaceBuildService } = {};
   const releaseBrowser = createReleaseBrowserTestActivities({
-    cluster: namespacedCluster(kubeInfra),
+    cluster: namespacedCluster(kubeInfra, () => gitea.registryLogin()),
     specs: async () => gitea,
     keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files),
   });
@@ -182,7 +182,7 @@ async function buildActivities() {
     projects: () => db.projects.getProjects(),
     clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id)),
     how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
-    cluster: createSlotCluster({ infra: kubeInfra, repo: async () => gitea, syncVault: syncVaultFromProject(kubeInfra) }),
+    cluster: createSlotCluster({ infra: kubeInfra, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(kubeInfra) }),
     adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
     trees: () => db.projects.getTrees(),
     branches: () => db.projects.getBranches(),
@@ -225,7 +225,7 @@ async function buildActivities() {
       problem: (ownerId, treeId, agent, modelId) => treeModels.problem(ownerId, treeId, agent, modelId),
     },
     releases: {
-      cluster: createSlotCluster({ infra: kubeInfra, repo: async () => gitea, syncVault: syncVaultFromProject(kubeInfra), beat: activityBeat }),
+      cluster: createSlotCluster({ infra: kubeInfra, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(kubeInfra), beat: activityBeat }),
       adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
       releases: { list: (ownerId, projectId) => db.releases.getOdooReleases(ownerId, projectId), save: (release) => db.releases.saveOdooRelease(release) },
       browserTests: (request) => releaseBrowser.ReleaseBrowserTestsActivity(request),
@@ -348,6 +348,7 @@ async function buildActivities() {
     pushRegistryHost: process.env.KOALA_REGISTRY_PUSH,
     registryAccount: async () => ({ owner: gitea.adminUsername, ...(await gitea.getAdminCredentials()) }),
     registryPushToken: async () => ({ username: gitea.adminUsername, password: (await gitea.createDeployToken()).token }),
+    registryLogin: () => gitea.registryLogin(),
     onLeak: (runId, ageMs) => {
       logger.warn(`[engine] sandbox for ${runId} was still up ${Math.round(ageMs / 60_000)}m after it started, though its run has ended — tearing it down`);
     },
@@ -534,7 +535,7 @@ async function buildActivities() {
       scripted: { base: scriptedModelBase(process.env), dataKey: keys.data },
       releases: createCheckReleases({
         browser: releaseBrowser,
-        cluster: namespacedCluster(kubeInfra),
+        cluster: namespacedCluster(kubeInfra, () => gitea.registryLogin()),
         project: async (id) => (await db.projects.getProjects()).find((project) => project.id === id),
         clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id)),
       }),

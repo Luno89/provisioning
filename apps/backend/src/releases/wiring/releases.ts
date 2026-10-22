@@ -9,7 +9,7 @@ import { buildPlanAt } from '../lib/build-plan.js';
 import { changedPaths, releaseDecision, type ReleaseDecision } from '../lib/release-paths.js';
 import { releaseHowOf } from '../lib/release-run.js';
 import { deploymentForProject } from '../../projects/lib/project-status.js';
-import { CHART_FILE, ODOO_RELEASE_SECRETS, OWN_SECRET_FILE } from '../lib/odoo-release.js';
+import { CHART_FILE, ODOO_RELEASE_SECRETS, OWN_SECRET_FILE, releaseTargetOf } from '../lib/odoo-release.js';
 import { createSlotCluster } from '../../extensions/releases/slot-cluster.js';
 import { syncVaultFromProject } from '../../extensions/releases/vault-sync.js';
 import { ODOO_RELEASE_ADAPTER } from '../../extensions/odoo/release-adapter.js';
@@ -64,13 +64,14 @@ export interface ReleasesWiring {
   imageReleases: ImageReleases;
   customizations: CustomizationsService;
   clientImports: ClientImportService;
+  letReleasesPull: () => Promise<number>;
 }
 
 export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
   const { db, gitea, infra, clusters, temporalBridge, notices, postNotice, secrets, tenant } = deps;
   const treeOfProject = async (projectId: string) => (await db.projects.getTrees()).find((tree) => tree.projectIds?.[0] === projectId);
   const clusterById = async (id: string) => (id === 'provisioning-lunorica' ? clusters.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id));
-  const slotCluster = () => createSlotCluster({ infra, repo: async () => gitea, syncVault: syncVaultFromProject(infra) });
+  const slotCluster = () => createSlotCluster({ infra, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(infra) });
 
   const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
     const releaseWhen = (await treeTypeOfProject(db.projects, project))?.releaseWhen;
@@ -197,5 +198,23 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
   tenant.use('/api/projects', clientImportRouter({ imports: clientImports, getOwnedProject: deps.getOwnedProject }));
   tenant.use('/api/projects', releasesRouter({ releases: odooReleases, getOwnedProject: deps.getOwnedProject, signIns: (project) => secrets.signIns(project, ODOO_RELEASE_SECRETS) }));
 
-  return { odooReleases, releaseSettings, imageReleases, customizations, clientImports };
+  const letReleasesPull = async (): Promise<number> => {
+    const slots = slotCluster();
+    let ready = 0;
+    for (const project of await db.projects.getProjects()) {
+      if (!project.ownerId || !project.targetClusterId) continue;
+      if (!(await db.releases.getOdooReleases(project.ownerId, project.id)).length) continue;
+      const cluster = await clusterById(project.targetClusterId);
+      if (!cluster) continue;
+      try {
+        await slots.pullAccess(releaseTargetOf(cluster, project));
+        ready += 1;
+      } catch (err) {
+        console.warn(`[releases] ${project.name}'s namespace could not be given its registry login: ${(err as Error).message}`);
+      }
+    }
+    return ready;
+  };
+
+  return { odooReleases, releaseSettings, imageReleases, customizations, clientImports, letReleasesPull };
 }
