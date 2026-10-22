@@ -56,8 +56,7 @@ import { seedAll } from './scripts/seed-all.js';
 import { endpointRulesFromEnv } from './models/lib/endpoint-url-safety.js';
 import { IdentityService } from './instances/services/IdentityService.js';
 import { NotificationService } from './monitoring/services/NotificationService.js';
-import { artifactsRouter } from './files/routes/artifacts.js';
-import { createArtifactService } from './files/services/artifact-service-factory.js';
+import { artifactsRouter, createArtifactService } from './files/index.js';
 
 dotenv.config();
 

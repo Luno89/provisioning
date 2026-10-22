@@ -1,5 +1,5 @@
 import { Context } from '@temporalio/activity';
-import { DROP_TYPE } from '../files/lib/drops.js';
+import { DROP_TYPE } from '../files/index.js';
 import type { AxiosInstance } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { grantChanges, type GrantKind, type ToolDefinition, type ToolGrant, type WorkspaceDependency } from '@koala/agent-engine';

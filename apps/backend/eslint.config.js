@@ -15,7 +15,7 @@ const upward = (folders) => folders.flatMap((folder) => [`**/${folder}/*`, `**/$
 
 const AREAS = ['platform', 'accounts', 'instances', 'hub', 'projects', 'releases', 'files', 'machines', 'monitoring', 'models', 'memory', 'checks', 'infrastructure', 'engine']
 
-const WITH_INDEX = ['platform', 'infrastructure', 'projects', 'engine', 'releases', 'hub']
+const WITH_INDEX = ['platform', 'infrastructure', 'projects', 'engine', 'releases', 'hub', 'files']
 
 const BELOW_SERVICES = ['workflows', 'engine-host', 'extensions', 'eval']
 

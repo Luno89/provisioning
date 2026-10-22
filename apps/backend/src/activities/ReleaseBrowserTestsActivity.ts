@@ -2,7 +2,7 @@ import { assessWorkload, type InfrastructureService } from '../infrastructure/in
 import { randomBytes } from 'crypto';
 import { Context } from '@temporalio/activity';
 import { CancelledFailure } from '@temporalio/common';
-import { readFailureArtifacts, readWhole, type KeepArtifacts, type WorkspaceExec } from '../files/lib/artifacts.js';
+import { readFailureArtifacts, readWhole, type KeepArtifacts, type WorkspaceExec } from '../files/index.js';
 import { E2E_REPORT, e2ePassed, plain, readE2EReport } from '../engine/index.js';
 import {
   databaseOf, databaseSecretFrom, releaseTargetOf, vaultDatabaseSecret, type Slot, E2E_DONE, E2E_INSTALL_FAILED,

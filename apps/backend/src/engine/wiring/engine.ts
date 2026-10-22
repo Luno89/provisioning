@@ -45,7 +45,7 @@ import type { ConversationNoticeService } from '../services/ConversationNoticeSe
 import type { ModelService } from '../../models/services/ModelService.js';
 import type { MachineService } from '../../machines/services/MachineService.js';
 import type { TreeModelsService } from '../../models/services/TreeModelsService.js';
-import type { createArtifactService } from '../../files/services/artifact-service-factory.js';
+import type { createArtifactService } from '../../files/index.js';
 import {
   createStoredToolCatalogue, createEngineHost, storesFromDatabase, createStoredAgentRegistry, directoryFromDatabase, createEndpointResolver, createRunStarter, startStreamWorker,
 } from '../../engine-host/index.js';

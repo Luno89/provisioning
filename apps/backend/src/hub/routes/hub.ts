@@ -3,9 +3,7 @@ import { asyncRoute } from '../../platform/index.js';
 import type { HubOutcome, HubService } from '../services/HubService.js';
 import type { RelayAnswer } from '../services/HubRelay.js';
 import type { RelayOp } from '../lib/hub-board.js';
-import { cleanPath } from '../../files/lib/file-places.js';
-import { servingHeaders } from '../../files/lib/file-serving.js';
-import { FILE_TYPE_HEADER } from '../../files/routes/files.js';
+import { cleanPath, servingHeaders, FILE_TYPE_HEADER } from '../../files/index.js';
 
 const personOf = (req: Request) => {
   const user = (req as unknown as { user: { id: string; email: string } }).user;

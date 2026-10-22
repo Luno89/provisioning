@@ -183,7 +183,7 @@ export interface ProjectMetadata {
   releaseName?: string | undefined;
   release?: import('../../releases/index.js').ReleaseHow | undefined;
   channelId?: string | undefined;
-  files?: import('../../files/lib/file-places.js').FilePlace | undefined;
+  files?: import('../../files/index.js').FilePlace | undefined;
   clientFiles?: string[] | undefined;
   createdAt: string;
   /**

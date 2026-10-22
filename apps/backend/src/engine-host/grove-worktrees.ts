@@ -1,6 +1,6 @@
 import type { EnvironmentDriver } from '@koala/engine-core';
 import { judgeCheckout, leafBranch, leafBriefPath, leafWorktree, TREE_REPO } from '../projects/lib/plan-documents.js';
-import type { StoryDrop } from '../files/lib/story-drops.js';
+import type { StoryDrop } from '../files/index.js';
 
 export interface LeafDependency {
   leafId: string;

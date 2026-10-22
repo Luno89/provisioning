@@ -1,5 +1,5 @@
 import { Context } from '@temporalio/activity';
-import type { FilePlace } from '../files/lib/file-places.js';
+import type { FilePlace } from '../files/index.js';
 import {
   type ClusterMetadata, type ProjectMetadata, type DeploymentMetadata, type PipelineRunMetadata, CLI_CEILING,
 } from '../platform/index.js';

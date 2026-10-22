@@ -2,11 +2,10 @@ import type { Readable } from 'node:stream';
 import { inScope, scopeOf, type HubLink, type ShareScope, type SyncedDoc } from '../lib/hub-sync.js';
 import { relayProblem, RELAY_OPS, type HubRequest, type HubStatus, type Plain, type RelayOp } from '../lib/hub-board.js';
 import { forClients, seenByClients, type ClientMark } from '../lib/client-files.js';
-import { cleanPath, type FileEntry } from '../../files/lib/file-places.js';
+import { cleanPath, type FileEntry, type FileScope, type FilesOutcome } from '../../files/index.js';
 import { treeOfGroveRun } from '../../engine-host/temporal/contracts.js';
 import type { HubRole } from '../lib/hub.js';
 import type { Database, ProjectMetadata } from '../../platform/index.js';
-import type { FileScope, FilesOutcome } from '../../files/services/FileService.js';
 
 export type Done = { ok: true } | { ok: false; why: string };
 
