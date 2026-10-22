@@ -1,4 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { MongoClient } from 'mongodb';
+import { describe, it, expect, inject } from 'vitest';
+import { looksEncrypted } from '../platform/lib/crypto.js';
+import { MongoDB } from '../platform/lib/mongo-db.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { seedAll } from './seed-all.js';
 
@@ -6,8 +10,8 @@ describe('seed-all', () => {
   it('fills every catalogue the platform expects to find in the database', async () => {
     const db = await testDatabase();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, ...counts } = await seedAll(db);
-    expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold]).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, ...counts } = await seedAll(db);
+    expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(removedBuiltInProcedures).toBe(0);
     expect(removedBuiltInPersonas).toBe(0);
     expect(agentToolListsMoved).toBe(0);
@@ -44,6 +48,26 @@ describe('seed-all', () => {
     expect(await seedAll(db)).toMatchObject({ releasesMarkedTold: 1 });
     expect((await db.releases.getOdooReleases('bo', 'p1')).map((release) => [release.id, release.toldAt])).toEqual([['r2', '2026-10-02T00:00:00.000Z'], ['r1', '2026-10-01T00:05:00.000Z']]);
     expect(await seedAll(db)).toMatchObject({ releasesMarkedTold: 0 });
+  });
+
+  it('seals every deployment secret stored plain before sealing, once, and reads it back plain', async () => {
+    const name = `t_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    const db = new MongoDB({ MONGO_URI: `${inject('mongoUri')}${name}` });
+    const client = await MongoClient.connect(inject('mongoUri'));
+    try {
+      await db.init();
+      const deployments = client.db(name).collection('deployments');
+      await deployments.insertOne({ _id: 'old' as never, name: 'files', clusterId: 'c1', strategy: 'helm', status: 'running', ownerId: 'bo', minioRootPassword: 'from-before' });
+
+      expect(await seedAll(db)).toMatchObject({ deploymentSecretsSealed: 1 });
+      expect(looksEncrypted(String((await deployments.findOne({ _id: 'old' as never }))?.minioRootPassword))).toBe(true);
+      expect((await db.infrastructure.getDeployments()).find((d) => d.id === 'old')?.minioRootPassword).toBe('from-before');
+      expect(await seedAll(db)).toMatchObject({ deploymentSecretsSealed: 0 });
+    } finally {
+      await db.dropDatabase();
+      await db.close();
+      await client.close();
+    }
   });
 
   it('writes nothing on a second run', async () => {

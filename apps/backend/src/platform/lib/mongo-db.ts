@@ -15,6 +15,7 @@ import { MongoInfrastructureStore } from '../../infrastructure/store.js';
 import { MongoEngineStore } from '../../engine/store.js';
 import { MongoClient, type Db } from 'mongodb';
 import type { Database } from './db-interface.js';
+import { loadKeys } from './keys.js';
 
 export const databaseOf = (uri: string): string => {
   const name = uri.replace(/^mongodb(\+srv)?:\/\/[^/]+\/?/, '').split('?')[0]?.trim();
@@ -59,7 +60,7 @@ export class MongoDB implements Database {
     this.models = new MongoModelsStore(() => this.db!);
     this.memory = new MongoMemoryStore(() => this.db!);
     this.checks = new MongoChecksStore(() => this.db!);
-    this.infrastructure = new MongoInfrastructureStore(() => this.db!);
+    this.infrastructure = new MongoInfrastructureStore(() => this.db!, loadKeys(this.env).data);
     this.engine = markingHubWrites(new MongoEngineStore(() => this.db!), this.hub);
   }
 

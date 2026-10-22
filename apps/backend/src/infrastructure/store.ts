@@ -8,6 +8,8 @@ import type { StoredAppSpec } from './lib/app-spec.js';
 import type { WorkFailure } from './lib/work-failures.js';
 import { mergeRecord } from '../platform/lib/merge-record.js';
 import { v4 as uuidv4 } from 'uuid';
+import type { SecretKey } from '../platform/lib/crypto.js';
+import { hasPlainSecret, sealDeployment, unsealDeployment } from './lib/deployment-secrets.js';
 
 export interface InfrastructureStore extends AreaStore {
   getClusters(): Promise<ClusterMetadata[]>;
@@ -20,6 +22,7 @@ export interface InfrastructureStore extends AreaStore {
   saveDeploymentList(deployments: DeploymentMetadata[]): Promise<void>;
   deleteDeployment(id: string): Promise<void>;
   saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata>;
+  sealDeploymentSecrets(): Promise<number>;
   getAppSpecs(): Promise<StoredAppSpec[]>;
   saveAppSpec(spec: StoredAppSpec): Promise<void>;
   deleteAppSpec(id: string): Promise<void>;
@@ -46,7 +49,7 @@ export interface InfrastructureStore extends AreaStore {
 }
 
 export class MongoInfrastructureStore implements InfrastructureStore {
-  constructor(private readonly db: () => Db) {}
+  constructor(private readonly db: () => Db, private readonly dataKey: SecretKey) {}
 
   private get accessRequests(): Collection {
     return this.db().collection('accessRequests');
@@ -133,18 +136,18 @@ export class MongoInfrastructureStore implements InfrastructureStore {
   }
 
   async getDeployments(): Promise<DeploymentMetadata[]> {
-    return (await this.deployments.find({}).toArray()).map(doc => fromDoc<DeploymentMetadata>(doc));
+    return (await this.deployments.find({}).toArray()).map(doc => unsealDeployment(fromDoc<DeploymentMetadata>(doc), this.dataKey));
   }
 
   async saveDeployment(deployment: DeploymentMetadata): Promise<void> {
-    const doc = toDoc(deployment);
+    const doc = toDoc(sealDeployment(deployment, this.dataKey));
     const id = doc._id;
     const { _id, ...filter } = doc;
     await this.deployments.replaceOne({ _id: id }, filter, { upsert: true });
   }
 
   async saveDeploymentList(deployments: DeploymentMetadata[]): Promise<void> {
-    const keep = deployments.map(toDoc);
+    const keep = deployments.map((deployment) => toDoc(sealDeployment(deployment, this.dataKey)));
     const keepIds = keep.map((d) => d._id);
 
     const ops: any[] = keep.map((doc) => {
@@ -154,6 +157,12 @@ export class MongoInfrastructureStore implements InfrastructureStore {
     ops.push({ deleteMany: { filter: keepIds.length ? { _id: { $nin: keepIds } } : {} } });
 
     await this.deployments.bulkWrite(ops, { ordered: false });
+  }
+
+  async sealDeploymentSecrets(): Promise<number> {
+    const plain = (await this.deployments.find({}).toArray()).filter((doc) => hasPlainSecret(doc));
+    for (const doc of plain) await this.saveDeployment(fromDoc<DeploymentMetadata>(doc));
+    return plain.length;
   }
 
   async deleteDeployment(id: string): Promise<void> {
