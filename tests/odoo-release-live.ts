@@ -315,7 +315,13 @@ async function main(): Promise<void> {
 
     console.log('[4a] rolling back returns the app to slot a exactly as it was at the cutover');
     await psql('odoo_b', "insert into koala_probe (name, create_date, write_date) values ('entered after the cutover', now(), now())");
-    const offer = (await http.get(`/projects/${projectId}/releases`)).data.rollBack as { from: string; to: string; commit: string; liveSince?: string } | undefined;
+    const offer = await (async () => {
+      for (;;) {
+        const found = (await http.get(`/projects/${projectId}/releases`)).data.rollBack as { from: string; to: string; commit: string; liveSince?: string } | undefined;
+        if (found) return found;
+        await new Promise((done) => setTimeout(done, 3000));
+      }
+    })();
     assert.deepEqual(offer && { from: offer.from, to: offer.to }, { from: candidate.id, to: first.id }, `the rollback offer is wrong: ${JSON.stringify(offer)}`);
     assert.ok(offer?.liveSince, 'the offer does not say when the cutover was');
     const back = await http.post(`/projects/${projectId}/releases/${candidate.id}/roll-back`, {});

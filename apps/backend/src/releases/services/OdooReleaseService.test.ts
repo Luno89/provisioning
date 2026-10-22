@@ -327,10 +327,13 @@ describe('rolling back', () => {
     await runEnds(svc);
   };
 
-  it('offers to go back to the release a cutover replaced, and starts the roll back agent with both releases', async () => {
+  it('offers to go back to the release a cutover replaced once its run has ended, and starts the roll back agent with both releases', async () => {
     const svc = service();
     await twoReleases(svc);
     const live = (await stateOf('r2'))!;
+    running = true;
+    expect(await svc.rollBackOffer('bo', 'p1')).toBeUndefined();
+    running = false;
     expect(await svc.rollBackOffer('bo', 'p1')).toEqual({ from: 'r2', to: 'r1', commit: 'aaaaaaaaaa', liveSince: live.liveAt });
     expect(await svc.rollBack('bo', project, 'r1')).toEqual({ status: 409, error: 'the release is superseded, not live' });
     expect(await svc.rollBack('bo', project, 'r2')).toMatchObject({ id: 'r2' });

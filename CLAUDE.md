@@ -1006,7 +1006,7 @@ procedures, run by agents with no model:
   would be lost. Cutting
   over puts the live slot in maintenance, copies and upgrades again, then switches `live`; the old slot is stopped with its
   database untouched as the way back. What is Odoo about it is the app's adapter (`extensions/odoo/release-adapter.ts`).
-- **`slots-roll-back`** (agent `release-roll-back`): offered on the live release until a later build reuses that slot,
+- **`slots-roll-back`** (agent `release-roll-back`): offered on the live release once its run has ended and until a later build reuses that slot,
   it starts the kept slot, waits for it, then switches `live` to it — the app returns to the snapshot taken at the
   cutover, so anything entered since is lost, and the confirm says so.
 - **`replace`** (agent `release-replace`): an image project's build deployed in place of the running app through the

@@ -287,6 +287,7 @@ export class OdooReleaseService {
     const releases = await this.deps.store.releases.getOdooReleases(ownerId, projectId);
     const live = releases.find((release) => release.state === 'live');
     if (!live) return undefined;
+    if (await this.deps.runs.running(projectId)) return undefined;
     const target = rollBackTarget(releases, live);
     if ('problem' in target) return undefined;
     return { from: live.id, to: target.to.id, commit: target.to.commit, ...(live.liveAt ? { liveSince: live.liveAt } : {}) };
