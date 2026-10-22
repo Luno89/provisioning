@@ -51,6 +51,7 @@ import { storyDropsFor, wireFiles } from './wiring/files.js';
 import { wireMachines } from './wiring/machines.js';
 import { wireMonitoring } from './wiring/monitoring.js';
 import { wireInfrastructure } from './wiring/infrastructure.js';
+import { wireAccounts } from './wiring/accounts.js';
 import { hubInstanceWork, wireHub } from './wiring/hub.js';
 import { proceduresRouter } from './routes/procedures.js';
 import { ProcedureService } from './services/ProcedureService.js';
@@ -101,7 +102,6 @@ import { RootMeshKeys } from './services/RootMeshKeys.js';
 import { asyncRoute } from './middleware/async-route.js';
 import { clusterProvidersRouter } from './routes/cluster-providers.js';
 import { vpsCatalogRouter } from './routes/vps-catalog.js';
-import { adminRouter } from './routes/admin.js';
 import { modelsRouter } from './routes/models.js';
 import { temporalRouter } from './routes/temporal.js';
 import { workerRouter } from './routes/worker.js';
@@ -182,11 +182,9 @@ import { TreeTypeDescriptions } from './services/TreeTypeDescriptions.js';
 import { WorkspaceImageService } from './services/WorkspaceImageService.js';
 import { webhookAddress } from './services/webhook-address.js';
 import { endpointRulesFromEnv } from './lib/endpoint-url-safety.js';
-import { AccountRemovalService, temporalRemovalWorkflows } from './services/AccountRemovalService.js';
-import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from './lib/account-removal.js';
+import { temporalRemovalWorkflows } from './services/AccountRemovalService.js';
 import { ProjectRemovalService } from './services/ProjectRemovalService.js';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from './lib/project-removal.js';
-import { accountRouter } from './routes/account.js';
 import { checksRouter } from './routes/checks.js';
 import { ScriptedModelService } from './services/ScriptedModelService.js';
 import { extensionServiceFor } from './services/ExtensionService.js';
@@ -1041,23 +1039,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.use('/api/pending-approvals', pendingApprovalsRouter({ db }));
   tenant.use('/api/cluster-providers', clusterProvidersRouter({ db }));
   tenant.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService }));
-  const accountRemoval = servesTenants(role) ? new AccountRemovalService({
-    store: db,
-    workflows: temporalRemovalWorkflows(() => temporalBridge.client, process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE),
-    hub: hub.hubPeople,
-  }) : undefined;
   tenant.use('/api/checks', checksRouter({ scripted: new ScriptedModelService({ store: db, dataKey: keys.data }) }));
-  const rootRemoval = holdsAccounts(role) && !servesTenants(role) ? new AccountRemovalService({
-    store: db,
-    workflows: temporalRemovalWorkflows(() => getTemporalClient(), process.env.POOL_TASK_QUEUE || 'host-ops-queue'),
-    workflowType: ROOT_REMOVAL_WORKFLOW,
-    steps: ROOT_REMOVAL_STEPS,
-    instances: () => db.getInstances(),
-    hub: hub.hubPeople,
-  }) : undefined;
-  const peopleRemoval = rootRemoval ?? accountRemoval;
-  if (holdsAccounts(role) && peopleRemoval) app.use('/api/account', accountRouter({ removal: peopleRemoval, clearSession: (res) => res.clearCookie('session', auth.sessionCookieOptions) }));
-  if (holdsAccounts(role)) app.use('/api/admin', adminRouter({ db, requireAdmin, ...(peopleRemoval ? { removal: peopleRemoval } : {}) }));
+  wireAccounts({ app, role, env: process.env, db, temporalBridge, hubPeople: hub.hubPeople, requireAdmin, clearSession: (res) => res.clearCookie('session', auth.sessionCookieOptions) });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
   tenant.use('/api/temporal', temporalRouter({ temporalBridge, instanceOwner: role.instance?.ownerId }));
   tenant.use('/api/worker', workerRouter({ workerService }));
