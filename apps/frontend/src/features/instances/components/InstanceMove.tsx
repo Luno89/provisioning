@@ -1,4 +1,4 @@
-import { useInstanceMove, useInstanceTrial, useStartInstanceMove, useStopInstanceMove } from '../../api/instances'
+import { useInstanceMove, useInstanceTrial, useStartInstanceMove, useStopInstanceMove } from '../api/instances'
 import { MovePanel } from './MovePanel'
 
 export function InstanceMove() {

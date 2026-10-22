@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Check, Cloud, Copy, HardDrive, Loader2, LogOut, RotateCcw } from 'lucide-react'
 import { useCreateJoinCommand, useInstanceReady, useMySetup, useNameCheck, usePoolOffer, useStartMyMove, useStartPoolInstance, useStopMyMove, type InstanceStatus, type MySetup } from '../api/instances'
-import { errorMessage } from '../api/client'
-import { MovePanel } from './Move/MovePanel'
+import { errorMessage } from '../../../api/client'
+import { MovePanel } from './MovePanel'
 
 export interface NoInstanceProps {
   hasInstance: boolean

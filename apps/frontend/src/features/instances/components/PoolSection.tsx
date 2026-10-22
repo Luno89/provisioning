@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Loader2, Trash2 } from 'lucide-react'
-import { usePoolAdmin, useRemovePoolInstance, useSetPoolTrialDays, useSetPoolTrialEnd, type PoolInstanceRow } from '../../api/instances'
-import { errorMessage } from '../../api/client'
+import { usePoolAdmin, useRemovePoolInstance, useSetPoolTrialDays, useSetPoolTrialEnd, type PoolInstanceRow } from '../api/instances'
+import { errorMessage } from '../../../api/client'
 
 const STATE: Record<PoolInstanceRow['status'], string> = {
   waiting: 'waiting',

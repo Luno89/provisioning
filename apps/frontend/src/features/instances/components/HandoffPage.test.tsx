@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import HandoffPage from './HandoffPage'
 
-vi.mock('../features/platform/api', async () => {
-  const actual = await vi.importActual<typeof import('../features/platform/api')>('../features/platform/api')
+vi.mock('../../platform/api', async () => {
+  const actual = await vi.importActual<typeof import('../../platform/api')>('../../platform/api')
   return { ...actual, exchangeHandoff: vi.fn(), signInElsewhere: vi.fn() }
 })
 
-const { exchangeHandoff } = await import('../features/platform/api')
+const { exchangeHandoff } = await import('../../platform/api')
 
 beforeEach(() => { vi.mocked(exchangeHandoff).mockReset() })
 

@@ -1,4 +1,4 @@
-import { api, API_BASE } from './client'
+import { api, API_BASE } from '../../../api/client'
 
 export interface MyInstance {
   instance: { id: string; url: string } | null

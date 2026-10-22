@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import NoInstance from './NoInstance'
-import { api } from '../api/client'
+import { api } from '../../../api/client'
 
-vi.mock('../api/client', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../api/client')>()
+vi.mock('../../../api/client', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../../api/client')>()
   return { ...original, api: { get: vi.fn(), post: vi.fn() } }
 })
 

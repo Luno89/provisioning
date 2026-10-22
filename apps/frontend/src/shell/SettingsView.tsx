@@ -5,7 +5,7 @@ import { DeleteAccount } from '../features/accounts';
 import { People } from '../features/accounts';
 import { Invites } from '../features/accounts';
 import { InstanceAddresses } from '../features/accounts';
-import { InstanceMove } from '../components/Move/InstanceMove';
+import { InstanceMove } from '../features/instances';
 import { Notifications } from '../features/accounts';
 import { DefaultFileServer } from '../features/files'
 import { GoogleDriveCard } from '../features/infrastructure';

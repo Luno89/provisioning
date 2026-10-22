@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { InstanceAddresses } from './InstanceAddresses'
-import * as addressesApi from '../../../api/instance-addresses'
+import * as addressesApi from '../../instances/api/instance-addresses'
 
-vi.mock('../../../api/instance-addresses', async (importOriginal) => ({
+vi.mock('../../instances/api/instance-addresses', async (importOriginal) => ({
   ...(await importOriginal<typeof addressesApi>()),
   getInstanceAddresses: vi.fn(),
   setNestedAddresses: vi.fn(),

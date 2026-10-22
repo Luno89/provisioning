@@ -1,5 +1,5 @@
 import { isAxiosError } from 'axios'
-import { api } from './client'
+import { api } from '../../../api/client'
 
 export interface InstanceAddressesView {
   nested: boolean

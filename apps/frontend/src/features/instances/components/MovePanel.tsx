@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Check, Copy, Loader2, Truck } from 'lucide-react'
-import { errorMessage } from '../../api/client'
-import type { MoveCommand, MoveView } from '../../api/instances'
+import { errorMessage } from '../../../api/client'
+import type { MoveCommand, MoveView } from '../api/instances'
 
 export interface MovePanelProps {
   move: MoveView | null | undefined

@@ -1,7 +1,7 @@
 import { getNotifications, notificationKeys, sendTestEmail, setEmailChoice, type EmailChoice, type NotificationView } from '../monitoring'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { accountKeys, getPersonRemoval, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson } from './api'
-import { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '../../api/instance-addresses'
+import { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '../instances'
 import { deploymentKeys } from '../infrastructure'
 import { accountRemovalPlace } from '../platform'
 
