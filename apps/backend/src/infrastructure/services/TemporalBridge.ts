@@ -113,10 +113,10 @@ async function updatePipelineRunStatus(
     finishedAt: new Date().toISOString(),
   });
   if (status === 'succeeded' || status === 'failed') {
-    const projects = await db.getProjects();
+    const projects = await db.projects.getProjects();
     const project = projects.find((p: any) => p.id === existing.projectId);
     if (project) {
-      await db.saveProjectInfo({ ...project, lastBuildStatus: status });
+      await db.projects.saveProjectInfo({ ...project, lastBuildStatus: status });
     }
   }
 }
@@ -403,7 +403,7 @@ export class TemporalBridge {
             } else if (name === 'COMPLETED') {
               await updatePipelineRunStatus(this.db, resourceId, 'succeeded', pipelineImageTag !== undefined ? { imageTag: pipelineImageTag } : {})
               try {
-                const [projects, runs] = await Promise.all([this.db.getProjects(), this.db.getPipelineRuns()])
+                const [projects, runs] = await Promise.all([this.db.projects.getProjects(), this.db.getPipelineRuns()])
                 const run = runs.find((r: any) => r.id === resourceId)
                 const project = run && projects.find((p: any) => p.id === run.projectId)
                 const released = project && run && this.onBuilt ? await this.onBuilt(project, run) : false
@@ -1239,7 +1239,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       temporalWorkflowId: wfId,
       startedAt: new Date().toISOString(),
     })
-    await this.db.saveProjectInfo({ ...project, lastBuildStatus: 'queued' })
+    await this.db.projects.saveProjectInfo({ ...project, lastBuildStatus: 'queued' })
 
     await this.client.workflow.start(executePipelineRunWorkflow, {
       workflowId: wfId,

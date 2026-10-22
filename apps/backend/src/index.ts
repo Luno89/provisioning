@@ -217,7 +217,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   tenant.post('/webhooks/gitea/:projectId', express.raw({ type: 'application/json' }), async (req, res) => {
     try {
-      const projects = await db.getProjects();
+      const projects = await db.projects.getProjects();
       const project = projects.find((p: any) => p.id === req.params.projectId);
       if (!project) return res.status(404).json({ error: 'Unknown project' });
       if (project.removal) return res.status(410).json({ error: 'This project is being deleted' });
@@ -324,7 +324,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   const getOwnedProject = async (id: string, user: any): Promise<any | undefined> => {
-    const project = (await db.getProjects()).find((p: any) => p.id === id);
+    const project = (await db.projects.getProjects()).find((p: any) => p.id === id);
     return project && ownsProject(project, user) ? project : undefined;
   };
 

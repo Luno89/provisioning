@@ -41,7 +41,7 @@ export interface ActionsWiringDeps {
 
 export function wireActions(deps: ActionsWiringDeps): void {
   const { tenant, db, env, agentsHolder } = deps;
-  tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault: deps.infisical }) }));
+  tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db.projects, vault: deps.infisical }) }));
   tenant.use('/api/actions', actionsRouter({ actions: new ActionService({
     store: db,
     deployer: deps.temporalBridge,

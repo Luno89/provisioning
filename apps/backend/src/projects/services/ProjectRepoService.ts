@@ -43,7 +43,7 @@ export class ProjectRepoService {
   private readonly creating = new Map<string, Promise<{ username: string; password: string }>>();
 
   private async ensureAccount(ownerId: string): Promise<{ username: string; password: string }> {
-    const existing = await this.db.getGiteaAccount(ownerId);
+    const existing = await this.db.projects.getGiteaAccount(ownerId);
     if (existing) {
       return { username: existing.username, password: decryptValue(existing.passwordEnc, this.masterKey) };
     }
@@ -62,7 +62,7 @@ export class ProjectRepoService {
     } catch (err) {
       if (!/duplicate key|already exists|user already/i.test((err as Error).message)) throw err;
       for (let tries = 0; tries < 30; tries += 1) {
-        const saved = await this.db.getGiteaAccount(ownerId);
+        const saved = await this.db.projects.getGiteaAccount(ownerId);
         if (saved) return { username: saved.username, password: decryptValue(saved.passwordEnc, this.masterKey) };
         await new Promise((resolve) => setTimeout(resolve, 1_000));
       }
@@ -75,7 +75,7 @@ export class ProjectRepoService {
       passwordEnc: encryptValue(password, this.masterKey),
       createdAt: new Date().toISOString(),
     };
-    await this.db.saveGiteaAccount(account);
+    await this.db.projects.saveGiteaAccount(account);
     return { username, password };
   }
 
@@ -94,12 +94,12 @@ export class ProjectRepoService {
       ...(opts.executionTarget ? { executionTarget: opts.executionTarget } : {}),
       createdAt: new Date().toISOString(),
     };
-    await this.db.saveProject(project);
+    await this.db.projects.saveProject(project);
     return project;
   }
 
   private async underLimit(ownerId: string): Promise<void> {
-    const mine = (await this.db.getProjects()).filter((p) => p.ownerId === ownerId);
+    const mine = (await this.db.projects.getProjects()).filter((p) => p.ownerId === ownerId);
     if (mine.length >= MAX_PROJECTS_PER_USER) {
       throw new Error(`You already have ${mine.length} projects (limit ${MAX_PROJECTS_PER_USER}).`);
     }
@@ -109,7 +109,7 @@ export class ProjectRepoService {
     if (!this.webhookUrl) throw new Error('projects cannot be made here: nothing says where their pushes are sent');
     const id = input.id ?? crypto.randomUUID();
     const repo = sanitiseRepoName(input.repo);
-    const existing = (await this.db.getProjects()).find((p) => p.id === id);
+    const existing = (await this.db.projects.getProjects()).find((p) => p.id === id);
     if (existing && existing.ownerId !== ownerId) throw new Error(`project ${id} belongs to someone else`);
     if (existing?.webhookSecretEnc && (!input.starter?.length)) return existing;
 
@@ -117,10 +117,10 @@ export class ProjectRepoService {
     let project = existing;
     if (!project) {
       await this.underLimit(ownerId);
-      const mine = (await this.db.getProjects()).filter((p) => p.ownerId === ownerId);
+      const mine = (await this.db.projects.getProjects()).filter((p) => p.ownerId === ownerId);
       if (mine.some((p) => p.giteaRepo === repo)) throw new Error(`You already have a project whose repository is called "${repo}".`);
       const giteaOwner = creating ? (await this.ensureAccount(ownerId)).username : input.existingOwner!;
-      project = await this.db.saveProjectInfo({
+      project = await this.db.projects.saveProjectInfo({
         id,
         name: input.name.trim() || repo,
         ownerId,
@@ -146,7 +146,7 @@ export class ProjectRepoService {
     if (!project.webhookSecretEnc) {
       const secret = crypto.randomBytes(32).toString('hex');
       await this.gitea.replaceWebhook(owner, repo, await this.webhookUrl(id), secret);
-      project = await this.db.saveProjectInfo({ ...project, webhookSecretEnc: encryptValue(secret, this.masterKey) });
+      project = await this.db.projects.saveProjectInfo({ ...project, webhookSecretEnc: encryptValue(secret, this.masterKey) });
     }
 
     if (input.starter?.length) await this.gitea.seedTemplate(owner, repo, input.starter);
@@ -201,7 +201,7 @@ export class ProjectRepoService {
   }
 
   async listForOwner(ownerId: string): Promise<ProjectMetadata[]> {
-    return (await this.db.getProjects()).filter((p) => p.ownerId === ownerId);
+    return (await this.db.projects.getProjects()).filter((p) => p.ownerId === ownerId);
   }
 
   async checkoutCredential(
@@ -335,7 +335,7 @@ export class ProjectRepoService {
   }
 
   async revokeCheckout(ownerId: string, tokenName: string): Promise<void> {
-    const account = await this.db.getGiteaAccount(ownerId);
+    const account = await this.db.projects.getGiteaAccount(ownerId);
     if (!account) return;
     await this.gitea.revokeUserToken(
       account.username,

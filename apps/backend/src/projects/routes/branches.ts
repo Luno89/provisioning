@@ -6,7 +6,7 @@ import type { GroveDeletionService } from '../services/GroveDeletionService.js';
 import type { GroveOrderService } from '../services/GroveOrderService.js';
 
 export interface BranchesRouterDeps {
-  db: Pick<Database, 'getBranches'>;
+  db: Pick<Database, 'projects'>;
   deletion: Pick<GroveDeletionService, 'deleteBranch'>;
   order: Pick<GroveOrderService, 'orderStories'>;
 }
@@ -20,7 +20,7 @@ export function branchesRouter(deps: BranchesRouterDeps): Router {
   const router = Router();
 
   router.get('/', asyncRoute(async (req, res) => {
-    const branches = ownedBy(await deps.db.getBranches(), userOf(req).id);
+    const branches = ownedBy(await deps.db.projects.getBranches(), userOf(req).id);
     res.json([...branches].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
   }));
 

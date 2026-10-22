@@ -37,7 +37,7 @@ async function main(): Promise<void> {
   const gitea = new GiteaService(new InfrastructureService(), loadKeys(process.env).data, KUBECONFIG);
   const kubectl = async (namespace: string, ...args: string[]) => (await run(KUBECTL, ['-n', namespace, ...args], { env: { ...process.env, KUBECONFIG } })).stdout.trim();
   const projectOf = async (id: string): Promise<Project> => {
-    const found = (await db.getProjects()).find((entry) => entry.id === id) as Project | undefined;
+    const found = (await db.projects.getProjects()).find((entry) => entry.id === id) as Project | undefined;
     assert.ok(found, `there is no project ${id}`);
     return found;
   };
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
       return releases.find((entry) => entry.state === 'live');
     });
     assert.equal(live.slot, 'a');
-    const released = (await db.getProjects()).find((entry) => entry.id === odoo.id) as Project | undefined;
+    const released = (await db.projects.getProjects()).find((entry) => entry.id === odoo.id) as Project | undefined;
     assert.ok(released?.releaseName, 'the project keeps no release name');
     const place = releasePlace(released.releaseName);
     odooRelease = place.namespace;
@@ -145,7 +145,7 @@ async function main(): Promise<void> {
     console.log(`[4] a research paper tree is an answer, not a service: it gets no project: ${PAPER}`);
     const paper = await newTree(PAPER, 'research-paper');
     assert.deepEqual(paper.projectIds ?? [], [], 'a paper tree was given a project');
-    assert.equal((await db.getProjects()).some((entry) => entry.name === PAPER), false);
+    assert.equal((await db.projects.getProjects()).some((entry) => entry.name === PAPER), false);
     console.log('    no project, no repository, nothing to build');
     console.log('tree to release live — PASS');
   } finally {
@@ -163,12 +163,12 @@ async function main(): Promise<void> {
       console.log(`    deleting project ${project.name}: ${removed.status}${removed.status >= 300 ? ` ${JSON.stringify(removed.data)}` : ''}`);
     }
     for (let tries = 0; tries < 60; tries += 1) {
-      const left = (await db.getProjects()).filter((entry) => madeProjects.some((made) => made.id === entry.id));
+      const left = (await db.projects.getProjects()).filter((entry) => madeProjects.some((made) => made.id === entry.id));
       if (left.length === 0) break;
       await sleep(5_000);
     }
     for (const id of madeTrees) {
-      if ((await db.getTrees()).some((tree) => tree.id === id)) {
+      if ((await db.projects.getTrees()).some((tree) => tree.id === id)) {
         const gone = await http.delete(`/trees/${id}`);
         console.log(`    deleting tree ${id}: ${gone.status}`);
       }

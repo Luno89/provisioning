@@ -30,7 +30,7 @@ async function mountWithGitea(gitea: { getCommit: (...args: any[]) => Promise<an
       db,
       giteaService: gitea,
       getOwnedProject: async (id: string, user: any) => {
-        const p = (await db.getProjects()).find((x: any) => x.id === id);
+        const p = (await db.projects.getProjects()).find((x: any) => x.id === id);
         return p && ownsProject(p, user) ? p : undefined;
       },
     }),
@@ -51,7 +51,7 @@ async function mountForCreate(): Promise<Harness> {
         seedTemplate: async () => [],
       } as never, 'a'.repeat(64) as never, async (id) => `http://10.0.0.5:3001/webhooks/gitea/${id}`),
       getOwnedProject: async (id: string, user: any) => {
-        const p = (await db.getProjects()).find((x: any) => x.id === id);
+        const p = (await db.projects.getProjects()).find((x: any) => x.id === id);
         return p && ownsProject(p, user) ? p : undefined;
       },
     }),
@@ -61,7 +61,7 @@ async function mountForCreate(): Promise<Harness> {
 describe('GET /:id/runs commit-message enrichment', () => {
   it('fetches the commit message from Gitea and persists it for next time', async () => {
     const harness = await mountWithGitea(giteaServiceStub({ message: 'Fix the thing\n\nlonger body' }));
-    await harness.db.saveProjectInfo(project);
+    await harness.db.projects.saveProjectInfo(project);
     await harness.db.savePipelineRunInfo({
       id: 'run-1', projectId: project.id, commitSha: 'abc123', ref: 'main',
       status: 'succeeded', startedAt: '2026-01-01T00:00:00Z',
@@ -83,7 +83,7 @@ describe('GET /:id/runs commit-message enrichment', () => {
       getCommit: async () => { calls += 1; return { message: 'should not be used' }; },
     };
     const harness = await mountWithGitea(gitea);
-    await harness.db.saveProjectInfo(project);
+    await harness.db.projects.saveProjectInfo(project);
     await harness.db.savePipelineRunInfo({
       id: 'run-1', projectId: project.id, commitSha: 'abc123', ref: 'main',
       status: 'succeeded', startedAt: '2026-01-01T00:00:00Z', commitMessage: 'Already known',
@@ -99,7 +99,7 @@ describe('GET /:id/runs commit-message enrichment', () => {
   it('keeps the run in the list even if Gitea fails to answer', async () => {
     const gitea = { getCommit: async () => { throw new Error('gitea unreachable'); } };
     const harness = await mountWithGitea(gitea);
-    await harness.db.saveProjectInfo(project);
+    await harness.db.projects.saveProjectInfo(project);
     await harness.db.savePipelineRunInfo({
       id: 'run-1', projectId: project.id, commitSha: 'abc123', ref: 'main',
       status: 'succeeded', startedAt: '2026-01-01T00:00:00Z',
@@ -142,7 +142,7 @@ describe('POST / — execution target', () => {
       name: 'demo', giteaRepo: 'demo', executionTargetDeviceId: 'dev-1',
     })).rejects.toMatchObject({ response: { status: 400 } });
 
-    expect(await harness.db.getProjects()).toHaveLength(0);
+    expect(await harness.db.projects.getProjects()).toHaveLength(0);
 
     await harness.close();
   });
@@ -190,7 +190,7 @@ describe('POST / — execution target', () => {
       executionTargetEgress: [{ host: 'not a host' }],
     })).rejects.toMatchObject({ response: { status: 400 } });
 
-    expect(await harness.db.getProjects()).toHaveLength(0);
+    expect(await harness.db.projects.getProjects()).toHaveLength(0);
 
     await harness.close();
   });
@@ -214,7 +214,7 @@ describe('POST / — execution target', () => {
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
-    await harness.db.saveProjectInfo({
+    await harness.db.projects.saveProjectInfo({
       ...project, id: 'proj-existing', executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
     });
 
@@ -231,7 +231,7 @@ describe('POST / — execution target', () => {
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
-    await harness.db.saveProjectInfo({
+    await harness.db.projects.saveProjectInfo({
       ...project, id: 'proj-existing', executionTarget: { kind: 'local-device', deviceId: 'dev-1', path: 'apps/one' },
     });
 
@@ -251,7 +251,7 @@ describe('POST / — execution target', () => {
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
-    await harness.db.saveProjectInfo({
+    await harness.db.projects.saveProjectInfo({
       ...project, id: 'proj-existing', executionTarget: { kind: 'local-device', deviceId: 'dev-1', path: 'apps/one' },
     });
 
@@ -295,7 +295,7 @@ describe('POST / — execution target', () => {
 describe('PATCH /:id — execution target', () => {
   it('lets an existing project pick up a registered device', async () => {
     const harness = await mountForCreate();
-    await harness.db.saveProjectInfo(project);
+    await harness.db.projects.saveProjectInfo(project);
     await harness.db.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
@@ -313,7 +313,7 @@ describe('PATCH /:id — execution target', () => {
 
   it('reverts to the sandboxed cluster when the device is cleared', async () => {
     const harness = await mountForCreate();
-    await harness.db.saveProjectInfo({
+    await harness.db.projects.saveProjectInfo({
       ...project, executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
     });
 
@@ -329,8 +329,8 @@ describe('PATCH /:id — execution target', () => {
 
   it('refuses a device already claimed by a different project', async () => {
     const harness = await mountForCreate();
-    await harness.db.saveProjectInfo(project);
-    await harness.db.saveProjectInfo({
+    await harness.db.projects.saveProjectInfo(project);
+    await harness.db.projects.saveProjectInfo({
       ...project, id: 'proj-other', giteaRepo: 'other', executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
     });
     await harness.db.saveLocalAgentDevice({
@@ -347,7 +347,7 @@ describe('PATCH /:id — execution target', () => {
 
   it('lets a project keep the device it already has', async () => {
     const harness = await mountForCreate();
-    await harness.db.saveProjectInfo({
+    await harness.db.projects.saveProjectInfo({
       ...project, executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
     });
     await harness.db.saveLocalAgentDevice({
@@ -368,7 +368,7 @@ describe('PATCH /:id — execution target', () => {
 
   it('404s for a project that is not the requesting user\'s', async () => {
     const harness = await mountForCreate();
-    await harness.db.saveProjectInfo({ ...project, ownerId: 'someone-else' });
+    await harness.db.projects.saveProjectInfo({ ...project, ownerId: 'someone-else' });
 
     await expect(axios.patch(harness.url(`/api/projects/${project.id}`), {
       executionTargetDeviceId: 'dev-1',

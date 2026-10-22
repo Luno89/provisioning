@@ -73,15 +73,17 @@ export interface CheckRunStore {
   saveProcedure(source: ProcedureSource): Promise<void>;
   getEngineTools(ownerId?: string): Promise<ToolRecord[]>;
   saveEngineTool(tool: never): Promise<void>;
-  getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
-  saveTreeType(treeType: TreeTypeSpec): Promise<void>;
+  projects: {
+    getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
+    saveTreeType(treeType: TreeTypeSpec): Promise<void>;
+    saveTask(task: Task): Promise<void>;
+  };
   getExtensionSettings(ownerId: string): Promise<ExtensionSettings | undefined>;
   saveExtensionSettings(settings: ExtensionSettings): Promise<void>;
   getAuthoredExtensions(ownerId: string): Promise<AuthoredExtension[]>;
   saveAuthoredExtension(extension: AuthoredExtension): Promise<void>;
   getMemories(ownerId?: string): Promise<MemoryItem[]>;
   saveMemory(memory: MemoryItem): Promise<void>;
-  saveTask(task: Task): Promise<void>;
   findRunEffort(runId: string): Promise<RunEffort | undefined>;
   reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number>;
   saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void>;
@@ -263,11 +265,11 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       for (const procedure of reowned(await store.getProcedures(person), person, spaceId)) await store.saveProcedure(procedure);
       for (const tool of reowned(await store.getEngineTools(person), person, spaceId)) await store.saveEngineTool(tool as never);
       for (const tool of scenario.world?.tools ?? []) await store.saveEngineTool({ ...tool, ownerId: spaceId } as never);
-      for (const treeType of reowned(await store.getTreeTypes(person), person, spaceId)) await store.saveTreeType(treeType);
+      for (const treeType of reowned(await store.projects.getTreeTypes(person), person, spaceId)) await store.projects.saveTreeType(treeType);
       for (const [id, settings] of Object.entries(scenario.world?.treeTypes ?? {})) {
-        const base = (await store.getTreeTypes(spaceId)).find((type) => type.id === id) ?? TREE_TYPE_SEEDS.find((type) => type.id === id);
+        const base = (await store.projects.getTreeTypes(spaceId)).find((type) => type.id === id) ?? TREE_TYPE_SEEDS.find((type) => type.id === id);
         if (!base) throw new Error(`the check's world changes the tree type "${id}", and there is no such type`);
-        await store.saveTreeType({ ...base, ...settings, id, ownerId: spaceId } as TreeTypeSpec);
+        await store.projects.saveTreeType({ ...base, ...settings, id, ownerId: spaceId } as TreeTypeSpec);
       }
       const settings = await store.getExtensionSettings(person);
       if (settings) await store.saveExtensionSettings({ ...settings, ownerId: spaceId });
@@ -301,7 +303,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           ...(seed.agent ? { agent: seed.agent } : {}),
           ...(seed.checks ? { checks: seed.checks } : {}),
         }, stamp);
-        await store.saveTask({ ...task, status: seed.status ?? 'accepted' });
+        await store.projects.saveTask({ ...task, status: seed.status ?? 'accepted' });
       }
       return spaceId;
     },

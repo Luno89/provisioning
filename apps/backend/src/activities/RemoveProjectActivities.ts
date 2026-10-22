@@ -19,27 +19,29 @@ export interface RemoveProjectArgs {
 }
 
 export interface ProjectRemovalStore {
-  getProjects(): Promise<ProjectMetadata[]>;
-  getTrees(): Promise<Tree[]>;
-  saveTree(tree: Tree): Promise<void>;
-  getBranches(): Promise<Branch[]>;
-  getLeaves(): Promise<Leaf[]>;
-  getTasks(ownerId?: string): Promise<Task[]>;
-  getPlanProposals(ownerId: string): Promise<PlanProposal[]>;
+  projects: {
+    getProjects(): Promise<ProjectMetadata[]>;
+    getTrees(): Promise<Tree[]>;
+    saveTree(tree: Tree): Promise<void>;
+    getBranches(): Promise<Branch[]>;
+    getLeaves(): Promise<Leaf[]>;
+    getTasks(ownerId?: string): Promise<Task[]>;
+    getPlanProposals(ownerId: string): Promise<PlanProposal[]>;
+    getGiteaAccount(ownerId: string): Promise<{ username: string } | null>;
+    deleteTree(id: string): Promise<void>;
+    deleteBranch(id: string): Promise<void>;
+    deleteLeaf(id: string): Promise<void>;
+    deleteTask(id: string): Promise<void>;
+    deletePlanProposal(ownerId: string, id: string): Promise<void>;
+    removeProjectRecords(projectId: string): Promise<Record<string, number>>;
+  };
   getConversations(): Promise<Conversation[]>;
   getDeployments(): Promise<DeploymentMetadata[]>;
   saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
   deleteDeployment(id: string): Promise<void>;
   getPipelineRuns(): Promise<PipelineRunMetadata[]>;
-  getGiteaAccount(ownerId: string): Promise<{ username: string } | null>;
-  deleteTree(id: string): Promise<void>;
   deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void>;
-  deleteBranch(id: string): Promise<void>;
-  deleteLeaf(id: string): Promise<void>;
-  deleteTask(id: string): Promise<void>;
-  deletePlanProposal(ownerId: string, id: string): Promise<void>;
   deleteConversation(id: string): Promise<void>;
-  removeProjectRecords(projectId: string): Promise<Record<string, number>>;
   getOdooReleases(ownerId: string, projectId?: string): Promise<{ id: string }[]>;
 }
 
@@ -141,7 +143,7 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
     async RemoveProjectRepositoriesActivity({ projectId }) {
       const found = await scopeOf(projectId);
       if (!found) return [];
-      const account = await store.getGiteaAccount(found.project.ownerId ?? '');
+      const account = await store.projects.getGiteaAccount(found.project.ownerId ?? '');
       const repos: { owner: string; name: string }[] = [
         ...(found.project.giteaOwner && found.project.giteaRepo ? [{ owner: found.project.giteaOwner, name: found.project.giteaRepo }] : []),
         ...(account ? [
@@ -170,12 +172,12 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
       const removed: Record<string, number> = {};
       const count = (name: string, n: number) => { if (n) removed[name] = (removed[name] ?? 0) + n; };
       for (const { scope } of found.scope.trees) {
-        for (const id of scope.taskIds) await store.deleteTask(id);
-        for (const id of scope.leafIds) await store.deleteLeaf(id);
-        for (const id of scope.proposalIds) await store.deletePlanProposal(ownerId, id);
+        for (const id of scope.taskIds) await store.projects.deleteTask(id);
+        for (const id of scope.leafIds) await store.projects.deleteLeaf(id);
+        for (const id of scope.proposalIds) await store.projects.deletePlanProposal(ownerId, id);
         for (const id of scope.conversationIds) await store.deleteConversation(id);
-        for (const id of scope.branchIds) await store.deleteBranch(id);
-        if (scope.treeId) await store.deleteTree(scope.treeId);
+        for (const id of scope.branchIds) await store.projects.deleteBranch(id);
+        if (scope.treeId) await store.projects.deleteTree(scope.treeId);
         if (scope.treeId) await store.deletePublishedWorkspace(ownerId, scope.treeId);
         count('tasks', scope.taskIds.length);
         count('leaves', scope.leafIds.length);
@@ -185,10 +187,10 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
         count('trees', scope.treeId ? 1 : 0);
         heartbeat();
       }
-      const trees = await store.getTrees();
+      const trees = await store.projects.getTrees();
       for (const id of found.scope.unlinkedTreeIds) {
         const tree = trees.find((entry) => entry.id === id);
-        if (tree) await store.saveTree({ ...tree, projectIds: (tree.projectIds ?? []).filter((linked) => linked !== projectId) });
+        if (tree) await store.projects.saveTree({ ...tree, projectIds: (tree.projectIds ?? []).filter((linked) => linked !== projectId) });
       }
       count('trees unlinked', found.scope.unlinkedTreeIds.length);
       for (const id of found.scope.channelIds) await store.deleteConversation(id);
@@ -198,7 +200,7 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
       if (deps.artifacts && ownerId) {
         for (const release of await store.getOdooReleases(ownerId, projectId)) count('artifacts', await deps.artifacts.removeRun(ownerId, release.id));
       }
-      for (const [name, n] of Object.entries(await store.removeProjectRecords(projectId))) count(name, n);
+      for (const [name, n] of Object.entries(await store.projects.removeProjectRecords(projectId))) count(name, n);
       return removed;
     },
   };

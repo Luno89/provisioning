@@ -40,10 +40,10 @@ describe('/api/secret-requests', () => {
     };
     harness = await mountRouter({
       prefix: '/api/secret-requests',
-      router: (db) => secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault }) }),
+      router: (db) => secretRequestsRouter({ secrets: new SecretRequestService({ store: db.projects, vault }) }),
     });
-    await harness.db.saveProject({ id: 'p1', name: 'billing', ownerId: TEST_USER.id, appType: 'gitapp', createdAt: 'now' });
-    await harness.db.saveSecretRequest(request());
+    await harness.db.projects.saveProject({ id: 'p1', name: 'billing', ownerId: TEST_USER.id, appType: 'gitapp', createdAt: 'now' });
+    await harness.db.projects.saveSecretRequest(request());
   });
 
   afterEach(() => harness.close());
@@ -61,7 +61,7 @@ describe('/api/secret-requests', () => {
     expect(res.data.status).toBe('provided');
     expect(JSON.stringify(res.data)).not.toContain('sk_live_sentinel');
     expect(held.get('p1/STRIPE_API_KEY')).toBe('sk_live_sentinel');
-    const project = (await harness.db.getProjects()).find((candidate) => candidate.id === 'p1');
+    const project = (await harness.db.projects.getProjects()).find((candidate) => candidate.id === 'p1');
     expect(project?.requiredSecrets).toEqual([{ key: 'STRIPE_API_KEY', source: 'person' }]);
   });
 
@@ -72,16 +72,16 @@ describe('/api/secret-requests', () => {
     expect(res.status).toBe(502);
     expect(res.data.error).toContain('did not accept STRIPE_API_KEY');
     expect(res.data.error).not.toContain('sk_live_sentinel');
-    expect((await harness.db.getSecretRequest(TEST_USER.id, 'req-1'))?.status).toBe('requested');
+    expect((await harness.db.projects.getSecretRequest(TEST_USER.id, 'req-1'))?.status).toBe('requested');
   });
 
   it('refuses an empty value, a settled request, and someone else\'s request', async () => {
     expect((await post(harness.url('/api/secret-requests/req-1/submit'), { value: '' })).status).toBe(400);
 
-    await harness.db.saveSecretRequest(request({ id: 'req-2', status: 'provided' }));
+    await harness.db.projects.saveSecretRequest(request({ id: 'req-2', status: 'provided' }));
     expect((await post(harness.url('/api/secret-requests/req-2/submit'), { value: 'x' })).status).toBe(409);
 
-    await harness.db.saveSecretRequest(request({ id: 'req-3', ownerId: 'someone-else' }));
+    await harness.db.projects.saveSecretRequest(request({ id: 'req-3', ownerId: 'someone-else' }));
     expect((await post(harness.url('/api/secret-requests/req-3/submit'), { value: 'x' })).status).toBe(404);
     expect(held.size).toBe(0);
   });

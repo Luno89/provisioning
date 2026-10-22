@@ -9,18 +9,20 @@ import { adoptionWorkflowId, groveRunWorkflowId } from '../../engine-host/tempor
 export { adoptionWorkflowId };
 
 export interface GroveDeletionStore {
-  getTrees(): Promise<Tree[]>;
-  getBranches(): Promise<Branch[]>;
-  getLeaves(): Promise<Leaf[]>;
-  getTasks(ownerId?: string): Promise<Task[]>;
-  getPlanProposals(ownerId: string): Promise<PlanProposal[]>;
+  projects: {
+    getTrees(): Promise<Tree[]>;
+    getBranches(): Promise<Branch[]>;
+    getLeaves(): Promise<Leaf[]>;
+    getTasks(ownerId?: string): Promise<Task[]>;
+    getPlanProposals(ownerId: string): Promise<PlanProposal[]>;
+    deleteTree(id: string): Promise<void>;
+    deleteBranch(id: string): Promise<void>;
+    deleteLeaf(id: string): Promise<void>;
+    deleteTask(id: string): Promise<void>;
+    deletePlanProposal(ownerId: string, id: string): Promise<void>;
+  };
   getConversations(): Promise<Conversation[]>;
-  deleteTree(id: string): Promise<void>;
   deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void>;
-  deleteBranch(id: string): Promise<void>;
-  deleteLeaf(id: string): Promise<void>;
-  deleteTask(id: string): Promise<void>;
-  deletePlanProposal(ownerId: string, id: string): Promise<void>;
   deleteConversation(id: string): Promise<void>;
 }
 
@@ -38,31 +40,31 @@ export class GroveDeletionService {
   constructor(private readonly deps: GroveDeletionDeps) {}
 
   async deleteTree(ownerId: string, treeId: string): Promise<GroveDeletion> {
-    const tree = (await this.deps.store.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
+    const tree = (await this.deps.store.projects.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
     if (!tree) return { ok: false, status: 404, error: 'Tree not found' };
     return this.remove(ownerId, { kind: 'tree', id: tree.id }, tree.id);
   }
 
   async deleteBranch(ownerId: string, branchId: string): Promise<GroveDeletion> {
-    const branch = (await this.deps.store.getBranches()).find((entry) => entry.id === branchId && entry.ownerId === ownerId);
+    const branch = (await this.deps.store.projects.getBranches()).find((entry) => entry.id === branchId && entry.ownerId === ownerId);
     if (!branch) return { ok: false, status: 404, error: 'Branch not found' };
     return this.remove(ownerId, { kind: 'branch', id: branch.id }, branch.treeId);
   }
 
   async deleteLeaf(ownerId: string, leafId: string): Promise<GroveDeletion> {
-    const leaf = (await this.deps.store.getLeaves()).find((entry) => entry.id === leafId && entry.ownerId === ownerId);
+    const leaf = (await this.deps.store.projects.getLeaves()).find((entry) => entry.id === leafId && entry.ownerId === ownerId);
     if (!leaf) return { ok: false, status: 404, error: 'Leaf not found' };
-    const treeId = (await this.deps.store.getBranches()).find((branch) => branch.id === leaf.branchId)?.treeId;
+    const treeId = (await this.deps.store.projects.getBranches()).find((branch) => branch.id === leaf.branchId)?.treeId;
     return this.remove(ownerId, { kind: 'leaf', id: leaf.id }, treeId);
   }
 
   private async remove(ownerId: string, target: DeletionTarget, treeId: string | undefined): Promise<GroveDeletion> {
     const { store } = this.deps;
     const scope = deletionScope(target, {
-      branches: (await store.getBranches()).filter((branch) => branch.ownerId === ownerId),
-      leaves: (await store.getLeaves()).filter((leaf) => leaf.ownerId === ownerId),
-      tasks: await store.getTasks(ownerId),
-      proposals: await store.getPlanProposals(ownerId),
+      branches: (await store.projects.getBranches()).filter((branch) => branch.ownerId === ownerId),
+      leaves: (await store.projects.getLeaves()).filter((leaf) => leaf.ownerId === ownerId),
+      tasks: await store.projects.getTasks(ownerId),
+      proposals: await store.projects.getPlanProposals(ownerId),
       conversations: (await store.getConversations()).filter((conversation) => conversation.ownerId === ownerId),
     });
 
@@ -71,12 +73,12 @@ export class GroveDeletionService {
     for (const id of scope.adoptingProposalIds) await this.deps.workflows.stop(adoptionWorkflowId(id), reason);
     if (scope.treeId) await this.deps.workspaces.release(scope.treeId, ownerId);
 
-    for (const id of scope.taskIds) await store.deleteTask(id);
-    for (const id of scope.leafIds) await store.deleteLeaf(id);
-    for (const id of scope.proposalIds) await store.deletePlanProposal(ownerId, id);
+    for (const id of scope.taskIds) await store.projects.deleteTask(id);
+    for (const id of scope.leafIds) await store.projects.deleteLeaf(id);
+    for (const id of scope.proposalIds) await store.projects.deletePlanProposal(ownerId, id);
     for (const id of scope.conversationIds) await store.deleteConversation(id);
-    for (const id of scope.branchIds) await store.deleteBranch(id);
-    if (scope.treeId) await store.deleteTree(scope.treeId);
+    for (const id of scope.branchIds) await store.projects.deleteBranch(id);
+    if (scope.treeId) await store.projects.deleteTree(scope.treeId);
     if (scope.treeId) await store.deletePublishedWorkspace(ownerId, scope.treeId);
     return { ok: true, value: { scope, stoppedRun } };
   }

@@ -56,7 +56,7 @@ describe('a secret never reaches the model, a trace, an event or a conversation'
 
   it('holds for a value the person types, one the platform mints, and one the model tries to send', async () => {
     const db = await testDatabase();
-    await db.saveProject({ id: 'project-9', name: 'billing', ownerId: 'user-1', appType: 'gitapp', createdAt: 'now' });
+    await db.projects.saveProject({ id: 'project-9', name: 'billing', ownerId: 'user-1', appType: 'gitapp', createdAt: 'now' });
     const tree: Tree = { id: 'tree-1', ownerId: 'user-1', name: 'Billing', type: 'application', goal: 'Take payments.', projectIds: ['project-9'], createdAt: 'now', updatedAt: 'now' };
 
     const conversations = inMemoryConversations();
@@ -64,13 +64,13 @@ describe('a secret never reaches the model, a trace, an event or a conversation'
 
     const backend = vaultBackend();
     const vault = createSecretVault({ backend, minters: { readToken: async () => MINTED } });
-    const service = new SecretRequestService({ store: db, vault: backend });
+    const service = new SecretRequestService({ store: db.projects, vault: backend });
 
     const handlers = createSecretTools({
       vault,
       stores: {
-        requests: { list: (ownerId, filter) => db.getSecretRequests(ownerId, filter), save: (request) => db.saveSecretRequest(request) },
-        projects: { list: () => db.getProjects(), save: (project) => db.saveProject(project) },
+        requests: { list: (ownerId, filter) => db.projects.getSecretRequests(ownerId, filter), save: (request) => db.projects.saveSecretRequest(request) },
+        projects: { list: () => db.projects.getProjects(), save: (project) => db.projects.saveProject(project) },
         trees: { list: async () => [tree] },
         binding: async (ownerId, conversationId) => {
           const conversation = await conversations.get(ownerId, conversationId);
@@ -148,12 +148,12 @@ describe('a secret never reaches the model, a trace, an event or a conversation'
     expect(backend.held.get('project-9/GITEA_TOKEN')).toBe(MINTED);
     expect(backend.held.has('project-9/WEBHOOK_SECRET')).toBe(false);
 
-    const requests = await db.getSecretRequests('user-1');
+    const requests = await db.projects.getSecretRequests('user-1');
     expect(requests.map((request) => [request.key, request.status])).toEqual([
       ['STRIPE_API_KEY', 'provided'],
       ['GITEA_TOKEN', 'provisioned'],
     ]);
-    const project = (await db.getProjects()).find((candidate) => candidate.id === 'project-9')!;
+    const project = (await db.projects.getProjects()).find((candidate) => candidate.id === 'project-9')!;
     expect(project.requiredSecrets).toEqual([{ key: 'STRIPE_API_KEY', source: 'person' }, { key: 'GITEA_TOKEN', source: 'gitea-read-token' }]);
 
     const modelSaw = fetchImpl.mock.calls.map((args) => String((args as unknown as [string, RequestInit])[1].body)).join('\n');

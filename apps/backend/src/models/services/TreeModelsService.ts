@@ -5,7 +5,7 @@ import { groveAgentOf, resolveTreeType } from '../../projects/lib/tree-types.js'
 import { handsWorkToMachine, modelAgentsOf, treeModelProblem, withTreeModel, type TreeAgent } from '../lib/tree-models.js';
 import { machineChoiceProblem, type ChosenMachine } from '../../machines/lib/machines.js';
 
-export type TreeModelsStore = Pick<Database, 'getTrees' | 'saveTree' | 'getTreeTypes'>;
+export type TreeModelsStore = Pick<Database, 'projects'>;
 
 export type AgentOwnModel = { modelId: string } | { machine: string } | { problem: string };
 
@@ -36,11 +36,11 @@ export class TreeModelsService {
   constructor(private readonly deps: TreeModelsDeps) {}
 
   private async tree(ownerId: string, treeId: string) {
-    return (await this.deps.store.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
+    return (await this.deps.store.projects.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
   }
 
   private async agents(ownerId: string, type: string): Promise<TreeAgent[]> {
-    const spec = await resolveTreeType(this.deps.store, ownerId, type);
+    const spec = await resolveTreeType(this.deps.store.projects, ownerId, type);
     return modelAgentsOf(groveAgentOf(spec), (slug) => this.deps.agentOf(ownerId, slug), this.deps.groups?.() ?? []);
   }
 
@@ -117,7 +117,7 @@ export class TreeModelsService {
     const tree = (await this.tree(ownerId, treeId))!;
     const { models: _was, ...rest } = tree;
     const next = withTreeModel(tree.models, agent, modelId);
-    await this.deps.store.saveTree({ ...rest, ...(next ? { models: next } : {}), updatedAt: this.deps.now?.() ?? new Date().toISOString() });
+    await this.deps.store.projects.saveTree({ ...rest, ...(next ? { models: next } : {}), updatedAt: this.deps.now?.() ?? new Date().toISOString() });
     return this.view(ownerId, treeId);
   }
 

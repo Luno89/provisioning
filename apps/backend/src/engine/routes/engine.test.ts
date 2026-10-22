@@ -198,9 +198,9 @@ describe('engine routes', () => {
       },
     });
     const stamp = new Date().toISOString();
-    await db!.saveTree({ id: 'tree-1', ownerId: TEST_USER.id, name: 'Greeter', type: 'software', goal: 'greets', projectIds: [], createdAt: stamp, updatedAt: stamp });
-    await db!.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 'tree-1', title: 'Core', createdAt: stamp, updatedAt: stamp });
-    await db!.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'Hello', body: 'hello.txt says hello', status: 'pending', createdAt: stamp, updatedAt: stamp });
+    await db!.projects.saveTree({ id: 'tree-1', ownerId: TEST_USER.id, name: 'Greeter', type: 'software', goal: 'greets', projectIds: [], createdAt: stamp, updatedAt: stamp });
+    await db!.projects.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 'tree-1', title: 'Core', createdAt: stamp, updatedAt: stamp });
+    await db!.projects.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'Hello', body: 'hello.txt says hello', status: 'pending', createdAt: stamp, updatedAt: stamp });
     await db!.saveConversation({ id: 'about-tree', ownerId: TEST_USER.id, title: 't', treeId: 'tree-1', messages: [], createdAt: stamp, updatedAt: stamp });
     await db!.saveConversation({ id: 'free', ownerId: TEST_USER.id, title: 't', messages: [], createdAt: stamp, updatedAt: stamp });
 
@@ -219,7 +219,7 @@ describe('engine routes', () => {
     const free = await inputsOf('free', { conversationId: 'free', treeId: 'forged', tree: 'forged', projectId: 'forged' });
     expect(free).toEqual({ conversationId: 'free', message: 'more please' });
 
-    await db!.saveProjectInfo({ id: 'proj-1', name: 'gateway', ownerId: TEST_USER.id, appType: 'local', createdAt: stamp } as never);
+    await db!.projects.saveProjectInfo({ id: 'proj-1', name: 'gateway', ownerId: TEST_USER.id, appType: 'local', createdAt: stamp } as never);
     await db!.saveConversation({ id: 'about-project', ownerId: TEST_USER.id, title: 't', projectId: 'proj-1', messages: [], createdAt: stamp, updatedAt: stamp });
     const project = await inputsOf('about-project', { conversationId: 'about-project' });
     expect(project.projectId).toBe('proj-1');

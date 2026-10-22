@@ -9,15 +9,15 @@ import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test
 import { itemChatsRouter } from '../routes/item-chats.js';
 
 const seed = async (db: MongoDB, ownerId: string) => {
-  await db.saveTree({ id: 't1', ownerId, name: 'Shop', type: 'odoo-addons', createdAt: 't', updatedAt: 't' } as never);
-  await db.saveBranch({ id: 'b1', ownerId, treeId: 't1', title: 'The field', createdAt: 't', updatedAt: 't' });
-  await db.saveLeaf({ id: 'l1', ownerId, branchId: 'b1', title: 'Module installs', body: 'Add delivery_instructions to sale.order.', status: 'failed', findings: 'the view did not load', createdAt: 't', updatedAt: 't' });
+  await db.projects.saveTree({ id: 't1', ownerId, name: 'Shop', type: 'odoo-addons', createdAt: 't', updatedAt: 't' } as never);
+  await db.projects.saveBranch({ id: 'b1', ownerId, treeId: 't1', title: 'The field', createdAt: 't', updatedAt: 't' });
+  await db.projects.saveLeaf({ id: 'l1', ownerId, branchId: 'b1', title: 'Module installs', body: 'Add delivery_instructions to sale.order.', status: 'failed', findings: 'the view did not load', createdAt: 't', updatedAt: 't' });
 };
 
 const service = (db: MongoDB) => new ItemChatService({
-  leaves: () => db.getLeaves(),
-  branches: () => db.getBranches(),
-  trees: () => db.getTrees(),
+  leaves: () => db.projects.getLeaves(),
+  branches: () => db.projects.getBranches(),
+  trees: () => db.projects.getTrees(),
   conversation: (ownerId, id) => db.getConversation(ownerId, id),
   save: (conversation) => db.saveConversation(conversation),
   now: () => 'now',

@@ -164,7 +164,7 @@ async function main(): Promise<void> {
     if (found) {
       const removed = await http.delete(`/mesh/local-agents/${found.id}`);
       console.log(`    the machine: ${removed.status}`);
-      const project = (await db.getProjects()).find((candidate) => candidate.executionTarget?.kind === 'local-device' && candidate.executionTarget.deviceId === found.id);
+      const project = (await db.projects.getProjects()).find((candidate) => candidate.executionTarget?.kind === 'local-device' && candidate.executionTarget.deviceId === found.id);
       if (project) console.log(`    its project: ${(await http.delete(`/projects/${project.id}`, { data: { confirm: project.name } })).status}`);
     }
     await vm?.destroy();

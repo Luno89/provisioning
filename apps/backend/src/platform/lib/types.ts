@@ -1,4 +1,6 @@
 import type { MachineAgent, ManualMachineAgent } from '../../machines/lib/machines.js';
+export type PartialInfo<T> = { [K in keyof T]?: T[K] | undefined };
+
 export type ClusterProviderName = 'k3d' | 'aws' | 'gcp' | 'azure' | 'do' | 'remote' | 'hetzner';
 
 export interface ClusterProgress {

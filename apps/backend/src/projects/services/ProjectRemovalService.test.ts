@@ -6,7 +6,7 @@ const now = '2026-10-21T00:00:00Z';
 
 async function setUp(shared: boolean) {
   const db = await testDatabase();
-  await db.saveProject({ id: 'p1', name: 'Shop', ownerId: 'ann', createdAt: now } as never);
+  await db.projects.saveProject({ id: 'p1', name: 'Shop', ownerId: 'ann', createdAt: now } as never);
   const started: string[] = [];
   const takenBack: string[] = [];
   const service = new ProjectRemovalService({

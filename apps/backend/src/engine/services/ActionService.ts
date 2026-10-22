@@ -36,9 +36,7 @@ interface Executed {
   started?: ProposalStarted | undefined;
 }
 
-export type ActionStore = Pick<Database,
-  'getActionProposals' | 'getActionProposal' | 'saveActionProposal'
-  | 'getProjects' | 'saveProject' | 'getPipelineRuns' | 'getDeployments' | 'getAppSpecs' | 'saveAppSpec' | 'getBindingTypes'>;
+export type ActionStore = Pick<Database, 'getActionProposals' | 'getActionProposal' | 'saveActionProposal' | 'projects' | 'getPipelineRuns' | 'getDeployments' | 'getAppSpecs' | 'saveAppSpec' | 'getBindingTypes'>;
 
 export interface ActionDeployer {
   deployApp(config: Record<string, unknown>, userId: string): Promise<{ id: string; resourceId?: string | undefined }>;
@@ -107,7 +105,7 @@ export class ActionService {
   }
 
   private async project(ownerId: string, projectId: string | undefined): Promise<ProjectMetadata> {
-    const project = (await this.deps.store.getProjects()).find((candidate) => candidate.id === projectId && candidate.ownerId === ownerId);
+    const project = (await this.deps.store.projects.getProjects()).find((candidate) => candidate.id === projectId && candidate.ownerId === ownerId);
     if (!project) throw new Error('the project no longer exists');
     return project;
   }
@@ -182,7 +180,7 @@ export class ActionService {
       }
       case 'set_project_env': {
         const project = await this.project(ownerId, params.projectId);
-        await this.deps.store.saveProject({ ...project, deployEnv: params.env ?? '', updatedAt: this.now() } as ProjectMetadata);
+        await this.deps.store.projects.saveProject({ ...project, deployEnv: params.env ?? '', updatedAt: this.now() } as ProjectMetadata);
         return `${project.name}'s environment is set; it takes effect on the next deploy`;
       }
       case 'add_app_spec': {

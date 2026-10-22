@@ -5,20 +5,15 @@ import type { BenchSettings, BenchState } from '../../checks/lib/bench.js';
 import { MongoDB } from './mongo-db.js';
 import { mongoPayloadBlobs } from './mongo-payload-blobs.js';
 import { inMemoryPayloadBlobs, type PayloadBlobs } from './payload-storage.js';
-import type { Branch, Leaf } from '../../projects/lib/leaves.js';
-import type { Tree } from '../../projects/lib/trees.js';
 import type { CorpusPage } from '../../engine/lib/corpus.js';
 import type { FrontierUrl, FrontierClaim } from './frontier.js';
-import type { GiteaAccount } from '../../projects/lib/projects.js';
 import type { MemoryItem } from '../../memory/lib/memory-store.js';
-import type { Task } from '../../projects/lib/tasks.js';
-import type { PlanProposal } from '../../projects/lib/plan-proposals.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import type { HubStore } from '../../hub/store.js';
+import type { ProjectsStore } from '../../projects/store.js';
 import type { InstancesStore } from '../../instances/store.js';
 import type { AccountsStore } from '../../accounts/store.js';
 import type { PlatformStore } from '../store.js';
-import type { SecretRequest } from '../../projects/lib/secret-requests.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import type { ExtensionSettings } from '../../engine/lib/extension-settings.js';
 import type { AutoModeSettings } from '../../engine/lib/auto-mode.js';
@@ -38,17 +33,15 @@ import type { GrantKind, PersonaRecord as EnginePersona, ToolDefinition as Engin
 import type { PublishedWorkspace } from '../../engine/lib/published-workspace.js';
 import type { McpServerRecord } from '../../engine/lib/mcp-servers.js';
 import type { EvalCollection, EvalRecord } from '../../checks/lib/eval-run.js';
-import type { TreeTypeSpec } from '../../projects/lib/tree-types.js';
 import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
 import type { ModelThinkingProfile } from '../../engine/lib/thinking-classifier.js';
 import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, PipelineRunMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
+import type { PartialInfo } from './types.js';
 import type { OdooRelease } from '../../releases/lib/odoo-release.js';
 import type { StoredArtifact } from '../../files/lib/artifacts.js';
 import type { ArtifactChunk } from '../../files/lib/artifacts.js';
 import type { DeferredConclusion, KeeperSettings } from '../../memory/lib/conclusions.js';
-
-export type PartialInfo<T> = { [K in keyof T]?: T[K] | undefined };
 
 export interface BindingTypeRecord {
   id: string;
@@ -58,12 +51,6 @@ export interface BindingTypeRecord {
   defaultPort?: number | undefined;
   description?: string | undefined;
   requiredKeys?: string[] | undefined;
-}
-
-export interface SecretRequestFilter {
-  conversationId?: string | undefined;
-  projectId?: string | undefined;
-  treeId?: string | undefined;
 }
 
 export interface ScriptedRequestRecord {
@@ -77,6 +64,7 @@ export interface ScriptedRequestRecord {
 
 export interface Database {
   hub: HubStore;
+  projects: ProjectsStore;
   instances: InstancesStore;
   accounts: AccountsStore;
   platform: PlatformStore;
@@ -95,15 +83,10 @@ export interface Database {
   deleteDeployment(id: string): Promise<void>;
   saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata>;
 
-  removeProjectRecords(projectId: string): Promise<Record<string, number>>;
   findRunEffort(runId: string): Promise<RunEffort | undefined>;
   saveScriptedRequest(request: ScriptedRequestRecord): Promise<void>;
   getScriptedRequests(ownerId: string): Promise<ScriptedRequestRecord[]>;
   reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number>;
-
-  getProjects(): Promise<ProjectMetadata[]>;
-  saveProject(project: ProjectMetadata): Promise<void>;
-  saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata>;
 
   getPipelineRuns(): Promise<PipelineRunMetadata[]>;
   savePipelineRun(run: PipelineRunMetadata): Promise<void>;
@@ -111,13 +94,6 @@ export interface Database {
 
   getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]>;
   saveWorkspaceImage(image: WorkspaceImageSpec): Promise<void>;
-
-  getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
-  saveTreeType(treeType: TreeTypeSpec): Promise<void>;
-  deleteTreeType(id: string, ownerId: string): Promise<void>;
-
-  getGiteaAccount(ownerId: string): Promise<GiteaAccount | null>;
-  saveGiteaAccount(account: GiteaAccount): Promise<void>;
 
   getCorpusPages(filter: { ownerId: string; ingestId?: string; projectId?: string }): Promise<CorpusPage[]>;
   saveCorpusPages(pages: CorpusPage[]): Promise<void>;
@@ -128,14 +104,6 @@ export interface Database {
   completeFrontier(ingestId: string, urls: string[]): Promise<void>;
   countFrontier(ingestId: string): Promise<number>;
   deleteFrontier(ingestId: string): Promise<void>;
-
-  getTrees(): Promise<Tree[]>;
-  saveTree(tree: Tree): Promise<void>;
-  deleteTree(id: string): Promise<void>;
-
-  getBranches(): Promise<Branch[]>;
-  saveBranch(branch: Branch): Promise<void>;
-  deleteBranch(id: string): Promise<void>;
 
   getAppSpecs(): Promise<StoredAppSpec[]>;
   saveAppSpec(spec: StoredAppSpec): Promise<void>;
@@ -156,10 +124,6 @@ export interface Database {
   saveConversation(conversation: Conversation): Promise<void>;
   deleteConversation(id: string): Promise<void>;
 
-  getLeaves(): Promise<Leaf[]>;
-  saveLeaf(leaf: Leaf): Promise<void>;
-  deleteLeaf(id: string): Promise<void>;
-
   getModelEndpoints(): Promise<ModelEndpointMetadata[]>;
   saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void>;
   deleteModelEndpoint(id: string): Promise<void>;
@@ -175,15 +139,6 @@ export interface Database {
   getMemories(ownerId?: string): Promise<MemoryItem[]>;
   saveMemory(memory: MemoryItem): Promise<void>;
 
-  getTasks(ownerId?: string): Promise<Task[]>;
-  saveTask(task: Task): Promise<void>;
-  deleteTask(id: string): Promise<void>;
-
-  getPlanProposals(ownerId: string, conversationId?: string): Promise<PlanProposal[]>;
-  getPlanProposal(ownerId: string, id: string): Promise<PlanProposal | undefined>;
-  savePlanProposal(proposal: PlanProposal): Promise<void>;
-  deletePlanProposal(ownerId: string, id: string): Promise<void>;
-
   getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]>;
   saveArtifact(artifact: StoredArtifact): Promise<void>;
   getArtifacts(ownerId: string, runId?: string): Promise<StoredArtifact[]>;
@@ -193,10 +148,6 @@ export interface Database {
   getArtifactChunks(artifactId: string): Promise<ArtifactChunk[]>;
   deleteArtifactChunks(artifactId: string): Promise<void>;
   saveOdooRelease(release: OdooRelease): Promise<void>;
-  getSecretRequests(ownerId: string, filter?: SecretRequestFilter): Promise<SecretRequest[]>;
-  getSecretRequest(ownerId: string, id: string): Promise<SecretRequest | undefined>;
-  saveSecretRequest(request: SecretRequest): Promise<void>;
-  deleteSecretRequest(ownerId: string, id: string): Promise<void>;
 
   getMcpRequests(ownerId: string, conversationId?: string): Promise<McpRequest[]>;
   getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined>;

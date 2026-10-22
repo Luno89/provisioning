@@ -36,14 +36,14 @@ const launcher = {
 
 let homeFails = false;
 const homeFor = (db: Database) => new TreeHomeService({
-  treeTypes: (ownerId) => db.getTreeTypes(ownerId),
-  projects: () => db.getProjects(),
+  treeTypes: (ownerId) => db.projects.getTreeTypes(ownerId),
+  projects: () => db.projects.getProjects(),
   createProject: async (ownerId, project) => {
     if (homeFails) throw new Error('Gitea is down');
-    return db.saveProjectInfo({ id: project.id!, name: project.name, ownerId, giteaOwner: 'koala-u', giteaRepo: project.repo, appType: 'gitapp', createdAt: 'now' } as ProjectMetadata);
+    return db.projects.saveProjectInfo({ id: project.id!, name: project.name, ownerId, giteaOwner: 'koala-u', giteaRepo: project.repo, appType: 'gitapp', createdAt: 'now' } as ProjectMetadata);
   },
   starter: async () => [],
-  saveTree: (made) => db.saveTree(made),
+  saveTree: (made) => db.projects.saveTree(made),
 });
 
 const executor = { slug: 'executor', name: 'Executor', procedure: { nodes: [{ id: 'm', kind: 'call-model', settings: {} }], groups: [] } } as never;
@@ -78,7 +78,7 @@ const tree = (over: Record<string, unknown> = {}) => ({
 describe('a tree\'s workspace', () => {
   it('reports the state of the tree\'s sandbox', async () => {
     const harness = await mount();
-    await harness.db.saveTree(tree() as never);
+    await harness.db.projects.saveTree(tree() as never);
     const res = await axios.get(harness.url('/api/trees/t1/workspace'));
     expect(res.data).toEqual({ state: 'parked' });
     expect(workspaces.state).toHaveBeenCalledWith('t1');
@@ -86,8 +86,8 @@ describe('a tree\'s workspace', () => {
 
   it('releases the sandbox on request, and never another owner\'s', async () => {
     const harness = await mount();
-    await harness.db.saveTree(tree() as never);
-    await harness.db.saveTree(tree({ id: 't2', ownerId: 'someone-else' }) as never);
+    await harness.db.projects.saveTree(tree() as never);
+    await harness.db.projects.saveTree(tree({ id: 't2', ownerId: 'someone-else' }) as never);
 
     const res = await axios.delete(harness.url('/api/trees/t1/workspace'));
     expect(res.data).toEqual({ state: 'none' });
@@ -100,15 +100,15 @@ describe('a tree\'s workspace', () => {
     terminate.mockClear();
     const db = harness.db;
     const stamp = 'now';
-    await db.saveTree(tree() as never);
-    await db.saveTree(tree({ id: 'keep' }) as never);
-    await db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', createdAt: stamp, updatedAt: stamp } as never);
-    await db.saveBranch({ id: 'b-keep', ownerId: TEST_USER.id, treeId: 'keep', title: 'B', createdAt: stamp, updatedAt: stamp } as never);
-    await db.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'L', status: 'pending', createdAt: stamp, updatedAt: stamp } as never);
-    await db.saveLeaf({ id: 'l-keep', ownerId: TEST_USER.id, branchId: 'b-keep', title: 'L', status: 'pending', createdAt: stamp, updatedAt: stamp } as never);
-    await db.saveTask({ id: 'k1', ownerId: TEST_USER.id, leafId: 'l1', title: 'T', doneMeans: 'd', dependsOn: [], status: 'accepted', runs: [], createdAt: stamp, updatedAt: stamp } as never);
+    await db.projects.saveTree(tree() as never);
+    await db.projects.saveTree(tree({ id: 'keep' }) as never);
+    await db.projects.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', createdAt: stamp, updatedAt: stamp } as never);
+    await db.projects.saveBranch({ id: 'b-keep', ownerId: TEST_USER.id, treeId: 'keep', title: 'B', createdAt: stamp, updatedAt: stamp } as never);
+    await db.projects.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'L', status: 'pending', createdAt: stamp, updatedAt: stamp } as never);
+    await db.projects.saveLeaf({ id: 'l-keep', ownerId: TEST_USER.id, branchId: 'b-keep', title: 'L', status: 'pending', createdAt: stamp, updatedAt: stamp } as never);
+    await db.projects.saveTask({ id: 'k1', ownerId: TEST_USER.id, leafId: 'l1', title: 'T', doneMeans: 'd', dependsOn: [], status: 'accepted', runs: [], createdAt: stamp, updatedAt: stamp } as never);
     await db.saveConversation({ id: 'c1', ownerId: TEST_USER.id, title: 'about t1', treeId: 't1', messages: [], createdAt: stamp, updatedAt: stamp });
-    await db.savePlanProposal({ id: 'p1', ownerId: TEST_USER.id, status: 'adopting', leafPlan: { treeId: 't1', leafId: 'l1', leafTitle: 'L', mode: 'replan', why: 'w', brief: 'b', tasks: [] }, createdAt: stamp, updatedAt: stamp });
+    await db.projects.savePlanProposal({ id: 'p1', ownerId: TEST_USER.id, status: 'adopting', leafPlan: { treeId: 't1', leafId: 'l1', leafTitle: 'L', mode: 'replan', why: 'w', brief: 'b', tasks: [] }, createdAt: stamp, updatedAt: stamp });
 
     const res = await axios.delete(harness.url('/api/trees/t1'));
 
@@ -116,34 +116,34 @@ describe('a tree\'s workspace', () => {
     expect(changed).toEqual([TEST_USER.id]);
     expect(terminate.mock.calls.map(([id]) => id)).toEqual(['grove-run-t1', 'adopt-plan-p1']);
     expect(workspaces.release.mock.calls).toEqual([['t1', TEST_USER.id]]);
-    expect((await db.getTrees()).map((t) => t.id)).toEqual(['keep']);
-    expect((await db.getBranches()).map((b) => b.id)).toEqual(['b-keep']);
-    expect((await db.getLeaves()).map((l) => l.id)).toEqual(['l-keep']);
-    expect(await db.getTasks(TEST_USER.id)).toEqual([]);
+    expect((await db.projects.getTrees()).map((t) => t.id)).toEqual(['keep']);
+    expect((await db.projects.getBranches()).map((b) => b.id)).toEqual(['b-keep']);
+    expect((await db.projects.getLeaves()).map((l) => l.id)).toEqual(['l-keep']);
+    expect(await db.projects.getTasks(TEST_USER.id)).toEqual([]);
     expect(await db.getConversation(TEST_USER.id, 'c1')).toBeUndefined();
-    expect(await db.getPlanProposals(TEST_USER.id)).toEqual([]);
+    expect(await db.projects.getPlanProposals(TEST_USER.id)).toEqual([]);
   });
 
   it('deletes nothing when the tree\'s repository could not be saved first', async () => {
     const harness = await mount();
-    await harness.db.saveTree(tree() as never);
+    await harness.db.projects.saveTree(tree() as never);
     const stamp = new Date().toISOString();
-    await harness.db.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'L', status: 'pending', createdAt: stamp, updatedAt: stamp } as never);
+    await harness.db.projects.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'L', status: 'pending', createdAt: stamp, updatedAt: stamp } as never);
     workspaces.release.mockRejectedValueOnce(new Error('Pushing to koala-u1/tree-t1 failed: Gitea is down'));
 
     const err = await axios.delete(harness.url('/api/trees/t1')).catch((e) => e);
 
     expect(err.response.status).toBe(500);
-    expect((await harness.db.getTrees()).map((t) => t.id)).toEqual(['t1']);
-    expect((await harness.db.getLeaves()).map((l) => l.id)).toEqual(['l1']);
+    expect((await harness.db.projects.getTrees()).map((t) => t.id)).toEqual(['t1']);
+    expect((await harness.db.projects.getLeaves()).map((l) => l.id)).toEqual(['l1']);
   });
 
   it('refuses to delete another owner\'s tree and touches nothing', async () => {
     const harness = await mount();
-    await harness.db.saveTree(tree({ ownerId: 'someone-else' }) as never);
+    await harness.db.projects.saveTree(tree({ ownerId: 'someone-else' }) as never);
     const err = await axios.delete(harness.url('/api/trees/t1')).catch((e) => e);
     expect(err.response.status).toBe(404);
-    expect(await harness.db.getTrees()).toHaveLength(1);
+    expect(await harness.db.projects.getTrees()).toHaveLength(1);
   });
 });
 
@@ -156,9 +156,9 @@ describe('running a tree on the engine', () => {
 
   it('starts one run for a planned tree, and reports it running', async () => {
     const harness = await mount();
-    await harness.db.saveTree(tree() as never);
-    await harness.db.saveBranch(branch as never);
-    await harness.db.saveLeaf(leafOf() as never);
+    await harness.db.projects.saveTree(tree() as never);
+    await harness.db.projects.saveBranch(branch as never);
+    await harness.db.projects.saveLeaf(leafOf() as never);
 
     const first = await axios.post(harness.url('/api/trees/t1/run'));
     const second = await axios.post(harness.url('/api/trees/t1/run'));
@@ -178,9 +178,9 @@ describe('running a tree on the engine', () => {
       prefix: '/api/trees',
       router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher: { ...launcher, groveRunStatus: vi.fn(async () => status) }, asking }), deletion: new GroveDeletionService({ store: db, workflows: { stop: terminate }, workspaces }), order: new GroveOrderService({ store: db }), home: homeFor(db), models: modelsFor(db) }),
     });
-    await harness.db.saveTree(tree() as never);
-    await harness.db.saveBranch(branch as never);
-    await harness.db.saveLeaf(leafOf({ runId: 'g~1-leaf-1' }) as never);
+    await harness.db.projects.saveTree(tree() as never);
+    await harness.db.projects.saveBranch(branch as never);
+    await harness.db.projects.saveLeaf(leafOf({ runId: 'g~1-leaf-1' }) as never);
     await harness.db.appendTurnLog({ turnId: 'g~1', ownerId: TEST_USER.id, seq: 1, at: 'now', events: [
       { type: 'run.started', runId: 'g~1-leaf-1', parentRunId: 'g~1', agentId: 'grove-leaf', loopId: 'l', at: 'now' },
       { type: 'run.started', runId: 'g~1-leaf-1-executor-1', parentRunId: 'g~1-leaf-1', agentId: 'executor', loopId: 'l', at: 'now' },
@@ -197,8 +197,8 @@ describe('running a tree on the engine', () => {
 
   it('refuses an empty tree and another owner\'s, and stops a running one', async () => {
     const harness = await mount();
-    await harness.db.saveTree(tree() as never);
-    await harness.db.saveTree(tree({ id: 't2', ownerId: 'someone-else' }) as never);
+    await harness.db.projects.saveTree(tree() as never);
+    await harness.db.projects.saveTree(tree({ id: 't2', ownerId: 'someone-else' }) as never);
 
     const empty = await axios.post(harness.url('/api/trees/t1/run')).catch((e) => e);
     expect(empty.response.status).toBe(409);
@@ -208,8 +208,8 @@ describe('running a tree on the engine', () => {
 
     const idle = await axios.post(harness.url('/api/trees/t1/run/stop')).catch((e) => e);
     expect(idle.response.status).toBe(409);
-    await harness.db.saveBranch(branch as never);
-    await harness.db.saveLeaf(leafOf() as never);
+    await harness.db.projects.saveBranch(branch as never);
+    await harness.db.projects.saveLeaf(leafOf() as never);
     await axios.post(harness.url('/api/trees/t1/run'));
     await axios.post(harness.url('/api/trees/t1/run/stop'));
     expect(launcher.signalGroveRun).toHaveBeenCalledWith('t1', 'stopRun');
@@ -219,14 +219,14 @@ describe('running a tree on the engine', () => {
 describe('the models a tree works with', () => {
   it('lists them, keeps a choice for one agent, refuses one that is not yours, and never shows another owner\'s', async () => {
     const harness = await mount();
-    await seedTreeTypes(harness.db);
-    await harness.db.saveTree(tree() as never);
-    await harness.db.saveTree(tree({ id: 't2', ownerId: 'someone-else' }) as never);
+    await seedTreeTypes(harness.db.projects);
+    await harness.db.projects.saveTree(tree() as never);
+    await harness.db.projects.saveTree(tree({ id: 't2', ownerId: 'someone-else' }) as never);
 
     expect((await axios.get(harness.url('/api/trees/t1/models'))).data).toEqual({ rows: [{ agent: 'executor', name: 'Executor', own: { modelId: 'tabby' }, noMachine: true }] });
     const chosen = await axios.put(harness.url('/api/trees/t1/models'), { agent: 'executor', modelId: 'tabby' });
     expect(chosen.data.rows[0].chosen).toEqual({ modelId: 'tabby' });
-    expect((await harness.db.getTrees()).find((entry) => entry.id === 't1')?.models).toEqual({ executor: 'tabby' });
+    expect((await harness.db.projects.getTrees()).find((entry) => entry.id === 't1')?.models).toEqual({ executor: 'tabby' });
 
     const refused = await axios.put(harness.url('/api/trees/t1/models'), { agent: 'executor', modelId: 'nope' }, { validateStatus: () => true });
     expect(refused.status).toBe(400);
@@ -239,28 +239,28 @@ describe('making a tree', () => {
   it('gives a tree that produces a service its own project, and an artefact none', async () => {
     homeFails = false;
     const harness = await mount();
-    await seedTreeTypes(harness.db);
+    await seedTreeTypes(harness.db.projects);
     const service = await axios.post(harness.url('/api/trees'), { name: 'My Shop', type: 'odoo-addons', goal: 'sell things' });
     expect(service.status).toBe(201);
     expect(service.data.projectIds).toEqual([`project-${service.data.id}`]);
-    expect((await harness.db.getProjects()).map((project) => project.giteaRepo)).toEqual(['my-shop']);
-    expect((await harness.db.getTrees()).find((entry) => entry.id === service.data.id)?.projectIds).toEqual([`project-${service.data.id}`]);
+    expect((await harness.db.projects.getProjects()).map((project) => project.giteaRepo)).toEqual(['my-shop']);
+    expect((await harness.db.projects.getTrees()).find((entry) => entry.id === service.data.id)?.projectIds).toEqual([`project-${service.data.id}`]);
 
     const paper = await axios.post(harness.url('/api/trees'), { name: 'Which queue', type: 'research-paper', goal: 'compare queues' });
     expect(paper.status).toBe(201);
     expect(paper.data.projectIds).toEqual([]);
-    expect(await harness.db.getProjects()).toHaveLength(1);
+    expect(await harness.db.projects.getProjects()).toHaveLength(1);
     expect(changed, 'the owner\'s browsers are told about each new tree').toEqual([TEST_USER.id, TEST_USER.id]);
   });
 
   it('makes no tree when its project cannot be made, and says why', async () => {
     homeFails = true;
     const harness = await mount();
-    await seedTreeTypes(harness.db);
+    await seedTreeTypes(harness.db.projects);
     const res = await axios.post(harness.url('/api/trees'), { name: 'My Shop', type: 'odoo-addons', goal: 'sell things' }, { validateStatus: () => true });
     expect(res.status).toBe(502);
     expect(res.data.error).toBe('The tree could not be given its project, so it was not made: Gitea is down');
-    expect(await harness.db.getTrees()).toEqual([]);
+    expect(await harness.db.projects.getTrees()).toEqual([]);
     expect(changed).toEqual([]);
     homeFails = false;
   });
@@ -275,14 +275,14 @@ describe('a tree\'s workspace file', () => {
       prefix: '/api/trees',
       router: (db) => {
         const files = new WorkspaceFileService({
-          trees: () => db.getTrees(),
+          trees: () => db.projects.getTrees(),
           repoOf: async (treeId) => ({ repo: `tree-${treeId}` }),
           read: async (_ownerId, name, path) => repo[`${name}/${path}`],
           write: async (_ownerId, name, path, content) => { repo[`${name}/${path}`] = content; return { changed: true, commit: 'abcdef0123456789' }; },
           branch: 'main',
         });
         const workspaceFile = new TreeWorkspaceService({
-          trees: () => db.getTrees(),
+          trees: () => db.projects.getTrees(),
           files,
           compose: async (_ownerId, _treeId, file) => ({ plan: { base: 'ubi', installs: [], provides: [], fingerprint: 'f', lines: (file.packages?.pip ?? []).map((name) => ({ install: { via: 'pip' as const, packages: [name] }, from: 'project' })) }, env: [] }),
           published: async () => undefined,
@@ -297,8 +297,8 @@ describe('a tree\'s workspace file', () => {
 
   it('reads it, saves it to main and starts the build, as the owner only', async () => {
     const { harness, repo, builds } = await mountWithFile();
-    await harness.db.saveTree(tree() as never);
-    await harness.db.saveTree(tree({ id: 't9', ownerId: 'someone-else' }) as never);
+    await harness.db.projects.saveTree(tree() as never);
+    await harness.db.projects.saveTree(tree({ id: 't9', ownerId: 'someone-else' }) as never);
 
     expect((await axios.get(harness.url('/api/trees/t1/workspace-file'))).data).toMatchObject({ path: '.koala/workspace.json', file: {}, pending: [], builds: [] });
     await expect(axios.get(harness.url('/api/trees/t9/workspace-file'))).rejects.toMatchObject({ response: { status: 404 } });
@@ -316,7 +316,7 @@ describe('a tree\'s workspace file', () => {
 describe('making a tree of a type with versions', () => {
   it('makes it in the default version unless one it offers is asked for, and refuses one it does not offer', async () => {
     const harness = await mount();
-    await seedTreeTypes(harness.db);
+    await seedTreeTypes(harness.db.projects);
     const make = (body: Record<string, unknown>) => axios.post(harness.url('/api/trees'), { name: 'Shop', type: 'odoo-addons', ...body }, { validateStatus: () => true });
 
     const fresh = await make({});
@@ -328,6 +328,6 @@ describe('making a tree of a type with versions', () => {
     expect(refused.status).toBe(400);
     expect(refused.data.error).toBe('Odoo 19 is not offered; choose 20 or 18.');
     expect((await make({ type: 'api-service', version: '20' })).status).toBe(400);
-    expect((await harness.db.getTrees()).map((made) => made.version).sort()).toEqual(['18', '20']);
+    expect((await harness.db.projects.getTrees()).map((made) => made.version).sort()).toEqual(['18', '20']);
   });
 });

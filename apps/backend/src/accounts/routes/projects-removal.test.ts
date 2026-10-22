@@ -14,9 +14,9 @@ beforeEach(async () => {
   harness = await mountRouter({
     prefix: '/api/projects',
     router: async (db) => {
-      await db.saveProject({ id: 'p1', name: 'shop', ownerId: TEST_USER.id, giteaOwner: 'koala-t', giteaRepo: 'shop', appType: 'gitapp', createdAt: 'then' });
-      await db.saveProject({ id: 'p2', name: 'theirs', ownerId: 'someone-else', appType: 'gitapp', createdAt: 'then' });
-      await db.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'Shop features', type: 'software', projectIds: ['p1'], createdAt: 'then', updatedAt: 'then' } as never);
+      await db.projects.saveProject({ id: 'p1', name: 'shop', ownerId: TEST_USER.id, giteaOwner: 'koala-t', giteaRepo: 'shop', appType: 'gitapp', createdAt: 'then' });
+      await db.projects.saveProject({ id: 'p2', name: 'theirs', ownerId: 'someone-else', appType: 'gitapp', createdAt: 'then' });
+      await db.projects.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'Shop features', type: 'software', projectIds: ['p1'], createdAt: 'then', updatedAt: 'then' } as never);
       const removal = new ProjectRemovalService({
         store: db,
         now: () => 'now',
@@ -46,7 +46,7 @@ describe('deleting a project', () => {
     const removed = await call('delete', '/api/projects/p1', { confirm: 'shop' });
     expect(removed.status).toBe(202);
     expect(started).toEqual(['remove-project-p1']);
-    expect((await harness.db.getProjects()).find((project) => project.id === 'p1')?.removal).toEqual({ startedAt: 'now', requestedBy: TEST_USER.id });
+    expect((await harness.db.projects.getProjects()).find((project) => project.id === 'p1')?.removal).toEqual({ startedAt: 'now', requestedBy: TEST_USER.id });
   });
 
   it('lists the app built from it among what goes, and starts deleting it all the same', async () => {

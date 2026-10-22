@@ -10,8 +10,8 @@ const harness: Harness = await mountRouter({
     db,
     ownedConversations: async (userId: string) =>
       db.getConversations().then((c: any) => c.filter((x: any) => x.ownerId === userId)),
-    ownedTrees: async (userId: string) => (await db.getTrees()).filter((tree) => tree.ownerId === userId),
-    ownedProjects: async (userId: string) => (await db.getProjects()).filter((project) => project.ownerId === userId),
+    ownedTrees: async (userId: string) => (await db.projects.getTrees()).filter((tree) => tree.ownerId === userId),
+    ownedProjects: async (userId: string) => (await db.projects.getProjects()).filter((project) => project.ownerId === userId),
     workspaces: { conclude: async (ownerId: string, conversationId: string) => {
       concluded.push(`${ownerId}/${conversationId}`);
       if (concludeFails) throw new Error('Pushing to koala-u1/research-x failed: Gitea is down');
@@ -89,8 +89,8 @@ describe('conversation CRUD', () => {
 describe('a conversation about a tree', () => {
   it('binds to a tree the person owns, and refuses one they do not', async () => {
     const stamp = new Date().toISOString();
-    await harness.db.saveTree({ id: 'mine', ownerId: TEST_USER.id, name: 'Mine', type: 'software', projectIds: [], createdAt: stamp, updatedAt: stamp });
-    await harness.db.saveTree({ id: 'theirs', ownerId: 'someone-else', name: 'Theirs', type: 'software', projectIds: [], createdAt: stamp, updatedAt: stamp });
+    await harness.db.projects.saveTree({ id: 'mine', ownerId: TEST_USER.id, name: 'Mine', type: 'software', projectIds: [], createdAt: stamp, updatedAt: stamp });
+    await harness.db.projects.saveTree({ id: 'theirs', ownerId: 'someone-else', name: 'Theirs', type: 'software', projectIds: [], createdAt: stamp, updatedAt: stamp });
     const create = (treeId: string) => fetch(harness.url('/api/conversations'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -108,8 +108,8 @@ describe('a conversation about a tree', () => {
   });
 
   it('binds to a project the person owns, never to one they do not, and never to a tree and a project at once', async () => {
-    await harness.db.saveProjectInfo({ id: 'p-mine', name: 'mine', ownerId: TEST_USER.id, appType: 'local', createdAt: 'now' } as never);
-    await harness.db.saveProjectInfo({ id: 'p-theirs', name: 'theirs', ownerId: 'someone-else', appType: 'local', createdAt: 'now' } as never);
+    await harness.db.projects.saveProjectInfo({ id: 'p-mine', name: 'mine', ownerId: TEST_USER.id, appType: 'local', createdAt: 'now' } as never);
+    await harness.db.projects.saveProjectInfo({ id: 'p-theirs', name: 'theirs', ownerId: 'someone-else', appType: 'local', createdAt: 'now' } as never);
     const create = (body: Record<string, string>) => fetch(harness.url('/api/conversations'), {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
@@ -201,10 +201,10 @@ describe('what Koala sees in a conversation', () => {
 
   it('is shown at every level a conversation can be about: a project, a tree, a feature, a story', async () => {
     const owner = TEST_USER.id;
-    await harness.db.saveTree({ id: 'ctx-t', ownerId: owner, name: 'Shop', type: 'odoo-addons', goal: 'Delivery notes', projectIds: ['ctx-p'], createdAt: 't', updatedAt: 't' } as never);
-    await harness.db.saveBranch({ id: 'ctx-b', ownerId: owner, treeId: 'ctx-t', title: 'The field', createdAt: 't', updatedAt: 't' });
-    await harness.db.saveLeaf({ id: 'ctx-l', ownerId: owner, branchId: 'ctx-b', title: 'Module installs', body: 'Add the field.', status: 'failed', findings: 'the view did not load', createdAt: 't', updatedAt: 't' });
-    await harness.db.saveProject({ id: 'ctx-p', ownerId: owner, name: 'Bare', giteaOwner: 'o', giteaRepo: 'r', createdAt: 't' } as never);
+    await harness.db.projects.saveTree({ id: 'ctx-t', ownerId: owner, name: 'Shop', type: 'odoo-addons', goal: 'Delivery notes', projectIds: ['ctx-p'], createdAt: 't', updatedAt: 't' } as never);
+    await harness.db.projects.saveBranch({ id: 'ctx-b', ownerId: owner, treeId: 'ctx-t', title: 'The field', createdAt: 't', updatedAt: 't' });
+    await harness.db.projects.saveLeaf({ id: 'ctx-l', ownerId: owner, branchId: 'ctx-b', title: 'Module installs', body: 'Add the field.', status: 'failed', findings: 'the view did not load', createdAt: 't', updatedAt: 't' });
+    await harness.db.projects.saveProject({ id: 'ctx-p', ownerId: owner, name: 'Bare', giteaOwner: 'o', giteaRepo: 'r', createdAt: 't' } as never);
     const release = { ownerId: owner, projectId: 'ctx-p', image: 'i', host: 'h', updatedAt: '2026-10-09T10:00:00Z' };
     await harness.db.saveOdooRelease({ ...release, id: 'ctx-r1', pipelineRunId: 'ctx-run1', commit: 'aaaaaaaa11', slot: 'a', state: 'live', liveAt: '2026-10-09T10:05:00Z', startedAt: '2026-10-09T10:00:00Z' });
     await harness.db.saveOdooRelease({ ...release, id: 'ctx-r2', pipelineRunId: 'ctx-run2', commit: 'bbbbbbbb22', slot: 'b', state: 'preview', startedAt: '2026-10-10T09:00:00Z' });

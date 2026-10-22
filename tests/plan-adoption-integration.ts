@@ -24,7 +24,7 @@ async function main(): Promise<void> {
 
   console.log('[1/5] the planner\'s tool proposes a plan, and the grove is untouched');
   const tools = createGroveTools({ stores: stores.grove });
-  const before = (await db.getTrees()).length;
+  const before = (await db.projects.getTrees()).length;
   const proposed = await tools['propose_plan']!({
     name: 'propose_plan',
     driver: undefined,
@@ -45,18 +45,18 @@ async function main(): Promise<void> {
     },
   });
   assert.equal(proposed.ok, true, proposed.digest);
-  const [proposal] = await db.getPlanProposals(OWNER, conversationId) as PlanProposal[];
+  const [proposal] = await db.projects.getPlanProposals(OWNER, conversationId) as PlanProposal[];
   assert.ok(proposal, 'the proposal was not saved');
   assert.equal(proposal.status, 'proposed');
-  assert.equal((await db.getTrees()).length, before, 'a tree was created before approval');
+  assert.equal((await db.projects.getTrees()).length, before, 'a tree was created before approval');
 
   const adoption = createPlanAdoption({
     stores: {
-      proposals: { get: (ownerId, id) => db.getPlanProposal(ownerId, id), save: (entry) => db.savePlanProposal(entry) },
-      trees: { list: () => db.getTrees(), save: (tree) => db.saveTree(tree) },
-      branches: { list: () => db.getBranches(), save: (branch) => db.saveBranch(branch) },
-      leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
-      tasks: { list: (ownerId) => db.getTasks(ownerId), save: (task) => db.saveTask(task) },
+      proposals: { get: (ownerId, id) => db.projects.getPlanProposal(ownerId, id), save: (entry) => db.projects.savePlanProposal(entry) },
+      trees: { list: () => db.projects.getTrees(), save: (tree) => db.projects.saveTree(tree) },
+      branches: { list: () => db.projects.getBranches(), save: (branch) => db.projects.saveBranch(branch) },
+      leaves: { list: () => db.projects.getLeaves(), save: (leaf) => db.projects.saveLeaf(leaf) },
+      tasks: { list: (ownerId) => db.projects.getTasks(ownerId), save: (task) => db.projects.saveTask(task) },
     },
     treeWorkspaces: host.treeWorkspaces,
     environments: host.environments,
@@ -67,10 +67,10 @@ async function main(): Promise<void> {
     console.log('[2/5] adoption builds the grove records');
     const records = await adoption.records(OWNER, proposal.id);
     treeId = records.adopted.treeId;
-    const leaves = (await db.getLeaves()).filter((leaf) => Object.values(records.adopted.leafIds).includes(leaf.id));
+    const leaves = (await db.projects.getLeaves()).filter((leaf) => Object.values(records.adopted.leafIds).includes(leaf.id));
     assert.equal(leaves.length, 2);
     assert.ok(leaves.every((leaf) => leaf.status === 'pending'));
-    const tasks = (await db.getTasks(OWNER)).filter((task) => task.leafId === records.adopted.leafIds.hello);
+    const tasks = (await db.projects.getTasks(OWNER)).filter((task) => task.leafId === records.adopted.leafIds.hello);
     assert.equal(tasks.length, 1);
     assert.equal(tasks[0]!.status, 'accepted');
 
@@ -78,7 +78,7 @@ async function main(): Promise<void> {
     const commit = await adoption.documents(OWNER, proposal.id, records);
     assert.match(commit, /^[0-9a-f]{40}$/);
     await adoption.settle(OWNER, proposal.id, { status: 'adopted', adopted: { ...records.adopted, commit } });
-    assert.equal((await db.getPlanProposal(OWNER, proposal.id))?.status, 'adopted');
+    assert.equal((await db.projects.getPlanProposal(OWNER, proposal.id))?.status, 'adopted');
     assert.equal(await host.treeWorkspaces.state(treeId), 'parked');
 
     console.log('[4/5] a later run on the tree reads them back from a fresh pod');
@@ -99,7 +99,7 @@ async function main(): Promise<void> {
       console.log('[5a] waiting out one legacy backstop cycle: the old leaf pipeline must leave the adopted leaves alone');
       const deadline = Date.now() + 330_000;
       while (Date.now() < deadline) {
-        const touched = (await db.getLeaves()).filter((leaf) => Object.values(records.adopted.leafIds).includes(leaf.id) && (leaf.workflowId || leaf.status !== 'pending'));
+        const touched = (await db.projects.getLeaves()).filter((leaf) => Object.values(records.adopted.leafIds).includes(leaf.id) && (leaf.workflowId || leaf.status !== 'pending'));
         assert.deepEqual(touched.map((leaf) => leaf.id), [], 'the legacy pipeline started an engine leaf');
         await new Promise((done) => setTimeout(done, 10_000));
       }
@@ -111,11 +111,11 @@ async function main(): Promise<void> {
   } finally {
     if (treeId) {
       await host.treeWorkspaces.release(treeId).catch(() => undefined);
-      const branchIds = (await db.getBranches()).filter((branch) => branch.treeId === treeId).map((branch) => branch.id);
-      for (const leaf of (await db.getLeaves()).filter((entry) => branchIds.includes(entry.branchId))) await db.deleteLeaf(leaf.id);
-      for (const task of (await db.getTasks(OWNER))) await db.deleteTask(task.id);
-      for (const id of branchIds) await db.deleteBranch(id);
-      await db.deleteTree(treeId);
+      const branchIds = (await db.projects.getBranches()).filter((branch) => branch.treeId === treeId).map((branch) => branch.id);
+      for (const leaf of (await db.projects.getLeaves()).filter((entry) => branchIds.includes(entry.branchId))) await db.projects.deleteLeaf(leaf.id);
+      for (const task of (await db.projects.getTasks(OWNER))) await db.projects.deleteTask(task.id);
+      for (const id of branchIds) await db.projects.deleteBranch(id);
+      await db.projects.deleteTree(treeId);
     }
     await db.close();
   }

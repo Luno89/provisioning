@@ -55,7 +55,7 @@ describe('the router test harness', () => {
       prefix: '/api/probe',
       router: (db) => {
         const r = Router();
-        r.get('/count', async (_req, res) => res.json({ n: (await db.getProjects()).length }));
+        r.get('/count', async (_req, res) => res.json({ n: (await db.projects.getProjects()).length }));
         return r;
       },
     });

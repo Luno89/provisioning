@@ -41,7 +41,7 @@ const curlOutput = (results: Result[]) => results.filter((result) => result.name
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
-  const ownerId = (await db.getProjects()).find((project) => project.ownerId)?.ownerId;
+  const ownerId = (await db.projects.getProjects()).find((project) => project.ownerId)?.ownerId;
   assert.ok(ownerId);
   const user = await db.accounts.getUserById(ownerId);
   await db.close();

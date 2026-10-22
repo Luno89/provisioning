@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { createDatabase } from './platform/lib/db-interface.js';
 import { shippingGaps, deploysItself } from './projects/lib/project-shipping.js';
 const db = createDatabase(); await db.init();
-for (const p of await db.getProjects()) {
+for (const p of await db.projects.getProjects()) {
   const g = shippingGaps(p as any);
   console.log(`${String(p.name).padEnd(26)} gaps=${g.length ? g.join('; ') : 'none'} | selfDeploys=${deploysItself(p as any)} | target=${(p as any).targetClusterId ?? '-'}`);
 }

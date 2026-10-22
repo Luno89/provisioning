@@ -10,13 +10,13 @@ export interface DeclareResult {
 }
 
 export async function declareDependency(
-  db: Pick<Database, 'getProjects' | 'saveProject' | 'getDeployments' | 'getAppSpecs'> & {
+  db: Pick<Database, 'projects' | 'getDeployments' | 'getAppSpecs'> & {
     getBindingTypes?: () => Promise<any[]>;
   },
   userId: string,
   args: { projectId?: unknown; service?: unknown; as?: unknown },
 ): Promise<DeclareResult> {
-  const project = (await db.getProjects())
+  const project = (await db.projects.getProjects())
     .find((p) => p.id === String(args.projectId ?? '') && p.ownerId === userId);
   if (!project) return { error: 'No project with that id.' };
 
@@ -39,7 +39,7 @@ export async function declareDependency(
     return { note: `This project already depends on "${service}".` };
   }
 
-  await db.saveProject({
+  await db.projects.saveProject({
     ...project,
     needs: [...needs, { service, ...(as ? { as } : {}) }],
     updatedAt: new Date().toISOString(),

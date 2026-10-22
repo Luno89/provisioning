@@ -61,12 +61,12 @@ async function main(): Promise<void> {
       if (finished) return { outcome: finished.outcome ?? 'unknown', reason: finished.reason };
     }
   })();
-  const proposal = (await db.getPlanProposals(OWNER, conversationId)).find((entry) => entry.status === 'proposed');
+  const proposal = (await db.projects.getPlanProposals(OWNER, conversationId)).find((entry) => entry.status === 'proposed');
   assert.ok(proposal, `the planner left no plan (${planned.outcome}${planned.reason ? `: ${planned.reason}` : ''})`);
   for (const branch of proposal.plan.branches) {
     for (const leaf of branch.leaves) console.log(`      leaf ${leaf.key}: ${leaf.title}${leaf.dependsOn.length ? ` (after ${leaf.dependsOn.join(', ')})` : ''} — ${leaf.tasks.length} tasks`);
   }
-  const account = await db.getGiteaAccount(OWNER);
+  const account = await db.projects.getGiteaAccount(OWNER);
   assert.ok(account, 'the owner has no Gitea account, so nothing was saved');
   const planNote = `planner/${plannerRun}/plan.md`;
   const conversationRepo = conversationRepoName(conversationId);
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
   console.log(`[2/4] approved; the plan is adopted on the engine worker (${elapsed(started)})`);
   await http.post(`/plans/${proposal.id}/approve`);
   await client.workflow.getHandle(`adopt-plan-${proposal.id}`).result();
-  const adopted = await db.getPlanProposal(OWNER, proposal.id);
+  const adopted = await db.projects.getPlanProposal(OWNER, proposal.id);
   assert.equal(adopted?.status, 'adopted', `adoption ended ${adopted?.status}: ${adopted?.reason ?? ''}`);
   const treeId = adopted!.adopted!.treeId;
   const leafIds = Object.values(adopted!.adopted!.leafIds);
@@ -99,7 +99,7 @@ async function main(): Promise<void> {
   const run = client.workflow.getHandle(groveRunWorkflowId(treeId));
   const seen = new Map<string, string>();
   const watch = setInterval(() => {
-    void db.getLeaves().then((leaves) => {
+    void db.projects.getLeaves().then((leaves) => {
       for (const leaf of leaves.filter((entry) => leafIds.includes(entry.id))) {
         const now = `${leaf.status}${leaf.claim?.commit ? ` @${leaf.claim.commit.slice(0, 8)}` : ''}`;
         if (seen.get(leaf.id) !== now) {
@@ -128,14 +128,14 @@ async function main(): Promise<void> {
 
   console.log(`[4/4] report (${elapsed(started)})`);
   console.log(`      run: ${result ? JSON.stringify(result) : `did not finish — ${failure}`}`);
-  const leaves = (await db.getLeaves()).filter((leaf) => leafIds.includes(leaf.id));
+  const leaves = (await db.projects.getLeaves()).filter((leaf) => leafIds.includes(leaf.id));
   for (const leaf of leaves) {
     console.log(`\n  ${leaf.title} [${leaf.status}${leaf.verified ? ', verified' : ''}]`);
     if (leaf.claim) console.log(`    claim @${leaf.claim.commit ?? '(no commit)'}: ${leaf.claim.evidence.slice(0, 400)}`);
     if (leaf.review) console.log(`    ${leaf.review.model ?? 'judge'} (${leaf.review.verdict}): ${(leaf.review.reason ?? '').slice(0, 400)}`);
     if (leaf.findings) console.log(`    findings: ${leaf.findings.slice(0, 400)}`);
   }
-  const tasks = (await db.getTasks(OWNER)).filter((task) => task.leafId && leafIds.includes(task.leafId));
+  const tasks = (await db.projects.getTasks(OWNER)).filter((task) => task.leafId && leafIds.includes(task.leafId));
   console.log(`\n  tasks: ${tasks.map((task) => `${task.title} [${task.status}]`).join('; ')}`);
 
   const shared = await host.treeWorkspaces.describe({ treeId, ownerId: OWNER });

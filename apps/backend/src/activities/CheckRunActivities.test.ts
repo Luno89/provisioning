@@ -28,7 +28,7 @@ beforeEach(async () => {
 });
 
 const activities = () => createCheckRunActivities({
-  store: db as never,
+  store: db,
   api: () => { throw new Error('not used here'); },
   seedFiles: async () => undefined,
   reported: async () => false,
@@ -87,7 +87,7 @@ describe('a check\'s space', () => {
     expect(personas.map((persona) => [persona.slug, persona.prompt]).sort()).toEqual([['executor', 'mine']]);
     const memories = (await db.getMemories('space-1')).filter((memory) => memory.ownerId === 'space-1');
     expect(memories.map((memory) => memory.text).sort()).toEqual(['Say hello, not hi.', 'live', 'on trial']);
-    expect((await db.getTasks('space-1')).map((task) => [task.id, task.status])).toEqual([['write-greeting', 'accepted']]);
+    expect((await db.projects.getTasks('space-1')).map((task) => [task.id, task.status])).toEqual([['write-greeting', 'accepted']]);
     expect((await db.getProcedures('space-1')).some((procedure) => procedure.id === 'tidy' && procedure.ownerId === 'space-1')).toBe(true);
   });
 
@@ -194,7 +194,7 @@ describe('a check that releases its project', () => {
   const run = async (scenario: Scenario, made: ReturnType<typeof releasingApi>) => {
     await db.accounts.saveUser({ id: 'space-1', email: 'space-1@checks.internal' } as never);
     return createCheckRunActivities({
-      store: db as never,
+      store: db,
       api: () => made.http as never,
       seedFiles: async () => undefined,
       reported: async () => false,

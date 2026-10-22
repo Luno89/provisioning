@@ -45,11 +45,11 @@ export function treesRouter(deps: TreesRouterDeps): Router {
   const { db, workspaces, runs } = deps;
   const router = Router();
 
-  const ownedTrees = async (userId: string) => ownedBy(await db.getTrees(), userId);
+  const ownedTrees = async (userId: string) => ownedBy(await db.projects.getTrees(), userId);
 
   router.get('/', asyncRoute(async (req, res) => {
     const trees = await ownedTrees(userOf(req).id);
-    const branches = ownedBy(await db.getBranches(), userOf(req).id);
+    const branches = ownedBy(await db.projects.getBranches(), userOf(req).id);
     res.json(
       [...trees]
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -62,9 +62,9 @@ export function treesRouter(deps: TreesRouterDeps): Router {
     const input = normaliseTreeInput(req.body ?? {});
     if (!input) return res.status(400).json({ error: 'name and type are required' });
 
-    const typeSpec = await resolveTreeType(db, userId, input.type);
+    const typeSpec = await resolveTreeType(db.projects, userId, input.type);
     if (!typeSpec) {
-      const available = await db.getTreeTypes(userId);
+      const available = await db.projects.getTreeTypes(userId);
       return res.status(400).json({
         error: `There is no project type "${input.type}".`,
         available: available.map((t) => ({ id: t.id, label: t.label })),
@@ -85,13 +85,13 @@ export function treesRouter(deps: TreesRouterDeps): Router {
       createdAt: now,
       updatedAt: now,
     };
-    await db.saveTree(tree);
+    await db.projects.saveTree(tree);
     try {
       const homed = await deps.home.home(tree);
       deps.changed?.(userId);
       res.status(201).json(homed);
     } catch (err) {
-      await db.deleteTree(tree.id);
+      await db.projects.deleteTree(tree.id);
       res.status(502).json({ error: `The tree could not be given its project, so it was not made: ${(err as Error).message}` });
     }
   }));

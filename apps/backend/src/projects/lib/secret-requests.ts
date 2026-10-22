@@ -2,6 +2,12 @@ import type { SecretRequestStatus } from '@koala/harness-types';
 
 export type { SecretRequest, SecretRequestStatus } from '@koala/harness-types';
 
+export interface SecretRequestFilter {
+  conversationId?: string | undefined;
+  projectId?: string | undefined;
+  treeId?: string | undefined;
+}
+
 export const MAX_SECRET_KEY = 128;
 export const MAX_SECRET_DESCRIPTION = 500;
 export const MAX_SECRET_VALUE = 64 * 1024;

@@ -21,10 +21,10 @@ export async function seedAll(db: Database) {
   counts.bindingTypes = await seedBindingTypes(db);
   // Images before tree types: a tree type's language must name one that exists.
   counts.workspaceImages = await seedWorkspaceImages(db);
-  counts.treeTypes = await seedTreeTypes(db);
+  counts.treeTypes = await seedTreeTypes(db.projects);
   const ledger: MigrationLedger = db.platform;
   const now = new Date().toISOString();
-  counts.treeVersionsStamped = (await runOnce(ledger, 'tree-versions', now, async () => ({ stamped: await stampTreeVersions(db) }))).stamped ?? 0;
+  counts.treeVersionsStamped = (await runOnce(ledger, 'tree-versions', now, async () => ({ stamped: await stampTreeVersions(db.projects) }))).stamped ?? 0;
   counts.appSpecs = await seedAppSpecs(db);
   counts.constructBackedTypes = await seedConstructBackedTypes(db);
   counts.clusterProviders = await seedClusterProviders(db);

@@ -52,7 +52,7 @@ async function provideThroughCard(http: AxiosInstance, db: Database, ownerId: st
     id: randomUUID(), ownerId, projectId, key, description: 'secret injection live check',
     secretReference: `secret://${projectId}/${key}`, status: 'requested', createdAt: stamp, updatedAt: stamp,
   };
-  await db.saveSecretRequest(request);
+  await db.projects.saveSecretRequest(request);
   const res = await http.post(`/secret-requests/${request.id}/submit`, { value });
   assert.equal(res.data.status, 'provided');
 }
@@ -91,7 +91,7 @@ async function check(target: string, http: AxiosInstance, db: Database, infra: I
       notes.push(`${target}: provisioning installed the operator`);
     }
 
-    await db.saveProject(project as any);
+    await db.projects.saveProject(project as any);
     await db.savePipelineRun({ ...source, id: runId, projectId: project.id, promotedAt: undefined, deploymentId: undefined });
     await provideThroughCard(http, db, ownerId, project.id, key, first);
 
@@ -123,7 +123,7 @@ async function check(target: string, http: AxiosInstance, db: Database, infra: I
     await infra.runKubectl(['delete', 'namespace', namespace, '--wait=false'], kubeconfigFor(cluster)).catch(() => undefined);
     if (clusterId) await http.delete(`/clusters/${clusterId}`).catch((err: Error) => console.warn(`cleanup cluster: ${err.message}`));
     await infisical.deleteSecret(project.id, key).catch(() => undefined);
-    for (const request of await db.getSecretRequests(ownerId, { projectId: project.id })) await db.deleteSecretRequest(ownerId, request.id);
+    for (const request of await db.projects.getSecretRequests(ownerId, { projectId: project.id })) await db.projects.deleteSecretRequest(ownerId, request.id);
     const mongo = new MongoClient(process.env.MONGO_URI ?? 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin');
     await mongo.connect();
     await mongo.db('provisioning').collection('pipelineRuns').deleteOne({ _id: runId as never });
@@ -135,7 +135,7 @@ async function check(target: string, http: AxiosInstance, db: Database, infra: I
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
-  const owner = (await db.getProjects()).find((project) => project.appType === 'gitapp' && project.ownerId)?.ownerId;
+  const owner = (await db.projects.getProjects()).find((project) => project.appType === 'gitapp' && project.ownerId)?.ownerId;
   assert.ok(owner, 'no owner with a gitapp project');
   const user = await db.accounts.getUserById(owner);
   assert.ok(user);

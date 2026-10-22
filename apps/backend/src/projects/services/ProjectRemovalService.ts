@@ -19,11 +19,11 @@ export interface LoadedProjectScope {
 }
 
 export async function loadProjectScope(store: ProjectRemovalStore, projectId: string): Promise<LoadedProjectScope | undefined> {
-  const project = (await store.getProjects()).find((entry) => entry.id === projectId);
+  const project = (await store.projects.getProjects()).find((entry) => entry.id === projectId);
   if (!project) return undefined;
   const ownerId = project.ownerId ?? '';
   const [trees, branches, leaves, tasks, proposals, conversations, deployments, pipelineRuns] = await Promise.all([
-    store.getTrees(), store.getBranches(), store.getLeaves(), store.getTasks(ownerId), store.getPlanProposals(ownerId),
+    store.projects.getTrees(), store.projects.getBranches(), store.projects.getLeaves(), store.projects.getTasks(ownerId), store.projects.getPlanProposals(ownerId),
     store.getConversations(), store.getDeployments(), store.getPipelineRuns(),
   ]);
   const mine = <T extends { ownerId?: string | undefined }>(list: T[]) => list.filter((entry) => entry.ownerId === ownerId);
@@ -36,7 +36,7 @@ export type ProjectRemovalRefusal =
   | { status: 400; error: string };
 
 export interface ProjectRemovalDeps {
-  store: ProjectRemovalStore & { saveProject(project: ProjectMetadata): Promise<void> };
+  store: ProjectRemovalStore & { projects: { saveProject(project: ProjectMetadata): Promise<void> } };
   workflows: AccountRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>;
   hub?: { shared(projectId: string): Promise<boolean>; takeBack(ownerId: string, projectId: string): Promise<void> } | undefined;
   now?: () => string;
@@ -66,7 +66,7 @@ export class ProjectRemovalService {
     const current = await this.deps.workflows.state(workflowId);
     if (current.state === 'running') return { ok: true, state: current };
     if (this.deps.hub && await this.deps.hub.shared(projectId)) await this.deps.hub.takeBack(ownerId, projectId);
-    await this.deps.store.saveProject({ ...loaded.project, removal: { startedAt: this.deps.now?.() ?? new Date().toISOString(), requestedBy: ownerId } });
+    await this.deps.store.projects.saveProject({ ...loaded.project, removal: { startedAt: this.deps.now?.() ?? new Date().toISOString(), requestedBy: ownerId } });
     await this.deps.workflows.start(REMOVE_PROJECT_WORKFLOW, workflowId, [{ projectId }], loaded.project.ownerId ?? ownerId);
     return { ok: true, state: await this.deps.workflows.state(workflowId) };
   }

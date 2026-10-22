@@ -17,12 +17,14 @@ import {
 export interface OdooReleaseStore {
   getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]>;
   saveOdooRelease(release: OdooRelease): Promise<void>;
-  getProjects(): Promise<ProjectMetadata[]>;
+  projects: {
+    getProjects(): Promise<ProjectMetadata[]>;
+    saveProjectInfo(project: Partial<ProjectMetadata> & { id: string }): Promise<ProjectMetadata>;
+  };
   getClusters(): Promise<ClusterMetadata[]>;
   getDeployments(): Promise<DeploymentMetadata[]>;
   saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
   savePipelineRunInfo(run: Partial<PipelineRunMetadata> & { id: string }): Promise<PipelineRunMetadata>;
-  saveProjectInfo(project: Partial<ProjectMetadata> & { id: string }): Promise<ProjectMetadata>;
   getPipelineRuns(): Promise<PipelineRunMetadata[]>;
 }
 
@@ -146,7 +148,7 @@ export class OdooReleaseService {
       updatedAt: stamp,
     };
     await this.deps.store.saveOdooRelease(release);
-    if (fromClient) await this.deps.store.saveProjectInfo({ id: project.id, clientImport: { ...fromClient, state: 'importing', releaseId: release.id, reason: undefined, missing: undefined, at: stamp } });
+    if (fromClient) await this.deps.store.projects.saveProjectInfo({ id: project.id, clientImport: { ...fromClient, state: 'importing', releaseId: release.id, reason: undefined, missing: undefined, at: stamp } });
     await this.deploymentFor(named, ownerId, cluster, run);
 
     if (busy) {
@@ -222,17 +224,17 @@ export class OdooReleaseService {
 
   private async settleImport(release: OdooRelease): Promise<void> {
     if (!release.restore || (release.state !== 'live' && release.state !== 'failed')) return;
-    const project = (await this.deps.store.getProjects()).find((entry) => entry.id === release.projectId);
+    const project = (await this.deps.store.projects.getProjects()).find((entry) => entry.id === release.projectId);
     const entry = project?.clientImport as ClientImport | undefined;
     if (!project || !entry || entry.releaseId !== release.id || entry.state !== 'importing') return;
     const at = this.now();
     if (release.state === 'live') {
-      await this.deps.store.saveProjectInfo({ id: project.id, clientImport: { ...entry, state: 'imported', at } });
+      await this.deps.store.projects.saveProjectInfo({ id: project.id, clientImport: { ...entry, state: 'imported', at } });
       return;
     }
     const missing = missingFrom(release.reason ?? '');
     const wrong = wrongVersionFrom(release.reason ?? '');
-    await this.deps.store.saveProjectInfo({
+    await this.deps.store.projects.saveProjectInfo({
       id: project.id,
       clientImport: missing
         ? { ...entry, state: 'refused', missing, reason: missingSentence(missing), at }
@@ -247,7 +249,7 @@ export class OdooReleaseService {
     const deployed = (await this.deps.store.getDeployments()).find((entry) => entry.gitappProjectId === project.id && entry.appType === ODOO_PROJECT_APP);
     const released = deployed !== undefined || (await this.deps.store.getOdooReleases(ownerId, project.id)).length > 0;
     const releaseName = deployed?.namespace || (released ? releaseNameOf(project) : newReleaseName(project));
-    await this.deps.store.saveProjectInfo({ id: project.id, releaseName });
+    await this.deps.store.projects.saveProjectInfo({ id: project.id, releaseName });
     return { ...project, releaseName };
   }
 
@@ -444,7 +446,7 @@ export class OdooReleaseService {
         }
         const next = queued[0];
         if (!next) return;
-        const project = (await this.deps.store.getProjects()).find((entry) => entry.id === projectId);
+        const project = (await this.deps.store.projects.getProjects()).find((entry) => entry.id === projectId);
         const cluster = project ? await this.clusterOf(project) : undefined;
         if (!project || !cluster) {
           await this.save({ ...next, state: 'failed', reason: project ? 'the project\'s cluster is gone' : 'the project is gone', updatedAt: this.now() });

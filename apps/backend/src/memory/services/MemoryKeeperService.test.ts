@@ -121,8 +121,8 @@ describe('the memory keeper, driven by what the engine reports', () => {
   });
 
   it('hands the memory keeper a failed run, research, and a leaf its judge settled — and nothing for a run that just went fine', async () => {
-    await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'b', createdAt: 'x', updatedAt: 'x' } as never);
-    await db.saveLeaf({ id: 'leaf-1', ownerId: 'u1', branchId: 'b1', title: 'versions.txt', status: 'failed', review: { verdict: 'unsound', model: 'leaf-judge', at: '2026-10-03T12:00:00Z', reason: 'frobnicate is missing' }, createdAt: 'x', updatedAt: 'x' });
+    await db.projects.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'b', createdAt: 'x', updatedAt: 'x' } as never);
+    await db.projects.saveLeaf({ id: 'leaf-1', ownerId: 'u1', branchId: 'b1', title: 'versions.txt', status: 'failed', review: { verdict: 'unsound', model: 'leaf-judge', at: '2026-10-03T12:00:00Z', reason: 'frobnicate is missing' }, createdAt: 'x', updatedAt: 'x' });
 
     await keeper().handle(turnEnded({ runId: 'r-failed', agentSlug: 'executor', outcome: 'failed', depth: 1 }));
     await keeper().handle(turnEnded({ runId: 'r-research', agentSlug: 'research', depth: 1 }));

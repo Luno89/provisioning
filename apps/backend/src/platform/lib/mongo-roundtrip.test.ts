@@ -8,7 +8,7 @@ let db: MongoDB;
 const OWNERS = ['roundtrip-owner-a', 'roundtrip-owner-b'];
 
 const owned = async (owner: string) =>
-  (await db.getTreeTypes(owner)).filter((t) => t.ownerId === owner);
+  (await db.projects.getTreeTypes(owner)).filter((t) => t.ownerId === owner);
 
 beforeAll(async () => {
   db = await testDatabase();
@@ -17,7 +17,7 @@ beforeAll(async () => {
 describe('tree types in real Mongo', () => {
   it('gives back the id it was given, not the storage key', async () => {
     const seed = { ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[0]! };
-    await db.saveTreeType(seed);
+    await db.projects.saveTreeType(seed);
 
     const back = await owned(OWNERS[0]!);
     expect(back).toHaveLength(1);
@@ -29,29 +29,29 @@ describe('tree types in real Mongo', () => {
 
   it('is idempotent, which is what seeding on every read depends on', async () => {
     const seed = { ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[0]! };
-    await db.saveTreeType(seed);
-    await db.saveTreeType({ ...seed, label: 'Edited' });
+    await db.projects.saveTreeType(seed);
+    await db.projects.saveTreeType({ ...seed, label: 'Edited' });
     const back = await owned(OWNERS[0]!);
     expect(back).toHaveLength(1);
     expect(back[0]!.label).toBe('Edited');
   });
 
   it('keeps two owners\' identically-named types apart', async () => {
-    await db.saveTreeType({ ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[0]!, label: 'Mine' });
-    await db.saveTreeType({ ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[1]!, label: 'Theirs' });
+    await db.projects.saveTreeType({ ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[0]!, label: 'Mine' });
+    await db.projects.saveTreeType({ ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[1]!, label: 'Theirs' });
     expect((await owned(OWNERS[0]!))[0]!.label).toBe('Mine');
     expect((await owned(OWNERS[1]!))[0]!.label).toBe('Theirs');
   });
 
   it('deletes only the owner it was asked about', async () => {
-    await db.saveTreeType({ ...TREE_TYPE_SEEDS[1]! } as TreeTypeSpec);
-    await db.saveTreeType({ ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[0]! });
-    await db.saveTreeType({ ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[1]! });
-    await db.deleteTreeType(TREE_TYPE_SEEDS[0]!.id, OWNERS[0]!);
+    await db.projects.saveTreeType({ ...TREE_TYPE_SEEDS[1]! } as TreeTypeSpec);
+    await db.projects.saveTreeType({ ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[0]! });
+    await db.projects.saveTreeType({ ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[1]! });
+    await db.projects.deleteTreeType(TREE_TYPE_SEEDS[0]!.id, OWNERS[0]!);
     expect(await owned(OWNERS[0]!)).toHaveLength(0);
     expect(await owned(OWNERS[1]!)).toHaveLength(1);
 
-    expect((await db.getTreeTypes(OWNERS[0])).some((t) => t.ownerId == null)).toBe(true);
+    expect((await db.projects.getTreeTypes(OWNERS[0])).some((t) => t.ownerId == null)).toBe(true);
   });
 });
 

@@ -22,7 +22,9 @@ async function main(): Promise<void> {
     const report = await consolidateMemories({
       db: {
         getMemories: () => db.getMemories(),
-        getLeaves: () => db.getLeaves() as never,
+        projects: {
+          getLeaves: () => db.projects.getLeaves() as never,
+        },
         saveMemory: async (m: MemoryItem) => {
           written.push(m);
           if (apply) await db.saveMemory(m);

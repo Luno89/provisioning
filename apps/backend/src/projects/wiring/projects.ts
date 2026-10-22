@@ -78,13 +78,13 @@ export function projectsCore(deps: ProjectsCoreDeps): ProjectsCore {
     conversation: (ownerId, id) => db.getConversation(ownerId, id),
     save: (conversation) => db.saveConversation(conversation),
     bind: (ownerId, conversationId, binding) => db.bindConversation(ownerId, conversationId, binding),
-    trees: () => db.getTrees(),
-    saveProjectInfo: (project) => db.saveProjectInfo(project),
+    trees: () => db.projects.getTrees(),
+    saveProjectInfo: (project) => db.projects.saveProjectInfo(project),
   });
   const itemChats = new ItemChatService({
-    leaves: () => db.getLeaves(),
-    branches: () => db.getBranches(),
-    trees: () => db.getTrees(),
+    leaves: () => db.projects.getLeaves(),
+    branches: () => db.projects.getBranches(),
+    trees: () => db.projects.getTrees(),
     conversation: (ownerId, id) => db.getConversation(ownerId, id),
     save: (conversation) => db.saveConversation(conversation),
   });
@@ -93,7 +93,7 @@ export function projectsCore(deps: ProjectsCoreDeps): ProjectsCore {
     append: (ownerId, conversationId, message) => db.appendNotice(ownerId, conversationId, message),
     told: (ownerId, conversationId) => { io.to(`user:${ownerId}`).emit('conversation-notice', { conversationId }); },
     channelOf: async (ownerId, projectId) => {
-      const project = (await db.getProjects()).find((entry) => entry.id === projectId && entry.ownerId === ownerId);
+      const project = (await db.projects.getProjects()).find((entry) => entry.id === projectId && entry.ownerId === ownerId);
       return project ? (await channels.ensure(project))?.id : undefined;
     },
     itemChatOf: async (ownerId, item) => (await itemChats.ensure(ownerId, item))?.id,
@@ -106,14 +106,14 @@ export function projectsCore(deps: ProjectsCoreDeps): ProjectsCore {
     asked: (request) => { if (request.projectId) postNotice('a secret was asked for', notices.post(request.ownerId, { projectId: request.projectId, treeId: request.treeId }, secretNotice({ ...request, projectId: request.projectId }))); },
   });
   const treeHome = new TreeHomeService({
-    treeTypes: (ownerId) => db.getTreeTypes(ownerId),
-    projects: () => db.getProjects(),
+    treeTypes: (ownerId) => db.projects.getTreeTypes(ownerId),
+    projects: () => db.projects.getProjects(),
     createProject: (ownerId, project) => projectRepoService.createProject(ownerId, project),
     starter: async (type, tree) => renderStarterFiles(type.files, { projectName: tree.name, registryHost: await gitea.getRegistryHost(), ...versionVars(type, tree) }),
-    saveTree: (tree) => db.saveTree(tree),
+    saveTree: (tree) => db.projects.saveTree(tree),
     secrets: projectSecrets,
     channel: (project) => channels.ensure(project),
-    saveNeeds: (project, needs) => db.saveProjectInfo({ id: project.id, needs }),
+    saveNeeds: (project, needs) => db.projects.saveProjectInfo({ id: project.id, needs }),
   });
   return { projectRepoService, channels, itemChats, notices, postNotice, projectSecrets, treeHome };
 }
@@ -188,10 +188,10 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
       runs: deps.runs,
       client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined),
       agentFor: async (ownerId: string, treeId: string) => {
-        const tree = (await db.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
-        return groveAgentOf(await resolveTreeType(db, ownerId, tree?.type));
+        const tree = (await db.projects.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
+        return groveAgentOf(await resolveTreeType(db.projects, ownerId, tree?.type));
       },
-      leafRun: async (leafId: string) => (await db.getLeaves()).find((leaf) => leaf.id === leafId)?.runId,
+      leafRun: async (leafId: string) => (await db.projects.getLeaves()).find((leaf) => leaf.id === leafId)?.runId,
       modelFor: (ownerId, treeId, agentSlug) => treeModels.modelFor(ownerId, treeId, agentSlug),
     }),
   });
@@ -203,7 +203,7 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
   });
   const groveOrder = new GroveOrderService({ store: db });
   const treeWorkspace = evalHost.treeWorkspaceFiles ? new TreeWorkspaceService({
-    trees: () => db.getTrees(),
+    trees: () => db.projects.getTrees(),
     files: evalHost.treeWorkspaceFiles.files,
     compose: evalHost.treeWorkspaceFiles.compose,
     published: (ownerId, treeId) => db.getPublishedWorkspace(ownerId, treeId),
@@ -223,20 +223,20 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
     landings: {
       pullRequests: async (ownerId, treeId) => {
         const repo = await deps.workspaceRepos(treeWorkspaceRunId(treeId));
-        const account = await db.getGiteaAccount(ownerId);
+        const account = await db.projects.getGiteaAccount(ownerId);
         if (!repo || !account) return [];
         return (await gitea.findRepo(account.username, repo.repo)) ? gitea.pullRequests(account.username, repo.repo) : [];
       },
     },
   }));
   const planService = new PlanService({
-    store: db,
+    store: db.projects,
     adopter: temporalBridge,
     onSettled: deps.concluded,
-    stories: async (ownerId) => (await db.getLeaves()).filter((leaf) => leaf.ownerId === ownerId).map((leaf) => ({ id: leaf.id, title: leaf.title, status: leaf.status })),
+    stories: async (ownerId) => (await db.projects.getLeaves()).filter((leaf) => leaf.ownerId === ownerId).map((leaf) => ({ id: leaf.id, title: leaf.title, status: leaf.status })),
   });
   tenant.use('/api/plans', plansRouter({ plans: planService }));
   tenant.use('/api/branches', branchesRouter({ db, deletion: groveDeletion, order: groveOrder }));
-  tenant.use('/api/leaves', leavesRouter({ db, runs: groveRuns, deletion: groveDeletion }));
+  tenant.use('/api/leaves', leavesRouter({ db: db.projects, runs: groveRuns, deletion: groveDeletion }));
   return { treeModels, groveRuns, groveDeletion, groveOrder, planService };
 }

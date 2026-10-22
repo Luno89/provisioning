@@ -27,7 +27,7 @@ async function until<T>(what: string, limitMs: number, probe: () => Promise<T | 
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
-  const ownerId = (await db.getProjects()).find((project) => project.ownerId)?.ownerId;
+  const ownerId = (await db.projects.getProjects()).find((project) => project.ownerId)?.ownerId;
   const owner = ownerId ? await db.accounts.getUserById(ownerId) : (await db.accounts.getUsers())[0];
   await db.close();
   assert.ok(owner, 'there is no user to provision as');

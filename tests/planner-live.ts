@@ -52,7 +52,7 @@ async function main(): Promise<void> {
     bus,
   });
 
-  const proposals = await db.getPlanProposals(OWNER, conversationId);
+  const proposals = await db.projects.getPlanProposals(OWNER, conversationId);
   console.log(`\noutcome ${result.outcome}${result.reason ? ` (${result.reason})` : ''}; proposals: ${proposals.length}`);
   await db.close();
   assert.equal(result.outcome, 'ok');

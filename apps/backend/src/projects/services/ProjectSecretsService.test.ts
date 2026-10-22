@@ -29,9 +29,9 @@ const service = () => new ProjectSecretsService({
     mint: async (_ownerId, projectId, key, sourceId) => { minted.push(`${key} from ${sourceId}`); stored.set(`${projectId}/${key}`, `minted-${key}`); },
   },
   treeTypes: async () => [shop],
-  trees: () => db.getTrees(),
-  requests: { list: (ownerId, filter) => db.getSecretRequests(ownerId, filter), save: (request) => db.saveSecretRequest(request) },
-  saveProjectInfo: (entry) => db.saveProjectInfo(entry),
+  trees: () => db.projects.getTrees(),
+  requests: { list: (ownerId, filter) => db.projects.getSecretRequests(ownerId, filter), save: (request) => db.projects.saveSecretRequest(request) },
+  saveProjectInfo: (entry) => db.projects.saveProjectInfo(entry),
   newId: () => 'req-1',
   now: () => at,
 });
@@ -40,8 +40,8 @@ beforeEach(async () => {
   db = await testDatabase();
   stored = new Map();
   minted = [];
-  await db.saveProject(project);
-  await db.saveTree({ id: 't1', ownerId: 'bo', name: 'Shop', type: 'shop-type', projectIds: ['p1'], createdAt: at, updatedAt: at } as never);
+  await db.projects.saveProject(project);
+  await db.projects.saveTree({ id: 't1', ownerId: 'bo', name: 'Shop', type: 'shop-type', projectIds: ['p1'], createdAt: at, updatedAt: at } as never);
 });
 
 describe('the secrets a tree type declares for its project', () => {
@@ -49,14 +49,14 @@ describe('the secrets a tree type declares for its project', () => {
     const first = await service().ensure(project);
     expect(minted).toEqual(['POSTGRES_PASSWORD from generated', 'ODOO_ADMIN_PASSWORD from generated']);
     expect(first.waiting).toEqual(['STRIPE_KEY']);
-    expect(await db.getSecretRequests('bo', { projectId: 'p1' })).toEqual([expect.objectContaining({ key: 'STRIPE_KEY', status: 'requested', treeId: 't1', secretReference: 'secret://p1/STRIPE_KEY' })]);
-    expect((await db.getProjects()).find((entry) => entry.id === 'p1')?.requiredSecrets).toEqual([
+    expect(await db.projects.getSecretRequests('bo', { projectId: 'p1' })).toEqual([expect.objectContaining({ key: 'STRIPE_KEY', status: 'requested', treeId: 't1', secretReference: 'secret://p1/STRIPE_KEY' })]);
+    expect((await db.projects.getProjects()).find((entry) => entry.id === 'p1')?.requiredSecrets).toEqual([
       { key: 'POSTGRES_PASSWORD', source: 'generated' }, { key: 'ODOO_ADMIN_PASSWORD', source: 'generated' }, { key: 'STRIPE_KEY', source: 'person' },
     ]);
 
     await service().ensure(project);
     expect(minted).toHaveLength(2);
-    expect(await db.getSecretRequests('bo', { projectId: 'p1' })).toHaveLength(1);
+    expect(await db.projects.getSecretRequests('bo', { projectId: 'p1' })).toHaveLength(1);
   });
 
   it('carries over a value the running app already has instead of making a new one', async () => {
@@ -79,9 +79,9 @@ describe('the secrets a tree type declares for its project', () => {
   it('uses what the release itself needs for a project no tree is the home of, and shows its sign-in once that is in the vault', async () => {
     const own = [{ key: 'ODOO_ADMIN_PASSWORD', source: 'generated' as const, describe: 'The admin password.', signInAs: 'admin' }];
     const loose = { ...project, id: 'p9' };
-    await db.saveProject(loose);
+    await db.projects.saveProject(loose);
     expect((await service().ensure(loose, { fallback: own })).declared).toEqual(own);
-    const saved = (await db.getProjects()).find((entry) => entry.id === 'p9')!;
+    const saved = (await db.projects.getProjects()).find((entry) => entry.id === 'p9')!;
     expect(await service().signIns(saved, own)).toEqual([{ login: 'admin', password: 'minted-ODOO_ADMIN_PASSWORD', describe: 'The admin password.' }]);
     expect(await service().signIns(loose, own)).toEqual([]);
   });

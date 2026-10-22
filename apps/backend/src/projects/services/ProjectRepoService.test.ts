@@ -58,21 +58,21 @@ describe('making a project with a repository', () => {
 
     expect(calls).toEqual([expect.stringMatching(/^repo .+\/my-shop$/), expect.stringMatching(/^hook .+\/my-shop http:\/\/10\.0\.0\.5:3001\/webhooks\/gitea\/p1$/), expect.stringMatching(/^seed .+\/my-shop Dockerfile$/)]);
     expect(project).toMatchObject({ id: 'p1', name: 'My Shop', ownerId: 'u1', giteaRepo: 'my-shop', language: 'odoo', appType: 'gitapp', targetClusterId: 'provisioning-lunorica', autoDeployOnBuild: true, webhookSecretEnc: expect.any(String) });
-    expect((await db.getProjects()).map((entry) => entry.id)).toEqual(['p1']);
+    expect((await db.projects.getProjects()).map((entry) => entry.id)).toEqual(['p1']);
   });
 
   it('finishes what a failed attempt started: the repository it made is kept, and the webhook is made again', async () => {
     const first = fakeGitea({ failWebhook: true });
     const { db, repos } = await made(first.gitea);
     await expect(repos.createProject('u1', { id: 'p1', name: 'My Shop', repo: 'my-shop', autoDeployOnBuild: true })).rejects.toThrow('Gitea is down');
-    expect((await db.getProjects())[0]).not.toHaveProperty('webhookSecretEnc');
+    expect((await db.projects.getProjects())[0]).not.toHaveProperty('webhookSecretEnc');
 
-    const owner = (await db.getProjects())[0]!.giteaOwner!;
+    const owner = (await db.projects.getProjects())[0]!.giteaOwner!;
     const again = fakeGitea({ repos: [`${owner}/my-shop`] });
     const retried = await (await made(again.gitea, db)).repos.createProject('u1', { id: 'p1', name: 'My Shop', repo: 'my-shop', autoDeployOnBuild: true });
     expect(again.calls).toEqual([`hook ${owner}/my-shop http://10.0.0.5:3001/webhooks/gitea/p1`]);
     expect(retried.webhookSecretEnc).toEqual(expect.any(String));
-    expect(await db.getProjects()).toHaveLength(1);
+    expect(await db.projects.getProjects()).toHaveLength(1);
   });
 
   it('builds from a repository someone already has, without making one', async () => {

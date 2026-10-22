@@ -80,7 +80,7 @@ describe('adding a machine with the command from My Machines', () => {
     expect(device).toMatchObject({ ownerId: TEST_USER.id, name: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64' });
     expect(device.tokenEnc).not.toBe(env.KOALA_DEVICE_TOKEN);
     expect(decryptValue(device.tokenEnc, DATA_KEY)).toBe(env.KOALA_DEVICE_TOKEN);
-    const project = (await harness.db.getProjects()).find((candidate) => candidate.executionTarget?.kind === 'local-device' && candidate.executionTarget.deviceId === device.id);
+    const project = (await harness.db.projects.getProjects()).find((candidate) => candidate.executionTarget?.kind === 'local-device' && candidate.executionTarget.deviceId === device.id);
     expect(project?.name).toBe('laptop - koala');
 
     const again = await post('/api/machines/join', { code, hostname: 'other', rootDir: '/x' });
@@ -93,7 +93,7 @@ describe('adding a machine with the command from My Machines', () => {
     const first = await (await post('/api/machines/join', { code: await codeOf(), hostname: 'desk', rootDir: '/home/me/koala' })).json() as { deviceId: string; env: Record<string, string> };
     const before = (await harness.db.getLocalAgentDevices()).find((device) => device.id === first.deviceId)!;
     await harness.db.saveLocalAgentDevice({ ...before, manualAgents: [{ id: 'pi', command: 'pi', args: ['--rpc'] }] });
-    const projects = (await harness.db.getProjects()).length;
+    const projects = (await harness.db.projects.getProjects()).length;
 
     const again = await (await post('/api/machines/join', { code: await codeOf(), hostname: 'desk', rootDir: '/home/me/work', replaces: first.env.KOALA_DEVICE_TOKEN })).json() as { deviceId: string; env: Record<string, string> };
 
@@ -103,7 +103,7 @@ describe('adding a machine with the command from My Machines', () => {
     expect(devices[0]).toMatchObject({ rootDir: '/home/me/work', createdAt: before.createdAt, manualAgents: [{ id: 'pi', command: 'pi', args: ['--rpc'] }] });
     expect(decryptValue(devices[0]!.tokenEnc, DATA_KEY)).toBe(again.env.KOALA_DEVICE_TOKEN);
     expect(again.env.KOALA_DEVICE_TOKEN).not.toBe(first.env.KOALA_DEVICE_TOKEN);
-    expect((await harness.db.getProjects()).length).toBe(projects);
+    expect((await harness.db.projects.getProjects()).length).toBe(projects);
 
     const stranger = await (await post('/api/machines/join', { code: await codeOf(), hostname: 'desk', rootDir: '/home/me/koala', replaces: 'not-a-token-of-yours' })).json() as { deviceId: string };
     expect(stranger.deviceId).not.toBe(first.deviceId);

@@ -17,9 +17,11 @@ export interface FileServiceDeps {
     getFileShare(id: string): Promise<FileShare | undefined>;
     saveFileShare(share: FileShare): Promise<void>;
     deleteFileShare(id: string): Promise<void>;
-    getProjects(): Promise<ProjectMetadata[]>;
+    projects: {
+      getProjects(): Promise<ProjectMetadata[]>;
+      saveProjectInfo(project: Partial<ProjectMetadata> & { id: string }): Promise<ProjectMetadata>;
+    };
     saveFileSettings(settings: FileSettings): Promise<void>;
-    saveProjectInfo(project: Partial<ProjectMetadata> & { id: string }): Promise<ProjectMetadata>;
   };
   open: (ownerId: string, place: FilePlace) => Promise<FileStore>;
   deployMinio?: ((ownerId: string, request: { name: string; clusterId: string }) => Promise<{ deploymentId: string }>) | undefined;
@@ -79,7 +81,7 @@ export class FileService {
     const server = (await this.servers(ownerId)).servers.find((entry) => entry.deploymentId === deploymentId);
     if (!server) return { ok: false, status: 400, why: 'That is not one of your running file servers.' };
     const place: FilePlace = { kind: server.kind, deploymentId, folder: project.files?.folder ?? folderFor(project.name) };
-    const saved = await this.deps.store.saveProjectInfo({ id: project.id, files: place });
+    const saved = await this.deps.store.projects.saveProjectInfo({ id: project.id, files: place });
     return { ok: true, value: await this.placeOf(ownerId, { kind: 'project', project: saved }) };
   }
 
@@ -92,7 +94,7 @@ export class FileService {
     for (let n = 2; taken.has(name); n += 1) name = `${FILES_APP_NAME}-${n}`;
     const { deploymentId } = await this.deps.deployMinio(ownerId, { name, clusterId: project.targetClusterId ?? this.deps.defaultCluster });
     const place: FilePlace = { kind: 'minio', deploymentId, folder: project.files?.folder ?? folderFor(project.name) };
-    const saved = await this.deps.store.saveProjectInfo({ id: project.id, files: place });
+    const saved = await this.deps.store.projects.saveProjectInfo({ id: project.id, files: place });
     return { ok: true, value: await this.placeOf(ownerId, { kind: 'project', project: saved }) };
   }
 
@@ -103,20 +105,20 @@ export class FileService {
     }
     if (state.state === 'starting') return { ok: false, status: 409, why: `${state.server} is still starting.` };
     if (state.state === 'gone') return { ok: false, status: 409, why: `This project's files cannot be reached: ${state.why}.` };
-    if (scope.kind === 'project' && !state.chosen) await this.deps.store.saveProjectInfo({ id: scope.project.id, files: state.place });
+    if (scope.kind === 'project' && !state.chosen) await this.deps.store.projects.saveProjectInfo({ id: scope.project.id, files: state.place });
     return { ok: true, value: await this.deps.open(ownerId, state.place) };
   }
 
   private async clientFilesOf(scope: FileScope): Promise<string[]> {
     if (scope.kind !== 'project') return [];
-    return (await this.deps.store.getProjects()).find((entry) => entry.id === scope.project.id)?.clientFiles ?? [];
+    return (await this.deps.store.projects.getProjects()).find((entry) => entry.id === scope.project.id)?.clientFiles ?? [];
   }
 
   private async keepClientFiles(scope: FileScope, next: (shared: string[]) => string[]): Promise<string[]> {
     if (scope.kind !== 'project') return [];
     const before = await this.clientFilesOf(scope);
     const after = next(before);
-    if (JSON.stringify(after) !== JSON.stringify(before)) await this.deps.store.saveProjectInfo({ id: scope.project.id, clientFiles: after });
+    if (JSON.stringify(after) !== JSON.stringify(before)) await this.deps.store.projects.saveProjectInfo({ id: scope.project.id, clientFiles: after });
     return after;
   }
 
@@ -220,7 +222,7 @@ export class FileService {
       await this.deps.store.deleteFileShare(share.id);
       return gone;
     }
-    const project = share.projectId ? (await this.deps.store.getProjects()).find((entry) => entry.id === share.projectId && entry.ownerId === share.ownerId) : undefined;
+    const project = share.projectId ? (await this.deps.store.projects.getProjects()).find((entry) => entry.id === share.projectId && entry.ownerId === share.ownerId) : undefined;
     if (share.projectId && !project) return gone;
     const found = await this.download(share.ownerId, project ? { kind: 'project', project } : { kind: 'mine' }, share.path);
     return found.ok ? { ok: true, value: { ...found.value, name: share.name } } : gone;

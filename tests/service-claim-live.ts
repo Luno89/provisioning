@@ -17,7 +17,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
-  const ownerId = (await db.getProjects()).find((project) => project.ownerId)?.ownerId;
+  const ownerId = (await db.projects.getProjects()).find((project) => project.ownerId)?.ownerId;
   assert.ok(ownerId);
   const user = await db.accounts.getUserById(ownerId);
   assert.ok(user);
@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   const stamp = Date.now().toString(36);
   const service = `forecast${stamp}`;
   const holder = { id: `claim-live-${stamp}`, ownerId, name: 'Forecast service (live check)', type: 'api-service', serviceName: service, projectIds: [`claim-project-${stamp}`], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-  await db.saveTree(holder as never);
+  await db.projects.saveTree(holder as never);
   const conversationId = (await http.post('/conversations', {})).data.id as string;
 
   try {
@@ -38,7 +38,7 @@ async function main(): Promise<void> {
     const plan = await (async () => {
       const deadline = Date.now() + 15 * 60_000;
       for (;;) {
-        const found = (await db.getPlanProposals(ownerId, conversationId)).find((entry) => entry.status === 'proposed' && entry.plan?.tree);
+        const found = (await db.projects.getPlanProposals(ownerId, conversationId)).find((entry) => entry.status === 'proposed' && entry.plan?.tree);
         if (found) return found as PlanProposal;
         if (Date.now() > deadline) throw new Error('no plan was proposed');
         await sleep(5_000);

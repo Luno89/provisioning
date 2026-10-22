@@ -2,9 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import {
   descriptionProblem, keyProblem, secretReference, sourceFor, withRequired,
-  type SecretRequest,
+  type SecretRequest, type SecretRequestFilter,
 } from '../../projects/lib/secret-requests.js';
-import type { SecretRequestFilter } from '../../platform/lib/db-interface.js';
 import type { Tree } from '../../projects/lib/trees.js';
 import { projectFor as scopedProject } from './project-scope.js';
 import type { ProjectMetadata } from '../../platform/lib/types.js';

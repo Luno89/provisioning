@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
   const runs = await db.getPipelineRuns();
-  const project = (await db.getProjects()).find((candidate) => candidate.ownerId && runs.some((run) => run.projectId === candidate.id));
+  const project = (await db.projects.getProjects()).find((candidate) => candidate.ownerId && runs.some((run) => run.projectId === candidate.id));
   assert.ok(project?.ownerId, 'no project with builds to ask about');
   const user = await db.accounts.getUserById(project.ownerId);
   assert.ok(user);

@@ -6,7 +6,7 @@ import type { Database } from '../../platform/lib/db-interface.js';
 
 export interface TreeTypesRouterDeps {
   releaseProblem?: ((ownerId: string, how: unknown) => Promise<string | null>) | undefined;
-  db: Pick<Database, 'getTreeTypes' | 'saveTreeType' | 'deleteTreeType' | 'getTrees' | 'getWorkspaceImages'>;
+  db: Pick<Database, 'projects' | 'getWorkspaceImages'>;
   agents: (ownerId: string) => Promise<string[]>;
   describe?: ((ownerId: string, typeId: string) => Promise<string | undefined>) | undefined;
 }
@@ -20,11 +20,11 @@ export function treeTypesRouter(deps: TreeTypesRouterDeps): Router {
   const { db } = deps;
   const router = Router();
 
-  const ownedTrees = async (userId: string) => ownedBy(await db.getTrees(), userId);
+  const ownedTrees = async (userId: string) => ownedBy(await db.projects.getTrees(), userId);
 
   router.get('/', asyncRoute(async (req, res) => {
     const userId = userOf(req).id;
-    const all = await db.getTreeTypes(userId);
+    const all = await db.projects.getTreeTypes(userId);
     // A user's own row wins over the shipped one at the same id — getTreeTypes(ownerId) returns
     // both (it's an owner-scoped filter, not a merge), same as resolveTreeType() already handles
     // for a single lookup. Without this, editing any built-in type makes it appear twice here.
@@ -45,7 +45,7 @@ export function treeTypesRouter(deps: TreeTypesRouterDeps): Router {
       ?? (candidate.release !== undefined && deps.releaseProblem ? await deps.releaseProblem(userId, candidate.release) : null);
     if (invalid) return res.status(400).json({ error: invalid });
 
-    await db.saveTreeType(candidate);
+    await db.projects.saveTreeType(candidate);
     res.json(candidate);
   }));
 
@@ -58,7 +58,7 @@ export function treeTypesRouter(deps: TreeTypesRouterDeps): Router {
 
   router.delete('/:id', asyncRoute(async (req, res) => {
     const userId = userOf(req).id;
-    const shippedStays = (await db.getTreeTypes(userId)).some((type) => type.id === idOf(req) && type.ownerId === undefined);
+    const shippedStays = (await db.projects.getTreeTypes(userId)).some((type) => type.id === idOf(req) && type.ownerId === undefined);
     const inUse = shippedStays ? [] : (await ownedTrees(userId)).filter((t) => t.type === idOf(req));
     if (inUse.length) {
       return res.status(409).json({
@@ -66,7 +66,7 @@ export function treeTypesRouter(deps: TreeTypesRouterDeps): Router {
       });
     }
 
-    await db.deleteTreeType(idOf(req), userId);
+    await db.projects.deleteTreeType(idOf(req), userId);
     res.json({ deleted: idOf(req) });
   }));
 

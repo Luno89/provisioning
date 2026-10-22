@@ -25,7 +25,7 @@ describe('the workspace images a pack can choose from', () => {
 
   it('lets a user point a language at their OWN image without touching anyone else', async () => {
     const db = await seeded();
-    const svc = new WorkspaceImageService(db as never);
+    const svc = new WorkspaceImageService(db);
     const shipped = (await svc.list('u1')).find((i) => i.id === 'node')!;
     await db.saveWorkspaceImage({ ...shipped, ownerId: 'u1', image: 'ghcr.io/mine/node:24' });
 

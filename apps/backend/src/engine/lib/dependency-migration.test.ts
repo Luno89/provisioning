@@ -18,14 +18,14 @@ describe('moving inline installs onto dependencies', () => {
     await db.saveEngineTool(tool({ name: 'pdf_text', ownerId: 'u1', needsBinaries: ['pdftotext'], install: { via: 'dnf', packages: ['poppler-utils'] } }));
     await db.saveEngineTool(tool({ name: 'plain', ownerId: 'u1' }));
 
-    expect(await migrateToDependencies(db as never, SHIPPED_DEPENDENCIES)).toEqual({ toolsMoved: 2, serversMoved: 0, dependenciesMade: 1, left: [] });
+    expect(await migrateToDependencies(db, SHIPPED_DEPENDENCIES)).toEqual({ toolsMoved: 2, serversMoved: 0, dependenciesMade: 1, left: [] });
     const tools = await db.getEngineTools('u1');
     expect(tools.find((entry) => entry.name === 'json_query')).toMatchObject({ needs: ['jq'] });
     expect(tools.find((entry) => entry.name === 'json_query')).not.toHaveProperty('install');
     expect(tools.find((entry) => entry.name === 'pdf_text')).toMatchObject({ needs: ['poppler-utils'] });
     expect(await db.getWorkspaceDependencies('u1')).toEqual([expect.objectContaining({ name: 'poppler-utils', provides: ['pdftotext'], install: [{ via: 'dnf', packages: ['poppler-utils'] }], ownerId: 'u1' })]);
 
-    expect(await migrateToDependencies(db as never, SHIPPED_DEPENDENCIES)).toEqual({ toolsMoved: 0, serversMoved: 0, dependenciesMade: 0, left: [] });
+    expect(await migrateToDependencies(db, SHIPPED_DEPENDENCIES)).toEqual({ toolsMoved: 0, serversMoved: 0, dependenciesMade: 0, left: [] });
   });
 
   it('moves a workspace server onto what it needs and keeps its capture, so it stays usable', async () => {
@@ -38,7 +38,7 @@ describe('moving inline installs onto dependencies', () => {
     await db.saveMcpServer({ id: 'p', ownerId: 'u1', name: 'playwright', runs: legacy, from: { template: 'playwright' }, captured: captured(legacy), createdAt: 't', updatedAt: 't' });
     await db.saveMcpServer({ id: 't', ownerId: 'u1', name: 'tickets', runs: tickets, captured: captured(tickets), createdAt: 't', updatedAt: 't' });
 
-    expect(await migrateToDependencies(db as never, SHIPPED_DEPENDENCIES)).toMatchObject({ serversMoved: 2, dependenciesMade: 1, left: [] });
+    expect(await migrateToDependencies(db, SHIPPED_DEPENDENCIES)).toMatchObject({ serversMoved: 2, dependenciesMade: 1, left: [] });
     const servers = await db.getMcpServers('u1');
     const playwright = servers.find((server) => server.name === 'playwright')!;
     expect(playwright.runs).toEqual({ where: 'workspace', languages: ['node'], needs: ['playwright-mcp'], start: 'PLAYWRIGHT_BROWSERS_PATH=/x playwright-mcp --port 8931', port: 8931 });

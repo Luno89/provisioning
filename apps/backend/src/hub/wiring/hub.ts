@@ -166,7 +166,7 @@ export function hubInstanceWork(deps: HubWorkDeps): HubInstanceWork {
       rejectPlan: async (ownerId, id, reason) => asDone(await deps.plans.reject(ownerId, id, reason)),
       orderStories: async (ownerId, branchId, leafIds) => asDone(await deps.order.orderStories(ownerId, branchId, leafIds)),
       orderFeatures: async (ownerId, treeId, branchIds) => asDone(await deps.order.orderFeatures(ownerId, treeId, branchIds)),
-      decideTask: async (ownerId, taskId, status) => ((await decideTask({ list: (owner) => db.getTasks(owner), save: (task) => db.saveTask(task) }, deps.accepted, ownerId, taskId, status)) ? { ok: true } : { ok: false, why: 'There is no such task.' }),
+      decideTask: async (ownerId, taskId, status) => ((await decideTask({ list: (owner) => db.projects.getTasks(owner), save: (task) => db.projects.saveTask(task) }, deps.accepted, ownerId, taskId, status)) ? { ok: true } : { ok: false, why: 'There is no such task.' }),
       openChat: async (ownerId, item) => ((await deps.itemChats.ensure(ownerId, item)) ? { ok: true } : { ok: false, why: `There is no such ${item.kind}.` }),
       askKoala: async (ownerId, conversation, note) => {
         try {

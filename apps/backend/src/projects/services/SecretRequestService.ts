@@ -1,6 +1,5 @@
 import { randomBytes } from 'crypto';
-import { GENERATED, GITEA_READ_TOKEN, generatedValue, valueProblem, withRequired, type SecretRequest } from '../lib/secret-requests.js';
-import type { SecretRequestFilter } from '../../platform/lib/db-interface.js';
+import { GENERATED, GITEA_READ_TOKEN, generatedValue, valueProblem, withRequired, type SecretRequest, type SecretRequestFilter } from '../lib/secret-requests.js';
 import type { ProjectMetadata } from '../../platform/lib/types.js';
 import type { SecretVault } from '../../engine-host/tools/secret-tools.js';
 

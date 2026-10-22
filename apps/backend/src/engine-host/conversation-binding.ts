@@ -4,12 +4,12 @@ import { featureOutline, storyOutline } from '../projects/lib/item-outline.js';
 import { projectOutline } from '../projects/lib/project-outline.js';
 import { chatFraming, SOMEONE } from '../engine/lib/conversations.js';
 
-type BindingSources = Pick<Database, 'getConversation' | 'getTrees' | 'getBranches' | 'getLeaves' | 'getTasks' | 'getProjects' | 'getOdooReleases' | 'getPipelineRuns' | 'accounts'>;
+type BindingSources = Pick<Database, 'getConversation' | 'projects' | 'getOdooReleases' | 'getPipelineRuns' | 'accounts'>;
 
 export function conversationBinding(db: BindingSources) {
   const statusOf = async (ownerId: string, projectIds: readonly string[]): Promise<string> => {
     const wanted = new Set(projectIds);
-    const projects = (await db.getProjects()).filter((project) => project.ownerId === ownerId && wanted.has(project.id));
+    const projects = (await db.projects.getProjects()).filter((project) => project.ownerId === ownerId && wanted.has(project.id));
     if (projects.length === 0) return '';
     const runs = await db.getPipelineRuns();
     const statuses = await Promise.all(projects.map(async (project) =>
@@ -19,14 +19,14 @@ export function conversationBinding(db: BindingSources) {
 
   const subjectOf = async (ownerId: string, conversation: Awaited<ReturnType<BindingSources['getConversation']>>): Promise<Record<string, string> | undefined> => {
     if (conversation?.leafId || conversation?.branchId) {
-      const leaves = await db.getLeaves();
+      const leaves = await db.projects.getLeaves();
       const leaf = conversation.leafId ? leaves.find((candidate) => candidate.id === conversation.leafId && candidate.ownerId === ownerId) : undefined;
       const branchId = leaf?.branchId ?? conversation.branchId;
-      const branch = (await db.getBranches()).find((candidate) => candidate.id === branchId && candidate.ownerId === ownerId);
-      const tree = branch ? (await db.getTrees()).find((candidate) => candidate.id === branch.treeId && candidate.ownerId === ownerId) : undefined;
+      const branch = (await db.projects.getBranches()).find((candidate) => candidate.id === branchId && candidate.ownerId === ownerId);
+      const tree = branch ? (await db.projects.getTrees()).find((candidate) => candidate.id === branch.treeId && candidate.ownerId === ownerId) : undefined;
       if (!branch || !tree || (conversation.leafId && !leaf)) return undefined;
       if (leaf) {
-        const tasks = (await db.getTasks(ownerId)).filter((task) => task.leafId === leaf.id);
+        const tasks = (await db.projects.getTasks(ownerId)).filter((task) => task.leafId === leaf.id);
         const project = await statusOf(ownerId, tree.projectIds ?? []);
         return { treeId: tree.id, leafId: leaf.id, story: storyOutline(leaf, { tree, branch }, leaves, tasks), ...(project ? { project } : {}) };
       }
@@ -34,18 +34,18 @@ export function conversationBinding(db: BindingSources) {
       return { treeId: tree.id, branchId: branch.id, feature: featureOutline(branch, tree, leaves), ...(project ? { project } : {}) };
     }
     if (conversation?.treeId) {
-      const tree = (await db.getTrees()).find((candidate) => candidate.id === conversation.treeId && candidate.ownerId === ownerId);
+      const tree = (await db.projects.getTrees()).find((candidate) => candidate.id === conversation.treeId && candidate.ownerId === ownerId);
       if (!tree) return undefined;
-      const branches = (await db.getBranches()).filter((branch) => branch.treeId === tree.id);
+      const branches = (await db.projects.getBranches()).filter((branch) => branch.treeId === tree.id);
       const branchIds = new Set(branches.map((branch) => branch.id));
-      const leaves = (await db.getLeaves()).filter((leaf) => branchIds.has(leaf.branchId));
+      const leaves = (await db.projects.getLeaves()).filter((leaf) => branchIds.has(leaf.branchId));
       const leafIds = new Set(leaves.map((leaf) => leaf.id));
-      const tasks = (await db.getTasks(ownerId)).filter((task) => task.leafId && leafIds.has(task.leafId));
+      const tasks = (await db.projects.getTasks(ownerId)).filter((task) => task.leafId && leafIds.has(task.leafId));
       const project = await statusOf(ownerId, [...new Set([...(conversation.projectId ? [conversation.projectId] : []), ...(tree.projectIds ?? [])])]);
       return { treeId: tree.id, tree: treeOutline(tree, branches, leaves, tasks), ...(project ? { project } : {}) };
     }
     if (conversation?.projectId) {
-      const project = (await db.getProjects()).find((candidate) => candidate.id === conversation.projectId && candidate.ownerId === ownerId);
+      const project = (await db.projects.getProjects()).find((candidate) => candidate.id === conversation.projectId && candidate.ownerId === ownerId);
       if (!project) return undefined;
       return {
         projectId: project.id,

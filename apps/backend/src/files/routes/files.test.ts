@@ -40,13 +40,13 @@ async function mount(): Promise<{ harness: Harness; kept: Map<string, { bytes: B
     prefix: '/api/files',
     router: async (db: Database) => {
       await db.saveDeployment({ id: 'm1', name: 'minio', appType: 'minio', status: 'running', clusterId: 'c1', ownerId: TEST_USER.id, minioRootPassword: 'pw', strategy: 'native' } as never);
-      await db.saveProjectInfo({ id: 'p1', name: 'Shop', appType: 'gitapp', ownerId: TEST_USER.id, createdAt: 'now' } as never);
-      await db.saveProjectInfo({ id: 'p2', name: 'Theirs', appType: 'gitapp', ownerId: 'someone-else', createdAt: 'now' } as never);
+      await db.projects.saveProjectInfo({ id: 'p1', name: 'Shop', appType: 'gitapp', ownerId: TEST_USER.id, createdAt: 'now' } as never);
+      await db.projects.saveProjectInfo({ id: 'p2', name: 'Theirs', appType: 'gitapp', ownerId: 'someone-else', createdAt: 'now' } as never);
       const files = new FileService({ store: db, open: async (_ownerId, place) => memoryStore(kept, place.folder), deployMinio: async () => ({ deploymentId: 'x' }), defaultCluster: 'c1' });
       shared = files;
       return filesRouter({
         files,
-        getOwnedProject: async (id) => (await db.getProjects()).find((project) => project.id === id && project.ownerId === TEST_USER.id),
+        getOwnedProject: async (id) => (await db.projects.getProjects()).find((project) => project.id === id && project.ownerId === TEST_USER.id),
       });
     },
   });

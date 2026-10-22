@@ -122,7 +122,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
     tools: (ownerId) => db.getEngineTools(ownerId),
     servers: (ownerId) => db.getMcpServers(ownerId),
     workspaces: async (ownerId) => {
-      const [published, trees] = await Promise.all([db.getPublishedWorkspaces(ownerId), db.getTrees()]);
+      const [published, trees] = await Promise.all([db.getPublishedWorkspaces(ownerId), db.projects.getTrees()]);
       const names = new Map(trees.filter((tree) => tree.ownerId === ownerId).map((tree) => [tree.id, tree.name]));
       return published.map((workspace) => ({ ...workspace, treeName: names.get(workspace.treeId) }));
     },
@@ -191,10 +191,10 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
   });
   const workspaceBuilds = new WorkspaceBuildService({
     runs: engineRuns,
-    trees: () => db.getTrees(),
+    trees: () => db.projects.getTrees(),
     hidden: (ownerId: string) => extensions.hidden(ownerId),
   });
-  const workspaceRepos = createWorkspaceRepoResolver({ trees: () => db.getTrees(), projects: () => db.getProjects(), accountOf: async (ownerId) => (await db.getGiteaAccount(ownerId))?.username });
+  const workspaceRepos = createWorkspaceRepoResolver({ trees: () => db.projects.getTrees(), projects: () => db.projects.getProjects(), accountOf: async (ownerId) => (await db.projects.getGiteaAccount(ownerId))?.username });
   const workspaceConclusions = new WorkspaceConclusionService({
     workflows: async () => (await getTemporalClient()).workflow,
     taskQueue: engineQueue,
@@ -229,7 +229,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
     const checks = deps.checks();
     if (!checks) throw new Error('the checks are not wired yet');
     const [trees, projects, conversations, checkRuns, releases, agents] = await Promise.all([
-      db.getTrees(), db.getProjects(), db.getConversations(), checks.list(ownerId), db.getOdooReleases(ownerId), agentDirectory.agents(ownerId),
+      db.projects.getTrees(), db.projects.getProjects(), db.getConversations(), checks.list(ownerId), db.getOdooReleases(ownerId), agentDirectory.agents(ownerId),
     ]);
     return {
       trees: trees.filter((entry) => entry.ownerId === ownerId),
@@ -280,7 +280,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   const { tenant, db, io, env, role, core, temporalBridge, gitea, projectRepos } = deps;
   const { extensions, dependenciesOf, agentDirectory, engineRegistry, engineRuns, workspaceBuilds, bench, agentsHolder, workspaceRepos, workspaceConclusions, conversationTurns } = core;
   const engineQueue = env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
-  const ownedTrees = async (userId: string) => ownedBy(await db.getTrees(), userId);
+  const ownedTrees = async (userId: string) => ownedBy(await db.projects.getTrees(), userId);
   const ownedConversations = async (userId: string) => (await db.getConversations()).filter((c) => c.ownerId === userId);
 
   tenant.use('/api/checks', checksRouter({ scripted: new ScriptedModelService({ store: db, dataKey: deps.dataKey }) }));
@@ -314,8 +314,8 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     readRepoFile: async (ownerId: string, repo: string, path: string, ref: string) => (await projectRepos.readDocument(ownerId, repo, path, ref))?.content,
     writeRepoFile: (ownerId, repo, path, content, message, branch) => projectRepos.putDocument(ownerId, repo, path, content, message, branch),
     workspaceBuild: (ownerId, treeId, commit) => workspaceBuilds.start(ownerId, treeId, commit),
-    treeLanguage: treeLanguageFrom(db),
-    treeExtras: treeExtrasFrom(db, dependencyNamespaceFrom(db)),
+    treeLanguage: treeLanguageFrom(db.projects),
+    treeExtras: treeExtrasFrom(db.projects, dependencyNamespaceFrom(db)),
     artifacts: { keep: (ownerId, runId, files) => deps.artifacts.artifacts.put(ownerId, runId, files) },
     checks: httpCheckAccess(async (ownerId) => {
       const person = await db.accounts.getUserById(ownerId);
@@ -471,7 +471,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   const autoModeService = new AutoModeService({ store: db, agentExists: async (ownerId, slug) => Boolean(await engineRegistry.agent(ownerId, slug)) });
   tenant.use('/api/engine', engineRouter({
     runs: engineRuns,
-    projects: async (ownerId) => (await db.getProjects()).filter((project) => project.ownerId === ownerId).map((project) => ({ id: project.id, name: project.name })),
+    projects: async (ownerId) => (await db.projects.getProjects()).filter((project) => project.ownerId === ownerId).map((project) => ({ id: project.id, name: project.name })),
     approvals: new ApprovalService({ store: db, runs: engineRuns, autoMode: autoModeService, treeOfRun: treeOfGroveRun }),
     registry: engineRegistry,
     admin: deps.requireAdmin,
@@ -482,8 +482,8 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     },
     traces: { list: (ownerId: string, runId: string) => db.getRunTraces(ownerId, runId) },
     tasks: {
-      list: (ownerId: string) => db.getTasks(ownerId),
-      save: (task) => db.saveTask(task),
+      list: (ownerId: string) => db.projects.getTasks(ownerId),
+      save: (task) => db.projects.saveTask(task),
     },
     ...(evalHost.acceptedNeeds ? { accepted: evalHost.acceptedNeeds } : {}),
   }));
@@ -516,7 +516,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       },
       tools: (ownerId: string) => draftCatalogue.list(ownerId),
       procedures: (ownerId: string) => engineRegistry.procedures(ownerId),
-      treeTypes: async (ownerId: string) => treeTypeChoices(await db.getTreeTypes(ownerId), ownerId),
+      treeTypes: async (ownerId: string) => treeTypeChoices(await db.projects.getTreeTypes(ownerId), ownerId),
       servers: (ownerId: string) => db.getMcpServers(ownerId),
       dependencies: dependenciesOf,
       images: evalHost.images,
@@ -536,7 +536,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     binding: conversationBinding(db),
     ownedConversations,
     ownedTrees,
-    ownedProjects: async (userId: string) => (await db.getProjects()).filter((project) => project.ownerId === userId),
+    ownedProjects: async (userId: string) => (await db.projects.getProjects()).filter((project) => project.ownerId === userId),
   }));
 
   const documentService = new DocumentService({
@@ -554,7 +554,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     dependencies: dependenciesOf,
     releaseAgents: (ownerId) => deps.releaseSettings.agents(ownerId),
     restores: restoringApp,
-    treeTypes: (ownerId) => db.getTreeTypes(ownerId),
+    treeTypes: (ownerId) => db.projects.getTreeTypes(ownerId),
     images: (ownerId) => new WorkspaceImageService(db).list(ownerId),
     agentOf: async (ownerId, slug) => {
       const runnable = await engineRegistry.runnable(ownerId, slug);
@@ -580,8 +580,8 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     grants: agentDirectory,
     notes: toolNoteService,
     names: async (ownerId, deployment) => {
-      const project = deployment.gitappProjectId ? (await db.getProjects()).find((entry) => entry.id === deployment.gitappProjectId && entry.ownerId === ownerId) : undefined;
-      const tree = project ? (await db.getTrees()).find((entry) => entry.ownerId === ownerId && (entry.projectIds ?? []).includes(project.id)) : undefined;
+      const project = deployment.gitappProjectId ? (await db.projects.getProjects()).find((entry) => entry.id === deployment.gitappProjectId && entry.ownerId === ownerId) : undefined;
+      const tree = project ? (await db.projects.getTrees()).find((entry) => entry.ownerId === ownerId && (entry.projectIds ?? []).includes(project.id)) : undefined;
       return { ...(tree?.name ? { treeName: tree.name } : {}), ...(project?.name ? { projectName: project.name } : {}), declared: (tree as { serviceName?: unknown } | undefined)?.serviceName as string | undefined };
     },
   });
@@ -621,10 +621,10 @@ export function startEngineStream(deps: EngineStreamDeps): void {
           const grown = event.kind === 'run-ended' ? grovedTree(event.runId, event.depth) : undefined;
           if (event.kind === 'run-ended' && grown) {
             deps.postNotice('a tree stopped growing', (async () => {
-              const tree = (await db.getTrees()).find((entry) => entry.id === grown && entry.ownerId === event.ownerId);
+              const tree = (await db.projects.getTrees()).find((entry) => entry.id === grown && entry.ownerId === event.ownerId);
               if (!tree) return;
-              const branchIds = new Set((await db.getBranches()).filter((branch) => branch.treeId === tree.id).map((branch) => branch.id));
-              const leaves = (await db.getLeaves()).filter((leaf) => branchIds.has(leaf.branchId));
+              const branchIds = new Set((await db.projects.getBranches()).filter((branch) => branch.treeId === tree.id).map((branch) => branch.id));
+              const leaves = (await db.projects.getLeaves()).filter((leaf) => branchIds.has(leaf.branchId));
               const projectId = tree.projectIds?.[0];
               for (const notice of treeNotices({ id: tree.id, name: tree.name, ...(projectId ? { projectId } : {}) }, leaves, { runId: event.runId, outcome: event.outcome, ...(event.reason ? { reason: event.reason } : {}) })) {
                 await deps.notices.post(event.ownerId, { treeId: tree.id, projectId }, notice);

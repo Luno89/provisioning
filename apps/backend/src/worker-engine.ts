@@ -134,19 +134,19 @@ async function buildActivities() {
   );
   const projectRepos = new ProjectRepoService(db, gitea, keys.data, webhookAddress(new InfrastructureService(), '/tmp/kubeconfig-provisioning-lunorica', process.env.PORT || 3001));
   const treeHome = new TreeHomeService({
-    treeTypes: (ownerId) => db.getTreeTypes(ownerId),
-    projects: () => db.getProjects(),
+    treeTypes: (ownerId) => db.projects.getTreeTypes(ownerId),
+    projects: () => db.projects.getProjects(),
     createProject: (ownerId, project) => projectRepos.createProject(ownerId, project),
     starter: async (type, tree) => renderStarterFiles(type.files, { projectName: tree.name, registryHost: await gitea.getRegistryHost(), ...versionVars(type, tree) }),
-    saveTree: (tree) => db.saveTree(tree),
+    saveTree: (tree) => db.projects.saveTree(tree),
     secrets: projectSecretsFor({ db, backend: infisical, readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token }),
-    saveNeeds: (project, needs) => db.saveProjectInfo({ id: project.id, needs }),
+    saveNeeds: (project, needs) => db.projects.saveProjectInfo({ id: project.id, needs }),
     channel: (project) => new ProjectChannelService({
       conversation: (ownerId, id) => db.getConversation(ownerId, id),
       save: (conversation) => db.saveConversation(conversation),
       bind: (ownerId, conversationId, binding) => db.bindConversation(ownerId, conversationId, binding),
-      trees: () => db.getTrees(),
-      saveProjectInfo: (entry) => db.saveProjectInfo(entry),
+      trees: () => db.projects.getTrees(),
+      saveProjectInfo: (entry) => db.projects.saveProjectInfo(entry),
     }).ensure(project),
   });
   const kubeInfra = new InfrastructureService();
@@ -178,17 +178,17 @@ async function buildActivities() {
     keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files),
   });
   const customizations = new CustomizationsService({
-    projects: () => db.getProjects(),
+    projects: () => db.projects.getProjects(),
     clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
-    how: async (project) => releaseHowOf(project, await treeTypeOfProject(db, project), true),
+    how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
     cluster: createSlotCluster({ infra: kubeInfra, repo: async () => gitea, syncVault: syncVaultFromProject(kubeInfra) }),
     adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
-    trees: () => db.getTrees(),
-    branches: () => db.getBranches(),
-    leaves: () => db.getLeaves(),
-    tasks: (ownerId) => db.getTasks(ownerId),
-    savePlan: (proposal) => db.savePlanProposal(proposal),
-    treeTypeOf: async (project) => (await treeTypeOfProject(db, project))?.id ?? ODOO_TREE_TYPE,
+    trees: () => db.projects.getTrees(),
+    branches: () => db.projects.getBranches(),
+    leaves: () => db.projects.getLeaves(),
+    tasks: (ownerId) => db.projects.getTasks(ownerId),
+    savePlan: (proposal) => db.projects.savePlanProposal(proposal),
+    treeTypeOf: async (project) => (await treeTypeOfProject(db.projects, project))?.id ?? ODOO_TREE_TYPE,
   });
   const engineRole = roleFromEnv(process.env);
   const ownsSystem = (viewer: Viewer) => (engineRole.instance ? viewer.id === engineRole.instance.ownerId : Boolean(viewer.isAdmin));
@@ -208,8 +208,8 @@ async function buildActivities() {
   const host = createEngineHost({
     files: {
       files: engineFiles,
-      projects: async (ownerId) => (await db.getProjects()).filter((project) => project.ownerId === ownerId),
-      projectOfTree: async (ownerId, treeId) => (await db.getTrees()).find((tree) => tree.id === treeId && tree.ownerId === ownerId)?.projectIds?.[0],
+      projects: async (ownerId) => (await db.projects.getProjects()).filter((project) => project.ownerId === ownerId),
+      projectOfTree: async (ownerId, treeId) => (await db.projects.getTrees()).find((tree) => tree.id === treeId && tree.ownerId === ownerId)?.projectIds?.[0],
       projectOfConversation: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.projectId,
     },
     dependencies: async (ownerId) => catalogueOf(SHIPPED_DEPENDENCIES, await db.getWorkspaceDependencies(ownerId)),
@@ -231,7 +231,7 @@ async function buildActivities() {
       browserTests: (request) => releaseBrowser.ReleaseBrowserTestsActivity(request),
       images: {
         deploy: async (projectId, pipelineRunId) => {
-          const project = (await db.getProjects()).find((entry) => entry.id === projectId);
+          const project = (await db.projects.getProjects()).find((entry) => entry.id === projectId);
           const run = (await db.getPipelineRuns()).find((entry) => entry.id === pipelineRunId);
           if (!project || !run) throw new Error(project ? `the build ${pipelineRunId} is gone` : `the project ${projectId} is gone`);
           const client = await getTemporalClient();
@@ -266,12 +266,12 @@ async function buildActivities() {
       if (!builders.service) throw new Error('the workspace builder is not ready yet');
       return builders.service.start(ownerId, treeId, commit);
     },
-    treeLanguage: treeLanguageFrom(db),
-    treeExtras: treeExtrasFrom(db, dependencyNamespaceFrom(db)),
+    treeLanguage: treeLanguageFrom(db.projects),
+    treeExtras: treeExtrasFrom(db.projects, dependencyNamespaceFrom(db)),
     artifacts: { keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files) },
     checks,
     documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request), pushBranch: (request) => projectRepos.pushBranch(request), pullBranch: (request) => projectRepos.pullBranch(request), deleteBranch: (request) => projectRepos.deleteBranch(request) },
-    repoFor: createWorkspaceRepoResolver({ trees: () => db.getTrees(), projects: () => db.getProjects(), accountOf: async (ownerId) => (await db.getGiteaAccount(ownerId))?.username }),
+    repoFor: createWorkspaceRepoResolver({ trees: () => db.projects.getTrees(), projects: () => db.projects.getProjects(), accountOf: async (ownerId) => (await db.projects.getGiteaAccount(ownerId))?.username }),
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
     models,
@@ -298,8 +298,8 @@ async function buildActivities() {
       pages: (filter) => db.getCorpusPages({ ownerId: filter.ownerId, ...(filter.ingestId ? { ingestId: filter.ingestId } : {}) }),
     },
     projects: {
-      projects: { list: () => db.getProjects() },
-      trees: { list: () => db.getTrees() },
+      projects: { list: () => db.projects.getProjects() },
+      trees: { list: () => db.projects.getTrees() },
       binding: async (ownerId, conversationId) => {
         const conversation = await db.getConversation(ownerId, conversationId);
         return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId } : undefined;
@@ -380,16 +380,16 @@ async function buildActivities() {
       return machineChoiceProblem(device ? { name: device.name, online: false, agents: device.agents ?? [] } : undefined, choice.agent, { waitsToConnect: true, model: choice.model });
     },
   });
-  builders.service = new WorkspaceBuildService({ runs: runStarter, trees: () => db.getTrees(), hidden: (ownerId: string) => extensions.hidden(ownerId) });
+  builders.service = new WorkspaceBuildService({ runs: runStarter, trees: () => db.projects.getTrees(), hidden: (ownerId: string) => extensions.hidden(ownerId) });
   growers.launcher = createGroveLauncher({
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     runs: runStarter,
     client: () => temporal.workflow,
     agentFor: async (ownerId: string, treeId: string) => {
-      const tree = (await db.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
-      return groveAgentOf(await resolveTreeType(db, ownerId, tree?.type));
+      const tree = (await db.projects.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
+      return groveAgentOf(await resolveTreeType(db.projects, ownerId, tree?.type));
     },
-    leafRun: async (leafId: string) => (await db.getLeaves()).find((leaf) => leaf.id === leafId)?.runId,
+    leafRun: async (leafId: string) => (await db.projects.getLeaves()).find((leaf) => leaf.id === leafId)?.runId,
     modelFor: (ownerId, treeId, agentSlug) => treeModels.modelFor(ownerId, treeId, agentSlug),
   });
 
@@ -414,8 +414,8 @@ async function buildActivities() {
     hostNodes,
     runCancelled: runCancelledVia(() => getTemporalClient()),
     tasks: {
-      list: (ownerId: string) => db.getTasks(ownerId),
-      save: (task: Task) => db.saveTask(task),
+      list: (ownerId: string) => db.projects.getTasks(ownerId),
+      save: (task: Task) => db.projects.saveTask(task),
     },
     treeWorkspaces: host.treeWorkspaces,
     ...(host.machineWork ? { machineWork: host.machineWork } : {}),
@@ -428,37 +428,37 @@ async function buildActivities() {
       const treeId = treeOfGroveRun(turnId);
       return treeId ? treeModels.modelFor(ownerId, treeId, agentSlug) : undefined;
     },
-    plans: { list: (ownerId) => db.getPlanProposals(ownerId) },
+    plans: { list: (ownerId) => db.projects.getPlanProposals(ownerId) },
     planAdoption: createPlanAdoption({
       stores: {
-        proposals: { get: (ownerId, id) => db.getPlanProposal(ownerId, id), save: (proposal) => db.savePlanProposal(proposal) },
-        trees: { list: () => db.getTrees(), save: (tree) => db.saveTree(tree) },
-        branches: { list: () => db.getBranches(), save: (branch) => db.saveBranch(branch) },
-        leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
-        tasks: { list: (ownerId) => db.getTasks(ownerId), save: (task) => db.saveTask(task) },
+        proposals: { get: (ownerId, id) => db.projects.getPlanProposal(ownerId, id), save: (proposal) => db.projects.savePlanProposal(proposal) },
+        trees: { list: () => db.projects.getTrees(), save: (tree) => db.projects.saveTree(tree) },
+        branches: { list: () => db.projects.getBranches(), save: (branch) => db.projects.saveBranch(branch) },
+        leaves: { list: () => db.projects.getLeaves(), save: (leaf) => db.projects.saveLeaf(leaf) },
+        tasks: { list: (ownerId) => db.projects.getTasks(ownerId), save: (task) => db.projects.saveTask(task) },
         conversations: { bind: (ownerId, conversationId, binding) => db.bindConversation(ownerId, conversationId, binding) },
       },
       treeWorkspaces: host.treeWorkspaces,
       environments: host.environments,
       // So a tree this adoption creates starts from its type's scaffold rather than an empty repo.
-      treeTypes: (ownerId: string) => db.getTreeTypes(ownerId),
+      treeTypes: (ownerId: string) => db.projects.getTreeTypes(ownerId),
       registryHost: process.env.KOALA_REGISTRY,
       homeTree: (tree) => treeHome.home(tree, { starter: false }),
       projectChoices: async (_ownerId, projectId, choices) => {
-        const project = (await db.getProjects()).find((entry) => entry.id === projectId);
-        if (project) await db.saveProjectInfo(projectChoicesPatch(project as { id: string; clientImport?: ClientImport }, choices, new Date().toISOString()));
+        const project = (await db.projects.getProjects()).find((entry) => entry.id === projectId);
+        if (project) await db.projects.saveProjectInfo(projectChoicesPatch(project as { id: string; clientImport?: ClientImport }, choices, new Date().toISOString()));
       },
       stopRun: async (workflowId: string) => { await stopIfRunning(temporal.workflow.getHandle(workflowId), 'the story it was working changed'); },
       ...(host.checkNeeds ? { checkNeeds: host.checkNeeds } : {}),
     }),
     grove: {
-      trees: { list: () => db.getTrees() },
-      branches: { list: () => db.getBranches() },
-      leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
-      tasks: { list: () => db.getTasks() },
+      trees: { list: () => db.projects.getTrees() },
+      branches: { list: () => db.projects.getBranches() },
+      leaves: { list: () => db.projects.getLeaves(), save: (leaf) => db.projects.saveLeaf(leaf) },
+      tasks: { list: () => db.projects.getTasks() },
       // Where a run reads the stages its tree type names. Without this the worker sees no types at
       // all, and every stage quietly falls back to its default whatever the person chose.
-      treeTypes: async (ownerId: string) => treeTypeChoices(await db.getTreeTypes(ownerId), ownerId),
+      treeTypes: async (ownerId: string) => treeTypeChoices(await db.projects.getTreeTypes(ownerId), ownerId),
     },
     effort: createEffortTracker({
       models,
@@ -535,7 +535,7 @@ async function buildActivities() {
       releases: createCheckReleases({
         browser: releaseBrowser,
         cluster: namespacedCluster(kubeInfra),
-        project: async (id) => (await db.getProjects()).find((project) => project.id === id),
+        project: async (id) => (await db.projects.getProjects()).find((project) => project.id === id),
         clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id)),
       }),
       terminate: async (runId, reason) => { await temporal.workflow.getHandle(workflowOfRun(runId)).terminate(reason).catch(() => undefined); },

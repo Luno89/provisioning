@@ -28,7 +28,7 @@ describe('/api/actions', () => {
     };
     settled = [];
     harness = await mountRouter({ prefix: '/api/actions', router: (db) => actionsRouter({ actions: new ActionService({ store: db, deployer, onSettled: (ownerId, conversationId) => { settled.push([ownerId, conversationId]); } }) }) });
-    await harness.db.saveProject({ id: 'p1', name: 'billing', ownerId: TEST_USER.id, appType: 'gitapp', deployEnv: 'A=1', createdAt: 'x' });
+    await harness.db.projects.saveProject({ id: 'p1', name: 'billing', ownerId: TEST_USER.id, appType: 'gitapp', deployEnv: 'A=1', createdAt: 'x' });
   });
 
   afterEach(() => harness.close());
@@ -51,7 +51,7 @@ describe('/api/actions', () => {
   it('writes the proposed environment when applied', async () => {
     await harness.db.saveActionProposal(proposal({ kind: 'set_project_env', params: { projectId: 'p1', env: 'A=1\nB=2' } }));
     await post(harness.url('/api/actions/a1/apply'));
-    expect((await harness.db.getProjects()).find((p) => p.id === 'p1')?.deployEnv).toBe('A=1\nB=2');
+    expect((await harness.db.projects.getProjects()).find((p) => p.id === 'p1')?.deployEnv).toBe('A=1\nB=2');
   });
 
   it('adds an app spec to the person\'s catalogue when applied', async () => {
@@ -189,30 +189,30 @@ describe('/api/actions: how builds are released', () => {
         releases: new ReleaseSettings({
           agents: async () => [{ slug: 'release', name: 'Release' }, { slug: 'release-replace', name: 'Release by replacing' }],
           procedureOf: async (_owner, slug) => procedures[slug],
-          treeTypes: (ownerId) => db.getTreeTypes(ownerId),
-          saveTreeType: (type) => db.saveTreeType(type),
-          projects: () => db.getProjects(),
-          saveProject: (project) => db.saveProject(project),
+          treeTypes: (ownerId) => db.projects.getTreeTypes(ownerId),
+          saveTreeType: (type) => db.projects.saveTreeType(type),
+          projects: () => db.projects.getProjects(),
+          saveProject: (project) => db.projects.saveProject(project),
           typeOfProject: async () => undefined,
           hasChart: async () => false,
         }),
       }) }),
     });
-    await harness.db.saveProject({ id: 'p1', name: 'billing', ownerId: TEST_USER.id, appType: 'gitapp', createdAt: 'x' });
+    await harness.db.projects.saveProject({ id: 'p1', name: 'billing', ownerId: TEST_USER.id, appType: 'gitapp', createdAt: 'x' });
   });
 
   afterEach(() => harness.close());
 
   it('changes how a project\'s builds are released only when the card is applied, and clears it the same way', async () => {
     await harness.db.saveActionProposal(proposal({ kind: 'set_release', params: { target: 'project', id: 'p1', agent: 'release', app: 'odoo' } }));
-    expect((await harness.db.getProjects()).find((p) => p.id === 'p1')?.release).toBeUndefined();
+    expect((await harness.db.projects.getProjects()).find((p) => p.id === 'p1')?.release).toBeUndefined();
     const applied = await post(harness.url('/api/actions/a1/apply'));
     expect(applied.data).toMatchObject({ status: 'applied', result: 'builds are released by the release agent with the odoo adapter from the next build' });
-    expect((await harness.db.getProjects()).find((p) => p.id === 'p1')?.release).toEqual({ agent: 'release', app: 'odoo' });
+    expect((await harness.db.projects.getProjects()).find((p) => p.id === 'p1')?.release).toEqual({ agent: 'release', app: 'odoo' });
 
     await harness.db.saveActionProposal(proposal({ id: 'a2', kind: 'set_release', params: { target: 'project', id: 'p1', clear: 'true' } }));
     await post(harness.url('/api/actions/a2/apply'));
-    expect((await harness.db.getProjects()).find((p) => p.id === 'p1')?.release).toBeUndefined();
+    expect((await harness.db.projects.getProjects()).find((p) => p.id === 'p1')?.release).toBeUndefined();
   });
 
   it('fails a card whose release no longer fits, saying why', async () => {
@@ -241,21 +241,21 @@ describe('a card choosing a tree\'s model', () => {
         }),
       }) }),
     });
-    await seedTreeTypes(harness.db);
-    await harness.db.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'shop', type: 'api-service', createdAt: 'x', updatedAt: 'x' } as never);
+    await seedTreeTypes(harness.db.projects);
+    await harness.db.projects.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'shop', type: 'api-service', createdAt: 'x', updatedAt: 'x' } as never);
   });
 
   afterEach(() => harness.close());
 
   it('sets the agent\'s model for the tree only when applied, clears it the same way, and fails one whose model is gone', async () => {
     await harness.db.saveActionProposal(proposal({ kind: 'set_tree_model', params: { treeId: 't1', agent: 'executor', modelId: 'vllm' } }));
-    expect((await harness.db.getTrees()).find((tree) => tree.id === 't1')?.models).toBeUndefined();
+    expect((await harness.db.projects.getTrees()).find((tree) => tree.id === 't1')?.models).toBeUndefined();
     expect((await post(harness.url('/api/actions/a1/apply'))).data).toMatchObject({ status: 'applied', result: 'executor works on vllm in this tree from its next run' });
-    expect((await harness.db.getTrees()).find((tree) => tree.id === 't1')?.models).toEqual({ executor: 'vllm' });
+    expect((await harness.db.projects.getTrees()).find((tree) => tree.id === 't1')?.models).toEqual({ executor: 'vllm' });
 
     await harness.db.saveActionProposal(proposal({ id: 'a2', kind: 'set_tree_model', params: { treeId: 't1', agent: 'executor', clear: 'true' } }));
     expect((await post(harness.url('/api/actions/a2/apply'))).data).toMatchObject({ status: 'applied', result: 'executor is back on its own model in this tree' });
-    expect((await harness.db.getTrees()).find((tree) => tree.id === 't1')?.models).toBeUndefined();
+    expect((await harness.db.projects.getTrees()).find((tree) => tree.id === 't1')?.models).toBeUndefined();
 
     await harness.db.saveActionProposal(proposal({ id: 'a3', kind: 'set_tree_model', params: { treeId: 't1', agent: 'executor', modelId: 'gone' } }));
     expect((await post(harness.url('/api/actions/a3/apply'))).data).toMatchObject({ status: 'failed', reason: 'There is no model gone among yours' });

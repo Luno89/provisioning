@@ -38,7 +38,7 @@ async function mount(gitea: Record<string, unknown>, opts: { seedProject?: boole
   const harness = await mountRouter({
     prefix: '/api/projects',
     router: async (db: Database) => {
-      if (opts.seedProject !== false) await db.saveProjectInfo(project as never);
+      if (opts.seedProject !== false) await db.projects.saveProjectInfo(project as never);
       return projectFilesRouter({
         projectRepoService,
         giteaService: gitea,
@@ -49,7 +49,7 @@ async function mount(gitea: Record<string, unknown>, opts: { seedProject?: boole
         }),
         storyDrops: { drop: (gitea.storyDrop as (...given: unknown[]) => Promise<unknown>) ?? vi.fn() },
         getOwnedProject: async (id: string, user: any) => {
-          const p = (await db.getProjects()).find((x: any) => x.id === id);
+          const p = (await db.projects.getProjects()).find((x: any) => x.id === id);
           return p && ownsProject(p, user) ? p : undefined;
         },
       });
@@ -73,12 +73,12 @@ async function mountForDevice(): Promise<Harness> {
   const harness = await mountRouter({
     prefix: '/api/projects',
     router: async (db: Database) => {
-      await db.saveProjectInfo(deviceProject as never);
+      await db.projects.saveProjectInfo(deviceProject as never);
       return projectFilesRouter({
         projectRepoService,
         giteaService: {},
         getOwnedProject: async (id: string, user: any) => {
-          const p = (await db.getProjects()).find((x: any) => x.id === id);
+          const p = (await db.projects.getProjects()).find((x: any) => x.id === id);
           return p && ownsProject(p, user) ? p : undefined;
         },
       });

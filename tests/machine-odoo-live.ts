@@ -273,8 +273,8 @@ async function main(): Promise<void> {
 
   step(`${PROBE} and its test are on main, and no work branch of the machine's is left`);
   const gitea = new GiteaService(new InfrastructureService(), loadKeys(process.env).data, KUBECONFIG);
-  const account = await db.getGiteaAccount(owner);
-  const project = (await db.getProjects()).find((entry) => entry.id === projectId);
+  const account = await db.projects.getGiteaAccount(owner);
+  const project = (await db.projects.getProjects()).find((entry) => entry.id === projectId);
   assert.ok(project?.giteaRepo, `the tree has no project ${projectId}`);
   const testOnMain = await gitea.getRawFile(account!.username, project.giteaRepo, `addons/${PROBE}/tests/test_probe.py`, 'main');
   assert.match(testOnMain ?? '', /test_default_size/, 'the probe test is not on main');
@@ -299,7 +299,7 @@ async function main(): Promise<void> {
     return all.find((release) => release.state === 'preview');
   });
   assert.equal(preview.slot, 'b');
-  const named = (await db.getProjects()).find((entry) => entry.id === projectId)!;
+  const named = (await db.projects.getProjects()).find((entry) => entry.id === projectId)!;
   const place = releasePlace(named.releaseName ?? newReleaseName(named));
   const installed = (await run(KUBECTL, ['-n', place.namespace, 'exec', `${place.release}-postgres-0`, '--', 'psql', '-U', 'odoo', '-d', 'odoo_b', '-tAc', `select state from ir_module_module where name = '${PROBE}'`], { env: { ...process.env, KUBECONFIG } })).stdout.trim();
   assert.equal(installed, 'installed', `${PROBE} in the preview is ${installed || 'not there'}`);

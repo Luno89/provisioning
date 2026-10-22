@@ -88,7 +88,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     if (deployment) return deployment;
     const run = (await db.getPipelineRuns()).find((r: any) => r.id === id);
     if (run) {
-      const project = (await db.getProjects()).find((p: any) => p.id === run.projectId);
+      const project = (await db.projects.getProjects()).find((p: any) => p.id === run.projectId);
       const owned = ownsProject(project, user);
       if (owned && run.logFile) return { ...run, lastLogPath: run.logFile };
     }

@@ -7,13 +7,13 @@ import type { ProjectMetadata } from '../../platform/lib/types.js';
 const setup = async () => {
   const db = await testDatabase();
   const project: ProjectMetadata = { id: 'p1', name: 'Shop', ownerId: 'bo', appType: 'gitapp', createdAt: 't' };
-  await db.saveProject(project);
+  await db.projects.saveProject(project);
   const channels = new ProjectChannelService({
     conversation: (ownerId, id) => db.getConversation(ownerId, id),
     save: (conversation) => db.saveConversation(conversation),
     bind: (ownerId, id, binding) => db.bindConversation(ownerId, id, binding),
-    trees: () => db.getTrees(),
-    saveProjectInfo: (entry) => db.saveProjectInfo(entry),
+    trees: () => db.projects.getTrees(),
+    saveProjectInfo: (entry) => db.projects.saveProjectInfo(entry),
     now: () => 'now',
   });
   return { db, project, channels };
@@ -24,7 +24,7 @@ describe('a project\'s channel', () => {
     const { db, project, channels } = await setup();
     const made = await channels.ensure(project);
     expect(made).toMatchObject({ id: 'channel-p1', ownerId: 'bo', title: 'Shop', kind: 'channel', projectId: 'p1', messages: [] });
-    expect((await db.getProjects())[0]!.channelId).toBe('channel-p1');
+    expect((await db.projects.getProjects())[0]!.channelId).toBe('channel-p1');
     await db.appendMessage('bo', 'channel-p1', { role: 'user', content: 'hello', at: 't' });
     expect((await channels.ensure({ ...project, channelId: 'channel-p1' }))!.messages).toHaveLength(1);
     expect((await db.getConversations()).filter((conversation) => conversation.kind === 'channel')).toHaveLength(1);
@@ -34,7 +34,7 @@ describe('a project\'s channel', () => {
     const { db, project, channels } = await setup();
     await channels.ensure(project);
     await db.appendMessage('bo', 'channel-p1', { role: 'user', content: 'before the tree', at: 't' });
-    await db.saveTree({ id: 't1', ownerId: 'bo', name: 'Shop', type: 'odoo-addons', projectIds: ['p1'], createdAt: 't', updatedAt: 't' } as never);
+    await db.projects.saveTree({ id: 't1', ownerId: 'bo', name: 'Shop', type: 'odoo-addons', projectIds: ['p1'], createdAt: 't', updatedAt: 't' } as never);
     expect(await channels.ensure(project)).toMatchObject({ treeId: 't1' });
     expect((await db.getConversation('bo', 'channel-p1'))!.messages.map((message) => message.content)).toEqual(['before the tree']);
   });

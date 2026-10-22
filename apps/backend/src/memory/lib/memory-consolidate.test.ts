@@ -209,7 +209,9 @@ describe('a whole pass', () => {
         db: {
           getMemories: async (ownerId?: string) => [...store.values()].filter((m) => !ownerId || m.ownerId === ownerId),
           saveMemory: async (m: MemoryItem) => { store.set(m.id, m); },
-          getLeaves: async () => leaves,
+          projects: {
+            getLeaves: async () => leaves,
+          },
         },
         now: () => NOW,
         newId: () => `gen${n++}`,

@@ -75,7 +75,7 @@ async function main(): Promise<void> {
       assert.ok(project.status < 300, JSON.stringify(project.data));
       const conversation = await http.post('/conversations', { projectId: (project.data as { id: string }).id });
       assert.ok(conversation.status < 300, JSON.stringify(conversation.data));
-      const account = await db.getGiteaAccount(ownerId);
+      const account = await db.projects.getGiteaAccount(ownerId);
       assert.ok(account, 'the project made no Gitea user');
       console.log(`    Gitea user ${account.username}, project repository ${(project.data as { giteaOwner: string; giteaRepo: string }).giteaRepo}`);
       return account.username;

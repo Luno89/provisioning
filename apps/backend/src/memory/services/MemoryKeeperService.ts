@@ -16,8 +16,10 @@ import type { LifecycleEvent } from '../../engine-host/temporal/contracts.js';
 
 export interface MemoryKeeperStore {
   getConversation(ownerId: string, id: string): Promise<Conversation | undefined>;
-  getLeaves(): Promise<Leaf[]>;
-  getBranches(): Promise<Branch[]>;
+  projects: {
+    getLeaves(): Promise<Leaf[]>;
+    getBranches(): Promise<Branch[]>;
+  };
   getMemoryWatermark(key: string): Promise<string | undefined>;
   saveMemoryWatermark(key: string, value: string): Promise<void>;
   getKeeperSettings(ownerId: string): Promise<KeeperSettings | undefined>;
@@ -109,8 +111,8 @@ export class MemoryKeeperService {
     if (fromRun) await this.begin(fromRun, report);
 
     if (event.agentSlug === LEAF_JUDGE && event.outcome === 'ok' && event.leafId) {
-      const leaf = (await this.deps.store.getLeaves()).find((entry) => entry.id === event.leafId && entry.ownerId === event.ownerId);
-      const treeId = leaf ? (await this.deps.store.getBranches()).find((branch) => branch.id === leaf.branchId)?.treeId : undefined;
+      const leaf = (await this.deps.store.projects.getLeaves()).find((entry) => entry.id === event.leafId && entry.ownerId === event.ownerId);
+      const treeId = leaf ? (await this.deps.store.projects.getBranches()).find((branch) => branch.id === leaf.branchId)?.treeId : undefined;
       const fromLeaf = leaf ? leafConclusion(leaf, treeId) : undefined;
       if (fromLeaf) await this.begin(fromLeaf, report);
     }

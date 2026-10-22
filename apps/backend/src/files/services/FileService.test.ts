@@ -39,8 +39,10 @@ function setUp(deployments: DeploymentMetadata[], settings?: FileSettings) {
       getFileShare: async (id) => shares.get(id),
       saveFileShare: async (share) => { shares.set(share.id, share); },
       deleteFileShare: async (id) => { shares.delete(id); },
-      getProjects: async () => [...projects.values()],
-      saveProjectInfo: async (patch) => { const next = { ...projects.get(patch.id)!, ...patch } as ProjectMetadata; projects.set(patch.id, next); return next; },
+      projects: {
+        getProjects: async () => [...projects.values()],
+        saveProjectInfo: async (patch) => { const next = { ...projects.get(patch.id)!, ...patch } as ProjectMetadata; projects.set(patch.id, next); return next; },
+      },
     },
     open: async (_ownerId, place) => { opened.push(place); return store; },
     deployMinio,

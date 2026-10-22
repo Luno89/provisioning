@@ -18,8 +18,8 @@ beforeEach(async () => {
       return autoModeRouter({ autoMode: service });
     },
   });
-  await harness.db.saveTree(tree());
-  await harness.db.saveTree(tree({ id: 't2', ownerId: 'someone-else' }));
+  await harness.db.projects.saveTree(tree());
+  await harness.db.projects.saveTree(tree({ id: 't2', ownerId: 'someone-else' }));
 });
 
 afterEach(() => harness.close());
@@ -39,13 +39,13 @@ describe('auto mode', () => {
 
   it('switches a tree on, so every run working on it goes unasked, whatever its agent', async () => {
     expect((await put('/trees/t1', { on: true })).data).toEqual({ autoMode: true });
-    expect((await harness.db.getTrees()).find((entry) => entry.id === 't1')?.autoMode).toBe(true);
+    expect((await harness.db.projects.getTrees()).find((entry) => entry.id === 't1')?.autoMode).toBe(true);
 
     expect(await service.unasked({ ownerId: TEST_USER.id, agentSlug: 'executor', treeId: 't1' })).toBe(true);
     expect(await service.unasked({ ownerId: TEST_USER.id, agentSlug: 'executor' })).toBe(false);
 
     await put('/trees/t1', { on: false });
-    expect((await harness.db.getTrees()).find((entry) => entry.id === 't1')).not.toHaveProperty('autoMode');
+    expect((await harness.db.projects.getTrees()).find((entry) => entry.id === 't1')).not.toHaveProperty('autoMode');
     expect(await service.unasked({ ownerId: TEST_USER.id, agentSlug: 'executor', treeId: 't1' })).toBe(false);
   });
 

@@ -17,7 +17,9 @@ export interface AccountRemovalDeps {
       accountIds(ownerId: string): Promise<AccountIds>;
       removeAccountRecords(ownerId: string, related: AccountRelated): Promise<Record<string, number>>;
     };
-    getGiteaAccount(ownerId: string): Promise<{ username: string } | null>;
+    projects: {
+      getGiteaAccount(ownerId: string): Promise<{ username: string } | null>;
+    };
     reownRuns(from: string, to: string): Promise<number>;
     getDeployments(): Promise<DeploymentMetadata[]>;
     saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
@@ -102,7 +104,7 @@ export function createAccountRemovalActivities(deps: AccountRemovalDeps): Accoun
     },
 
     async RemoveAccountRepositoriesActivity({ ownerId }) {
-      const account = await deps.store.getGiteaAccount(ownerId);
+      const account = await deps.store.projects.getGiteaAccount(ownerId);
       if (!account) return false;
       return deps.repositories.deleteUser(account.username);
     },

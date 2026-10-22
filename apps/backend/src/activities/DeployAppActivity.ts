@@ -352,7 +352,7 @@ export async function DeployAppActivity(
     const deployments = await bindDb.getDeployments();
     const self = deployments.find((d) => d.name === args.name || d.id === args.name);
     const project = self?.gitappProjectId
-      ? (await bindDb.getProjects()).find((p) => p.id === self.gitappProjectId)
+      ? (await bindDb.projects.getProjects()).find((p) => p.id === self.gitappProjectId)
       : undefined;
     const needs = project?.needs ?? [];
     const specs = needs.length && project?.ownerId
@@ -505,7 +505,7 @@ export async function DeployAppActivity(
     try {
       const self = (await secretDb.getDeployments()).find((d) => d.name === args.name || d.id === args.name);
       const project = self?.gitappProjectId
-        ? (await secretDb.getProjects()).find((p) => p.id === self.gitappProjectId)
+        ? (await secretDb.projects.getProjects()).find((p) => p.id === self.gitappProjectId)
         : undefined;
       if (project) {
         const target = { clusterName: args.clusterName, provider: args.provider, isMock };
@@ -517,7 +517,7 @@ export async function DeployAppActivity(
           const masterKey = loadKeys(process.env).data;
           const infisical = new InfisicalService(infra, masterKey, '/tmp/kubeconfig-provisioning-lunorica', undefined, sharedClusterProxy());
           const synced = await syncProjectSecrets(
-            { infra, vault: infisical, projects: secretDb, masterKey },
+            { infra, vault: infisical, projects: secretDb.projects, masterKey },
             { project, namespace: sanitizedName, kubeconfig: kubeconfigPath, target },
           );
           console.log(`[DeployAppActivity] ${project.name}: vault syncs into ${sanitizedName}-secrets from ${synced.hostAPI} (operator ${synced.operator})`);

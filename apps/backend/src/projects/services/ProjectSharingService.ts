@@ -31,7 +31,7 @@ const STAYS = [
   'the deployed app and its clusters',
 ];
 
-type Store = Pick<Database, 'getProjects' | 'getTrees' | 'getBranches' | 'getLeaves' | 'getConversations' | 'getTasks' | 'getPlanProposals' | 'hub'>;
+type Store = Pick<Database, 'projects' | 'getConversations' | 'hub'>;
 
 export interface ProjectSharingDeps {
   store: Store;
@@ -51,18 +51,18 @@ export class ProjectSharingService {
   }
 
   private async project(ownerId: string, projectId: string) {
-    return (await this.deps.store.getProjects()).find((entry) => entry.id === projectId && entry.ownerId === ownerId);
+    return (await this.deps.store.projects.getProjects()).find((entry) => entry.id === projectId && entry.ownerId === ownerId);
   }
 
   private async scoped(ownerId: string, projectId: string) {
     const [trees, branches, leaves, conversations] = await Promise.all([
-      this.deps.store.getTrees(), this.deps.store.getBranches(), this.deps.store.getLeaves(), this.deps.store.getConversations(),
+      this.deps.store.projects.getTrees(), this.deps.store.projects.getBranches(), this.deps.store.projects.getLeaves(), this.deps.store.getConversations(),
     ]);
     const mine = <T extends { ownerId?: string | undefined }>(list: T[]) => list.filter((entry) => entry.ownerId === ownerId) as unknown as SyncedDoc[];
     const world = { trees: mine(trees), branches: mine(branches), leaves: mine(leaves), conversations: mine(conversations) };
     const scope = scopeOf(projectId, world);
-    const tasks = (await this.deps.store.getTasks(ownerId) as unknown as SyncedDoc[]).filter((task) => inScope('tasks', task, scope));
-    const proposals = (await this.deps.store.getPlanProposals(ownerId) as unknown as SyncedDoc[]).filter((proposal) => inScope('planProposals', proposal, scope));
+    const tasks = (await this.deps.store.projects.getTasks(ownerId) as unknown as SyncedDoc[]).filter((task) => inScope('tasks', task, scope));
+    const proposals = (await this.deps.store.projects.getPlanProposals(ownerId) as unknown as SyncedDoc[]).filter((proposal) => inScope('planProposals', proposal, scope));
     const records: [SyncedKind, SyncedDoc[]][] = [
       ['trees', world.trees.filter((doc) => scope.treeIds.has(doc.id))],
       ['branches', world.branches.filter((doc) => scope.branchIds.has(doc.id))],
@@ -139,7 +139,7 @@ export class ProjectSharingService {
   repoSides(): HubRepoSides {
     return {
       ends: async (link: HubLink) => {
-        const project = (await this.deps.store.getProjects()).find((entry) => entry.id === link.projectId);
+        const project = (await this.deps.store.projects.getProjects()).find((entry) => entry.id === link.projectId);
         if (!link.repo || !project?.giteaOwner || !project.giteaRepo) return undefined;
         return {
           owner: await this.deps.ownerRepo({ giteaOwner: project.giteaOwner, giteaRepo: project.giteaRepo }),
@@ -147,9 +147,9 @@ export class ProjectSharingService {
         };
       },
       conflicted: async (link, conflict) => {
-        const project = (await this.deps.store.getProjects()).find((entry) => entry.id === link.projectId);
+        const project = (await this.deps.store.projects.getProjects()).find((entry) => entry.id === link.projectId);
         if (!project) return;
-        const treeId = (await this.deps.store.getTrees()).find((tree) => primaryProjectId(tree) === project.id)?.id;
+        const treeId = (await this.deps.store.projects.getTrees()).find((tree) => primaryProjectId(tree) === project.id)?.id;
         await this.deps.notify(link.ownerId, { projectId: project.id, ...(treeId ? { treeId } : {}) }, hubConflictNotice(project, conflict, treeId));
       },
     };

@@ -15,7 +15,7 @@ export function liveEngineHost(db: Database) {
   const projectRepos = new ProjectRepoService(db, gitea, keys.data);
   return createEngineHost({
     documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request) },
-    repoFor: createWorkspaceRepoResolver({ trees: () => db.getTrees(), projects: () => db.getProjects(), accountOf: async (ownerId) => (await db.getGiteaAccount(ownerId))?.username }),
+    repoFor: createWorkspaceRepoResolver({ trees: () => db.projects.getTrees(), projects: () => db.projects.getProjects(), accountOf: async (ownerId) => (await db.projects.getGiteaAccount(ownerId))?.username }),
     models: createModelService(db, keys.data),
     stores: storesFromDatabase(db),
     kubeconfig: process.env.KUBECONFIG_PATH,

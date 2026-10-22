@@ -10,8 +10,10 @@ export interface ScriptedModelStore {
     getUserById(id: string): Promise<UserMetadata | undefined>;
   };
   getModelEndpoints(): Promise<ModelEndpointMetadata[]>;
-  getTasks(ownerId?: string): Promise<{ id: string }[]>;
-  getLeaves(): Promise<{ id: string; ownerId?: string | undefined }[]>;
+  projects: {
+    getTasks(ownerId?: string): Promise<{ id: string }[]>;
+    getLeaves(): Promise<{ id: string; ownerId?: string | undefined }[]>;
+  };
   saveScriptedRequest(request: ScriptedRequestRecord): Promise<void>;
   getScriptedRequests(ownerId: string): Promise<ScriptedRequestRecord[]>;
 }
@@ -50,7 +52,7 @@ export class ScriptedModelService {
       messages: Array.isArray(parsed.messages) ? parsed.messages : [],
       tools: (parsed.tools ?? []).map((tool) => tool.function?.name ?? '').filter(Boolean),
     };
-    const [tasks, leaves] = await Promise.all([this.deps.store.getTasks(spaceId), this.deps.store.getLeaves()]);
+    const [tasks, leaves] = await Promise.all([this.deps.store.projects.getTasks(spaceId), this.deps.store.projects.getLeaves()]);
     const outcome = answerFrom(space.space!.script!, request, {
       tasks: tasks.map((task) => task.id),
       leaves: leaves.filter((leaf) => leaf.ownerId === spaceId).map((leaf) => leaf.id),

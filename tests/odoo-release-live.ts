@@ -138,7 +138,7 @@ async function main(): Promise<void> {
     await gitea.seedTemplate(project.giteaOwner, project.giteaRepo, [...renderStarterFiles(ODOO_ADDONS_FILES, { projectName: NAME, registryHost: await gitea.getRegistryHost(), ...ODOO_VERSION }), ...PROBE]);
     const first = await waitFor('first release', (all) => all.find((release) => release.state === 'live'), 30);
     assert.equal(first.slot, 'a');
-    assert.equal((await db.getProjects()).find((entry) => entry.id === projectId)?.releaseName, place.release, 'the project does not keep the name its release was given');
+    assert.equal((await db.projects.getProjects()).find((entry) => entry.id === projectId)?.releaseName, place.release, 'the project does not keep the name its release was given');
     const labels = JSON.parse(await run(KUBECTL, ['get', 'namespace', place.namespace, '-o', 'jsonpath={.metadata.labels}'], { env: { ...process.env, KUBECONFIG } }).then((out) => out.stdout)) as Record<string, string>;
     assert.equal(labels['koala.dev/project'], labelValue(projectId), `the release namespace does not say whose project it is: ${JSON.stringify(labels)}`);
     assert.ok(labels['koala.dev/owner'], 'the release namespace does not say whose it is');

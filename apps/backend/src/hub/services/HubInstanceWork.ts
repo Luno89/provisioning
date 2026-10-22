@@ -37,7 +37,7 @@ export interface InstanceFiles {
   remove(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<{ path: string }>>;
 }
 
-type Store = Pick<Database, 'getProjects' | 'getTrees' | 'getBranches' | 'getLeaves' | 'getConversations' | 'getTasks' | 'getPlanProposals'>;
+type Store = Pick<Database, 'projects' | 'getConversations'>;
 
 export interface HubInstanceWorkDeps {
   store: Store;
@@ -70,18 +70,18 @@ export class HubInstanceWork {
   constructor(private readonly deps: HubInstanceWorkDeps) {}
 
   private async project(link: HubLink): Promise<ProjectMetadata | undefined> {
-    return (await this.deps.store.getProjects()).find((entry) => entry.id === link.projectId && entry.ownerId === link.ownerId);
+    return (await this.deps.store.projects.getProjects()).find((entry) => entry.id === link.projectId && entry.ownerId === link.ownerId);
   }
 
   async scope(link: HubLink): Promise<ShareScope & { tasks: SyncedDoc[]; proposals: SyncedDoc[]; conversations: SyncedDoc[]; branches: SyncedDoc[]; leaves: SyncedDoc[] }> {
     const [trees, branches, leaves, conversations] = await Promise.all([
-      this.deps.store.getTrees(), this.deps.store.getBranches(), this.deps.store.getLeaves(), this.deps.store.getConversations(),
+      this.deps.store.projects.getTrees(), this.deps.store.projects.getBranches(), this.deps.store.projects.getLeaves(), this.deps.store.getConversations(),
     ]);
     const mine = <T extends { ownerId?: string | undefined }>(list: T[]) => list.filter((entry) => entry.ownerId === link.ownerId) as unknown as SyncedDoc[];
     const world = { trees: mine(trees), branches: mine(branches), leaves: mine(leaves), conversations: mine(conversations) };
     const scope = scopeOf(link.projectId, world);
-    const tasks = (await this.deps.store.getTasks(link.ownerId) as unknown as SyncedDoc[]).filter((task) => inScope('tasks', task, scope));
-    const proposals = (await this.deps.store.getPlanProposals(link.ownerId) as unknown as SyncedDoc[]).filter((proposal) => inScope('planProposals', proposal, scope));
+    const tasks = (await this.deps.store.projects.getTasks(link.ownerId) as unknown as SyncedDoc[]).filter((task) => inScope('tasks', task, scope));
+    const proposals = (await this.deps.store.projects.getPlanProposals(link.ownerId) as unknown as SyncedDoc[]).filter((proposal) => inScope('planProposals', proposal, scope));
     return {
       ...scope,
       tasks,

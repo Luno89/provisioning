@@ -82,21 +82,21 @@ describe('the secrets a type declares', () => {
 describe('resolving a type for a tree', () => {
   it('finds an owner\'s own record', async () => {
     const db = await testDatabase();
-    await db.saveTreeType(spec({ id: 'mine', ownerId: 'u1' }));
+    await db.projects.saveTreeType(spec({ id: 'mine', ownerId: 'u1' }));
 
-    expect((await resolveTreeType(db, 'u1', 'mine'))?.label).toBe('Custom thing');
+    expect((await resolveTreeType(db.projects, 'u1', 'mine'))?.label).toBe('Custom thing');
   });
 
   it('does not hand one owner\'s type to another', async () => {
     const db = await testDatabase();
-    await db.saveTreeType(spec({ id: 'theirs', ownerId: 'u2' }));
+    await db.projects.saveTreeType(spec({ id: 'theirs', ownerId: 'u2' }));
 
-    expect(await resolveTreeType(db, 'u1', 'theirs')).toBeUndefined();
+    expect(await resolveTreeType(db.projects, 'u1', 'theirs')).toBeUndefined();
   });
 
   it('returns nothing for a type that does not exist, rather than guessing', async () => {
     const db = await testDatabase();
-    expect(await resolveTreeType(db, 'u1', 'invented')).toBeUndefined();
+    expect(await resolveTreeType(db.projects, 'u1', 'invented')).toBeUndefined();
   });
 });
 
@@ -186,43 +186,43 @@ describe('rendering the starter files', () => {
 describe('seeding the shipped types', () => {
   const paper = () => TREE_TYPE_SEEDS.find((type) => type.id === 'research-paper')!;
   const shippedPaper = async (db: MongoDB) =>
-    (await db.getTreeTypes()).find((type) => type.id === 'research-paper' && type.ownerId === undefined);
+    (await db.projects.getTreeTypes()).find((type) => type.id === 'research-paper' && type.ownerId === undefined);
 
   it('writes them all into an empty store', async () => {
     const db = await testDatabase();
 
-    expect(await seedTreeTypes(db)).toBe(TREE_TYPE_SEEDS.length);
+    expect(await seedTreeTypes(db.projects)).toBe(TREE_TYPE_SEEDS.length);
     expect((await shippedPaper(db))?.agent).toBe('grove-paper');
   });
 
   it('brings a stored type up to date with its seed, so a new agent reaches installs that already have it', async () => {
     const db = await testDatabase();
-    await seedTreeTypes(db);
+    await seedTreeTypes(db.projects);
 
     // An install from before the type named its grove agent.
     const { agent: _agent, ...stale } = paper();
-    await db.saveTreeType(stale as TreeTypeSpec);
+    await db.projects.saveTreeType(stale as TreeTypeSpec);
     expect(await shippedPaper(db)).not.toHaveProperty('agent');
 
-    expect(await seedTreeTypes(db)).toBe(1);
+    expect(await seedTreeTypes(db.projects)).toBe(1);
     expect((await shippedPaper(db))?.agent).toBe('grove-paper');
   });
 
   it('writes nothing on a second run, so provenance does not move', async () => {
     const db = await testDatabase();
-    await seedTreeTypes(db);
+    await seedTreeTypes(db.projects);
 
-    expect(await seedTreeTypes(db)).toBe(0);
+    expect(await seedTreeTypes(db.projects)).toBe(0);
   });
 
   it("never writes over a person's own edit of a shipped type", async () => {
     const db = await testDatabase();
-    await seedTreeTypes(db);
-    await db.saveTreeType({ ...paper(), ownerId: 'u1', label: 'Mine', agent: 'grove-careful' });
+    await seedTreeTypes(db.projects);
+    await db.projects.saveTreeType({ ...paper(), ownerId: 'u1', label: 'Mine', agent: 'grove-careful' });
 
-    expect(await seedTreeTypes(db)).toBe(0);
+    expect(await seedTreeTypes(db.projects)).toBe(0);
 
-    const rows = (await db.getTreeTypes('u1')).filter((type) => type.id === 'research-paper');
+    const rows = (await db.projects.getTreeTypes('u1')).filter((type) => type.id === 'research-paper');
     expect(rows.map((type) => `${type.label}:${type.agent}`).sort()).toEqual([
       'Mine:grove-careful',
       'Research paper:grove-paper',
@@ -320,16 +320,16 @@ describe('a tree type with versions', () => {
 
   it('stamps the trees that predate versions with the one they already work in, and leaves the rest', async () => {
     const db = await testDatabase();
-    await seedTreeTypes(db);
+    await seedTreeTypes(db.projects);
     const tree = (id: string, type: string, version?: string) => ({ id, ownerId: 'u1', name: id, type, ...(version ? { version } : {}), createdAt: 'a', updatedAt: 'a' });
-    await db.saveTree(tree('old', 'odoo-addons'));
-    await db.saveTree(tree('new', 'odoo-addons', '20'));
-    await db.saveTree(tree('api', 'api-service'));
+    await db.projects.saveTree(tree('old', 'odoo-addons'));
+    await db.projects.saveTree(tree('new', 'odoo-addons', '20'));
+    await db.projects.saveTree(tree('api', 'api-service'));
 
-    expect(await stampTreeVersions(db as never)).toBe(1);
-    const trees = await db.getTrees();
+    expect(await stampTreeVersions(db.projects)).toBe(1);
+    const trees = await db.projects.getTrees();
     expect(trees.map((entry) => [entry.id, entry.version, entry.updatedAt])).toEqual([['old', '18', 'a'], ['new', '20', 'a'], ['api', undefined, 'a']]);
-    expect(await stampTreeVersions(db as never)).toBe(0);
+    expect(await stampTreeVersions(db.projects)).toBe(0);
   });
 
   it('lists the versions with the type, so the planner can choose', () => {

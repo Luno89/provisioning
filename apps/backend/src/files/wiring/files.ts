@@ -67,10 +67,10 @@ export function wireFiles(deps: FilesWiringDeps): FilesWiring {
 export function storyDropsFor(deps: { db: Database; projectRepos: ProjectRepoService; gitea: GiteaService; work: ConstructorParameters<typeof StoryDropService>[0]['work'] }): StoryDropService {
   const { db } = deps;
   return new StoryDropService({
-    leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
+    leaves: { list: () => db.projects.getLeaves(), save: (leaf) => db.projects.saveLeaf(leaf) },
     treeOfLeaf: async (leaf) => {
-      const branch = (await db.getBranches()).find((entry) => entry.id === leaf.branchId);
-      return branch ? (await db.getTrees()).find((tree) => tree.id === branch.treeId) : undefined;
+      const branch = (await db.projects.getBranches()).find((entry) => entry.id === leaf.branchId);
+      return branch ? (await db.projects.getTrees()).find((tree) => tree.id === branch.treeId) : undefined;
     },
     account: (ownerId) => deps.projectRepos.ensureAccountFor(ownerId),
     credential: (ownerId) => deps.projectRepos.editorCredential(ownerId),

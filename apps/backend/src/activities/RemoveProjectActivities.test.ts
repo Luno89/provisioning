@@ -32,15 +32,15 @@ beforeEach(async () => {
   repos = [];
   secrets = [];
   for (const id of ['p1', 'p2']) {
-    await db.saveProject({ id, name: `shop-${id}`, ownerId: 'bo', giteaOwner: 'koala-bo', giteaRepo: `shop-${id}`, appType: 'gitapp', createdAt: at });
+    await db.projects.saveProject({ id, name: `shop-${id}`, ownerId: 'bo', giteaOwner: 'koala-bo', giteaRepo: `shop-${id}`, appType: 'gitapp', createdAt: at });
   }
-  await db.saveGiteaAccount({ ownerId: 'bo', username: 'koala-bo', passwordEnc: 'x', createdAt: at });
-  await db.saveTree({ id: 't1', ownerId: 'bo', name: 'Shop features', type: 'software', projectIds: ['p1'], createdAt: at, updatedAt: at } as never);
-  await db.saveTree({ id: 't2', ownerId: 'bo', name: 'Shared', type: 'software', projectIds: ['p2', 'p1'], createdAt: at, updatedAt: at } as never);
-  await db.saveBranch({ id: 'b1', ownerId: 'bo', treeId: 't1', title: 'b', createdAt: at, updatedAt: at } as never);
-  await db.saveLeaf({ id: 'l1', ownerId: 'bo', branchId: 'b1', title: 'l', status: 'pending', createdAt: at, updatedAt: at } as never);
-  await db.saveTask({ id: 'k1', ownerId: 'bo', leafId: 'l1', title: 'k', doneMeans: 'x', dependsOn: [], status: 'accepted', runs: [], createdAt: at, updatedAt: at });
-  await db.saveTask({ id: 'k2', ownerId: 'bo', projectId: 'p1', title: 'plain', doneMeans: 'x', dependsOn: [], status: 'accepted', runs: [], createdAt: at, updatedAt: at });
+  await db.projects.saveGiteaAccount({ ownerId: 'bo', username: 'koala-bo', passwordEnc: 'x', createdAt: at });
+  await db.projects.saveTree({ id: 't1', ownerId: 'bo', name: 'Shop features', type: 'software', projectIds: ['p1'], createdAt: at, updatedAt: at } as never);
+  await db.projects.saveTree({ id: 't2', ownerId: 'bo', name: 'Shared', type: 'software', projectIds: ['p2', 'p1'], createdAt: at, updatedAt: at } as never);
+  await db.projects.saveBranch({ id: 'b1', ownerId: 'bo', treeId: 't1', title: 'b', createdAt: at, updatedAt: at } as never);
+  await db.projects.saveLeaf({ id: 'l1', ownerId: 'bo', branchId: 'b1', title: 'l', status: 'pending', createdAt: at, updatedAt: at } as never);
+  await db.projects.saveTask({ id: 'k1', ownerId: 'bo', leafId: 'l1', title: 'k', doneMeans: 'x', dependsOn: [], status: 'accepted', runs: [], createdAt: at, updatedAt: at });
+  await db.projects.saveTask({ id: 'k2', ownerId: 'bo', projectId: 'p1', title: 'plain', doneMeans: 'x', dependsOn: [], status: 'accepted', runs: [], createdAt: at, updatedAt: at });
   await db.saveConversation({ id: 'c1', ownerId: 'bo', treeId: 't1', projectId: 'p1', messages: [], createdAt: at, updatedAt: at } as never);
   await db.saveConversation({ id: 'c2', ownerId: 'bo', projectId: 'p1', messages: [], createdAt: at, updatedAt: at } as never);
   await db.savePipelineRun({ id: 'r1', projectId: 'p1', status: 'running', temporalWorkflowId: 'pipeline-r1', startedAt: at } as never);
@@ -65,7 +65,7 @@ describe('the steps that delete a project', () => {
   it('deletes its files on its file server, and does nothing for a project that never kept any', async () => {
     const removed: string[] = [];
     const files = { removeAll: async (ownerId: string, place: { folder: string }) => { removed.push(`${ownerId}:${place.folder}`); return 'removed' as const; } };
-    await db.saveProjectInfo({ id: 'p1', files: { kind: 'minio', deploymentId: 'm1', folder: 'shop' } } as never);
+    await db.projects.saveProjectInfo({ id: 'p1', files: { kind: 'minio', deploymentId: 'm1', folder: 'shop' } } as never);
     const steps = createProjectRemovalActivities({ ...deps(), files });
     expect(await steps.RemoveProjectFilesActivity({ projectId: 'p1' })).toBe('removed');
     expect(await steps.RemoveProjectFilesActivity({ projectId: 'p2' })).toBe('none');
@@ -76,9 +76,9 @@ describe('the steps that delete a project', () => {
     const removed = await createProjectRemovalActivities(deps()).RemoveProjectRecordsActivity({ projectId: 'p1' });
 
     expect(removed).toMatchObject({ trees: 1, branches: 1, leaves: 1, conversations: 1, 'trees unlinked': 1, pipelineRuns: 1, 'conversations unlinked': 1, projects: 1 });
-    expect((await db.getProjects()).map((project) => project.id)).toEqual(['p2']);
-    expect((await db.getTrees()).map((tree) => [tree.id, tree.projectIds])).toEqual([['t2', ['p2']]]);
-    expect((await db.getTasks('bo')).map((task) => task.id)).toEqual([]);
+    expect((await db.projects.getProjects()).map((project) => project.id)).toEqual(['p2']);
+    expect((await db.projects.getTrees()).map((tree) => [tree.id, tree.projectIds])).toEqual([['t2', ['p2']]]);
+    expect((await db.projects.getTasks('bo')).map((task) => task.id)).toEqual([]);
     expect(await db.getConversation('bo', 'c1')).toBeUndefined();
     expect((await db.getConversation('bo', 'c2'))?.projectId).toBeUndefined();
     expect((await db.getPipelineRuns()).map((run) => run.id)).toEqual(['r2']);

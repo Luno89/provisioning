@@ -25,7 +25,7 @@ async function main(): Promise<void> {
 
   const db = createDatabase();
   await db.init();
-  const ownerId = (await db.getProjects()).find((project) => project.ownerId)?.ownerId;
+  const ownerId = (await db.projects.getProjects()).find((project) => project.ownerId)?.ownerId;
   const user = ownerId ? await db.accounts.getUserById(ownerId) : undefined;
   await db.close();
   if (!user) throw new Error('no project owner to run as');

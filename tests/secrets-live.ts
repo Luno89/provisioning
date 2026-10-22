@@ -44,7 +44,7 @@ async function turn(http: AxiosInstance, conversationId: string, message: string
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
-  const project = (await db.getProjects()).find((candidate) => (PROJECT ? candidate.id === PROJECT : candidate.appType === 'gitapp' && candidate.ownerId));
+  const project = (await db.projects.getProjects()).find((candidate) => (PROJECT ? candidate.id === PROJECT : candidate.appType === 'gitapp' && candidate.ownerId));
   assert.ok(project?.ownerId, 'no project to run against — set SECRETS_LIVE_PROJECT');
   const user = await db.accounts.getUserById(project.ownerId);
   assert.ok(user, 'the project owner has no user record');
@@ -93,7 +93,7 @@ async function main(): Promise<void> {
     const conversation = JSON.stringify((await http.get(`/conversations/${conversationId}`)).data);
     const traces = JSON.stringify(await Promise.all(runIds.map(async (runId) => (await http.get(`/engine/runs/${runId}/traces`)).data)));
     const requests = JSON.stringify((await http.get('/secret-requests', { params: { conversationId } })).data);
-    const stored = JSON.stringify(await db.getSecretRequests(user.id, { conversationId }));
+    const stored = JSON.stringify(await db.projects.getSecretRequests(user.id, { conversationId }));
     for (const [where, text] of Object.entries({ conversation, traces, requests, stored })) {
       assert.ok(!text.includes(value), `the value leaked into ${where}`);
     }
@@ -103,9 +103,9 @@ async function main(): Promise<void> {
   } finally {
     await infisical.deleteSecret(project.id, key).catch((err: Error) => console.warn(`cleanup: ${err.message}`));
     await http.delete(`/conversations/${conversationId}`).catch((err: Error) => console.warn(`cleanup: ${err.message}`));
-    for (const request of await db.getSecretRequests(user.id, { conversationId })) await db.deleteSecretRequest(user.id, request.id);
-    const after = (await db.getProjects()).find((candidate) => candidate.id === project.id);
-    if (after) await db.saveProject({ ...after, requiredSecrets: (after.requiredSecrets ?? []).filter((entry) => entry.key !== key) });
+    for (const request of await db.projects.getSecretRequests(user.id, { conversationId })) await db.projects.deleteSecretRequest(user.id, request.id);
+    const after = (await db.projects.getProjects()).find((candidate) => candidate.id === project.id);
+    if (after) await db.projects.saveProject({ ...after, requiredSecrets: (after.requiredSecrets ?? []).filter((entry) => entry.key !== key) });
     await db.close();
   }
 }

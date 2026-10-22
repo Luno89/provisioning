@@ -571,18 +571,18 @@ export function storesFromDatabase(db: Database): EngineHostStores {
           .filter((entry): entry is readonly [string, string] => Boolean(entry[1])));
       },
     },
-    tasks: { list: (ownerId: string) => db.getTasks(ownerId), save: (task) => db.saveTask(task) },
+    tasks: { list: (ownerId: string) => db.projects.getTasks(ownerId), save: (task) => db.projects.saveTask(task) },
     grove: {
-      trees: { list: () => db.getTrees(), save: (tree) => db.saveTree(tree) },
-      branches: { list: () => db.getBranches(), save: (branch) => db.saveBranch(branch) },
-      leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
-      tasks: { list: () => db.getTasks() },
+      trees: { list: () => db.projects.getTrees(), save: (tree) => db.projects.saveTree(tree) },
+      branches: { list: () => db.projects.getBranches(), save: (branch) => db.projects.saveBranch(branch) },
+      leaves: { list: () => db.projects.getLeaves(), save: (leaf) => db.projects.saveLeaf(leaf) },
+      tasks: { list: () => db.projects.getTasks() },
       plans: {
-        save: (proposal) => db.savePlanProposal(proposal),
-        list: (ownerId, conversationId) => db.getPlanProposals(ownerId, conversationId),
+        save: (proposal) => db.projects.savePlanProposal(proposal),
+        list: (ownerId, conversationId) => db.projects.getPlanProposals(ownerId, conversationId),
       },
-      treeTypes: async (ownerId: string) => treeTypeChoices(await db.getTreeTypes(ownerId), ownerId),
-      treeTypeSpecs: (ownerId: string) => db.getTreeTypes(ownerId),
+      treeTypes: async (ownerId: string) => treeTypeChoices(await db.projects.getTreeTypes(ownerId), ownerId),
+      treeTypeSpecs: (ownerId: string) => db.projects.getTreeTypes(ownerId),
       workspaceImages: (ownerId: string) => new WorkspaceImageService(db).list(ownerId),
       binding: async (ownerId: string, conversationId: string) => {
         const conversation = await db.getConversation(ownerId, conversationId);
@@ -593,7 +593,7 @@ export function storesFromDatabase(db: Database): EngineHostStores {
     egress: {
       grants: (ownerId: string) => db.getEgressGrants(ownerId),
       requests: { list: (ownerId: string) => db.getEgressRequests(ownerId), save: (request) => db.saveEgressRequest(request) },
-      trees: { list: () => db.getTrees() },
+      trees: { list: () => db.projects.getTrees() },
     },
     mcp: {
       enabled: async (ownerId: string, conversationId: string) => (await db.getConversation(ownerId, conversationId))?.mcpServers ?? [],
@@ -604,11 +604,11 @@ export function storesFromDatabase(db: Database): EngineHostStores {
     },
     secrets: {
       requests: {
-        list: (ownerId, filter) => db.getSecretRequests(ownerId, filter),
-        save: (request) => db.saveSecretRequest(request),
+        list: (ownerId, filter) => db.projects.getSecretRequests(ownerId, filter),
+        save: (request) => db.projects.saveSecretRequest(request),
       },
-      projects: { list: () => db.getProjects(), save: (project) => db.saveProject(project) },
-      trees: { list: () => db.getTrees() },
+      projects: { list: () => db.projects.getProjects(), save: (project) => db.projects.saveProject(project) },
+      trees: { list: () => db.projects.getTrees() },
       binding: async (ownerId: string, conversationId: string) => {
         const conversation = await db.getConversation(ownerId, conversationId);
         return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId, leafId: conversation.leafId, branchId: conversation.branchId } : undefined;
@@ -616,7 +616,7 @@ export function storesFromDatabase(db: Database): EngineHostStores {
     },
     runs: { traces: (ownerId: string, runId: string) => db.getRunTraces(ownerId, runId) },
     actions: { list: (ownerId: string) => db.getActionProposals(ownerId), save: (proposal) => db.saveActionProposal(proposal) },
-    projectRecords: () => db.getProjects(),
+    projectRecords: () => db.projects.getProjects(),
     machines: { list: () => db.getLocalAgentDevices() },
     proposals: {
       scenarioIds: async (ownerId: string) => [

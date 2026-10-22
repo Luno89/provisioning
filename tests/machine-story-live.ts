@@ -164,9 +164,9 @@ async function main(): Promise<void> {
 
   step(`label.txt is on main, as the machine wrote it`);
   const gitea = new GiteaService(new InfrastructureService(), loadKeys(process.env).data, '/tmp/kubeconfig-provisioning-lunorica');
-  const account = await db.getGiteaAccount(owner);
-  const tree = (await db.getTrees()).find((entry) => entry.id === treeId);
-  const projects = await db.getProjects();
+  const account = await db.projects.getGiteaAccount(owner);
+  const tree = (await db.projects.getTrees()).find((entry) => entry.id === treeId);
+  const projects = await db.projects.getProjects();
   const repo = projects.find((project) => tree?.projectIds?.includes(project.id))?.giteaRepo ?? `tree-${treeId}`;
   const onMain = await gitea.getRawFile(account!.username, repo, 'label.txt', 'main');
   assert.equal(onMain, `${LABEL}\n`, `main holds ${JSON.stringify(onMain)}`);

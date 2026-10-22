@@ -35,10 +35,10 @@ describe('the save*Info functions', () => {
 
   it('keeps a project\'s owner', async () => {
     const db = await testDatabase();
-    await db.saveProjectInfo({ id: 'p1', name: 'x', giteaOwner: 'o', giteaRepo: 'r', ownerId: 'u1' } as any);
-    await db.saveProjectInfo({ id: 'p1', lastBuildStatus: 'succeeded' } as any);
+    await db.projects.saveProjectInfo({ id: 'p1', name: 'x', giteaOwner: 'o', giteaRepo: 'r', ownerId: 'u1' } as any);
+    await db.projects.saveProjectInfo({ id: 'p1', lastBuildStatus: 'succeeded' } as any);
 
-    const [saved] = await db.getProjects();
+    const [saved] = await db.projects.getProjects();
     expect(saved?.ownerId).toBe('u1');
     expect(saved?.giteaRepo).toBe('r');
   });
@@ -55,8 +55,8 @@ describe('the save*Info functions', () => {
 
   it('still creates a record that did not exist', async () => {
     const db = await testDatabase();
-    const made = await db.saveProjectInfo({ name: 'fresh', giteaOwner: 'o', giteaRepo: 'r' } as any);
+    const made = await db.projects.saveProjectInfo({ name: 'fresh', giteaOwner: 'o', giteaRepo: 'r' } as any);
     expect(made.id).toBeTruthy();
-    expect((await db.getProjects())).toHaveLength(1);
+    expect((await db.projects.getProjects())).toHaveLength(1);
   });
 });

@@ -18,12 +18,12 @@ async function main(): Promise<void> {
     environments: host.environments,
     treeWorkspaces: host.treeWorkspaces,
     grove: {
-      trees: { list: () => db.getTrees() },
-      branches: { list: () => db.getBranches() },
-      leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
-      tasks: { list: () => db.getTasks() },
+      trees: { list: () => db.projects.getTrees() },
+      branches: { list: () => db.projects.getBranches() },
+      leaves: { list: () => db.projects.getLeaves(), save: (leaf) => db.projects.saveLeaf(leaf) },
+      tasks: { list: () => db.projects.getTasks() },
     },
-    tasks: { list: (ownerId: string) => db.getTasks(ownerId), save: (task: never) => db.saveTask(task) },
+    tasks: { list: (ownerId: string) => db.projects.getTasks(ownerId), save: (task: never) => db.projects.saveTask(task) },
   } as never);
 
   const stamp = new Date().toISOString();
@@ -38,10 +38,10 @@ async function main(): Promise<void> {
   const leafB = leaf(`${treeId}-b`, { dependsOn: [leafA.id] });
   const taskId = `${treeId}-task-a`;
 
-  await db.saveTree({ id: treeId, ownerId: OWNER, name: 'Worktree proof', type: 'freeform', projectIds: [], createdAt: stamp, updatedAt: stamp });
-  await db.saveBranch(branch);
-  await db.saveLeaf(leafA);
-  await db.saveLeaf(leafB);
+  await db.projects.saveTree({ id: treeId, ownerId: OWNER, name: 'Worktree proof', type: 'freeform', projectIds: [], createdAt: stamp, updatedAt: stamp });
+  await db.projects.saveBranch(branch);
+  await db.projects.saveLeaf(leafA);
+  await db.projects.saveLeaf(leafB);
 
   const shared = await host.treeWorkspaces.describe({ treeId, ownerId: OWNER });
   const handle = (worktree: string) => ({ id: shared.id, spec: shared.capabilities, workspace: shared.workspace, scope: { worktree } });
@@ -57,7 +57,7 @@ async function main(): Promise<void> {
     assert.ok(inA);
     const wrote = await inA.exec({ command: 'echo "from leaf A" > a.txt && git branch --show-current' });
     assert.equal(wrote.stdout.trim(), `leaf/${leafA.id}`, 'the executor is not on the leaf\'s branch in its worktree');
-    await db.saveTask({
+    await db.projects.saveTask({
       id: taskId, ownerId: OWNER, leafId: leafA.id, title: 'Write a.txt', doneMeans: 'a.txt says from leaf A',
       dependsOn: [], status: 'done', runs: [`exec-${suffix}`], evidence: 'wrote a.txt; cat a.txt → from leaf A', createdAt: stamp, updatedAt: stamp,
     });
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
     assert.equal(claimed.ok, true, claimed.digest);
     const head = (await inA.exec({ command: 'git rev-parse HEAD' })).stdout.trim();
     assert.match((await inA.exec({ command: 'git log -1 --format=%s && git status --porcelain' })).stdout.trim(), /^leaf .*: work its tasks left uncommitted$/);
-    const claimRecord = (await db.getLeaves()).find((entry) => entry.id === leafA.id)?.claim;
+    const claimRecord = (await db.projects.getLeaves()).find((entry) => entry.id === leafA.id)?.claim;
     assert.equal(claimRecord?.commit, head);
     assert.match(claimRecord?.evidence ?? '', /- Write a\.txt \[done\] \(runs: exec-.*\)\n  wrote a\.txt; cat a\.txt → from leaf A/);
 
@@ -104,7 +104,7 @@ async function main(): Promise<void> {
     assert.equal((await inA.exec({ command: 'pwd' })).stdout.trim(), `/work/trees/${leafA.id}`);
 
     console.log('[7/7] once leaf B is deleted, the next prepare removes its worktree and branch from the sandbox');
-    await db.deleteLeaf(leafB.id);
+    await db.projects.deleteLeaf(leafB.id);
     await activities.GrovePrepareWorkActivity({ treeId, ownerId: OWNER, leafIds: [] });
     const repo = await host.environments.forRun({ ticket: ticket(`inspect-${suffix}`, 'executor'), environment: { id: shared.id, spec: shared.capabilities, workspace: shared.workspace } });
     assert.ok(repo);
@@ -115,11 +115,11 @@ async function main(): Promise<void> {
     console.log('\nleaf worktrees: own branch per leaf, claim pinned to a commit, judge on that commit, dependents built on it, deleted leaves pruned — PASS');
   } finally {
     await host.treeWorkspaces.release(treeId).catch(() => undefined);
-    await db.deleteTask(taskId);
-    await db.deleteLeaf(leafA.id);
-    await db.deleteLeaf(leafB.id);
-    await db.deleteBranch(branch.id);
-    await db.deleteTree(treeId);
+    await db.projects.deleteTask(taskId);
+    await db.projects.deleteLeaf(leafA.id);
+    await db.projects.deleteLeaf(leafB.id);
+    await db.projects.deleteBranch(branch.id);
+    await db.projects.deleteTree(treeId);
     await db.close();
   }
 }

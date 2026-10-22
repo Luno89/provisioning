@@ -27,8 +27,10 @@ function store(seed: { personas?: PersonaRecord[]; tools?: ToolDefinition[]; gra
     getMcpToolHints: async (ownerId) => hints.filter((one) => one.ownerId === ownerId),
     deleteMcpToolHint: async (ownerId, server, tool) => { hints = hints.filter((one) => !(one.ownerId === ownerId && one.server === server && one.tool === tool)); },
     getDeployments: async () => [{ id: 'd1', name: 'weather-api', ownerId: 'u1', status: 'running', appType: 'gitapp', gitappProjectId: 'p1' } as never],
-    getProjects: async () => [{ id: 'p1', name: 'Weather', ownerId: 'u1' } as never],
-    getTrees: async () => [],
+    projects: {
+      getProjects: async () => [{ id: 'p1', name: 'Weather', ownerId: 'u1' } as never],
+      getTrees: async () => [],
+    },
   };
   return { db, read: () => ({ personas, tools, grants, hints, servers }), newId: () => `m${(ids += 1)}` };
 }

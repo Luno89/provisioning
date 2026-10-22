@@ -25,7 +25,7 @@ const mount = async (user: typeof TEST_USER | null = TEST_USER) => {
   h = await mountRouter({
     prefix: '/api/leaves',
     user,
-    router: (db) => leavesRouter({ db, runs: new GroveRunService({ store: db, launcher }), deletion: deletionFor(db) }),
+    router: (db) => leavesRouter({ db: db.projects, runs: new GroveRunService({ store: db, launcher }), deletion: deletionFor(db) }),
   });
   return h!;
 };
@@ -39,9 +39,9 @@ const leaf = (over: Record<string, unknown> = {}) => ({
 describe('listing leaves', () => {
   it('shows only the caller\'s leaves, optionally one branch\'s', async () => {
     const harness = await mount();
-    await harness.db.saveLeaf(leaf({ id: 'mine' }) as never);
-    await harness.db.saveLeaf(leaf({ id: 'other-branch', branchId: 'b2' }) as never);
-    await harness.db.saveLeaf(leaf({ id: 'theirs', ownerId: 'someone-else' }) as never);
+    await harness.db.projects.saveLeaf(leaf({ id: 'mine' }) as never);
+    await harness.db.projects.saveLeaf(leaf({ id: 'other-branch', branchId: 'b2' }) as never);
+    await harness.db.projects.saveLeaf(leaf({ id: 'theirs', ownerId: 'someone-else' }) as never);
     expect((await axios.get(harness.url('/api/leaves'))).data.map((l: { id: string }) => l.id)).toEqual(['mine', 'other-branch']);
     expect((await axios.get(harness.url('/api/leaves?branchId=b2'))).data.map((l: { id: string }) => l.id)).toEqual(['other-branch']);
   });
@@ -63,7 +63,7 @@ describe('listing leaves', () => {
 describe('acting on one leaf', () => {
   it('404s another tenant\'s leaf on every route that takes an id', async () => {
     const harness = await mount();
-    await harness.db.saveLeaf(leaf({ id: 'theirs', ownerId: 'someone-else', status: 'failed' }) as never);
+    await harness.db.projects.saveLeaf(leaf({ id: 'theirs', ownerId: 'someone-else', status: 'failed' }) as never);
     const calls: [string, () => Promise<unknown>][] = [
       ['retry', () => axios.post(harness.url('/api/leaves/theirs/retry'), {})],
       ['settle', () => axios.post(harness.url('/api/leaves/theirs/settle'), { verdict: 'verified' })],
@@ -74,7 +74,7 @@ describe('acting on one leaf', () => {
       const err = await call().catch((e: { response?: { status?: number } }) => e);
       expect((err as { response?: { status?: number } }).response?.status, name).toBe(404);
     }
-    expect((await harness.db.getLeaves()).find((l) => l.id === 'theirs')?.status).toBe('failed');
+    expect((await harness.db.projects.getLeaves()).find((l) => l.id === 'theirs')?.status).toBe('failed');
   });
 });
 
@@ -88,7 +88,7 @@ describe('settling a claim a judge kept for a person', () => {
 
   it('verifies it, and the leaf succeeds', async () => {
     const harness = await mount();
-    await harness.db.saveLeaf(parked() as never);
+    await harness.db.projects.saveLeaf(parked() as never);
 
     const res = await axios.post(harness.url('/api/leaves/p1/settle'), { verdict: 'verified', note: 'checked it myself' });
 
@@ -97,7 +97,7 @@ describe('settling a claim a judge kept for a person', () => {
 
   it('fails it only with a reason, which the replan will read', async () => {
     const harness = await mount();
-    await harness.db.saveLeaf(parked() as never);
+    await harness.db.projects.saveLeaf(parked() as never);
 
     const bare = await axios.post(harness.url('/api/leaves/p1/settle'), { verdict: 'failed' }).catch((e) => e);
     expect(bare.response.status).toBe(409);
@@ -109,9 +109,9 @@ describe('settling a claim a judge kept for a person', () => {
 
   it('refuses a leaf that is not waiting for judgment, a verdict that is not one, and another owner\'s leaf', async () => {
     const harness = await mount();
-    await harness.db.saveLeaf(parked({ id: 'done', status: 'succeeded' }) as never);
-    await harness.db.saveLeaf(parked({ id: 'theirs', ownerId: 'someone-else' }) as never);
-    await harness.db.saveLeaf(parked() as never);
+    await harness.db.projects.saveLeaf(parked({ id: 'done', status: 'succeeded' }) as never);
+    await harness.db.projects.saveLeaf(parked({ id: 'theirs', ownerId: 'someone-else' }) as never);
+    await harness.db.projects.saveLeaf(parked() as never);
 
     const statusOf = (id: string, body: unknown) => axios.post(harness.url(`/api/leaves/${id}/settle`), body).then(() => 200, (e) => e.response.status);
     expect(await statusOf('done', { verdict: 'verified' })).toBe(409);
@@ -130,18 +130,18 @@ describe('retrying a failed engine leaf', () => {
     };
     h = await mountRouter({
       prefix: '/api/leaves',
-      router: (db) => leavesRouter({ db, runs: new GroveRunService({ store: db, launcher, checkNeeds: async (ownerId, treeId, taskIds) => { needsAsked.push({ ownerId, treeId, taskIds: [...taskIds] }); return {}; }, now: () => 'later' }), deletion: deletionFor(db) }),
+      router: (db) => leavesRouter({ db: db.projects, runs: new GroveRunService({ store: db, launcher, checkNeeds: async (ownerId, treeId, taskIds) => { needsAsked.push({ ownerId, treeId, taskIds: [...taskIds] }); return {}; }, now: () => 'later' }), deletion: deletionFor(db) }),
     });
-    await h.db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', createdAt: 'now', updatedAt: 'now' } as never);
-    await h.db.saveLeaf(leaf({ id: 'e1', status: 'failed', findings: 'test.sh exits 1', claim: { evidence: 'ran it', at: 'then' } }) as never);
-    await h.db.saveTask({ id: 'k1', ownerId: TEST_USER.id, leafId: 'e1', title: 'Write test.sh', doneMeans: 'it exits 0', dependsOn: [], status: 'failed', runs: [], createdAt: 'now', updatedAt: 'now' } as never);
-    await h.db.saveTask({ id: 'k2', ownerId: TEST_USER.id, leafId: 'e1', title: 'Write greet.js', doneMeans: 'it greets', dependsOn: [], status: 'done', runs: [], createdAt: 'now', updatedAt: 'now' } as never);
+    await h.db.projects.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', createdAt: 'now', updatedAt: 'now' } as never);
+    await h.db.projects.saveLeaf(leaf({ id: 'e1', status: 'failed', findings: 'test.sh exits 1', claim: { evidence: 'ran it', at: 'then' } }) as never);
+    await h.db.projects.saveTask({ id: 'k1', ownerId: TEST_USER.id, leafId: 'e1', title: 'Write test.sh', doneMeans: 'it exits 0', dependsOn: [], status: 'failed', runs: [], createdAt: 'now', updatedAt: 'now' } as never);
+    await h.db.projects.saveTask({ id: 'k2', ownerId: TEST_USER.id, leafId: 'e1', title: 'Write greet.js', doneMeans: 'it greets', dependsOn: [], status: 'done', runs: [], createdAt: 'now', updatedAt: 'now' } as never);
 
     const res = await axios.post(h.url('/api/leaves/e1/retry'));
 
     expect(res.data).toMatchObject({ status: 'pending', attempts: [{ attempt: 1, error: 'test.sh exits 1' }] });
     expect(res.data.claim).toBeUndefined();
-    expect((await h.db.getTasks(TEST_USER.id)).map((task) => [task.id, task.status]).sort()).toEqual([['k1', 'accepted'], ['k2', 'done']]);
+    expect((await h.db.projects.getTasks(TEST_USER.id)).map((task) => [task.id, task.status]).sort()).toEqual([['k1', 'accepted'], ['k2', 'done']]);
     expect(launcher.startGroveRun).toHaveBeenCalledWith(TEST_USER.id, 't1');
     expect(needsAsked.map((asked) => [asked.treeId, [...asked.taskIds].sort()])).toEqual([['t1', ['k1', 'k2']]]);
   });
@@ -154,14 +154,14 @@ describe('retrying a failed engine leaf', () => {
     };
     h = await mountRouter({
       prefix: '/api/leaves',
-      router: (db) => leavesRouter({ db, runs: new GroveRunService({ store: db, launcher, checkNeeds: async () => {
-        const parked = (await db.getLeaves()).find((entry) => entry.id === 'e2')!;
-        await db.saveLeaf({ ...parked, waitingFor: { reason: 'the workspace getting koala-e2e', since: 'later' } });
+      router: (db) => leavesRouter({ db: db.projects, runs: new GroveRunService({ store: db, launcher, checkNeeds: async () => {
+        const parked = (await db.projects.getLeaves()).find((entry) => entry.id === 'e2')!;
+        await db.projects.saveLeaf({ ...parked, waitingFor: { reason: 'the workspace getting koala-e2e', since: 'later' } });
         return { parked: ['e2'] };
       }, now: () => 'later' }), deletion: deletionFor(db) }),
     });
-    await h.db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', createdAt: 'now', updatedAt: 'now' } as never);
-    await h.db.saveLeaf(leaf({ id: 'e2', status: 'failed', findings: 'no koala-e2e' }) as never);
+    await h.db.projects.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', createdAt: 'now', updatedAt: 'now' } as never);
+    await h.db.projects.saveLeaf(leaf({ id: 'e2', status: 'failed', findings: 'no koala-e2e' }) as never);
     const res = await axios.post(h.url('/api/leaves/e2/retry'));
     expect(res.data).toMatchObject({ status: 'pending', waitingFor: { reason: 'the workspace getting koala-e2e' } });
     expect(launcher.startGroveRun).not.toHaveBeenCalled();
@@ -169,7 +169,7 @@ describe('retrying a failed engine leaf', () => {
 
   it('refuses a leaf that has not failed', async () => {
     const harness = await mount();
-    await harness.db.saveLeaf(leaf({ id: 'busy', status: 'running' }) as never);
+    await harness.db.projects.saveLeaf(leaf({ id: 'busy', status: 'running' }) as never);
     const err = await axios.post(harness.url('/api/leaves/busy/retry')).catch((e) => e);
     expect(err.response.status).toBe(409);
   });
@@ -178,9 +178,9 @@ describe('retrying a failed engine leaf', () => {
 describe('cancelling a leaf', () => {
   it('cancels unfinished work and tells the tree\'s run, and refuses finished work', async () => {
     const harness = await mount();
-    await harness.db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', createdAt: 'now', updatedAt: 'now' });
-    await harness.db.saveLeaf(leaf({ id: 'live', status: 'running' }) as never);
-    await harness.db.saveLeaf(leaf({ id: 'done', status: 'succeeded' }) as never);
+    await harness.db.projects.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', createdAt: 'now', updatedAt: 'now' });
+    await harness.db.projects.saveLeaf(leaf({ id: 'live', status: 'running' }) as never);
+    await harness.db.projects.saveLeaf(leaf({ id: 'done', status: 'succeeded' }) as never);
 
     const res = await axios.post(harness.url('/api/leaves/live/cancel'));
     expect(res.data).toMatchObject({ id: 'live', status: 'cancelled' });
@@ -195,21 +195,21 @@ describe('deleting a leaf', () => {
     const terminated: string[] = [];
     h = await mountRouter({
       prefix: '/api/leaves',
-      router: (db) => leavesRouter({ db, runs: new GroveRunService({ store: db, launcher }), deletion: deletionFor(db, terminated) }),
+      router: (db) => leavesRouter({ db: db.projects, runs: new GroveRunService({ store: db, launcher }), deletion: deletionFor(db, terminated) }),
     });
     const db = h.db;
-    await db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', createdAt: 'now', updatedAt: 'now' } as never);
-    await db.saveLeaf(leaf({ id: 'l1' }) as never);
-    await db.saveLeaf(leaf({ id: 'l2' }) as never);
-    await db.saveTask({ id: 'k1', ownerId: TEST_USER.id, leafId: 'l1', title: 'T', doneMeans: 'd', dependsOn: [], status: 'accepted', runs: [], createdAt: 'now', updatedAt: 'now' } as never);
-    await db.saveTask({ id: 'k2', ownerId: TEST_USER.id, leafId: 'l2', title: 'T', doneMeans: 'd', dependsOn: [], status: 'accepted', runs: [], createdAt: 'now', updatedAt: 'now' } as never);
-    await db.savePlanProposal({ id: 'p1', ownerId: TEST_USER.id, status: 'proposed', leafPlan: { treeId: 't1', leafId: 'l1', leafTitle: 'L', mode: 'replan', why: 'w', brief: 'b', tasks: [] }, createdAt: 'now', updatedAt: 'now' });
+    await db.projects.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', createdAt: 'now', updatedAt: 'now' } as never);
+    await db.projects.saveLeaf(leaf({ id: 'l1' }) as never);
+    await db.projects.saveLeaf(leaf({ id: 'l2' }) as never);
+    await db.projects.saveTask({ id: 'k1', ownerId: TEST_USER.id, leafId: 'l1', title: 'T', doneMeans: 'd', dependsOn: [], status: 'accepted', runs: [], createdAt: 'now', updatedAt: 'now' } as never);
+    await db.projects.saveTask({ id: 'k2', ownerId: TEST_USER.id, leafId: 'l2', title: 'T', doneMeans: 'd', dependsOn: [], status: 'accepted', runs: [], createdAt: 'now', updatedAt: 'now' } as never);
+    await db.projects.savePlanProposal({ id: 'p1', ownerId: TEST_USER.id, status: 'proposed', leafPlan: { treeId: 't1', leafId: 'l1', leafTitle: 'L', mode: 'replan', why: 'w', brief: 'b', tasks: [] }, createdAt: 'now', updatedAt: 'now' });
 
     await axios.delete(h.url('/api/leaves/l1'));
 
-    expect((await db.getLeaves()).map((l) => l.id)).toEqual(['l2']);
-    expect((await db.getTasks(TEST_USER.id)).map((t) => t.id)).toEqual(['k2']);
-    expect(await db.getPlanProposals(TEST_USER.id)).toEqual([]);
+    expect((await db.projects.getLeaves()).map((l) => l.id)).toEqual(['l2']);
+    expect((await db.projects.getTasks(TEST_USER.id)).map((t) => t.id)).toEqual(['k2']);
+    expect(await db.projects.getPlanProposals(TEST_USER.id)).toEqual([]);
     expect(terminated).toEqual(['grove-run-t1']);
   });
 });

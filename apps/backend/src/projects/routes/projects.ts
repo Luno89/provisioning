@@ -29,7 +29,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
   const router = Router();
 
   router.get('/', async (req, res) => {
-    const projects = await db.getProjects();
+    const projects = await db.projects.getProjects();
     const mine = projects.filter((p: any) => ownsProject(p, userOf(req)));
     const [runs, deployments] = await Promise.all([db.getPipelineRuns(), db.getDeployments()]);
     res.json(mine.map((p: any) => ({
@@ -84,7 +84,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
           .find((d: any) => d.id === executionTargetDeviceId && d.ownerId === userOf(req).id);
         if (!owned) return res.status(400).json({ error: 'Unknown local execution device' });
 
-        if (claimedByAnotherProject(await db.getProjects(), executionTargetDeviceId, path)) {
+        if (claimedByAnotherProject(await db.projects.getProjects(), executionTargetDeviceId, path)) {
           return res.status(409).json({ error: 'That machine (at that path) is already the execution target for another project.' });
         }
 
@@ -118,7 +118,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
           description: `Provisioning project: ${name}`,
           extra,
         })
-        : await db.saveProjectInfo({
+        : await db.projects.saveProjectInfo({
           id: uuidv4(),
           name,
           ownerId: userOf(req).id,
@@ -152,7 +152,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
           ? executionTargetPath.trim()
           : undefined;
 
-        if (claimedByAnotherProject(await db.getProjects(), executionTargetDeviceId, path, project.id)) {
+        if (claimedByAnotherProject(await db.projects.getProjects(), executionTargetDeviceId, path, project.id)) {
           return res.status(409).json({ error: 'That machine (at that path) is already the execution target for another project.' });
         }
 
@@ -176,7 +176,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
       patch.executionApproval = executionApproval;
     }
 
-    const updated = await db.saveProjectInfo(patch as any);
+    const updated = await db.projects.saveProjectInfo(patch as any);
     res.json(updated);
   }));
 

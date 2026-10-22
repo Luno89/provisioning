@@ -68,12 +68,12 @@ export interface ReleasesWiring {
 
 export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
   const { db, gitea, infra, clusters, temporalBridge, notices, postNotice, secrets, tenant } = deps;
-  const treeOfProject = async (projectId: string) => (await db.getTrees()).find((tree) => tree.projectIds?.[0] === projectId);
+  const treeOfProject = async (projectId: string) => (await db.projects.getTrees()).find((tree) => tree.projectIds?.[0] === projectId);
   const clusterById = async (id: string) => (id === 'provisioning-lunorica' ? clusters.getSystemClusterEntry() : (await db.getClusters()).find((cluster) => cluster.id === id));
   const slotCluster = () => createSlotCluster({ infra, repo: async () => gitea, syncVault: syncVaultFromProject(infra) });
 
   const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
-    const releaseWhen = (await treeTypeOfProject(db, project))?.releaseWhen;
+    const releaseWhen = (await treeTypeOfProject(db.projects, project))?.releaseWhen;
     if (!releaseWhen?.length || !project.giteaOwner || !project.giteaRepo) return { release: true };
     try {
       const [before, after] = await Promise.all([gitea.fileHashes(project.giteaOwner, project.giteaRepo, since), gitea.fileHashes(project.giteaOwner, project.giteaRepo, commit)]);
@@ -86,27 +86,27 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
   temporalBridge.decideRelease = decideRelease;
 
   const customizations = new CustomizationsService({
-    projects: () => db.getProjects(),
+    projects: () => db.projects.getProjects(),
     clusterById,
-    how: async (project) => releaseHowOf(project, await treeTypeOfProject(db, project), true),
+    how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
     cluster: slotCluster(),
     adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
-    trees: () => db.getTrees(),
-    branches: () => db.getBranches(),
-    leaves: () => db.getLeaves(),
-    tasks: (ownerId) => db.getTasks(ownerId),
-    savePlan: (proposal) => db.savePlanProposal(proposal),
-    treeTypeOf: async (project) => (await treeTypeOfProject(db, project))?.id ?? ODOO_TREE_TYPE,
+    trees: () => db.projects.getTrees(),
+    branches: () => db.projects.getBranches(),
+    leaves: () => db.projects.getLeaves(),
+    tasks: (ownerId) => db.projects.getTasks(ownerId),
+    savePlan: (proposal) => db.projects.savePlanProposal(proposal),
+    treeTypeOf: async (project) => (await treeTypeOfProject(db.projects, project))?.id ?? ODOO_TREE_TYPE,
   });
 
   const odooReleases = new OdooReleaseService({
     store: db,
     decide: decideRelease,
     runs: engineReleaseRuns({ runs: deps.runs, client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined) }),
-    how: async (project) => releaseHowOf(project, await treeTypeOfProject(db, project), true),
+    how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
     chartAt: async (owner, repo, commit) => (await gitea.getRawFile(owner, repo, CHART_FILE, commit)) !== null,
     diff: (project, base, head) => deps.projectRepos.diffCommits({ ownerId: project.ownerId!, owner: project.giteaOwner!, repo: project.giteaRepo!, base, head }),
-    releaseWhen: async (project) => (await treeTypeOfProject(db, project))?.releaseWhen,
+    releaseWhen: async (project) => (await treeTypeOfProject(db.projects, project))?.releaseWhen,
     clusterById,
     awaiting: (ownerId, project, run) => {
       postNotice('a project waits for its client\'s database', treeOfProject(project.id).then((tree) => notices.post(ownerId, { projectId: project.id, treeId: tree?.id }, awaitedNotice(project, run.commitSha, tree?.id))));
@@ -136,11 +136,11 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
   const releaseSettings = new ReleaseSettings({
     agents: async (ownerId) => (await deps.agents.agents(ownerId)).map((agent) => ({ slug: agent.slug, name: agent.name, description: agent.description })),
     procedureOf: async (ownerId, slug) => (await deps.registry.runnable(ownerId, slug))?.procedure,
-    treeTypes: (ownerId) => db.getTreeTypes(ownerId),
-    saveTreeType: (type) => db.saveTreeType(type),
-    projects: () => db.getProjects(),
-    saveProject: (project) => db.saveProject(project),
-    typeOfProject: (project) => treeTypeOfProject(db, project),
+    treeTypes: (ownerId) => db.projects.getTreeTypes(ownerId),
+    saveTreeType: (type) => db.projects.saveTreeType(type),
+    projects: () => db.projects.getProjects(),
+    saveProject: (project) => db.projects.saveProject(project),
+    typeOfProject: (project) => treeTypeOfProject(db.projects, project),
     hasChart: async (project) => Boolean(project.giteaOwner && project.giteaRepo && (await gitea.getRawFile(project.giteaOwner, project.giteaRepo, CHART_FILE, 'main')) !== null),
   });
   tenant.use('/api/release-settings', releaseSettingsRouter({ settings: releaseSettings }));
@@ -153,7 +153,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
     noteOnBuild: (run) => db.savePipelineRunInfo(run),
   });
   temporalBridge.onBuilt = async (project, run) => {
-    const how = releaseHowOf(project, await treeTypeOfProject(db, project), await odooReleases.releasesByChart(project, run.commitSha));
+    const how = releaseHowOf(project, await treeTypeOfProject(db.projects, project), await odooReleases.releasesByChart(project, run.commitSha));
     if (!how.app) {
       const outcome = await imageReleases.release(project, run, how.agent);
       if (typeof outcome === 'object') console.log(`[releases] ${project.name}: the build of ${run.commitSha.slice(0, 8)} was not deployed: ${'skipped' in outcome ? outcome.skipped : outcome.refused}`);
@@ -175,20 +175,20 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
   tenant.use('/api/projects', customizationsRouter({ customizations, getOwnedProject: deps.getOwnedProject, channelOf: async (project) => (await deps.channels.ensure(project))?.id }));
 
   const clientImports = new ClientImportService({
-    projects: () => db.getProjects(),
-    saveProject: (patch) => db.saveProjectInfo(patch),
+    projects: () => db.projects.getProjects(),
+    saveProject: (patch) => db.projects.saveProjectInfo(patch),
     clusterById,
     adapterOf: async (project) => {
-      const how = await releaseHowOf(project, await treeTypeOfProject(db, project), true);
+      const how = await releaseHowOf(project, await treeTypeOfProject(db.projects, project), true);
       return how.app === ODOO_RELEASE_ADAPTER.id ? ODOO_RELEASE_ADAPTER : undefined;
     },
     cluster: slotCluster(),
     odooVersion: async (project) => {
-      const tree = (await db.getTrees()).find((entry) => entry.ownerId === project.ownerId && entry.projectIds?.[0] === project.id);
+      const tree = (await db.projects.getTrees()).find((entry) => entry.ownerId === project.ownerId && entry.projectIds?.[0] === project.id);
       if (tree?.version) return projectMajor(tree.version);
       const declared = project.giteaOwner && project.giteaRepo ? odooVersionOfDockerfile(await gitea.getRawFile(project.giteaOwner, project.giteaRepo, 'Dockerfile', 'main').catch(() => null)) : undefined;
       if (declared) return declared;
-      const type = await treeTypeOfProject(db, project) ?? (await db.getTreeTypes(project.ownerId)).find((entry) => entry.id === ODOO_TREE_TYPE);
+      const type = await treeTypeOfProject(db.projects, project) ?? (await db.projects.getTreeTypes(project.ownerId)).find((entry) => entry.id === ODOO_TREE_TYPE);
       return type?.versions?.default ? projectMajor(type.versions.default) : undefined;
     },
     latestBuild: async (project) => latestBuildOf(await db.getPipelineRuns(), project.id),

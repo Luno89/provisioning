@@ -1,5 +1,7 @@
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
 import { MongoHubStore } from '../../hub/store.js';
+import { markingHubWrites } from '../../hub/lib/hub-sync.js';
+import { MongoProjectsStore } from '../../projects/store.js';
 import { MongoInstancesStore } from '../../instances/store.js';
 import { MongoAccountsStore } from '../../accounts/store.js';
 import { MongoPlatformStore } from '../store.js';
@@ -19,17 +21,12 @@ import type { StoredAppSpec } from '../../infrastructure/lib/app-spec.js';
 import { MongoClient, type Db, type Collection } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
-import type { Database, PartialInfo, BindingTypeRecord, SecretRequestFilter } from './db-interface.js';
-import type { Branch, Leaf } from '../../projects/lib/leaves.js';
-import type { Tree } from '../../projects/lib/trees.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, PipelineRunMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
+import type { Database, BindingTypeRecord } from './db-interface.js';
+import type { PartialInfo } from './types.js';
 import type { CorpusPage } from '../../engine/lib/corpus.js';
 import { type FrontierUrl, type FrontierClaim } from './frontier.js';
-import type { GiteaAccount } from '../../projects/lib/projects.js';
 import type { MemoryItem } from '../../memory/lib/memory-store.js';
-import type { Task } from '../../projects/lib/tasks.js';
-import type { PlanProposal } from '../../projects/lib/plan-proposals.js';
-import type { SecretRequest } from '../../projects/lib/secret-requests.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import { procedureKey, type ProcedureSource } from '../../engine/lib/procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from '../../engine/lib/run-traces.js';
@@ -39,7 +36,6 @@ import type { PersonaRecord as EnginePersona, ToolDefinition as EngineTool, Tool
 import type { PublishedWorkspace } from '../../engine/lib/published-workspace.js';
 import type { McpServerRecord } from '../../engine/lib/mcp-servers.js';
 import { evalRecordKey, type EvalCollection, type EvalRecord } from '../../checks/lib/eval-run.js';
-import type { TreeTypeSpec } from '../../projects/lib/tree-types.js';
 import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
 import type { ModelThinkingProfile } from '../../engine/lib/thinking-classifier.js';
 import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
@@ -89,6 +85,7 @@ const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (ki
 export class MongoDB implements Database {
   constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {
     this.hub = new MongoHubStore(() => this.db!);
+    this.projects = markingHubWrites(new MongoProjectsStore(() => this.db!), this.hub);
     this.instances = new MongoInstancesStore(() => this.db!);
     this.accounts = new MongoAccountsStore(() => this.db!);
     this.platform = new MongoPlatformStore(() => this.db!);
@@ -97,6 +94,7 @@ export class MongoDB implements Database {
   private client: MongoClient | null = null;
   private db: Db | null = null;
   readonly hub: MongoHubStore;
+  readonly projects: MongoProjectsStore;
   readonly instances: MongoInstancesStore;
   readonly accounts: MongoAccountsStore;
   readonly platform: MongoPlatformStore;
@@ -113,20 +111,8 @@ export class MongoDB implements Database {
     return this.db!.collection('pipelineRuns');
   }
 
-  private get projects(): Collection {
-    return this.db!.collection('projects');
-  }
-
   private get workspaceImages(): Collection {
     return this.db!.collection('workspaceImages');
-  }
-
-  private get treeTypes(): Collection {
-    return this.db!.collection('treeTypes');
-  }
-
-  private get giteaAccounts(): Collection {
-    return this.db!.collection('giteaAccounts');
   }
 
   private get corpus(): Collection {
@@ -135,14 +121,6 @@ export class MongoDB implements Database {
 
   private get frontier(): Collection {
     return this.db!.collection('crawl_frontier');
-  }
-
-  private get trees(): Collection {
-    return this.db!.collection('trees');
-  }
-
-  private get branches(): Collection {
-    return this.db!.collection('branches');
   }
 
   private get appSpecs(): Collection {
@@ -155,10 +133,6 @@ export class MongoDB implements Database {
 
   private get conversations(): Collection {
     return this.db!.collection('conversations');
-  }
-
-  private get leaves(): Collection {
-    return this.db!.collection('leaves');
   }
 
   private get modelEndpoints(): Collection {
@@ -213,14 +187,6 @@ export class MongoDB implements Database {
     return this.db!.collection('engineTools');
   }
 
-  private get tasks(): Collection {
-    return this.db!.collection('tasks');
-  }
-
-  private get planProposals(): Collection {
-    return this.db!.collection('planProposals');
-  }
-
   private get artifacts(): Collection {
     return this.db!.collection('artifacts');
   }
@@ -231,10 +197,6 @@ export class MongoDB implements Database {
 
   private get odooReleases(): Collection {
     return this.db!.collection('odooReleases');
-  }
-
-  private get secretRequests(): Collection {
-    return this.db!.collection('secretRequests');
   }
 
   private get mcpToolHints(): Collection {
@@ -309,22 +271,8 @@ export class MongoDB implements Database {
     await this.turnLogs.createIndex({ at: 1 }, { expireAfterSeconds: TURN_LOG_RETENTION_SECONDS });
     await this.turnLogs.createIndex({ ownerId: 1, seq: 1, at: -1 });
     await this.machineJoinCodes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-    await this.planProposals.createIndex({ ownerId: 1, conversationId: 1, createdAt: 1 });
-    await this.secretRequests.createIndex({ ownerId: 1, projectId: 1, key: 1 });
     await this.toolGrants.createIndex({ ownerId: 1, agent: 1 });
     await this.runEffort.createIndex({ ownerId: 1, procedureId: 1, modelKey: 1, finishedAt: -1 });
-    try {
-      await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, {
-        unique: true,
-        partialFilterExpression: { giteaOwner: { $gt: '' }, giteaRepo: { $gt: '' } },
-      });
-    } catch {
-      await this.projects.dropIndex('giteaOwner_1_giteaRepo_1');
-      await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, {
-        unique: true,
-        partialFilterExpression: { giteaOwner: { $gt: '' }, giteaRepo: { $gt: '' } },
-      });
-    }
     await this.pipelineRuns.createIndex({ projectId: 1 });
     await this.odooReleases.createIndex({ ownerId: 1, projectId: 1 });
     await this.artifacts.createIndex({ ownerId: 1, runId: 1 });
@@ -336,6 +284,7 @@ export class MongoDB implements Database {
     await this.platform.ensureIndexes();
     await this.accounts.ensureIndexes();
     await this.instances.ensureIndexes();
+    await this.projects.ensureIndexes();
   }
 
   async dropDatabase(): Promise<void> {
@@ -436,35 +385,6 @@ export class MongoDB implements Database {
     return d;
   }
 
-  async getProjects(): Promise<ProjectMetadata[]> {
-    return (await this.projects.find({}).toArray()).map(doc => fromDoc<ProjectMetadata>(doc));
-  }
-
-  async saveProject(project: ProjectMetadata): Promise<void> {
-    const doc = toDoc(project);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.projects.replaceOne({ _id: id }, filter, { upsert: true });
-  }
-
-  async saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata> {
-    const id = project.id || uuidv4();
-    const previous = (await this.getProjects()).find((x: ProjectMetadata) => x.id === id);
-    const merged = mergeRecord(previous, project as Partial<ProjectMetadata>);
-    const p: ProjectMetadata = {
-      ...merged,
-
-      id: id,
-      name: merged.name || '',
-      giteaOwner: merged.giteaOwner || '',
-      giteaRepo: merged.giteaRepo || '',
-      appType: merged.appType || 'gitapp',
-      createdAt: merged.createdAt || new Date().toISOString(),
-    };
-    await this.saveProject(p);
-    return p;
-  }
-
   async getPipelineRuns(): Promise<PipelineRunMetadata[]> {
     return (await this.pipelineRuns.find({}).toArray()).map(doc => fromDoc<PipelineRunMetadata>(doc));
   }
@@ -549,36 +469,6 @@ export class MongoDB implements Database {
 
   async deleteFrontier(ingestId: string): Promise<void> {
     await this.frontier.deleteMany({ ingestId });
-  }
-
-  async getTrees(): Promise<Tree[]> {
-    return (await this.trees.find({}).toArray()).map(doc => fromDoc<Tree>(doc));
-  }
-
-  async saveTree(tree: Tree): Promise<void> {
-    const doc = toDoc(tree);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
-    await this.trees.replaceOne({ _id: id }, rest, { upsert: true });
-  }
-
-  async deleteTree(id: string): Promise<void> {
-    await this.trees.deleteOne({ _id: id as any });
-  }
-
-  async getBranches(): Promise<Branch[]> {
-    return (await this.branches.find({}).toArray()).map(doc => fromDoc<Branch>(doc));
-  }
-
-  async saveBranch(branch: Branch): Promise<void> {
-    const doc = toDoc(branch);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.branches.replaceOne({ _id: id }, filter, { upsert: true });
-  }
-
-  async deleteBranch(id: string): Promise<void> {
-    await this.branches.deleteOne({ _id: id as any });
   }
 
   async getAppSpecs(): Promise<StoredAppSpec[]> {
@@ -688,52 +578,6 @@ export class MongoDB implements Database {
     );
   }
 
-  async getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]> {
-    const filter = ownerId ? { $or: [{ ownerId }, { ownerId: { $exists: false } }] } : {};
-    const docs = await this.treeTypes.find(filter).toArray();
-    return docs.map(({ _id, ...rest }) => rest as unknown as TreeTypeSpec);
-  }
-
-  async saveTreeType(treeType: TreeTypeSpec): Promise<void> {
-    const { _id: _ignored, ...doc } = treeType as TreeTypeSpec & { _id?: unknown };
-    await this.treeTypes.replaceOne(
-      { _id: `${treeType.ownerId}:${treeType.id}` } as never,
-      doc,
-      { upsert: true },
-    );
-  }
-
-  async deleteTreeType(id: string, ownerId: string): Promise<void> {
-    await this.treeTypes.deleteOne({ _id: `${ownerId}:${id}` } as never);
-  }
-
-  async getGiteaAccount(ownerId: string): Promise<GiteaAccount | null> {
-    const doc = await this.giteaAccounts.findOne({ _id: ownerId as any });
-    if (!doc) return null;
-    const { _id, ...rest } = doc as any;
-    return { ...rest, ownerId: String(_id) } as GiteaAccount;
-  }
-
-  async saveGiteaAccount(account: GiteaAccount): Promise<void> {
-    const { ownerId, ...rest } = account;
-    await this.giteaAccounts.replaceOne({ _id: ownerId as any }, rest, { upsert: true });
-  }
-
-  async getLeaves(): Promise<Leaf[]> {
-    return (await this.leaves.find({}).toArray()).map(doc => fromDoc<Leaf>(doc));
-  }
-
-  async saveLeaf(leaf: Leaf): Promise<void> {
-    const doc = toDoc(leaf);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.leaves.replaceOne({ _id: id }, filter, { upsert: true });
-  }
-
-  async deleteLeaf(id: string): Promise<void> {
-    await this.leaves.deleteOne({ _id: id as any });
-  }
-
   async getModelEndpoints(): Promise<ModelEndpointMetadata[]> {
     return (await this.modelEndpoints.find({}).toArray()).map(doc => fromDoc<ModelEndpointMetadata>(doc));
   }
@@ -777,21 +621,6 @@ export class MongoDB implements Database {
 
   async deletePendingApproval(id: string): Promise<void> {
     await this.pendingApprovals.deleteOne({ _id: id as any });
-  }
-
-  async removeProjectRecords(projectId: string): Promise<Record<string, number>> {
-    const removed: Record<string, number> = {};
-    for (const name of ['pipelineRuns', 'odooReleases', 'corpus', 'secretRequests', 'pendingApprovals', 'tasks', 'fileShares']) {
-      const { deletedCount } = await this.db!.collection(name).deleteMany({ projectId });
-      if (deletedCount) removed[name] = deletedCount;
-    }
-    for (const name of ['conversations', 'memories']) {
-      const { modifiedCount } = await this.db!.collection(name).updateMany({ projectId }, { $unset: { projectId: '' } });
-      if (modifiedCount) removed[`${name} unlinked`] = modifiedCount;
-    }
-    const { deletedCount } = await this.projects.deleteOne({ _id: projectId as never });
-    if (deletedCount) removed.projects = deletedCount;
-    return removed;
   }
 
   async saveScriptedRequest(request: ScriptedRequestRecord): Promise<void> {
@@ -848,45 +677,6 @@ export class MongoDB implements Database {
     await this.memories.deleteOne({ _id: id as any });
   }
 
-  async getTasks(ownerId?: string): Promise<Task[]> {
-    const filter = ownerId ? { ownerId } : {};
-    const docs = await this.tasks.find(filter).toArray();
-    return docs.map((d: Record<string, unknown>) => fromDoc<Task>(d));
-  }
-
-  async saveTask(task: Task): Promise<void> {
-    const doc = toDoc(task);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
-    await this.tasks.replaceOne({ _id: id }, rest, { upsert: true });
-  }
-
-  async deleteTask(id: string): Promise<void> {
-    await this.tasks.deleteOne({ _id: id as any });
-  }
-
-  async getPlanProposals(ownerId: string, conversationId?: string): Promise<PlanProposal[]> {
-    const filter = conversationId === undefined ? { ownerId } : { ownerId, conversationId };
-    const docs = await this.planProposals.find(filter).sort({ createdAt: 1 }).toArray();
-    return docs.map((d: Record<string, unknown>) => fromDoc<PlanProposal>(d));
-  }
-
-  async getPlanProposal(ownerId: string, id: string): Promise<PlanProposal | undefined> {
-    const doc = await this.planProposals.findOne({ _id: id as any, ownerId });
-    return doc ? fromDoc<PlanProposal>(doc as Record<string, unknown>) : undefined;
-  }
-
-  async savePlanProposal(proposal: PlanProposal): Promise<void> {
-    const doc = toDoc(proposal);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
-    await this.planProposals.replaceOne({ _id: id }, rest, { upsert: true });
-  }
-
-  async deletePlanProposal(ownerId: string, id: string): Promise<void> {
-    await this.planProposals.deleteOne({ _id: id as any, ownerId });
-  }
-
   async saveArtifact(artifact: StoredArtifact): Promise<void> {
     const { _id, ...rest } = toDoc(artifact);
     await this.artifacts.replaceOne({ _id }, rest, { upsert: true });
@@ -928,31 +718,6 @@ export class MongoDB implements Database {
     const doc = toDoc(release);
     const { _id, ...rest } = doc;
     await this.odooReleases.replaceOne({ _id }, rest, { upsert: true });
-  }
-
-  async getSecretRequests(ownerId: string, filter: SecretRequestFilter = {}): Promise<SecretRequest[]> {
-    const query: Record<string, unknown> = { ownerId };
-    if (filter.conversationId !== undefined) query.conversationId = filter.conversationId;
-    if (filter.projectId !== undefined) query.projectId = filter.projectId;
-    if (filter.treeId !== undefined) query.treeId = filter.treeId;
-    const docs = await this.secretRequests.find(query).sort({ createdAt: 1 }).toArray();
-    return docs.map((d: Record<string, unknown>) => fromDoc<SecretRequest>(d));
-  }
-
-  async getSecretRequest(ownerId: string, id: string): Promise<SecretRequest | undefined> {
-    const doc = await this.secretRequests.findOne({ _id: id as any, ownerId });
-    return doc ? fromDoc<SecretRequest>(doc as Record<string, unknown>) : undefined;
-  }
-
-  async saveSecretRequest(request: SecretRequest): Promise<void> {
-    const doc = toDoc(request);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
-    await this.secretRequests.replaceOne({ _id: id }, rest, { upsert: true });
-  }
-
-  async deleteSecretRequest(ownerId: string, id: string): Promise<void> {
-    await this.secretRequests.deleteOne({ _id: id as any, ownerId });
   }
 
   async getMcpToolHints(ownerId: string): Promise<McpToolHint[]> {

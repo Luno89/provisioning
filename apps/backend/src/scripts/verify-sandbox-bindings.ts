@@ -19,7 +19,7 @@ async function main(): Promise<void> {
   const created: string[] = [];
 
   try {
-    const projects = await db.getProjects();
+    const projects = await db.projects.getProjects();
     const project = projects.find((p: any) => (p.needs ?? []).length);
     if (!project) return console.log('No project declares any dependency. Nothing to verify.');
 

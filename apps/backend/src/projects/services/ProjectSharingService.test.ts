@@ -20,12 +20,12 @@ async function setUp() {
     store: db, sharing: localHubSharing(hub, 'combined'), sync, dataKey: 'k'.repeat(32) as never,
     ownerRepo: async () => ({ url: 'unused' }), notify: async (_owner, _scope, notice) => { notices.push(notice); }, now: () => now,
   });
-  await db.saveProject({ id: 'p1', ownerId: 'ann', name: 'Shop', createdAt: now } as never);
-  await db.saveProject({ id: 'p2', ownerId: 'ann', name: 'Mine', createdAt: now } as never);
-  await db.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
-  await db.saveTree({ id: 't2', ownerId: 'ann', name: 'Mine', type: 'odoo' as never, projectIds: ['p2'], createdAt: now, updatedAt: now });
-  await db.saveBranch({ id: 'b1', ownerId: 'ann', treeId: 't1', title: 'Pay', createdAt: now, updatedAt: now });
-  await db.saveLeaf({ id: 'l1', ownerId: 'ann', branchId: 'b1', title: 'Checkout', status: 'pending', createdAt: now, updatedAt: now });
+  await db.projects.saveProject({ id: 'p1', ownerId: 'ann', name: 'Shop', createdAt: now } as never);
+  await db.projects.saveProject({ id: 'p2', ownerId: 'ann', name: 'Mine', createdAt: now } as never);
+  await db.projects.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
+  await db.projects.saveTree({ id: 't2', ownerId: 'ann', name: 'Mine', type: 'odoo' as never, projectIds: ['p2'], createdAt: now, updatedAt: now });
+  await db.projects.saveBranch({ id: 'b1', ownerId: 'ann', treeId: 't1', title: 'Pay', createdAt: now, updatedAt: now });
+  await db.projects.saveLeaf({ id: 'l1', ownerId: 'ann', branchId: 'b1', title: 'Checkout', status: 'pending', createdAt: now, updatedAt: now });
   await db.saveConversation({ id: 'channel-p1', ownerId: 'ann', kind: 'channel', treeId: 't1', projectId: 'p1', messages: [{ role: 'user', content: 'earlier talk', at: now }], createdAt: now, updatedAt: now } as never);
   await db.saveConversation({ id: 'mine', ownerId: 'ann', treeId: 't1', projectId: 'p1', messages: [], createdAt: now, updatedAt: now } as never);
   return { db, hub, store, sharing };
@@ -57,14 +57,14 @@ describe('sharing a project from its owner\'s instance', () => {
     const shared = await sharing.share(ann, 'p1');
     if (!shared.ok) throw new Error(shared.why);
     const hubId = shared.value.shared!.hubProjectId;
-    await db.saveLeaf({ id: 'l1', ownerId: 'ann', branchId: 'b1', title: 'Checkout', status: 'running', createdAt: now, updatedAt: now });
+    await db.projects.saveLeaf({ id: 'l1', ownerId: 'ann', branchId: 'b1', title: 'Checkout', status: 'running', createdAt: now, updatedAt: now });
 
     expect(await sharing.takeBack('ann', 'p1', 'shop')).toMatchObject({ ok: false, status: 400 });
     const back = await sharing.takeBack('ann', 'p1', 'Shop');
     expect(back).toMatchObject({ ok: true, value: { moves: { stories: 1 } } });
     expect(back.ok && back.value.shared).toBeUndefined();
     expect([await store.getProject(hubId), await hub.mine('ann'), await db.hub.getHubLinks(), await db.hub.hubSnapshot('leaves', 'l1')]).toEqual([undefined, [], [], undefined]);
-    expect((await db.getLeaves())[0]).toMatchObject({ status: 'running' });
+    expect((await db.projects.getLeaves())[0]).toMatchObject({ status: 'running' });
     expect(await sharing.takeBack('ann', 'p1', 'Shop')).toMatchObject({ ok: false, status: 409 });
   });
 });

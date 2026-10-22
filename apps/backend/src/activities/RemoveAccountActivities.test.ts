@@ -22,9 +22,9 @@ const deps = (over: Partial<AccountRemovalDeps> = {}): AccountRemovalDeps => ({
 const seed = async (ownerId: string) => {
   await db.accounts.saveUser({ id: ownerId, email: `${ownerId}@example.com`, twoFactorEnabled: false, emailVerified: true, createdAt: 'then' });
   await db.saveConversation({ id: `${ownerId}-c1`, ownerId, title: 'chat', messages: [], liveTurn: { runId: 'run-live', startedAt: 'then' }, createdAt: 'then', updatedAt: 'then' } as never);
-  await db.saveTree({ id: `${ownerId}-t1`, ownerId, name: 'tree', projectIds: [], createdAt: 'then', updatedAt: 'then' } as never);
+  await db.projects.saveTree({ id: `${ownerId}-t1`, ownerId, name: 'tree', projectIds: [], createdAt: 'then', updatedAt: 'then' } as never);
   await db.saveMemory({ id: `${ownerId}-m1`, ownerId, title: 'm', text: 't', createdAt: 'then', updatedAt: 'then' } as never);
-  await db.saveGiteaAccount({ ownerId, username: `koala-${ownerId}`, passwordEnc: 'x', createdAt: 'then' });
+  await db.projects.saveGiteaAccount({ ownerId, username: `koala-${ownerId}`, passwordEnc: 'x', createdAt: 'then' });
   await db.saveMemoryWatermark(`conversation:${ownerId}-c1`, '4');
 };
 
@@ -47,7 +47,7 @@ describe('the steps that remove an account', () => {
   });
 
   it('stops its projects\' releases and running builds', async () => {
-    await db.saveProject({ id: 'bo-shop', name: 'shop', ownerId: 'bo', appType: 'gitapp', createdAt: 'then' });
+    await db.projects.saveProject({ id: 'bo-shop', name: 'shop', ownerId: 'bo', appType: 'gitapp', createdAt: 'then' });
     await db.savePipelineRun({ id: 'r1', projectId: 'bo-shop', status: 'running', temporalWorkflowId: 'pipeline-r1', startedAt: 'then' } as never);
     await db.savePipelineRun({ id: 'r2', projectId: 'bo-shop', status: 'succeeded', temporalWorkflowId: 'pipeline-r2', startedAt: 'then' } as never);
     await createAccountRemovalActivities(deps()).RemoveAccountWorkflowsActivity({ ownerId: 'bo' });
@@ -91,8 +91,8 @@ describe('the steps that remove an account', () => {
     expect(await db.getMemoryWatermark('conversation:bo-c1')).toBeUndefined();
     expect(await db.accounts.getUserById('ana')).toBeDefined();
     expect(await db.getConversation('ana', 'ana-c1')).toBeDefined();
-    expect((await db.getTrees()).map((tree) => tree.id)).toEqual(['ana-t1']);
-    expect(await db.getGiteaAccount('ana')).not.toBeNull();
+    expect((await db.projects.getTrees()).map((tree) => tree.id)).toEqual(['ana-t1']);
+    expect(await db.projects.getGiteaAccount('ana')).not.toBeNull();
     expect(await db.getMemoryWatermark('conversation:ana-c1')).toBe('4');
   });
 

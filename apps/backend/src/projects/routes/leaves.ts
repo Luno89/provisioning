@@ -2,12 +2,12 @@ import { Router, type Request } from 'express';
 import { asyncRoute } from '../../platform/middleware/async-route.js';
 import { ownedBy } from '../../platform/lib/ownership.js';
 import type { Leaf } from '../lib/leaves.js';
-import type { Database } from '../../platform/lib/db-interface.js';
+import type { ProjectsStore } from '../store.js';
 import type { GroveRunService } from '../services/GroveRunService.js';
 import type { GroveDeletionService } from '../services/GroveDeletionService.js';
 
 export interface LeavesRouterDeps {
-  db: Pick<Database, 'getLeaves'>;
+  db: Pick<ProjectsStore, 'getLeaves'>;
   runs: Pick<GroveRunService, 'retryLeaf' | 'cancelLeaf' | 'settleClaim'>;
   deletion: Pick<GroveDeletionService, 'deleteLeaf'>;
 }

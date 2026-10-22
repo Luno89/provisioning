@@ -22,8 +22,8 @@ const providers = [{ id: 'tabby', name: 'Tabby' }, { id: 'vllm', name: 'vLLM' }]
 
 const setUp = async () => {
   const db = await testDatabase();
-  await seedTreeTypes(db);
-  await db.saveTree({ id: 't1', ownerId: 'u1', name: 'shop', type: 'api-service', createdAt: 'x', updatedAt: 'x' } as never);
+  await seedTreeTypes(db.projects);
+  await db.projects.saveTree({ id: 't1', ownerId: 'u1', name: 'shop', type: 'api-service', createdAt: 'x', updatedAt: 'x' } as never);
   const service = new TreeModelsService({
     store: db,
     models: {
@@ -69,7 +69,7 @@ describe('the models a tree works with', () => {
     expect(await service.modelFor('u1', 'elsewhere', 'executor')).toBeUndefined();
 
     await service.set('u1', 't1', { agent: 'leaf-judge', modelId: null });
-    expect((await db.getTrees()).find((tree) => tree.id === 't1')?.models).toBeUndefined();
+    expect((await db.projects.getTrees()).find((tree) => tree.id === 't1')?.models).toBeUndefined();
   });
 
   it('takes an agent on one of the person\'s machines, connected or not, for an agent whose procedure hands work to a machine', async () => {
@@ -89,8 +89,8 @@ describe('the models a tree works with', () => {
 
   it('says when a chosen machine can no longer do the work', async () => {
     const { db, service } = await setUp();
-    const tree = (await db.getTrees()).find((entry) => entry.id === 't1')!;
-    await db.saveTree({ ...tree, models: { executor: 'machine:dev-1:gemini' } });
+    const tree = (await db.projects.getTrees()).find((entry) => entry.id === 't1')!;
+    await db.projects.saveTree({ ...tree, models: { executor: 'machine:dev-1:gemini' } });
     const view = await service.view('u1', 't1');
     expect(view.ok && view.value.rows.find((row) => row.agent === 'executor')?.chosen).toEqual({ modelId: 'machine:dev-1:gemini', gone: true });
   });
@@ -105,8 +105,8 @@ describe('the models a tree works with', () => {
 
   it('says when a chosen model is gone', async () => {
     const { db, service } = await setUp();
-    const tree = (await db.getTrees()).find((entry) => entry.id === 't1')!;
-    await db.saveTree({ ...tree, models: { executor: 'deleted-model' } });
+    const tree = (await db.projects.getTrees()).find((entry) => entry.id === 't1')!;
+    await db.projects.saveTree({ ...tree, models: { executor: 'deleted-model' } });
     const view = await service.view('u1', 't1');
     expect(view.ok && view.value.rows.find((row) => row.agent === 'executor')?.chosen).toEqual({ modelId: 'deleted-model', gone: true });
   });
