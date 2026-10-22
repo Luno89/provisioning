@@ -53,6 +53,7 @@ import { wireMonitoring } from './wiring/monitoring.js';
 import { wireInfrastructure } from './wiring/infrastructure.js';
 import { wireAccounts } from './wiring/accounts.js';
 import { hubInstanceWork, wireHub } from './wiring/hub.js';
+import { InstanceSide, wireInstances, wireMoveExport } from './wiring/instances.js';
 import { proceduresRouter } from './routes/procedures.js';
 import { ProcedureService } from './services/ProcedureService.js';
 import { createProcedureStore, stepNeedsReader } from './engine-host/registries/procedure-store.js';
@@ -85,16 +86,8 @@ import { fingerprintOf } from './lib/bench.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
 import { startedFor } from './lib/workflow-owner.js';
-import { poolSettingsFrom } from './lib/pool.js';
 import { keepTrying } from './lib/keep-trying.js';
 import { mongoTarget } from './lib/mongo-db.js';
-import { MoveExport } from './services/MoveExport.js';
-import { moveRouter } from './routes/move.js';
-import { MoveRelay, kubeconfigFile } from './services/MoveRelay.js';
-import { issueMoveToken } from './lib/identity-token.js';
-import { MOVE_FINISHED, MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } from './lib/instance-move.js';
-import { PoolMonitoringService } from './services/PoolMonitoringService.js';
-import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from './lib/pool-trial.js';
 import { askDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from './lib/local-agent-registry.js';
 import { MachineService } from './services/MachineService.js';
 import { RootMeshKeys } from './services/RootMeshKeys.js';
@@ -117,7 +110,6 @@ import { TemporalBridge } from './services/TemporalBridge.js';
 import WorkerService from './services/WorkerService.js';
 import { sharedClusterProxy } from './services/ClusterProxyService.js';
 import net from 'net';
-import crypto from 'crypto';
 import { spawn } from 'child_process';
 import axios from 'axios';
 import { httpCheckAccess } from './services/CheckToolAccess.js';
@@ -140,9 +132,7 @@ import { McpServerService } from './services/McpServerService.js';
 import { hostedMcpUrl } from './lib/mcp-hosted-url.js';
 import { MCP_SERVER_TEMPLATES } from './extensions/mcp/templates.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
-import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { seedAll } from './scripts/seed-all.js';
-import type { SearchOutcome } from './lib/web-tools.js';
 import { createGroveLauncher } from './engine-host/grove-launcher.js';
 import { groveAgentOf, resolveTreeType, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, renderStarterFiles, versionVars } from './lib/tree-types.js';
 import { RunningService } from './services/RunningService.js';
@@ -180,23 +170,12 @@ import { ScriptedModelService } from './services/ScriptedModelService.js';
 import { extensionServiceFor } from './services/ExtensionService.js';
 import { loadKeys } from './lib/keys.js';
 import { signJWT } from './lib/auth.js';
-import { roleFromEnv, servesTenants, holdsAccounts, signsInThroughRoot } from './lib/platform-role.js';
-import { HUB_AUDIENCE, hubInstancePart } from './lib/hub.js';
+import { roleFromEnv, servesTenants, holdsAccounts } from './lib/platform-role.js';
 import { machinePayloads, type GetAnswer, type PutAnswer, type RingAnswer } from './lib/machine-payloads.js';
 import { IdentityService } from './services/IdentityService.js';
-import { identityRouter } from './routes/identity.js';
-import { handoffRouter } from './routes/handoff.js';
-import { InstanceService } from './services/InstanceService.js';
-import { InstanceRoutes, dockerCaddy } from './services/InstanceRoutes.js';
-import { InstanceAddresses, adminEdge } from './services/InstanceAddresses.js';
-import { instanceTrialRouter } from './routes/instance-trial.js';
-import { InstanceTrial } from './services/InstanceTrial.js';
-import { instanceAddressesRouter } from './routes/instance-addresses.js';
 import { MailService } from './services/MailService.js';
 import { NotificationService } from './services/NotificationService.js';
 import { emailWayFrom } from './lib/email-way.js';
-import { InstanceChart } from './services/InstanceChart.js';
-import { instancesRouter } from './routes/instances.js';
 import { artifactsRouter } from './routes/artifacts.js';
 import { providerServing } from './lib/model-registry.js';
 import { WorkspaceDependencyService } from './services/WorkspaceDependencyService.js';
@@ -231,8 +210,6 @@ function startHostTunnel(port = 8000) {
     console.log(`🚀 Host Tunnel Server active on http://[::]:${port}`);
   });
 }
-
-const DEFAULT_LOG_LEVEL = 50;
 
 export async function bootstrap(): Promise<{ app: express.Application; io: SocketServer; temporalBridge?: TemporalBridge; db: Database }> {
   const app = express();
@@ -279,19 +256,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const appService = new AppService(db, infraService, clusterService, builderService);
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
-  let instanceAddresses: InstanceAddresses | undefined;
-  const edgeName = process.env.INSTANCE_NAME;
-  const edge = role.instance && edgeName && process.env.EDGE_ADMIN_URL && process.env.EDGE_CADDYFILE
-    ? adminEdge(edgeName, process.env.EDGE_ADMIN_URL, process.env.EDGE_CADDYFILE, () => instanceAddresses)
-    : undefined;
-  const appExposureService = new AppExposureService(db, infraService, clusterService, io, edge);
-  if (edge && role.instance) {
-    instanceAddresses = new InstanceAddresses(
-      { rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: process.env.INSTANCE_CREDENTIAL ?? '', name: edge.name },
-      () => appExposureService.syncExposedApps(),
-    );
-    instanceAddresses.refresh().catch((err: Error) => console.warn(`[addresses] ${err.message}`));
-  }
+  const instanceSide = new InstanceSide(role, process.env);
+  const appExposureService = new AppExposureService(db, infraService, clusterService, io, instanceSide.edge);
   const clusterProxyService = sharedClusterProxy();
   const giteaService = new GiteaService(infraService, keys.data, '/tmp/kubeconfig-provisioning-lunorica');
   await giteaService.ensureClusterSecret().catch((err: Error) =>
@@ -329,7 +295,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     },
     itemChatOf: async (ownerId, item) => (await itemChats.ensure(ownerId, item))?.id,
   });
-  const treeOfProject = async (projectId: string) => (await db.getTrees()).find((tree) => tree.projectIds?.[0] === projectId);
   const postNotice = (what: string, posting: Promise<unknown>) => { posting.catch((err: Error) => console.warn(`[notices] ${what}: ${err.message}`)); };
   const projectSecrets = projectSecretsFor({
     db,
@@ -656,21 +621,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const { requireAdmin, userFromSessionCookie } = auth;
 
   let runningNow: (() => Promise<string[] | 'unknown'>) | undefined;
-  const moveExport = role.role === 'instance' && process.env.POOL === 'true' && role.trusted && role.instance ? new MoveExport({
-    instanceId: role.instance.id,
-    trusted: role.trusted,
-    dataDir: path.join(__dirname, '../data'),
-    mongo: mongoTarget(process.env),
-    env: process.env,
+  await wireMoveExport({
+    role, env: process.env, app, dataDir: path.join(__dirname, '../data'), mongo: mongoTarget(process.env),
     running: async () => (runningNow ? runningNow() : 'unknown'),
-  }) : undefined;
-  if (moveExport) {
-    await moveExport.load();
-    app.use('/api', (req, res, next) => (moveExport.isFrozen() && !answersWhileMoving(req.path)
-      ? res.status(503).json({ error: 'This instance is moving to your own machine; it opens there once the move is done' })
-      : next()));
-    app.use('/api/move', moveRouter({ move: moveExport, log: (message) => console.warn(message) }));
-  }
+  });
 
   app.use('/api', auth.requireAuth);
   app.get('/api/metrics', asyncRoute(async (req, res) => {
@@ -842,92 +796,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.use('/api/auth', authRouter({
     db, authService, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, accounts: holdsAccounts(role), hub: role.role === 'hub',
   }));
-  if (holdsAccounts(role)) app.use('/api/identity', identityRouter({ identity, servesTenants: servesTenants(role), signedIn: (req) => auth.userFromSessionCookie(req.headers.cookie) }));
-  if (holdsAccounts(role)) {
-    const repoRoot = path.join(__dirname, '../../..');
-    const instanceChart = new InstanceChart(repoRoot);
-    const routingDomain = process.env.INGRESS_DOMAIN || undefined;
-    const instanceRoutes = routingDomain
-      ? new InstanceRoutes(db, routingDomain, path.join(__dirname, '../data/caddy'), dockerCaddy(process.env.CADDY_CONTAINER || 'nowrinkles-caddy', process.env.CADDY_TLS_ADDRESS || '127.0.0.1:443'), (message) => console.error(message))
-      : undefined;
-    const siteNames = [process.env.APP_DOMAIN, process.env.MESH_DOMAIN]
-      .filter((site): site is string => Boolean(site && routingDomain && site.endsWith(`.${routingDomain}`)))
-      .map((site) => site.slice(0, -(routingDomain!.length + 1)));
-    const instanceService = new InstanceService(db, {
-      rootUrl: PUBLIC_URL,
-      rootPublicKeys: () => identity.publicKeys().map((key) => key.publicKey),
-      meshLoginServer: process.env.MESH_LOGIN_SERVER,
-      registry: process.env.INSTANCE_REGISTRY ?? '',
-      imageTag: process.env.INSTANCE_IMAGE_TAG || 'dev',
-      chartVersion: await instanceChart.version(),
-      domain: routingDomain,
-      siteNames,
-      pool: (() => {
-        const pool = poolSettingsFrom(process.env, '/tmp/kubeconfig-provisioning-lunorica');
-        return 'off' in pool ? pool : { slots: pool.slots, trialDays: pool.trialDays };
-      })(),
-    }, headscaleService, () => new Date(), () => instanceRoutes?.changed(), {
-      start: async (instanceId, ownerId) => {
-        await (await getTemporalClient()).workflow.start('PoolInstanceWorkflow', {
-          workflowId: `pool-instance-${instanceId}`,
-          taskQueue: process.env.POOL_TASK_QUEUE || 'host-ops-queue',
-          args: [{ instanceId }],
-          ...startedFor(ownerId),
-        });
-      },
-      trialChanged: async (instanceId) => {
-        await (await getTemporalClient()).workflow.getHandle(poolTrialWorkflowId(instanceId)).signal(TRIAL_CHANGED).catch((error: Error) => {
-          if (!/not found|already completed/i.test(error.message)) throw error;
-        });
-      },
-      remove: async (instanceId, ownerId) => {
-        const temporal = await getTemporalClient();
-        await temporal.workflow.start('PoolRemoveWorkflow', {
-          workflowId: poolRemoveWorkflowId(instanceId),
-          taskQueue: process.env.POOL_TASK_QUEUE || 'host-ops-queue',
-          args: [{ instanceId }],
-          ...startedFor(ownerId),
-        });
-      },
-      move: async (instanceId, ownerId) => {
-        await (await getTemporalClient()).workflow.start('PoolMoveWorkflow', {
-          workflowId: poolMoveWorkflowId(instanceId),
-          taskQueue: process.env.POOL_TASK_QUEUE || 'host-ops-queue',
-          args: [{ instanceId }],
-          workflowIdReusePolicy: 'ALLOW_DUPLICATE',
-          ...startedFor(ownerId),
-        });
-      },
-      moveFinished: async (instanceId) => {
-        await (await getTemporalClient()).workflow.getHandle(poolMoveWorkflowId(instanceId)).signal(MOVE_FINISHED);
-      },
-      moveStopped: async (instanceId, reason) => {
-        await (await getTemporalClient()).workflow.getHandle(poolMoveWorkflowId(instanceId)).signal(MOVE_STOPPED, reason);
-      },
-    });
-    instanceRoutes?.start();
-    const poolWatched = poolSettingsFrom(process.env, '/tmp/kubeconfig-provisioning-lunorica');
-    const poolMonitoring = 'off' in poolWatched ? undefined : new PoolMonitoringService({
-      kubectl: async (args) => String(await infraService.runKubectl(args, poolWatched.kubeconfig)),
-      apply: async (manifest) => { await infraService.applyManifest(manifest, poolWatched.kubeconfig); },
-    });
-    const moveRelay = 'off' in poolWatched || !role.signing ? undefined : new MoveRelay({
-      kubeconfig: kubeconfigFile(poolWatched.kubeconfig),
-      sign: (instanceId, part) => issueMoveToken(role.signing!, instanceId, part),
-    });
-    const hubAccess = role.signing && role.hubLink
-      ? async (instanceId: string, ownerId: string) => {
-        const owner = await db.getUserById(ownerId);
-        if (!owner) return undefined;
-        return { token: issueMoveToken(role.signing!, HUB_AUDIENCE, hubInstancePart(instanceId, ownerId, owner.email)), hubUrl: role.hubLink!.url, personId: ownerId, email: owner.email, instanceId };
-      }
-      : undefined;
-    app.use('/api/instances', instancesRouter({ instances: instanceService, chart: () => instanceChart.path(), mail, requireAdmin, poolMonitoring, moveRelay, hubAccess }));
-    const installer = (await fs.readFile(path.join(repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', PUBLIC_URL);
-    app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
-    app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(repoRoot, 'scripts/setup-gpu.sh')));
-  }
-  if (signsInThroughRoot(role.role)) app.use('/api/auth', handoffRouter({ identity, auth, sessionKey: keys.session }));
   const hub = await wireHub({
     role, env: process.env, app, tenant, db, mail, publicUrl: PUBLIC_URL, dataKey: keys.data, gitea: giteaService,
     notify: (ownerId, scope, notice) => notices.post(ownerId, scope, notice),
@@ -941,12 +809,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     return owned ? res.status(200).send('ok') : res.status(404).send('unknown host');
   });
 
-  tenant.use('/api/instance-addresses', instanceAddressesRouter({ addresses: () => instanceAddresses }));
-  tenant.use('/api/instance-trial', instanceTrialRouter({
-    trial: role.instance && process.env.INSTANCE_CREDENTIAL
-      ? new InstanceTrial({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: process.env.INSTANCE_CREDENTIAL })
-      : undefined,
-  }));
+  await wireInstances({
+    role, env: process.env, app, tenant, db, mail, identity, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL,
+    repoRoot: path.join(__dirname, '../../..'), dataDir: path.join(__dirname, '../data'), headscale: headscaleService, infra: infraService,
+    side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(),
+  });
   const systemOwners = async (): Promise<string[]> => (role.instance
     ? [role.instance.ownerId]
     : (await db.getUsers()).filter((user) => user.isAdmin).map((user) => user.id));
@@ -964,36 +831,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     return project && ownsProject(project, user) ? project : undefined;
   };
 
-  async function webTools() {
-    return resolveWebTools({
-      db,
-      serviceUrl: (clusterId, serviceKey, kubeconfigPath, target) =>
-        clusterProxyService.serviceUrl(clusterId, serviceKey, kubeconfigPath, target),
-      kubeconfigFor: async (clusterId: string) => {
-        const cluster = await clusterService.getByIdUnscoped(clusterId);
-        return cluster ? clusterService.getKubeconfigPath(cluster) : undefined;
-      },
-    });
-  }
-
-  async function executeWebSearch(query: string): Promise<SearchOutcome> {
-    return (await webTools()).search(query);
-  }
-
-  async function executeFetchWebPage(url: string): Promise<string> {
-    return (await webTools()).fetchPage(url);
-  }
-
-  function toolRefused(result: string): boolean {
-    try {
-      return Boolean(JSON.parse(result)?.error);
-    } catch {
-      return true;
-    }
-  }
-
-  const ownedBranches = async (userId: string) => ownedBy(await db.getBranches(), userId);
-  const ownedLeaves = async (userId: string) => ownedBy(await db.getLeaves(), userId);
   const ownedTrees = async (userId: string) => ownedBy(await db.getTrees(), userId);
 
 

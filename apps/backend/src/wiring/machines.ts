@@ -14,7 +14,7 @@ import { meshRouter } from '../routes/mesh.js';
 import { localAgentsRouter } from '../routes/local-agents.js';
 import { machinesRouter } from '../routes/machines.js';
 
-export type Routes = { use(path: string, router: express.Router): unknown; get(path: string, handler: express.RequestHandler): unknown };
+export type Routes = { use(path: string, router: express.Router | express.RequestHandler): unknown; get(path: string, handler: express.RequestHandler): unknown };
 
 export interface MachinesWiringDeps {
   tenant: Routes;
