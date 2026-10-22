@@ -137,6 +137,7 @@ describe('the instance chart', () => {
     const docs = render(['routing.domain=koala.dev', 'routing.name=luno', 'edge.nodePort=30321']);
     expect(find(docs, 'ConfigMap', 'luno-env').data).toMatchObject({ INGRESS_DOMAIN: 'koala.dev', INSTANCE_NAME: 'luno', EDGE_ADMIN_URL: 'http://localhost:2019', EDGE_CADDYFILE: '/etc/edge/Caddyfile' });
     expect(find(docs, 'ConfigMap', 'luno-edge').data!.Caddyfile).toContain('import /app/apps/backend/data/caddy/apps/*.caddy');
+    expect(find(docs, 'ConfigMap', 'luno-edge').data!.Caddyfile).toContain('header X-Koala-Edge "luno"');
     const [backend, edge] = find(docs, 'Deployment', 'luno-backend').spec.template.spec.containers;
     expect(edge.image).toBe('caddy:2.10.2-alpine');
     expect(edge.volumeMounts).toEqual(expect.arrayContaining([{ name: 'data', mountPath: '/app/apps/backend/data', readOnly: true }]));

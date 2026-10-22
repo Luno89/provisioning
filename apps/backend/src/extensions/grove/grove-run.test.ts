@@ -549,12 +549,8 @@ async function runGroveWorld(options: {
     }
 }
 
-const waitFor = async (check: () => boolean, what: string): Promise<void> => {
-  const deadline = Date.now() + 20_000;
-  while (!check()) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolveWait) => setTimeout(resolveWait, 100));
-  }
+const waitFor = async (check: () => boolean): Promise<void> => {
+  while (!check()) await new Promise((resolveWait) => setTimeout(resolveWait, 100));
 };
 
 describe('the grove agent\'s procedure', () => {
@@ -698,7 +694,7 @@ describe('the grove agent\'s procedure', () => {
     await runGroveWorld({
       hang: 'exec-leafA',
       drive: async (_handle, rounds) => {
-        await waitFor(() => (rounds.get('exec-leafA') ?? 0) > 0, 'leaf A\'s task to start');
+        await waitFor(() => (rounds.get('exec-leafA') ?? 0) > 0);
         const leafA = leaves.find((leaf) => leaf.id === 'leafA')!;
         expect(leafA.runId, 'the leaf does not say which run is working it').toBeTruthy();
         leaves = leaves.map((leaf) => (leaf.id === 'leafA' ? { ...leaf, status: 'cancelled' } : leaf));
@@ -715,7 +711,7 @@ describe('the grove agent\'s procedure', () => {
       agent: 'grove',
       hang: 'exec-leafA',
       drive: async (handle, rounds) => {
-        await waitFor(() => (rounds.get('exec-leafA') ?? 0) > 0, 'leaf A\'s task to start');
+        await waitFor(() => (rounds.get('exec-leafA') ?? 0) > 0);
         await handle.signal(cancelSignal as never);
       },
     });

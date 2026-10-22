@@ -2,7 +2,7 @@ import { lossLines } from '../lib/release-compare.js';
 import { parseDiff, sortedForRelease, type ReleaseFile } from '../lib/file-changes.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
-import { ODOO_DATABASE_PASSWORD, ODOO_PROJECT_APP, ODOO_RELEASE_SECRETS, chartDatabaseSecret, vaultDatabaseSecret, newReleaseName, type ReleaseVault, releaseNameOf, releasePlace, releaseTargetOf, rollBackTarget, type OdooRelease, type ReleaseState } from '../lib/odoo-release.js';
+import { ODOO_DATABASE_PASSWORD, ODOO_PROJECT_APP, ODOO_RELEASE_SECRETS, chartDatabaseSecret, vaultDatabaseSecret, newReleaseName, type ReleaseVault, releaseNameOf, releasePlace, releaseTargetOf, rollBackTarget, untold, type OdooRelease, type ReleaseState } from '../lib/odoo-release.js';
 import type { ReleaseDecision } from '../lib/release-paths.js';
 import { HELD_FOR_CLIENT, awaits, missingFrom, missingSentence, restorable, wrongVersionFrom, type ClientImport } from '../lib/client-import.js';
 import { vaultSecretName } from '../lib/infisical-sync.js';
@@ -150,6 +150,7 @@ export class OdooReleaseService {
       ...(fromClient ? { restore: { mode: fromClient.mode, version: fromClient.version, modules: fromClient.modules?.length ?? 0 } } : {}),
       startedAt: stamp,
       updatedAt: stamp,
+      toldAt: stamp,
     };
     await this.deps.store.releases.saveOdooRelease(release);
     if (fromClient) await this.deps.store.projects.saveProjectInfo({ id: project.id, clientImport: { ...fromClient, state: 'importing', releaseId: release.id, reason: undefined, missing: undefined, at: stamp } });
@@ -418,35 +419,32 @@ export class OdooReleaseService {
   }
 
   private async save(release: OdooRelease): Promise<void> {
+    await this.tell({ ...release, toldAt: release.updatedAt });
+  }
+
+  private async tell(release: OdooRelease): Promise<void> {
     await this.deps.store.releases.saveOdooRelease(release);
     await this.settleImport(release);
     this.deps.notify?.(release.ownerId, release);
   }
 
   private async watch(ownerId: string, projectId: string): Promise<void> {
-    const seen = new Map((await this.deps.store.releases.getOdooReleases(ownerId, projectId)).map((release) => [release.id, release.updatedAt]));
     for (;;) {
       const running = await this.deps.runs.running(projectId).catch(() => true);
       const releases = await this.deps.store.releases.getOdooReleases(ownerId, projectId);
       for (const release of releases) {
-        if (seen.get(release.id) === release.updatedAt) continue;
-        seen.set(release.id, release.updatedAt);
-        await this.settleImport(release);
-        this.deps.notify?.(ownerId, release);
+        if (!untold(release)) continue;
+        await this.tell({ ...release, toldAt: release.updatedAt });
         if (release.state === 'live') await this.deploymentState(projectId, 'running', release.image);
         if (release.state === 'failed' && !releases.some((other) => other.state === 'live' || other.state === 'superseded')) await this.deploymentState(projectId, 'failed');
       }
       if (!running) {
         for (const release of releases.filter((entry) => IN_FLIGHT.includes(entry.state))) {
-          const updated: OdooRelease = { ...release, state: 'failed', reason: 'the release stopped before it said how it went', updatedAt: this.now() };
-          await this.save(updated);
-          seen.set(updated.id, updated.updatedAt);
+          await this.save({ ...release, state: 'failed', reason: 'the release stopped before it said how it went', updatedAt: this.now() });
         }
         const queued = releases.filter((entry) => entry.state === 'queued').sort((a, b) => b.startedAt.localeCompare(a.startedAt));
         for (const older of queued.slice(1)) {
-          const updated: OdooRelease = { ...older, state: 'superseded', reason: 'a newer build took its place', updatedAt: this.now() };
-          await this.save(updated);
-          seen.set(updated.id, updated.updatedAt);
+          await this.save({ ...older, state: 'superseded', reason: 'a newer build took its place', updatedAt: this.now() });
         }
         const next = queued[0];
         if (!next) return;

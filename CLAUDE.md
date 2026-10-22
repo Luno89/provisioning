@@ -45,7 +45,7 @@ npm run test:alive   # scripts/alive.sh — Docker/k3d/K8s API/Temporal/worker p
 npm run test:worker  # tsx tests/worker-isolated.ts — runs real Temporal workflows without browser/webserver
 npm run test:e2e     # test:alive → Playwright (skips the unit preflight `npm test` does)
 npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
-npm run test:routing-live         # root's Caddy on the mesh (local CA, koala.localhost) → a named instance installs on a VM → <name>.<domain> answers through Caddy and sign-in lands there → an app on the instance at <app>-<name>.<domain> → nested addresses issued and shown, the flat ones still answering, ~30 min, cleans up
+npm run test:routing-live         # root's Caddy on the mesh (local CA, koala.localhost) → a named instance installs on a VM → <name>.<domain> answers through Caddy and sign-in lands there → an app on the instance at <app>-<name>.<domain> → a group the instance claims is routed by root to its edge (the edge's 404 names the instance in X-Koala-Edge) and freed again → nested addresses issued and shown, the flat ones still answering, ~30 min, cleans up
 npm run test:mail-live            # the send-only mail server is built and run beside a test mailbox → the backend's mailer sends an alert through it → it arrives DKIM-signed and the signature verifies against the key the DNS script publishes → a host it does not trust is refused, ~2 min
 npm run test:monitoring-live      # a throwaway app on the system cluster → Monitoring calls it healthy → Koala, on your model, proposes an alert for when it stops answering → the card sets it → the app is stopped until the alert fires and the conversation hears it, started until it resolves → the alert is removed and the app destroyed, ~10 min
 npm run test:infrastructure-live   # Infrastructure reads the system cluster → a workload that cannot pull its image, put there by hand, shows in Needs attention and on the cluster page as not deployed through Koala, then leaves once removed → a Koala chat turn on a model that does not exist shows as failed work, opens its chat and clears → whatever the memory keeper keeps from the run and the quiet conversation is retired, ~15 min
@@ -1016,7 +1016,7 @@ procedures, run by agents with no model:
 `OdooReleaseService` starts one release run per build (`release-<projectId>~<stamp>`, bound to the project), one at a
 time per project: a build arriving while a preview waits stops that run, whose cleanup (Settle Stopped) clears and sets
 the preview aside; one arriving while a release is prepared waits as `queued`, and the newest queued build goes next.
-The steps write the release records; the service follows them and the run, and tells the person. The cluster is the
+The steps write the release records; the service follows them and the run, and tells the person: each release records when it was last told (`toldAt`), so a change is told once, whichever process sees it, and one that happened while the backend was down is told when it starts (`release-told-at` stamps releases from before). The cluster is the
 truth for which slot is live (`helm get values`); releases are records (`odooReleases`). Each project's release has
 a deployment record (`appType: odoo-project`, with its `namespace`), so it shows among apps, goes with the project, and destroying it
 uninstalls the release and its namespace. A release is named once, at its project's first release: the project's name plus a

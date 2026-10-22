@@ -25,6 +25,7 @@ export async function seedAll(db: Database) {
   const ledger: MigrationLedger = db.platform;
   const now = new Date().toISOString();
   counts.treeVersionsStamped = (await runOnce(ledger, 'tree-versions', now, async () => ({ stamped: await stampTreeVersions(db.projects) }))).stamped ?? 0;
+  counts.releasesMarkedTold = (await runOnce(ledger, 'release-told-at', now, async () => ({ marked: await db.releases.markOdooReleasesTold() }))).marked ?? 0;
   counts.appSpecs = await seedAppSpecs(db.infrastructure);
   counts.constructBackedTypes = await seedConstructBackedTypes(db.infrastructure);
   counts.clusterProviders = await seedClusterProviders(db.infrastructure);

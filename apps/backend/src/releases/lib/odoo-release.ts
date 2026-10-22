@@ -47,7 +47,10 @@ export interface OdooRelease {
   restore?: { mode: import('./client-import.js').ImportMode; version?: string | undefined; modules: number } | undefined;
   startedAt: string;
   updatedAt: string;
+  toldAt?: string | undefined;
 }
+
+export const untold = (release: Pick<OdooRelease, 'updatedAt' | 'toldAt'>): boolean => release.toldAt !== release.updatedAt;
 
 export function rollBackTarget(releases: readonly OdooRelease[], live: OdooRelease): { to: OdooRelease } | { problem: string } {
   if (live.state !== 'live') return { problem: `the release is ${live.state}, not live` };

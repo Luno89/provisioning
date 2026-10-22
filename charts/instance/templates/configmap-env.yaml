@@ -57,6 +57,7 @@ data:
     import /app/apps/backend/data/caddy/apps/*.caddy
 
     :8080 {
+    	header X-Koala-Edge {{ .Values.routing.name | quote }}
     	respond 404
     }
 {{- end }}

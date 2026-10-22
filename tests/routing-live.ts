@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, statSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
@@ -229,6 +229,29 @@ async function main(): Promise<void> {
   });
   console.log(`  ${app.status} from books-${NAME}.${DOMAIN}`);
   assert.equal(https(`books-nobody${NAME}.${DOMAIN}`, '/').status, 404, 'another person\'s name gets nothing');
+
+  step('root routes a group the instance claims to its edge, and frees it when the instance lets it go');
+  const credential = (await inVm(vm, 'sudo kubectl get secret instance-instance -n nowrinkles -o jsonpath={.data.INSTANCE_CREDENTIAL} | base64 -d')).trim();
+  assert.ok(credential, 'the instance keeps no credential');
+  const asInstance = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', 'x-instance-id': instanceId!, authorization: `Bearer ${credential}`, ...(init.headers ?? {}) } });
+  const group = `g${NAME}`;
+  const ownName = await (await asInstance(`/api/instances/groups/check?name=${NAME}`)).json() as { ok: boolean; problem?: string };
+  assert.equal(ownName.ok, false, 'the instance\'s own name is not a group');
+  const claimed = await asInstance('/api/instances/groups', { method: 'PUT', body: JSON.stringify({ projectId: 'shared-project', name: group }) });
+  assert.equal(claimed.status, 200, await claimed.clone().text());
+  await until(`root's matcher for ${group}`, async () => (readFileSync(join(caddyDir, 'instances', `${NAME}.caddy`), 'utf8').includes(`@apps_${group}`) ? true : undefined));
+  const viaGroup = await until(`${group} routed to the edge`, async () => {
+    const answer = https(`books-${group}.${DOMAIN}`, '/');
+    return answer.status === 404 && answer.headers['x-koala-edge'] === NAME ? answer : undefined;
+  });
+  console.log(`  ${viaGroup.status} from books-${group}.${DOMAIN}, answered by the edge of ${NAME}`);
+  const freed = await asInstance('/api/instances/groups/shared-project', { method: 'DELETE' });
+  assert.equal(freed.status, 200, await freed.clone().text());
+  await until(`root's matcher for ${group} gone`, async () => (readFileSync(join(caddyDir, 'instances', `${NAME}.caddy`), 'utf8').includes(`@apps_${group}`) ? undefined : true));
+  await until(`${group} answering nothing again`, async () => {
+    const answer = https(`books-${group}.${DOMAIN}`, '/');
+    return answer.status === 404 && answer.headers['x-koala-edge'] === undefined ? true : undefined;
+  });
 
   step('the owner switches to nested addresses: issuing, then ready, and both addresses answer');
   const switched = onInstance('/api/instance-addresses', { method: 'PUT', body: { nested: true } });

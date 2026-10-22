@@ -11,6 +11,7 @@ export interface ReleasesStore extends AreaStore {
   savePipelineRunInfo(run: PartialInfo<PipelineRunMetadata>): Promise<PipelineRunMetadata>;
   getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]>;
   saveOdooRelease(release: OdooRelease): Promise<void>;
+  markOdooReleasesTold(): Promise<number>;
 }
 
 export class MongoReleasesStore implements ReleasesStore {
@@ -67,5 +68,10 @@ export class MongoReleasesStore implements ReleasesStore {
     const doc = toDoc(release);
     const { _id, ...rest } = doc;
     await this.odooReleases.replaceOne({ _id }, rest, { upsert: true });
+  }
+
+  async markOdooReleasesTold(): Promise<number> {
+    const result = await this.odooReleases.updateMany({ toldAt: { $exists: false } }, [{ $set: { toldAt: '$updatedAt' } }]);
+    return result.modifiedCount;
   }
 }

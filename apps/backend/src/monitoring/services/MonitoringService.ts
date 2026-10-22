@@ -90,10 +90,10 @@ export interface Viewer {
   isAdmin?: boolean | undefined;
 }
 
-export type MonitoringStore = Pick<Database, 'infrastructure' | 'releases' | 'monitoring'>;
+export type MonitoringSources = Pick<Database, 'infrastructure' | 'releases' | 'monitoring'>;
 
 export interface MonitoringDeps {
-  store: MonitoringStore;
+  store: MonitoringSources;
   systemCluster(): Promise<ClusterMetadata | undefined>;
   ownsSystem(viewer: Viewer): boolean;
   prometheus(cluster: ClusterMetadata): Promise<PrometheusClient>;

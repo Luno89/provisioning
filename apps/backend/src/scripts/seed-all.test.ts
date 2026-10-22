@@ -6,8 +6,8 @@ describe('seed-all', () => {
   it('fills every catalogue the platform expects to find in the database', async () => {
     const db = await testDatabase();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, ...counts } = await seedAll(db);
-    expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade]).toEqual([0, 0, 0, 0, 0, 0, 0]);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, ...counts } = await seedAll(db);
+    expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold]).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
     expect(removedBuiltInProcedures).toBe(0);
     expect(removedBuiltInPersonas).toBe(0);
     expect(agentToolListsMoved).toBe(0);
@@ -34,6 +34,16 @@ describe('seed-all', () => {
     expect(await seedAll(db)).toMatchObject({ agentServerListsMoved: 1 });
     expect(await seedAll(db)).toMatchObject({ agentServerListsMoved: 0 });
     expect(await db.engine.getToolGrants('user-1')).toEqual([expect.objectContaining({ agent: 'helper', tool: 'gitea', kind: 'server' })]);
+  });
+
+  it('marks every release from before releases recorded what was told as told, once', async () => {
+    const db = await testDatabase();
+    await db.releases.saveOdooRelease({ id: 'r1', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b1', commit: 'aaa', image: 'img', state: 'live', host: 'shop', startedAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:05:00.000Z' });
+    await db.releases.saveOdooRelease({ id: 'r2', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b2', commit: 'bbb', image: 'img2', state: 'preview', host: 'shop', startedAt: '2026-10-02T00:00:00.000Z', updatedAt: '2026-10-02T00:05:00.000Z', toldAt: '2026-10-02T00:00:00.000Z' });
+
+    expect(await seedAll(db)).toMatchObject({ releasesMarkedTold: 1 });
+    expect((await db.releases.getOdooReleases('bo', 'p1')).map((release) => [release.id, release.toldAt])).toEqual([['r2', '2026-10-02T00:00:00.000Z'], ['r1', '2026-10-01T00:05:00.000Z']]);
+    expect(await seedAll(db)).toMatchObject({ releasesMarkedTold: 0 });
   });
 
   it('writes nothing on a second run', async () => {
