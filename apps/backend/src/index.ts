@@ -53,6 +53,7 @@ import { RATE_LIMITS, ruleFor } from './lib/http-limits.js';
 import { engineRouter } from './routes/engine.js';
 import { wireReleases } from './wiring/releases.js';
 import { storyDropsFor, wireFiles } from './wiring/files.js';
+import { wireMachines } from './wiring/machines.js';
 import { hubInstanceWork, wireHub } from './wiring/hub.js';
 import { proceduresRouter } from './routes/procedures.js';
 import { ProcedureService } from './services/ProcedureService.js';
@@ -85,8 +86,6 @@ import { AgentChangeService } from './services/AgentChangeService.js';
 import { fingerprintOf } from './lib/bench.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
-import { meshRouter } from './routes/mesh.js';
-import { localAgentsRouter } from './routes/local-agents.js';
 import { pendingApprovalsRouter } from './routes/pending-approvals.js';
 import { startedFor } from './lib/workflow-owner.js';
 import { poolSettingsFrom } from './lib/pool.js';
@@ -102,10 +101,7 @@ import { poolMonitor, poolMonitorFrom } from './services/PoolMonitor.js';
 import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from './lib/pool-trial.js';
 import { askDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from './lib/local-agent-registry.js';
 import { MachineService } from './services/MachineService.js';
-import { MachineBundle } from './services/MachineBundle.js';
 import { RootMeshKeys } from './services/RootMeshKeys.js';
-import { MachineGitService } from './services/MachineGitService.js';
-import { machinesRouter } from './routes/machines.js';
 import { asyncRoute } from './middleware/async-route.js';
 import { clusterProvidersRouter } from './routes/cluster-providers.js';
 import { vpsCatalogRouter } from './routes/vps-catalog.js';
@@ -1089,19 +1085,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const sweepArtifacts = () => artifactStore.artifacts.sweep().catch((err: Error) => console.warn(`[artifacts] the sweep failed: ${err.message}`));
   setInterval(sweepArtifacts, 24 * 60 * 60 * 1000).unref();
   void sweepArtifacts();
-  tenant.use('/api/mesh', meshRouter({ headscaleService, db }));
-  tenant.use('/api/mesh/local-agents', localAgentsRouter({ machines: machineService }));
-  const machineRoot = path.join(__dirname, '../../..');
-  const machineBundle = new MachineBundle(machineRoot);
-  const machineGit = new MachineGitService({
-    deviceFor: async (token) => findDeviceByToken(await db.getLocalAgentDevices(), token, keys.data),
-    remote: (ownerId, repo) => projectRepoService.gitRemote(ownerId, repo),
-  });
-  tenant.use('/api/machines', machinesRouter({ machines: machineService, bundle: () => machineBundle.path(), git: machineGit }));
-  tenant.get('/machine.sh', asyncRoute(async (_req, res) => {
-    const installer = await fs.readFile(path.join(machineRoot, 'scripts/machine/machine.sh'), 'utf8');
-    res.type('text/x-shellscript').send(installer.replaceAll('__KOALA_URL__', PUBLIC_URL));
-  }));
+  wireMachines({ tenant, db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, headscale: headscaleService, projectRepos: projectRepoService });
   tenant.use('/api/pending-approvals', pendingApprovalsRouter({ db }));
   tenant.use('/api/cluster-providers', clusterProvidersRouter({ db }));
   tenant.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService }));
