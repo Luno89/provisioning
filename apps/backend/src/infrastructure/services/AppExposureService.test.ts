@@ -446,7 +446,7 @@ describe('an instance publishing its apps through its edge', () => {
     const db = { infrastructure: { getDeployments: mockGetDeployments, saveDeployment: mockSaveDeployment } };
     const infra = { runKubectl: mockRunKubectl, getK3dServerIp: mockGetK3dServerIp };
     const clusters = { getById: mockGetById, getByIdUnscoped: mockGetById, getKubeconfigPath: mockGetKubeconfigPath };
-    const service = new AppExposureService(db, infra, clusters, undefined, { name: 'luno', nestedReady: () => nested, reload: async () => { reloads.push(1); } });
+    const service = new AppExposureService(db, infra, clusters, undefined, { edge: { name: 'luno', nestedReady: () => nested, reload: async () => { reloads.push(1); } } });
     return { service, reloads };
   };
 
@@ -486,6 +486,83 @@ describe('an instance publishing its apps through its edge', () => {
     await onEdge(false).service.exposePublic('d1abcdef');
     expect(String(mockWriteFile.mock.calls[0]![1])).toContain('reverse_proxy traefik.kube-system.svc.cluster.local:80');
     expect(mockGetK3dServerIp).not.toHaveBeenCalled();
+    delete process.env.INGRESS_DOMAIN;
+  });
+});
+
+describe('a shared project\'s apps, addressed under the group its sharer named', () => {
+  const cluster = { id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const };
+  const odoo = { id: 'd1abcdef', name: 'Shop', clusterId: 'c1', strategy: 'helm' as const, status: 'running' as const, appType: 'odoo-project', gitappProjectId: 'p1' };
+  const svcJson = JSON.stringify({ items: [{ metadata: { name: 'shop-live' }, spec: { type: 'ClusterIP', ports: [{ port: 8069 }] } }] });
+  const reach = () => {
+    mockGetById.mockResolvedValue(cluster);
+    mockGetKubeconfigPath.mockResolvedValue('/tmp/kubeconfig');
+    mockRunKubectl.mockResolvedValueOnce(svcJson).mockResolvedValueOnce(traefikSvcJson);
+    mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
+  };
+  const groups = new Map<string, string>();
+  const make = (edge?: { name: string; nested: boolean }) => {
+    const db = { infrastructure: { getDeployments: mockGetDeployments, saveDeployment: mockSaveDeployment } };
+    const infra = { runKubectl: mockRunKubectl, getK3dServerIp: mockGetK3dServerIp };
+    const clusters = { getById: mockGetById, getByIdUnscoped: mockGetById, getKubeconfigPath: mockGetKubeconfigPath };
+    return new AppExposureService(db, infra, clusters, undefined, {
+      ...(edge ? { edge: { name: edge.name, nestedReady: () => edge.nested, reload: async () => {} } } : {}),
+      groupOf: async (dep: { gitappProjectId?: string }) => (dep.gitappProjectId ? groups.get(dep.gitappProjectId) : undefined),
+    });
+  };
+  beforeEach(() => {
+    groups.clear();
+    process.env.INGRESS_DOMAIN = 'koala.dev';
+  });
+
+  it('gives the app and its preview <app>-<group> in combined mode, and moves back to the owner\'s address once taken back', async () => {
+    groups.set('p1', 'acme');
+    mockGetDeployments.mockResolvedValue([{ ...odoo, publicHostname: 'shop-d1abcd.koala.dev' }]);
+    reach();
+    const shared = await make().exposePublic('d1abcdef');
+    expect(shared).toMatchObject({ publicHostname: 'shop-acme.koala.dev', publicExposureUrl: 'https://shop-acme.koala.dev', previewPublicUrl: 'https://shop-preview-acme.koala.dev' });
+
+    groups.clear();
+    mockGetDeployments.mockResolvedValue([{ ...odoo, ...shared }]);
+    reach();
+    const back = await make().exposePublic('d1abcdef');
+    expect(back).toMatchObject({ publicHostname: 'shop-d1abcd.koala.dev', previewPublicUrl: 'https://shop-preview-d1abcd.koala.dev' });
+    delete process.env.INGRESS_DOMAIN;
+  });
+
+  it('gives the app <app>-<group> on an instance, free among the group\'s other apps, and never a nested address', async () => {
+    groups.set('p1', 'acme');
+    mockGetDeployments.mockResolvedValue([{ ...odoo, publicHostname: 'shop-luno.koala.dev' }, { id: 'other', name: 'Shop', gitappProjectId: 'p1', publicHostname: 'shop-acme.koala.dev' }]);
+    reach();
+    const exposed = await make({ name: 'luno', nested: true }).exposePublic('d1abcdef');
+    expect(exposed).toMatchObject({ publicHostname: 'shop-2-acme.koala.dev', publicExposureUrl: 'https://shop-2-acme.koala.dev', previewPublicUrl: 'https://shop-2-preview-acme.koala.dev' });
+    expect(String(mockWriteFile.mock.calls[0]![1])).toMatch(/^http:\/\/shop-2-acme\.koala\.dev \{/);
+    expect(mockWriteFile.mock.calls.map(([, content]) => String(content)).join('\n')).not.toContain('.acme.koala.dev');
+    delete process.env.INGRESS_DOMAIN;
+  });
+
+  it('moves an exposed app when the apps are republished after the project is shared, and back after it is taken back', async () => {
+    const stored = { ...odoo, isExposedPublicly: true, publicHostname: 'shop-luno.koala.dev' };
+    mockGetDeployments.mockResolvedValue([stored]);
+    mockReaddir.mockResolvedValue([]);
+    groups.set('p1', 'acme');
+    reach();
+    await make({ name: 'luno', nested: true }).syncExposedApps();
+    const moved = mockSaveDeployment.mock.calls.at(-1)![0];
+    expect(moved).toMatchObject({ publicHostname: 'shop-acme.koala.dev', publicExposureUrl: 'https://shop-acme.koala.dev', previewPublicUrl: 'https://shop-preview-acme.koala.dev' });
+
+    groups.clear();
+    mockGetDeployments.mockResolvedValue([{ ...moved }]);
+    reach();
+    await make({ name: 'luno', nested: true }).syncExposedApps();
+    expect(mockSaveDeployment.mock.calls.at(-1)![0]).toMatchObject({ publicHostname: 'shop-luno.koala.dev', publicExposureUrl: 'https://shop.luno.koala.dev', previewPublicUrl: 'https://shop-preview.luno.koala.dev' });
+    delete process.env.INGRESS_DOMAIN;
+  });
+
+  it('leaves an app of a project that is not shared exactly where it was', async () => {
+    mockGetDeployments.mockResolvedValue([{ ...odoo, publicHostname: 'shop-d1abcd.koala.dev' }]);
+    reach();
+    expect(await make().exposePublic('d1abcdef')).toMatchObject({ publicHostname: 'shop-d1abcd.koala.dev' });
     delete process.env.INGRESS_DOMAIN;
   });
 });

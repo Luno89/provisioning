@@ -13,12 +13,17 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import type { Server as SocketServer } from 'socket.io';
 import { ODOO_PROJECT_APP } from '../../releases/lib/odoo-release.js';
-import { appLabel, edgeSite, flatHost, freeLabel, labelOfFlat, nestedHost } from '../../instances/lib/edge-addresses.js';
+import { addressScope, appLabel, edgeSite, flatHost, freeLabel, inScope, labelOfFlat, nestedHost, offersNested, type AddressScope } from '../../instances/lib/edge-addresses.js';
 
 export interface InstanceEdge {
   name: string;
   nestedReady(): boolean;
   reload(): Promise<void>;
+}
+
+export interface AppAddressing {
+  edge?: InstanceEdge | undefined;
+  groupOf?: ((dep: DeploymentMetadata) => Promise<string | undefined>) | undefined;
 }
 
 const execAsync = promisify(exec);
@@ -31,14 +36,16 @@ export class AppExposureService extends BaseService {
   private nginxConfDir: string;
   private io: SocketServer | undefined;
   private edge: InstanceEdge | undefined;
+  private groupOf: (dep: DeploymentMetadata) => Promise<string | undefined>;
 
-  constructor(db: Database, infra: InfrastructureService, clusters: ClusterService, io?: SocketServer, edge?: InstanceEdge) {
+  constructor(db: Database, infra: InfrastructureService, clusters: ClusterService, io?: SocketServer, addressing: AppAddressing = {}) {
     super(db);
     this.infra = infra;
     this.clusters = clusters;
     this.nginxConfDir = path.join(__dirname, '../../../data/nginx');
     this.io = io;
-    this.edge = edge;
+    this.edge = addressing.edge;
+    this.groupOf = addressing.groupOf ?? (async () => undefined);
   }
 
   private sanitize(name: string) {
@@ -163,9 +170,9 @@ export class AppExposureService extends BaseService {
     return { key, appHostname: `${key}.apps.local` };
   }
 
-  private previewPublicHostname(dep: DeploymentMetadata, domain: string, publicHostname: string): string {
-    const label = this.edge ? labelOfFlat(publicHostname, this.edge.name, domain) : undefined;
-    if (this.edge && label) return flatHost(`${label}-preview`, this.edge.name, domain);
+  private previewPublicHostname(dep: DeploymentMetadata, domain: string, publicHostname: string, scope: AddressScope): string {
+    const label = scope.kind === 'combined' ? undefined : labelOfFlat(publicHostname, scope.name, domain);
+    if (label) return flatHost(`${label}-preview`, scope.name, domain);
     return `${this.sanitize(dep.name)}-preview-${dep.id.replace(/-/g, '').slice(0, 6)}.${domain}`;
   }
 
@@ -184,24 +191,25 @@ export class AppExposureService extends BaseService {
     return process.env.INGRESS_DOMAIN || undefined;
   }
 
-  private async hostnameFor(dep: DeploymentMetadata, domain: string): Promise<string> {
-    if (!this.edge) {
-      if (dep.publicHostname) return dep.publicHostname;
-      return `${this.sanitize(dep.name)}-${dep.id.replace(/-/g, '').slice(0, 6)}.${domain}`;
-    }
-    const edge = this.edge;
-    if (dep.publicHostname && labelOfFlat(dep.publicHostname, edge.name, domain)) return dep.publicHostname;
-    const taken = new Set((await this.db.infrastructure.getDeployments())
-      .filter((other) => other.id !== dep.id && other.publicHostname)
-      .map((other) => labelOfFlat(other.publicHostname!, edge.name, domain))
-      .filter((label): label is string => Boolean(label)));
-    return flatHost(freeLabel(appLabel(dep.name), edge.name, taken), edge.name, domain);
+  private async scopeOf(dep: DeploymentMetadata): Promise<AddressScope> {
+    return addressScope({ group: await this.groupOf(dep), instance: this.edge?.name, deploymentId: dep.id });
   }
 
-  private publicHosts(flat: string, domain: string): { hosts: string[]; shown: string } {
-    const label = this.edge ? labelOfFlat(flat, this.edge.name, domain) : undefined;
-    if (!this.edge || !label || !this.edge.nestedReady()) return { hosts: [flat], shown: flat };
-    const nested = nestedHost(label, this.edge.name, domain);
+  private async hostnameFor(dep: DeploymentMetadata, domain: string, scope?: AddressScope): Promise<string> {
+    const within = scope ?? await this.scopeOf(dep);
+    if (dep.publicHostname && inScope(dep.publicHostname, within, domain)) return dep.publicHostname;
+    if (within.kind === 'combined') return flatHost(this.sanitize(dep.name), within.name, domain);
+    const taken = new Set((await this.db.infrastructure.getDeployments())
+      .filter((other) => other.id !== dep.id && other.publicHostname)
+      .map((other) => labelOfFlat(other.publicHostname!, within.name, domain))
+      .filter((label): label is string => Boolean(label)));
+    return flatHost(freeLabel(appLabel(dep.name), within.name, taken), within.name, domain);
+  }
+
+  private publicHosts(flat: string, domain: string, scope: AddressScope): { hosts: string[]; shown: string } {
+    const label = labelOfFlat(flat, scope.name, domain);
+    if (!this.edge || !label || !offersNested(scope) || !this.edge.nestedReady()) return { hosts: [flat], shown: flat };
+    const nested = nestedHost(label, scope.name, domain);
     return { hosts: [flat, nested], shown: nested };
   }
 
@@ -230,9 +238,9 @@ export class AppExposureService extends BaseService {
     await execAsync('docker exec nowrinkles-caddy caddy reload --config /etc/caddy/Caddyfile --force');
   }
 
-  private async writeCaddyConf(namespace: string, publicHostname: string, backendTarget: string, appHostname: string, domain: string): Promise<string> {
+  private async writeCaddyConf(namespace: string, publicHostname: string, backendTarget: string, appHostname: string, domain: string, scope: AddressScope): Promise<string> {
     const confPath = this.caddyConfPathFor(namespace);
-    const { hosts, shown } = this.publicHosts(publicHostname, domain);
+    const { hosts, shown } = this.publicHosts(publicHostname, domain, scope);
     await fs.mkdir(path.dirname(confPath), { recursive: true });
     await fs.writeFile(confPath, this.edge ? edgeSite(hosts, backendTarget, appHostname) : this.buildCaddyContent(publicHostname, backendTarget, appHostname));
     try {
@@ -321,16 +329,17 @@ export class AppExposureService extends BaseService {
 
     const { namespace, backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
 
-    const publicHostname = await this.hostnameFor(dep, domain);
+    const scope = await this.scopeOf(dep);
+    const publicHostname = await this.hostnameFor(dep, domain, scope);
     dep.publicHostname = publicHostname;
     dep.isExposedPublicly = true;
-    dep.publicExposureUrl = `https://${await this.writeCaddyConf(namespace, publicHostname, backendTarget, appHostname, domain)}`;
+    dep.publicExposureUrl = `https://${await this.writeCaddyConf(namespace, publicHostname, backendTarget, appHostname, domain, scope)}`;
     this.syncDerivedFields(dep);
 
     const preview = this.previewOf(dep);
     if (preview) {
-      const previewHostname = this.previewPublicHostname(dep, domain, publicHostname);
-      dep.previewPublicUrl = `https://${await this.writeCaddyConf(preview.key, previewHostname, backendTarget, preview.appHostname, domain)}`;
+      const previewHostname = this.previewPublicHostname(dep, domain, publicHostname, scope);
+      dep.previewPublicUrl = `https://${await this.writeCaddyConf(preview.key, previewHostname, backendTarget, preview.appHostname, domain, scope)}`;
     }
 
     await this.db.infrastructure.saveDeployment(dep);
@@ -356,12 +365,13 @@ export class AppExposureService extends BaseService {
         const domain = this.ingressDomain();
         const preview = this.previewOf(dep);
         if (dep.isExposedPublicly && domain) {
-          const publicHostname = await this.hostnameFor(dep, domain);
+          const scope = await this.scopeOf(dep);
+          const publicHostname = await this.hostnameFor(dep, domain, scope);
           dep.publicHostname = publicHostname;
-          dep.publicExposureUrl = `https://${await this.writeCaddyConf(namespace, publicHostname, backendTarget, appHostname, domain)}`;
+          dep.publicExposureUrl = `https://${await this.writeCaddyConf(namespace, publicHostname, backendTarget, appHostname, domain, scope)}`;
           if (preview) {
-            const previewHostname = this.previewPublicHostname(dep, domain, publicHostname);
-            dep.previewPublicUrl = `https://${await this.writeCaddyConf(preview.key, previewHostname, backendTarget, preview.appHostname, domain)}`;
+            const previewHostname = this.previewPublicHostname(dep, domain, publicHostname, scope);
+            dep.previewPublicUrl = `https://${await this.writeCaddyConf(preview.key, previewHostname, backendTarget, preview.appHostname, domain, scope)}`;
           }
         }
         if (dep.isExposedLocally) {

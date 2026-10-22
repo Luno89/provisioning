@@ -152,7 +152,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
   const instanceSide = new InstanceSide(role, process.env);
-  const appExposureService = new AppExposureService(db, infraService, clusterService, io, instanceSide.edge);
+  const appExposureService = new AppExposureService(db, infraService, clusterService, io, {
+    edge: instanceSide.edge,
+    groupOf: async (dep) => (dep.gitappProjectId ? (await db.hub.getHubLinks()).find((link) => link.projectId === dep.gitappProjectId)?.group : undefined),
+  });
   const clusterProxyService = sharedClusterProxy();
   const giteaService = new GiteaService(infraService, keys.data, '/tmp/kubeconfig-provisioning-lunorica');
   await giteaService.ensureClusterSecret().catch((err: Error) =>
