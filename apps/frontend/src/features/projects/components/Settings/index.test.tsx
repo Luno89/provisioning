@@ -6,7 +6,7 @@ import * as groveApi from '../../api/grove'
 import * as projectsApi from '../../api/projects'
 import * as autoModeApi from '../../../../api/auto-mode'
 import * as releaseApi from '../../../releases/api/release-settings'
-import * as modelsApi from '../../../../api/models'
+import * as modelsApi from '../../../models/api'
 
 vi.mock('../../api/grove', async (orig) => ({
   ...(await orig<typeof groveApi>()),
@@ -32,7 +32,7 @@ vi.mock('../../../releases/api/release-settings', async (orig) => ({
 vi.mock('../../../releases/components/LiveCustomizations', () => ({ LiveCustomizations: () => <div>live customizations</div> }))
 vi.mock('../../../releases/hooks/useClientImport', () => ({ useClientImport: () => ({ data: { open: true } }) }))
 vi.mock('../../../releases/components/ClientImport', () => ({ ClientImport: () => <div>client import</div> }))
-vi.mock('../../../../api/models', async (orig) => ({
+vi.mock('../../../models/api', async (orig) => ({
   ...(await orig<typeof modelsApi>()),
   listModels: vi.fn(async () => [{ id: 'tabby', name: 'Tabby', source: 'deployment', kind: 'tabbyapi', model: 'Qwen3.8-27B' }]),
 }))

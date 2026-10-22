@@ -3,7 +3,7 @@ import { CircleAlert, Crosshair, FlaskConical, Loader2, Play } from 'lucide-reac
 import type { NodeTrace, Procedure } from '@koala/agent-engine/procedure'
 import { primaryInput, startRun, type EngineEvent } from '../../api/engine'
 import { reduceEngineEvents } from '../../lib/engine-run-state'
-import ModelSelector from '../ModelSelector/ModelSelector'
+import { ModelSelector } from '../../features/models'
 import RunCard from '../EngineRun/RunCard'
 import { errorMessage, useEngineAgents, useStudioContext } from './shared'
 import { stepCheckFrom } from '../../lib/step-check-draft'

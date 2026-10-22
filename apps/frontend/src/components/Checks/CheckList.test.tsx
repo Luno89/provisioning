@@ -26,7 +26,7 @@ vi.mock('../../api/evals', async () => {
   }
 })
 
-vi.mock('../ModelSelector/ModelSelector', () => ({ default: () => <div data-testid="model-selector" /> }))
+vi.mock('../../features/models/components/ModelSelector/ModelSelector', () => ({ default: () => <div data-testid="model-selector" /> }))
 vi.mock('./ScenarioTrace', () => ({ default: () => <div data-testid="scenario-trace" /> }))
 
 const { listScenarios, listLevel2Runs, startLevel2Run, saveScenario, deleteScenario } =

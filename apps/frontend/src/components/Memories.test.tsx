@@ -14,8 +14,8 @@ vi.mock('../api/memories', async () => {
     updateMemory: vi.fn(async () => ({})),
   }
 })
-vi.mock('../api/models', async () => {
-  const actual = await vi.importActual<typeof import('../api/models')>('../api/models')
+vi.mock('../features/models/api', async () => {
+  const actual = await vi.importActual<typeof import('../features/models/api')>('../features/models/api')
   return {
     ...actual,
     listModels: vi.fn(async () => [

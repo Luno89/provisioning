@@ -2,9 +2,9 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ModelSelector from './ModelSelector'
-import * as modelsApi from '../../api/models'
+import * as modelsApi from '../../api'
 
-vi.mock('../../api/models', async (orig) => ({
+vi.mock('../../api', async (orig) => ({
   ...(await orig<typeof modelsApi>()),
   listModels: vi.fn(),
   useDefaultModel: vi.fn(),

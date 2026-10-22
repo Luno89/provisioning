@@ -1,4 +1,4 @@
-import type { ModelProvider } from '../api/models'
+import type { ModelProvider } from '../api'
 
 /**
  * How one model reads in a picker: `[OpenRouter] anthropic/claude-opus-4`.

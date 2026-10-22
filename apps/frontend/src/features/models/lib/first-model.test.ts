@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { ModelProvider } from '../api/models'
+import type { ModelProvider } from '../api'
 import { firstModelChoices, firstModelStep } from './first-model'
 
 const model = (id: string, extra: Partial<ModelProvider> = {}): ModelProvider =>

@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import * as credentialsApi from '../../features/infrastructure/api/credentials'
+import * as credentialsApi from '../../infrastructure/api/credentials'
 import ModelsView from './ModelsView'
 
-vi.mock('../../features/infrastructure/api/credentials', async (orig) => ({
+vi.mock('../../infrastructure/api/credentials', async (orig) => ({
   ...(await orig<typeof credentialsApi>()),
   listLlmProviders: vi.fn(),
   saveLlmCredentials: vi.fn(async () => ({})),

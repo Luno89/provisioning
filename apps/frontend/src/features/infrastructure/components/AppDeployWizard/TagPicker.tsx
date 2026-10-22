@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
-import { useImageTags, TAG_SORTS, TAG_SORT_LABELS, EMPTY_TAG_PAGE, type TagSort } from '../../../../api/models'
+import { useImageTags, TAG_SORTS, TAG_SORT_LABELS, EMPTY_TAG_PAGE, type TagSort } from '../../../models'
 
 interface TagPickerProps {
   repo: string

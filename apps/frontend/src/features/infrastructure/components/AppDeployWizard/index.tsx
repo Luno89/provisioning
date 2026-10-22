@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Blocks, Box, Check, ChevronDown, ChevronUp, Database, Layers, Loader2, Package, X, Zap } from 'lucide-react';
-import { useHfModelSize, useModelSearch, useTabbyImageTags, useHfBranches } from '../../../../api/models';
+import { useHfModelSize, useModelSearch, useTabbyImageTags, useHfBranches } from '../../../models';
 import { TagPicker } from './TagPicker';
 import { useDebounce } from '../../../../shared/lib/use-debounce';
 import { credentialKeys, listProviders } from '../../api/credentials';

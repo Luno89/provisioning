@@ -2,10 +2,10 @@ import { useQuery } from '@tanstack/react-query';
 import { Cpu, X, ExternalLink } from 'lucide-react';
 import {
   listModels, providerKeys, useDefaultModel, type ModelProvider,
-} from '../api/models';
+} from '../api';
 import { modelOptionLabel } from '../lib/model-label';
-import { useShellStore } from '../features/platform';
-import { useMachineChoiceLabel } from '../features/machines';
+import { useShellStore } from '../../platform';
+import { useMachineChoiceLabel } from '../../machines';
 import { ModelPicker } from './ModelPicker';
 import type { ModelReach } from '@koala/harness-types';
 

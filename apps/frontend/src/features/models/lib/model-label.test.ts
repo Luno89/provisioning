@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { modelOptionLabel } from './model-label'
-import type { ModelProvider } from '../api/models'
+import type { ModelProvider } from '../api'
 
 const provider = (over: Partial<ModelProvider>): ModelProvider =>
   ({ id: 'x', name: 'Name', source: 'endpoint', model: '', ...over }) as ModelProvider

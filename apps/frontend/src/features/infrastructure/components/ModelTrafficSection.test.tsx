@@ -2,9 +2,9 @@ import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ModelTrafficSection from './ModelTrafficSection'
-import * as modelsApi from '../../../api/models'
+import * as modelsApi from '../../models/api'
 
-vi.mock('../../../api/models', async (orig) => ({ ...(await orig<typeof import('../../../api/models')>()), getModelTraffic: vi.fn() }))
+vi.mock('../../models/api', async (orig) => ({ ...(await orig<typeof import('../../models/api')>()), getModelTraffic: vi.fn() }))
 
 const now = Date.parse('2026-10-05T12:00:00.000Z')
 const renderTraffic = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ModelTrafficSection now={() => now} /></QueryClientProvider>)

@@ -40,8 +40,8 @@ vi.mock('../features/projects/api/project-channel', async (orig) => ({
   postChannelMessage: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../api/models', async (orig) => ({
-  ...(await orig<typeof import('../api/models.js')>()),
+vi.mock('../features/models/api', async (orig) => ({
+  ...(await orig<typeof import('../features/models/api.js')>()),
   listModels: vi.fn().mockResolvedValue([
     { id: 'm1', name: 'First', source: 'endpoint', model: 'm1-model', sourceLabel: 'Primary' },
     { id: 'm2', name: 'Second', source: 'endpoint', model: 'm2-model', sourceLabel: 'Secondary' },

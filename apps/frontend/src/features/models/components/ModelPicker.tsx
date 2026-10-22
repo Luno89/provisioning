@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Check, Search, ChevronRight, Plus } from 'lucide-react';
-import { type ModelProvider } from '../api/models';
-import { listLlmProviders, credentialKeys, type LlmProviderStatus } from '../features/infrastructure';
-import { listClusters, clusterKeys } from '../features/infrastructure';
+import { type ModelProvider } from '../api';
+import { listLlmProviders, credentialKeys, type LlmProviderStatus } from '../../infrastructure';
+import { listClusters, clusterKeys } from '../../infrastructure';
 import { modelOptionLabel } from '../lib/model-label';
-import { MachineChoices } from '../features/machines';
+import { MachineChoices } from '../../machines';
 import {
   tierModels, modelRowLabel, formatPrice, formatContext, formatIntelligence, sourceOf,
   type ModelGroup,

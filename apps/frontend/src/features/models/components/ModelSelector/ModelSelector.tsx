@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Check, ChevronDown, Cpu, Globe, Laptop, Search, Server } from 'lucide-react'
-import { listModels, providerKeys, useDefaultModel, type ModelProvider } from '../../api/models'
+import { listModels, providerKeys, useDefaultModel, type ModelProvider } from '../../api'
 import { isLocal, sourceOf } from '../../lib/model-groups'
-import { useMachineChoiceLabel } from '../../features/machines'
-import { MachineChoices } from '../../features/machines'
+import { useMachineChoiceLabel } from '../../../machines'
+import { MachineChoices } from '../../../machines'
 
 export interface ModelSelectorProps {
   value: string | null | undefined

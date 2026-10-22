@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AppDeployWizard from './index';
-import * as modelsApi from '../../../../api/models';
+import * as modelsApi from '../../../models/api';
 import * as deploymentsApi from '../../api/deployments';
 import type { Cluster } from '../../types/cluster';
 import type { CatalogueEntry } from '../../api/deployments';
@@ -30,7 +30,7 @@ const modelsApiEmptyPage = {
   tags: [] as string[], page: 1, pageSize: 30, total: 0, totalPages: 1, sort: 'newest' as const,
 };
 
-vi.mock('../../../../api/models', async (importOriginal) => ({
+vi.mock('../../../models/api', async (importOriginal) => ({
   ...(await importOriginal<typeof modelsApi>()),
   useImageTags: vi.fn(() => ({ data: modelsApiEmptyPage, isLoading: false, isFetching: false })),
   useHfModelSize: vi.fn(() => ({ data: undefined, isFetching: false, isError: false })),

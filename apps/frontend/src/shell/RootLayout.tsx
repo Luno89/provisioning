@@ -27,7 +27,7 @@ import NoInstance from '../components/NoInstance';
 import RootAdmin from '../components/RootAdmin/RootAdmin';
 import RemoveAccountPage from '../components/Account/RemoveAccountPage';
 import TrialBanner from '../components/TrialBanner';
-import { FirstModel } from '../components/FirstModel';
+import { FirstModel } from '../features/models';
 import { MovingPage } from '../components/Move/InstanceMove';
 import { listClusters, clusterKeys, type ClusterCreated, provisionCluster as provisionClusterApi, startAwaitingCluster as startAwaitingClusterApi } from '../features/infrastructure';
 import { listDeployments, deploymentKeys, deployApp as deployAppApi, destroyResource as destroyResourceApi } from '../features/infrastructure';

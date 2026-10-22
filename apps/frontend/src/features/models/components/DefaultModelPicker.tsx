@@ -4,12 +4,12 @@ import { Cpu } from 'lucide-react';
 import {
   listModels, providerKeys, useDefaultModel, setDefaultModel, setGlobalModelOverride,
   defaultModelKeys, type ModelProvider,
-} from '../../api/models';
-import { modelOptionLabel } from '../../lib/model-label';
-import { ModelPicker } from '../ModelPicker';
-import { errorMessage } from '../../api/client';
-import { useMachineChoiceLabel } from '../../features/machines';
-import { useShellStore } from '../../features/platform';
+} from '../api';
+import { modelOptionLabel } from '../lib/model-label';
+import { ModelPicker } from './ModelPicker';
+import { errorMessage } from '../../../api/client';
+import { useMachineChoiceLabel } from '../../machines';
+import { useShellStore } from '../../platform';
 
 export function DefaultModelPicker() {
   const qc = useQueryClient();

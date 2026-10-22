@@ -2,22 +2,22 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ModelConfigDrawer } from './ModelConfigDrawer';
-import * as modelsApi from '../api/models';
-import type { ModelProvider } from '../api/models';
+import * as modelsApi from '../api';
+import type { ModelProvider } from '../api';
 
-vi.mock('../api/models', async (orig) => ({
+vi.mock('../api', async (orig) => ({
   ...(await orig<typeof modelsApi>()),
   listModels: vi.fn(),
   useDefaultModel: vi.fn(),
 }));
 
-vi.mock('../features/infrastructure/api/credentials', async (orig) => ({
-  ...(await orig<typeof import('../features/infrastructure/api/credentials')>()),
+vi.mock('../../infrastructure/api/credentials', async (orig) => ({
+  ...(await orig<typeof import('../../infrastructure/api/credentials')>()),
   listLlmProviders: vi.fn().mockResolvedValue([]),
 }));
 
-vi.mock('../features/infrastructure/api/clusters', async (orig) => ({
-  ...(await orig<typeof import('../features/infrastructure/api/clusters')>()),
+vi.mock('../../infrastructure/api/clusters', async (orig) => ({
+  ...(await orig<typeof import('../../infrastructure/api/clusters')>()),
   listClusters: vi.fn().mockResolvedValue([]),
 }));
 

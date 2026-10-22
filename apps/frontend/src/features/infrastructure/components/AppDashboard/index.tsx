@@ -6,7 +6,7 @@ import {
   useDeploymentPods, useHelmStatus, useDiagnostics,
   useAvailableModules, useResourcePlan, useInitialLogs, deploymentKeys, useAppCatalogue,
 } from '../../api/deployments';
-import { useTabbyImageTags } from '../../../../api/models';
+import { useTabbyImageTags } from '../../../models';
 import { useLogSocket } from '../../../platform';
 import { useShellStore } from '../../../platform';
 import type { Deployment } from '../../types/deployment';

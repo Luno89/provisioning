@@ -9,7 +9,7 @@ import { createTurnFollower } from '../../lib/turn-follower'
 import type { TurnLogEntry } from '../../types/turns'
 import { applyTurnEvents, emptyRunState, type EngineRunState } from '../../lib/engine-run-state'
 import RunCard from '../EngineRun/RunCard'
-import ModelSelector from '../ModelSelector/ModelSelector'
+import { ModelSelector } from '../../features/models'
 
 export default function AgentTryIt({ agent }: { agent: EngineAgent | undefined }) {
   return agent ? <TryIt agent={agent} /> : <p className="text-xs text-slate-500">Loading the agent…</p>

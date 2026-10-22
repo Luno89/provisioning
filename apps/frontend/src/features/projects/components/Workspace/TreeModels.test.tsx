@@ -3,19 +3,19 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TreeModels } from './TreeModels'
 import * as groveApi from '../../api/grove'
-import * as modelsApi from '../../../../api/models'
+import * as modelsApi from '../../../models/api'
 import * as credentialsApi from '../../../infrastructure/api/credentials'
 import * as clustersApi from '../../../infrastructure/api/clusters'
 import * as localAgentsApi from '../../../machines/api'
 import { machineChoiceLabel } from '../../../machines/lib/machine-rows'
-import type { ModelProvider } from '../../../../api/models'
+import type { ModelProvider } from '../../../models/api'
 
 vi.mock('../../api/grove', async (orig) => ({
   ...(await orig<typeof groveApi>()),
   getTreeModels: vi.fn(),
   setTreeModel: vi.fn(),
 }))
-vi.mock('../../../../api/models', async (orig) => ({
+vi.mock('../../../models/api', async (orig) => ({
   ...(await orig<typeof modelsApi>()),
   listModels: vi.fn(),
 }))

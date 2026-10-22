@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { getModelTraffic, MODEL_TRAFFIC_POLL_MS, modelTrafficKeys, type ModelTraffic as Traffic } from '../../../api/models'
+import { getModelTraffic, MODEL_TRAFFIC_POLL_MS, modelTrafficKeys, type ModelTraffic as Traffic } from '../../models'
 import { errorMessage } from '../../../api/client'
 import { Section } from '../../monitoring'
 

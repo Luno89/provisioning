@@ -1,4 +1,4 @@
-import type { ModelProvider } from '../api/models'
+import type { ModelProvider } from '../api'
 
 export interface ModelVendorGroup {
   key: string

@@ -5,7 +5,7 @@ import { errorMessage, useDeleteAgent, useEgressGrants, useGrantableTools, useMc
 import { serverLine } from './mcp-server-forms'
 import { NEEDS, onlyToolsChanged, requirementFor, withRequired } from './agent-forms'
 import ToolGrants from './ToolGrants'
-import ModelSelector from '../ModelSelector/ModelSelector'
+import { ModelSelector } from '../../features/models'
 import AutoModeSwitch from '../AutoMode/AutoModeSwitch'
 import { useAgentAutoMode } from '../AutoMode/useAutoMode'
 

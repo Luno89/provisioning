@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AppDashboard from './index';
 import * as deploymentsApi from '../../api/deployments';
-import * as modelsApi from '../../../../api/models';
+import * as modelsApi from '../../../models/api';
 import type { Deployment } from '../../types/deployment';
 
 vi.mock('../../api/deployments', async (importOriginal) => ({
@@ -16,7 +16,7 @@ vi.mock('../../api/deployments', async (importOriginal) => ({
   useResourcePlan: vi.fn(() => ({ data: undefined })),
   useInitialLogs: vi.fn(() => ({ data: undefined })),
 }));
-vi.mock('../../../../api/models', async (importOriginal) => ({
+vi.mock('../../../models/api', async (importOriginal) => ({
   ...(await importOriginal<typeof modelsApi>()),
   useTabbyImageTags: vi.fn(() => ({ options: [], loading: false })),
 }));

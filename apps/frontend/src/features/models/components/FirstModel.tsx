@@ -1,13 +1,13 @@
 import { useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
-import { defaultModelKeys, getDefaultModel, listModels, providerKeys, setDefaultModel, type ModelProvider } from '../api/models'
-import { openRouterConnectUrl } from '../features/infrastructure'
-import { errorMessage } from '../api/client'
+import { defaultModelKeys, getDefaultModel, listModels, providerKeys, setDefaultModel, type ModelProvider } from '../api'
+import { openRouterConnectUrl } from '../../infrastructure'
+import { errorMessage } from '../../../api/client'
 import { firstModelChoices, firstModelStep } from '../lib/first-model'
 import { formatIntelligence, formatPrice } from '../lib/model-groups'
-import { useLocalAgentDevices } from '../features/machines'
-import { machineRows, type MachineRow } from '../features/machines'
+import { useLocalAgentDevices } from '../../machines'
+import { machineRows, type MachineRow } from '../../machines'
 
 const LATER_KEY = 'koala.firstModel.later'
 

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import ModelSelector from '../ModelSelector/ModelSelector'
+import { ModelSelector } from '../../features/models'
 import ScenarioEditor from './ScenarioEditor'
 import CheckResult from './CheckResult'
 import type { Scenario } from '../../api/evals'

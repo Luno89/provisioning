@@ -21,7 +21,7 @@ import ToolExplorer from '../components/Studio/ToolExplorer';
 import McpServerExplorer from '../components/Studio/McpServerExplorer';
 import DependencyExplorer from '../components/Studio/DependencyExplorer';
 import ExtensionsView from '../components/Studio/ExtensionsView';
-import ModelsView from '../components/Studio/ModelsView';
+import { ModelsView } from '../features/models';
 import StudioFrame from '../components/Studio/StudioFrame';
 import { TreeTypes } from '../features/projects';
 import SettingsView from './SettingsView';

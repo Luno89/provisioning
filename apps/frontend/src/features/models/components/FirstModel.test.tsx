@@ -2,17 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { FirstModel } from './FirstModel'
-import * as modelsApi from '../api/models'
-import * as agentsApi from '../features/machines/api'
+import * as modelsApi from '../api'
+import * as agentsApi from '../../machines/api'
 
-vi.mock('../api/models', async (importOriginal) => ({
+vi.mock('../api', async (importOriginal) => ({
   ...(await importOriginal<typeof modelsApi>()),
   listModels: vi.fn(),
   getDefaultModel: vi.fn(),
   setDefaultModel: vi.fn(),
 }))
 
-vi.mock('../features/machines/api', async (importOriginal) => ({
+vi.mock('../../machines/api', async (importOriginal) => ({
   ...(await importOriginal<typeof agentsApi>()),
   useLocalAgentDevices: vi.fn(() => ({ data: [] })),
 }))

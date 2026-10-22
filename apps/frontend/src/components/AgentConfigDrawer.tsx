@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Sliders, X, Loader2, ExternalLink, Check } from 'lucide-react';
 import { agentKeys, listAgents, type Agent } from '../api/agents';
-import { listModels, providerKeys, type ModelProvider } from '../api/models';
-import { modelOptionLabel } from '../lib/model-label';
+import { listModels, providerKeys, type ModelProvider } from '../features/models';
+import { modelOptionLabel } from '../features/models';
 import { useMachineChoiceLabel } from '../features/machines';
 import { useShellStore } from '../features/platform';
 

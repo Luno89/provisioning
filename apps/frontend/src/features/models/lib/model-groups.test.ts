@@ -3,7 +3,7 @@ import {
   groupModels, tierModels, vendorOf, sourceOf, modelRowLabel, isLocal, isFree, formatPrice,
   formatContext, formatIntelligence,
 } from './model-groups'
-import type { ModelProvider } from '../api/models'
+import type { ModelProvider } from '../api'
 
 const priced = (promptPerMTok: number, completionPerMTok: number) => ({
   pricing: { promptPerMTok, completionPerMTok },

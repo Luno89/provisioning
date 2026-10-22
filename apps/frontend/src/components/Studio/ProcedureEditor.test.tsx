@@ -62,7 +62,7 @@ vi.mock('../../api/engine', async () => {
   }
 })
 
-vi.mock('../ModelSelector/ModelSelector', () => ({ default: () => <div>model</div> }))
+vi.mock('../../features/models/components/ModelSelector/ModelSelector', () => ({ default: () => <div>model</div> }))
 
 const api = await import('../../api/procedures')
 const engine = await import('../../api/engine')
