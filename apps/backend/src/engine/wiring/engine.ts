@@ -12,7 +12,7 @@ import { PROCEDURE_CHANGE_AGENT } from '../lib/agent-usage.js';
 import { fingerprintOf } from '../../checks/lib/bench.js';
 import { scenarioSubjects } from '../../checks/lib/check-subjects.js';
 import { providerServing } from '../../models/lib/model-registry.js';
-import { restoringApp } from '../../releases/lib/release-run.js';
+import { restoringApp, type wireReleases } from '../../releases/index.js';
 import { hostedMcpUrl } from '../lib/mcp-hosted-url.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
 import {
@@ -58,7 +58,6 @@ import { runCancelledVia } from '../../engine-host/temporal/run-cancellation.js'
 import { BENCH_IDLE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, conversationConclusionId, treeOfGroveRun, workflowOfRun } from '../../engine-host/temporal/contracts.js';
 import { MCP_SERVER_TEMPLATES } from '../../extensions/mcp/templates.js';
 import { buildWebTools } from './web-tools.js';
-import type { wireReleases } from '../../releases/wiring/releases.js';
 import type { Mounts } from '../../hub/wiring/hub.js';
 import { checksRouter } from '../../checks/routes/checks.js';
 import { proceduresRouter } from '../routes/procedures.js';

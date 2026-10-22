@@ -7,7 +7,7 @@ import { explainSpecProblems, validateSpec } from '../../infrastructure/lib/app-
 import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/index.js';
 import { projectFor, type ProjectScopeStores } from './project-scope.js';
 import { projectAppOf } from '../../releases/lib/project-app.js';
-import type { OdooRelease } from '../../releases/lib/odoo-release.js';
+import type { OdooRelease } from '../../releases/index.js';
 import { code, fields, section, sectionLines, text, type ProposalSection } from '../../projects/lib/proposal-sections.js';
 import { changesSentence } from '../../releases/lib/release-compare.js';
 

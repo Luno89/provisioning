@@ -3,7 +3,7 @@ import { ApplicationFailure } from '@temporalio/common';
 import type { NodeRequest, StepResult } from '@koala/agent-engine/procedure';
 import { idleOf, splitImage, type OdooRelease, type ReleaseState, type Slot, type SlotState } from '../../../releases/lib/odoo-release.js';
 import { marked, type ReleaseMark, type ReleaseRunInput, type ReplaceRunInput, type RollBackRunInput } from '../../../releases/lib/release-run.js';
-import type { ReleaseE2E } from '../../../releases/lib/release-e2e.js';
+import type { ReleaseE2E } from '../../../releases/index.js';
 import type { HostOperationRun } from '../../types.js';
 import { adapterOf, type SlotAdapter, type SlotAdapters, type SlotBuild } from '../adapter.js';
 import type { SlotCluster } from '../slot-cluster.js';

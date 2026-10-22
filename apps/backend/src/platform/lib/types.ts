@@ -181,7 +181,7 @@ export interface ProjectMetadata {
   infisicalReaderEnc?: string;
   removal?: { startedAt: string; requestedBy: string } | undefined;
   releaseName?: string | undefined;
-  release?: import('../../releases/lib/release-run.js').ReleaseHow | undefined;
+  release?: import('../../releases/index.js').ReleaseHow | undefined;
   channelId?: string | undefined;
   files?: import('../../files/lib/file-places.js').FilePlace | undefined;
   clientFiles?: string[] | undefined;

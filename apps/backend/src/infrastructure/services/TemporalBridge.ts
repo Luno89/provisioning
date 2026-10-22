@@ -1,5 +1,5 @@
 import path from 'path';
-import { isCommitSha, type BuildPlan } from '../../releases/lib/build-plan.js'
+import { isCommitSha, type BuildPlan } from '../../releases/index.js'
 import {
   stopIfRunning, getTemporalClient, pollWorkflowRun, decryptValue, encryptValue, type SecretKey, type Database,
   type ClusterMetadata, type ClusterProgress, type DeploymentMetadata, type ProjectMetadata,

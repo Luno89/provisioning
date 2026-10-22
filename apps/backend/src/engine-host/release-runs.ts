@@ -2,7 +2,7 @@ import type { WorkflowClient } from '@temporalio/client';
 import type { StartRunRequest, StartedRun } from './registries/run-starter.js';
 import { runStamp } from './temporal/contracts.js';
 import { DECISION_NODE, releaseRunId, releaseRunWorkflowId } from '../releases/lib/release-run.js';
-import type { ReleaseRuns } from '../releases/services/OdooReleaseService.js';
+import type { ReleaseRuns } from '../releases/index.js';
 
 const notFound = (err: unknown): boolean => /not\s*found/i.test(String((err as Error)?.message ?? err));
 

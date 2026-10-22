@@ -1,4 +1,4 @@
-import type { ReleaseSettings } from '../../releases/services/ReleaseSettings.js';
+import type { ReleaseSettings } from '../../releases/index.js';
 import type { ActionProposal } from '../lib/action-proposals.js';
 import { DECIDABLE } from '../lib/action-proposals.js';
 import { declareDependency, explainSpecProblems, validateSpec, visibleAppSpecs, type AppSpec } from '../../infrastructure/index.js';

@@ -7,7 +7,7 @@ import { checkDefinition, dependencyProblems, type ToolDefinition, type Workspac
 import { SEPARATOR, slugify } from '../../engine/lib/mcp-tools.js';
 import { serverProblems, type McpServerRecord } from '../../engine/lib/mcp-servers.js';
 import type { TaskStatus } from '../../engine-host/tools/tasks.js';
-import type { ReleaseState } from '../../releases/lib/odoo-release.js';
+import type { ReleaseState } from '../../releases/index.js';
 
 export interface WorldTask {
   id: string;

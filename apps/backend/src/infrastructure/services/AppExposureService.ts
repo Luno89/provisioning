@@ -10,7 +10,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { Server as SocketServer } from 'socket.io';
-import { ODOO_PROJECT_APP } from '../../releases/lib/odoo-release.js';
+import { ODOO_PROJECT_APP } from '../../releases/index.js';
 import { addressScope, appLabel, edgeSite, flatHost, freeLabel, inScope, labelOfFlat, nestedHost, offersNested, type AddressScope } from '../../instances/lib/edge-addresses.js';
 
 export interface InstanceEdge {

@@ -34,9 +34,8 @@ import { createProjectRemovalActivities, type AppTeardown } from './activities/R
 import { createCheckReleases, createReleaseBrowserTestActivities, namespacedCluster } from './activities/ReleaseBrowserTestsActivity.js';
 import { createSlotCluster } from './extensions/releases/slot-cluster.js';
 import { CustomizationsService } from './releases/services/CustomizationsService.js';
-import { releaseHowOf } from './releases/lib/release-run.js';
+import { releaseHowOf, projectChoicesPatch, type ClientImport } from './releases/index.js';
 import { ODOO_RELEASE_ADAPTER } from './extensions/odoo/release-adapter.js';
-import { projectChoicesPatch, type ClientImport } from './releases/lib/client-import.js';
 import { syncVaultFromProject } from './extensions/releases/vault-sync.js';
 import { Context as ActivityContext } from '@temporalio/activity';
 import { createCheckProgressActivity, createCheckRunActivities } from './activities/CheckRunActivities.js';

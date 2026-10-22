@@ -1,6 +1,6 @@
 import type { ConversationNotice, NoticeAction, NoticeKind } from '../../engine/index.js';
 import { workflowOfRun } from './workflow-ids.js';
-import type { OdooRelease } from '../../releases/lib/odoo-release.js';
+import type { OdooRelease } from '../../releases/index.js';
 import { changesSentence } from '../../releases/lib/release-compare.js';
 import { importedSentence } from '../../releases/lib/client-import.js';
 import type { Leaf } from '../../projects/index.js';

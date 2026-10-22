@@ -12,7 +12,7 @@ import type { WorkspaceDependencyService } from '../services/WorkspaceDependency
 import type { AgentService } from '../services/AgentService.js';
 import type { directoryFromDatabase } from '../../engine-host/index.js';
 import { actionsRouter } from '../routes/actions.js';
-import type { wireReleases } from '../../releases/wiring/releases.js';
+import type { wireReleases } from '../../releases/index.js';
 import type { Mounts } from '../../hub/wiring/hub.js';
 
 export interface ActionsWiringDeps {

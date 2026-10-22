@@ -1,9 +1,7 @@
 import { agentsHandedTo, describeOutline, outlineProcedure, type Procedure } from '@koala/agent-engine/procedure';
 import { builtLanguage, groveAgentOf, resolveTreeType, treeLanguage, type TreeTypeSpec } from '../lib/tree-types.js';
 import { describeTreeType, type ReleaseWay, type ReleaseWays } from '../lib/tree-type-description.js';
-import { releaseHowOf } from '../../releases/lib/release-run.js';
-import { CHART_FILE } from '../../releases/lib/odoo-release.js';
-import type { ReleaseAgent } from '../../releases/services/ReleaseSettings.js';
+import { releaseHowOf, CHART_FILE, type ReleaseAgent } from '../../releases/index.js';
 import type { WorkspaceImageSpec } from '../../engine/index.js';
 
 export interface TreeTypeDescriptionDeps {

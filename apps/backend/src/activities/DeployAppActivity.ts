@@ -14,7 +14,7 @@ import os from 'os';
 import { clusterAccess } from './cluster-access.js';
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
 import { appServiceType, placedOnPool } from '../monitoring/lib/cluster-monitoring.js';
-import { infisicalHostFor } from '../releases/lib/infisical-sync.js';
+import { infisicalHostFor } from '../releases/index.js';
 
 async function nodeAllocatableBytes(
   infra: InfrastructureService,

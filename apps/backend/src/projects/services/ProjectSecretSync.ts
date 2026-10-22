@@ -1,9 +1,8 @@
 import { decryptValue, encryptValue, type SecretKey, type ProjectMetadata, CLI_CEILING } from '../../platform/index.js';
 import {
-  OPERATOR_NAMESPACE, OPERATOR_RELEASE, OPERATOR_REPO,
-  infisicalHostFor, infisicalSecretManifest, readerSecretManifest,
-  type SecretTarget,
-} from '../../releases/lib/infisical-sync.js';
+  OPERATOR_NAMESPACE, OPERATOR_RELEASE, OPERATOR_REPO, infisicalHostFor, infisicalSecretManifest,
+  readerSecretManifest, type SecretTarget,
+} from '../../releases/index.js';
 
 export const OPERATOR_VERSION = 'v0.11.10';
 

@@ -7,7 +7,7 @@ import { ProvisionRemoteHostActivity } from './ProvisionRemoteHostActivity.js';
 import { ProvisionHetznerVmActivity } from './ProvisionHetznerVmActivity.js';
 import { ProvisionDigitalOceanVmActivity } from './ProvisionDigitalOceanVmActivity.js';
 import { JoinMeshActivity } from './JoinMeshActivity.js';
-import { infisicalHostFor } from '../releases/lib/infisical-sync.js';
+import { infisicalHostFor } from '../releases/index.js';
 import { ensureInfisicalOperator } from '../projects/index.js';
 import { CLI_CEILING } from '../platform/index.js';
 

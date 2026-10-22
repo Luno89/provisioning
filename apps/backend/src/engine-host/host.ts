@@ -35,7 +35,7 @@ import type { TaskStore } from './tools/task-tools.js';
 import type { MemoryItem } from './drivers/memory-store.js';
 import type { HostNodeServices } from './nodes/services.js';
 import { extensionRuntimes, operationHandlers, toolHandlers } from '../extensions/runtime.js';
-import { releaseAgentsOf, releaseProblemOf } from '../releases/services/ReleaseSettings.js';
+import { releaseAgentsOf, releaseProblemOf } from '../releases/index.js';
 import { restoringApp } from '../releases/lib/release-run.js';
 import type { RunTicket, ToolRuntime } from './temporal/contracts.js';
 import type { Database } from '../platform/index.js';
@@ -108,7 +108,7 @@ export interface EngineHostOptions {
   dependencies?: ((ownerId: string) => Promise<readonly WorkspaceDependency[]>) | undefined;
   accountDefault?: ((ownerId: string) => Promise<import('../machines/lib/machine-runs.js').AccountDefault | undefined>) | undefined;
   treeModels?: import('../extensions/grove/tools/grove-tools.js').TreeModelChoices | undefined;
-  customizations?: Pick<import('../releases/services/CustomizationsService.js').CustomizationsService, 'drift' | 'propose' | 'exportItems'> | undefined;
+  customizations?: Pick<import('../releases/index.js').CustomizationsService, 'drift' | 'propose' | 'exportItems'> | undefined;
   monitoring?: import('../extensions/monitoring/handlers.js').MonitoringReading | undefined;
   files?: import('../extensions/files/handlers.js').FilesToolDeps | undefined;
   publishedWorkspaces?: {

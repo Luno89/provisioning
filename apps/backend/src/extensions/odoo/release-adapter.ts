@@ -1,10 +1,9 @@
 import { copyDatabaseScript, databaseOf, filestoreJob, helmSets, modulesIn, odooJob, splitImage, type Slot } from '../../releases/lib/odoo-release.js';
 import { QUIET_PREVIEW_SQL } from '../../releases/lib/release-e2e.js';
 import type { SlotAdapter, SlotBuild } from '../releases/adapter.js';
-import type { ReleaseTarget } from '../../releases/lib/release-run.js';
+import type { ReleaseTarget, InventoryItem } from '../../releases/index.js';
 import type { SlotCluster } from '../releases/slot-cluster.js';
 import { query, type PostgresAccess } from '../releases/postgres-compare.js';
-import type { InventoryItem } from '../../releases/lib/release-compare.js';
 import { inventoryFrom, inventorySql, presentTablesSql } from './inventory.js';
 import { exportCustomizations, moduleNameFor, MODEL_TABLES, takeOverSql } from './export.js';
 import { ADOPT_FILE } from '../../releases/lib/customizations.js';

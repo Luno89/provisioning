@@ -5,7 +5,7 @@ import {
   namespaceOf,
 } from '../infrastructure/index.js';
 import { reachCluster } from './cluster-access.js';
-import { ODOO_PROJECT_APP } from '../releases/lib/odoo-release.js';
+import { ODOO_PROJECT_APP } from '../releases/index.js';
 
 export type { DestroyAppArgs } from '../infrastructure/index.js';
 

@@ -5,11 +5,10 @@ import { ApplicationFailure } from '@temporalio/common';
 import type { InfrastructureService } from '../../infrastructure/index.js';
 import { CHART_DIR, NOTHING_INSTALLED, slotStateFrom, type ReleaseVault, type SlotState } from '../../releases/lib/odoo-release.js';
 import { reachCluster } from '../../activities/cluster-access.js';
-import type { ReleaseSource, ReleaseTarget } from '../../releases/lib/release-run.js';
+import type { ReleaseSource, ReleaseTarget, SecretTarget } from '../../releases/index.js';
 import { inNamespace, runClusterJob, waitUntilRolledOut, type NamespacedCluster } from '../../activities/cluster-jobs.js';
 import { labelValue } from '../../engine-host/sandboxes/workspace.js';
 import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
-import type { SecretTarget } from '../../releases/lib/infisical-sync.js';
 import { manifestList, registryPullManifests, type RegistryLogin, type RegistryLoginSource } from '../../instances/lib/registry-pull.js';
 
 export interface VaultSyncArgs {

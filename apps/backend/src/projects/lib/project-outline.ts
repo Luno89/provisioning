@@ -1,4 +1,4 @@
-import type { OdooRelease } from '../../releases/lib/odoo-release.js';
+import type { OdooRelease } from '../../releases/index.js';
 import type { PipelineRunMetadata } from '../../platform/index.js';
 import { changesSentence } from '../../releases/lib/release-compare.js';
 import { importLine, type ClientImport } from '../../releases/lib/client-import.js';

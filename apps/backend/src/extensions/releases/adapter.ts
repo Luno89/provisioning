@@ -1,10 +1,8 @@
-import type { ReleaseVault, Slot, SlotState } from '../../releases/lib/odoo-release.js';
-import type { ReleaseSource, ReleaseTarget } from '../../releases/lib/release-run.js';
-import type { InventoryItem } from '../../releases/lib/release-compare.js';
+import type {
+  ReleaseVault, Slot, SlotState, ReleaseSource, ReleaseTarget, InventoryItem, ExportResult, ImportMode,
+} from '../../releases/index.js';
 import type { PostgresAccess } from './postgres-compare.js';
-import type { ExportResult } from '../../releases/lib/customizations.js';
 import type { SlotCluster } from './slot-cluster.js';
-import type { ImportMode } from '../../releases/lib/client-import.js';
 
 export interface SlotBuild {
   image: string;

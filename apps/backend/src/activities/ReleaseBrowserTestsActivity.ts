@@ -4,30 +4,16 @@ import { Context } from '@temporalio/activity';
 import { CancelledFailure } from '@temporalio/common';
 import { readFailureArtifacts, readWhole, type KeepArtifacts, type WorkspaceExec } from '../files/lib/artifacts.js';
 import { E2E_REPORT, e2ePassed, plain, readE2EReport } from '../engine/index.js';
-import { databaseOf, databaseSecretFrom, releaseTargetOf, vaultDatabaseSecret, type Slot } from '../releases/lib/odoo-release.js';
-import type { ClusterMetadata, ProjectMetadata } from '../platform/index.js';
 import {
-  E2E_DONE,
-  E2E_INSTALL_FAILED,
-  E2E_WORKDIR,
-  MAX_SPEC_BYTES,
-  browserTestsJob,
-  loginSecret,
-  releaseE2EFrom,
-  releaseE2EName,
-  releaseLoginJobName,
-  releaseLoginSecret,
-  releaseSpecFiles,
-  specBytes,
-  specConfigMap,
-  testLoginJob,
-  withConfig,
-  type ReleaseE2E,
-} from '../releases/lib/release-e2e.js';
+  databaseOf, databaseSecretFrom, releaseTargetOf, vaultDatabaseSecret, type Slot, E2E_DONE, E2E_INSTALL_FAILED,
+  E2E_WORKDIR, MAX_SPEC_BYTES, browserTestsJob, loginSecret, releaseE2EFrom, releaseE2EName, releaseLoginJobName,
+  releaseLoginSecret, releaseSpecFiles, specBytes, specConfigMap, testLoginJob, withConfig, type ReleaseE2E,
+  type ReleaseSource, type ReleaseTarget,
+} from '../releases/index.js';
+import type { ClusterMetadata, ProjectMetadata } from '../platform/index.js';
 import { reachCluster } from './cluster-access.js';
 import { manifestList, registryPullManifests, type RegistryLoginSource } from '../instances/lib/registry-pull.js';
 import { inNamespace, runClusterJob, type NamespacedCluster } from './cluster-jobs.js';
-import type { ReleaseSource, ReleaseTarget } from '../releases/lib/release-run.js';
 
 const vaultKeys = (data: string): string[] => {
   try {

@@ -6,7 +6,7 @@ import type { AccountsStore } from '../../accounts/store.js';
 import type { InstancesStore } from '../../instances/store.js';
 import type { HubStore } from '../../hub/store.js';
 import type { ProjectsStore } from '../../projects/index.js';
-import type { ReleasesStore } from '../../releases/store.js';
+import type { ReleasesStore } from '../../releases/index.js';
 import type { FilesStore } from '../../files/store.js';
 import type { MachinesStore } from '../../machines/store.js';
 import type { MonitoringStore } from '../../monitoring/store.js';

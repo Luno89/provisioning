@@ -1,4 +1,4 @@
-import type { InventoryItem } from '../../releases/lib/release-compare.js';
+import type { InventoryItem } from '../../releases/index.js';
 import { literal } from '../releases/postgres-compare.js';
 
 export interface Kind {

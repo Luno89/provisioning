@@ -20,8 +20,7 @@ import { randomBytes } from 'node:crypto';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
 import { STEP_NODE, stepProcedure, stepProcedureId } from '../checks/lib/step-check.js';
 import { platformCatalogue, platformGroups } from '../extensions/installed.js';
-import type { ReleaseE2E } from '../releases/lib/release-e2e.js';
-import type { Slot } from '../releases/lib/odoo-release.js';
+import type { ReleaseE2E, Slot } from '../releases/index.js';
 import { TURN_CALL_KIND, TURN_PROCEDURE_ID, turnProcedure, type TurnReply } from '../checks/lib/turn-check.js';
 
 export interface CheckSpaceArgs {
