@@ -141,11 +141,11 @@ Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod stat
 | `apps/backend/src/workflows/` + `activities/` | Temporal.io workflow/activity definitions |
 | `apps/backend/src/worker-host.ts` | Host-side Temporal worker — cluster provisioning/destruction activities |
 | `apps/backend/src/worker-cluster.ts` | In-cluster Temporal worker — app deploy/destroy/resize activities; reads K8s service account when in-cluster |
-| `apps/frontend/src/main.tsx` / `App.tsx` | React entry / the shell: routing, auth, the socket wiring and the view switch. 505 lines |
-| `apps/frontend/src/api/` | The one axios client (`client.ts`) and one module per domain. **No component contains a URL.** |
-| `apps/frontend/src/stores/` | zustand slices for client state — `shell.ts` (view, user, notifications), `socket.ts`. Server state is react-query's, never a store |
-| `apps/frontend/src/types/` | Domain shapes. Where one mirrors a backend record it carries a `── DUPLICATED, KNOWINGLY ──` block naming the authority |
-| `apps/frontend/src/components/` | Screens and widgets. A feature with more than ~4 files gets its own folder plus a `shared.ts` — see `components/Lab/` |
+| `apps/frontend/src/main.tsx` / `App.tsx` | React entry / the router provider. Nothing else sits at `src/` root but `index.css` |
+| `apps/frontend/src/shell/` | The shell: the router (`router.tsx`), `RootLayout.tsx` (sign-in, the socket wiring, the modals), the sidebar, the shell routes and Settings, which composes several areas' sections. The only code that may import every feature; nothing imports it but `App.tsx` |
+| `apps/frontend/src/features/<area>/` | **The frontend is laid out by area, named as the backend's**: `platform` (the session API, the route and toast helpers, the `shell` and `socket` stores), `accounts`, `instances`, `hub`, `projects`, `releases`, `files`, `machines`, `monitoring`, `models`, `memory`, `checks`, `infrastructure` and `engine` (chat, the Studio, runs). Each has `api.ts` (or `api/<domain>.ts` when it has several), `types.ts` (or `types/`), `components/`, `hooks/`, `lib/` (pure, tested), `stores/` where it keeps client state, `shared.ts`, and `index.ts`, **the only thing another area imports**. Find a screen by area first: `ls src/features/hub` is the hub |
+| `apps/frontend/src/shared/` | UI that belongs to no area: Koala, `KoalaLoading`, `Markdown` and its chat parser, `AnsiText`, `ConfirmDelete`, the debounce hook, Monaco's setup. Imports no feature |
+| `apps/frontend/src/api/client.ts` | The one axios client. Only a feature's `api` modules call it. **No component contains a URL.** |
 | `packages/cdktf-infra/main.ts` | CDKTF entry — stack type selected via `STACK_TYPE=cluster\|app` env var |
 | `packages/cdktf-infra/constructs/` | Per-app CDKTF constructs, each with a Helm variant and a `-native` (raw K8s manifest) variant |
 | `bin/` | Pre-downloaded k3d, kubectl, helm binaries |
@@ -201,7 +201,7 @@ sign-in are refused (`userFromSessionCookie`), and no run can start for it (`clo
 
 **On root and an instance, an account is root's.** An instance removes no account (it mounts no `/api/account`): its
 Settings → Delete account links to root's `/#/remove-account` (`GET /api/auth/account-removal`, `IdentityService.removalUrl`).
-That page (`Account/RemoveAccountPage.tsx`, also linked from the no-instance page) shows what goes, their instance
+That page (`accounts/components/RemoveAccountPage.tsx`, also linked from the no-instance page) shows what goes, their instance
 included (`preview`'s `instance`: a pool one deleted with everything in it, one on their own machine let go of while it
 keeps running there), takes the typed email, and starts `RootAccountRemovalWorkflow` through root's own `DELETE /api/account`,
 the same removal an admin's is.
@@ -271,7 +271,7 @@ account default reaches nothing. **The account default can be an agent on a mach
 checks the machine is the person's and its agent ready): a run that names no model and whose agent has none of its own (or the default overrides it)
 goes there when it is a chat or its procedure branches at Where It Runs (`accountMachineFor` in `machines/lib/machine-runs.ts`, read by the registry's `runnable`
 through `accountDefault`); anything else that would need a model fails with `MACHINE_DEFAULT_NEEDS_MODEL` from `ModelService.route`. A check's space
-never takes it. **The first-model dialog** (`FirstModel.tsx`, shown to anyone without a default) offers Connect OpenRouter, a model on their own machine
+never takes it. **The first-model dialog** (`models/components/FirstModel.tsx`, shown to anyone without a default) offers Connect OpenRouter, a model on their own machine
 (Infrastructure → Your own hardware, then TabbyAPI or vLLM) and a subscription agent through My Machines, and lists ready machine agents to pick.
 `npm run test:machine-default-live` proves it. A conversation keeps one
 session per machine, agent and model (`machineSessions`), so the next turn resumes it; a failed turn is saved with its reason.
@@ -393,8 +393,8 @@ the name drops its database), invitations. **Inviting goes through root**: the h
 with its credential (root knows it by `HUB_URL` and `HUB_CREDENTIAL_HASH`; combined calls `ProjectInviteService` in
 process), root makes an invite code bound to that email (`checkAndConsumeInvite` refuses any other address), emails
 `<root>/#/join?code=…&project=<join token>` when it sends mail and otherwise hands the link back to show. Root's join page
-(`Hub/RootJoinPage.tsx`) shows the invite signed out (`/api/hub-link/invitation`), signs them up, remembers the invite
-across sign-up (`lib/pending-join.ts`) and sends them on: `/api/identity/go?to=hub&next=/hub/join/<token>` issues a token
+(`hub/components/RootJoinPage.tsx`) shows the invite signed out (`/api/hub-link/invitation`), signs them up, remembers the invite
+across sign-up (`hub/lib/pending-join.ts`) and sends them on: `/api/identity/go?to=hub&next=/hub/join/<token>` issues a token
 with audience `hub`, and the hub takes anyone root vouches for (never an admin there), going on to `next`. The hub's own
 frontend is only Shared projects (`HubShell`, `onHub` on `/api/auth/me`). An instance links to it through root
 (`hub` on `/api/auth/sign-in`). `dev:split` runs the hub as a third process at `http://hub.localhost:5176` (API :3003).
@@ -434,8 +434,8 @@ repository; a project deleted on the hub stops being shared on its instance at i
 project on its instance takes it back first (the delete popup says so).
 
 **Members work a shared project on the hub** (step 2's second half). The hub's `/shared/:id` is Board · Files · People,
-the board the same screens as the instance's (`ProjectBoard` reads through a `WorkSource`, `components/Projects/work-source.ts`;
-the hub's is `components/Hub/hub-work-source.ts`, polling `GET /api/hub/projects/:id/board` every 3 s). What each role
+the board the same screens as the instance's (`ProjectBoard` reads through a `WorkSource`, `features/projects/lib/work-source.ts`;
+the hub's is `features/hub/lib/hub-work-source.ts`, polling `GET /api/hub/projects/:id/board` every 3 s). What each role
 sees is cut on the hub (`recordFor`, `statusFor` in `hub/lib/hub-board.ts`): a client gets stories and tasks without claims,
 runs or checks, chats without reasoning or tool calls, what is live and a waiting preview but no builds; owners and
 collaborators see everything, the run feed included, relayed from the owner's instance (`HubRelay`: the instance
@@ -494,7 +494,7 @@ volumes to the namespace they came from, `monitoring/lib/monitoring-asks.ts`). I
 its alert rules (rebuilt by root from the six templates) are written by root into its host namespace; alerts come back with
 their namespaces translated. Not on a pool place: Open in Grafana, request counts and the `errors` alert (shown as not
 measured), and changing how long history is kept (`byKoala`).
-**Root's admin area, `/#/admin`** (`components/RootAdmin/`; `/#/pool` opens its pool section): People (every account and
+**Root's admin area, `/#/admin`** (`features/instances/components/RootAdmin.tsx`; `/#/pool` opens its pool section): People (every account and
 its instance, own machine or pool), Invites, and Koala's servers (places in use, the default trial length, `poolSettings`
 seeded from `POOL_TRIAL_DAYS`, each person's trial end, which moving ahead warns again and starts a stopped instance, and
 Delete, typing the name, `PoolRemoveWorkflow`). Removing an account on root runs `RootAccountRemovalWorkflow` (host worker):
@@ -657,13 +657,13 @@ Plan: `~/.claude/plans/testing-levels.md`.
   other gets a fresh space per attempt; the result keeps every attempt, and a space that leaks fails the check whatever
   `passAt` allows. Coverage (`checks/lib/check-coverage.ts`) and comparing two runs (`checks/lib/check-compare.ts`) count every attempt.
 - The space's runs are handed to the person before it goes, so every result still opens in the run view.
-- **The Studio** (Agents, Tools, Procedures, Tree Types) is one explorer per concept (`components/Studio/Explorer.tsx`):
+- **The Studio** (Agents, Tools, Procedures, Tree Types) is one explorer per concept (`features/engine/components/Studio/Explorer.tsx`):
   items grouped by how they are used (agents: `engine/lib/agent-usage.ts` on the backend), each item's parts opening on the
   right like files. Built-in procedures open read-only; "Make my own copy to edit" saves a copy under the same id.
 - **Checks live on what they check** (Studio, `~/.claude/plans/studio-layout.md`): there is no all-checks page. A
   check shows on every agent, tool and procedure page it touches, worked out by `checks/lib/check-subjects.ts` from its
   agent, hand-offs, procedure (a step check's `step.from`), and the tools it expects or calls. One shared list
-  (`components/Checks/CheckList.tsx`) takes the scope; "New check" starts as a check of that page's subject.
+  (`features/checks/components/CheckList.tsx`) takes the scope; "New check" starts as a check of that page's subject.
 
 ## The bench
 
@@ -677,8 +677,8 @@ often everything runs).
 
 ## The sidebar
 
-Koala (chats), Projects, Studio (Agents, Tools — one explorer of tools, MCP servers and workspace dependencies, `Studio/toolbox.tsx` —, Procedures, Tree Types, Extensions, and **Models**: the LLM
-providers and the default model, `Studio/ModelsView.tsx`; **Connect OpenRouter** signs the person in to OpenRouter and gets a
+Koala (chats), Projects, Studio (Agents, Tools — one explorer of tools, MCP servers and workspace dependencies, `engine/components/Studio/toolbox.tsx` —, Procedures, Tree Types, Extensions, and **Models**: the LLM
+providers and the default model, `models/components/ModelsView.tsx`; **Connect OpenRouter** signs the person in to OpenRouter and gets a
 key on their own account and bill by OAuth PKCE, `models/lib/openrouter-connect.ts`: the verifier only in a sealed, httpOnly
 cookie bound to the person, the state checked before OpenRouter is asked, the key stored like a pasted one, which stays
 possible), Infrastructure, My Machines (machines Koala works on),
@@ -690,7 +690,7 @@ answers at its old address.
 ## Infrastructure (one page for clusters, apps, services, monitoring and running work)
 
 Plan: `~/.claude/plans/infrastructure-page.md` (and `monitoring.md` for the health part). Sidebar → **Infrastructure**
-(`components/Infrastructure/`, `#/infrastructure`, with Running's count badge) replaced Clusters, Applications, Services,
+(`features/infrastructure/`, `#/infrastructure`, with Running's count badge) replaced Clusters, Applications, Services,
 Monitoring and Running. It is one page of sections, no tabs; the old addresses (and `#/infrastructure/apps|clusters|running`)
 scroll to the matching section:
 - **Needs attention**: what needs attention, worst first — work **waiting on the person** (a tool call to allow, or a Wait for
@@ -783,7 +783,7 @@ relay for anyone else. `test:routing-live` proves an instance's email reaching i
 
 ## What runs (Infrastructure → Running)
 
-**Running** (`components/Infrastructure/RunningSection.tsx`; its count is the sidebar badge) lists the person's running work in
+**Running** (`features/infrastructure/components/RunningSection.tsx`; its count is the sidebar badge) lists the person's running work in
 plain words, from Temporal (their `KoalaOwner` workflows, top-level only; the conversation countdowns and the bench's
 idle timer are left out) mapped by `infrastructure/lib/running.ts`: the bench and checks (progress from the check run), the memory
 keeper (what it reads, from the run's memo `about`), tree runs, releases (and whether one waits on the card), chat turns
@@ -1127,8 +1127,8 @@ release (Odoo) or the deployed image (image deploys) still builds, but nothing i
 conversation (`channel-<projectId>`, `kind: 'channel'`, `ProjectChannelService.ensure`, made with the project or the
 first time its page opens, bound to its tree, deleted with it).
 
-**A project opens on its board** (`components/Projects/Board/`, `#/projects/tree/<id>` or `#/projects/project/<id>`).
-Every tab (Board · Releases · Files · Settings) starts with **the strip** (`Projects/Strip/ProjectStrip.tsx`): what is live
+**A project opens on its board** (`features/projects/components/Board/`, `#/projects/tree/<id>` or `#/projects/project/<id>`).
+Every tab (Board · Releases · Files · Settings) starts with **the strip** (`projects/components/Strip/ProjectStrip.tsx`): what is live
 with Open app and sign-in; what is being worked with Stop, or how many stories are ready with Work them; what each agent runs
 on (`runsOnLine`), opening the tree's models in place with **Every agent in this tree** (`wholeTreeChanges`) and auto mode;
 and **Waiting on you**: a preview to cut over, cards, asks, secrets. A plan card about a story that has since finished is out
@@ -1139,7 +1139,7 @@ each tree as an epic with its features (branches) as rows and its stories (leave
 (`BOARD_COLUMNS`/`stateFor`, the one rule for a leaf's column; `board.ts` builds it), and the channel on the right, its
 width dragged (and kept) at the divider. Opening a card or a feature puts it on its own page in place of the board, with
 breadcrumbs back up (`…/<branchId>/<leafId>`, `…/<branchId>`; each opening is a history step), and its chat on the right
-beside the Channel and Threads tabs. You set the order work is taken in on the board: drag a card by its grip within its column, move a feature with its arrows (`PUT /api/branches/:id/order`, `PUT /api/trees/:id/order` → `priority` on stories and features, `GroveOrderService`); `ready_leaves` takes ready stories in that order (`projects/lib/work-order.ts`), so the fan-out starts yours first, and Koala's outlines list them in it. A story's page lists its tasks, with Accept and Drop for any proposed while it was worked, and "Watch it work" opens the live feed of its worker's run and the runs it starts (the tree run's turn, `turnId` on `GET /api/trees/:id/run`; `GET /api/turns/:id?under=<runId>` sends only that run's family, with `through`, the last seq it read). Each run is a tab (`Board/StoryRun.tsx`): its procedure on the Studio graph, read-only, following and centring on the step it is on, and its rounds (`lib/run-rounds.ts`: a round starts each time the model step is entered again, since the log has no `model.requested`; a tool the procedure calls itself, a `call-tool` trace, is shown apart from the model's). The turn log writes a step's node events when the workflow step ends, so the model call is only "entered" once it has answered; streamed thinking and text carry its node, and the run state takes the step from them. A `node.traced` event in the turn log is a summary (`tracedSummary` in `engine/lib/turn-log.ts`: no `inputs` or `outputs`); the full trace is only in `engineRunTraces` (`/engine/runs/:id/traces`, which checks read), and the Studio's run panel reads those every few seconds while a run is live. Each trace used to carry the whole conversation, which made a long run's log tens of MB and crashed the tab watching it. A story that can be started shows the tree's run panel on its page: there is no running one story, the tree takes the ready ones in board order. The editor, explorer, builds, workspace file and the tree's sandbox are its **Files** page (`…/files`); its models, auto mode, how its project releases and deleting the tree or project are its **Settings** page (`…/settings`, `Projects/Settings/`); the switch at
+beside the Channel and Threads tabs. You set the order work is taken in on the board: drag a card by its grip within its column, move a feature with its arrows (`PUT /api/branches/:id/order`, `PUT /api/trees/:id/order` → `priority` on stories and features, `GroveOrderService`); `ready_leaves` takes ready stories in that order (`projects/lib/work-order.ts`), so the fan-out starts yours first, and Koala's outlines list them in it. A story's page lists its tasks, with Accept and Drop for any proposed while it was worked, and "Watch it work" opens the live feed of its worker's run and the runs it starts (the tree run's turn, `turnId` on `GET /api/trees/:id/run`; `GET /api/turns/:id?under=<runId>` sends only that run's family, with `through`, the last seq it read). Each run is a tab (`projects/components/Board/StoryRun.tsx`): its procedure on the Studio graph, read-only, following and centring on the step it is on, and its rounds (`engine/lib/run-rounds.ts`: a round starts each time the model step is entered again, since the log has no `model.requested`; a tool the procedure calls itself, a `call-tool` trace, is shown apart from the model's). The turn log writes a step's node events when the workflow step ends, so the model call is only "entered" once it has answered; streamed thinking and text carry its node, and the run state takes the step from them. A `node.traced` event in the turn log is a summary (`tracedSummary` in `engine/lib/turn-log.ts`: no `inputs` or `outputs`); the full trace is only in `engineRunTraces` (`/engine/runs/:id/traces`, which checks read), and the Studio's run panel reads those every few seconds while a run is live. Each trace used to carry the whole conversation, which made a long run's log tens of MB and crashed the tab watching it. A story that can be started shows the tree's run panel on its page: there is no running one story, the tree takes the ready ones in board order. The editor, explorer, builds, workspace file and the tree's sandbox are its **Files** page (`…/files`); its models, auto mode, how its project releases and deleting the tree or project are its **Settings** page (`…/settings`, `projects/components/Settings/`); the switch at
 the top. All three read the project through `useProjectWork` and keep the address with `useRouteSync`.
 
 **A story and a feature each have their own chat** (`ItemChatService`, `POST /api/items/<story|feature>/<id>/chat`,
@@ -1148,11 +1148,11 @@ is opened). On every turn in it Koala is handed the item (`conversationBinding` 
 `projects/lib/item-outline.ts`): where it sits, its brief, what it waits on, its tasks, what was claimed, the judge's verdict and
 the attempts that failed. Every chat bound to a project, a tree or one of its items is also handed the status of each of its projects — what is live, a preview waiting on the person, a release in progress, the last build (`projects/lib/project-outline.ts`). Every chat bound to something (a project, a tree, a feature, a story) opens with what Koala is handed on each
 message, read fresh (`GET /api/conversations/:id/context`, `openingWith` over the same binding a turn gets;
-`Chat/ConversationContext.tsx`), formatted, with the exact text a click away. In a story's or feature's chat Koala changes the work only through a card: `propose_story_change` (title, goal, brief, waits-on, tasks, rework), `propose_stories` (new stories in a feature, or a follow-up to a shipped story, which is never changed) and `propose_story_cancel` make a plan proposal with a `change` (`projects/lib/item-changes.ts`), shown on the plan card in that chat, and nothing changes until it is approved. `AdoptPlanWorkflow` applies it: it first stops the worker of a story that must start again (a running story whose title, goal or brief changes or that is reworked; a claimed one has its claim set aside), saves the records, rewrites `leaves/<story>.md` and notes the change in PLAN.md, and runs the tree only when work was put back in line. A run a story was taken off can no longer claim it (`claim_leaf` checks the story's attempts). Cancelling frees the stories that waited on it. A notice about one story (a failed leaf) is posted in full in its chat and as one line with
+`engine/components/Chat/ConversationContext.tsx`), formatted, with the exact text a click away. In a story's or feature's chat Koala changes the work only through a card: `propose_story_change` (title, goal, brief, waits-on, tasks, rework), `propose_stories` (new stories in a feature, or a follow-up to a shipped story, which is never changed) and `propose_story_cancel` make a plan proposal with a `change` (`projects/lib/item-changes.ts`), shown on the plan card in that chat, and nothing changes until it is approved. `AdoptPlanWorkflow` applies it: it first stops the worker of a story that must start again (a running story whose title, goal or brief changes or that is reworked; a claimed one has its claim set aside), saves the records, rewrites `leaves/<story>.md` and notes the change in PLAN.md, and runs the tree only when work was put back in line. A run a story was taken off can no longer claim it (`claim_leaf` checks the story's attempts). Cancelling frees the stories that waited on it. A notice about one story (a failed leaf) is posted in full in its chat and as one line with
 "Open the story" in the channel (`line`, `open-story`); item chats are never a tree's threads and never hear the tree's
 own notices. A check stage talks in one with `chat.in: { story: title }` or `{ feature: title }`, and approves a card there with `approvePlan: { in: … }`;
 `mechanics-item-chats` proves it, change card included.
-In the channel a message is just posted (`POST /api/conversations/:id/messages`, only channels) unless it names @koala or the person has turned on "Ask Koala" beside the message box (remembered per channel in their browser, `lib/channel-asks.ts`); then it starts Koala's turn. Every person message in a channel says which it was ("asked Koala" if it carries a `runId`, else "posted · Koala wasn't asked" with **Ask Koala**, which starts a turn with `asks: <its at>` so that note is answered in place, never posted again; `openTurn` refuses one already asked about). A turn's history leaves out the message its own open turn is answering, since the opening already carries it with the context. In a channel or an item chat each person message in Koala's history says who wrote it (`heardAs`, by email), a channel post nobody asked Koala about reads "<who> posted, not to you:", and the binding's `chat` value tells Koala which chat it is in and who is asking (`chatFraming`), so it reads the discussion without acting on it. Other chats about the project are its threads. Approving a new tree's plan binds the
+In the channel a message is just posted (`POST /api/conversations/:id/messages`, only channels) unless it names @koala or the person has turned on "Ask Koala" beside the message box (remembered per channel in their browser, `projects/lib/channel-asks.ts`); then it starts Koala's turn. Every person message in a channel says which it was ("asked Koala" if it carries a `runId`, else "posted · Koala wasn't asked" with **Ask Koala**, which starts a turn with `asks: <its at>` so that note is answered in place, never posted again; `openTurn` refuses one already asked about). A turn's history leaves out the message its own open turn is answering, since the opening already carries it with the context. In a channel or an item chat each person message in Koala's history says who wrote it (`heardAs`, by email), a channel post nobody asked Koala about reads "<who> posted, not to you:", and the binding's `chat` value tells Koala which chat it is in and who is asking (`chatFraming`), so it reads the discussion without acting on it. Other chats about the project are its threads. Approving a new tree's plan binds the
 conversation it was planned in to the tree and its project. Releases (preview ready, live, failed), a tree's run ending
 (and each failed leaf), and a secret only the person can enter post a notice — a third kind of message
 (`role: 'notice'`, author `platform`, with links and actions) — to the project's channel (a tree with no project: to
@@ -1236,34 +1236,41 @@ runs typecheck + lint + both unit suites on every push. Each rule below is here 
 
 ### Frontend
 
-- **PascalCase = exports a component; kebab-case = exports none.** `components/leaf-types.ts` and
+- **The frontend is laid out by area** (`src/features/<area>/`, the list in Repo structure), and **an area imports
+  another only through its `index.ts`**, never a file inside it. `shared/` and `platform` import no feature, and no
+  feature imports `shell/`. The `boundaries/areas` rule in `apps/frontend/eslint.config.js` enforces all three; tests
+  are exempt, since they mock and spy on the modules they replace by path. An `index.ts` lists only what other areas
+  use, one `export … from` per module, and it is the one kebab-case file that re-exports components.
+- **PascalCase = exports a component; kebab-case = exports none.** `projects/lib/leaf-types.ts` and
   `home-summary.ts` already follow this; `react-refresh/only-export-components` is its linter.
-- **Nothing at `src/` root** except `App.tsx`, `main.tsx`, `index.css`.
-- **A feature with more than ~4 files gets a folder and a `shared.ts`.** `components/Lab/` is the
-  model: 19 files, every panel imports `./shared` and nothing else laterally.
+- **Nothing at `src/` root** except `App.tsx`, `main.tsx`, `index.css`, and `api/client.ts` beside them.
+- **A folder of more than ~4 files gets a `shared.ts`** that its files import instead of each other: an area has one
+  at its root, and a large screen folder inside it (`projects/components/Workspace/`, `engine/components/Studio/`) its own.
 - **If it came from HTTP it belongs to react-query.** No hand-rolled loading/error state.
   `CloudAccounts.tsx` (21 `useState`, 9 raw `fetch`) is the counter-example.
 - **UI state lives in the component that renders it**, and **never pass a raw `setState` down** —
   pass a named intent. `ClustersView` receiving `setExpandedCluster` from a 2,858-line parent that
   never reads it is the anti-pattern.
-- **Client state that crosses components lives in a zustand slice** under `src/stores/`, one per
-  domain — `shell.ts` (view, user, notifications), `socket.ts`. Never one store for everything: that
-  is structurally what App.tsx already was. Subscribe with a selector per value
+- **Client state that crosses components lives in a zustand slice** in its area's `stores/`, one per
+  domain — `platform/stores/shell.ts` (view, user, notifications), `platform/stores/socket.ts`, `engine/stores/live-turns.ts`.
+  Never one store for everything: that is structurally what App.tsx once was. Subscribe with a selector per value
   (`useShellStore((s) => s.view)`), so an unrelated change does not re-render you.
 - **Server state is react-query's, never a store.** Putting fetched records in zustand means
   hand-writing caching, dedup, invalidate-after-mutate and refetch.
 - **Context is for what a store cannot do** — a value scoped to a subtree rather than the app.
-  There is exactly one (`EditorSlot` in `Lab/shared.ts`) and it earns it.
-- **No component contains a URL.** Components import hooks; hooks call `api/<domain>.ts`; only those
+  `WorkSourceContext` (`projects/lib/work-source.ts`: the instance's board or the hub's) earns it.
+- **No component contains a URL.** Components import hooks; hooks call their area's `api`; only those
   modules import `api/client.ts`.
 - **`props: any` is banned.** Let the compiler enumerate the interface — `NginxView.tsx`'s docblock
   describes the method.
-- **Domain shapes are declared once**, in `src/types/` or from `@koala/harness-types`. Deliberate
+- **Domain shapes are declared once**, in their area's `types` or from `@koala/harness-types`. Deliberate
   duplication across the wire carries a `── DUPLICATED, KNOWINGLY ──` block naming the backend file
-  that wins; see `Lab/shared.ts`'s `isBroken`.
-- **Two copies of a `useEffect` means extract a hook.** Logic that needs no React goes to `lib/` as
-  pure functions with unit tests — `home-summary.ts` (29 tests) is the strongest pattern here.
-- **Tests are colocated** (`Foo.tsx` → `Foo.test.tsx`) and test the extracted unit, not `App`.
+  that wins; see `projects/types/grove.ts`.
+- **Two copies of a `useEffect` means extract a hook.** Logic that needs no React goes to the area's `lib/` as
+  pure functions with unit tests — `home-summary.ts` (21 tests) is the strongest pattern here, and
+  `engine/lib/chat-composer.ts` is what came out of `ChatSurface` beside its hooks `useChatComposer` and `useChatCards`.
+- **Tests are colocated** (`Foo.tsx` → `Foo.test.tsx`) and test the extracted unit, not `App`; the tests that drive
+  the whole app sit with the shell.
 
 ### Backend
 
@@ -1348,7 +1355,7 @@ Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's
   hides. Uploads and downloads stream (`X-File-Type` carries the type; the body is always octet-stream so nothing parses it); no
   size limit. With no server, a drop waits on the page and Files offers **Start MinIO for this project** (one click, on the
   project's cluster, `koala-files[-n]`); it goes through once the server runs.
-- **Koala's own file browser** (`components/Files/StoredFiles.tsx`, rules in `lib/file-browser.ts`): upload, new folder, search by
+- **Koala's own file browser** (`features/files/components/StoredFiles.tsx`, rules in `files/lib/file-browser.ts`): upload, new folder, search by
   name across the project (`/search`), sort by name, size or date, select several to move or remove, drag a file or the selection
   onto a folder, rename, and open a file to preview it (images, PDF, video, audio, text; `StoredFilePreview`, in the Files page's
   right pane, a dialog elsewhere). A person's own files (chat attachments outside projects) and their links are under Settings → Files.
