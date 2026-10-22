@@ -8,6 +8,7 @@ import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
 import type { AlertRuleRecord } from './monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
 import type { FileSettings } from './file-places.js';
+import type { MigrationRecord } from './migrations.js';
 import type { FileShare } from './file-shares.js';
 import type { PoolPolicy } from './pool.js';
 import type { WorkFailure } from './work-failures.js';
@@ -400,6 +401,7 @@ export class MongoDB implements Database {
     await this.deployments.createIndex({ name: 1 }, { unique: true });
     await this.users.createIndex({ email: 1 }, { unique: true });
     await this.runTraces.createIndex({ ownerId: 1, runId: 1, sequence: 1 });
+    await this.hubDirtyRecords.createIndex({ at: 1 });
     await this.turnLogs.createIndex({ turnId: 1, seq: 1 }, { unique: true });
     await this.turnLogs.createIndex({ at: 1 }, { expireAfterSeconds: TURN_LOG_RETENTION_SECONDS });
     await this.turnLogs.createIndex({ ownerId: 1, seq: 1, at: -1 });
@@ -1299,6 +1301,15 @@ export class MongoDB implements Database {
     if (!doc) return undefined;
     const { _id, ...rest } = doc;
     return { ...(rest as Omit<FileSettings, 'ownerId'>), ownerId: String(_id) };
+  }
+
+  async hasMigration(name: string): Promise<boolean> {
+    return Boolean(await this.db!.collection('migrations').findOne({ _id: name as never }));
+  }
+
+  async recordMigration(record: MigrationRecord): Promise<void> {
+    const { name, ...rest } = record;
+    await this.db!.collection('migrations').replaceOne({ _id: name as never }, rest, { upsert: true });
   }
 
   async saveFileSettings(settings: FileSettings): Promise<void> {

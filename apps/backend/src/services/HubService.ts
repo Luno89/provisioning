@@ -17,7 +17,7 @@ export type SyncOrigin = { kind: 'instance'; personId: string; instanceId: strin
 
 export const originName = (origin: SyncOrigin): string => (origin.kind === 'instance' ? `instance:${origin.instanceId}` : `person:${origin.personId}`);
 
-const CHANGES_PAGE = 500;
+export const CHANGES_PAGE = 500;
 
 export interface Person {
   id: string;

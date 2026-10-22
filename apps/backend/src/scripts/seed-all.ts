@@ -14,6 +14,7 @@ import { migrateMcpServers } from '../lib/mcp-server-migration.js';
 import { migrateToDependencies } from '../lib/dependency-migration.js';
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
+import { runOnce, type MigrationLedger } from '../lib/migrations.js';
 
 export async function seedAll(db: Record<string, unknown>) {
   const counts: Record<string, number> = {};
@@ -21,26 +22,28 @@ export async function seedAll(db: Record<string, unknown>) {
   // Images before tree types: a tree type's language must name one that exists.
   counts.workspaceImages = await seedWorkspaceImages(db as never);
   counts.treeTypes = await seedTreeTypes(db as never);
-  counts.treeVersionsStamped = await stampTreeVersions(db as never);
+  const ledger = db as unknown as MigrationLedger;
+  const now = new Date().toISOString();
+  counts.treeVersionsStamped = (await runOnce(ledger, 'tree-versions', now, async () => ({ stamped: await stampTreeVersions(db as never) }))).stamped ?? 0;
   counts.appSpecs = await seedAppSpecs(db as never);
   counts.constructBackedTypes = await seedConstructBackedTypes(db as never);
   counts.clusterProviders = await seedClusterProviders(db as never);
   counts.removedBuiltInProcedures = await retireStoredBuiltInProcedures(db as never);
   counts.engineTools = await seedEngineTools(db as never);
   counts.removedBuiltInPersonas = await retireStoredBuiltInPersonas(db as never);
-  const moved = await migrateAgentTools(db as never, seededPersonas(), seededGrants(), new Date().toISOString());
-  counts.agentToolListsMoved = moved.agents;
-  counts.toolGrantsWritten = moved.granted + moved.revoked;
-  counts.builtInCopiesDropped = moved.copiesDropped;
-  const servers = await migrateMcpServers(db as never, new Date().toISOString());
-  counts.agentServerListsMoved = servers.agentServerListsMoved;
-  counts.servingToolsMoved = servers.servingToolsMoved;
-  counts.mcpToolKindsMoved = servers.toolKindsMoved;
-  const needs = await migrateToDependencies(db as never, SHIPPED_DEPENDENCIES);
-  counts.toolsNamingNeeds = needs.toolsMoved;
-  counts.serversNamingNeeds = needs.serversMoved;
-  counts.dependenciesMade = needs.dependenciesMade;
-  for (const left of needs.left) console.warn(`[seed] left as it was: ${left}`);
+  Object.assign(counts, { agentToolListsMoved: 0, toolGrantsWritten: 0, builtInCopiesDropped: 0 }, await runOnce(ledger, 'tool-grants', now, async () => {
+    const moved = await migrateAgentTools(db as never, seededPersonas(), seededGrants(), now);
+    return { agentToolListsMoved: moved.agents, toolGrantsWritten: moved.granted + moved.revoked, builtInCopiesDropped: moved.copiesDropped };
+  }));
+  Object.assign(counts, { agentServerListsMoved: 0, servingToolsMoved: 0, mcpToolKindsMoved: 0 }, await runOnce(ledger, 'mcp-servers', now, async () => {
+    const servers = await migrateMcpServers(db as never, now);
+    return { agentServerListsMoved: servers.agentServerListsMoved, servingToolsMoved: servers.servingToolsMoved, mcpToolKindsMoved: servers.toolKindsMoved };
+  }));
+  Object.assign(counts, { toolsNamingNeeds: 0, serversNamingNeeds: 0, dependenciesMade: 0 }, await runOnce(ledger, 'workspace-dependencies', now, async () => {
+    const needs = await migrateToDependencies(db as never, SHIPPED_DEPENDENCIES);
+    for (const left of needs.left) console.warn(`[seed] left as it was: ${left}`);
+    return { toolsNamingNeeds: needs.toolsMoved, serversNamingNeeds: needs.serversMoved, dependenciesMade: needs.dependenciesMade };
+  }));
   return counts;
 }
 

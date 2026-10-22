@@ -1,5 +1,5 @@
 import { applyPatch, diffRecord, type HubChange, type HubDirty, type HubLink, type HubSyncStore, type RecordChange, type SyncedDoc, type SyncedKind } from '../lib/hub-sync.js';
-import type { HubService } from './HubService.js';
+import { CHANGES_PAGE, type HubService } from './HubService.js';
 import { mainHeads, syncMain, type GitEnd } from './HubRepoSync.js';
 import type { HubMemberName } from '../lib/hub-sync.js';
 import type { HubRequest, HubStatus } from '../lib/hub-board.js';
@@ -44,6 +44,8 @@ const sameStatus = (a: HubStatus | undefined, b: HubStatus): boolean => {
 };
 
 const DIRTY_PAGE = 200;
+const PULL_PAGES = 20;
+export const STATUS_EVERY_MS = 15_000;
 
 type Pending = { entry: HubDirty; link: HubLink; change: RecordChange; after: SyncedDoc | undefined };
 
@@ -51,6 +53,9 @@ export class HubSyncService {
   private timer: ReturnType<typeof setInterval> | undefined;
   private busy = false;
   private readonly sentStatus = new Map<string, HubStatus>();
+  private readonly statusDue = new Map<string, number>();
+  private moved = new Set<string>();
+  private parents = new Map<string, SyncedDoc | undefined>();
   private readonly relays = new Map<string, AbortController>();
 
   constructor(private readonly deps: HubSyncDeps) {}
@@ -59,7 +64,9 @@ export class HubSyncService {
     if (depth > 6) return undefined;
     const up = async (upKind: SyncedKind, id: unknown) => {
       if (typeof id !== 'string' || !id) return undefined;
-      const parent = await this.deps.store.syncedRecord(upKind, id);
+      const key = `${upKind}/${id}`;
+      if (!this.parents.has(key)) this.parents.set(key, await this.deps.store.syncedRecord(upKind, id));
+      const parent = this.parents.get(key);
       return parent ? this.projectOf(upKind, parent, linked, depth + 1) : undefined;
     };
     switch (kind) {
@@ -78,6 +85,7 @@ export class HubSyncService {
   async pushOnce(): Promise<number> {
     const dirty = await this.deps.store.hubDirty(DIRTY_PAGE);
     if (dirty.length === 0) return 0;
+    this.parents = new Map();
     const links = new Map((await this.deps.store.getHubLinks()).map((link) => [link.projectId, link]));
     const linked = new Set(links.keys());
     const pending: Pending[] = [];
@@ -113,6 +121,7 @@ export class HubSyncService {
         else await this.deps.store.deleteHubSnapshot(item.change.kind, item.change.id);
         settled.push(item.entry);
       }
+      this.moved.add(link.projectId);
       sent += mine.length;
     }
     await this.deps.store.clearHubDirty(settled);
@@ -130,27 +139,34 @@ export class HubSyncService {
   async pullOnce(): Promise<number> {
     let applied = 0;
     for (const link of await this.deps.store.getHubLinks()) {
-      let answer: Awaited<ReturnType<HubSyncTransport['pull']>>;
-      try {
-        answer = await this.deps.transport.pull(link, link.pulledThrough);
-      } catch (err) {
-        if (!await this.goneFromHub(link, err)) this.deps.log?.(`hub sync: ${link.projectId} not read yet: ${(err as Error).message}`);
-        continue;
-      }
-      for (const { origin, change } of answer.changes) {
-        if (origin === this.deps.origin) continue;
-        if ('deleted' in change) {
-          await this.deps.store.deleteSyncedRecord(change.kind, change.id);
-          await this.deps.store.deleteHubSnapshot(change.kind, change.id);
-        } else {
-          const snapshot = await this.deps.store.hubSnapshot(change.kind, change.id);
-          await this.deps.store.patchSyncedRecord(change.kind, change.id, change.patch);
-          await this.deps.store.saveHubSnapshot(link.projectId, change.kind, applyPatch(snapshot?.doc, change.id, change.patch));
+      let after = link.pulledThrough;
+      let members = link.members;
+      for (let page = 0; page < PULL_PAGES; page += 1) {
+        let answer: Awaited<ReturnType<HubSyncTransport['pull']>>;
+        try {
+          answer = await this.deps.transport.pull(link, after);
+        } catch (err) {
+          if (!await this.goneFromHub(link, err)) this.deps.log?.(`hub sync: ${link.projectId} not read yet: ${(err as Error).message}`);
+          break;
         }
-        applied += 1;
+        for (const { origin, change } of answer.changes) {
+          if (origin === this.deps.origin) continue;
+          if ('deleted' in change) {
+            await this.deps.store.deleteSyncedRecord(change.kind, change.id);
+            await this.deps.store.deleteHubSnapshot(change.kind, change.id);
+          } else {
+            const snapshot = await this.deps.store.hubSnapshot(change.kind, change.id);
+            await this.deps.store.patchSyncedRecord(change.kind, change.id, change.patch);
+            await this.deps.store.saveHubSnapshot(link.projectId, change.kind, applyPatch(snapshot?.doc, change.id, change.patch));
+          }
+          applied += 1;
+        }
+        const named = answer.members && JSON.stringify(answer.members) !== JSON.stringify(members);
+        if (named) members = answer.members;
+        if (answer.through !== after || named) await this.deps.store.saveHubLink({ ...link, ...(members ? { members } : {}), pulledThrough: answer.through });
+        after = answer.through;
+        if (answer.changes.length < CHANGES_PAGE) break;
       }
-      const members = answer.members && JSON.stringify(answer.members) !== JSON.stringify(link.members) ? { members: answer.members } : {};
-      if (answer.through !== link.pulledThrough || 'members' in members) await this.deps.store.saveHubLink({ ...link, pulledThrough: answer.through, ...members });
     }
     return applied;
   }
@@ -213,7 +229,12 @@ export class HubSyncService {
     const work = this.deps.work?.();
     if (!work) return 0;
     let sent = 0;
+    const now = Date.now();
+    const moved = this.moved;
+    this.moved = new Set();
     for (const link of await this.deps.store.getHubLinks()) {
+      if (!moved.has(link.projectId) && (this.statusDue.get(link.projectId) ?? 0) > now) continue;
+      this.statusDue.set(link.projectId, now + STATUS_EVERY_MS);
       try {
         const status = await work.statusOf(link);
         if (!status || sameStatus(this.sentStatus.get(link.projectId), status)) continue;

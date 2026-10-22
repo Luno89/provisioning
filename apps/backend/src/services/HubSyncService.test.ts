@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MemoryDB } from '../lib/memory-db.js';
 import { markingHubWrites } from '../lib/hub-sync.js';
 import { memoryHubStore } from '../lib/hub-store.js';
-import { HubService } from './HubService.js';
+import { CHANGES_PAGE, HubService } from './HubService.js';
 import { HubSyncService, localHubSync } from './HubSyncService.js';
 import { HubRelay } from './HubRelay.js';
 import { HubInstanceWork } from './HubInstanceWork.js';
@@ -74,6 +74,22 @@ describe('keeping a shared project\'s board in step with the hub', () => {
     await sync.once();
     expect(await onHub.record('leaves', 'l1')).toBeUndefined();
     expect(await db.hubSnapshot('leaves', 'l1')).toBeUndefined();
+  });
+
+  it('pulls every page when members changed more than one page holds', async () => {
+    const { db, sync, onHub, hubId } = await setUp();
+    await db.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
+    await db.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
+    await db.saveBranch({ id: 'b1', ownerId: 'ann', treeId: 't1', title: 'Pay', createdAt: now, updatedAt: now });
+    await db.saveLeaf(leaf());
+    await sync.once();
+    for (let n = 1; n <= CHANGES_PAGE + 50; n += 1) {
+      await onHub.putRecord('leaves', { ...(await onHub.record('leaves', 'l1'))!, priority: n });
+      await onHub.logChange({ origin: 'person:bo', change: { kind: 'leaves', id: 'l1', patch: { set: { priority: n } } }, at: now });
+    }
+    await sync.once();
+    expect(await db.syncedRecord('leaves', 'l1')).toMatchObject({ priority: CHANGES_PAGE + 50 });
+    expect((await db.getHubLinks())[0]!.pulledThrough).toBe((await onHub.changes(0, 10_000)).at(-1)!.seq);
   });
 
   it('keeps a change waiting while the hub cannot be reached, and sends it once it can', async () => {

@@ -8,6 +8,7 @@ import type { MonitoringSetting, AlertEpisode } from './monitoring-records.js';
 import type { AlertRuleRecord } from './monitoring-alerts.js';
 import type { NotificationSettings } from './mail.js';
 import type { FileSettings } from './file-places.js';
+import type { MigrationRecord } from './migrations.js';
 import type { FileShare } from './file-shares.js';
 import type { PoolPolicy } from './pool.js';
 import type { WorkFailure } from './work-failures.js';
@@ -166,6 +167,7 @@ export class MemoryDB implements Database {
   private monitoringSettings = new Map<string, MonitoringSetting>();
   private notificationSettings = new Map<string, NotificationSettings>();
   private fileSettings = new Map<string, FileSettings>();
+  private migrations = new Map<string, MigrationRecord>();
   private fileShares = new Map<string, FileShare>();
   private poolPolicy: PoolPolicy | undefined;
   private alertRules = new Map<string, AlertRuleRecord>();
@@ -1100,6 +1102,14 @@ export class MemoryDB implements Database {
   async getFileSettings(ownerId: string): Promise<FileSettings | undefined> {
     const found = this.fileSettings.get(ownerId);
     return found ? { ...found } : undefined;
+  }
+
+  async hasMigration(name: string): Promise<boolean> {
+    return this.migrations.has(name);
+  }
+
+  async recordMigration(record: MigrationRecord): Promise<void> {
+    this.migrations.set(record.name, { ...record });
   }
 
   async saveFileSettings(settings: FileSettings): Promise<void> {
