@@ -80,6 +80,9 @@ npm run test:remote-integration   # boots a disposable QEMU VM, provisions it as
                                    # Needs qemu-kvm/cloud-utils/genisoimage + /dev/kvm (tests/remote-host-integration.ts)
 ```
 
+Every `test:*-live` script runs through `tests/lib/run-live.ts`, which records when it last passed and last failed in
+`tests/last-passed.json` and the table `tests/LAST-PASSED.md`; a script nobody has run for weeks shows there.
+
 Note: there is ONE Playwright suite, `tests/e2e.spec.ts` (11 tests, `testDir: './tests'`).
 `npm test` reaches it via `test:e2e:sync` (unit preflight first), `npm run test:e2e` runs it
 directly. The `e2e/` directory this used to describe was deleted — it sat outside `testDir`
