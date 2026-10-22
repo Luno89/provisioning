@@ -1,12 +1,8 @@
-import { askQuery, type MonitoringAsk, type RangeAsk } from '../../monitoring/lib/monitoring-asks.js';
-import type { PoolPlace } from '../../monitoring/lib/monitoring-questions.js';
-import { VIRTUAL_NAMESPACE_LABEL } from '../../monitoring/lib/monitoring-questions.js';
-import { ruleResourceName, type PromAlert } from '../../monitoring/lib/monitoring-alerts.js';
 import {
-  hostProbeManifest, hostRuleManifest, placeAlerts, POOL_MONITORING, POOL_PROBE_LABEL, probeResourceName,
-  type PoolProbe, type PoolRule,
-} from '../../monitoring/lib/pool-monitoring.js';
-import { prometheusAt, type PrometheusClient, type Sample } from '../../monitoring/services/MonitoringService.js';
+  askQuery, type MonitoringAsk, type RangeAsk, type PoolPlace, VIRTUAL_NAMESPACE_LABEL, ruleResourceName,
+  type PromAlert, hostProbeManifest, hostRuleManifest, placeAlerts, POOL_MONITORING, POOL_PROBE_LABEL,
+  probeResourceName, type PoolProbe, type PoolRule, prometheusAt, type PrometheusClient, type Sample,
+} from '../../monitoring/index.js';
 
 export interface PoolMonitoringDeps {
   kubectl(args: string[]): Promise<string>;

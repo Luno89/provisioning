@@ -8,7 +8,7 @@ import { MongoClient } from 'mongodb';
 import { importLines } from '../instances/lib/mongo-move.js';
 import { cleaned, restoreOrder, volumePart, type AppsManifest, type KubeObject } from '../instances/lib/app-move.js';
 import { ensureClusterMonitoring } from '../activities/cluster-monitoring.js';
-import { SYSTEM_CLUSTER } from '../monitoring/lib/cluster-monitoring.js';
+import { SYSTEM_CLUSTER } from '../monitoring/index.js';
 import { InfrastructureService } from '../infrastructure/index.js';
 import { GiteaService } from '../projects/index.js';
 import { loadKeys, mongoTarget } from '../platform/index.js';

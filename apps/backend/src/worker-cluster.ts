@@ -17,7 +17,7 @@ import { createWorkerLogger, buildDataConverter, sharedPayloadBlobs, loadKeys, r
 import { healthPort, serveHealth, InfrastructureService } from './infrastructure/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
 import { ensureClusterMonitoring } from './activities/cluster-monitoring.js';
-import { placedOnPool, SYSTEM_CLUSTER } from './monitoring/lib/cluster-monitoring.js';
+import { placedOnPool, SYSTEM_CLUSTER } from './monitoring/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import type { InfrastructureService } from '../infrastructure/index.js';
-import { monitoringPlan, monitoringStackEnv, monitoringStackName } from '../monitoring/lib/cluster-monitoring.js';
+import { monitoringPlan, monitoringStackEnv, monitoringStackName } from '../monitoring/index.js';
 
 export interface MonitoredCluster {
   physicalName: string;

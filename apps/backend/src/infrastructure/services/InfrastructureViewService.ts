@@ -1,7 +1,7 @@
 import type { RunningItem } from '../lib/running.js';
 import type { WorkFailure } from '../lib/work-failures.js';
 import type { BrokenWorkload, ClusterContents } from './ClusterContentsService.js';
-import type { Overview, Viewer } from '../../monitoring/services/MonitoringService.js';
+import type { Overview, Viewer } from '../../monitoring/index.js';
 import type { RunningOutcome, RunningView } from './RunningService.js';
 
 export interface InfrastructureOverview {

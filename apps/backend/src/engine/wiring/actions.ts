@@ -5,7 +5,7 @@ import {
   type InfisicalService, egressRouter, clusterAccessRouter,
 } from '../../infrastructure/index.js';
 import { SecretRequestService, secretRequestsRouter } from '../../projects/index.js';
-import type { MonitoringService } from '../../monitoring/services/MonitoringService.js';
+import type { MonitoringService } from '../../monitoring/index.js';
 import type { TreeModelsService } from '../../models/services/TreeModelsService.js';
 import type { McpServerService } from '../services/McpServerService.js';
 import type { WorkspaceDependencyService } from '../services/WorkspaceDependencyService.js';

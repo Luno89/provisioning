@@ -1,4 +1,4 @@
-import type { AlertEpisode } from '../../monitoring/lib/monitoring-records.js';
+import type { AlertEpisode } from '../../monitoring/index.js';
 
 export interface MailMessage {
   subject: string;

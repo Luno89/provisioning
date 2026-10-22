@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../../platform/index.js';
-import type { Viewer } from '../../monitoring/services/MonitoringService.js';
+import type { Viewer } from '../../monitoring/index.js';
 import { idsToClear, type InfrastructureViewService } from '../services/InfrastructureViewService.js';
 
 export interface InfrastructureRouterDeps {

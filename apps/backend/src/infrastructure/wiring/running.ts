@@ -8,7 +8,7 @@ import { RunningService } from '../services/RunningService.js';
 import { ClusterContentsService } from '../services/ClusterContentsService.js';
 import { InfrastructureViewService } from '../services/InfrastructureViewService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
-import type { MonitoringService } from '../../monitoring/services/MonitoringService.js';
+import type { MonitoringService } from '../../monitoring/index.js';
 import type { Level2Service } from '../../checks/services/Level2Service.js';
 import type { GroveRunService } from '../../projects/index.js';
 import type { BenchService } from '../../checks/services/BenchService.js';

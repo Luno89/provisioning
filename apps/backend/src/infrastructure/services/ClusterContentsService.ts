@@ -5,7 +5,7 @@ import {
 } from '../lib/cluster-workloads.js';
 import { platformServices, type HelmReleaseJson, type PlatformService } from '../lib/platform-services.js';
 import { namespaceOf } from '../lib/app-namespace.js';
-import { MonitoringError, type MetricsClient, type Sample, type Viewer } from '../../monitoring/services/MonitoringService.js';
+import { MonitoringError, type MetricsClient, type Sample, type Viewer } from '../../monitoring/index.js';
 
 export interface ClusterNode {
   name: string;

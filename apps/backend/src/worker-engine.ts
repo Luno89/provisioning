@@ -45,8 +45,7 @@ import { itSays, wasReported } from './eval/level2/reported.js';
 import { createProcedureExecutor } from './engine-host/nodes/index.js';
 import axios from 'axios';
 import { httpCheckAccess } from './checks/services/CheckToolAccess.js';
-import { MonitoringService, prometheusAt } from './monitoring/services/MonitoringService.js';
-import { poolMonitor, poolMonitorFrom } from './monitoring/services/PoolMonitor.js';
+import { MonitoringService, prometheusAt, poolMonitor, poolMonitorFrom } from './monitoring/index.js';
 import { runCancelledVia, runEndedVia } from './engine-host/temporal/run-cancellation.js';
 import { createKubeRunner } from './engine-host/sandboxes/kube.js';
 

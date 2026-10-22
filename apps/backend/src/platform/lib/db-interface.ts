@@ -9,7 +9,7 @@ import type { ProjectsStore } from '../../projects/index.js';
 import type { ReleasesStore } from '../../releases/index.js';
 import type { FilesStore } from '../../files/index.js';
 import type { MachinesStore } from '../../machines/index.js';
-import type { MonitoringStore } from '../../monitoring/store.js';
+import type { MonitoringStore } from '../../monitoring/index.js';
 import type { ModelsStore } from '../../models/store.js';
 import type { MemoryStore } from '../../memory/store.js';
 import type { ChecksStore } from '../../checks/store.js';

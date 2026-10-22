@@ -11,7 +11,7 @@ import { afterStep, nextTrialStep, trialMessage, type DueStep, type TrialStep } 
 import { MoveRelay, kubeconfigFile } from '../instances/services/MoveRelay.js';
 import { issueMoveToken } from '../instances/lib/identity-token.js';
 import type { InstanceRecord } from '../instances/lib/instances.js';
-import { BLACKBOX_VALUES, POOL_MONITORING, poolAppAlerts, poolStackValues, probeIngressPolicy } from '../monitoring/lib/pool-monitoring.js';
+import { BLACKBOX_VALUES, POOL_MONITORING, poolAppAlerts, poolStackValues, probeIngressPolicy } from '../monitoring/index.js';
 import {
   admissionManifests, COMPONENT_RESOURCES, INSTANCE_RELEASE, namespaceManifest, POOL_LABEL, poolChartValues, poolNamespace,
   poolSettingsFrom, PROXY, proxyCaddyfile, proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterAddress, vclusterValues,
