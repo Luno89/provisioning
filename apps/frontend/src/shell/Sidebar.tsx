@@ -8,9 +8,7 @@ import {
 } from 'lucide-react';
 import { Koala } from '../shared/components/Koala';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  listChatConversations, deleteChatConversation, createChatConversation, chatPackKeys, type ChatConversation,
-} from '../api/chat-pack.js';
+import { listChatConversations, deleteChatConversation, createChatConversation, chatPackKeys, type ChatConversation } from '../features/engine';
 import { listLeaves, listTrees, groveKeys } from '../features/projects';
 import { itemChatAddress } from '../features/projects';
 import { parseHash, formatHash } from '../features/platform';

@@ -1,10 +1,10 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import * as engineApi from '../../../../api/engine'
+import * as engineApi from '../../../engine/api/engine'
 import { StoryTasks } from './StoryTasks'
 
-vi.mock('../../../../api/engine', async (orig) => ({ ...(await orig<typeof engineApi>()), acceptTask: vi.fn(async () => undefined), dropTask: vi.fn(async () => undefined) }))
+vi.mock('../../../engine/api/engine', async (orig) => ({ ...(await orig<typeof engineApi>()), acceptTask: vi.fn(async () => undefined), dropTask: vi.fn(async () => undefined) }))
 
 const task = (id: string, status: engineApi.TaskStatus): engineApi.EngineTask => ({ id, leafId: 'l1', title: `Task ${id}`, doneMeans: `${id} works`, status, dependsOn: [], ready: true, waitingOn: [] })
 

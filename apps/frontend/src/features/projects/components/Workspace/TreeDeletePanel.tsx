@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2 } from 'lucide-react'
 import { deleteTree } from '../../api/grove.js'
-import { chatPackKeys } from '../../../../api/chat-pack.js'
+import { chatPackKeys } from '../../../engine'
 import { planKeys } from '../../api/plans.js'
 import { errorMessage } from '../../../../api/client.js'
 

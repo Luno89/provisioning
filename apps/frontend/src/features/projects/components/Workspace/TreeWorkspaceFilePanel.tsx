@@ -4,8 +4,8 @@ import { AlertTriangle, Boxes, CheckCircle2, Hourglass, Loader2, Plus, X } from 
 import { getTreeWorkspaceFile, groveKeys, saveTreeWorkspaceFile, type TreeWorkspaceView } from '../../api/grove.js'
 import { errorMessage } from '../../../../api/client.js'
 import Reading from '../Reading'
-import NeedsPicker from '../../../../components/NeedsPicker'
-import ImageContents from '../../../../components/ImageContents'
+import { NeedsPicker } from '../../../engine'
+import { ImageContents } from '../../../engine'
 import { draftOf, fileOf, isEdited, newOnMain, type WorkspaceDraft } from './workspace-draft.js'
 
 const UNDER_WAY_POLL_MS = 5_000

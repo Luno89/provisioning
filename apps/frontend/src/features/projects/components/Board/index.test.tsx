@@ -4,21 +4,21 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ProjectBoard } from './index'
 import * as groveApi from '../../api/grove'
 import * as projectsApi from '../../api/projects'
-import * as engineApi from '../../../../api/engine'
+import * as engineApi from '../../../engine/api/engine'
 import * as releasesApi from '../../../releases/api/releases'
-import * as chatPackApi from '../../../../api/chat-pack'
+import * as chatPackApi from '../../../engine/api/chat-pack'
 
 vi.mock('../../api/grove', async (orig) => ({ ...(await orig<typeof groveApi>()), listTrees: vi.fn(), listBranches: vi.fn(), listLeaves: vi.fn(), orderFeatures: vi.fn(async () => undefined), orderStories: vi.fn(async () => undefined), getTreeRun: vi.fn(async () => ({ state: 'none' })) }))
 vi.mock('../../api/projects', async (orig) => ({ ...(await orig<typeof projectsApi>()), listProjects: vi.fn(), listProjectRuns: vi.fn(async () => []) }))
-vi.mock('../../../../api/engine', async (orig) => ({ ...(await orig<typeof engineApi>()), listTasks: vi.fn(async () => []) }))
+vi.mock('../../../engine/api/engine', async (orig) => ({ ...(await orig<typeof engineApi>()), listTasks: vi.fn(async () => []) }))
 vi.mock('../../../releases/api/releases', async (orig) => ({ ...(await orig<typeof releasesApi>()), listReleases: vi.fn(async () => ({ releases: [], addresses: {} })) }))
-vi.mock('../../../../api/chat-pack', async (orig) => ({ ...(await orig<typeof chatPackApi>()), createChatConversation: vi.fn() }))
+vi.mock('../../../engine/api/chat-pack', async (orig) => ({ ...(await orig<typeof chatPackApi>()), createChatConversation: vi.fn() }))
 vi.mock('../Workspace/ProjectChannel', () => ({ ProjectChannel: ({ projectId }: { projectId: string }) => <div data-testid="channel">{projectId}</div> }))
 vi.mock('../Workspace/TreeProposalsPanel', () => ({ TreeProposalsPanel: () => null }))
 vi.mock('../Workspace/TreeConversationsPanel', () => ({ TreeConversationsPanel: ({ onSelect }: { onSelect: (id: string) => void }) => <button type="button" onClick={() => onSelect('conv-1')}>a thread</button> }))
 vi.mock('../LeafDetail', () => ({ default: ({ leaf }: { leaf: { title: string } }) => <div data-testid="leaf-detail">{leaf.title}</div> }))
 vi.mock('./ItemChat', () => ({ ItemChat: ({ kind, id }: { kind: string; id: string }) => <div data-testid="item-chat">{`${kind} ${id}`}</div> }))
-vi.mock('../../../../components/ChatSurface', () => ({ default: ({ conversationId }: { conversationId: string }) => <div data-testid="chat">{conversationId}</div> }))
+vi.mock('../../../engine/components/ChatSurface', () => ({ default: ({ conversationId }: { conversationId: string }) => <div data-testid="chat">{conversationId}</div> }))
 
 const shop = { id: 'p1', name: 'Shop', giteaOwner: 'o', giteaRepo: 'r' }
 const tree = { id: 't1', name: 'Delivery instructions', projectIds: ['p1'] }

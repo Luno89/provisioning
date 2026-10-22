@@ -2,9 +2,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { TreeConversationsPanel } from './TreeConversationsPanel.js'
-import * as chatPackApi from '../../../../api/chat-pack.js'
+import * as chatPackApi from '../../../engine/api/chat-pack.js'
 
-vi.mock('../../../../api/chat-pack.js', async (importOriginal) => ({
+vi.mock('../../../engine/api/chat-pack.js', async (importOriginal) => ({
   ...(await importOriginal<typeof chatPackApi>()),
   listChatConversations: vi.fn(),
 }))

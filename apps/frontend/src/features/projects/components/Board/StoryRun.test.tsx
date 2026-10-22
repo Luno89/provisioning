@@ -2,8 +2,8 @@ import type { ReactElement } from 'react'
 import { fireEvent, render as plainRender, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
-import type { EngineEvent } from '../../../../api/engine'
-import { applyInstanceEvents } from '../../../../lib/engine-run-state'
+import type { EngineEvent } from '../../../engine/api/engine'
+import { applyInstanceEvents } from '../../../engine/lib/engine-run-state'
 import { StoryRun } from './StoryRun'
 import { WorkSourceContext, localWorkSource } from '../../lib/work-source'
 
@@ -14,8 +14,8 @@ const render = async (ui: ReactElement) => {
   await screen.findByTestId('canvas')
 }
 
-vi.mock('../../../../lib/procedure-drafts', () => ({ canvasContextFor: () => ({}), groupPathIn: (_procedure: unknown, nodeId: string) => nodeId.split('.').slice(0, -1) }))
-vi.mock('../../../../components/Studio/ProcedureCanvas', () => ({
+vi.mock('../../../engine/lib/procedure-drafts', () => ({ canvasContextFor: () => ({}), groupPathIn: (_procedure: unknown, nodeId: string) => nodeId.split('.').slice(0, -1) }))
+vi.mock('../../../engine/components/Studio/ProcedureCanvas', () => ({
   default: ({ procedure, path, states, editable, onOpenGroup }: { procedure: { id: string }; path: string[]; states: Record<string, string>; editable: boolean; onOpenGroup: (id: string) => void }) => (
     <div data-testid="canvas" data-editable={String(editable)}>
       {`${procedure.id} at [${path.join('/')}] ${JSON.stringify(states)}`}

@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check, X } from 'lucide-react'
-import { engineKeys, type EngineTask, type TaskStatus } from '../../../../api/engine'
+import { engineKeys, type EngineTask, type TaskStatus } from '../../../engine'
 import { errorMessage } from '../../../../api/client'
 import { keyedBy, useWorkSource } from '../../lib/work-source'
 import { waitingOn } from './hub-waiting'

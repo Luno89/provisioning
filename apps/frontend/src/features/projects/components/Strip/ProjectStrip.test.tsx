@@ -7,7 +7,7 @@ import * as projectsApi from '../../api/projects'
 import * as releasesApi from '../../../releases/api/releases'
 import * as modelsApi from '../../../models/api'
 import * as agentsApi from '../../../machines/api'
-import * as autoModeApi from '../../../../api/auto-mode'
+import * as autoModeApi from '../../../engine/api/auto-mode'
 
 vi.mock('../../api/grove', async (orig) => ({
   ...(await orig<typeof groveApi>()),
@@ -17,7 +17,7 @@ vi.mock('../../api/projects', async (orig) => ({ ...(await orig<typeof projectsA
 vi.mock('../../../releases/api/releases', async (orig) => ({ ...(await orig<typeof releasesApi>()), listReleases: vi.fn() }))
 vi.mock('../../../models/api', async (orig) => ({ ...(await orig<typeof modelsApi>()), listModels: vi.fn(async () => []) }))
 vi.mock('../../../machines/api', async (orig) => ({ ...(await orig<typeof agentsApi>()), useMachineChoiceLabels: () => (id: string) => (id.startsWith('machine:') ? 'Antigravity · Desk' : undefined) }))
-vi.mock('../../../../api/auto-mode', async (orig) => ({ ...(await orig<typeof autoModeApi>()), setTreeAutoMode: vi.fn(async () => true) }))
+vi.mock('../../../engine/api/auto-mode', async (orig) => ({ ...(await orig<typeof autoModeApi>()), setTreeAutoMode: vi.fn(async () => true) }))
 vi.mock('../Workspace/useTreeCards', () => ({ useTreeCards: () => ({ open: [], waiting: [], pending: [], asking: [], count: 0 }) }))
 vi.mock('../Workspace/TreeProposalsPanel', () => ({ TreeProposalsPanel: () => null }))
 vi.mock('../Workspace/TreeModels', () => ({ TreeModels: ({ treeId }: { treeId: string }) => <div data-testid="tree-models">{treeId}</div> }))

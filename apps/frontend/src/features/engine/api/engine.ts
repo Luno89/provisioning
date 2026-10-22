@@ -1,0 +1,210 @@
+import type { ModelReach } from '@koala/harness-types'
+import type { Artifact, ChildSteps, GroupDefinition, HostOperation, NodeTrace } from '@koala/agent-engine/procedure'
+import { api } from '../../../api/client'
+import type { SentAttachment } from '../../files'
+
+export interface AgentInputSchema {
+  type?: string
+  properties?: Record<string, { type?: string; description?: string }>
+  required?: string[]
+}
+
+export interface EngineAgent {
+  slug: string
+  name: string
+  description: string
+  loop: string
+  tools: string[]
+  canDelegateTo: string[]
+  inputs: AgentInputSchema | null
+  mine: boolean
+}
+
+/** What to call the one thing an agent needs to be given, and what to label the box. */
+export function primaryInput(agent: EngineAgent | undefined): { field: string; label: string } {
+  const properties = agent?.inputs?.properties ?? {}
+  const field = agent?.inputs?.required?.[0] ?? Object.keys(properties)[0] ?? 'message'
+  const labels: Record<string, string> = {
+    goal: 'What do you want built?',
+    question: 'What do you want to know?',
+    task: 'What should it do?',
+    message: 'What do you want it to do?',
+  }
+  return { field, label: labels[field] ?? `${field}?` }
+}
+
+export interface StartedRun {
+  runId: string
+  agentSlug: string
+  loopId: string
+}
+
+export type EngineEvent =
+  | { type: 'run.started'; runId: string; at: string; agentId: string; loopId: string; parentRunId?: string; parentCallId?: string }
+  | { type: 'run.finished'; runId: string; at: string; outcome: string; reason?: string }
+  | { type: 'node.entered'; runId: string; at: string; nodeId: string }
+  | { type: 'node.exited'; runId: string; at: string; nodeId: string; via?: string }
+  | { type: 'model.requested'; runId: string; at: string; nodeId: string; model?: string; toolNames: string[] }
+  | { type: 'thinking'; runId: string; at: string; nodeId: string; delta: string }
+  | { type: 'content'; runId: string; at: string; nodeId: string; delta: string }
+  | { type: 'tool.called'; runId: string; at: string; nodeId: string; callId: string; name: string; args: string }
+  | { type: 'tool.result'; runId: string; at: string; nodeId: string; callId: string; ok: boolean; digest: string; artifacts?: Artifact[] | undefined; child?: ChildSteps | undefined }
+  | { type: 'usage'; runId: string; at: string; nodeId: string; usage: Record<string, unknown> }
+  | { type: 'notice'; runId: string; at: string; level: 'info' | 'warn'; message: string; nodeId?: string; choices?: string[]; callId?: string; tool?: string }
+  | { type: 'node.traced'; runId: string; at: string; nodeId: string; trace: Record<string, unknown> }
+  | { type: 'interrupted'; runId: string; at: string; reason: string }
+
+
+export type TaskStatus = 'proposed' | 'accepted' | 'running' | 'waiting' | 'done' | 'failed' | 'dropped'
+
+export interface EngineTask {
+  id: string
+  leafId?: string
+  title: string
+  intent?: string
+  description?: string
+  doneMeans: string
+  status: TaskStatus
+  dependsOn: string[]
+  agent?: string
+  evidence?: string
+  checks?: { command?: string; expects?: string[] }
+  ready: boolean
+  waitingOn: { id: string; title: string; status: TaskStatus }[]
+}
+
+export const engineKeys = {
+  agents: () => ['engine', 'agents'] as const,
+  traces: (runId: string) => ['engine', 'traces', runId] as const,
+  tasks: () => ['engine', 'tasks'] as const,
+  extensions: () => ['engine', 'extensions'] as const,
+}
+
+export async function listTasks(): Promise<EngineTask[]> {
+  const { data } = await api.get<EngineTask[]>('/engine/tasks')
+  return data
+}
+
+export async function acceptTask(taskId: string): Promise<void> {
+  await api.post(`/engine/tasks/${taskId}/accept`, {})
+}
+
+export async function dropTask(taskId: string): Promise<void> {
+  await api.post(`/engine/tasks/${taskId}/drop`, {})
+}
+
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Mirrors the summary `routes/engine.ts` serves at GET /engine/extensions, which is the authority.
+ */
+export interface ExtensionSummary {
+  id: string
+  title: string
+  describe: string
+  version: string
+  enabled: boolean
+  alwaysOn: boolean
+  authored: boolean
+  latest?: string[]
+  requires: string[]
+  operations: HostOperation[]
+  groups: GroupDefinition[]
+  tools: string[]
+  personas: string[]
+  procedures: string[]
+}
+
+export async function listExtensions(): Promise<ExtensionSummary[]> {
+  const { data } = await api.get<ExtensionSummary[]>('/engine/extensions')
+  return data
+}
+
+export async function setExtensionEnabled(id: string, enabled: boolean): Promise<ExtensionSummary[]> {
+  const { data } = await api.put<ExtensionSummary[]>(`/engine/extensions/${encodeURIComponent(id)}/enabled`, { enabled })
+  return data
+}
+
+export interface ExtensionDraft {
+  id: string
+  title: string
+  describe?: string
+}
+
+export interface ExtensionBundle {
+  title?: string
+  describe?: string
+  tools?: string[]
+  personas?: string[]
+  procedures?: string[]
+}
+
+export interface PublishedOperation {
+  id: string
+  version: number
+  moved: string[]
+}
+
+export async function createExtension(draft: ExtensionDraft): Promise<ExtensionSummary[]> {
+  const { data } = await api.post<ExtensionSummary[]>('/engine/extensions', draft)
+  return data
+}
+
+export async function updateExtension(id: string, bundle: ExtensionBundle): Promise<ExtensionSummary[]> {
+  const { data } = await api.put<ExtensionSummary[]>(`/engine/extensions/${encodeURIComponent(id)}`, bundle)
+  return data
+}
+
+export async function deleteExtension(id: string): Promise<ExtensionSummary[]> {
+  const { data } = await api.delete<ExtensionSummary[]>(`/engine/extensions/${encodeURIComponent(id)}`)
+  return data
+}
+
+export async function publishOperation(extension: string, name: string, group: GroupDefinition): Promise<PublishedOperation> {
+  const { data } = await api.post<PublishedOperation>(`/engine/extensions/${encodeURIComponent(extension)}/operations`, { name, group })
+  return data
+}
+
+export async function removeOperation(extension: string, name: string): Promise<ExtensionSummary[]> {
+  const { data } = await api.delete<ExtensionSummary[]>(`/engine/extensions/${encodeURIComponent(extension)}/operations/${encodeURIComponent(name)}`)
+  return data
+}
+
+export async function listEngineAgents(): Promise<EngineAgent[]> {
+  const { data } = await api.get<EngineAgent[]>('/engine/agents')
+  return data
+}
+
+export async function startRun(input: {
+  agent: string
+  message: string
+  inputs?: Record<string, unknown>
+  conversationId?: string
+  modelId?: string
+  modelReach?: ModelReach
+  procedure?: string
+  asks?: string
+  attachments?: SentAttachment[]
+}): Promise<StartedRun> {
+  const { data } = await api.post<StartedRun>('/engine/runs', input)
+  return data
+}
+
+export async function listRunTraces(runId: string): Promise<NodeTrace[]> {
+  const { data } = await api.get<{ traces: NodeTrace[] }>(`/engine/runs/${encodeURIComponent(runId)}/traces`)
+  return data.traces
+}
+
+export async function answerRun(runId: string, nodeId: string, value: unknown): Promise<void> {
+  await api.post(`/engine/runs/${runId}/answer`, { nodeId, value })
+}
+
+export async function approveRunCall(
+  runId: string,
+  input: { callId: string; allowed: boolean; forRun?: boolean; conversationId?: string; tool?: string; auto?: 'agent' | 'tree' },
+): Promise<void> {
+  await api.post(`/engine/runs/${runId}/approve`, input)
+}
+
+export async function cancelRun(runId: string): Promise<void> {
+  await api.post(`/engine/runs/${runId}/cancel`, {})
+}

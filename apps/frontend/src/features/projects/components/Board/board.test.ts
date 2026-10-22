@@ -3,7 +3,7 @@ import { buildBoard, featureOnly, featureOrderAfterMove, projectStatus, reachedB
 import type { Leaf } from '../../lib/leaf-types'
 import type { OdooRelease } from '../../../releases/api/releases'
 import type { PipelineRun } from '../PipelineRunRow'
-import type { EngineTask } from '../../../../api/engine'
+import type { EngineTask } from '../../../engine/api/engine'
 
 const leaf = (id: string, over: Partial<Leaf> = {}): Leaf => ({ id, branchId: 'b1', title: `story ${id}`, status: 'pending', updatedAt: 't', ...over })
 const release = (over: Partial<OdooRelease>): OdooRelease => ({ id: 'r', projectId: 'p', pipelineRunId: 'run', commit: 'c0ffee1234', image: 'i', state: 'live', host: 'h', startedAt: '2026-10-09T10:00:00Z', updatedAt: '2026-10-09T10:05:00Z', ...over })

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { MessageSquare, Plus } from 'lucide-react'
-import { chatPackKeys, listChatConversations, type ConversationBinding } from '../../../../api/chat-pack.js'
+import { chatPackKeys, listChatConversations, type ConversationBinding } from '../../../engine'
 import type { SelectedEntity } from './shared.js'
 
 export function TreeConversationsPanel({

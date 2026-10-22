@@ -1,9 +1,9 @@
-import PlanProposalCard from '../../../../components/Chat/PlanProposalCard.js'
+import { PlanProposalCard } from '../../../engine'
 import { useTreeCards } from './useTreeCards.js'
 import { errorMessage } from '../../../../api/client.js'
-import SecretRequestCard from '../../../../components/Chat/SecretRequestCard.js'
-import ActionProposalCard from '../../../../components/Chat/ActionProposalCard.js'
-import EgressRequestCard from '../../../../components/Chat/EgressRequestCard.js'
+import { SecretRequestCard } from '../../../engine'
+import { ActionProposalCard } from '../../../engine'
+import { EgressRequestCard } from '../../../engine'
 
 export function TreeProposalsPanel({ treeId, quietWhenEmpty = false }: { treeId: string; quietWhenEmpty?: boolean | undefined }) {
   const { open, approve, reject, secrets, waiting, actions, pending, egress, asking } = useTreeCards(treeId)

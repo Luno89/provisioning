@@ -3,9 +3,9 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LeafDetail from './LeafDetail';
 import type { Leaf } from '../lib/leaf-types';
-import * as documentsApi from '../../../api/documents';
+import * as documentsApi from '../../engine/api/documents';
 
-vi.mock('../../../api/documents', async (importOriginal) => ({
+vi.mock('../../engine/api/documents', async (importOriginal) => ({
   ...(await importOriginal<typeof documentsApi>()),
   readDocument: vi.fn(),
 }));

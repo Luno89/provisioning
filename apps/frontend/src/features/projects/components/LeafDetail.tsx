@@ -4,9 +4,9 @@ import { CircleSlash, Trash2, AlertTriangle, ShieldCheck, RotateCw, Loader2, Fil
 import Markdown from '../../../shared/components/Markdown.js';
 import ClaimReview from './ClaimReview.js';
 import ConfirmDelete from '../../../shared/components/ConfirmDelete.js';
-import DocumentPanel from '../../../components/DocumentPanel.js';
+import { DocumentPanel } from '../../engine';
 import { STATE_STYLE, STATE_HINT, stateFor, leafDocuments, storyLine, type Leaf } from '../lib/leaf-types.js';
-import type { DocumentAddress } from '../../../types/documents';
+import type { DocumentAddress } from '../../engine';
 import { cancelLeaf, retryLeaf, deleteLeaf } from '../api/grove';
 import { errorMessage } from '../../../api/client';
 import { ArtifactStoragePrompt } from '../../files'

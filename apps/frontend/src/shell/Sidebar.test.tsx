@@ -4,10 +4,10 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Box, Server } from 'lucide-react';
 import Sidebar from './Sidebar';
-import * as chatPackApi from '../api/chat-pack.js';
+import * as chatPackApi from '../features/engine/api/chat-pack.js';
 import * as groveApi from '../features/projects/api/grove.js';
 
-vi.mock('../api/chat-pack.js', async (importOriginal) => ({
+vi.mock('../features/engine/api/chat-pack.js', async (importOriginal) => ({
   ...(await importOriginal<typeof chatPackApi>()),
   listChatConversations: vi.fn(),
   deleteChatConversation: vi.fn().mockResolvedValue(undefined),

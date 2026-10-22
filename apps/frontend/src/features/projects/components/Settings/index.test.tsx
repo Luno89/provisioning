@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import ProjectSettings from './index'
 import * as groveApi from '../../api/grove'
 import * as projectsApi from '../../api/projects'
-import * as autoModeApi from '../../../../api/auto-mode'
+import * as autoModeApi from '../../../engine/api/auto-mode'
 import * as releaseApi from '../../../releases/api/release-settings'
 import * as modelsApi from '../../../models/api'
 
@@ -20,7 +20,7 @@ vi.mock('../../api/projects', async (orig) => ({
   listProjects: vi.fn(),
   getProjectRemoval: vi.fn(async () => ({ project: { id: 'p1', name: 'shop' }, trees: [], apps: [], conversations: [], repositories: [] })),
 }))
-vi.mock('../../../../api/auto-mode', async (orig) => ({
+vi.mock('../../../engine/api/auto-mode', async (orig) => ({
   ...(await orig<typeof autoModeApi>()),
   setTreeAutoMode: vi.fn(async () => true),
 }))

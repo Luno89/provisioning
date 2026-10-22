@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ProjectChannel } from './ProjectChannel'
 import * as channelApi from '../../api/project-channel'
 
-vi.mock('../../../../components/ChatSurface.js', () => ({
+vi.mock('../../../engine/components/ChatSurface.js', () => ({
   default: ({ conversationId, channel, binding }: { conversationId: string; channel?: boolean; binding?: { projectId?: string } }) => (
     <div data-testid="chat">{`${conversationId} channel=${String(channel)} project=${binding?.projectId}`}</div>
   ),

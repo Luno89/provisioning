@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Trash2, X } from 'lucide-react'
 import { deleteProject, getProjectRemoval, projectKeys } from '../../api/projects.js'
 import { errorMessage } from '../../../../api/client.js'
-import { chatPackKeys } from '../../../../api/chat-pack.js'
+import { chatPackKeys } from '../../../engine'
 import { projectRemovalLines, projectRemovalProgress } from './project-removal-text.js'
 
 const isGone = (err: unknown) => (err as { response?: { status?: number } } | null)?.response?.status === 404

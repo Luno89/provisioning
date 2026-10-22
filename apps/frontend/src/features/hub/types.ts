@@ -129,7 +129,7 @@ export interface HubBoardView {
     trees: import('../projects').WorkTree[]
     branches: import('../projects').Branch[]
     leaves: import('../projects').Leaf[]
-    tasks: import('../../api/engine').EngineTask[]
+    tasks: import('../engine').EngineTask[]
     planProposals: import('@koala/harness-types').PlanProposal[]
     status?: HubStatus
   }
@@ -138,7 +138,7 @@ export interface HubBoardView {
 }
 
 export interface HubPosted {
-  message: import('../../api/chat-pack').ChatConversationMessage
+  message: import('../engine').ChatConversationMessage
   asked?: HubRequest
   notAsked?: string
 }

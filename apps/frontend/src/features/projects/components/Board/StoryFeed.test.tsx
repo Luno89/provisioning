@@ -2,11 +2,11 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import * as groveApi from '../../api/grove'
-import * as turnsApi from '../../../../api/turns'
+import * as turnsApi from '../../../engine/api/turns'
 import { StoryFeed } from './StoryFeed'
 
 vi.mock('../../api/grove', async (orig) => ({ ...(await orig<typeof groveApi>()), getTreeRun: vi.fn() }))
-vi.mock('../../../../api/turns', async (orig) => ({ ...(await orig<typeof turnsApi>()), readRunsUnder: vi.fn() }))
+vi.mock('../../../engine/api/turns', async (orig) => ({ ...(await orig<typeof turnsApi>()), readRunsUnder: vi.fn() }))
 vi.mock('./StoryRun', () => ({ default: ({ run, events }: { run: { runId: string; thinking: string }; events: { type: string }[] }) => <div data-testid="run">{`${run.runId}: ${run.thinking} (${events.length} events)`}</div> }))
 
 const renderFeed = (leaf: Parameters<typeof StoryFeed>[0]['leaf']) => render(

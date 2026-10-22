@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TreeTypeEditor, type TreeTypeSection } from './TreeTypeEditor.js';
 import * as groveApi from '../../api/grove.js';
-import * as agentsApi from '../../../../api/agents.js';
+import * as agentsApi from '../../../engine/api/agents.js';
 import type { TreeType } from '../../types/grove.js';
 
 vi.mock('@tanstack/react-router', () => ({
@@ -16,7 +16,7 @@ vi.mock('../../api/grove.js', async (orig) => ({
   updateTreeType: vi.fn(),
 }));
 
-vi.mock('../../../../api/agents.js', async (orig) => ({
+vi.mock('../../../engine/api/agents.js', async (orig) => ({
   ...(await orig<typeof agentsApi>()),
   listAgents: vi.fn(),
 }));

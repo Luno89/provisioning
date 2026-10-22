@@ -1,5 +1,5 @@
 import { BOARD_COLUMNS, blockedBy, stateFor, type Leaf, type LeafState } from '../../lib/leaf-types'
-import type { EngineTask } from '../../../../api/engine'
+import type { EngineTask } from '../../../engine'
 import type { OdooRelease } from '../../../releases'
 import type { TreeAsk } from '../../api/grove'
 import type { PipelineRun } from '../PipelineRunRow'

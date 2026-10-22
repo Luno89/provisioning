@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { MessageSquarePlus, PanelRightOpen } from 'lucide-react'
-import ChatSurface from '../../../../components/ChatSurface'
+import { ChatSurface } from '../../../engine'
 import LeafDetail from '../LeafDetail'
-import { chatPackKeys, createChatConversation, type ConversationBinding } from '../../../../api/chat-pack'
-import { engineKeys } from '../../../../api/engine'
+import { chatPackKeys, createChatConversation, type ConversationBinding } from '../../../engine'
+import { engineKeys } from '../../../engine'
 import { releaseKeys } from '../../../releases'
 import type { PipelineRun } from '../PipelineRunRow'
 import { ProjectChannel } from '../Workspace/ProjectChannel'
@@ -31,7 +31,7 @@ import { Swimlanes } from './Swimlanes'
 import { ItemChat } from './ItemChat'
 import { Breadcrumbs, type Crumb } from './Breadcrumbs'
 import { FeatureDelete } from './FeatureDelete'
-import type { StoryAddress } from '../../../../components/Chat/ChatNotice'
+import type { StoryAddress } from '../../../engine'
 
 const STARTABLE: ReadonlySet<LeafStatus> = new Set(['pending', 'running', 'claimed'])
 

@@ -9,7 +9,7 @@ import { AlertTriangle, BellRing, Loader2, X } from 'lucide-react';
 import { releaseNotice, toastOf, type ToastKind } from '../features/platform';
 import Sidebar from './Sidebar';
 import { SIDEBAR_PAGES, ShellContextInstance, type ShellContext, type WizardPreset } from '../features/infrastructure';
-import PendingApprovals from '../components/PendingApprovals';
+import { PendingApprovals } from '../features/engine';
 import { Login } from '../features/accounts';
 import { ClusterWizard } from '../features/infrastructure';
 import { AppDeployWizard } from '../features/infrastructure';

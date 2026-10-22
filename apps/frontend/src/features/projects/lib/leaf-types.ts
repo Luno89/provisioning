@@ -1,4 +1,4 @@
-import type { DocumentAddress } from '../../../types/documents';
+import type { DocumentAddress } from '../../engine';
 
 export type LeafStatus = 'pending' | 'running' | 'claimed' | 'succeeded' | 'failed' | 'cancelled';
 

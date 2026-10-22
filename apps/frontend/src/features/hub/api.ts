@@ -1,7 +1,7 @@
 import { api } from '../../api/client'
 import type { GroupCheck, HubBoardView, HubPosted, HubRequest, HubRequestKind, HubRole, Invitation, InviteSent, RootInvitation, SharedProject, SharedProjectView, SharingPreview } from './types'
-import type { ChatConversation } from '../../api/chat-pack'
-import type { TurnLogEntry } from '../../types/turns'
+import type { ChatConversation } from '../engine'
+import type { TurnLogEntry } from '../engine'
 
 export const hubKeys = {
   all: ['hub'] as const,

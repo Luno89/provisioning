@@ -1,5 +1,5 @@
 import type { TreeAsk } from '../../api/grove'
-import { ApprovalBox } from '../../../../components/EngineRun/RunControls'
+import { ApprovalBox } from '../../../engine'
 
 export default function TreeAsks({ asks }: { asks: readonly TreeAsk[] }) {
   if (asks.length === 0) return null

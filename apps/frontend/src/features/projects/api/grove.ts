@@ -1,4 +1,4 @@
-import type { ImageContent } from '../../../types/image'
+import type { ImageContent } from '../../engine'
 import { api } from '../../../api/client'
 import type { Tree, Branch, Leaf, TreeType } from '../types/grove'
 

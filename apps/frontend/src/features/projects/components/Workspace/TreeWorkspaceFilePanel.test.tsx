@@ -4,8 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TreeWorkspaceFilePanel } from './TreeWorkspaceFilePanel.js'
 import * as groveApi from '../../api/grove.js'
 
-vi.mock('../../../../api/workspaceDependencies', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../../api/workspaceDependencies')>()),
+vi.mock('../../../engine/api/workspaceDependencies', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../engine/api/workspaceDependencies')>()),
   useDependencies: () => ({ isPending: false, data: [{ name: 'koala-e2e', summary: 'koala-e2e: runs a project\'s Playwright specs.', provides: ['koala-e2e'], install: [], mine: false, script: true, usedBy: { tools: [], servers: [], dependencies: [], steps: [], trees: [] } }] }),
 }))
 
