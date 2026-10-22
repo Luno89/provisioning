@@ -1,4 +1,4 @@
-import { getNotifications, notificationKeys, sendTestEmail, setEmailChoice, type EmailChoice, type NotificationView } from '../../api/notifications'
+import { getNotifications, notificationKeys, sendTestEmail, setEmailChoice, type EmailChoice, type NotificationView } from '../../features/monitoring'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { accountKeys, getPersonRemoval, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson } from '../../api/account'
 import { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '../../api/instance-addresses'

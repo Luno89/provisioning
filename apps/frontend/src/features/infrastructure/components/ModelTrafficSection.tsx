@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { getModelTraffic, MODEL_TRAFFIC_POLL_MS, modelTrafficKeys, type ModelTraffic as Traffic } from '../../../api/models'
 import { errorMessage } from '../../../api/client'
-import { Section } from '../../../components/Monitoring/Parts'
+import { Section } from '../../monitoring'
 
 const useModelTraffic = () => useQuery({ queryKey: modelTrafficKeys.all(), queryFn: getModelTraffic, refetchInterval: MODEL_TRAFFIC_POLL_MS })
 

@@ -13,8 +13,8 @@ import type { Deployment } from '../../types/deployment';
 import type { Cluster } from '../../types/cluster';
 import { AnsiText } from '../../../../shared/components/AnsiText';
 import GameServerSettings from '../GameServerSettings';
-import { AppHealth } from '../../../../components/Monitoring/AppHealth';
-import { ClusterHealth } from '../../../../components/Monitoring/ClusterHealth';
+import { AppHealth } from '../../../monitoring';
+import { ClusterHealth } from '../../../monitoring';
 import { NO_WEB_UI_APP_TYPES } from '../../lib/app-ui';
 import { getSupportedVolumes, getFallbackSize, getVolumeDescription } from '../../lib/app-volumes';
 

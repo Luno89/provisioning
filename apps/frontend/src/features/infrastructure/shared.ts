@@ -3,13 +3,13 @@ import {
   clearFailures, getClusterContents, getInfrastructure, infrastructureKeys,
   type WorkloadAbout, type WorkloadGroup, type WorkloadState,
 } from './api/infrastructure'
-import type { AppRow, ClusterRow } from '../../api/monitoring'
+import type { AppRow, ClusterRow } from '../monitoring'
 import type { RunningItem } from './api/running'
 import type { Cluster } from './types/cluster'
 import type { Deployment } from './types/deployment'
 import { formatHash } from '../platform'
 
-export { healthHash, sectionHash, bytes, percent, rate, seconds } from '../../components/Monitoring/shared'
+export { healthHash, sectionHash, bytes, percent, rate, seconds } from '../monitoring'
 
 export const INFRASTRUCTURE_POLL_MS = 15_000
 export const CLUSTER_CONTENTS_POLL_MS = 20_000

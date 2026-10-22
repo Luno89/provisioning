@@ -1,19 +1,19 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import * as monitoringApi from '../../../api/monitoring'
+import * as monitoringApi from '../../monitoring/api/monitoring'
 import * as infrastructureApi from '../api/infrastructure'
 import * as runningApi from '../api/running'
 import * as clustersApi from '../api/clusters'
-import type { AppHealthView, ClusterRow, Overview } from '../../../api/monitoring'
+import type { AppHealthView, ClusterRow, Overview } from '../../monitoring/api/monitoring'
 import type { ClusterContents, InfrastructureOverview } from '../api/infrastructure'
 import { ShellContextInstance, type ShellContext } from '../hooks/shell-context'
 import { useShellStore } from '../../platform/stores/shell'
 
 const params: { tab?: string; kind?: string; id?: string } = {}
 vi.mock('@tanstack/react-router', () => ({ useParams: () => params }))
-vi.mock('../../../components/Monitoring/Chart', () => ({ Chart: ({ title }: { title: string }) => <figure aria-label={title} /> }))
-vi.mock('../../../api/monitoring', async (orig) => ({
+vi.mock('../../monitoring/components/Chart', () => ({ Chart: ({ title }: { title: string }) => <figure aria-label={title} /> }))
+vi.mock('../../monitoring/api/monitoring', async (orig) => ({
   ...(await orig<typeof monitoringApi>()),
   getOverview: vi.fn(),
   getAlerts: vi.fn(),

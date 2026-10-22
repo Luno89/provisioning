@@ -1,6 +1,6 @@
 import { Loader2, Zap } from 'lucide-react'
 import { useGpuStatus } from '../api/clusters'
-import { Section } from '../../../components/Monitoring/Parts'
+import { Section } from '../../monitoring'
 
 export function GpuPanel({ clusterId, passthrough }: { clusterId: string; passthrough: boolean }) {
   const gpu = useGpuStatus(clusterId)

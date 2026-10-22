@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react'
 import type uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
-import type { Marker } from '../../api/monitoring'
-import { formatValue, type ChartUnit } from './shared'
+import type { Marker } from '../api/monitoring'
+import { formatValue, type ChartUnit } from '../shared'
 
 const HEIGHT = 150
 const NO_MARKERS: Marker[] = []

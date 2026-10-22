@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { BellOff, Loader2 } from 'lucide-react'
-import type { AlertEpisode, AlertRule, FiringAlert, HealthState, HistoryState, Range } from '../../api/monitoring'
-import { RANGES } from '../../api/monitoring'
-import { errorMessage } from '../../api/client'
-import { ago } from '../../features/projects'
-import { RANGE_LABELS, STATE_LOOK, useRemoveRule, useSetHistory } from './shared'
+import type { AlertEpisode, AlertRule, FiringAlert, HealthState, HistoryState, Range } from '../api/monitoring'
+import { RANGES } from '../api/monitoring'
+import { errorMessage } from '../../../api/client'
+import { ago } from '../../projects'
+import { RANGE_LABELS, STATE_LOOK, useRemoveRule, useSetHistory } from '../shared'
 
 export function StateBadge({ state }: { state: HealthState }) {
   const look = STATE_LOOK[state]

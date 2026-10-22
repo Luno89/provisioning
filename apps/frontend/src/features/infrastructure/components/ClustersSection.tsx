@@ -1,6 +1,6 @@
 import { Cloud, FileText, Plus, Shield, Trash2 } from 'lucide-react'
 import { useShellStore } from '../../platform'
-import { Bar, Section, StateBadge } from '../../../components/Monitoring/Parts'
+import { Bar, Section, StateBadge } from '../../monitoring'
 import { useShellContext } from '../hooks/shell-context'
 import { QuietButton } from './Parts'
 import { clusterCards, healthHash, useInfrastructure } from '../shared'

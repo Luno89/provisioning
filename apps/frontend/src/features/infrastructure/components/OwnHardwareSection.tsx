@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { AlertTriangle, Check, Circle, Copy, Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import { createPreauthKey, deleteMeshDevice, getMeshConfig, listMeshDevices, meshKeys, type MeshConfig, type MeshDevice } from '../api/mesh'
 import { errorMessage } from '../../../api/client'
-import { Section } from '../../../components/Monitoring/Parts'
+import { Section } from '../../monitoring'
 import { QuietButton } from './Parts'
 
 export function OwnHardwareSection() {

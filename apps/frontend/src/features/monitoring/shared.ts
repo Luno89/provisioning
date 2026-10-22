@@ -2,8 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getAlerts, getAppHealth, getClusterHealth, getOverview, monitoringKeys, removeAlertRule, setHistoryDays,
   type HealthState, type Range,
-} from '../../api/monitoring'
-import { formatHash } from '../../features/platform'
+} from './api/monitoring'
+import { formatHash } from '../platform'
 
 export const OVERVIEW_POLL_MS = 15_000
 export const HEALTH_POLL_MS = 30_000

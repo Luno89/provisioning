@@ -1,11 +1,11 @@
 import { useState, type ReactNode } from 'react'
 import { ExternalLink, Loader2 } from 'lucide-react'
-import type { Range } from '../../api/monitoring'
-import { clusterDashboardUrl } from '../../features/infrastructure'
-import { errorMessage } from '../../api/client'
+import type { Range } from '../api/monitoring'
+import { clusterDashboardUrl } from '../../infrastructure'
+import { errorMessage } from '../../../api/client'
 import { Chart } from './Chart'
 import { Bar, EpisodeList, FiringList, HistorySetting, RangePicker, Section, StateBadge } from './Parts'
-import { CHARTS, windowOf, healthHash, sectionHash, useClusterHealth } from './shared'
+import { CHARTS, windowOf, healthHash, sectionHash, useClusterHealth } from '../shared'
 
 export function ClusterHealth({ clusterId, standalone = false, actions }: { clusterId: string; standalone?: boolean; actions?: ReactNode }) {
   const [range, setRange] = useState<Range>('24h')

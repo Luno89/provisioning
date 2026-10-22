@@ -1,6 +1,6 @@
 import { Loader2 } from 'lucide-react'
 import { errorMessage } from '../../api/client'
-import type { EmailChoice } from '../../api/notifications'
+import type { EmailChoice } from '../../features/monitoring'
 import { dangerPanel, quietButton, useNotifications, useSendTestEmail, useSetEmailChoice } from './shared'
 
 const CHOICES: Array<{ value: EmailChoice; label: string; explain: string }> = [

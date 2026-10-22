@@ -9,7 +9,7 @@ import { hashFor } from '../lib/opens'
 import { formatHash } from '../../platform'
 import BenchSchedule from '../../../components/Checks/BenchSchedule'
 import { evalKeys } from '../../../components/Checks/shared'
-import { Section } from '../../../components/Monitoring/Parts'
+import { Section } from '../../monitoring'
 import { waitingText } from '../shared'
 
 function Switch({ label, explain, paused, onChange, busy, children }: { label: string; explain: string; paused: boolean | undefined; onChange: (paused: boolean) => void; busy: boolean; children?: ReactNode }) {

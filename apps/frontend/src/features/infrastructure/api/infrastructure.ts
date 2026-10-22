@@ -1,5 +1,5 @@
 import { api } from '../../../api/client'
-import type { Overview } from '../../../api/monitoring'
+import type { Overview } from '../../monitoring'
 import type { RunningItem, RunningKind } from './running'
 
 /**
