@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../lib/memory-db.js';
+import { testDatabase } from '../lib/test-database.js';
+import type { MongoDB } from '../lib/mongo-db.js';
 import { deployProjectBuild, type AppDeployDeps } from '../../infrastructure/services/AppDeploy.js';
 import type { ClusterMetadata, ProjectMetadata, PipelineRunMetadata } from '../lib/types.js';
 
 describe('deploying a project\'s build', () => {
-  let db: MemoryDB;
+  let db: MongoDB;
   let starts: { workflowId: string; taskQueue: string; args: unknown[] }[];
   let deps: AppDeployDeps;
 
@@ -29,8 +30,7 @@ describe('deploying a project\'s build', () => {
   };
 
   beforeEach(async () => {
-    db = new MemoryDB();
-    await db.init();
+    db = await testDatabase();
     await db.savePipelineRunInfo(run);
     starts = [];
     deps = {

@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../platform/lib/memory-db.js';
+import { testDatabase } from '../platform/lib/test-database.js';
+import type { MongoDB } from '../platform/lib/mongo-db.js';
 import { createProjectRemovalActivities, type ProjectRemovalDeps } from './RemoveProjectActivities.js';
 import { ArtifactService } from '../files/services/ArtifactService.js';
 
-let db: MemoryDB;
+let db: MongoDB;
 let terminated: string[];
 let kubectl: string[][];
 let repos: string[];
@@ -25,8 +26,7 @@ const deps = (): ProjectRemovalDeps => ({
 const at = 'then';
 
 beforeEach(async () => {
-  db = new MemoryDB();
-  await db.init();
+  db = await testDatabase();
   terminated = [];
   kubectl = [];
   repos = [];

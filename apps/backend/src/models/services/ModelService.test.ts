@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ModelService } from './ModelService.js';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { ModelEndpointMetadata, UserMetadata } from '../../platform/lib/types.js';
 
 /**
@@ -19,8 +20,7 @@ const gatewayEndpoints = (ownerId: string, count: number): ModelEndpointMetadata
   }));
 
 const build = async (endpoints: ModelEndpointMetadata[], user?: Partial<UserMetadata>) => {
-  const db = new MemoryDB();
-  await db.init();
+  const db = await testDatabase();
   for (const e of endpoints) await db.saveModelEndpoint(e);
   await db.saveUser({
     id: 'u1', email: 'u@example.com', emailVerified: true,
@@ -119,7 +119,7 @@ describe('the engine a run reaches', () => {
 describe('a check space borrowing its person\'s models', () => {
   it('sees and resolves the person\'s models, on the person\'s default, with nothing of its own', async () => {
     const models = await build(gatewayEndpoints('u1', 3), { defaultModelId: 'openrouter-2' });
-    const db = (models as unknown as { db: MemoryDB }).db;
+    const db = (models as unknown as { db: MongoDB }).db;
     await db.saveUser({ id: 'space-1', email: 'space-1@checks.internal', emailVerified: true, twoFactorEnabled: false, createdAt: 'now', space: { person: 'u1', checkRunId: 'c1', scenarioId: 's1' } });
 
     expect((await models.list('space-1')).map((provider) => provider.id)).toEqual(['openrouter-0', 'openrouter-1', 'openrouter-2']);

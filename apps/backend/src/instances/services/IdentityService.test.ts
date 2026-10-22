@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { IdentityService } from './IdentityService.js';
 import { generateIdentityKey, identityKeysFrom, issueHandoff, publicKeyPem, trustedKeys } from '../lib/identity-token.js';
 import type { RoleConfig } from '../../platform/lib/platform-role.js';
@@ -12,15 +13,13 @@ const instanceRole = (ownerId = 'u1', id = 'inst-u1'): RoleConfig => ({
   instance: { id, ownerId, rootUrl: 'https://app.example.com' },
 });
 
-let rootDb: MemoryDB;
-let instanceDb: MemoryDB;
+let rootDb: MongoDB;
+let instanceDb: MongoDB;
 let now: number;
 
 beforeEach(async () => {
-  rootDb = new MemoryDB();
-  instanceDb = new MemoryDB();
-  await rootDb.init();
-  await instanceDb.init();
+  rootDb = await testDatabase();
+  instanceDb = await testDatabase();
   now = 1_800_000_000;
 });
 

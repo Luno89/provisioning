@@ -1,12 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import { ProjectChannelService } from './ProjectChannelService.js';
 import { ConversationNoticeService } from '../../engine/services/ConversationNoticeService.js';
 import type { ProjectMetadata } from '../../platform/lib/types.js';
 
 const setup = async () => {
-  const db = new MemoryDB();
-  await db.init();
+  const db = await testDatabase();
   const project: ProjectMetadata = { id: 'p1', name: 'Shop', ownerId: 'bo', appType: 'gitapp', createdAt: 't' };
   await db.saveProject(project);
   const channels = new ProjectChannelService({

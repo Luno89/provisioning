@@ -1,16 +1,16 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { ExtensionService } from './ExtensionService.js';
 import { INSTALLED_EXTENSIONS, platformCatalogue, platformGroups } from '../../extensions/installed.js';
 import { PROCEDURE_SCHEMA, defineGroup, type Procedure } from '@koala/agent-engine/procedure';
 import type { ProcedureSource } from '../lib/procedure-source.js';
 
-let db: MemoryDB;
+let db: MongoDB;
 let service: ExtensionService;
 
 beforeEach(async () => {
-  db = new MemoryDB();
-  await db.init();
+  db = await testDatabase();
   service = new ExtensionService({ store: db, installed: INSTALLED_EXTENSIONS, now: () => 'now' });
 });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import { ConversationNoticeService } from './ConversationNoticeService.js';
 import { asChatMessages } from '../../engine-host/nodes/conversation-nodes.js';
 
@@ -7,8 +7,7 @@ const notice = { key: 'release:r2:live', kind: 'release-live' as const, text: '5
 
 describe('telling the chats about a project what happened', () => {
   it('posts once to every conversation of the owner bound to the tree or the project, and tells each one', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     const conversation = (id: string, over: Record<string, unknown>) => db.saveConversation({ id, ownerId: 'bo', title: id, messages: [], createdAt: 't', updatedAt: 't', ...over } as never);
     await conversation('by-project', { projectId: 'p1' });
     await conversation('by-tree', { treeId: 't1' });
@@ -48,8 +47,7 @@ describe('a notice as the model sees it', () => {
 
 describe('a notice about one story', () => {
   it('is told in full in the story\'s own chat, and in one line linking to it in the channel; other chats about the tree hear nothing', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await db.saveConversation({ id: 'channel-p1', ownerId: 'bo', title: 'Shop', kind: 'channel', projectId: 'p1', messages: [], createdAt: 't', updatedAt: 't' });
     await db.saveConversation({ id: 'story-l9', ownerId: 'bo', title: 'Other story', kind: 'item', treeId: 't1', leafId: 'l9', messages: [], createdAt: 't', updatedAt: 't' });
     const asked: string[] = [];
@@ -76,8 +74,7 @@ describe('a notice about one story', () => {
   });
 
   it('never lands in a story\'s chat when it is about the whole tree', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await db.saveConversation({ id: 'planning', ownerId: 'bo', title: 'Planning', treeId: 't1', messages: [], createdAt: 't', updatedAt: 't' });
     await db.saveConversation({ id: 'story-l9', ownerId: 'bo', title: 'A story', kind: 'item', treeId: 't1', leafId: 'l9', messages: [], createdAt: 't', updatedAt: 't' });
     const service = new ConversationNoticeService({ conversations: () => db.getConversations(), append: (ownerId, id, message) => db.appendNotice(ownerId, id, message), told: () => undefined });

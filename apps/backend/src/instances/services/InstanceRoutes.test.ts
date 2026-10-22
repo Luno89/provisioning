@@ -2,13 +2,14 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { InstanceRoutes, type CaddyControl } from './InstanceRoutes.js';
 import type { InstanceRecord } from '../lib/instances.js';
 
 const record = (patch: Partial<InstanceRecord>): InstanceRecord => ({ id: 'inst-1', ownerId: 'u1', url: '', createdAt: 'x', updatedAt: 'x', name: 'luno', meshIp: '100.64.0.7', status: 'ready', ...patch });
 
-let db: MemoryDB;
+let db: MongoDB;
 let dir: string;
 let reloads: number;
 let served: string | undefined;
@@ -16,8 +17,7 @@ let log: string;
 let routes: InstanceRoutes;
 
 beforeEach(async () => {
-  db = new MemoryDB();
-  await db.init();
+  db = await testDatabase();
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'routes-'));
   reloads = 0;
   served = undefined;

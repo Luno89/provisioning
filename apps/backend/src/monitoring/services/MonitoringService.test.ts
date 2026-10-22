@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import { appQuery, appWindowQuery, clusterQuery, type AppSubject } from '../lib/monitoring-questions.js';
 import { RULE_LABEL, alertSpec, type AlertSpec, type PromAlert } from '../lib/monitoring-alerts.js';
@@ -39,7 +40,7 @@ const healthyApp = (prom: FakePrometheus, subject: AppSubject) => {
     .set(appWindowQuery('uptime', subject, 86_400), 1).set(appWindowQuery('restarts', subject, 86_400), 0);
 };
 
-let db: MemoryDB;
+let db: MongoDB;
 let prom: FakePrometheus;
 let remoteProm: FakePrometheus | undefined;
 let kubectl: string[][];
@@ -53,8 +54,7 @@ let monitoring: MonitoringService;
 let deps: () => MonitoringDeps;
 
 beforeEach(async () => {
-  db = new MemoryDB();
-  await db.init();
+  db = await testDatabase();
   prom = new FakePrometheus().set('vector(1)', 1);
   remoteProm = undefined;
   kubectl = [];

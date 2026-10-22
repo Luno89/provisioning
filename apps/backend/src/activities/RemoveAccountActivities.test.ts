@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../platform/lib/memory-db.js';
+import { testDatabase } from '../platform/lib/test-database.js';
+import type { MongoDB } from '../platform/lib/mongo-db.js';
 import { createAccountRemovalActivities, type AccountRemovalDeps } from './RemoveAccountActivities.js';
 
-let db: MemoryDB;
+let db: MongoDB;
 let terminated: string[];
 let kubectl: string[][];
 let deletedUsers: string[];
@@ -28,8 +29,7 @@ const seed = async (ownerId: string) => {
 };
 
 beforeEach(async () => {
-  db = new MemoryDB();
-  await db.init();
+  db = await testDatabase();
   terminated = [];
   kubectl = [];
   deletedUsers = [];
@@ -57,7 +57,7 @@ describe('the steps that remove an account', () => {
 
   it('plans the destroy of every app it still has, and only its own', async () => {
     await db.saveDeploymentInfo({ id: 'odoo-bo', name: 'shop', clusterId: 'system', strategy: 'helm', appType: 'odoo-project', namespace: 'shop-1a2b3c', ownerId: 'bo', status: 'running' });
-    await db.saveDeploymentInfo({ id: 'odoo-ana', name: 'shop', clusterId: 'system', strategy: 'helm', appType: 'odoo-project', ownerId: 'ana', status: 'running' });
+    await db.saveDeploymentInfo({ id: 'odoo-ana', name: 'ana-shop', clusterId: 'system', strategy: 'helm', appType: 'odoo-project', ownerId: 'ana', status: 'running' });
     const planned = await createAccountRemovalActivities(deps()).RemoveAccountAppsActivity({ ownerId: 'bo' });
     expect(planned.map((app) => [app.deploymentId, app.args.namespace, app.taskQueue])).toEqual([['odoo-bo', 'shop-1a2b3c', 'cluster-ops-queue']]);
     expect((await db.getDeployments()).map((deployment) => [deployment.id, deployment.status])).toEqual([['odoo-bo', 'destroying'], ['odoo-ana', 'running']]);

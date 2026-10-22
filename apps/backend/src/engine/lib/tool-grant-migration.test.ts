@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { grantsFrom, toolsOf, type PersonaRecord } from '@koala/agent-engine';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import { migrateAgentTools } from './tool-grant-migration.js';
 
 const shipped = grantsFrom({ executor: ['run_command', 'read_file', 'write_file'] });
@@ -9,7 +9,7 @@ const row = (ownerId: string | undefined, slug: string, tools: string[] | undefi
   ({ slug, ...(ownerId ? { ownerId } : {}), name: slug, ...(tools ? { tools } : {}) }) as unknown as PersonaRecord;
 
 async function migrated(rows: PersonaRecord[]) {
-  const db = new MemoryDB();
+  const db = await testDatabase();
   for (const one of rows) await db.saveEnginePersona(one);
   const report = await migrateAgentTools(db, builtIn, shipped, '2026-10-12T00:00:00Z');
   return { db, report };

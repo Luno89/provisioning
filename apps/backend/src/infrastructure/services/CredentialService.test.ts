@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CredentialService } from './CredentialService.js';
 import { decryptValue } from '../../platform/lib/crypto.js';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 
 const TEST_KEY = 'test-master-key-for-credential-tests';
 
 describe('CredentialService', () => {
-  let db: MemoryDB;
+  let db: MongoDB;
   let service: CredentialService;
   const testUser: UserMetadata = {
     id: 'user-1',
@@ -18,8 +19,7 @@ describe('CredentialService', () => {
   };
 
   beforeEach(async () => {
-    db = new MemoryDB();
-    await db.init();
+    db = await testDatabase();
     await db.saveUser({ ...testUser });
     service = new CredentialService(db, TEST_KEY);
   });

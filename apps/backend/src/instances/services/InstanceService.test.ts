@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { InstanceService, JOIN_TOKEN_TTL_SECONDS, hashCredential, instanceIdFor } from './InstanceService.js';
 
 const settings = {
@@ -14,7 +15,7 @@ const settings = {
 };
 const mesh = { createPreAuthKey: async (ownerId: string) => ({ key: `pre-${ownerId}` }) };
 
-let db: MemoryDB;
+let db: MongoDB;
 let now: Date;
 let service: InstanceService;
 let routeChanges: number;
@@ -26,8 +27,7 @@ const tokenFor = async (ownerId: string, name: string = 'luno') => {
 };
 
 beforeEach(async () => {
-  db = new MemoryDB();
-  await db.init();
+  db = await testDatabase();
   now = new Date('2026-10-02T12:00:00Z');
   routeChanges = 0;
   service = new InstanceService(db, settings, mesh, () => now, () => { routeChanges += 1; });

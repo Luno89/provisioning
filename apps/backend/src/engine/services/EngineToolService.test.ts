@@ -2,7 +2,7 @@ import { SHIPPED_DEPENDENCIES } from '../../extensions/workspace-dependencies.js
 import { describe, it, expect, vi } from 'vitest';
 import { EngineToolService, toolProblems } from './EngineToolService.js';
 import { toRecord, type Persona, type ToolDefinition } from '@koala/agent-engine';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import { createAgentDirectory, grantStoreFrom } from '../../engine-host/registries/agent-directory.js';
 
 const tool = (over: Partial<ToolDefinition> = {}): ToolDefinition => ({
@@ -44,7 +44,7 @@ const persona = (over: Partial<Persona> = {}): Persona => ({
 const IMPLEMENTED = new Set(['run_command', 'read_file']);
 
 async function agentsOf(personas: readonly Persona[], builtIn: readonly Persona[]) {
-  const db = new MemoryDB();
+  const db = await testDatabase();
   const shippedAgents = [...builtIn, ...personas.filter((one) => one.ownerId === undefined)];
   const shipped = shippedAgents.flatMap((one) => one.tools.map((name) => ({ agent: one.slug, tool: name })));
   const directory = createAgentDirectory({

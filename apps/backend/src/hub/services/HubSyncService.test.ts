@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { describe, expect, it, vi } from 'vitest';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import { markingHubWrites } from '../lib/hub-sync.js';
 import { memoryHubStore } from '../lib/hub-store.js';
 import { CHANGES_PAGE, HubService } from './HubService.js';
@@ -12,8 +12,7 @@ const ann = { id: 'ann', email: 'ann@example.com' };
 const now = '2026-10-21T00:00:00Z';
 
 async function setUp() {
-  const db = markingHubWrites(new MemoryDB());
-  await db.init();
+  const db = markingHubWrites(await testDatabase());
   const store = memoryHubStore();
   const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) } });
   const made = await hub.create(ann, { name: 'Shop', origin: { instanceId: 'combined', projectId: 'p1' } });
@@ -121,8 +120,7 @@ describe('keeping a shared project\'s board in step with the hub', () => {
 
 describe('members working a shared project from the hub', () => {
   async function shared() {
-    const db = markingHubWrites(new MemoryDB());
-    await db.init();
+    const db = markingHubWrites(await testDatabase());
     const store = memoryHubStore();
     const relay = new HubRelay(Date.now, 60_000);
     const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) }, relay });
@@ -170,6 +168,7 @@ describe('members working a shared project from the hub', () => {
     await db.saveLeaf(leaf({ id: 'l2', title: 'Refund' }));
     await db.saveConversation({ id: 'channel-p1', ownerId: 'ann', kind: 'channel', treeId: 't1', projectId: 'p1', messages: [], createdAt: now, updatedAt: now } as never);
     await sync.once();
+    await vi.waitFor(() => expect(relay.online(hubId)).toBe(true));
     return { db, hub, hubId, sync, did, relay, store };
   }
 

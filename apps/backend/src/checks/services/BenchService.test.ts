@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { BenchPlan } from '../lib/bench.js';
 import { BenchService } from './BenchService.js';
 import type { Level2Run } from './Level2Service.js';
@@ -10,7 +11,7 @@ import type { UserMetadata } from '../../platform/lib/types.js';
 const NOW = Date.parse('2026-10-03T12:00:00Z');
 const NOW_ISO = new Date(NOW).toISOString();
 
-let db: MemoryDB;
+let db: MongoDB;
 let started: BenchPlan[];
 let timers: number[];
 let notified: Level2Run[];
@@ -55,7 +56,7 @@ const bench = () => new BenchService({
 const account = (id: string, over: Partial<UserMetadata> = {}) => db.saveUser({ id, email: `${id}@example.com`, emailVerified: true, createdAt: NOW_ISO, ...over } as UserMetadata);
 
 beforeEach(async () => {
-  db = new MemoryDB();
+  db = await testDatabase();
   await account('u1');
   started = [];
   timers = [];

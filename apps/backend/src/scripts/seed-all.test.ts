@@ -1,11 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryDB } from '../platform/lib/memory-db.js';
+import { testDatabase } from '../platform/lib/test-database.js';
 import { seedAll } from './seed-all.js';
 
 describe('seed-all', () => {
   it('fills every catalogue the platform expects to find in the database', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
 
     const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, ...counts } = await seedAll(db as never);
     expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade]).toEqual([0, 0, 0, 0, 0, 0, 0]);
@@ -20,8 +19,7 @@ describe('seed-all', () => {
   });
 
   it('moves an agent stored with its own tool list onto grants, once', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await db.saveEnginePersona({ slug: 'helper', ownerId: 'user-1', name: 'Helper', tools: ['read_file'] } as never);
 
     expect(await seedAll(db as never)).toMatchObject({ agentToolListsMoved: 1, toolGrantsWritten: 1 });
@@ -30,8 +28,7 @@ describe('seed-all', () => {
   });
 
   it('moves an agent stored with its own list of MCP servers onto server grants, once', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await db.saveEnginePersona({ slug: 'helper', ownerId: 'user-1', name: 'Helper', mcp: ['gitea'] } as never);
 
     expect(await seedAll(db as never)).toMatchObject({ agentServerListsMoved: 1 });
@@ -40,8 +37,7 @@ describe('seed-all', () => {
   });
 
   it('writes nothing on a second run', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await seedAll(db as never);
 
     const again = await seedAll(db as never);

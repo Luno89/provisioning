@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { BUILDER_TOOLS } from '@koala/agent-engine';
 import { ENGINE_TOOL_SEEDS } from '../../engine-host/tools/engine-tool-seeds.js';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Scenario } from '../../eval/level2/scenario.js';
 import type { ScenarioResult } from '../../eval/level2/results.js';
 import type { CheckRunInput, CheckRunOutcome } from '../../workflows/CheckRunWorkflow.js';
@@ -41,8 +41,8 @@ function fakeRunner() {
   return { runner, started, cancelled, finish };
 }
 
-function world(over: { builtIn?: Scenario[]; onFinished?: (run: Level2Run) => Promise<void>; runner?: CheckRunner } = {}) {
-  const db = new MemoryDB();
+async function world(over: { builtIn?: Scenario[]; onFinished?: (run: Level2Run) => Promise<void>; runner?: CheckRunner } = {}) {
+  const db = await testDatabase();
   const fake = fakeRunner();
   let ids = 0;
   let ticks = 0;
@@ -74,7 +74,7 @@ describe('Level 2 scenarios run as checks', () => {
   it('hands the chosen scenarios to the check runner, with the model, temperature, trial and only the tools a provocation or a turn needs', async () => {
     const provoking: Scenario = { ...SCENARIO, id: 'provokes', expect: { provokes: { tool: 'read_procedure', when: 'no procedure has that id', then: 'reported' } } };
     const choosing: Scenario = { ...SCENARIO, id: 'turn', procedure: { id: 'turn-check' }, turn: true, expect: { chooses: { tool: 'check_procedure' } } };
-    const { service, fake } = world({ builtIn: [SCENARIO, provoking, choosing] });
+    const { service, fake } = await world({ builtIn: [SCENARIO, provoking, choosing] });
 
     const run = await service.start({ ownerId: 'user-1', modelId: 'tabby', sampling: { toolTurn: { temperature: 0.2 }, conversation: { temperature: 0.2 } }, trialPractice: 'p1', promptOverride: { agent: 'koala', prompt: 'new' } }) as Level2Run;
 
@@ -88,13 +88,13 @@ describe('Level 2 scenarios run as checks', () => {
   });
 
   it('records the setup of every agent it checks, so two runs can be compared', async () => {
-    const { service } = world({ builtIn: [SCENARIO, { ...SCENARIO, id: 'koala-one', agent: 'koala' }] });
+    const { service } = await world({ builtIn: [SCENARIO, { ...SCENARIO, id: 'koala-one', agent: 'koala' }] });
     const run = await service.start({ ownerId: 'user-1' }) as Level2Run;
     expect(run.agents).toEqual({ 'agent-builder': 'agent-builder-v1', koala: 'koala-v1' });
   });
 
   it('runs only the scenarios asked for, and refuses one that does not exist', async () => {
-    const { service, fake } = world({ builtIn: [SCENARIO, { ...SCENARIO, id: 'other' }] });
+    const { service, fake } = await world({ builtIn: [SCENARIO, { ...SCENARIO, id: 'other' }] });
     expect(await service.start({ ownerId: 'user-1', only: ['ghost'] })).toEqual({ unknown: ['ghost'] });
     await service.start({ ownerId: 'user-1', only: ['other'] });
     expect(fake.started[0]!.input.scenarios.map((scenario) => scenario.id)).toEqual(['other']);
@@ -102,7 +102,7 @@ describe('Level 2 scenarios run as checks', () => {
 
   it('settles the run with what the checks found, names a regression against the last full run, and reports it', async () => {
     const finished: Level2Run[] = [];
-    const { service, fake } = world({ onFinished: async (run) => { finished.push(run); } });
+    const { service, fake } = await world({ onFinished: async (run) => { finished.push(run); } });
 
     const first = await service.start({ ownerId: 'user-1' }) as Level2Run;
     fake.finish(`check-run-${first.id}`, { cancelled: false, results: [result('builder-saves', true)] });
@@ -116,7 +116,7 @@ describe('Level 2 scenarios run as checks', () => {
   });
 
   it('cancels through the runner, and settles as cancelled', async () => {
-    const { service, fake } = world();
+    const { service, fake } = await world();
     const run = await service.start({ ownerId: 'user-1' }) as Level2Run;
 
     expect(await service.cancel('user-1', run.id)).toBe(true);
@@ -128,17 +128,17 @@ describe('Level 2 scenarios run as checks', () => {
 
   it('says why the checks could not start, or why they ended badly', async () => {
     const failing: CheckRunner = { start: async () => { throw new Error('Temporal is not reachable'); }, cancel: async () => false, outcome: async () => ({ missing: true }) };
-    const refused = await world({ runner: failing }).service.start({ ownerId: 'user-1' }) as Level2Run;
+    const refused = await (await world({ runner: failing })).service.start({ ownerId: 'user-1' }) as Level2Run;
     expect(refused).toMatchObject({ state: 'failed', error: 'the checks could not start: Temporal is not reachable' });
 
-    const { service, fake } = world();
+    const { service, fake } = await world();
     const run = await service.start({ ownerId: 'user-1' }) as Level2Run;
     fake.finish(`check-run-${run.id}`, { failed: 'a step could not finish' });
     expect(await settled(service, run.id)).toMatchObject({ state: 'failed', error: 'a step could not finish' });
   });
 
   it('follows runs still going after the server restarts, rather than marking them interrupted', async () => {
-    const { service, db, fake } = world();
+    const { service, db, fake } = await world();
     await db.saveEvalRecord('evalScenarioRuns', { id: 'old', ownerId: 'user-1', state: 'running', startedAt: '2026-10-03T00:00:00Z', scenarios: ['builder-saves'], finished: 0, results: [] });
 
     expect(await service.recover()).toBe(1);
@@ -147,7 +147,7 @@ describe('Level 2 scenarios run as checks', () => {
   });
 
   it('marks a run whose checks can no longer be found as interrupted', async () => {
-    const { service, db, fake } = world();
+    const { service, db, fake } = await world();
     await db.saveEvalRecord('evalScenarioRuns', { id: 'lost', ownerId: 'user-1', state: 'running', startedAt: '2026-10-03T00:00:00Z', scenarios: ['builder-saves'], finished: 0, results: [] });
     await service.recover();
     fake.finish('check-run-lost', { missing: true });
@@ -157,7 +157,7 @@ describe('Level 2 scenarios run as checks', () => {
 
 describe('Level 2 scenarios as data', () => {
   it('saves a scenario of your own and reports what is wrong with a bad one', async () => {
-    const { service } = world();
+    const { service } = await world();
     const mine: Scenario = { ...SCENARIO, id: 'mine', name: 'Mine' };
 
     expect(await service.saveScenario('user-1', mine)).toMatchObject({ saved: true });

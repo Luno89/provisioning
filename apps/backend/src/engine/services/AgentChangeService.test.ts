@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { AgentChange } from '../lib/agent-changes.js';
 import { AgentChangeService } from './AgentChangeService.js';
 
-let db: MemoryDB;
+let db: MongoDB;
 let savedPrompts: [string, string][];
 let handed: string[];
 let refuse: string[] | undefined;
@@ -22,8 +23,8 @@ const changes = () => new AgentChangeService({
 const prompt = (over: Partial<AgentChange> = {}): AgentChange => ({ id: 'c1', ownerId: 'u1', kind: 'prompt', agent: 'koala', prompt: 'new prompt', currentPrompt: 'old prompt', why: 'it guessed', status: 'ready', createdAt: 'a', ...over } as AgentChange);
 const request = (over: Partial<AgentChange> = {}): AgentChange => ({ id: 'r1', ownerId: 'u1', kind: 'procedure', agent: 'research', procedure: 'research', request: 'end failed on an empty reply', why: 'run r-3 ended ok with nothing', status: 'proposed', createdAt: 'b', ...over } as AgentChange);
 
-beforeEach(() => {
-  db = new MemoryDB();
+beforeEach(async () => {
+  db = await testDatabase();
   savedPrompts = [];
   handed = [];
   refuse = undefined;

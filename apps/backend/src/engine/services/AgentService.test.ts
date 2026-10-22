@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { type Persona } from '@koala/agent-engine';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import { directoryFromDatabase } from '../../engine-host/registries/agent-directory.js';
 import { ENGINE_TOOL_SEEDS } from '../../engine-host/tools/engine-tool-seeds.js';
 import { AgentService, agentProblems } from './AgentService.js';
@@ -29,8 +29,8 @@ const agent = (over: Partial<Persona> = {}): Persona => ({
 
 const known = () => ({ tools: tools(), procedures: PROCEDURES, agents: AGENTS });
 
-function service(over: { image?: ImageStanding; treeTypes?: { id: string; label: string; agent?: string }[]; servers?: McpServerRecord[] } = {}) {
-  const db = new MemoryDB();
+async function service(over: { image?: ImageStanding; treeTypes?: { id: string; label: string; agent?: string }[]; servers?: McpServerRecord[] } = {}) {
+  const db = await testDatabase();
   const stored = () => db.getEnginePersonas();
   const started: string[] = [];
 
@@ -179,7 +179,7 @@ describe('what an agent is refused for', () => {
 
 describe('agents you can edit', () => {
   it('lists the built-ins as not yours, and shows what image each needs', async () => {
-    const { agents } = service();
+    const { agents } = await service();
     const listed = await agents.list('user-1');
 
     expect(listed.every((one) => one.mine === false)).toBe(true);
@@ -188,7 +188,7 @@ describe('agents you can edit', () => {
   });
 
   it('saves your own copy and shadows the built-in by slug', async () => {
-    const { agents, stored } = service();
+    const { agents, stored } = await service();
 
     const outcome = await agents.save('user-1', { ...seededAgents().find((one) => one.slug === 'research')!, prompt: 'You dig, differently.' });
 
@@ -201,7 +201,7 @@ describe('agents you can edit', () => {
   });
 
   it('leaves the built-in alone for everybody else', async () => {
-    const { agents } = service();
+    const { agents } = await service();
     await agents.save('user-1', { ...seededAgents().find((one) => one.slug === 'research')!, prompt: 'Mine.' });
 
     expect((await agents.get('user-2', 'research'))?.prompt).not.toBe('Mine.');
@@ -209,7 +209,7 @@ describe('agents you can edit', () => {
   });
 
   it('saves a brand new agent against any procedure that exists', async () => {
-    const { agents } = service();
+    const { agents } = await service();
 
     const outcome = await agents.save('user-1', agent());
 
@@ -218,7 +218,7 @@ describe('agents you can edit', () => {
   });
 
   it('starts the workspace image when the grants are saved', async () => {
-    const { agents, started, images } = service({ image: { state: 'building', reference: 'registry/koala:abc' } });
+    const { agents, started, images } = await service({ image: { state: 'building', reference: 'registry/koala:abc' } });
 
     const outcome = await agents.save('user-1', agent({ tools: ['run_command', 'read_file'] }));
 
@@ -230,7 +230,7 @@ describe('agents you can edit', () => {
   it('gives an agent a server, keeping what it held, and starts its image with the server in it', async () => {
     const runs: ServerRuns = { where: 'workspace', needs: ['jq'], start: 'echoes', port: 8931 };
     const echoes: McpServerRecord = { id: 's1', ownerId: 'user-1', name: 'echoes', runs, createdAt: 't', updatedAt: 't' };
-    const { agents, images } = service({ servers: [echoes] });
+    const { agents, images } = await service({ servers: [echoes] });
     await agents.save('user-1', agent({ tools: ['run_command', 'read_file'] }));
     images.start.mockClear();
 
@@ -245,7 +245,7 @@ describe('agents you can edit', () => {
   });
 
   it('starts no image for an agent that needs no machine', async () => {
-    const { agents, images } = service();
+    const { agents, images } = await service();
 
     await agents.save('user-1', agent({ tools: ['search_web'], environment: { egress: true } }));
 
@@ -253,7 +253,7 @@ describe('agents you can edit', () => {
   });
 
   it('saves nothing when it does not hold together', async () => {
-    const { agents, stored } = service();
+    const { agents, stored } = await service();
 
     const outcome = await agents.save('user-1', agent({ procedure: 'ghost' }));
 
@@ -262,8 +262,8 @@ describe('agents you can edit', () => {
   });
 
   it('says an image that could not be started failed, rather than refusing the save', async () => {
-    const { agents } = service();
-    const failing = service();
+    const { agents } = await service();
+    const failing = await service();
     failing.images.start.mockRejectedValueOnce(new Error('the registry is not up'));
 
     const outcome = await failing.agents.save('user-1', agent());
@@ -273,7 +273,7 @@ describe('agents you can edit', () => {
   });
 
   it('deletes only your own copy, and the built-in comes back', async () => {
-    const { agents } = service();
+    const { agents } = await service();
     await agents.save('user-1', { ...seededAgents().find((one) => one.slug === 'research')!, prompt: 'Mine.' });
 
     expect(await agents.remove('user-1', 'research')).toBe(true);
@@ -281,7 +281,7 @@ describe('agents you can edit', () => {
   });
 
   it('stores an agent without its tools: what it holds is its grants, and a built-in keeps what ships', async () => {
-    const { agents, db, stored } = service();
+    const { agents, db, stored } = await service();
     const research = seededAgents().find((one) => one.slug === 'research')!;
     const [first, ...rest] = research.tools;
 
@@ -300,7 +300,7 @@ describe('agents you can edit', () => {
   });
 
   it('changes only the grants of a built-in whose tools are all that changed, so it stays built in', async () => {
-    const { agents, stored } = service();
+    const { agents, stored } = await service();
     const research = seededAgents().find((one) => one.slug === 'research')!;
 
     const outcome = await agents.save('user-1', { ...research, tools: [...research.tools, 'run_command'] });
@@ -311,7 +311,7 @@ describe('agents you can edit', () => {
   });
 
   it('gives a built-in its shipped tools back when your copy of it is deleted', async () => {
-    const { agents, db } = service();
+    const { agents, db } = await service();
     const research = seededAgents().find((one) => one.slug === 'research')!;
     await agents.save('user-1', { ...research, prompt: 'Mine.', tools: ['run_command'] });
 
@@ -321,7 +321,7 @@ describe('agents you can edit', () => {
   });
 
   it('will not delete a built-in, because it was never yours', async () => {
-    const { agents } = service();
+    const { agents } = await service();
 
     expect(await agents.remove('user-1', 'research')).toBe(false);
   });
@@ -329,7 +329,7 @@ describe('agents you can edit', () => {
 
 describe('whether an agent recalls memories', () => {
   it('says so when its procedure has a Recall memory step, inside groups too, and not otherwise', async () => {
-    const listed = await service().agents.list('user-1');
+    const listed = await (await service()).agents.list('user-1');
     expect(listed.find((one) => one.slug === 'koala')?.recallsMemories).toBe(true);
     expect(listed.find((one) => one.slug === 'research')?.recallsMemories).toBe(true);
     expect(listed.find((one) => one.slug === 'grove')?.recallsMemories).toBe(false);
@@ -338,7 +338,7 @@ describe('whether an agent recalls memories', () => {
 
 describe('how an agent is used', () => {
   it('lists each agent with what uses it, including the tree types that grow with it', async () => {
-    const { agents } = service({ treeTypes: [{ id: 'default', label: 'Default' }] });
+    const { agents } = await service({ treeTypes: [{ id: 'default', label: 'Default' }] });
     const listed = await agents.list('user-1');
 
     expect(listed.find((one) => one.slug === 'koala')?.usedBy).toContainEqual({ kind: 'chat', by: 'every new conversation' });

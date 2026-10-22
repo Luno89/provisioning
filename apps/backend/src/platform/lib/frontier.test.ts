@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { frontierRow, keywordScore, frontierOrder, followsLinks } from './frontier.js';
-import { MemoryDB } from './memory-db.js';
+import { testDatabase } from './test-database.js';
+import type { MongoDB } from './mongo-db.js';
 
 describe('queueing a URL', () => {
   it('derives the id from the ingest and the URL, so a duplicate cannot be stored', () => {
@@ -40,8 +41,8 @@ describe('spending the depth budget', () => {
 });
 
 describe('the frontier as a queue', () => {
-  let db: MemoryDB;
-  beforeEach(async () => { db = new MemoryDB(); await db.init(); });
+  let db: MongoDB;
+  beforeEach(async () => { db = await testDatabase(); });
 
   it('counts only what was genuinely new', async () => {
     const first = await db.enqueueFrontier([frontierRow('i1', 'https://a/x', 0, [])]);

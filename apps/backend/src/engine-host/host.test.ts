@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { MemoryDB } from '../platform/lib/memory-db.js';
+import { testDatabase } from '../platform/lib/test-database.js';
 import { INSTALLED_EXTENSIONS } from '../extensions/installed.js';
 import { createEngineHost, storesFromDatabase } from './host.js';
 
 describe('the engine host', () => {
-  it('has a handler for every tool grove and workspace offer through their runtimes, so none is granted with nothing behind it', () => {
-    const db = new MemoryDB();
+  it('has a handler for every tool grove and workspace offer through their runtimes, so none is granted with nothing behind it', async () => {
+    const db = await testDatabase();
     const host = createEngineHost({
       models: {} as never,
       stores: storesFromDatabase(db),

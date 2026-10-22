@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { PlacedNode, Procedure } from '@koala/agent-engine/procedure';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import { seedTreeTypes } from '../../projects/lib/tree-types.js';
 import type { ModelProvider } from '../lib/model-registry.js';
 import type { TreeAgent } from '../lib/tree-models.js';
@@ -21,7 +21,7 @@ const agents: Record<string, TreeAgent> = {
 const providers = [{ id: 'tabby', name: 'Tabby' }, { id: 'vllm', name: 'vLLM' }] as ModelProvider[];
 
 const setUp = async () => {
-  const db = new MemoryDB();
+  const db = await testDatabase();
   await seedTreeTypes(db);
   await db.saveTree({ id: 't1', ownerId: 'u1', name: 'shop', type: 'api-service', createdAt: 'x', updatedAt: 'x' } as never);
   const service = new TreeModelsService({

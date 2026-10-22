@@ -1,11 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import { WorkspaceImageService } from './WorkspaceImageService.js';
 import { seedWorkspaceImages } from '../lib/workspace-image-seeds.js';
 
 const seeded = async () => {
-  const db = new MemoryDB();
-  await db.init();
+  const db = await testDatabase();
   await seedWorkspaceImages(db);
   return db;
 };

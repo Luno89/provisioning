@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import { ProjectRemovalService } from './ProjectRemovalService.js';
 
 const now = '2026-10-21T00:00:00Z';
 
 async function setUp(shared: boolean) {
-  const db = new MemoryDB();
-  await db.init();
+  const db = await testDatabase();
   await db.saveProject({ id: 'p1', name: 'Shop', ownerId: 'ann', createdAt: now } as never);
   const started: string[] = [];
   const takenBack: string[] = [];

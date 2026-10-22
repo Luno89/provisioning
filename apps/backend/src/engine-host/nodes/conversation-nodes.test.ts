@@ -4,7 +4,7 @@ import { asChatMessages, asStoredToolCalls, asStoredToolCallsMany, createConvers
 import { COMPACTION_PREFIX } from '@koala/agent-engine/procedure';
 import type { ConversationStore } from './conversation-nodes.js';
 import { storesFromDatabase } from '../host.js';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
 import { NoNoteToAskError, NOTICE_PREFIX, openTurn } from '../../engine/lib/conversations.js';
 
@@ -486,7 +486,7 @@ describe('the store a run reads conversations from', () => {
   });
 
   it('reads one conversation by owner and id, without listing the collection', async () => {
-    const db = new MemoryDB();
+    const db = await testDatabase();
     await db.saveConversation({ id: 'c-1', ownerId: 'user-1', title: 'Counting', createdAt: 'x', updatedAt: 'x', messages: [] } as Conversation);
     await db.saveConversation({ id: 'c-2', ownerId: 'someone-else', title: 'Theirs', createdAt: 'x', updatedAt: 'x', messages: [] } as Conversation);
     const listed = vi.spyOn(db, 'getConversations');

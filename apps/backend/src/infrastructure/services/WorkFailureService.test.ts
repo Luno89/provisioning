@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import { WorkFailureService, type ClosedWorkflow } from './WorkFailureService.js';
 
 const NOW = new Date('2026-10-17T12:00:00Z');
 
-function setUp(closed: ClosedWorkflow[] = []) {
-  const db = new MemoryDB();
+async function setUp(closed: ClosedWorkflow[] = []) {
+  const db = await testDatabase();
   let now = NOW;
   const service = new WorkFailureService({
     store: db,
@@ -28,7 +28,7 @@ const closedWorkflow = (over: Partial<ClosedWorkflow>): ClosedWorkflow => ({
 
 describe('work that failed', () => {
   it('records a top-level run that ended failed, described the way Running describes it', async () => {
-    const { service } = setUp();
+    const { service } = await setUp();
     await service.runEnded({ ownerId: 'u1', runId: 'grove-run-t1~5', outcome: 'failed', reason: 'the executor could not start its sandbox', depth: 0 });
     expect(await service.shown('u1')).toEqual([expect.objectContaining({
       id: 'run:grove-run-t1~5', kind: 'tree', title: 'Tree run: Shop', opens: { kind: 'tree', id: 't1' }, reason: 'the executor could not start its sandbox',
@@ -36,7 +36,7 @@ describe('work that failed', () => {
   });
 
   it('leaves out child runs, runs that did not fail, and runs of a check\'s space', async () => {
-    const { service } = setUp();
+    const { service } = await setUp();
     await service.runEnded({ ownerId: 'u1', runId: 'child', outcome: 'failed', depth: 1 });
     await service.runEnded({ ownerId: 'u1', runId: 'run-a', outcome: 'interrupted', depth: 0 });
     await service.runEnded({ ownerId: 'space-1', runId: 'run-b', outcome: 'failed', depth: 0 });
@@ -45,7 +45,7 @@ describe('work that failed', () => {
   });
 
   it('finds workflows Temporal closed as failed, once each, with the cause, but not deploys or platform work', async () => {
-    const { service } = setUp([
+    const { service } = await setUp([
       closedWorkflow({}),
       closedWorkflow({ workflowId: 'deploy-1', type: 'executeAppDeployWorkflow' }),
       closedWorkflow({ workflowId: 'sweep', type: 'SweepWorkflow', ownerId: 'platform' }),
@@ -59,7 +59,7 @@ describe('work that failed', () => {
   });
 
   it('clears one or all, keeps a cleared one cleared, and shows only the last 7 days', async () => {
-    const { service, db, later } = setUp();
+    const { service, db, later } = await setUp();
     await service.runEnded({ ownerId: 'u1', runId: 'run-a', outcome: 'failed', depth: 0 });
     later(60_000);
     await service.runEnded({ ownerId: 'u1', runId: 'run-b', outcome: 'failed', depth: 0 });
@@ -73,7 +73,7 @@ describe('work that failed', () => {
   });
 
   it('forgets failures after 30 days', async () => {
-    const { service, db, later } = setUp();
+    const { service, db, later } = await setUp();
     await service.runEnded({ ownerId: 'u1', runId: 'run-a', outcome: 'failed', depth: 0 });
     later(31 * 86_400_000);
     await service.poll();

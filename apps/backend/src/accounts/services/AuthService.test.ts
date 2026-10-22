@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AuthService } from './AuthService.js';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 
 describe('AuthService', () => {
-  let dbMock: MemoryDB;
+  let dbMock: MongoDB;
 
-  beforeEach(() => {
-    dbMock = new MemoryDB();
-    dbMock.init();
+  beforeEach(async () => {
+    dbMock = await testDatabase();
   });
 
   it('should create and verify 2FA challenge successfully', () => {

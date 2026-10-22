@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { ProjectSecretsService } from './ProjectSecretsService.js';
 import type { TreeTypeSpec } from '../lib/tree-types.js';
 import type { ProjectMetadata } from '../../platform/lib/types.js';
 
 const at = 'then';
-let db: MemoryDB;
+let db: MongoDB;
 let stored: Map<string, string>;
 let minted: string[];
 
@@ -36,8 +37,7 @@ const service = () => new ProjectSecretsService({
 });
 
 beforeEach(async () => {
-  db = new MemoryDB();
-  await db.init();
+  db = await testDatabase();
   stored = new Map();
   minted = [];
   await db.saveProject(project);

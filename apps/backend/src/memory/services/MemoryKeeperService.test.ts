@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { MemoryKeeperService, type ConversationTimer, type StartMemoryRun } from './MemoryKeeperService.js';
 import type { LifecycleEvent } from '../../engine-host/temporal/contracts.js';
 
-let db: MemoryDB;
+let db: MongoDB;
 let started: Parameters<StartMemoryRun>[0][];
 let timers: Parameters<ConversationTimer>[0][];
 let refuse: string | undefined;
@@ -35,8 +36,8 @@ const turnEnded = (over: Partial<Extract<LifecycleEvent, { kind: 'run-ended' }>>
   kind: 'run-ended', ownerId: 'u1', runId: 'run-1', agentSlug: 'koala', outcome: 'ok', ask: 'hi', depth: 0, conversationId: 'c1', ...over,
 });
 
-beforeEach(() => {
-  db = new MemoryDB();
+beforeEach(async () => {
+  db = await testDatabase();
   started = [];
   timers = [];
   refuse = undefined;

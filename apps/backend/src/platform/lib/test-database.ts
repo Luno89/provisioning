@@ -2,6 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { inject } from 'vitest';
 import { MongoDB } from './mongo-db.js';
 
+declare module 'vitest' {
+  export interface ProvidedContext {
+    mongoUri: string;
+  }
+}
+
 const open: MongoDB[] = [];
 
 export async function testDatabase(): Promise<MongoDB> {

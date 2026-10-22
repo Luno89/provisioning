@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../platform/lib/memory-db.js';
+import { testDatabase } from '../platform/lib/test-database.js';
+import type { MongoDB } from '../platform/lib/mongo-db.js';
 import { toolsOf } from '@koala/agent-engine';
 import { seededAgents, seededGrants } from '../extensions/seeds.js';
 import { createCheckRunActivities, observedCalls, observedHandOffs, pendingCalls } from './CheckRunActivities.js';
@@ -20,11 +21,10 @@ const SCENARIO: Scenario = {
   expect: { outcome: 'ok' },
 };
 
-let db: MemoryDB;
+let db: MongoDB;
 
 beforeEach(async () => {
-  db = new MemoryDB();
-  await db.init();
+  db = await testDatabase();
 });
 
 const activities = () => createCheckRunActivities({

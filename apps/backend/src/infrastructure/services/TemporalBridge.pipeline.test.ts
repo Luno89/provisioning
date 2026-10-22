@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { TemporalBridge } from './TemporalBridge.js';
 import { buildPlanAt } from '../../releases/lib/build-plan.js';
 import type { ProjectMetadata } from '../../platform/lib/types.js';
@@ -7,12 +8,11 @@ import type { ProjectMetadata } from '../../platform/lib/types.js';
 const project = { id: 'proj-1', name: 'notes', ownerId: 'u1', giteaOwner: 'acme', giteaRepo: 'notes', appType: 'gitapp', createdAt: 'then' } as ProjectMetadata;
 
 describe('a push to a project', () => {
-  let db: MemoryDB;
+  let db: MongoDB;
   let bridge: TemporalBridge;
 
   beforeEach(async () => {
-    db = new MemoryDB();
-    await db.init();
+    db = await testDatabase();
     bridge = new TemporalBridge(db);
   });
 

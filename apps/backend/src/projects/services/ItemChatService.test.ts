@@ -1,19 +1,20 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import axios from 'axios';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { ItemChatService } from './ItemChatService.js';
 import { conversationBinding } from '../../engine-host/conversation-binding.js';
 import { BINDING_INPUTS } from '../../engine-host/registries/run-starter.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { itemChatsRouter } from '../routes/item-chats.js';
 
-const seed = async (db: MemoryDB, ownerId: string) => {
+const seed = async (db: MongoDB, ownerId: string) => {
   await db.saveTree({ id: 't1', ownerId, name: 'Shop', type: 'odoo-addons', createdAt: 't', updatedAt: 't' } as never);
   await db.saveBranch({ id: 'b1', ownerId, treeId: 't1', title: 'The field', createdAt: 't', updatedAt: 't' });
   await db.saveLeaf({ id: 'l1', ownerId, branchId: 'b1', title: 'Module installs', body: 'Add delivery_instructions to sale.order.', status: 'failed', findings: 'the view did not load', createdAt: 't', updatedAt: 't' });
 };
 
-const service = (db: MemoryDB) => new ItemChatService({
+const service = (db: MongoDB) => new ItemChatService({
   leaves: () => db.getLeaves(),
   branches: () => db.getBranches(),
   trees: () => db.getTrees(),
@@ -27,8 +28,7 @@ afterEach(async () => { await h?.close(); h = undefined; });
 
 describe('a story\'s or a feature\'s own chat', () => {
   it('is made once, named after the item, bound to it and its tree, and kept apart from the tree\'s threads', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await seed(db, 'bo');
     const items = service(db);
     const story = await items.ensure('bo', { kind: 'story', leafId: 'l1' });
@@ -39,8 +39,7 @@ describe('a story\'s or a feature\'s own chat', () => {
   });
 
   it('is not made for someone else\'s item, or one that does not exist', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await seed(db, 'bo');
     expect(await service(db).ensure('cy', { kind: 'story', leafId: 'l1' })).toBeUndefined();
     expect(await service(db).ensure('bo', { kind: 'story', leafId: 'nope' })).toBeUndefined();
@@ -48,8 +47,7 @@ describe('a story\'s or a feature\'s own chat', () => {
   });
 
   it('hands Koala the story — what it is, where it sits, and what went wrong — on every turn in it, and a feature its stories', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await seed(db, 'bo');
     await service(db).ensure('bo', { kind: 'story', leafId: 'l1' });
     await service(db).ensure('bo', { kind: 'feature', branchId: 'b1' });
@@ -67,8 +65,8 @@ describe('a story\'s or a feature\'s own chat', () => {
   });
 
   it('is opened over HTTP as the person, and refused for anything but a story or a feature of theirs', async () => {
-    h = await mountRouter({ prefix: '/api/items', router: (db) => itemChatsRouter({ items: service(db as MemoryDB) }) });
-    await seed(h.db as MemoryDB, TEST_USER.id);
+    h = await mountRouter({ prefix: '/api/items', router: (db) => itemChatsRouter({ items: service(db as MongoDB) }) });
+    await seed(h.db as MongoDB, TEST_USER.id);
     const opened = await axios.post(h.url('/api/items/story/l1/chat'), {}, { validateStatus: () => true });
     expect(opened.status).toBe(200);
     expect(opened.data).toEqual({ id: 'story-l1', title: 'Module installs' });

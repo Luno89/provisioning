@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { ProjectRepoService } from './ProjectRepoService.js';
 
 const KEY = 'a'.repeat(64);
 
 describe('the Gitea user behind an account', () => {
   it('is made once when several runs need it at the same moment', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     let made = 0;
     const gitea = { createUserAccount: async (username: string) => { made += 1; await new Promise((resolve) => setTimeout(resolve, 20)); return { username, password: 'secret' }; } };
     const repos = new ProjectRepoService(db, gitea as never, KEY as never);
@@ -19,8 +19,7 @@ describe('the Gitea user behind an account', () => {
   });
 
   it('waits for the record when another process made the user first', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     const theirs = new ProjectRepoService(db, { createUserAccount: async (username: string) => ({ username, password: 'theirs' }) } as never, KEY as never);
     const gitea = { createUserAccount: async () => { throw new Error('HTTP 500 {"message":"pq: duplicate key value violates unique constraint \\"UQE_user_lower_name\\""}'); } };
     const ours = new ProjectRepoService(db, gitea as never, KEY as never);
@@ -47,9 +46,8 @@ describe('making a project with a repository', () => {
       },
     };
   };
-  const made = async (gitea: unknown, db?: MemoryDB) => {
-    const store = db ?? new MemoryDB();
-    if (!db) await store.init();
+  const made = async (gitea: unknown, db?: MongoDB) => {
+    const store = db ?? await testDatabase();
     return { db: store, repos: new ProjectRepoService(store, gitea as never, KEY as never, async (id) => `http://10.0.0.5:3001/webhooks/gitea/${id}`) };
   };
 

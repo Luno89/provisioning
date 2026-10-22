@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { DeploymentMetadata } from '../../platform/lib/types.js';
 
 const dep = (id: string, over: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({
@@ -11,8 +12,8 @@ const dep = (id: string, over: Partial<DeploymentMetadata> = {}): DeploymentMeta
   ...over,
 });
 
-let db: MemoryDB;
-beforeEach(async () => { db = new MemoryDB(); await db.init(); });
+let db: MongoDB;
+beforeEach(async () => { db = await testDatabase(); });
 
 describe('deleteDeployment', () => {
   it('removes one row and leaves the rest alone', async () => {

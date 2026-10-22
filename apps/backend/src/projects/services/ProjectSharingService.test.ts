@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import { memoryHubStore } from '../../hub/lib/hub-store.js';
 import { HubService } from '../../hub/services/HubService.js';
@@ -10,8 +10,7 @@ const now = '2026-10-21T00:00:00Z';
 const ann = { id: 'ann', email: 'ann@example.com' };
 
 async function setUp() {
-  const db = markingHubWrites(new MemoryDB());
-  await db.init();
+  const db = markingHubWrites(await testDatabase());
   const store = memoryHubStore();
   const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) } });
   const sync = new HubSyncService({ store: db, transport: localHubSync(hub, 'combined'), origin: 'instance:combined' });

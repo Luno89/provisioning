@@ -14,7 +14,7 @@ import { inMemoryConversations } from './nodes/conversation-nodes.js';
 import { createSecretTools } from './tools/secret-tools.js';
 import { SECRET_TOOLS } from './tools/secret-tools-catalogue.js';
 import { createToolRuntime } from './tools/tool-runtime.js';
-import { MemoryDB } from '../platform/lib/memory-db.js';
+import { testDatabase } from '../platform/lib/test-database.js';
 import { SecretRequestService, createSecretVault } from '../projects/services/SecretRequestService.js';
 import type { Tree } from '../projects/lib/trees.js';
 import { seededAgents } from '../extensions/seeds.js';
@@ -55,8 +55,7 @@ describe('a secret never reaches the model, a trace, an event or a conversation'
   afterEach(() => vi.unstubAllGlobals());
 
   it('holds for a value the person types, one the platform mints, and one the model tries to send', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await db.saveProject({ id: 'project-9', name: 'billing', ownerId: 'user-1', appType: 'gitapp', createdAt: 'now' });
     const tree: Tree = { id: 'tree-1', ownerId: 'user-1', name: 'Billing', type: 'application', goal: 'Take payments.', projectIds: ['project-9'], createdAt: 'now', updatedAt: 'now' };
 

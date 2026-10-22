@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from '../../engine/lib/workspace-image-seeds.js';
 import { dependencyNamespaceFrom, treeExtrasFrom, treeTypeOfProject, TREE_TYPE_SEEDS, validateTreeType, resolveTreeType, renderStarterFiles, seedTreeTypes, treeTypeChoices, treeTypesFor, type TreeTypeSpec, agentProblem, groveAgentOf, treeLanguage, treeVersion, versionForNewTree, stampTreeVersions, versionVars } from './tree-types.js';
 
@@ -80,24 +81,21 @@ describe('the secrets a type declares', () => {
 
 describe('resolving a type for a tree', () => {
   it('finds an owner\'s own record', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await db.saveTreeType(spec({ id: 'mine', ownerId: 'u1' }));
 
     expect((await resolveTreeType(db, 'u1', 'mine'))?.label).toBe('Custom thing');
   });
 
   it('does not hand one owner\'s type to another', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await db.saveTreeType(spec({ id: 'theirs', ownerId: 'u2' }));
 
     expect(await resolveTreeType(db, 'u1', 'theirs')).toBeUndefined();
   });
 
   it('returns nothing for a type that does not exist, rather than guessing', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     expect(await resolveTreeType(db, 'u1', 'invented')).toBeUndefined();
   });
 });
@@ -187,20 +185,18 @@ describe('rendering the starter files', () => {
 
 describe('seeding the shipped types', () => {
   const paper = () => TREE_TYPE_SEEDS.find((type) => type.id === 'research-paper')!;
-  const shippedPaper = async (db: MemoryDB) =>
+  const shippedPaper = async (db: MongoDB) =>
     (await db.getTreeTypes()).find((type) => type.id === 'research-paper' && type.ownerId === undefined);
 
   it('writes them all into an empty store', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
 
     expect(await seedTreeTypes(db)).toBe(TREE_TYPE_SEEDS.length);
     expect((await shippedPaper(db))?.agent).toBe('grove-paper');
   });
 
   it('brings a stored type up to date with its seed, so a new agent reaches installs that already have it', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await seedTreeTypes(db);
 
     // An install from before the type named its grove agent.
@@ -213,16 +209,14 @@ describe('seeding the shipped types', () => {
   });
 
   it('writes nothing on a second run, so provenance does not move', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await seedTreeTypes(db);
 
     expect(await seedTreeTypes(db)).toBe(0);
   });
 
   it("never writes over a person's own edit of a shipped type", async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await seedTreeTypes(db);
     await db.saveTreeType({ ...paper(), ownerId: 'u1', label: 'Mine', agent: 'grove-careful' });
 
@@ -325,8 +319,7 @@ describe('a tree type with versions', () => {
   });
 
   it('stamps the trees that predate versions with the one they already work in, and leaves the rest', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await seedTreeTypes(db);
     const tree = (id: string, type: string, version?: string) => ({ id, ownerId: 'u1', name: id, type, ...(version ? { version } : {}), createdAt: 'a', updatedAt: 'a' });
     await db.saveTree(tree('old', 'odoo-addons'));

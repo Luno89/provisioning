@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PersonaRecord } from '@koala/agent-engine';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import type { HiddenVocabulary } from '../../engine/lib/extension-settings.js';
 import { createAgentDirectory, grantStoreFrom } from './agent-directory.js';
 
 const record = (slug: string, ownerId?: string): PersonaRecord => ({ slug, ...(ownerId ? { ownerId } : {}), name: slug } as PersonaRecord);
 const nothingHidden: HiddenVocabulary = { extensions: new Set(), operations: new Set(), groups: new Set(), tools: new Set(), agents: new Set() };
 
-function directory(over: { hidden?: HiddenVocabulary; onChanged?: (ownerId: string) => void } = {}) {
-  const db = new MemoryDB();
+async function directory(over: { hidden?: HiddenVocabulary; onChanged?: (ownerId: string) => void } = {}) {
+  const db = await testDatabase();
   const agents = createAgentDirectory({
     records: { list: (ownerId) => db.getEnginePersonas(ownerId) },
     grants: grantStoreFrom(db),
@@ -21,12 +21,12 @@ function directory(over: { hidden?: HiddenVocabulary; onChanged?: (ownerId: stri
   return { db, agents };
 }
 
-const toolsOf = async (agents: ReturnType<typeof directory>['agents'], ownerId: string, slug: string) =>
+const toolsOf = async (agents: Awaited<ReturnType<typeof directory>>['agents'], ownerId: string, slug: string) =>
   (await agents.agents(ownerId)).find((agent) => agent.slug === slug)?.tools;
 
 describe('the agent directory', () => {
   it('reads every agent with its tools: the built-in ones as shipped, the person\'s own from their grants', async () => {
-    const { db, agents } = directory();
+    const { db, agents } = await directory();
     await db.saveEnginePersona(record('helper', 'user-1'));
     await agents.setTools('user-1', 'helper', ['read_file']);
 
@@ -40,7 +40,7 @@ describe('the agent directory', () => {
 
   it('leaves out what an extension the person switched off brings, agents and tools alike, unless asked for everything', async () => {
     const hidden = { ...nothingHidden, agents: new Set(['judge']), tools: new Set(['settle_leaf']) };
-    const { agents } = directory({ hidden });
+    const { agents } = await directory({ hidden });
 
     expect((await agents.agents('user-1')).map((agent) => [agent.slug, agent.tools])).toEqual([['executor', ['run_command']]]);
     expect((await agents.agents('user-1', { withHidden: true })).map((agent) => agent.slug)).toEqual(['executor', 'judge']);
@@ -48,7 +48,7 @@ describe('the agent directory', () => {
   });
 
   it('says where each tool of each agent comes from', async () => {
-    const { agents } = directory();
+    const { agents } = await directory();
     await agents.setTools('user-1', 'executor', ['run_command', 'browser']);
 
     expect((await agents.sourced('user-1')).sources.executor).toEqual([
@@ -60,7 +60,7 @@ describe('the agent directory', () => {
 
   it('records why a tool was granted and which proposal granted it, and says when anything changed', async () => {
     const changed = vi.fn();
-    const { db, agents } = directory({ onChanged: changed });
+    const { db, agents } = await directory({ onChanged: changed });
 
     expect(await agents.setTools('user-1', 'executor', ['run_command', 'settle_leaf', 'browser'], { why: 'to see the page', proposalId: 'p1' })).toBe(true);
     expect(await agents.setTools('user-1', 'executor', ['run_command', 'settle_leaf', 'browser'])).toBe(false);
@@ -74,7 +74,7 @@ describe('the agent directory', () => {
 
   it('forgets an agent\'s grants, or a tool\'s, for one person only', async () => {
     const changed = vi.fn();
-    const { agents } = directory({ onChanged: changed });
+    const { agents } = await directory({ onChanged: changed });
     await agents.setTools('user-1', 'executor', ['browser']);
     await agents.setTools('user-2', 'executor', ['browser']);
     changed.mockClear();
@@ -90,7 +90,7 @@ describe('the agent directory', () => {
 
 describe('the MCP servers agents hold', () => {
   it('are granted and taken away apart from tools, with where each came from', async () => {
-    const { agents } = directory();
+    const { agents } = await directory();
     expect(await agents.setServers('user-1', 'executor', ['playwright'])).toBe(true);
     await agents.setTools('user-1', 'executor', ['run_command', 'settle_leaf', 'playwright']);
     const sourced = await agents.sourced('user-1');
@@ -101,7 +101,7 @@ describe('the MCP servers agents hold', () => {
   });
 
   it('follow a server that is renamed, and go with it when it is removed', async () => {
-    const { agents } = directory();
+    const { agents } = await directory();
     await agents.setServers('user-1', 'executor', ['playwright']);
     await agents.setServers('user-1', 'judge', ['playwright']);
     await agents.setTools('user-1', 'judge', ['read_file', 'playwright']);
@@ -114,7 +114,7 @@ describe('the MCP servers agents hold', () => {
 
 describe('what an agent needs in its workspace', () => {
   it('is what the steps of its procedure declare, read once per procedure', async () => {
-    const db = new MemoryDB();
+    const db = await testDatabase();
     const asked: string[] = [];
     const agents = createAgentDirectory({
       records: { list: (ownerId) => db.getEnginePersonas(ownerId) },

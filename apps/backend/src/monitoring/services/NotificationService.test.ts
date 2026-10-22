@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { AlertEpisode } from '../lib/monitoring-records.js';
 import { MailService } from '../../platform/services/MailService.js';
 import { NotificationService } from './NotificationService.js';
 
 const episode: AlertEpisode = { id: 'e1', ownerId: 'o', clusterId: 'c', key: 'k', name: 'NodeMemoryHighUtilization', summary: 'Memory is nearly full', about: { kind: 'cluster' }, startedAt: 'then' };
 
-let db: MemoryDB;
+let db: MongoDB;
 let sent: Array<{ from: string; to: string; subject: string }>;
 
 const service = (way: ConstructorParameters<typeof MailService>[0]['way']) => {
@@ -15,8 +16,7 @@ const service = (way: ConstructorParameters<typeof MailService>[0]['way']) => {
 };
 
 beforeEach(async () => {
-  db = new MemoryDB();
-  await db.init();
+  db = await testDatabase();
   sent = [];
 });
 

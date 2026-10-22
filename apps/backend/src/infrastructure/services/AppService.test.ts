@@ -1,12 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import { AppService } from './AppService.js';
 
 const at = 'then';
 
 const serviceOn = async (namespaces: string[]) => {
-  const db = new MemoryDB();
-  await db.init();
+  const db = await testDatabase();
   const cluster = { id: 'c1', name: 'system', provider: 'k3d', status: 'healthy', ownerId: 'bo' };
   const clusters = {
     reconcileAllClusters: async () => [cluster],

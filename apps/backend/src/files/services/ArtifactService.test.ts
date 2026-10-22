@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ArtifactService, type ObjectStore } from './ArtifactService.js';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { MAX_RUN_BYTES, CHUNK_BYTES, objectKey } from '../lib/artifacts.js';
 
 const bucket = () => {
@@ -19,7 +20,7 @@ const bucket = () => {
 
 let clock = '2026-10-08T12:00:00.000Z';
 let ids = 0;
-const service = (records: MemoryDB, minio?: ObjectStore) => new ArtifactService({
+const service = (records: MongoDB, minio?: ObjectStore) => new ArtifactService({
   records,
   minioFor: async () => minio,
   now: () => clock,
@@ -28,7 +29,7 @@ const service = (records: MemoryDB, minio?: ObjectStore) => new ArtifactService(
 
 describe('keeping a run\'s failure artifacts', () => {
   it('goes to Mongo in chunks when the owner has no MinIO, and says MinIO was missing', async () => {
-    const db = new MemoryDB();
+    const db = await testDatabase();
     const big = Buffer.alloc(CHUNK_BYTES * 2 + 10, 7);
     const kept = await service(db).put('bo', 'run-1', [{ name: 'test-failed-1.png', bytes: big }]);
 
@@ -42,7 +43,7 @@ describe('keeping a run\'s failure artifacts', () => {
   });
 
   it('goes to the owner\'s MinIO when one is there, leaving no chunks', async () => {
-    const db = new MemoryDB();
+    const db = await testDatabase();
     const { objects, store } = bucket();
     const kept = await service(db, store).put('bo', 'run-1', [{ name: 'trace.zip', bytes: Buffer.from('zip') }]);
 
@@ -53,7 +54,7 @@ describe('keeping a run\'s failure artifacts', () => {
   });
 
   it('keeps a run under its budget, dropping what does not fit and saying so', async () => {
-    const db = new MemoryDB();
+    const db = await testDatabase();
     const half = Buffer.alloc(MAX_RUN_BYTES / 2 + 1);
     const first = await service(db).put('bo', 'run-1', [{ name: 'a.webm', bytes: half }]);
     const second = await service(db).put('bo', 'run-1', [{ name: 'b.webm', bytes: half }, { name: 'c.png', bytes: Buffer.from('png') }]);
@@ -64,14 +65,14 @@ describe('keeping a run\'s failure artifacts', () => {
   });
 
   it('never hands one owner another\'s artifact', async () => {
-    const db = new MemoryDB();
+    const db = await testDatabase();
     const kept = await service(db).put('bo', 'run-1', [{ name: 'a.png', bytes: Buffer.from('x') }]);
     expect(await service(db).get('al', kept.stored[0]!.id)).toBeUndefined();
     expect(await service(db).list('al', 'run-1')).toEqual([]);
   });
 
   it('sweeps what has expired from wherever it was kept', async () => {
-    const db = new MemoryDB();
+    const db = await testDatabase();
     const { objects, store } = bucket();
     const inMongo = await service(db).put('bo', 'run-1', [{ name: 'a.png', bytes: Buffer.from('x') }]);
     const inMinio = await service(db, store).put('bo', 'run-2', [{ name: 'b.png', bytes: Buffer.from('y') }]);
@@ -90,7 +91,7 @@ describe('keeping a run\'s failure artifacts', () => {
 
 describe('a check\'s space handing its runs to the person', () => {
   it('hands over the runs\' artifacts too, so they outlive the space', async () => {
-    const db = new MemoryDB();
+    const db = await testDatabase();
     const kept = await service(db).put('space-1', 'run-9', [{ name: 'a.png', bytes: Buffer.from('shot') }]);
     await db.reownRuns('space-1', 'bo');
     const before = await service(db).put('space-1', 'run-10', [{ name: 'b.png', bytes: Buffer.from('gone') }]);

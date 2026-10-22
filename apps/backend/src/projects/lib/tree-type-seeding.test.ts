@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { seedTreeTypes, resolveTreeType } from './tree-types.js';
 import { TREE_TYPE_SEEDS } from './tree-type-seeds.js';
 
 describe('seeding an owner\'s tree types', () => {
-  const owned = async (db: MemoryDB, ownerId = 'u1') => (await db.getTreeTypes(ownerId));
+  const owned = async (db: MongoDB, ownerId = 'u1') => (await db.getTreeTypes(ownerId));
 
   it('gives a new owner every shipped type', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
 
     await seedTreeTypes(db);
 
@@ -16,8 +16,7 @@ describe('seeding an owner\'s tree types', () => {
   });
 
   it('does not duplicate on a second run', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
 
     await seedTreeTypes(db);
     await seedTreeTypes(db);
@@ -26,8 +25,7 @@ describe('seeding an owner\'s tree types', () => {
   });
 
   it("never overwrites a person's edit of a shipped type", async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await seedTreeTypes(db);
 
     // The product writes an edit as the person's own row, which shadows the shipped one by id.
@@ -43,8 +41,7 @@ describe('seeding an owner\'s tree types', () => {
   });
 
   it('brings a shipped row back to its seed, so a changed type reaches the installs that already have it', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await seedTreeTypes(db);
 
     // An install from before the type named its grove agent.
@@ -56,8 +53,7 @@ describe('seeding an owner\'s tree types', () => {
   });
 
   it('adds a type shipped later without touching the rest', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await seedTreeTypes(db);
     await db.deleteTreeType('library', undefined as never);
     const renamed = (await owned(db)).find((t) => t.id === 'dataset')!;
@@ -71,8 +67,7 @@ describe('seeding an owner\'s tree types', () => {
   });
 
   it('shows the shipped types to every owner, since they belong to the platform', async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
 
     await seedTreeTypes(db);
 
@@ -83,8 +78,7 @@ describe('seeding an owner\'s tree types', () => {
   });
 
   it("keeps one owner's OWN types out of another's", async () => {
-    const db = new MemoryDB();
-    await db.init();
+    const db = await testDatabase();
     await db.saveTreeType({ id: 'mine', ownerId: 'u1', label: 'Mine', summary: 's' } as never);
 
     expect((await owned(db, 'u1')).map((t) => t.id)).toContain('mine');

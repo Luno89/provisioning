@@ -1,16 +1,17 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { MemoryItem } from '../lib/memory-store.js';
 import { PracticeService } from './PracticeService.js';
 
-let db: MemoryDB;
+let db: MongoDB;
 const practices = () => new PracticeService({ store: db, now: () => 'now' });
 const practice = (over: Partial<MemoryItem>): MemoryItem => ({
   id: 'p1', ownerId: 'u1', category: 'practice', agent: 'koala', status: 'trial', title: 'Check before answering', text: 'Call list_infrastructure first.', createdAt: 'then', updatedAt: 'then', ...over,
 });
 
 beforeEach(async () => {
-  db = new MemoryDB();
+  db = await testDatabase();
   await db.saveMemory(practice({}));
   await db.saveMemory(practice({ id: 'fact', category: 'environment_facts', status: 'active' }));
   await db.saveMemory(practice({ id: 'theirs', ownerId: 'someone-else' }));

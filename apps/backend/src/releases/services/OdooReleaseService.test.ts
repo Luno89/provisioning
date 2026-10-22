@@ -1,22 +1,29 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { OdooReleaseService, type ReleaseRuns } from './OdooReleaseService.js';
 import { newReleaseName } from '../lib/odoo-release.js';
 import { marked, type ReleaseMark, type ReleaseRunInput, type RollBackRunInput } from '../lib/release-run.js';
 import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
 
-let db: MemoryDB;
+let db: MongoDB;
 let running: boolean;
 let started: { projectId: string; ownerId: string; agent: string; inputs: ReleaseRunInput | RollBackRunInput }[];
 let answered: string[];
 let stopped: string[];
 
-const runs: ReleaseRuns = {
-  start: async (request) => { started.push(request); running = true; },
-  running: async () => running,
-  answer: async (projectId, choice, nodeId) => { answered.push(`${projectId}: ${choice}${nodeId && nodeId !== 'decide' ? ` (${nodeId})` : ''}`); },
-  stop: async (projectId) => { stopped.push(projectId); },
+let generation = 0;
+const runsOfThisTest = (): ReleaseRuns => {
+  const mine = generation;
+  const current = () => mine === generation;
+  return {
+    start: async (request) => { if (!current()) return; started.push(request); running = true; },
+    running: async () => current() && running,
+    answer: async (projectId, choice, nodeId) => { if (current()) answered.push(`${projectId}: ${choice}${nodeId && nodeId !== 'decide' ? ` (${nodeId})` : ''}`); },
+    stop: async (projectId) => { if (current()) stopped.push(projectId); },
+  };
 };
+let runs: ReleaseRuns;
 
 let ids = 0;
 let ticks = 0;
@@ -43,8 +50,9 @@ const nextStarts = async (svc: OdooReleaseService, count: number) => {
 const stateOf = async (id: string) => (await db.getOdooReleases('bo', 'p1')).find((entry) => entry.id === id);
 
 beforeEach(async () => {
-  db = new MemoryDB();
-  await db.init();
+  generation += 1;
+  runs = runsOfThisTest();
+  db = await testDatabase();
   await db.saveClusterInfo({ id: 'c1', name: 'dev', provider: 'k3d', status: 'healthy', ownerId: 'bo' } as ClusterMetadata);
   await db.saveProject({ ...project, appType: 'gitapp', createdAt: 't' });
   running = false;
@@ -289,9 +297,8 @@ describe('the person\'s decisions', () => {
     expect(await svc.decide('bo', 'r1', 'cutOver')).toMatchObject({ id: 'r1' });
     expect(await svc.decide('bo', 'r1', 'discard')).toMatchObject({ id: 'r1' });
     expect(answered).toEqual(['p1: Run tests again', 'p1: Cut over', 'p1: Discard']);
-    running = false;
-    expect(await svc.decide('bo', 'r1', 'cutOver')).toEqual({ status: 409, error: 'no release is waiting for this preview, so it cannot be cut over: push again to release it' });
-    running = true;
+    const ended = new OdooReleaseService({ store: db as never, runs: { ...runs, running: async () => false }, chartAt: async () => true, now, pollMs: 5 });
+    expect(await ended.decide('bo', 'r1', 'cutOver')).toEqual({ status: 409, error: 'no release is waiting for this preview, so it cannot be cut over: push again to release it' });
     expect(await svc.decide('cy', 'r1', 'discard')).toEqual({ status: 404, error: 'You have no release with that id' });
     await engineMarks('r1', { state: 'live' });
     expect(await svc.retest('bo', 'r1')).toEqual({ status: 409, error: 'the release is live, so it cannot be tested again' });
@@ -372,8 +379,11 @@ describe('releasing a build again', () => {
     await db.savePipelineRun(run('b1', 'abc'));
     await db.saveOdooRelease({ id: 'waiting', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b1', commit: 'abc', image: 'reg/bo/shop:abc', state: 'preview', host: 'h', startedAt: 't1', updatedAt: 't1' });
     running = true;
-    expect(await deciding().releaseAgain('bo', project, 'waiting')).toMatchObject({ state: 'queued', again: 'waiting' });
+    const svc = deciding();
+    expect(await svc.releaseAgain('bo', project, 'waiting')).toMatchObject({ state: 'queued', again: 'waiting' });
     expect(stopped).toEqual(['p1']);
+    await nextStarts(svc, 1);
+    expect(started).toHaveLength(1);
   });
 
   it('refuses a release that is live or still in progress, one it does not know, and one whose build is gone', async () => {

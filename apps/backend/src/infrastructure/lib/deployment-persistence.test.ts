@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryDB } from '../../platform/lib/memory-db.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import type { DeploymentMetadata } from '../../platform/lib/types.js';
 
 const base = {
@@ -8,7 +8,7 @@ const base = {
 
 describe('deployment fields survive a write', () => {
   it('keeps the credentials the agent needs to reach its own web services', async () => {
-    const db = new MemoryDB();
+    const db = await testDatabase();
     await db.saveDeploymentInfo({
       ...base,
       appType: 'crawl4ai',
@@ -24,7 +24,7 @@ describe('deployment fields survive a write', () => {
   });
 
   it('keeps the searxng settings', async () => {
-    const db = new MemoryDB();
+    const db = await testDatabase();
     await db.saveDeploymentInfo({
       ...base, name: 'koala-search', appType: 'searxng',
       searxngSecretKey: 'sk', searxngEngines: 'google,duckduckgo',
@@ -36,7 +36,7 @@ describe('deployment fields survive a write', () => {
   });
 
   it('does not lose them on the deploying → running transition', async () => {
-    const db = new MemoryDB();
+    const db = await testDatabase();
     await db.saveDeploymentInfo({ ...base, appType: 'crawl4ai', crawl4aiApiToken: 'the-token' });
 
     const [mid] = await db.getDeployments();

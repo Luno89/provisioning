@@ -1,19 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { MemoryDB } from '../lib/memory-db.js';
+import { testDatabase } from '../lib/test-database.js';
+import type { MongoDB } from '../lib/mongo-db.js';
 import { TemporalBridge } from '../../infrastructure/services/TemporalBridge.js';
 import { PALWORLD_SCHEMA } from '../../infrastructure/lib/palworld-settings.js';
 import { resolveAppSettings } from '../../infrastructure/lib/app-settings-schema.js';
 import type { DeploymentMetadata } from '../lib/types.js';
 
 describe('TemporalBridge.updateConfigAndSync map merging', () => {
-  let db: MemoryDB;
+  let db: MongoDB;
   let bridge: TemporalBridge;
 
   const fullSettings = resolveAppSettings(PALWORLD_SCHEMA, { EXP_RATE: '2.0', IS_PVP: 'true' });
 
   beforeEach(async () => {
-    db = new MemoryDB();
-    await db.init();
+    db = await testDatabase();
     await db.saveDeployment({
       id: 'dep-1',
       name: 'my-server',
