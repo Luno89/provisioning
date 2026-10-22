@@ -3,7 +3,6 @@ import { EngineUnavailableError, type StartRunRequest, type StartedRun } from '.
 import { RUN_ID_MEMO, groveRunId, groveRunWorkflowId, runStamp, type AgentRunOutcome, type GroveRunResult } from './temporal/contracts.js';
 import { failureReason } from '../lib/temporal-failure.js';
 import type { GroveRunLauncher } from '../services/GroveRunService.js';
-import type { GroveRunStatus } from '../services/TemporalBridge.js';
 
 export interface GroveLauncherDeps {
   runs: { start(request: StartRunRequest): Promise<StartedRun> };

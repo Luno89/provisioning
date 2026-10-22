@@ -1,4 +1,4 @@
-import type { SecretRequest, SecretRequestStatus } from '@koala/harness-types';
+import type { SecretRequestStatus } from '@koala/harness-types';
 
 export type { SecretRequest, SecretRequestStatus } from '@koala/harness-types';
 

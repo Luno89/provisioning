@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable no-console */
 import { machineChoiceProblem } from './lib/machines.js';
 import { catalogueOf } from './lib/workspace-dependencies.js';
 import { startOnceQuiet } from './engine-host/grove-launcher.js';

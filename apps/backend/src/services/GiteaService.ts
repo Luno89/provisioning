@@ -294,10 +294,6 @@ export class GiteaService {
   }
 
   async ensureGitignore(username: string, name: string): Promise<void> {
-    const baseUrl = await this.resolveBaseUrl();
-    const adminPassword = await this.readAdminPassword();
-    const auth = `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`;
-
     const content = [
       '# Dependencies — an install must never become a commit.',
       'node_modules/',

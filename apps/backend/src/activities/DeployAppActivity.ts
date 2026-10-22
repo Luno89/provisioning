@@ -7,7 +7,6 @@ import { createDatabase } from '../lib/db-interface.js';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { v4 as uuidv4 } from 'uuid';
 
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import type { Database } from '../lib/db-interface.js';
@@ -132,7 +131,6 @@ export interface DeployAppResult {
 
 
 const SANITIZE = sanitiseNamespaceName;
-const LIVE_ROOT = process.cwd();
 
 export async function DeployAppActivity(
   args: DeployAppArgs,

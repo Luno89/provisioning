@@ -3,7 +3,7 @@ import { execSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { NODE_SERVICE_FILES, MCP_SERVER_FILES, LIBRARY_FILES, UI_APP_FILES } from './project-templates.js';
+import { NODE_SERVICE_FILES, LIBRARY_FILES, UI_APP_FILES } from './project-templates.js';
 import { readWorkspaceFile, WORKSPACE_FILE } from './workspace-file.js';
 import { PLAYWRIGHT_VERSION } from './e2e.js';
 import { renderStarterFiles } from './tree-types.js';

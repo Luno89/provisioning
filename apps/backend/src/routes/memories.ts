@@ -1,6 +1,5 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
-import { ownedBy } from '../lib/ownership.js';
 import type { Database } from '../lib/db-interface.js';
 import { v4 as uuidv4 } from 'uuid';
 import { unreachableMemory, type MemoryItem } from '../lib/memory-store.js';

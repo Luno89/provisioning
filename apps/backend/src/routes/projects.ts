@@ -23,7 +23,7 @@ const claimedByAnotherProject = (
 
 export function projectsRouter(deps: Record<string, any>): Router {
   const {
-    db, projectRepoService, appService, temporalBridge, getOwnedProject,
+    db, projectRepoService, temporalBridge, getOwnedProject,
     giteaService, channels,
   } = deps;
   const router = Router();

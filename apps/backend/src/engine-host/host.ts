@@ -1,4 +1,4 @@
-import { BUILDER_TOOLS, type Persona, type ProcedureSource, type ToolDefinition, type WorkspaceDependency } from '@koala/agent-engine';
+import { BUILDER_TOOLS, type ProcedureSource, type ToolDefinition, type WorkspaceDependency } from '@koala/agent-engine';
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { BUILT_IN_SCENARIOS } from '../eval/level2/scenarios.js';
 import { environmentHandlers, type EnvironmentDriver } from '@koala/engine-core';

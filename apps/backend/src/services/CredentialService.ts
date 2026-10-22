@@ -1,5 +1,5 @@
 import type { Database } from '../lib/db-interface.js';
-import type { CloudCredentials, CloudProvider, UserMetadata } from '../lib/types.js';
+import type { CloudCredentials, CloudProvider } from '../lib/types.js';
 import { encryptValue, decryptValue, maskSecret, type SecretKey } from '../lib/crypto.js';
 import { resolveCloudCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
 

@@ -20,7 +20,6 @@ export type GroveRunStatus =
   | { state: 'finished'; startedAt: string; closedAt?: string; result: GroveRunResult; turnId?: string | undefined }
   | { state: 'failed'; startedAt: string; closedAt?: string; reason: string; turnId?: string | undefined }
 import { reconcileRun, reconcileMissingWorkflow, LIVE_RUN_STATUSES, type RunStatus } from '../lib/run-reconcile.js'
-import { deploymentIdFor } from '../lib/deployment-id.js'
 import { deploymentForProject } from '../lib/project-status.js'
 import { destroyAppArgs, destroyAppWorkflowId } from '../lib/app-destroy.js'
 import { resolveCloudCredentials } from '../lib/credential-resolver.js'
@@ -36,7 +35,6 @@ import { sanitizeNamespace, isModelKind } from '../lib/model-registry.js'
 import type { Database } from '../lib/db-interface.js'
 import type { WaitingAsk } from '../lib/turn-log.js'
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata } from '../lib/types.js'
-import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-capacity.js'
 import { ClusterService } from './ClusterService.js'
 import { ClusterProvisionWorkflow } from '../workflows/ClusterProvisionWorkflow.js'
 import { executeDestroyClusterWorkflow } from '../workflows/DestroyClusterWorkflow.js'
@@ -48,7 +46,6 @@ import { executePipelineRunWorkflow } from '../workflows/PipelineRunWorkflow.js'
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
   resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js'
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js'
-import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../lib/tabby-cache-path.js'
 import type { Server as SocketServer } from 'socket.io'
 import { PLATFORM_OWNER, ownerIn, startedFor } from '../lib/workflow-owner.js'
 
@@ -831,7 +828,7 @@ export class TemporalBridge {
       } : {}),
     })
 
-    const handle = await this.client.workflow.start(ClusterProvisionWorkflow, {
+    await this.client.workflow.start(ClusterProvisionWorkflow, {
       workflowId: wfId,
       taskQueue: HOST_QUEUE,
       args: [activityArgs],
@@ -888,7 +885,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       lastLogPath: absoluteLogPath,
     })
 
-    const handle = await this.client.workflow.start(executeDestroyClusterWorkflow, {
+    await this.client.workflow.start(executeDestroyClusterWorkflow, {
       workflowId: wfId,
       taskQueue: HOST_QUEUE,
       args: [activityArgs],
@@ -937,7 +934,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       lastLogPath: absoluteLogPath,
     })
 
-    const handle = await this.client.workflow.start(executeDestroyAppWorkflow, {
+    await this.client.workflow.start(executeDestroyAppWorkflow, {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
@@ -983,7 +980,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       lastLogPath: absoluteLogPath,
     })
 
-    const handle = await this.client.workflow.start(executeResizeDiskWorkflow, {
+    await this.client.workflow.start(executeResizeDiskWorkflow, {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
@@ -1102,7 +1099,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       lastLogPath: absoluteLogPath,
     })
 
-    const handle = await this.client.workflow.start(executeSyncConfigWorkflow, {
+    await this.client.workflow.start(executeSyncConfigWorkflow, {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
@@ -1197,7 +1194,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     } catch { return null; }
   }
 
-  async onClusterStatus(query: string): Promise<ClusterMetadata[]> {
+  async onClusterStatus(_query: string): Promise<ClusterMetadata[]> {
     return this.db.getClusters()
   }
 
@@ -1244,7 +1241,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     })
     await this.db.saveProjectInfo({ ...project, lastBuildStatus: 'queued' })
 
-    const handle = await this.client.workflow.start(executePipelineRunWorkflow, {
+    await this.client.workflow.start(executePipelineRunWorkflow, {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],

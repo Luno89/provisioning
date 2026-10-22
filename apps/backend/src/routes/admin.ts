@@ -1,7 +1,6 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import { asyncRoute } from '../middleware/async-route.js';
-import { v4 as uuidv4 } from 'uuid';
 import type { InviteMetadata } from '../lib/types.js';
 import type { AccountRemovalService } from '../services/AccountRemovalService.js';
 

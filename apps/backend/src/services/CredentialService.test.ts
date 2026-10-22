@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CredentialService } from './CredentialService.js';
-import { encryptValue, decryptValue } from '../lib/crypto.js';
+import { decryptValue } from '../lib/crypto.js';
 import { MemoryDB } from '../lib/memory-db.js';
 import type { UserMetadata } from '../lib/types.js';
 

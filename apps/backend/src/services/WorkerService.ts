@@ -1,4 +1,3 @@
-import { exec } from 'child_process';
 
 export interface WorkerState {
   readonly clusterId: string;

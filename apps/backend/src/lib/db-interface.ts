@@ -10,7 +10,6 @@ import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
 import type { FrontierUrl, FrontierClaim } from './frontier.js';
-import type { AgentStep } from '@koala/harness-types';
 import type { GiteaAccount } from './projects.js';
 import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';

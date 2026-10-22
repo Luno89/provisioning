@@ -78,7 +78,7 @@ export async function ensureTemporalClient(): Promise<void> {
 
 export async function pollWorkflowRun(
   workflowId: string,
-  namespace: string = 'default',
+  _namespace: string = 'default',
 ): Promise<any> {
   const client = await getTemporalClient()
   const handle = client.workflow.getHandle(workflowId)

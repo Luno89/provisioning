@@ -8,13 +8,6 @@ const json = (body: unknown, headers: Record<string, string> = {}) => ({
   text: async () => JSON.stringify(body),
 });
 
-const sse = (body: unknown, headers: Record<string, string> = {}) => ({
-  ok: true,
-  status: 200,
-  headers: new Headers({ 'content-type': 'text/event-stream', ...headers }),
-  text: async () => `event: message\ndata: ${JSON.stringify(body)}\n\n`,
-});
-
 const initReply = (over: Record<string, unknown> = {}) => ({
   jsonrpc: '2.0', id: 1,
   result: { protocolVersion: PROTOCOL_VERSION, capabilities: { tools: {} }, serverInfo: { name: 'weather-mcp', version: '0.1.0' }, ...over },

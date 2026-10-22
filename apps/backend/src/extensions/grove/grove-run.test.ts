@@ -251,7 +251,7 @@ const scriptModel = (rounds: Map<string, number>, hang?: string) =>
   });
 
 /** Scripted verdict: the do-one-task verdict node asks of the judge's weighing whether the work holds; it holds. */
-const decideModel = stepImplementation('decide', ({ node, execution, inputs }) => {
+const decideModel = stepImplementation('decide', ({ inputs }) => {
   const raw = (inputs as { text?: unknown }).text;
   const text = typeof raw === 'string' ? raw : JSON.stringify(raw ?? '');
   if (taskVerdict === 'no') {

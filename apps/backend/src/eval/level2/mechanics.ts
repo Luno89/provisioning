@@ -4,7 +4,7 @@ import type { CheckScript } from '../../lib/check-script.js';
 import { seededProcedures } from '../../extensions/seeds.js';
 import { CATCH_ALL_TREE_TYPE, ODOO_TREE_TYPE } from '../../lib/tree-type-seeds.js';
 import { MCP_SERVER_FILES } from '../../lib/project-templates.js';
-import type { ToolDefinition, WorkspaceDependency } from '@koala/agent-engine';
+import type { WorkspaceDependency } from '@koala/agent-engine';
 
 const NOTHING = { when: {}, reply: { say: 'Nothing to do here.' } };
 const DECIDE = { when: { asked: '^Question: ' }, reply: { say: 'yes' } };

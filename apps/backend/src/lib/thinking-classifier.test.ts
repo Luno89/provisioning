@@ -4,7 +4,6 @@ import {
   ThoughtFeatureExtractor,
   predictFailure,
   updateModelProfile,
-  type ModelThinkingProfile,
 } from './thinking-classifier.js';
 
 describe('thinking-classifier', () => {

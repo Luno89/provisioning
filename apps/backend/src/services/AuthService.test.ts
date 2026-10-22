@@ -29,7 +29,7 @@ describe('AuthService', () => {
     const authService = new AuthService(dbMock);
     const userId = 'user-2';
 
-    const code = authService.create2FAChallenge(userId);
+    authService.create2FAChallenge(userId);
     const isCorrect = authService.verify2FAChallenge(userId, '000000');
     expect(isCorrect).toBe(false);
   });

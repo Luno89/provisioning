@@ -1,14 +1,8 @@
-import { Router, type Request } from 'express';
-import { asyncRoute } from '../middleware/async-route.js';
+import { Router } from 'express';
 import fs from 'fs/promises';
 
-const idOf = (req: Request): string => String(req.params.id ?? '');
-
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
-
 export function nginxRouter(deps: Record<string, any>): Router {
-  const { infraService, nginxConfPath } = deps;
+  const { nginxConfPath } = deps;
   const router = Router();
 
   router.get('/config', async (req, res) => {

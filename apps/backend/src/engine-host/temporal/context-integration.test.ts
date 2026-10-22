@@ -9,7 +9,7 @@ import { createAgentRegistry } from '../registries/registry.js';
 import { createEnvironmentResolver, type WorkspaceSource } from '../sandboxes/environments.js';
 import { createRunEnvironments } from '../sandboxes/run-environments.js';
 import { createSandboxDriver } from '../drivers/sandbox.js';
-import { createEventBus, type AgentDefinition } from '@koala/agent-engine';
+import { type AgentDefinition } from '@koala/agent-engine';
 import type { ToolContract } from '@koala/engine-core';
 
 const CATALOGUE: ToolContract[] = [

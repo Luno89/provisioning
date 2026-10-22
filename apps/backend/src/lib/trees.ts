@@ -1,4 +1,3 @@
-import type { WorkspaceLanguage } from './workspace-spec.js';
 
 export type TreeType = string;
 

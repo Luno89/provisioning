@@ -1,4 +1,4 @@
-import { needsBuilding, planFor, type Persona, type ToolDefinition, type WorkspaceDependency } from '@koala/agent-engine';
+import { needsBuilding, type Persona, type ToolDefinition, type WorkspaceDependency } from '@koala/agent-engine';
 import type { ImageBuilder, ImageStanding } from './image-builder.js';
 import { mergeWorkspaceAgents } from './environments.js';
 import { GROVE_WORKSPACE_AGENTS } from './tree-workspaces.js';

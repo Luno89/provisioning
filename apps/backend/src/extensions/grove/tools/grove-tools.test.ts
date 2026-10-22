@@ -582,7 +582,7 @@ describe('a conversation about one tree', () => {
     branches: [{ title: 'More', leaves: [{ key: 'bye', title: 'Bye', body: 'bye.txt says bye', brief: 'Write bye.txt.', dependsOn: ['leaf-1'], tasks: [] }] }],
   };
   let saved: PlanProposal[] = [];
-  const bound = (conversationId: string) => createGroveTools({
+  const bound = (_conversationId: string) => createGroveTools({
     stores: {
       trees: { list: async () => trees, save: async () => undefined },
       branches: { list: async () => branches, save: async () => undefined },

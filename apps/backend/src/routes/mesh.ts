@@ -1,14 +1,10 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../middleware/async-route.js';
-import { isMeshAddress } from '../lib/endpoint-url-safety.js';
-
-const idOf = (req: Request): string => String(req.params.id ?? '');
 
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
 export function meshRouter(deps: Record<string, any>): Router {
-  const { headscaleService, db } = deps;
+  const { headscaleService } = deps;
   const router = Router();
 
   router.get('/config', async (_req, res) => {

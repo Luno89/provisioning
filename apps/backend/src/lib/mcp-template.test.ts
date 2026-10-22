@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import net from 'node:net';
-import { NODE_SERVICE_FILES, MCP_SERVER_FILES, LIBRARY_FILES } from './project-templates.js';
+import { MCP_SERVER_FILES } from './project-templates.js';
 import { renderStarterFiles } from './tree-types.js';
 import { TREE_TYPE_SEEDS } from './tree-type-seeds.js';
 import { McpClient } from './mcp-client.js';

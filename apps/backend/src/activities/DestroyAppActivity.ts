@@ -1,5 +1,4 @@
 import fs from 'fs/promises';
-import { v4 as uuidv4 } from 'uuid';
 
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';

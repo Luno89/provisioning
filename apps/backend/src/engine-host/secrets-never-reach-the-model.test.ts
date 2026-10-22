@@ -6,7 +6,6 @@ import {
   runProcedure,
 } from '@koala/agent-engine/procedure';
 import { contractsFor, createEventBus } from '@koala/agent-engine';
-import type { ToolContract } from '@koala/engine-core';
 import { createAgentRegistry } from './registries/registry.js';
 import { createEnvironmentResolver } from './sandboxes/environments.js';
 import { createRunEnvironments } from './sandboxes/run-environments.js';

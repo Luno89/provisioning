@@ -1,6 +1,6 @@
 import { browserTestsMissing } from './browser-tests.js';
 import { describe, it, expect } from 'vitest';
-import { runTaskChecks, checksFailed, checkReport, type CheckEnvironment } from './task-checks.js';
+import { runTaskChecks, checksFailed, checkReport } from './task-checks.js';
 import { E2E_IGNORED } from './e2e.js';
 import { PLAYWRIGHT_REPORT } from './e2e-fixtures.js';
 

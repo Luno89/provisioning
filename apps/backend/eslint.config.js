@@ -11,6 +11,14 @@ const upward = (folders) => folders.flatMap((folder) => [`**/${folder}/*`, `**/$
 
 export default defineConfig([
   globalIgnores(['dist', 'data', 'node_modules']),
+  {
+    files: ['src/**/*.ts'],
+    languageOptions: { parser: tseslint.parser },
+    plugins: { '@typescript-eslint': tseslint.plugin },
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none', ignoreRestSiblings: true }],
+    },
+  },
   ...LAYERS.map((layer) => ({
     files: layer.files,
     ignores: ['**/*.test.ts'],

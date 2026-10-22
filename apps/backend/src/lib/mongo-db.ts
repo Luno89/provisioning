@@ -16,7 +16,7 @@ import type { AuthoredExtension } from './authored-extensions.js';
 import type { InstanceRecord, JoinToken } from './instances.js';
 import type { MachineJoinCode } from './machines.js';
 import type { StoredAppSpec } from './app-spec.js';
-import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
+import { MongoClient, type Db, type Collection } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
@@ -24,8 +24,7 @@ import type { Database, PartialInfo, BindingTypeRecord, SecretRequestFilter } fr
 import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
-import { frontierOrder, type FrontierUrl, type FrontierClaim } from './frontier.js';
-import type { AgentStep } from '@koala/harness-types';
+import { type FrontierUrl, type FrontierClaim } from './frontier.js';
 import type { GiteaAccount } from './projects.js';
 import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
@@ -61,11 +60,6 @@ export function mongoTarget(env: Readonly<Record<string, string | undefined>> = 
   const e2e = env.IS_E2E === 'true';
   if (e2e) return { uri: env.MONGO_TEST_URI || base.replace('/provisioning', '/provisioning_test'), dbName: 'provisioning_test', e2e };
   return { uri: base, dbName: databaseOf(base), e2e };
-}
-
-function toBsonId(id: string): ObjectId | string {
-  if (ObjectId.isValid(id)) return new ObjectId(id);
-  return id;
 }
 
 function fromDoc<T extends { id: string }>(doc: Record<string, any> | null | undefined): T {
@@ -703,7 +697,7 @@ export class MongoDB implements Database {
   }
 
   async saveClusterProvider(provider: ClusterProviderSpec): Promise<void> {
-    const { value, ...rest } = provider;
+    const { value } = provider;
     await this.clusterProviders.replaceOne({ _id: value as any }, { _id: value, ...provider }, { upsert: true });
   }
 

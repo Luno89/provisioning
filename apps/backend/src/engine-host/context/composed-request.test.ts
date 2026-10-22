@@ -115,7 +115,7 @@ const MUST_CARRY: Record<string, Carries> = {
 describe('what each built-in procedure actually puts in front of the model', () => {
   for (const [id, carries] of Object.entries(MUST_CARRY)) {
     it(`${id} tells the model everything the run was given`, async () => {
-      const { requests, result } = await composedRequests({ procedure: procedure(carries.procedureId ?? id), agent: carries.agent, ...carries.run });
+      const { requests } = await composedRequests({ procedure: procedure(carries.procedureId ?? id), agent: carries.agent, ...carries.run });
 
       expect(requests.length, 'the model was never called').toBeGreaterThan(0);
       const first = requests[0]!;

@@ -1,6 +1,4 @@
 import fs from 'fs/promises';
-import path from 'path';
-import { execSync } from 'child_process';
 
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';

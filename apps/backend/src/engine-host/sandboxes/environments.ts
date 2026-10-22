@@ -7,7 +7,6 @@ import {
   allowAll,
   type ApprovalGate,
   BASES,
-  planFor,
   type ImagePlan,
   type ToolDefinition,
   type WorkspaceDependency,

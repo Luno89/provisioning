@@ -219,7 +219,7 @@ describe('tool runtime', () => {
   });
 
   it('surfaces a path escape attempt as a refusal, not a crash', async () => {
-    const { driver, backend } = sandbox();
+    const { backend } = sandbox();
     const scoped = createSandboxDriver({ sandboxId: 'sb-3', spec, scope: { path: 'work' }, backend });
 
     const outcome = await runtime(scoped).run(args({ name: 'read_file', arguments: '{"path":"../../etc/passwd"}' }));

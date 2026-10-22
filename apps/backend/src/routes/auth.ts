@@ -4,7 +4,6 @@ import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { signJWT, hashPassword, verifyPassword } from '../lib/auth.js';
 import { mockOAuthAllowed } from '../lib/oauth-gate.js';
-import { asyncRoute } from '../middleware/async-route.js';
 import type { Auth } from '../middleware/auth.js';
 import type { Database } from '../lib/db-interface.js';
 import type { AuthService } from '../services/AuthService.js';

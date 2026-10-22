@@ -58,7 +58,7 @@ export const EXTERNAL_AGENT_CHAT: Procedure = defineProcedure(BUILT_IN_GROUPS, {
   const remember = p.saveConversation('remember', { values: input.inputs, asked: input.message, reply: agent.reply, results: agent.results, session: agent.session, history: earlier.history }, { id: '{{values.conversationId}}' });
   const rememberFailed = p.saveConversation('rememberFailed', { values: input.inputs, asked: input.message, reply: agent.reply, results: agent.results, session: agent.session, history: earlier.history, reason: agent.reason }, { id: '{{values.conversationId}}' });
   const done = p.finish('done', { result: agent.text }, { outcome: 'ok' });
-  const stopped = p.finish('stopped', { reason: agent.reason }, { outcome: 'failed' });
+  p.finish('stopped', { reason: agent.reason }, { outcome: 'failed' });
   const failed = p.finish('failed', { reason: agent.reason }, { outcome: 'failed' });
   const unavailable = p.finish('unavailable', { reason: provision.reason }, { outcome: 'failed' });
   const unsaved = p.finish('unsaved', {}, { outcome: 'failed', reason: 'the turn could not be written to the conversation' });

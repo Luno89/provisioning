@@ -25,7 +25,7 @@ describe('interserverOffersFromSliceXml', () => {
     item('KVM Storage', '3.00', '1', '16'),
     item('KVM Linux IPv6 Only VPS Slice', '2.50', '1'),
   );
-  const { offers, skippedNoPrice } = interserverOffersFromSliceXml(xml);
+  const { offers } = interserverOffersFromSliceXml(xml);
   const kvm = offers.filter((o) => o.planId.startsWith('kvm-linux-vps-slice'));
 
   it('emits the advertised tiers for each buyable Linux slice type', () => {

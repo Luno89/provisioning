@@ -35,8 +35,8 @@ vi.mock('node:child_process', () => ({
 }));
 
 vi.mock('node:util', () => ({
-  promisify: (fn: Function) => {
-    return (...args: any[]) => Promise.resolve({ stdout: '', stderr: '' });
+  promisify: (_fn: Function) => {
+    return (..._args: any[]) => Promise.resolve({ stdout: '', stderr: '' });
   },
 }));
 

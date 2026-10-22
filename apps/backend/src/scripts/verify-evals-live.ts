@@ -1,5 +1,4 @@
 #!/usr/bin/env npx tsx
-/* eslint-disable no-console */
 import axios from 'axios';
 
 const BASE_URL = process.env.API_BASE_URL ?? 'http://127.0.0.1:3001';
