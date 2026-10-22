@@ -207,15 +207,16 @@ async function main(): Promise<void> {
   const deployed = onInstance('/api/deployments', { method: 'POST', body: { name: 'books', clusterId: 'provisioning-lunorica', appType: 'audiobookshelf', strategy: 'native' } });
   assert.equal(deployed.status, 202, deployed.body);
   const deploymentId = json<{ id: string }>(deployed).id;
-  await until('the app running', async () => {
-    const list = json<Array<{ id: string; status: string }>>(onInstance('/api/deployments'));
+  const books = await until('the app running', async () => {
+    const list = json<Array<{ id: string; status: string; namespace?: string }>>(onInstance('/api/deployments'));
     const found = list.find((entry) => entry.id === deploymentId);
     if (!found) throw new Hopeless('the deployment is gone from the list');
     if (found.status === 'failed') throw new Hopeless('the app failed to deploy');
     return found.status === 'running' ? found : undefined;
   });
-  step('the instance\'s cluster got monitoring before the app, and the app has its probe');
-  const monitoring = await inVm(vm, 'sudo kubectl get probe app -n books -o name && sudo kubectl get service blackbox-exporter -n monitoring -o name && sudo helm --kubeconfig /etc/rancher/k3s/k3s.yaml list -n monitoring -q');
+  assert.match(books.namespace ?? '', /^books-[a-f0-9]{6}$/, 'the app has a namespace of its own');
+  step(`the instance's cluster got monitoring before the app, and the app has its probe in ${books.namespace}`);
+  const monitoring = await inVm(vm, `sudo kubectl get probe app -n ${books.namespace} -o name && sudo kubectl get service blackbox-exporter -n monitoring -o name && sudo helm --kubeconfig /etc/rancher/k3s/k3s.yaml list -n monitoring -q`);
   assert.match(monitoring, /probe\.monitoring\.coreos\.com\/app/);
   assert.match(monitoring, /kube-prometheus-stack/);
   console.log(`  ${monitoring.trim().split('\n').join(', ')}`);
