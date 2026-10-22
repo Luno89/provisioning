@@ -38,6 +38,6 @@ export async function executeDeployAppWorkflow(args: DeployAppArgs) {
     });
   }
   const result = await DeployAppActivity(args);
-  const verdict = await awaitWorkload(args.name, args.clusterId);
+  const verdict = await awaitWorkload({ name: args.name, namespace: args.namespace, clusterId: args.clusterId });
   return { ...result, ...verdict };
 }

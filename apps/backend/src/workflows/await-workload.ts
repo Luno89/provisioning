@@ -14,9 +14,10 @@ export interface WorkloadVerdict {
   workloadReason: string;
 }
 
-export async function awaitWorkload(name: string, clusterId: string): Promise<WorkloadVerdict> {
+export async function awaitWorkload(args: CheckWorkloadArgs): Promise<WorkloadVerdict> {
+  const name = args.namespace ?? args.name;
   for (;;) {
-    const { health, reason } = await CheckWorkloadActivity({ name, clusterId });
+    const { health, reason } = await CheckWorkloadActivity(args);
 
     if (health === 'healthy') {
       log.info(`Workload for ${name} is running`);

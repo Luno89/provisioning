@@ -962,6 +962,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
     const activityArgs = {
       name: dep.name,
+      namespace: dep.namespace,
       clusterId: dep.clusterId,
       clusterName: cluster?.name || 'unknown',
       provider: cluster?.provider || 'k3d',

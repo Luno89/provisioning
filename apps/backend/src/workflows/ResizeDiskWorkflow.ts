@@ -8,6 +8,6 @@ const { ResizeDiskActivity } = proxyActivities<{ ResizeDiskActivity: (args: Resi
 
 export async function executeResizeDiskWorkflow(args: ResizeDiskArgs) {
   const result = await ResizeDiskActivity(args);
-  const verdict = await awaitWorkload(args.name, args.clusterId);
+  const verdict = await awaitWorkload({ name: args.name, namespace: args.namespace, clusterId: args.clusterId });
   return { ...result, ...verdict };
 }

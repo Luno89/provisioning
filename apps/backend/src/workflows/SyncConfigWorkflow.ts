@@ -8,6 +8,6 @@ const { SyncConfigActivity } = proxyActivities<{ SyncConfigActivity: (args: Sync
 
 export async function executeSyncConfigWorkflow(args: SyncConfigArgs) {
   const result = await SyncConfigActivity(args);
-  const verdict = await awaitWorkload(args.name, args.clusterId);
+  const verdict = await awaitWorkload({ name: args.name, namespace: args.namespace, clusterId: args.clusterId });
   return { ...result, ...verdict };
 }

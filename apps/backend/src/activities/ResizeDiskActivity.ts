@@ -3,9 +3,11 @@ import { InfrastructureService } from '../infrastructure/services/Infrastructure
 import { StorageAdapter } from '../infrastructure/services/StorageAdapter.js';
 import { hasCloudCredentials } from '../infrastructure/lib/credential-resolver.js';
 import { isMockCloudProvider, isSelfManagedCluster } from '../infrastructure/lib/cluster-topology.js';
+import { namespaceOf } from '../infrastructure/lib/app-namespace.js';
 
 export interface ResizeDiskArgs {
   name: string;
+  namespace?: string | undefined;
   clusterId: string;
   clusterName: string;
   provider: string;
@@ -42,7 +44,7 @@ export async function ResizeDiskActivity(
     STACK_TYPE: 'app',
     CLUSTER_NAME: physicalName,
     DEPLOYMENT_STRATEGY: args.strategy,
-    DEPLOYMENT_NAME: args.name.toLowerCase().replace(/[^a-z0-9]*/g, '-'),
+    DEPLOYMENT_NAME: namespaceOf(args),
     DEPLOYMENT_ID: deploymentId,
     KUBECONFIG: kubeconfigPath || '',
     KUBECONFIG_CONTEXT: (args.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : '',

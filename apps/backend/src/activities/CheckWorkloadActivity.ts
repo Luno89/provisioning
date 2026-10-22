@@ -1,11 +1,12 @@
 import { createDatabase } from '../platform/lib/db-interface.js';
 import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
 import { ClusterService } from '../infrastructure/services/ClusterService.js';
-import { sanitizeNamespace } from '../models/lib/model-registry.js';
+import { namespaceOf } from '../infrastructure/lib/app-namespace.js';
 import { assessWorkload, type WorkloadHealth } from '../infrastructure/lib/workload-health.js';
 
 export interface CheckWorkloadArgs {
   name: string;
+  namespace?: string | undefined;
   clusterId: string;
 }
 
@@ -25,7 +26,7 @@ export async function CheckWorkloadActivity(args: CheckWorkloadArgs): Promise<Ch
 
     const kubeconfig = await clusters.getKubeconfigPath(cluster);
     const raw = await infra.runKubectl(
-      ['get', 'pods', '-n', sanitizeNamespace(args.name), '-o', 'json'],
+      ['get', 'pods', '-n', namespaceOf(args), '-o', 'json'],
       kubeconfig,
     );
     return assessWorkload(JSON.parse(raw));

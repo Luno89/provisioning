@@ -1,9 +1,8 @@
 import { sanitizeNamespace } from '../../models/lib/model-registry.js';
-import type { DeploymentMetadata } from '../../platform/lib/types.js';
 
 const NAMESPACE_MAX = 63;
 
-export const namespaceOf = (dep: Pick<DeploymentMetadata, 'name' | 'namespace'>): string => dep.namespace || sanitizeNamespace(dep.name);
+export const namespaceOf = (dep: { name: string; namespace?: string | undefined }): string => dep.namespace || sanitizeNamespace(dep.name);
 
 export function newAppNamespace(name: string, id: string): string {
   const tag = id.replace(/-/g, '').slice(0, 6).toLowerCase();
