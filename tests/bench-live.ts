@@ -31,7 +31,7 @@ async function main(): Promise<void> {
   assert.ok(OWNER, 'set BENCH_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user whose model the bench uses');
   const db = createDatabase();
   await db.init();
-  const user = await db.getUserById(OWNER);
+  const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');
   const cookie = `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 7200)}`;
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: cookie } });

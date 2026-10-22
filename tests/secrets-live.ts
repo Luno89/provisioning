@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   await db.init();
   const project = (await db.getProjects()).find((candidate) => (PROJECT ? candidate.id === PROJECT : candidate.appType === 'gitapp' && candidate.ownerId));
   assert.ok(project?.ownerId, 'no project to run against — set SECRETS_LIVE_PROJECT');
-  const user = await db.getUserById(project.ownerId);
+  const user = await db.accounts.getUserById(project.ownerId);
   assert.ok(user, 'the project owner has no user record');
 
   const secret = loadKeys(process.env).session;

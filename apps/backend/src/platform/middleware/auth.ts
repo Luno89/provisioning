@@ -47,7 +47,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
     if (!token) return undefined;
     const decoded = verifyJWT(token, sessionKey);
     if (!decoded || !decoded.userId) return undefined;
-    const user = await db.getUserById(decoded.userId);
+    const user = await db.accounts.getUserById(decoded.userId);
     return user?.removal ? undefined : user;
   }
 
@@ -87,7 +87,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
       return next();
     }
     if (process.env.IS_E2E === 'true') {
-      const users = await db.getUsers();
+      const users = await db.accounts.getUsers();
       const mockUser = users[0] || {
         id: 'test-user-id',
         email: 'test@example.com',
@@ -132,12 +132,12 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
   async function checkAndConsumeInvite(code: string | undefined, newUserId: string, isFirstUser: boolean, email?: string): Promise<string | null> {
     if (isFirstUser) return null;
     if (!code) return 'An invite code is required to create an account';
-    const invites = await db.getInvites();
+    const invites = await db.accounts.getInvites();
     const invite = invites.find((i) => i.code === code);
     if (!invite) return 'Invalid invite code';
     if (invite.usedBy) return 'This invite code has already been used';
     if (invite.email && (!email || invite.email.trim().toLowerCase() !== email.trim().toLowerCase())) return `This invite is for ${invite.email}; sign up with that address`;
-    await db.saveInvite({ ...invite, usedBy: newUserId, usedAt: new Date().toISOString() });
+    await db.accounts.saveInvite({ ...invite, usedBy: newUserId, usedAt: new Date().toISOString() });
     return null;
   }
 

@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   assert.ok(ADMIN, 'set MECHANICS_ADMIN (or GROVE_LIVE_OWNER) to an admin, who invites the account this test removes');
   const db = createDatabase();
   await db.init();
-  const admin = await db.getUserById(ADMIN);
+  const admin = await db.accounts.getUserById(ADMIN);
   assert.ok(admin?.isAdmin, `${ADMIN} is not an admin`);
   const session = (user: { id: string; email: string }) => `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 3600)}`;
   const as = (cookie: string) => axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: cookie }, validateStatus: () => true });
@@ -66,7 +66,7 @@ async function main(): Promise<void> {
       const invite = (await adminHttp.post('/admin/invites')).data as { code: string };
       const registered = await axios.post(`${BASE}/auth/register`, { email, password, inviteCode: invite.code }, { proxy: false, validateStatus: () => true });
       assert.equal(registered.status, 200, JSON.stringify(registered.data));
-      ownerId = (await db.getUserByEmail(email))!.id;
+      ownerId = (await db.accounts.getUserByEmail(email))!.id;
       return as(session({ id: ownerId, email }));
     });
 

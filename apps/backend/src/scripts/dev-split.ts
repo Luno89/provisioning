@@ -18,7 +18,7 @@ async function main(): Promise<void> {
   const name = process.env.DEV_INSTANCE_NAME?.trim() || DEV_SPLIT.defaultName;
   const instanceDb = createDatabase();
   await instanceDb.init();
-  const owner = devSplitOwner(await instanceDb.getUsers(), process.env.DEV_INSTANCE_OWNER?.trim() || undefined);
+  const owner = devSplitOwner(await instanceDb.accounts.getUsers(), process.env.DEV_INSTANCE_OWNER?.trim() || undefined);
   await instanceDb.close?.();
 
   const before = await readFile(resolve(OUT, 'instance.env'), 'utf8').then(readEnvFile).catch(() => ({} as Record<string, string>));
@@ -42,7 +42,7 @@ async function main(): Promise<void> {
     existing: (await rootDb.getInstances(owner.id)).find((entry) => entry.id === instanceId),
   });
   for (const other of await rootDb.getInstances(owner.id)) if (other.id !== instanceId) await rootDb.deleteInstance(other.id);
-  await rootDb.saveUser({ ...(await rootDb.getUserById(owner.id) ?? {}), ...plan.rootUser });
+  await rootDb.accounts.saveUser({ ...(await rootDb.accounts.getUserById(owner.id) ?? {}), ...plan.rootUser });
   await rootDb.saveInstance(plan.instance);
   await rootDb.close?.();
 

@@ -99,7 +99,7 @@ async function main(): Promise<void> {
   assert.ok(ADMIN, 'set MECHANICS_ADMIN (or GROVE_LIVE_OWNER) to an admin, who invites this test\'s account');
   const db = createDatabase();
   await db.init();
-  const admin = await db.getUserById(ADMIN);
+  const admin = await db.accounts.getUserById(ADMIN);
   assert.ok(admin?.isAdmin, `${ADMIN} is not an admin`);
   const adminHttp = client(`session=${signJWT({ userId: admin.id, email: admin.email }, loadKeys(process.env).session, 3600)}`);
   const email = `routes-live-${Date.now().toString(36)}@nowrinkles.test`;
@@ -145,8 +145,8 @@ async function main(): Promise<void> {
     if (me && myId) {
       const removed = await me.delete('/api/account', { data: { confirm: email } });
       if (removed.status === 202) {
-        for (let tries = 0; tries < 150 && await db.getUserById(myId); tries += 1) await sleep(2_000);
-        console.log((await db.getUserById(myId)) ? `    ${email} is still being removed` : '    removed the test account');
+        for (let tries = 0; tries < 150 && await db.accounts.getUserById(myId); tries += 1) await sleep(2_000);
+        console.log((await db.accounts.getUserById(myId)) ? `    ${email} is still being removed` : '    removed the test account');
       } else {
         console.log(`    could not remove ${email}: ${removed.status} ${JSON.stringify(removed.data)}`);
       }

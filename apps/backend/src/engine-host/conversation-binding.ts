@@ -4,7 +4,7 @@ import { featureOutline, storyOutline } from '../projects/lib/item-outline.js';
 import { projectOutline } from '../projects/lib/project-outline.js';
 import { chatFraming, SOMEONE } from '../engine/lib/conversations.js';
 
-type BindingSources = Pick<Database, 'getConversation' | 'getTrees' | 'getBranches' | 'getLeaves' | 'getTasks' | 'getProjects' | 'getOdooReleases' | 'getPipelineRuns' | 'getUserById'>;
+type BindingSources = Pick<Database, 'getConversation' | 'getTrees' | 'getBranches' | 'getLeaves' | 'getTasks' | 'getProjects' | 'getOdooReleases' | 'getPipelineRuns' | 'accounts'>;
 
 export function conversationBinding(db: BindingSources) {
   const statusOf = async (ownerId: string, projectIds: readonly string[]): Promise<string> => {
@@ -59,7 +59,7 @@ export function conversationBinding(db: BindingSources) {
     const conversation = await db.getConversation(ownerId, conversationId);
     const subject = await subjectOf(ownerId, conversation);
     if (!subject || !conversation?.kind) return subject;
-    const who = (await db.getUserById(ownerId))?.email ?? SOMEONE;
+    const who = (await db.accounts.getUserById(ownerId))?.email ?? SOMEONE;
     const chat = chatFraming({ kind: conversation.kind, item: conversation.leafId ? 'story' : conversation.branchId ? 'feature' : undefined }, who);
     return chat ? { chat, ...subject } : subject;
   };

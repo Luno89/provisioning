@@ -36,7 +36,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
   const { io, db, role, env, payloadKey, dataKey, clusters, apps, infra } = deps;
   io.use(async (socket, next) => {
     if (env.IS_E2E === 'true') {
-      const users = await db.getUsers();
+      const users = await db.accounts.getUsers();
       socket.data.user = users[0] || { id: 'test-user-id', email: 'test@example.com' };
       return next();
     }

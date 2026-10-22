@@ -57,8 +57,10 @@ interface ToolRecord { ownerId?: string | undefined }
 export interface CheckRunStore {
   getWorkspaceDependencies(ownerId: string): Promise<WorkspaceDependency[]>;
   saveWorkspaceDependency(dependency: WorkspaceDependency & { ownerId: string }): Promise<void>;
-  getUserById(id: string): Promise<UserMetadata | undefined>;
-  saveUser(user: UserMetadata): Promise<void>;
+  accounts: {
+    getUserById(id: string): Promise<UserMetadata | undefined>;
+    saveUser(user: UserMetadata): Promise<void>;
+  };
   saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void>;
   getEnginePersonas(ownerId?: string): Promise<Persona[]>;
   saveEnginePersona(persona: never): Promise<void>;
@@ -212,9 +214,9 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
 
   return {
     async CheckCreateSpaceActivity({ spaceId, checkRunId, person, scenario, trialPractice, promptOverride }) {
-      if (await store.getUserById(spaceId)) return spaceId;
+      if (await store.accounts.getUserById(spaceId)) return spaceId;
       const stamp = now();
-      await store.saveUser(spaceUser(spaceId, { person, checkRunId, scenarioId: scenario.id, ...(scenario.script ? { script: scenario.script } : {}) }, stamp));
+      await store.accounts.saveUser(spaceUser(spaceId, { person, checkRunId, scenarioId: scenario.id, ...(scenario.script ? { script: scenario.script } : {}) }, stamp));
       await store.saveBenchSettings(spaceId, { enabled: false, idleMinutes: 15, fullEveryHours: 24 });
       if (scenario.script) {
         await store.saveModelEndpoint({
@@ -307,7 +309,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
     async CheckRunScenarioActivity(args) {
       const { scenario, spaceId } = args;
       const startedAt = Date.now();
-      const space = await store.getUserById(spaceId);
+      const space = await store.accounts.getUserById(spaceId);
       if (!space) return { result: failedResult(scenario, '', 'the check\'s space is gone', startedAt), runIds: [] };
       const http = deps.api({ id: space.id, email: space.email });
       const context = activityContext();
@@ -374,8 +376,8 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       };
       const remember = async (values: Record<string, unknown>) => {
         Object.assign(world, values);
-        const current = await store.getUserById(spaceId);
-        if (current?.space) await store.saveUser({ ...current, space: { ...current.space, world: { ...world } } });
+        const current = await store.accounts.getUserById(spaceId);
+        if (current?.space) await store.accounts.saveUser({ ...current, space: { ...current.space, world: { ...world } } });
       };
       await remember({});
 

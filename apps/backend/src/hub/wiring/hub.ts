@@ -56,7 +56,7 @@ export interface HubWiring {
 
 export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
   const { role, env, app, tenant, db } = deps;
-  const projectInvites = holdsAccounts(role) ? new ProjectInviteService({ invites: db, mail: deps.mail, rootUrl: deps.publicUrl }) : undefined;
+  const projectInvites = holdsAccounts(role) ? new ProjectInviteService({ invites: db.accounts, mail: deps.mail, rootUrl: deps.publicUrl }) : undefined;
   if (projectInvites) app.use('/api/hub-link', hubLinkRouter({ invites: projectInvites, credentialHash: role.hubLink?.credentialHash, hash: hashCredential }));
 
   let hubService: HubService | undefined;
@@ -70,7 +70,7 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
     hubService = new HubService({ store: hubStore, invites: sender, repos: giteaHubRepos(deps.gitea), relay: new HubRelay() });
     app.use('/api/hub', hubRouter({ hub: hubService }));
     if (role.role === 'hub' && role.trusted) app.use('/api/hub-instance', hubInstanceRouter({ hub: hubService, trusted: role.trusted }));
-    if (role.role === 'hub' && role.trusted) app.use('/api/hub-root', hubRootRouter({ hub: hubService, trusted: role.trusted, forget: (id) => db.deleteUser(id) }));
+    if (role.role === 'hub' && role.trusted) app.use('/api/hub-root', hubRootRouter({ hub: hubService, trusted: role.trusted, forget: (id) => db.accounts.deleteUser(id) }));
   }
 
   const remoteHub = role.instance && env.INSTANCE_CREDENTIAL

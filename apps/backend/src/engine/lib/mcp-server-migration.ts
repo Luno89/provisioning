@@ -8,7 +8,9 @@ import type { DeploymentMetadata, ProjectMetadata } from '../../platform/lib/typ
 import type { Tree } from '../../projects/lib/trees.js';
 
 export interface McpServerMigrationStore {
-  getUsers(): Promise<{ id: string }[]>;
+  accounts: {
+    getUsers(): Promise<{ id: string }[]>;
+  };
   getEnginePersonas(): Promise<PersonaRecord[]>;
   saveEnginePersona(persona: PersonaRecord): Promise<void>;
   getEngineTools(ownerId?: string): Promise<ToolDefinition[]>;
@@ -87,7 +89,7 @@ export async function migrateMcpServers(store: McpServerMigrationStore, now: str
   }
 
   const [deployments, projects, trees] = await Promise.all([store.getDeployments(), store.getProjects(), store.getTrees()]);
-  for (const user of await store.getUsers()) {
+  for (const user of await store.accounts.getUsers()) {
     const hints = await store.getMcpToolHints(user.id);
     if (hints.length === 0) continue;
     const servers = await store.getMcpServers(user.id);

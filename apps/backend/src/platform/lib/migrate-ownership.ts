@@ -1,7 +1,7 @@
 import type { Database } from './db-interface.js';
 
 export async function migrateLegacyOwnership(db: Database): Promise<void> {
-  const users = await db.getUsers();
+  const users = await db.accounts.getUsers();
   if (users.length === 0) return;
 
   let admin = users.find((u) => u.isAdmin);
@@ -9,7 +9,7 @@ export async function migrateLegacyOwnership(db: Database): Promise<void> {
     admin = [...users].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0];
     if (admin) {
       admin.isAdmin = true;
-      await db.saveUser(admin);
+      await db.accounts.saveUser(admin);
       console.log(`[migrate-ownership] No admin user existed — promoted ${admin.email} (oldest account)`);
     }
   }

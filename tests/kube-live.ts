@@ -38,7 +38,7 @@ async function main(): Promise<void> {
   const deployments = await db.getDeployments();
   const target = deployments.find((dep) => dep.status === 'unhealthy' && dep.ownerId) ?? deployments.find((dep) => dep.status === 'running' && dep.ownerId);
   assert.ok(target?.ownerId, 'there is no deployment to diagnose');
-  const user = await db.getUserById(target.ownerId);
+  const user = await db.accounts.getUserById(target.ownerId);
   await db.close();
   assert.ok(user);
   const secret = loadKeys(process.env).session;

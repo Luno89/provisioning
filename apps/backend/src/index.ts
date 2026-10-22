@@ -129,7 +129,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const db = createDatabase();
   await db.init();
-  resolveOwnersWith(async (owner) => (await db.getUserById(owner))?.space?.person ?? owner);
+  resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
   await migrateLegacyOwnership(db);
   await seedAll(db);
 
@@ -138,7 +138,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const metrics = new MetricsService({ token: process.env.METRICS_TOKEN?.trim() || undefined, role: role.role });
   const mail = new MailService({
     way: emailWayFrom(process.env, role),
-    emailOf: async (ownerId) => (await db.getUserById(ownerId))?.email,
+    emailOf: async (ownerId) => (await db.accounts.getUserById(ownerId))?.email,
   });
   const notifications = new NotificationService({ store: db, mail, publicUrl: PUBLIC_URL, log: (message) => console.warn(message) });
   const tenant: express.Router = servesTenants(role) ? (app as unknown as express.Router) : express.Router();
@@ -313,7 +313,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const systemOwners = async (): Promise<string[]> => (role.instance
     ? [role.instance.ownerId]
-    : (await db.getUsers()).filter((user) => user.isAdmin).map((user) => user.id));
+    : (await db.accounts.getUsers()).filter((user) => user.isAdmin).map((user) => user.id));
   const { monitoring } = wireMonitoring({ tenant, db, role, env: process.env, io, clusters: clusterService, infra: infraService, proxy: clusterProxyService, notices, notifications, mail, systemOwners });
   const workerService = new WorkerService();
   wireInfrastructure({
@@ -348,7 +348,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     artifacts: artifactStore, projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, requireAdmin,
   });
   if (evalHost.storyDrops) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));
-  if (servesTenants(role)) void db.getUsers().then((users) => odooReleases.recover(users.map((user) => user.id))).catch(() => undefined);
+  if (servesTenants(role)) void db.accounts.getUsers().then((users) => odooReleases.recover(users.map((user) => user.id))).catch(() => undefined);
 
   const payloadStorage = new PayloadStorageService(sharedPayloadBlobs(), () => getTemporalClient());
   const sweepPayloads = async (): Promise<void> => {

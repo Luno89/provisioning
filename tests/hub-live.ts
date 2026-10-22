@@ -77,7 +77,7 @@ async function main(): Promise<void> {
   assert.ok(ADMIN, 'set MECHANICS_ADMIN (or GROVE_LIVE_OWNER) to an admin, who invites this test\'s first account');
   const db = createDatabase();
   await db.init();
-  const admin = await db.getUserById(ADMIN);
+  const admin = await db.accounts.getUserById(ADMIN);
   assert.ok(admin?.isAdmin, `${ADMIN} is not an admin`);
   const adminHttp = client(ROOT, `session=${signJWT({ userId: admin.id, email: admin.email }, loadKeys(process.env).session, 3600)}`);
   const mongo = await MongoClient.connect(mongoTarget(process.env).uri);
@@ -87,8 +87,8 @@ async function main(): Promise<void> {
     const removed = await who.root!.delete('/account', { data: { confirm: who.email } });
     assert.equal(removed.status, 202, `${who.name}'s removal answered ${removed.status}: ${JSON.stringify(removed.data)}`);
     who.removed = true;
-    for (let tries = 0; tries < 150 && await db.getUserById(who.id!); tries += 1) await sleep(2_000);
-    assert.equal(await db.getUserById(who.id!), undefined, `${who.email} was not removed`);
+    for (let tries = 0; tries < 150 && await db.accounts.getUserById(who.id!); tries += 1) await sleep(2_000);
+    assert.equal(await db.accounts.getUserById(who.id!), undefined, `${who.email} was not removed`);
   };
 
   const ann = person('ann');

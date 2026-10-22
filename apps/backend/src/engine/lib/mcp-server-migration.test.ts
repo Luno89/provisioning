@@ -12,7 +12,9 @@ function store(seed: { personas?: PersonaRecord[]; tools?: ToolDefinition[]; gra
   const servers = [...(seed.servers ?? [])];
   let ids = 0;
   const db: McpServerMigrationStore = {
-    getUsers: async () => [{ id: 'u1' }],
+    accounts: {
+      getUsers: async () => [{ id: 'u1' }],
+    },
     getEnginePersonas: async () => personas,
     saveEnginePersona: async (persona) => { personas = [...personas.filter((one) => one.slug !== persona.slug), persona]; },
     getEngineTools: async () => tools,

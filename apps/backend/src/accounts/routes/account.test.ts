@@ -25,8 +25,8 @@ const workflows: AccountRemovalWorkflows = {
 };
 
 const seedPeople = async (db: Database) => {
-  await db.saveUser({ id: ADMIN.id, email: ADMIN.email, isAdmin: true, twoFactorEnabled: false, emailVerified: true, createdAt: 'then' });
-  await db.saveUser({ id: PERSON.id, email: PERSON.email, twoFactorEnabled: false, emailVerified: true, createdAt: 'then' });
+  await db.accounts.saveUser({ id: ADMIN.id, email: ADMIN.email, isAdmin: true, twoFactorEnabled: false, emailVerified: true, createdAt: 'then' });
+  await db.accounts.saveUser({ id: PERSON.id, email: PERSON.email, twoFactorEnabled: false, emailVerified: true, createdAt: 'then' });
 };
 
 const requireAdmin = (req: Request, res: Response, next: NextFunction) =>
@@ -73,7 +73,7 @@ describe('removing your own account', () => {
     expect(removed.data).toEqual({ state: { state: 'running', done: [] } });
     expect(started).toEqual([`remove-account-${PERSON.id}`]);
     expect(cleared).toBe(1);
-    expect((await harness.db.getUserById(PERSON.id))?.removal).toEqual({ startedAt: 'now', requestedBy: PERSON.id });
+    expect((await harness.db.accounts.getUserById(PERSON.id))?.removal).toEqual({ startedAt: 'now', requestedBy: PERSON.id });
   });
 
   it('refuses while something of yours still runs on a cluster, naming it', async () => {
@@ -83,7 +83,7 @@ describe('removing your own account', () => {
     const refused = await call('delete', '/api/account', { confirm: PERSON.email });
     expect(refused.status).toBe(409);
     expect(refused.data.blockers).toEqual(['the app "odoo" is still deployed; remove it first']);
-    expect((await harness.db.getUserById(PERSON.id))?.removal).toBeUndefined();
+    expect((await harness.db.accounts.getUserById(PERSON.id))?.removal).toBeUndefined();
   });
 
   it('joins a removal already under way rather than starting another', async () => {

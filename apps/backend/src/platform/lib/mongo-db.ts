@@ -1,5 +1,6 @@
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
 import { MongoHubStore } from '../../hub/store.js';
+import { MongoAccountsStore } from '../../accounts/store.js';
 import { MongoPlatformStore } from '../store.js';
 import { hintKey, type McpToolHint } from '../../engine/lib/mcp-tool-hints.js';
 import type { BenchSettings, BenchState } from '../../checks/lib/bench.js';
@@ -19,7 +20,7 @@ import type { StoredAppSpec } from '../../infrastructure/lib/app-spec.js';
 import { MongoClient, type Db, type Collection } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
 import type { Database, PartialInfo, BindingTypeRecord, SecretRequestFilter } from './db-interface.js';
 import type { Branch, Leaf } from '../../projects/lib/leaves.js';
 import type { Tree } from '../../projects/lib/trees.js';
@@ -43,8 +44,7 @@ import type { TreeTypeSpec } from '../../projects/lib/tree-types.js';
 import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
 import type { ModelThinkingProfile } from '../../engine/lib/thinking-classifier.js';
 import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
-import { ACCOUNT_DATA, type AccountRelated } from '../../accounts/lib/account-removal.js';
-import type { AccountIds, ScriptedRequestRecord } from './db-interface.js';
+import type { ScriptedRequestRecord } from './db-interface.js';
 import type { OdooRelease } from '../../releases/lib/odoo-release.js';
 import type { StoredArtifact } from '../../files/lib/artifacts.js';
 import type { ArtifactChunk } from '../../files/lib/artifacts.js';
@@ -90,12 +90,14 @@ const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (ki
 export class MongoDB implements Database {
   constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {
     this.hub = new MongoHubStore(() => this.db!);
+    this.accounts = new MongoAccountsStore(() => this.db!);
     this.platform = new MongoPlatformStore(() => this.db!);
   }
 
   private client: MongoClient | null = null;
   private db: Db | null = null;
   readonly hub: MongoHubStore;
+  readonly accounts: MongoAccountsStore;
   readonly platform: MongoPlatformStore;
 
   private get clusters(): Collection {
@@ -104,10 +106,6 @@ export class MongoDB implements Database {
 
   private get deployments(): Collection {
     return this.db!.collection('deployments');
-  }
-
-  private get users(): Collection {
-    return this.db!.collection('users');
   }
 
   private get pipelineRuns(): Collection {
@@ -172,10 +170,6 @@ export class MongoDB implements Database {
 
   private get pendingApprovals(): Collection {
     return this.db!.collection('pendingApprovals');
-  }
-
-  private get invites(): Collection {
-    return this.db!.collection('invites');
   }
 
   private get procedures(): Collection {
@@ -320,7 +314,6 @@ export class MongoDB implements Database {
     await this.clusters.createIndex({ name: 1 }, { unique: true });
     await this.deployments.createIndex({ clusterId: 1 });
     await this.deployments.createIndex({ name: 1 }, { unique: true });
-    await this.users.createIndex({ email: 1 }, { unique: true });
     await this.runTraces.createIndex({ ownerId: 1, runId: 1, sequence: 1 });
     await this.hub.ensureIndexes();
     await this.turnLogs.createIndex({ turnId: 1, seq: 1 }, { unique: true });
@@ -356,6 +349,7 @@ export class MongoDB implements Database {
     await this.corpus.createIndex({ ownerId: 1, ingestId: 1 });
     await this.corpus.createIndex({ ownerId: 1, projectId: 1 });
     await this.platform.ensureIndexes();
+    await this.accounts.ensureIndexes();
   }
 
   async dropDatabase(): Promise<void> {
@@ -512,17 +506,6 @@ export class MongoDB implements Database {
     };
     await this.savePipelineRun(r);
     return r;
-  }
-
-  async getInvites(): Promise<InviteMetadata[]> {
-    return (await this.invites.find({}).toArray()).map(doc => fromDoc<InviteMetadata>(doc));
-  }
-
-  async saveInvite(invite: InviteMetadata): Promise<void> {
-    const doc = toDoc(invite);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.invites.replaceOne({ _id: id }, filter, { upsert: true });
   }
 
   async getCorpusPages(filter: { ownerId: string; ingestId?: string; projectId?: string }): Promise<CorpusPage[]> {
@@ -810,52 +793,6 @@ export class MongoDB implements Database {
     await this.pendingApprovals.deleteOne({ _id: id as any });
   }
 
-  async accountIds(ownerId: string): Promise<AccountIds> {
-    const ids = async (name: string, field = '_id') =>
-      (await this.db!.collection(name).find({ ownerId }, { projection: { [field]: 1 } }).toArray()).map((doc) => String(doc[field]));
-    const conversations = await this.conversations.find({ ownerId }, { projection: { _id: 1, liveTurn: 1 } }).toArray();
-    const turns = (await this.turnLogs.distinct('turnId', { ownerId })) as string[];
-    const live = conversations.map((doc) => (doc.liveTurn as { runId?: string } | undefined)?.runId).filter((id): id is string => typeof id === 'string');
-    const projectIds = await ids('projects');
-    return {
-      runIds: [...new Set([...turns, ...live])],
-      treeIds: await ids('trees'),
-      conversationIds: conversations.map((doc) => String(doc._id)),
-      proposalIds: await ids('planProposals'),
-      projectIds,
-      buildWorkflowIds: (await this.pipelineRuns.find({ projectId: { $in: projectIds }, status: { $in: ['queued', 'running'] } }, { projection: { temporalWorkflowId: 1 } }).toArray())
-        .map((doc) => doc.temporalWorkflowId).filter((id): id is string => typeof id === 'string'),
-      ingestIds: ((await this.corpus.distinct('ingestId', { ownerId })) as unknown[]).filter((id): id is string => typeof id === 'string'),
-    };
-  }
-
-  async accountLeftovers(ownerId: string): Promise<Record<string, number>> {
-    const left: Record<string, number> = {};
-    const count = async (name: string, filter: Record<string, unknown>) => {
-      const found = await this.db!.collection(name).countDocuments(filter as never);
-      if (found) left[name] = (left[name] ?? 0) + found;
-    };
-    for (const name of ACCOUNT_DATA.byOwner) await count(name, { ownerId });
-    for (const name of [...ACCOUNT_DATA.byId, ACCOUNT_DATA.last]) await count(name, { _id: ownerId });
-    return left;
-  }
-
-  async removeAccountRecords(ownerId: string, related: AccountRelated): Promise<Record<string, number>> {
-    const removed: Record<string, number> = {};
-    const count = async (name: string, filter: Record<string, unknown>) => {
-      const { deletedCount } = await this.db!.collection(name).deleteMany(filter as never);
-      if (deletedCount) removed[name] = (removed[name] ?? 0) + deletedCount;
-    };
-    if (related.watermarkKeys.length) await count('memoryWatermarks', { _id: { $in: [...related.watermarkKeys] } });
-    if (related.ingestIds.length) await count('crawl_frontier', { ingestId: { $in: [...related.ingestIds] } });
-    if (related.projectIds.length) await count('pipelineRuns', { projectId: { $in: [...related.projectIds] } });
-    if (related.projectIds.length) await count('hubSnapshots', { projectId: { $in: [...related.projectIds] } });
-    for (const name of ACCOUNT_DATA.byOwner) await count(name, { ownerId });
-    for (const name of ACCOUNT_DATA.byId) await count(name, { _id: ownerId });
-    await count(ACCOUNT_DATA.last, { _id: ownerId });
-    return removed;
-  }
-
   async removeProjectRecords(projectId: string): Promise<Record<string, number>> {
     const removed: Record<string, number> = {};
     for (const name of ['pipelineRuns', 'odooReleases', 'corpus', 'secretRequests', 'pendingApprovals', 'tasks', 'fileShares']) {
@@ -906,38 +843,6 @@ export class MongoDB implements Database {
       this.reownArtifacts(from, to, runIds),
     ]);
     return moved.reduce((total, result) => total + result.modifiedCount, 0);
-  }
-
-  async getUsers(): Promise<UserMetadata[]> {
-    return (await this.users.find({}).toArray()).map(doc => fromDoc<UserMetadata>(doc));
-  }
-
-  async saveUser(user: UserMetadata): Promise<void> {
-    const doc = toDoc(user);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.users.replaceOne({ _id: id }, filter, { upsert: true });
-  }
-
-  async saveUserList(users: UserMetadata[]): Promise<void> {
-    await this.users.deleteMany({});
-    if (users.length > 0) {
-      await this.users.insertMany(users.map(toDoc));
-    }
-  }
-
-  async getUserByEmail(email: string): Promise<UserMetadata | undefined> {
-    const doc = await this.users.findOne({ email: email.trim().toLowerCase() });
-    return doc ? fromDoc<UserMetadata>(doc) : undefined;
-  }
-
-  async getUserById(id: string): Promise<UserMetadata | undefined> {
-    const doc = await this.users.findOne({ _id: id as any });
-    return doc ? fromDoc<UserMetadata>(doc) : undefined;
-  }
-
-  async deleteUser(id: string): Promise<void> {
-    await this.users.deleteOne({ _id: id as any });
   }
 
   async getMemories(ownerId?: string): Promise<MemoryItem[]> {

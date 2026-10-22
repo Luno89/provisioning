@@ -13,7 +13,7 @@ describe('moving inline installs onto dependencies', () => {
   it('points a tool at the shipped dependency that installs the same, or one of the person\'s own, once', async () => {
     const db = await testDatabase();
     await db.init();
-    await db.saveUser({ id: 'u1', email: 'u1@test' } as never);
+    await db.accounts.saveUser({ id: 'u1', email: 'u1@test' } as never);
     await db.saveEngineTool(tool({ name: 'json_query', ownerId: 'u1', needsBinaries: ['jq'], install: { via: 'dnf', packages: ['jq'] } }));
     await db.saveEngineTool(tool({ name: 'pdf_text', ownerId: 'u1', needsBinaries: ['pdftotext'], install: { via: 'dnf', packages: ['poppler-utils'] } }));
     await db.saveEngineTool(tool({ name: 'plain', ownerId: 'u1' }));
@@ -31,7 +31,7 @@ describe('moving inline installs onto dependencies', () => {
   it('moves a workspace server onto what it needs and keeps its capture, so it stays usable', async () => {
     const db = await testDatabase();
     await db.init();
-    await db.saveUser({ id: 'u1', email: 'u1@test' } as never);
+    await db.accounts.saveUser({ id: 'u1', email: 'u1@test' } as never);
     const legacy = { where: 'workspace', languages: ['node'], install: [{ via: 'npm', packages: ['@playwright/mcp@0.0.83'] }], start: 'PLAYWRIGHT_BROWSERS_PATH=/x playwright-mcp --port 8931', port: 8931 } as never;
     const tickets = { where: 'workspace', install: [{ via: 'npm', packages: ['tickets-mcp'] }], start: 'tickets-mcp --port 9100', port: 9100 } as never;
     const captured = (runs: McpServerRecord['runs']) => ({ tools: [{ name: 'browser_navigate' }], at: 't1', fingerprint: runsFingerprint(runs) });

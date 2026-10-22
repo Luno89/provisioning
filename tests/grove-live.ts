@@ -34,7 +34,7 @@ async function main(): Promise<void> {
   await db.init();
   const host = liveEngineHost(db);
   const client = await getTemporalClient();
-  const user = await db.getUserById(OWNER);
+  const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 7200)}` } });
   const gitea = new GiteaService(new InfrastructureService(), loadKeys(process.env).data, '/tmp/kubeconfig-provisioning-lunorica');

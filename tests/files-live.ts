@@ -117,7 +117,7 @@ async function main(): Promise<void> {
   closeDb = async () => { await db.close?.(); };
   const owner = process.env.FILES_LIVE_OWNER ?? (await db.getDeployments()).find((entry) => entry.appType === 'minio' && entry.status === 'running' && entry.minioRootPassword)?.ownerId;
   assert.ok(owner, 'set FILES_LIVE_OWNER, or run MinIO for someone first');
-  const user = await db.getUserById(owner);
+  const user = await db.accounts.getUserById(owner);
   assert.ok(user, 'no such user');
   api = axios.create({ baseURL: BASE, proxy: false, validateStatus: () => true, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 4 * 3600)}` } });
   const temporal = await getTemporalClient();

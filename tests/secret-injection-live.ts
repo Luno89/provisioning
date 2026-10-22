@@ -137,7 +137,7 @@ async function main(): Promise<void> {
   await db.init();
   const owner = (await db.getProjects()).find((project) => project.appType === 'gitapp' && project.ownerId)?.ownerId;
   assert.ok(owner, 'no owner with a gitapp project');
-  const user = await db.getUserById(owner);
+  const user = await db.accounts.getUserById(owner);
   assert.ok(user);
   const secret = loadKeys(process.env).session;
 

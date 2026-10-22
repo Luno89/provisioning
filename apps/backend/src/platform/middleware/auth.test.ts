@@ -64,7 +64,7 @@ describe('requireAuth', () => {
 
   it('refuses a token signed with a different secret', async () => {
     const { db, auth } = await build();
-    await db.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
+    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
     const token = signJWT({ userId: 'u1' }, 'not-the-secret', 3600);
     const c = fakeCall({ cookie: `session=${token}` });
     await auth.requireAuth(c.req, c.res, c.next);
@@ -73,7 +73,7 @@ describe('requireAuth', () => {
 
   it('puts the resolved user on the request and continues', async () => {
     const { db, auth } = await build();
-    await db.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
+    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
     const token = signJWT({ userId: 'u1' }, sessionKey, 3600);
     const c = fakeCall({ cookie: `session=${token}` });
     await auth.requireAuth(c.req, c.res, c.next);
@@ -83,7 +83,7 @@ describe('requireAuth', () => {
 
   it('refuses a still-valid session of an account being removed, for requests and sockets alike', async () => {
     const { db, auth } = await build();
-    await db.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString(), removal: { startedAt: 'now', requestedBy: 'u1' } } as never);
+    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString(), removal: { startedAt: 'now', requestedBy: 'u1' } } as never);
     const token = signJWT({ userId: 'u1' }, sessionKey, 3600);
     const c = fakeCall({ cookie: `session=${token}` });
     await auth.requireAuth(c.req, c.res, c.next);
@@ -93,7 +93,7 @@ describe('requireAuth', () => {
 
   it('resolves the same user the socket handshake would', async () => {
     const { db, auth } = await build();
-    await db.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
+    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
     const token = signJWT({ userId: 'u1' }, sessionKey, 3600);
 
     const c = fakeCall({ cookie: `session=${token}` });
@@ -218,16 +218,16 @@ describe('an invite to sign up', () => {
   const withInvite = async (email?: string) => {
     const db = await testDatabase();
     await db.init();
-    await db.saveInvite({ id: 'i1', code: 'CODE', createdBy: 'ann', createdAt: 't', ...(email ? { email } : {}) });
+    await db.accounts.saveInvite({ id: 'i1', code: 'CODE', createdBy: 'ann', createdAt: 't', ...(email ? { email } : {}) });
     return { db, auth: createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001' }) };
   };
 
   it('made for one address signs up only that address, however it is written', async () => {
     const { db, auth } = await withInvite('cy@example.com');
     expect(await auth.checkAndConsumeInvite('CODE', 'u9', false, 'eve@example.com')).toBe('This invite is for cy@example.com; sign up with that address');
-    expect((await db.getInvites())[0]?.usedBy).toBeUndefined();
+    expect((await db.accounts.getInvites())[0]?.usedBy).toBeUndefined();
     expect(await auth.checkAndConsumeInvite('CODE', 'u9', false, ' CY@example.com ')).toBeNull();
-    expect((await db.getInvites())[0]?.usedBy).toBe('u9');
+    expect((await db.accounts.getInvites())[0]?.usedBy).toBe('u9');
   });
 
   it('made for anyone still works for anyone, once', async () => {

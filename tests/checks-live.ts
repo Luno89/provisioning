@@ -18,10 +18,10 @@ async function main(): Promise<void> {
   assert.ok(OWNER, 'set CHECKS_LIVE_OWNER (or GROVE_LIVE_OWNER) to the person whose model and agents the checks use');
   const db = createDatabase();
   await db.init();
-  const user = await db.getUserById(OWNER);
+  const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 4 * 3600)}` }, validateStatus: () => true });
-  const spacesBefore = (await db.getUsers()).filter((entry) => entry.space).length;
+  const spacesBefore = (await db.accounts.getUsers()).filter((entry) => entry.space).length;
 
   try {
     console.log(`[1] a Level 2 run of ${ONLY.length} scenarios starts on the check runner`);
@@ -57,7 +57,7 @@ async function main(): Promise<void> {
         assert.ok(traces.length > 0, `${result.scenarioId}'s run ${runId} does not open for the person`);
       }
     }
-    const spacesAfter = (await db.getUsers()).filter((entry) => entry.space);
+    const spacesAfter = (await db.accounts.getUsers()).filter((entry) => entry.space);
     console.log(`    every run opens; spaces before ${spacesBefore}, after ${spacesAfter.length}`);
     assert.equal(spacesAfter.length, spacesBefore, `spaces were left behind: ${spacesAfter.map((entry) => entry.id).join(', ')}`);
     console.log(`checks live — PASS (${run.results.filter((result) => result.passed).length} of ${run.results.length} scenarios passed on the model)`);

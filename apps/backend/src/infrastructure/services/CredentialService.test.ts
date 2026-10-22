@@ -20,7 +20,7 @@ describe('CredentialService', () => {
 
   beforeEach(async () => {
     db = await testDatabase();
-    await db.saveUser({ ...testUser });
+    await db.accounts.saveUser({ ...testUser });
     service = new CredentialService(db, TEST_KEY);
   });
 
@@ -44,7 +44,7 @@ describe('CredentialService', () => {
         token: 'dop_v1_secret_token_12345',
       });
 
-      const user = (await db.getUsers()).find((u) => u.id === 'user-1');
+      const user = (await db.accounts.getUsers()).find((u) => u.id === 'user-1');
       expect(user?.credentials?.do?.token).toBeDefined();
       expect(user?.credentials?.do?.token).not.toBe('dop_v1_secret_token_12345');
       const decrypted = decryptValue(user!.credentials!.do!.token, TEST_KEY);
@@ -123,7 +123,7 @@ describe('CredentialService', () => {
     it('encrypts the token at rest and masks it on read', async () => {
       await service.saveCredentials('user-1', 'hetzner', { token: 'hetzner-secret-token-value' });
 
-      const stored = (await db.getUserById('user-1'))!.credentials!.hetzner!.token;
+      const stored = (await db.accounts.getUserById('user-1'))!.credentials!.hetzner!.token;
       expect(stored).not.toBe('hetzner-secret-token-value');
       expect(decryptValue(stored, TEST_KEY)).toBe('hetzner-secret-token-value');
 

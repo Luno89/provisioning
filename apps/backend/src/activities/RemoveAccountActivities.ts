@@ -1,6 +1,5 @@
 import { Context } from '@temporalio/activity';
-import type { AccountIds } from '../platform/lib/db-interface.js';
-import { memoryWatermarkKeys, ownedWorkflowIds, type AccountRelated } from '../accounts/lib/account-removal.js';
+import { memoryWatermarkKeys, ownedWorkflowIds, type AccountIds, type AccountRelated } from '../accounts/lib/account-removal.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { labelValue } from '../engine-host/sandboxes/workspace.js';
 import type { DeploymentMetadata } from '../platform/lib/types.js';
@@ -14,8 +13,10 @@ export interface RemoveAccountArgs {
 
 export interface AccountRemovalDeps {
   store: {
-    accountIds(ownerId: string): Promise<AccountIds>;
-    removeAccountRecords(ownerId: string, related: AccountRelated): Promise<Record<string, number>>;
+    accounts: {
+      accountIds(ownerId: string): Promise<AccountIds>;
+      removeAccountRecords(ownerId: string, related: AccountRelated): Promise<Record<string, number>>;
+    };
     getGiteaAccount(ownerId: string): Promise<{ username: string } | null>;
     reownRuns(from: string, to: string): Promise<number>;
     getDeployments(): Promise<DeploymentMetadata[]>;
@@ -54,7 +55,7 @@ const heartbeat = () => {
 export function createAccountRemovalActivities(deps: AccountRemovalDeps): AccountRemovalActivities {
   return {
     async RemoveAccountWorkflowsActivity({ ownerId }) {
-      const ids = ownedWorkflowIds(ownerId, await deps.store.accountIds(ownerId));
+      const ids = ownedWorkflowIds(ownerId, await deps.store.accounts.accountIds(ownerId));
       let stopped = 0;
       for (let at = 0; at < ids.length; at += BATCH) {
         const results = await Promise.all(ids.slice(at, at + BATCH).map((id) => deps.workflows.stopIfRunning(id, REASON)));
@@ -86,7 +87,7 @@ export function createAccountRemovalActivities(deps: AccountRemovalDeps): Accoun
     },
 
     async RemoveAccountSecretsActivity({ ownerId }) {
-      const { projectIds } = await deps.store.accountIds(ownerId);
+      const { projectIds } = await deps.store.accounts.accountIds(ownerId);
       let removed = 0;
       for (const projectId of projectIds) {
         const gone = await deps.secrets.removeProject(projectId);
@@ -107,8 +108,8 @@ export function createAccountRemovalActivities(deps: AccountRemovalDeps): Accoun
     },
 
     async RemoveAccountRecordsActivity({ ownerId }) {
-      const ids = await deps.store.accountIds(ownerId);
-      return deps.store.removeAccountRecords(ownerId, {
+      const ids = await deps.store.accounts.accountIds(ownerId);
+      return deps.store.accounts.removeAccountRecords(ownerId, {
         watermarkKeys: memoryWatermarkKeys(ids),
         ingestIds: ids.ingestIds,
         projectIds: ids.projectIds,

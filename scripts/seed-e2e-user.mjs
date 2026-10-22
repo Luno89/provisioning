@@ -24,11 +24,11 @@ async function main() {
     createdBy: 'seed-script',
     createdAt: new Date().toISOString(),
   };
-  await db.saveInvite(invite);
+  await db.accounts.saveInvite(invite);
   console.log(`[seed] Created invite: ${INVITE_CODE}`);
 
   // Check if user exists
-  const existing = await db.getUserByEmail(TEST_USER_EMAIL);
+  const existing = await db.accounts.getUserByEmail(TEST_USER_EMAIL);
   if (existing) {
     console.log(`[seed] User ${TEST_USER_EMAIL} already exists`);
     return;
@@ -45,7 +45,7 @@ async function main() {
     emailVerified: true,
     createdAt: new Date().toISOString(),
   };
-  await db.saveUser(user);
+  await db.accounts.saveUser(user);
   console.log(`[seed] Created test user: ${TEST_USER_EMAIL} (${userId})`);
 
   await db.close();

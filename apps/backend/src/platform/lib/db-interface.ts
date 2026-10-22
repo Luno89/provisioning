@@ -15,6 +15,7 @@ import type { Task } from '../../projects/lib/tasks.js';
 import type { PlanProposal } from '../../projects/lib/plan-proposals.js';
 import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import type { HubStore } from '../../hub/store.js';
+import type { AccountsStore } from '../../accounts/store.js';
 import type { PlatformStore } from '../store.js';
 import type { SecretRequest } from '../../projects/lib/secret-requests.js';
 import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
@@ -42,8 +43,7 @@ import type { TreeTypeSpec } from '../../projects/lib/tree-types.js';
 import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
 import type { ModelThinkingProfile } from '../../engine/lib/thinking-classifier.js';
 import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
-import type { AccountRelated } from '../../accounts/lib/account-removal.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
 import type { OdooRelease } from '../../releases/lib/odoo-release.js';
 import type { StoredArtifact } from '../../files/lib/artifacts.js';
 import type { ArtifactChunk } from '../../files/lib/artifacts.js';
@@ -76,18 +76,9 @@ export interface ScriptedRequestRecord {
   miss?: string | undefined;
 }
 
-export interface AccountIds {
-  runIds: string[];
-  treeIds: string[];
-  conversationIds: string[];
-  proposalIds: string[];
-  projectIds: string[];
-  buildWorkflowIds: string[];
-  ingestIds: string[];
-}
-
 export interface Database {
   hub: HubStore;
+  accounts: AccountsStore;
   platform: PlatformStore;
   init(): Promise<void>;
   close(): Promise<void>;
@@ -104,20 +95,11 @@ export interface Database {
   deleteDeployment(id: string): Promise<void>;
   saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata>;
 
-  getUsers(): Promise<UserMetadata[]>;
-  accountIds(ownerId: string): Promise<AccountIds>;
-  removeAccountRecords(ownerId: string, related: AccountRelated): Promise<Record<string, number>>;
-  accountLeftovers(ownerId: string): Promise<Record<string, number>>;
   removeProjectRecords(projectId: string): Promise<Record<string, number>>;
   findRunEffort(runId: string): Promise<RunEffort | undefined>;
   saveScriptedRequest(request: ScriptedRequestRecord): Promise<void>;
   getScriptedRequests(ownerId: string): Promise<ScriptedRequestRecord[]>;
   reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number>;
-  saveUser(user: UserMetadata): Promise<void>;
-  saveUserList(users: UserMetadata[]): Promise<void>;
-  getUserByEmail(email: string): Promise<UserMetadata | undefined>;
-  getUserById(id: string): Promise<UserMetadata | undefined>;
-  deleteUser(id: string): Promise<void>;
 
   getProjects(): Promise<ProjectMetadata[]>;
   saveProject(project: ProjectMetadata): Promise<void>;
@@ -126,9 +108,6 @@ export interface Database {
   getPipelineRuns(): Promise<PipelineRunMetadata[]>;
   savePipelineRun(run: PipelineRunMetadata): Promise<void>;
   savePipelineRunInfo(run: PartialInfo<PipelineRunMetadata>): Promise<PipelineRunMetadata>;
-
-  getInvites(): Promise<InviteMetadata[]>;
-  saveInvite(invite: InviteMetadata): Promise<void>;
 
   getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]>;
   saveWorkspaceImage(image: WorkspaceImageSpec): Promise<void>;

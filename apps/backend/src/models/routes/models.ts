@@ -45,9 +45,9 @@ export function modelsRouter(deps: Record<string, any>): Router {
       const owned = (await modelService.list(user.id)).some((m: any) => m.id === modelId);
       if (!owned) return res.status(404).json({ error: 'Model not found' });
     }
-    const record = await db.getUserById(user.id);
+    const record = await db.accounts.getUserById(user.id);
     if (!record) return res.status(404).json({ error: 'User not found' });
-    await db.saveUser({ ...record, ...(modelId ? { defaultModelId: modelId } : { defaultModelId: undefined }) });
+    await db.accounts.saveUser({ ...record, ...(modelId ? { defaultModelId: modelId } : { defaultModelId: undefined }) });
     res.json({ success: true, defaultModelId: modelId || null });
   }));
 
@@ -62,14 +62,14 @@ export function modelsRouter(deps: Record<string, any>): Router {
     if (typeof override !== 'boolean') {
       return res.status(400).json({ error: 'override must be true or false' });
     }
-    const record = await db.getUserById(userOf(req).id);
+    const record = await db.accounts.getUserById(userOf(req).id);
     if (!record) return res.status(404).json({ error: 'User not found' });
-    await db.saveUser({ ...record, globalModelOverride: override });
+    await db.accounts.saveUser({ ...record, globalModelOverride: override });
     res.json({ success: true, globalModelOverride: override });
   }));
 
   router.get('/default', asyncRoute(async (req, res) => {
-    const record = await db.getUserById(userOf(req).id);
+    const record = await db.accounts.getUserById(userOf(req).id);
     res.json({
       defaultModelId: record?.defaultModelId ?? null,
       globalModelOverride: record?.globalModelOverride === true,
@@ -87,9 +87,9 @@ export function modelsRouter(deps: Record<string, any>): Router {
         const owned = (await modelService.list(user.id)).some((m: any) => m.id === modelId);
         if (!owned) return res.status(404).json({ error: 'Model not found' });
       }
-      const record = await db.getUserById(user.id);
+      const record = await db.accounts.getUserById(user.id);
       if (!record) return res.status(404).json({ error: 'User not found' });
-      await db.saveUser({ ...record, ...(modelId ? { extractionModelId: modelId } : { extractionModelId: undefined }) });
+      await db.accounts.saveUser({ ...record, ...(modelId ? { extractionModelId: modelId } : { extractionModelId: undefined }) });
       res.json({ success: true, extractionModelId: modelId || null });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -97,7 +97,7 @@ export function modelsRouter(deps: Record<string, any>): Router {
   });
 
   router.get('/extractor', async (req, res) => {
-    const record = await db.getUserById(userOf(req).id);
+    const record = await db.accounts.getUserById(userOf(req).id);
     res.json({ extractionModelId: record?.extractionModelId ?? null });
   });
 

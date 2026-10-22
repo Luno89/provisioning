@@ -37,7 +37,7 @@ export class VpsCatalogService {
   }
 
   private async resolveToken(userId: string, provider: string): Promise<string | undefined> {
-    const user = await this.db.getUserById(userId);
+    const user = await this.db.accounts.getUserById(userId);
     const enc = (user?.credentials as any)?.[provider]?.token;
     let userCreds: any;
     if (enc) {

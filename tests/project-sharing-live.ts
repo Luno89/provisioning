@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   assert.ok(ADMIN, 'set MECHANICS_ADMIN (or GROVE_LIVE_OWNER) to an admin, who invites this test\'s account');
   const db = createDatabase();
   await db.init();
-  const admin = await db.getUserById(ADMIN);
+  const admin = await db.accounts.getUserById(ADMIN);
   assert.ok(admin?.isAdmin, `${ADMIN} is not an admin`);
   const adminHttp = client(`session=${signJWT({ userId: admin.id, email: admin.email }, loadKeys(process.env).session, 3600)}`);
   const mongo = await MongoClient.connect(mongoTarget(process.env).uri);
@@ -181,15 +181,15 @@ async function main(): Promise<void> {
     if (member && memberId) {
       const removed = await member.delete('/account', { data: { confirm: memberEmail } });
       if (removed.status !== 202) console.log(`    could not remove ${memberEmail}: ${removed.status} ${JSON.stringify(removed.data)}`);
-      for (let tries = 0; tries < 150 && await db.getUserById(memberId); tries += 1) await sleep(2_000);
-      assert.equal(await db.getUserById(memberId), undefined, `${memberEmail} was not removed`);
+      for (let tries = 0; tries < 150 && await db.accounts.getUserById(memberId); tries += 1) await sleep(2_000);
+      assert.equal(await db.accounts.getUserById(memberId), undefined, `${memberEmail} was not removed`);
       console.log('    removed the client account');
     }
     if (owner && ownerId) {
       const removed = await owner.delete('/account', { data: { confirm: email } });
       if (removed.status !== 202) console.log(`    could not remove ${email}: ${removed.status} ${JSON.stringify(removed.data)}`);
-      for (let tries = 0; tries < 150 && await db.getUserById(ownerId); tries += 1) await sleep(2_000);
-      assert.equal(await db.getUserById(ownerId), undefined, `${email} was not removed`);
+      for (let tries = 0; tries < 150 && await db.accounts.getUserById(ownerId); tries += 1) await sleep(2_000);
+      assert.equal(await db.accounts.getUserById(ownerId), undefined, `${email} was not removed`);
       console.log('    removed the test account');
     }
     await mongo.close();

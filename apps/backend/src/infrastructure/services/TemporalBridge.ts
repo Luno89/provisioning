@@ -149,9 +149,9 @@ async function maybeSetDefaultModel(
   appType: string | undefined,
 ): Promise<void> {
   if (!ownerId || !isModelKind(appType)) return
-  const user = await db.getUserById(ownerId)
+  const user = await db.accounts.getUserById(ownerId)
   if (!user || user.defaultModelId) return
-  await db.saveUser({ ...user, defaultModelId: deploymentId })
+  await db.accounts.saveUser({ ...user, defaultModelId: deploymentId })
 }
 
 export const connectToTemporal = async (address: string): Promise<Client> => {
@@ -716,7 +716,7 @@ export class TemporalBridge {
   private async resolveHetznerToken(userId?: string): Promise<string | undefined> {
     let userCreds: any
     if (userId) {
-      const user = await this.db.getUserById(userId)
+      const user = await this.db.accounts.getUserById(userId)
       const enc = (user?.credentials as any)?.hetzner?.token
       if (enc) {
         try {
@@ -730,7 +730,7 @@ export class TemporalBridge {
   private async resolveDoToken(userId?: string): Promise<string | undefined> {
     let userCreds: any
     if (userId) {
-      const user = await this.db.getUserById(userId)
+      const user = await this.db.accounts.getUserById(userId)
       const enc = (user?.credentials as any)?.do?.token
       if (enc) {
         try {

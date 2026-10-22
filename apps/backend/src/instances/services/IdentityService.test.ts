@@ -34,7 +34,7 @@ describe('signing in at root and landing on your own instance', () => {
 
     const instance = new IdentityService(instanceRole(), instanceDb, () => now + 3);
     expect(await instance.acceptHandoff(token)).toEqual({ ok: true, user: { id: 'u1', email: 'u1@example.com' } });
-    expect(await instanceDb.getUserById('u1')).toMatchObject({ email: 'u1@example.com', isAdmin: true, emailVerified: true });
+    expect(await instanceDb.accounts.getUserById('u1')).toMatchObject({ email: 'u1@example.com', isAdmin: true, emailVerified: true });
   });
 
   it('refuses the same token twice', async () => {
@@ -50,7 +50,7 @@ describe('signing in at root and landing on your own instance', () => {
     const forSomeoneElse = issueHandoff(signing, { userId: 'u2', email: 'u2@example.com' }, 'inst-u1', now);
 
     expect(await instance.acceptHandoff(forSomeoneElse)).toMatchObject({ ok: false, status: 403 });
-    expect(await instanceDb.getUserById('u2')).toBeUndefined();
+    expect(await instanceDb.accounts.getUserById('u2')).toBeUndefined();
   });
 
   it('refuses a token meant for another instance, or one that has expired', async () => {
@@ -95,7 +95,7 @@ describe('signing in at root and landing on the hub', () => {
 
     const hub = new IdentityService(hubRole, instanceDb, () => now);
     expect(await hub.acceptHandoff(token)).toEqual({ ok: true, user: { id: 'u7', email: 'cy@example.com' } });
-    expect(await instanceDb.getUserById('u7')).toMatchObject({ email: 'cy@example.com', isAdmin: false });
+    expect(await instanceDb.accounts.getUserById('u7')).toMatchObject({ email: 'cy@example.com', isAdmin: false });
     expect(await hub.acceptHandoff(token)).toMatchObject({ ok: false, status: 409 });
     expect(hub.signInUrl()).toBe('https://app.example.com/api/identity/go?to=hub');
   });

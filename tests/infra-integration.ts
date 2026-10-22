@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
   const ownerId = (await db.getProjects()).find((project) => project.ownerId)?.ownerId;
-  const owner = ownerId ? await db.getUserById(ownerId) : (await db.getUsers())[0];
+  const owner = ownerId ? await db.accounts.getUserById(ownerId) : (await db.accounts.getUsers())[0];
   await db.close();
   assert.ok(owner, 'there is no user to provision as');
   const secret = loadKeys(process.env).session;

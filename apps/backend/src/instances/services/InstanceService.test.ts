@@ -112,7 +112,7 @@ describe('an instance\'s name and addresses', () => {
   });
 
   it('suggests a name from the person\'s email', async () => {
-    await db.saveUser({ id: 'u3', email: 'sam.rivera@example.com' } as never);
+    await db.accounts.saveUser({ id: 'u3', email: 'sam.rivera@example.com' } as never);
     expect(await service.nameCheck('u3', undefined)).toEqual({ ok: false, suggestion: 'samrivera' });
     expect(await service.nameCheck('u3', 'samrivera')).toEqual({ ok: true, address: 'https://samrivera.koala.dev' });
   });

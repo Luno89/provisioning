@@ -148,7 +148,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
     procedures: { list: (ownerId?: string) => db.getProcedures(ownerId) },
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
-    accountDefault: async (ownerId: string) => accountDefaultOf(await db.getUserById(ownerId)),
+    accountDefault: async (ownerId: string) => accountDefaultOf(await db.accounts.getUserById(ownerId)),
   });
   const conversationTurns = new ConversationTurnService({
     store: db,
@@ -186,7 +186,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
       }
       : undefined),
     binding: conversationBinding(db),
-    closing: async (ownerId: string) => ((await db.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
+    closing: async (ownerId: string) => ((await db.accounts.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
     machines: (ownerId, choice) => deps.machines.choiceProblem(ownerId, choice),
   });
   const workspaceBuilds = new WorkspaceBuildService({
@@ -215,7 +215,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
     },
     concludeAfterMinutes: async (ownerId, agentSlug) => (await engineRegistry.agent(ownerId, agentSlug))?.concludeAfterMinutes,
     remembersFor: async (ownerId: string) => {
-      const user = await db.getUserById(ownerId);
+      const user = await db.accounts.getUserById(ownerId);
       return Boolean(user) && !user!.space && !user!.removal;
     },
   });
@@ -318,7 +318,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     treeExtras: treeExtrasFrom(db, dependencyNamespaceFrom(db)),
     artifacts: { keep: (ownerId, runId, files) => deps.artifacts.artifacts.put(ownerId, runId, files) },
     checks: httpCheckAccess(async (ownerId) => {
-      const person = await db.getUserById(ownerId);
+      const person = await db.accounts.getUserById(ownerId);
       if (!person) throw new Error(`there is no account ${ownerId} to act for`);
       return axios.create({ baseURL: `http://localhost:${env.PORT || 3001}/api`, proxy: false, headers: { Cookie: `session=${signJWT({ userId: person.id, email: person.email }, deps.sessionKey, 60 * 60)}` } });
     }),
@@ -328,7 +328,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     published: (ownerId: string) => extensions.groups(ownerId),
     models: deps.models,
     stores: storesFromDatabase(db),
-    owners: async () => (await db.getUsers()).map((user) => user.id),
+    owners: async () => (await db.accounts.getUsers()).map((user) => user.id),
     ...(evalWeb ? { web: evalWeb } : {}),
     kubeconfig: env.KUBECONFIG_PATH,
     registryHost: env.KOALA_REGISTRY,

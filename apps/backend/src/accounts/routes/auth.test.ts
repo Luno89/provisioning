@@ -91,13 +91,13 @@ describe('auth router', () => {
     expect(second.status).toBe(403);
     expect((await second.json() as { error: string }).error).toMatch(/invite code is required/i);
 
-    const first = await db.getUserByEmail('first@example.com');
+    const first = await db.accounts.getUserByEmail('first@example.com');
     expect(first?.isAdmin).toBe(true);
   });
 
   it('consumes an invite exactly once', async () => {
     await registerAndLogin('first@example.com', 'hunter2hunter2');
-    await db.saveInvite({ id: 'inv-letmein', code: 'LETMEIN', createdAt: new Date().toISOString() } as never);
+    await db.accounts.saveInvite({ id: 'inv-letmein', code: 'LETMEIN', createdAt: new Date().toISOString() } as never);
 
     const ok = await fetch(ctx.url('/api/auth/register'), {
       method: 'POST',
@@ -105,7 +105,7 @@ describe('auth router', () => {
       body: JSON.stringify({ email: 'second@example.com', password: 'hunter2hunter2', inviteCode: 'LETMEIN' }),
     });
     expect(ok.status).toBe(200);
-    expect((await db.getUserByEmail('second@example.com'))?.isAdmin).toBeUndefined();
+    expect((await db.accounts.getUserByEmail('second@example.com'))?.isAdmin).toBeUndefined();
 
     const reuse = await fetch(ctx.url('/api/auth/register'), {
       method: 'POST',
@@ -122,7 +122,7 @@ describe('auth router', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email: '  MixedCase@Example.COM ', password: 'hunter2hunter2' }),
     });
-    expect((await db.getUsers())[0]?.email).toBe('mixedcase@example.com');
+    expect((await db.accounts.getUsers())[0]?.email).toBe('mixedcase@example.com');
 
     const login = await fetch(ctx.url('/api/auth/login'), {
       method: 'POST',

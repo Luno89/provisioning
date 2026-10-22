@@ -119,7 +119,7 @@ Runtime.install({
 async function buildActivities() {
   const db = createDatabase();
   await db.init();
-  resolveOwnersWith(async (owner) => (await db.getUserById(owner))?.space?.person ?? owner);
+  resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
 
   const models = createModelService(db, keys.data);
   const web = await buildWebTools(db).catch(() => undefined);
@@ -160,7 +160,7 @@ async function buildActivities() {
   const extensions = extensionServiceFor(db);
   const checksApi = process.env.CHECKS_API_URL || `http://localhost:${process.env.PORT || 3001}/api`;
   const checks = httpCheckAccess(async (ownerId) => {
-    const person = await db.getUserById(ownerId);
+    const person = await db.accounts.getUserById(ownerId);
     if (!person) throw new Error(`there is no account ${ownerId} to act for`);
     return axios.create({ baseURL: checksApi, proxy: false, headers: { Cookie: `session=${signJWT({ userId: person.id, email: person.email }, keys.session, 60 * 60)}` } });
   });
@@ -213,12 +213,12 @@ async function buildActivities() {
       projectOfConversation: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.projectId,
     },
     dependencies: async (ownerId) => catalogueOf(SHIPPED_DEPENDENCIES, await db.getWorkspaceDependencies(ownerId)),
-    accountDefault: async (ownerId) => accountDefaultOf(await db.getUserById(ownerId)),
+    accountDefault: async (ownerId) => accountDefaultOf(await db.accounts.getUserById(ownerId)),
     customizations,
     monitoring: {
       monitoring,
       rules: (ownerId) => db.getAlertRules(ownerId),
-      viewer: async (ownerId) => ({ id: ownerId, isAdmin: Boolean((await db.getUserById(ownerId))?.isAdmin) }),
+      viewer: async (ownerId) => ({ id: ownerId, isAdmin: Boolean((await db.accounts.getUserById(ownerId))?.isAdmin) }),
     },
     treeModels: {
       describe: (ownerId, treeId) => treeModels.describe(ownerId, treeId),
@@ -329,7 +329,7 @@ async function buildActivities() {
       ],
       deployments: () => db.getDeployments(),
       kubectl: async (cluster, argv) => String(await kubeInfra.runKubectl(argv, await clusterService.getKubeconfigPath(cluster))),
-      isAdmin: async (ownerId) => (await db.getUserById(ownerId))?.isAdmin === true,
+      isAdmin: async (ownerId) => (await db.accounts.getUserById(ownerId))?.isAdmin === true,
       openNamespaces: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.platformNamespaces ?? [],
       accessRequests: {
         list: (ownerId, conversationId) => db.getAccessRequests(ownerId, conversationId),
@@ -374,7 +374,7 @@ async function buildActivities() {
       signal: async (workflowId, name, payload) => { await temporal.workflow.getHandle(workflowId).signal(name, ...(payload === undefined ? [] : [payload])); },
     }),
     binding: conversationBinding(db),
-    closing: async (ownerId: string) => ((await db.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
+    closing: async (ownerId: string) => ((await db.accounts.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
     machines: async (ownerId, choice) => {
       const device = (await db.getLocalAgentDevices()).find((one) => one.id === choice.deviceId && one.ownerId === ownerId);
       return machineChoiceProblem(device ? { name: device.name, online: false, agents: device.agents ?? [] } : undefined, choice.agent, { waitsToConnect: true, model: choice.model });
@@ -540,7 +540,7 @@ async function buildActivities() {
       }),
       terminate: async (runId, reason) => { await temporal.workflow.getHandle(workflowOfRun(runId)).terminate(reason).catch(() => undefined); },
       leftovers: {
-        records: (ownerId) => db.accountLeftovers(ownerId),
+        records: (ownerId) => db.accounts.accountLeftovers(ownerId),
         workspaces: async (ownerId) => (await createKubeRunner()(['get', 'namespace', '-l', `koala.dev/owner=${labelValue(ownerId)}`, '-o', 'name'])).stdout.split('\n').map((line) => line.trim()).filter(Boolean),
         giteaUser: (ownerId) => gitea.userExists(giteaUsernameFor(ownerId)),
       },

@@ -6,7 +6,9 @@ type LegacyTool = ToolDefinition & { install?: Install | undefined; needsBinarie
 type LegacyRuns = Extract<McpServerRecord['runs'], { where: 'workspace' }> & { install?: Install[] | undefined; needsBinaries?: string[] | undefined };
 
 export interface DependencyMigrationStore {
-  getUsers(): Promise<{ id: string }[]>;
+  accounts: {
+    getUsers(): Promise<{ id: string }[]>;
+  };
   getEngineTools(ownerId?: string): Promise<ToolDefinition[]>;
   saveEngineTool(tool: ToolDefinition): Promise<void>;
   getMcpServers(ownerId: string): Promise<McpServerRecord[]>;
@@ -72,7 +74,7 @@ export async function migrateToDependencies(store: DependencyMigrationStore, shi
     out.toolsMoved += 1;
   }
 
-  for (const { id: ownerId } of await store.getUsers()) {
+  for (const { id: ownerId } of await store.accounts.getUsers()) {
     for (const server of await store.getMcpServers(ownerId)) {
       if (server.runs.where !== 'workspace') continue;
       const legacy = server.runs as LegacyRuns;

@@ -74,7 +74,7 @@ export function workFailuresFor(deps: WorkFailuresDeps): WorkFailureService {
     },
     records: runningRecords,
     isPerson: async (ownerId) => {
-      const user = await db.getUserById(ownerId);
+      const user = await db.accounts.getUserById(ownerId);
       return Boolean(user) && !user!.space && !user!.removal;
     },
     log: (message) => console.warn(message),

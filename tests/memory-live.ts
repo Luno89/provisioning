@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   assert.ok(OWNER, 'set MEMORY_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user whose model the runs use');
   const db = createDatabase();
   await db.init();
-  const user = await db.getUserById(OWNER);
+  const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 7200)}` } });
 

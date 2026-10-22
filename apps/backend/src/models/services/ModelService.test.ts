@@ -22,7 +22,7 @@ const gatewayEndpoints = (ownerId: string, count: number): ModelEndpointMetadata
 const build = async (endpoints: ModelEndpointMetadata[], user?: Partial<UserMetadata>) => {
   const db = await testDatabase();
   for (const e of endpoints) await db.saveModelEndpoint(e);
-  await db.saveUser({
+  await db.accounts.saveUser({
     id: 'u1', email: 'u@example.com', emailVerified: true,
     createdAt: new Date().toISOString(), ...user,
   } as UserMetadata);
@@ -120,7 +120,7 @@ describe('a check space borrowing its person\'s models', () => {
   it('sees and resolves the person\'s models, on the person\'s default, with nothing of its own', async () => {
     const models = await build(gatewayEndpoints('u1', 3), { defaultModelId: 'openrouter-2' });
     const db = (models as unknown as { db: MongoDB }).db;
-    await db.saveUser({ id: 'space-1', email: 'space-1@checks.internal', emailVerified: true, twoFactorEnabled: false, createdAt: 'now', space: { person: 'u1', checkRunId: 'c1', scenarioId: 's1' } });
+    await db.accounts.saveUser({ id: 'space-1', email: 'space-1@checks.internal', emailVerified: true, twoFactorEnabled: false, createdAt: 'now', space: { person: 'u1', checkRunId: 'c1', scenarioId: 's1' } });
 
     expect((await models.list('space-1')).map((provider) => provider.id)).toEqual(['openrouter-0', 'openrouter-1', 'openrouter-2']);
     const resolved = await models.resolveBaseUrl('space-1');

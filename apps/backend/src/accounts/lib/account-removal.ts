@@ -108,6 +108,16 @@ export const ACCOUNT_DATA = {
   shared: ['clusterProviders', 'hubDirty', 'identityHandoffs', 'invites', 'migrations', 'model_thinking_profiles', 'poolSettings', 'temporal_payload_chunks'],
 } as const;
 
+export interface AccountIds {
+  runIds: string[];
+  treeIds: string[];
+  conversationIds: string[];
+  proposalIds: string[];
+  projectIds: string[];
+  buildWorkflowIds: string[];
+  ingestIds: string[];
+}
+
 export interface AccountRelated {
   watermarkKeys: readonly string[];
   ingestIds: readonly string[];

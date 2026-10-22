@@ -153,7 +153,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
     if (!dep.vllmHfToken && !dep.tabbyHfToken && (dep.appType === 'vllm' || config.appType === 'vllm' || dep.appType === 'tabbyapi' || config.appType === 'tabbyapi')) {
       let userCreds;
       if (userId) {
-        const user = await deps.db.getUserById(userId);
+        const user = await deps.db.accounts.getUserById(userId);
         const encryptedToken = user?.credentials?.huggingface?.hfToken;
         if (encryptedToken) {
           try {

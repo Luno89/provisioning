@@ -21,7 +21,7 @@ async function main(): Promise<void> {
     for (const instance of all) console.log(`${instance.id}\t${instance.ownerId}\t${instance.url}`);
   } else if (command === 'add' && rest.length === 3) {
     const [id, ownerId, url] = rest as [string, string, string];
-    if (!await db.getUserById(ownerId)) throw new Error(`there is no user ${ownerId} on this root`);
+    if (!await db.accounts.getUserById(ownerId)) throw new Error(`there is no user ${ownerId} on this root`);
     const result = await identity.register({ id, ownerId, url });
     if (!result.ok) throw new Error(result.error);
     console.log(`registered ${result.instance.id} for ${ownerId} at ${result.instance.url}`);

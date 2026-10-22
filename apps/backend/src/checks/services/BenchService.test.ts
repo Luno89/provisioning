@@ -53,7 +53,7 @@ const bench = () => new BenchService({
   now: () => NOW,
 });
 
-const account = (id: string, over: Partial<UserMetadata> = {}) => db.saveUser({ id, email: `${id}@example.com`, emailVerified: true, createdAt: NOW_ISO, ...over } as UserMetadata);
+const account = (id: string, over: Partial<UserMetadata> = {}) => db.accounts.saveUser({ id, email: `${id}@example.com`, emailVerified: true, createdAt: NOW_ISO, ...over } as UserMetadata);
 
 beforeEach(async () => {
   db = await testDatabase();

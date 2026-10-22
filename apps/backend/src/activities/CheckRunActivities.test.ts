@@ -81,7 +81,7 @@ describe('a check\'s space', () => {
 
     await activities().CheckCreateSpaceActivity({ spaceId: 'space-1', checkRunId: 'c1', person: 'bo', scenario: SCENARIO, trialPractice: 'p2', promptOverride: { agent: 'koala', prompt: 'proposed' } });
 
-    expect(await db.getUserById('space-1')).toMatchObject({ email: 'space-1@checks.internal', space: { person: 'bo', checkRunId: 'c1', scenarioId: 'executor-does-one-task' } });
+    expect(await db.accounts.getUserById('space-1')).toMatchObject({ email: 'space-1@checks.internal', space: { person: 'bo', checkRunId: 'c1', scenarioId: 'executor-does-one-task' } });
     expect(await db.getBenchSettings('space-1')).toMatchObject({ enabled: false });
     const personas = (await db.getEnginePersonas('space-1')).filter((persona) => persona.ownerId === 'space-1');
     expect(personas.map((persona) => [persona.slug, persona.prompt]).sort()).toEqual([['executor', 'mine']]);
@@ -192,7 +192,7 @@ const STORY: Scenario = {
 
 describe('a check that releases its project', () => {
   const run = async (scenario: Scenario, made: ReturnType<typeof releasingApi>) => {
-    await db.saveUser({ id: 'space-1', email: 'space-1@checks.internal' } as never);
+    await db.accounts.saveUser({ id: 'space-1', email: 'space-1@checks.internal' } as never);
     return createCheckRunActivities({
       store: db as never,
       api: () => made.http as never,

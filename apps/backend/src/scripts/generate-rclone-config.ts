@@ -22,7 +22,7 @@ async function main() {
   const db = createDatabase() as any;
   if (typeof db.init === 'function') await db.init();
 
-  const users = await db.getUsers();
+  const users = await db.accounts.getUsers();
   const user = users.find((u: any) => u.credentials?.googledrive?.refreshToken);
   if (!user) process.exit(1);
 

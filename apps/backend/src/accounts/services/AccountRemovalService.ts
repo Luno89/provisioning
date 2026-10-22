@@ -1,6 +1,7 @@
-import type { ClusterMetadata, DeploymentMetadata, UserMetadata } from '../../platform/lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import type { InstanceRecord, InstanceStatus } from '../../instances/lib/instances.js';
 import type { Client } from '@temporalio/client';
+import type { AccountsStore } from '../store.js';
 import type { HubPeople } from '../../hub/services/HubPeople.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
 import {
@@ -15,9 +16,7 @@ import {
 } from '../lib/account-removal.js';
 
 export interface AccountRemovalStore {
-  getUsers(): Promise<UserMetadata[]>;
-  getUserById(id: string): Promise<UserMetadata | undefined>;
-  saveUser(user: UserMetadata): Promise<void>;
+  accounts: Pick<AccountsStore, 'getUsers' | 'getUserById' | 'saveUser'>;
   getClusters(): Promise<ClusterMetadata[]>;
   getDeployments(): Promise<DeploymentMetadata[]>;
 }
@@ -111,7 +110,7 @@ export class AccountRemovalService {
   }
 
   private async world() {
-    const [users, clusters, deployments] = await Promise.all([this.deps.store.getUsers(), this.deps.store.getClusters(), this.deps.store.getDeployments()]);
+    const [users, clusters, deployments] = await Promise.all([this.deps.store.accounts.getUsers(), this.deps.store.getClusters(), this.deps.store.getDeployments()]);
     return { users, clusters, deployments };
   }
 
@@ -139,13 +138,13 @@ export class AccountRemovalService {
       if (blockers.length > 0) return { ok: false, refusal: { status: 409, error: 'The account cannot be removed yet', blockers } };
       await this.deps.hub.letGo(request.ownerId);
     }
-    await this.deps.store.saveUser({ ...target!, removal: { startedAt: this.now(), requestedBy: request.requestedBy } });
+    await this.deps.store.accounts.saveUser({ ...target!, removal: { startedAt: this.now(), requestedBy: request.requestedBy } });
     await this.deps.workflows.start(this.deps.workflowType ?? REMOVE_ACCOUNT_WORKFLOW, workflowId, [{ ownerId: request.ownerId }], request.ownerId);
     return { ok: true, state: await this.deps.workflows.state(workflowId) };
   }
 
   async people(): Promise<PersonEntry[]> {
-    const users = (await this.deps.store.getUsers()).filter((user) => !user.space);
+    const users = (await this.deps.store.accounts.getUsers()).filter((user) => !user.space);
     const instances = this.deps.instances ? await this.deps.instances() : [];
     const steps = this.deps.steps;
     return Promise.all(users.map(async (user) => {

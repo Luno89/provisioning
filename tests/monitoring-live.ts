@@ -53,7 +53,7 @@ async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
   closeDb = async () => { await db.close?.(); };
-  const user = await db.getUserById(OWNER);
+  const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');
   http = axios.create({ baseURL: BASE, proxy: false, validateStatus: () => true, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 4 * 3600)}` } });
   const api = http;

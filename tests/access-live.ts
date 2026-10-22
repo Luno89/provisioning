@@ -35,7 +35,7 @@ async function turn(http: AxiosInstance, conversationId: string, message: string
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
-  const admin = (await db.getUsers()).find((user) => user.isAdmin);
+  const admin = (await db.accounts.getUsers()).find((user) => user.isAdmin);
   await db.close();
   assert.ok(admin, 'there is no administrator to test with');
   const secret = loadKeys(process.env).session;

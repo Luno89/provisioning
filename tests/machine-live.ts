@@ -60,7 +60,7 @@ async function main(): Promise<void> {
   assert.ok(OWNER, 'set MACHINE_LIVE_OWNER (or CHECKS_LIVE_OWNER) to the person the machine joins');
   const db = createDatabase();
   await db.init();
-  const user = await db.getUserById(OWNER);
+  const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');
   const http = axios.create({ baseURL: BASE, proxy: false, timeout: 0, validateStatus: () => true, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 4 * 3600)}` } });
 

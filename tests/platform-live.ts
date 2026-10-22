@@ -45,7 +45,7 @@ async function main(): Promise<void> {
   const runs = await db.getPipelineRuns();
   const project = (await db.getProjects()).find((candidate) => candidate.ownerId && runs.some((run) => run.projectId === candidate.id));
   assert.ok(project?.ownerId, 'no project with builds to ask about');
-  const user = await db.getUserById(project.ownerId);
+  const user = await db.accounts.getUserById(project.ownerId);
   assert.ok(user);
   const secret = loadKeys(process.env).session;
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, secret, 3600)}` } });

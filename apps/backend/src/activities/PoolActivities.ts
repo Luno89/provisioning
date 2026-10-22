@@ -259,7 +259,7 @@ async function tell(ownerId: string, message: { subject: string; text: string })
   const db = createDatabase();
   await db.init();
   try {
-    const mail = new MailService({ way: emailWayFrom(process.env, roleFromEnv(process.env)), emailOf: async (id) => (await db.getUserById(id))?.email });
+    const mail = new MailService({ way: emailWayFrom(process.env, roleFromEnv(process.env)), emailOf: async (id) => (await db.accounts.getUserById(id))?.email });
     await mail.toOwner(ownerId, message);
   } catch (error) {
     console.warn(`[pool] could not email ${ownerId} "${message.subject}": ${(error as Error).message}`);

@@ -25,7 +25,7 @@ export class ModelService extends BaseService {
   }
 
   private async modelOwner(userId: string): Promise<string> {
-    return modelOwner(await this.db.getUserById(userId), userId);
+    return modelOwner(await this.db.accounts.getUserById(userId), userId);
   }
 
   async list(userId: string): Promise<ModelProvider[]> {
@@ -51,7 +51,7 @@ export class ModelService extends BaseService {
   }
 
   async resolveExtractor(userId: string): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string } | undefined> {
-    const user = await this.db.getUserById(userId);
+    const user = await this.db.accounts.getUserById(userId);
     const chosen = user?.extractionModelId;
     if (!chosen) return undefined;
     try {
@@ -68,7 +68,7 @@ export class ModelService extends BaseService {
   ): Promise<{ owner: string; provider: ModelProvider; source: EndpointSource }> {
     const owner = await this.modelOwner(userId);
     const providers = await this.list(owner);
-    const user = await this.db.getUserById(owner);
+    const user = await this.db.accounts.getUserById(owner);
     const onMachine = machineChoice(user?.defaultModelId) ? user!.defaultModelId : undefined;
     if (providers.length === 0) {
       throw new Error(onMachine && !modelId && !packEndpointId
@@ -115,7 +115,7 @@ export class ModelService extends BaseService {
     provider: ModelProvider,
   ): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string }> {
     const baseUrl = provider.baseUrl ?? '';
-    const owner = await this.db.getUserById(userId);
+    const owner = await this.db.accounts.getUserById(userId);
     const scripted = owner?.space?.models === 'scripted' && this.endpointRules.scriptedBase !== undefined && baseUrl === `${this.endpointRules.scriptedBase}/${userId}/v1`;
     const check = scripted ? { ok: true as const } : checkEndpointUrl(baseUrl);
     if (!check.ok) throw new Error(`Endpoint "${provider.name}" is no longer allowed: ${check.reason}`);

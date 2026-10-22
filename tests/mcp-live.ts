@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   await db.init();
   const ownerId = (await db.getDeployments()).find((dep) => dep.appType === 'gitapp' && dep.status === 'running' && dep.ownerId)?.ownerId;
   assert.ok(ownerId, 'nobody runs an MCP server here');
-  const user = await db.getUserById(ownerId);
+  const user = await db.accounts.getUserById(ownerId);
   assert.ok(user);
   const secret = loadKeys(process.env).session;
   const cookie = `session=${signJWT({ userId: user.id, email: user.email }, secret, 3600)}`;

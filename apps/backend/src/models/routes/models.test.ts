@@ -11,7 +11,7 @@ describe('the account default', () => {
     const h = await mountRouter({
       prefix: '/api/models',
       router: async (db) => {
-        await db.saveUser({ id: TEST_USER.id, email: TEST_USER.email } as never);
+        await db.accounts.saveUser({ id: TEST_USER.id, email: TEST_USER.email } as never);
         return modelsRouter({
           db,
           modelService: { list: async () => [{ id: 'tabby-qwen' }] },

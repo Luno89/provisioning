@@ -14,7 +14,7 @@ export function adminRouter(deps: Record<string, any>): Router {
   const router = Router();
 
   router.get('/invites', requireAdmin, async (req, res) => {
-    res.json(await db.getInvites());
+    res.json(await db.accounts.getInvites());
   });
 
   router.post('/invites', requireAdmin, async (req, res) => {
@@ -25,7 +25,7 @@ export function adminRouter(deps: Record<string, any>): Router {
       createdBy: userOf(req).id,
       createdAt: new Date().toISOString(),
     };
-    await db.saveInvite(invite);
+    await db.accounts.saveInvite(invite);
     res.status(201).json(invite);
   });
 

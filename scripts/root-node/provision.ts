@@ -120,7 +120,7 @@ async function main() {
   step('Reading credentials');
   const db = await createDatabase();
   await (db as any).init();
-  const users: any[] = await (db as any).getUsers();
+  const users: any[] = await (db as any).accounts.getUsers();
   const owner = users.find((u) => u?.credentials?.hetzner?.token && u?.credentials?.cloudflare?.token);
   if (!owner) die('Need both a Hetzner and a Cloudflare token stored under Cloud Accounts.');
   const keys = loadKeys(process.env);

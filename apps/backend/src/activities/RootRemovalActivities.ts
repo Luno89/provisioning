@@ -30,5 +30,5 @@ export async function RootRemovalMeshActivity({ ownerId }: { ownerId: string }):
 }
 
 export async function RootRemovalRecordsActivity({ ownerId }: { ownerId: string }): Promise<Record<string, number>> {
-  return withDb((db) => db.removeAccountRecords(ownerId, { watermarkKeys: [], ingestIds: [], projectIds: [] }));
+  return withDb((db) => db.accounts.removeAccountRecords(ownerId, { watermarkKeys: [], ingestIds: [], projectIds: [] }));
 }

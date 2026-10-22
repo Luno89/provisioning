@@ -6,7 +6,9 @@ import type { ScriptedRequestRecord } from '../../platform/lib/db-interface.js';
 import type { ModelEndpointMetadata, UserMetadata } from '../../platform/lib/types.js';
 
 export interface ScriptedModelStore {
-  getUserById(id: string): Promise<UserMetadata | undefined>;
+  accounts: {
+    getUserById(id: string): Promise<UserMetadata | undefined>;
+  };
   getModelEndpoints(): Promise<ModelEndpointMetadata[]>;
   getTasks(ownerId?: string): Promise<{ id: string }[]>;
   getLeaves(): Promise<{ id: string; ownerId?: string | undefined }[]>;
@@ -32,7 +34,7 @@ export class ScriptedModelService {
   constructor(private readonly deps: { store: ScriptedModelStore; dataKey: SecretKey; now?: () => string }) {}
 
   private async authorised(spaceId: string, token: string): Promise<UserMetadata | { refused: 401 | 404; error: string }> {
-    const space = await this.deps.store.getUserById(spaceId);
+    const space = await this.deps.store.accounts.getUserById(spaceId);
     if (!space?.space?.script) return { refused: 404, error: 'there is no scripted check here' };
     const endpoint = (await this.deps.store.getModelEndpoints()).find((entry) => entry.id === scriptedEndpointId(spaceId) && entry.ownerId === spaceId);
     const expected = endpoint?.apiKeyEnc ? decryptValue(endpoint.apiKeyEnc, this.deps.dataKey) : undefined;

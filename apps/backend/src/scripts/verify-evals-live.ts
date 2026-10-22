@@ -24,7 +24,7 @@ async function main() {
   await db.init();
 
   const inviteCode = `invite-${Date.now()}`;
-  await db.saveInvite({
+  await db.accounts.saveInvite({
     id: inviteCode,
     code: inviteCode,
     createdBy: 'system',

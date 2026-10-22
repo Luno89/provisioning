@@ -20,7 +20,7 @@ const deps = (over: Partial<AccountRemovalDeps> = {}): AccountRemovalDeps => ({
 });
 
 const seed = async (ownerId: string) => {
-  await db.saveUser({ id: ownerId, email: `${ownerId}@example.com`, twoFactorEnabled: false, emailVerified: true, createdAt: 'then' });
+  await db.accounts.saveUser({ id: ownerId, email: `${ownerId}@example.com`, twoFactorEnabled: false, emailVerified: true, createdAt: 'then' });
   await db.saveConversation({ id: `${ownerId}-c1`, ownerId, title: 'chat', messages: [], liveTurn: { runId: 'run-live', startedAt: 'then' }, createdAt: 'then', updatedAt: 'then' } as never);
   await db.saveTree({ id: `${ownerId}-t1`, ownerId, name: 'tree', projectIds: [], createdAt: 'then', updatedAt: 'then' } as never);
   await db.saveMemory({ id: `${ownerId}-m1`, ownerId, title: 'm', text: 't', createdAt: 'then', updatedAt: 'then' } as never);
@@ -86,10 +86,10 @@ describe('the steps that remove an account', () => {
     const removed = await createAccountRemovalActivities(deps()).RemoveAccountRecordsActivity({ ownerId: 'bo' });
 
     expect(removed).toMatchObject({ conversations: 1, trees: 1, memories: 1, giteaAccounts: 1, memoryWatermarks: 1, users: 1 });
-    expect(await db.getUserById('bo')).toBeUndefined();
+    expect(await db.accounts.getUserById('bo')).toBeUndefined();
     expect(await db.getConversation('bo', 'bo-c1')).toBeUndefined();
     expect(await db.getMemoryWatermark('conversation:bo-c1')).toBeUndefined();
-    expect(await db.getUserById('ana')).toBeDefined();
+    expect(await db.accounts.getUserById('ana')).toBeDefined();
     expect(await db.getConversation('ana', 'ana-c1')).toBeDefined();
     expect((await db.getTrees()).map((tree) => tree.id)).toEqual(['ana-t1']);
     expect(await db.getGiteaAccount('ana')).not.toBeNull();

@@ -79,7 +79,7 @@ async function main(): Promise<void> {
   closeDb = async () => { await db.close?.(); };
   const owner = (await db.getLocalAgentDevices()).find((entry) => entry.id === deviceId)?.ownerId;
   assert.ok(owner, `there is no machine ${deviceId}`);
-  const user = await db.getUserById(owner);
+  const user = await db.accounts.getUserById(owner);
   assert.ok(user, 'the machine\'s owner is gone');
   api = axios.create({ baseURL: BASE, proxy: false, validateStatus: () => true, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 4 * 3600)}` } });
   const http = api;

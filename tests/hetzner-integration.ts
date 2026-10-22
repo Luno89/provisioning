@@ -73,7 +73,7 @@ async function loginAsCredentialedAdmin(): Promise<string> {
 async function resolveHetznerToken(): Promise<string> {
   const db = await createDatabase();
   await (db as any).init();
-  const users: any[] = await (db as any).getUsers();
+  const users: any[] = await (db as any).accounts.getUsers();
   const owner = users.find((u) => u?.credentials?.hetzner?.token);
   if (!owner) {
     // Distinguished because the remedies are different, and an empty database is the more likely

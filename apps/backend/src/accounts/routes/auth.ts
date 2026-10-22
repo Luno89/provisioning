@@ -35,12 +35,12 @@ export function authRouter(deps: AuthRouterDeps): Router {
         return res.status(400).json({ error: 'Email and password are required' });
       }
       email = email.trim().toLowerCase();
-      const existing = await db.getUserByEmail(email);
+      const existing = await db.accounts.getUserByEmail(email);
       if (existing) {
         return res.status(400).json({ error: 'User already exists' });
       }
 
-      const isFirstUser = (await db.getUsers()).length === 0;
+      const isFirstUser = (await db.accounts.getUsers()).length === 0;
       const userId = uuidv4();
       const inviteError = await checkAndConsumeInvite(inviteCode, userId, isFirstUser, email);
       if (inviteError) {
@@ -57,7 +57,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
         createdAt: new Date().toISOString(),
         ...(isFirstUser ? { isAdmin: true } : {}),
       };
-      await db.saveUser(user);
+      await db.accounts.saveUser(user);
       res.json({ success: true, message: 'User registered successfully' });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -79,7 +79,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
         attempts.set(account, afterFailure(attempts.get(account), now));
         return res.status(401).json({ error: 'Invalid email or password' });
       };
-      const user = await db.getUserByEmail(email);
+      const user = await db.accounts.getUserByEmail(email);
       if (!user || !user.passwordHash) return failed();
       const match = await verifyPassword(password, user.passwordHash);
       if (!match) return failed();
@@ -116,7 +116,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (!userId || !code) {
         return res.status(400).json({ error: 'User ID and OTP code are required' });
       }
-      const user = await db.getUserById(userId);
+      const user = await db.accounts.getUserById(userId);
       if (!user) {
         return res.status(400).json({ error: 'User not found' });
       }
@@ -178,7 +178,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (phone !== undefined) user.twoFactorPhone = phone;
       if (preferredMethod !== undefined) user.twoFactorPreferredMethod = preferredMethod;
 
-      await db.saveUser(user);
+      await db.accounts.saveUser(user);
       res.json({
         id: user.id,
         email: user.email,
@@ -244,9 +244,9 @@ export function authRouter(deps: AuthRouterDeps): Router {
         idStr = String(userRes.data.id);
       }
 
-      let user = await db.getUserByEmail(email);
+      let user = await db.accounts.getUserByEmail(email);
       if (!user) {
-        const isFirstUser = (await db.getUsers()).length === 0;
+        const isFirstUser = (await db.accounts.getUsers()).length === 0;
         const userId = uuidv4();
         const inviteError = await checkAndConsumeInvite(typeof state === 'string' ? state : undefined, userId, isFirstUser, email);
         if (inviteError) {
@@ -261,10 +261,10 @@ export function authRouter(deps: AuthRouterDeps): Router {
           createdAt: new Date().toISOString(),
           ...(isFirstUser ? { isAdmin: true } : {}),
         };
-        await db.saveUser(user);
+        await db.accounts.saveUser(user);
       } else if (!user.githubId) {
         user.githubId = idStr;
-        await db.saveUser(user);
+        await db.accounts.saveUser(user);
       }
 
       const token = signJWT({ userId: user.id, email: user.email }, sessionKey, 24 * 60 * 60);
@@ -325,9 +325,9 @@ export function authRouter(deps: AuthRouterDeps): Router {
         idStr = String(userRes.data.id);
       }
 
-      let user = await db.getUserByEmail(email);
+      let user = await db.accounts.getUserByEmail(email);
       if (!user) {
-        const isFirstUser = (await db.getUsers()).length === 0;
+        const isFirstUser = (await db.accounts.getUsers()).length === 0;
         const userId = uuidv4();
         const inviteError = await checkAndConsumeInvite(typeof state === 'string' ? state : undefined, userId, isFirstUser, email);
         if (inviteError) {
@@ -342,10 +342,10 @@ export function authRouter(deps: AuthRouterDeps): Router {
           createdAt: new Date().toISOString(),
           ...(isFirstUser ? { isAdmin: true } : {}),
         };
-        await db.saveUser(user);
+        await db.accounts.saveUser(user);
       } else if (!user.googleId) {
         user.googleId = idStr;
-        await db.saveUser(user);
+        await db.accounts.saveUser(user);
       }
 
       const token = signJWT({ userId: user.id, email: user.email }, sessionKey, 24 * 60 * 60);

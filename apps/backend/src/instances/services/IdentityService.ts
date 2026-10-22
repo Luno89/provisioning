@@ -4,7 +4,7 @@ import { instanceProblem, type InstanceRecord } from '../lib/instances.js';
 import type { RoleConfig } from '../../platform/lib/platform-role.js';
 import { HUB_AUDIENCE } from '../../hub/lib/hub.js';
 
-type Store = Pick<Database, 'claimHandoff' | 'getInstances' | 'saveInstance' | 'deleteInstance' | 'getUserById' | 'saveUser'>;
+type Store = Pick<Database, 'claimHandoff' | 'getInstances' | 'saveInstance' | 'deleteInstance' | 'accounts'>;
 
 export type HandoffOutcome =
   | { ok: true; user: { id: string; email: string } }
@@ -74,8 +74,8 @@ export class IdentityService {
       return { ok: false, status: 409, error: 'that sign-in token has already been used — sign in again' };
     }
 
-    const existing = await this.store.getUserById(check.claims.sub);
-    await this.store.saveUser({
+    const existing = await this.store.accounts.getUserById(check.claims.sub);
+    await this.store.accounts.saveUser({
       ...(existing ?? { twoFactorEnabled: false, createdAt: new Date(this.now() * 1000).toISOString() }),
       id: check.claims.sub,
       email: check.claims.email,

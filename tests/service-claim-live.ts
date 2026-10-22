@@ -19,7 +19,7 @@ async function main(): Promise<void> {
   await db.init();
   const ownerId = (await db.getProjects()).find((project) => project.ownerId)?.ownerId;
   assert.ok(ownerId);
-  const user = await db.getUserById(ownerId);
+  const user = await db.accounts.getUserById(ownerId);
   assert.ok(user);
   const secret = loadKeys(process.env).session;
   assert.ok(secret);

@@ -202,7 +202,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   });
   const hubAccess = role.signing && role.hubLink
     ? async (instanceId: string, ownerId: string) => {
-      const owner = await db.getUserById(ownerId);
+      const owner = await db.accounts.getUserById(ownerId);
       if (!owner) return undefined;
       return { token: issueMoveToken(role.signing!, HUB_AUDIENCE, hubInstancePart(instanceId, ownerId, owner.email)), hubUrl: role.hubLink!.url, personId: ownerId, email: owner.email, instanceId };
     }

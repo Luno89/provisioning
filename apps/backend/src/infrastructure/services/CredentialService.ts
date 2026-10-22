@@ -298,14 +298,14 @@ export class CredentialService {
   }
 
   async testGoogleDriveConnection(userId: string): Promise<{ valid: boolean; message: string; details?: any }> {
-    const user = await this.db.getUserById(userId);
+    const user = await this.db.accounts.getUserById(userId);
     const decrypted = user?.credentials ? this.decryptAll(user.credentials, 'googledrive') : undefined;
     const refreshToken = (decrypted as any)?.googledrive?.refreshToken || '';
     return this.validateCredentials('googledrive', { refreshToken });
   }
 
   async getConfiguredProviders(userId: string): Promise<ProviderStatus[]> {
-    const user = await this.db.getUserById(userId);
+    const user = await this.db.accounts.getUserById(userId);
 
     const providers: { key: CloudProvider; label: string }[] = [
       { key: 'huggingface', label: 'Hugging Face' },
@@ -341,7 +341,7 @@ export class CredentialService {
   }
 
   async getCredentials(userId: string, provider: CloudProvider): Promise<Record<string, string> | null> {
-    const user = await this.db.getUserById(userId);
+    const user = await this.db.accounts.getUserById(userId);
     if (!user?.credentials) return null;
 
     const providerCreds = user.credentials[provider];
@@ -372,7 +372,7 @@ export class CredentialService {
     provider: CloudProvider,
     creds: Record<string, string>,
   ): Promise<void> {
-    const user = await this.db.getUserById(userId);
+    const user = await this.db.accounts.getUserById(userId);
     if (!user) throw new Error('User not found');
 
     const sensitive = SENSITIVE_FIELDS[provider] || [];
@@ -396,21 +396,21 @@ export class CredentialService {
     const existing = (user.credentials as any)[provider] || {};
     (user.credentials as any)[provider] = { ...existing, ...encrypted };
 
-    await this.db.saveUser(user);
+    await this.db.accounts.saveUser(user);
   }
 
   async deleteCredentials(userId: string, provider: CloudProvider): Promise<void> {
-    const user = await this.db.getUserById(userId);
+    const user = await this.db.accounts.getUserById(userId);
     if (!user) throw new Error('User not found');
 
     if (user.credentials) {
       delete (user.credentials as any)[provider];
-      await this.db.saveUser(user);
+      await this.db.accounts.saveUser(user);
     }
   }
 
   async resolveCredentials(userId: string, provider: string): Promise<ResolvedCredentials> {
-    const user = await this.db.getUserById(userId);
+    const user = await this.db.accounts.getUserById(userId);
     const decrypted = user?.credentials ? this.decryptAll(user.credentials, provider) : undefined;
     return resolveCloudCredentials(provider, decrypted);
   }

@@ -51,7 +51,7 @@ describe('a story\'s or a feature\'s own chat', () => {
     await seed(db, 'bo');
     await service(db).ensure('bo', { kind: 'story', leafId: 'l1' });
     await service(db).ensure('bo', { kind: 'feature', branchId: 'b1' });
-    await db.saveUser({ id: 'bo', email: 'bo@example.com', twoFactorEnabled: false, emailVerified: true } as never);
+    await db.accounts.saveUser({ id: 'bo', email: 'bo@example.com', twoFactorEnabled: false, emailVerified: true } as never);
     const bound = conversationBinding(db);
     const story = await bound('bo', 'story-l1');
     expect(story).toMatchObject({ treeId: 't1', leafId: 'l1' });

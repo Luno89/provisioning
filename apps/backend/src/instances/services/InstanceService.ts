@@ -9,7 +9,7 @@ import { moveProblem, type MoveStateName } from '../lib/instance-move.js';
 
 export const JOIN_TOKEN_TTL_SECONDS = 3600;
 
-type Store = Pick<Database, 'saveJoinToken' | 'takeJoinToken' | 'getInstances' | 'saveInstance' | 'getUserById' | 'getPoolPolicy' | 'savePoolPolicy'>;
+type Store = Pick<Database, 'saveJoinToken' | 'takeJoinToken' | 'getInstances' | 'saveInstance' | 'accounts' | 'getPoolPolicy' | 'savePoolPolicy'>;
 
 export interface PoolWorkflows {
   start(instanceId: string, ownerId: string): Promise<void>;
@@ -105,7 +105,7 @@ export class InstanceService {
   }
 
   async nameCheck(ownerId: string, name: unknown): Promise<{ ok: boolean; problem?: string; suggestion?: string; address?: string }> {
-    const user = await this.store.getUserById(ownerId);
+    const user = await this.store.accounts.getUserById(ownerId);
     const suggestion = user?.email ? suggestedName(user.email) : undefined;
     if (name === undefined || name === '') return { ok: false, ...(suggestion ? { suggestion } : {}) };
     const found = await this.nameFor(ownerId, name);
@@ -205,7 +205,7 @@ export class InstanceService {
     const pool = this.settings.pool as { slots: number; trialDays: number };
     const instances: PoolInstanceRow[] = [];
     for (const entry of (await this.store.getInstances()).filter((record) => record.pool && record.name)) {
-      const owner = await this.store.getUserById(entry.ownerId);
+      const owner = await this.store.accounts.getUserById(entry.ownerId);
       instances.push({
         id: entry.id, name: entry.name!, owner: owner?.email ?? entry.ownerId, status: entry.status ?? 'installing', detail: entry.detail,
         startedAt: entry.pool!.startedAt, trialEndsAt: entry.pool!.trialEndsAt, pausedAt: entry.pool!.pausedAt,
@@ -236,7 +236,7 @@ export class InstanceService {
     const trial = extendedTrial(instance.pool, new Date(at).toISOString(), this.now().getTime());
     const saved = await this.save(instance, { pool: { ...instance.pool, trialEndsAt: trial.trialEndsAt, told: [...(trial.told ?? [])], pausedAt: trial.pausedAt } });
     await this.poolWorkflows.trialChanged(instanceId);
-    const owner = await this.store.getUserById(saved.ownerId);
+    const owner = await this.store.accounts.getUserById(saved.ownerId);
     return { ok: true, value: { id: saved.id, name: saved.name!, owner: owner?.email ?? saved.ownerId, status: saved.status ?? 'installing', detail: saved.detail, startedAt: saved.pool!.startedAt, trialEndsAt: saved.pool!.trialEndsAt, pausedAt: saved.pool!.pausedAt } };
   }
 

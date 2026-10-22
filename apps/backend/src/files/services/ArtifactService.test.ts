@@ -95,7 +95,7 @@ describe('a check\'s space handing its runs to the person', () => {
     const kept = await service(db).put('space-1', 'run-9', [{ name: 'a.png', bytes: Buffer.from('shot') }]);
     await db.reownRuns('space-1', 'bo');
     const before = await service(db).put('space-1', 'run-10', [{ name: 'b.png', bytes: Buffer.from('gone') }]);
-    const removed = await db.removeAccountRecords('space-1', { watermarkKeys: [], ingestIds: [], projectIds: [] });
+    const removed = await db.accounts.removeAccountRecords('space-1', { watermarkKeys: [], ingestIds: [], projectIds: [] });
     expect(removed).toMatchObject({ artifacts: 1, artifactChunks: 1 });
     expect(await db.getArtifactChunks(before.stored[0]!.id)).toEqual([]);
 
