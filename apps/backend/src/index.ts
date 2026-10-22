@@ -50,7 +50,8 @@ import helmet from 'helmet';
 import { MetricsService } from './services/MetricsService.js';
 import { rateLimit } from 'express-rate-limit';
 import { RATE_LIMITS, ruleFor } from './lib/http-limits.js';
-import { engineRouter, extensionSummary } from './routes/engine.js';
+import { engineRouter } from './routes/engine.js';
+import { hubInstanceWork, wireHub } from './wiring/hub.js';
 import { proceduresRouter } from './routes/procedures.js';
 import { ProcedureService } from './services/ProcedureService.js';
 import { createProcedureStore, stepNeedsReader } from './engine-host/registries/procedure-store.js';
@@ -218,27 +219,7 @@ import { extensionServiceFor } from './services/ExtensionService.js';
 import { loadKeys } from './lib/keys.js';
 import { signJWT } from './lib/auth.js';
 import { roleFromEnv, servesTenants, holdsAccounts, servesHub, signsInThroughRoot } from './lib/platform-role.js';
-import { ProjectInviteService } from './services/ProjectInviteService.js';
-import { HubService } from './services/HubService.js';
-import { HubRootClient } from './services/HubRootClient.js';
-import { hubRouter } from './routes/hub.js';
-import { hubLinkRouter } from './routes/hub-link.js';
-import { hubRootRouter } from './routes/hub-root.js';
-import { hubInstanceRouter } from './routes/hub-instance.js';
-import { RemoteHub, RootHubAccess } from './services/HubRemote.js';
 import { HUB_AUDIENCE, hubInstancePart } from './lib/hub.js';
-import { projectSharingRouter } from './routes/project-sharing.js';
-import { giteaHubRepos } from './services/HubRepos.js';
-import { HubSyncService, localHubSync } from './services/HubSyncService.js';
-import { HubRelay } from './services/HubRelay.js';
-import { runsUnder } from './lib/turn-log.js';
-import { HubInstanceWork } from './services/HubInstanceWork.js';
-import { decideTask } from './services/TaskDecisions.js';
-import { HUB_STATUS_BUILDS } from './lib/hub-board.js';
-import { localHubSharing, ProjectSharingService } from './services/ProjectSharingService.js';
-import { localHubPeople, RemoteHubPeople, type HubPeople } from './services/HubPeople.js';
-import { memoryHubStore } from './lib/hub-store.js';
-import { mongoHubStore } from './lib/hub-mongo.js';
 import { machinePayloads, type GetAnswer, type PutAnswer, type RingAnswer } from './lib/machine-payloads.js';
 import { IdentityService } from './services/IdentityService.js';
 import { identityRouter } from './routes/identity.js';
@@ -1009,62 +990,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
     app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(repoRoot, 'scripts/setup-gpu.sh')));
   }
-  let hubService: HubService | undefined;
   if (signsInThroughRoot(role.role)) app.use('/api/auth', handoffRouter({ identity, auth, sessionKey: keys.session }));
-  const projectInvites = holdsAccounts(role) ? new ProjectInviteService({ invites: db, mail, rootUrl: PUBLIC_URL }) : undefined;
-  if (projectInvites) app.use('/api/hub-link', hubLinkRouter({ invites: projectInvites, credentialHash: role.hubLink?.credentialHash, hash: hashCredential }));
-  if (servesHub(role)) {
-    const hubStore = process.env.NODE_ENV === 'test' && process.env.IS_E2E !== 'true'
-      ? memoryHubStore()
-      : mongoHubStore(mongoTarget(process.env).uri, process.env.HUB_DATABASE?.trim() || 'koala_hub');
-    await hubStore.init();
-    const sender = role.hub ? new HubRootClient(role.hub) : projectInvites;
-    if (!sender) throw new Error('a hub needs root to send its invites');
-    hubService = new HubService({ store: hubStore, invites: sender, repos: giteaHubRepos(giteaService), relay: new HubRelay() });
-    app.use('/api/hub', hubRouter({ hub: hubService }));
-    if (role.role === 'hub' && role.trusted) app.use('/api/hub-instance', hubInstanceRouter({ hub: hubService, trusted: role.trusted }));
-    if (role.role === 'hub' && role.trusted) app.use('/api/hub-root', hubRootRouter({ hub: hubService, trusted: role.trusted, forget: (id) => db.deleteUser(id) }));
-  }
-  const remoteHub = role.instance && process.env.INSTANCE_CREDENTIAL
-    ? new RemoteHub(new RootHubAccess({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: process.env.INSTANCE_CREDENTIAL }))
-    : undefined;
-  const hubReach = servesTenants(role) && hubService
-    ? { instanceId: 'combined', transport: localHubSync(hubService, 'combined'), sharing: localHubSharing(hubService, 'combined') }
-    : servesTenants(role) && remoteHub && role.instance
-      ? { instanceId: role.instance.id, transport: remoteHub, sharing: remoteHub }
-      : undefined;
-  let hubWork: HubInstanceWork | undefined;
-  let sharingService: ProjectSharingService | undefined;
-  if (hubReach) {
-    const instanceId = hubReach.instanceId;
-    const hubSync = new HubSyncService({
-      store: db,
-      transport: hubReach.transport,
-      origin: `instance:${instanceId}`,
-      work: () => hubWork,
-      repos: {
-        ends: (link) => sharingService!.repoSides().ends(link),
-        conflicted: (link, conflict) => sharingService!.repoSides().conflicted(link, conflict),
-      },
-      log: (line) => console.warn(`[HubSync] ${line}`),
-    });
-    sharingService = new ProjectSharingService({
-      store: db,
-      sharing: hubReach.sharing,
-      sync: hubSync,
-      dataKey: keys.data,
-      ownerRepo: async (project) => {
-        const admin = await giteaService.getAdminCredentials();
-        return { url: await giteaService.repoGitUrl(project.giteaOwner, project.giteaRepo), auth: { username: admin.username, token: admin.password } };
-      },
-      notify: (ownerId, scope, notice) => notices.post(ownerId, scope, notice),
-    });
-    hubSync.start(3_000);
-    tenant.use('/api/project-sharing', projectSharingRouter({ sharing: sharingService }));
-  }
-  const hubPeople: HubPeople | undefined = hubService
-    ? localHubPeople(hubService)
-    : role.hubLink && role.signing ? new RemoteHubPeople({ url: role.hubLink.url, signing: role.signing }) : undefined;
+  const hub = await wireHub({
+    role, env: process.env, app, tenant, db, mail, publicUrl: PUBLIC_URL, dataKey: keys.data, gitea: giteaService,
+    notify: (ownerId, scope, notice) => notices.post(ownerId, scope, notice),
+  });
 
   tenant.get('/ingress/verify', async (req, res) => {
     const domain = String(req.query.domain ?? '');
@@ -1175,8 +1105,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const projectRemoval = new ProjectRemovalService({
     store: db,
     hub: {
-      shared: async (projectId) => (sharingService ? sharingService.shared(projectId) : false),
-      takeBack: async (ownerId, projectId) => { await sharingService?.takeBackForDeletion(ownerId, projectId); },
+      shared: async (projectId) => (hub.sharingService ? hub.sharingService.shared(projectId) : false),
+      takeBack: async (ownerId, projectId) => { await hub.sharingService?.takeBackForDeletion(ownerId, projectId); },
     },
     workflows: temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => temporalBridge.client, process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE, PROJECT_REMOVAL_PROGRESS_QUERY),
   });
@@ -1345,7 +1275,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const accountRemoval = servesTenants(role) ? new AccountRemovalService({
     store: db,
     workflows: temporalRemovalWorkflows(() => temporalBridge.client, process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE),
-    hub: hubPeople,
+    hub: hub.hubPeople,
   }) : undefined;
   tenant.use('/api/checks', checksRouter({ scripted: new ScriptedModelService({ store: db, dataKey: keys.data }) }));
   const rootRemoval = holdsAccounts(role) && !servesTenants(role) ? new AccountRemovalService({
@@ -1354,7 +1284,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     workflowType: ROOT_REMOVAL_WORKFLOW,
     steps: ROOT_REMOVAL_STEPS,
     instances: () => db.getInstances(),
-    hub: hubPeople,
+    hub: hub.hubPeople,
   }) : undefined;
   const peopleRemoval = rootRemoval ?? accountRemoval;
   if (holdsAccounts(role) && peopleRemoval) app.use('/api/account', accountRouter({ removal: peopleRemoval, clearSession: (res) => res.clearCookie('session', auth.sessionCookieOptions) }));
@@ -1793,60 +1723,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.use('/api/plans', plansRouter({ plans: planService }));
   tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault: infisicalService }) }));
   tenant.use('/api/branches', branchesRouter({ db, deletion: groveDeletion, order: groveOrder }));
-  if (hubReach) {
-    const done = (outcome: { ok: boolean; error?: string | undefined }) => (outcome.ok ? { ok: true as const } : { ok: false as const, why: outcome.error ?? 'it could not be done' });
-    hubWork = new HubInstanceWork({
-      store: db,
-      status: async (ownerId, project, treeIds) => {
-        const [releases, addresses, runs, treeRuns] = await Promise.all([
-          odooReleases.list(ownerId, project.id),
-          odooReleases.addresses(project.id),
-          db.getPipelineRuns(),
-          Promise.all(treeIds.map(async (treeId) => [treeId, await groveRuns.status(ownerId, treeId)] as const)),
-        ]);
-        return {
-          at: new Date().toISOString(),
-          releases: releases as unknown as Record<string, unknown>[],
-          ...(addresses ? { addresses: addresses as unknown as Record<string, unknown> } : {}),
-          runs: runs.filter((run) => run.projectId === project.id).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, HUB_STATUS_BUILDS) as unknown as Record<string, unknown>[],
-          treeRuns: Object.fromEntries(treeRuns.flatMap(([treeId, outcome]) => (outcome.ok ? [[treeId, outcome.value as unknown as Record<string, unknown>]] : []))),
-        };
-      },
-      act: {
-        approvePlan: async (ownerId, id) => { const decided = await planService.approve(ownerId, id); return decided.ok ? { ok: true } : { ok: false, why: decided.error }; },
-        rejectPlan: async (ownerId, id, reason) => { const decided = await planService.reject(ownerId, id, reason); return decided.ok ? { ok: true } : { ok: false, why: decided.error }; },
-        orderStories: async (ownerId, branchId, leafIds) => done(await groveOrder.orderStories(ownerId, branchId, leafIds)),
-        orderFeatures: async (ownerId, treeId, branchIds) => done(await groveOrder.orderFeatures(ownerId, treeId, branchIds)),
-        decideTask: async (ownerId, taskId, status) => (await decideTask({ list: (owner) => db.getTasks(owner), save: (task) => db.saveTask(task) }, evalHost.acceptedNeeds, ownerId, taskId, status) ? { ok: true } : { ok: false, why: 'There is no such task.' }),
-        openChat: async (ownerId, item) => ((await itemChats.ensure(ownerId, item)) ? { ok: true } : { ok: false, why: `There is no such ${item.kind}.` }),
-        askKoala: async (ownerId, conversation, note) => {
-          try {
-            await engineRuns.start({
-              ownerId,
-              agentSlug: typeof conversation.agentSlug === 'string' ? conversation.agentSlug : 'koala',
-              message: note.content,
-              inputs: { conversationId: conversation.id },
-              conversationId: conversation.id,
-              ...(typeof conversation.modelId === 'string' ? { modelId: conversation.modelId } : {}),
-              ...(conversation.modelReach === 'handoffs' || conversation.modelReach === 'chat' ? { modelReach: conversation.modelReach } : {}),
-              asks: note.at,
-            });
-            return { ok: true };
-          } catch (err) {
-            return { ok: false, why: (err as Error).message };
-          }
-        },
-      },
-      live: {
-        turns: async (ownerId, turnId, after, under) => {
-          const entries = (await db.getTurnLog(ownerId, turnId, after)).map(({ ownerId: _ownerId, ...entry }) => entry);
-          return under ? runsUnder(entries, under) : { entries };
-        },
-        procedure: async (ownerId, id) => (await procedureService.get(ownerId, id)) ?? undefined,
-        extensions: async (ownerId) => (await extensions.list(ownerId)).map(extensionSummary),
-      },
-      files: fileService,
-    });
+  if (hub.reaches) {
+    hub.setWork(hubInstanceWork({
+      db, releases: odooReleases, treeRuns: groveRuns, plans: planService, order: groveOrder, accepted: evalHost.acceptedNeeds,
+      itemChats, runs: engineRuns, procedures: procedureService, extensions, files: fileService,
+    }));
   }
 
   const mcpCatalogue = dependencyFollowers.servers = new McpServerService({
