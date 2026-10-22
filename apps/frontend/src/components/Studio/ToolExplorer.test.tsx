@@ -17,10 +17,10 @@ const { stub } = vi.hoisted(() => ({
   stub: (name: string) => ({ default: (props: Record<string, unknown>) => { seen.props[name] = props; return <div data-testid={name} /> } }),
 }))
 vi.mock('./ToolEditor', () => stub('editor'))
-vi.mock('../Checks/CheckList', () => stub('checks'))
-vi.mock('../Checks/Coverage', () => stub('coverage'))
-vi.mock('../Checks/ToolNotesPanel', () => stub('learned'))
-vi.mock('../Checks/shared', () => ({ useScenarios: () => ({ data: [] }), useLevel2Runs: () => ({ data: [] }), useToolNotes: () => ({ data: [{ id: 'n1', tool: 'write_file', status: 'active', title: 'n1', text: 'n1', createdAt: 'a', updatedAt: 'a' }, { id: 'n2', tool: 'get_logs', status: 'trial', title: 'n2', text: 'n2', createdAt: 'a', updatedAt: 'a' }] }) }))
+vi.mock('../../features/checks/components/CheckList', () => stub('checks'))
+vi.mock('../../features/checks/components/Coverage', () => stub('coverage'))
+vi.mock('../../features/checks/components/ToolNotesPanel', () => stub('learned'))
+vi.mock('../../features/checks/shared', () => ({ useScenarios: () => ({ data: [] }), useLevel2Runs: () => ({ data: [] }), useToolNotes: () => ({ data: [{ id: 'n1', tool: 'write_file', status: 'active', title: 'n1', text: 'n1', createdAt: 'a', updatedAt: 'a' }, { id: 'n2', tool: 'get_logs', status: 'trial', title: 'n2', text: 'n2', createdAt: 'a', updatedAt: 'a' }] }) }))
 
 const tool = (name: string, binding: string, effect: string, grantedTo: string[] = []) => ({ name, summary: `${name} does it`, binding, effect, grantedTo, mine: false })
 vi.mock('../../api/workspaceDependencies', async (importOriginal) => ({

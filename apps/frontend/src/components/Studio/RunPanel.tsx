@@ -6,8 +6,8 @@ import { reduceEngineEvents } from '../../lib/engine-run-state'
 import { ModelSelector } from '../../features/models'
 import RunCard from '../EngineRun/RunCard'
 import { errorMessage, useEngineAgents, useStudioContext } from './shared'
-import { stepCheckFrom } from '../../lib/step-check-draft'
-import { useChecksStore } from '../../stores/checks'
+import { stepCheckFrom } from '../../features/checks'
+import { useChecksStore } from '../../features/checks'
 
 export interface StudioRun {
   runId: string

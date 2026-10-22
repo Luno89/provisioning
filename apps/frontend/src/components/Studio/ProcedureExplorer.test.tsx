@@ -19,8 +19,8 @@ const { stub } = vi.hoisted(() => ({
   stub: (name: string) => ({ default: (props: Record<string, unknown>) => { seen.props[name] = props; return <div data-testid={name} /> } }),
 }))
 vi.mock('./ProcedureEditor', () => stub('editor'))
-vi.mock('../Checks/CheckList', () => stub('checks'))
-vi.mock('../Checks/shared', () => ({ useScenarios: () => ({ data: [] }), useLevel2Runs: () => ({ data: [] }) }))
+vi.mock('../../features/checks/components/CheckList', () => stub('checks'))
+vi.mock('../../features/checks/shared', () => ({ useScenarios: () => ({ data: [] }), useLevel2Runs: () => ({ data: [] }) }))
 
 vi.mock('../../api/agents', async () => {
   const actual = await vi.importActual<typeof import('../../api/agents')>('../../api/agents')

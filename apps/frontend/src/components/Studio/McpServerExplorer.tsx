@@ -5,7 +5,7 @@ import type { McpServer, McpServerRuns, McpToolKind } from '../../api/mcp'
 import type { Agent } from '../../api/agents'
 import Explorer, { FileHeader } from './Explorer'
 import { SERVER_FILES, serverItem, useToolbox } from './toolbox'
-import ToolNotesPanel from '../Checks/ToolNotesPanel'
+import { ToolNotesPanel } from '../../features/checks'
 import NeedsPicker from '../NeedsPicker'
 import { errorMessage, useAddMcpServer, useAgents, useCaptureMcpServer, useRemoveMcpServer, useSaveAgent, useSaveMcpServer } from './shared'
 import {

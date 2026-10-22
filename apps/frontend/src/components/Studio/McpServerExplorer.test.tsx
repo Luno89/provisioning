@@ -31,7 +31,7 @@ vi.mock('../../api/workspaceDependencies', async (importOriginal) => ({
   useDependencies: () => ({ isPending: false, isError: false, error: null, data: [{ name: 'jq', summary: 'jq.', provides: ['jq'], install: [], mine: false, script: false, usedBy: { tools: [], servers: [], dependencies: [], steps: [], trees: [] } }] }),
 }))
 
-vi.mock('../Checks/shared', async (importOriginal) => ({ ...(await importOriginal<typeof import('../Checks/shared')>()), useScenarios: () => ({ data: [] }), useLevel2Runs: () => ({ data: [] }) }))
+vi.mock('../../features/checks/shared', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../features/checks/shared')>()), useScenarios: () => ({ data: [] }), useLevel2Runs: () => ({ data: [] }) }))
 
 vi.mock('./shared', () => {
   const mutation = (into: unknown[]) => ({ mutate: (value: unknown) => { into.push(value) }, isPending: false, error: null })

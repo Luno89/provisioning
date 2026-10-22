@@ -3,13 +3,13 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { AlertTriangle, FlaskConical, Network, Workflow } from 'lucide-react'
 import ProcedureEditor from './ProcedureEditor'
 import Explorer, { FileHeader, type ExplorerGroup } from './Explorer'
-import CheckList from '../Checks/CheckList'
-import { useLevel2Runs, useScenarios } from '../Checks/shared'
+import { CheckList } from '../../features/checks'
+import { useLevel2Runs, useScenarios } from '../../features/checks'
 import { errorMessage, useAgents, useDeleteProcedure, useProcedureList, useSaveProcedure } from './shared'
 import type { ProcedureSummary } from '../../api/procedures'
 import { procedureIdFrom, starterProcedure } from '../../lib/procedure-drafts'
 import { groupProcedures, runnersOf } from '../../lib/studio-groups'
-import { checksSummary, describeChecks } from '../../lib/subject-summary'
+import { checksSummary, describeChecks } from '../../features/checks'
 
 const FILES = [
   { id: 'steps', title: 'Steps', icon: Network },

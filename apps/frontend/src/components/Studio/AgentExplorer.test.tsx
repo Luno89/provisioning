@@ -35,7 +35,7 @@ vi.mock('./shared', () => ({
   ] }),
   useProcedureList: () => ({ data: { procedures: [{ id: 'tool-rounds' }], unreadable: [] } }),
 }))
-vi.mock('../Checks/shared', () => ({
+vi.mock('../../features/checks/shared', () => ({
   useScenarios: () => ({ data: [{ id: 's', name: 's', describe: '', agent: 'koala', procedure: { id: 'p' }, input: { message: 'x' }, expect: {} }] }),
   useLevel2Runs: () => ({ data: [{ id: 'r', state: 'done', startedAt: '2026-10-07', scenarios: ['s'], finished: 1, results: [{ scenarioId: 's', passed: false }] }] }),
   useProposals: () => ({ data: [{ status: 'proposed', scenario: { agent: 'koala' } }] }),

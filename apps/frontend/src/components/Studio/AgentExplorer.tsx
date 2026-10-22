@@ -8,9 +8,9 @@ import Explorer, { type ExplorerGroup } from './Explorer'
 import { AGENT_FILES, isAgentFile, type AgentFileId } from './agent-files'
 import { blankAgent } from './agent-forms'
 import { errorMessage, useAgents, useProcedureList } from './shared'
-import { useChanges, useLevel2Runs, useProposals, useScenarios } from '../Checks/shared'
+import { useChanges, useLevel2Runs, useProposals, useScenarios } from '../../features/checks'
 import { groupAgents } from '../../lib/agent-groups'
-import { checksSummary, waitingFor } from '../../lib/subject-summary'
+import { checksSummary, waitingFor } from '../../features/checks'
 
 export default function AgentExplorer() {
   const { slug, part } = useParams({ strict: false }) as { slug?: string; part?: string }

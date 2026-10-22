@@ -51,8 +51,8 @@ import {
   useServerProblems,
   useEngineAgents,
 } from './shared'
-import CheckList from '../Checks/CheckList'
-import { useChecksStore } from '../../stores/checks'
+import { CheckList } from '../../features/checks'
+import { useChecksStore } from '../../features/checks'
 
 const JsonView = lazy(() => import('./JsonView'))
 const CodeView = lazy(() => import('./CodeView'))

@@ -5,10 +5,10 @@ import type { EngineTool } from '../../api/engineTools'
 import type { McpServer } from '../../api/mcp'
 import type { DependencyView } from '../../api/workspaceDependencies'
 import { useDependencies } from '../../api/workspaceDependencies'
-import { useLevel2Runs, useScenarios } from '../Checks/shared'
+import { useLevel2Runs, useScenarios } from '../../features/checks'
 import { useEngineTools, useMcpCatalogue } from './shared'
 import { groupTools } from '../../lib/studio-groups'
-import { checksSummary } from '../../lib/subject-summary'
+import { checksSummary } from '../../features/checks'
 import { groupServers } from './mcp-server-forms'
 
 export const TOOL_FILES = [
