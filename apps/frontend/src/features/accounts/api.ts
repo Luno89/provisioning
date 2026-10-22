@@ -1,5 +1,5 @@
-import { api } from './client'
-import type { Invite, PersonEntry, RemovalPreview, RemovalState } from '../types/account'
+import { api } from '../../api/client'
+import type { Invite, PersonEntry, RemovalPreview, RemovalState } from './types'
 
 export const accountKeys = {
   removal: () => ['account', 'removal'] as const,

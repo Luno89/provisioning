@@ -2,17 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { DeleteAccount } from './DeleteAccount'
-import * as accountApi from '../../api/account'
-import * as authApi from '../../features/platform/api'
-import { useShellStore } from '../../features/platform/stores/shell'
+import * as accountApi from '../api'
+import * as authApi from '../../platform/api'
+import { useShellStore } from '../../platform/stores/shell'
 
-vi.mock('../../api/account', async (importOriginal) => ({
+vi.mock('../api', async (importOriginal) => ({
   ...(await importOriginal<typeof accountApi>()),
   getRemovalPreview: vi.fn(),
   removeMyAccount: vi.fn(),
 }))
 
-vi.mock('../../features/platform/api', async (importOriginal) => ({
+vi.mock('../../platform/api', async (importOriginal) => ({
   ...(await importOriginal<typeof authApi>()),
   accountRemovalPlace: vi.fn(),
 }))

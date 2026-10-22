@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
-import { errorMessage } from '../../api/client'
-import { yoursGoes } from './person-instance'
-import { confirmMatches, dangerButton, emailField, quietButton, refusalBlockers, useRemovalPreview, useRemoveMyAccount } from './shared'
+import { errorMessage } from '../../../api/client'
+import { yoursGoes } from '../lib/person-instance'
+import { confirmMatches, dangerButton, emailField, quietButton, refusalBlockers, useRemovalPreview, useRemoveMyAccount } from '../shared'
 
 export interface RemoveAccountPageProps {
   onRemoved: () => void

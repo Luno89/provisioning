@@ -1,5 +1,5 @@
-import { errorMessage } from '../../api/client'
-import { dangerPanel, useInvites, useMintInvite } from './shared'
+import { errorMessage } from '../../../api/client'
+import { dangerPanel, useInvites, useMintInvite } from '../shared'
 
 export function Invites() {
   const invites = useInvites()

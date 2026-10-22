@@ -1,7 +1,7 @@
 import { Loader2 } from 'lucide-react'
-import { errorMessage } from '../../api/client'
-import type { EmailChoice } from '../../features/monitoring'
-import { dangerPanel, quietButton, useNotifications, useSendTestEmail, useSetEmailChoice } from './shared'
+import { errorMessage } from '../../../api/client'
+import type { EmailChoice } from '../../monitoring'
+import { dangerPanel, quietButton, useNotifications, useSendTestEmail, useSetEmailChoice } from '../shared'
 
 const CHOICES: Array<{ value: EmailChoice; label: string; explain: string }> = [
   { value: 'all', label: 'Every alert', explain: 'When any alert fires and when it resolves.' },

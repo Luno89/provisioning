@@ -1,4 +1,4 @@
-import type { RemovalState, RemovalStep } from '../../types/account'
+import type { RemovalState, RemovalStep } from '../types'
 
 const STEP_NAMES: Record<RemovalStep, string> = {
   workflows: 'stopping its runs',

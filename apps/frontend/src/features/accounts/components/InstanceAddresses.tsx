@@ -1,6 +1,6 @@
 import { Loader2 } from 'lucide-react'
-import { errorMessage } from '../../api/client'
-import { dangerPanel, quietButton, useInstanceAddresses, useSetNestedAddresses } from './shared'
+import { errorMessage } from '../../../api/client'
+import { dangerPanel, quietButton, useInstanceAddresses, useSetNestedAddresses } from '../shared'
 
 export function InstanceAddresses() {
   const addresses = useInstanceAddresses()

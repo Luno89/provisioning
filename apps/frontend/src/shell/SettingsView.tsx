@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { api, errorMessage } from '../api/client';
 import { useShellStore, type AppUser } from '../features/platform';
-import { DeleteAccount } from '../components/Account/DeleteAccount';
-import { People } from '../components/Account/People';
-import { Invites } from '../components/Account/Invites';
-import { InstanceAddresses } from '../components/Account/InstanceAddresses';
+import { DeleteAccount } from '../features/accounts';
+import { People } from '../features/accounts';
+import { Invites } from '../features/accounts';
+import { InstanceAddresses } from '../features/accounts';
 import { InstanceMove } from '../components/Move/InstanceMove';
-import { Notifications } from '../components/Account/Notifications';
+import { Notifications } from '../features/accounts';
 import { DefaultFileServer } from '../features/files'
 import { GoogleDriveCard } from '../features/infrastructure';
 

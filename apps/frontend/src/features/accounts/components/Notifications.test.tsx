@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import * as notificationsApi from '../../features/monitoring/api/notifications'
+import * as notificationsApi from '../../monitoring/api/notifications'
 import { Notifications } from './Notifications'
 
-vi.mock('../../features/monitoring/api/notifications', async (orig) => ({
+vi.mock('../../monitoring/api/notifications', async (orig) => ({
   ...(await orig<typeof notificationsApi>()),
   getNotifications: vi.fn(),
   setEmailChoice: vi.fn(async (email: string) => ({ email, available: { ok: true } })),

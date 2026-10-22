@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Mail, Lock, LogIn, UserPlus, Github, Chrome, ShieldAlert, ArrowRight, ShieldCheck, Phone } from 'lucide-react';
-import { API_BASE } from '../api/client';
-import { login, verifyTwoFactor, type LoginResult, type SessionUser } from '../features/platform';
+import { API_BASE } from '../../../api/client';
+import { login, verifyTwoFactor, type LoginResult, type SessionUser } from '../../platform';
 
 interface LoginProps {
   onSuccess: (user: SessionUser) => void;

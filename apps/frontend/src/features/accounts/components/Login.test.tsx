@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-vi.mock('../features/platform/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../features/platform/api')>()),
+vi.mock('../../platform/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../platform/api')>()),
   login: vi.fn(),
   verifyTwoFactor: vi.fn(),
 }));
 
 import Login from './Login.js';
-import { login } from '../features/platform/api';
+import { login } from '../../platform/api';
 
 const mockedLogin = vi.mocked(login);
 

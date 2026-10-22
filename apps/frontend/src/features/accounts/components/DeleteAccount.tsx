@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { errorMessage } from '../../api/client'
-import { useShellStore } from '../../features/platform'
-import { confirmMatches, dangerButton, dangerPanel, emailField, quietButton, refusalBlockers, useAccountRemovalPlace, useRemovalPreview, useRemoveMyAccount } from './shared'
+import { errorMessage } from '../../../api/client'
+import { useShellStore } from '../../platform'
+import { confirmMatches, dangerButton, dangerPanel, emailField, quietButton, refusalBlockers, useAccountRemovalPlace, useRemovalPreview, useRemoveMyAccount } from '../shared'
 
 function RemovedOnRoot() {
   const place = useAccountRemovalPlace(true)

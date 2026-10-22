@@ -1,4 +1,4 @@
-import type { PersonInstance } from '../../types/account'
+import type { PersonInstance } from '../types'
 
 const INSTANCE_STATE: Record<PersonInstance['status'], string> = {
   waiting: 'waiting for its machine',

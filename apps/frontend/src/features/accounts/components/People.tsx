@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { errorMessage } from '../../api/client'
-import type { PersonEntry } from '../../types/account'
-import { goesWith, instanceLine } from './person-instance'
-import { confirmMatches, dangerButton, dangerPanel, emailField, quietButton, refusalBlockers, removalText, usePeople, usePersonRemoval, useRemovePerson } from './shared'
+import { errorMessage } from '../../../api/client'
+import type { PersonEntry } from '../types'
+import { goesWith, instanceLine } from '../lib/person-instance'
+import { confirmMatches, dangerButton, dangerPanel, emailField, quietButton, refusalBlockers, removalText, usePeople, usePersonRemoval, useRemovePerson } from '../shared'
 
 function RemovePerson({ person, onClose }: { person: PersonEntry; onClose: () => void }) {
   const [typed, setTyped] = useState('')

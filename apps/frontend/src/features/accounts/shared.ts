@@ -1,11 +1,11 @@
-import { getNotifications, notificationKeys, sendTestEmail, setEmailChoice, type EmailChoice, type NotificationView } from '../../features/monitoring'
+import { getNotifications, notificationKeys, sendTestEmail, setEmailChoice, type EmailChoice, type NotificationView } from '../monitoring'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { accountKeys, getPersonRemoval, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson } from '../../api/account'
+import { accountKeys, getPersonRemoval, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson } from './api'
 import { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '../../api/instance-addresses'
-import { deploymentKeys } from '../../features/infrastructure'
-import { accountRemovalPlace } from '../../features/platform'
+import { deploymentKeys } from '../infrastructure'
+import { accountRemovalPlace } from '../platform'
 
-export { confirmMatches, refusalBlockers, removalText } from './removal-text'
+export { confirmMatches, refusalBlockers, removalText } from './lib/removal-text'
 
 export const dangerPanel = 'pt-6 border-t border-slate-700'
 export const dangerButton = 'text-xs font-bold px-3 py-2 rounded-xl bg-red-700 hover:bg-red-600 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed'

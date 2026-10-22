@@ -1,0 +1,7 @@
+export { DeleteAccount } from './components/DeleteAccount'
+export { InstanceAddresses } from './components/InstanceAddresses'
+export { Invites } from './components/Invites'
+export { default as Login } from './components/Login'
+export { Notifications } from './components/Notifications'
+export { People } from './components/People'
+export { default as RemoveAccountPage } from './components/RemoveAccountPage'

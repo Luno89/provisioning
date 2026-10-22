@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { People } from './People'
-import * as accountApi from '../../api/account'
+import * as accountApi from '../api'
 
-vi.mock('../../api/account', async (importOriginal) => ({
+vi.mock('../api', async (importOriginal) => ({
   ...(await importOriginal<typeof accountApi>()),
   listPeople: vi.fn(),
   getPersonRemoval: vi.fn(),
