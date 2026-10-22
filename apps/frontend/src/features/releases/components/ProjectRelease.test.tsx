@@ -2,9 +2,9 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ProjectRelease } from './ProjectRelease'
-import * as api from '../../../api/release-settings'
+import * as api from '../api/release-settings'
 
-vi.mock('../../../api/release-settings', async (importOriginal) => ({ ...(await importOriginal<typeof api>()), getReleaseOptions: vi.fn(), getProjectRelease: vi.fn(), setProjectRelease: vi.fn() }))
+vi.mock('../api/release-settings', async (importOriginal) => ({ ...(await importOriginal<typeof api>()), getReleaseOptions: vi.fn(), getProjectRelease: vi.fn(), setProjectRelease: vi.fn() }))
 
 describe('how a project\'s builds are released', () => {
   it('says where its release comes from, overrides its type\'s, and goes back to it', async () => {

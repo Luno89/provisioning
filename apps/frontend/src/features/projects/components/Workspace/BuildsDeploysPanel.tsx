@@ -7,9 +7,9 @@ import { PipelineRunRow, type PipelineRun } from '../PipelineRunRow.js'
 import { listProjectRuns, listProjects, patchProject, projectKeys } from '../../api/projects.js'
 import { listLocalAgentDevices, localAgentKeys, type LocalAgentDevice } from '../../../../api/local-agents.js'
 import { ProjectStatusBadge } from '../StatusBadge.js'
-import { ReleasesPanel } from '../../../../components/Projects/Workspace/ReleasesPanel.js'
-import { SignInReveal } from '../../../../components/Projects/Workspace/SignInReveal.js'
-import { OpenApp } from '../../../../components/Projects/Workspace/OpenApp.js'
+import { ReleasesPanel } from '../../../releases'
+import { SignInReveal } from '../../../releases'
+import { OpenApp } from '../../../releases'
 
 export interface LinkedProject {
   id: string

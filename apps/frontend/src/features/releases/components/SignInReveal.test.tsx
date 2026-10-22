@@ -2,9 +2,9 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SignInReveal } from './SignInReveal'
-import * as releasesApi from '../../../api/releases'
+import * as releasesApi from '../api/releases'
 
-vi.mock('../../../api/releases', async (orig) => ({
+vi.mock('../api/releases', async (orig) => ({
   ...(await orig<typeof releasesApi>()),
   getSignIn: vi.fn(),
 }))

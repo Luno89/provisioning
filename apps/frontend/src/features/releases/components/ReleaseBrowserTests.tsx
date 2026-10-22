@@ -1,9 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, CircleSlash, Loader2, MonitorPlay, RotateCw, XCircle } from 'lucide-react'
-import { releaseKeys, retestRelease, type OdooRelease, type ReleaseE2E } from '../../../api/releases'
+import { releaseKeys, retestRelease, type OdooRelease, type ReleaseE2E } from '../api/releases'
 import { errorMessage } from '../../../api/client'
-import { artifactUrl } from '../../../features/files'
-import { ArtifactStoragePrompt } from '../../../features/files'
+import { artifactUrl } from '../../files'
+import { ArtifactStoragePrompt } from '../../files'
 
 const HEADLINE: Record<ReleaseE2E['state'], { text: string; tone: string }> = {
   running: { text: 'Browser tests running against the preview…', tone: 'text-sky-300' },

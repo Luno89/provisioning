@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Copy, EyeOff, KeyRound } from 'lucide-react'
-import { getSignIn, releaseKeys } from '../../../api/releases.js'
+import { getSignIn, releaseKeys } from '../api/releases.js'
 import { errorMessage } from '../../../api/client.js'
 
 export function SignInReveal({ projectId }: { projectId: string }) {

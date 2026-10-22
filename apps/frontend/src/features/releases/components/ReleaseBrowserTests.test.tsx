@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ReleaseBrowserTests } from './ReleaseBrowserTests'
-import type { OdooRelease } from '../../../api/releases'
+import type { OdooRelease } from '../api/releases'
 
 const outline = 'URL: http://shop-odoo-b:8069/odoo/sales/new\nButtons: "Save manually" .o_form_button_save'
 

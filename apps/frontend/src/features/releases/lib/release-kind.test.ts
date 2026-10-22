@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { releaseKind } from './release-kind'
-import type { OdooRelease } from '../../../api/releases'
+import type { OdooRelease } from '../api/releases'
 
 const release = (id: string, image: string, startedAt: string, extra: Partial<OdooRelease> = {}): OdooRelease =>
   ({ id, projectId: 'p1', pipelineRunId: id, commit: `${image}-commit`, image, state: 'superseded', host: 'h', startedAt, updatedAt: startedAt, ...extra })

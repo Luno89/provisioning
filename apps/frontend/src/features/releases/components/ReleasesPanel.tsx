@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRightLeft, ExternalLink, FileCode2, Layers, Loader2, Repeat, Trash2, Undo2 } from 'lucide-react'
-import { AGAIN_FROM, decideRelease, listReleases, releaseAgain, releaseKeys, rollBackRelease, type OdooRelease, type ReleaseState, type RollBackOffer } from '../../../api/releases'
-import { ago } from '../../../features/projects'
+import { AGAIN_FROM, decideRelease, listReleases, releaseAgain, releaseKeys, rollBackRelease, type OdooRelease, type ReleaseState, type RollBackOffer } from '../api/releases'
+import { ago } from '../../projects'
 import { errorMessage } from '../../../api/client'
 import { ReleaseBrowserTests } from './ReleaseBrowserTests'
 import { ReleaseChanges } from './ReleaseChanges'
 import { ReleaseFiles } from './ReleaseFiles'
-import { releaseKind, type ReleaseKind } from './release-kind'
+import { releaseKind, type ReleaseKind } from '../lib/release-kind'
 import { OpenApp } from './OpenApp'
 
 const STATE: Record<ReleaseState, { label: string; tone: string }> = {

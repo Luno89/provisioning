@@ -1,6 +1,6 @@
 import { AlertTriangle, BellRing, Boxes, CheckCircle2, Eye, GitMerge, Hourglass, KeyRound, Leaf, TreeDeciduous } from 'lucide-react';
 import type { ConversationNotice, NoticeKind } from '../../api/chat-pack.js';
-import { OpenApp } from '../Projects/Workspace/OpenApp.js';
+import { OpenApp } from '../../features/releases';
 import { formatHash } from '../../features/platform';
 
 const LOOK: Record<NoticeKind, { icon: typeof Eye; tone: string }> = {

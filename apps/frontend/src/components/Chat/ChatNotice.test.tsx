@@ -2,7 +2,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { ChatNotice } from './ChatNotice'
 
-vi.mock('../Projects/Workspace/OpenApp.js', () => ({ OpenApp: () => null }))
+vi.mock('../../features/releases/components/OpenApp.js', () => ({ OpenApp: () => null }))
 
 describe('a notice about one story, in the channel', () => {
   it('leads to the story', () => {

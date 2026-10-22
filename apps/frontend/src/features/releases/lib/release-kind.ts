@@ -1,4 +1,4 @@
-import type { OdooRelease } from '../../../api/releases'
+import type { OdooRelease } from '../api/releases'
 
 export type ReleaseKind =
   | { kind: 'new-code' }

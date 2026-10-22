@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Loader2, Upload } from 'lucide-react'
-import { clientImportKeys, startFresh, uploadImport, type ClientImport as Imported, type ImportMode, type ImportView } from '../../../api/client-import'
+import { clientImportKeys, startFresh, uploadImport, type ClientImport as Imported, type ImportMode, type ImportView } from '../api/client-import'
 import { errorMessage } from '../../../api/client'
 
 const what = (entry: Imported) =>

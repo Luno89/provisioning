@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ReleasesPanel } from './ReleasesPanel'
-import type { OdooRelease } from '../../../api/releases'
+import type { OdooRelease } from '../api/releases'
 
-vi.mock('../../../api/releases', async (original) => ({
-  ...(await original<typeof import('../../../api/releases')>()),
+vi.mock('../api/releases', async (original) => ({
+  ...(await original<typeof import('../api/releases')>()),
   listReleases: vi.fn(),
   decideRelease: vi.fn(),
   retestRelease: vi.fn(),
@@ -13,17 +13,17 @@ vi.mock('../../../api/releases', async (original) => ({
   releaseFiles: vi.fn(),
   releaseAgain: vi.fn(),
 }))
-vi.mock('../../../api/project-app', async (original) => ({
-  ...(await original<typeof import('../../../api/project-app')>()),
+vi.mock('../api/project-app', async (original) => ({
+  ...(await original<typeof import('../api/project-app')>()),
   getProjectApp: vi.fn(async () => ({ id: 'd1', name: 'Shop', status: 'running', local: {}, public: {} })),
 }))
 
-vi.mock('../../../features/files/api/artifacts', async (original) => ({
-  ...(await original<typeof import('../../../features/files/api/artifacts')>()),
+vi.mock('../../files/api/artifacts', async (original) => ({
+  ...(await original<typeof import('../../files/api/artifacts')>()),
   getArtifactStorage: vi.fn().mockResolvedValue({ minio: true }),
 }))
-const { listReleases, decideRelease, retestRelease, rollBackRelease, releaseFiles, releaseAgain } = await import('../../../api/releases')
-const { artifactUrl } = await import('../../../features/files/api/artifacts')
+const { listReleases, decideRelease, retestRelease, rollBackRelease, releaseFiles, releaseAgain } = await import('../api/releases')
+const { artifactUrl } = await import('../../files/api/artifacts')
 
 const release = (id: string, state: OdooRelease['state'], over: Partial<OdooRelease> = {}): OdooRelease => ({
   id, projectId: 'p1', pipelineRunId: 'b', commit: `${id}c0ffee00`, image: 'i:t', state, host: 'shop.apps.local', startedAt: '2026-10-08T12:00:00Z', updatedAt: '2026-10-08T12:00:00Z', ...over,

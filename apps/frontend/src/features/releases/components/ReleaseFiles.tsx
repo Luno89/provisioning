@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, FileCode2, Loader2 } from 'lucide-react'
-import { releaseFiles, releaseKeys, type ReleaseFile } from '../../../api/releases'
+import { releaseFiles, releaseKeys, type ReleaseFile } from '../api/releases'
 import { errorMessage } from '../../../api/client'
 
 const STATUS: Record<ReleaseFile['status'], { mark: string; tone: string }> = {

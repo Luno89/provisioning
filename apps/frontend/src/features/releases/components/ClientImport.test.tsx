@@ -2,10 +2,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ClientImport } from './ClientImport'
-import * as api from '../../../api/client-import'
-import type { ImportView } from '../../../api/client-import'
+import * as api from '../api/client-import'
+import type { ImportView } from '../api/client-import'
 
-vi.mock('../../../api/client-import', async (orig) => ({
+vi.mock('../api/client-import', async (orig) => ({
   ...(await orig<typeof api>()),
   startFresh: vi.fn(async () => ({ released: true })),
   uploadImport: vi.fn(async (_p: string, _f: File, mode: api.ImportMode, progress: (n: number) => void) => { progress(1); return { state: 'uploaded', mode, bytes: 2, at: 'now' } }),

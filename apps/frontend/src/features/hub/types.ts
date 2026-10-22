@@ -92,7 +92,7 @@ export interface GroupCheck {
  */
 export interface HubStatus {
   at: string
-  releases: import('../../api/releases').OdooRelease[]
+  releases: import('../releases').OdooRelease[]
   addresses?: { live?: string; preview?: string }
   runs: import('../projects').PipelineRun[]
   treeRuns: Record<string, import('../projects').TreeRunStatus>

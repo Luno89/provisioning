@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { clientImportKeys, getImport } from '../../../api/client-import'
+import { clientImportKeys, getImport } from '../api/client-import'
 
 const MOVING = new Set(['uploading', 'uploaded', 'importing'])
 

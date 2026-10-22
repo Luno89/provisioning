@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ProjectStrip from './ProjectStrip'
 import * as groveApi from '../../api/grove'
 import * as projectsApi from '../../api/projects'
-import * as releasesApi from '../../../../api/releases'
+import * as releasesApi from '../../../releases/api/releases'
 import * as modelsApi from '../../../../api/models'
 import * as agentsApi from '../../../../api/local-agents'
 import * as autoModeApi from '../../../../api/auto-mode'
@@ -14,16 +14,16 @@ vi.mock('../../api/grove', async (orig) => ({
   listTrees: vi.fn(), listBranches: vi.fn(), listLeaves: vi.fn(), getTreeRun: vi.fn(), getTreeModels: vi.fn(), runTree: vi.fn(), stopTreeRun: vi.fn(async () => ({ state: 'none' })),
 }))
 vi.mock('../../api/projects', async (orig) => ({ ...(await orig<typeof projectsApi>()), listProjects: vi.fn(), listProjectRuns: vi.fn(async () => []) }))
-vi.mock('../../../../api/releases', async (orig) => ({ ...(await orig<typeof releasesApi>()), listReleases: vi.fn() }))
+vi.mock('../../../releases/api/releases', async (orig) => ({ ...(await orig<typeof releasesApi>()), listReleases: vi.fn() }))
 vi.mock('../../../../api/models', async (orig) => ({ ...(await orig<typeof modelsApi>()), listModels: vi.fn(async () => []) }))
 vi.mock('../../../../api/local-agents', async (orig) => ({ ...(await orig<typeof agentsApi>()), useMachineChoiceLabels: () => (id: string) => (id.startsWith('machine:') ? 'Antigravity · Desk' : undefined) }))
 vi.mock('../../../../api/auto-mode', async (orig) => ({ ...(await orig<typeof autoModeApi>()), setTreeAutoMode: vi.fn(async () => true) }))
 vi.mock('../Workspace/useTreeCards', () => ({ useTreeCards: () => ({ open: [], waiting: [], pending: [], asking: [], count: 0 }) }))
 vi.mock('../Workspace/TreeProposalsPanel', () => ({ TreeProposalsPanel: () => null }))
 vi.mock('../Workspace/TreeModels', () => ({ TreeModels: ({ treeId }: { treeId: string }) => <div data-testid="tree-models">{treeId}</div> }))
-vi.mock('../../../../components/Projects/Workspace/ReleasesPanel', () => ({ Decision: ({ release }: { release: { commit: string } }) => <div data-testid="decision">{release.commit}</div> }))
-vi.mock('../../../../components/Projects/Workspace/OpenApp', () => ({ OpenApp: () => <span>Open app</span> }))
-vi.mock('../../../../components/Projects/Workspace/SignInReveal', () => ({ SignInReveal: () => <span>Show sign-in</span> }))
+vi.mock('../../../releases/components/ReleasesPanel', () => ({ Decision: ({ release }: { release: { commit: string } }) => <div data-testid="decision">{release.commit}</div> }))
+vi.mock('../../../releases/components/OpenApp', () => ({ OpenApp: () => <span>Open app</span> }))
+vi.mock('../../../releases/components/SignInReveal', () => ({ SignInReveal: () => <span>Show sign-in</span> }))
 
 const shop = { id: 'p1', name: 'Shop', giteaOwner: 'o', giteaRepo: 'r' }
 const tree = { id: 't1', name: 'Delivery Labels', projectIds: ['p1'], autoMode: true }

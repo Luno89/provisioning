@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { CircleDot, Loader2 } from 'lucide-react'
-import { listReleases, releaseKeys } from '../../../../api/releases'
+import { listReleases, releaseKeys } from '../../../releases'
 import { getTreeRun, groveKeys, listBranches, listLeaves } from '../../api/grove'
 import type { Leaf } from '../../lib/leaf-types'
 import type { Branch } from '../../types/grove'

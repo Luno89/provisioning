@@ -5,7 +5,7 @@ import ProjectSettings from './index'
 import * as groveApi from '../../api/grove'
 import * as projectsApi from '../../api/projects'
 import * as autoModeApi from '../../../../api/auto-mode'
-import * as releaseApi from '../../../../api/release-settings'
+import * as releaseApi from '../../../releases/api/release-settings'
 import * as modelsApi from '../../../../api/models'
 
 vi.mock('../../api/grove', async (orig) => ({
@@ -24,14 +24,14 @@ vi.mock('../../../../api/auto-mode', async (orig) => ({
   ...(await orig<typeof autoModeApi>()),
   setTreeAutoMode: vi.fn(async () => true),
 }))
-vi.mock('../../../../api/release-settings', async (orig) => ({
+vi.mock('../../../releases/api/release-settings', async (orig) => ({
   ...(await orig<typeof releaseApi>()),
   getProjectRelease: vi.fn(async () => ({ how: { agent: 'release', app: 'odoo' }, from: 'tree type' })),
   getReleaseOptions: vi.fn(async () => ({ agents: [{ slug: 'release', name: 'Release', needsApp: true }], apps: [{ id: 'odoo', title: 'Odoo' }] })),
 }))
-vi.mock('../../../../components/Projects/Settings/LiveCustomizations', () => ({ LiveCustomizations: () => <div>live customizations</div> }))
-vi.mock('../../../../components/Projects/Settings/useClientImport', () => ({ useClientImport: () => ({ data: { open: true } }) }))
-vi.mock('../../../../components/Projects/Settings/ClientImport', () => ({ ClientImport: () => <div>client import</div> }))
+vi.mock('../../../releases/components/LiveCustomizations', () => ({ LiveCustomizations: () => <div>live customizations</div> }))
+vi.mock('../../../releases/hooks/useClientImport', () => ({ useClientImport: () => ({ data: { open: true } }) }))
+vi.mock('../../../releases/components/ClientImport', () => ({ ClientImport: () => <div>client import</div> }))
 vi.mock('../../../../api/models', async (orig) => ({
   ...(await orig<typeof modelsApi>()),
   listModels: vi.fn(async () => [{ id: 'tabby', name: 'Tabby', source: 'deployment', kind: 'tabbyapi', model: 'Qwen3.8-27B' }]),

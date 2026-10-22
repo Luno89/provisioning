@@ -2,9 +2,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { LiveCustomizations } from './LiveCustomizations'
-import * as api from '../../../api/customizations'
+import * as api from '../api/customizations'
 
-vi.mock('../../../api/customizations', async (orig) => ({
+vi.mock('../api/customizations', async (orig) => ({
   ...(await orig<typeof api>()),
   getDrift: vi.fn(),
   proposeAdoption: vi.fn(async () => ({ id: 'card-1' })),

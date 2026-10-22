@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Rocket } from 'lucide-react'
-import { getProjectRelease, getReleaseOptions, releaseSettingKeys, setProjectRelease, type ReleaseHow } from '../../../api/release-settings'
+import { getProjectRelease, getReleaseOptions, releaseSettingKeys, setProjectRelease, type ReleaseHow } from '../api/release-settings'
 import { errorMessage } from '../../../api/client'
 
 const describe = (how: ReleaseHow, name?: string) => `${name ?? how.agent}${how.app ? ` · ${how.app}` : ''}`

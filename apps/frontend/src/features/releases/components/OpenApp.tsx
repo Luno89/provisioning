@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ExternalLink, Globe, Monitor } from 'lucide-react'
-import { getProjectApp, openProjectApp, projectAppKeys, type ExposureMode } from '../../../api/project-app.js'
-import { releaseKeys } from '../../../api/releases.js'
+import { getProjectApp, openProjectApp, projectAppKeys, type ExposureMode } from '../api/project-app.js'
+import { releaseKeys } from '../api/releases.js'
 import { errorMessage } from '../../../api/client.js'
 
 const hostOf = (address: string): string => {

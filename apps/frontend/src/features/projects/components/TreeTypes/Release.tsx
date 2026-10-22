@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { ExternalLink } from 'lucide-react';
-import { getReleaseOptions, releaseSettingKeys } from '../../../../api/release-settings.js';
+import { getReleaseOptions, releaseSettingKeys } from '../../../releases';
 import { field, label, type TreeType } from './shared.js';
 
 export function Release({ value, onChange }: {

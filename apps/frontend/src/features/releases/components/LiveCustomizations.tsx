@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { GitPullRequestArrow, Loader2 } from 'lucide-react'
-import { customizationKeys, getDrift, proposeAdoption, type DriftItem } from '../../../api/customizations'
+import { customizationKeys, getDrift, proposeAdoption, type DriftItem } from '../api/customizations'
 import { errorMessage } from '../../../api/client'
 
 const KIND_LABELS: Record<string, string> = {

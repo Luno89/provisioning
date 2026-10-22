@@ -17,7 +17,7 @@ import AppDashboard from '../components/AppDashboard';
 import PendingKeyModal from '../components/PendingKeyModal';
 import NginxWizard from '../components/NginxWizard';
 import { errorMessage } from '../api/client';
-import { releaseKeys, type OdooRelease } from '../api/releases';
+import { releaseKeys, type OdooRelease } from '../features/releases';
 import { useShellStore, startHistorySync } from '../features/platform';
 import { reconnectSocket, useSocketEvent } from '../features/platform';
 import { getMe, logout, signInElsewhere } from '../features/platform';

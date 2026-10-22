@@ -2,9 +2,9 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { OpenApp } from './OpenApp'
-import * as appApi from '../../../api/project-app'
+import * as appApi from '../api/project-app'
 
-vi.mock('../../../api/project-app', async (orig) => ({
+vi.mock('../api/project-app', async (orig) => ({
   ...(await orig<typeof appApi>()),
   getProjectApp: vi.fn(),
   openProjectApp: vi.fn(),

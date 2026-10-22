@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2 } from 'lucide-react'
-import type { ReleaseChanges as Changes } from '../../../api/releases'
+import type { ReleaseChanges as Changes } from '../api/releases'
 
 const ITEM_STATE: Record<Changes['items'][number]['state'], { label: string; tone: string }> = {
   kept: { label: 'kept', tone: 'text-emerald-300' },

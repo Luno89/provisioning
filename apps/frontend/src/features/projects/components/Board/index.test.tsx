@@ -5,13 +5,13 @@ import { ProjectBoard } from './index'
 import * as groveApi from '../../api/grove'
 import * as projectsApi from '../../api/projects'
 import * as engineApi from '../../../../api/engine'
-import * as releasesApi from '../../../../api/releases'
+import * as releasesApi from '../../../releases/api/releases'
 import * as chatPackApi from '../../../../api/chat-pack'
 
 vi.mock('../../api/grove', async (orig) => ({ ...(await orig<typeof groveApi>()), listTrees: vi.fn(), listBranches: vi.fn(), listLeaves: vi.fn(), orderFeatures: vi.fn(async () => undefined), orderStories: vi.fn(async () => undefined), getTreeRun: vi.fn(async () => ({ state: 'none' })) }))
 vi.mock('../../api/projects', async (orig) => ({ ...(await orig<typeof projectsApi>()), listProjects: vi.fn(), listProjectRuns: vi.fn(async () => []) }))
 vi.mock('../../../../api/engine', async (orig) => ({ ...(await orig<typeof engineApi>()), listTasks: vi.fn(async () => []) }))
-vi.mock('../../../../api/releases', async (orig) => ({ ...(await orig<typeof releasesApi>()), listReleases: vi.fn(async () => ({ releases: [], addresses: {} })) }))
+vi.mock('../../../releases/api/releases', async (orig) => ({ ...(await orig<typeof releasesApi>()), listReleases: vi.fn(async () => ({ releases: [], addresses: {} })) }))
 vi.mock('../../../../api/chat-pack', async (orig) => ({ ...(await orig<typeof chatPackApi>()), createChatConversation: vi.fn() }))
 vi.mock('../Workspace/ProjectChannel', () => ({ ProjectChannel: ({ projectId }: { projectId: string }) => <div data-testid="channel">{projectId}</div> }))
 vi.mock('../Workspace/TreeProposalsPanel', () => ({ TreeProposalsPanel: () => null }))

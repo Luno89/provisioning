@@ -2,10 +2,10 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Release } from './Release'
-import * as api from '../../../../api/release-settings'
+import * as api from '../../../releases/api/release-settings'
 import type { TreeType } from './shared'
 
-vi.mock('../../../../api/release-settings', async (importOriginal) => ({ ...(await importOriginal<typeof api>()), getReleaseOptions: vi.fn() }))
+vi.mock('../../../releases/api/release-settings', async (importOriginal) => ({ ...(await importOriginal<typeof api>()), getReleaseOptions: vi.fn() }))
 
 const type = { id: 'odoo-addons', label: 'Odoo', summary: 's', language: 'odoo', produces: 'service', doneMeans: 'd', files: [] } as unknown as TreeType
 

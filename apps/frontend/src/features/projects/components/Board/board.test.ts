@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildBoard, featureOnly, featureOrderAfterMove, projectStatus, reachedBy, storiesInOrder, storyOrderAfterMove, withOrder } from './board'
 import type { Leaf } from '../../lib/leaf-types'
-import type { OdooRelease } from '../../../../api/releases'
+import type { OdooRelease } from '../../../releases/api/releases'
 import type { PipelineRun } from '../PipelineRunRow'
 import type { EngineTask } from '../../../../api/engine'
 
