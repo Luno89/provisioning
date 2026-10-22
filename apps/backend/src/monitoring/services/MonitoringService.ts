@@ -21,7 +21,7 @@ import {
   DEFAULT_HISTORY_DAYS, chartVersionOf, helmHistoryArgs, historyApplied, historyProblem, keptDays, prometheusNow,
 } from '../lib/monitoring-history.js';
 import type { AlertEpisode, MonitoringSetting } from '../lib/monitoring-records.js';
-import { namespaceOf } from '../../infrastructure/lib/app-namespace.js';
+import { namespaceOf } from '../../infrastructure/index.js';
 
 export interface Sample {
   metric: Record<string, string>;

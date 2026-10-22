@@ -1,4 +1,4 @@
-import type { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
+import type { InfrastructureService } from '../../infrastructure/index.js';
 import { webhookUrlFor } from '../lib/project-shipping.js';
 
 export function webhookAddress(infra: Pick<InfrastructureService, 'runKubectl'>, kubeconfig: string, port: string | number): (projectId: string) => Promise<string> {

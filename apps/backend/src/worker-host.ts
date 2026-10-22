@@ -11,7 +11,7 @@ import { PoolMoveStartActivity, PoolMoveStopActivity, PoolMoveSwitchActivity } f
 import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActivity, PoolReadyActivity, PoolRemoveActivity, PoolTrialNextActivity, PoolTrialStepActivity, PoolVclusterActivity } from './activities/PoolActivities.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
 import { createWorkerLogger, buildDataConverter, sharedPayloadBlobs, loadKeys } from './platform/index.js';
-import { healthPort, serveHealth } from './infrastructure/lib/worker-health.js';
+import { healthPort, serveHealth } from './infrastructure/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

@@ -1,5 +1,5 @@
 import fs from 'fs/promises';
-import type { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
+import type { InfrastructureService } from '../infrastructure/index.js';
 import { monitoringPlan, monitoringStackEnv, monitoringStackName } from '../monitoring/lib/cluster-monitoring.js';
 
 export interface MonitoredCluster {

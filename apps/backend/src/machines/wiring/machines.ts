@@ -5,10 +5,9 @@ import { type Database, type SecretKey, asyncRoute } from '../../platform/index.
 import { findDeviceByToken } from '../lib/local-agent-registry.js';
 import { MachineBundle } from '../services/MachineBundle.js';
 import { MachineGitService } from '../services/MachineGitService.js';
-import type { HeadscaleService } from '../../infrastructure/services/HeadscaleService.js';
+import { type HeadscaleService, meshRouter } from '../../infrastructure/index.js';
 import type { MachineService } from '../services/MachineService.js';
 import type { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
-import { meshRouter } from '../../infrastructure/routes/mesh.js';
 import { localAgentsRouter } from '../routes/local-agents.js';
 import { machinesRouter } from '../routes/machines.js';
 

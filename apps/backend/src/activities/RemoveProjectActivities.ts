@@ -3,7 +3,7 @@ import type { FilePlace } from '../files/lib/file-places.js';
 import {
   type ClusterMetadata, type ProjectMetadata, type DeploymentMetadata, type PipelineRunMetadata, CLI_CEILING,
 } from '../platform/index.js';
-import { destroyAppArgs, destroyAppWorkflowId, type DestroyAppArgs } from '../infrastructure/lib/app-destroy.js';
+import { destroyAppArgs, destroyAppWorkflowId, type DestroyAppArgs } from '../infrastructure/index.js';
 import type { Tree } from '../projects/lib/trees.js';
 import type { Branch, Leaf } from '../projects/lib/leaves.js';
 import type { Task } from '../engine-host/tools/tasks.js';

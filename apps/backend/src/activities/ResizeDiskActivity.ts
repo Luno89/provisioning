@@ -1,9 +1,8 @@
 
-import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
-import { StorageAdapter } from '../infrastructure/services/StorageAdapter.js';
-import { hasCloudCredentials } from '../infrastructure/lib/credential-resolver.js';
-import { isMockCloudProvider, isSelfManagedCluster } from '../infrastructure/lib/cluster-topology.js';
-import { namespaceOf } from '../infrastructure/lib/app-namespace.js';
+import {
+  InfrastructureService, StorageAdapter, hasCloudCredentials, isMockCloudProvider, isSelfManagedCluster,
+  namespaceOf,
+} from '../infrastructure/index.js';
 
 export interface ResizeDiskArgs {
   name: string;

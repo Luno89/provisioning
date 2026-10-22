@@ -9,7 +9,7 @@ import { importLines } from '../instances/lib/mongo-move.js';
 import { cleaned, restoreOrder, volumePart, type AppsManifest, type KubeObject } from '../instances/lib/app-move.js';
 import { ensureClusterMonitoring } from '../activities/cluster-monitoring.js';
 import { SYSTEM_CLUSTER } from '../monitoring/lib/cluster-monitoring.js';
-import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
+import { InfrastructureService } from '../infrastructure/index.js';
 import { GiteaService } from '../projects/services/GiteaService.js';
 import { loadKeys, mongoTarget } from '../platform/index.js';
 import { GITEA_DATA, MOVED_POSTGRES, MOVE_STEP_WORDS, PG_RESTORE, drained, type MovePart } from '../instances/lib/instance-move.js';

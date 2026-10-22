@@ -1,4 +1,4 @@
-import type { ResolvedBinding } from '../../infrastructure/lib/binding-resolve.js';
+import type { ResolvedBinding } from '../../infrastructure/index.js';
 
 export type Kubectl = (args: string[]) => Promise<string>;
 

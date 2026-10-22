@@ -1,8 +1,5 @@
 import type { Database } from '../../platform/index.js';
-import type { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
-import type { ClusterService } from '../../infrastructure/services/ClusterService.js';
-import { hasCloudCredentials } from '../../infrastructure/lib/credential-resolver.js';
-import { isMockCloudProvider } from '../../infrastructure/lib/cluster-topology.js';
+import { type InfrastructureService, type ClusterService, hasCloudCredentials, isMockCloudProvider } from '../../infrastructure/index.js';
 import { ArtifactService } from './ArtifactService.js';
 import { MinioArtifactStores, minioReachFrom, type MinioReach } from './MinioArtifactStore.js';
 

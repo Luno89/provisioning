@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import type { InstanceAddresses as Addresses } from '../lib/instances.js';
-import type { InstanceEdge } from '../../infrastructure/services/AppExposureService.js';
+import type { InstanceEdge } from '../../infrastructure/index.js';
 
 export interface InstanceAddressesSettings {
   rootUrl: string;

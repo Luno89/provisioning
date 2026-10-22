@@ -1,9 +1,7 @@
-import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
-import { StorageAdapter } from '../infrastructure/services/StorageAdapter.js';
-import { hasCloudCredentials } from '../infrastructure/lib/credential-resolver.js';
-import { isMockCloudProvider, isSelfManagedCluster } from '../infrastructure/lib/cluster-topology.js';
-import { buildAppEnv } from '../infrastructure/lib/app-env.js';
-import { pushOpenWebUiWebSearchConfig } from '../infrastructure/wiring/openwebui-admin.js';
+import {
+  InfrastructureService, StorageAdapter, hasCloudCredentials, isMockCloudProvider, isSelfManagedCluster,
+  buildAppEnv, pushOpenWebUiWebSearchConfig,
+} from '../infrastructure/index.js';
 import { waitUntilRolledOut } from './cluster-jobs.js';
 import { Context } from '@temporalio/activity';
 

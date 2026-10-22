@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import { ApplicationFailure } from '@temporalio/common';
 import { createDatabase, roleFromEnv, emailWayFrom, MailService } from '../platform/index.js';
-import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
+import { InfrastructureService } from '../infrastructure/index.js';
 import { hashCredential } from '../instances/services/InstanceService.js';
 import { publicKeyPem } from '../instances/lib/identity-token.js';
 import { afterStep, nextTrialStep, trialMessage, type DueStep, type TrialStep } from '../instances/lib/pool-trial.js';

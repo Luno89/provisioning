@@ -1,6 +1,6 @@
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
 import { createWebTools, type WebTools } from './web-tools.js';
-import type { InfrastructureStore } from '../../infrastructure/store.js';
+import type { InfrastructureStore } from '../../infrastructure/index.js';
 import { namespaceOf } from '../../infrastructure/lib/app-namespace.js';
 
 export interface ProxyTarget {

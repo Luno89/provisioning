@@ -1,9 +1,7 @@
 import type { ReleaseSettings } from '../../releases/services/ReleaseSettings.js';
 import type { ActionProposal } from '../lib/action-proposals.js';
 import { DECIDABLE } from '../lib/action-proposals.js';
-import { declareDependency } from '../../infrastructure/lib/declare-dependency.js';
-import { explainSpecProblems, validateSpec } from '../../infrastructure/lib/app-spec-validate.js';
-import { visibleAppSpecs, type AppSpec } from '../../infrastructure/lib/app-spec.js';
+import { declareDependency, explainSpecProblems, validateSpec, visibleAppSpecs, type AppSpec } from '../../infrastructure/index.js';
 import type { Database, PipelineRunMetadata, ProjectMetadata } from '../../platform/index.js';
 import type { McpServerRecord } from '../lib/mcp-servers.js';
 import type { ServerProposal } from '../lib/mcp-proposals.js';

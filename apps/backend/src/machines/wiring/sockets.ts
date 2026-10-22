@@ -10,9 +10,7 @@ import { findDeviceByToken, registerDevice, unregisterDevice } from '../lib/loca
 import { machinePayloads, type GetAnswer, type PutAnswer, type RingAnswer } from '../lib/machine-payloads.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
 import type { MachineService } from '../services/MachineService.js';
-import type { ClusterService } from '../../infrastructure/services/ClusterService.js';
-import type { AppService } from '../../infrastructure/services/AppService.js';
-import type { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
+import type { ClusterService, AppService, InfrastructureService } from '../../infrastructure/index.js';
 
 const LOG_TAIL_LINES = 200;
 

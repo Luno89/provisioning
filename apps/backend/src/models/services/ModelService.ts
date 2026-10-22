@@ -1,13 +1,10 @@
 import { BaseService, type Database, decryptValue, type SecretKey } from '../../platform/index.js';
-import type { AppService } from '../../infrastructure/services/AppService.js';
-import type { ClusterService } from '../../infrastructure/services/ClusterService.js';
-import type { ClusterProxyService } from '../../infrastructure/services/ClusterProxyService.js';
+import type { AppService, ClusterService, ClusterProxyService, HeadscaleService } from '../../infrastructure/index.js';
 import { listProviders, routeProvider, type ModelProvider, type EndpointSource } from '../lib/model-registry.js';
 import { checkEndpointUrl, isMeshAddress, type EndpointRules } from '../lib/endpoint-url-safety.js';
 import { modelOwner } from '../../checks/lib/check-space.js';
 import { MACHINE_DEFAULT_NEEDS_MODEL } from '../../machines/lib/machine-runs.js';
 import { machineChoice } from '@koala/agent-engine/procedure';
-import type { HeadscaleService } from '../../infrastructure/services/HeadscaleService.js';
 
 export class ModelService extends BaseService {
   constructor(

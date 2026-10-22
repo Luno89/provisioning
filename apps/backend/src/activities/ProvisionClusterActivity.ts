@@ -1,13 +1,12 @@
 import fs from 'fs/promises';
 
-import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
-import { hasCloudCredentials } from '../infrastructure/lib/credential-resolver.js';
-import { isMockCloudProvider } from '../infrastructure/lib/cluster-topology.js';
+import {
+  InfrastructureService, hasCloudCredentials, isMockCloudProvider, capacityFromNodes, type ClusterCapacity,
+} from '../infrastructure/index.js';
 import { ProvisionRemoteHostActivity } from './ProvisionRemoteHostActivity.js';
 import { ProvisionHetznerVmActivity } from './ProvisionHetznerVmActivity.js';
 import { ProvisionDigitalOceanVmActivity } from './ProvisionDigitalOceanVmActivity.js';
 import { JoinMeshActivity } from './JoinMeshActivity.js';
-import { capacityFromNodes, type ClusterCapacity } from '../infrastructure/lib/cluster-capacity.js';
 import { infisicalHostFor } from '../releases/lib/infisical-sync.js';
 import { ensureInfisicalOperator } from '../projects/services/ProjectSecretSync.js';
 import { CLI_CEILING } from '../platform/index.js';

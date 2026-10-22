@@ -1,8 +1,5 @@
 import { createDatabase } from '../platform/index.js';
-import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
-import { ClusterService } from '../infrastructure/services/ClusterService.js';
-import { namespaceOf } from '../infrastructure/lib/app-namespace.js';
-import { assessWorkload, type WorkloadHealth } from '../infrastructure/lib/workload-health.js';
+import { InfrastructureService, ClusterService, namespaceOf, assessWorkload, type WorkloadHealth } from '../infrastructure/index.js';
 
 export interface CheckWorkloadArgs {
   name: string;

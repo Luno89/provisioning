@@ -15,7 +15,7 @@ const upward = (folders) => folders.flatMap((folder) => [`**/${folder}/*`, `**/$
 
 const AREAS = ['platform', 'accounts', 'instances', 'hub', 'projects', 'releases', 'files', 'machines', 'monitoring', 'models', 'memory', 'checks', 'infrastructure', 'engine']
 
-const WITH_INDEX = ['platform']
+const WITH_INDEX = ['platform', 'infrastructure']
 
 const BELOW_SERVICES = ['workflows', 'engine-host', 'extensions', 'eval']
 
@@ -37,8 +37,9 @@ const placeOf = (file) => {
   return { kind: 'place', name: rel[0], rel: rel.join('/') }
 }
 
-const belowServices = (from) =>
-  (from.kind === 'area' && (from.rest.startsWith('lib/') || from.rest === 'store.ts')) || (from.kind === 'place' && BELOW_SERVICES.includes(from.name))
+const pure = (from) => (from.kind === 'area' && (from.rest.startsWith('lib/') || from.rest === 'store.ts')) || (from.kind === 'place' && from.name === 'workflows')
+
+const belowServices = (from) => pure(from) || (from.kind === 'place' && BELOW_SERVICES.includes(from.name))
 
 const boundaries = {
   rules: {
@@ -51,7 +52,7 @@ const boundaries = {
           const to = placeOf(path.resolve(path.dirname(context.filename), source).replace(/\.js$/, '.ts'))
           if (to.kind !== 'area' || !WITH_INDEX.includes(to.name) || (from.kind === 'area' && from.name === to.name)) return
           if (to.rest === 'index.ts') {
-            if (belowServices(from) && !typeOnly) context.report({ node, message: `${from.rel} is below the services: it takes values from ${to.name}/lib directly and only types from its index, which loads the whole area` })
+            if (pure(from) && !typeOnly) context.report({ node, message: `${from.rel} is pure: it takes values from ${to.name}/lib directly and only types from its index, which loads the whole area` })
             return
           }
           if (!typeOnly && belowServices(from) && to.rest.startsWith('lib/')) return

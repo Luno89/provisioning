@@ -14,9 +14,8 @@ import { DownloadModelActivity } from './activities/DownloadModelActivity.js';
 import { VerifyGpuRuntimeActivity } from './activities/VerifyGpuRuntimeActivity.js';
 import { RunPipelineActivity } from './activities/RunPipelineActivity.js';
 import { createWorkerLogger, buildDataConverter, sharedPayloadBlobs, loadKeys, roleFromEnv } from './platform/index.js';
-import { healthPort, serveHealth } from './infrastructure/lib/worker-health.js';
+import { healthPort, serveHealth, InfrastructureService } from './infrastructure/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
-import { InfrastructureService } from './infrastructure/services/InfrastructureService.js';
 import { ensureClusterMonitoring } from './activities/cluster-monitoring.js';
 import { placedOnPool, SYSTEM_CLUSTER } from './monitoring/lib/cluster-monitoring.js';
 

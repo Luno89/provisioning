@@ -4,7 +4,7 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 
-import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
+import { InfrastructureService } from '../infrastructure/index.js';
 
 const execFileAsync = promisify(execFile);
 

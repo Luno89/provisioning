@@ -8,7 +8,7 @@ import { StoryDropService } from '../services/StoryDropService.js';
 import type { createArtifactService } from '../services/artifact-service-factory.js';
 import type { GiteaService } from '../../projects/services/GiteaService.js';
 import type { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
-import type { TemporalBridge } from '../../infrastructure/services/TemporalBridge.js';
+import type { TemporalBridge } from '../../infrastructure/index.js';
 import { filesRouter, shareRouter } from '../routes/files.js';
 import { projectFilesRouter } from '../routes/project-files.js';
 import type { Mounts } from '../../hub/wiring/hub.js';

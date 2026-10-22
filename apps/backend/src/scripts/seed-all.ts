@@ -1,9 +1,7 @@
 #!/usr/bin/env tsx
 
 import { createDatabase, type Database, runOnce, type MigrationLedger } from '../platform/index.js';
-import { seedBindingTypes } from '../infrastructure/lib/binding-type-seeds.js';
-import { seedAppSpecs, seedConstructBackedTypes } from '../infrastructure/lib/app-spec.js';
-import { seedClusterProviders } from '../infrastructure/lib/cluster-providers.js';
+import { seedBindingTypes, seedAppSpecs, seedConstructBackedTypes, seedClusterProviders } from '../infrastructure/index.js';
 import { seedTreeTypes, stampTreeVersions } from '../projects/lib/tree-types.js';
 import { seedWorkspaceImages } from '../engine/lib/workspace-image-seeds.js';
 import { retireStoredBuiltInProcedures } from '../engine/lib/built-in-procedures.js';

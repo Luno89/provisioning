@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { ApplicationFailure } from '@temporalio/common';
-import type { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
+import type { InfrastructureService } from '../../infrastructure/index.js';
 import { CHART_DIR, NOTHING_INSTALLED, slotStateFrom, type ReleaseVault, type SlotState } from '../../releases/lib/odoo-release.js';
 import { reachCluster } from '../../activities/cluster-access.js';
 import type { ReleaseSource, ReleaseTarget } from '../../releases/lib/release-run.js';

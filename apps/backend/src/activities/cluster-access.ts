@@ -1,8 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import type { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
-import { hasCloudCredentials } from '../infrastructure/lib/credential-resolver.js';
-import { isMockCloudProvider, isSelfManagedCluster } from '../infrastructure/lib/cluster-topology.js';
+import { type InfrastructureService, hasCloudCredentials, isMockCloudProvider, isSelfManagedCluster } from '../infrastructure/index.js';
 import type { ClusterMetadata } from '../platform/index.js';
 
 export interface ClusterRef {

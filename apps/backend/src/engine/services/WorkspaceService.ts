@@ -9,8 +9,7 @@ import {
   type WorkspaceBinding,
 } from '../lib/workspace-spec.js';
 import { readBindingCredentials } from '../../projects/lib/binding-project.js';
-import { bindingFiles } from '../../infrastructure/lib/binding-resolve.js';
-import type { ResolvedBinding } from '../../infrastructure/lib/binding-resolve.js';
+import { bindingFiles, type ResolvedBinding } from '../../infrastructure/index.js';
 import type { WorkspaceImageSpec } from '../lib/workspace-image-seeds.js';
 
 const BIN_DIR = path.join(process.cwd(), '..', '..', 'bin');

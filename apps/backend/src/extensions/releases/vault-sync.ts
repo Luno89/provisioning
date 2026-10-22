@@ -1,7 +1,5 @@
 import { ApplicationFailure } from '@temporalio/common';
-import type { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
-import { InfisicalService } from '../../infrastructure/services/InfisicalService.js';
-import { sharedClusterProxy } from '../../infrastructure/services/ClusterProxyService.js';
+import { type InfrastructureService, InfisicalService, sharedClusterProxy } from '../../infrastructure/index.js';
 import { syncProjectSecrets } from '../../projects/services/ProjectSecretSync.js';
 import { createDatabase } from '../../platform/lib/db-interface.js';
 import { loadKeys } from '../../platform/lib/keys.js';

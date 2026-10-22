@@ -1,21 +1,17 @@
 import type { Database } from '../../platform/index.js';
 import { ActionService } from '../services/ActionService.js';
-import { EgressService } from '../../infrastructure/services/EgressService.js';
-import { EgressProxyService } from '../../infrastructure/services/EgressProxyService.js';
-import { AccessService } from '../../infrastructure/services/AccessService.js';
+import {
+  EgressService, EgressProxyService, AccessService, type TemporalBridge, type InfrastructureService,
+  type InfisicalService, egressRouter, clusterAccessRouter,
+} from '../../infrastructure/index.js';
 import { SecretRequestService } from '../../projects/services/SecretRequestService.js';
-import type { TemporalBridge } from '../../infrastructure/services/TemporalBridge.js';
 import type { MonitoringService } from '../../monitoring/services/MonitoringService.js';
 import type { TreeModelsService } from '../../models/services/TreeModelsService.js';
 import type { McpServerService } from '../services/McpServerService.js';
 import type { WorkspaceDependencyService } from '../services/WorkspaceDependencyService.js';
 import type { AgentService } from '../services/AgentService.js';
-import type { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
-import type { InfisicalService } from '../../infrastructure/services/InfisicalService.js';
 import type { directoryFromDatabase } from '../../engine-host/index.js';
 import { actionsRouter } from '../routes/actions.js';
-import { egressRouter } from '../../infrastructure/routes/egress.js';
-import { clusterAccessRouter } from '../../infrastructure/routes/cluster-access.js';
 import { secretRequestsRouter } from '../../projects/routes/secret-requests.js';
 import type { wireReleases } from '../../releases/wiring/releases.js';
 import type { Mounts } from '../../hub/wiring/hub.js';

@@ -3,7 +3,7 @@ import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import type { AccessRequest } from '@koala/harness-types';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
 import {
-  LOG_TAIL, PLATFORM_NAMESPACES, eventsCommand, findDeployment, logsCommand, namespaceOf, namespacesProblem, planRead, trimOutput,
+  LOG_TAIL, PLATFORM_NAMESPACES, eventsCommand, findDeployment, logsCommand, namespaceOfName, namespacesProblem, planRead, trimOutput,
   type OwnedDeployment,
 } from '../../infrastructure/lib/kube-diagnostics.js';
 
@@ -47,7 +47,7 @@ export function createKubeTools(options: { access: KubeAccess; now?: (() => stri
       .filter((deployment) => deployment.ownerId === ownerId)
       .map((deployment) => ({
         name: deployment.name,
-        namespace: deployment.namespace || namespaceOf(deployment.name),
+        namespace: deployment.namespace || namespaceOfName(deployment.name),
         clusterId: deployment.clusterId,
         ownerId: deployment.ownerId,
         record: deployment,

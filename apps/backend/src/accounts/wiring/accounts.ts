@@ -1,7 +1,7 @@
 import type express from 'express';
 import { type Database, type RoleConfig, getTemporalClient, holdsAccounts, servesTenants } from '../../platform/index.js';
 import type { HubPeople } from '../../hub/services/HubPeople.js';
-import type { TemporalBridge } from '../../infrastructure/services/TemporalBridge.js';
+import type { TemporalBridge } from '../../infrastructure/index.js';
 import { AccountRemovalService, temporalRemovalWorkflows } from '../services/AccountRemovalService.js';
 import { DEFAULT_ENGINE_TASK_QUEUE } from '../../engine-host/temporal/contracts.js';
 import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-removal.js';

@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
 import { asyncRoute, type Database } from '../../platform/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { unreachableMemory, type MemoryItem } from '../lib/memory-store.js';
-import type { TemporalBridge } from '../../infrastructure/services/TemporalBridge.js';
+import type { TemporalBridge } from '../../infrastructure/index.js';
 import { isToolNote } from '../../engine/lib/tool-notes.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');

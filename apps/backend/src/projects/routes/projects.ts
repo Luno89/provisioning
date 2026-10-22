@@ -4,7 +4,7 @@ import { isWorkspaceLanguage } from '../../engine/lib/workspace-image-catalogue.
 import { WorkspaceImageService } from '../../engine/services/WorkspaceImageService.js';
 import { v4 as uuidv4 } from 'uuid';
 import { rollupProjectStatus, deploymentForProject } from '../lib/project-status.js';
-import { validateLocalEgressRules } from '../../infrastructure/lib/egress-rules.js';
+import { validateLocalEgressRules } from '../../infrastructure/index.js';
 import type { ProjectRemovalService } from '../services/ProjectRemovalService.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');

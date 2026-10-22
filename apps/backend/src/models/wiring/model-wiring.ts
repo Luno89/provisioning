@@ -1,10 +1,7 @@
 import type { SecretKey, Database } from '../../platform/index.js';
-import { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
-import { BuilderService } from '../../infrastructure/services/BuilderService.js';
-import { ClusterService } from '../../infrastructure/services/ClusterService.js';
-import { AppService } from '../../infrastructure/services/AppService.js';
-import { sharedClusterProxy } from '../../infrastructure/services/ClusterProxyService.js';
-import { HeadscaleService } from '../../infrastructure/services/HeadscaleService.js';
+import {
+  InfrastructureService, BuilderService, ClusterService, AppService, sharedClusterProxy, HeadscaleService,
+} from '../../infrastructure/index.js';
 import { ModelService } from '../services/ModelService.js';
 import { endpointRulesFromEnv } from '../lib/endpoint-url-safety.js';
 

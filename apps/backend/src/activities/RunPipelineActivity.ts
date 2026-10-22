@@ -1,10 +1,9 @@
-import { assessWorkload } from '../infrastructure/lib/workload-health.js';
+import { assessWorkload, InfrastructureService } from '../infrastructure/index.js';
 import fs from 'fs/promises';
 import { spawn } from 'child_process';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
 import { GiteaService } from '../projects/services/GiteaService.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { buildPlanAt, isCommitSha } from '../releases/lib/build-plan.js';

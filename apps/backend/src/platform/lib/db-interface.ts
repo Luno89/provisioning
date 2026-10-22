@@ -13,7 +13,7 @@ import type { MonitoringStore } from '../../monitoring/store.js';
 import type { ModelsStore } from '../../models/store.js';
 import type { MemoryStore } from '../../memory/store.js';
 import type { ChecksStore } from '../../checks/store.js';
-import type { InfrastructureStore } from '../../infrastructure/store.js';
+import type { InfrastructureStore } from '../../infrastructure/index.js';
 import type { EngineStore } from '../../engine/store.js';
 
 export interface Database {

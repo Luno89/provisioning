@@ -40,24 +40,16 @@ import { MachineService } from './machines/services/MachineService.js';
 import { RootMeshKeys } from './instances/services/RootMeshKeys.js';
 import { modelsRouter } from './models/routes/models.js';
 
-import { InfrastructureService } from './infrastructure/services/InfrastructureService.js';
-import { ClusterService } from './infrastructure/services/ClusterService.js';
-import { AppService } from './infrastructure/services/AppService.js';
-import { RegistryService } from './infrastructure/services/RegistryService.js';
-import { GitModuleService } from './infrastructure/services/GitModuleService.js';
-import { BuilderService } from './infrastructure/services/BuilderService.js';
-import { AppExposureService } from './infrastructure/services/AppExposureService.js';
-import { VpsCatalogService } from './infrastructure/services/VpsCatalogService.js';
+import {
+  InfrastructureService, ClusterService, AppService, RegistryService, GitModuleService, BuilderService,
+  AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService,
+  HeadscaleService,
+} from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
-import WorkerService from './infrastructure/services/WorkerService.js';
-import { sharedClusterProxy } from './infrastructure/services/ClusterProxyService.js';
 import net from 'net';
 import { spawn } from 'child_process';
 import { AuthService } from './accounts/services/AuthService.js';
-import { CredentialService } from './infrastructure/services/CredentialService.js';
 import { GiteaService } from './projects/services/GiteaService.js';
-import { InfisicalService } from './infrastructure/services/InfisicalService.js';
-import { HeadscaleService } from './infrastructure/services/HeadscaleService.js';
 import { ModelService } from './models/services/ModelService.js';
 
 import { seedAll } from './scripts/seed-all.js';

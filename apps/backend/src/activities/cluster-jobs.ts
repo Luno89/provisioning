@@ -1,5 +1,5 @@
 import { ApplicationFailure } from '@temporalio/common';
-import { assessWorkload } from '../infrastructure/lib/workload-health.js';
+import { assessWorkload } from '../infrastructure/index.js';
 
 export interface NamespacedCluster {
   kubectl(args: string[]): Promise<string>;

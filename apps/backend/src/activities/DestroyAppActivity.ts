@@ -1,14 +1,13 @@
 import fs from 'fs/promises';
 
-import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
-import { hasCloudCredentials } from '../infrastructure/lib/credential-resolver.js';
-import { isMockCloudProvider, isSelfManagedCluster } from '../infrastructure/lib/cluster-topology.js';
+import {
+  InfrastructureService, hasCloudCredentials, isMockCloudProvider, isSelfManagedCluster, type DestroyAppArgs,
+  namespaceOf,
+} from '../infrastructure/index.js';
 import { reachCluster } from './cluster-access.js';
 import { ODOO_PROJECT_APP } from '../releases/lib/odoo-release.js';
-import type { DestroyAppArgs } from '../infrastructure/lib/app-destroy.js';
-import { namespaceOf } from '../infrastructure/lib/app-namespace.js';
 
-export type { DestroyAppArgs } from '../infrastructure/lib/app-destroy.js';
+export type { DestroyAppArgs } from '../infrastructure/index.js';
 
 export interface DestroyAppResult {
   status: string;

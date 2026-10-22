@@ -19,10 +19,11 @@ import { fileURLToPath } from 'url';
 
 import { createPlanAdoption } from './engine-host/plan-adoption.js';
 import { GiteaService } from './projects/services/GiteaService.js';
-import { InfrastructureService, LOG_DIR } from './infrastructure/services/InfrastructureService.js';
+import {
+  InfrastructureService, LOG_DIR, InfisicalService, HeadscaleService, deployProjectBuild, sharedClusterProxy,
+  ClusterService, visibleAppSpecs, resolveBindings, healthPort, serveHealth,
+} from './infrastructure/index.js';
 import { createModelService } from './models/wiring/model-wiring.js';
-import { InfisicalService } from './infrastructure/services/InfisicalService.js';
-import { HeadscaleService } from './infrastructure/services/HeadscaleService.js';
 import { createAccountRemovalActivities } from './activities/RemoveAccountActivities.js';
 import { createProjectRemovalActivities, type AppTeardown } from './activities/RemoveProjectActivities.js';
 import { projectSecretsFor } from './projects/services/ProjectSecretsService.js';
@@ -33,7 +34,6 @@ import { CustomizationsService } from './releases/services/CustomizationsService
 import { ODOO_TREE_TYPE } from './projects/lib/tree-type-seeds.js';
 import { releaseHowOf } from './releases/lib/release-run.js';
 import { treeTypeOfProject } from './projects/lib/tree-types.js';
-import { deployProjectBuild } from './infrastructure/services/AppDeploy.js';
 import { ODOO_RELEASE_ADAPTER } from './extensions/odoo/release-adapter.js';
 import { projectChoicesPatch, type ClientImport } from './releases/lib/client-import.js';
 import { syncVaultFromProject } from './extensions/releases/vault-sync.js';
@@ -47,18 +47,14 @@ import { itSays, wasReported } from './eval/level2/reported.js';
 import { createProcedureExecutor } from './engine-host/nodes/index.js';
 import axios from 'axios';
 import { httpCheckAccess } from './checks/services/CheckToolAccess.js';
-import { sharedClusterProxy } from './infrastructure/services/ClusterProxyService.js';
 import { MonitoringService, prometheusAt } from './monitoring/services/MonitoringService.js';
 import { poolMonitor, poolMonitorFrom } from './monitoring/services/PoolMonitor.js';
 import { ProjectRepoService } from './projects/services/ProjectRepoService.js';
 import { createSecretVault } from './projects/services/SecretRequestService.js';
 import { resolveMcpProbeUrl } from './engine/lib/mcp-probe-url.js';
-import { ClusterService } from './infrastructure/services/ClusterService.js';
-import { visibleAppSpecs } from './infrastructure/lib/app-spec.js';
 import { treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars } from './projects/lib/tree-types.js';
 import { TreeHomeService } from './projects/services/TreeHomeService.js';
 import { webhookAddress } from './projects/services/webhook-address.js';
-import { resolveBindings } from './infrastructure/lib/binding-resolve.js';
 import { runCancelledVia, runEndedVia } from './engine-host/temporal/run-cancellation.js';
 import { createKubeRunner } from './engine-host/sandboxes/kube.js';
 
@@ -76,7 +72,6 @@ import {
 import { createHostNodes, hostNodesFor } from './engine-host/nodes/index.js';
 import { buildWebTools } from './engine/wiring/web-tools.js';
 import { extensionServiceFor } from './engine/services/ExtensionService.js';
-import { healthPort, serveHealth } from './infrastructure/lib/worker-health.js';
 import { createGroveLauncher } from './engine-host/grove-launcher.js';
 import { createRunStarter } from './engine-host/registries/run-starter.js';
 import { WorkspaceBuildService } from './engine/services/WorkspaceBuildService.js';

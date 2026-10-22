@@ -1,9 +1,7 @@
 import type { Database } from '../../platform/index.js';
 import { corpusEndpointsWith, crawlEndpointWith, resolveWebTools, webToolsDepsFrom, type CorpusEndpoints, type WebToolsDeps } from '../lib/web-tools-resolver.js';
 import type { WebTools } from '../lib/web-tools.js';
-import { sharedClusterProxy } from '../../infrastructure/services/ClusterProxyService.js';
-import { ClusterService } from '../../infrastructure/services/ClusterService.js';
-import { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
+import { sharedClusterProxy, ClusterService, InfrastructureService } from '../../infrastructure/index.js';
 
 export type { CorpusEndpoints };
 

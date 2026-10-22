@@ -20,7 +20,7 @@ export interface OwnedDeployment {
   ownerId?: string | undefined;
 }
 
-export const namespaceOf = (deploymentName: string): string =>
+export const namespaceOfName = (deploymentName: string): string =>
   deploymentName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
 
 export function findDeployment(wanted: string, deployments: readonly OwnedDeployment[], ownerId: string): OwnedDeployment | undefined {
