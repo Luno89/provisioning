@@ -1,5 +1,5 @@
 import type { Conversation, ConversationMessage } from './conversations.js';
-import type { HubDirty, HubLink, SyncedDoc, SyncedKind } from './hub-sync.js';
+import { applyPatch, type HubDirty, type HubLink, type RecordPatch, type SyncedDoc, type SyncedKind } from './hub-sync.js';
 import { hintKey, type McpToolHint } from './mcp-tool-hints.js';
 import type { BenchSettings, BenchState } from './bench.js';
 import type { ExtensionSettings } from './extension-settings.js';
@@ -127,9 +127,10 @@ export class MemoryDB implements Database {
     return found ? JSON.parse(JSON.stringify(found)) as SyncedDoc : undefined;
   }
 
-  async writeSyncedRecord(kind: SyncedKind, doc: SyncedDoc): Promise<void> {
-    const copy = JSON.parse(JSON.stringify(doc)) as { id: string };
-    this.setSyncedList(kind, [...this.syncedList(kind).filter((entry) => entry.id !== doc.id), copy]);
+  async patchSyncedRecord(kind: SyncedKind, id: string, patch: RecordPatch): Promise<void> {
+    const current = this.syncedList(kind).find((entry) => entry.id === id) as SyncedDoc | undefined;
+    const next = JSON.parse(JSON.stringify(applyPatch(current, id, patch))) as { id: string };
+    this.setSyncedList(kind, [...this.syncedList(kind).filter((entry) => entry.id !== id), next]);
   }
 
   async deleteSyncedRecord(kind: SyncedKind, id: string): Promise<void> {

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { afterFailure, lockedSaid, lockedUntil, type SignInAttempts } from '../lib/http-limits.js';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { signJWT, hashPassword, verifyPassword } from '../lib/auth.js';
@@ -64,20 +65,26 @@ export function authRouter(deps: AuthRouterDeps): Router {
     }
   });
 
+  const attempts = new Map<string, SignInAttempts>();
   accountRoutes.post('/login', async (req, res) => {
     try {
       const { email, password } = req.body;
       if (!email || !password) {
         return res.status(400).json({ error: 'Email and password are required' });
       }
+      const account = String(email).trim().toLowerCase();
+      const now = Date.now();
+      const locked = lockedUntil(attempts.get(account), now);
+      if (locked !== undefined) return res.status(429).json({ error: lockedSaid(locked, now) });
+      const failed = () => {
+        attempts.set(account, afterFailure(attempts.get(account), now));
+        return res.status(401).json({ error: 'Invalid email or password' });
+      };
       const user = await db.getUserByEmail(email);
-      if (!user || !user.passwordHash) {
-        return res.status(401).json({ error: 'Invalid email or password' });
-      }
+      if (!user || !user.passwordHash) return failed();
       const match = await verifyPassword(password, user.passwordHash);
-      if (!match) {
-        return res.status(401).json({ error: 'Invalid email or password' });
-      }
+      if (!match) return failed();
+      attempts.delete(account);
 
       if (user.removal) {
         return res.status(403).json({ error: 'This account is being removed' });

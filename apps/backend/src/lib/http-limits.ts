@@ -1,0 +1,62 @@
+export interface RateLimitRule {
+  name: string;
+  paths: readonly string[];
+  prefixes: readonly string[];
+  windowMs: number;
+  max: number;
+  said: string;
+}
+
+const MINUTES = 60_000;
+
+export const RATE_LIMITS: readonly RateLimitRule[] = [
+  {
+    name: 'sign-in',
+    paths: ['/auth/login', '/auth/register', '/auth/2fa/verify', '/auth/handoff', '/auth/sign-in'],
+    prefixes: [],
+    windowMs: 15 * MINUTES,
+    max: 30,
+    said: 'Too many sign-in attempts from this address; wait fifteen minutes and try again.',
+  },
+  {
+    name: 'joining',
+    paths: ['/hub-link/invite', '/hub-link/invitation', '/machines/join', '/instances/join', '/instances/hub-token'],
+    prefixes: ['/hub/invitations/'],
+    windowMs: 15 * MINUTES,
+    max: 60,
+    said: 'Too many requests from this address; wait a few minutes and try again.',
+  },
+  {
+    name: 'share-links',
+    paths: [],
+    prefixes: ['/share/'],
+    windowMs: 15 * MINUTES,
+    max: 300,
+    said: 'This link was opened too many times from this address; wait a few minutes and try again.',
+  },
+];
+
+export const ruleFor = (path: string): RateLimitRule | undefined =>
+  RATE_LIMITS.find((rule) => rule.paths.includes(path) || rule.prefixes.some((prefix) => path.startsWith(prefix)));
+
+export interface SignInAttempts {
+  failures: number[];
+}
+
+export const LOCKOUT = { after: 10, windowMs: 15 * MINUTES, forMs: 15 * MINUTES };
+
+export function lockedUntil(attempts: SignInAttempts | undefined, now: number, rule = LOCKOUT): number | undefined {
+  if (!attempts) return undefined;
+  const recent = attempts.failures.filter((at) => now - at < rule.windowMs);
+  if (recent.length < rule.after) return undefined;
+  const last = Math.max(...recent);
+  return last + rule.forMs > now ? last + rule.forMs : undefined;
+}
+
+export const afterFailure = (attempts: SignInAttempts | undefined, now: number, rule = LOCKOUT): SignInAttempts =>
+  ({ failures: [...(attempts?.failures ?? []).filter((at) => now - at < rule.windowMs), now] });
+
+export const lockedSaid = (until: number, now: number): string => {
+  const minutes = Math.max(1, Math.ceil((until - now) / MINUTES));
+  return `Too many failed sign-ins for this account; try again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`;
+};

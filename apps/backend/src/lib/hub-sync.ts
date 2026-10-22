@@ -56,6 +56,36 @@ export function diffRecord(before: SyncedDoc | undefined, after: SyncedDoc): Rec
   return Object.keys(patch).length > 0 ? patch : undefined;
 }
 
+export type MessageMatch = { role: string; at: string; author: Record<string, unknown> | { $exists: false } };
+
+export function messageMatch(key: string): MessageMatch {
+  const [role = '', at = '', who = ''] = key.split('|');
+  const author = who === '' ? { $exists: false as const }
+    : who === 'platform' ? { kind: 'platform' }
+      : who.startsWith('person:') ? { kind: 'person', id: who.slice('person:'.length) }
+        : { kind: 'agent', slug: who.slice('agent:'.length) };
+  return { role, at, author };
+}
+
+export interface FieldUpdate {
+  $set?: Record<string, unknown>;
+  $unset?: Record<string, ''>;
+}
+
+export function fieldUpdate(patch: RecordPatch): FieldUpdate | undefined {
+  const update: FieldUpdate = {};
+  if (patch.set && Object.keys(patch.set).length > 0) update.$set = patch.set;
+  if (patch.unset && patch.unset.length > 0) update.$unset = Object.fromEntries(patch.unset.map((field) => [field, '' as const]));
+  return update.$set || update.$unset ? update : undefined;
+}
+
+export function messageUpdates(patch: RecordPatch): { pull?: MessageMatch[]; push?: ConversationMessage[] } {
+  if (!patch.messages) return {};
+  const put = patch.messages.put ?? [];
+  const keys = [...new Set([...(patch.messages.drop ?? []), ...put.map(messageKey)])];
+  return { ...(keys.length ? { pull: keys.map(messageMatch) } : {}), ...(put.length ? { push: put } : {}) };
+}
+
 export function applyPatch(doc: SyncedDoc | undefined, id: string, patch: RecordPatch): SyncedDoc {
   const next: SyncedDoc = { ...(doc ?? {}), ...(patch.set ?? {}), id };
   for (const field of patch.unset ?? []) delete next[field];
@@ -129,7 +159,7 @@ export interface HubSyncStore {
   hubDirty(limit: number): Promise<HubDirty[]>;
   clearHubDirty(entries: readonly HubDirty[]): Promise<void>;
   syncedRecord(kind: SyncedKind, id: string): Promise<SyncedDoc | undefined>;
-  writeSyncedRecord(kind: SyncedKind, doc: SyncedDoc): Promise<void>;
+  patchSyncedRecord(kind: SyncedKind, id: string, patch: RecordPatch): Promise<void>;
   deleteSyncedRecord(kind: SyncedKind, id: string): Promise<void>;
   hubSnapshot(kind: SyncedKind, id: string): Promise<{ projectId: string; doc: SyncedDoc } | undefined>;
   saveHubSnapshot(projectId: string, kind: SyncedKind, doc: SyncedDoc): Promise<void>;

@@ -1,5 +1,5 @@
 import type { Conversation, ConversationMessage } from './conversations.js';
-import type { HubDirty, HubLink, SyncedDoc, SyncedKind } from './hub-sync.js';
+import { fieldUpdate, messageUpdates, type RecordPatch, type HubDirty, type HubLink, type SyncedDoc, type SyncedKind } from './hub-sync.js';
 import { hintKey, type McpToolHint } from './mcp-tool-hints.js';
 import type { BenchSettings, BenchState } from './bench.js';
 import type { ExtensionSettings } from './extension-settings.js';
@@ -274,9 +274,13 @@ export class MongoDB implements Database {
     return doc ? fromDoc<SyncedDoc>(doc) : undefined;
   }
 
-  async writeSyncedRecord(kind: SyncedKind, doc: SyncedDoc): Promise<void> {
-    const { _id, ...rest } = toDoc(doc);
-    await this.syncedCollection(kind).replaceOne({ _id }, rest, { upsert: true });
+  async patchSyncedRecord(kind: SyncedKind, id: string, patch: RecordPatch): Promise<void> {
+    const collection = this.syncedCollection(kind);
+    const fields = fieldUpdate(patch);
+    const messages = messageUpdates(patch);
+    if (fields) await collection.updateOne({ _id: id as any }, fields, { upsert: true });
+    if (messages.pull) await collection.updateOne({ _id: id as any }, { $pull: { messages: { $or: messages.pull } } } as any);
+    if (messages.push) await collection.updateOne({ _id: id as any }, { $push: { messages: { $each: messages.push, $sort: { at: 1 } } } } as any, { upsert: true });
   }
 
   async deleteSyncedRecord(kind: SyncedKind, id: string): Promise<void> {

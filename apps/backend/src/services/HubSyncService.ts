@@ -143,9 +143,8 @@ export class HubSyncService {
           await this.deps.store.deleteSyncedRecord(change.kind, change.id);
           await this.deps.store.deleteHubSnapshot(change.kind, change.id);
         } else {
-          const local = await this.deps.store.syncedRecord(change.kind, change.id);
           const snapshot = await this.deps.store.hubSnapshot(change.kind, change.id);
-          await this.deps.store.writeSyncedRecord(change.kind, applyPatch(local, change.id, change.patch));
+          await this.deps.store.patchSyncedRecord(change.kind, change.id, change.patch);
           await this.deps.store.saveHubSnapshot(link.projectId, change.kind, applyPatch(snapshot?.doc, change.id, change.patch));
         }
         applied += 1;

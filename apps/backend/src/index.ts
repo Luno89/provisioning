@@ -46,6 +46,9 @@ import { leavesRouter } from './routes/leaves.js';
 import { memoriesRouter } from './routes/memories.js';
 import { authRouter } from './routes/auth.js';
 import { conversationsRouter } from './routes/conversations.js';
+import helmet from 'helmet';
+import { rateLimit } from 'express-rate-limit';
+import { RATE_LIMITS, ruleFor } from './lib/http-limits.js';
 import { engineRouter, extensionSummary } from './routes/engine.js';
 import { proceduresRouter } from './routes/procedures.js';
 import { ProcedureService } from './services/ProcedureService.js';
@@ -671,6 +674,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }, (message) => console.warn(message));
 
   const authService = new AuthService(db);
+  app.set('trust proxy', process.env.NODE_ENV === 'production' ? 1 : false);
   app.use(cors({
     origin: (origin, callback) => callback(null, originAllowed(origin)),
     credentials: true,
@@ -714,6 +718,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   app.use(express.json({ limit: '20mb' }));
+  app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, hsts: process.env.NODE_ENV === 'production' }));
+  app.use('/api', ...RATE_LIMITS.map((rule) => rateLimit({
+    windowMs: rule.windowMs,
+    limit: rule.max,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: { error: rule.said },
+    skip: (req) => ruleFor(req.path)?.name !== rule.name,
+  })));
   const credentialService = new CredentialService(db, keys.data);
   const vpsCatalogService = new VpsCatalogService(db, keys.data);
 

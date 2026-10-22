@@ -61,6 +61,16 @@ describe('auth router', () => {
     return { login, session: cookie.split(';')[0] ?? '' };
   }
 
+  it('locks an account after ten wrong passwords in a row, and the right one after that is refused too', async () => {
+    await registerAndLogin('locked@example.com', 'hunter2hunter2');
+    const attempt = (password: string) => fetch(ctx.url('/api/auth/login'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'Locked@example.com', password }) });
+    for (let n = 0; n < 10; n += 1) expect((await attempt('wrong')).status).toBe(401);
+    const locked = await attempt('hunter2hunter2');
+    expect(locked.status).toBe(429);
+    expect(((await locked.json()) as { error: string }).error).toMatch(/try again in 15 minutes/);
+    expect((await fetch(ctx.url('/api/auth/login'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'other@example.com', password: 'x' }) })).status).toBe(401);
+  });
+
   it('registers, logs in and returns the caller from the minted cookie', async () => {
     const { login, session } = await registerAndLogin('first@example.com', 'hunter2hunter2');
     expect(login.status).toBe(200);

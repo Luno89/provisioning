@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyPatch, diffRecord, inScope, messageKey, scopeOf, type SyncedDoc } from './hub-sync.js';
+import { applyPatch, diffRecord, fieldUpdate, inScope, messageKey, messageUpdates, scopeOf, type SyncedDoc } from './hub-sync.js';
 
 const leaf = (fields: Record<string, unknown> = {}): SyncedDoc => ({ id: 'l1', branchId: 'b1', title: 'Checkout', status: 'pending', ...fields });
 const said = (at: string, content: string, author?: { kind: 'person'; id: string }) => ({ role: 'user' as const, at, content, ...(author ? { author } : {}) });
@@ -53,5 +53,23 @@ describe('what belongs to a shared project', () => {
     expect(inScope('tasks', { id: 'k2', leafId: 'l2' }, scope)).toBe(false);
     expect(inScope('planProposals', { id: 'p', conversationId: 'story' }, scope)).toBe(true);
     expect(inScope('planProposals', { id: 'q', conversationId: 'private' }, scope)).toBe(false);
+  });
+});
+
+describe('applying a member\'s patch as field updates, so an engine write landing meanwhile is kept', () => {
+  it('turns set and unset into one update and messages into a pull of the same keys and a sorted push', () => {
+    expect(fieldUpdate({ set: { priority: 1 }, unset: ['waitingFor'] })).toEqual({ $set: { priority: 1 }, $unset: { waitingFor: '' } });
+    expect(fieldUpdate({ messages: { put: [] } })).toBeUndefined();
+    const put = [{ role: 'user' as const, content: 'hi', at: '2026-10-21T00:00:01Z', author: { kind: 'person' as const, id: 'cy' } }];
+    expect(messageUpdates({ messages: { put, drop: ['assistant|2026-10-21T00:00:00Z|agent:koala', 'notice|2026-10-21T00:00:02Z|platform', 'user|2026-10-21T00:00:03Z|'] } })).toEqual({
+      pull: [
+        { role: 'assistant', at: '2026-10-21T00:00:00Z', author: { kind: 'agent', slug: 'koala' } },
+        { role: 'notice', at: '2026-10-21T00:00:02Z', author: { kind: 'platform' } },
+        { role: 'user', at: '2026-10-21T00:00:03Z', author: { $exists: false } },
+        { role: 'user', at: '2026-10-21T00:00:01Z', author: { kind: 'person', id: 'cy' } },
+      ],
+      push: put,
+    });
+    expect(messageUpdates({ set: { title: 'x' } })).toEqual({});
   });
 });
