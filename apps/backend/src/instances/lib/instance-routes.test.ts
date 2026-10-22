@@ -28,6 +28,17 @@ describe('instance routes', () => {
     expect(wanted.handles.get('alice.caddy')).toContain('reverse_proxy 100.64.0.9:35003');
   });
 
+  it('sends the apps of each group the instance holds to its edge, and writes nothing more without one', () => {
+    const none = instanceRouteFiles({ name: 'luno', meshIp: '100.64.0.7', nested: false }, 'koala.dev').handles;
+    expect(none.match(/header_regexp/g)).toHaveLength(1);
+    const { handles } = instanceRouteFiles({ name: 'luno', meshIp: '100.64.0.7', nested: false, groups: ['acme', 'globex'] }, 'koala.dev');
+    expect(handles).toContain('@apps_acme header_regexp Host ^[a-z0-9-]+-acme\\.koala\\.dev(:[0-9]+)?$');
+    expect(handles).toContain('handle @apps_acme {');
+    expect(handles).toContain('@apps_globex header_regexp Host ^[a-z0-9-]+-globex\\.koala\\.dev(:[0-9]+)?$');
+    expect(handles.match(/reverse_proxy 100\.64\.0\.7:30321/g)).toHaveLength(3);
+    expect(instanceRouteFiles({ name: 'luno', meshIp: '100.64.0.7', nested: false, groups: ['bad-name', 'x { }'] }, 'koala.dev').handles.match(/header_regexp/g)).toHaveLength(1);
+  });
+
   it('refuses an upstream that is not on the mesh', () => {
     expect(() => instanceRouteFiles({ name: 'luno', meshIp: '10.0.0.1', nested: false }, 'koala.dev')).toThrow(/not a mesh address/);
     expect(() => instanceRouteFiles({ name: 'luno', meshIp: '100.64.0.7 { }', nested: false }, 'koala.dev')).toThrow(/not a mesh address/);
@@ -44,6 +55,11 @@ describe('the routes root wants', () => {
     ], 'koala.dev');
     expect([...wanted.handles.keys()]).toEqual(['luno.caddy']);
     expect([...wanted.sites.keys()]).toEqual(['luno.caddy']);
+  });
+
+  it('passes an instance\'s groups through to its routes', () => {
+    const wanted = wantedRoutes([{ name: 'luno', meshIp: '100.64.0.7', status: 'ready', groups: [{ projectId: 'p1', name: 'acme' }] }], 'koala.dev');
+    expect(wanted.handles.get('luno.caddy')).toContain('@apps_acme header_regexp Host ^[a-z0-9-]+-acme\\.koala\\.dev(:[0-9]+)?$');
   });
 
   it('knows when the nested certificate is served', () => {

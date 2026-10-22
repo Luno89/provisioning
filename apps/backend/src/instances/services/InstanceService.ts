@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import type { Database } from '../../platform/lib/db-interface.js';
-import { INSTANCE_STATUSES, type InstanceAddresses, type InstanceRecord, type InstanceStatus } from '../lib/instances.js';
+import { INSTANCE_STATUSES, type InstanceAddresses, type InstanceGroup, type InstanceRecord, type InstanceStatus } from '../lib/instances.js';
 import { nameProblem, suggestedName } from '../lib/instance-names.js';
 import { routeProblem } from '../lib/instance-routes.js';
 import { freePorts, poolNamespace, trialDaysProblem, type PoolPolicy } from '../lib/pool.js';
@@ -100,7 +100,7 @@ export class InstanceService {
     if (typeof name !== 'string') return { ok: false, error: 'pick a name for your instance' };
     const problem = nameProblem(name, this.settings.siteNames ?? []);
     if (problem) return { ok: false, error: problem };
-    const taken = (await this.store.instances.getInstances()).some((entry) => entry.name === name && entry.ownerId !== ownerId);
+    const taken = (await this.store.instances.getInstances()).some((entry) => (entry.name === name && entry.ownerId !== ownerId) || (entry.groups ?? []).some((group) => group.name === name));
     return taken ? { ok: false, error: `"${name}" is taken` } : { ok: true, name };
   }
 
@@ -142,6 +142,7 @@ export class InstanceService {
       name: named.name,
       ...(existing?.credentialHash ? { credentialHash: existing.credentialHash } : {}),
       ...(existing?.addresses ? { addresses: existing.addresses } : {}),
+      ...(existing?.groups?.length ? { groups: existing.groups } : {}),
     });
 
     return { ok: true, value: { token, expiresAt, name: named.name, command: `curl -fsSL ${this.settings.rootUrl}/install.sh | sudo sh -s -- ${token}` } };
@@ -187,6 +188,7 @@ export class InstanceService {
       detail: 'Making your space on Koala\'s servers',
       name: named.name,
       ...(existing?.addresses ? { addresses: existing.addresses } : {}),
+      ...(existing?.groups?.length ? { groups: existing.groups } : {}),
       pool: { ports, startedAt: now.toISOString(), trialEndsAt },
     });
     try {
@@ -488,5 +490,50 @@ export class InstanceService {
       this.routesChanged();
     }
     return this.addresses(instanceId, credential);
+  }
+
+  private async groupProblem(instance: InstanceRecord, projectId: string | undefined, name: unknown): Promise<string | null> {
+    if (typeof name !== 'string' || !name) return 'name the group its apps are addressed under';
+    const problem = nameProblem(name, this.settings.siteNames ?? []);
+    if (problem) return problem;
+    const instances = await this.store.instances.getInstances();
+    if (instances.some((entry) => entry.name === name)) return `"${name}" is taken`;
+    const holder = instances.flatMap((entry) => (entry.groups ?? []).map((group) => ({ instanceId: entry.id, ...group }))).find((group) => group.name === name);
+    if (holder && !(holder.instanceId === instance.id && holder.projectId === projectId)) return `"${name}" is taken`;
+    return null;
+  }
+
+  async checkGroup(instanceId: unknown, credential: unknown, name: unknown): Promise<Outcome<{ ok: boolean; problem?: string | undefined }>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    const problem = await this.groupProblem(instance, undefined, name);
+    return { ok: true, value: problem ? { ok: false, problem } : { ok: true } };
+  }
+
+  async claimGroup(instanceId: unknown, credential: unknown, projectId: unknown, name: unknown): Promise<Outcome<InstanceGroup>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    if (typeof projectId !== 'string' || !projectId.trim() || projectId.length > 200) return { ok: false, status: 400, error: 'name the project the group is for' };
+    const held = (instance.groups ?? []).find((group) => group.projectId === projectId);
+    if (held && held.name !== name) return { ok: false, status: 409, error: `this project's apps are already addressed under "${held.name}", and a group stays as it is while the project is shared` };
+    const problem = await this.groupProblem(instance, projectId, name);
+    if (problem) return { ok: false, status: problem.endsWith('is taken') ? 409 : 400, error: problem };
+    const group = { projectId, name: name as string };
+    if (!held) {
+      await this.save(instance, { groups: [...(instance.groups ?? []), group] });
+      this.routesChanged();
+    }
+    return { ok: true, value: group };
+  }
+
+  async releaseGroup(instanceId: unknown, credential: unknown, projectId: unknown): Promise<Outcome<{ released: boolean }>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    if (typeof projectId !== 'string' || !projectId) return { ok: false, status: 400, error: 'name the project the group is for' };
+    const kept = (instance.groups ?? []).filter((group) => group.projectId !== projectId);
+    if (kept.length === (instance.groups ?? []).length) return { ok: true, value: { released: false } };
+    await this.save(instance, { groups: kept });
+    this.routesChanged();
+    return { ok: true, value: { released: true } };
   }
 }

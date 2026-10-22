@@ -140,6 +140,65 @@ describe('an instance\'s name and addresses', () => {
   });
 });
 
+describe('the groups a shared project\'s apps are addressed under', () => {
+  const joinedAs = async (ownerId: string, name: string) => {
+    const joined = await service.join((await tokenFor(ownerId, name)).token, 'm');
+    if (!joined.ok) throw new Error(joined.error);
+    return joined.value;
+  };
+
+  it('checks a name against the rules, every instance\'s name and every group anywhere on root', async () => {
+    const luno = await joinedAs('u1', 'luno');
+    await joinedAs('u2', 'sam');
+    expect(await service.checkGroup(luno.instanceId, luno.credential, 'acme')).toEqual({ ok: true, value: { ok: true } });
+    expect(await service.checkGroup(luno.instanceId, luno.credential, 'ac-me')).toMatchObject({ ok: true, value: { ok: false, problem: expect.stringMatching(/no dashes/) } });
+    expect(await service.checkGroup(luno.instanceId, luno.credential, 'mesh')).toMatchObject({ ok: true, value: { ok: false, problem: expect.stringMatching(/kept for the platform/) } });
+    expect(await service.checkGroup(luno.instanceId, luno.credential, 'app')).toMatchObject({ ok: true, value: { ok: false, problem: expect.stringMatching(/kept for the platform/) } });
+    expect(await service.checkGroup(luno.instanceId, luno.credential, 'sam')).toEqual({ ok: true, value: { ok: false, problem: '"sam" is taken' } });
+    expect(await service.checkGroup(luno.instanceId, 'guess', 'acme')).toMatchObject({ ok: false, status: 401 });
+  });
+
+  it('claims a group for one project, again for the same project, and refuses it to any other project or instance', async () => {
+    const luno = await joinedAs('u1', 'luno');
+    const sam = await joinedAs('u2', 'sam');
+    const before = routeChanges;
+    expect(await service.claimGroup(luno.instanceId, luno.credential, 'p1', 'acme')).toEqual({ ok: true, value: { projectId: 'p1', name: 'acme' } });
+    expect(routeChanges).toBe(before + 1);
+    expect(await service.claimGroup(luno.instanceId, luno.credential, 'p1', 'acme')).toEqual({ ok: true, value: { projectId: 'p1', name: 'acme' } });
+    expect(routeChanges).toBe(before + 1);
+    expect(await service.claimGroup(luno.instanceId, luno.credential, 'p2', 'acme')).toEqual({ ok: false, status: 409, error: '"acme" is taken' });
+    expect(await service.claimGroup(sam.instanceId, sam.credential, 'p1', 'acme')).toEqual({ ok: false, status: 409, error: '"acme" is taken' });
+    expect(await service.checkGroup(sam.instanceId, sam.credential, 'acme')).toEqual({ ok: true, value: { ok: false, problem: '"acme" is taken' } });
+    expect(await service.claimGroup(luno.instanceId, luno.credential, 'p1', 'other')).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/already addressed under "acme"/) });
+    expect(await service.claimGroup(luno.instanceId, luno.credential, 'p3', 'sam')).toEqual({ ok: false, status: 409, error: '"sam" is taken' });
+    expect(await service.claimGroup(luno.instanceId, luno.credential, 'p3', 'shop-x')).toMatchObject({ ok: false, status: 400 });
+    expect(await service.claimGroup(luno.instanceId, luno.credential, '', 'shop')).toMatchObject({ ok: false, status: 400 });
+    expect(await service.claimGroup(luno.instanceId, 'guess', 'p4', 'shop')).toMatchObject({ ok: false, status: 401 });
+    expect(await service.createJoinToken('u3', 'acme')).toMatchObject({ ok: false, error: '"acme" is taken' });
+    expect((await db.instances.getInstances('u1'))[0]!.groups).toEqual([{ projectId: 'p1', name: 'acme' }]);
+  });
+
+  it('frees a group when its project is taken back, so another can have it', async () => {
+    const luno = await joinedAs('u1', 'luno');
+    const sam = await joinedAs('u2', 'sam');
+    await service.claimGroup(luno.instanceId, luno.credential, 'p1', 'acme');
+    const before = routeChanges;
+    expect(await service.releaseGroup(luno.instanceId, luno.credential, 'p1')).toEqual({ ok: true, value: { released: true } });
+    expect(routeChanges).toBe(before + 1);
+    expect(await service.releaseGroup(luno.instanceId, luno.credential, 'p1')).toEqual({ ok: true, value: { released: false } });
+    expect(routeChanges).toBe(before + 1);
+    expect(await service.claimGroup(sam.instanceId, sam.credential, 'q1', 'acme')).toMatchObject({ ok: true });
+    expect(await service.releaseGroup(sam.instanceId, 'guess', 'q1')).toMatchObject({ ok: false, status: 401 });
+  });
+
+  it('keeps an instance\'s groups when its install command is made again', async () => {
+    const luno = await joinedAs('u1', 'luno');
+    await service.claimGroup(luno.instanceId, luno.credential, 'p1', 'acme');
+    await tokenFor('u1', 'luno');
+    expect((await db.instances.getInstances('u1'))[0]!.groups).toEqual([{ projectId: 'p1', name: 'acme' }]);
+  });
+});
+
 describe('a trial instance on Koala\'s servers', () => {
   let started: Array<{ instanceId: string; ownerId: string }>;
   let changed: string[];

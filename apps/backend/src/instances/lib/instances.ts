@@ -21,6 +21,12 @@ export interface InstanceRecord {
   addresses?: InstanceAddresses | undefined;
   pool?: InstancePool | undefined;
   move?: InstanceMove | undefined;
+  groups?: InstanceGroup[] | undefined;
+}
+
+export interface InstanceGroup {
+  projectId: string;
+  name: string;
 }
 
 export interface InstancePool {

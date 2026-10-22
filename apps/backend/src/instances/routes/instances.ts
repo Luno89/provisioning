@@ -42,7 +42,7 @@ export function bundleAsEnv(bundle: JoinBundle): string {
 }
 
 export function instancesRouter(deps: {
-  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'join' | 'release' | 'report' | 'mine' | 'machineKey' | 'nameCheck' | 'addresses' | 'setAddresses' | 'ownerOf' | 'trialOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource'>;
+  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'join' | 'release' | 'report' | 'mine' | 'machineKey' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource'>;
   chart: () => Promise<string>;
   mail?: Pick<MailService, 'toOwner'> | undefined;
   poolMonitoring?: PoolMonitoringService | undefined;
@@ -153,6 +153,22 @@ export function instancesRouter(deps: {
 
   const answer = <T,>(res: Response, outcome: { ok: true; value: T } | { ok: false; status: number; error: string }) =>
     (outcome.ok ? res.json(outcome.value) : res.status(outcome.status).json({ error: outcome.error }));
+
+  router.get('/groups/check', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    answer(res, await deps.instances.checkGroup(instanceId, credential, req.query.name));
+  }));
+
+  router.put('/groups', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    const body = (req.body ?? {}) as { projectId?: unknown; name?: unknown };
+    answer(res, await deps.instances.claimGroup(instanceId, credential, body.projectId, body.name));
+  }));
+
+  router.delete('/groups/:projectId', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    answer(res, await deps.instances.releaseGroup(instanceId, credential, String(req.params.projectId ?? '')));
+  }));
 
   router.post('/move', asyncRoute(async (req: Request, res: Response) => answer(res, await deps.instances.startMove(userOf(req).id))));
   router.get('/move', asyncRoute(async (req: Request, res: Response) => res.json({ move: await deps.instances.moveOf(userOf(req).id) })));

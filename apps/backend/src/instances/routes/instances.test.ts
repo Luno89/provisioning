@@ -124,6 +124,35 @@ describe('a pool instance asking root about its own apps', () => {
   });
 });
 
+describe('an instance keeping the groups its shared projects are addressed under', () => {
+  let harness: Harness | undefined;
+  afterEach(async () => { await harness?.close(); });
+
+  it('checks, claims and frees a group with the instance\'s credential', async () => {
+    harness = await mountRouter({
+      prefix: '/api/instances',
+      user: TEST_USER,
+      router: (db) => {
+        void db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret') });
+        return instancesRouter({
+          instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', chartVersion: '1', domain: 'koala.dev' }, undefined),
+          chart: async () => '',
+        });
+      },
+    });
+    const call = (method: 'get' | 'put' | 'delete', path: string, data?: unknown, credential = 'secret') =>
+      axios.request({ method, url: harness!.url(path), data, headers: { 'x-instance-id': 'inst-1', authorization: `Bearer ${credential}` }, validateStatus: () => true });
+
+    expect((await call('get', '/api/instances/groups/check?name=acme')).data).toEqual({ ok: true });
+    expect((await call('get', '/api/instances/groups/check?name=alice')).data).toEqual({ ok: false, problem: '"alice" is taken' });
+    expect((await call('put', '/api/instances/groups', { projectId: 'p1', name: 'acme' })).data).toEqual({ projectId: 'p1', name: 'acme' });
+    expect((await call('put', '/api/instances/groups', { projectId: 'p2', name: 'acme' })).status).toBe(409);
+    expect((await call('put', '/api/instances/groups', { projectId: 'p2', name: 'other' }, 'wrong')).status).toBe(401);
+    expect((await call('delete', '/api/instances/groups/p1')).data).toEqual({ released: true });
+    expect((await call('put', '/api/instances/groups', { projectId: 'p2', name: 'acme' })).status).toBe(200);
+  });
+});
+
 describe('the new machine reading a moving instance through root', () => {
   let harness: Harness | undefined;
   afterEach(async () => { await harness?.close(); });
