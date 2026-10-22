@@ -16,11 +16,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Server as SocketServer } from 'socket.io';
 
-import { credentialsRouter } from './routes/credentials.js';
-import { llmCredentialsRouter } from './routes/llm-credentials.js';
-import { backupRouter } from './routes/backup.js';
-import { clustersRouter } from './routes/clusters.js';
-import { deploymentsRouter } from './routes/deployments.js';
 import { treeTypesRouter } from './routes/tree-types.js';
 import { bindingTypesRouter } from './routes/binding-types.js';
 import { treesRouter } from './routes/trees.js';
@@ -55,6 +50,7 @@ import { wireReleases } from './wiring/releases.js';
 import { storyDropsFor, wireFiles } from './wiring/files.js';
 import { wireMachines } from './wiring/machines.js';
 import { wireMonitoring } from './wiring/monitoring.js';
+import { wireInfrastructure } from './wiring/infrastructure.js';
 import { hubInstanceWork, wireHub } from './wiring/hub.js';
 import { proceduresRouter } from './routes/procedures.js';
 import { ProcedureService } from './services/ProcedureService.js';
@@ -967,21 +963,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     ? [role.instance.ownerId]
     : (await db.getUsers()).filter((user) => user.isAdmin).map((user) => user.id));
   const { monitoring } = wireMonitoring({ tenant, db, role, env: process.env, io, clusters: clusterService, infra: infraService, proxy: clusterProxyService, notices, notifications, mail, systemOwners });
-  tenant.use('/api/credentials', llmCredentialsRouter({ db, dataKey: keys.data, credentialService, publicUrl: PUBLIC_URL, appUrl: APP_URL }));
-  tenant.use('/api/credentials', credentialsRouter({
-    credentialService,
-    publicUrl: PUBLIC_URL,
-    appUrl: APP_URL,
-  }));
-  tenant.use('/api/backup', backupRouter({ repoRoot: path.join(__dirname, '../../..') }));
-
-  tenant.use('/api/clusters', clustersRouter({
-    clusterService, appService, clusterProxyService, infraService,
-    temporalBridge, db, io, giteaService, infisicalService, dataKey: keys.data,
-  }));
-  tenant.use('/api/deployments', deploymentsRouter({
-    appService, clusterService, appExposureService, infraService, temporalBridge, db, io,
-  }));
+  wireInfrastructure({
+    tenant, db, io, dataKey: keys.data, publicUrl: PUBLIC_URL, appUrl: APP_URL, repoRoot: path.join(__dirname, '../../..'),
+    credentials: credentialService, clusters: clusterService, apps: appService, proxy: clusterProxyService, infra: infraService,
+    temporalBridge, gitea: giteaService, infisical: infisicalService, exposure: appExposureService,
+  });
 
   const getOwnedProject = async (id: string, user: any): Promise<any | undefined> => {
     const project = (await db.getProjects()).find((p: any) => p.id === id);
