@@ -26,7 +26,7 @@ const RCON_PORT = 25575;
 
 /**
  * Injected from the `palworld-secrets` Secret, which DeployAppActivity creates after the apply.
- * Keep in sync with PALWORLD_SECRET_ENVS in apps/backend/src/lib/palworld-settings.ts — there is
+ * Keep in sync with PALWORLD_SECRET_ENVS in apps/backend/src/infrastructure/lib/palworld-settings.ts — there is
  * no shared package between the backend and cdktf-infra, so this list is duplicated on purpose.
  */
 const SECRET_ENVS = ["ADMIN_PASSWORD", "SERVER_PASSWORD", "RCON_PASSWORD"] as const;
