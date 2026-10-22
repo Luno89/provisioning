@@ -80,6 +80,7 @@ export interface ProjectRemovalPreview {
   builds: number;
   apps: string[];
   files?: { server: string; folder: string } | undefined;
+  sharedOnHub?: boolean | undefined;
 }
 
 export function projectRemovalPreview(project: Pick<ProjectMetadata, 'id' | 'name'>, scope: ProjectRemovalScope): ProjectRemovalPreview {

@@ -15,6 +15,8 @@ const ADMIN_USERNAME = 'provisioning-bot';
 const DATA_DIR = path.join(process.cwd(), 'data');
 const PASSWORD_FILE = path.join(DATA_DIR, '.gitea-admin-password');
 const TOKEN_FILE = path.join(DATA_DIR, '.gitea-admin-token');
+const TOKEN_SCOPES_FILE = path.join(DATA_DIR, '.gitea-admin-token.scopes');
+const TOKEN_SCOPES = ['write:repository', 'write:package', 'write:admin', 'write:user', 'write:organization'];
 
 export class GiteaConflictError extends Error {}
 
@@ -92,7 +94,8 @@ export class GiteaService {
       const res = await fetch(`${baseUrl}/api/v1/user`, {
         headers: { Authorization: `token ${this.tokenCache}` },
       });
-      if (res.ok) return this.tokenCache;
+      const scoped = await fs.readFile(TOKEN_SCOPES_FILE, 'utf8').then((raw) => JSON.parse(raw) as string[], () => [] as string[]);
+      if (res.ok && TOKEN_SCOPES.every((scope) => scoped.includes(scope))) return this.tokenCache;
     } catch { /* ignored */ }
 
     const baseUrl = await this.resolveBaseUrl();
@@ -104,7 +107,7 @@ export class GiteaService {
         'Content-Type': 'application/json',
         Authorization: `Basic ${Buffer.from(`${ADMIN_USERNAME}:${password}`).toString('base64')}`,
       },
-      body: JSON.stringify({ name: tokenName, scopes: ['write:repository', 'write:package', 'write:admin', 'write:user'] }),
+      body: JSON.stringify({ name: tokenName, scopes: TOKEN_SCOPES }),
     });
     if (!res.ok) {
       throw new Error(`Failed to mint Gitea API token: HTTP ${res.status} ${await res.text()}`);
@@ -114,6 +117,7 @@ export class GiteaService {
 
     await fs.mkdir(DATA_DIR, { recursive: true });
     await fs.writeFile(TOKEN_FILE, encryptValue(this.tokenCache, this.masterKey), { mode: 0o600 });
+    await fs.writeFile(TOKEN_SCOPES_FILE, JSON.stringify(TOKEN_SCOPES), { mode: 0o600 });
 
     await this.ensureClusterSecret(this.tokenCache).catch(() => undefined);
 
@@ -858,39 +862,27 @@ export class GiteaService {
     }
   }
 
-  private async adminFetch(pathSuffix: string, init: RequestInit = {}): Promise<Response> {
-    const baseUrl = await this.resolveBaseUrl();
-    const adminPassword = await this.readAdminPassword();
-    return fetch(`${baseUrl}${pathSuffix}`, {
-      ...init,
-      headers: {
-        ...(init.headers || {}),
-        Authorization: `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`,
-        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      },
-    });
-  }
 
   async ensureOrg(org: string): Promise<void> {
-    const found = await this.adminFetch(`/api/v1/orgs/${encodeURIComponent(org)}`);
+    const found = await this.apiFetch(`/api/v1/orgs/${encodeURIComponent(org)}`);
     if (found.ok) return;
-    const res = await this.adminFetch('/api/v1/orgs', { method: 'POST', body: JSON.stringify({ username: org, visibility: 'private' }) });
+    const res = await this.apiFetch('/api/v1/orgs', { method: 'POST', body: JSON.stringify({ username: org, visibility: 'private' }) });
     if (!res.ok && res.status !== 422) throw new Error(`Gitea would not make the organisation ${org} (HTTP ${res.status}): ${(await res.text()).slice(0, 200)}`);
   }
 
   async ensureOrgRepo(org: string, name: string): Promise<void> {
     if (await this.findRepo(org, name)) return;
-    const res = await this.adminFetch(`/api/v1/orgs/${encodeURIComponent(org)}/repos`, { method: 'POST', body: JSON.stringify({ name, private: true, auto_init: false }) });
+    const res = await this.apiFetch(`/api/v1/orgs/${encodeURIComponent(org)}/repos`, { method: 'POST', body: JSON.stringify({ name, private: true, auto_init: false }) });
     if (!res.ok && res.status !== 409) throw new Error(`Gitea would not make ${org}/${name} (HTTP ${res.status}): ${(await res.text()).slice(0, 200)}`);
   }
 
   async letWrite(owner: string, name: string, username: string): Promise<void> {
-    const res = await this.adminFetch(`/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/collaborators/${encodeURIComponent(username)}`, { method: 'PUT', body: JSON.stringify({ permission: 'write' }) });
+    const res = await this.apiFetch(`/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/collaborators/${encodeURIComponent(username)}`, { method: 'PUT', body: JSON.stringify({ permission: 'write' }) });
     if (!res.ok) throw new Error(`Gitea would not let ${username} write to ${owner}/${name} (HTTP ${res.status}): ${(await res.text()).slice(0, 200)}`);
   }
 
   async deleteOrg(org: string): Promise<void> {
-    const res = await this.adminFetch(`/api/v1/orgs/${encodeURIComponent(org)}`, { method: 'DELETE' });
+    const res = await this.apiFetch(`/api/v1/orgs/${encodeURIComponent(org)}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 404) throw new Error(`Gitea would not delete the organisation ${org} (HTTP ${res.status}): ${(await res.text()).slice(0, 200)}`);
   }
 

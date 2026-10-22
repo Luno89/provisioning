@@ -10,6 +10,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SPLIT=false
 [ "${1:-}" = "--split" ] && SPLIT=true
+STEADY=false
+[ "${1:-}" = "--steady" ] && STEADY=true
+if [ "$STEADY" = true ]; then WORKER_HOST="npm run start:worker -w apps/backend"; WORKER_CLUSTER="npm run start:worker:cluster -w apps/backend"; WORKER_ENGINE="npm run start:worker:engine -w apps/backend"; else WORKER_HOST="npm run dev:worker -w apps/backend"; WORKER_CLUSTER="npm run dev:worker:cluster -w apps/backend"; WORKER_ENGINE="npm run dev:worker:engine -w apps/backend"; fi
 
 # Never run under sudo
 if [ "$(id -u)" -eq 0 ]; then
@@ -147,6 +150,6 @@ exec npx concurrently --kill-others \
   --prefix-colors "blue,cyan,yellow,magenta,green" \
   "npm run dev -w apps/backend" \
   "npm run dev -w apps/frontend" \
-  "npm run dev:worker -w apps/backend" \
-  "npm run dev:worker:cluster -w apps/backend" \
-  "npm run dev:worker:engine -w apps/backend"
+  "$WORKER_HOST" \
+  "$WORKER_CLUSTER" \
+  "$WORKER_ENGINE"

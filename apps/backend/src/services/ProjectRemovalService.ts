@@ -38,6 +38,7 @@ export type ProjectRemovalRefusal =
 export interface ProjectRemovalDeps {
   store: ProjectRemovalStore & { saveProject(project: ProjectMetadata): Promise<void> };
   workflows: AccountRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>;
+  hub?: { shared(projectId: string): Promise<boolean>; takeBack(ownerId: string, projectId: string): Promise<void> } | undefined;
   now?: () => string;
 }
 
@@ -52,7 +53,8 @@ export class ProjectRemovalService {
   async preview(ownerId: string, projectId: string): Promise<(ProjectRemovalPreview & { state: ProjectRemovalState }) | undefined> {
     const loaded = await this.owned(ownerId, projectId);
     if (!loaded) return undefined;
-    return { ...projectRemovalPreview(loaded.project, loaded.scope), state: await this.deps.workflows.state(removeProjectWorkflowId(projectId)) };
+    const sharedOnHub = (await this.deps.hub?.shared(projectId)) ?? false;
+    return { ...projectRemovalPreview(loaded.project, loaded.scope), ...(sharedOnHub ? { sharedOnHub } : {}), state: await this.deps.workflows.state(removeProjectWorkflowId(projectId)) };
   }
 
   async remove(ownerId: string, projectId: string, confirm: string): Promise<{ ok: true; state: ProjectRemovalState } | { ok: false; refusal: ProjectRemovalRefusal }> {
@@ -63,6 +65,7 @@ export class ProjectRemovalService {
     const workflowId = removeProjectWorkflowId(projectId);
     const current = await this.deps.workflows.state(workflowId);
     if (current.state === 'running') return { ok: true, state: current };
+    if (this.deps.hub && await this.deps.hub.shared(projectId)) await this.deps.hub.takeBack(ownerId, projectId);
     await this.deps.store.saveProject({ ...loaded.project, removal: { startedAt: this.deps.now?.() ?? new Date().toISOString(), requestedBy: ownerId } });
     await this.deps.workflows.start(REMOVE_PROJECT_WORKFLOW, workflowId, [{ projectId }], loaded.project.ownerId ?? ownerId);
     return { ok: true, state: await this.deps.workflows.state(workflowId) };

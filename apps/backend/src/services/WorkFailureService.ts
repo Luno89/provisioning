@@ -12,6 +12,7 @@ export interface ClosedWorkflow extends RunningWorkflow {
 }
 
 export interface WorkFailureDeps {
+  onFailure?: ((failure: WorkFailure) => void) | undefined;
   store: {
     getWorkFailures(ownerId?: string): Promise<WorkFailure[]>;
     addWorkFailure(failure: WorkFailure): Promise<void>;
@@ -75,6 +76,7 @@ export class WorkFailureService {
     const known = (await this.deps.store.getWorkFailures(failure.ownerId)).some((entry) => entry.id === failure.id);
     if (known) return;
     await this.deps.store.addWorkFailure(failure);
+    this.deps.onFailure?.(failure);
   }
 
   async runEnded(event: RunEnded): Promise<WorkFailure | undefined> {

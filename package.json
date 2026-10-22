@@ -92,7 +92,8 @@
     "test:machine-default-live": "cd apps/backend && tsx ../../tests/machine-default-live.ts",
     "test:files-live": "cd apps/backend && tsx ../../tests/files-live.ts",
     "test:mail-live": "cd apps/backend && tsx ../../tests/mail-live.ts",
-    "test:pool-live": "cd apps/backend && tsx ../../tests/pool-live.ts"
+    "test:pool-live": "cd apps/backend && tsx ../../tests/pool-live.ts",
+    "dev:steady": "bash scripts/dev.sh --steady"
   },
   "workspaces": [
     "apps/*",

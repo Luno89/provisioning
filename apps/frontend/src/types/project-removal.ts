@@ -19,5 +19,6 @@ export interface ProjectRemovalPreview {
   builds: number
   apps: string[]
   files?: { server: string; folder: string }
+  sharedOnHub?: boolean
   state: ProjectRemovalState
 }

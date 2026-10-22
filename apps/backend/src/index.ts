@@ -47,6 +47,7 @@ import { memoriesRouter } from './routes/memories.js';
 import { authRouter } from './routes/auth.js';
 import { conversationsRouter } from './routes/conversations.js';
 import helmet from 'helmet';
+import { MetricsService } from './services/MetricsService.js';
 import { rateLimit } from 'express-rate-limit';
 import { RATE_LIMITS, ruleFor } from './lib/http-limits.js';
 import { engineRouter, extensionSummary } from './routes/engine.js';
@@ -333,6 +334,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const keys = loadKeys(process.env);
   const role = roleFromEnv(process.env);
+  const metrics = new MetricsService({ token: process.env.METRICS_TOKEN?.trim() || undefined, role: role.role });
   const mail = new MailService({
     way: emailWayFrom(process.env, role),
     emailOf: async (ownerId) => (await db.getUserById(ownerId))?.email,
@@ -591,6 +593,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
   const workFailures = new WorkFailureService({
     store: db,
+    onFailure: (failure) => metrics.failed(failure.kind),
     workflows: {
       closedSince: async (since) => {
         if (!temporalBridge.isReady()) return [];
@@ -718,6 +721,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   app.use(express.json({ limit: '20mb' }));
+  app.use(metrics.middleware());
   app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, hsts: process.env.NODE_ENV === 'production' }));
   app.use('/api', ...RATE_LIMITS.map((rule) => rateLimit({
     windowMs: rule.windowMs,
@@ -751,6 +755,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
 
   app.use('/api', auth.requireAuth);
+  app.get('/api/metrics', asyncRoute(async (req, res) => {
+    if (!metrics.allowed(req.headers.authorization)) return res.status(401).json({ error: 'metrics are read with the METRICS_TOKEN' });
+    res.type(metrics.contentType).send(await metrics.text());
+  }));
 
   io.use(async (socket, next) => {
     if (process.env.IS_E2E === 'true') {
@@ -1026,9 +1034,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       ? { instanceId: role.instance.id, transport: remoteHub, sharing: remoteHub }
       : undefined;
   let hubWork: HubInstanceWork | undefined;
+  let sharingService: ProjectSharingService | undefined;
   if (hubReach) {
     const instanceId = hubReach.instanceId;
-    let sharingService: ProjectSharingService | undefined;
     const hubSync = new HubSyncService({
       store: db,
       transport: hubReach.transport,
@@ -1166,6 +1174,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const projectRemoval = new ProjectRemovalService({
     store: db,
+    hub: {
+      shared: async (projectId) => (sharingService ? sharingService.shared(projectId) : false),
+      takeBack: async (ownerId, projectId) => { await sharingService?.takeBackForDeletion(ownerId, projectId); },
+    },
     workflows: temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => temporalBridge.client, process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE, PROJECT_REMOVAL_PROGRESS_QUERY),
   });
   tenant.use('/api/projects', projectsRouter({

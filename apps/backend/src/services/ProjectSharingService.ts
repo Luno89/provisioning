@@ -116,11 +116,24 @@ export class ProjectSharingService {
     if (typeof confirm !== 'string' || confirm.trim() !== project.name) return { ok: false, status: 400, why: `Type the project's name, ${project.name}, to take it back.` };
     const link = (await this.deps.store.getHubLinks()).find((entry) => entry.projectId === projectId);
     if (!link) return { ok: false, status: 409, why: `${project.name} is not shared.` };
+    await this.release(ownerId, link);
+    return this.preview(ownerId, projectId);
+  }
+
+  async shared(projectId: string): Promise<boolean> {
+    return (await this.deps.store.getHubLinks()).some((entry) => entry.projectId === projectId);
+  }
+
+  async takeBackForDeletion(ownerId: string, projectId: string): Promise<void> {
+    const link = (await this.deps.store.getHubLinks()).find((entry) => entry.projectId === projectId && entry.ownerId === ownerId);
+    if (link) await this.release(ownerId, link);
+  }
+
+  private async release(ownerId: string, link: HubLink): Promise<void> {
     await this.deps.sync.once();
     await this.deps.sharing.unshare(ownerId, link.hubProjectId);
-    await this.deps.store.deleteHubLink(projectId);
-    await this.deps.store.deleteHubSnapshots(projectId);
-    return this.preview(ownerId, projectId);
+    await this.deps.store.deleteHubLink(link.projectId);
+    await this.deps.store.deleteHubSnapshots(link.projectId);
   }
 
   repoSides(): HubRepoSides {
