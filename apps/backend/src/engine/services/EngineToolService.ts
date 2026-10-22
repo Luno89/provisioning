@@ -10,7 +10,7 @@ import {
 import { SHIPPED_DEPENDENCIES } from '../../extensions/workspace-dependencies.js';
 import { unknownNeeds, unknownNeedsSaid } from '../lib/workspace-dependencies.js';
 import type { AgentDirectory } from '../../engine-host/registries/agent-directory.js';
-import { withBuiltIns } from '../../platform/lib/ownership.js';
+import { withBuiltIns } from '../../platform/index.js';
 import type { ImageStanding } from '../../engine-host/sandboxes/image-builder.js';
 import { planWorkspace } from '../../extensions/workspace-bases.js';
 import type { McpServerRecord } from '../lib/mcp-servers.js';

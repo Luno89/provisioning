@@ -10,7 +10,7 @@ import {
 } from '../lib/mcp-servers.js';
 import { looksLikeMcp } from '../lib/mcp-registry.js';
 import { serviceNameFor, usableServiceName } from '../../infrastructure/lib/service-name.js';
-import type { DeploymentMetadata } from '../../platform/lib/types.js';
+import type { DeploymentMetadata } from '../../platform/index.js';
 
 export interface McpServerDeps {
   store: {

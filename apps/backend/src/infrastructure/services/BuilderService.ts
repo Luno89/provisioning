@@ -1,9 +1,8 @@
-import { BaseService } from '../../platform/services/BaseService.js';
+import { BaseService, type Database } from '../../platform/index.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { InfrastructureService } from './InfrastructureService.js';
 import { fileURLToPath } from 'url';
-import type { Database } from '../../platform/lib/db-interface.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

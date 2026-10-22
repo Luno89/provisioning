@@ -1,14 +1,15 @@
 import type { AccessRequest, EgressGrantRecord, EgressRequest } from '@koala/harness-types';
 import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
 import type { BindingTypeRecord } from './lib/service-binding.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, PartialInfo, PendingApprovalMetadata } from '../platform/lib/types.js';
+import type {
+  ClusterMetadata, ClusterProgress, DeploymentMetadata, PartialInfo, PendingApprovalMetadata, SecretKey,
+} from '../platform/index.js';
 import type { ClusterProviderSpec } from './lib/cluster-providers.js';
 import type { Collection, Db } from 'mongodb';
 import type { StoredAppSpec } from './lib/app-spec.js';
 import type { WorkFailure } from './lib/work-failures.js';
 import { mergeRecord } from '../platform/lib/merge-record.js';
 import { v4 as uuidv4 } from 'uuid';
-import type { SecretKey } from '../platform/lib/crypto.js';
 import { hasPlainSecret, sealDeployment, unsealDeployment } from './lib/deployment-secrets.js';
 
 export interface InfrastructureStore extends AreaStore {

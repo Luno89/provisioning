@@ -1,4 +1,4 @@
-import { BaseService } from '../../platform/services/BaseService.js';
+import { BaseService } from '../../platform/index.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';

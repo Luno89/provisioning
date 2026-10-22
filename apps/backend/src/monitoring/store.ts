@@ -2,7 +2,7 @@ import type { AlertEpisode, MonitoringSetting } from './lib/monitoring-records.j
 import type { AlertRuleRecord } from './lib/monitoring-alerts.js';
 import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
 import type { Db } from 'mongodb';
-import type { NotificationSettings } from '../platform/lib/mail.js';
+import type { NotificationSettings } from '../platform/index.js';
 
 export interface MonitoringStore extends AreaStore {
   getMonitoringSettings(): Promise<MonitoringSetting[]>;

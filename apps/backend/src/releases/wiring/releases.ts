@@ -1,10 +1,8 @@
 import type { Server as SocketServer } from 'socket.io';
-import type { Database } from '../../platform/lib/db-interface.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
+import { type Database, type ProjectMetadata, awaitedNotice, releaseNotice } from '../../platform/index.js';
 import { treeTypeOfProject } from '../../projects/lib/tree-types.js';
 import { ODOO_TREE_TYPE } from '../../projects/lib/tree-type-seeds.js';
 import { latestBuildOf, odooVersionOfDockerfile, projectMajor } from '../lib/client-import.js';
-import { awaitedNotice, releaseNotice } from '../../platform/lib/notices.js';
 import { buildPlanAt } from '../lib/build-plan.js';
 import { changedPaths, releaseDecision, type ReleaseDecision } from '../lib/release-paths.js';
 import { releaseHowOf } from '../lib/release-run.js';

@@ -1,6 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
-import { ownedBy } from '../../platform/lib/ownership.js';
+import { asyncRoute, ownedBy } from '../../platform/index.js';
 import type { GroveDeletionService } from '../services/GroveDeletionService.js';
 import type { GroveOrderService } from '../services/GroveOrderService.js';
 import type { ProjectsStore } from '../store.js';

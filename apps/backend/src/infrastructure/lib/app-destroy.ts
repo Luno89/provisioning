@@ -1,4 +1,4 @@
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
 
 export interface DestroyAppArgs {
   name: string;

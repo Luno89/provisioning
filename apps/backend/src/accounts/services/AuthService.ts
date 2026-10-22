@@ -1,6 +1,4 @@
-import { BaseService } from '../../platform/services/BaseService.js';
-import { generateOTP } from '../../platform/lib/auth.js';
-import type { UserMetadata } from '../../platform/lib/types.js';
+import { BaseService, generateOTP, type UserMetadata } from '../../platform/index.js';
 import https from 'https';
 
 interface Challenge {

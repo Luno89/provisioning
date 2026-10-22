@@ -1,4 +1,4 @@
-import { createDatabase } from '../platform/lib/db-interface.js';
+import { createDatabase } from '../platform/index.js';
 import { consolidateMemories } from '../memory/lib/memory-consolidate.js';
 import { corpusEndpoints } from '../engine/wiring/web-tools.js';
 import { indexMemories, similarTo } from '../memory/lib/memory-index.js';

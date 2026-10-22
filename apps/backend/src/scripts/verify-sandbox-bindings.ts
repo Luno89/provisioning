@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
 import { randomUUID } from 'crypto';
-import { createDatabase } from '../platform/lib/db-interface.js';
+import { createDatabase } from '../platform/index.js';
 import { resolveBindings } from '../infrastructure/lib/binding-resolve.js';
 import { egressForBindings } from '../engine/lib/workspace-spec.js';
 import { WorkspaceService } from '../engine/services/WorkspaceService.js';

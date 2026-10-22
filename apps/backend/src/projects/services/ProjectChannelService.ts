@@ -1,6 +1,6 @@
 import type { Conversation } from '../../engine/lib/conversations.js';
 import { channelIdFor } from '../../engine/lib/conversations.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
+import type { ProjectMetadata } from '../../platform/index.js';
 import type { Tree } from '../lib/trees.js';
 
 export interface ProjectChannelDeps {

@@ -1,8 +1,7 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { createDatabase } from '../platform/lib/db-interface.js';
-import { roleFromEnv } from '../platform/lib/platform-role.js';
+import { createDatabase, roleFromEnv } from '../platform/index.js';
 import { IdentityService } from '../instances/services/IdentityService.js';
 
 dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') });

@@ -1,11 +1,8 @@
-import { BaseService } from '../../platform/services/BaseService.js';
+import { BaseService, type ClusterMetadata, type Database, encryptValue, type SecretKey } from '../../platform/index.js';
 import { InfrastructureService } from './InfrastructureService.js';
-import type { ClusterMetadata } from '../../platform/lib/types.js';
-import type { Database } from '../../platform/lib/db-interface.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider } from '../lib/cluster-topology.js';
 import { v4 as uuidv4 } from 'uuid';
-import { encryptValue, type SecretKey } from '../../platform/lib/crypto.js';
 import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
 import { parseNvidiaSmiVram } from '../lib/gpu-vram.js';
 import { exec } from 'child_process';

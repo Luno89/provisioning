@@ -4,16 +4,16 @@ import type { Client } from '@temporalio/client';
 import { deploymentIdFor } from '../lib/deployment-id.js';
 import { newAppNamespace, sameOwner } from '../lib/app-namespace.js';
 import { resolveCloudCredentials } from '../lib/credential-resolver.js';
-import { decryptValue, type SecretKey } from '../../platform/lib/crypto.js';
-import type { Database } from '../../platform/lib/db-interface.js';
-import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
+import {
+  decryptValue, type SecretKey, type Database, type ClusterMetadata, type DeploymentMetadata,
+  type PipelineRunMetadata, type ProjectMetadata, PLATFORM_OWNER, startedFor,
+} from '../../platform/index.js';
 import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-capacity.js';
 import { executeDeployAppWorkflow } from '../../workflows/AppDeployWorkflow.js';
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
   resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js';
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js';
 import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../../models/lib/tabby-cache-path.js';
-import { PLATFORM_OWNER, startedFor } from '../../platform/lib/workflow-owner.js';
 
 export const CLUSTER_QUEUE = 'cluster-ops-queue';
 

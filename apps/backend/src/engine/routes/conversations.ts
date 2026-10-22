@@ -1,8 +1,7 @@
 import type { ModelReach } from '@koala/harness-types';
 import { readAttachments } from '../lib/attachments.js';
 import { Router } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
-import type { Database } from '../../platform/lib/db-interface.js';
+import { asyncRoute, type Database } from '../../platform/index.js';
 import type { Conversation } from '../lib/conversations.js';
 import { personMessage, titleFrom, withAuthorNames } from '../lib/conversations.js';
 import { conversationContext } from '../lib/conversation-context.js';

@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute, type ProjectMetadata } from '../../platform/index.js';
 import type { OdooReleaseService } from '../services/OdooReleaseService.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
 import type { SignIn } from '../../projects/services/ProjectSecretsService.js';
 
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>

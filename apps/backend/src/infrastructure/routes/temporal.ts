@@ -1,6 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
-import { mayTouch, seesEverything, withinQuery, workflowScope, type WorkflowViewer } from '../../platform/lib/workflow-owner.js';
+import { asyncRoute, mayTouch, seesEverything, withinQuery, workflowScope, type WorkflowViewer } from '../../platform/index.js';
 
 interface WorkflowRow {
   workflowId: string;

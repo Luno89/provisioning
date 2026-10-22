@@ -1,6 +1,6 @@
 import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
 import type { Collection, Db } from 'mongodb';
-import type { LocalAgentDeviceMetadata } from '../platform/lib/types.js';
+import type { LocalAgentDeviceMetadata } from '../platform/index.js';
 import type { MachineJoinCode } from './lib/machines.js';
 
 export interface MachinesStore extends AreaStore {

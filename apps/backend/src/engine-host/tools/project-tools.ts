@@ -4,7 +4,7 @@ import type { ActionKind, ActionProposal } from '../../engine/lib/action-proposa
 import { envChanges, parseEnv, pickStrategy, sameAction } from '../../engine/lib/action-proposals.js';
 import { deploymentForProject, rollupProjectStatus } from '../../projects/lib/project-status.js';
 import { explainSpecProblems, validateSpec } from '../../infrastructure/lib/app-spec-validate.js';
-import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/index.js';
 import { projectFor, type ProjectScopeStores } from './project-scope.js';
 import { projectAppOf } from '../../releases/lib/project-app.js';
 import type { OdooRelease } from '../../releases/lib/odoo-release.js';

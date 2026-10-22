@@ -1,8 +1,6 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute, encryptValue, type SecretKey, parseCookie } from '../../platform/index.js';
 import { v4 as uuidv4 } from 'uuid';
-import { encryptValue, type SecretKey } from '../../platform/lib/crypto.js';
-import { parseCookie } from '../../platform/middleware/auth.js';
 import {
   authUrl, checkCallback, connectedRedirect, CONNECT_COOKIE, CONNECT_COOKIE_MS, CONNECT_PATH, exchangeBody, exchangeProblem,
   failedRedirect, keyFrom, newPending, OPENROUTER_KEYS_URL, openPending, sealPending,

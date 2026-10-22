@@ -1,11 +1,9 @@
-import { decryptValue, encryptValue, type SecretKey } from '../../platform/lib/crypto.js';
+import { decryptValue, encryptValue, type SecretKey, type ProjectMetadata, CLI_CEILING } from '../../platform/index.js';
 import {
   OPERATOR_NAMESPACE, OPERATOR_RELEASE, OPERATOR_REPO,
   infisicalHostFor, infisicalSecretManifest, readerSecretManifest,
   type SecretTarget,
 } from '../../releases/lib/infisical-sync.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
-import { CLI_CEILING } from '../../platform/lib/activity-liveness.js';
 
 export const OPERATOR_VERSION = 'v0.11.10';
 

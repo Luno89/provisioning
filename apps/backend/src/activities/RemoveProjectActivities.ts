@@ -1,6 +1,8 @@
 import { Context } from '@temporalio/activity';
 import type { FilePlace } from '../files/lib/file-places.js';
-import type { ClusterMetadata, ProjectMetadata, DeploymentMetadata, PipelineRunMetadata } from '../platform/lib/types.js';
+import {
+  type ClusterMetadata, type ProjectMetadata, type DeploymentMetadata, type PipelineRunMetadata, CLI_CEILING,
+} from '../platform/index.js';
 import { destroyAppArgs, destroyAppWorkflowId, type DestroyAppArgs } from '../infrastructure/lib/app-destroy.js';
 import type { Tree } from '../projects/lib/trees.js';
 import type { Branch, Leaf } from '../projects/lib/leaves.js';
@@ -12,7 +14,6 @@ import { loadProjectScope } from '../projects/services/ProjectRemovalService.js'
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { workspaceName } from '../engine-host/sandboxes/workspace.js';
 import { conversationRepoName, conversationWorkspaceRunId, treeRepoName, treeWorkspaceRunId } from '../engine-host/sandboxes/workspace-repos.js';
-import { CLI_CEILING } from '../platform/lib/activity-liveness.js';
 
 export interface RemoveProjectArgs {
   projectId: string;

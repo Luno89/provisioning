@@ -3,9 +3,9 @@ import path from 'path';
 import { DefaultLogger, type LogEntry } from '@temporalio/worker';
 
 const LOG_DIR = path.resolve(process.cwd(), 'data/logs/workers');
-fs.mkdirSync(LOG_DIR, { recursive: true });
 
 export function createWorkerLogger(name: string): DefaultLogger {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
   const stream = fs.createWriteStream(path.join(LOG_DIR, `${name}.log`), { flags: 'a' });
 
   return new DefaultLogger('INFO', (entry: LogEntry) => {

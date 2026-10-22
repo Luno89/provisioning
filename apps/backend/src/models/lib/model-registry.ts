@@ -1,4 +1,4 @@
-import type { DeploymentMetadata, ModelEndpointMetadata } from '../../platform/lib/types.js';
+import type { DeploymentMetadata, ModelEndpointMetadata } from '../../platform/index.js';
 import { llmAppSpec, specFromTag } from './llm-apps.js';
 
 export type ModelKind = 'vllm' | 'tabbyapi';

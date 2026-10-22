@@ -2,7 +2,7 @@ import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
 import type { Branch, Leaf } from './lib/leaves.js';
 import type { Collection, Db } from 'mongodb';
 import type { GiteaAccount } from './lib/projects.js';
-import type { PartialInfo, ProjectMetadata } from '../platform/lib/types.js';
+import type { PartialInfo, ProjectMetadata } from '../platform/index.js';
 import type { PlanProposal } from './lib/plan-proposals.js';
 import type { SecretRequest, SecretRequestFilter } from './lib/secret-requests.js';
 import type { Task } from './lib/tasks.js';

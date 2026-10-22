@@ -3,7 +3,7 @@ import path from 'path';
 import type { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
 import { hasCloudCredentials } from '../infrastructure/lib/credential-resolver.js';
 import { isMockCloudProvider, isSelfManagedCluster } from '../infrastructure/lib/cluster-topology.js';
-import type { ClusterMetadata } from '../platform/lib/types.js';
+import type { ClusterMetadata } from '../platform/index.js';
 
 export interface ClusterRef {
   clusterName: string;

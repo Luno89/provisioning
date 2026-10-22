@@ -1,4 +1,4 @@
-import type { SecretKey } from '../../platform/lib/crypto.js';
+import type { SecretKey } from '../../platform/index.js';
 import path from 'path';
 import fs from 'fs/promises';
 import axios from 'axios';

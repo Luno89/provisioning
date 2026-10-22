@@ -19,7 +19,7 @@ async function main() {
 
   // 1. Authenticate / Register
   console.log(`[1/7] Authenticating against live backend at ${BASE_URL}...`);
-  const { createDatabase } = await import('../platform/lib/db-interface.js');
+  const { createDatabase } = await import('../platform/index.js');
   const db = createDatabase();
   await db.init();
 

@@ -1,4 +1,4 @@
-import type { DeploymentMetadata } from '../../platform/lib/types.js';
+import type { DeploymentMetadata } from '../../platform/index.js';
 import { clusterUrl } from '../../infrastructure/lib/cluster-dns.js';
 import type { McpTool } from './mcp-client.js';
 import { namespaceOf } from '../../infrastructure/lib/app-namespace.js';

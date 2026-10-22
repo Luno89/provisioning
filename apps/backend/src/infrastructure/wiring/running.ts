@@ -1,14 +1,12 @@
-import type { Database } from '../../platform/lib/db-interface.js';
-import { servesTenants, type RoleConfig } from '../../platform/lib/platform-role.js';
-import { ownedQuery, ownerIn } from '../../platform/lib/workflow-owner.js';
+import {
+  type Database, servesTenants, type RoleConfig, ownedQuery, ownerIn, getTemporalClient, type MetricsService,
+} from '../../platform/index.js';
 import { DEFAULT_BENCH_SETTINGS } from '../../checks/lib/bench.js';
 import type { RunningRecords, RunningWorkflow } from '../lib/running.js';
-import { getTemporalClient } from '../../platform/lib/temporal-client.js';
 import { WorkFailureService, type ClosedWorkflow } from '../services/WorkFailureService.js';
 import { RunningService } from '../services/RunningService.js';
 import { ClusterContentsService } from '../services/ClusterContentsService.js';
 import { InfrastructureViewService } from '../services/InfrastructureViewService.js';
-import type { MetricsService } from '../../platform/services/MetricsService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { MonitoringService } from '../../monitoring/services/MonitoringService.js';
 import type { Level2Service } from '../../checks/services/Level2Service.js';

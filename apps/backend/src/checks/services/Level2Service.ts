@@ -15,7 +15,7 @@ import type { Procedure } from '@koala/agent-engine/procedure';
 import { turnProcedure } from '../lib/turn-check.js';
 import { stepProcedure } from '../lib/step-check.js';
 import { platformCatalogue, platformGroups } from '../../extensions/installed.js';
-import { startedFor } from '../../platform/lib/workflow-owner.js';
+import { startedFor } from '../../platform/index.js';
 
 export type Level2RunState = 'running' | 'done' | 'failed' | 'cancelled' | 'interrupted';
 

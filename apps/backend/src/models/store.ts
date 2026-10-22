@@ -1,6 +1,6 @@
 import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
 import type { Collection, Db } from 'mongodb';
-import type { ModelEndpointMetadata } from '../platform/lib/types.js';
+import type { ModelEndpointMetadata } from '../platform/index.js';
 import type { ModelThinkingProfile } from '../engine/lib/thinking-classifier.js';
 
 export interface ModelsStore extends AreaStore {

@@ -1,13 +1,12 @@
 import { Router } from 'express';
-import { afterFailure, lockedSaid, lockedUntil, type SignInAttempts } from '../../platform/lib/http-limits.js';
+import {
+  afterFailure, lockedSaid, lockedUntil, type SignInAttempts, signJWT, hashPassword, verifyPassword, type Auth,
+  type Database, type SecretKey,
+} from '../../platform/index.js';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import { signJWT, hashPassword, verifyPassword } from '../../platform/lib/auth.js';
 import { mockOAuthAllowed } from '../lib/oauth-gate.js';
-import type { Auth } from '../../platform/middleware/auth.js';
-import type { Database } from '../../platform/lib/db-interface.js';
 import type { AuthService } from '../services/AuthService.js';
-import type { SecretKey } from '../../platform/lib/crypto.js';
 
 export interface AuthRouterDeps {
   db: Database;

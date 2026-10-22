@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream';
 import { Client } from 'minio';
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
 import { FILES_BUCKET, FOLDER_MARK, SEARCH_LIMIT, isFolderMark, matchesSearch, within, type FileEntry, type FilePlace } from '../lib/file-places.js';
 import { s3Address, type ServiceSpec } from '../lib/artifacts.js';
 

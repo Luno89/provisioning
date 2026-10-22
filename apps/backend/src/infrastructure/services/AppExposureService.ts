@@ -1,8 +1,6 @@
-import { BaseService } from '../../platform/services/BaseService.js';
+import { BaseService, type Database, type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import { ClusterService } from './ClusterService.js';
-import type { Database } from '../../platform/lib/db-interface.js';
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { assertUpstreamTarget } from '../lib/upstream-target.js';

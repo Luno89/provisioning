@@ -1,9 +1,8 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute, ownsProject } from '../../platform/index.js';
 import { isWorkspaceLanguage } from '../../engine/lib/workspace-image-catalogue.js';
 import { WorkspaceImageService } from '../../engine/services/WorkspaceImageService.js';
 import { v4 as uuidv4 } from 'uuid';
-import { ownsProject } from '../../platform/lib/ownership.js';
 import { rollupProjectStatus, deploymentForProject } from '../lib/project-status.js';
 import { validateLocalEgressRules } from '../../infrastructure/lib/egress-rules.js';
 import type { ProjectRemovalService } from '../services/ProjectRemovalService.js';

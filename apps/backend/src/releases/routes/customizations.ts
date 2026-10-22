@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute, type ProjectMetadata } from '../../platform/index.js';
 import type { CustomizationsOutcome, CustomizationsService } from '../services/CustomizationsService.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
 
 export interface CustomizationsRouterDeps {
   customizations: Pick<CustomizationsService, 'drift' | 'propose'>;

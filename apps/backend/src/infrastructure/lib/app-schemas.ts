@@ -1,7 +1,7 @@
 import type { AppSettingsSchema } from './app-settings-schema.js';
 import { resolveAppSettings } from './app-settings-schema.js';
 import { PALWORLD_SCHEMA } from './palworld-settings.js';
-import type { DeploymentMetadata } from '../../platform/lib/types.js';
+import type { DeploymentMetadata } from '../../platform/index.js';
 
 export const APP_SETTINGS_SCHEMAS: Record<string, AppSettingsSchema> = {
   palworld: PALWORLD_SCHEMA,

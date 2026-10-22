@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import type { Database } from '../../platform/lib/db-interface.js';
+import type { Database } from '../../platform/index.js';
 import { INSTANCE_STATUSES, type InstanceAddresses, type InstanceGroup, type InstanceRecord, type InstanceStatus } from '../lib/instances.js';
 import { nameProblem, suggestedName } from '../lib/instance-names.js';
 import { routeProblem } from '../lib/instance-routes.js';

@@ -3,9 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { MongoClient } from 'mongodb';
-import { KEY_NAMES, generateKey, loadKeys } from '../platform/lib/keys.js';
-import { reencrypt } from '../platform/lib/key-rotation.js';
-import { keyId } from '../platform/lib/crypto.js';
+import { KEY_NAMES, generateKey, loadKeys, reencrypt, keyId } from '../platform/index.js';
 import { generateIdentityKey } from '../instances/lib/identity-token.js';
 
 const here = dirname(fileURLToPath(import.meta.url));

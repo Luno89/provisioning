@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 
-import { createDatabase, type Database } from '../platform/lib/db-interface.js';
+import { createDatabase, type Database, runOnce, type MigrationLedger } from '../platform/index.js';
 import { seedBindingTypes } from '../infrastructure/lib/binding-type-seeds.js';
 import { seedAppSpecs, seedConstructBackedTypes } from '../infrastructure/lib/app-spec.js';
 import { seedClusterProviders } from '../infrastructure/lib/cluster-providers.js';
@@ -14,7 +14,6 @@ import { migrateMcpServers } from '../engine/lib/mcp-server-migration.js';
 import { migrateToDependencies } from '../engine/lib/dependency-migration.js';
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
-import { runOnce, type MigrationLedger } from '../platform/lib/migrations.js';
 
 export async function seedAll(db: Database) {
   const counts: Record<string, number> = {};

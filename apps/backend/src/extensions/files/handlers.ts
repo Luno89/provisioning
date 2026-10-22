@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import { cleanPath } from '../../files/lib/file-places.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
+import type { ProjectMetadata } from '../../platform/index.js';
 import type { FileScope, FileService } from '../../files/services/FileService.js';
 import { LIST_FILES, READ_STORED_FILE, REMOVE_STORED_FILE, STORE_FILE } from './catalogue.js';
 

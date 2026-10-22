@@ -10,10 +10,7 @@ import { RootRemovalInstanceActivity, RootRemovalMeshActivity, RootRemovalRecord
 import { PoolMoveStartActivity, PoolMoveStopActivity, PoolMoveSwitchActivity } from './activities/PoolActivities.js';
 import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActivity, PoolReadyActivity, PoolRemoveActivity, PoolTrialNextActivity, PoolTrialStepActivity, PoolVclusterActivity } from './activities/PoolActivities.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
-import { createWorkerLogger } from './platform/lib/worker-logger.js';
-import { buildDataConverter } from './platform/lib/temporal-codec.js';
-import { sharedPayloadBlobs } from './platform/lib/db-interface.js';
-import { loadKeys } from './platform/lib/keys.js';
+import { createWorkerLogger, buildDataConverter, sharedPayloadBlobs, loadKeys } from './platform/index.js';
 import { healthPort, serveHealth } from './infrastructure/lib/worker-health.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
 

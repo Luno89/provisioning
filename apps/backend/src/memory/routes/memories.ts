@@ -1,6 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
-import type { Database } from '../../platform/lib/db-interface.js';
+import { asyncRoute, type Database } from '../../platform/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { unreachableMemory, type MemoryItem } from '../lib/memory-store.js';
 import type { TemporalBridge } from '../../infrastructure/services/TemporalBridge.js';

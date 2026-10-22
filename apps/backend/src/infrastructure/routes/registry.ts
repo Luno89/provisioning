@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute } from '../../platform/index.js';
 import { clampPage, clampPageSize, parseTagSort } from '../lib/registry-tags.js';
 
 export function registryRouter(deps: Record<string, any>): Router {

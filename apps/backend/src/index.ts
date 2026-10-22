@@ -14,10 +14,13 @@ import { Server as SocketServer } from 'socket.io';
 
 import { authRouter } from './accounts/routes/auth.js';
 import helmet from 'helmet';
-import { CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine } from './platform/lib/csp.js';
-import { MetricsService } from './platform/services/MetricsService.js';
+import {
+  CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, MetricsService, RATE_LIMITS, ruleFor,
+  getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, keepTrying, mongoTarget, asyncRoute,
+  ownsProject, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, decryptValue, loadKeys,
+  roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom,
+} from './platform/index.js';
 import { rateLimit } from 'express-rate-limit';
-import { RATE_LIMITS, ruleFor } from './platform/lib/http-limits.js';
 import { wireReleases } from './releases/wiring/releases.js';
 import { storyDropsFor, wireFiles } from './files/wiring/files.js';
 import { wireMachines } from './machines/wiring/machines.js';
@@ -32,19 +35,10 @@ import { wireSockets } from './machines/wiring/sockets.js';
 import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js';
 import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
-import { getTemporalClient, resolveOwnersWith } from './platform/lib/temporal-client.js';
-import { PayloadStorageService } from './platform/services/PayloadStorageService.js';
-import { createAuth } from './platform/middleware/auth.js';
-import { keepTrying } from './platform/lib/keep-trying.js';
-import { mongoTarget } from './platform/lib/mongo-db.js';
 import { askDevice, localAgentStatus, tellDevice } from './machines/lib/local-agent-registry.js';
 import { MachineService } from './machines/services/MachineService.js';
 import { RootMeshKeys } from './instances/services/RootMeshKeys.js';
-import { asyncRoute } from './platform/middleware/async-route.js';
 import { modelsRouter } from './models/routes/models.js';
-import { ownsProject } from './platform/lib/ownership.js';
-import { createDatabase, sharedPayloadBlobs, type Database } from './platform/lib/db-interface.js';
-import { migrateLegacyOwnership } from './platform/lib/migrate-ownership.js';
 
 import { InfrastructureService } from './infrastructure/services/InfrastructureService.js';
 import { ClusterService } from './infrastructure/services/ClusterService.js';
@@ -65,16 +59,11 @@ import { GiteaService } from './projects/services/GiteaService.js';
 import { InfisicalService } from './infrastructure/services/InfisicalService.js';
 import { HeadscaleService } from './infrastructure/services/HeadscaleService.js';
 import { ModelService } from './models/services/ModelService.js';
-import { decryptValue } from './platform/lib/crypto.js';
 
 import { seedAll } from './scripts/seed-all.js';
 import { endpointRulesFromEnv } from './models/lib/endpoint-url-safety.js';
-import { loadKeys } from './platform/lib/keys.js';
-import { roleFromEnv, servesTenants, holdsAccounts } from './platform/lib/platform-role.js';
 import { IdentityService } from './instances/services/IdentityService.js';
-import { MailService } from './platform/services/MailService.js';
 import { NotificationService } from './monitoring/services/NotificationService.js';
-import { emailWayFrom } from './platform/lib/email-way.js';
 import { artifactsRouter } from './files/routes/artifacts.js';
 import { createArtifactService } from './files/services/artifact-service-factory.js';
 

@@ -1,4 +1,4 @@
-import type { CloudCredentials } from '../../platform/lib/types.js';
+import type { CloudCredentials } from '../../platform/index.js';
 
 export interface ResolvedCredentials {
   mode: 'user' | 'env' | 'mock';

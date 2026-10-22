@@ -1,11 +1,10 @@
-import { createDatabase } from '../platform/lib/db-interface.js';
+import { createDatabase, frontierRow, followsLinks, type FrontierClaim } from '../platform/index.js';
 import { buildWebTools, corpusEndpoints, crawlEndpoint } from '../engine/wiring/web-tools.js';
 import { liveDeployment, type CorpusEndpoints } from '../engine/lib/web-tools-resolver.js';
 import { ensureIndex, indexPages, ensureCollection, embedPages, searchCorpus, purgeCorpus } from '../engine/lib/corpus-client.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { buildBatchPayload, readCrawlResults, canonical, hostOf, usableLinks } from '../engine/lib/crawl-client.js';
 import { toPage, type CorpusPage } from '../engine/lib/corpus.js';
-import { frontierRow, followsLinks, type FrontierClaim } from '../platform/lib/frontier.js';
 import { v4 as uuidv4 } from 'uuid';
 
 async function endpoint(ownerId: string) {

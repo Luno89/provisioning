@@ -1,4 +1,4 @@
-import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
+import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/index.js';
 import { releaseTargetOf, type OdooRelease } from '../lib/odoo-release.js';
 import type { SlotAdapter } from '../../extensions/releases/adapter.js';
 import type { SlotCluster } from '../../extensions/releases/slot-cluster.js';

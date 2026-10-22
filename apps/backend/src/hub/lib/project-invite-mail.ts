@@ -1,4 +1,4 @@
-import type { MailMessage } from '../../platform/lib/mail.js';
+import type { MailMessage } from '../../platform/index.js';
 
 const ROLE_SAID: Record<string, string> = {
   owner: 'an owner, who can do everything on it',

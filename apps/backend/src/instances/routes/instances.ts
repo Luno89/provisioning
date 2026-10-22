@@ -1,8 +1,6 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { pipeline } from 'stream';
-import { mailProblem } from '../../platform/lib/mail.js';
-import { MailError, type MailService } from '../../platform/services/MailService.js';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { mailProblem, MailError, type MailService, asyncRoute } from '../../platform/index.js';
 import type { InstanceService, JoinBundle } from '../services/InstanceService.js';
 import { PoolMonitoringError, type PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import { parseAsk, parseRange } from '../../monitoring/lib/monitoring-asks.js';

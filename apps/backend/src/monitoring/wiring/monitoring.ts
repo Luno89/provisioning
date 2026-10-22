@@ -1,20 +1,16 @@
 import type { Server as SocketServer } from 'socket.io';
-import type { Database } from '../../platform/lib/db-interface.js';
+import { type Database, type MailService, type RoleConfig, servesTenants, clusterOwnership } from '../../platform/index.js';
 import type { sharedClusterProxy } from '../../infrastructure/services/ClusterProxyService.js';
 import type { ClusterService } from '../../infrastructure/services/ClusterService.js';
 import type { ConversationNoticeService } from '../../engine/services/ConversationNoticeService.js';
 import type { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
-import type { MailService } from '../../platform/services/MailService.js';
 import type { NotificationService } from '../services/NotificationService.js';
-import type { RoleConfig } from '../../platform/lib/platform-role.js';
 import { AlertWatchService } from '../services/AlertWatchService.js';
 import { MonitoringService, prometheusAt } from '../services/MonitoringService.js';
 import { alertNotice, alertWhere } from '../lib/alert-notices.js';
 import { monitoringRouter } from '../routes/monitoring.js';
 import { notificationsRouter } from '../routes/notifications.js';
 import { poolMonitor, poolMonitorFrom } from '../services/PoolMonitor.js';
-import { servesTenants } from '../../platform/lib/platform-role.js';
-import { clusterOwnership } from '../../platform/lib/ownership.js';
 import type { Mounts } from '../../hub/wiring/hub.js';
 
 export interface MonitoringWiringDeps {

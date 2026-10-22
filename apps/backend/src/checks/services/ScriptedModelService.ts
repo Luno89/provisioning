@@ -1,8 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
-import { decryptValue, type SecretKey } from '../../platform/lib/crypto.js';
+import { decryptValue, type SecretKey, type ModelEndpointMetadata, type UserMetadata } from '../../platform/index.js';
 import { answerFrom, type ScriptAnswer, type ScriptMessage, type ScriptRequest, type ScriptedRequestRecord } from '../lib/check-script.js';
 import { scriptedEndpointId } from '../lib/check-space.js';
-import type { ModelEndpointMetadata, UserMetadata } from '../../platform/lib/types.js';
 
 export interface ScriptedModelStore {
   accounts: {

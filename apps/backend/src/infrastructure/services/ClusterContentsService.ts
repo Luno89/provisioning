@@ -1,4 +1,4 @@
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
 import {
   brokenWorkloads, clusterWorkloads,
   type NamespaceJson, type PodJson, type UsageSample, type Workload, type WorkloadScope,

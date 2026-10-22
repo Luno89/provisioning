@@ -1,5 +1,4 @@
-import type { Database } from '../../platform/lib/db-interface.js';
-import { decryptValue, type SecretKey } from '../../platform/lib/crypto.js';
+import { type Database, decryptValue, type SecretKey } from '../../platform/index.js';
 import { resolveCloudCredentials } from '../lib/credential-resolver.js';
 import { ADAPTERS } from '../lib/vps-catalog/adapters.js';
 import { NATURAL_SORT_DIR, offerHasGpu } from '../lib/vps-catalog/types.js';

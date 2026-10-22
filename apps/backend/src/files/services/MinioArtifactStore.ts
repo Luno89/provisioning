@@ -1,5 +1,5 @@
 import { Client } from 'minio';
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
 import { ARTIFACT_BUCKET, minioOf, s3Address, type ServiceSpec } from '../lib/artifacts.js';
 import type { ObjectStore } from './ArtifactService.js';
 

@@ -1,4 +1,4 @@
-import type { DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
+import type { DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/index.js';
 
 export type ProjectStatus =
   | 'no-build'

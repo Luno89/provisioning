@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
+import type { ProjectMetadata } from '../../platform/index.js';
 import type { Tree } from '../lib/trees.js';
 import { primaryProjectId } from '../lib/trees.js';
 import { resolveTreeType, type TreeTypeSecret, type TreeTypeSpec } from '../lib/tree-types.js';

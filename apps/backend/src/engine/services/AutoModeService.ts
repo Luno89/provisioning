@@ -1,4 +1,4 @@
-import type { Database } from '../../platform/lib/db-interface.js';
+import type { Database } from '../../platform/index.js';
 import { runsUnasked, switchedOn, withAgent } from '../lib/auto-mode.js';
 
 export type AutoModeStore = Pick<Database, 'engine' | 'projects'>;

@@ -1,4 +1,4 @@
-import type { Database } from '../../platform/lib/db-interface.js';
+import type { Database } from '../../platform/index.js';
 import { corpusEndpointsWith, crawlEndpointWith, resolveWebTools, webToolsDepsFrom, type CorpusEndpoints, type WebToolsDeps } from '../lib/web-tools-resolver.js';
 import type { WebTools } from '../lib/web-tools.js';
 import { sharedClusterProxy } from '../../infrastructure/services/ClusterProxyService.js';

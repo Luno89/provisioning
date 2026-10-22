@@ -3,16 +3,13 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { ApplicationFailure } from '@temporalio/common';
-import { createDatabase } from '../platform/lib/db-interface.js';
+import { createDatabase, roleFromEnv, emailWayFrom, MailService } from '../platform/index.js';
 import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
 import { hashCredential } from '../instances/services/InstanceService.js';
-import { roleFromEnv } from '../platform/lib/platform-role.js';
 import { publicKeyPem } from '../instances/lib/identity-token.js';
-import { emailWayFrom } from '../platform/lib/email-way.js';
 import { afterStep, nextTrialStep, trialMessage, type DueStep, type TrialStep } from '../instances/lib/pool-trial.js';
 import { MoveRelay, kubeconfigFile } from '../instances/services/MoveRelay.js';
 import { issueMoveToken } from '../instances/lib/identity-token.js';
-import { MailService } from '../platform/services/MailService.js';
 import type { InstanceRecord } from '../instances/lib/instances.js';
 import { BLACKBOX_VALUES, POOL_MONITORING, poolAppAlerts, poolStackValues, probeIngressPolicy } from '../monitoring/lib/pool-monitoring.js';
 import {

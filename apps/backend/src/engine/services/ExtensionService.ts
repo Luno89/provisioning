@@ -1,5 +1,5 @@
 import { checkProcedure, readProcedure, type EngineExtension, type GroupDefinition, type NodeCatalogue, type Procedure } from '@koala/agent-engine/procedure';
-import type { Database } from '../../platform/lib/db-interface.js';
+import type { Database } from '../../platform/index.js';
 import { INSTALLED_EXTENSIONS, platformCatalogue, platformGroups } from '../../extensions/installed.js';
 import type { ProcedureSource } from '../lib/procedure-source.js';
 import { ALWAYS_ON, enabledExtensions, hiddenBy, switchProblem, withSwitch, type HiddenVocabulary } from '../lib/extension-settings.js';

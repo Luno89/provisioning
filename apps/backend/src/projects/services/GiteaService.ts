@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
 import { promisify } from 'util';
-import { encryptValue, decryptValue, type SecretKey } from '../../platform/lib/crypto.js';
+import { encryptValue, decryptValue, type SecretKey } from '../../platform/index.js';
 import type { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
 import { registryHosts, type RegistryHosts } from '../../instances/lib/registry-hosts.js';
 import type { RegistryLogin } from '../../instances/lib/registry-pull.js';

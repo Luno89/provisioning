@@ -1,7 +1,7 @@
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import { CONCLUDE_WORKSPACE_WORKFLOW, concludeWorkspaceId, type ConcludeWorkspaceArgs, type ConcludedWorkspace } from '../../engine-host/temporal/contracts.js';
 import type { SavedDocuments } from '../../engine-host/sandboxes/workspace-documents.js';
-import { startedFor } from '../../platform/lib/workflow-owner.js';
+import { startedFor } from '../../platform/index.js';
 
 export interface ConclusionWorkflows {
   start(workflowType: string, options: { workflowId: string; taskQueue: string; args: [ConcludeWorkspaceArgs] }): Promise<unknown>;

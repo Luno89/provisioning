@@ -1,6 +1,6 @@
 import type crypto from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute } from '../../platform/index.js';
 import { HUB_AUDIENCE, hubInstancePart } from '../lib/hub.js';
 import { checkMoveToken } from '../../instances/lib/identity-token.js';
 import type { HubOutcome, HubService, SyncOrigin } from '../services/HubService.js';

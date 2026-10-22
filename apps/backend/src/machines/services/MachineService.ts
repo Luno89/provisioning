@@ -1,10 +1,9 @@
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
-import { encryptValue, type SecretKey } from '../../platform/lib/crypto.js';
+import { encryptValue, type SecretKey, type LocalAgentDeviceMetadata, type ProjectMetadata } from '../../platform/index.js';
 import { findDeviceByToken } from '../lib/local-agent-registry.js';
 import type { MachineChoice } from '@koala/agent-engine/procedure';
-import type { LocalAgentDeviceMetadata, ProjectMetadata } from '../../platform/lib/types.js';
 import {
   MACHINE_CODE_TTL_SECONDS, hashMachineCode, machineAgentsFrom, machineChoiceProblem, machineCommand, manualAgentsOf, manualAgentsProblem, newMachineCode,
   type MachineAgent, type ManualMachineAgent,

@@ -1,7 +1,7 @@
 import { ACCOUNT_DATA, type AccountIds, type AccountRelated } from './lib/account-removal.js';
 import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
 import type { Collection, Db } from 'mongodb';
-import type { InviteMetadata, UserMetadata } from '../platform/lib/types.js';
+import type { InviteMetadata, UserMetadata } from '../platform/index.js';
 
 export interface AccountsStore extends AreaStore {
   getUsers(): Promise<UserMetadata[]>;

@@ -15,7 +15,7 @@ import {
   type WorkspaceDependency,
 } from '@koala/agent-engine';
 import type { AgentDirectory, GrantMeta } from '../../engine-host/registries/agent-directory.js';
-import { sameSeededRow } from '../../platform/lib/seed-diff.js';
+import { sameSeededRow } from '../../platform/index.js';
 import { missingGrants, type Procedure } from '@koala/agent-engine/procedure';
 import type { ImageStanding } from '../../engine-host/sandboxes/image-builder.js';
 import { platformGroups } from '../../extensions/installed.js';

@@ -1,6 +1,7 @@
-import type { Database } from '../../platform/lib/db-interface.js';
-import type { CloudCredentials, CloudProvider } from '../../platform/lib/types.js';
-import { encryptValue, decryptValue, maskSecret, type SecretKey } from '../../platform/lib/crypto.js';
+import {
+  type Database, type CloudCredentials, type CloudProvider, encryptValue, decryptValue, maskSecret,
+  type SecretKey,
+} from '../../platform/index.js';
 import { resolveCloudCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
 
 async function readJson(res: Response): Promise<Record<string, any>> {

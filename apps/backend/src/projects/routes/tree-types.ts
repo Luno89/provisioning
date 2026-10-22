@@ -1,8 +1,6 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
-import { ownedBy } from '../../platform/lib/ownership.js';
+import { asyncRoute, ownedBy, type Database } from '../../platform/index.js';
 import { agentProblem, validateTreeType } from '../lib/tree-types.js';
-import type { Database } from '../../platform/lib/db-interface.js';
 
 export interface TreeTypesRouterDeps {
   releaseProblem?: ((ownerId: string, how: unknown) => Promise<string | null>) | undefined;

@@ -1,5 +1,5 @@
 import { primaryProjectId, type Tree } from '../../projects/lib/trees.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
+import type { ProjectMetadata } from '../../platform/index.js';
 
 export interface ProjectScopeStores {
   projects: { list(): Promise<ProjectMetadata[]> };

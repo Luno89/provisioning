@@ -1,5 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute } from '../../platform/index.js';
 import type { DocumentService } from '../services/DocumentService.js';
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;

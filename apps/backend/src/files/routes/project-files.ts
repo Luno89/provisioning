@@ -1,7 +1,7 @@
 import express, { Router, type Request } from 'express';
 import crypto from 'crypto';
 import path from 'path';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute } from '../../platform/index.js';
 import { isSafeRepoDir, isSafeRepoFilePath } from '../lib/project-file-paths.js';
 import { DROP_TYPE, readDrop } from '../lib/drops.js';
 import { GiteaConflictError } from '../../projects/services/GiteaService.js';

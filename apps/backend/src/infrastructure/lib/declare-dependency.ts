@@ -1,4 +1,4 @@
-import type { Database } from '../../platform/lib/db-interface.js';
+import type { Database } from '../../platform/index.js';
 import { resolveBindings } from './binding-resolve.js';
 
 export interface DeclareResult {

@@ -92,7 +92,7 @@ export {
   BENCH_IDLE_WORKFLOW, CONCLUDE_WORKSPACE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, benchIdleId, concludeWorkspaceId, conversationConclusionId,
   type ConcludedWorkspace,
 } from '../../platform/lib/workflow-ids.js';
-import type { ConcludedWorkspace } from '../../platform/lib/workflow-ids.js';
+import type { ConcludedWorkspace } from '../../platform/index.js';
 
 export interface ConcludeWorkspaceArgs {
   ownerId: string;

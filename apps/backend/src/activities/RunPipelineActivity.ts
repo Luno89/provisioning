@@ -9,7 +9,7 @@ import { GiteaService } from '../projects/services/GiteaService.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { buildPlanAt, isCommitSha } from '../releases/lib/build-plan.js';
 import { buildArgEntries } from '../releases/lib/pipeline-config.js';
-import { loadKeys } from '../platform/lib/keys.js';
+import { loadKeys } from '../platform/index.js';
 import { forPushing, kanikoRegistryArgs } from '../instances/lib/registry-hosts.js';
 import { dockerConfigJson } from '../instances/lib/registry-pull.js';
 

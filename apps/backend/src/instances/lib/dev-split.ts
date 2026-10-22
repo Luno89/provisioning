@@ -1,6 +1,6 @@
 import { nameProblem } from './instance-names.js';
 import type { InstanceRecord } from './instances.js';
-import type { UserMetadata } from '../../platform/lib/types.js';
+import type { UserMetadata } from '../../platform/index.js';
 
 export const DEV_SPLIT = {
   rootDatabase: 'koala_root',

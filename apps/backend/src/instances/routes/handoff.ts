@@ -1,8 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
-import { signJWT } from '../../platform/lib/auth.js';
-import type { SecretKey } from '../../platform/lib/crypto.js';
-import type { Auth } from '../../platform/middleware/auth.js';
+import { asyncRoute, signJWT, type SecretKey, type Auth } from '../../platform/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
 
 export function handoffRouter(deps: {

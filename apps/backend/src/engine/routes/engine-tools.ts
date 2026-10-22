@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute } from '../../platform/index.js';
 import type { EngineToolService } from '../services/EngineToolService.js';
 
 export interface EngineToolsRouterDeps {

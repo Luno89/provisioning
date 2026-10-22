@@ -1,7 +1,8 @@
-import type { ClusterOwnership } from '../../platform/lib/ownership.js';
+import {
+  type ClusterOwnership, type ClusterMetadata, type DeploymentMetadata, type Database, K3S_TRAEFIK_CONFIG,
+  k3sConfigState, ourTraefikArgs, servicesLabelled, traefikOf, type HelmRelease,
+} from '../../platform/index.js';
 import { randomUUID } from 'node:crypto';
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
-import type { Database } from '../../platform/lib/db-interface.js';
 import {
   APP_CHARTS, APP_QUESTIONS, CLUSTER_CHARTS, CLUSTER_QUESTIONS, RANGE_SECONDS, stepFor,
   type AppChart, type AppSubject, type ClusterChart, type Range,
@@ -20,7 +21,6 @@ import {
   DEFAULT_HISTORY_DAYS, chartVersionOf, helmHistoryArgs, historyApplied, historyProblem, keptDays, prometheusNow,
 } from '../lib/monitoring-history.js';
 import type { AlertEpisode, MonitoringSetting } from '../lib/monitoring-records.js';
-import { K3S_TRAEFIK_CONFIG, k3sConfigState, ourTraefikArgs, servicesLabelled, traefikOf, type HelmRelease } from '../../platform/lib/request-metrics.js';
 import { namespaceOf } from '../../infrastructure/lib/app-namespace.js';
 
 export interface Sample {

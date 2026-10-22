@@ -1,5 +1,4 @@
-import type { Database } from '../../platform/lib/db-interface.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
+import type { Database, ProjectMetadata } from '../../platform/index.js';
 import { DEFAULT_TARGET_CLUSTER } from '../../projects/lib/project-shipping.js';
 import { writeFileOnDevice } from '../../machines/lib/local-agent-registry.js';
 import { FileStores } from '../services/FileStores.js';

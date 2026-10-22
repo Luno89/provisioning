@@ -1,6 +1,6 @@
 import { namespaceOfDeployment } from './mcp-registry.js';
 import type { ServerRuns } from './mcp-servers.js';
-import type { DeploymentMetadata } from '../../platform/lib/types.js';
+import type { DeploymentMetadata } from '../../platform/index.js';
 
 export function hostedMcpUrl(deps: {
   deployments: () => Promise<readonly Pick<DeploymentMetadata, 'id' | 'name' | 'namespace' | 'ownerId' | 'status'>[]>;

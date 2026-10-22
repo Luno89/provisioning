@@ -5,8 +5,7 @@ import { forClients, seenByClients, type ClientMark } from '../lib/client-files.
 import { cleanPath, type FileEntry } from '../../files/lib/file-places.js';
 import { treeOfGroveRun } from '../../engine-host/temporal/contracts.js';
 import type { HubRole } from '../lib/hub.js';
-import type { Database } from '../../platform/lib/db-interface.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
+import type { Database, ProjectMetadata } from '../../platform/index.js';
 import type { FileScope, FilesOutcome } from '../../files/services/FileService.js';
 
 export type Done = { ok: true } | { ok: false; why: string };

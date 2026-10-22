@@ -1,4 +1,4 @@
-import type { AreaStore } from '../platform/lib/collection.js';
+import type { AreaStore } from '../platform/index.js';
 import type { BenchSettings, BenchState } from './lib/bench.js';
 import type { Db } from 'mongodb';
 import { type EvalCollection, type EvalRecord, evalRecordKey } from './lib/eval-run.js';

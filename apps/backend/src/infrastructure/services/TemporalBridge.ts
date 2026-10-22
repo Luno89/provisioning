@@ -1,6 +1,10 @@
 import path from 'path';
 import { isCommitSha, type BuildPlan } from '../../releases/lib/build-plan.js'
-import { stopIfRunning } from '../../platform/lib/stop-workflow.js'
+import {
+  stopIfRunning, getTemporalClient, pollWorkflowRun, decryptValue, encryptValue, type SecretKey, type Database,
+  type ClusterMetadata, type ClusterProgress, type DeploymentMetadata, type ProjectMetadata,
+  type PipelineRunMetadata, PLATFORM_OWNER, ownerIn, startedFor,
+} from '../../platform/index.js'
 import { looksLikeMcp, namespaceOfDeployment } from '../../engine/lib/mcp-registry.js'
 import { namespaceOf } from '../lib/app-namespace.js'
 import { cachedProbes } from '../../engine/lib/mcp-probe-url.js'
@@ -12,7 +16,6 @@ import type { Client } from '@temporalio/client'
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const LOG_DIR = path.resolve(__dirname, '../../../data/logs');
-import { getTemporalClient, pollWorkflowRun } from '../../platform/lib/temporal-client.js'
 import { DEFAULT_ENGINE_TASK_QUEUE, type GroveRunResult } from '../../engine-host/temporal/contracts.js'
 
 export type GroveRunStatus =
@@ -24,7 +27,6 @@ import { reconcileRun, reconcileMissingWorkflow, LIVE_RUN_STATUSES, type RunStat
 import { deploymentForProject } from '../../projects/lib/project-status.js'
 import { destroyAppArgs, destroyAppWorkflowId } from '../lib/app-destroy.js'
 import { resolveCloudCredentials } from '../lib/credential-resolver.js'
-import { decryptValue, encryptValue, type SecretKey } from '../../platform/lib/crypto.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
 import { consolidateMemories, type ConsolidationReport } from '../../memory/lib/memory-consolidate.js'
 import { corpusEndpointsWith, webToolsDepsFrom } from '../../engine/lib/web-tools-resolver.js'
@@ -33,9 +35,7 @@ import { indexMemories, similarTo } from '../../memory/lib/memory-index.js'
 import { assessWorkload, reconciledStatus } from '../lib/workload-health.js'
 import { InfrastructureService } from './InfrastructureService.js'
 import { isModelKind } from '../../models/lib/model-registry.js'
-import type { Database } from '../../platform/lib/db-interface.js'
 import type { WaitingAsk } from '../../engine/lib/turn-log.js'
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata } from '../../platform/lib/types.js'
 import { ClusterService } from './ClusterService.js'
 import { ClusterProvisionWorkflow } from '../../workflows/ClusterProvisionWorkflow.js'
 import { executeDestroyClusterWorkflow } from '../../workflows/DestroyClusterWorkflow.js'
@@ -48,7 +48,6 @@ import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, res
   resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js'
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js'
 import type { Server as SocketServer } from 'socket.io'
-import { PLATFORM_OWNER, ownerIn, startedFor } from '../../platform/lib/workflow-owner.js'
 
 const HOST_QUEUE = 'host-ops-queue'
 const CLUSTER_QUEUE = 'cluster-ops-queue'

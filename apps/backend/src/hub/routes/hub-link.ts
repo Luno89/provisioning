@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute } from '../../platform/index.js';
 import { HUB_ROLES } from '../lib/hub.js';
 import type { ProjectInviteService } from '../services/ProjectInviteService.js';
 

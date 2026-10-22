@@ -1,4 +1,4 @@
-import type { DeploymentMetadata, ProjectMetadata } from '../../platform/lib/types.js';
+import type { DeploymentMetadata, ProjectMetadata } from '../../platform/index.js';
 import { projectAppOf, type ExposureMode, type ProjectApp } from '../lib/project-app.js';
 
 export interface ProjectAppDeps {

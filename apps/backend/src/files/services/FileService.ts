@@ -1,7 +1,7 @@
 import { afterMove, afterRemove, marked, sharing, type ClientMark } from '../../hub/lib/client-files.js';
 import { randomBytes } from 'node:crypto';
 import type { Readable } from 'node:stream';
-import type { DeploymentMetadata, ProjectMetadata } from '../../platform/lib/types.js';
+import type { DeploymentMetadata, ProjectMetadata } from '../../platform/index.js';
 import { fileServersOf, folderFor, type FileEntry, type FilePlace, type FileServer, type FileSettings } from '../lib/file-places.js';
 import type { Download, FileStore } from './FileStores.js';
 import { shareExpires, shareLive, SHARE_TOKEN, type FileShare, type ShareDays } from '../lib/file-shares.js';

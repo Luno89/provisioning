@@ -1,11 +1,10 @@
 import type { Server as SocketServer } from 'socket.io';
-import type { Database } from '../../platform/lib/db-interface.js';
-import type { SecretKey } from '../../platform/lib/crypto.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
-import { secretNotice } from '../../platform/lib/notices.js';
+import {
+  type Database, type SecretKey, type ProjectMetadata, secretNotice, getTemporalClient, roleFromEnv,
+  servesTenants,
+} from '../../platform/index.js';
 import { groveAgentOf, resolveTreeType, renderStarterFiles, versionVars } from '../lib/tree-types.js';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../lib/project-removal.js';
-import { getTemporalClient } from '../../platform/lib/temporal-client.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { ProjectChannelService } from '../services/ProjectChannelService.js';
 import { ItemChatService } from '../services/ItemChatService.js';
@@ -46,7 +45,6 @@ import { projectChannelRouter } from '../routes/project-channel.js';
 import { itemChatsRouter } from '../routes/item-chats.js';
 import { treesRouter } from '../routes/trees.js';
 import { plansRouter } from '../routes/plans.js';
-import { roleFromEnv, servesTenants } from '../../platform/lib/platform-role.js';
 import { branchesRouter } from '../routes/branches.js';
 import { leavesRouter } from '../routes/leaves.js';
 import type { Mounts } from '../../hub/wiring/hub.js';

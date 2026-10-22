@@ -1,6 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
+import { asyncRoute, type ProjectMetadata } from '../../platform/index.js';
 import type { Conversation } from '../../engine/lib/conversations.js';
 import type { ProjectChannelService } from '../services/ProjectChannelService.js';
 

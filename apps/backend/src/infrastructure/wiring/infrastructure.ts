@@ -1,6 +1,5 @@
 import type { Server as SocketServer } from 'socket.io';
-import type { Database } from '../../platform/lib/db-interface.js';
-import type { SecretKey } from '../../platform/lib/crypto.js';
+import { type Database, type SecretKey, clusterOwnership } from '../../platform/index.js';
 import type { sharedClusterProxy } from '../services/ClusterProxyService.js';
 import type { AppExposureService } from '../services/AppExposureService.js';
 import type { AppService } from '../services/AppService.js';
@@ -12,7 +11,6 @@ import type { InfrastructureService } from '../services/InfrastructureService.js
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import { backupRouter } from '../routes/backup.js';
 import { clustersRouter } from '../routes/clusters.js';
-import { clusterOwnership } from '../../platform/lib/ownership.js';
 import { credentialsRouter } from '../routes/credentials.js';
 import { deploymentsRouter } from '../routes/deployments.js';
 import { llmCredentialsRouter } from '../../models/routes/llm-credentials.js';

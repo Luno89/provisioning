@@ -1,7 +1,6 @@
-import type { Database } from '../../platform/lib/db-interface.js';
+import type { Database, RoleConfig } from '../../platform/index.js';
 import { checkHandoff, issueHandoff, publicKeyPem, type HandoffCheck } from '../lib/identity-token.js';
 import { instanceProblem, type InstanceRecord } from '../lib/instances.js';
-import type { RoleConfig } from '../../platform/lib/platform-role.js';
 import { HUB_AUDIENCE } from '../../hub/lib/hub.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;

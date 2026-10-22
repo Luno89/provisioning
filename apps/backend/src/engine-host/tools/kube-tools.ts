@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import type { AccessRequest } from '@koala/harness-types';
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
 import {
   LOG_TAIL, PLATFORM_NAMESPACES, eventsCommand, findDeployment, logsCommand, namespaceOf, namespacesProblem, planRead, trimOutput,
   type OwnedDeployment,

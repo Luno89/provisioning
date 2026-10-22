@@ -1,4 +1,4 @@
-import type { Database } from '../platform/lib/db-interface.js';
+import type { Database } from '../platform/index.js';
 import { treeOutline } from '../projects/lib/tree-outline.js';
 import { featureOutline, storyOutline } from '../projects/lib/item-outline.js';
 import { projectOutline } from '../projects/lib/project-outline.js';

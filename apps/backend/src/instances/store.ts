@@ -1,4 +1,4 @@
-import type { AreaStore } from '../platform/lib/collection.js';
+import type { AreaStore } from '../platform/index.js';
 import type { Collection, Db } from 'mongodb';
 import type { InstanceRecord, JoinToken } from './lib/instances.js';
 import type { PoolPolicy } from './lib/pool.js';

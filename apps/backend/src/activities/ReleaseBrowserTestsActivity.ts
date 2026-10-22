@@ -6,7 +6,7 @@ import type { InfrastructureService } from '../infrastructure/services/Infrastru
 import { readFailureArtifacts, readWhole, type KeepArtifacts, type WorkspaceExec } from '../files/lib/artifacts.js';
 import { E2E_REPORT, e2ePassed, plain, readE2EReport } from '../engine/lib/e2e.js';
 import { databaseOf, databaseSecretFrom, releaseTargetOf, vaultDatabaseSecret, type Slot } from '../releases/lib/odoo-release.js';
-import type { ClusterMetadata, ProjectMetadata } from '../platform/lib/types.js';
+import type { ClusterMetadata, ProjectMetadata } from '../platform/index.js';
 import {
   E2E_DONE,
   E2E_INSTALL_FAILED,

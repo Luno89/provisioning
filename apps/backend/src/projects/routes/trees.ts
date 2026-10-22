@@ -1,11 +1,9 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
-import { ownedBy } from '../../platform/lib/ownership.js';
+import { asyncRoute, ownedBy, type Database } from '../../platform/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { resolveTreeType, versionForNewTree } from '../lib/tree-types.js';
 import { normaliseTreeInput } from '../lib/trees.js';
 import type { Tree } from '../lib/trees.js';
-import type { Database } from '../../platform/lib/db-interface.js';
 import type { TreeWorkspaces } from '../../engine-host/sandboxes/tree-workspaces.js';
 import type { GroveDeletionService } from '../services/GroveDeletionService.js';
 import type { GroveRunService } from '../services/GroveRunService.js';

@@ -1,6 +1,6 @@
 import { bindingProjection, bindingSecretName } from '../../infrastructure/lib/service-binding.js';
 import { detailsForImage, imageForLanguage } from './workspace-image-catalogue.js';
-import type { LocalEgressRule } from '../../platform/lib/types.js';
+import type { LocalEgressRule } from '../../platform/index.js';
 import {
   DEFAULT_WORKSPACE_LANGUAGE, EGRESS_PROXY_EGRESS, EGRESS_PROXY_HOST, WORKSPACE_MOUNT,
   type EgressRule, type WorkspaceImageSpec,

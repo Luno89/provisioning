@@ -1,9 +1,7 @@
-import { BaseService } from '../../platform/services/BaseService.js';
+import { BaseService, type Database, type DeploymentMetadata } from '../../platform/index.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import { ClusterService } from './ClusterService.js';
 import { BuilderService } from './BuilderService.js';
-import type { Database } from '../../platform/lib/db-interface.js';
-import type { DeploymentMetadata } from '../../platform/lib/types.js';
 import { StorageAdapter } from './StorageAdapter.js';
 import { isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { sanitizeNamespace } from '../../models/lib/model-registry.js';

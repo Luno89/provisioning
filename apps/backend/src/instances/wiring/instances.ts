@@ -1,17 +1,15 @@
 import path from 'path';
 import fs from 'fs/promises';
 import type express from 'express';
-import type { Database } from '../../platform/lib/db-interface.js';
-import type { SecretKey } from '../../platform/lib/crypto.js';
-import { holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig } from '../../platform/lib/platform-role.js';
+import {
+  type Database, type SecretKey, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
+  getTemporalClient, type mongoTarget, type MailService, type createAuth,
+} from '../../platform/index.js';
 import { poolSettingsFrom } from '../lib/pool.js';
-import { startedFor } from '../../platform/lib/workflow-owner.js';
-import { getTemporalClient } from '../../platform/lib/temporal-client.js';
 import { issueMoveToken } from '../lib/identity-token.js';
 import { MOVE_FINISHED, MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } from '../lib/instance-move.js';
 import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from '../lib/pool-trial.js';
 import { HUB_AUDIENCE, hubInstancePart } from '../../hub/lib/hub.js';
-import type { mongoTarget } from '../../platform/lib/mongo-db.js';
 import type { IdentityService } from '../services/IdentityService.js';
 import { InstanceService } from '../services/InstanceService.js';
 import { InstanceRoutes, dockerCaddy } from '../services/InstanceRoutes.js';
@@ -24,8 +22,6 @@ import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import type { InstanceEdge } from '../../infrastructure/services/AppExposureService.js';
 import type { HeadscaleService } from '../../infrastructure/services/HeadscaleService.js';
 import type { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
-import type { MailService } from '../../platform/services/MailService.js';
-import type { createAuth } from '../../platform/middleware/auth.js';
 import { identityRouter } from '../routes/identity.js';
 import { handoffRouter } from '../routes/handoff.js';
 import { instancesRouter } from '../routes/instances.js';

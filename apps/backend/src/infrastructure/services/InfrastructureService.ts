@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { Server as SocketServer } from 'socket.io';
 
 import os from 'os';
-import { CommandFailedError } from '../../platform/lib/command-error.js';
+import { CommandFailedError } from '../../platform/index.js';
 import { assessWorkload } from '../lib/workload-health.js';
 
 const execAsync = promisify(exec);

@@ -10,7 +10,7 @@ import { JoinMeshActivity } from './JoinMeshActivity.js';
 import { capacityFromNodes, type ClusterCapacity } from '../infrastructure/lib/cluster-capacity.js';
 import { infisicalHostFor } from '../releases/lib/infisical-sync.js';
 import { ensureInfisicalOperator } from '../projects/services/ProjectSecretSync.js';
-import { CLI_CEILING } from '../platform/lib/activity-liveness.js';
+import { CLI_CEILING } from '../platform/index.js';
 
 export interface ProvisionClusterArgs {
   name: string;

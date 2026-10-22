@@ -1,4 +1,4 @@
-import type { ProjectMetadata } from '../../platform/lib/types.js';
+import type { ProjectMetadata } from '../../platform/index.js';
 import type { Tree } from '../lib/trees.js';
 import { resolveTreeType, treeLanguage, type TreeTypeSpec } from '../lib/tree-types.js';
 import { needsProject, projectIdForTree, repoNameFor } from '../lib/tree-home.js';

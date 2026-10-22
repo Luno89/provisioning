@@ -2,11 +2,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import { spawn } from 'child_process';
 import type { Server as SocketServer } from 'socket.io';
-import { sharedPayloadBlobs, type Database } from '../../platform/lib/db-interface.js';
-import type { Keyring, SecretKey } from '../../platform/lib/crypto.js';
-import type { UserMetadata } from '../../platform/lib/types.js';
-import { servesTenants, type RoleConfig } from '../../platform/lib/platform-role.js';
-import { ownsProject } from '../../platform/lib/ownership.js';
+import {
+  sharedPayloadBlobs, type Database, type Keyring, type SecretKey, type UserMetadata, servesTenants,
+  type RoleConfig, ownsProject, type createAuth,
+} from '../../platform/index.js';
 import { findDeviceByToken, registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
 import { machinePayloads, type GetAnswer, type PutAnswer, type RingAnswer } from '../lib/machine-payloads.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
@@ -14,7 +13,6 @@ import type { MachineService } from '../services/MachineService.js';
 import type { ClusterService } from '../../infrastructure/services/ClusterService.js';
 import type { AppService } from '../../infrastructure/services/AppService.js';
 import type { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
-import type { createAuth } from '../../platform/middleware/auth.js';
 
 const LOG_TAIL_LINES = 200;
 

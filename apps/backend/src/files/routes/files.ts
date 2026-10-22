@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute, type ProjectMetadata } from '../../platform/index.js';
 import { cleanPath } from '../lib/file-places.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
 import type { FileScope, FileService, FilesOutcome } from '../services/FileService.js';
 import { isShareDays, SHARE_DAYS } from '../lib/file-shares.js';
 import { servingHeaders } from '../lib/file-serving.js';

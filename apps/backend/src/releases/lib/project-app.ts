@@ -1,6 +1,5 @@
-import type { DeploymentMetadata } from '../../platform/lib/types.js';
+import type { DeploymentMetadata, ProjectMetadata } from '../../platform/index.js';
 import { projectApps } from '../../projects/lib/project-removal.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
 
 export type ExposureMode = 'local' | 'public';
 

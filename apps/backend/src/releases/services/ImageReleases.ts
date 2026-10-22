@@ -1,4 +1,4 @@
-import type { PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
+import type { PipelineRunMetadata, ProjectMetadata } from '../../platform/index.js';
 import type { ReleaseDecision } from '../lib/release-paths.js';
 import { REPLACE_AGENT, replaceRunId, type ReplaceRunInput } from '../lib/release-run.js';
 import type { StartRunRequest } from '../../engine-host/registries/run-starter.js';

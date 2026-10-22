@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import { machineChoice } from '@koala/agent-engine/procedure';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute } from '../../platform/index.js';
 import {
   getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels,
   getExl3ModelCollection, getHfModelBranches,

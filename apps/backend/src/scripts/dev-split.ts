@@ -3,11 +3,9 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { createDatabase } from '../platform/lib/db-interface.js';
+import { createDatabase, mongoTarget, roleFromEnv } from '../platform/index.js';
 import { DEV_SPLIT, devSplitOwner, devSplitPlan, envFileText, readEnvFile, withDatabase } from '../instances/lib/dev-split.js';
 import { publicKeyPem } from '../instances/lib/identity-token.js';
-import { mongoTarget } from '../platform/lib/mongo-db.js';
-import { roleFromEnv } from '../platform/lib/platform-role.js';
 import { hashCredential, instanceIdFor } from '../instances/services/InstanceService.js';
 
 const here = dirname(fileURLToPath(import.meta.url));

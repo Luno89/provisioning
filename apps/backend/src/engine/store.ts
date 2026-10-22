@@ -7,7 +7,7 @@ import type { Conversation, ConversationMessage } from './lib/conversations.js';
 import type { CorpusPage } from './lib/corpus.js';
 import type { PersonaRecord as EnginePersona, ToolDefinition as EngineTool, GrantKind, ToolGrant, WorkspaceDependency } from '@koala/agent-engine';
 import type { ExtensionSettings } from './lib/extension-settings.js';
-import type { FrontierClaim, FrontierUrl } from '../platform/lib/frontier.js';
+import type { FrontierClaim, FrontierUrl } from '../platform/index.js';
 import { MARK_MESSAGE_CHARS, type RunMark, TURN_LOG_RETENTION_SECONDS, type TurnLogEntry } from './lib/turn-log.js';
 import type { McpServerRecord } from './lib/mcp-servers.js';
 import { type McpToolHint, hintKey } from './lib/mcp-tool-hints.js';

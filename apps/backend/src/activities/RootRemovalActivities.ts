@@ -1,5 +1,4 @@
-import { createDatabase } from '../platform/lib/db-interface.js';
-import { loadKeys } from '../platform/lib/keys.js';
+import { createDatabase, loadKeys } from '../platform/index.js';
 import { HeadscaleService } from '../infrastructure/services/HeadscaleService.js';
 
 export interface RootRemovalActivities {

@@ -1,4 +1,4 @@
-import type { ClusterMetadata, DeploymentMetadata, UserMetadata } from '../../platform/lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata, UserMetadata } from '../../platform/index.js';
 import { adoptionWorkflowId, benchIdleId, concludeWorkspaceId, conversationConclusionId, groveRunWorkflowId } from '../../platform/lib/workflow-ids.js';
 import { conversationWatermarkKey, memoryRunId } from '../../memory/lib/conclusions.js';
 import { releaseRunWorkflowId } from '../../releases/lib/release-run.js';

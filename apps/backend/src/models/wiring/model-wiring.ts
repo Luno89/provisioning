@@ -1,5 +1,4 @@
-import type { SecretKey } from '../../platform/lib/crypto.js';
-import type { Database } from '../../platform/lib/db-interface.js';
+import type { SecretKey, Database } from '../../platform/index.js';
 import { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
 import { BuilderService } from '../../infrastructure/services/BuilderService.js';
 import { ClusterService } from '../../infrastructure/services/ClusterService.js';

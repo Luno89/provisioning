@@ -1,4 +1,4 @@
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
 import { createWebTools, type WebTools } from './web-tools.js';
 import type { InfrastructureStore } from '../../infrastructure/store.js';
 import { namespaceOf } from '../../infrastructure/lib/app-namespace.js';

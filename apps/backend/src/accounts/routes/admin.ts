@@ -1,7 +1,6 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
-import type { InviteMetadata } from '../../platform/lib/types.js';
+import { asyncRoute, type InviteMetadata } from '../../platform/index.js';
 import type { AccountRemovalService } from '../services/AccountRemovalService.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');

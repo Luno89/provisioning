@@ -1,7 +1,7 @@
 import { lossLines } from '../lib/release-compare.js';
 import { parseDiff, sortedForRelease, type ReleaseFile } from '../lib/file-changes.js';
 import { v4 as uuidv4 } from 'uuid';
-import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/index.js';
 import { ODOO_DATABASE_PASSWORD, ODOO_PROJECT_APP, ODOO_RELEASE_SECRETS, chartDatabaseSecret, vaultDatabaseSecret, newReleaseName, type ReleaseVault, releaseNameOf, releasePlace, releaseTargetOf, rollBackTarget, untold, type OdooRelease, type ReleaseState } from '../lib/odoo-release.js';
 import type { ReleaseDecision } from '../lib/release-paths.js';
 import { HELD_FOR_CLIENT, awaits, missingFrom, missingSentence, restorable, wrongVersionFrom, type ClientImport } from '../lib/client-import.js';

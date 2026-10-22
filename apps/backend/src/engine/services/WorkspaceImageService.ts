@@ -1,5 +1,4 @@
-import { BaseService } from '../../platform/services/BaseService.js';
-import { withBuiltIns } from '../../platform/lib/ownership.js';
+import { BaseService, withBuiltIns } from '../../platform/index.js';
 import { capableImage, imageForLanguage, isWorkspaceLanguage } from '../lib/workspace-image-catalogue.js';
 import type { WorkspaceImageSpec } from '../lib/workspace-image-seeds.js';
 

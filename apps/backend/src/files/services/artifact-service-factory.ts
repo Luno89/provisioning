@@ -1,4 +1,4 @@
-import type { Database } from '../../platform/lib/db-interface.js';
+import type { Database } from '../../platform/index.js';
 import type { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
 import type { ClusterService } from '../../infrastructure/services/ClusterService.js';
 import { hasCloudCredentials } from '../../infrastructure/lib/credential-resolver.js';

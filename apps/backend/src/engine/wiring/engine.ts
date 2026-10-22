@@ -3,13 +3,10 @@ import axios from 'axios';
 import { WorkflowNotFoundError } from '@temporalio/client';
 import type { Server as SocketServer } from 'socket.io';
 import type { PersonaRecord } from '@koala/agent-engine';
-import type { Database } from '../../platform/lib/db-interface.js';
-import type { SecretKey } from '../../platform/lib/crypto.js';
-import { servesTenants, type RoleConfig } from '../../platform/lib/platform-role.js';
-import { signJWT } from '../../platform/lib/auth.js';
-import { startedFor } from '../../platform/lib/workflow-owner.js';
-import { getTemporalClient } from '../../platform/lib/temporal-client.js';
-import { keepTrying } from '../../platform/lib/keep-trying.js';
+import {
+  type Database, type SecretKey, servesTenants, type RoleConfig, signJWT, startedFor, getTemporalClient,
+  keepTrying, grovedTree, treeNotices, postedNotice, ownedBy,
+} from '../../platform/index.js';
 import { accountDefaultOf } from '../../machines/lib/machine-runs.js';
 import { PROCEDURE_CHANGE_AGENT } from '../lib/agent-usage.js';
 import { fingerprintOf } from '../../checks/lib/bench.js';
@@ -19,9 +16,7 @@ import { restoringApp } from '../../releases/lib/release-run.js';
 import { hostedMcpUrl } from '../lib/mcp-hosted-url.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
 import { treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom } from '../../projects/lib/tree-types.js';
-import { grovedTree, treeNotices, postedNotice } from '../../platform/lib/notices.js';
 import type { RunningRecords } from '../../infrastructure/lib/running.js';
-import { ownedBy } from '../../platform/lib/ownership.js';
 import { extensionServiceFor } from '../services/ExtensionService.js';
 import { EngineToolService } from '../services/EngineToolService.js';
 import { McpServerService } from '../services/McpServerService.js';

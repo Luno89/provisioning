@@ -1,4 +1,4 @@
-import type { ProjectMetadata } from '../../platform/lib/types.js';
+import type { ProjectMetadata } from '../../platform/index.js';
 
 export function webhookUrlFor(nodeIpRaw: string, port: string | number, projectId: string): string {
   const ip = nodeIpRaw.trim().split(/\s+/)[0] ?? '';

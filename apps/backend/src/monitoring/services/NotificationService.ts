@@ -1,6 +1,8 @@
-import { DEFAULT_EMAIL, alertMail, emailWanted, isEmailChoice, type EmailChoice, type NotificationSettings } from '../../platform/lib/mail.js';
+import {
+  DEFAULT_EMAIL, alertMail, emailWanted, isEmailChoice, type EmailChoice, type NotificationSettings,
+  type MailService,
+} from '../../platform/index.js';
 import type { AlertEpisode } from '../lib/monitoring-records.js';
-import type { MailService } from '../../platform/services/MailService.js';
 import type { MonitoringStore } from '../store.js';
 
 export interface NotificationView {

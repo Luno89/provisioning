@@ -1,5 +1,5 @@
 import { decryptValue, encryptValue, looksEncrypted, type SecretKey } from '../../platform/lib/crypto.js';
-import type { DeploymentMetadata } from '../../platform/lib/types.js';
+import type { DeploymentMetadata } from '../../platform/index.js';
 
 export const DEPLOYMENT_SECRET_FIELDS = [
   'vllmHfToken',

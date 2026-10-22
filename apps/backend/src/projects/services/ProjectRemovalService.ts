@@ -1,4 +1,4 @@
-import type { ProjectMetadata } from '../../platform/lib/types.js';
+import type { ProjectMetadata } from '../../platform/index.js';
 import {
   REMOVE_PROJECT_WORKFLOW,
   projectRemovalPreview,

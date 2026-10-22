@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute } from '../../platform/index.js';
 import { joinEnv } from '../lib/machines.js';
 import type { MachineService } from '../services/MachineService.js';
 import { GIT_ROUTES, type GitRoute, type MachineGitService } from '../services/MachineGitService.js';

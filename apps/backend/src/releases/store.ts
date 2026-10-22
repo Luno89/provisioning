@@ -1,7 +1,7 @@
 import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
 import type { Collection, Db } from 'mongodb';
 import type { OdooRelease } from './lib/odoo-release.js';
-import type { PartialInfo, PipelineRunMetadata } from '../platform/lib/types.js';
+import type { PartialInfo, PipelineRunMetadata } from '../platform/index.js';
 import { mergeRecord } from '../platform/lib/merge-record.js';
 import { v4 as uuidv4 } from 'uuid';
 

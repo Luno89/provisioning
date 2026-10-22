@@ -1,7 +1,7 @@
 import type { ExtensionService, ExtensionState } from '../services/ExtensionService.js';
 import { readAttachments } from '../lib/attachments.js';
 import { Router, type Request, type RequestHandler, type Response } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute } from '../../platform/index.js';
 import { NoNoteToAskError } from '../lib/conversations.js';
 import type { ApprovalService } from '../services/ApprovalService.js';
 import {

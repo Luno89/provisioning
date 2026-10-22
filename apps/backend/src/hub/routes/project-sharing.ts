@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute } from '../../platform/index.js';
 import type { ProjectSharingService, SharingOutcome } from '../../projects/services/ProjectSharingService.js';
 
 const personOf = (req: Request) => (req as unknown as { user: { id: string; email: string } }).user;

@@ -1,7 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import type { InviteMetadata } from '../../platform/lib/types.js';
+import type { InviteMetadata, MailMessage } from '../../platform/index.js';
 import { joinLink, projectInviteMail } from '../lib/project-invite-mail.js';
-import type { MailMessage } from '../../platform/lib/mail.js';
 
 export interface ProjectInviteDeps {
   invites: { getInvites(): Promise<InviteMetadata[]>; saveInvite(invite: InviteMetadata): Promise<void> };

@@ -1,5 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute } from '../../platform/index.js';
 import type { BindingTypeRecord } from '../lib/service-binding.js';
 import { seedBindingTypes } from '../lib/binding-type-seeds.js';
 import type { InfrastructureStore } from '../store.js';

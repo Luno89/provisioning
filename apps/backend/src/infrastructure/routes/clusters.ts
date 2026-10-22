@@ -1,8 +1,7 @@
 import { Router, type Request } from 'express';
 import type { Server as SocketServer } from 'socket.io';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute, decryptValue, type SecretKey, type ClusterOwnership } from '../../platform/index.js';
 import { validateClusterName } from '../lib/cluster-name.js';
-import { decryptValue, type SecretKey } from '../../platform/lib/crypto.js';
 import { generateSshKeypair } from '../lib/ssh-keypair.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { AppService } from '../services/AppService.js';
@@ -12,7 +11,6 @@ import type { InfisicalService } from '../services/InfisicalService.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { InfrastructureStore } from '../store.js';
-import type { ClusterOwnership } from '../../platform/lib/ownership.js';
 
 export interface ClustersRouterDeps {
   clusterService: ClusterService;

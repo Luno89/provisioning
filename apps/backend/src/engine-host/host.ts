@@ -41,7 +41,7 @@ import { releaseAgentsOf, releaseProblemOf } from '../releases/services/ReleaseS
 import { restoringApp } from '../releases/lib/release-run.js';
 import type { RunTicket, ToolRuntime } from './temporal/contracts.js';
 import type { WebTools } from '../engine/lib/web-tools.js';
-import type { Database } from '../platform/lib/db-interface.js';
+import type { Database } from '../platform/index.js';
 import { createEffortTracker, type EffortTracker, type EffortTrackerOptions } from './registries/effort.js';
 import { createCodeRunner } from './nodes/code-runner.js';
 import { createWorkspaceServers } from './tools/workspace-servers.js';
@@ -60,7 +60,7 @@ import type { GroveOperationDeps } from '../extensions/grove/operations/handlers
 
 export interface EngineHostStores {
   actions?: { list(ownerId: string): Promise<import('@koala/harness-types').ActionProposal[]>; save(proposal: import('@koala/harness-types').ActionProposal): Promise<void> } | undefined;
-  projectRecords?: (() => Promise<import('../platform/lib/types.js').ProjectMetadata[]>) | undefined;
+  projectRecords?: (() => Promise<import('../platform/index.js').ProjectMetadata[]>) | undefined;
   machines?: { list(): Promise<readonly KnownMachine[]> } | undefined;
   agentRecords: AgentRecordStore;
   toolGrants: ToolGrantStore;

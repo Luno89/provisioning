@@ -1,7 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import axios from 'axios';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
-import { isCloudProvider, type CloudProvider } from '../../platform/lib/types.js';
+import { asyncRoute, isCloudProvider, type CloudProvider } from '../../platform/index.js';
 import type { CredentialService } from '../services/CredentialService.js';
 
 export interface CredentialsRouterDeps {

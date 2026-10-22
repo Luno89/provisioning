@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { clusterUrl } from './cluster-dns.js';
-import type { DeploymentMetadata } from '../../platform/lib/types.js';
+import type { DeploymentMetadata } from '../../platform/index.js';
 import { isSelfManagedCluster } from './cluster-topology.js';
 
 export interface AppEnvArgs {

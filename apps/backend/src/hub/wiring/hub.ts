@@ -1,14 +1,13 @@
 import type express from 'express';
-import type { Database } from '../../platform/lib/db-interface.js';
-import type { SecretKey } from '../../platform/lib/crypto.js';
-import { holdsAccounts, servesHub, servesTenants, type RoleConfig } from '../../platform/lib/platform-role.js';
-import { mongoTarget } from '../../platform/lib/mongo-db.js';
+import {
+  type Database, type SecretKey, holdsAccounts, servesHub, servesTenants, type RoleConfig, mongoTarget,
+  type ProjectMetadata, type MailService,
+} from '../../platform/index.js';
 import { memoryHubStore } from '../lib/hub-store.js';
 import { mongoHubStore } from '../lib/hub-mongo.js';
 import { HUB_STATUS_BUILDS } from '../lib/hub-board.js';
 import { runsUnder } from '../../engine/lib/turn-log.js';
 import type { ConversationNotice } from '../../engine/lib/conversations.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
 import { hashCredential } from '../../instances/services/InstanceService.js';
 import { HubService } from '../services/HubService.js';
 import { HubRootClient } from '../services/HubRootClient.js';
@@ -24,7 +23,6 @@ import { ProjectInviteService } from '../services/ProjectInviteService.js';
 import { decideTask, type Accepted } from '../services/TaskDecisions.js';
 import { extensionSummary } from '../../engine/routes/engine.js';
 import type { GiteaService } from '../../projects/services/GiteaService.js';
-import type { MailService } from '../../platform/services/MailService.js';
 import { hubRouter } from '../routes/hub.js';
 import { hubLinkRouter } from '../routes/hub-link.js';
 import { hubRootRouter } from '../routes/hub-root.js';

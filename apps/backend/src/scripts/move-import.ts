@@ -11,8 +11,7 @@ import { ensureClusterMonitoring } from '../activities/cluster-monitoring.js';
 import { SYSTEM_CLUSTER } from '../monitoring/lib/cluster-monitoring.js';
 import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
 import { GiteaService } from '../projects/services/GiteaService.js';
-import { loadKeys } from '../platform/lib/keys.js';
-import { mongoTarget } from '../platform/lib/mongo-db.js';
+import { loadKeys, mongoTarget } from '../platform/index.js';
 import { GITEA_DATA, MOVED_POSTGRES, MOVE_STEP_WORDS, PG_RESTORE, drained, type MovePart } from '../instances/lib/instance-move.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

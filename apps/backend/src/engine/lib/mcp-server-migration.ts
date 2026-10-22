@@ -4,7 +4,7 @@ import { looksLikeMcp } from './mcp-registry.js';
 import { MCP_TOOL_KINDS, deploymentOf, serverNameFrom, type McpServerRecord, type McpToolKind } from './mcp-servers.js';
 import type { McpToolHint } from './mcp-tool-hints.js';
 import { serviceNameFor, usableServiceName } from '../../infrastructure/lib/service-name.js';
-import type { DeploymentMetadata, ProjectMetadata } from '../../platform/lib/types.js';
+import type { DeploymentMetadata, ProjectMetadata } from '../../platform/index.js';
 import type { Tree } from '../../projects/lib/trees.js';
 
 export interface McpServerMigrationStore {

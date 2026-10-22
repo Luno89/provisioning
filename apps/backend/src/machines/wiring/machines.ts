@@ -1,10 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 import type express from 'express';
-import type { Database } from '../../platform/lib/db-interface.js';
-import type { SecretKey } from '../../platform/lib/crypto.js';
+import { type Database, type SecretKey, asyncRoute } from '../../platform/index.js';
 import { findDeviceByToken } from '../lib/local-agent-registry.js';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
 import { MachineBundle } from '../services/MachineBundle.js';
 import { MachineGitService } from '../services/MachineGitService.js';
 import type { HeadscaleService } from '../../infrastructure/services/HeadscaleService.js';

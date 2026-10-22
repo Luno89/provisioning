@@ -3,13 +3,12 @@ import { renderApp, specSecrets, visibleAppSpecs } from '../infrastructure/lib/a
 import { resolveBindings, bindingFiles } from '../infrastructure/lib/binding-resolve.js';
 import { bindingProjection, bindingSecretName, type ProjectedBinding } from '../infrastructure/lib/service-binding.js';
 import { readBindingCredentials } from '../projects/lib/binding-project.js';
-import { createDatabase } from '../platform/lib/db-interface.js';
+import { createDatabase, type Database, loadKeys } from '../platform/index.js';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 
 import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
-import type { Database } from '../platform/lib/db-interface.js';
 import { BuilderService } from '../infrastructure/services/BuilderService.js';
 import { StorageAdapter } from '../infrastructure/services/StorageAdapter.js';
 import { hasCloudCredentials } from '../infrastructure/lib/credential-resolver.js';
@@ -27,7 +26,6 @@ import { infisicalHostFor } from '../releases/lib/infisical-sync.js';
 import { syncProjectSecrets } from '../projects/services/ProjectSecretSync.js';
 import { InfisicalService } from '../infrastructure/services/InfisicalService.js';
 import { sharedClusterProxy } from '../infrastructure/services/ClusterProxyService.js';
-import { loadKeys } from '../platform/lib/keys.js';
 
 async function nodeAllocatableBytes(
   infra: InfrastructureService,

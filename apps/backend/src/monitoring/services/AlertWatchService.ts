@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata, Database } from '../../platform/index.js';
 import { visibleAlerts, type AlertRuleRecord, type PromAlert, type VisibleAlert } from '../lib/monitoring-alerts.js';
 import type { AlertEpisode } from '../lib/monitoring-records.js';
 import { namespaceOf } from '../../infrastructure/lib/app-namespace.js';
 import type { MonitoringService } from './MonitoringService.js';
-import type { Database } from '../../platform/lib/db-interface.js';
 
 export const WATCH_EVERY_MS = 30_000;
 export const HISTORY_RETRY_MS = 10 * 60_000;

@@ -6,7 +6,7 @@ import {
 } from '../../projects/lib/secret-requests.js';
 import type { Tree } from '../../projects/lib/trees.js';
 import { projectFor as scopedProject } from './project-scope.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
+import type { ProjectMetadata } from '../../platform/index.js';
 
 export interface SecretVault {
   has(projectId: string, key: string): Promise<boolean>;

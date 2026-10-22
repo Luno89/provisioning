@@ -1,4 +1,4 @@
-import { createDatabase } from '../platform/lib/db-interface.js';
+import { createDatabase } from '../platform/index.js';
 import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
 import { ClusterService } from '../infrastructure/services/ClusterService.js';
 import { namespaceOf } from '../infrastructure/lib/app-namespace.js';

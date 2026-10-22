@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute } from '../../platform/index.js';
 import type { InstanceAddresses } from '../services/InstanceAddresses.js';
 
 const NONE = 'this instance has no addresses of its own: it was installed without a domain from root';

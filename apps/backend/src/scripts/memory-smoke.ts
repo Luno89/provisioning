@@ -1,4 +1,4 @@
-import { createDatabase } from '../platform/lib/db-interface.js';
+import { createDatabase } from '../platform/index.js';
 import { corpusEndpoints } from '../engine/wiring/web-tools.js';
 import { indexMemories, searchMemories } from '../memory/lib/memory-index.js';
 import { recallMemories, recallQuery } from '../memory/lib/memory-recall.js';

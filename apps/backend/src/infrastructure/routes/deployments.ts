@@ -1,13 +1,12 @@
 import { Router, type Request } from 'express';
 import type { Server as SocketServer } from 'socket.io';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute, type Database } from '../../platform/index.js';
 import { CapacityError } from '../lib/cluster-capacity.js';
 import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from '../lib/app-schemas.js';
 import { validateAppSettings } from '../lib/app-settings-schema.js';
 import { parseQuantity, planHostMemory } from '../lib/host-memory-plan.js';
 import { TABBYAPI_DEFAULT_MAX_SEQ_LEN } from '../lib/app-env.js';
 import { visibleAppSpecs } from '../lib/app-spec.js';
-import type { Database } from '../../platform/lib/db-interface.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { AppExposureService } from '../services/AppExposureService.js';

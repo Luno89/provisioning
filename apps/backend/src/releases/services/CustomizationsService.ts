@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { releaseTargetOf } from '../lib/odoo-release.js';
-import type { ClusterMetadata, ProjectMetadata } from '../../platform/lib/types.js';
+import type { ClusterMetadata, ProjectMetadata } from '../../platform/index.js';
 import type { ReleaseHow, ReleaseTarget } from '../lib/release-run.js';
 import type { InventoryItem } from '../lib/release-compare.js';
 import type { ExportResult } from '../lib/customizations.js';

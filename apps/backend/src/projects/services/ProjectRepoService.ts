@@ -1,8 +1,6 @@
 import crypto from 'crypto';
-import type { Database } from '../../platform/lib/db-interface.js';
+import { type Database, type ProjectMetadata, encryptValue, decryptValue, type SecretKey } from '../../platform/index.js';
 import type { GiteaService, RepoFileEntry } from './GiteaService.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
-import { encryptValue, decryptValue, type SecretKey } from '../../platform/lib/crypto.js';
 import { DEFAULT_TARGET_CLUSTER } from '../lib/project-shipping.js';
 import {
   giteaUsernameFor,

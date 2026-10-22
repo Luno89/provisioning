@@ -6,7 +6,10 @@ import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
 import { accountDefaultOf } from './machines/lib/machine-runs.js';
 import path from 'path';
 import { DEFAULT_TARGET_CLUSTER } from './projects/lib/project-shipping.js';
-import { stopIfRunning } from './platform/lib/stop-workflow.js';
+import {
+  stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, failureReason,
+  signJWT, clusterOwnership, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor,
+} from './platform/index.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
 import { AutoModeService } from './engine/services/AutoModeService.js';
 import dotenv from 'dotenv';
@@ -14,13 +17,10 @@ import { Worker, NativeConnection, Runtime } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
-import { createDatabase, sharedPayloadBlobs } from './platform/lib/db-interface.js';
 import { createPlanAdoption } from './engine-host/plan-adoption.js';
 import { GiteaService } from './projects/services/GiteaService.js';
 import { InfrastructureService, LOG_DIR } from './infrastructure/services/InfrastructureService.js';
 import { createModelService } from './models/wiring/model-wiring.js';
-import { createWorkerLogger } from './platform/lib/worker-logger.js';
-import { buildDataConverter } from './platform/lib/temporal-codec.js';
 import { InfisicalService } from './infrastructure/services/InfisicalService.js';
 import { HeadscaleService } from './infrastructure/services/HeadscaleService.js';
 import { createAccountRemovalActivities } from './activities/RemoveAccountActivities.js';
@@ -34,7 +34,6 @@ import { ODOO_TREE_TYPE } from './projects/lib/tree-type-seeds.js';
 import { releaseHowOf } from './releases/lib/release-run.js';
 import { treeTypeOfProject } from './projects/lib/tree-types.js';
 import { deployProjectBuild } from './infrastructure/services/AppDeploy.js';
-import { failureReason } from './platform/lib/temporal-failure.js';
 import { ODOO_RELEASE_ADAPTER } from './extensions/odoo/release-adapter.js';
 import { projectChoicesPatch, type ClientImport } from './releases/lib/client-import.js';
 import { syncVaultFromProject } from './extensions/releases/vault-sync.js';
@@ -46,14 +45,11 @@ import { labelValue } from './engine-host/sandboxes/workspace.js';
 import { giteaUsernameFor } from './projects/lib/projects.js';
 import { itSays, wasReported } from './eval/level2/reported.js';
 import { createProcedureExecutor } from './engine-host/nodes/index.js';
-import { signJWT } from './platform/lib/auth.js';
 import axios from 'axios';
 import { httpCheckAccess } from './checks/services/CheckToolAccess.js';
 import { sharedClusterProxy } from './infrastructure/services/ClusterProxyService.js';
 import { MonitoringService, prometheusAt } from './monitoring/services/MonitoringService.js';
-import { clusterOwnership } from './platform/lib/ownership.js';
 import { poolMonitor, poolMonitorFrom } from './monitoring/services/PoolMonitor.js';
-import { roleFromEnv } from './platform/lib/platform-role.js';
 import { ProjectRepoService } from './projects/services/ProjectRepoService.js';
 import { createSecretVault } from './projects/services/SecretRequestService.js';
 import { resolveMcpProbeUrl } from './engine/lib/mcp-probe-url.js';
@@ -64,7 +60,6 @@ import { TreeHomeService } from './projects/services/TreeHomeService.js';
 import { webhookAddress } from './projects/services/webhook-address.js';
 import { resolveBindings } from './infrastructure/lib/binding-resolve.js';
 import { runCancelledVia, runEndedVia } from './engine-host/temporal/run-cancellation.js';
-import { getTemporalClient, resolveOwnersWith } from './platform/lib/temporal-client.js';
 import { createKubeRunner } from './engine-host/sandboxes/kube.js';
 
 import { createEventBus } from '@koala/agent-engine';
@@ -81,9 +76,7 @@ import {
 import { createHostNodes, hostNodesFor } from './engine-host/nodes/index.js';
 import { buildWebTools } from './engine/wiring/web-tools.js';
 import { extensionServiceFor } from './engine/services/ExtensionService.js';
-import { loadKeys } from './platform/lib/keys.js';
 import { healthPort, serveHealth } from './infrastructure/lib/worker-health.js';
-import { startedFor } from './platform/lib/workflow-owner.js';
 import { createGroveLauncher } from './engine-host/grove-launcher.js';
 import { createRunStarter } from './engine-host/registries/run-starter.js';
 import { WorkspaceBuildService } from './engine/services/WorkspaceBuildService.js';

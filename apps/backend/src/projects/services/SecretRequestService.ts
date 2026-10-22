@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import { GENERATED, GITEA_READ_TOKEN, generatedValue, valueProblem, withRequired, type SecretRequest, type SecretRequestFilter } from '../lib/secret-requests.js';
-import type { ProjectMetadata } from '../../platform/lib/types.js';
+import type { ProjectMetadata } from '../../platform/index.js';
 import type { SecretVault } from '../../engine-host/tools/secret-tools.js';
 
 export interface VaultBackend {

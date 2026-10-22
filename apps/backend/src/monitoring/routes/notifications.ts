@@ -1,7 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
-import { TEST_MAIL } from '../../platform/lib/mail.js';
-import { MailError, type MailService } from '../../platform/services/MailService.js';
+import { asyncRoute, TEST_MAIL, MailError, type MailService } from '../../platform/index.js';
 import type { NotificationService } from '../services/NotificationService.js';
 
 export interface NotificationsRouterDeps {

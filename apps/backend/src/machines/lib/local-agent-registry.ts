@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import type { Socket } from 'socket.io';
 import { decryptValue, type SecretKey } from '../../platform/lib/crypto.js';
-import type { LocalAgentDeviceMetadata, LocalEgressRule } from '../../platform/lib/types.js';
+import type { LocalAgentDeviceMetadata, LocalEgressRule } from '../../platform/index.js';
 
 interface DeviceConnection {
   socket: Socket;

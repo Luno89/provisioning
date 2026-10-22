@@ -1,8 +1,7 @@
-import { BaseService } from '../../platform/services/BaseService.js';
+import { BaseService, type Database } from '../../platform/index.js';
 import axios from 'axios';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import type { Database } from '../../platform/lib/db-interface.js';
 import { normalizeTags, nextPageUrl, pageOf, type TagPage, type TagPageRequest } from '../lib/registry-tags.js';
 
 const execAsync = promisify(exec);

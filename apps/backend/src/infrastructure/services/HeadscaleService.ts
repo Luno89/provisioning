@@ -2,7 +2,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
-import { encryptValue, decryptValue, type SecretKey } from '../../platform/lib/crypto.js';
+import { encryptValue, decryptValue, type SecretKey } from '../../platform/index.js';
 
 const execFileAsync = promisify(execFile);
 

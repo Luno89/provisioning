@@ -1,5 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../../platform/middleware/async-route.js';
+import { asyncRoute } from '../../platform/index.js';
 import type { SecretRequestService } from '../services/SecretRequestService.js';
 
 export interface SecretRequestsRouterDeps {

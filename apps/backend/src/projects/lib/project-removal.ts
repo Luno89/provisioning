@@ -1,4 +1,4 @@
-import type { DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
+import type { DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/index.js';
 import type { Tree } from './trees.js';
 import { primaryProjectId } from './trees.js';
 import { deletionScope, type DeletionScope, type GroveWorld } from './grove-deletion.js';
