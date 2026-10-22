@@ -1,7 +1,7 @@
 import {
   type Database, servesTenants, type RoleConfig, ownedQuery, ownerIn, getTemporalClient, type MetricsService,
 } from '../../platform/index.js';
-import { DEFAULT_BENCH_SETTINGS } from '../../checks/lib/bench.js';
+import { DEFAULT_BENCH_SETTINGS, type Level2Service, type BenchService } from '../../checks/index.js';
 import type { RunningRecords, RunningWorkflow } from '../lib/running.js';
 import { WorkFailureService, type ClosedWorkflow } from '../services/WorkFailureService.js';
 import { RunningService } from '../services/RunningService.js';
@@ -9,9 +9,7 @@ import { ClusterContentsService } from '../services/ClusterContentsService.js';
 import { InfrastructureViewService } from '../services/InfrastructureViewService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { MonitoringService } from '../../monitoring/index.js';
-import type { Level2Service } from '../../checks/services/Level2Service.js';
 import type { GroveRunService } from '../../projects/index.js';
-import type { BenchService } from '../../checks/services/BenchService.js';
 import type { MemoryKeeperService } from '../../memory/index.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
 import type { ClusterService } from '../services/ClusterService.js';

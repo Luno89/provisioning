@@ -12,16 +12,17 @@ import type { ScenarioResult } from '../eval/level2/results.js';
 import { newTask, type Task } from '../engine-host/tools/tasks.js';
 import type { MemoryItem } from '../memory/index.js';
 import { type UserMetadata, encryptValue, type SecretKey, type ModelEndpointMetadata } from '../platform/index.js';
-import type { BenchSettings } from '../checks/lib/bench.js';
+import {
+  type BenchSettings, reowned, scriptedEndpointId, spacePersonas, spacePractices, spaceServers, spaceUser,
+  worldServerId, type PromptChange, STEP_NODE, stepProcedure, stepProcedureId, TURN_CALL_KIND, TURN_PROCEDURE_ID,
+  turnProcedure, type TurnReply,
+} from '../checks/index.js';
 import { TREE_TYPE_SEEDS, type TreeTypeSpec, CONFLICT_TASK_TITLE } from '../projects/index.js';
-import { reowned, scriptedEndpointId, spacePersonas, spacePractices, spaceServers, spaceUser, worldServerId, type PromptChange } from '../checks/lib/check-space.js';
 import { conversationRepoName, conversationWorkspaceRunId, treeWorkspaceRunId } from '../engine-host/sandboxes/workspace-repos.js';
 import { randomBytes } from 'node:crypto';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
-import { STEP_NODE, stepProcedure, stepProcedureId } from '../checks/lib/step-check.js';
 import { platformCatalogue, platformGroups } from '../extensions/installed.js';
 import type { ReleaseE2E, Slot } from '../releases/index.js';
-import { TURN_CALL_KIND, TURN_PROCEDURE_ID, turnProcedure, type TurnReply } from '../checks/lib/turn-check.js';
 
 export interface CheckSpaceArgs {
   spaceId: string;

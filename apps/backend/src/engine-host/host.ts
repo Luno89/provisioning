@@ -95,8 +95,8 @@ export interface EngineHostStores {
   runs?: import('./tools/run-tools.js').RunReader | undefined;
   proposals?: {
     scenarioIds(ownerId: string): Promise<string[]>;
-    list(ownerId: string): Promise<import('../checks/lib/scenario-proposals.js').ScenarioProposal[]>;
-    save(proposal: import('../checks/lib/scenario-proposals.js').ScenarioProposal): Promise<void>;
+    list(ownerId: string): Promise<import('../checks/index.js').ScenarioProposal[]>;
+    save(proposal: import('../checks/index.js').ScenarioProposal): Promise<void>;
   } | undefined;
   agentChanges?: {
     list(ownerId: string): Promise<import('../engine/index.js').AgentChange[]>;

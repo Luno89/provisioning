@@ -483,7 +483,7 @@ export interface UserMetadata {
     checkRunId: string;
     scenarioId: string;
     models?: 'borrowed' | 'scripted' | undefined;
-    script?: import('../../checks/lib/check-script.js').CheckScript | undefined;
+    script?: import('../../checks/index.js').CheckScript | undefined;
     world?: Record<string, unknown> | undefined;
   } | undefined;
 }

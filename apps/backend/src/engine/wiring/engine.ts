@@ -9,8 +9,10 @@ import {
 } from '../../platform/index.js';
 import { accountDefaultOf, type MachineService } from '../../machines/index.js';
 import { PROCEDURE_CHANGE_AGENT } from '../lib/agent-usage.js';
-import { fingerprintOf } from '../../checks/lib/bench.js';
-import { scenarioSubjects } from '../../checks/lib/check-subjects.js';
+import {
+  fingerprintOf, scenarioSubjects, BenchService, Level2Service, temporalCheckRunner, ScriptedModelService,
+  httpCheckAccess, checksRouter, evalsLevel2Router,
+} from '../../checks/index.js';
 import { providerServing, type ModelService, type TreeModelsService } from '../../models/index.js';
 import { restoringApp, type wireReleases } from '../../releases/index.js';
 import { hostedMcpUrl } from '../lib/mcp-hosted-url.js';
@@ -28,17 +30,13 @@ import { WorkspaceDependencyService } from '../services/WorkspaceDependencyServi
 import { ConversationTurnService } from '../services/ConversationTurnService.js';
 import { WorkspaceBuildService } from '../services/WorkspaceBuildService.js';
 import { WorkspaceConclusionService, MemoryKeeperService, PracticeService, memoriesRouter } from '../../memory/index.js';
-import { BenchService } from '../../checks/services/BenchService.js';
 import { AgentService } from '../services/AgentService.js';
 import { AgentChangeService } from '../services/AgentChangeService.js';
-import { Level2Service, temporalCheckRunner } from '../../checks/services/Level2Service.js';
 import { ProcedureService } from '../services/ProcedureService.js';
 import { AutoModeService } from '../services/AutoModeService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
 import { DocumentService } from '../services/DocumentService.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
-import { ScriptedModelService } from '../../checks/services/ScriptedModelService.js';
-import { httpCheckAccess } from '../../checks/services/CheckToolAccess.js';
 import type { ConversationNoticeService } from '../services/ConversationNoticeService.js';
 import type { createArtifactService } from '../../files/index.js';
 import {
@@ -54,12 +52,10 @@ import { BENCH_IDLE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, DEFAULT_ENGINE_T
 import { MCP_SERVER_TEMPLATES } from '../../extensions/mcp/templates.js';
 import { buildWebTools } from './web-tools.js';
 import type { Mounts } from '../../hub/index.js';
-import { checksRouter } from '../../checks/routes/checks.js';
 import { proceduresRouter } from '../routes/procedures.js';
 import { engineRouter } from '../routes/engine.js';
 import { engineToolsRouter } from '../routes/engine-tools.js';
 import { agentsRouter } from '../routes/agents.js';
-import { evalsLevel2Router } from '../../checks/routes/evals-level2.js';
 import { conversationsRouter } from '../routes/conversations.js';
 import { documentsRouter } from '../routes/documents.js';
 import { turnsRouter } from '../routes/turns.js';

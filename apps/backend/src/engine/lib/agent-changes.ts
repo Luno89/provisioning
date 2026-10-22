@@ -1,4 +1,4 @@
-import type { EvalRecord } from '../../checks/lib/eval-run.js';
+import type { EvalRecord } from '../../checks/index.js';
 import { sameModel, type BenchResult } from '../../checks/lib/bench.js';
 
 export type AgentChangeStatus = 'proposed' | 'comparing' | 'ready' | 'accepted' | 'handed-over' | 'dismissed';

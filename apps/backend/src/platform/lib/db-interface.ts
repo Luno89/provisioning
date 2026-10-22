@@ -12,7 +12,7 @@ import type { MachinesStore } from '../../machines/index.js';
 import type { MonitoringStore } from '../../monitoring/index.js';
 import type { ModelsStore } from '../../models/index.js';
 import type { MemoryStore } from '../../memory/index.js';
-import type { ChecksStore } from '../../checks/store.js';
+import type { ChecksStore } from '../../checks/index.js';
 import type { InfrastructureStore } from '../../infrastructure/index.js';
 import type { EngineStore } from '../../engine/index.js';
 

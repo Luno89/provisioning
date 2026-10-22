@@ -1,5 +1,5 @@
 import { runningItems, type RunningItem, type RunningRecords, type RunningWorkflow } from '../lib/running.js';
-import type { BenchSettings } from '../../checks/lib/bench.js';
+import type { BenchSettings } from '../../checks/index.js';
 import type { KeeperState } from '../../memory/index.js';
 
 export interface RunningView {

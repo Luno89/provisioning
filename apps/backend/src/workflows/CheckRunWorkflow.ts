@@ -5,7 +5,7 @@ import type { CheckProgressArgs, CheckRunActivities, CheckScenarioArgs } from '.
 import type { Scenario } from '../eval/level2/scenario.js';
 import type { ScenarioResult } from '../eval/level2/results.js';
 import type { Check } from '../eval/level2/score.js';
-import type { PromptChange } from '../checks/lib/check-space.js';
+import type { PromptChange } from '../checks/index.js';
 import type { ToolDefinition } from '@koala/agent-engine';
 import { RemoveAccountWorkflow } from './RemoveAccountWorkflow.js';
 import { combineAttempts } from '../checks/lib/check-attempts.js';

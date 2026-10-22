@@ -1,4 +1,4 @@
-import type { EvalRecordStore } from '../../checks/lib/eval-run.js';
+import type { EvalRecordStore } from '../../checks/index.js';
 import { handoffMessage, type AgentChange, type PromptChange, type PromptComparison } from '../lib/agent-changes.js';
 
 export type AcceptChangeOutcome =
