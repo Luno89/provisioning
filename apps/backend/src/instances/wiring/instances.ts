@@ -26,7 +26,7 @@ import { instancesRouter } from '../routes/instances.js';
 import { instanceTrialRouter } from '../routes/instance-trial.js';
 import { instanceAddressesRouter } from '../routes/instance-addresses.js';
 import { moveRouter } from '../routes/move.js';
-import type { Routes } from '../../machines/wiring/machines.js';
+import type { Routes } from '../../machines/index.js';
 
 const POOL_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
 

@@ -3,7 +3,7 @@ import type { AppService, ClusterService, ClusterProxyService, HeadscaleService 
 import { listProviders, routeProvider, type ModelProvider, type EndpointSource } from '../lib/model-registry.js';
 import { checkEndpointUrl, isMeshAddress, type EndpointRules } from '../lib/endpoint-url-safety.js';
 import { modelOwner } from '../../checks/lib/check-space.js';
-import { MACHINE_DEFAULT_NEEDS_MODEL } from '../../machines/lib/machine-runs.js';
+import { MACHINE_DEFAULT_NEEDS_MODEL } from '../../machines/index.js';
 import { machineChoice } from '@koala/agent-engine/procedure';
 
 export class ModelService extends BaseService {

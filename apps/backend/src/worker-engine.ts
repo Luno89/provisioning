@@ -1,11 +1,10 @@
 #!/usr/bin/env node
-import { machineChoiceProblem } from './machines/lib/machines.js';
+import { machineChoiceProblem, accountDefaultOf } from './machines/index.js';
 import {
   catalogueOf, AutoModeService, resolveMcpProbeUrl, extensionServiceFor, WorkspaceBuildService, hostedMcpUrl,
 } from './engine/index.js';
 import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
-import { accountDefaultOf } from './machines/lib/machine-runs.js';
 import path from 'path';
 import {
   DEFAULT_TARGET_CLUSTER, GiteaService, projectSecretsFor, ProjectChannelService, ODOO_TREE_TYPE,

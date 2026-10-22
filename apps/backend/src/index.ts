@@ -35,8 +35,7 @@ import { wireSockets } from './machines/wiring/sockets.js';
 import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js';
 import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
-import { askDevice, localAgentStatus, tellDevice } from './machines/lib/local-agent-registry.js';
-import { MachineService } from './machines/services/MachineService.js';
+import { askDevice, localAgentStatus, tellDevice, MachineService } from './machines/index.js';
 import { RootMeshKeys } from './instances/services/RootMeshKeys.js';
 import { modelsRouter } from './models/routes/models.js';
 

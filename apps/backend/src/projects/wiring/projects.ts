@@ -23,7 +23,7 @@ import { webhookAddress } from '../services/webhook-address.js';
 import type { GiteaService } from '../services/GiteaService.js';
 import type { InfisicalService, InfrastructureService, ClusterService, AppService, TemporalBridge } from '../../infrastructure/index.js';
 import type { ModelService } from '../../models/services/ModelService.js';
-import type { MachineService } from '../../machines/services/MachineService.js';
+import type { MachineService } from '../../machines/index.js';
 import type { WorkspaceConclusionService } from '../../memory/services/WorkspaceConclusionService.js';
 import type { ProjectSharingService } from '../services/ProjectSharingService.js';
 import type { createEngineHost, createRunStarter, createStoredAgentRegistry } from '../../engine-host/index.js';

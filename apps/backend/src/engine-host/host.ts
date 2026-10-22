@@ -106,7 +106,7 @@ export interface EngineHostStores {
 
 export interface EngineHostOptions {
   dependencies?: ((ownerId: string) => Promise<readonly WorkspaceDependency[]>) | undefined;
-  accountDefault?: ((ownerId: string) => Promise<import('../machines/lib/machine-runs.js').AccountDefault | undefined>) | undefined;
+  accountDefault?: ((ownerId: string) => Promise<import('../machines/index.js').AccountDefault | undefined>) | undefined;
   treeModels?: import('../extensions/grove/tools/grove-tools.js').TreeModelChoices | undefined;
   customizations?: Pick<import('../releases/index.js').CustomizationsService, 'drift' | 'propose' | 'exportItems'> | undefined;
   monitoring?: import('../extensions/monitoring/handlers.js').MonitoringReading | undefined;

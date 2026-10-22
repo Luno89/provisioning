@@ -1,6 +1,6 @@
 import type { Database, ProjectMetadata } from '../../platform/index.js';
 import { DEFAULT_TARGET_CLUSTER, type GiteaService, type ProjectRepoService } from '../../projects/index.js';
-import { writeFileOnDevice } from '../../machines/lib/local-agent-registry.js';
+import { writeFileOnDevice } from '../../machines/index.js';
 import { FileStores } from '../services/FileStores.js';
 import { FileService } from '../services/FileService.js';
 import { RepositoryDropService } from '../services/RepositoryDropService.js';

@@ -7,7 +7,7 @@ import {
   type Database, type SecretKey, servesTenants, type RoleConfig, signJWT, startedFor, getTemporalClient,
   keepTrying, grovedTree, treeNotices, postedNotice, ownedBy,
 } from '../../platform/index.js';
-import { accountDefaultOf } from '../../machines/lib/machine-runs.js';
+import { accountDefaultOf, type MachineService } from '../../machines/index.js';
 import { PROCEDURE_CHANGE_AGENT } from '../lib/agent-usage.js';
 import { fingerprintOf } from '../../checks/lib/bench.js';
 import { scenarioSubjects } from '../../checks/lib/check-subjects.js';
@@ -43,7 +43,6 @@ import { ScriptedModelService } from '../../checks/services/ScriptedModelService
 import { httpCheckAccess } from '../../checks/services/CheckToolAccess.js';
 import type { ConversationNoticeService } from '../services/ConversationNoticeService.js';
 import type { ModelService } from '../../models/services/ModelService.js';
-import type { MachineService } from '../../machines/services/MachineService.js';
 import type { TreeModelsService } from '../../models/services/TreeModelsService.js';
 import type { createArtifactService } from '../../files/index.js';
 import {
