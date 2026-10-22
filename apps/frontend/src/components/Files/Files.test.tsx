@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import * as filesApi from '../../api/files'
-import * as projectFilesApi from '../../api/project-files'
+import * as projectFilesApi from '../../features/projects/api/project-files'
 import FilePlacePicker from './FilePlacePicker'
 import StoredFiles from './StoredFiles'
 import ProjectStoredFiles from './ProjectStoredFiles'
@@ -35,7 +35,7 @@ vi.mock('../../api/files', async (orig) => ({
   readStoredText: vi.fn(async () => 'the brief, in words'),
 }))
 
-vi.mock('../../api/project-files', async (orig) => ({
+vi.mock('../../features/projects/api/project-files', async (orig) => ({
   ...(await orig<typeof projectFilesApi>()),
   dropIntoRepository: vi.fn(async (_id: string, body: { files: { path: string }[] }) => ({ ok: true, paths: body.files.map((file) => file.path), commit: 'c1' })),
 }))

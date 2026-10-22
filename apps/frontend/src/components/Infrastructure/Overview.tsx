@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { CheckCircle2, Hand, Loader2, XCircle } from 'lucide-react'
 import { errorMessage } from '../../api/client'
-import { ago } from '../home-summary'
+import { ago } from '../../features/projects'
 import { EpisodeList, FiringList, RuleList, Section, StateBadge } from '../Monitoring/Parts'
 import { useAlerts } from '../Monitoring/shared'
 import { hashFor } from './opens'

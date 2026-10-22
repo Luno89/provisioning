@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import { readProcedure, type Procedure } from '@koala/agent-engine/procedure'
-import '../ProjectEditor/monaco-setup'
+import '../../shared/lib/monaco-setup'
 
 const pretty = (procedure: Procedure) => JSON.stringify(procedure, null, 2)
 

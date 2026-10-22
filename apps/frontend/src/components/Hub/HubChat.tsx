@@ -2,15 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { errorMessage } from '../../api/client'
 import { getHubConversation, hubKeys, postHubMessage, sendHubRequest } from '../../api/hub'
-import { channelAsksKoala, goesToKoala, rememberChannelAsks } from '../../lib/channel-asks'
+import { channelAsksKoala, goesToKoala, rememberChannelAsks } from '../../features/projects'
 import type { HubBoardView, HubChat as HubChatRecord } from '../../types/hub'
 import ChatComposer from '../Chat/ChatComposer'
 import ChatMessageRow from '../Chat/ChatMessageRow'
 import ChatNotice from '../Chat/ChatNotice'
 import PlanProposalCard from '../Chat/PlanProposalCard'
 import { chatFor, HUB_CHAT_EVERY_MS } from './hub-chat'
-import { waitingOn } from '../Projects/Board/hub-waiting'
-import type { BoardChat, HubPlace } from '../Projects/work-source'
+import { waitingOn } from '../../features/projects'
+import type { BoardChat, HubPlace } from '../../features/projects'
 
 function useOpenedChat(projectId: string, chat: BoardChat, found: HubChatRecord | undefined) {
   const client = useQueryClient()

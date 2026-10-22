@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query'
 import type { SecretRequest } from '@koala/harness-types'
-import { dismissSecretRequest, secretRequestKeys, submitSecret } from '../../../api/secret-requests'
+import { dismissSecretRequest, secretRequestKeys, submitSecret } from '../../../features/projects'
 import { errorMessage } from '../../../api/client'
 
 export function useSecretRequests(key: QueryKey, list: () => Promise<SecretRequest[]>, enabled: boolean, streaming = false) {

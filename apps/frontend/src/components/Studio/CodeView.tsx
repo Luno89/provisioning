@@ -10,7 +10,7 @@ import {
   procedureToBuilderCode,
   type BuilderProblem,
 } from '@koala/agent-engine/procedure-builder'
-import '../ProjectEditor/monaco-setup'
+import '../../shared/lib/monaco-setup'
 import { useStudioContext } from './shared'
 
 const DECLARATIONS_PATH = `file:///node_modules/${BUILDER_MODULE}/index.d.ts`

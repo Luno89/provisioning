@@ -10,9 +10,9 @@ import { useLiveTurnsStore, conversationTurnKey } from '../stores/live-turns.js'
 import { type EngineEvent } from '../api/engine.js';
 import { TURN_LOG_CHANNEL } from '../api/turns';
 import type { TurnLogEntry } from '../types/turns';
-import * as plansApi from '../api/plans';
-import { planKeys } from '../api/plans';
-import * as channelApi from '../api/project-channel.js';
+import * as plansApi from '../features/projects/api/plans';
+import { planKeys } from '../features/projects/api/plans';
+import * as channelApi from '../features/projects/api/project-channel.js';
 
 vi.mock('../api/chat-pack', async (orig) => ({
   ...(await orig<typeof chatPackApi>()),
@@ -30,13 +30,13 @@ vi.mock('../api/auto-mode', async (orig) => ({
   ...(await orig<typeof import('../api/auto-mode')>()),
   setConversationAutoMode: vi.fn(async (_id: string, on: boolean) => on),
 }));
-vi.mock('../api/plans', async (orig) => ({
+vi.mock('../features/projects/api/plans', async (orig) => ({
   ...(await orig<typeof plansApi>()),
   listPlans: vi.fn().mockResolvedValue([]),
 }));
 
-vi.mock('../api/project-channel', async (orig) => ({
-  ...(await orig<typeof import('../api/project-channel.js')>()),
+vi.mock('../features/projects/api/project-channel', async (orig) => ({
+  ...(await orig<typeof import('../features/projects/api/project-channel.js')>()),
   postChannelMessage: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -67,8 +67,8 @@ vi.mock('../api/agents', async (orig) => ({
   ] as never),
 }));
 
-vi.mock('../api/grove', async (orig) => ({
-  ...(await orig<typeof import('../api/grove.js')>()),
+vi.mock('../features/projects/api/grove', async (orig) => ({
+  ...(await orig<typeof import('../features/projects/api/grove.js')>()),
   updateTreeType: vi.fn().mockResolvedValue({ id: 'type-1' }),
   listTrees: vi.fn().mockResolvedValue([{ id: 't-1', name: 'Tree 1', type: 'type-1' }]),
   listTreeTypes: vi.fn().mockResolvedValue([{

@@ -41,7 +41,7 @@ import {
 } from '../api/deployments';
 import { listProviders, credentialKeys } from '../api/credentials';
 import { getNginxConfig, saveNginxConfig, nginxKeys } from '../api/nginx';
-import { useGroveChanges } from '../components/Projects/useGroveChanges';
+import { useGroveChanges } from '../features/projects';
 
 const TOAST_TONE: Record<ToastKind, { border: string; icon: string }> = {
   destroyed: { border: 'border-green-500', icon: 'text-green-500' },

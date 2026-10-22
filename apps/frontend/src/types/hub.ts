@@ -94,8 +94,8 @@ export interface HubStatus {
   at: string
   releases: import('../api/releases').OdooRelease[]
   addresses?: { live?: string; preview?: string }
-  runs: import('../components/PipelineRunRow').PipelineRun[]
-  treeRuns: Record<string, import('../api/grove').TreeRunStatus>
+  runs: import('../features/projects').PipelineRun[]
+  treeRuns: Record<string, import('../features/projects').TreeRunStatus>
 }
 
 export type HubRequestKind = 'approve-plan' | 'reject-plan' | 'order-stories' | 'order-features' | 'accept-task' | 'drop-task' | 'ask-koala' | 'open-chat'
@@ -126,9 +126,9 @@ export interface HubBoardView {
   online: boolean
   members: { personId: string; email: string; role: HubRole }[]
   board: {
-    trees: import('../components/Projects/useProjectWork').WorkTree[]
-    branches: import('./grove').Branch[]
-    leaves: import('../components/leaf-types').Leaf[]
+    trees: import('../features/projects').WorkTree[]
+    branches: import('../features/projects').Branch[]
+    leaves: import('../features/projects').Leaf[]
     tasks: import('../api/engine').EngineTask[]
     planProposals: import('@koala/harness-types').PlanProposal[]
     status?: HubStatus

@@ -11,8 +11,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   listChatConversations, deleteChatConversation, createChatConversation, chatPackKeys, type ChatConversation,
 } from '../api/chat-pack.js';
-import { listLeaves, listTrees, groveKeys } from '../api/grove.js';
-import { itemChatAddress } from '../lib/item-chat-address.js';
+import { listLeaves, listTrees, groveKeys } from '../features/projects';
+import { itemChatAddress } from '../features/projects';
 import { parseHash, formatHash } from '../features/platform';
 import { useRunning } from '../components/Infrastructure/useRunning';
 

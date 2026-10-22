@@ -23,7 +23,7 @@ import DependencyExplorer from '../components/Studio/DependencyExplorer';
 import ExtensionsView from '../components/Studio/ExtensionsView';
 import ModelsView from '../components/Studio/ModelsView';
 import StudioFrame from '../components/Studio/StudioFrame';
-import TreeTypes from '../components/TreeTypes/index.js';
+import { TreeTypes } from '../features/projects';
 import SettingsView from './SettingsView';
 import { HubJoinRoute, SharedProjectRoute, SharedProjectsRoute } from '../components/Hub/HubRoutes';
 

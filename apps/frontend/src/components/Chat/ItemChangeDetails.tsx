@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ItemChange } from '@koala/harness-types'
-import { editRows, storyName } from '../../lib/item-change'
+import { editRows, storyName } from '../../features/projects'
 
 export function ItemChangeDetails({ change, decided }: { change: ItemChange; decided: boolean }) {
   const [showBrief, setShowBrief] = useState(false)

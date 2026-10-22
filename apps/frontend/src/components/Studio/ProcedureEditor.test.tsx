@@ -34,7 +34,7 @@ vi.mock('@monaco-editor/react', () => ({
   ),
 }))
 
-vi.mock('../ProjectEditor/monaco-setup', () => ({}))
+vi.mock('../../shared/lib/monaco-setup', () => ({}))
 
 vi.mock('../../api/procedures', async () => {
   const actual = await vi.importActual<typeof import('../../api/procedures')>('../../api/procedures')

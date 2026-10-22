@@ -26,7 +26,7 @@ import { useLiveTurnsStore, conversationTurnKey } from '../../../stores/live-tur
 import { useSocketEvent } from '../../../features/platform';
 import { errorMessage } from '../../../api/client.js';
 import { childEventToFrame, engineEventToFrame } from '../engine-event-frames.js';
-import { planKeys } from '../../../api/plans';
+import { planKeys } from '../../../features/projects';
 import { sentAttachment } from '../../../lib/file-drop';
 import type { MessageAttachment } from '../../../types/files';
 import { assistantMsgFromRenderState, type ChatMessageRecord } from '../chat-stream.js';

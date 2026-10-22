@@ -1,6 +1,6 @@
 import type { PlanProposal } from '@koala/harness-types'
-import type { TreeAsk, TreeRunStatus } from '../../api/grove'
-import { blockedBy, isAwaitingReview, stateFor, type Leaf } from '../leaf-types'
+import type { TreeAsk, TreeRunStatus } from '../../features/projects'
+import { blockedBy, isAwaitingReview, stateFor, type Leaf } from '../../features/projects'
 
 export type PlanStepState = 'done' | 'running' | 'waiting' | 'queued' | 'failed'
 

@@ -3,7 +3,7 @@ import { BellOff, Loader2 } from 'lucide-react'
 import type { AlertEpisode, AlertRule, FiringAlert, HealthState, HistoryState, Range } from '../../api/monitoring'
 import { RANGES } from '../../api/monitoring'
 import { errorMessage } from '../../api/client'
-import { ago } from '../home-summary'
+import { ago } from '../../features/projects'
 import { RANGE_LABELS, STATE_LOOK, useRemoveRule, useSetHistory } from './shared'
 
 export function StateBadge({ state }: { state: HealthState }) {

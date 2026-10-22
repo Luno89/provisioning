@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { PlanProposal } from '@koala/harness-types'
-import { approvePlan, listPlans, planKeys, rejectPlan } from '../../../api/plans'
-import { groveKeys } from '../../../api/grove'
+import { approvePlan, listPlans, planKeys, rejectPlan } from '../../../features/projects'
+import { groveKeys } from '../../../features/projects'
 import { engineKeys } from '../../../api/engine'
 
 const ADOPTING_POLL_MS = 2_000

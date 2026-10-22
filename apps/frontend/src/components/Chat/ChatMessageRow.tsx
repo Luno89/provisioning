@@ -5,7 +5,7 @@ import { KoalaSpot, type KoalaMood } from '../../shared/components/Koala.js';
 import ChatToolCallCard, { type FileArtifact, type ToolCallData } from './ChatToolCallCard.js';
 import { ChatParser } from '../../shared/chat-parser/chat-parser.js';
 import MessageAttachments from './MessageAttachments.js';
-import type { ChannelAddress } from '../../lib/channel-asks.js';
+import type { ChannelAddress } from '../../features/projects';
 
 export interface ChatMessageData {
   role: 'user' | 'assistant' | 'notice';

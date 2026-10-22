@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { PlanProposal } from '@koala/harness-types'
-import type { Leaf } from '../leaf-types'
+import type { Leaf } from '../../features/projects/lib/leaf-types'
 import { planProgress, plansTree } from './plan-progress'
 
 const added: PlanProposal = {

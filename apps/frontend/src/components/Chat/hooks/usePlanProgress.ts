@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { PlanProposal } from '@koala/harness-types'
-import { groveKeys } from '../../../api/grove'
-import { planKeys } from '../../../api/plans'
-import { keyedBy, useWorkSource } from '../../Projects/work-source'
+import { groveKeys } from '../../../features/projects'
+import { planKeys } from '../../../features/projects'
+import { keyedBy, useWorkSource } from '../../../features/projects'
 import { followedStories, planProgress, plansTree, type PlanProgress } from '../plan-progress'
 
 const FOLLOW_MS = 5_000

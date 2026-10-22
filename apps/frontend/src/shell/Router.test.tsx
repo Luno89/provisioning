@@ -7,7 +7,7 @@ import * as authApi from '../features/platform/api';
 import * as clustersApi from '../api/clusters';
 import * as deploymentsApi from '../api/deployments';
 import * as credentialsApi from '../api/credentials';
-import * as groveApi from '../api/grove';
+import * as groveApi from '../features/projects/api/grove';
 
 vi.mock('../features/platform/api', async (importOriginal) => ({
   ...(await importOriginal<typeof authApi>()),
@@ -26,7 +26,7 @@ vi.mock('../api/credentials', async (importOriginal) => ({
   ...(await importOriginal<typeof credentialsApi>()),
   listProviders: vi.fn().mockResolvedValue([]),
 }));
-vi.mock('../api/grove', async (importOriginal) => ({
+vi.mock('../features/projects/api/grove', async (importOriginal) => ({
   ...(await importOriginal<typeof groveApi>()),
   listTrees: vi.fn().mockResolvedValue([]),
   listBranches: vi.fn().mockResolvedValue([]),

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { autoModeKeys, listAutoModeAgents, setAgentAutoMode, setConversationAutoMode, setTreeAutoMode } from '../../api/auto-mode'
 import { chatPackKeys, type ChatConversation } from '../../api/chat-pack'
-import { groveKeys, listTrees } from '../../api/grove'
+import { groveKeys, listTrees } from '../../features/projects'
 
 export interface AutoModeState {
   on: boolean | undefined

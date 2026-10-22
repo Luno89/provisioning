@@ -1,6 +1,6 @@
 import type { Agent } from '../api/agents'
 import type { EngineTool } from '../api/engineTools'
-import type { TreeType } from '../types/grove'
+import type { TreeType } from '../features/projects'
 import { GROUPS, groupOf, type AgentGroup } from './agent-groups'
 
 export interface Grouped<T> {

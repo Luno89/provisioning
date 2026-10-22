@@ -1,5 +1,5 @@
 import type { AccessRequest, ActionProposal, EgressRequest, McpRequest, PlanProposal, SecretRequest } from '@koala/harness-types'
-import { changeHeading } from '../../lib/item-change'
+import { changeHeading } from '../../features/projects'
 
 export interface ToolApproval {
   runId: string

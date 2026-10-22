@@ -1,6 +1,6 @@
 import NginxView from '../components/NginxView';
 import VpsCatalog from '../components/VpsCatalog.js';
-import Projects from '../components/Projects/index.js';
+import { Projects } from '../features/projects';
 import { useShellContext } from '../components/shell-context';
 
 export function NginxRoute() {

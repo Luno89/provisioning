@@ -1,6 +1,6 @@
-import { workingOn } from '../Projects/Strip/shared'
-import { projectStatus } from '../Projects/Board/board'
-import { waitingLine } from '../Projects/Board/hub-waiting'
+import { workingOn } from '../../features/projects'
+import { projectStatus } from '../../features/projects'
+import { waitingLine } from '../../features/projects'
 import type { HubBoardView } from '../../types/hub'
 import { hubPlaceOf } from './hub-chat'
 

@@ -5,8 +5,8 @@ import type { PlanProposal } from '@koala/harness-types'
 import { ItemChangeDetails } from './ItemChangeDetails'
 import PlanProgress from './PlanProgress'
 import { planHeading } from './chat-cards'
-import { groveKeys, listTreeTypes } from '../../api/grove'
-import { versionLabel } from '../../lib/tree-version'
+import { groveKeys, listTreeTypes } from '../../features/projects'
+import { versionLabel } from '../../features/projects'
 import type { StoryAddress } from './ChatNotice'
 
 export interface PlanProposalCardProps {

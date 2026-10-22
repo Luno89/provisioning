@@ -3,10 +3,10 @@ import { describe, it, expect, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import type { PlanProposal } from '@koala/harness-types'
-import * as plansApi from '../../../api/plans'
+import * as plansApi from '../../../features/projects/api/plans'
 import { usePlanProposals } from './usePlanProposals'
 
-vi.mock('../../../api/plans', async (orig) => ({ ...(await orig<typeof plansApi>()), listPlans: vi.fn() }))
+vi.mock('../../../features/projects/api/plans', async (orig) => ({ ...(await orig<typeof plansApi>()), listPlans: vi.fn() }))
 
 const change = (status: PlanProposal['status']): PlanProposal => ({
   id: 'p1', ownerId: 'u1', status, createdAt: 't', updatedAt: 't',

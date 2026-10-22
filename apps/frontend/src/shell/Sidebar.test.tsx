@@ -5,7 +5,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Box, Server } from 'lucide-react';
 import Sidebar from './Sidebar';
 import * as chatPackApi from '../api/chat-pack.js';
-import * as groveApi from '../api/grove.js';
+import * as groveApi from '../features/projects/api/grove.js';
 
 vi.mock('../api/chat-pack.js', async (importOriginal) => ({
   ...(await importOriginal<typeof chatPackApi>()),
@@ -13,7 +13,7 @@ vi.mock('../api/chat-pack.js', async (importOriginal) => ({
   deleteChatConversation: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../api/grove.js', async (importOriginal) => ({
+vi.mock('../features/projects/api/grove.js', async (importOriginal) => ({
   ...(await importOriginal<typeof groveApi>()),
   listTrees: vi.fn().mockResolvedValue([]),
 }));

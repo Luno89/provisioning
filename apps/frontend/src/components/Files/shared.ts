@@ -6,8 +6,8 @@ import {
   shareWithClients, moveStoredFile, removeStoredFile,
   revokeFileShare, searchStoredFiles, setDefaultFileServer, shareStoredFile, startProjectMinio, uploadStoredFile,
 } from '../../api/files'
-import { dropIntoRepository, projectFileKeys } from '../../api/project-files'
-import { groveKeys } from '../../api/grove'
+import { dropIntoRepository, projectFileKeys } from '../../features/projects'
+import { groveKeys } from '../../features/projects'
 import { base64Of, joinPath, type PickedFile } from '../../lib/file-drop'
 import type { FileScope, PlaceState, ShareDays } from '../../types/files'
 

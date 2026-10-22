@@ -5,8 +5,8 @@ import { describe, it, expect, vi } from 'vitest'
 import type { PlanProposal } from '@koala/harness-types'
 import PlanProposalCard from './PlanProposalCard'
 
-vi.mock('../../api/grove', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../api/grove')>()),
+vi.mock('../../features/projects/api/grove', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../features/projects/api/grove')>()),
   listLeaves: vi.fn(async () => [
     { id: 'l1', branchId: 'b1', title: 'Persists', status: 'running', tasks: ['t'], updatedAt: 'a' },
     { id: 'l2', branchId: 'b1', title: 'Slip', status: 'pending', tasks: [], updatedAt: 'a' },
@@ -18,8 +18,8 @@ vi.mock('../../api/grove', async (importOriginal) => ({
     { id: 'api-service', label: 'API service' },
   ]),
 }))
-vi.mock('../../api/plans', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../api/plans')>()),
+vi.mock('../../features/projects/api/plans', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../features/projects/api/plans')>()),
   listTreePlans: vi.fn(async () => []),
 }))
 
