@@ -1,5 +1,5 @@
 import { Cloud, FileText, Plus, Shield, Trash2 } from 'lucide-react'
-import { useShellStore } from '../../stores/shell'
+import { useShellStore } from '../../features/platform'
 import { Bar, Section, StateBadge } from '../Monitoring/Parts'
 import { useShellContext } from '../shell-context'
 import { QuietButton } from './Parts'

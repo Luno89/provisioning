@@ -7,25 +7,25 @@ import {
   type RouterHistory,
 } from '@tanstack/react-router';
 import { RootLayout } from './RootLayout';
-import { NginxRoute, ProjectsRoute, VpsCatalogRoute } from './components/ShellRoutes';
-import ChatPage from './components/ChatPage';
-import TemporalPanel from './components/TemporalPanel';
-import InfrastructureView from './components/Infrastructure/InfrastructureView';
-import MonitoringDetailRedirect from './components/Infrastructure/MonitoringDetailRedirect';
-import CloudAccounts from './components/CloudAccounts.js';
-import MyMachines from './components/MyMachines.js';
+import { NginxRoute, ProjectsRoute, VpsCatalogRoute } from './ShellRoutes';
+import ChatPage from '../components/ChatPage';
+import TemporalPanel from '../components/TemporalPanel';
+import InfrastructureView from '../components/Infrastructure/InfrastructureView';
+import MonitoringDetailRedirect from '../components/Infrastructure/MonitoringDetailRedirect';
+import CloudAccounts from '../components/CloudAccounts.js';
+import MyMachines from '../components/MyMachines.js';
 import { Cpu, Puzzle } from 'lucide-react';
-import ProcedureExplorer from './components/Studio/ProcedureExplorer';
-import AgentExplorer from './components/Studio/AgentExplorer';
-import ToolExplorer from './components/Studio/ToolExplorer';
-import McpServerExplorer from './components/Studio/McpServerExplorer';
-import DependencyExplorer from './components/Studio/DependencyExplorer';
-import ExtensionsView from './components/Studio/ExtensionsView';
-import ModelsView from './components/Studio/ModelsView';
-import StudioFrame from './components/Studio/StudioFrame';
-import TreeTypes from './components/TreeTypes/index.js';
-import SettingsView from './components/SettingsView';
-import { HubJoinRoute, SharedProjectRoute, SharedProjectsRoute } from './components/Hub/HubRoutes';
+import ProcedureExplorer from '../components/Studio/ProcedureExplorer';
+import AgentExplorer from '../components/Studio/AgentExplorer';
+import ToolExplorer from '../components/Studio/ToolExplorer';
+import McpServerExplorer from '../components/Studio/McpServerExplorer';
+import DependencyExplorer from '../components/Studio/DependencyExplorer';
+import ExtensionsView from '../components/Studio/ExtensionsView';
+import ModelsView from '../components/Studio/ModelsView';
+import StudioFrame from '../components/Studio/StudioFrame';
+import TreeTypes from '../components/TreeTypes/index.js';
+import SettingsView from './SettingsView';
+import { HubJoinRoute, SharedProjectRoute, SharedProjectsRoute } from '../components/Hub/HubRoutes';
 
 export const rootRoute = createRootRoute({
   component: RootLayout,

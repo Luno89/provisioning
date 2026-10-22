@@ -1,7 +1,7 @@
-import NginxView from './NginxView';
-import VpsCatalog from './VpsCatalog.js';
-import Projects from './Projects/index.js';
-import { useShellContext } from './shell-context';
+import NginxView from '../components/NginxView';
+import VpsCatalog from '../components/VpsCatalog.js';
+import Projects from '../components/Projects/index.js';
+import { useShellContext } from '../components/shell-context';
 
 export function NginxRoute() {
   const ctx = useShellContext();

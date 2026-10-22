@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CircleSlash, Trash2, AlertTriangle, ShieldCheck, RotateCw, Loader2, FileText } from 'lucide-react';
-import Markdown from './Markdown.js';
+import Markdown from '../shared/components/Markdown.js';
 import ClaimReview from './ClaimReview.js';
-import ConfirmDelete from './ConfirmDelete.js';
+import ConfirmDelete from '../shared/components/ConfirmDelete.js';
 import DocumentPanel from './DocumentPanel.js';
 import { STATE_STYLE, STATE_HINT, stateFor, leafDocuments, storyLine, type Leaf } from './leaf-types.js';
 import type { DocumentAddress } from '../types/documents';

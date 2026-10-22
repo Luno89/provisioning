@@ -5,7 +5,7 @@ import CollapsibleHistoryList from './CollapsibleHistoryList.js';
 import AgentConfigDrawer from './AgentConfigDrawer.js';
 import ModelConfigDrawer from './ModelConfigDrawer.js';
 import { useMachineChoiceLabel } from '../api/local-agents';
-import KoalaLoading from './KoalaLoading.js';
+import KoalaLoading from '../shared/components/KoalaLoading.js';
 import ChatHero from './Chat/ChatHero.js';
 import { ConversationContext } from './Chat/ConversationContext.js';
 import ChatComposer, { type PersonaPackOption } from './Chat/ChatComposer.js';

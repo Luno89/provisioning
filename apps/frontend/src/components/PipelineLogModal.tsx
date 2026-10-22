@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Terminal, X } from 'lucide-react';
-import { AnsiText } from './AnsiText.js';
+import { AnsiText } from '../shared/components/AnsiText.js';
 import { getPipelineLog, projectKeys } from '../api/projects.js';
-import { useLogSocket } from '../stores/socket.js';
+import { useLogSocket } from '../features/platform';
 
 export default function PipelineLogModal({ runId, onClose }: { runId: string; onClose: () => void }) {
   const [socketLogs, setSocketLogs] = useState('');

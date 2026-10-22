@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from './client'
-import { useDebounce } from '../lib/use-debounce'
+import { useDebounce } from '../shared/lib/use-debounce'
 
 export interface HfModelSize {
   totalBytes: number

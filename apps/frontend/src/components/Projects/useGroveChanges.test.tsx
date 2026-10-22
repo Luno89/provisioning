@@ -7,7 +7,7 @@ import { GROVE_CHANGED, groveKeys } from '../../api/grove'
 import { projectKeys } from '../../api/projects'
 
 const { handlers } = vi.hoisted(() => ({ handlers: new Map<string, () => void>() }))
-vi.mock('../../stores/socket', () => ({
+vi.mock('../../features/platform/stores/socket', () => ({
   useSocketEvent: (event: string, handler: () => void) => { handlers.set(event, handler) },
 }))
 

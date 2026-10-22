@@ -6,7 +6,7 @@ import { listModels, providerKeys, type ModelProvider } from '../../../api/model
 import { useMachineChoiceLabel } from '../../../api/local-agents'
 import { errorMessage } from '../../../api/client'
 import { modelOptionLabel } from '../../../lib/model-label'
-import { useShellStore } from '../../../stores/shell'
+import { useShellStore } from '../../../features/platform'
 import { ModelPicker } from '../../ModelPicker'
 import { wholeTreeChanges } from '../Strip/shared'
 

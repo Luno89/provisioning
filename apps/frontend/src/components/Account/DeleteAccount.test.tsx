@@ -3,8 +3,8 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { DeleteAccount } from './DeleteAccount'
 import * as accountApi from '../../api/account'
-import * as authApi from '../../api/auth'
-import { useShellStore } from '../../stores/shell'
+import * as authApi from '../../features/platform/api'
+import { useShellStore } from '../../features/platform/stores/shell'
 
 vi.mock('../../api/account', async (importOriginal) => ({
   ...(await importOriginal<typeof accountApi>()),
@@ -12,7 +12,7 @@ vi.mock('../../api/account', async (importOriginal) => ({
   removeMyAccount: vi.fn(),
 }))
 
-vi.mock('../../api/auth', async (importOriginal) => ({
+vi.mock('../../features/platform/api', async (importOriginal) => ({
   ...(await importOriginal<typeof authApi>()),
   accountRemovalPlace: vi.fn(),
 }))

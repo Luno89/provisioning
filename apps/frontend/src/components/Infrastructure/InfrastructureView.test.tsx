@@ -8,7 +8,7 @@ import * as clustersApi from '../../api/clusters'
 import type { AppHealthView, ClusterRow, Overview } from '../../api/monitoring'
 import type { ClusterContents, InfrastructureOverview } from '../../api/infrastructure'
 import { ShellContextInstance, type ShellContext } from '../shell-context'
-import { useShellStore } from '../../stores/shell'
+import { useShellStore } from '../../features/platform/stores/shell'
 
 const params: { tab?: string; kind?: string; id?: string } = {}
 vi.mock('@tanstack/react-router', () => ({ useParams: () => params }))

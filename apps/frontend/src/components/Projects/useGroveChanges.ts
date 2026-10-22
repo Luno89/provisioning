@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { GROVE_CHANGED, groveKeys } from '../../api/grove'
 import { projectKeys } from '../../api/projects'
-import { useSocketEvent } from '../../stores/socket'
+import { useSocketEvent } from '../../features/platform'
 
 export function useGroveChanges(): void {
   const client = useQueryClient()

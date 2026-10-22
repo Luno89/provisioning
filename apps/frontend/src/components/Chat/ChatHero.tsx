@@ -1,5 +1,5 @@
 import { Sprout, Terminal, Box, AlertTriangle, type LucideIcon } from 'lucide-react';
-import { KoalaSpot } from '../Koala.js';
+import { KoalaSpot } from '../../shared/components/Koala.js';
 
 export interface StarterPrompt {
   label: string;

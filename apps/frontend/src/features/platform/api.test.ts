@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('./client', () => ({
+vi.mock('../../api/client', () => ({
   api: {
     get: vi.fn(),
     post: vi.fn(),
@@ -8,8 +8,8 @@ vi.mock('./client', () => ({
   },
 }));
 
-import { api } from './client';
-import { getMe, logout, login, verifyTwoFactor } from './auth';
+import { api } from '../../api/client';
+import { getMe, logout, login, verifyTwoFactor } from './api';
 
 const mocked = vi.mocked(api);
 

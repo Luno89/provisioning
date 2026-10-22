@@ -4,7 +4,7 @@ import {
   listModels, providerKeys, useDefaultModel, type ModelProvider,
 } from '../api/models';
 import { modelOptionLabel } from '../lib/model-label';
-import { useShellStore } from '../stores/shell';
+import { useShellStore } from '../features/platform';
 import { useMachineChoiceLabel } from '../api/local-agents';
 import { ModelPicker } from './ModelPicker';
 import type { ModelReach } from '@koala/harness-types';

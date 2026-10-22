@@ -1,4 +1,4 @@
-import ChatMessageRenderer from '../lib/chat-parser/ChatMessageRenderer.js';
+import ChatMessageRenderer from '../chat-parser/ChatMessageRenderer.js';
 
 export default function Markdown({
   children,

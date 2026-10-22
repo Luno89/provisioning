@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useDebounce } from '../../lib/use-debounce'
+import { useDebounce } from '../../shared/lib/use-debounce'
 import {
   acceptInvitation, checkGroup, changeMemberRole, deleteSharedProject, getSharing, shareProject, sharingKeys, takeProjectBack, getInvitation, getRootInvitation, getSharedProject, hubKeys,
   inviteToProject, listSharedProjects, removeMember, takeInviteBack,

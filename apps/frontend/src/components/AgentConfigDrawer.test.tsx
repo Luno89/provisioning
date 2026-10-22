@@ -2,7 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AgentConfigDrawer from './AgentConfigDrawer';
-import { useShellStore } from '../stores/shell.js';
+import { useShellStore } from '../features/platform/stores/shell.js';
 
 vi.mock('../api/agents', async (orig) => ({
   ...(await orig<typeof import('../api/agents.js')>()),

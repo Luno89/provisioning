@@ -1,9 +1,9 @@
 import { User, Sparkles, ChevronDown, ChevronRight, AlertTriangle, MessageSquare } from 'lucide-react';
 import { memo, useState } from 'react';
-import Markdown from '../Markdown.js';
-import { KoalaSpot, type KoalaMood } from '../Koala.js';
+import Markdown from '../../shared/components/Markdown.js';
+import { KoalaSpot, type KoalaMood } from '../../shared/components/Koala.js';
 import ChatToolCallCard, { type FileArtifact, type ToolCallData } from './ChatToolCallCard.js';
-import { ChatParser } from '../../lib/chat-parser/chat-parser.js';
+import { ChatParser } from '../../shared/chat-parser/chat-parser.js';
 import MessageAttachments from './MessageAttachments.js';
 import type { ChannelAddress } from '../../lib/channel-asks.js';
 

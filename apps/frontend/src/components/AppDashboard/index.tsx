@@ -7,11 +7,11 @@ import {
   useAvailableModules, useResourcePlan, useInitialLogs, deploymentKeys, useAppCatalogue,
 } from '../../api/deployments';
 import { useTabbyImageTags } from '../../api/models';
-import { useLogSocket } from '../../stores/socket';
-import { useShellStore } from '../../stores/shell';
+import { useLogSocket } from '../../features/platform';
+import { useShellStore } from '../../features/platform';
 import type { Deployment } from '../../types/deployment';
 import type { Cluster } from '../../types/cluster';
-import { AnsiText } from '../AnsiText';
+import { AnsiText } from '../../shared/components/AnsiText';
 import GameServerSettings from '../GameServerSettings';
 import { AppHealth } from '../Monitoring/AppHealth';
 import { ClusterHealth } from '../Monitoring/ClusterHealth';

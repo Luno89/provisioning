@@ -12,7 +12,7 @@ export const KNOWN_VIEWS = [...PLATFORM_VIEWS, ...KOALA_VIEWS] as const
 
 export type ViewName = typeof KNOWN_VIEWS[number]
 
-import type { SessionUser as AppUser } from '../api/auth'
+import type { SessionUser as AppUser } from '../api'
 export type { AppUser }
 
 export interface Notification {

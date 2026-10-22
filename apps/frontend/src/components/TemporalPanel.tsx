@@ -4,7 +4,7 @@ import {
   type WorkflowScope, type WorkflowSummary,
 } from '../api/temporal';
 import { errorMessage } from '../api/client';
-import { useShellStore } from '../stores/shell';
+import { useShellStore } from '../features/platform';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, CheckCircle, XCircle, Timer, Loader2, ChevronDown, ChevronUp, Server, Hash, Play, Ban } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';

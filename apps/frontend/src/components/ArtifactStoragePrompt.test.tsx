@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import ArtifactStoragePrompt from './ArtifactStoragePrompt'
 import * as artifactsApi from '../api/artifacts'
-import { useShellStore } from '../stores/shell'
+import { useShellStore } from '../features/platform/stores/shell'
 
 vi.mock('../api/artifacts', async (importOriginal) => ({
   ...(await importOriginal<typeof artifactsApi>()),

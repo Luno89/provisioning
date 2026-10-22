@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useShellStore, type ViewName } from '../stores/shell';
+import { useShellStore, type ViewName } from '../features/platform/stores/shell';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Box, Server } from 'lucide-react';
-import Sidebar from '../components/Sidebar';
+import Sidebar from './Sidebar';
 import * as chatPackApi from '../api/chat-pack.js';
 import * as groveApi from '../api/grove.js';
 

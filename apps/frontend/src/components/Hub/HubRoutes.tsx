@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from '@tanstack/react-router'
-import { useShellStore } from '../../stores/shell'
+import { useShellStore } from '../../features/platform'
 import SharedProjects from './SharedProjects'
 import HubProjectPage from './HubProjectPage'
 import JoinPage from './JoinPage'

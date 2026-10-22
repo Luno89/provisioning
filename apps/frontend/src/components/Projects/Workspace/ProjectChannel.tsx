@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import ChatSurface from '../../ChatSurface.js'
 import type { StoryAddress } from '../../Chat/ChatNotice.js'
-import KoalaLoading from '../../KoalaLoading.js'
+import KoalaLoading from '../../../shared/components/KoalaLoading.js'
 import { getProjectChannel, projectChannelKeys } from '../../../api/project-channel.js'
 import { errorMessage } from '../../../api/client.js'
 

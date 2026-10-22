@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import ChatSurface from '../../ChatSurface'
-import KoalaLoading from '../../KoalaLoading'
+import KoalaLoading from '../../../shared/components/KoalaLoading'
 import type { StoryAddress } from '../../Chat/ChatNotice'
 import { itemChatKeys, openItemChat, type ChatItemKind } from '../../../api/item-chats'
 import { errorMessage } from '../../../api/client'

@@ -1,6 +1,6 @@
 import { RouterProvider } from '@tanstack/react-router';
 import { API_BASE } from './api/client';
-import { router as defaultRouter, createProvisioningRouter } from './router';
+import { router as defaultRouter, createProvisioningRouter } from './shell/router';
 
 export { API_BASE };
 

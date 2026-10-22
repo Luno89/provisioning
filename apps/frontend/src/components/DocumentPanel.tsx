@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { X, Loader2, FileText } from 'lucide-react';
-import Markdown from './Markdown.js';
+import Markdown from '../shared/components/Markdown.js';
 import { documentKeys, readDocument } from '../api/documents';
 import { errorMessage } from '../api/client';
 import type { DocumentAddress } from '../types/documents';

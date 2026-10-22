@@ -4,7 +4,7 @@ import { ChevronLeft } from 'lucide-react'
 import NewTreeDialog from '../NewTreeDialog.js'
 import { NewProjectDialog } from './NewProjectDialog.js'
 import { ProjectList } from './ProjectList.js'
-import { parseHash, formatHash } from '../../lib/route.js'
+import { parseHash, formatHash } from '../../features/platform'
 import { pageOf, type ProjectPage } from './useRouteSync.js'
 import { useChatPanel } from './useChatPanel.js'
 

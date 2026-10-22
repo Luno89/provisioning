@@ -2,14 +2,14 @@ import { act, render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from '../App';
-import { router } from '../router';
-import * as authApi from '../api/auth';
+import { router } from './router';
+import * as authApi from '../features/platform/api';
 import * as clustersApi from '../api/clusters';
 import * as deploymentsApi from '../api/deployments';
 import * as credentialsApi from '../api/credentials';
 import * as groveApi from '../api/grove';
 
-vi.mock('../api/auth', async (importOriginal) => ({
+vi.mock('../features/platform/api', async (importOriginal) => ({
   ...(await importOriginal<typeof authApi>()),
   getMe: vi.fn(),
   logout: vi.fn(),

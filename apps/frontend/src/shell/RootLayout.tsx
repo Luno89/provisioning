@@ -1,47 +1,47 @@
 import { useState, useEffect } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
-import RootJoinPage from './components/Hub/RootJoinPage';
-import HubShell from './components/Hub/HubShell';
-import { HUB_GO_URL } from './api/hub';
-import { pendingJoin } from './lib/pending-join';
+import RootJoinPage from '../components/Hub/RootJoinPage';
+import HubShell from '../components/Hub/HubShell';
+import { HUB_GO_URL } from '../api/hub';
+import { pendingJoin } from '../lib/pending-join';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, BellRing, Loader2, X } from 'lucide-react';
-import { releaseNotice, toastOf, type ToastKind } from './lib/toast';
-import Sidebar from './components/Sidebar';
-import { SIDEBAR_PAGES, ShellContextInstance, type ShellContext, type WizardPreset } from './components/shell-context';
-import PendingApprovals from './components/PendingApprovals';
-import Login from './components/Login.js';
-import ClusterWizard from './components/ClusterWizard.js';
-import AppDeployWizard from './components/AppDeployWizard';
-import AppDashboard from './components/AppDashboard';
-import PendingKeyModal from './components/PendingKeyModal';
-import NginxWizard from './components/NginxWizard';
-import { errorMessage } from './api/client';
-import { releaseKeys, type OdooRelease } from './api/releases';
-import { useShellStore, startHistorySync } from './stores/shell';
-import { reconnectSocket, useSocketEvent } from './stores/socket';
-import { getMe, logout, signInElsewhere } from './api/auth';
-import { getMyInstance, identityKeys, INSTANCE_GO_URL } from './api/identity';
-import HandoffPage from './components/HandoffPage';
-import NoInstance from './components/NoInstance';
-import RootAdmin from './components/RootAdmin/RootAdmin';
-import RemoveAccountPage from './components/Account/RemoveAccountPage';
-import TrialBanner from './components/TrialBanner';
-import { FirstModel } from './components/FirstModel';
-import { MovingPage } from './components/Move/InstanceMove';
+import { releaseNotice, toastOf, type ToastKind } from '../features/platform';
+import Sidebar from './Sidebar';
+import { SIDEBAR_PAGES, ShellContextInstance, type ShellContext, type WizardPreset } from '../components/shell-context';
+import PendingApprovals from '../components/PendingApprovals';
+import Login from '../components/Login.js';
+import ClusterWizard from '../components/ClusterWizard.js';
+import AppDeployWizard from '../components/AppDeployWizard';
+import AppDashboard from '../components/AppDashboard';
+import PendingKeyModal from '../components/PendingKeyModal';
+import NginxWizard from '../components/NginxWizard';
+import { errorMessage } from '../api/client';
+import { releaseKeys, type OdooRelease } from '../api/releases';
+import { useShellStore, startHistorySync } from '../features/platform';
+import { reconnectSocket, useSocketEvent } from '../features/platform';
+import { getMe, logout, signInElsewhere } from '../features/platform';
+import { getMyInstance, identityKeys, INSTANCE_GO_URL } from '../api/identity';
+import HandoffPage from '../components/HandoffPage';
+import NoInstance from '../components/NoInstance';
+import RootAdmin from '../components/RootAdmin/RootAdmin';
+import RemoveAccountPage from '../components/Account/RemoveAccountPage';
+import TrialBanner from '../components/TrialBanner';
+import { FirstModel } from '../components/FirstModel';
+import { MovingPage } from '../components/Move/InstanceMove';
 import {
   listClusters, clusterKeys, type ClusterCreated,
   provisionCluster as provisionClusterApi,
   startAwaitingCluster as startAwaitingClusterApi,
-} from './api/clusters';
+} from '../api/clusters';
 import {
   listDeployments, deploymentKeys,
   deployApp as deployAppApi,
   destroyResource as destroyResourceApi,
-} from './api/deployments';
-import { listProviders, credentialKeys } from './api/credentials';
-import { getNginxConfig, saveNginxConfig, nginxKeys } from './api/nginx';
-import { useGroveChanges } from './components/Projects/useGroveChanges';
+} from '../api/deployments';
+import { listProviders, credentialKeys } from '../api/credentials';
+import { getNginxConfig, saveNginxConfig, nginxKeys } from '../api/nginx';
+import { useGroveChanges } from '../components/Projects/useGroveChanges';
 
 const TOAST_TONE: Record<ToastKind, { border: string; icon: string }> = {
   destroyed: { border: 'border-green-500', icon: 'text-green-500' },

@@ -1,7 +1,7 @@
 import { ExternalLink, Plus, Settings2, Shield, Trash2 } from 'lucide-react'
 import { deployStatusClass } from '../../lib/deploy-status'
 import { NO_WEB_UI_APP_TYPES } from '../../lib/app-ui'
-import { useShellStore } from '../../stores/shell'
+import { useShellStore } from '../../features/platform'
 import { Section, StateBadge } from '../Monitoring/Parts'
 import { useShellContext } from '../shell-context'
 import { QuietButton } from './Parts'

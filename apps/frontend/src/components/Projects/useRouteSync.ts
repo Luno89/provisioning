@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useRouter } from '@tanstack/react-router'
-import { formatHash, parseHash, shouldReplace } from '../../lib/route'
+import { formatHash, parseHash, shouldReplace } from '../../features/platform'
 
 export const PROJECT_PAGES = ['releases', 'files', 'settings'] as const
 export type ProjectPage = typeof PROJECT_PAGES[number]

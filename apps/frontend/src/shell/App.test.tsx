@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from '../App';
 import * as clustersApi from '../api/clusters';
 import * as deploymentsApi from '../api/deployments';
-import * as authApi from '../api/auth';
+import * as authApi from '../features/platform/api';
 import * as credentialsApi from '../api/credentials';
 
 vi.mock('../api/clusters', async (importOriginal) => ({
@@ -19,7 +19,7 @@ vi.mock('../api/credentials', async (importOriginal) => ({
   ...(await importOriginal<typeof credentialsApi>()),
   listProviders: vi.fn(),
 }));
-vi.mock('../api/auth', async (importOriginal) => ({
+vi.mock('../features/platform/api', async (importOriginal) => ({
   ...(await importOriginal<typeof authApi>()),
   getMe: vi.fn(),
   logout: vi.fn(),

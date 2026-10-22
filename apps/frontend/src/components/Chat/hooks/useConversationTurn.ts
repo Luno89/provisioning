@@ -23,7 +23,7 @@ import { createTurnFollower } from '../../../lib/turn-follower';
 import type { TurnLogEntry } from '../../../types/turns';
 import { emptyChatRenderState, type ChatRenderState } from '../../../lib/chat-unified-reducer.js';
 import { useLiveTurnsStore, conversationTurnKey } from '../../../stores/live-turns.js';
-import { useSocketEvent } from '../../../stores/socket.js';
+import { useSocketEvent } from '../../../features/platform';
 import { errorMessage } from '../../../api/client.js';
 import { childEventToFrame, engineEventToFrame } from '../engine-event-frames.js';
 import { planKeys } from '../../../api/plans';

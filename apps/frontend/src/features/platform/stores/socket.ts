@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { io, type Socket } from 'socket.io-client'
-import { SOCKET_URL } from '../api/client'
+import { SOCKET_URL } from '../../../api/client'
 
 let shared: Socket | null = null
 

@@ -3,7 +3,7 @@ import {
   getAlerts, getAppHealth, getClusterHealth, getOverview, monitoringKeys, removeAlertRule, setHistoryDays,
   type HealthState, type Range,
 } from '../../api/monitoring'
-import { formatHash } from '../../lib/route'
+import { formatHash } from '../../features/platform'
 
 export const OVERVIEW_POLL_MS = 15_000
 export const HEALTH_POLL_MS = 30_000

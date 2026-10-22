@@ -1,20 +1,20 @@
 import React, { useState, useEffect, startTransition } from 'react';
-import SharedProjectsLink from './Hub/SharedProjectsLink';
+import SharedProjectsLink from '../components/Hub/SharedProjectsLink';
 import { useRouter, type NavigateOptions } from '@tanstack/react-router';
-import { useShellStore, type ViewName } from '../stores/shell';
+import { useShellStore, type ViewName } from '../features/platform';
 import {
   Trees as TreesIcon, ChevronDown, ChevronRight,
   Plus, Trash2, GitBranch, Layers, Bot, Wrench, Network, Puzzle, Server, Cpu, 
 } from 'lucide-react';
-import { Koala } from './Koala';
+import { Koala } from '../shared/components/Koala';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   listChatConversations, deleteChatConversation, createChatConversation, chatPackKeys, type ChatConversation,
 } from '../api/chat-pack.js';
 import { listLeaves, listTrees, groveKeys } from '../api/grove.js';
 import { itemChatAddress } from '../lib/item-chat-address.js';
-import { parseHash, formatHash } from '../lib/route.js';
-import { useRunning } from './Infrastructure/useRunning';
+import { parseHash, formatHash } from '../features/platform';
+import { useRunning } from '../components/Infrastructure/useRunning';
 
 export interface SidebarPage {
   id: string;

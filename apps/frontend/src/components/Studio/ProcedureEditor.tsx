@@ -23,7 +23,7 @@ import {
   X,
 } from 'lucide-react'
 import { procedureErrors, type NodeTrace, type Procedure, type ProcedureProblem } from '@koala/agent-engine/procedure'
-import { useSocketEvent } from '../../stores/socket'
+import { useSocketEvent } from '../../features/platform'
 import { readTurn, TURN_LOG_CHANNEL } from '../../api/turns'
 import { createTurnFollower } from '../../lib/turn-follower'
 import type { TurnLogEntry } from '../../types/turns'

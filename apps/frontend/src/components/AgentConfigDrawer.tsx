@@ -5,7 +5,7 @@ import { agentKeys, listAgents, type Agent } from '../api/agents';
 import { listModels, providerKeys, type ModelProvider } from '../api/models';
 import { modelOptionLabel } from '../lib/model-label';
 import { useMachineChoiceLabel } from '../api/local-agents';
-import { useShellStore } from '../stores/shell.js';
+import { useShellStore } from '../features/platform';
 
 /**
  * Drawer that picks which engine agent answers in a normal (non-branch) conversation, and shows

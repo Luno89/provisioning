@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { useShellStore } from '../stores/shell';
+import { useShellStore } from '../features/platform/stores/shell';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import TemporalPanel from './TemporalPanel';
 import * as temporalApi from '../api/temporal';

@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
-import Markdown from '../components/Markdown';
+import Markdown from './Markdown';
 
 describe('rendering a reply', () => {
   it('renders a table, which is the case that read worst', () => {

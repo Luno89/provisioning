@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Eye } from 'lucide-react'
-import Markdown from '../Markdown'
+import Markdown from '../../shared/components/Markdown'
 import { chatPackKeys, getConversationContext } from '../../api/chat-pack'
 import { ID_INPUTS, INPUT_TITLES, outlineMarkdown, subjectOf } from '../../lib/outline-markdown'
 

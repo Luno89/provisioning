@@ -7,7 +7,7 @@ import type { AppRow, ClusterRow } from '../../api/monitoring'
 import type { RunningItem } from '../../api/running'
 import type { Cluster } from '../../types/cluster'
 import type { Deployment } from '../../types/deployment'
-import { formatHash } from '../../lib/route'
+import { formatHash } from '../../features/platform'
 
 export { healthHash, sectionHash, bytes, percent, rate, seconds } from '../Monitoring/shared'
 

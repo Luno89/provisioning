@@ -6,13 +6,13 @@ import App from '../App';
 import * as clustersApi from '../api/clusters';
 import * as deploymentsApi from '../api/deployments';
 import * as nginxApi from '../api/nginx';
-import * as authApi from '../api/auth';
+import * as authApi from '../features/platform/api';
 import * as credentialsApi from '../api/credentials';
 
 vi.mock('../api/clusters', async (o) => ({ ...(await o<typeof clustersApi>()), listClusters: vi.fn() }));
 vi.mock('../api/deployments', async (o) => ({ ...(await o<typeof deploymentsApi>()), listDeployments: vi.fn() }));
 vi.mock('../api/credentials', async (o) => ({ ...(await o<typeof credentialsApi>()), listProviders: vi.fn() }));
-vi.mock('../api/auth', async (o) => ({ ...(await o<typeof authApi>()), getMe: vi.fn(), logout: vi.fn() }));
+vi.mock('../features/platform/api', async (o) => ({ ...(await o<typeof authApi>()), getMe: vi.fn(), logout: vi.fn() }));
 vi.mock('../api/nginx', async (o) => ({
   ...(await o<typeof nginxApi>()), getNginxConfig: vi.fn(), saveNginxConfig: vi.fn(),
 }));

@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { api, errorMessage } from '../api/client';
-import { useShellStore, type AppUser } from '../stores/shell';
-import { DeleteAccount } from './Account/DeleteAccount';
-import { People } from './Account/People';
-import { Invites } from './Account/Invites';
-import { InstanceAddresses } from './Account/InstanceAddresses';
-import { InstanceMove } from './Move/InstanceMove';
-import { Notifications } from './Account/Notifications';
-import DefaultFileServer from './Files/DefaultFileServer'
-import GoogleDriveCard from './GoogleDriveCard';
+import { useShellStore, type AppUser } from '../features/platform';
+import { DeleteAccount } from '../components/Account/DeleteAccount';
+import { People } from '../components/Account/People';
+import { Invites } from '../components/Account/Invites';
+import { InstanceAddresses } from '../components/Account/InstanceAddresses';
+import { InstanceMove } from '../components/Move/InstanceMove';
+import { Notifications } from '../components/Account/Notifications';
+import DefaultFileServer from '../components/Files/DefaultFileServer'
+import GoogleDriveCard from '../components/GoogleDriveCard';
 
 export default function SettingsView() {
   const user = useShellStore((s) => s.user);

@@ -4,6 +4,57 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'src')
+
+const placeOf = (file) => {
+  const rel = path.relative(SRC, file).split(path.sep)
+  if (rel[0] === 'features' && rel[1]) return { kind: 'feature', name: rel[1], rest: rel.slice(2).join('/') }
+  if (rel[0] === 'shared' || rel[0] === 'shell') return { kind: rel[0] }
+  if (rel.length === 1 && /^App\.tsx?$/.test(rel[0])) return { kind: 'shell' }
+  return { kind: 'other' }
+}
+
+const boundaries = {
+  rules: {
+    areas: {
+      meta: { type: 'problem', schema: [] },
+      create(context) {
+        const from = placeOf(context.filename)
+        const check = (node, source) => {
+          if (typeof source !== 'string' || !source.startsWith('.')) return
+          const to = placeOf(path.resolve(path.dirname(context.filename), source.replace(/\.js$/, '')))
+          if (to.kind === 'shell' && from.kind !== 'shell' && from.kind !== 'other') {
+            context.report({ node, message: 'a feature or shared/ never imports the shell' })
+            return
+          }
+          if (to.kind !== 'feature') return
+          const sameFeature = from.kind === 'feature' && from.name === to.name
+          if (sameFeature) return
+          if (from.kind === 'shared' || (from.kind === 'feature' && from.name === 'platform')) {
+            context.report({ node, message: `${from.kind === 'shared' ? 'shared/' : 'platform'} imports no feature (${to.name})` })
+            return
+          }
+          if (to.rest !== '' && !/^index(\.tsx?)?$/.test(to.rest)) {
+            context.report({ node, message: `import ${to.name} through its index, never ${to.rest}` })
+          }
+        }
+        return {
+          ImportDeclaration: (node) => check(node, node.source.value),
+          ExportNamedDeclaration: (node) => node.source && check(node, node.source.value),
+          ExportAllDeclaration: (node) => check(node, node.source.value),
+          ImportExpression: (node) => node.source.type === 'Literal' && check(node, node.source.value),
+          TSImportType: (node) => {
+            const literal = node.argument?.literal ?? node.argument
+            if (literal && literal.type === 'Literal') check(node, literal.value)
+          },
+        }
+      },
+    },
+  },
+}
 
 /**
  * ── THE RATCHET ──
@@ -84,6 +135,12 @@ export default defineConfig([
         caughtErrorsIgnorePattern: '^_',
       }],
     },
+  },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: LEGACY_TESTS,
+    plugins: { boundaries },
+    rules: { 'boundaries/areas': 'error' },
   },
   {
     files: LEGACY,

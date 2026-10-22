@@ -10,7 +10,7 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }))
 
-vi.mock('../../lib/use-debounce', () => ({ DEBOUNCE_MS: 0, useDebounce: <T,>(value: T) => value }))
+vi.mock('../../shared/lib/use-debounce', () => ({ DEBOUNCE_MS: 0, useDebounce: <T,>(value: T) => value }))
 
 vi.mock('../../api/hub', async (orig) => ({
   ...(await orig<typeof hubApi>()),

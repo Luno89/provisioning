@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Blocks, Box, Check, ChevronDown, ChevronUp, Database, Layers, Loader2, Package, X, Zap } from 'lucide-react';
 import { useHfModelSize, useModelSearch, useTabbyImageTags, useHfBranches } from '../../api/models';
 import { TagPicker } from './TagPicker';
-import { useDebounce } from '../../lib/use-debounce';
+import { useDebounce } from '../../shared/lib/use-debounce';
 import { credentialKeys, listProviders } from '../../api/credentials';
 import { useAppCatalogue, type AppUiDefaults, type AppImageDefaults } from '../../api/deployments';
 import { EMPTY_WIZARD_DATA, type WizardData } from '../wizard-defaults';

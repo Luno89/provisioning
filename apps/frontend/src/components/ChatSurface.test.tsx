@@ -98,7 +98,7 @@ vi.mock('../api/turns', async (orig) => ({
   readTurn: vi.fn(async (turnId: string, after: number) => turnLog.filter((entry) => entry.turnId === turnId && entry.seq > after)),
 }));
 
-vi.mock('../stores/socket.js', () => ({
+vi.mock('../features/platform/stores/socket.js', () => ({
   useSocketEvent: (channel: string, handler: (event: unknown) => void) => {
     socketHandlers.set(channel, handler);
   },

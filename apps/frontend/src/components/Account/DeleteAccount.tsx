@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { errorMessage } from '../../api/client'
-import { useShellStore } from '../../stores/shell'
+import { useShellStore } from '../../features/platform'
 import { confirmMatches, dangerButton, dangerPanel, emailField, quietButton, refusalBlockers, useAccountRemovalPlace, useRemovalPreview, useRemoveMyAccount } from './shared'
 
 function RemovedOnRoot() {

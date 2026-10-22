@@ -1,7 +1,7 @@
 import { useRouter, type NavigateOptions } from '@tanstack/react-router';
 import { useState, useEffect } from 'react';
-import { parseHash } from '../lib/route.js';
-import { useShellStore } from '../stores/shell.js';
+import { parseHash } from '../features/platform';
+import { useShellStore } from '../features/platform';
 import ChatSurface from './ChatSurface.js';
 import type { StoryAddress } from './Chat/ChatNotice.js';
 

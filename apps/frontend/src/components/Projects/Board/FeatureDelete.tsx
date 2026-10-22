@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2 } from 'lucide-react'
-import ConfirmDelete from '../../ConfirmDelete'
+import ConfirmDelete from '../../../shared/components/ConfirmDelete'
 import { deleteBranch, groveKeys } from '../../../api/grove'
 import { errorMessage } from '../../../api/client'
 
