@@ -9,6 +9,7 @@ import type { ChannelAddress } from '../../lib/channel-asks.js';
 
 export interface ChatMessageData {
   role: 'user' | 'assistant' | 'notice';
+  authorName?: string | undefined;
   notice?: import('../../api/chat-pack.js').ConversationNotice | undefined;
   content: string;
   reasoning?: string | undefined;
@@ -132,7 +133,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
       <div className="flex-1 min-w-0 space-y-1.5">
         <div className="flex items-center gap-2 text-xs text-slate-400 font-sans">
           <span className={`font-semibold ${isUser ? 'text-slate-200' : 'text-emerald-400'}`}>
-            {isUser ? 'You' : packLabel}
+            {isUser ? message.authorName ?? 'You' : packLabel}
           </span>
           {message.at && (
             <span className="text-slate-500 text-[11px]">

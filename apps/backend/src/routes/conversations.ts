@@ -4,7 +4,7 @@ import { Router } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import type { Database } from '../lib/db-interface.js';
 import type { Conversation } from '../lib/conversations.js';
-import { personMessage, titleFrom } from '../lib/conversations.js';
+import { personMessage, titleFrom, withAuthorNames } from '../lib/conversations.js';
 import { conversationContext } from '../lib/conversation-context.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -48,9 +48,12 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
   }));
 
   router.get('/:id', asyncRoute(async (req, res) => {
-    const found = (await deps.ownedConversations((req as any).user.id)).find((c) => c.id === req.params.id);
+    const viewer = (req as unknown as { user: { id: string } }).user.id;
+    const found = (await deps.ownedConversations(viewer)).find((c) => c.id === req.params.id);
     if (!found) return res.status(404).json({ error: 'No such conversation' });
-    res.json(deps.turns ? await deps.turns.settle(found) : found);
+    const settled = deps.turns ? await deps.turns.settle(found) : found;
+    const members = new Map((await db.getHubLinks()).flatMap((link) => link.members ?? []).map((member) => [member.personId, member.email]));
+    res.json(members.size > 0 ? withAuthorNames(settled, viewer, members) : settled);
   }));
 
   router.post('/', asyncRoute(async (req, res) => {

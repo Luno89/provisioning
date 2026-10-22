@@ -7,12 +7,17 @@ import { nodeAtDepth, statesFromEvents, statesFromKey, statesKey } from '../../.
 import { groupPathIn } from '../../../lib/procedure-drafts'
 import { roundsFrom, shownArgs, type Round } from '../../../lib/run-rounds'
 import ProcedureCanvas from '../../Studio/ProcedureCanvas'
-import { useProcedure, useStudioContextQuery } from '../../Studio/shared'
+import { useQuery } from '@tanstack/react-query'
+import { canvasContextFor } from '../../../lib/procedure-drafts'
+import { procedureKeys } from '../../../api/procedures'
+import { engineKeys } from '../../../api/engine'
 import RunControls, { StopRun } from '../../EngineRun/RunControls'
+import { keyedBy, useWorkSource } from '../work-source'
 
 const OUTCOME_TONE: Record<string, string> = { ok: 'text-emerald-300 bg-emerald-500/10' }
 
 export function StoryRun({ run, events }: { run: RunInstance; events: readonly EngineEvent[] }) {
+  const runs = useWorkSource().can('run-work')
   return (
     <section className="space-y-2" data-testid="story-run">
       <div className="flex flex-wrap items-center gap-2 text-[11px]">
@@ -27,9 +32,9 @@ export function StoryRun({ run, events }: { run: RunInstance; events: readonly E
             {run.outcome}{run.outcomeReason ? ` — ${run.outcomeReason}` : ''}
           </span>
         )}
-        <StopRun run={run} />
+        {runs && <StopRun run={run} />}
       </div>
-      <RunControls run={run} inTree />
+      {runs && <RunControls run={run} inTree />}
       {run.loopId && <RunProcedure procedureId={run.loopId} current={run.finished ? undefined : run.currentNode} events={events} />}
       <Rounds events={events} live={!run.finished} />
     </section>
@@ -37,8 +42,9 @@ export function StoryRun({ run, events }: { run: RunInstance; events: readonly E
 }
 
 function RunProcedure({ procedureId, current, events }: { procedureId: string; current: string | undefined; events: readonly EngineEvent[] }) {
-  const stored = useProcedure(procedureId)
-  const context = useStudioContextQuery()
+  const source = useWorkSource()
+  const stored = useQuery({ queryKey: keyedBy(source, procedureKeys.one(procedureId)), queryFn: () => source.getProcedure(procedureId), retry: false })
+  const context = useQuery({ queryKey: keyedBy(source, engineKeys.extensions()), queryFn: async () => canvasContextFor(await source.listExtensions()), staleTime: Infinity })
   const [chosen, setChosen] = useState<string[]>([])
   const [follow, setFollow] = useState(true)
   const procedure = stored.data?.procedure

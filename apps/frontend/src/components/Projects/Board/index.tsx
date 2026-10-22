@@ -4,19 +4,20 @@ import { MessageSquarePlus, PanelRightOpen } from 'lucide-react'
 import ChatSurface from '../../ChatSurface'
 import LeafDetail from '../../LeafDetail'
 import { chatPackKeys, createChatConversation, type ConversationBinding } from '../../../api/chat-pack'
-import { engineKeys, listTasks } from '../../../api/engine'
-import { listReleases, releaseKeys } from '../../../api/releases'
-import { listProjectRuns } from '../../../api/projects'
+import { engineKeys } from '../../../api/engine'
+import { releaseKeys } from '../../../api/releases'
 import type { PipelineRun } from '../../PipelineRunRow'
 import { ProjectChannel } from '../Workspace/ProjectChannel'
 import { TreeConversationsPanel } from '../Workspace/TreeConversationsPanel'
 import TreeAsks from '../Workspace/TreeAsks'
-import { getTreeRun, groveKeys, listTreeTypes, type TreeAsk, type TreeRunStatus } from '../../../api/grove'
+import { groveKeys, listTreeTypes, type TreeAsk, type TreeRunStatus } from '../../../api/grove'
 import type { LeafStatus } from '../../leaf-types'
 import { useResizableWidth } from '../Workspace/useResizableWidth'
 import { resizeHandle } from '../Workspace/shared'
 import { useProjectWork } from '../useProjectWork'
 import ProjectStoredFiles from '../../Files/ProjectStoredFiles'
+import StoredFiles from '../../Files/StoredFiles'
+import { keyedBy, useWorkSource } from '../work-source'
 import RepositoryFiles from '../../Files/RepositoryFiles'
 import { StoryDrops } from './StoryDrops'
 import { storyFolder } from '../../../lib/file-drop'
@@ -59,7 +60,9 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
   onTreeReady?: ((treeId: string) => void) | undefined
 }) {
   const qc = useQueryClient()
+  const source = useWorkSource()
   const { branches, leaves, tree, project, projectTrees, reading } = useProjectWork({ treeId, projectId })
+  const every = source.pushed ? 10_000 : 3_000
 
   const [main, setMain] = useState<Main>(() => mainFrom(initialBranchId, initialLeafId))
   const [sideChoice, setSideChoice] = useState<Side | undefined>(undefined)
@@ -79,16 +82,16 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
   const home: Side = project ? { kind: 'channel' } : { kind: 'threads' }
   const side: Side = sideChoice ?? (itemOpen ? { kind: 'item' } : home)
 
-  const tasks = useQuery({ queryKey: engineKeys.tasks(), queryFn: listTasks, refetchInterval: 10_000 })
-  const releases = useQuery({ queryKey: releaseKeys.list(project?.id ?? ''), queryFn: () => listReleases(project!.id), enabled: Boolean(project), refetchInterval: 10_000 })
-  const runs = useQuery<PipelineRun[]>({ queryKey: ['project-runs', project?.id ?? ''], queryFn: () => listProjectRuns<PipelineRun>(project!.id), enabled: Boolean(project) })
+  const tasks = useQuery({ queryKey: keyedBy(source, engineKeys.tasks()), queryFn: source.listTasks, refetchInterval: every })
+  const releases = useQuery({ queryKey: keyedBy(source, releaseKeys.list(project?.id ?? '')), queryFn: () => source.listReleases(project!.id), enabled: Boolean(project), refetchInterval: every })
+  const runs = useQuery<PipelineRun[]>({ queryKey: keyedBy(source, ['project-runs', project?.id ?? '']), queryFn: () => source.listProjectRuns(project!.id), enabled: Boolean(project), ...(source.pushed ? {} : { refetchInterval: every }) })
 
   const asking = useQueries({
-    queries: projectTrees.map((entry) => ({ queryKey: groveKeys.run(entry.id), queryFn: () => getTreeRun(entry.id), refetchInterval: 10_000 })),
+    queries: projectTrees.map((entry) => ({ queryKey: keyedBy(source, groveKeys.run(entry.id)), queryFn: () => source.getTreeRun(entry.id), refetchInterval: every })),
     combine: askingOf,
   })
 
-  const treeTypes = useQuery({ queryKey: groveKeys.treeTypes(), queryFn: listTreeTypes, staleTime: Infinity })
+  const treeTypes = useQuery({ queryKey: groveKeys.treeTypes(), queryFn: listTreeTypes, staleTime: Infinity, enabled: source.pushed })
   const epics = useMemo(() => buildBoard({
     trees: projectTrees,
     types: treeTypes.data,
@@ -109,7 +112,7 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
 
   const itemUnread = main.kind !== 'board' && !openBranch
   useRouteSync(
-    itemUnread ? undefined : tree
+    itemUnread || source.hub ? undefined : tree
       ? {
           kind: 'tree',
           treeId: tree.id,
@@ -131,7 +134,7 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
     else at.scrollTop = 0
   }, [mainKey])
 
-  const binding: ConversationBinding | undefined = treeId ? { treeId } : project ? { projectId: project.id } : undefined
+  const binding: ConversationBinding | undefined = !source.can('threads') ? undefined : treeId ? { treeId } : project ? { projectId: project.id } : undefined
   const openChat = useMutation({
     mutationFn: () => createChatConversation('New conversation', binding),
     onSuccess: (conversation) => {
@@ -174,7 +177,11 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
           <>
             {reading && <Reading label="Reading its features and stories…" className="px-1 py-2" />}
 
-            {!reading && epics.length === 0 && project && (
+            {!reading && epics.length === 0 && project && !binding && (
+              <p className="rounded-lg border border-dashed border-[var(--bark-600)] p-6 text-center text-[13px] text-slate-400">No work is planned on this project yet.</p>
+            )}
+
+            {!reading && epics.length === 0 && project && binding && (
               <div className="rounded-lg border border-dashed border-[var(--bark-600)] p-6 flex flex-col items-center gap-3 text-center text-slate-400">
                 <MessageSquarePlus size={24} className="text-slate-600" aria-hidden="true" />
                 <p className="text-[13px] max-w-md">No work planned yet. Plan it with Koala in its own conversation; once you approve the plan, its features and stories appear here.</p>
@@ -203,8 +210,8 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
                   epic={epic}
                   onOpenLeaf={(id) => go({ kind: 'story', id })}
                   onOpenFeature={(id) => go({ kind: 'feature', id })}
-                  onOrderStories={order.orderStories}
-                  onOrderFeatures={(branchIds) => order.orderFeatures(epic.id, branchIds)}
+                  onOrderStories={order.can ? order.orderStories : undefined}
+                  onOrderFeatures={order.can ? (branchIds) => order.orderFeatures(epic.id, branchIds) : undefined}
                 />
               </section>
             ))}
@@ -221,10 +228,10 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
           <article className="rounded-lg border border-[var(--bark-700)] bg-[var(--bark-900)] p-4" aria-label={openLeaf.title} data-testid="story-page">
             <LeafDetail key={openLeaf.id} leaf={openLeaf} all={leaves} treeId={openBranch?.treeId} tasks={taskCount((tasks.data ?? []).filter((task) => task.leafId === openLeaf.id))} />
             {asking.some((ask) => ask.leafId === openLeaf.id) && <div className="mt-3"><TreeAsks asks={asking.filter((ask) => ask.leafId === openLeaf.id)} /></div>}
-            {openBranch?.treeId && STARTABLE.has(openLeaf.status) && (
+            {source.can('run-work') && openBranch?.treeId && STARTABLE.has(openLeaf.status) && (
               <p className="mt-4 text-[11px] text-slate-500" data-testid="story-run-tree">Ready stories are worked in the order you set on the board, with Work them at the top of the page.</p>
             )}
-            {openBranch?.treeId && (
+            {openBranch?.treeId && source.can('see-work') && (
               <div className="mt-4">
                 <StoryFeed treeId={openBranch.treeId} leaf={openLeaf} />
               </div>
@@ -232,7 +239,12 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
             <div className="mt-4">
               <StoryTasks tasks={(tasks.data ?? []).filter((task) => task.leafId === openLeaf.id).sort((a, b) => (openLeaf.tasks ?? []).indexOf(a.id) - (openLeaf.tasks ?? []).indexOf(b.id) || byRank(a, b))} />
             </div>
-            {project && (
+            {project && source.hub && (
+              <div className="mt-4 rounded border border-[var(--bark-700)] p-2" data-testid="story-files">
+                <StoredFiles scope={source.fileScope(project.id)} dir={storyFolder(openLeaf.id)} title="Files for this story" clients={source.can('see-work') ? 'share' : 'client'} />
+              </div>
+            )}
+            {project && !source.hub && (
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <div className="rounded border border-[var(--bark-700)] p-2" data-testid="story-code">
                   <RepositoryFiles projectId={project.id} leafId={openLeaf.id} title="Code for this story">
@@ -261,10 +273,10 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
               selectedFeatureId={openFeature.id}
               onOpenLeaf={(id) => go({ kind: 'story', id })}
               onOpenFeature={(id) => go({ kind: 'feature', id })}
-              onOrderStories={order.orderStories}
+              onOrderStories={order.can ? order.orderStories : undefined}
             />
             {order.error && <p className="text-[11px] text-red-400" role="alert">{order.error}</p>}
-            <FeatureDelete key={openFeature.id} branchId={openFeature.id} title={openFeature.title} onDeleted={() => go({ kind: 'board' })} />
+            {source.can('delete-work') && <FeatureDelete key={openFeature.id} branchId={openFeature.id} title={openFeature.title} onDeleted={() => go({ kind: 'board' })} />}
           </article>
         )}
         {main.kind === 'feature' && !openFeature && reading && <Reading label="Opening the feature…" className="p-3" />}
@@ -322,7 +334,8 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
           </button>
         )}
         <div className={`flex-1 min-h-0 ${side.kind === 'threads' ? 'overflow-y-auto p-3' : side.kind === 'item' ? 'flex flex-col' : ''}`}>
-          {side.kind === 'channel' && project && (
+          {side.kind === 'channel' && project && source.chat && source.chat({ kind: 'channel' })}
+          {side.kind === 'channel' && project && !source.chat && (
             <ProjectChannel projectId={project.id} onOpenTree={openTree} onOpenStory={openStory} />
           )}
           {side.kind === 'threads' && binding && (
@@ -337,7 +350,13 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
           {side.kind === 'conversation' && binding && (
             <ChatSurface key={side.id} conversationId={side.id} binding={binding} hideSidebar onOpenTree={openTree} onOpenStory={openStory} />
           )}
-          {side.kind === 'item' && main.kind === 'story' && openLeaf && (
+          {side.kind === 'item' && main.kind === 'story' && openLeaf && source.chat && (
+            <div className="flex-1 min-h-0">{source.chat({ kind: 'story', id: openLeaf.id, title: openLeaf.title })}</div>
+          )}
+          {side.kind === 'item' && main.kind === 'feature' && openFeature && source.chat && (
+            <div className="flex-1 min-h-0">{source.chat({ kind: 'feature', id: openFeature.id, title: openFeature.title })}</div>
+          )}
+          {side.kind === 'item' && main.kind === 'story' && openLeaf && !source.chat && (
             <div className="flex-1 min-h-0">
               <ItemChat
                 key={openLeaf.id}
@@ -349,7 +368,7 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
               />
             </div>
           )}
-          {side.kind === 'item' && main.kind === 'feature' && openFeature && (
+          {side.kind === 'item' && main.kind === 'feature' && openFeature && !source.chat && (
             <div className="flex-1 min-h-0">
               <ItemChat
                 key={openFeature.id}

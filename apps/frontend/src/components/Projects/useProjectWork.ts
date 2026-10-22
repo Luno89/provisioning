@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { listTrees, listBranches, listLeaves, groveKeys } from '../../api/grove'
-import { listProjects, projectKeys } from '../../api/projects'
+import { groveKeys } from '../../api/grove'
+import { projectKeys } from '../../api/projects'
+import { keyedBy, useWorkSource } from './work-source'
 import { findLinkedProject } from '../../lib/tree-project-link'
 import type { Leaf } from '../leaf-types'
 import type { Branch } from '../../types/grove'
@@ -15,23 +16,26 @@ export interface WorkTree {
 }
 
 export function useProjectWork({ treeId, projectId }: { treeId?: string | undefined; projectId?: string | undefined }) {
+  const source = useWorkSource()
+  const every = source.pushed ? undefined : 3_000
   const treesRead = useQuery<WorkTree[]>({
-    queryKey: groveKeys.trees(),
-    queryFn: () => listTrees() as Promise<WorkTree[]>,
+    queryKey: keyedBy(source, groveKeys.trees()),
+    queryFn: source.listTrees,
+    ...(every ? { refetchInterval: every } : {}),
   })
   const branchesRead = useQuery<Branch[]>({
-    queryKey: groveKeys.branches(),
-    queryFn: listBranches,
-    refetchInterval: 10000,
+    queryKey: keyedBy(source, groveKeys.branches()),
+    queryFn: source.listBranches,
+    refetchInterval: every ?? 10000,
   })
   const leavesRead = useQuery<Leaf[]>({
-    queryKey: ['leaves'],
-    queryFn: listLeaves,
-    refetchInterval: 5000,
+    queryKey: keyedBy(source, ['leaves']),
+    queryFn: source.listLeaves,
+    refetchInterval: every ?? 5000,
   })
   const projectsRead = useQuery<LinkedProject[]>({
-    queryKey: projectKeys.list(),
-    queryFn: () => listProjects<LinkedProject>(),
+    queryKey: keyedBy(source, projectKeys.list()),
+    queryFn: source.listProjects,
     staleTime: 10_000,
   })
   const trees = useMemo(() => treesRead.data ?? [], [treesRead.data])

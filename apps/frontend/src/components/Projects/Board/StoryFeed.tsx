@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, Radio } from 'lucide-react'
-import { getTreeRun, groveKeys } from '../../../api/grove'
-import { readRunsUnder, TURN_LOG_CHANNEL } from '../../../api/turns'
+import { groveKeys } from '../../../api/grove'
+import { TURN_LOG_CHANNEL } from '../../../api/turns'
+import { keyedBy, useWorkSource } from '../work-source'
 import { errorMessage } from '../../../api/client'
 import { useSocketEvent } from '../../../stores/socket'
 import { createTurnFollower } from '../../../lib/turn-follower'
@@ -16,7 +17,8 @@ import type { EngineEvent } from '../../../api/engine'
 
 export function StoryFeed({ treeId, leaf }: { treeId: string; leaf: Pick<Leaf, 'id' | 'status' | 'runId' | 'claim' | 'updatedAt'> }) {
   const [open, setOpen] = useState(false)
-  const run = useQuery({ queryKey: groveKeys.run(treeId), queryFn: () => getTreeRun(treeId), refetchInterval: 10_000 })
+  const source = useWorkSource()
+  const run = useQuery({ queryKey: keyedBy(source, groveKeys.run(treeId)), queryFn: () => source.getTreeRun(treeId), refetchInterval: source.pushed ? 10_000 : 3_000 })
   const turnId = run.data && 'turnId' in run.data ? run.data.turnId : undefined
   if (leaf.runId && run.isPending) return <Reading label="Finding the run that works it…" />
   if (!leaf.runId || !turnId) return null
@@ -34,7 +36,7 @@ export function StoryFeed({ treeId, leaf }: { treeId: string; leaf: Pick<Leaf, '
         {working && <Radio size={12} className="text-blue-400 animate-pulse" aria-hidden="true" />}
         {working ? 'Watch it work' : 'See how it was worked'}
       </button>
-      {open && <Feed turnId={turnId} rootRunId={leaf.runId} asOf={working ? undefined : leaf.claim?.at ?? leaf.updatedAt} />}
+      {open && <Feed turnId={turnId} rootRunId={leaf.runId} asOf={working ? undefined : leaf.claim?.at ?? leaf.updatedAt} live={working} />}
     </section>
   )
 }
@@ -42,13 +44,16 @@ export function StoryFeed({ treeId, leaf }: { treeId: string; leaf: Pick<Leaf, '
 const pickedByDefault = (runs: readonly RunInstance[]): RunInstance | undefined =>
   [...runs].reverse().find((run) => !run.finished) ?? runs.at(-1)
 
-function Feed({ turnId, rootRunId, asOf }: { turnId: string; rootRunId: string; asOf?: string | undefined }) {
+const POLLED_FEED_MS = 3_000
+
+function Feed({ turnId, rootRunId, asOf, live }: { turnId: string; rootRunId: string; asOf?: string | undefined; live: boolean }) {
+  const source = useWorkSource()
   const [runs, setRuns] = useState<RunInstance[]>([])
   const [events, setEvents] = useState<{ grouped: Record<string, EngineEvent[]>; latest: Record<string, string> }>({ grouped: {}, latest: {} })
   const [picked, setPicked] = useState<string>()
   const [error, setError] = useState<string | null>(null)
   const [caughtUp, setCaughtUp] = useState(false)
-  const follower = useRef(createTurnFollower((turn, after) => readRunsUnder(turn, after, rootRunId)))
+  const follower = useRef(createTurnFollower((turn, after) => source.readRunsUnder(turn, after, rootRunId)))
   const family = useRef(new Set([rootRunId]))
   const apply = useCallback((entry: TurnLogEntry) => {
     const kept = keptForStory(entry.events, family.current)
@@ -63,7 +68,14 @@ function Feed({ turnId, rootRunId, asOf }: { turnId: string; rootRunId: string; 
       .then(() => setCaughtUp(true))
       .catch((err) => setError(`Its run could not be read: ${errorMessage(err)}`))
   }, [turnId, apply])
-  useSocketEvent<TurnLogEntry>(TURN_LOG_CHANNEL, (entry) => follower.current.receive(entry, apply))
+  useSocketEvent<TurnLogEntry>(TURN_LOG_CHANNEL, (entry) => { if (source.pushed) follower.current.receive(entry, apply) })
+  useEffect(() => {
+    if (source.pushed || !live) return
+    const timer = setInterval(() => {
+      void follower.current.catchUp(turnId, apply).catch((err) => setError(`Its run could not be read: ${errorMessage(err)}`))
+    }, POLLED_FEED_MS)
+    return () => clearInterval(timer)
+  }, [source.pushed, live, turnId, apply])
 
   const shown = instancesUnder(runs, rootRunId, asOf)
   if (error) return <p className="text-[12px] text-red-400">{error}</p>

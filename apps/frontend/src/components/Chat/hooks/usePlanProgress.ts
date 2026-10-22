@@ -1,23 +1,25 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { PlanProposal } from '@koala/harness-types'
-import { getTreeRun, groveKeys, listBranches, listLeaves } from '../../../api/grove'
-import { listTreePlans, planKeys } from '../../../api/plans'
+import { groveKeys } from '../../../api/grove'
+import { planKeys } from '../../../api/plans'
+import { keyedBy, useWorkSource } from '../../Projects/work-source'
 import { followedStories, planProgress, plansTree, type PlanProgress } from '../plan-progress'
 
 const FOLLOW_MS = 5_000
 
 export function usePlanProgress(proposal: PlanProposal): { progress: PlanProgress | undefined; error: unknown } {
+  const source = useWorkSource()
   const settled = useRef(false)
   const follow = { refetchInterval: () => (settled.current ? false as const : FOLLOW_MS), refetchIntervalInBackground: true }
   const wanted = proposal.status === 'adopted' && followedStories(proposal).length > 0
 
-  const leaves = useQuery({ queryKey: groveKeys.leaves(), queryFn: listLeaves, enabled: wanted, ...follow })
+  const leaves = useQuery({ queryKey: keyedBy(source, groveKeys.leaves()), queryFn: source.listLeaves, enabled: wanted, ...follow })
   const needsBranches = wanted && !proposal.adopted?.treeId && !proposal.change?.treeId
-  const branches = useQuery({ queryKey: groveKeys.branches(), queryFn: listBranches, enabled: needsBranches })
+  const branches = useQuery({ queryKey: keyedBy(source, groveKeys.branches()), queryFn: source.listBranches, enabled: needsBranches })
   const treeId = wanted ? plansTree(proposal, leaves.data ?? [], branches.data ?? []) : undefined
-  const run = useQuery({ queryKey: groveKeys.run(treeId ?? ''), queryFn: () => getTreeRun(treeId!), enabled: Boolean(treeId), ...follow })
-  const plans = useQuery({ queryKey: planKeys.forTree(treeId ?? ''), queryFn: () => listTreePlans(treeId!), enabled: Boolean(treeId), ...follow })
+  const run = useQuery({ queryKey: keyedBy(source, groveKeys.run(treeId ?? '')), queryFn: () => source.getTreeRun(treeId!), enabled: Boolean(treeId), ...follow })
+  const plans = useQuery({ queryKey: keyedBy(source, planKeys.forTree(treeId ?? '')), queryFn: () => source.listTreePlans(treeId!), enabled: Boolean(treeId), ...follow })
 
   const progress = useMemo(
     () => (wanted && leaves.data ? planProgress(proposal, { treeId, leaves: leaves.data, run: run.data, plans: plans.data ?? [] }) : undefined),

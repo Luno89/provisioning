@@ -152,3 +152,56 @@ describe('/api/hub-instance, on the hub', () => {
     await remote.unshare('ann', shared.hubProjectId);
   });
 });
+
+describe('relaying a member\'s file to and from the owner\'s instance over HTTP', () => {
+  it('streams a member\'s upload to the instance and the instance\'s file back to the member, byte for byte', async () => {
+    const { Readable } = await import('node:stream');
+    const { generateIdentityKey, identityKeysFrom, issueMoveToken, publicKeyPem, trustedKeys } = await import('../lib/identity-token.js');
+    const { hubInstanceRouter } = await import('./hub-instance.js');
+    const { RemoteHub } = await import('../services/HubRemote.js');
+    const { HubRelay } = await import('../services/HubRelay.js');
+    const { HUB_AUDIENCE, hubInstancePart } = await import('../lib/hub.js');
+    const root = identityKeysFrom(generateIdentityKey());
+    const relay = new HubRelay(Date.now, 60_000);
+    const hub = new HubService({ store: memoryHubStore(), invites: { send: async () => ({ link: 'l', emailed: false }) }, relay });
+    const forInstance = await mountRouter({ prefix: '/api/hub-instance', router: async () => hubInstanceRouter({ hub, trusted: trustedKeys([publicKeyPem(root.publicKey)]) }) });
+    const forAnn = await mountRouter({ prefix: '/api/hub', user: { ...TEST_USER, id: 'ann', email: 'ann@example.com' }, router: async () => hubRouter({ hub }) });
+    harnesses.push(forInstance, forAnn);
+    const remote = new RemoteHub({ access: async () => ({ token: issueMoveToken(root, HUB_AUDIENCE, hubInstancePart('inst-ann', 'ann', 'ann@example.com')), hubUrl: forInstance.url(''), personId: 'ann', email: 'ann@example.com', instanceId: 'inst-ann' }) });
+    const shared = await remote.share({ id: 'ann', email: 'ann@example.com' }, { id: 'p1', name: 'Shop' });
+    const link = { projectId: 'p1', ownerId: 'ann', hubProjectId: shared.hubProjectId, pulledThrough: 0, sharedAt: 't' };
+
+    const bytes = Buffer.from(Array.from({ length: 300_000 }, (_, at) => at % 251));
+    const kept: Buffer[] = [];
+    const stop = new AbortController();
+    const instance = (async () => {
+      while (!stop.signal.aborted) {
+        const call = await remote.take(link, stop.signal).catch(() => undefined);
+        if (!call) continue;
+        if (call.op === 'files.upload') {
+          const chunks: Buffer[] = [];
+          for await (const chunk of await call.upload!.open()) chunks.push(Buffer.from(chunk as Buffer));
+          kept.push(Buffer.concat(chunks));
+          await remote.answer(link, call.id, { kind: 'json', status: 201, body: { path: call.args.path } });
+        } else {
+          await remote.answer(link, call.id, { kind: 'stream', status: 200, type: 'application/pdf', name: 'nda.pdf', size: kept[0]!.length, stream: Readable.from([kept[0]!]) });
+        }
+      }
+    })();
+    await until(() => relay.online(shared.hubProjectId));
+
+    const put = await axios.put(forAnn.url(`/api/hub/projects/${shared.hubProjectId}/files/content?path=contracts/nda.pdf`), bytes, { ...ask, headers: { 'content-type': 'application/octet-stream', 'x-file-type': 'application/pdf' } });
+    expect([put.status, put.data]).toEqual([201, { path: 'contracts/nda.pdf' }]);
+    expect(kept[0]!.equals(bytes)).toBe(true);
+    const got = await axios.get(forAnn.url(`/api/hub/projects/${shared.hubProjectId}/files/content?path=contracts/nda.pdf`), { ...ask, responseType: 'arraybuffer' });
+    expect([got.status, got.headers['content-type'], Buffer.from(got.data as ArrayBuffer).equals(bytes)]).toEqual([200, 'application/pdf', true]);
+
+    stop.abort();
+    await instance;
+    relay.stop();
+  });
+});
+
+async function until(ready: () => boolean): Promise<void> {
+  for (let tries = 0; tries < 200 && !ready(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+}

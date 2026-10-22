@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Check, Copy, Loader2, Mail, UserMinus, Users } from 'lucide-react'
 import { errorMessage } from '../../api/client'
 import { HUB_ROLES, type HubRole, type InviteSent } from '../../types/hub'
+import { youAre } from './hub-chat'
 import { ROLE_SAID, usePeopleChanges, useSharedProject } from './shared'
 
 const field = 'rounded border border-[var(--bark-600)] bg-[var(--bark-900)] px-2 py-1 text-[12px] text-slate-200'
@@ -25,7 +26,7 @@ function Sent({ sent }: { sent: InviteSent }) {
   )
 }
 
-export default function SharedProjectPage({ id, me, onLeft }: { id: string; me: string; onLeft?: (() => void) | undefined }) {
+export default function SharedProjectPage({ id, me, onLeft, embedded = false }: { id: string; me: string; onLeft?: (() => void) | undefined; embedded?: boolean }) {
   const view = useSharedProject(id)
   const { invite, takeBack, changeRole, remove, deleteProject } = usePeopleChanges(id)
   const [email, setEmail] = useState('')
@@ -41,11 +42,12 @@ export default function SharedProjectPage({ id, me, onLeft }: { id: string; me: 
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 p-6" data-testid="shared-project">
-      <header className="space-y-1">
-        <h1 className="flex items-center gap-2 text-xl font-semibold text-slate-100"><Users size={18} className="text-[var(--leaf)]" /> {project.name}</h1>
-        <p className="text-[12px] text-slate-400">You are {ROLE_SAID[view.data.role].title.toLowerCase() === 'owner' ? 'an owner' : `a ${ROLE_SAID[view.data.role].title.toLowerCase()}`} here: {ROLE_SAID[view.data.role].can}</p>
-        <p className="text-[11px] text-slate-500">Its board, channel and files are shared next; for now this is who is on it.</p>
-      </header>
+      {!embedded && (
+        <header className="space-y-1">
+          <h1 className="flex items-center gap-2 text-xl font-semibold text-slate-100"><Users size={18} className="text-[var(--leaf)]" /> {project.name}</h1>
+          <p className="text-[12px] text-slate-400">{youAre(view.data.role)}</p>
+        </header>
+      )}
 
       <section className="space-y-2">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">People</h2>

@@ -152,7 +152,7 @@ describe('a shared project and its people', () => {
   });
 
   it('is shared only from an instance, with a repository on the hub, and is taken back only by that instance, which deletes everything of it', async () => {
-    const repos = { create: vi.fn(async (id: string) => ({ url: `http://gitea/shared-${id}/project.git`, username: `shared-${id}-bot`, token: 't' })), remove: vi.fn(async () => undefined) };
+    const repos = { create: vi.fn(async (id: string) => ({ url: `http://gitea/shared-${id}/project.git`, username: `shared-${id}-bot`, token: 't' })), remove: vi.fn(async () => undefined), files: async () => [], read: async () => null };
     const store = memoryHubStore();
     const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) }, repos });
     const fromAnn = { kind: 'instance' as const, personId: 'ann', instanceId: 'i-ann', email: 'ann@example.com' };

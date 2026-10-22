@@ -2,6 +2,7 @@ import { MongoClient, type Db } from 'mongodb';
 import { projectDatabase, type HubInvite, type HubMember, type SharedProject } from './hub.js';
 import type { HubStore, SharedProjectStore } from './hub-store.js';
 import type { HubChange, SyncedDoc } from './hub-sync.js';
+import type { HubRequest, HubStatus } from './hub-board.js';
 
 const without = <T>(doc: Record<string, unknown> | null, key: string, as: string): T | undefined => {
   if (!doc) return undefined;
@@ -54,6 +55,20 @@ export function mongoHubStore(uri: string, registry: string): HubStore {
       async changes(after, limit) {
         return (await own().collection('changes').find({ _id: { $gt: after } as never }).sort({ _id: 1 }).limit(limit).toArray()).map(({ _id, ...rest }) => rest as unknown as HubChange);
       },
+      async requests() {
+        return (await own().collection('requests').find({}).sort({ at: 1 }).toArray()).map((doc) => without<HubRequest>(doc, '_id', 'id')!);
+      },
+      async saveRequest(request) {
+        const { id: requestId, ...rest } = request;
+        await own().collection('requests').replaceOne({ _id: requestId as never }, rest, { upsert: true });
+      },
+      async status() {
+        const doc = await own().collection('status').findOne({ _id: 'status' as never });
+        if (!doc) return undefined;
+        const { _id, ...rest } = doc;
+        return rest as unknown as HubStatus;
+      },
+      async putStatus(status) { await own().collection('status').replaceOne({ _id: 'status' as never }, status, { upsert: true }); },
       async drop() { await own().dropDatabase(); },
     };
   };

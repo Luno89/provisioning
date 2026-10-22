@@ -3,14 +3,19 @@ import type { FileScope, FileServer, FileShare, PlaceState, ShareDays, StoredFil
 
 export const FILE_TYPE_HEADER = 'X-File-Type'
 
-const base = (scope: FileScope): string => (scope.kind === 'project' ? `/files/projects/${encodeURIComponent(scope.projectId)}` : '/files/mine')
+const base = (scope: FileScope): string =>
+  scope.kind === 'project' ? `/files/projects/${encodeURIComponent(scope.projectId)}`
+    : scope.kind === 'hub' ? `/hub/projects/${encodeURIComponent(scope.projectId)}/files`
+      : '/files/mine'
+
+const scopeKey = (scope: FileScope): string => (scope.kind === 'mine' ? 'mine' : `${scope.kind}:${scope.projectId}`)
 
 export const fileKeys = {
   servers: ['files', 'servers'] as const,
   place: (projectId: string) => ['files', 'place', projectId] as const,
-  list: (scope: FileScope, dir: string) => ['files', 'list', scope.kind === 'project' ? scope.projectId : 'mine', dir] as const,
+  list: (scope: FileScope, dir: string) => ['files', 'list', scopeKey(scope), dir] as const,
   all: ['files'] as const,
-  search: (scope: FileScope, query: string) => ['files', 'search', scope.kind === 'project' ? scope.projectId : 'mine', query] as const,
+  search: (scope: FileScope, query: string) => ['files', 'search', scopeKey(scope), query] as const,
   shares: ['files', 'shares'] as const,
 }
 
@@ -69,3 +74,6 @@ export const shareUrl = (id: string, origin: string): string => new URL(`${API_B
 
 export const readStoredText = (scope: FileScope, path: string): Promise<string> =>
   api.get<string>(`${base(scope)}/content`, { params: { path, inline: '1' }, responseType: 'text', transformResponse: (raw: unknown) => raw }).then((r) => String(r.data))
+
+export const shareWithClients = (scope: FileScope, path: string, on: boolean): Promise<{ clientFiles: string[] }> =>
+  api.put<{ clientFiles: string[] }>(`${base(scope)}/for-clients`, { path, on }).then((r) => r.data)

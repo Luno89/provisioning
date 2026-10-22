@@ -19,15 +19,13 @@ import {
   type TaskStatus,
 } from '../engine-host/index.js';
 import type { StoredNodeTrace } from '../lib/run-traces.js';
+import { decideTask, type TaskAccess } from '../services/TaskDecisions.js';
 import type { WorkspaceImage } from '../engine-host/sandboxes/warm-images.js';
 import type { PruneReport } from '../engine-host/sandboxes/prune-images.js';
 import { SwitchedOffError } from '../lib/extension-settings.js';
 import { replyTokensProblem, samplingAt, temperatureProblem } from '../lib/run-knobs.js';
 
-export interface TaskAccess {
-  list(ownerId: string): Promise<Task[]>;
-  save(task: Task): Promise<void>;
-}
+export type { TaskAccess } from '../services/TaskDecisions.js';
 
 
 export interface TraceAccess {
@@ -69,25 +67,27 @@ const fail = (res: Response, err: unknown): Response => {
   throw err;
 };
 
+export const extensionSummary = ({ extension, enabled, alwaysOn, authored, latest }: ExtensionState) => ({
+  id: extension.id,
+  title: extension.title,
+  describe: extension.describe,
+  version: extension.version,
+  enabled,
+  alwaysOn,
+  authored,
+  ...(latest ? { latest } : {}),
+  requires: extension.requires ?? [],
+  operations: extension.operations ?? [],
+  groups: extension.groups ?? [],
+  tools: (extension.tools ?? []).map((tool) => tool.name),
+  personas: (extension.personas ?? []).map((persona) => persona.slug),
+  procedures: (extension.procedures ?? []).map((procedure) => procedure.id),
+});
+
 export function engineRouter(deps: EngineRouterDeps): Router {
   const router = Router();
 
-  const summary = ({ extension, enabled, alwaysOn, authored, latest }: ExtensionState) => ({
-    id: extension.id,
-    title: extension.title,
-    describe: extension.describe,
-    version: extension.version,
-    enabled,
-    alwaysOn,
-    authored,
-    ...(latest ? { latest } : {}),
-    requires: extension.requires ?? [],
-    operations: extension.operations ?? [],
-    groups: extension.groups ?? [],
-    tools: (extension.tools ?? []).map((tool) => tool.name),
-    personas: (extension.personas ?? []).map((persona) => persona.slug),
-    procedures: (extension.procedures ?? []).map((procedure) => procedure.id),
-  });
+  const summary = extensionSummary;
 
   router.get('/extensions', asyncRoute(async (req: Request, res: Response) => {
     res.json(deps.extensions ? (await deps.extensions.list(userOf(req).id)).map(summary) : []);
@@ -177,17 +177,11 @@ export function engineRouter(deps: EngineRouterDeps): Router {
     })));
   }));
 
-  const decide = (status: TaskStatus) => asyncRoute(async (req: Request, res: Response) => {
+  const decide = (status: Extract<TaskStatus, 'accepted' | 'dropped'>) => asyncRoute(async (req: Request, res: Response) => {
     if (!deps.tasks) return res.status(503).json({ error: 'Work is not being tracked on this server.' });
-
-    const all = await deps.tasks.list(userOf(req).id);
-    const task = all.find((candidate) => candidate.id === req.params.taskId);
-    if (!task) return res.status(404).json({ error: 'No such task' });
-
-    const updated = withStatus(task, status, new Date().toISOString());
-    await deps.tasks.save(updated);
-    const needs = status === 'accepted' ? await deps.accepted?.(userOf(req).id, updated) : undefined;
-    return res.json(needs?.waiting.includes(updated.id) ? (await deps.tasks.list(userOf(req).id)).find((candidate) => candidate.id === updated.id) ?? updated : updated);
+    const decided = await decideTask(deps.tasks, deps.accepted, userOf(req).id, String(req.params.taskId), status);
+    if (!decided) return res.status(404).json({ error: 'No such task' });
+    return res.json(decided);
   });
 
   router.post('/tasks/:taskId/accept', decide('accepted'));

@@ -150,6 +150,17 @@ export function heardAs(message: Pick<ConversationMessage, 'role' | 'author' | '
   return `${who}: ${said}`;
 }
 
+export function withAuthorNames<T extends { messages: ConversationMessage[] }>(conversation: T, viewerId: string, names: ReadonlyMap<string, string>): T & { messages: (ConversationMessage & { authorName?: string })[] } {
+  return {
+    ...conversation,
+    messages: conversation.messages.map((message) => {
+      const id = message.author?.kind === 'person' ? message.author.id : undefined;
+      const name = id && id !== viewerId ? names.get(id) : undefined;
+      return name ? { ...message, authorName: name } : message;
+    }),
+  };
+}
+
 export const peopleIn = (messages: readonly Pick<ConversationMessage, 'author'>[]): string[] =>
   [...new Set(messages.flatMap((message) => (message.author?.kind === 'person' ? [message.author.id] : [])))];
 

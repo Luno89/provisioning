@@ -565,8 +565,11 @@ export function storesFromDatabase(db: Database): EngineHostStores {
     conversations: {
       get: (ownerId, id) => db.getConversation(ownerId, id),
       save: (conversation) => db.saveConversation(conversation),
-      names: async (ids) => Object.fromEntries((await Promise.all(ids.map(async (id) => [id, (await db.getUserById(id))?.email] as const)))
-        .filter((entry): entry is readonly [string, string] => Boolean(entry[1]))),
+      names: async (ids) => {
+        const onHub = new Map((await db.getHubLinks()).flatMap((link) => link.members ?? []).map((member) => [member.personId, member.email]));
+        return Object.fromEntries((await Promise.all(ids.map(async (id) => [id, (await db.getUserById(id))?.email ?? onHub.get(id)] as const)))
+          .filter((entry): entry is readonly [string, string] => Boolean(entry[1])));
+      },
     },
     tasks: { list: (ownerId: string) => db.getTasks(ownerId), save: (task) => db.saveTask(task) },
     grove: {

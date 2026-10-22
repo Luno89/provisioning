@@ -1,3 +1,4 @@
+import { afterMove, afterRemove, marked, sharing, type ClientMark } from '../lib/client-files.js';
 import { randomBytes } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import type { DeploymentMetadata, ProjectMetadata } from '../lib/types.js';
@@ -106,9 +107,31 @@ export class FileService {
     return { ok: true, value: await this.deps.open(ownerId, state.place) };
   }
 
-  async list(ownerId: string, scope: FileScope, dir: string): Promise<FilesOutcome<FileEntry[]>> {
+  private async clientFilesOf(scope: FileScope): Promise<string[]> {
+    if (scope.kind !== 'project') return [];
+    return (await this.deps.store.getProjects()).find((entry) => entry.id === scope.project.id)?.clientFiles ?? [];
+  }
+
+  private async keepClientFiles(scope: FileScope, next: (shared: string[]) => string[]): Promise<string[]> {
+    if (scope.kind !== 'project') return [];
+    const before = await this.clientFilesOf(scope);
+    const after = next(before);
+    if (JSON.stringify(after) !== JSON.stringify(before)) await this.deps.store.saveProjectInfo({ id: scope.project.id, clientFiles: after });
+    return after;
+  }
+
+  async list(ownerId: string, scope: FileScope, dir: string): Promise<FilesOutcome<(FileEntry & { forClients?: ClientMark })[]>> {
     const store = await this.storeFor(ownerId, scope);
-    return store.ok ? { ok: true, value: await store.value.list(dir) } : store;
+    return store.ok ? { ok: true, value: marked(await store.value.list(dir), await this.clientFilesOf(scope)) } : store;
+  }
+
+  async clientFiles(scope: FileScope): Promise<string[]> {
+    return this.clientFilesOf(scope);
+  }
+
+  async forClients(scope: FileScope, path: string, on: boolean): Promise<FilesOutcome<{ clientFiles: string[] }>> {
+    if (scope.kind !== 'project') return { ok: false, status: 400, why: 'Only a project\'s files are shared with its clients.' };
+    return { ok: true, value: { clientFiles: await this.keepClientFiles(scope, (shared) => sharing(shared, path, on)) } };
   }
 
   async download(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<Download>> {
@@ -129,6 +152,7 @@ export class FileService {
     const store = await this.storeFor(ownerId, scope);
     if (!store.ok) return store;
     await store.value.remove(path);
+    await this.keepClientFiles(scope, (shared) => afterRemove(shared, path));
     return { ok: true, value: { path } };
   }
 
@@ -136,6 +160,7 @@ export class FileService {
     const store = await this.storeFor(ownerId, scope);
     if (!store.ok) return store;
     await store.value.move(from, to);
+    await this.keepClientFiles(scope, (shared) => afterMove(shared, from, to));
     return { ok: true, value: { path: to } };
   }
 
@@ -146,10 +171,10 @@ export class FileService {
     return { ok: true, value: { path } };
   }
 
-  async search(ownerId: string, scope: FileScope, query: string): Promise<FilesOutcome<FileEntry[]>> {
+  async search(ownerId: string, scope: FileScope, query: string): Promise<FilesOutcome<(FileEntry & { forClients?: ClientMark })[]>> {
     if (!query.trim()) return { ok: true, value: [] };
     const store = await this.storeFor(ownerId, scope);
-    return store.ok ? { ok: true, value: await store.value.search(query) } : store;
+    return store.ok ? { ok: true, value: marked(await store.value.search(query), await this.clientFilesOf(scope)) } : store;
   }
 
   private now(): string {

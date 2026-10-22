@@ -1,7 +1,7 @@
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { useShellStore } from '../../stores/shell'
 import SharedProjects from './SharedProjects'
-import SharedProjectPage from './SharedProjectPage'
+import HubProjectPage from './HubProjectPage'
 import JoinPage from './JoinPage'
 
 export function SharedProjectsRoute() {
@@ -12,7 +12,7 @@ export function SharedProjectRoute() {
   const { id } = useParams({ strict: false }) as { id?: string }
   const me = useShellStore((s) => s.user?.id) ?? ''
   const navigate = useNavigate()
-  return <SharedProjectPage key={id} id={id ?? ''} me={me} onLeft={() => void navigate({ to: '/shared' })} />
+  return <HubProjectPage key={id} id={id ?? ''} me={me} onLeft={() => void navigate({ to: '/shared' })} />
 }
 
 export function HubJoinRoute() {

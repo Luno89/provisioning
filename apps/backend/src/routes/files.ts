@@ -135,6 +135,14 @@ export function filesRouter(deps: FilesRouterDeps): Router {
     answer(res, await deps.files.remove(userOf(req).id, scope, path));
   }));
 
+  router.put('/:scope/:id?/for-clients', asyncRoute(async (req, res) => {
+    const scope = await scopeOf(req, res);
+    if (!scope) return;
+    const path = pathOf(req, res, 'path', true);
+    if (path === undefined) return;
+    answer(res, await deps.files.forClients(scope, path, req.body?.on === true));
+  }));
+
   router.post('/:scope/:id?/move', asyncRoute(async (req, res) => {
     const scope = await scopeOf(req, res);
     if (!scope) return;

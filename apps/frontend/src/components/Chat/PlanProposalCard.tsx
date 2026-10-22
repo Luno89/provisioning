@@ -16,6 +16,8 @@ export interface PlanProposalCardProps {
   onReject: (reason?: string) => void
   onOpenTree?: ((treeId: string) => void) | undefined
   onOpenStory?: ((story: StoryAddress) => void) | undefined
+  decides?: boolean | undefined
+  waiting?: string | undefined
 }
 
 const STATUS_WORD: Record<PlanProposal['status'], string> = {
@@ -44,7 +46,7 @@ function statusLine(proposal: PlanProposal, change: boolean): string {
   return `${word}${proposal.reason ? ` — ${proposal.reason}` : ''}`
 }
 
-export default function PlanProposalCard({ proposal, deciding, onApprove, onReject, onOpenTree, onOpenStory }: PlanProposalCardProps) {
+export default function PlanProposalCard({ proposal, deciding, onApprove, onReject, onOpenTree, onOpenStory, decides = true, waiting }: PlanProposalCardProps) {
   const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState('')
   const [showDoc, setShowDoc] = useState(false)
@@ -54,7 +56,8 @@ export default function PlanProposalCard({ proposal, deciding, onApprove, onReje
   const treeTypes = useQuery({ queryKey: groveKeys.treeTypes(), queryFn: listTreeTypes, staleTime: Infinity, enabled: Boolean(newTree) })
   const defaultVersion = treeTypes.data?.find((type) => type.id === newTree?.type)?.versions?.default
   const version = newTree ? versionLabel({ type: newTree.type, version: newTree.version ?? defaultVersion }, treeTypes.data ?? []) : undefined
-  const decidable = status === 'proposed' || status === 'failed'
+  const open = status === 'proposed' || status === 'failed'
+  const decidable = open && decides && !waiting
 
   return (
     <div className="w-full p-3 my-2 rounded-md bg-[var(--bark-800)] border border-[var(--bark-700)] text-slate-200 text-xs flex flex-col gap-2" data-testid="plan-proposal">
@@ -69,7 +72,7 @@ export default function PlanProposalCard({ proposal, deciding, onApprove, onReje
         {status === 'rejected' && <XCircle size={14} className="text-slate-500 shrink-0" />}
       </div>
 
-      {change && <ItemChangeDetails change={change} decided={!decidable} />}
+      {change && <ItemChangeDetails change={change} decided={!open} />}
 
       {leafPlan && (
         <>
@@ -146,6 +149,8 @@ export default function PlanProposalCard({ proposal, deciding, onApprove, onReje
       </>
       )}
 
+      {open && waiting && <p className="self-end text-[11px] text-amber-200" data-testid="plan-waiting">{waiting}</p>}
+      {open && !decides && !waiting && <p className="self-end text-[11px] text-slate-400">An owner or a collaborator decides this.</p>}
       {decidable && !rejecting && (
         <div className="flex items-center gap-1.5 self-end">
           <button type="button" onClick={() => setRejecting(true)} disabled={deciding} className="px-2.5 py-1 rounded bg-[var(--bark-700)] hover:bg-[var(--bark-600)] cursor-pointer disabled:opacity-50">

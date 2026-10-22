@@ -1,5 +1,7 @@
 import { api } from './client'
-import type { HubRole, Invitation, InviteSent, RootInvitation, SharedProject, SharedProjectView, SharingPreview } from '../types/hub'
+import type { HubBoardView, HubPosted, HubRequest, HubRequestKind, HubRole, Invitation, InviteSent, RootInvitation, SharedProject, SharedProjectView, SharingPreview } from '../types/hub'
+import type { ChatConversation } from './chat-pack'
+import type { TurnLogEntry } from '../types/turns'
 
 export const hubKeys = {
   all: ['hub'] as const,
@@ -7,6 +9,10 @@ export const hubKeys = {
   project: (id: string) => ['hub', 'project', id] as const,
   invitation: (token: string) => ['hub', 'invitation', token] as const,
   rootInvitation: (code: string) => ['hub', 'root-invitation', code] as const,
+  board: (id: string) => ['hub', 'board', id] as const,
+  conversation: (id: string, conversationId: string) => ['hub', 'conversation', id, conversationId] as const,
+  repository: (id: string) => ['hub', 'repository', id] as const,
+  repositoryFile: (id: string, path: string) => ['hub', 'repository', id, path] as const,
 }
 
 const project = (id: string) => `/hub/projects/${encodeURIComponent(id)}`
@@ -56,3 +62,30 @@ export const shareProject = (projectId: string): Promise<SharingPreview> =>
 
 export const takeProjectBack = (projectId: string, confirm: string): Promise<SharingPreview> =>
   api.delete<SharingPreview>(`/project-sharing/${encodeURIComponent(projectId)}`, { data: { confirm } }).then((r) => r.data)
+
+export const getHubBoard = (id: string): Promise<HubBoardView> =>
+  api.get<HubBoardView>(`${project(id)}/board`).then((r) => r.data)
+
+export const getHubConversation = (id: string, conversationId: string): Promise<ChatConversation> =>
+  api.get<ChatConversation>(`${project(id)}/conversations/${encodeURIComponent(conversationId)}`).then((r) => r.data)
+
+export const postHubMessage = (id: string, conversationId: string, body: { content: string; askKoala?: boolean }): Promise<HubPosted> =>
+  api.post<HubPosted>(`${project(id)}/conversations/${encodeURIComponent(conversationId)}/messages`, body).then((r) => r.data)
+
+export const sendHubRequest = (id: string, kind: HubRequestKind, input: Record<string, unknown>): Promise<HubRequest> =>
+  api.post<HubRequest>(`${project(id)}/requests`, { kind, ...input }).then((r) => r.data)
+
+export const readHubRunsUnder = (id: string, turnId: string, after: number, under: string): Promise<{ entries: TurnLogEntry[]; through: number }> =>
+  api.get<{ entries: TurnLogEntry[]; through: number }>(`${project(id)}/live/turns/${encodeURIComponent(turnId)}`, { params: { after, under } }).then((r) => r.data)
+
+export const getHubProcedure = <T>(id: string, procedureId: string): Promise<T> =>
+  api.get<T>(`${project(id)}/live/procedures/${encodeURIComponent(procedureId)}`).then((r) => r.data)
+
+export const listHubExtensions = <T>(id: string): Promise<T> =>
+  api.get<T>(`${project(id)}/live/extensions`).then((r) => r.data)
+
+export const listHubRepository = (id: string): Promise<{ files: string[] }> =>
+  api.get<{ files: string[] }>(`${project(id)}/repository`).then((r) => r.data)
+
+export const readHubRepositoryFile = (id: string, path: string): Promise<{ path: string; content: string }> =>
+  api.get<{ path: string; content: string }>(`${project(id)}/repository/file`, { params: { path } }).then((r) => r.data)

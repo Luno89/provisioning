@@ -96,6 +96,12 @@ export function scopeOf(projectId: string, world: { trees: SyncedDoc[]; branches
   return { ...partial, conversationIds };
 }
 
+export interface HubMemberName {
+  personId: string;
+  email: string;
+  role: string;
+}
+
 export interface HubLink {
   projectId: string;
   ownerId: string;
@@ -105,6 +111,7 @@ export interface HubLink {
   repo?: { url: string; username: string; tokenEnc: string } | undefined;
   repoHeads?: { owner?: string | undefined; hub?: string | undefined } | undefined;
   repoConflict?: { owner?: string | undefined; hub?: string | undefined; kept: string } | undefined;
+  members?: HubMemberName[] | undefined;
 }
 
 export interface HubDirty {

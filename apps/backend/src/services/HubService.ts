@@ -5,7 +5,13 @@ import {
 } from '../lib/hub.js';
 import type { HubStore, SharedProjectStore } from '../lib/hub-store.js';
 import type { HubRepoAccess, HubRepos } from './HubRepos.js';
-import { applyPatch, isSyncedKind, type HubChange, type RecordChange } from '../lib/hub-sync.js';
+import { applyPatch, isSyncedKind, SYNCED_KINDS, type HubChange, type RecordChange, type SyncedDoc, type SyncedKind } from '../lib/hub-sync.js';
+import {
+  isRequestKind, koalaAnswersOnOwners, recordFor, relayProblem, requestInput, requestProblem, statusFor,
+  type HubBoard, type HubRequest, type HubRequestKind, type HubStatus, type Plain, type RelayOp,
+} from '../lib/hub-board.js';
+import { mentionsKoala, personMessage, withAuthorNames, type ConversationMessage } from '../lib/conversations.js';
+import { InstanceOffline, type HubRelay, type RelayAnswer, type RelayCall } from './HubRelay.js';
 
 export type SyncOrigin = { kind: 'instance'; personId: string; instanceId: string; email?: string | undefined } | { kind: 'person'; personId: string };
 
@@ -26,7 +32,33 @@ export interface HubServiceDeps {
   store: HubStore;
   invites: InviteSender;
   repos?: HubRepos | undefined;
+  relay?: HubRelay | undefined;
   now?: (() => string) | undefined;
+}
+
+export interface ChatSummary {
+  id: string;
+  title: string;
+  kind?: 'channel' | 'item' | undefined;
+  leafId?: string | undefined;
+  branchId?: string | undefined;
+}
+
+export interface BoardView {
+  project: SharedProject;
+  role: HubRole;
+  can: HubAction[];
+  online: boolean;
+  members: { personId: string; email: string; role: HubRole }[];
+  board: HubBoard;
+  chats: ChatSummary[];
+  requests: HubRequest[];
+}
+
+export interface Posted {
+  message: ConversationMessage;
+  asked?: HubRequest | undefined;
+  notAsked?: string | undefined;
 }
 
 export type HubOutcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 403 | 404 | 409; why: string };
@@ -93,11 +125,158 @@ export class HubService {
     });
   }
 
-  async changesSince(origin: SyncOrigin, projectId: string, after: number): Promise<HubOutcome<{ changes: HubChange[]; through: number }>> {
+  async changesSince(origin: SyncOrigin, projectId: string, after: number): Promise<HubOutcome<{ changes: HubChange[]; through: number; members: { personId: string; email: string; role: HubRole }[] }>> {
     const allowed = await this.fromOwnerInstance(origin, projectId);
     if (!allowed.ok) return allowed;
     const changes = await allowed.value.store.changes(Number.isFinite(after) && after > 0 ? after : 0, CHANGES_PAGE);
-    return { ok: true, value: { changes, through: changes.at(-1)?.seq ?? after } };
+    return { ok: true, value: { changes, through: changes.at(-1)?.seq ?? after, members: allowed.value.members.map(({ personId, email, role }) => ({ personId, email, role })) } };
+  }
+
+  async waitingRequests(origin: SyncOrigin, projectId: string): Promise<HubOutcome<HubRequest[]>> {
+    const allowed = await this.fromOwnerInstance(origin, projectId);
+    if (!allowed.ok) return allowed;
+    return { ok: true, value: (await allowed.value.store.requests()).filter((request) => request.state === 'waiting') };
+  }
+
+  async settleRequest(origin: SyncOrigin, projectId: string, requestId: string, outcome: { state: unknown; why?: unknown }): Promise<HubOutcome<HubRequest>> {
+    const allowed = await this.fromOwnerInstance(origin, projectId);
+    if (!allowed.ok) return allowed;
+    if (outcome.state !== 'done' && outcome.state !== 'refused') return wrong('a request is settled as done or refused');
+    const request = (await allowed.value.store.requests()).find((entry) => entry.id === requestId);
+    if (!request) return { ok: false, status: 404, why: 'There is no such request.' };
+    const settled: HubRequest = { ...request, state: outcome.state, ...(typeof outcome.why === 'string' && outcome.why ? { why: outcome.why } : {}), settledAt: this.now() };
+    await allowed.value.store.saveRequest(settled);
+    return { ok: true, value: settled };
+  }
+
+  async putStatus(origin: SyncOrigin, projectId: string, status: unknown): Promise<HubOutcome<{ at: string }>> {
+    const allowed = await this.fromOwnerInstance(origin, projectId);
+    if (!allowed.ok) return allowed;
+    const given = status as Partial<HubStatus> | undefined;
+    if (!given || !Array.isArray(given.releases) || !Array.isArray(given.runs) || !given.treeRuns || typeof given.treeRuns !== 'object') return wrong('a status carries the releases, builds and tree runs');
+    const kept: HubStatus = { at: this.now(), releases: given.releases, runs: given.runs, treeRuns: given.treeRuns, ...(given.addresses ? { addresses: given.addresses } : {}) };
+    await allowed.value.store.putStatus(kept);
+    return { ok: true, value: { at: kept.at } };
+  }
+
+  async takeRelay(origin: SyncOrigin, projectId: string, closed: Promise<void>): Promise<HubOutcome<RelayCall | undefined>> {
+    const allowed = await this.fromOwnerInstance(origin, projectId);
+    if (!allowed.ok) return allowed;
+    if (!this.deps.relay) return { ok: false, status: 404, why: 'This hub relays nothing.' };
+    return { ok: true, value: await this.deps.relay.take(projectId, closed) };
+  }
+
+  async relayed(origin: SyncOrigin, callId: string): Promise<HubOutcome<RelayCall>> {
+    const call = this.deps.relay?.callOf(callId);
+    if (!call) return { ok: false, status: 404, why: 'That call is no longer waiting.' };
+    const allowed = await this.fromOwnerInstance(origin, call.projectId);
+    if (!allowed.ok) return allowed;
+    return { ok: true, value: call };
+  }
+
+  async answerRelay(origin: SyncOrigin, callId: string, answer: RelayAnswer): Promise<HubOutcome<{ answered: string }>> {
+    const call = await this.relayed(origin, callId);
+    if (!call.ok) return call;
+    this.deps.relay!.answer(callId, answer);
+    return { ok: true, value: { answered: callId } };
+  }
+
+  async boardView(personId: string, projectId: string): Promise<HubOutcome<BoardView>> {
+    const access = await this.access(personId, projectId);
+    if (!access) return NOT_FOUND;
+    const role = access.member.role;
+    const read = async (kind: SyncedKind) => (await access.store.records(kind)).map((doc) => recordFor(role, kind, doc));
+    const [trees, branches, leaves, tasks, planProposals, conversations] = await Promise.all((['trees', 'branches', 'leaves', 'tasks', 'planProposals', 'conversations'] as const).map(read));
+    const status = statusFor(role, await access.store.status());
+    const requests = (await access.store.requests()).filter((request) => request.state === 'waiting' || request.by.personId === personId);
+    return {
+      ok: true,
+      value: {
+        project: access.project,
+        role,
+        can: ACTIONS.filter((action) => can(role, action)),
+        online: this.deps.relay?.online(projectId) ?? false,
+        members: access.members.map(({ personId: id, email, role: theirs }) => ({ personId: id, email, role: theirs })),
+        board: { trees: trees!, branches: branches!, leaves: leaves!, tasks: tasks!, planProposals: planProposals!, ...(status ? { status } : {}) },
+        chats: conversations!.map((doc) => ({ id: doc.id, title: String(doc.title ?? ''), ...(doc.kind ? { kind: doc.kind as 'channel' | 'item' } : {}), ...(doc.leafId ? { leafId: String(doc.leafId) } : {}), ...(doc.branchId ? { branchId: String(doc.branchId) } : {}) })),
+        requests,
+      },
+    };
+  }
+
+  async conversation(personId: string, projectId: string, conversationId: string): Promise<HubOutcome<SyncedDoc>> {
+    const access = await this.access(personId, projectId);
+    if (!access) return NOT_FOUND;
+    const doc = await access.store.record('conversations', conversationId);
+    if (!doc) return { ok: false, status: 404, why: 'There is no such chat on this project.' };
+    const shown = recordFor(access.member.role, 'conversations', doc) as SyncedDoc & { messages: ConversationMessage[] };
+    return { ok: true, value: withAuthorNames({ ...shown, messages: shown.messages ?? [] }, personId, new Map(access.members.map((member) => [member.personId, member.email]))) };
+  }
+
+  async post(person: Person, projectId: string, conversationId: string, input: { content: unknown; askKoala?: unknown }): Promise<HubOutcome<Posted>> {
+    const access = await this.access(person.id, projectId);
+    if (!access) return NOT_FOUND;
+    if (!can(access.member.role, 'pin-and-comment')) return refuse('You cannot post on this project.');
+    const chat = await access.store.record('conversations', conversationId);
+    if (!chat) return { ok: false, status: 404, why: 'There is no such chat on this project.' };
+    const message = personMessage(person.id, String(input.content ?? ''), this.now());
+    if ('problem' in message) return wrong(message.problem);
+    const recorded = await this.record(access, `person:${person.id}`, [{ kind: 'conversations', id: conversationId, patch: { messages: { put: [message] } } }]);
+    if (!recorded.ok) return recorded;
+    const wantsKoala = chat.kind === 'item' || input.askKoala === true || mentionsKoala(message.content);
+    if (!wantsKoala) return { ok: true, value: { message } };
+    if (!koalaAnswersOnOwners(access.member.role)) return { ok: true, value: { message, notAsked: 'Koala answers a collaborator from their own instance, once it is linked to this project; your message is posted.' } };
+    const asked = await this.saveRequest(access, person, 'ask-koala', { conversationId, at: message.at, content: message.content }, recorded.value.through);
+    return { ok: true, value: { message, asked } };
+  }
+
+  async request(person: Person, projectId: string, body: Plain): Promise<HubOutcome<HubRequest>> {
+    const access = await this.access(person.id, projectId);
+    if (!access) return NOT_FOUND;
+    const all = Object.fromEntries(await Promise.all(SYNCED_KINDS.map(async (kind) => [kind, await access.store.records(kind)] as const))) as Record<SyncedKind, SyncedDoc[]>;
+    const input = isRequestKind(body.kind) ? requestInput(body.kind, body) : {};
+    const problem = requestProblem(body.kind, input, access.member.role, all);
+    if (problem) return { ok: false, status: problem.status, why: problem.why };
+    const same = (await access.store.requests()).find((entry) => entry.state === 'waiting' && entry.kind === body.kind && JSON.stringify(entry.input) === JSON.stringify(input));
+    if (same) return { ok: true, value: same };
+    return { ok: true, value: await this.saveRequest(access, person, body.kind as HubRequestKind, input, 0) };
+  }
+
+  private async saveRequest(access: Access, person: Person, kind: HubRequestKind, input: Plain, after: number): Promise<HubRequest> {
+    const request: HubRequest = { id: randomBytes(12).toString('hex'), kind, input, by: { personId: person.id, email: person.email, role: access.member.role }, at: this.now(), after, state: 'waiting' };
+    await access.store.saveRequest(request);
+    return request;
+  }
+
+  async repository(personId: string, projectId: string): Promise<HubOutcome<{ files: string[] }>> {
+    const access = await this.access(personId, projectId);
+    if (!access) return NOT_FOUND;
+    if (!can(access.member.role, 'see-code')) return refuse('Only an owner or a collaborator sees the code.');
+    if (!this.deps.repos) return { ok: false, status: 404, why: 'This hub keeps no repositories.' };
+    return { ok: true, value: { files: (await this.deps.repos.files(projectId)).sort() } };
+  }
+
+  async repositoryFile(personId: string, projectId: string, path: string): Promise<HubOutcome<{ path: string; content: string }>> {
+    const access = await this.access(personId, projectId);
+    if (!access) return NOT_FOUND;
+    if (!can(access.member.role, 'see-code')) return refuse('Only an owner or a collaborator sees the code.');
+    if (!this.deps.repos) return { ok: false, status: 404, why: 'This hub keeps no repositories.' };
+    const content = await this.deps.repos.read(projectId, path);
+    return content === null ? { ok: false, status: 404, why: `There is no ${path} on main.` } : { ok: true, value: { path, content } };
+  }
+
+  async relay(person: Person, projectId: string, op: RelayOp, args: Plain, upload?: RelayCall['upload']): Promise<HubOutcome<RelayAnswer>> {
+    const access = await this.access(person.id, projectId);
+    if (!access) return NOT_FOUND;
+    const problem = relayProblem(op, access.member.role);
+    if (problem) return refuse(problem);
+    if (!this.deps.relay) return { ok: false, status: 409, why: 'This hub cannot reach the owner\'s instance.' };
+    try {
+      return { ok: true, value: await this.deps.relay.call(projectId, op, args, { personId: person.id, email: person.email, role: access.member.role }, upload) };
+    } catch (err) {
+      if (err instanceof InstanceOffline) return { ok: false, status: 409, why: err.message };
+      throw err;
+    }
   }
 
   private now(): string {

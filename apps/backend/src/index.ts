@@ -46,7 +46,7 @@ import { leavesRouter } from './routes/leaves.js';
 import { memoriesRouter } from './routes/memories.js';
 import { authRouter } from './routes/auth.js';
 import { conversationsRouter } from './routes/conversations.js';
-import { engineRouter } from './routes/engine.js';
+import { engineRouter, extensionSummary } from './routes/engine.js';
 import { proceduresRouter } from './routes/procedures.js';
 import { ProcedureService } from './services/ProcedureService.js';
 import { createProcedureStore, stepNeedsReader } from './engine-host/registries/procedure-store.js';
@@ -226,6 +226,11 @@ import { HUB_AUDIENCE, hubInstancePart } from './lib/hub.js';
 import { projectSharingRouter } from './routes/project-sharing.js';
 import { giteaHubRepos } from './services/HubRepos.js';
 import { HubSyncService, localHubSync } from './services/HubSyncService.js';
+import { HubRelay } from './services/HubRelay.js';
+import { runsUnder } from './lib/turn-log.js';
+import { HubInstanceWork } from './services/HubInstanceWork.js';
+import { decideTask } from './services/TaskDecisions.js';
+import { HUB_STATUS_BUILDS } from './lib/hub-board.js';
 import { localHubSharing, ProjectSharingService } from './services/ProjectSharingService.js';
 import { localHubPeople, RemoteHubPeople, type HubPeople } from './services/HubPeople.js';
 import { memoryHubStore } from './lib/hub-store.js';
@@ -994,7 +999,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     await hubStore.init();
     const sender = role.hub ? new HubRootClient(role.hub) : projectInvites;
     if (!sender) throw new Error('a hub needs root to send its invites');
-    hubService = new HubService({ store: hubStore, invites: sender, repos: giteaHubRepos(giteaService) });
+    hubService = new HubService({ store: hubStore, invites: sender, repos: giteaHubRepos(giteaService), relay: new HubRelay() });
     app.use('/api/hub', hubRouter({ hub: hubService }));
     if (role.role === 'hub' && role.trusted) app.use('/api/hub-instance', hubInstanceRouter({ hub: hubService, trusted: role.trusted }));
     if (role.role === 'hub' && role.trusted) app.use('/api/hub-root', hubRootRouter({ hub: hubService, trusted: role.trusted, forget: (id) => db.deleteUser(id) }));
@@ -1007,6 +1012,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     : servesTenants(role) && remoteHub && role.instance
       ? { instanceId: role.instance.id, transport: remoteHub, sharing: remoteHub }
       : undefined;
+  let hubWork: HubInstanceWork | undefined;
   if (hubReach) {
     const instanceId = hubReach.instanceId;
     let sharingService: ProjectSharingService | undefined;
@@ -1014,6 +1020,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       store: db,
       transport: hubReach.transport,
       origin: `instance:${instanceId}`,
+      work: () => hubWork,
       repos: {
         ends: (link) => sharingService!.repoSides().ends(link),
         conflicted: (link, conflict) => sharingService!.repoSides().conflicted(link, conflict),
@@ -1537,8 +1544,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     setInterval(() => { void sweepImages('daily'); }, PRUNE_INTERVAL_MS).unref();
   }
 
-  tenant.use('/api/procedures', proceduresRouter({
-    procedures: new ProcedureService({
+  const procedureService = new ProcedureService({
       hidden: (ownerId: string) => extensions.hidden(ownerId),
       published: (ownerId: string) => extensions.groups(ownerId),
       procedures: createProcedureStore({ sources: { list: (ownerId?: string) => db.getProcedures(ownerId) }, published: (ownerId: string) => extensions.groups(ownerId) }),
@@ -1558,8 +1564,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         agents: new Set((await engineRegistry.agents(ownerId)).map((agent) => agent.slug)),
       }),
       effort: { list: (ownerId, procedureId) => db.getRunEffort(ownerId, procedureId) },
-    }),
-  }));
+  });
+  tenant.use('/api/procedures', proceduresRouter({ procedures: procedureService }));
 
   const autoModeService = new AutoModeService({ store: db, agentExists: async (ownerId, slug) => Boolean(await engineRegistry.agent(ownerId, slug)) });
   tenant.use('/api/engine', engineRouter({
@@ -1758,9 +1764,65 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       },
     },
   }));
-  tenant.use('/api/plans', plansRouter({ plans: new PlanService({ store: db, adopter: temporalBridge, onSettled: concluded, stories: async (ownerId) => (await db.getLeaves()).filter((leaf) => leaf.ownerId === ownerId).map((leaf) => ({ id: leaf.id, title: leaf.title, status: leaf.status })) }) }));
+  const planService = new PlanService({ store: db, adopter: temporalBridge, onSettled: concluded, stories: async (ownerId) => (await db.getLeaves()).filter((leaf) => leaf.ownerId === ownerId).map((leaf) => ({ id: leaf.id, title: leaf.title, status: leaf.status })) });
+  tenant.use('/api/plans', plansRouter({ plans: planService }));
   tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault: infisicalService }) }));
   tenant.use('/api/branches', branchesRouter({ db, deletion: groveDeletion, order: groveOrder }));
+  if (hubReach) {
+    const done = (outcome: { ok: boolean; error?: string | undefined }) => (outcome.ok ? { ok: true as const } : { ok: false as const, why: outcome.error ?? 'it could not be done' });
+    hubWork = new HubInstanceWork({
+      store: db,
+      status: async (ownerId, project, treeIds) => {
+        const [releases, addresses, runs, treeRuns] = await Promise.all([
+          odooReleases.list(ownerId, project.id),
+          odooReleases.addresses(project.id),
+          db.getPipelineRuns(),
+          Promise.all(treeIds.map(async (treeId) => [treeId, await groveRuns.status(ownerId, treeId)] as const)),
+        ]);
+        return {
+          at: new Date().toISOString(),
+          releases: releases as unknown as Record<string, unknown>[],
+          ...(addresses ? { addresses: addresses as unknown as Record<string, unknown> } : {}),
+          runs: runs.filter((run) => run.projectId === project.id).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, HUB_STATUS_BUILDS) as unknown as Record<string, unknown>[],
+          treeRuns: Object.fromEntries(treeRuns.flatMap(([treeId, outcome]) => (outcome.ok ? [[treeId, outcome.value as unknown as Record<string, unknown>]] : []))),
+        };
+      },
+      act: {
+        approvePlan: async (ownerId, id) => { const decided = await planService.approve(ownerId, id); return decided.ok ? { ok: true } : { ok: false, why: decided.error }; },
+        rejectPlan: async (ownerId, id, reason) => { const decided = await planService.reject(ownerId, id, reason); return decided.ok ? { ok: true } : { ok: false, why: decided.error }; },
+        orderStories: async (ownerId, branchId, leafIds) => done(await groveOrder.orderStories(ownerId, branchId, leafIds)),
+        orderFeatures: async (ownerId, treeId, branchIds) => done(await groveOrder.orderFeatures(ownerId, treeId, branchIds)),
+        decideTask: async (ownerId, taskId, status) => (await decideTask({ list: (owner) => db.getTasks(owner), save: (task) => db.saveTask(task) }, evalHost.acceptedNeeds, ownerId, taskId, status) ? { ok: true } : { ok: false, why: 'There is no such task.' }),
+        openChat: async (ownerId, item) => ((await itemChats.ensure(ownerId, item)) ? { ok: true } : { ok: false, why: `There is no such ${item.kind}.` }),
+        askKoala: async (ownerId, conversation, note) => {
+          try {
+            await engineRuns.start({
+              ownerId,
+              agentSlug: typeof conversation.agentSlug === 'string' ? conversation.agentSlug : 'koala',
+              message: note.content,
+              inputs: { conversationId: conversation.id },
+              conversationId: conversation.id,
+              ...(typeof conversation.modelId === 'string' ? { modelId: conversation.modelId } : {}),
+              ...(conversation.modelReach === 'handoffs' || conversation.modelReach === 'chat' ? { modelReach: conversation.modelReach } : {}),
+              asks: note.at,
+            });
+            return { ok: true };
+          } catch (err) {
+            return { ok: false, why: (err as Error).message };
+          }
+        },
+      },
+      live: {
+        turns: async (ownerId, turnId, after, under) => {
+          const entries = (await db.getTurnLog(ownerId, turnId, after)).map(({ ownerId: _ownerId, ...entry }) => entry);
+          return under ? runsUnder(entries, under) : { entries };
+        },
+        procedure: async (ownerId, id) => (await procedureService.get(ownerId, id)) ?? undefined,
+        extensions: async (ownerId) => (await extensions.list(ownerId)).map(extensionSummary),
+      },
+      files: fileService,
+    });
+  }
 
   const mcpCatalogue = dependencyFollowers.servers = new McpServerService({
     dependencies: dependenciesOf,

@@ -12,6 +12,7 @@ import { errorMessage } from '../api/client';
 import ArtifactStoragePrompt from './ArtifactStoragePrompt'
 import { mentionsArtifacts } from '../lib/artifact-storage'
 import { withArtifactAddresses } from '../api/artifacts'
+import { useWorkSource } from './Projects/work-source'
 
 const ERROR_PREVIEW_CHARS = 240;
 
@@ -53,6 +54,7 @@ function AttemptError({ error }: { error: string }) {
 }
 
 export default function LeafDetail({ leaf, all = [], treeId, tasks }: { leaf: Leaf; all?: Leaf[]; treeId?: string | undefined; tasks?: { done: number; total: number } | undefined }) {
+  const runs = useWorkSource().can('run-work');
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ['leaves'] });
   const call = (fn: () => Promise<unknown>) => ({ mutationFn: fn, onSuccess: invalidate });
@@ -85,14 +87,14 @@ export default function LeafDetail({ leaf, all = [], treeId, tasks }: { leaf: Le
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        {runs && <div className="flex items-center gap-2 shrink-0">
           {['pending', 'running', 'claimed'].includes(leaf.status) && (
             <button onClick={() => cancel.mutate()} disabled={cancel.isPending} title="Cancel: stop working this story; the rest of the project carries on"
               className="p-1.5 rounded-lg text-slate-500 hover:text-amber-400 hover:bg-[var(--bark-700)] disabled:opacity-50"><CircleSlash size={15} /></button>
           )}
           <button onClick={() => setConfirmingDelete(true)} title="Delete this story"
             className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-[var(--bark-700)]"><Trash2 size={15} /></button>
-        </div>
+        </div>}
       </div>
 
       {confirmingDelete && (
@@ -107,7 +109,7 @@ export default function LeafDetail({ leaf, all = [], treeId, tasks }: { leaf: Le
         </div>
       )}
 
-      {leaf.status === 'claimed' && <ClaimReview leaf={leaf} />}
+      {runs && leaf.status === 'claimed' && <ClaimReview leaf={leaf} />}
 
       {leaf.status === 'succeeded' && (
         <div className="mt-5 flex items-center gap-4 flex-wrap text-[12px]">
@@ -126,7 +128,7 @@ export default function LeafDetail({ leaf, all = [], treeId, tasks }: { leaf: Le
         </div>
       )}
 
-      {leaf.status === 'failed' && (
+      {runs && leaf.status === 'failed' && (
         <div className="mt-5 flex flex-wrap items-center gap-2">
           <button
             onClick={() => retry.mutate()}

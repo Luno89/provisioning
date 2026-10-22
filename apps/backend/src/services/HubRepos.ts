@@ -9,13 +9,15 @@ export interface HubRepoAccess {
 export interface HubRepos {
   create(projectId: string): Promise<HubRepoAccess>;
   remove(projectId: string): Promise<void>;
+  files(projectId: string): Promise<string[]>;
+  read(projectId: string, path: string): Promise<string | null>;
 }
 
 export const hubOrgOf = (projectId: string): string => `shared-${projectId}`;
 export const hubBotOf = (projectId: string): string => `shared-${projectId}-bot`;
 export const HUB_REPO = 'project';
 
-export function giteaHubRepos(gitea: Pick<GiteaService, 'ensureOrg' | 'ensureOrgRepo' | 'letWrite' | 'createUserAccount' | 'createPushToken' | 'deleteUser' | 'deleteRepo' | 'deleteOrg' | 'repoGitUrl'>): HubRepos {
+export function giteaHubRepos(gitea: Pick<GiteaService, 'ensureOrg' | 'ensureOrgRepo' | 'letWrite' | 'createUserAccount' | 'createPushToken' | 'deleteUser' | 'deleteRepo' | 'deleteOrg' | 'repoGitUrl' | 'listPaths' | 'getRawFile'>): HubRepos {
   return {
     async create(projectId) {
       const org = hubOrgOf(projectId);
@@ -34,5 +36,7 @@ export function giteaHubRepos(gitea: Pick<GiteaService, 'ensureOrg' | 'ensureOrg
       await gitea.deleteUser(hubBotOf(projectId));
       await gitea.deleteOrg(org);
     },
+    files: (projectId) => gitea.listPaths(hubOrgOf(projectId), HUB_REPO, 'main'),
+    read: (projectId, path) => gitea.getRawFile(hubOrgOf(projectId), HUB_REPO, path.split('/').map(encodeURIComponent).join('/'), 'main'),
   };
 }

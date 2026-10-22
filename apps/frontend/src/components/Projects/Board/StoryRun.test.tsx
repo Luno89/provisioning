@@ -5,14 +5,16 @@ import { describe, expect, it, vi } from 'vitest'
 import type { EngineEvent } from '../../../api/engine'
 import { applyInstanceEvents } from '../../../lib/engine-run-state'
 import { StoryRun } from './StoryRun'
+import { WorkSourceContext, localWorkSource } from '../work-source'
 
-const render = (ui: ReactElement) => plainRender(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>)
+const source = { ...localWorkSource, getProcedure: async (id: string) => ({ procedure: { id, nodes: [] }, mine: false }), listExtensions: async () => [] } as never
 
-vi.mock('../../Studio/shared', () => ({
-  useProcedure: (id: string) => ({ data: { procedure: { id, nodes: [] } }, isPending: false, isError: false }),
-  useStudioContextQuery: () => ({ data: {}, isPending: false, isError: false }),
-}))
-vi.mock('../../../lib/procedure-drafts', () => ({ groupPathIn: (_procedure: unknown, nodeId: string) => nodeId.split('.').slice(0, -1) }))
+const render = async (ui: ReactElement) => {
+  plainRender(<QueryClientProvider client={new QueryClient()}><WorkSourceContext.Provider value={source}>{ui}</WorkSourceContext.Provider></QueryClientProvider>)
+  await screen.findByTestId('canvas')
+}
+
+vi.mock('../../../lib/procedure-drafts', () => ({ canvasContextFor: () => ({}), groupPathIn: (_procedure: unknown, nodeId: string) => nodeId.split('.').slice(0, -1) }))
 vi.mock('../../Studio/ProcedureCanvas', () => ({
   default: ({ procedure, path, states, editable, onOpenGroup }: { procedure: { id: string }; path: string[]; states: Record<string, string>; editable: boolean; onOpenGroup: (id: string) => void }) => (
     <div data-testid="canvas" data-editable={String(editable)}>
@@ -38,8 +40,8 @@ const events: EngineEvent[] = [
 const runOf = (list: EngineEvent[]) => applyInstanceEvents([], list)[0]!
 
 describe('a run on a story\'s page', () => {
-  it('draws its procedure read-only, inside the group of the step it is on, with that step lit', () => {
-    render(<StoryRun run={runOf(events)} events={events} />)
+  it('draws its procedure read-only, inside the group of the step it is on, with that step lit', async () => {
+    await render(<StoryRun run={runOf(events)} events={events} />)
 
     const canvas = screen.getByTestId('canvas')
     expect(canvas.dataset.editable).toBe('false')
@@ -47,8 +49,8 @@ describe('a run on a story\'s page', () => {
     expect(screen.getByTestId('story-run-now').textContent).toContain('turn.call')
   })
 
-  it('lets the person look elsewhere, and go back to following it', () => {
-    render(<StoryRun run={runOf(events)} events={events} />)
+  it('lets the person look elsewhere, and go back to following it', async () => {
+    await render(<StoryRun run={runOf(events)} events={events} />)
 
     fireEvent.click(screen.getByRole('button', { name: '← out of turn' }))
     expect(screen.getByTestId('canvas').textContent).toContain('at [] {"claim":"done","turn":"running"}')
@@ -58,8 +60,8 @@ describe('a run on a story\'s page', () => {
     expect(screen.getByTestId('canvas').textContent).toContain('at [turn]')
   })
 
-  it('shows each round with its thinking open, the command it ran and what came back, and asks the person when it waits on them', () => {
-    render(<StoryRun run={runOf(events)} events={events} />)
+  it('shows each round with its thinking open, the command it ran and what came back, and asks the person when it waits on them', async () => {
+    await render(<StoryRun run={runOf(events)} events={events} />)
 
     const round = screen.getByTestId('story-run-round')
     expect(round.querySelector('details')!.hasAttribute('open')).toBe(true)
@@ -72,9 +74,9 @@ describe('a run on a story\'s page', () => {
     expect(screen.getByRole('button', { name: /Stop/ })).toBeTruthy()
   })
 
-  it('stops lighting a step once the run has ended', () => {
+  it('stops lighting a step once the run has ended', async () => {
     const ended: EngineEvent[] = [...events.slice(0, 8), { type: 'run.finished', runId: 'exec-2', at: 't9', outcome: 'ok' }]
-    render(<StoryRun run={runOf(ended)} events={ended} />)
+    await render(<StoryRun run={runOf(ended)} events={ended} />)
 
     expect(screen.getByTestId('canvas').textContent).toContain('at [] {"claim":"done"}')
     expect(screen.queryByRole('button', { name: /Stop/ })).not.toBeInTheDocument()

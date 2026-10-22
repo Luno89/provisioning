@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query'
-import { groveKeys, orderFeatures, orderStories } from '../../../api/grove'
+import { groveKeys } from '../../../api/grove'
 import { errorMessage } from '../../../api/client'
 import { withOrder } from './board'
+import { keyedBy, useWorkSource } from '../work-source'
 
 function useOrdering<Vars extends { order: readonly string[] }>(key: QueryKey, save: (vars: Vars) => Promise<void>) {
   const qc = useQueryClient()
@@ -19,10 +20,12 @@ function useOrdering<Vars extends { order: readonly string[] }>(key: QueryKey, s
 }
 
 export function useBoardOrder() {
-  const stories = useOrdering<{ branchId: string; order: readonly string[] }>(groveKeys.leaves(), ({ branchId, order }) => orderStories(branchId, order))
-  const features = useOrdering<{ treeId: string; order: readonly string[] }>(groveKeys.branches(), ({ treeId, order }) => orderFeatures(treeId, order))
+  const source = useWorkSource()
+  const stories = useOrdering<{ branchId: string; order: readonly string[] }>(keyedBy(source, groveKeys.leaves()), ({ branchId, order }) => source.orderStories(branchId, order))
+  const features = useOrdering<{ treeId: string; order: readonly string[] }>(keyedBy(source, groveKeys.branches()), ({ treeId, order }) => source.orderFeatures(treeId, order))
   const failed = stories.error ?? features.error
   return {
+    can: source.can('change-work'),
     orderStories: (branchId: string, order: readonly string[]) => stories.mutate({ branchId, order }),
     orderFeatures: (treeId: string, order: readonly string[]) => features.mutate({ treeId, order }),
     error: failed ? errorMessage(failed) || 'The new order was not saved.' : undefined,

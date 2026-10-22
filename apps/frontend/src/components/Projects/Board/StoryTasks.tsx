@@ -1,7 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check, X } from 'lucide-react'
-import { acceptTask, dropTask, engineKeys, type EngineTask, type TaskStatus } from '../../../api/engine'
+import { engineKeys, type EngineTask, type TaskStatus } from '../../../api/engine'
 import { errorMessage } from '../../../api/client'
+import { keyedBy, useWorkSource } from '../work-source'
+import { waitingOn } from './hub-waiting'
 
 const STATUS_WORD: Record<TaskStatus, string> = {
   proposed: 'proposed',
@@ -25,9 +27,11 @@ const STATUS_TONE: Record<TaskStatus, string> = {
 
 export function StoryTasks({ tasks }: { tasks: readonly EngineTask[] }) {
   const qc = useQueryClient()
-  const settled = () => { void qc.invalidateQueries({ queryKey: engineKeys.tasks() }) }
-  const accept = useMutation({ mutationFn: acceptTask, onSettled: settled })
-  const drop = useMutation({ mutationFn: dropTask, onSettled: settled })
+  const source = useWorkSource()
+  const decides = source.can('change-work')
+  const settled = () => { void qc.invalidateQueries({ queryKey: keyedBy(source, engineKeys.tasks()) }) }
+  const accept = useMutation({ mutationFn: source.acceptTask, onSettled: settled })
+  const drop = useMutation({ mutationFn: source.dropTask, onSettled: settled })
   const failed = accept.error ?? drop.error
   const busy = accept.isPending || drop.isPending
 
@@ -42,7 +46,7 @@ export function StoryTasks({ tasks }: { tasks: readonly EngineTask[] }) {
 
       {proposed.length > 0 && (
         <div className="rounded-md border border-sky-800/60 bg-sky-950/20 p-2 space-y-1.5">
-          <p className="text-[11px] text-sky-200">Proposed while it was worked — nothing is done about them until you accept them.</p>
+          <p className="text-[11px] text-sky-200">Proposed while it was worked — nothing is done about them until {decides ? 'you accept them' : 'an owner or collaborator accepts them'}.</p>
           <ul className="space-y-1.5">
             {proposed.map((task) => (
               <li key={task.id} className="flex items-start gap-2">
@@ -50,12 +54,18 @@ export function StoryTasks({ tasks }: { tasks: readonly EngineTask[] }) {
                   <div className="text-slate-200 break-words">{task.title}</div>
                   <div className="text-slate-500 break-words">Done means: {task.doneMeans}</div>
                 </div>
-                <button type="button" disabled={busy} onClick={() => accept.mutate(task.id)} aria-label={`Accept “${task.title}”`} className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-700 hover:bg-emerald-600 text-[11px] text-white cursor-pointer disabled:opacity-50">
-                  <Check size={11} aria-hidden="true" /> Accept
-                </button>
-                <button type="button" disabled={busy} onClick={() => drop.mutate(task.id)} aria-label={`Drop “${task.title}”`} className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--bark-700)] hover:bg-[var(--bark-600)] text-[11px] text-slate-200 cursor-pointer disabled:opacity-50">
-                  <X size={11} aria-hidden="true" /> Drop
-                </button>
+                {waitingOn(source.hub, ['accept-task', 'drop-task'], 'taskId', task.id) ? (
+                  <span className="shrink-0 text-[11px] text-amber-200" data-testid="task-waiting">{waitingOn(source.hub, ['accept-task', 'drop-task'], 'taskId', task.id)}</span>
+                ) : decides && (
+                  <>
+                    <button type="button" disabled={busy} onClick={() => accept.mutate(task.id)} aria-label={`Accept “${task.title}”`} className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-700 hover:bg-emerald-600 text-[11px] text-white cursor-pointer disabled:opacity-50">
+                      <Check size={11} aria-hidden="true" /> Accept
+                    </button>
+                    <button type="button" disabled={busy} onClick={() => drop.mutate(task.id)} aria-label={`Drop “${task.title}”`} className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--bark-700)] hover:bg-[var(--bark-600)] text-[11px] text-slate-200 cursor-pointer disabled:opacity-50">
+                      <X size={11} aria-hidden="true" /> Drop
+                    </button>
+                  </>
+                )}
               </li>
             ))}
           </ul>

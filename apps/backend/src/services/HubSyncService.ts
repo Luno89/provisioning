@@ -1,10 +1,19 @@
 import { applyPatch, diffRecord, type HubChange, type HubDirty, type HubLink, type HubSyncStore, type RecordChange, type SyncedDoc, type SyncedKind } from '../lib/hub-sync.js';
 import type { HubService } from './HubService.js';
 import { mainHeads, syncMain, type GitEnd } from './HubRepoSync.js';
+import type { HubMemberName } from '../lib/hub-sync.js';
+import type { HubRequest, HubStatus } from '../lib/hub-board.js';
+import type { HubInstanceWork, InstanceAnswer, InstanceCall } from './HubInstanceWork.js';
+import type { RelayAnswer, RelayCall } from './HubRelay.js';
 
 export interface HubSyncTransport {
   push(link: HubLink, changes: RecordChange[]): Promise<{ through: number }>;
-  pull(link: HubLink, after: number): Promise<{ changes: HubChange[]; through: number }>;
+  pull(link: HubLink, after: number): Promise<{ changes: HubChange[]; through: number; members?: HubMemberName[] | undefined }>;
+  requests(link: HubLink): Promise<HubRequest[]>;
+  settle(link: HubLink, requestId: string, outcome: { state: 'done' | 'refused'; why?: string | undefined }): Promise<void>;
+  status(link: HubLink, status: HubStatus): Promise<void>;
+  take(link: HubLink, signal: AbortSignal): Promise<InstanceCall | undefined>;
+  answer(link: HubLink, callId: string, answer: InstanceAnswer): Promise<void>;
 }
 
 export interface HubRepoSides {
@@ -17,8 +26,22 @@ export interface HubSyncDeps {
   transport: HubSyncTransport;
   origin: string;
   repos?: HubRepoSides | undefined;
+  work?: (() => HubInstanceWork | undefined) | undefined;
   log?: ((line: string) => void) | undefined;
+  retryMs?: number | undefined;
 }
+
+const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
+  const timer = setTimeout(resolve, ms);
+  signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+});
+
+const sameStatus = (a: HubStatus | undefined, b: HubStatus): boolean => {
+  if (!a) return false;
+  const { at: _a, ...left } = a;
+  const { at: _b, ...right } = b;
+  return JSON.stringify(left) === JSON.stringify(right);
+};
 
 const DIRTY_PAGE = 200;
 
@@ -27,6 +50,8 @@ type Pending = { entry: HubDirty; link: HubLink; change: RecordChange; after: Sy
 export class HubSyncService {
   private timer: ReturnType<typeof setInterval> | undefined;
   private busy = false;
+  private readonly sentStatus = new Map<string, HubStatus>();
+  private readonly relays = new Map<string, AbortController>();
 
   constructor(private readonly deps: HubSyncDeps) {}
 
@@ -105,7 +130,7 @@ export class HubSyncService {
   async pullOnce(): Promise<number> {
     let applied = 0;
     for (const link of await this.deps.store.getHubLinks()) {
-      let answer: { changes: HubChange[]; through: number };
+      let answer: Awaited<ReturnType<HubSyncTransport['pull']>>;
       try {
         answer = await this.deps.transport.pull(link, link.pulledThrough);
       } catch (err) {
@@ -125,7 +150,8 @@ export class HubSyncService {
         }
         applied += 1;
       }
-      if (answer.through !== link.pulledThrough) await this.deps.store.saveHubLink({ ...link, pulledThrough: answer.through });
+      const members = answer.members && JSON.stringify(answer.members) !== JSON.stringify(link.members) ? { members: answer.members } : {};
+      if (answer.through !== link.pulledThrough || 'members' in members) await this.deps.store.saveHubLink({ ...link, pulledThrough: answer.through, ...members });
     }
     return applied;
   }
@@ -159,6 +185,89 @@ export class HubSyncService {
     return moved;
   }
 
+  async carryOutRequests(): Promise<number> {
+    const work = this.deps.work?.();
+    if (!work) return 0;
+    let settled = 0;
+    for (const link of await this.deps.store.getHubLinks()) {
+      let waiting: HubRequest[];
+      try {
+        waiting = await this.deps.transport.requests(link);
+      } catch (err) {
+        this.deps.log?.(`hub sync: ${link.projectId}'s requests not read yet: ${(err as Error).message}`);
+        continue;
+      }
+      for (const request of waiting.filter((entry) => entry.after <= link.pulledThrough)) {
+        const done = await work.carryOut(link, request).catch((err: Error) => ({ ok: false as const, why: err.message }));
+        try {
+          await this.deps.transport.settle(link, request.id, done.ok ? { state: 'done' } : { state: 'refused', why: done.why });
+          settled += 1;
+        } catch (err) {
+          this.deps.log?.(`hub sync: ${link.projectId}'s request ${request.id} was carried out but not settled yet: ${(err as Error).message}`);
+        }
+      }
+    }
+    return settled;
+  }
+
+  async sendStatus(): Promise<number> {
+    const work = this.deps.work?.();
+    if (!work) return 0;
+    let sent = 0;
+    for (const link of await this.deps.store.getHubLinks()) {
+      try {
+        const status = await work.statusOf(link);
+        if (!status || sameStatus(this.sentStatus.get(link.projectId), status)) continue;
+        await this.deps.transport.status(link, status);
+        this.sentStatus.set(link.projectId, status);
+        sent += 1;
+      } catch (err) {
+        this.deps.log?.(`hub sync: ${link.projectId}'s status not sent yet: ${(err as Error).message}`);
+      }
+    }
+    return sent;
+  }
+
+  async followRelays(): Promise<void> {
+    if (!this.deps.work?.()) return;
+    const linked = new Set((await this.deps.store.getHubLinks()).map((link) => link.projectId));
+    for (const [projectId, controller] of this.relays) {
+      if (linked.has(projectId)) continue;
+      controller.abort();
+      this.relays.delete(projectId);
+      this.sentStatus.delete(projectId);
+    }
+    for (const projectId of linked) {
+      if (this.relays.has(projectId)) continue;
+      const controller = new AbortController();
+      this.relays.set(projectId, controller);
+      void this.relayLoop(projectId, controller.signal).finally(() => {
+        if (this.relays.get(projectId) === controller) this.relays.delete(projectId);
+      });
+    }
+  }
+
+  private async relayLoop(projectId: string, signal: AbortSignal): Promise<void> {
+    while (!signal.aborted) {
+      const link = (await this.deps.store.getHubLinks()).find((entry) => entry.projectId === projectId);
+      const work = this.deps.work?.();
+      if (!link || !work) return;
+      try {
+        const call = await this.deps.transport.take(link, signal);
+        if (call) void this.answerCall(work, link, call);
+      } catch (err) {
+        if (signal.aborted) return;
+        this.deps.log?.(`hub sync: ${projectId} is not taking the hub's calls yet: ${(err as Error).message}`);
+        await sleep(this.deps.retryMs ?? 2_000, signal);
+      }
+    }
+  }
+
+  private async answerCall(work: HubInstanceWork, link: HubLink, call: InstanceCall): Promise<void> {
+    const answer = await work.handle(link, call).catch((err: Error): InstanceAnswer => ({ kind: 'json', status: 502, body: { error: `The owner's instance could not answer: ${err.message}` } }));
+    await this.deps.transport.answer(link, call.id, answer).catch((err: Error) => this.deps.log?.(`hub sync: an answer to the hub was lost: ${err.message}`));
+  }
+
   async once(): Promise<void> {
     if (this.busy) return;
     this.busy = true;
@@ -166,6 +275,9 @@ export class HubSyncService {
       await this.pushOnce();
       await this.pullOnce();
       await this.syncRepos();
+      await this.carryOutRequests();
+      await this.sendStatus();
+      await this.followRelays();
     } finally {
       this.busy = false;
     }
@@ -180,12 +292,48 @@ export class HubSyncService {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
+    for (const controller of this.relays.values()) controller.abort();
+    this.relays.clear();
   }
 }
 
-export function localHubSync(hub: { receive: HubService['receive']; changesSince: HubService['changesSince'] }, instanceId: string): HubSyncTransport {
+type LocalHub = Pick<HubService, 'receive' | 'changesSince' | 'waitingRequests' | 'settleRequest' | 'putStatus' | 'takeRelay' | 'answerRelay'>;
+
+const fromRelay = (call: RelayCall): InstanceCall => ({
+  id: call.id,
+  op: call.op,
+  args: call.args,
+  as: call.as,
+  ...(call.upload ? { upload: { type: call.upload.type, ...(call.upload.size !== undefined ? { size: call.upload.size } : {}), open: async () => call.upload!.stream } } : {}),
+});
+
+export function localHubSync(hub: LocalHub, instanceId: string): HubSyncTransport {
   const origin = (link: HubLink) => ({ kind: 'instance' as const, personId: link.ownerId, instanceId });
+  const failed = (outcome: { ok: false; status: number; why: string }) => Object.assign(new Error(outcome.why), { status: outcome.status });
   return {
+    async requests(link) {
+      const outcome = await hub.waitingRequests(origin(link), link.hubProjectId);
+      if (!outcome.ok) throw failed(outcome);
+      return outcome.value;
+    },
+    async settle(link, requestId, settled) {
+      const outcome = await hub.settleRequest(origin(link), link.hubProjectId, requestId, settled);
+      if (!outcome.ok) throw failed(outcome);
+    },
+    async status(link, status) {
+      const outcome = await hub.putStatus(origin(link), link.hubProjectId, status);
+      if (!outcome.ok) throw failed(outcome);
+    },
+    async take(link, signal) {
+      const closed = new Promise<void>((resolve) => { if (signal.aborted) resolve(); else signal.addEventListener('abort', () => resolve(), { once: true }); });
+      const outcome = await hub.takeRelay(origin(link), link.hubProjectId, closed);
+      if (!outcome.ok) throw failed(outcome);
+      return outcome.value ? fromRelay(outcome.value) : undefined;
+    },
+    async answer(link, callId, answer) {
+      const outcome = await hub.answerRelay(origin(link), callId, answer as RelayAnswer);
+      if (!outcome.ok) throw failed(outcome);
+    },
     async push(link, changes) {
       const outcome = await hub.receive(origin(link), link.hubProjectId, changes);
       if (!outcome.ok) throw Object.assign(new Error(outcome.why), { status: outcome.status });

@@ -25,6 +25,7 @@ export interface StoredFile {
   type: 'file' | 'dir'
   size?: number
   modified?: string
+  forClients?: 'itself' | 'folder'
 }
 
 export type PlaceState =
@@ -41,7 +42,7 @@ export interface MessageAttachment {
   project?: { id: string; name: string }
 }
 
-export type FileScope = { kind: 'project'; projectId: string } | { kind: 'mine' }
+export type FileScope = { kind: 'project'; projectId: string } | { kind: 'hub'; projectId: string } | { kind: 'mine' }
 
 export interface FileShare {
   id: string
