@@ -1,4 +1,4 @@
-import { afterMove, afterRemove, marked, sharing, type ClientMark } from '../../hub/lib/client-files.js';
+import { afterMove, afterRemove, marked, sharing, type ClientMark } from '../../hub/index.js';
 import { randomBytes } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import type { DeploymentMetadata, ProjectMetadata } from '../../platform/index.js';

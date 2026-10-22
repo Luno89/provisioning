@@ -9,7 +9,7 @@ import { alertNotice, alertWhere } from '../lib/alert-notices.js';
 import { monitoringRouter } from '../routes/monitoring.js';
 import { notificationsRouter } from '../routes/notifications.js';
 import { poolMonitor, poolMonitorFrom } from '../services/PoolMonitor.js';
-import type { Mounts } from '../../hub/wiring/hub.js';
+import type { Mounts } from '../../hub/index.js';
 
 export interface MonitoringWiringDeps {
   tenant: Mounts;

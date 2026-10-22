@@ -1,0 +1,13 @@
+export { afterMove, afterRemove, marked, sharing } from './lib/client-files.js';
+export type { ClientMark } from './lib/client-files.js';
+export { HUB_AUDIENCE, hubInstancePart } from './lib/hub.js';
+export type { HubAccess } from './lib/hub.js';
+export type { HubPeople } from './services/HubPeople.js';
+export type { GitEnd } from './services/HubRepoSync.js';
+export type { HubRepoAccess } from './services/HubRepos.js';
+export type { HubService } from './services/HubService.js';
+export type { HubRepoSides } from './services/HubSyncService.js';
+export { decideTask } from './services/TaskDecisions.js';
+export type { TaskAccess } from './services/TaskDecisions.js';
+export type { HubStore } from './store.js';
+export type { Mounts } from './wiring/hub.js';

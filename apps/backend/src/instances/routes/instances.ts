@@ -8,7 +8,7 @@ import { parsePoolRule, parseProbes } from '../../monitoring/lib/pool-monitoring
 import { isMovePart } from '../lib/instance-move.js';
 import { volumeOfPart } from '../lib/app-move.js';
 import type { MoveRelay } from '../services/MoveRelay.js';
-import type { HubAccess } from '../../hub/lib/hub.js';
+import type { HubAccess } from '../../hub/index.js';
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;
 

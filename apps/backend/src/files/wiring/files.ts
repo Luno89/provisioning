@@ -9,7 +9,7 @@ import type { createArtifactService } from '../services/artifact-service-factory
 import type { TemporalBridge } from '../../infrastructure/index.js';
 import { filesRouter, shareRouter } from '../routes/files.js';
 import { projectFilesRouter } from '../routes/project-files.js';
-import type { Mounts } from '../../hub/wiring/hub.js';
+import type { Mounts } from '../../hub/index.js';
 
 export interface FilesWiringDeps {
   tenant: Mounts;

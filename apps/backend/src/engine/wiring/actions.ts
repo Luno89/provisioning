@@ -13,7 +13,7 @@ import type { AgentService } from '../services/AgentService.js';
 import type { directoryFromDatabase } from '../../engine-host/index.js';
 import { actionsRouter } from '../routes/actions.js';
 import type { wireReleases } from '../../releases/index.js';
-import type { Mounts } from '../../hub/wiring/hub.js';
+import type { Mounts } from '../../hub/index.js';
 
 export interface ActionsWiringDeps {
   tenant: Mounts;

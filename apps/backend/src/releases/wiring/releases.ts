@@ -28,7 +28,7 @@ import { projectAppRouter } from '../routes/project-app.js';
 import { customizationsRouter } from '../routes/customizations.js';
 import { clientImportRouter } from '../routes/client-import.js';
 import { releasesRouter } from '../routes/releases.js';
-import type { Mounts } from '../../hub/wiring/hub.js';
+import type { Mounts } from '../../hub/index.js';
 
 export interface ReleasesWiringDeps {
   tenant: Mounts;

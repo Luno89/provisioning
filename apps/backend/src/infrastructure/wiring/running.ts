@@ -21,7 +21,7 @@ import { runWaitingVia } from '../../engine-host/temporal/run-cancellation.js';
 import { workflowOfRun } from '../../engine-host/temporal/contracts.js';
 import { runningRouter } from '../routes/running.js';
 import { infrastructureRouter } from '../routes/infrastructure.js';
-import type { Mounts } from '../../hub/wiring/hub.js';
+import type { Mounts } from '../../hub/index.js';
 
 export interface WorkFailuresDeps {
   db: Database;

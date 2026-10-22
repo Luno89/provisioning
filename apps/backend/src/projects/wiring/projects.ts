@@ -41,7 +41,7 @@ import { treesRouter } from '../routes/trees.js';
 import { plansRouter } from '../routes/plans.js';
 import { branchesRouter } from '../routes/branches.js';
 import { leavesRouter } from '../routes/leaves.js';
-import type { Mounts } from '../../hub/wiring/hub.js';
+import type { Mounts } from '../../hub/index.js';
 
 export interface ProjectsCoreDeps {
   db: Database;

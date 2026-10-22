@@ -28,7 +28,7 @@ import { registryRouter } from '../routes/registry.js';
 import { temporalRouter } from '../routes/temporal.js';
 import { vpsCatalogRouter } from '../routes/vps-catalog.js';
 import { workerRouter } from '../routes/worker.js';
-import type { Mounts } from '../../hub/wiring/hub.js';
+import type { Mounts } from '../../hub/index.js';
 
 export interface InfrastructureWiringDeps {
   tenant: Mounts;

@@ -9,7 +9,7 @@ import { poolSettingsFrom } from '../lib/pool.js';
 import { issueMoveToken } from '../lib/identity-token.js';
 import { MOVE_FINISHED, MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } from '../lib/instance-move.js';
 import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from '../lib/pool-trial.js';
-import { HUB_AUDIENCE, hubInstancePart } from '../../hub/lib/hub.js';
+import { HUB_AUDIENCE, hubInstancePart, type Mounts } from '../../hub/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
 import { InstanceService } from '../services/InstanceService.js';
 import { InstanceRoutes, dockerCaddy } from '../services/InstanceRoutes.js';
@@ -26,7 +26,6 @@ import { instancesRouter } from '../routes/instances.js';
 import { instanceTrialRouter } from '../routes/instance-trial.js';
 import { instanceAddressesRouter } from '../routes/instance-addresses.js';
 import { moveRouter } from '../routes/move.js';
-import type { Mounts } from '../../hub/wiring/hub.js';
 import type { Routes } from '../../machines/wiring/machines.js';
 
 const POOL_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';

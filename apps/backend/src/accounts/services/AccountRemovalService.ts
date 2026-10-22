@@ -2,7 +2,7 @@ import { type ClusterMetadata, type DeploymentMetadata, startedFor } from '../..
 import type { InstanceRecord, InstanceStatus } from '../../instances/lib/instances.js';
 import type { Client } from '@temporalio/client';
 import type { AccountsStore } from '../store.js';
-import type { HubPeople } from '../../hub/services/HubPeople.js';
+import type { HubPeople } from '../../hub/index.js';
 import {
   REMOVAL_PROGRESS_QUERY,
   REMOVE_ACCOUNT_WORKFLOW,

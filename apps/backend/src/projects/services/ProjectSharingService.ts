@@ -4,10 +4,7 @@ import { primaryProjectId } from '../lib/trees.js';
 import { nameProblem, suggestedGroup } from '../../instances/lib/instance-names.js';
 import { appLabel, flatHost, labelOfFlat } from '../../instances/lib/edge-addresses.js';
 import type { ConversationNotice } from '../../engine/index.js';
-import type { HubRepoAccess } from '../../hub/services/HubRepos.js';
-import type { GitEnd } from '../../hub/services/HubRepoSync.js';
-import type { HubRepoSides } from '../../hub/services/HubSyncService.js';
-import type { HubService } from '../../hub/services/HubService.js';
+import type { HubRepoAccess, GitEnd, HubRepoSides, HubService } from '../../hub/index.js';
 
 export interface HubSharing {
   reachable(): Promise<boolean>;
