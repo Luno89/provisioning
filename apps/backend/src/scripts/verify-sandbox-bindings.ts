@@ -4,11 +4,11 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
 import { randomUUID } from 'crypto';
-import { createDatabase } from '../lib/db-interface.js';
-import { resolveBindings } from '../lib/binding-resolve.js';
-import { egressForBindings } from '../lib/workspace-spec.js';
-import { WorkspaceService } from '../services/WorkspaceService.js';
-import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
+import { createDatabase } from '../platform/lib/db-interface.js';
+import { resolveBindings } from '../infrastructure/lib/binding-resolve.js';
+import { egressForBindings } from '../engine/lib/workspace-spec.js';
+import { WorkspaceService } from '../engine/services/WorkspaceService.js';
+import { WorkspaceImageService } from '../engine/services/WorkspaceImageService.js';
 
 const line = () => console.log('─'.repeat(76));
 

@@ -2,8 +2,8 @@ import { api } from './client'
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `RunningItem`, `OpensAt` and `CancelHow` in apps/backend/src/lib/running.ts,
- * `RunningView` in apps/backend/src/services/RunningService.ts.
+ * Authority: `RunningItem`, `OpensAt` and `CancelHow` in apps/backend/src/infrastructure/lib/running.ts,
+ * `RunningView` in apps/backend/src/infrastructure/services/RunningService.ts.
  */
 export type RunningKind = 'bench' | 'check' | 'memory-keeper' | 'tree' | 'release' | 'chat' | 'run' | 'workspace-build' | 'plan' | 'removal' | 'save' | 'deploy' | 'other'
 

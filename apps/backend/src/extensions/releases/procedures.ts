@@ -1,5 +1,5 @@
 import { BUILT_IN_GROUPS, builtInCatalogue, defineProcedure, type Procedure } from '@koala/agent-engine/procedure';
-import { CUT_OVER, CUT_OVER_LOSING, DECISION_NODE, DISCARD, LOSING_DECISION_NODE, RELEASE_PROCEDURE, REPLACE_PROCEDURE, RETEST, ROLL_BACK_PROCEDURE } from '../../lib/release-run.js';
+import { CUT_OVER, CUT_OVER_LOSING, DECISION_NODE, DISCARD, LOSING_DECISION_NODE, RELEASE_PROCEDURE, REPLACE_PROCEDURE, RETEST, ROLL_BACK_PROCEDURE } from '../../releases/lib/release-run.js';
 import { RELEASE_OPERATIONS } from './operations/declarations.js';
 
 function out<T extends { readonly [socket: string]: unknown }>(node: T, socket: string): NonNullable<T[string]> {

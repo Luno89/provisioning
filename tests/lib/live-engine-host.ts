@@ -1,11 +1,11 @@
 import { createModelService } from '../../apps/backend/src/lib/model-wiring.js';
 import { createEngineHost, storesFromDatabase } from '../../apps/backend/src/engine-host/host.js';
-import { GiteaService } from '../../apps/backend/src/services/GiteaService.js';
-import { InfrastructureService } from '../../apps/backend/src/services/InfrastructureService.js';
-import type { Database } from '../../apps/backend/src/lib/db-interface.js';
-import { extensionServiceFor } from '../../apps/backend/src/services/ExtensionService.js';
-import { loadKeys } from '../../apps/backend/src/lib/keys.js';
-import { ProjectRepoService } from '../../apps/backend/src/services/ProjectRepoService.js';
+import { GiteaService } from '../../apps/backend/src/projects/services/GiteaService.js';
+import { InfrastructureService } from '../../apps/backend/src/infrastructure/services/InfrastructureService.js';
+import type { Database } from '../../apps/backend/src/platform/lib/db-interface.js';
+import { extensionServiceFor } from '../../apps/backend/src/engine/services/ExtensionService.js';
+import { loadKeys } from '../../apps/backend/src/platform/lib/keys.js';
+import { ProjectRepoService } from '../../apps/backend/src/projects/services/ProjectRepoService.js';
 import { createWorkspaceRepoResolver } from '../../apps/backend/src/engine-host/sandboxes/workspace-repos.js';
 
 export function liveEngineHost(db: Database) {

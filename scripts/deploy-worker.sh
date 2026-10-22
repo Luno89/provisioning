@@ -47,7 +47,7 @@ echo "  ▶  deploying worker to cluster '${CLUSTER_NAME}'..."
 "$KUBECTL" apply -f "${ROOT}/k8s/worker-sa.yaml" --context "k3d-${CLUSTER_NAME}" 2>/dev/null || true
 
 # The worker needs the same master key as the backend to build the Temporal PayloadCodec
-# (apps/backend/src/lib/temporal-codec.ts) — without it, it cannot decode the encrypted activity
+# (apps/backend/src/platform/lib/temporal-codec.ts) — without it, it cannot decode the encrypted activity
 # arguments the client sends. Read from apps/backend/.env, which is the backend's own source for
 # it, so the two can never disagree.
 #

@@ -4,8 +4,8 @@ import { Worker } from '@temporalio/worker';
 import { ApplicationFailure } from '@temporalio/common';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId } from '../lib/account-removal.js';
-import { temporalRemovalWorkflows } from '../services/AccountRemovalService.js';
+import { REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
+import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
 import type { AccountRemovalActivities } from '../activities/RemoveAccountActivities.js';
 import { temporalTestEnvironment } from './temporal-test-env.js';
 

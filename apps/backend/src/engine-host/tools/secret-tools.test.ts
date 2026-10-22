@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createSecretTools, type SecretVault } from './secret-tools.js';
-import type { SecretRequest } from '../../lib/secret-requests.js';
-import type { ProjectMetadata } from '../../lib/types.js';
-import type { Tree } from '../../lib/trees.js';
+import type { SecretRequest } from '../../projects/lib/secret-requests.js';
+import type { ProjectMetadata } from '../../platform/lib/types.js';
+import type { Tree } from '../../projects/lib/trees.js';
 
 function world(vault?: SecretVault) {
   const requests: SecretRequest[] = [];

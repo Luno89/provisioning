@@ -3,11 +3,11 @@ import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import {
   descriptionProblem, keyProblem, secretReference, sourceFor, withRequired,
   type SecretRequest,
-} from '../../lib/secret-requests.js';
-import type { SecretRequestFilter } from '../../lib/db-interface.js';
-import type { Tree } from '../../lib/trees.js';
+} from '../../projects/lib/secret-requests.js';
+import type { SecretRequestFilter } from '../../platform/lib/db-interface.js';
+import type { Tree } from '../../projects/lib/trees.js';
 import { projectFor as scopedProject } from './project-scope.js';
-import type { ProjectMetadata } from '../../lib/types.js';
+import type { ProjectMetadata } from '../../platform/lib/types.js';
 
 export interface SecretVault {
   has(projectId: string, key: string): Promise<boolean>;

@@ -1,16 +1,16 @@
 import fs from 'fs/promises';
 
-import { InfrastructureService } from '../services/InfrastructureService.js';
-import { hasCloudCredentials } from '../lib/credential-resolver.js';
-import { isMockCloudProvider } from '../lib/cluster-topology.js';
+import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
+import { hasCloudCredentials } from '../infrastructure/lib/credential-resolver.js';
+import { isMockCloudProvider } from '../infrastructure/lib/cluster-topology.js';
 import { ProvisionRemoteHostActivity } from './ProvisionRemoteHostActivity.js';
 import { ProvisionHetznerVmActivity } from './ProvisionHetznerVmActivity.js';
 import { ProvisionDigitalOceanVmActivity } from './ProvisionDigitalOceanVmActivity.js';
 import { JoinMeshActivity } from './JoinMeshActivity.js';
-import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
-import { infisicalHostFor } from '../lib/infisical-sync.js';
-import { ensureInfisicalOperator } from '../services/ProjectSecretSync.js';
-import { CLI_CEILING } from '../lib/activity-liveness.js';
+import { capacityFromNodes, type ClusterCapacity } from '../infrastructure/lib/cluster-capacity.js';
+import { infisicalHostFor } from '../releases/lib/infisical-sync.js';
+import { ensureInfisicalOperator } from '../projects/services/ProjectSecretSync.js';
+import { CLI_CEILING } from '../platform/lib/activity-liveness.js';
 
 export interface ProvisionClusterArgs {
   name: string;

@@ -2,9 +2,9 @@ import { condition, defineSignal, executeChild, patched, proxyActivities, setHan
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import { ConcludeWorkspaceWorkflow } from './ConcludeWorkspaceWorkflow.js';
 import { DEFAULT_STREAM_TASK_QUEUE, concludeWorkspaceId, type ConcludedWorkspace, type LifecycleEvent } from '../engine-host/temporal/contracts.js';
-import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
-import { ownerIn, startedFor } from '../lib/workflow-owner.js';
-import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
+import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
+import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
+import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 
 export const turnStartedSignal = defineSignal('turnStarted');
 export const turnEndedSignal = defineSignal<[{ quietMs: number }]>('turnEnded');

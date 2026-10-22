@@ -18,10 +18,10 @@
 import { config as loadEnv } from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
-import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
-import { decryptValue } from '../apps/backend/src/lib/crypto.js';
-import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
-import { loadKeys } from '../apps/backend/src/lib/keys.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { decryptValue } from '../apps/backend/src/platform/lib/crypto.js';
+import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
+import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
 // Explicit path, not `dotenv/config`: this test runs from the repo root but the only .env lives in
 // apps/backend, so the bare import silently leaves JWT_SECRET undefined and the credential decrypt

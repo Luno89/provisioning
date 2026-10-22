@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../lib/memory-db.js';
+import { MemoryDB } from '../platform/lib/memory-db.js';
 import { toolsOf } from '@koala/agent-engine';
 import { seededAgents, seededGrants } from '../extensions/seeds.js';
 import { createCheckRunActivities, observedCalls, observedHandOffs, pendingCalls } from './CheckRunActivities.js';

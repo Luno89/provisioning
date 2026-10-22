@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
 import type { EnvironmentDriver, ExecRequest, ExecResult } from '@koala/engine-core';
-import { MCP_SERVER_FILES } from '../../lib/project-templates.js';
+import { MCP_SERVER_FILES } from '../../projects/lib/project-templates.js';
 import { createWorkspaceServers, parseCurlReply, startScript, type ServedServer } from './workspace-servers.js';
 import type { RunTicket } from '../temporal/contracts.js';
 

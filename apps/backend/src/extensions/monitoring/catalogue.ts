@@ -1,5 +1,5 @@
 import type { ToolDefinition } from '@koala/agent-engine';
-import { ALERT_KINDS, ALERT_RULES } from '../../lib/monitoring-alerts.js';
+import { ALERT_KINDS, ALERT_RULES } from '../../monitoring/lib/monitoring-alerts.js';
 
 export const MONITORING_OVERVIEW = 'monitoring_overview';
 export const APP_HEALTH = 'app_health';

@@ -1,12 +1,12 @@
 import { ApplicationFailure, ParentClosePolicy, patched, proxyActivities, startChild, workflowInfo } from '@temporalio/workflow';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import { AgentRunWorkflow } from './AgentRunWorkflow.js';
-import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
+import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 import type { AdoptedRecords } from '../engine-host/plan-adoption.js';
-import type { AdoptedPlan } from '../lib/plan-proposals.js';
+import type { AdoptedPlan } from '../projects/lib/plan-proposals.js';
 import { DEFAULT_STREAM_TASK_QUEUE, GROVE_CHANGED_PATCH, RUN_ID_MEMO, groveRunWorkflowId, type AdoptPlanArgs, type AdoptPlanResult, type ProcedureRunInput } from '../engine-host/temporal/contracts.js';
-import { ownerIn, startedFor } from '../lib/workflow-owner.js';
-import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
+import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
+import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 
 const { PlanAdoptStopActivity, PlanAdoptRecordsActivity, PlanAdoptDocumentsActivity, PlanAdoptSettleActivity, GroveRunInputActivity } = proxyActivities<{
   GroveRunInputActivity(args: { treeId: string; ownerId: string }): Promise<ProcedureRunInput>;

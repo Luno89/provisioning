@@ -20,8 +20,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { PALWORLD_SCHEMA } from '../apps/backend/src/lib/palworld-settings.js';
-import { resolveAppSettings } from '../apps/backend/src/lib/app-settings-schema.js';
+import { PALWORLD_SCHEMA } from '../apps/backend/src/infrastructure/lib/palworld-settings.js';
+import { resolveAppSettings } from '../apps/backend/src/infrastructure/lib/app-settings-schema.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');

@@ -1,8 +1,8 @@
 import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
-import { getHfModelFiles, downloadHfFiles, type DownloadProgress } from '../lib/huggingface.js';
-import { computeModelFolderName } from '../lib/model-folder-name.js';
+import { getHfModelFiles, downloadHfFiles, type DownloadProgress } from '../infrastructure/lib/huggingface.js';
+import { computeModelFolderName } from '../models/lib/model-folder-name.js';
 
 export interface DownloadModelArgs {
   modelRepo: string;

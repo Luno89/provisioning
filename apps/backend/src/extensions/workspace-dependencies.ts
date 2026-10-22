@@ -1,6 +1,6 @@
 import { LANGUAGE_DEPENDENCIES, type WorkspaceDependency } from '@koala/agent-engine';
-import { PLAYWRIGHT_VERSION, E2E_RUNNER } from '../lib/e2e.js';
-import { APP_E2E_SCRIPT, CHROMIUM_LIBRARIES, KOALA_E2E_AT, SHARED_BROWSERS } from '../lib/browser-tests.js';
+import { PLAYWRIGHT_VERSION, E2E_RUNNER } from '../engine/lib/e2e.js';
+import { APP_E2E_SCRIPT, CHROMIUM_LIBRARIES, KOALA_E2E_AT, SHARED_BROWSERS } from '../engine/lib/browser-tests.js';
 
 export const PLAYWRIGHT_MCP_VERSION = '0.0.83';
 const PLAYWRIGHT_MCP_CLI = '"$(npm root -g)/@playwright/mcp/node_modules/playwright/cli.js"';

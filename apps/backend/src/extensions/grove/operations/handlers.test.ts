@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import type { Parking } from '../../../lib/published-workspace.js';
+import type { Parking } from '../../../engine/lib/published-workspace.js';
 import { PROCEDURE_SCHEMA, type NodeRequest, type Procedure } from '@koala/agent-engine/procedure';
 import { agentsReachable, createGroveOperations, type GroveOperationDeps } from './handlers.js';
-import type { Leaf, Branch } from '../../../lib/leaves.js';
-import type { Tree } from '../../../lib/trees.js';
+import type { Leaf, Branch } from '../../../projects/lib/leaves.js';
+import type { Tree } from '../../../projects/lib/trees.js';
 import type { Task } from '../../../engine-host/tools/tasks.js';
-import type { PlanProposal } from '../../../lib/plan-proposals.js';
-import { SUPERSEDED_NOTE } from '../../../lib/landing.js';
+import type { PlanProposal } from '../../../projects/lib/plan-proposals.js';
+import { SUPERSEDED_NOTE } from '../../../projects/lib/landing.js';
 
 const SANDBOX = { kind: 'sandbox', id: 'engine-tree-t1', workspace: { runId: 'tree-t1' }, capabilities: { kind: 'sandbox', lifecycle: 'invocation' } } as const;
 

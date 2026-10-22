@@ -4,10 +4,10 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 
 import axios from 'axios';
-import { signJWT } from '../apps/backend/src/lib/auth.js';
-import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
+import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import type { Level1Run } from '../apps/backend/src/services/Level1Service.js';
-import { loadKeys } from '../apps/backend/src/lib/keys.js';
+import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
 const BASE = process.env.LEVEL1_LIVE_URL ?? 'http://localhost:3001/api';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

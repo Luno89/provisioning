@@ -2,7 +2,7 @@ import { executeTool, refuse, type EnvironmentDriver, type ToolHandler, type Too
 import type { EnvironmentHandleRef, RunTicket, ToolCallArgs, ToolCallOutcome, ToolRuntime } from '../temporal/contracts.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { ServerTools } from './server-tools.js';
-import { isMcpToolName } from '../../lib/mcp-tools.js';
+import { isMcpToolName } from '../../engine/lib/mcp-tools.js';
 import { placeArtifacts, treeOfWorkspace } from '../sandboxes/workspace-repos.js';
 
 export type { ToolHandler } from '@koala/engine-core';

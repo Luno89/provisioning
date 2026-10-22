@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ToolCallerContext } from '@koala/engine-core';
-import type { WorkspaceChange } from '../../../lib/workspace-file.js';
+import type { WorkspaceChange } from '../../../engine/lib/workspace-file.js';
 import type { Task } from '../../../engine-host/tools/tasks.js';
 import { changeFrom, createWorkspaceTools, type WorkspaceToolDeps } from './handlers.js';
 

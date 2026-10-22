@@ -1,7 +1,7 @@
 import { log, proxyActivities } from '@temporalio/workflow';
 import type { ProvisionClusterArgs, ProvisionClusterResult } from '../activities/ProvisionClusterActivity.js';
-import type { ClusterCapacity } from '../lib/cluster-capacity.js';
-import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
+import type { ClusterCapacity } from '../infrastructure/lib/cluster-capacity.js';
+import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 
 const logger = log;
 const { ProvisionClusterActivity } = proxyActivities<{

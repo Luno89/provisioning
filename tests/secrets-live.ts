@@ -5,13 +5,13 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 
 import axios, { type AxiosInstance } from 'axios';
-import { signJWT } from '../apps/backend/src/lib/auth.js';
-import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
-import { InfisicalService } from '../apps/backend/src/services/InfisicalService.js';
-import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
-import { ClusterProxyService } from '../apps/backend/src/services/ClusterProxyService.js';
-import type { SecretRequest } from '../apps/backend/src/lib/secret-requests.js';
-import { loadKeys } from '../apps/backend/src/lib/keys.js';
+import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { InfisicalService } from '../apps/backend/src/infrastructure/services/InfisicalService.js';
+import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
+import { ClusterProxyService } from '../apps/backend/src/infrastructure/services/ClusterProxyService.js';
+import type { SecretRequest } from '../apps/backend/src/projects/lib/secret-requests.js';
+import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
 const BASE = process.env.SECRETS_LIVE_URL ?? 'http://localhost:3001/api';
 const PROJECT = process.env.SECRETS_LIVE_PROJECT;

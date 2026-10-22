@@ -1,11 +1,11 @@
-import { createDatabase } from '../lib/db-interface.js';
-import { buildWebTools, corpusEndpoints, crawlEndpoint } from '../wiring/web-tools.js';
-import { liveDeployment, type CorpusEndpoints } from '../lib/web-tools-resolver.js';
-import { ensureIndex, indexPages, ensureCollection, embedPages, searchCorpus, purgeCorpus } from '../lib/corpus-client.js';
+import { createDatabase } from '../platform/lib/db-interface.js';
+import { buildWebTools, corpusEndpoints, crawlEndpoint } from '../engine/wiring/web-tools.js';
+import { liveDeployment, type CorpusEndpoints } from '../engine/lib/web-tools-resolver.js';
+import { ensureIndex, indexPages, ensureCollection, embedPages, searchCorpus, purgeCorpus } from '../engine/lib/corpus-client.js';
 import { ApplicationFailure } from '@temporalio/common';
-import { buildBatchPayload, readCrawlResults, canonical, hostOf, usableLinks } from '../lib/crawl-client.js';
-import { toPage, type CorpusPage } from '../lib/corpus.js';
-import { frontierRow, followsLinks, type FrontierClaim } from '../lib/frontier.js';
+import { buildBatchPayload, readCrawlResults, canonical, hostOf, usableLinks } from '../engine/lib/crawl-client.js';
+import { toPage, type CorpusPage } from '../engine/lib/corpus.js';
+import { frontierRow, followsLinks, type FrontierClaim } from '../platform/lib/frontier.js';
 import { v4 as uuidv4 } from 'uuid';
 
 async function endpoint(ownerId: string) {
@@ -184,7 +184,7 @@ export async function SearchCorpusActivity(
       if (hits.length) return { hits: hits.map((h) => ({ url: h.url, snippet: h.snippet })) };
     }
 
-    const { search } = await import('../lib/corpus.js');
+    const { search } = await import('../engine/lib/corpus.js');
     const pages = await db.getCorpusPages({
       ownerId: args.ownerId,
       ...(args.ingestId ? { ingestId: args.ingestId } : {}),

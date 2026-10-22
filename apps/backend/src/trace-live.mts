@@ -1,6 +1,6 @@
-import { WorkspaceService } from './services/WorkspaceService.js';
+import { WorkspaceService } from './engine/services/WorkspaceService.js';
 import { runAgentLoop } from './lib/agent-loop.js';
-import { imageForLanguage } from './lib/workspace-spec.js';
+import { imageForLanguage } from './engine/lib/workspace-spec.js';
 
 const ws = new WorkspaceService();
 const leafId = 'trace-probe';

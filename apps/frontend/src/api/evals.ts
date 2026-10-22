@@ -34,8 +34,8 @@ export interface Rate {
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `CheckRunComparison` in apps/backend/src/lib/check-compare.ts and `CoverageGap` in
- * apps/backend/src/lib/check-coverage.ts.
+ * Authority: `CheckRunComparison` in apps/backend/src/checks/lib/check-compare.ts and `CoverageGap` in
+ * apps/backend/src/checks/lib/check-coverage.ts.
  */
 export interface CheckRunComparison {
   before: string
@@ -117,7 +117,7 @@ export interface ScenarioExpectations {
 /**
  * ── DUPLICATED, KNOWINGLY ──
  * Authority: `PLUMBING_KEYS` follows `FlowExpectations` in apps/backend/src/eval/level2/scenario.ts, `CheckScript`
- * in apps/backend/src/lib/check-script.ts, `StepUnderTest` in apps/backend/src/lib/step-check.ts.
+ * in apps/backend/src/checks/lib/check-script.ts, `StepUnderTest` in apps/backend/src/checks/lib/step-check.ts.
  */
 export const PLUMBING_KEYS = ['modelSaw', 'compacted', 'summaryKept', 'interrupted', 'turnLog', 'leaves', 'repository', 'pullRequests', 'workspace', 'project', 'trees', 'exit', 'outputs'] as const
 
@@ -221,7 +221,7 @@ export interface Level2Run {
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `BenchTrigger` in apps/backend/src/lib/bench.ts.
+ * Authority: `BenchTrigger` in apps/backend/src/checks/lib/bench.ts.
  */
 export type BenchTrigger =
   | { kind: 'manual' }

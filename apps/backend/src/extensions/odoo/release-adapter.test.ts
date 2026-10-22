@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { restoringApp } from '../../lib/release-run.js';
+import { restoringApp } from '../../releases/lib/release-run.js';
 import { ODOO_RELEASE_ADAPTER } from './release-adapter.js';
 import type { SlotCluster } from '../releases/slot-cluster.js';
-import type { ReleaseTarget } from '../../lib/release-run.js';
+import type { ReleaseTarget } from '../../releases/lib/release-run.js';
 
 const target: ReleaseTarget = { clusterName: 'dev', provider: 'k3d', namespace: 'shop', release: 'shop' };
 const vault = { projectId: 'p1', secret: 'shop-vault', keys: ['POSTGRES_PASSWORD', 'ODOO_ADMIN_PASSWORD'], database: { secret: 'shop-vault', key: 'POSTGRES_PASSWORD' }, adminKey: 'ODOO_ADMIN_PASSWORD' };

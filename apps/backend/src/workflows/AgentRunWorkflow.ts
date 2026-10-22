@@ -13,7 +13,7 @@ import {
   patched,
   ActivityFailure,
 } from '@temporalio/workflow';
-import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
+import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 import { childInputs } from '../engine-host/nodes/child-inputs.js';
 import {
   WORKFLOW_IMPLEMENTATIONS,
@@ -61,14 +61,14 @@ import type { RunLimits, RunLimitsArgs } from '../engine-host/registries/effort.
 import { RUN_STATE_QUERY, type RunState } from '../engine-host/temporal/run-cancellation.js';
 import { ASK_CHARS, collectStep, machineChoice, RUN_IN_WORKSPACE, UNNAMED_MACHINE, type Artifact, type RunEffort, type RunStep } from '@koala/agent-engine/procedure';
 import { platformCatalogue, platformGroups } from '../extensions/installed.js';
-import { ownerIn, startedFor } from '../lib/workflow-owner.js';
-import { tracedSummary } from '../lib/turn-log.js';
-import { externalCallId, externalRunEvents, externalToolName, permissionChoice, type ExternalToolSeen } from '../lib/external-agent-events.js';
+import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
+import { tracedSummary } from '../engine/lib/turn-log.js';
+import { externalCallId, externalRunEvents, externalToolName, permissionChoice, type ExternalToolSeen } from '../machines/lib/external-agent-events.js';
 import type { ExternalAgentStepArgs, ExternalAgentStepResult, ExternalCallAnswer, ExternalToolCall, MachineGitOp, MachineGitResult } from '@koala/engine-core';
-import { machineBranch, machineFolder, machineStepFolder } from '../lib/machine-branches.js';
+import { machineBranch, machineFolder, machineStepFolder } from '../machines/lib/machine-branches.js';
 import type { MachineSendRequest, MachineWorkRequest } from '../engine-host/sandboxes/machine-work.js';
 import type { BroughtBack } from '../engine-host/sandboxes/workspace-documents.js';
-import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
+import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 
 export const CONTINUE_AFTER_EVENTS = 10_000;
 

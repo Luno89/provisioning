@@ -1,13 +1,13 @@
 import { definitionFor, type Procedure } from '@koala/agent-engine/procedure';
-import { scriptProblems, type CheckScript } from '../../lib/check-script.js';
-import { stepProcedure, stepProcedureId, type StepUnderTest } from '../../lib/step-check.js';
-import { TURN_PROCEDURE_ID, turnChoiceProblems, type TurnChoice } from '../../lib/turn-check.js';
+import { scriptProblems, type CheckScript } from '../../checks/lib/check-script.js';
+import { stepProcedure, stepProcedureId, type StepUnderTest } from '../../checks/lib/step-check.js';
+import { TURN_PROCEDURE_ID, turnChoiceProblems, type TurnChoice } from '../../checks/lib/turn-check.js';
 import { platformCatalogue } from '../../extensions/installed.js';
 import { checkDefinition, dependencyProblems, type ToolDefinition, type WorkspaceDependency } from '@koala/agent-engine';
-import { SEPARATOR, slugify } from '../../lib/mcp-tools.js';
-import { serverProblems, type McpServerRecord } from '../../lib/mcp-servers.js';
+import { SEPARATOR, slugify } from '../../engine/lib/mcp-tools.js';
+import { serverProblems, type McpServerRecord } from '../../engine/lib/mcp-servers.js';
 import type { TaskStatus } from '../../engine-host/tools/tasks.js';
-import type { ReleaseState } from '../../lib/odoo-release.js';
+import type { ReleaseState } from '../../releases/lib/odoo-release.js';
 
 export interface WorldTask {
   id: string;

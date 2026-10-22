@@ -5,11 +5,11 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 import axios, { type AxiosInstance } from 'axios';
-import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
-import { signJWT } from '../apps/backend/src/lib/auth.js';
-import { loadKeys } from '../apps/backend/src/lib/keys.js';
-import { memoryRunId } from '../apps/backend/src/lib/conclusions.js';
-import { getTemporalClient } from '../apps/backend/src/lib/temporal-client.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
+import { memoryRunId } from '../apps/backend/src/memory/lib/conclusions.js';
+import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 
 const run = promisify(execFile);

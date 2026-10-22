@@ -8,7 +8,7 @@ export type DependencyInstall =
 /**
  * ── DUPLICATED, KNOWINGLY ──
  * Authority: `WorkspaceDependency` in packages/agent-engine/src/environment/dependencies.ts, and
- * `DependencyView` in apps/backend/src/services/WorkspaceDependencyService.ts.
+ * `DependencyView` in apps/backend/src/engine/services/WorkspaceDependencyService.ts.
  */
 export interface WorkspaceDependency {
   name: string

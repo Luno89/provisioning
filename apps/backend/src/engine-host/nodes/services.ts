@@ -28,7 +28,7 @@ export interface HostNodeServices {
   } | undefined;
   streamMonitors?: ((request: NodeRequest) => Monitor[]) | undefined;
   operations?: Readonly<Record<string, import('../../extensions/types.js').HostOperationRun>> | undefined;
-  hidden?: ((ownerId: string) => Promise<import('../../lib/extension-settings.js').HiddenVocabulary>) | undefined;
+  hidden?: ((ownerId: string) => Promise<import('../../engine/lib/extension-settings.js').HiddenVocabulary>) | undefined;
   fetchImpl?: typeof fetch | undefined;
   now?: (() => string) | undefined;
   newId?: (() => string) | undefined;

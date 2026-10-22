@@ -1,8 +1,8 @@
 import path from 'path';
 import type { Artifact } from '@koala/agent-engine/procedure';
 import type { ToolArtifact } from '@koala/engine-core';
-import { TREE_REPO } from '../../lib/plan-documents.js';
-import { sanitiseRepoName } from '../../lib/projects.js';
+import { TREE_REPO } from '../../projects/lib/plan-documents.js';
+import { sanitiseRepoName } from '../../projects/lib/projects.js';
 
 export interface WorkspaceRepo {
   repo: string;

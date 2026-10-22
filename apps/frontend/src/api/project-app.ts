@@ -2,7 +2,7 @@ import { api } from './client'
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `ProjectApp` and `ExposureMode` in apps/backend/src/lib/project-app.ts.
+ * Authority: `ProjectApp` and `ExposureMode` in apps/backend/src/releases/lib/project-app.ts.
  */
 export type ExposureMode = 'local' | 'public'
 

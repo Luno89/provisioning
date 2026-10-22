@@ -1,8 +1,8 @@
-import { createDatabase } from '../lib/db-interface.js';
-import { corpusEndpoints } from '../wiring/web-tools.js';
-import { indexMemories, searchMemories } from '../lib/memory-index.js';
-import { recallMemories, recallQuery } from '../lib/memory-recall.js';
-import { buildMemoryContext, type MemoryItem } from '../lib/memory-store.js';
+import { createDatabase } from '../platform/lib/db-interface.js';
+import { corpusEndpoints } from '../engine/wiring/web-tools.js';
+import { indexMemories, searchMemories } from '../memory/lib/memory-index.js';
+import { recallMemories, recallQuery } from '../memory/lib/memory-recall.js';
+import { buildMemoryContext, type MemoryItem } from '../memory/lib/memory-store.js';
 
 const DEFAULT_QUERIES = [
   'Add rate limiting to the upload route',

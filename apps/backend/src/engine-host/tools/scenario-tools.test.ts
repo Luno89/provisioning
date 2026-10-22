@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { ToolHandlerContext } from '@koala/engine-core';
 import { BUILDER_TOOLS } from '@koala/agent-engine';
-import type { ScenarioProposal } from '../../lib/scenario-proposals.js';
+import type { ScenarioProposal } from '../../checks/lib/scenario-proposals.js';
 import { ENGINE_TOOL_SEEDS } from './engine-tool-seeds.js';
 import { createScenarioTools } from './scenario-tools.js';
 import { SCENARIO_TOOLS } from './scenario-tools-catalogue.js';

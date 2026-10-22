@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
-import { search, type CorpusPage, type IngestReceipt } from '../../lib/corpus.js';
+import { search, type CorpusPage, type IngestReceipt } from '../../engine/lib/corpus.js';
 
 export interface CorpusAccess {
   crawlerReady(ownerId: string): Promise<boolean>;

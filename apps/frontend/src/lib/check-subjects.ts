@@ -2,7 +2,7 @@ import type { Scenario, ScenarioExpectations } from '../api/evals'
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: apps/backend/src/lib/check-subjects.ts, which the check writer's tools use. The page works out the same
+ * Authority: apps/backend/src/checks/lib/check-subjects.ts, which the check writer's tools use. The page works out the same
  * subjects from the same scenario, so a check shows on the same pages the agent finds it under.
  */
 export interface Subjects {

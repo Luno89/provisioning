@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
-import { modelsOf, type StoredNodeTrace } from '../../lib/run-traces.js';
+import { modelsOf, type StoredNodeTrace } from '../../engine/lib/run-traces.js';
 
 export interface RunReader {
   traces(ownerId: string, runId: string): Promise<StoredNodeTrace[]>;

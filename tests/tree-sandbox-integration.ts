@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import dotenv from 'dotenv';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
 import { treeWorkspaceRunId } from '../apps/backend/src/engine-host/sandboxes/tree-workspaces.js';
 import { workspaceName } from '../apps/backend/src/engine-host/sandboxes/workspace.js';

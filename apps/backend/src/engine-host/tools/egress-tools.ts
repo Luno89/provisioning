@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import type { EgressGrantRecord, EgressRequest } from '@koala/harness-types';
-import { hostProblem, portsProblem } from '../../lib/egress-proxy.js';
-import type { Tree } from '../../lib/trees.js';
+import { hostProblem, portsProblem } from '../../infrastructure/lib/egress-proxy.js';
+import type { Tree } from '../../projects/lib/trees.js';
 
 export interface EgressToolStores {
   grants(ownerId: string): Promise<EgressGrantRecord[]>;

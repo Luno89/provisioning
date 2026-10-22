@@ -4,9 +4,9 @@ import { asChatMessages, asStoredToolCalls, asStoredToolCallsMany, createConvers
 import { COMPACTION_PREFIX } from '@koala/agent-engine/procedure';
 import type { ConversationStore } from './conversation-nodes.js';
 import { storesFromDatabase } from '../host.js';
-import { MemoryDB } from '../../lib/memory-db.js';
-import type { Conversation, ConversationMessage } from '../../lib/conversations.js';
-import { NoNoteToAskError, NOTICE_PREFIX, openTurn } from '../../lib/conversations.js';
+import { MemoryDB } from '../../platform/lib/memory-db.js';
+import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
+import { NoNoteToAskError, NOTICE_PREFIX, openTurn } from '../../engine/lib/conversations.js';
 
 const said = (over: Partial<ConversationMessage> & Pick<ConversationMessage, 'role' | 'content'>): ConversationMessage => ({
   at: '2026-09-20T00:00:00.000Z',

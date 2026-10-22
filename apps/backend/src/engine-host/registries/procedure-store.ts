@@ -7,7 +7,7 @@ import {
   type Procedure,
 } from '@koala/agent-engine/procedure';
 import type { Need, ProcedureSource } from '@koala/agent-engine';
-import { withBuiltIns } from '../../lib/ownership.js';
+import { withBuiltIns } from '../../platform/lib/ownership.js';
 import { HOST_OPERATIONS, platformCatalogue, platformGroups } from '../../extensions/installed.js';
 import { seededProcedures } from '../../extensions/seeds.js';
 

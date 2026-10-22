@@ -1,8 +1,8 @@
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `RemovalWorkflowState`, `PersonEntry` and `PersonInstance` in apps/backend/src/services/AccountRemovalService.ts,
- * `InviteMetadata` in apps/backend/src/lib/types.ts,
- * `RemovalStep` in apps/backend/src/lib/account-removal.ts.
+ * Authority: `RemovalWorkflowState`, `PersonEntry` and `PersonInstance` in apps/backend/src/accounts/services/AccountRemovalService.ts,
+ * `InviteMetadata` in apps/backend/src/platform/lib/types.ts,
+ * `RemovalStep` in apps/backend/src/accounts/lib/account-removal.ts.
  */
 export type RemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance'
 

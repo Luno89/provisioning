@@ -3,12 +3,12 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { createDatabase } from '../lib/db-interface.js';
-import { DEV_SPLIT, devSplitOwner, devSplitPlan, envFileText, readEnvFile, withDatabase } from '../lib/dev-split.js';
-import { publicKeyPem } from '../lib/identity-token.js';
-import { mongoTarget } from '../lib/mongo-db.js';
-import { roleFromEnv } from '../lib/platform-role.js';
-import { hashCredential, instanceIdFor } from '../services/InstanceService.js';
+import { createDatabase } from '../platform/lib/db-interface.js';
+import { DEV_SPLIT, devSplitOwner, devSplitPlan, envFileText, readEnvFile, withDatabase } from '../instances/lib/dev-split.js';
+import { publicKeyPem } from '../instances/lib/identity-token.js';
+import { mongoTarget } from '../platform/lib/mongo-db.js';
+import { roleFromEnv } from '../platform/lib/platform-role.js';
+import { hashCredential, instanceIdFor } from '../instances/services/InstanceService.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(here, '../../.env') });

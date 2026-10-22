@@ -3,9 +3,9 @@ import type { AgentDefinition } from '@koala/agent-engine';
 import { createToolNodes } from './tool-nodes.js';
 import { createAgentRegistry } from '../registries/registry.js';
 import { createServerTools } from '../tools/server-tools.js';
-import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../lib/mcp-servers.js';
-import type { McpTool } from '../../lib/mcp-client.js';
-import type { MemoryItem } from '../../lib/memory-store.js';
+import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
+import type { McpTool } from '../../engine/lib/mcp-client.js';
+import type { MemoryItem } from '../../memory/lib/memory-store.js';
 
 const koala: AgentDefinition = {
   slug: 'koala', name: 'Koala', description: 'talks', version: '1', prompt: 'p', guidance: '', returns: '', failures: [],

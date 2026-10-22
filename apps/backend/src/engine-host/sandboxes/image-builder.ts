@@ -1,7 +1,7 @@
 import { imageReference, needsBuilding, renderDockerfile, type ImagePlan } from '@koala/agent-engine';
 import type { KubeRunner } from './kube.js';
-import { assessWorkload } from '../../lib/workload-health.js';
-import { forPushing, kanikoRegistryArgs, registryAuths, type RegistryHosts } from '../../lib/registry-hosts.js';
+import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
+import { forPushing, kanikoRegistryArgs, registryAuths, type RegistryHosts } from '../../instances/lib/registry-hosts.js';
 
 export const BUILD_NAMESPACE = 'pipeline-builds';
 

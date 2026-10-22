@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
 import { createFilesTools, type FilesToolDeps } from './handlers.js';
 import { LIST_FILES, READ_STORED_FILE, REMOVE_STORED_FILE, STORE_FILE } from './catalogue.js';
-import type { FileScope } from '../../services/FileService.js';
-import type { ProjectMetadata } from '../../lib/types.js';
+import type { FileScope } from '../../files/services/FileService.js';
+import type { ProjectMetadata } from '../../platform/lib/types.js';
 
 const shop = { id: 'p1', name: 'Shop', ownerId: 'u1', appType: 'gitapp', createdAt: 'now' } as ProjectMetadata;
 

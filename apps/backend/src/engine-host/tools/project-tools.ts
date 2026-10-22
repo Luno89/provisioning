@@ -1,15 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
-import type { ActionKind, ActionProposal } from '../../lib/action-proposals.js';
-import { envChanges, parseEnv, pickStrategy, sameAction } from '../../lib/action-proposals.js';
-import { deploymentForProject, rollupProjectStatus } from '../../lib/project-status.js';
-import { explainSpecProblems, validateSpec } from '../../lib/app-spec-validate.js';
-import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../lib/types.js';
+import type { ActionKind, ActionProposal } from '../../engine/lib/action-proposals.js';
+import { envChanges, parseEnv, pickStrategy, sameAction } from '../../engine/lib/action-proposals.js';
+import { deploymentForProject, rollupProjectStatus } from '../../projects/lib/project-status.js';
+import { explainSpecProblems, validateSpec } from '../../infrastructure/lib/app-spec-validate.js';
+import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
 import { projectFor, type ProjectScopeStores } from './project-scope.js';
-import { projectAppOf } from '../../lib/project-app.js';
-import type { OdooRelease } from '../../lib/odoo-release.js';
-import { code, fields, section, sectionLines, text, type ProposalSection } from '../../lib/proposal-sections.js';
-import { changesSentence } from '../../lib/release-compare.js';
+import { projectAppOf } from '../../releases/lib/project-app.js';
+import type { OdooRelease } from '../../releases/lib/odoo-release.js';
+import { code, fields, section, sectionLines, text, type ProposalSection } from '../../projects/lib/proposal-sections.js';
+import { changesSentence } from '../../releases/lib/release-compare.js';
 
 export interface ProjectToolStores extends ProjectScopeStores {
   runs(): Promise<PipelineRunMetadata[]>;

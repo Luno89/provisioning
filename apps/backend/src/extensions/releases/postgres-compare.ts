@@ -1,5 +1,5 @@
-import { columnKey, type DroppedCounts, type SchemaDiff, type SchemaSnapshot } from '../../lib/release-compare.js';
-import type { ReleaseTarget } from '../../lib/release-run.js';
+import { columnKey, type DroppedCounts, type SchemaDiff, type SchemaSnapshot } from '../../releases/lib/release-compare.js';
+import type { ReleaseTarget } from '../../releases/lib/release-run.js';
 import type { SlotCluster } from './slot-cluster.js';
 
 export interface PostgresAccess {

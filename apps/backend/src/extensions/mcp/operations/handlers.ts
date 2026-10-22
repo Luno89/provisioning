@@ -1,8 +1,8 @@
 import { egressFor, packageAccessFor, type ImagePlan, type RunWorkspace } from '@koala/agent-engine';
 import type { NodeRequest, StepResult } from '@koala/agent-engine/procedure';
 import type { EnvironmentDriver } from '@koala/engine-core';
-import { McpClient, type Fetcher } from '../../../lib/mcp-client.js';
-import { runsFingerprint, serverPath, type CapturedServer, type McpServerRecord, type ServerRuns } from '../../../lib/mcp-servers.js';
+import { McpClient, type Fetcher } from '../../../engine/lib/mcp-client.js';
+import { runsFingerprint, serverPath, type CapturedServer, type McpServerRecord, type ServerRuns } from '../../../engine/lib/mcp-servers.js';
 import { execFetch, startScript } from '../../../engine-host/tools/workspace-servers.js';
 import { environmentIdFor } from '../../../engine-host/sandboxes/run-environments.js';
 import type { EnvironmentHandleRef, RunTicket } from '../../../engine-host/temporal/contracts.js';

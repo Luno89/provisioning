@@ -1,5 +1,5 @@
 import type { FlowStage, Scenario } from './scenario.js';
-import { ODOO_TREE_TYPE } from '../../lib/tree-type-seeds.js';
+import { ODOO_TREE_TYPE } from '../../projects/lib/tree-type-seeds.js';
 
 export const COLOUR_MODULE = 'koala_colour';
 export const COLOUR_FIELD = 'koala_colour';

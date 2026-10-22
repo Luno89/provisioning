@@ -21,11 +21,11 @@
  * Temporal + Mongo running, and the cluster worker (worker-cluster.ts) listening so the
  * activity actually executes.
  */
-import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
-import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
-import { ClusterService } from '../apps/backend/src/services/ClusterService.js';
-import { TemporalBridge } from '../apps/backend/src/services/TemporalBridge.js';
-import { loadKeys } from '../apps/backend/src/lib/keys.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
+import { ClusterService } from '../apps/backend/src/infrastructure/services/ClusterService.js';
+import { TemporalBridge } from '../apps/backend/src/infrastructure/services/TemporalBridge.js';
+import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
 const DEPLOYMENT_NAME = process.argv[2] || 'Vllm-Production';
 const SYSTEM_CLUSTER_ID = 'provisioning-lunorica';

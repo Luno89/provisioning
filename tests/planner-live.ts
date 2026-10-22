@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import dotenv from 'dotenv';
 import { BUILT_IN_GROUPS, builtInCatalogue, runProcedure } from '@koala/agent-engine/procedure';
 import { createEventBus } from '@koala/agent-engine/workflow';
-import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
 import { createProcedureExecutor } from '../apps/backend/src/engine-host/nodes/index.js';
 

@@ -7,7 +7,7 @@ import os from 'os';
 const getHfModelFiles = vi.fn();
 const downloadHfFiles = vi.fn();
 
-vi.mock('../lib/huggingface.js', () => ({
+vi.mock('../infrastructure/lib/huggingface.js', () => ({
   getHfModelFiles,
   downloadHfFiles,
 }));

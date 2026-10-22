@@ -29,7 +29,7 @@ export const releaseTreeWorkspace = (id: string): Promise<{ state: TreeWorkspace
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `WorkspaceFile` in apps/backend/src/lib/workspace-file.ts.
+ * Authority: `WorkspaceFile` in apps/backend/src/engine/lib/workspace-file.ts.
  */
 export interface WorkspaceFile {
   packages?: Partial<Record<string, string[]>>
@@ -41,7 +41,7 @@ export interface WorkspaceFile {
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `TreeWorkspaceView` in apps/backend/src/services/TreeWorkspaceService.ts.
+ * Authority: `TreeWorkspaceView` in apps/backend/src/projects/services/TreeWorkspaceService.ts.
  */
 export interface TreeWorkspaceView {
   path: string
@@ -98,7 +98,7 @@ export const stopTreeRun = (id: string): Promise<TreeRunStatus> =>
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `TreeModelRow` and `AgentOwnModel` in apps/backend/src/services/TreeModelsService.ts.
+ * Authority: `TreeModelRow` and `AgentOwnModel` in apps/backend/src/models/services/TreeModelsService.ts.
  */
 export type AgentOwnModel = { modelId: string } | { machine: string } | { problem: string }
 

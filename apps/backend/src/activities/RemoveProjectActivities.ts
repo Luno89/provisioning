@@ -1,18 +1,18 @@
 import { Context } from '@temporalio/activity';
-import type { FilePlace } from '../lib/file-places.js';
-import type { ClusterMetadata, ProjectMetadata, DeploymentMetadata, PipelineRunMetadata } from '../lib/types.js';
-import { destroyAppArgs, destroyAppWorkflowId, type DestroyAppArgs } from '../lib/app-destroy.js';
-import type { Tree } from '../lib/trees.js';
-import type { Branch, Leaf } from '../lib/leaves.js';
+import type { FilePlace } from '../files/lib/file-places.js';
+import type { ClusterMetadata, ProjectMetadata, DeploymentMetadata, PipelineRunMetadata } from '../platform/lib/types.js';
+import { destroyAppArgs, destroyAppWorkflowId, type DestroyAppArgs } from '../infrastructure/lib/app-destroy.js';
+import type { Tree } from '../projects/lib/trees.js';
+import type { Branch, Leaf } from '../projects/lib/leaves.js';
 import type { Task } from '../engine-host/tools/tasks.js';
-import type { PlanProposal } from '../lib/plan-proposals.js';
-import type { Conversation } from '../lib/conversations.js';
-import { projectWorkflowIds } from '../lib/project-removal.js';
-import { loadProjectScope } from '../services/ProjectRemovalService.js';
+import type { PlanProposal } from '../projects/lib/plan-proposals.js';
+import type { Conversation } from '../engine/lib/conversations.js';
+import { projectWorkflowIds } from '../projects/lib/project-removal.js';
+import { loadProjectScope } from '../projects/services/ProjectRemovalService.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { workspaceName } from '../engine-host/sandboxes/workspace.js';
 import { conversationRepoName, conversationWorkspaceRunId, treeRepoName, treeWorkspaceRunId } from '../engine-host/sandboxes/workspace-repos.js';
-import { CLI_CEILING } from '../lib/activity-liveness.js';
+import { CLI_CEILING } from '../platform/lib/activity-liveness.js';
 
 export interface RemoveProjectArgs {
   projectId: string;

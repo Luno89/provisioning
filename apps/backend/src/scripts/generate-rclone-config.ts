@@ -11,10 +11,10 @@ const ROOT = path.resolve(__dirname, '../../../../');
 dotenv.config({ path: path.join(ROOT, 'apps/backend/.env'), quiet: true });
 
 async function main() {
-  const { createDatabase } = await import('../lib/db-interface.js');
-  const { decryptValue } = await import('../lib/crypto.js');
+  const { createDatabase } = await import('../platform/lib/db-interface.js');
+  const { decryptValue } = await import('../platform/lib/crypto.js');
 
-  const jwtSecret = (await import('../lib/keys.js')).loadKeys(process.env).data;
+  const jwtSecret = (await import('../platform/lib/keys.js')).loadKeys(process.env).data;
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!jwtSecret || !clientId || !clientSecret) process.exit(1);

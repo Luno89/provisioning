@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createAgentRegistry, createStoredAgentRegistry } from './registry.js';
 import { createAgentDirectory } from './agent-directory.js';
-import type { HiddenVocabulary } from '../../lib/extension-settings.js';
+import type { HiddenVocabulary } from '../../engine/lib/extension-settings.js';
 import { createEndpointResolver, UnknownAgentError } from './endpoints.js';
 import {
   toRecord,
@@ -12,7 +12,7 @@ import {
 } from '@koala/agent-engine';
 import { RESEARCH_V2, defineGroup, type Procedure } from '@koala/agent-engine/procedure';
 import { seededAgents } from '../../extensions/seeds.js';
-import { ENGINE_TOOL_SEEDS } from '../../wiring/engine-tool-seeds.js';
+import { ENGINE_TOOL_SEEDS } from '../../engine/wiring/engine-tool-seeds.js';
 
 const provider = (over: Partial<ModelProvider> = {}): ModelProvider => ({
   id: 'endpoint-1',

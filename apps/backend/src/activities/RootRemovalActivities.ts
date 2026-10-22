@@ -1,6 +1,6 @@
-import { createDatabase } from '../lib/db-interface.js';
-import { loadKeys } from '../lib/keys.js';
-import { HeadscaleService } from '../services/HeadscaleService.js';
+import { createDatabase } from '../platform/lib/db-interface.js';
+import { loadKeys } from '../platform/lib/keys.js';
+import { HeadscaleService } from '../infrastructure/services/HeadscaleService.js';
 
 export interface RootRemovalActivities {
   RootRemovalInstanceActivity(args: { ownerId: string }): Promise<{ poolInstanceId?: string | undefined }>;

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import dotenv from 'dotenv';
-import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
-import { getTemporalClient } from '../apps/backend/src/lib/temporal-client.js';
-import { startedFor } from '../apps/backend/src/lib/workflow-owner.js';
+import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
+import { startedFor } from '../apps/backend/src/platform/lib/workflow-owner.js';
 import { DEFAULT_ENGINE_TASK_QUEUE, type AgentRunOutcome, type ProcedureRunInput } from '../apps/backend/src/engine-host/temporal/contracts.js';
 
 dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname });

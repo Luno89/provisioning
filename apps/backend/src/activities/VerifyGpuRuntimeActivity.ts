@@ -1,6 +1,6 @@
-import { createDatabase } from '../lib/db-interface.js';
-import { InfrastructureService } from '../services/InfrastructureService.js';
-import { ClusterService } from '../services/ClusterService.js';
+import { createDatabase } from '../platform/lib/db-interface.js';
+import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
+import { ClusterService } from '../infrastructure/services/ClusterService.js';
 
 export interface VerifyGpuRuntimeArgs {
   clusterId: string;

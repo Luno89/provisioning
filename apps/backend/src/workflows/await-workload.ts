@@ -1,7 +1,7 @@
 import { proxyActivities, sleep, log } from '@temporalio/workflow';
 import type { CheckWorkloadArgs, CheckWorkloadResult } from '../activities/CheckWorkloadActivity.js';
-import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
-import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
+import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
+import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 
 const { CheckWorkloadActivity } = proxyActivities<{
   CheckWorkloadActivity: (args: CheckWorkloadArgs) => Promise<CheckWorkloadResult>;

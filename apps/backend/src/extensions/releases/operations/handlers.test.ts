@@ -3,9 +3,9 @@ import type { NodeRequest } from '@koala/agent-engine/procedure';
 import { createReleaseOperations, type BrowserTestsRequest } from './handlers.js';
 import type { SlotAdapter } from '../adapter.js';
 import type { SlotCluster } from '../slot-cluster.js';
-import type { OdooRelease, SlotState } from '../../../lib/odoo-release.js';
-import type { ReleaseE2E } from '../../../lib/release-e2e.js';
-import type { ReleaseRunInput, RollBackRunInput } from '../../../lib/release-run.js';
+import type { OdooRelease, SlotState } from '../../../releases/lib/odoo-release.js';
+import type { ReleaseE2E } from '../../../releases/lib/release-e2e.js';
+import type { ReleaseRunInput, RollBackRunInput } from '../../../releases/lib/release-run.js';
 
 let actions: string[];
 let state: SlotState;

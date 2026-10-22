@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { authenticate } from 'mailauth';
-import { MailService } from '../apps/backend/src/services/MailService.js';
-import { alertMail } from '../apps/backend/src/lib/mail.js';
-import { dkimValue } from '../apps/backend/src/lib/mail-dns.js';
-import { emailWayFrom } from '../apps/backend/src/lib/email-way.js';
+import { MailService } from '../apps/backend/src/platform/services/MailService.js';
+import { alertMail } from '../apps/backend/src/platform/lib/mail.js';
+import { dkimValue } from '../apps/backend/src/platform/lib/mail-dns.js';
+import { emailWayFrom } from '../apps/backend/src/platform/lib/email-way.js';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const DOMAIN = 'koala.localhost';

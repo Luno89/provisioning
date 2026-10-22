@@ -1,8 +1,8 @@
 import { ParentClosePolicy, proxyActivities, startChild, WorkflowIdReusePolicy } from '@temporalio/workflow';
 import { PoolTrialWorkflow } from './PoolTrialWorkflow.js';
-import { poolTrialWorkflowId } from '../lib/pool-trial.js';
+import { poolTrialWorkflowId } from '../instances/lib/pool-trial.js';
 import type * as pool from '../activities/PoolActivities.js';
-import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
+import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 
 const steps = proxyActivities<typeof pool>({ ...LIVE_ACTIVITY, retry: { maximumAttempts: 3 } });
 const record = proxyActivities<Pick<typeof pool, 'PoolFailedActivity'>>({ ...LIVE_ACTIVITY, retry: { maximumAttempts: 10 } });

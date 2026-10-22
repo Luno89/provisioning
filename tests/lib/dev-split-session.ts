@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { readEnvFile } from '../../apps/backend/src/lib/dev-split.js';
+import { readEnvFile } from '../../apps/backend/src/instances/lib/dev-split.js';
 
 const ENV_DIR = fileURLToPath(new URL('../../apps/backend/data/dev-split/', import.meta.url));
 

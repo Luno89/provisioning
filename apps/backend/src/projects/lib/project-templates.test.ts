@@ -1,0 +1,106 @@
+import { describe, it, expect } from 'vitest';
+import { execSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { NODE_SERVICE_FILES, LIBRARY_FILES, UI_APP_FILES } from './project-templates.js';
+import { readWorkspaceFile, WORKSPACE_FILE } from '../../engine/lib/workspace-file.js';
+import { PLAYWRIGHT_VERSION } from '../../engine/lib/e2e.js';
+import { renderStarterFiles } from './tree-types.js';
+import { TREE_TYPE_SEEDS } from './tree-type-seeds.js';
+
+function materialise(files: { path: string; content: string }[], name = 'probe') {
+  const dir = mkdtempSync(join(tmpdir(), 'tmpl-'));
+  for (const f of renderStarterFiles(files, { projectName: name, registryHost: '' })) {
+    mkdirSync(join(dir, dirname(f.path)), { recursive: true });
+    writeFileSync(join(dir, f.path), f.content);
+  }
+  return dir;
+}
+
+describe('the api-service skeleton', () => {
+  it('passes its own tests on a clean checkout', () => {
+    const dir = materialise(NODE_SERVICE_FILES);
+    const out = execSync('node --test test/*.test.js 2>&1', { cwd: dir, shell: '/bin/sh' }).toString();
+    expect(out).toMatch(/# pass 1/);
+    expect(out).toMatch(/# fail 0/);
+  });
+
+  it('listens on the port it is given, not a hardcoded one', () => {
+    const dir = materialise(NODE_SERVICE_FILES);
+    const out = execSync(
+      'PORT=45231 node src/server.js & sleep 1; curl --noproxy "*" -s -o /dev/null -w "%{http_code}" http://127.0.0.1:45231/health; kill %1',
+      { cwd: dir, shell: '/bin/bash' },
+    ).toString();
+    expect(out).toContain('200');
+  });
+
+  it('ships a Dockerfile, because without one the pipeline has nothing to build', () => {
+    const files = renderStarterFiles(NODE_SERVICE_FILES, { projectName: 'probe', registryHost: '' });
+    const docker = files.find((f) => f.path === 'Dockerfile');
+    expect(docker).toBeTruthy();
+    expect(docker!.content).toMatch(/^CMD/m);
+  });
+
+  it('uses the runtime test runner rather than an install', () => {
+    const pkg = JSON.parse(renderStarterFiles(NODE_SERVICE_FILES, { projectName: 'probe', registryHost: '' }).find((f) => f.path === 'package.json')!.content);
+    expect(pkg.scripts.test).toContain('node --test');
+    expect(pkg.dependencies).toBeUndefined();
+  });
+});
+
+describe('choosing a template', () => {
+  it('gives a library no Dockerfile, because a library is not deployed', () => {
+    const paths = renderStarterFiles(LIBRARY_FILES, { projectName: 'probe', registryHost: '' }).map((f) => f.path);
+    expect(paths).not.toContain('Dockerfile');
+    expect(paths).toContain('package.json');
+  });
+
+  it('gives nothing to a type that declares no starter files', () => {
+    const withoutFiles = TREE_TYPE_SEEDS.filter((t) => !t.files.length);
+    expect(withoutFiles.length).toBeGreaterThan(0);
+    for (const seed of withoutFiles) {
+      expect(renderStarterFiles(seed.files, { projectName: 'probe', registryHost: '' })).toEqual([]);
+    }
+  });
+
+  it('names the repository in what it writes', () => {
+    const pkg = JSON.parse(renderStarterFiles(NODE_SERVICE_FILES, { projectName: 'weather-api', registryHost: '' }).find((f) => f.path === 'package.json')!.content);
+    expect(pkg.name).toBe('weather-api');
+  });
+});
+
+describe('every shipped type\'s Dockerfile', () => {
+  const IMAGE = /^FROM (?:--platform=\S+ )?[a-z0-9][a-z0-9._-]*(?:[:/][a-z0-9._-]+)*(?::[\w.-]+)?(?: AS \w+)?$/i;
+
+  it('starts FROM an image a build can pull, whatever registry the install has', () => {
+    for (const seed of TREE_TYPE_SEEDS) {
+      for (const [registryHost, version] of ['', '10.0.0.130:31737'].flatMap((host) => (seed.versions?.choices.map((choice) => choice.version) ?? [undefined]).map((v) => [host, v] as const))) {
+        const dockerfile = renderStarterFiles(seed.files, { projectName: 'probe', registryHost, version }).find((file) => file.path === 'Dockerfile');
+        if (!dockerfile) continue;
+        const froms = dockerfile.content.split('\n').filter((line) => line.startsWith('FROM'));
+        expect(froms.length, seed.id).toBeGreaterThan(0);
+        for (const line of froms) expect(line, `${seed.id} with registry "${registryHost}"`).toMatch(IMAGE);
+      }
+    }
+  });
+});
+
+
+describe('the ui-app starter', () => {
+  const file = (path: string) => UI_APP_FILES.find((entry) => entry.path === path)!.content;
+
+  it('turns browser tests on, with the Playwright whose Chromium the workspace has', () => {
+    expect(readWorkspaceFile(file(WORKSPACE_FILE))).toEqual({ file: { needs: ['koala-e2e'] } });
+    expect(JSON.parse(file('package.json')).devDependencies['@playwright/test']).toBe(PLAYWRIGHT_VERSION);
+    expect(file('e2e/app.spec.ts')).toContain("from '@playwright/test'");
+    expect(file('.gitignore')).toContain('node_modules/');
+  });
+
+  it('builds and serves the app for the tests, with a wait Node\'s timers can hold', () => {
+    const config = file('playwright.config.ts');
+    expect(config).toContain("command: 'npm run build && npm run preview");
+    const timeout = Number(/timeout: ([\d_]+)/.exec(config)![1]!.replace(/_/g, ''));
+    expect(timeout).toBe(2 ** 31 - 1);
+  });
+});

@@ -1,0 +1,1749 @@
+import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
+import { fieldUpdate, messageUpdates, type RecordPatch, type HubDirty, type HubLink, type SyncedDoc, type SyncedKind } from '../../hub/lib/hub-sync.js';
+import { hintKey, type McpToolHint } from '../../engine/lib/mcp-tool-hints.js';
+import type { BenchSettings, BenchState } from '../../checks/lib/bench.js';
+import type { ExtensionSettings } from '../../engine/lib/extension-settings.js';
+import type { AutoModeSettings } from '../../engine/lib/auto-mode.js';
+import type { MonitoringSetting, AlertEpisode } from '../../monitoring/lib/monitoring-records.js';
+import type { AlertRuleRecord } from '../../monitoring/lib/monitoring-alerts.js';
+import type { NotificationSettings } from './mail.js';
+import type { FileSettings } from '../../files/lib/file-places.js';
+import type { MigrationRecord } from './migrations.js';
+import type { FileShare } from '../../files/lib/file-shares.js';
+import type { PoolPolicy } from '../../instances/lib/pool.js';
+import type { WorkFailure } from '../../infrastructure/lib/work-failures.js';
+import type { AuthoredExtension } from '../../engine/lib/authored-extensions.js';
+import type { InstanceRecord, JoinToken } from '../../instances/lib/instances.js';
+import type { MachineJoinCode } from '../../machines/lib/machines.js';
+import type { StoredAppSpec } from '../../infrastructure/lib/app-spec.js';
+import { MongoClient, type Db, type Collection } from 'mongodb';
+import { v4 as uuidv4 } from 'uuid';
+import { mergeRecord } from './merge-record.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
+import type { Database, PartialInfo, BindingTypeRecord, SecretRequestFilter } from './db-interface.js';
+import type { Branch, Leaf } from '../../projects/lib/leaves.js';
+import type { Tree } from '../../projects/lib/trees.js';
+import type { CorpusPage } from '../../engine/lib/corpus.js';
+import { type FrontierUrl, type FrontierClaim } from './frontier.js';
+import type { GiteaAccount } from '../../projects/lib/projects.js';
+import type { MemoryItem } from '../../memory/lib/memory-store.js';
+import type { Task } from '../../projects/lib/tasks.js';
+import type { PlanProposal } from '../../projects/lib/plan-proposals.js';
+import type { SecretRequest } from '../../projects/lib/secret-requests.js';
+import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
+import { procedureKey, type ProcedureSource } from '../../engine/lib/procedure-source.js';
+import { runTraceKey, type StoredNodeTrace } from '../../engine/lib/run-traces.js';
+import { MARK_MESSAGE_CHARS, TURN_LOG_RETENTION_SECONDS, type RunMark, type TurnLogEntry } from '../../engine/lib/turn-log.js';
+import type { RunEffort } from '@koala/agent-engine/procedure';
+import type { PersonaRecord as EnginePersona, ToolDefinition as EngineTool, ToolGrant, GrantKind, WorkspaceDependency } from '@koala/agent-engine';
+import type { PublishedWorkspace } from '../../engine/lib/published-workspace.js';
+import type { McpServerRecord } from '../../engine/lib/mcp-servers.js';
+import { evalRecordKey, type EvalCollection, type EvalRecord } from '../../checks/lib/eval-run.js';
+import type { TreeTypeSpec } from '../../projects/lib/tree-types.js';
+import type { WorkspaceImageSpec } from '../../engine/lib/workspace-image-seeds.js';
+import type { ModelThinkingProfile } from '../../engine/lib/thinking-classifier.js';
+import type { ClusterProviderSpec } from '../../infrastructure/lib/cluster-providers.js';
+import { ACCOUNT_DATA, type AccountRelated } from '../../accounts/lib/account-removal.js';
+import type { AccountIds, ScriptedRequestRecord } from './db-interface.js';
+import type { OdooRelease } from '../../releases/lib/odoo-release.js';
+import type { StoredArtifact } from '../../files/lib/artifacts.js';
+import type { ArtifactChunk } from '../../files/lib/artifacts.js';
+import type { DeferredConclusion, KeeperSettings } from '../../memory/lib/conclusions.js';
+
+export const databaseOf = (uri: string): string => {
+  const name = uri.replace(/^mongodb(\+srv)?:\/\/[^/]+\/?/, '').split('?')[0]?.trim();
+  return name || 'provisioning';
+};
+
+export function mongoTarget(env: Readonly<Record<string, string | undefined>> = process.env): { uri: string; dbName: string; e2e: boolean } {
+  const base = env.MONGO_URI || 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
+  const e2e = env.IS_E2E === 'true';
+  if (e2e) return { uri: env.MONGO_TEST_URI || base.replace('/provisioning', '/provisioning_test'), dbName: 'provisioning_test', e2e };
+  return { uri: base, dbName: databaseOf(base), e2e };
+}
+
+function fromDoc<T extends { id: string }>(doc: Record<string, any> | null | undefined): T {
+  if (!doc) return null as any;
+  const result = { ...doc };
+  if (result._id !== undefined && result._id !== null) {
+    result.id = typeof result._id === 'object' && typeof result._id.toString === 'function'
+      ? result._id.toString()
+      : String(result._id);
+  } else if (!result.id) {
+    result.id = '';
+  }
+  const { _id, ...rest } = result;
+  return rest as T;
+}
+
+function toDoc<T extends { id: string }>(entity: T): Record<string, any> {
+  const { id, ...rest } = entity as any;
+  return {
+    ...rest,
+    _id: id,
+  };
+}
+
+
+const toolGrantKey = (ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): string => (kind === 'server' ? `${ownerId}:${agent}:server:${tool}` : `${ownerId}:${agent}:${tool}`);
+const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (kind === 'server' ? { kind: 'server' } : kind === 'tool' ? { kind: { $ne: 'server' } } : {});
+export class MongoDB implements Database {
+  constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {}
+
+  private client: MongoClient | null = null;
+  private db: Db | null = null;
+
+  private get clusters(): Collection {
+    return this.db!.collection('clusters');
+  }
+
+  private get deployments(): Collection {
+    return this.db!.collection('deployments');
+  }
+
+  private get users(): Collection {
+    return this.db!.collection('users');
+  }
+
+  private get pipelineRuns(): Collection {
+    return this.db!.collection('pipelineRuns');
+  }
+
+  private get projects(): Collection {
+    return this.db!.collection('projects');
+  }
+
+  private get workspaceImages(): Collection {
+    return this.db!.collection('workspaceImages');
+  }
+
+  private get treeTypes(): Collection {
+    return this.db!.collection('treeTypes');
+  }
+
+  private get giteaAccounts(): Collection {
+    return this.db!.collection('giteaAccounts');
+  }
+
+  private get corpus(): Collection {
+    return this.db!.collection('corpus');
+  }
+
+  private get frontier(): Collection {
+    return this.db!.collection('crawl_frontier');
+  }
+
+  private get trees(): Collection {
+    return this.db!.collection('trees');
+  }
+
+  private get branches(): Collection {
+    return this.db!.collection('branches');
+  }
+
+  private get appSpecs(): Collection {
+    return this.db!.collection('appSpecs');
+  }
+
+  private get clusterProviders(): Collection {
+    return this.db!.collection('clusterProviders');
+  }
+
+  private get conversations(): Collection {
+    return this.db!.collection('conversations');
+  }
+
+  private get leaves(): Collection {
+    return this.db!.collection('leaves');
+  }
+
+  private get modelEndpoints(): Collection {
+    return this.db!.collection('modelEndpoints');
+  }
+
+  private get localAgentDevices(): Collection {
+    return this.db!.collection('localAgentDevices');
+  }
+
+  private get pendingApprovals(): Collection {
+    return this.db!.collection('pendingApprovals');
+  }
+
+  private get invites(): Collection {
+    return this.db!.collection('invites');
+  }
+
+  private get procedures(): Collection {
+    return this.db!.collection('procedures');
+  }
+
+  private get runEffort(): Collection {
+    return this.db!.collection('engineRunEffort');
+  }
+
+  private get turnLogs(): Collection {
+    return this.db!.collection('turnLogs');
+  }
+
+  private get runTraces(): Collection {
+    return this.db!.collection('engineRunTraces');
+  }
+
+  private get enginePersonas(): Collection {
+    return this.db!.collection('enginePersonas');
+  }
+
+  private get publishedWorkspaces(): Collection {
+    return this.db!.collection('publishedWorkspaces');
+  }
+
+  private get workspaceDependencies(): Collection {
+    return this.db!.collection('workspaceDependencies');
+  }
+
+  private get mcpServers(): Collection {
+    return this.db!.collection('mcpServers');
+  }
+
+  private get toolGrants(): Collection {
+    return this.db!.collection('toolGrants');
+  }
+
+  private get engineTools(): Collection {
+    return this.db!.collection('engineTools');
+  }
+
+  private get tasks(): Collection {
+    return this.db!.collection('tasks');
+  }
+
+  private get planProposals(): Collection {
+    return this.db!.collection('planProposals');
+  }
+
+  private get hubLinks(): Collection {
+    return this.db!.collection('hubLinks');
+  }
+
+  private get hubDirtyRecords(): Collection {
+    return this.db!.collection('hubDirty');
+  }
+
+  private get hubSnapshots(): Collection {
+    return this.db!.collection('hubSnapshots');
+  }
+
+  private syncedCollection(kind: SyncedKind): Collection {
+    return { trees: this.trees, branches: this.branches, leaves: this.leaves, tasks: this.tasks, conversations: this.conversations, planProposals: this.planProposals }[kind];
+  }
+
+  async getHubLinks(): Promise<HubLink[]> {
+    return (await this.hubLinks.find({}).toArray()).map(({ _id, ...rest }) => ({ ...rest, projectId: String(_id) }) as HubLink);
+  }
+
+  async saveHubLink(link: HubLink): Promise<void> {
+    const { projectId, ...rest } = link;
+    await this.hubLinks.replaceOne({ _id: projectId as any }, rest, { upsert: true });
+  }
+
+  async deleteHubLink(projectId: string): Promise<void> {
+    await this.hubLinks.deleteOne({ _id: projectId as any });
+  }
+
+  async markForHub(kind: SyncedKind, id: string, deleted: boolean): Promise<void> {
+    if (await this.hubLinks.estimatedDocumentCount() === 0) return;
+    const at = `${String(Date.now()).padStart(15, '0')}-${Math.random().toString(36).slice(2, 10)}`;
+    await this.hubDirtyRecords.replaceOne({ _id: `${kind}/${id}` as any }, { kind, id, deleted, at }, { upsert: true });
+  }
+
+  async hubDirty(limit: number): Promise<HubDirty[]> {
+    return (await this.hubDirtyRecords.find({}).sort({ at: 1 }).limit(limit).toArray()).map(({ _id, ...rest }) => rest as unknown as HubDirty);
+  }
+
+  async clearHubDirty(entries: readonly HubDirty[]): Promise<void> {
+    for (const entry of entries) await this.hubDirtyRecords.deleteOne({ _id: `${entry.kind}/${entry.id}` as any, at: entry.at });
+  }
+
+  async syncedRecord(kind: SyncedKind, id: string): Promise<SyncedDoc | undefined> {
+    const doc = await this.syncedCollection(kind).findOne({ _id: id as any });
+    return doc ? fromDoc<SyncedDoc>(doc) : undefined;
+  }
+
+  async patchSyncedRecord(kind: SyncedKind, id: string, patch: RecordPatch): Promise<void> {
+    const collection = this.syncedCollection(kind);
+    const fields = fieldUpdate(patch);
+    const messages = messageUpdates(patch);
+    if (fields) await collection.updateOne({ _id: id as any }, fields, { upsert: true });
+    if (messages.pull) await collection.updateOne({ _id: id as any }, { $pull: { messages: { $or: messages.pull } } } as any);
+    if (messages.push) await collection.updateOne({ _id: id as any }, { $push: { messages: { $each: messages.push, $sort: { at: 1 } } } } as any, { upsert: true });
+  }
+
+  async deleteSyncedRecord(kind: SyncedKind, id: string): Promise<void> {
+    await this.syncedCollection(kind).deleteOne({ _id: id as any });
+  }
+
+  async hubSnapshot(kind: SyncedKind, id: string): Promise<{ projectId: string; doc: SyncedDoc } | undefined> {
+    const found = await this.hubSnapshots.findOne({ _id: `${kind}/${id}` as any });
+    return found ? { projectId: String(found.projectId), doc: found.doc as SyncedDoc } : undefined;
+  }
+
+  async saveHubSnapshot(projectId: string, kind: SyncedKind, doc: SyncedDoc): Promise<void> {
+    await this.hubSnapshots.replaceOne({ _id: `${kind}/${doc.id}` as any }, { projectId, kind, doc }, { upsert: true });
+  }
+
+  async deleteHubSnapshot(kind: SyncedKind, id: string): Promise<void> {
+    await this.hubSnapshots.deleteOne({ _id: `${kind}/${id}` as any });
+  }
+
+  async deleteHubSnapshots(projectId: string): Promise<void> {
+    await this.hubSnapshots.deleteMany({ projectId });
+  }
+
+  private get artifacts(): Collection {
+    return this.db!.collection('artifacts');
+  }
+
+  private get artifactChunks(): Collection {
+    return this.db!.collection('artifactChunks');
+  }
+
+  private get odooReleases(): Collection {
+    return this.db!.collection('odooReleases');
+  }
+
+  private get secretRequests(): Collection {
+    return this.db!.collection('secretRequests');
+  }
+
+  private get mcpToolHints(): Collection {
+    return this.db!.collection('mcpToolHints');
+  }
+
+  private get mcpRequests(): Collection {
+    return this.db!.collection('mcpRequests');
+  }
+
+  private get actionProposals(): Collection {
+    return this.db!.collection('actionProposals');
+  }
+
+  private get handoffs(): Collection {
+    return this.db!.collection('identityHandoffs');
+  }
+
+  private get joinTokens(): Collection {
+    return this.db!.collection('instanceJoinTokens');
+  }
+
+  private get machineJoinCodes(): Collection {
+    return this.db!.collection('machineJoinCodes');
+  }
+
+  private get instanceRegistry(): Collection {
+    return this.db!.collection('instances');
+  }
+
+  private get authoredExtensions(): Collection {
+    return this.db!.collection('authoredExtensions');
+  }
+
+  private get extensionSettings(): Collection {
+    return this.db!.collection('extensionSettings');
+  }
+
+  private get autoModeSettings(): Collection {
+    return this.db!.collection('autoModeSettings');
+  }
+
+  private get egressGrants(): Collection {
+    return this.db!.collection('egressGrants');
+  }
+
+  private get egressRequests(): Collection {
+    return this.db!.collection('egressRequests');
+  }
+
+  private get accessRequests(): Collection {
+    return this.db!.collection('accessRequests');
+  }
+
+  private get memories(): Collection {
+    return this.db!.collection('memories');
+  }
+
+  private get thinkingProfiles(): Collection {
+    return this.db!.collection('model_thinking_profiles');
+  }
+
+  private get bindingTypes(): Collection {
+    return this.db!.collection('bindingTypes');
+  }
+
+  async init(): Promise<void> {
+    const { uri, dbName, e2e: isE2E } = mongoTarget(this.env);
+
+    this.client = new MongoClient(uri);
+    await this.client.connect();
+    this.db = this.client.db(dbName);
+
+    if (isE2E) {
+      await this.db.dropDatabase();
+    }
+
+    await this.clusters.createIndex({ name: 1 }, { unique: true });
+    await this.deployments.createIndex({ clusterId: 1 });
+    await this.deployments.createIndex({ name: 1 }, { unique: true });
+    await this.users.createIndex({ email: 1 }, { unique: true });
+    await this.runTraces.createIndex({ ownerId: 1, runId: 1, sequence: 1 });
+    await this.hubDirtyRecords.createIndex({ at: 1 });
+    await this.turnLogs.createIndex({ turnId: 1, seq: 1 }, { unique: true });
+    await this.turnLogs.createIndex({ at: 1 }, { expireAfterSeconds: TURN_LOG_RETENTION_SECONDS });
+    await this.turnLogs.createIndex({ ownerId: 1, seq: 1, at: -1 });
+    await this.handoffs.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await this.instanceRegistry.createIndex({ ownerId: 1 });
+    await this.instanceRegistry.createIndex({ name: 1 }, { unique: true, partialFilterExpression: { name: { $type: 'string' } } });
+    await this.joinTokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await this.machineJoinCodes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await this.planProposals.createIndex({ ownerId: 1, conversationId: 1, createdAt: 1 });
+    await this.secretRequests.createIndex({ ownerId: 1, projectId: 1, key: 1 });
+    await this.toolGrants.createIndex({ ownerId: 1, agent: 1 });
+    await this.runEffort.createIndex({ ownerId: 1, procedureId: 1, modelKey: 1, finishedAt: -1 });
+    try {
+      await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, {
+        unique: true,
+        partialFilterExpression: { giteaOwner: { $type: 'string' }, giteaRepo: { $type: 'string' } },
+      });
+    } catch {
+      await this.projects.dropIndex('giteaOwner_1_giteaRepo_1');
+      await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, {
+        unique: true,
+        partialFilterExpression: { giteaOwner: { $type: 'string' }, giteaRepo: { $type: 'string' } },
+      });
+    }
+    await this.pipelineRuns.createIndex({ projectId: 1 });
+    await this.odooReleases.createIndex({ ownerId: 1, projectId: 1 });
+    await this.artifacts.createIndex({ ownerId: 1, runId: 1 });
+    await this.artifacts.createIndex({ expiresAt: 1 });
+    await this.artifactChunks.createIndex({ artifactId: 1, n: 1 });
+    await this.frontier.createIndex({ ingestId: 1, state: 1, depth: 1, rank: -1, url: 1 });
+    await this.corpus.createIndex({ ownerId: 1, ingestId: 1 });
+    await this.corpus.createIndex({ ownerId: 1, projectId: 1 });
+  }
+
+  async close(): Promise<void> {
+    if (this.client) {
+      await this.client.close();
+      this.client = null;
+      this.db = null;
+    }
+  }
+
+  async getClusters(): Promise<ClusterMetadata[]> {
+    return (await this.clusters.find({}).toArray()).map(doc => fromDoc<ClusterMetadata>(doc));
+  }
+
+  async saveCluster(cluster: ClusterMetadata): Promise<void> {
+    const doc = toDoc(cluster);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.clusters.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async saveClusterList(clusters: ClusterMetadata[]): Promise<void> {
+    await this.clusters.deleteMany({});
+    if (clusters.length > 0) {
+      await this.clusters.insertMany(clusters.map(toDoc));
+    }
+  }
+
+  async saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata> {
+    const id = cluster.id || uuidv4();
+    const previous = (await this.getClusters()).find((x: ClusterMetadata) => x.id === id);
+    const merged = mergeRecord(previous, cluster as Partial<ClusterMetadata>);
+    const c: ClusterMetadata = {
+      ...merged,
+
+      id: id,
+      name: merged.name || '',
+      provider: merged.provider || 'k3d',
+      status: merged.status || 'provisioning',
+    };
+    await this.saveCluster(c);
+    return c;
+  }
+
+  async updateClusterProgress(clusterId: string, progress: ClusterProgress): Promise<void> {
+    await this.clusters.updateOne(
+      { _id: clusterId as any },
+      { $set: { progress } }
+    );
+  }
+
+  async getDeployments(): Promise<DeploymentMetadata[]> {
+    return (await this.deployments.find({}).toArray()).map(doc => fromDoc<DeploymentMetadata>(doc));
+  }
+
+  async saveDeployment(deployment: DeploymentMetadata): Promise<void> {
+    const doc = toDoc(deployment);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.deployments.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async saveDeploymentList(deployments: DeploymentMetadata[]): Promise<void> {
+    const keep = deployments.map(toDoc);
+    const keepIds = keep.map((d) => d._id);
+
+    const ops: any[] = keep.map((doc) => {
+      const { _id, ...rest } = doc;
+      return { replaceOne: { filter: { _id }, replacement: rest, upsert: true } };
+    });
+    ops.push({ deleteMany: { filter: keepIds.length ? { _id: { $nin: keepIds } } : {} } });
+
+    await this.deployments.bulkWrite(ops, { ordered: false });
+  }
+
+  async deleteDeployment(id: string): Promise<void> {
+    await this.deployments.deleteOne({ _id: id as any });
+  }
+
+  async saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata> {
+    const id = deployment.id || uuidv4();
+    const previous = (await this.getDeployments()).find((x: DeploymentMetadata) => x.id === id);
+    const merged = mergeRecord(previous, deployment as Partial<DeploymentMetadata>);
+    const d: DeploymentMetadata = {
+      ...merged,
+
+      id: id,
+      name: merged.name || '',
+      clusterId: merged.clusterId || '',
+      strategy: merged.strategy || 'helm',
+      status: merged.status || 'deploying',
+    };
+    await this.saveDeployment(d);
+    return d;
+  }
+
+  async getProjects(): Promise<ProjectMetadata[]> {
+    return (await this.projects.find({}).toArray()).map(doc => fromDoc<ProjectMetadata>(doc));
+  }
+
+  async saveProject(project: ProjectMetadata): Promise<void> {
+    const doc = toDoc(project);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.projects.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata> {
+    const id = project.id || uuidv4();
+    const previous = (await this.getProjects()).find((x: ProjectMetadata) => x.id === id);
+    const merged = mergeRecord(previous, project as Partial<ProjectMetadata>);
+    const p: ProjectMetadata = {
+      ...merged,
+
+      id: id,
+      name: merged.name || '',
+      giteaOwner: merged.giteaOwner || '',
+      giteaRepo: merged.giteaRepo || '',
+      appType: merged.appType || 'gitapp',
+      createdAt: merged.createdAt || new Date().toISOString(),
+    };
+    await this.saveProject(p);
+    return p;
+  }
+
+  async getPipelineRuns(): Promise<PipelineRunMetadata[]> {
+    return (await this.pipelineRuns.find({}).toArray()).map(doc => fromDoc<PipelineRunMetadata>(doc));
+  }
+
+  async savePipelineRun(run: PipelineRunMetadata): Promise<void> {
+    const doc = toDoc(run);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.pipelineRuns.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async savePipelineRunInfo(run: PartialInfo<PipelineRunMetadata>): Promise<PipelineRunMetadata> {
+    const id = run.id || uuidv4();
+    const previous = (await this.getPipelineRuns()).find((x: PipelineRunMetadata) => x.id === id);
+    const merged = mergeRecord(previous, run as Partial<PipelineRunMetadata>);
+    const r: PipelineRunMetadata = {
+      ...merged,
+
+      id: id,
+      projectId: merged.projectId || '',
+      commitSha: merged.commitSha || '',
+      ref: merged.ref || '',
+      status: merged.status || 'queued',
+      startedAt: merged.startedAt || new Date().toISOString(),
+    };
+    await this.savePipelineRun(r);
+    return r;
+  }
+
+  async getInvites(): Promise<InviteMetadata[]> {
+    return (await this.invites.find({}).toArray()).map(doc => fromDoc<InviteMetadata>(doc));
+  }
+
+  async saveInvite(invite: InviteMetadata): Promise<void> {
+    const doc = toDoc(invite);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.invites.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async getCorpusPages(filter: { ownerId: string; ingestId?: string; projectId?: string }): Promise<CorpusPage[]> {
+    const query: Record<string, unknown> = { ownerId: filter.ownerId };
+    if (filter.ingestId) query.ingestId = filter.ingestId;
+    if (filter.projectId) query.projectId = filter.projectId;
+    return (await this.corpus.find(query).toArray()).map(doc => fromDoc<CorpusPage>(doc));
+  }
+
+  async saveCorpusPages(pages: CorpusPage[]): Promise<void> {
+    if (!pages.length) return;
+    await this.corpus.bulkWrite(pages.map((page) => {
+      const doc = toDoc(page);
+      const { _id, ...rest } = doc;
+      return { replaceOne: { filter: { _id }, replacement: rest, upsert: true } };
+    }));
+  }
+
+  async deleteCorpus(ingestId: string): Promise<void> {
+    await this.corpus.deleteMany({ ingestId });
+  }
+
+  async enqueueFrontier(urls: FrontierUrl[]): Promise<number> {
+    if (!urls.length) return 0;
+    try {
+      const res = await this.frontier.insertMany(
+        urls.map((u) => { const { _id, ...rest } = toDoc(u); return { _id, ...rest }; }),
+        { ordered: false },
+      );
+      return res.insertedCount;
+    } catch (err: any) {
+      if (err?.code === 11000 || err?.writeErrors) return err.result?.insertedCount ?? err.insertedCount ?? 0;
+      throw err;
+    }
+  }
+
+  async claimFrontier(ingestId: string, limit: number): Promise<FrontierClaim[]> {
+    if (limit <= 0) return [];
+    const docs = await this.frontier
+      .find({ ingestId, state: 'pending' })
+      .sort({ depth: 1, rank: -1, url: 1 })
+      .limit(limit)
+      .toArray();
+    return docs.map((d) => ({ url: String(d.url), depth: Number(d.depth) }));
+  }
+
+  async completeFrontier(ingestId: string, urls: string[]): Promise<void> {
+    if (!urls.length) return;
+    await this.frontier.updateMany({ ingestId, url: { $in: urls } }, { $set: { state: 'done' } });
+  }
+
+  async countFrontier(ingestId: string): Promise<number> {
+    return this.frontier.countDocuments({ ingestId, state: 'pending' });
+  }
+
+  async deleteFrontier(ingestId: string): Promise<void> {
+    await this.frontier.deleteMany({ ingestId });
+  }
+
+  async getTrees(): Promise<Tree[]> {
+    return (await this.trees.find({}).toArray()).map(doc => fromDoc<Tree>(doc));
+  }
+
+  async saveTree(tree: Tree): Promise<void> {
+    const doc = toDoc(tree);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.trees.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async deleteTree(id: string): Promise<void> {
+    await this.trees.deleteOne({ _id: id as any });
+  }
+
+  async getBranches(): Promise<Branch[]> {
+    return (await this.branches.find({}).toArray()).map(doc => fromDoc<Branch>(doc));
+  }
+
+  async saveBranch(branch: Branch): Promise<void> {
+    const doc = toDoc(branch);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.branches.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async deleteBranch(id: string): Promise<void> {
+    await this.branches.deleteOne({ _id: id as any });
+  }
+
+  async getAppSpecs(): Promise<StoredAppSpec[]> {
+    return (await this.appSpecs.find({}).toArray()).map((doc) => fromDoc<StoredAppSpec>(doc));
+  }
+
+  async saveAppSpec(spec: StoredAppSpec): Promise<void> {
+    const doc = toDoc(spec);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.appSpecs.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async getClusterProviders(): Promise<ClusterProviderSpec[]> {
+    const docs = (await this.clusterProviders.find({}).toArray()) as Array<Record<string, any>>;
+    return docs.map(({ _id, ...rest }) => rest as ClusterProviderSpec);
+  }
+
+  async saveClusterProvider(provider: ClusterProviderSpec): Promise<void> {
+    const { value } = provider;
+    await this.clusterProviders.replaceOne({ _id: value as any }, { _id: value, ...provider }, { upsert: true });
+  }
+
+  async deleteAppSpec(id: string): Promise<void> {
+    await this.appSpecs.deleteOne({ _id: id as any });
+  }
+
+  async getConversations(): Promise<Conversation[]> {
+    return (await this.conversations.find({}).toArray()).map((doc) => fromDoc<Conversation>(doc));
+  }
+
+  async getConversation(ownerId: string, id: string): Promise<Conversation | undefined> {
+    const doc = await this.conversations.findOne({ _id: id as any, ownerId });
+    return doc ? fromDoc<Conversation>(doc) : undefined;
+  }
+
+  async allowToolInConversation(ownerId: string, conversationId: string, tool: string): Promise<boolean> {
+    const result = await this.conversations.updateOne({ _id: conversationId as any, ownerId }, { $addToSet: { allowedTools: tool } });
+    return result.matchedCount > 0;
+  }
+
+  async setConversationAutoMode(ownerId: string, conversationId: string, on: boolean): Promise<boolean> {
+    const result = await this.conversations.updateOne(
+      { _id: conversationId as any, ownerId },
+      on ? { $set: { autoMode: true } } : { $unset: { autoMode: '' } },
+    );
+    return result.matchedCount > 0;
+  }
+
+  async bindConversation(ownerId: string, conversationId: string, binding: { treeId: string; projectId?: string | undefined }): Promise<boolean> {
+    const set = { treeId: binding.treeId, ...(binding.projectId ? { projectId: binding.projectId } : {}), updatedAt: new Date().toISOString() };
+    const result = await this.conversations.updateOne({ _id: conversationId as any, ownerId, treeId: { $exists: false } }, { $set: set });
+    return result.modifiedCount > 0;
+  }
+
+  async appendMessage(ownerId: string, conversationId: string, message: ConversationMessage): Promise<boolean> {
+    const result = await this.conversations.updateOne({ _id: conversationId as any, ownerId }, { $push: { messages: message as any }, $set: { updatedAt: message.at } });
+    return result.modifiedCount > 0;
+  }
+
+  async appendNotice(ownerId: string, conversationId: string, message: ConversationMessage): Promise<boolean> {
+    if (!message.notice) return false;
+    const result = await this.conversations.updateOne(
+      { _id: conversationId as any, ownerId, 'messages.notice.key': { $ne: message.notice.key } },
+      { $push: { messages: message as any }, $set: { updatedAt: message.at } },
+    );
+    return result.modifiedCount > 0;
+  }
+
+  async ownsRun(ownerId: string, runId: string): Promise<boolean> {
+    return (await this.turnLogs.countDocuments({ ownerId, $or: [{ turnId: runId }, { 'events.runId': runId }] }, { limit: 1 })) > 0;
+  }
+
+  async runOrigin(ownerId: string, runId: string): Promise<{ agentId?: string | undefined; turnId: string } | undefined> {
+    const found = await this.turnLogs.findOne(
+      { ownerId, events: { $elemMatch: { runId, type: 'run.started' } } },
+      { projection: { turnId: 1, events: { $elemMatch: { runId, type: 'run.started' } } } },
+    ) as { turnId?: string; events?: { agentId?: string }[] } | null;
+    if (!found?.turnId) return undefined;
+    const agentId = found.events?.[0]?.agentId;
+    return { turnId: found.turnId, ...(agentId ? { agentId } : {}) };
+  }
+
+  async saveConversation(conversation: Conversation): Promise<void> {
+    const doc = toDoc(conversation);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.conversations.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async deleteConversation(id: string): Promise<void> {
+    await this.conversations.deleteOne({ _id: id as any });
+  }
+
+  async getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]> {
+    const filter = ownerId ? { $or: [{ ownerId }, { ownerId: { $exists: false } }] } : {};
+    const docs = await this.workspaceImages.find(filter).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as WorkspaceImageSpec);
+  }
+
+  async saveWorkspaceImage(image: WorkspaceImageSpec): Promise<void> {
+    const { _id: _ignored, ...doc } = image as WorkspaceImageSpec & { _id?: unknown };
+    await this.workspaceImages.replaceOne(
+      { _id: `${image.ownerId}:${image.id}` } as never,
+      doc,
+      { upsert: true },
+    );
+  }
+
+  async getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]> {
+    const filter = ownerId ? { $or: [{ ownerId }, { ownerId: { $exists: false } }] } : {};
+    const docs = await this.treeTypes.find(filter).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as TreeTypeSpec);
+  }
+
+  async saveTreeType(treeType: TreeTypeSpec): Promise<void> {
+    const { _id: _ignored, ...doc } = treeType as TreeTypeSpec & { _id?: unknown };
+    await this.treeTypes.replaceOne(
+      { _id: `${treeType.ownerId}:${treeType.id}` } as never,
+      doc,
+      { upsert: true },
+    );
+  }
+
+  async deleteTreeType(id: string, ownerId: string): Promise<void> {
+    await this.treeTypes.deleteOne({ _id: `${ownerId}:${id}` } as never);
+  }
+
+  async getGiteaAccount(ownerId: string): Promise<GiteaAccount | null> {
+    const doc = await this.giteaAccounts.findOne({ _id: ownerId as any });
+    if (!doc) return null;
+    const { _id, ...rest } = doc as any;
+    return { ...rest, ownerId: String(_id) } as GiteaAccount;
+  }
+
+  async saveGiteaAccount(account: GiteaAccount): Promise<void> {
+    const { ownerId, ...rest } = account;
+    await this.giteaAccounts.replaceOne({ _id: ownerId as any }, rest, { upsert: true });
+  }
+
+  async getLeaves(): Promise<Leaf[]> {
+    return (await this.leaves.find({}).toArray()).map(doc => fromDoc<Leaf>(doc));
+  }
+
+  async saveLeaf(leaf: Leaf): Promise<void> {
+    const doc = toDoc(leaf);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.leaves.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async deleteLeaf(id: string): Promise<void> {
+    await this.leaves.deleteOne({ _id: id as any });
+  }
+
+  async getModelEndpoints(): Promise<ModelEndpointMetadata[]> {
+    return (await this.modelEndpoints.find({}).toArray()).map(doc => fromDoc<ModelEndpointMetadata>(doc));
+  }
+
+  async saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void> {
+    const doc = toDoc(endpoint);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.modelEndpoints.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async deleteModelEndpoint(id: string): Promise<void> {
+    await this.modelEndpoints.deleteOne({ _id: id as any });
+  }
+
+  async getLocalAgentDevices(): Promise<LocalAgentDeviceMetadata[]> {
+    return (await this.localAgentDevices.find({}).toArray()).map(doc => fromDoc<LocalAgentDeviceMetadata>(doc));
+  }
+
+  async saveLocalAgentDevice(device: LocalAgentDeviceMetadata): Promise<void> {
+    const doc = toDoc(device);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.localAgentDevices.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async deleteLocalAgentDevice(id: string): Promise<void> {
+    await this.localAgentDevices.deleteOne({ _id: id as any });
+  }
+
+  async getPendingApprovals(): Promise<PendingApprovalMetadata[]> {
+    return (await this.pendingApprovals.find({}).toArray()).map(doc => fromDoc<PendingApprovalMetadata>(doc));
+  }
+
+  async savePendingApproval(approval: PendingApprovalMetadata): Promise<void> {
+    const doc = toDoc(approval);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.pendingApprovals.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async deletePendingApproval(id: string): Promise<void> {
+    await this.pendingApprovals.deleteOne({ _id: id as any });
+  }
+
+  async accountIds(ownerId: string): Promise<AccountIds> {
+    const ids = async (name: string, field = '_id') =>
+      (await this.db!.collection(name).find({ ownerId }, { projection: { [field]: 1 } }).toArray()).map((doc) => String(doc[field]));
+    const conversations = await this.conversations.find({ ownerId }, { projection: { _id: 1, liveTurn: 1 } }).toArray();
+    const turns = (await this.turnLogs.distinct('turnId', { ownerId })) as string[];
+    const live = conversations.map((doc) => (doc.liveTurn as { runId?: string } | undefined)?.runId).filter((id): id is string => typeof id === 'string');
+    const projectIds = await ids('projects');
+    return {
+      runIds: [...new Set([...turns, ...live])],
+      treeIds: await ids('trees'),
+      conversationIds: conversations.map((doc) => String(doc._id)),
+      proposalIds: await ids('planProposals'),
+      projectIds,
+      buildWorkflowIds: (await this.pipelineRuns.find({ projectId: { $in: projectIds }, status: { $in: ['queued', 'running'] } }, { projection: { temporalWorkflowId: 1 } }).toArray())
+        .map((doc) => doc.temporalWorkflowId).filter((id): id is string => typeof id === 'string'),
+      ingestIds: ((await this.corpus.distinct('ingestId', { ownerId })) as unknown[]).filter((id): id is string => typeof id === 'string'),
+    };
+  }
+
+  async accountLeftovers(ownerId: string): Promise<Record<string, number>> {
+    const left: Record<string, number> = {};
+    const count = async (name: string, filter: Record<string, unknown>) => {
+      const found = await this.db!.collection(name).countDocuments(filter as never);
+      if (found) left[name] = (left[name] ?? 0) + found;
+    };
+    for (const name of ACCOUNT_DATA.byOwner) await count(name, { ownerId });
+    for (const name of [...ACCOUNT_DATA.byId, ACCOUNT_DATA.last]) await count(name, { _id: ownerId });
+    return left;
+  }
+
+  async removeAccountRecords(ownerId: string, related: AccountRelated): Promise<Record<string, number>> {
+    const removed: Record<string, number> = {};
+    const count = async (name: string, filter: Record<string, unknown>) => {
+      const { deletedCount } = await this.db!.collection(name).deleteMany(filter as never);
+      if (deletedCount) removed[name] = (removed[name] ?? 0) + deletedCount;
+    };
+    if (related.watermarkKeys.length) await count('memoryWatermarks', { _id: { $in: [...related.watermarkKeys] } });
+    if (related.ingestIds.length) await count('crawl_frontier', { ingestId: { $in: [...related.ingestIds] } });
+    if (related.projectIds.length) await count('pipelineRuns', { projectId: { $in: [...related.projectIds] } });
+    if (related.projectIds.length) await count('hubSnapshots', { projectId: { $in: [...related.projectIds] } });
+    for (const name of ACCOUNT_DATA.byOwner) await count(name, { ownerId });
+    for (const name of ACCOUNT_DATA.byId) await count(name, { _id: ownerId });
+    await count(ACCOUNT_DATA.last, { _id: ownerId });
+    return removed;
+  }
+
+  async removeProjectRecords(projectId: string): Promise<Record<string, number>> {
+    const removed: Record<string, number> = {};
+    for (const name of ['pipelineRuns', 'odooReleases', 'corpus', 'secretRequests', 'pendingApprovals', 'tasks', 'fileShares']) {
+      const { deletedCount } = await this.db!.collection(name).deleteMany({ projectId });
+      if (deletedCount) removed[name] = deletedCount;
+    }
+    for (const name of ['conversations', 'memories']) {
+      const { modifiedCount } = await this.db!.collection(name).updateMany({ projectId }, { $unset: { projectId: '' } });
+      if (modifiedCount) removed[`${name} unlinked`] = modifiedCount;
+    }
+    const { deletedCount } = await this.projects.deleteOne({ _id: projectId as never });
+    if (deletedCount) removed.projects = deletedCount;
+    return removed;
+  }
+
+  async saveScriptedRequest(request: ScriptedRequestRecord): Promise<void> {
+    await this.db!.collection('scriptedRequests').insertOne({ ...request });
+  }
+
+  async getScriptedRequests(ownerId: string): Promise<ScriptedRequestRecord[]> {
+    const docs = await this.db!.collection('scriptedRequests').find({ ownerId }).sort({ at: 1, _id: 1 }).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as ScriptedRequestRecord);
+  }
+
+  async findRunEffort(runId: string): Promise<RunEffort | undefined> {
+    const doc = await this.runEffort.findOne({ _id: runId as never });
+    if (!doc) return undefined;
+    const { _id, ...effort } = doc;
+    return effort as unknown as RunEffort;
+  }
+
+  private async reownArtifacts(from: string, to: string, runIds?: readonly string[] | undefined): Promise<{ modifiedCount: number }> {
+    const moving = await this.artifacts.find({ ownerId: from, ...(runIds ? { runId: { $in: [...runIds] } } : {}) }).project({ _id: 1 }).toArray();
+    if (moving.length === 0) return { modifiedCount: 0 };
+    const ids = moving.map((doc) => doc._id);
+    await this.artifactChunks.updateMany({ artifactId: { $in: ids as never[] } }, { $set: { ownerId: to } });
+    return this.artifacts.updateMany({ _id: { $in: ids as never[] } }, { $set: { ownerId: to } });
+  }
+
+  async reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number> {
+    if (runIds && runIds.length === 0) return 0;
+    const runs = runIds ? { runId: { $in: [...runIds] } } : {};
+    const turns = runIds ? { turnId: { $in: [...runIds] } } : {};
+    const moved = await Promise.all([
+      this.db!.collection('engineRunTraces').updateMany({ ownerId: from, ...runs }, { $set: { ownerId: to } }),
+      this.turnLogs.updateMany({ ownerId: from, ...turns }, { $set: { ownerId: to } }),
+      this.runEffort.updateMany({ ownerId: from, ...runs }, { $set: { ownerId: to } }),
+      this.reownArtifacts(from, to, runIds),
+    ]);
+    return moved.reduce((total, result) => total + result.modifiedCount, 0);
+  }
+
+  async getUsers(): Promise<UserMetadata[]> {
+    return (await this.users.find({}).toArray()).map(doc => fromDoc<UserMetadata>(doc));
+  }
+
+  async saveUser(user: UserMetadata): Promise<void> {
+    const doc = toDoc(user);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.users.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async saveUserList(users: UserMetadata[]): Promise<void> {
+    await this.users.deleteMany({});
+    if (users.length > 0) {
+      await this.users.insertMany(users.map(toDoc));
+    }
+  }
+
+  async getUserByEmail(email: string): Promise<UserMetadata | undefined> {
+    const doc = await this.users.findOne({ email: email.trim().toLowerCase() });
+    return doc ? fromDoc<UserMetadata>(doc) : undefined;
+  }
+
+  async getUserById(id: string): Promise<UserMetadata | undefined> {
+    const doc = await this.users.findOne({ _id: id as any });
+    return doc ? fromDoc<UserMetadata>(doc) : undefined;
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await this.users.deleteOne({ _id: id as any });
+  }
+
+  async getMemories(ownerId?: string): Promise<MemoryItem[]> {
+    const filter = ownerId ? { ownerId } : {};
+    const docs = await this.memories.find(filter).toArray();
+    return docs.map((d) => fromDoc<MemoryItem>(d));
+  }
+
+  async saveMemory(memory: MemoryItem): Promise<void> {
+    const doc = toDoc(memory);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.memories.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async deleteMemory(id: string): Promise<void> {
+    await this.memories.deleteOne({ _id: id as any });
+  }
+
+  async getTasks(ownerId?: string): Promise<Task[]> {
+    const filter = ownerId ? { ownerId } : {};
+    const docs = await this.tasks.find(filter).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<Task>(d));
+  }
+
+  async saveTask(task: Task): Promise<void> {
+    const doc = toDoc(task);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.tasks.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async deleteTask(id: string): Promise<void> {
+    await this.tasks.deleteOne({ _id: id as any });
+  }
+
+  async getPlanProposals(ownerId: string, conversationId?: string): Promise<PlanProposal[]> {
+    const filter = conversationId === undefined ? { ownerId } : { ownerId, conversationId };
+    const docs = await this.planProposals.find(filter).sort({ createdAt: 1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<PlanProposal>(d));
+  }
+
+  async getPlanProposal(ownerId: string, id: string): Promise<PlanProposal | undefined> {
+    const doc = await this.planProposals.findOne({ _id: id as any, ownerId });
+    return doc ? fromDoc<PlanProposal>(doc as Record<string, unknown>) : undefined;
+  }
+
+  async savePlanProposal(proposal: PlanProposal): Promise<void> {
+    const doc = toDoc(proposal);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.planProposals.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async deletePlanProposal(ownerId: string, id: string): Promise<void> {
+    await this.planProposals.deleteOne({ _id: id as any, ownerId });
+  }
+
+  async saveArtifact(artifact: StoredArtifact): Promise<void> {
+    const { _id, ...rest } = toDoc(artifact);
+    await this.artifacts.replaceOne({ _id }, rest, { upsert: true });
+  }
+
+  async getArtifacts(ownerId: string, runId?: string): Promise<StoredArtifact[]> {
+    const docs = await this.artifacts.find({ ownerId, ...(runId ? { runId } : {}) }).sort({ createdAt: 1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<StoredArtifact>(d));
+  }
+
+  async getExpiredArtifacts(now: string): Promise<StoredArtifact[]> {
+    const docs = await this.artifacts.find({ expiresAt: { $lte: now } }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<StoredArtifact>(d));
+  }
+
+  async deleteArtifact(id: string): Promise<void> {
+    await this.artifacts.deleteOne({ _id: id as never });
+  }
+
+  async saveArtifactChunk(chunk: ArtifactChunk): Promise<void> {
+    await this.artifactChunks.replaceOne({ _id: `${chunk.artifactId}:${chunk.n}` as never }, { artifactId: chunk.artifactId, ownerId: chunk.ownerId, n: chunk.n, data: chunk.data }, { upsert: true });
+  }
+
+  async getArtifactChunks(artifactId: string): Promise<ArtifactChunk[]> {
+    const docs = await this.artifactChunks.find({ artifactId }).sort({ n: 1 }).toArray();
+    return docs.map((d) => ({ artifactId: d.artifactId as string, ownerId: d.ownerId as string, n: d.n as number, data: Buffer.from((d.data as { buffer: ArrayBuffer }).buffer ?? d.data) }));
+  }
+
+  async deleteArtifactChunks(artifactId: string): Promise<void> {
+    await this.artifactChunks.deleteMany({ artifactId });
+  }
+
+  async getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]> {
+    const docs = await this.odooReleases.find({ ownerId, ...(projectId ? { projectId } : {}) }).sort({ startedAt: -1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<OdooRelease>(d));
+  }
+
+  async saveOdooRelease(release: OdooRelease): Promise<void> {
+    const doc = toDoc(release);
+    const { _id, ...rest } = doc;
+    await this.odooReleases.replaceOne({ _id }, rest, { upsert: true });
+  }
+
+  async getSecretRequests(ownerId: string, filter: SecretRequestFilter = {}): Promise<SecretRequest[]> {
+    const query: Record<string, unknown> = { ownerId };
+    if (filter.conversationId !== undefined) query.conversationId = filter.conversationId;
+    if (filter.projectId !== undefined) query.projectId = filter.projectId;
+    if (filter.treeId !== undefined) query.treeId = filter.treeId;
+    const docs = await this.secretRequests.find(query).sort({ createdAt: 1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<SecretRequest>(d));
+  }
+
+  async getSecretRequest(ownerId: string, id: string): Promise<SecretRequest | undefined> {
+    const doc = await this.secretRequests.findOne({ _id: id as any, ownerId });
+    return doc ? fromDoc<SecretRequest>(doc as Record<string, unknown>) : undefined;
+  }
+
+  async saveSecretRequest(request: SecretRequest): Promise<void> {
+    const doc = toDoc(request);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.secretRequests.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async deleteSecretRequest(ownerId: string, id: string): Promise<void> {
+    await this.secretRequests.deleteOne({ _id: id as any, ownerId });
+  }
+
+  async getMcpToolHints(ownerId: string): Promise<McpToolHint[]> {
+    const docs = await this.mcpToolHints.find({ ownerId }).toArray();
+    return docs.map(({ _id, ...hint }) => hint as unknown as McpToolHint);
+  }
+
+  async deleteMcpToolHint(ownerId: string, server: string, tool: string): Promise<void> {
+    await this.mcpToolHints.deleteOne({ _id: hintKey(ownerId, server, tool) as any });
+  }
+
+  async getMcpRequests(ownerId: string, conversationId?: string): Promise<McpRequest[]> {
+    const query = conversationId === undefined ? { ownerId } : { ownerId, conversationId };
+    const docs = await this.mcpRequests.find(query).sort({ createdAt: 1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<McpRequest>(d));
+  }
+
+  async getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined> {
+    const doc = await this.mcpRequests.findOne({ _id: id as any, ownerId });
+    return doc ? fromDoc<McpRequest>(doc as Record<string, unknown>) : undefined;
+  }
+
+  async getActionProposals(ownerId: string, filter: { conversationId?: string | undefined; treeId?: string | undefined } = {}): Promise<ActionProposal[]> {
+    const query: Record<string, unknown> = { ownerId };
+    if (filter.conversationId !== undefined) query.conversationId = filter.conversationId;
+    if (filter.treeId !== undefined) query.treeId = filter.treeId;
+    const docs = await this.actionProposals.find(query).sort({ createdAt: 1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<ActionProposal>(d));
+  }
+
+  async getActionProposal(ownerId: string, id: string): Promise<ActionProposal | undefined> {
+    const doc = await this.actionProposals.findOne({ _id: id as any, ownerId });
+    return doc ? fromDoc<ActionProposal>(doc as Record<string, unknown>) : undefined;
+  }
+
+  async saveActionProposal(proposal: ActionProposal): Promise<void> {
+    const doc = toDoc(proposal);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.actionProposals.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async getExtensionSettings(ownerId: string): Promise<ExtensionSettings | undefined> {
+    const doc = await this.extensionSettings.findOne({ _id: ownerId as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc as Record<string, unknown>;
+    return { ...(rest as Omit<ExtensionSettings, 'ownerId'>), ownerId: String(_id) };
+  }
+
+  async claimHandoff(jti: string, expiresAt: string): Promise<boolean> {
+    try {
+      await this.handoffs.insertOne({ _id: jti as never, expiresAt: new Date(expiresAt) });
+      return true;
+    } catch (err) {
+      if ((err as { code?: number }).code === 11000) return false;
+      throw err;
+    }
+  }
+
+  async saveJoinToken(token: JoinToken): Promise<void> {
+    await this.joinTokens.replaceOne({ _id: token.hash as never }, { ...token, expiresAt: new Date(token.expiresAt) }, { upsert: true });
+  }
+
+  async takeJoinToken(hash: string): Promise<JoinToken | undefined> {
+    const doc = await this.joinTokens.findOneAndDelete({ _id: hash as never });
+    if (!doc) return undefined;
+    return { hash, ownerId: doc.ownerId as string, instanceId: doc.instanceId as string, expiresAt: (doc.expiresAt as Date).toISOString(), ...(doc.move === true ? { move: true } : {}) };
+  }
+
+  async saveMachineJoinCode(code: MachineJoinCode): Promise<void> {
+    await this.machineJoinCodes.replaceOne({ _id: code.hash as never }, { ...code, expiresAt: new Date(code.expiresAt) }, { upsert: true });
+  }
+
+  async takeMachineJoinCode(hash: string): Promise<MachineJoinCode | undefined> {
+    const doc = await this.machineJoinCodes.findOneAndDelete({ _id: hash as never });
+    if (!doc) return undefined;
+    return { hash, ownerId: doc.ownerId as string, expiresAt: (doc.expiresAt as Date).toISOString() };
+  }
+
+  async getInstances(ownerId?: string): Promise<InstanceRecord[]> {
+    const docs = await this.instanceRegistry.find(ownerId ? { ownerId } : {}).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as InstanceRecord);
+  }
+
+  async saveInstance(instance: InstanceRecord): Promise<void> {
+    await this.instanceRegistry.replaceOne({ _id: instance.id as never }, instance, { upsert: true });
+  }
+
+  async deleteInstance(id: string): Promise<void> {
+    await this.instanceRegistry.deleteOne({ _id: id as never });
+  }
+
+  async getAuthoredExtensions(ownerId: string): Promise<AuthoredExtension[]> {
+    const docs = await this.authoredExtensions.find({ ownerId }).toArray();
+    return docs.map((doc) => {
+      const { _id, ...rest } = doc as Record<string, unknown>;
+      return rest as unknown as AuthoredExtension;
+    });
+  }
+
+  async saveAuthoredExtension(extension: AuthoredExtension): Promise<void> {
+    await this.authoredExtensions.replaceOne({ _id: `${extension.ownerId}:${extension.id}` as never }, extension, { upsert: true });
+  }
+
+  async deleteAuthoredExtension(ownerId: string, id: string): Promise<void> {
+    await this.authoredExtensions.deleteOne({ _id: `${ownerId}:${id}` as never });
+  }
+
+  async saveExtensionSettings(settings: ExtensionSettings): Promise<void> {
+    const { ownerId, ...rest } = settings;
+    await this.extensionSettings.replaceOne({ _id: ownerId as never }, rest, { upsert: true });
+  }
+
+  async getKeeperSettings(ownerId: string): Promise<KeeperSettings | undefined> {
+    const doc = await this.db!.collection('keeperSettings').findOne({ _id: ownerId as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc as Record<string, unknown>;
+    return { ...(rest as Omit<KeeperSettings, 'ownerId'>), ownerId: String(_id) };
+  }
+
+  async saveKeeperSettings(settings: KeeperSettings): Promise<void> {
+    const { ownerId, ...rest } = settings;
+    await this.db!.collection('keeperSettings').replaceOne({ _id: ownerId as never }, rest, { upsert: true });
+  }
+
+  async getDeferredConclusions(ownerId: string): Promise<DeferredConclusion[]> {
+    const docs = await this.db!.collection('deferredConclusions').find({ ownerId }).sort({ at: 1 }).toArray();
+    return docs.map(({ _id, ...rest }) => ({ ...(rest as Omit<DeferredConclusion, 'id'>), id: String(_id) }));
+  }
+
+  async saveDeferredConclusion(deferred: DeferredConclusion): Promise<void> {
+    const { id, ...rest } = deferred;
+    await this.db!.collection('deferredConclusions').replaceOne({ _id: id as never }, rest, { upsert: true });
+  }
+
+  async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
+    await this.db!.collection('deferredConclusions').deleteOne({ _id: id as never, ownerId });
+  }
+
+  async getFileShares(ownerId: string): Promise<FileShare[]> {
+    const docs = await this.db!.collection('fileShares').find({ ownerId }).sort({ createdAt: -1 }).toArray();
+    return docs.map(({ _id, ...rest }) => ({ ...(rest as Omit<FileShare, 'id'>), id: String(_id) }));
+  }
+
+  async getFileShare(id: string): Promise<FileShare | undefined> {
+    const doc = await this.db!.collection('fileShares').findOne({ _id: id as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc;
+    return { ...(rest as Omit<FileShare, 'id'>), id: String(_id) };
+  }
+
+  async saveFileShare(share: FileShare): Promise<void> {
+    const { id, ...rest } = share;
+    await this.db!.collection('fileShares').replaceOne({ _id: id as never }, rest, { upsert: true });
+  }
+
+  async deleteFileShare(id: string): Promise<void> {
+    await this.db!.collection('fileShares').deleteOne({ _id: id as never });
+  }
+
+  async getFileSettings(ownerId: string): Promise<FileSettings | undefined> {
+    const doc = await this.db!.collection('fileSettings').findOne({ _id: ownerId as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc;
+    return { ...(rest as Omit<FileSettings, 'ownerId'>), ownerId: String(_id) };
+  }
+
+  async hasMigration(name: string): Promise<boolean> {
+    return Boolean(await this.db!.collection('migrations').findOne({ _id: name as never }));
+  }
+
+  async recordMigration(record: MigrationRecord): Promise<void> {
+    const { name, ...rest } = record;
+    await this.db!.collection('migrations').replaceOne({ _id: name as never }, rest, { upsert: true });
+  }
+
+  async saveFileSettings(settings: FileSettings): Promise<void> {
+    const { ownerId, ...rest } = settings;
+    await this.db!.collection('fileSettings').replaceOne({ _id: ownerId as never }, rest, { upsert: true });
+  }
+
+  async getNotificationSettings(ownerId: string): Promise<NotificationSettings | undefined> {
+    const doc = await this.db!.collection('notificationSettings').findOne({ _id: ownerId as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc as Record<string, unknown>;
+    return { ...(rest as Omit<NotificationSettings, 'ownerId'>), ownerId: String(_id) };
+  }
+
+  async saveNotificationSettings(settings: NotificationSettings): Promise<void> {
+    const { ownerId, ...rest } = settings;
+    await this.db!.collection('notificationSettings').replaceOne({ _id: ownerId as never }, rest, { upsert: true });
+  }
+
+  async getPoolPolicy(): Promise<PoolPolicy | undefined> {
+    const doc = await this.db!.collection('poolSettings').findOne({ _id: 'pool' as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc as Record<string, unknown>;
+    return rest as unknown as PoolPolicy;
+  }
+
+  async savePoolPolicy(policy: PoolPolicy): Promise<void> {
+    await this.db!.collection('poolSettings').replaceOne({ _id: 'pool' as never }, { ...policy }, { upsert: true });
+  }
+
+  async getMonitoringSettings(): Promise<MonitoringSetting[]> {
+    const docs = await this.db!.collection('monitoringSettings').find({}).toArray();
+    return docs.map((doc) => {
+      const { _id, ...rest } = doc as Record<string, unknown>;
+      return { ...(rest as Omit<MonitoringSetting, 'clusterId'>), clusterId: String(_id) };
+    });
+  }
+
+  async saveMonitoringSetting(setting: MonitoringSetting): Promise<void> {
+    const { clusterId, ...rest } = setting;
+    await this.db!.collection('monitoringSettings').replaceOne({ _id: clusterId as never }, rest, { upsert: true });
+  }
+
+  async getAlertRules(ownerId?: string): Promise<AlertRuleRecord[]> {
+    const docs = await this.db!.collection('monitoringAlertRules').find(ownerId === undefined ? {} : { ownerId }).toArray();
+    return docs.map((doc) => fromDoc<AlertRuleRecord>(doc as Record<string, unknown>));
+  }
+
+  async saveAlertRule(rule: AlertRuleRecord): Promise<void> {
+    await this.db!.collection('monitoringAlertRules').replaceOne({ _id: rule.id as never }, toDoc(rule), { upsert: true });
+  }
+
+  async deleteAlertRule(id: string): Promise<void> {
+    await this.db!.collection('monitoringAlertRules').deleteOne({ _id: id as never });
+  }
+
+  async getAlertEpisodes(ownerId?: string): Promise<AlertEpisode[]> {
+    const docs = await this.db!.collection('monitoringAlertEpisodes').find(ownerId === undefined ? {} : { ownerId }).sort({ startedAt: -1 }).toArray();
+    return docs.map((doc) => fromDoc<AlertEpisode>(doc as Record<string, unknown>));
+  }
+
+  async saveAlertEpisode(episode: AlertEpisode): Promise<void> {
+    await this.db!.collection('monitoringAlertEpisodes').replaceOne({ _id: episode.id as never }, toDoc(episode), { upsert: true });
+  }
+
+  async getWorkFailures(ownerId?: string): Promise<WorkFailure[]> {
+    const docs = await this.db!.collection('workFailures').find(ownerId === undefined ? {} : { ownerId }).sort({ failedAt: -1 }).toArray();
+    return docs.map((doc) => fromDoc<WorkFailure>(doc as Record<string, unknown>));
+  }
+
+  async addWorkFailure(failure: WorkFailure): Promise<void> {
+    const { _id, ...doc } = toDoc(failure) as Record<string, unknown>;
+    await this.db!.collection('workFailures').updateOne({ _id: _id as never }, { $setOnInsert: doc }, { upsert: true });
+  }
+
+  async clearWorkFailures(ownerId: string, ids: readonly string[] | 'all', at: string): Promise<number> {
+    const result = await this.db!.collection('workFailures').updateMany(
+      { ownerId, clearedAt: { $exists: false }, ...(ids === 'all' ? {} : { _id: { $in: [...ids] as never[] } }) },
+      { $set: { clearedAt: at } },
+    );
+    return result.modifiedCount;
+  }
+
+  async pruneWorkFailures(before: string): Promise<void> {
+    await this.db!.collection('workFailures').deleteMany({ failedAt: { $lt: before } });
+  }
+
+  async getAutoModeSettings(ownerId: string): Promise<AutoModeSettings | undefined> {
+    const doc = await this.autoModeSettings.findOne({ _id: ownerId as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc as Record<string, unknown>;
+    return { ...(rest as Omit<AutoModeSettings, 'ownerId'>), ownerId: String(_id) };
+  }
+
+  async saveAutoModeSettings(settings: AutoModeSettings): Promise<void> {
+    const { ownerId, ...rest } = settings;
+    await this.autoModeSettings.replaceOne({ _id: ownerId as never }, rest, { upsert: true });
+  }
+
+  async getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]> {
+    const docs = await this.egressGrants.find(ownerId === undefined ? {} : { ownerId }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<EgressGrantRecord>(d));
+  }
+
+  async saveEgressGrant(grant: EgressGrantRecord): Promise<void> {
+    const doc = toDoc(grant);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.egressGrants.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async getEgressRequests(ownerId: string, filter: { conversationId?: string | undefined; treeId?: string | undefined } = {}): Promise<EgressRequest[]> {
+    const query: Record<string, unknown> = { ownerId };
+    if (filter.conversationId !== undefined) query.conversationId = filter.conversationId;
+    if (filter.treeId !== undefined) query.treeId = filter.treeId;
+    const docs = await this.egressRequests.find(query).sort({ createdAt: 1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<EgressRequest>(d));
+  }
+
+  async getEgressRequest(ownerId: string, id: string): Promise<EgressRequest | undefined> {
+    const doc = await this.egressRequests.findOne({ _id: id as any, ownerId });
+    return doc ? fromDoc<EgressRequest>(doc as Record<string, unknown>) : undefined;
+  }
+
+  async saveEgressRequest(request: EgressRequest): Promise<void> {
+    const doc = toDoc(request);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.egressRequests.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async getAccessRequests(ownerId: string, conversationId?: string): Promise<AccessRequest[]> {
+    const query = conversationId === undefined ? { ownerId } : { ownerId, conversationId };
+    const docs = await this.accessRequests.find(query).sort({ createdAt: 1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<AccessRequest>(d));
+  }
+
+  async getAccessRequest(ownerId: string, id: string): Promise<AccessRequest | undefined> {
+    const doc = await this.accessRequests.findOne({ _id: id as any, ownerId });
+    return doc ? fromDoc<AccessRequest>(doc as Record<string, unknown>) : undefined;
+  }
+
+  async saveAccessRequest(request: AccessRequest): Promise<void> {
+    const doc = toDoc(request);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.accessRequests.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async saveMcpRequest(request: McpRequest): Promise<void> {
+    const doc = toDoc(request);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.mcpRequests.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined> {
+    const doc = await this.procedures.findOne({ _id: procedureKey(ownerId, id) as any });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc;
+    return rest as unknown as ProcedureSource;
+  }
+
+  async getProcedures(ownerId?: string): Promise<ProcedureSource[]> {
+    const filter = ownerId === undefined ? {} : { $or: [{ ownerId }, { ownerId: { $exists: false } }] };
+    const docs = await this.procedures.find(filter).toArray();
+    return docs.map((doc) => {
+      const { _id, ...rest } = doc;
+      return rest as unknown as ProcedureSource;
+    });
+  }
+
+  async saveProcedure(source: ProcedureSource): Promise<void> {
+    await this.procedures.replaceOne(
+      { _id: procedureKey(source.ownerId, source.id) as any },
+      { ...source },
+      { upsert: true },
+    );
+  }
+
+  async saveRunTraces(traces: StoredNodeTrace[]): Promise<void> {
+    if (traces.length === 0) return;
+    await this.runTraces.bulkWrite(traces.map((trace) => ({
+      replaceOne: {
+        filter: { _id: runTraceKey(trace.runId, trace.sequence) as any },
+        replacement: { ...trace },
+        upsert: true,
+      },
+    })));
+  }
+
+  async saveRunEffort(effort: RunEffort): Promise<void> {
+    await this.runEffort.replaceOne({ _id: effort.runId as any }, { ...effort }, { upsert: true });
+  }
+
+  async getBenchSettings(ownerId: string): Promise<BenchSettings | undefined> {
+    const doc = await this.db!.collection('benchSettings').findOne({ _id: ownerId as any });
+    if (!doc) return undefined;
+    const { _id, ...settings } = doc;
+    return settings as unknown as BenchSettings;
+  }
+
+  async saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void> {
+    await this.db!.collection('benchSettings').replaceOne({ _id: ownerId as any }, { ...settings }, { upsert: true });
+  }
+
+  async getBenchState(ownerId: string): Promise<BenchState | undefined> {
+    const doc = await this.db!.collection('benchStates').findOne({ _id: ownerId as any });
+    if (!doc) return undefined;
+    const { _id, ...state } = doc;
+    return state as unknown as BenchState;
+  }
+
+  async saveBenchState(state: BenchState): Promise<void> {
+    await this.db!.collection('benchStates').replaceOne({ _id: state.ownerId as any }, { ...state }, { upsert: true });
+  }
+
+  async getMemoryWatermark(key: string): Promise<string | undefined> {
+    const doc = await this.db!.collection('memoryWatermarks').findOne({ _id: key as any });
+    return typeof doc?.value === 'string' ? doc.value : undefined;
+  }
+
+  async saveMemoryWatermark(key: string, value: string): Promise<void> {
+    await this.db!.collection('memoryWatermarks').replaceOne({ _id: key as any }, { value }, { upsert: true });
+  }
+
+  async getRunEffort(ownerId: string, procedureId: string, modelKey?: string): Promise<RunEffort[]> {
+    const docs = await this.runEffort
+      .find({ ownerId, procedureId, ...(modelKey ? { modelKey } : {}) })
+      .sort({ finishedAt: -1 })
+      .limit(500)
+      .toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as RunEffort);
+  }
+
+  async appendTurnLog(entry: TurnLogEntry): Promise<void> {
+    await this.turnLogs.insertOne({ ...entry, at: new Date(entry.at) });
+  }
+
+  async getTurnLog(ownerId: string, turnId: string, after: number): Promise<TurnLogEntry[]> {
+    const docs = await this.turnLogs.find({ ownerId, turnId, seq: { $gt: after } }).sort({ seq: 1 }).toArray();
+    return docs.map(({ _id, at, ...rest }) => ({ ...rest, at: (at as Date).toISOString() }) as unknown as TurnLogEntry);
+  }
+
+  async getTurnLogMarks(ownerId: string, turnId: string, types: readonly string[]): Promise<RunMark[]> {
+    const field = (name: string) => ({ $ifNull: [`$events.${name}`, '$$REMOVE'] });
+    return (await this.turnLogs.aggregate([
+      { $match: { ownerId, turnId } },
+      { $sort: { seq: 1 } },
+      { $unwind: '$events' },
+      { $match: { 'events.type': { $in: [...types] } } },
+      { $project: {
+        _id: 0,
+        type: '$events.type',
+        runId: '$events.runId',
+        parentRunId: field('parentRunId'),
+        agentId: field('agentId'),
+        callId: field('callId'),
+        tool: field('tool'),
+        level: field('level'),
+        message: { $cond: [{ $eq: [{ $type: '$events.message' }, 'string'] }, { $substrCP: ['$events.message', 0, MARK_MESSAGE_CHARS] }, '$$REMOVE'] },
+      } },
+    ]).toArray()) as unknown as RunMark[];
+  }
+
+  async recentTurns(ownerId: string, since: string, limit: number): Promise<TurnLogEntry[]> {
+    const docs = await this.turnLogs.find({ ownerId, seq: 1, at: { $gte: new Date(since) } }).sort({ at: -1 }).limit(limit).toArray();
+    return docs.map(({ _id, at, ...rest }) => ({ ...rest, at: (at as Date).toISOString() }) as unknown as TurnLogEntry);
+  }
+
+  async lastTurnLogSeq(turnId: string): Promise<number> {
+    const [last] = await this.turnLogs.find({ turnId }).sort({ seq: -1 }).limit(1).toArray();
+    return (last?.seq as number | undefined) ?? 0;
+  }
+
+  async getRunTraces(ownerId: string, runId: string): Promise<StoredNodeTrace[]> {
+    const docs = await this.runTraces.find({ ownerId, runId }).sort({ sequence: 1 }).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as StoredNodeTrace);
+  }
+
+  async deleteProcedure(ownerId: string | undefined, id: string): Promise<void> {
+    await this.procedures.deleteOne({ _id: procedureKey(ownerId, id) as any });
+  }
+
+  async getEnginePersonas(ownerId?: string): Promise<EnginePersona[]> {
+    const filter = ownerId === undefined ? {} : { $or: [{ ownerId }, { ownerId: { $exists: false } }] };
+    const docs = await this.enginePersonas.find(filter).toArray();
+    return docs.map((doc) => {
+      const { _id, ...rest } = doc;
+      return rest as unknown as EnginePersona;
+    });
+  }
+
+  async getEngineTools(ownerId?: string): Promise<EngineTool[]> {
+    const filter = ownerId === undefined ? {} : { $or: [{ ownerId }, { ownerId: { $exists: false } }] };
+    const docs = await this.engineTools.find(filter).toArray();
+    return docs.map((doc) => {
+      const { _id, ...rest } = doc;
+      return rest as unknown as EngineTool;
+    });
+  }
+
+  async getEvalRecords<T extends EvalRecord>(collection: EvalCollection, ownerId: string, limit = 200): Promise<T[]> {
+    const docs = await this.db!.collection(collection).find({ ownerId }).sort({ startedAt: -1, _id: 1 }).limit(limit).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as T);
+  }
+
+  async getEvalRecordsInState<T extends EvalRecord>(collection: EvalCollection, state: string): Promise<T[]> {
+    const docs = await this.db!.collection(collection).find({ state }).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as T);
+  }
+
+  async getEvalRecord<T extends EvalRecord>(collection: EvalCollection, ownerId: string, id: string): Promise<T | null> {
+    const doc = await this.db!.collection(collection).findOne({ _id: evalRecordKey(ownerId, id) as any });
+    if (!doc) return null;
+    const { _id, ...rest } = doc;
+    return rest as unknown as T;
+  }
+
+  async saveEvalRecord<T extends EvalRecord>(collection: EvalCollection, record: T): Promise<void> {
+    await this.db!.collection(collection).replaceOne({ _id: evalRecordKey(record.ownerId, record.id) as any }, { ...record }, { upsert: true });
+  }
+
+  async deleteEvalRecord(collection: EvalCollection, ownerId: string, id: string): Promise<void> {
+    await this.db!.collection(collection).deleteOne({ _id: evalRecordKey(ownerId, id) as any });
+  }
+
+  async saveEngineTool(tool: EngineTool): Promise<void> {
+    await this.engineTools.replaceOne(
+      { _id: `${tool.ownerId ?? 'builtin'}:${tool.name}` as any },
+      { ...tool },
+      { upsert: true },
+    );
+  }
+
+  async deleteEngineTool(ownerId: string | undefined, name: string): Promise<void> {
+    await this.engineTools.deleteOne({ _id: `${ownerId ?? 'builtin'}:${name}` as any });
+  }
+
+  async saveEnginePersona(persona: EnginePersona): Promise<void> {
+    await this.enginePersonas.replaceOne(
+      { _id: `${persona.ownerId ?? 'builtin'}:${persona.slug}` as any },
+      { ...persona },
+      { upsert: true },
+    );
+  }
+
+  async deleteEnginePersona(ownerId: string | undefined, slug: string): Promise<void> {
+    await this.enginePersonas.deleteOne({ _id: `${ownerId ?? 'builtin'}:${slug}` as any });
+  }
+
+  async getPublishedWorkspace(ownerId: string, treeId: string): Promise<PublishedWorkspace | undefined> {
+    const doc = await this.publishedWorkspaces.findOne({ _id: `${ownerId}:${treeId}` as any });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc;
+    return rest as unknown as PublishedWorkspace;
+  }
+
+  async savePublishedWorkspace(workspace: PublishedWorkspace): Promise<void> {
+    await this.publishedWorkspaces.replaceOne({ _id: `${workspace.ownerId}:${workspace.treeId}` as any }, { ...workspace }, { upsert: true });
+  }
+
+  async getPublishedWorkspaces(ownerId: string): Promise<PublishedWorkspace[]> {
+    const docs = await this.publishedWorkspaces.find({ ownerId }).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as PublishedWorkspace);
+  }
+
+  async deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void> {
+    await this.publishedWorkspaces.deleteOne({ _id: `${ownerId}:${treeId}` as any });
+  }
+
+  async getMcpServers(ownerId: string): Promise<McpServerRecord[]> {
+    const docs = await this.mcpServers.find({ ownerId }).sort({ name: 1 }).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as McpServerRecord);
+  }
+
+  async saveMcpServer(server: McpServerRecord): Promise<void> {
+    await this.mcpServers.replaceOne({ _id: `${server.ownerId}:${server.id}` as any }, { ...server }, { upsert: true });
+  }
+
+  async deleteMcpServer(ownerId: string, id: string): Promise<void> {
+    await this.mcpServers.deleteOne({ _id: `${ownerId}:${id}` as any });
+  }
+
+  async getWorkspaceDependencies(ownerId: string): Promise<WorkspaceDependency[]> {
+    const docs = await this.workspaceDependencies.find({ ownerId }).sort({ name: 1 }).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as WorkspaceDependency);
+  }
+
+  async saveWorkspaceDependency(dependency: WorkspaceDependency & { ownerId: string }): Promise<void> {
+    await this.workspaceDependencies.replaceOne({ _id: `${dependency.ownerId}:${dependency.name}` as any }, { ...dependency }, { upsert: true });
+  }
+
+  async deleteWorkspaceDependency(ownerId: string, name: string): Promise<void> {
+    await this.workspaceDependencies.deleteOne({ _id: `${ownerId}:${name}` as any });
+  }
+
+  async getToolGrants(ownerId: string): Promise<ToolGrant[]> {
+    const docs = await this.toolGrants.find({ ownerId }).sort({ grantedAt: 1, _id: 1 }).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as ToolGrant);
+  }
+
+  async saveToolGrant(grant: ToolGrant & { ownerId: string }): Promise<void> {
+    await this.toolGrants.replaceOne({ _id: toolGrantKey(grant.ownerId, grant.agent, grant.tool, grant.kind) as any }, { ...grant }, { upsert: true });
+  }
+
+  async deleteToolGrant(ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): Promise<void> {
+    await this.toolGrants.deleteOne({ _id: toolGrantKey(ownerId, agent, tool, kind) as any });
+  }
+
+  async deleteToolGrantsFor(ownerId: string | undefined, of: { agent?: string; tool?: string; kind?: GrantKind | undefined }): Promise<number> {
+    const filter = { ...(ownerId === undefined ? {} : { ownerId }), ...(of.agent ? { agent: of.agent } : {}), ...(of.tool ? { tool: of.tool } : {}), ...kindFilter(of.kind) };
+    return (await this.toolGrants.deleteMany(filter)).deletedCount;
+  }
+
+  async getBindingTypes(): Promise<BindingTypeRecord[]> {
+    return (await this.bindingTypes.find({}).toArray()).map((doc) => fromDoc<BindingTypeRecord>(doc));
+  }
+
+  async saveBindingType(record: BindingTypeRecord): Promise<void> {
+    const doc = toDoc(record);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.bindingTypes.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async deleteBindingType(id: string): Promise<void> {
+    await this.bindingTypes.deleteOne({ _id: id as any });
+  }
+
+  async getModelThinkingProfile(modelId: string): Promise<ModelThinkingProfile | null> {
+    const doc = await this.thinkingProfiles.findOne({ modelId });
+    if (!doc) return null;
+    const { _id, ...rest } = doc;
+    return rest as unknown as ModelThinkingProfile;
+  }
+
+  async saveModelThinkingProfile(profile: ModelThinkingProfile): Promise<void> {
+    const { _id: _ignored, ...doc } = profile as ModelThinkingProfile & { _id?: unknown };
+    await this.thinkingProfiles.replaceOne({ modelId: profile.modelId }, doc, { upsert: true });
+  }
+
+}

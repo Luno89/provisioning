@@ -1,5 +1,5 @@
 import { BUILT_IN_GROUPS, defineProcedure, type Procedure } from '@koala/agent-engine/procedure';
-import { EXTERNAL_CHAT_PROCEDURE, EXTERNAL_TASK_PROCEDURE } from '../../lib/machine-runs.js';
+import { EXTERNAL_CHAT_PROCEDURE, EXTERNAL_TASK_PROCEDURE } from '../../machines/lib/machine-runs.js';
 
 export const EXTERNAL_AGENT_TASK: Procedure = defineProcedure(BUILT_IN_GROUPS, {
   id: EXTERNAL_TASK_PROCEDURE,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryDB } from '../lib/memory-db.js';
+import { MemoryDB } from '../platform/lib/memory-db.js';
 import { seedAll } from './seed-all.js';
 
 describe('seed-all', () => {

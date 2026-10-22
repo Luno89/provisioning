@@ -10,9 +10,9 @@ import {
   type Procedure,
   type QuestionRequest,
 } from '@koala/agent-engine/procedure';
-import type { OdooRelease, SlotState } from '../../lib/odoo-release.js';
-import { CUT_OVER, CUT_OVER_LOSING, DISCARD, RETEST, type ReleaseRunInput, type RollBackRunInput } from '../../lib/release-run.js';
-import type { SchemaSnapshot } from '../../lib/release-compare.js';
+import type { OdooRelease, SlotState } from '../../releases/lib/odoo-release.js';
+import { CUT_OVER, CUT_OVER_LOSING, DISCARD, RETEST, type ReleaseRunInput, type RollBackRunInput } from '../../releases/lib/release-run.js';
+import type { SchemaSnapshot } from '../../releases/lib/release-compare.js';
 import { SNAPSHOT_SQL } from './postgres-compare.js';
 import { platformCatalogue } from '../installed.js';
 import type { SlotAdapter } from './adapter.js';

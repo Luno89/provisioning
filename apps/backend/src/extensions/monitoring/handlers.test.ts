@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { ActionProposal } from '../../lib/action-proposals.js';
+import type { ActionProposal } from '../../engine/lib/action-proposals.js';
 import { createMonitoringTools, type MonitoringReading } from './handlers.js';
 import { APP_HEALTH, MONITORING_OVERVIEW, PROPOSE_ALERT } from './catalogue.js';
 

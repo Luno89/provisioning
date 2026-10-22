@@ -7,7 +7,7 @@ import type { ToolCallArgs } from '../temporal/contracts.js';
 import type { EnvironmentDriver, EnvironmentSpec, ToolContract } from '@koala/engine-core';
 import type { AgentDefinition } from '@koala/agent-engine';
 import { createServerTools } from './server-tools.js';
-import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../lib/mcp-servers.js';
+import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
 
 const spec: EnvironmentSpec = { kind: 'sandbox', lifecycle: 'invocation', languages: ['node20'] };
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createKubeTools, type KubeAccess } from './kube-tools.js';
-import type { ClusterMetadata, DeploymentMetadata } from '../../lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import type { AccessRequest } from '@koala/harness-types';
 
 const CLUSTERS: ClusterMetadata[] = [

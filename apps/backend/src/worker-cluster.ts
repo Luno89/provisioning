@@ -13,16 +13,16 @@ import { SyncConfigActivity } from './activities/SyncConfigActivity.js';
 import { DownloadModelActivity } from './activities/DownloadModelActivity.js';
 import { VerifyGpuRuntimeActivity } from './activities/VerifyGpuRuntimeActivity.js';
 import { RunPipelineActivity } from './activities/RunPipelineActivity.js';
-import { createWorkerLogger } from './lib/worker-logger.js';
-import { buildDataConverter } from './lib/temporal-codec.js';
-import { sharedPayloadBlobs } from './lib/db-interface.js';
-import { loadKeys } from './lib/keys.js';
-import { healthPort, serveHealth } from './lib/worker-health.js';
+import { createWorkerLogger } from './platform/lib/worker-logger.js';
+import { buildDataConverter } from './platform/lib/temporal-codec.js';
+import { sharedPayloadBlobs } from './platform/lib/db-interface.js';
+import { loadKeys } from './platform/lib/keys.js';
+import { healthPort, serveHealth } from './infrastructure/lib/worker-health.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
-import { roleFromEnv } from './lib/platform-role.js';
-import { InfrastructureService } from './services/InfrastructureService.js';
+import { roleFromEnv } from './platform/lib/platform-role.js';
+import { InfrastructureService } from './infrastructure/services/InfrastructureService.js';
 import { ensureClusterMonitoring } from './activities/cluster-monitoring.js';
-import { placedOnPool, SYSTEM_CLUSTER } from './lib/cluster-monitoring.js';
+import { placedOnPool, SYSTEM_CLUSTER } from './monitoring/lib/cluster-monitoring.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

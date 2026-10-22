@@ -3,23 +3,23 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { ApplicationFailure } from '@temporalio/common';
-import { createDatabase } from '../lib/db-interface.js';
-import { InfrastructureService } from '../services/InfrastructureService.js';
-import { hashCredential } from '../services/InstanceService.js';
-import { roleFromEnv } from '../lib/platform-role.js';
-import { publicKeyPem } from '../lib/identity-token.js';
-import { emailWayFrom } from '../lib/email-way.js';
-import { afterStep, nextTrialStep, trialMessage, type DueStep, type TrialStep } from '../lib/pool-trial.js';
-import { MoveRelay, kubeconfigFile } from '../services/MoveRelay.js';
-import { issueMoveToken } from '../lib/identity-token.js';
-import { MailService } from '../services/MailService.js';
-import type { InstanceRecord } from '../lib/instances.js';
-import { BLACKBOX_VALUES, POOL_MONITORING, poolAppAlerts, poolStackValues, probeIngressPolicy } from '../lib/pool-monitoring.js';
+import { createDatabase } from '../platform/lib/db-interface.js';
+import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
+import { hashCredential } from '../instances/services/InstanceService.js';
+import { roleFromEnv } from '../platform/lib/platform-role.js';
+import { publicKeyPem } from '../instances/lib/identity-token.js';
+import { emailWayFrom } from '../platform/lib/email-way.js';
+import { afterStep, nextTrialStep, trialMessage, type DueStep, type TrialStep } from '../instances/lib/pool-trial.js';
+import { MoveRelay, kubeconfigFile } from '../instances/services/MoveRelay.js';
+import { issueMoveToken } from '../instances/lib/identity-token.js';
+import { MailService } from '../platform/services/MailService.js';
+import type { InstanceRecord } from '../instances/lib/instances.js';
+import { BLACKBOX_VALUES, POOL_MONITORING, poolAppAlerts, poolStackValues, probeIngressPolicy } from '../monitoring/lib/pool-monitoring.js';
 import {
   admissionManifests, COMPONENT_RESOURCES, INSTANCE_RELEASE, namespaceManifest, POOL_LABEL, poolChartValues, poolNamespace,
   poolSettingsFrom, PROXY, proxyCaddyfile, proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterAddress, vclusterValues,
   type PoolSettings,
-} from '../lib/pool.js';
+} from '../instances/lib/pool.js';
 
 const DEFAULT_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
 const ADMISSION_CHECK_NAMESPACE = 'pool-admission-check';

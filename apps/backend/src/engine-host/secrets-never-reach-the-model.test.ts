@@ -14,9 +14,9 @@ import { inMemoryConversations } from './nodes/conversation-nodes.js';
 import { createSecretTools } from './tools/secret-tools.js';
 import { SECRET_TOOLS } from './tools/secret-tools-catalogue.js';
 import { createToolRuntime } from './tools/tool-runtime.js';
-import { MemoryDB } from '../lib/memory-db.js';
-import { SecretRequestService, createSecretVault } from '../services/SecretRequestService.js';
-import type { Tree } from '../lib/trees.js';
+import { MemoryDB } from '../platform/lib/memory-db.js';
+import { SecretRequestService, createSecretVault } from '../projects/services/SecretRequestService.js';
+import type { Tree } from '../projects/lib/trees.js';
 import { seededAgents } from '../extensions/seeds.js';
 
 const TYPED = 'sk_live_TYPED_SENTINEL_4b1f9c';

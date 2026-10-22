@@ -6,7 +6,7 @@ import { createMcpRequestTools } from './mcp-tools.js';
 import { createServerTools } from './server-tools.js';
 import { createToolRuntime } from './tool-runtime.js';
 import { createAgentRegistry } from '../registries/registry.js';
-import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../lib/mcp-servers.js';
+import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
 import { SHIPPED_DEPENDENCIES } from '../../extensions/workspace-dependencies.js';
 
 const HOSTED: ServerRuns = { where: 'hosted', url: 'http://x/mcp' };

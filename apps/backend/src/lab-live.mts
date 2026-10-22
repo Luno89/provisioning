@@ -5,7 +5,7 @@
  * because the matrix is the part worth checking against reality: the arithmetic is unit-tested, but
  * whether a suite of three tasks actually SEPARATES two variants is a question only real runs answer.
  */
-import { createDatabase } from './lib/db-interface.js';
+import { createDatabase } from './platform/lib/db-interface.js';
 import { createModelService } from './lib/model-wiring.js';
 import { claimGap, droppedOverrides } from './lib/run-outcome.js';
 import { ExperimentService } from './services/ExperimentService.js';

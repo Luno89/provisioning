@@ -1,5 +1,5 @@
 import { BYPASS_ENV, type EgressMode } from '@koala/agent-engine';
-import { WORKSPACE_STAMP, workspaceStamp } from '../../lib/published-workspace.js';
+import { WORKSPACE_STAMP, workspaceStamp } from '../../engine/lib/published-workspace.js';
 
 export type EgressRule =
   | { cidr: string; namespace?: undefined; ports?: number[] }

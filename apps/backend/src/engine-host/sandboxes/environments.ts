@@ -24,10 +24,10 @@ import type { EnvironmentDriver, EnvironmentSpec } from '@koala/engine-core';
 import type { EnvironmentHandleRef, RunEnvironment, RunTicket } from '../temporal/contracts.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import { composeWithBases } from '../../extensions/workspace-bases.js';
-import type { McpServerRecord } from '../../lib/mcp-servers.js';
-import type { ComposedWorkspace } from '../../lib/workspace-composition.js';
-import { readWorkspaceFile, type WorkspaceFile, pendingChanges } from '../../lib/workspace-file.js';
-import { stageText, type PublishedWorkspace } from '../../lib/published-workspace.js';
+import type { McpServerRecord } from '../../engine/lib/mcp-servers.js';
+import type { ComposedWorkspace } from '../../engine/lib/workspace-composition.js';
+import { readWorkspaceFile, type WorkspaceFile, pendingChanges } from '../../engine/lib/workspace-file.js';
+import { stageText, type PublishedWorkspace } from '../../engine/lib/published-workspace.js';
 import { repositoryOf, treeOfWorkspace } from './workspace-repos.js';
 
 export type WorkspaceTarget =

@@ -2,11 +2,11 @@ import { api } from './client'
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `OdooRelease` and `ReleaseState` in apps/backend/src/lib/odoo-release.ts,
- * `RollBackOffer` in apps/backend/src/services/OdooReleaseService.ts,
- * `ReleaseE2E` in apps/backend/src/lib/release-e2e.ts, `E2ETest` in apps/backend/src/lib/e2e.ts,
- * `ReleaseChanges` in apps/backend/src/lib/release-compare.ts,
- * `ReleaseFile` in apps/backend/src/lib/file-changes.ts, `ReleaseFiles` and `AGAIN_FROM` in apps/backend/src/services/OdooReleaseService.ts.
+ * Authority: `OdooRelease` and `ReleaseState` in apps/backend/src/releases/lib/odoo-release.ts,
+ * `RollBackOffer` in apps/backend/src/releases/services/OdooReleaseService.ts,
+ * `ReleaseE2E` in apps/backend/src/releases/lib/release-e2e.ts, `E2ETest` in apps/backend/src/engine/lib/e2e.ts,
+ * `ReleaseChanges` in apps/backend/src/releases/lib/release-compare.ts,
+ * `ReleaseFile` in apps/backend/src/releases/lib/file-changes.ts, `ReleaseFiles` and `AGAIN_FROM` in apps/backend/src/releases/services/OdooReleaseService.ts.
  */
 export type ReleaseState = 'queued' | 'preparing' | 'preview' | 'cutting-over' | 'live' | 'rolling-back' | 'rolled-back' | 'discarded' | 'failed' | 'superseded'
 
@@ -101,7 +101,7 @@ export const releaseKeys = {
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `SignIn` in apps/backend/src/services/ProjectSecretsService.ts.
+ * Authority: `SignIn` in apps/backend/src/projects/services/ProjectSecretsService.ts.
  */
 export interface SignIn {
   login: string

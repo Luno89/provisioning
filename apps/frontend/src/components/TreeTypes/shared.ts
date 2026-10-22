@@ -18,7 +18,7 @@ export function draftId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${nextId}`;
 }
 
-/** Matches `SLUG` in `apps/backend/src/lib/tree-types.ts` — a valid tree-type id. */
+/** Matches `SLUG` in `apps/backend/src/projects/lib/tree-types.ts` — a valid tree-type id. */
 export const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export function slugify(text: string): string {

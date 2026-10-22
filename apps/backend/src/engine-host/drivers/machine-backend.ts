@@ -4,7 +4,7 @@ import {
   listDirOnDevice,
   readFileOnDevice,
   writeFileOnDevice,
-} from '../../lib/local-agent-registry.js';
+} from '../../machines/lib/local-agent-registry.js';
 import type { MachineBackend } from './machine.js';
 export type { MachineBackend };
 import type { DirEntry, ExecResult } from '@koala/engine-core';

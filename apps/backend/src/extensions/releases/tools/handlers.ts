@@ -1,10 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
-import { sameAction, type ActionProposal } from '../../../lib/action-proposals.js';
-import type { ReleaseHow } from '../../../lib/release-run.js';
+import { sameAction, type ActionProposal } from '../../../engine/lib/action-proposals.js';
+import type { ReleaseHow } from '../../../releases/lib/release-run.js';
 import { APP_DRIFT, EXPORT_CUSTOMIZATIONS, PROPOSE_ADOPT_CUSTOMIZATIONS, PROPOSE_RELEASE_CHANGE } from './catalogue.js';
-import { driftText } from '../../../lib/app-drift.js';
-import type { CustomizationsService } from '../../../services/CustomizationsService.js';
+import { driftText } from '../../../releases/lib/app-drift.js';
+import type { CustomizationsService } from '../../../releases/services/CustomizationsService.js';
 
 export interface ReleaseToolDeps {
   problem(ownerId: string, how: unknown): Promise<string | null>;

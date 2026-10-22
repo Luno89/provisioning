@@ -5,7 +5,7 @@ import { identityKeys } from './identity'
 export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed' | 'paused'
 
 /**
- * ── DUPLICATED, KNOWINGLY ── `MoveView` in apps/backend/src/services/InstanceService.ts is the authority.
+ * ── DUPLICATED, KNOWINGLY ── `MoveView` in apps/backend/src/instances/services/InstanceService.ts is the authority.
  */
 export interface MoveView {
   state: 'waiting' | 'joined' | 'copying' | 'switching' | 'failed'

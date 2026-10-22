@@ -1,16 +1,16 @@
-import { assessWorkload } from '../lib/workload-health.js';
+import { assessWorkload } from '../infrastructure/lib/workload-health.js';
 import fs from 'fs/promises';
 import { spawn } from 'child_process';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { InfrastructureService } from '../services/InfrastructureService.js';
-import { GiteaService } from '../services/GiteaService.js';
+import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
+import { GiteaService } from '../projects/services/GiteaService.js';
 import { ApplicationFailure } from '@temporalio/common';
-import { buildPlanAt, isCommitSha } from '../lib/build-plan.js';
-import { buildArgEntries } from '../lib/pipeline-config.js';
-import { loadKeys } from '../lib/keys.js';
-import { forPushing, kanikoRegistryArgs, registryAuths } from '../lib/registry-hosts.js';
+import { buildPlanAt, isCommitSha } from '../releases/lib/build-plan.js';
+import { buildArgEntries } from '../releases/lib/pipeline-config.js';
+import { loadKeys } from '../platform/lib/keys.js';
+import { forPushing, kanikoRegistryArgs, registryAuths } from '../instances/lib/registry-hosts.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

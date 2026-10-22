@@ -129,14 +129,13 @@ Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod stat
 
 | Path | What |
 |---|---|
-| `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits the DB, keys, role and the platform services, then calls each area's `wire*` (`src/wiring/`), which constructs that area's services and mounts its routers. 437 lines. Three routes are inline and each has a reason: the Gitea webhook (must precede `express.json()` — it verifies an HMAC over the raw body), `/ingress/verify` (unauthenticated by design) and `/api/metrics` (its own token). `index.test.ts` guards the route order; `npm run test:routes-live` proves every router is mounted |
-| `apps/backend/src/lib/db-interface.ts` | `Database` interface + `createDatabase()` — MongoDB unless `NODE_ENV=test` and not E2E, in which case `MemoryDB` |
-| `apps/backend/src/lib/mongo-db.ts` / `memory-db.ts` | MongoDB native driver impl / in-memory mock for unit tests |
-| `apps/backend/src/lib/auth.ts`, `crypto.ts` | JWT sign/verify, password hashing; AES-256-GCM encrypt/decrypt/mask for stored secrets |
-| `apps/backend/src/lib/credential-resolver.ts` | Resolution chain for cloud creds: user-stored → `process.env` → mock mode |
-| `apps/backend/src/routes/` | 33 routers, one per URL prefix, each a factory taking its deps. `routes/harness/` composes six sub-resource routers under `/api/harness`. `routes/test-harness.ts` mounts one router on a bare app so a route can be tested without booting `bootstrap()` |
-| `apps/backend/src/middleware/` | `asyncRoute` + the error responder, and `auth.ts`'s `createAuth()` — `requireAuth`, `requireAdmin`, the session cookie and the invite gate. Express 4 does not await handlers — an unwrapped async handler that rejects sends NO response and the request hangs |
-| `apps/backend/src/services/` | Service layer (see below) |
+| `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits the DB, keys, role and the platform services, then calls each area's `wire*` (`src/<area>/wiring/`), which constructs that area's services and mounts its routers. 437 lines. Three routes are inline and each has a reason: the Gitea webhook (must precede `express.json()` — it verifies an HMAC over the raw body), `/ingress/verify` (unauthenticated by design) and `/api/metrics` (its own token). `index.test.ts` guards the route order; `npm run test:routes-live` proves every router is mounted |
+| `apps/backend/src/<area>/` | **The backend is laid out by area, each with `lib/` (pure rules), `services/`, `routes/` (one router per URL prefix, a factory taking its deps) and `wiring/` (what constructs the area from the platform deps and mounts it).** The areas: `platform` (database, keys, crypto, the Temporal client and payload storage, auth middleware, mail, notices, metrics, migrations, the shared record types), `accounts` (sign-in, invites, admin, account removal), `instances` (root, instance, addresses, the pool, moves), `hub` (shared projects), `projects` (projects, repositories, channels, item chats, trees, branches, leaves, plans, secrets, tree types), `releases` (A/B releases, customizations, client imports, what is live), `files` (MinIO files, drops, artifacts, share links), `machines` (a person's machines, their agents, the sockets), `monitoring` (health, alerts, notifications), `models` (providers, the default model, OpenRouter), `memory` (the keeper, recall, practices), `checks` (Level 2, the bench, scripted models), `infrastructure` (clusters, apps, deploys, exposure, egress, credentials, backups, running work, the Temporal bridge). `engine-host/`, `extensions/`, `activities/`, `workflows/` and `eval/` stay where they were. Find a file by area first: `git ls-files apps/backend/src/hub` is the hub |
+| `apps/backend/src/platform/lib/db-interface.ts` | `Database` interface + `createDatabase()` — MongoDB unless `NODE_ENV=test` and not E2E, in which case `MemoryDB` |
+| `apps/backend/src/platform/lib/mongo-db.ts` / `memory-db.ts` | MongoDB native driver impl / in-memory mock for unit tests |
+| `apps/backend/src/platform/lib/auth.ts`, `crypto.ts` | JWT sign/verify, password hashing; AES-256-GCM encrypt/decrypt/mask for stored secrets |
+| `apps/backend/src/infrastructure/lib/credential-resolver.ts` | Resolution chain for cloud creds: user-stored → `process.env` → mock mode |
+| `apps/backend/src/platform/middleware/` | `asyncRoute` + the error responder, and `auth.ts`'s `createAuth()` — `requireAuth`, `requireAdmin`, the session cookie and the invite gate. Express 4 does not await handlers — an unwrapped async handler that rejects sends NO response and the request hangs |
 | `apps/backend/src/workflows/` + `activities/` | Temporal.io workflow/activity definitions |
 | `apps/backend/src/worker-host.ts` | Host-side Temporal worker — cluster provisioning/destruction activities |
 | `apps/backend/src/worker-cluster.ts` | In-cluster Temporal worker — app deploy/destroy/resize activities; reads K8s service account when in-cluster |
@@ -153,7 +152,7 @@ Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod stat
 
 ## Backend service layer
 
-All services live in `apps/backend/src/services/`, most extend `BaseService`. Constructed and wired together in `bootstrap()` (`apps/backend/src/index.ts`):
+Services live in their area's `services/` folder (`apps/backend/src/<area>/services/`), most extend `BaseService` (`platform/services/`). Each area's `wiring/` constructs them, called from `bootstrap()` (`apps/backend/src/index.ts`):
 
 - `InfrastructureService` — kubectl/helm/k3d/docker subprocess execution
 - `ClusterService` — cluster CRUD, mock-cloud detection, kubeconfig resolution
@@ -170,20 +169,20 @@ All services live in `apps/backend/src/services/`, most extend `BaseService`. Co
 
 ## Auth
 
-All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAuth` from `middleware/auth.ts`'s `createAuth()`, mounted in `bootstrap()`, except `/auth/login`, `/auth/register`, `/auth/2fa/verify`, and the GitHub/Google OAuth routes. When `IS_E2E=true`, `requireAuth` short-circuits to a mock user so Playwright doesn't need to log in. GitHub/Google OAuth fall back to a zero-setup local mock flow when their client env vars are blank; 2FA SMS falls back to a logged warning when Twilio env vars are blank.
+All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAuth` from `platform/middleware/auth.ts`'s `createAuth()`, mounted in `bootstrap()`, except `/auth/login`, `/auth/register`, `/auth/2fa/verify`, and the GitHub/Google OAuth routes. When `IS_E2E=true`, `requireAuth` short-circuits to a mock user so Playwright doesn't need to log in. GitHub/Google OAuth fall back to a zero-setup local mock flow when their client env vars are blank; 2FA SMS falls back to a logged warning when Twilio env vars are blank.
 
 **Limits and headers.** Sign-in, sign-up, 2FA, handoffs, invites, joins and share links are rate limited per address
-(`lib/http-limits.ts`, mounted on `/api` before the guard), an account is locked for fifteen minutes after ten wrong
+(`platform/lib/http-limits.ts`, mounted on `/api` before the guard), an account is locked for fifteen minutes after ten wrong
 passwords (`lockedUntil`), every response carries `helmet`'s headers, and the proxy is trusted in production. **The SPA's
-content security policy** (`lib/csp.ts`: same-origin scripts, sockets and frames, inline styles allowed, blob workers and
+content security policy** (`platform/lib/csp.ts`: same-origin scripts, sockets and frames, inline styles allowed, blob workers and
 media, nothing framed from elsewhere) is sent as `Content-Security-Policy-Report-Only` in production until `CSP=enforce`
 (`CSP=off|report|enforce` sets it anywhere); the browser's reports land on `POST /csp-report` and are logged as one line
 each, so a week of a quiet log on the host is what says to enforce it. **Koala reports on itself** at `GET /api/metrics` (`MetricsService`, prom-client: process metrics, request
 times by route and status, failed work by kind), read with `Authorization: Bearer <METRICS_TOKEN>`; unset, nothing is
-served. **Startup migrations run once**: `scripts/seed-all.ts` runs each by name through `lib/migrations.ts` and records
+served. **Startup migrations run once**: `scripts/seed-all.ts` runs each by name through `platform/lib/migrations.ts` and records
 it in `migrations`; the shipped seeds (tree types, tools, providers) still upsert on every boot.
 
-The public-path allow-list lives in `middleware/auth.ts`, **not** in `routes/auth.ts` — a router
+The public-path allow-list lives in `platform/middleware/auth.ts`, **not** in `accounts/routes/auth.ts` — a router
 that could exempt itself is a router that can quietly stop being protected, so adding a route that
 must work signed-out means editing the guard too. `requireAuth` and the Socket.IO handshake share
 `userFromSessionCookie` for the same reason: a socket must never be able to resolve a user the HTTP
@@ -205,7 +204,7 @@ included (`preview`'s `instance`: a pool one deleted with everything in it, one 
 keeps running there), takes the typed email, and starts `RootAccountRemovalWorkflow` through root's own `DELETE /api/account`,
 the same removal an admin's is.
 
-Removal, project deletion and tree deletion stop workflows by **cancelling** them (`lib/stop-workflow.ts`), never by
+Removal, project deletion and tree deletion stop workflows by **cancelling** them (`platform/lib/stop-workflow.ts`), never by
 terminating: a cancelled agent run still runs its own ending — it ends `interrupted` and hands its claimed tasks
 back. Only one that has not closed within `STOP_WAIT_MS` of being cancelled is terminated. Terminating skips all of
 that, so a task the run was working on would stay `running` forever.
@@ -222,7 +221,7 @@ and repos; the project's repo (and its build webhook), Infisical workspace and r
 records. A tree only also linked to it, and a conversation or memory that only mentions it, are kept and unlinked.
 An app built from the project goes with it: once the project's workflows (its release workflow among them) are stopped, each of its deployments is destroyed on its own cluster through `executeDestroyAppWorkflow` on the cluster worker, and the popup lists the app among what goes. A project being deleted ignores pushes.
 
-`ACCOUNT_DATA` in `lib/account-removal.ts` classifies every Mongo collection as removed by owner, by id, through
+`ACCOUNT_DATA` in `accounts/lib/account-removal.ts` classifies every Mongo collection as removed by owner, by id, through
 what it relates to, or shared; a test fails when a collection in `mongo-db.ts` is missing from it, so **a new
 collection has to say how it is removed**.
 
@@ -252,7 +251,7 @@ added replaces that machine (the script sends the old token from `machine.json`,
 
 **A machine's worker reads its instance's payloads like any other worker.** The machine is inside its owner's instance,
 so on every connect the agent asks for the payload keyring over its socket (`machine:payloads`, only where tenants are
-served; `lib/machine-payloads.ts`), holds it in memory only, and starts its device worker with the same converter as
+served; `machines/lib/machine-payloads.ts`), holds it in memory only, and starts its device worker with the same converter as
 every platform worker (`buildDataConverter` in `@koala/engine-core/payloads`, one codec shared by the backend and the
 machine). Payloads over 128 KB go through the backend over that socket (`payloads:put`/`payloads:get`, `remote-blobs.ts`),
 since a machine never reaches Mongo. A new keyring restarts the worker (`DeviceWorkerHost`). Without this nothing sent to
@@ -268,7 +267,7 @@ hands it down the runs it starts, a machine only to an agent whose procedure bra
 `EngineResolveAgentActivity`; any other keeps its own model); **this chat only** leaves them on their own; following the
 account default reaches nothing. **The account default can be an agent on a machine** (Studio → Models, or the first-model dialog; `PUT /api/models/default`
 checks the machine is the person's and its agent ready): a run that names no model and whose agent has none of its own (or the default overrides it)
-goes there when it is a chat or its procedure branches at Where It Runs (`accountMachineFor` in `lib/machine-runs.ts`, read by the registry's `runnable`
+goes there when it is a chat or its procedure branches at Where It Runs (`accountMachineFor` in `machines/lib/machine-runs.ts`, read by the registry's `runnable`
 through `accountDefault`); anything else that would need a model fails with `MACHINE_DEFAULT_NEEDS_MODEL` from `ModelService.route`. A check's space
 never takes it. **The first-model dialog** (`FirstModel.tsx`, shown to anyone without a default) offers Connect OpenRouter, a model on their own machine
 (Infrastructure → Your own hardware, then TabbyAPI or vLLM) and a subscription agent through My Machines, and lists ready machine agents to pick.
@@ -340,7 +339,7 @@ and keeps running in the run; the machine's own `wait_for` tool waits for the jo
 
 ## Roles: root, instance, combined
 
-`ROLE` (read by `lib/platform-role.ts`) decides what a backend is:
+`ROLE` (read by `platform/lib/platform-role.ts`) decides what a backend is:
 - **`combined`** (the default, and every dev box) is everything at once, as before;
 - **`root`** holds accounts and the Ed25519 signing key (`ROOT_IDENTITY_KEY`), and mounts no tenant
   route — every tenant router is mounted on `tenant` in `bootstrap()`, which is the app except on root;
@@ -348,7 +347,7 @@ and keeps running in the run; the machine's own `wait_for` tool waits for the jo
   has no account routes, and signs people in only through root.
 
 **Both on one machine: `npm run dev:split`** (`scripts/dev.sh --split`, setup in `src/scripts/dev-split.ts`, rules in
-`lib/dev-split.ts`). Your usual stack becomes the instance: same database, Temporal, workers, port 3001, at
+`instances/lib/dev-split.ts`). Your usual stack becomes the instance: same database, Temporal, workers, port 3001, at
 `http://<DEV_INSTANCE_NAME, default dev>.localhost:5173`. Root is one more backend (port 3002) with its own database
 `koala_root`, holding only your account (identity fields, never your credentials or settings) and the instance's
 registration with a credential, at `http://koala.localhost:5175`. Each has its own Vite forwarding `/api` and
@@ -361,7 +360,7 @@ single-use token for your instance and redirects to `<instance>/#/handoff?token=
 checks the signature, audience, expiry and owner, records the token id so it cannot be reused, and
 sets its own session. Register an instance with `npm run instances -w apps/backend -- add <id> <owner> <url>`.
 
-**Addresses (per-user instances step 6).** A person picks a name when their instance is made (`lib/instance-names.ts`:
+**Addresses (per-user instances step 6).** A person picks a name when their instance is made (`instances/lib/instance-names.ts`:
 3–20 lowercase letters and digits, no dashes, some reserved; unique on root, fixed afterwards, asked on root's "Use my own
 machine" with `GET /api/instances/name-check`). With `INGRESS_DOMAIN` set, root's `InstanceRoutes` writes each ready
 instance's routes from its record (name, `meshIp` from the installer's reports) into `data/caddy/instances/` and
@@ -381,8 +380,8 @@ Caddy on the mesh as `tag:platform`, an app deployed on the instance, and the sw
 `hub` role (`ROLE=hub`, needing `ROOT_URL`, `ROOT_PUBLIC_KEYS` and `HUB_CREDENTIAL`; part of `combined`, `servesHub`) holds
 shared projects: a registry database (`HUB_DATABASE`, default `koala_hub`: `shared_projects`, `shared_memberships`,
 `shared_invites` token → project, `shared_people`, `shared_handoffs`) and **one database per project** (`hub_<id>`, its
-`members` and `invites`; `lib/hub-store.ts`, `lib/hub-mongo.ts`). `HubService` reads the person's membership from the
-project's own database before anything, and answers 404 to anyone not on it. Roles (`can` in `lib/hub.ts`): **owner**
+`members` and `invites`; `hub/lib/hub-store.ts`, `hub/lib/hub-mongo.ts`). `HubService` reads the person's membership from the
+project's own database before anything, and answers 404 to anyone not on it. Roles (`can` in `hub/lib/hub.ts`): **owner**
 (everything; several allowed, the last cannot leave or be demoted), **collaborator** (works stories, sees code, approves),
 **client** (sees, pins, comments, asks Koala; no code, secrets or settings). `/api/hub/*`: projects (made from a project's
 Settings → People, `origin` the project, opened again rather than made twice), invites, roles, remove/leave, delete (typing
@@ -398,7 +397,7 @@ frontend is only Shared projects (`HubShell`, `onHub` on `/api/auth/me`). An ins
 **Removing an account lets the person go from the hub first** (`HubPeople`: in process when combined, otherwise root's
 signed requests to the hub's `/api/hub-root/people/:id`, a token for audience `hub` and that person and step,
 `issueMoveToken`). It is refused while they are the only owner of a shared project someone else is on (`leavingAll` in
-`lib/hub.ts`, listed among the removal's blockers); a project only they are on is deleted; from every other one they are
+`hub/lib/hub.ts`, listed among the removal's blockers); a project only they are on is deleted; from every other one they are
 taken off, with the invites they sent; the hub forgets its copy of them. Not yet: the board, channel and repository on the
 hub (step 2's member screens), members working stories (3), the View tab (4).
 
@@ -412,7 +411,7 @@ token only the owner's instance holds; `HubRepos`). **The owner's instance keeps
 unchanged: every write to a tree, branch, leaf, task, conversation or plan proposal marks it (`markingHubWrites` wraps
 `createDatabase()`, so every process does; `hubDirty`, only while anything is shared), and `HubSyncService` (every 3 s)
 sends a shared project's records as field patches against what the hub last agreed (`hubSnapshots`; chat messages one by
-one, `lib/hub-sync.ts`), pulls what others changed (applied without marking), and syncs `main` with git (`HubRepoSync`:
+one, `hub/lib/hub-sync.ts`), pulls what others changed (applied without marking), and syncs `main` with git (`HubRepoSync`:
 fast-forward whichever is behind, merge when both moved, on a conflict neither changes, the hub's main is kept as
 `hub/main-<time>` and the channel is told). The hub orders changes per project (`changes`, `board_*` in `hub_<id>`) and
 takes them only from the sharer's own instance. **Taking it back** (typing its name) deletes the hub's copy and
@@ -422,7 +421,7 @@ project on its instance takes it back first (the delete popup says so).
 **Members work a shared project on the hub** (step 2's second half). The hub's `/shared/:id` is Board · Files · People,
 the board the same screens as the instance's (`ProjectBoard` reads through a `WorkSource`, `components/Projects/work-source.ts`;
 the hub's is `components/Hub/hub-work-source.ts`, polling `GET /api/hub/projects/:id/board` every 3 s). What each role
-sees is cut on the hub (`recordFor`, `statusFor` in `lib/hub-board.ts`): a client gets stories and tasks without claims,
+sees is cut on the hub (`recordFor`, `statusFor` in `hub/lib/hub-board.ts`): a client gets stories and tasks without claims,
 runs or checks, chats without reasoning or tool calls, what is live and a waiting preview but no builds; owners and
 collaborators see everything, the run feed included, relayed from the owner's instance (`HubRelay`: the instance
 long-polls `GET /api/hub-instance/projects/:id/relay`, answers `POST /api/hub-instance/relay/:callId[/stream]`; a call
@@ -435,7 +434,7 @@ messages the viewer did not write, in both UIs); Koala answers owners and client
 `ask-koala` request starting the turn), collaborators from their own instance in step 3. The owner's instance sends a
 **status** (`PUT .../status`: releases, builds, tree runs) every 15 s or when the project moved. **Files**: the hub
 relays the owner's MinIO (`FileScope` `{kind: 'hub'}`); an owner or collaborator marks a file or folder **Shared with
-clients** (`clientFiles` on the project, `lib/client-files.ts`, `PUT .../files/for-clients`, also on the instance's
+clients** (`clientFiles` on the project, `hub/lib/client-files.ts`, `PUT .../files/for-clients`, also on the instance's
 Files page once shared), a client sees only those and may add files, which are then shared. The hub's repository is
 read-only to owners and collaborators (`GET .../repository`, `.../repository/file`). Where root has no hub,
 Share says so. `npm run test:project-sharing-live` proves it combined.
@@ -444,7 +443,7 @@ Share says so. `npm run test:project-sharing-live` proves it combined.
 Someone with no machine of their own can try Koala on a **pool node**: root's own k3s (`bootstrap.sh` sets it up) or a server of
 its own (`scripts/root-node/pool-node.sh`: k3s, the mesh as `tag:pool`, root's registry, gVisor). Root offers it on the "no
 instance yet" page while a slot is free (`POOL_SLOTS`, from the node's memory) and only with `POOL_ADDRESS` (the node's mesh
-address), `POOL_KUBECONFIG` and `INGRESS_DOMAIN` set (`poolSettingsFrom` in `lib/pool.ts`). `PoolInstanceWorkflow` (host
+address), `POOL_KUBECONFIG` and `INGRESS_DOMAIN` set (`poolSettingsFrom` in `instances/lib/pool.ts`). `PoolInstanceWorkflow` (host
 worker, `POOL_TASK_QUEUE`):
 - readies the node: RuntimeClass `gvisor` (`scripts/root-node/gvisor.sh`, pinned gVisor), the `koala-pool-gvisor`
   ValidatingAdmissionPolicy refusing any pod in a `koala.dev/pool=true` namespace not on gVisor (proved to refuse before
@@ -458,18 +457,18 @@ worker, `POOL_TASK_QUEUE`):
   its cluster;
 - waits until the proxy reaches the backend, then marks it ready; `InstanceRoutes` sends `<name>.<domain>` to its ports.
 In pool mode an instance pushes images to Gitea by its in-cluster name and gives pods the loopback name
-(`lib/registry-hosts.ts`, `REGISTRY_PULL_HOST`, `KOALA_REGISTRY_PUSH`). kubectl port-forward cannot reach a gVisor pod.
-**The trial** (`PoolTrialWorkflow`, rules in `lib/pool-trial.ts`): emails 3 days and 1 day before the end, stops the
+(`instances/lib/registry-hosts.ts`, `REGISTRY_PULL_HOST`, `KOALA_REGISTRY_PUSH`). kubectl port-forward cannot reach a gVisor pod.
+**The trial** (`PoolTrialWorkflow`, rules in `instances/lib/pool-trial.ts`): emails 3 days and 1 day before the end, stops the
 vcluster at the end (status `paused`, so sign-in and routes skip it), warns again 3 days before deleting it 30 days later.
 While a move runs the trial holds (`PoolTrialNextActivity` answers `hold`).
-**Root watches pool apps; a pool instance has no monitoring of its own** (`lib/pool-monitoring.ts`). Its cluster gets only
+**Root watches pool apps; a pool instance has no monitoring of its own** (`monitoring/lib/pool-monitoring.ts`). Its cluster gets only
 the operator's CRDs and a ClusterIP Traefik (`CLUSTER_MONITORING=crds`, `INGRESS_SERVICE`; `placedOnPool`). Root's
 `PoolHostActivity` installs one kube-prometheus-stack (no Grafana, `enforcedNamespaceLabel`, kube-state-metrics keeping
 vcluster's `vcluster.loft.sh/namespace` label and `object-name` annotation) and a blackbox exporter that never follows a
 redirect, per node; each pool namespace lets only that exporter in (`probeIngressPolicy`). The instance asks root named
 questions, never PromQL (`MonitoringService`'s `pool` dep → `PoolMonitor` → root's `/api/instances/monitoring/*` with its
 credential → `PoolMonitoringService`, which builds each query with `place` so it reads only `pool-<name>`, joining pods and
-volumes to the namespace they came from, `lib/monitoring-asks.ts`). Its probes (read from the Probe CRs its apps make) and
+volumes to the namespace they came from, `monitoring/lib/monitoring-asks.ts`). Its probes (read from the Probe CRs its apps make) and
 its alert rules (rebuilt by root from the six templates) are written by root into its host namespace; alerts come back with
 their namespaces translated. Not on a pool place: Open in Grafana, request counts and the `errors` alert (shown as not
 measured), and changing how long history is kept (`byKoala`).
@@ -487,7 +486,7 @@ code (`startMove`, a join token with `move`) and starts `PoolMoveWorkflow`. The 
 name, a new credential kept as `move.credentialHash` until the switch), takes the instance's four keys
 (`MOVED_KEYS`) into `<release>-keys` before Helm, and installs the chart with `move.enabled`: workers at zero, the setup
 jobs `move-data` (the data folder) → `platform-services` (with the moved secrets) → `move-restore` (Mongo through
-`lib/mongo-move.ts`, Gitea's and Infisical's Postgres through `PG_RESTORE` into a fresh schema, Gitea's data volume
+`instances/lib/mongo-move.ts`, Gitea's and Infisical's Postgres through `PG_RESTORE` into a fresh schema, Gitea's data volume
 through a helper pod) → `seed`. Every part comes through root (`/api/instances/move/parts/:part`, the move credential):
 root's `MoveRelay` reaches the pool instance's backend through the pool node's API server with a token it signs for that
 instance and part (`issueMoveToken`), never storing anything. The pool instance (`MoveExport`, `/api/move/*`) checks the
@@ -498,7 +497,7 @@ thaws the pool copy and stops it again if it was stopped. `npm run test:pool-liv
 admin removal and the move on two VMs (`POOL_LIVE_ENDING=delete` ends with an admin's Delete instead of the move).
 
 **Every cluster that runs apps has monitoring.** Before an app is deployed, `ensureClusterMonitoring`
-(`activities/cluster-monitoring.ts`, rule in `lib/cluster-monitoring.ts`) asks the cluster whether it serves
+(`activities/cluster-monitoring.ts`, rule in `monitoring/lib/cluster-monitoring.ts`) asks the cluster whether it serves
 `probes.monitoring.coreos.com` and has blackbox-exporter. It applies whatever is missing: the cluster stack (`ENV=remote`,
 with `CLUSTER_INGRESS=existing` keeping an ingress the cluster already has, such as k3s's Traefik, so two never fight
 over ports 80/443) and the observability stack. An instance's cluster worker does the same when it starts. A failure
@@ -518,10 +517,10 @@ built in when only its tools change — the Studio says so, and saving stores gr
 shipped changes. The resolved agent (`Persona`, with `tools`) is what the engine runs; what is stored is a
 `PersonaRecord`, without them. A grant change starts the agent's image rebuilding and tells the bench, like an agent
 save. Check spaces copy the person's grants, and a world's `agents.<slug>.tools` becomes grants there. Startup moves any
-stored agent's old tool list onto grants (`lib/tool-grant-migration.ts`, in `seedAll`) and drops a copy of a built-in
+stored agent's old tool list onto grants (`engine/lib/tool-grant-migration.ts`, in `seedAll`) and drops a copy of a built-in
 that differed only in its tools.
 
-**MCP servers are a catalogue of their own** (`mcpServers`, `lib/mcp-servers.ts`, Studio → Tools, under MCP servers, `/api/mcp/catalogue`).
+**MCP servers are a catalogue of their own** (`mcpServers`, `engine/lib/mcp-servers.ts`, Studio → Tools, under MCP servers, `/api/mcp/catalogue`).
 A server runs hosted (at a URL, or one of the person's MCP deployments, recorded as they run, `from: { projectId }`) or in
 the workspace (what installs it, the command that starts it, its port and path). Known ones ship as templates
 (`extensions/mcp/templates.ts`: Playwright, with Chromium installed against the Playwright its package bundles). Adding
@@ -540,7 +539,7 @@ instructions, the person's notes and what it depends on, and each tool's note as
 world can carry `mcpServers` (captured before the run) and give an agent `servers`; `mechanics-workspace-server` proves
 the workspace path. Startup (`migrateMcpServers` in `seedAll`) moves `persona.mcp`, tools that served, and per-tool kinds
 onto the catalogue. **Koala proposes servers**: `list_mcp_servers` shows the person's servers (state, tools, who holds each) and the
-known ones not added; `propose_mcp_server` (rules in `lib/mcp-proposals.ts`) puts an `add_mcp_server` action card in
+known ones not added; `propose_mcp_server` (rules in `engine/lib/mcp-proposals.ts`) puts an `add_mcp_server` action card in
 the chat — add a known one (with the person's notes, depends-on, offer/omit), add a new one, or give one they have to
 agents. Applying it (`ActionService`) adds and captures the server, then gives it to each agent named through
 `setServers`, which rebuilds a workspace server's holders' images. `mechanics-proposed-server` proves it (check stage
@@ -568,7 +567,7 @@ for this chat** (switches it on and lets the call through; so does switching it 
 
 Memories are made by the `memory-keeper` agent, never by a hidden model call. It is driven by events,
 not polling. `AgentRunWorkflow` reports `turn-started` and `run-ended` to the backend
-(`EngineConcludeActivity`), and `MemoryKeeperService` (rules in `lib/conclusions.ts`) hands the
+(`EngineConcludeActivity`), and `MemoryKeeperService` (rules in `memory/lib/conclusions.ts`) hands the
 keeper each conclusion:
 - a conversation whose `ConversationConclusionWorkflow` countdown ran out — the conversation agent's
   `concludeAfterMinutes` (default 10), held while a turn runs and restarted by every new turn — or
@@ -591,11 +590,11 @@ only when that model works (`selectForContext`); without a binding, none kept fo
 in `read_run` (from the `choose-model` trace) and names it on `save_memory` / `propose_practice`, refused unless it is
 one of the person's models. The bench tries a model's practice on an endpoint serving that model, leaving it on trial
 while none does; every check result records the model it ran on, and regressions and prompt-change comparisons only
-compare results on the same model (`sameModel` in `lib/bench.ts`). The Memories page and the agent's practices show
+compare results on the same model (`sameModel` in `checks/lib/bench.ts`). The Memories page and the agent's practices show
 and filter by model; `mechanics-memory-per-model` proves recall on a script (a scripted space's model is `scripted`).
 
 **A tool note is advice shown beside a tool** (`category: 'tool_note'`, with `tool` — a built-in's name, or a server's
-tool with `server` — or `server` alone for all of a server's tools; `lib/tool-notes.ts`). The keeper proposes one with
+tool with `server` — or `server` alone for all of a server's tools; `engine/lib/tool-notes.ts`). The keeper proposes one with
 `propose_tool_note` when runs misuse a tool rather than when one agent works badly (that is a practice), naming the
 tool as it is offered. It goes on trial: the bench runs the checks that use the tool (`scenarioSubjects(...).tools`,
 any of the server's for a server note) with it in the space, and it goes live only if a check that failed before now
@@ -615,7 +614,7 @@ Plan: `~/.claude/plans/testing-levels.md`.
   `RemoveAccountWorkflow` afterwards, and every check ends with "its space leaves nothing behind" — so every check
   run is also a live test of account removal.
 - **Who plays the model**: the person's model (the space borrows it — `ModelService` resolves as the person), or a
-  **script** (`scenario.script`, `lib/check-script.ts`): rules matched on what a model sees (`offered`, `called`,
+  **script** (`scenario.script`, `checks/lib/check-script.ts`): rules matched on what a model sees (`offered`, `called`,
   `notCalled`, `asked`, `system`, `said`) answering with `say` and/or `call`, with lookups (`{{asked.N}}`,
   `{{said.N}}`, `{{directory}}`, `{{mentioned.task|leaf}}`, `{{result.<tool>}}`, `{{world.<path>}}`). The backend
   serves it at `/api/checks/scripted/:space/v1` (public prefix in the auth guard, checked by a per-space key) and
@@ -629,24 +628,24 @@ Plan: `~/.claude/plans/testing-levels.md`.
 - **The mechanics checks** (`eval/level2/mechanics.ts`, built in, scripted, so they run in seconds and on the bench):
   the judge's verdict, the turn log (and a run killed mid-turn), research in one shared workspace through the quiet
   time, compaction, landing, project deletion, and an Odoo module built and checked in an Odoo 20 workspace. They replaced the `*-live` scripts that tested the same plumbing.
-- **Turn checks** (`turn: true`, `lib/turn-check.ts`) are one model turn of an agent: its tools offered, nothing run
+- **Turn checks** (`turn: true`, `checks/lib/turn-check.ts`) are one model turn of an agent: its tools offered, nothing run
   (procedure `turn-check`). `chooses` names the tool it should pick (or `null` to answer without one) and checks its
   arguments, read from the model call's trace. They replaced Level 1; the built-in ones are `eval/level2/turns.ts`.
-- **Any check can repeat** (`repeats`, `passAt`, `lib/check-attempts.ts`): a turn check's attempts share one space, any
+- **Any check can repeat** (`repeats`, `passAt`, `checks/lib/check-attempts.ts`): a turn check's attempts share one space, any
   other gets a fresh space per attempt; the result keeps every attempt, and a space that leaks fails the check whatever
-  `passAt` allows. Coverage (`lib/check-coverage.ts`) and comparing two runs (`lib/check-compare.ts`) count every attempt.
+  `passAt` allows. Coverage (`checks/lib/check-coverage.ts`) and comparing two runs (`checks/lib/check-compare.ts`) count every attempt.
 - The space's runs are handed to the person before it goes, so every result still opens in the run view.
 - **The Studio** (Agents, Tools, Procedures, Tree Types) is one explorer per concept (`components/Studio/Explorer.tsx`):
-  items grouped by how they are used (agents: `lib/agent-usage.ts` on the backend), each item's parts opening on the
+  items grouped by how they are used (agents: `engine/lib/agent-usage.ts` on the backend), each item's parts opening on the
   right like files. Built-in procedures open read-only; "Make my own copy to edit" saves a copy under the same id.
 - **Checks live on what they check** (Studio, `~/.claude/plans/studio-layout.md`): there is no all-checks page. A
-  check shows on every agent, tool and procedure page it touches, worked out by `lib/check-subjects.ts` from its
+  check shows on every agent, tool and procedure page it touches, worked out by `checks/lib/check-subjects.ts` from its
   agent, hand-offs, procedure (a step check's `step.from`), and the tools it expects or calls. One shared list
   (`components/Checks/CheckList.tsx`) takes the scope; "New check" starts as a check of that page's subject.
 
 ## The bench
 
-Level 2 scenarios also run on their own, when the model is idle (`BenchService`, `lib/bench.ts`).
+Level 2 scenarios also run on their own, when the model is idle (`BenchService`, `checks/lib/bench.ts`).
 Top-level runs report start and end; `BenchIdleWorkflow` counts the owner's idle minutes down from
 the last event. When the time is up, everything runs if the last full run is older than the setting,
 otherwise only the scenarios of agents whose fingerprint changed. A scenario that passed last time and
@@ -658,7 +657,7 @@ often everything runs).
 
 Koala (chats), Projects, Studio (Agents, Tools — one explorer of tools, MCP servers and workspace dependencies, `Studio/toolbox.tsx` —, Procedures, Tree Types, Extensions, and **Models**: the LLM
 providers and the default model, `Studio/ModelsView.tsx`; **Connect OpenRouter** signs the person in to OpenRouter and gets a
-key on their own account and bill by OAuth PKCE, `lib/openrouter-connect.ts`: the verifier only in a sealed, httpOnly
+key on their own account and bill by OAuth PKCE, `models/lib/openrouter-connect.ts`: the verifier only in a sealed, httpOnly
 cookie bound to the person, the state checked before OpenRouter is asked, the key stored like a pasted one, which stays
 possible), Infrastructure, My Machines (machines Koala works on),
 Cloud providers (cloud credentials) and Settings (account, 2FA, addresses, notifications, backups, people and invites).
@@ -687,10 +686,10 @@ scroll to the matching section:
 
 An app's page (`#/infrastructure/app/<id>`) is its health; a cluster's (`#/infrastructure/cluster/<id>`) is its health
 plus **everything on it** (`ClusterContentsService`, `GET /api/infrastructure/clusters/:id`): every workload, read with
-kubectl and judged by `lib/cluster-workloads.ts` (crash loops, image pulls, waiting for room, restarts in the last hour,
+kubectl and judged by `infrastructure/lib/cluster-workloads.ts` (crash loops, image pulls, waiting for room, restarts in the last hour,
 failed jobs; finished jobs left out; memory and CPU from Prometheus when it answers), grouped as the person's apps,
 Koala's work (sandboxes, release slots, builds; a namespace a check's space left is marked so), the platform, and
-anything put there another way; then the platform services (`lib/platform-services.ts`, with Open dashboard and how each signs you in), nodes,
+anything put there another way; then the platform services (`infrastructure/lib/platform-services.ts`, with Open dashboard and how each signs you in), nodes,
 GPUs and Helm releases. Whoever owns the cluster sees all of it; anyone else sees only their own namespaces (their apps,
 `koala.dev/owner`), and no services, nodes or releases. Reads are cached per cluster for 20 s.
 
@@ -702,14 +701,14 @@ left out since their failure shows on the app or cluster), described the way Run
 Each app and cluster also keeps its **Health** tab in AppDashboard: charts over an hour, a day, a week or a month
 (uPlot, loaded lazily), with release markers, its alerts and alert history, and "Open in Grafana".
 
-**One set of named questions** (`lib/monitoring-questions.ts`) is asked of each cluster's Prometheus through
-`ClusterProxyService`; the browser never sends PromQL. `lib/monitoring-summary.ts` turns the answers into states and the
+**One set of named questions** (`monitoring/lib/monitoring-questions.ts`) is asked of each cluster's Prometheus through
+`ClusterProxyService`; the browser never sends PromQL. `monitoring/lib/monitoring-summary.ts` turns the answers into states and the
 plain lines Koala reads, and `MonitoringService` serves both (`/api/monitoring`, `/apps/:id`, `/clusters/:id`, `/alerts`,
 `PUT /clusters/:id/history`, `DELETE /rules/:id`). What isn't measured (an app with no probe, requests where Traefik doesn't
 count them) is said to be unmeasured, never shown as fine.
 
 **Koala** holds `monitoring_overview`, `app_health`, `cluster_health` and `propose_alert` (extension `monitoring`).
-- An alert is a template (`down`, `slow`, `memory`, `restarts`, `volume`, `errors`; `lib/monitoring-alerts.ts`) proposed
+- An alert is a template (`down`, `slow`, `memory`, `restarts`, `volume`, `errors`; `monitoring/lib/monitoring-alerts.ts`) proposed
   on a card (`set_alert`).
 - Applying it writes a PrometheusRule into the app's namespace, labelled `koala_rule`, and records it
   (`monitoringAlertRules`).
@@ -737,11 +736,11 @@ listening on `127.0.0.1:2525`, trusting only loopback):
 - It signs as `<domain>` with selector `koala`; the key is kept in a volume.
 - `MAIL_RELAYHOST` sends through a smarthost instead, for a host that blocks port 25.
 
-`bootstrap.sh` sets `MAIL_SMTP_URL=smtp://127.0.0.1:2525`. `scripts/root-node/mail-dns.ts` (rules in `lib/mail-dns.ts`)
+`bootstrap.sh` sets `MAIL_SMTP_URL=smtp://127.0.0.1:2525`. `scripts/root-node/mail-dns.ts` (rules in `platform/lib/mail-dns.ts`)
 makes the A, SPF, DKIM and DMARC records through Cloudflare. It never rewrites a record the person made, and says what is
 left to do by hand: PTR, and their own SPF. `update.sh` keeps the container current.
 
-**Who sends** (`emailWayFrom` in `lib/email-way.ts`, `MailService`):
+**Who sends** (`emailWayFrom` in `platform/lib/email-way.ts`, `MailService`):
 - **Root or combined:** Nodemailer to `MAIL_SMTP_URL`, from `MAIL_FROM` or `alerts@<INGRESS_DOMAIN>`.
 - **An instance** never sends itself. It posts to root's `POST /api/instances/mail` with its credential, and root sends
   only to the instance owner's address. Subjects are one line.
@@ -761,7 +760,7 @@ relay for anyone else. `test:routing-live` proves an instance's email reaching i
 
 **Running** (`components/Infrastructure/RunningSection.tsx`; its count is the sidebar badge) lists the person's running work in
 plain words, from Temporal (their `KoalaOwner` workflows, top-level only; the conversation countdowns and the bench's
-idle timer are left out) mapped by `lib/running.ts`: the bench and checks (progress from the check run), the memory
+idle timer are left out) mapped by `infrastructure/lib/running.ts`: the bench and checks (progress from the check run), the memory
 keeper (what it reads, from the run's memo `about`), tree runs, releases (and whether one waits on the card), chat turns
 (the memo's `agent` and `conversation`, written by the run starter), workspace builds, deletions and deploys; an unknown
 type is listed by its type. Each opens where it lives and is cancelled its own way (`RunningService`: a check run's
@@ -773,7 +772,7 @@ them all over when resumed (`MemoryKeeperService.setPaused`). API: `GET /api/run
 
 ## Platform keys
 
-Four keys, one per purpose, loaded once by `lib/keys.ts`'s `loadKeys(process.env)`:
+Four keys, one per purpose, loaded once by `platform/lib/keys.ts`'s `loadKeys(process.env)`:
 - `SESSION_KEY` signs session cookies;
 - `DATA_KEY` encrypts every stored secret (`crypto.ts`);
 - `PAYLOAD_KEY` encrypts Temporal payloads;
@@ -851,12 +850,12 @@ MongoDB stays in sync with Temporal via two mechanisms:
 2. **Background reconciliation loop** — every 30s, scans clusters in intermediate states (`provisioning`, `destroying`), checks Temporal directly, and updates MongoDB if the workflow finished but the DB missed it. Also parses log files to update `ClusterMetadata.progress` (e.g. `creating-cluster`, `patching-storage`, `deploying-cdktf`, `installing-traefik`).
 
 **Nothing has a deadline; things end when they finish, fail, or are stopped.** Every activity takes `LIVE_ACTIVITY`
-(`lib/activity-liveness.ts`): the 30-day `startToCloseTimeout` Temporal requires, and a one-minute `heartbeatTimeout`.
+(`platform/lib/activity-liveness.ts`): the 30-day `startToCloseTimeout` Temporal requires, and a one-minute `heartbeatTimeout`.
 Every worker (host, cluster, engine, stream, a machine's device worker) heartbeats every activity while it runs
 (`heartbeatWhileRunning` in `@koala/engine-core`), so a dead worker is noticed in a minute and the activity runs again
 elsewhere, while a slow one is never cut off. Helm and `kubectl --wait` take `CLI_CEILING` (720h) for the same reason.
 No wait inside an activity watches a clock: it ends on the thing it waits for, on a state that will never recover
-(`assessWorkload` in `lib/workload-health.ts` — `ImagePullBackOff`, `CrashLoopBackOff` and the like), or on a stop. The
+(`assessWorkload` in `infrastructure/lib/workload-health.ts` — `ImagePullBackOff`, `CrashLoopBackOff` and the like), or on a stop. The
 pieces that used to cut work off and no longer do:
 - **Model calls** go out through `patientFetch` (`agent-engine/src/model/patient-fetch.ts`): Node's `fetch` with an
   undici `Agent` that has no header or body timeout, so a long prefill or a slow stream is never dropped at 300 s. A call
@@ -875,7 +874,7 @@ pieces that used to cut work off and no longer do:
 - **People.** Wait for Person and tool approvals wait until someone answers or the run is stopped; a step may still set
   "Stop waiting after". A run takes each answer once (behind the `answers-taken-once` patch), so a procedure that
   comes back to the same question asks it again.
-- **Workload health** (`assessWorkload` in `lib/workload-health.ts`) counts restarts against a pod only when the last
+- **Workload health** (`assessWorkload` in `infrastructure/lib/workload-health.ts`) counts restarts against a pod only when the last
   one was within the hour, and ignores a pod that failed and was replaced, so a deployment whose server was once
   restarted and is only busy now is not marked `unhealthy` (an unhealthy model drops out of the model list).
 - **Builds and releases.** Workspace image builds, Odoo release jobs and rollouts, browser tests, pipeline builds and
@@ -889,7 +888,7 @@ with a notice). It asks again while each attempt circles somewhere new, and stop
 same circle as the last (`sameCircle`). A check script can stream thinking with `think`; `mechanics-circling` proves it.
 
 **Odoo browser tests.** `odoo-e2e --keep` leaves the throwaway Odoo served between runs (reused while `addons/` is
-unchanged, upgraded in place when it changed, `--stop` ends it). Specs use `e2e/odoo.ts` (`lib/odoo-e2e-helpers.ts`:
+unchanged, upgraded in place when it changed, `--stop` ends it). Specs use `e2e/odoo.ts` (`releases/lib/odoo-e2e-helpers.ts`:
 `signIn`, `openAction`, `fill`, `choose`, `addLine`, `save`, `press`, `smartButton`, `reportHtml`), whose `test` gives each
 step ten seconds and attaches `page-at-failure`, an outline of the page, which `odoo-e2e` prints and `readE2EReport`
 keeps as `E2ETest.page` (task checks and the release card show it). The image carries the helpers and `odoo-e2e` copies
@@ -903,7 +902,7 @@ with PostgreSQL 18 and `odoo-check`); a base may carry setup steps, and a `dnf` 
 pulls in `crypto` and `path`, which Temporal's workflow bundle refuses.
 
 **A tree type can have versions** (`versions` on the type: what they are versions of, each choice's version and the
-workspace it works in, and the default; `lib/tree-types.ts`). The Odoo type offers Odoo 20 (`odoo-20`, the default)
+workspace it works in, and the default; `projects/lib/tree-types.ts`). The Odoo type offers Odoo 20 (`odoo-20`, the default)
 and 18 (`odoo`). A tree records its `version` when it is made (`versionForNewTree`: the plan's `tree.version`, the New
 Tree dialog's choice, or the default; one the type does not offer is refused), and it never changes. The tree works in
 that version's workspace (`treeLanguage`, through `treeLanguageFrom`), its starter is rendered with `{{version}}`
@@ -921,15 +920,15 @@ skipping what the base has, and every planned image ends with a proof run as uid
 broken promise fails the build naming it). Approving a plan or story change, accepting a task, or retrying a story adds what its checks need to
 `.koala/workspace.json` and starts the build (`check-needs.ts`): unfinished tasks wait, a story whose finished work's checks need it is parked, and the
 published build puts them back. A person's own dependency with a script waits for approval like a project script. Startup moves stored inline
-installs onto dependencies (`lib/dependency-migration.ts`). `koala-e2e` outside Odoo runs the project's own Playwright with its playwright.config
-webServer (`lib/browser-tests.ts`); `mechanics-workspace-needs` proves the whole path. In-cluster addresses skip the egress proxy (`NO_PROXY`).
+installs onto dependencies (`engine/lib/dependency-migration.ts`). `koala-e2e` outside Odoo runs the project's own Playwright with its playwright.config
+webServer (`engine/lib/browser-tests.ts`); `mechanics-workspace-needs` proves the whole path. In-cluster addresses skip the egress proxy (`NO_PROXY`).
 
 **A tree's workspace is composed, built and published.** Plan: `~/.claude/plans/workspace-tool-servers.md` (step 0).
-- A project says what its workspace needs in `.koala/workspace.json` on `main` (`lib/workspace-file.ts`: packages by
+- A project says what its workspace needs in `.koala/workspace.json` on `main` (`engine/lib/workspace-file.ts`: packages by
   manager, an install script, languages, plain env values — a secret-looking name is refused).
-- One composer (`lib/workspace-composition.ts` → the engine's `planImage`) puts the tree type's base, that file and the
+- One composer (`engine/lib/workspace-composition.ts` → the engine's `planImage`) puts the tree type's base, that file and the
   tools of every agent that works in the tree into one plan, each line saying where it came from (`PlanLine.from`).
-- The image a tree works in is its **published workspace** (`publishedWorkspaces`, `lib/published-workspace.ts`): the
+- The image a tree works in is its **published workspace** (`publishedWorkspaces`, `engine/lib/published-workspace.ts`): the
   file it was built from, its image, lines and env, and `next` (how far the next build has got). A tree with none is
   composed from `main` and published the first time it is wanted. Later runs compose from the published file, so an
   agent gaining a tool is still picked up, but a new `main` waits for its build.
@@ -970,7 +969,7 @@ webServer (`lib/browser-tests.ts`); `mechanics-workspace-needs` proves the whole
 ## Odoo projects: A/B releases
 
 **How a project's builds are released is a procedure.** A tree type says it in `release: { agent, app }`, and a
-project may override it (`releaseHowOf` in `lib/release-run.ts`: the project's setting, then its type's, then a chart in
+project may override it (`releaseHowOf` in `releases/lib/release-run.ts`: the project's setting, then its type's, then a chart in
 the repo means `slots`, otherwise `replace`). The `releases` extension (`extensions/releases/`) holds the steps and three
 procedures, run by agents with no model:
 - **`slots`** (agent `release`, the Odoo type's): the first build goes into slot `a` (the init job creates `odoo_a` before
@@ -978,7 +977,7 @@ procedures, run by agents with no model:
   while its database is prepared); each later build is prepared in the idle slot from a copy of the live database and
   filestore, quieted, upgraded (`-i` new modules, `-u` the rest), **compared with live** (Compare With Live,
   `releases.compare`), its browser tests run, and it waits on Wait for Person (`decide`: Cut over / Discard / Run tests
-  again), answered by the release card (`/api/projects/:id/releases`). The comparison (`lib/release-compare.ts`, kept as
+  again), answered by the release card (`/api/projects/:id/releases`). The comparison (`releases/lib/release-compare.ts`, kept as
   `changes` on the release) reads both slots' schemas through the adapter's `database`
   (`extensions/releases/postgres-compare.ts`): tables and columns the upgrade drops with how many rows held data, and
   columns whose type changes (Odoo keeps the old values in `<column>_moved0`); and the adapter's `inventory` of what was
@@ -995,7 +994,7 @@ procedures, run by agents with no model:
   it starts the kept slot, waits for it, then switches `live` to it — the app returns to the snapshot taken at the
   cutover, so anything entered since is lost, and the confirm says so.
 - **`replace`** (agent `release-replace`): an image project's build deployed in place of the running app through the
-  same deploy the backend uses (`services/AppDeploy.ts`); the backend's reconcile loop follows a deployment whichever
+  same deploy the backend uses (`infrastructure/services/AppDeploy.ts`); the backend's reconcile loop follows a deployment whichever
   side started it.
 
 `OdooReleaseService` starts one release run per build (`release-<projectId>~<stamp>`, bound to the project), one at a
@@ -1017,10 +1016,10 @@ a throwaway project, ~4 min, and removes everything.
 whether anything changed, recorded with `again`; a waiting preview is set aside as a new build would. Each release on the card
 says whether it brought **new code** or an image already released (`release-kind.ts`), and lists the **files it changes** since
 what is live (a live one: since the release it replaced), each with its diff, the files the app is built from (the type's
-`releaseWhen`) apart from the rest of the repository (`GET …/releases/:rid/files`, `lib/file-changes.ts`, the diff read with
+`releaseWhen`) apart from the rest of the repository (`GET …/releases/:rid/files`, `releases/lib/file-changes.ts`, the diff read with
 git through a read token, `ProjectRepoService.diffCommits`).
 
-**What was made in the live app can be brought into git** (`CustomizationsService`, `lib/app-drift.ts`). The project's
+**What was made in the live app can be brought into git** (`CustomizationsService`, `releases/lib/app-drift.ts`). The project's
 Settings lists it under "Made in the live app" (`GET /api/projects/:id/customizations`, the adapter's `inventory` on the
 live slot), and Koala reads the same with `app_drift`. "Bring into git" (`POST …/customizations/adopt`) or Koala's
 `propose_adopt_customizations` puts a card in the project's channel: a story in the tree's feature "Customizations from
@@ -1033,7 +1032,7 @@ with `adopt.json`; then `odoo-check` and the story lands. When a build first ins
 over rather than making them twice; the release's comparison then shows them kept, and they no longer count as made in
 the app.
 
-**A project can start from a client's own Odoo database** (`ClientImportService`, rules in `lib/client-import.ts`).
+**A project can start from a client's own Odoo database** (`ClientImportService`, rules in `releases/lib/client-import.ts`).
 While nothing is released, the project's Settings offers "Start from a client's database": the zip Odoo's database
 manager makes (`dump.sql`, `filestore/`, `manifest.json`), as a neutralized copy (the default) or as their live system.
 `PUT /api/projects/:id/import?mode=copy|live` streams the body (never buffered; the HTTP server has no request
@@ -1069,13 +1068,13 @@ run's own model through `itSays`), the conversation's plan (`plan`), `clientImpo
 wait with `waitBuild`; `story-odoo-client-project-scripted` proves the plumbing, `story-odoo-client-project` runs it on
 the person's model (off the bench).
 
-**A new tree that produces a service gets its own project** (`TreeHomeService`, rule in `lib/tree-home.ts`): plan
+**A new tree that produces a service gets its own project** (`TreeHomeService`, rule in `projects/lib/tree-home.ts`): plan
 approval (`homeTree` in plan adoption) and `POST /api/trees` both call it, so it does not matter whether the tree came
 from chat, a check or the New Tree dialog. The project (`project-<treeId>`, so a retry finishes rather than doubles it)
 gets a repository, the build webhook, the person's own cluster and auto-deploy (`ProjectRepoService.createProject`, the
 one way a project gets a repository). The New Tree path also seeds the type's starter; adoption writes the starter with
 the plan in one commit. A tree that produces an artefact gets no project. A build is pinned to the commit that was pushed
-(`lib/build-plan.ts`), and a push whose commit has no Dockerfile records no build at all.
+(`releases/lib/build-plan.ts`), and a push whose commit has no Dockerfile records no build at all.
 
 **A tree type declares the secrets its app needs** (`secrets` on the type: a key, where it comes from — `generated` by the
 platform, a minted `gitea-read-token`, or a `person` on a card — what it is for, and optionally the login it `signInAs`).
@@ -1097,7 +1096,7 @@ app with their credentials; the tree's workspaces get network access to them onl
 the tree workspace), along with the type's own `egress` rules and plain `env` values — never a credential, since a
 model works there. `releaseWhen` lists the paths the app is built from: a push that changes none of them since the last
 release (Odoo) or the deployed image (image deploys) still builds, but nothing is released, and the build says why
-(`releaseSkipped`, `lib/release-paths.ts`). A check's world can lay settings over a tree type (`world.treeTypes`).
+(`releaseSkipped`, `releases/lib/release-paths.ts`). A check's world can lay settings over a tree type (`world.treeTypes`).
 
 **Every project has a channel, and the channel hears what happens to its work.** A project's channel is its own
 conversation (`channel-<projectId>`, `kind: 'channel'`, `ProjectChannelService.ensure`, made with the project or the
@@ -1108,23 +1107,23 @@ Every tab (Board · Releases · Files · Settings) starts with **the strip** (`P
 with Open app and sign-in; what is being worked with Stop, or how many stories are ready with Work them; what each agent runs
 on (`runsOnLine`), opening the tree's models in place with **Every agent in this tree** (`wholeTreeChanges`) and auto mode;
 and **Waiting on you**: a preview to cut over, cards, asks, secrets. A plan card about a story that has since finished is out
-of date (`lib/plan-staleness.ts`): listed as replaced and refused when approved. Releases holds builds and releases, Files
+of date (`projects/lib/plan-staleness.ts`): listed as replaced and refused when approved. Releases holds builds and releases, Files
 the explorer and editor, Settings the models, auto mode, workspace definition and sandbox. On the board
 (full width, its chat a panel the strip's Channel button opens and closes, remembered per project, `useChatPanel`),
 each tree as an epic with its features (branches) as rows and its stories (leaves) as cards in the state columns
 (`BOARD_COLUMNS`/`stateFor`, the one rule for a leaf's column; `board.ts` builds it), and the channel on the right, its
 width dragged (and kept) at the divider. Opening a card or a feature puts it on its own page in place of the board, with
 breadcrumbs back up (`…/<branchId>/<leafId>`, `…/<branchId>`; each opening is a history step), and its chat on the right
-beside the Channel and Threads tabs. You set the order work is taken in on the board: drag a card by its grip within its column, move a feature with its arrows (`PUT /api/branches/:id/order`, `PUT /api/trees/:id/order` → `priority` on stories and features, `GroveOrderService`); `ready_leaves` takes ready stories in that order (`lib/work-order.ts`), so the fan-out starts yours first, and Koala's outlines list them in it. A story's page lists its tasks, with Accept and Drop for any proposed while it was worked, and "Watch it work" opens the live feed of its worker's run and the runs it starts (the tree run's turn, `turnId` on `GET /api/trees/:id/run`; `GET /api/turns/:id?under=<runId>` sends only that run's family, with `through`, the last seq it read). Each run is a tab (`Board/StoryRun.tsx`): its procedure on the Studio graph, read-only, following and centring on the step it is on, and its rounds (`lib/run-rounds.ts`: a round starts each time the model step is entered again, since the log has no `model.requested`; a tool the procedure calls itself, a `call-tool` trace, is shown apart from the model's). The turn log writes a step's node events when the workflow step ends, so the model call is only "entered" once it has answered; streamed thinking and text carry its node, and the run state takes the step from them. A `node.traced` event in the turn log is a summary (`tracedSummary` in `lib/turn-log.ts`: no `inputs` or `outputs`); the full trace is only in `engineRunTraces` (`/engine/runs/:id/traces`, which checks read), and the Studio's run panel reads those every few seconds while a run is live. Each trace used to carry the whole conversation, which made a long run's log tens of MB and crashed the tab watching it. A story that can be started shows the tree's run panel on its page: there is no running one story, the tree takes the ready ones in board order. The editor, explorer, builds, workspace file and the tree's sandbox are its **Files** page (`…/files`); its models, auto mode, how its project releases and deleting the tree or project are its **Settings** page (`…/settings`, `Projects/Settings/`); the switch at
+beside the Channel and Threads tabs. You set the order work is taken in on the board: drag a card by its grip within its column, move a feature with its arrows (`PUT /api/branches/:id/order`, `PUT /api/trees/:id/order` → `priority` on stories and features, `GroveOrderService`); `ready_leaves` takes ready stories in that order (`projects/lib/work-order.ts`), so the fan-out starts yours first, and Koala's outlines list them in it. A story's page lists its tasks, with Accept and Drop for any proposed while it was worked, and "Watch it work" opens the live feed of its worker's run and the runs it starts (the tree run's turn, `turnId` on `GET /api/trees/:id/run`; `GET /api/turns/:id?under=<runId>` sends only that run's family, with `through`, the last seq it read). Each run is a tab (`Board/StoryRun.tsx`): its procedure on the Studio graph, read-only, following and centring on the step it is on, and its rounds (`lib/run-rounds.ts`: a round starts each time the model step is entered again, since the log has no `model.requested`; a tool the procedure calls itself, a `call-tool` trace, is shown apart from the model's). The turn log writes a step's node events when the workflow step ends, so the model call is only "entered" once it has answered; streamed thinking and text carry its node, and the run state takes the step from them. A `node.traced` event in the turn log is a summary (`tracedSummary` in `engine/lib/turn-log.ts`: no `inputs` or `outputs`); the full trace is only in `engineRunTraces` (`/engine/runs/:id/traces`, which checks read), and the Studio's run panel reads those every few seconds while a run is live. Each trace used to carry the whole conversation, which made a long run's log tens of MB and crashed the tab watching it. A story that can be started shows the tree's run panel on its page: there is no running one story, the tree takes the ready ones in board order. The editor, explorer, builds, workspace file and the tree's sandbox are its **Files** page (`…/files`); its models, auto mode, how its project releases and deleting the tree or project are its **Settings** page (`…/settings`, `Projects/Settings/`); the switch at
 the top. All three read the project through `useProjectWork` and keep the address with `useRouteSync`.
 
 **A story and a feature each have their own chat** (`ItemChatService`, `POST /api/items/<story|feature>/<id>/chat`,
 `story-<leafId>` / `feature-<branchId>`, `kind: 'item'`, bound to the leaf or branch and its tree, made the first time it
 is opened). On every turn in it Koala is handed the item (`conversationBinding` → `story` / `feature`, written by
-`lib/item-outline.ts`): where it sits, its brief, what it waits on, its tasks, what was claimed, the judge's verdict and
-the attempts that failed. Every chat bound to a project, a tree or one of its items is also handed the status of each of its projects — what is live, a preview waiting on the person, a release in progress, the last build (`lib/project-outline.ts`). Every chat bound to something (a project, a tree, a feature, a story) opens with what Koala is handed on each
+`projects/lib/item-outline.ts`): where it sits, its brief, what it waits on, its tasks, what was claimed, the judge's verdict and
+the attempts that failed. Every chat bound to a project, a tree or one of its items is also handed the status of each of its projects — what is live, a preview waiting on the person, a release in progress, the last build (`projects/lib/project-outline.ts`). Every chat bound to something (a project, a tree, a feature, a story) opens with what Koala is handed on each
 message, read fresh (`GET /api/conversations/:id/context`, `openingWith` over the same binding a turn gets;
-`Chat/ConversationContext.tsx`), formatted, with the exact text a click away. In a story's or feature's chat Koala changes the work only through a card: `propose_story_change` (title, goal, brief, waits-on, tasks, rework), `propose_stories` (new stories in a feature, or a follow-up to a shipped story, which is never changed) and `propose_story_cancel` make a plan proposal with a `change` (`lib/item-changes.ts`), shown on the plan card in that chat, and nothing changes until it is approved. `AdoptPlanWorkflow` applies it: it first stops the worker of a story that must start again (a running story whose title, goal or brief changes or that is reworked; a claimed one has its claim set aside), saves the records, rewrites `leaves/<story>.md` and notes the change in PLAN.md, and runs the tree only when work was put back in line. A run a story was taken off can no longer claim it (`claim_leaf` checks the story's attempts). Cancelling frees the stories that waited on it. A notice about one story (a failed leaf) is posted in full in its chat and as one line with
+`Chat/ConversationContext.tsx`), formatted, with the exact text a click away. In a story's or feature's chat Koala changes the work only through a card: `propose_story_change` (title, goal, brief, waits-on, tasks, rework), `propose_stories` (new stories in a feature, or a follow-up to a shipped story, which is never changed) and `propose_story_cancel` make a plan proposal with a `change` (`projects/lib/item-changes.ts`), shown on the plan card in that chat, and nothing changes until it is approved. `AdoptPlanWorkflow` applies it: it first stops the worker of a story that must start again (a running story whose title, goal or brief changes or that is reworked; a claimed one has its claim set aside), saves the records, rewrites `leaves/<story>.md` and notes the change in PLAN.md, and runs the tree only when work was put back in line. A run a story was taken off can no longer claim it (`claim_leaf` checks the story's attempts). Cancelling frees the stories that waited on it. A notice about one story (a failed leaf) is posted in full in its chat and as one line with
 "Open the story" in the channel (`line`, `open-story`); item chats are never a tree's threads and never hear the tree's
 own notices. A check stage talks in one with `chat.in: { story: title }` or `{ feature: title }`, and approves a card there with `approvePlan: { in: … }`;
 `mechanics-item-chats` proves it, change card included.
@@ -1133,14 +1132,14 @@ conversation it was planned in to the tree and its project. Releases (preview re
 (and each failed leaf), and a secret only the person can enter post a notice — a third kind of message
 (`role: 'notice'`, author `platform`, with links and actions) — to the project's channel (a tree with no project: to
 the conversations bound to it), once per event (`ConversationNoticeService`,
-`lib/notices.ts`), pushed live as `conversation-notice`. Koala does not reply on its own; on the person's next message
+`platform/lib/notices.ts`), pushed live as `conversation-notice`. Koala does not reply on its own; on the person's next message
 it is given each notice as a message labelled "From the platform, not the person:". Koala reads trees and releases with
 `read_tree`, `run_tree` and `project_releases`; a plan's tree starts growing when it is approved.
 
-**A tree type describes itself** (`TreeTypeDescriptions`, `lib/tree-type-description.ts`): what approving a plan makes
-(`lib/tree-home.ts`), the starter's files, the workspace image's own summary, how the tree grows — the grove agent's
+**A tree type describes itself** (`TreeTypeDescriptions`, `projects/lib/tree-type-description.ts`): what approving a plan makes
+(`projects/lib/tree-home.ts`), the starter's files, the workspace image's own summary, how the tree grows — the grove agent's
 procedure and the agents it hands work to, each in its own words (`outlineProcedure` in the engine) — and what happens
-to work that lands (`lib/delivery.ts`: the release text is keyed by every `ReleaseState`, so a new state must be described),
+to work that lands (`projects/lib/delivery.ts`: the release text is keyed by every `ReleaseState`, so a new state must be described),
 with what the platform owns so the plan must not. The planner reads it with `describe_tree_type`; the Studio shows it as
 a tree type's "What it becomes"; the leaf judge is handed the type's `doneMeans`. Nothing in it is written by hand
 except next to the code it describes.
@@ -1160,7 +1159,7 @@ has no socket, behind the `grove-changed` patch), and `useGroveChanges` refreshe
 the sidebar's Projects list follows at once.
 
 **A tree chooses a model per agent** (`models` on the tree, agent slug → model id; `TreeModelsService`, rules in
-`lib/tree-models.ts`). The tree's Settings page lists each agent in its type's work that asks a model (walked from the grove
+`models/lib/tree-models.ts`). The tree's Settings page lists each agent in its type's work that asks a model (walked from the grove
 agent's procedure, `modelAgentsOf`), with what it would use on its own; a choice there is for that tree only, and is
 read when each of the tree's runs starts: the grove agent's by the launcher (`modelFor`), every run under it by
 `EngineResolveAgentActivity` from the run's root id (`treeOfGroveRun`), so in a tree's run an agent gets the tree's choice
@@ -1171,7 +1170,7 @@ change with `propose_tree_model` (card `set_tree_model`); `mechanics-tree-model`
 A `choose-model` trace keeps the model's name in its summary, so a story's run shows the model each round ran on.
 
 **Every workflow says whose it is.** Each start carries the `KoalaOwner` search attribute (`startedFor(owner)` in
-`lib/workflow-owner.ts`; `platform` for platform work). The shared client (`lib/temporal-client.ts`) registers the
+`platform/lib/workflow-owner.ts`; `platform` for platform work). The shared client (`platform/lib/temporal-client.ts`) registers the
 attribute on connect, refuses a start without it (`UnownedWorkflowError`), and stamps a check space's workflows as its
 person's. Child workflows inherit their parent's owner. The Temporal page lists, counts, opens and cancels only the
 viewer's own; an admin can switch to everything, and an instance's owner sees everything on it. Workflow tests create
@@ -1180,7 +1179,7 @@ their server with `workflows/temporal-test-env.ts`, which registers the attribut
 **Large payloads are stored outside Temporal.** Every Temporal client and worker builds its
 converter with `buildDataConverter(key, sharedPayloadBlobs())`: payloads are compressed, then
 encrypted, and any still over 128 KB go to Mongo `temporal_payload_chunks`, leaving a claim in the
-history (`lib/payload-storage.ts`, Temporal's `externalStorage`). A new process that talks to
+history (`platform/lib/payload-storage.ts`, Temporal's `externalStorage`). A new process that talks to
 Temporal must use it too, or it cannot read an offloaded payload. A daily sweep releases a
 workflow's payloads once Temporal no longer has it. `npm run test:big-run-live` proves it on a real
 research run.
@@ -1245,19 +1244,19 @@ runs typecheck + lint + both unit suites on every push. Each rule below is here 
 
 - **One-way arrow: `index.ts → wiring/ → routes/ → services/ → lib/`**, with `middleware/` feeding routes.
   `lib/` is pure and imports nothing above it; `engine-host/` and `extensions/` sit between services and `lib`, so
-  `lib` never imports them either (the `Task` helpers are `lib/tasks.ts`, the workflow ids `lib/workflow-ids.ts`).
+  `lib` never imports them either (the `Task` helpers are `projects/lib/tasks.ts`, the workflow ids `platform/lib/workflow-ids.ts`).
   `wiring/` holds what constructs services from the database and env (model wiring, web tools, the tool seeds).
-  `lib/leaves.ts` (38 pure functions, no I/O) is the target shape. The backend lint enforces the arrow.
+  `projects/lib/leaves.ts` (38 pure functions, no I/O) is the target shape. The backend lint enforces the arrow.
 - **A route handler does four things**: read the request, authorize, call one service method, shape
   the response. A loop, a prompt or arithmetic belongs in a service or `lib/`.
 - **No `db.*` in a route.**
 - **Something becomes a service** when it holds state beyond a request, owns a resource, or is the
   only writer of a collection. Otherwise it is a `lib/` function. `VpsCatalogService` over
-  `lib/vps-catalog/` is the model.
-- **One router per URL prefix in `src/routes/<domain>.ts`, exported as a factory** taking its deps,
-  so `src/routes/test-harness.ts` can mount it without booting the app.
+  `infrastructure/lib/vps-catalog/` is the model.
+- **One router per URL prefix in `src/<area>/routes/<domain>.ts`, exported as a factory** taking its deps,
+  so `src/platform/routes/test-harness.ts` can mount it without booting the app.
 - **A test may not re-declare the logic it tests.** Two security tests did, and could not fail —
-  see `lib/ownership.ts` and `lib/oauth-gate.ts`.
+  see `platform/lib/ownership.ts` and `accounts/lib/oauth-gate.ts`.
 - **Route order in `bootstrap()` is load-bearing**: the Gitea webhook must stay before
   `express.json()` (it verifies an HMAC over the raw body), `app.use('/api', requireAuth)` before
   every `/api` router, and the SPA catch-all last.
@@ -1314,7 +1313,7 @@ Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's
   `GiteaService.commitDrop`, bytes intact). A project whose files live on the person's machine gets them written there byte for
   byte (`sandbox:writeFile` with `encoding: 'base64'`).
 - **Files**: everything else, on the person's own **MinIO** (owner, 2026-10-21: MinIO only; Nextcloud stays a deployable app,
-  not a file server). `FileService`, `FileStores`, `lib/file-places.ts`, `/api/files/...`: the project's MinIO and its folder
+  not a file server). `FileService`, `FileStores`, `files/lib/file-places.ts`, `/api/files/...`: the project's MinIO and its folder
   (`files` on the project, a folder named once from the project and kept), else the person's default (Settings → Files,
   `fileSettings`), else none. Files live in the bucket `koala-files` under the folder; an empty folder is a `.keep` the listing
   hides. Uploads and downloads stream (`X-File-Type` carries the type; the body is always octet-stream so nothing parses it); no
@@ -1324,10 +1323,10 @@ Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's
   name across the project (`/search`), sort by name, size or date, select several to move or remove, drag a file or the selection
   onto a folder, rename, and open a file to preview it (images, PDF, video, audio, text; `StoredFilePreview`, in the Files page's
   right pane, a dialog elsewhere). A person's own files (chat attachments outside projects) and their links are under Settings → Files.
-- **Share links**: a file shared for a day, a week or a month (`fileShares`, `lib/file-shares.ts`) is served by Koala at
+- **Share links**: a file shared for a day, a week or a month (`fileShares`, `files/lib/file-shares.ts`) is served by Koala at
   `/api/share/<token>` with no session (`/share/` in the guard's public prefixes), streamed from MinIO, so MinIO is never exposed.
   Revoked from Settings → Files; expired ones are removed when opened; a project's go with it. Every person's file is served with
-  `nosniff`, and anything that could run script (HTML, SVG, XML, JS) under a sandboxing CSP (`lib/file-serving.ts`).
+  `nosniff`, and anything that could run script (HTML, SVG, XML, JS) under a sandboxing CSP (`files/lib/file-serving.ts`).
 - **A story's page** takes both: **Code for this story** goes to the story's checkout (`StoryDropService`, recorded as `drops` on
   the story): committed on its own branch `drop/<story>/<id>` from `main`, merged into the story's worktree at once when it
   exists (`applyDrop`, `git merge --autostash`, so the worker's uncommitted changes stay), otherwise brought into the tree's
@@ -1336,7 +1335,7 @@ Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's
   `stories/<story>/` on the project's MinIO. `mechanics-story-drop` proves both code paths on a script.
 - **Chat attachments** (paperclip, drop or paste in any composer) are uploaded first, to the chat's project
   (`attachments/<day>/<time>-<name>`) or the person's own files (`chats/<day>/...`), then sent with the message
-  (`attachments` on the person's message, `lib/attachments.ts`); the model is told where each is and how to read it, in that turn
+  (`attachments` on the person's message, `engine/lib/attachments.ts`); the model is told where each is and how to read it, in that turn
   and every later one (`heardAs`). A channel post can be only attachments.
 - **Agents' tools** (extension `files`): `list_files`, `read_stored_file` (text whole up to 100,000 characters, a binary file
   described), `store_file`, `remove_stored_file` (both destructive, so they ask), on the project named or the run's or chat's
@@ -1345,7 +1344,7 @@ Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's
 
 ## Data
 
-Default persistence is MongoDB (`apps/backend/src/lib/mongo-db.ts`), managed via `docker-compose.mongo.yml` / `scripts/ensure-mongo.sh`. Unit tests use `MemoryDB` (`NODE_ENV=test` without `IS_E2E`) — see `createDatabase()` in `db-interface.ts`.
+Default persistence is MongoDB (`apps/backend/src/platform/lib/mongo-db.ts`), managed via `docker-compose.mongo.yml` / `scripts/ensure-mongo.sh`. Unit tests use `MemoryDB` (`NODE_ENV=test` without `IS_E2E`) — see `createDatabase()` in `db-interface.ts`.
 
 `apps/backend/data/` still holds `logs/` (per-resource provisioning/deployment logs, tailed over
 socket.io — see `InfrastructureService`'s `LOG_DIR`) and `nginx/` (proxy config). The `*.json` files

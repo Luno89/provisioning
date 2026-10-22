@@ -1,10 +1,10 @@
-import { browserTestsMissing } from '../../../lib/browser-tests.js';
+import { browserTestsMissing } from '../../../engine/lib/browser-tests.js';
 import { describe, it, expect } from 'vitest';
 import type { NodeRequest } from '@koala/agent-engine/procedure';
 import type { EnvironmentDriver, ExecResult } from '@koala/engine-core';
 import { createPlatformOperations, type PlatformOperationDeps } from './handlers.js';
-import { E2E_IGNORED } from '../../../lib/e2e.js';
-import { PLAYWRIGHT_REPORT } from '../../../lib/e2e-fixtures.js';
+import { E2E_IGNORED } from '../../../engine/lib/e2e.js';
+import { PLAYWRIGHT_REPORT } from '../../../engine/lib/e2e-fixtures.js';
 
 const PASSING = JSON.stringify({ suites: [{ title: 'a.spec.ts', file: 'a.spec.ts', specs: [{ title: 'signs in', file: 'a.spec.ts', tests: [{ status: 'expected', results: [{ status: 'passed', duration: 900 }] }] }] }], errors: [] });
 const SHOT = Buffer.from('png-bytes');

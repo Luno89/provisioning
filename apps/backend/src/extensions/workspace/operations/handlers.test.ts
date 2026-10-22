@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { NodeRequest } from '@koala/agent-engine/procedure';
 import type { PlanLine } from '@koala/agent-engine';
-import type { PublishedWorkspace } from '../../../lib/published-workspace.js';
-import type { Branch, Leaf } from '../../../lib/leaves.js';
+import type { PublishedWorkspace } from '../../../engine/lib/published-workspace.js';
+import type { Branch, Leaf } from '../../../projects/lib/leaves.js';
 import type { Task } from '../../../engine-host/tools/tasks.js';
 import { changesFrom, createWorkspaceOperations, type ComposedPlan, type WorkspaceOperationDeps } from './handlers.js';
 

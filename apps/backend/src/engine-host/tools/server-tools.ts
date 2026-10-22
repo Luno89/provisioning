@@ -1,7 +1,7 @@
 import { exceedsCeiling, type ToolContract, type ToolEffect, type ToolHandler, type ToolOutcome, type WithheldTool } from '@koala/engine-core';
-import type { McpTool } from '../../lib/mcp-client.js';
-import { contractFor } from '../../lib/mcp-tools.js';
-import { offers, serverPath, serverState, usable, withKind, type McpServerRecord, type ServerRuns } from '../../lib/mcp-servers.js';
+import type { McpTool } from '../../engine/lib/mcp-client.js';
+import { contractFor } from '../../engine/lib/mcp-tools.js';
+import { offers, serverPath, serverState, usable, withKind, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
 import type { EnvironmentHandleRef, RunTicket } from '../temporal/contracts.js';
 import type { WorkspaceServers } from './workspace-servers.js';
 

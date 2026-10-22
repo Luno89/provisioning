@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { workspaceStamp } from '../../lib/published-workspace.js';
+import { workspaceStamp } from '../../engine/lib/published-workspace.js';
 import { buildManifests, workspaceName, POD, type RunWorkspace } from './workspace.js';
 import {
   applyWorkspace,

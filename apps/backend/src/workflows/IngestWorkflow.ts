@@ -2,10 +2,10 @@ import { proxyActivities, continueAsNew, log } from '@temporalio/workflow';
 import type {
   SeedFrontierArgs, NextBatchArgs, NextBatchResult, CrawlBatchArgs, CrawlBatchResult,
 } from '../activities/CrawlActivity.js';
-import type { IngestReceipt } from '../lib/corpus.js';
-import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
-import { canonical, hostOf } from '../lib/crawl-client.js';
-import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
+import type { IngestReceipt } from '../engine/lib/corpus.js';
+import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
+import { canonical, hostOf } from '../engine/lib/crawl-client.js';
+import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 
 const { CrawlBatchActivity } = proxyActivities<{ CrawlBatchActivity: (a: CrawlBatchArgs) => Promise<CrawlBatchResult> }>({
   retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY,

@@ -1,7 +1,7 @@
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `ProjectRemovalPreview` and `ProjectRemovalStep` in apps/backend/src/lib/project-removal.ts,
- * `ProjectRemovalState` in apps/backend/src/services/ProjectRemovalService.ts.
+ * Authority: `ProjectRemovalPreview` and `ProjectRemovalStep` in apps/backend/src/projects/lib/project-removal.ts,
+ * `ProjectRemovalState` in apps/backend/src/projects/services/ProjectRemovalService.ts.
  */
 export type ProjectRemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'files' | 'records'
 

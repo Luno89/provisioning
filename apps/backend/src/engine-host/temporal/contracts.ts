@@ -91,8 +91,8 @@ export type LifecycleEvent =
 export {
   BENCH_IDLE_WORKFLOW, CONCLUDE_WORKSPACE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, benchIdleId, concludeWorkspaceId, conversationConclusionId,
   type ConcludedWorkspace,
-} from '../../lib/workflow-ids.js';
-import type { ConcludedWorkspace } from '../../lib/workflow-ids.js';
+} from '../../platform/lib/workflow-ids.js';
+import type { ConcludedWorkspace } from '../../platform/lib/workflow-ids.js';
 
 export interface ConcludeWorkspaceArgs {
   ownerId: string;
@@ -186,7 +186,7 @@ export const DEFAULT_ENGINE_TASK_QUEUE = 'engine-queue';
 
 export {
   RUN_ABOUT_MEMO, RUN_AGENT_MEMO, RUN_CONVERSATION_MEMO, RUN_ID_MEMO, adoptionWorkflowId, groveRunId, groveRunWorkflowId, runStamp, treeOfGroveRun, workflowOfRun,
-} from '../../lib/workflow-ids.js';
+} from '../../platform/lib/workflow-ids.js';
 
 
 export const DEFAULT_STREAM_TASK_QUEUE = 'engine-stream-queue';

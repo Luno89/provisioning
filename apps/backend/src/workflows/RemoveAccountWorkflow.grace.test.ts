@@ -3,8 +3,8 @@ import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { ACTIVITY_STOP_GRACE_MS, REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId } from '../lib/account-removal.js';
-import { temporalRemovalWorkflows } from '../services/AccountRemovalService.js';
+import { ACTIVITY_STOP_GRACE_MS, REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
+import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
 import type { AccountRemovalActivities } from '../activities/RemoveAccountActivities.js';
 import { timeSkippingTestEnvironment } from './temporal-test-env.js';
 

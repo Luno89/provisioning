@@ -4,7 +4,7 @@ import { promisify } from 'util';
 import { createClusterBackend, GROUPED_EXEC, STOP_GROUPED_EXEC, WorkspaceUnavailableError } from './cluster-backend.js';
 import { workspaceName, type RunWorkspace } from './workspace.js';
 import type { KubeResult, KubeRunner } from './kube.js';
-import { workspaceStamp } from '../../lib/published-workspace.js';
+import { workspaceStamp } from '../../engine/lib/published-workspace.js';
 
 const workspace: RunWorkspace = {
   runId: 'run-abc',

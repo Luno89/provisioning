@@ -4,8 +4,8 @@ import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { timeSkippingTestEnvironment } from './temporal-test-env.js';
-import { startedFor } from '../lib/workflow-owner.js';
-import { afterStep, DAY_MS, extendedTrial, nextTrialStep, type TrialState, type TrialStep } from '../lib/pool-trial.js';
+import { startedFor } from '../platform/lib/workflow-owner.js';
+import { afterStep, DAY_MS, extendedTrial, nextTrialStep, type TrialState, type TrialStep } from '../instances/lib/pool-trial.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

@@ -1,8 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import { unreachableMemory, type MemoryItem } from '../drivers/memory-store.js';
-import { unqualify } from '../../lib/mcp-tools.js';
-import { noteSubject } from '../../lib/tool-notes.js';
+import { unqualify } from '../../engine/lib/mcp-tools.js';
+import { noteSubject } from '../../engine/lib/tool-notes.js';
 
 export interface KnownTools {
   tools: readonly string[];

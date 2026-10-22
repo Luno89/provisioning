@@ -1,5 +1,5 @@
 import type { PersonaRecord } from '@koala/agent-engine';
-import { RELEASE_AGENT, RELEASE_PROCEDURE, REPLACE_AGENT, REPLACE_PROCEDURE, ROLL_BACK_AGENT, ROLL_BACK_PROCEDURE } from '../../lib/release-run.js';
+import { RELEASE_AGENT, RELEASE_PROCEDURE, REPLACE_AGENT, REPLACE_PROCEDURE, ROLL_BACK_AGENT, ROLL_BACK_PROCEDURE } from '../../releases/lib/release-run.js';
 
 const RELEASE_PLACE = {
   ownerId: { type: 'string', description: 'Whose project it is.' },

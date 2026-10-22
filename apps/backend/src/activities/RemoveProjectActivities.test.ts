@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryDB } from '../lib/memory-db.js';
+import { MemoryDB } from '../platform/lib/memory-db.js';
 import { createProjectRemovalActivities, type ProjectRemovalDeps } from './RemoveProjectActivities.js';
-import { ArtifactService } from '../services/ArtifactService.js';
+import { ArtifactService } from '../files/services/ArtifactService.js';
 
 let db: MemoryDB;
 let terminated: string[];

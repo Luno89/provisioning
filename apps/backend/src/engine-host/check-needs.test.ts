@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createCheckNeeds, needsOfAccepted, type CheckNeedsDeps } from './check-needs.js';
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import type { Task } from './tools/tasks.js';
-import type { Leaf } from '../lib/leaves.js';
+import type { Leaf } from '../projects/lib/leaves.js';
 
 const task = (id: string, over: Partial<Task> = {}): Task => ({
   id, ownerId: 'u1', title: id, doneMeans: 'it works', status: 'accepted', dependsOn: [], createdAt: 't0', updatedAt: 't0', leafId: 'l1', ...over,

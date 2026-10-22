@@ -1,4 +1,4 @@
-import { createDatabase } from '../lib/db-interface.js';
+import { createDatabase } from '../platform/lib/db-interface.js';
 
 async function main() {
   const db = createDatabase();

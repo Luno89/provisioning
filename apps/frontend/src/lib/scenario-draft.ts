@@ -143,8 +143,8 @@ function plumbingOf(expect: ScenarioExpectations): Partial<ScenarioExpectations>
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `stepProcedureId` in apps/backend/src/lib/step-check.ts and `TURN_PROCEDURE_ID` in
- * apps/backend/src/lib/turn-check.ts.
+ * Authority: `stepProcedureId` in apps/backend/src/checks/lib/step-check.ts and `TURN_PROCEDURE_ID` in
+ * apps/backend/src/checks/lib/turn-check.ts.
  */
 export const stepProcedureId = (id: string): string => `step-check-${id}`
 export const TURN_PROCEDURE_ID = 'turn-check'

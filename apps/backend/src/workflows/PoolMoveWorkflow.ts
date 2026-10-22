@@ -1,8 +1,8 @@
 import { condition, defineSignal, getExternalWorkflowHandle, proxyActivities, setHandler } from '@temporalio/workflow';
 import type * as pool from '../activities/PoolActivities.js';
-import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
-import { MOVE_FINISHED, MOVE_STOPPED } from '../lib/instance-move.js';
-import { poolTrialWorkflowId, TRIAL_CHANGED } from '../lib/pool-trial.js';
+import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
+import { MOVE_FINISHED, MOVE_STOPPED } from '../instances/lib/instance-move.js';
+import { poolTrialWorkflowId, TRIAL_CHANGED } from '../instances/lib/pool-trial.js';
 
 const moving = proxyActivities<Pick<typeof pool, 'PoolMoveStartActivity' | 'PoolMoveSwitchActivity' | 'PoolMoveStopActivity'>>({ ...LIVE_ACTIVITY, retry: { maximumAttempts: 10 } });
 

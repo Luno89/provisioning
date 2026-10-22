@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { CancelledFailure } from '@temporalio/common';
 import { createCheckReleases, createReleaseBrowserTestActivities, type ReleaseBrowserTestsInput, type SpecSource } from './ReleaseBrowserTestsActivity.js';
 import type { NamespacedCluster } from './cluster-jobs.js';
-import { PLAYWRIGHT_REPORT } from '../lib/e2e-fixtures.js';
+import { PLAYWRIGHT_REPORT } from '../engine/lib/e2e-fixtures.js';
 
 const PASSING = JSON.stringify({ suites: [{ title: 'a.spec.ts', file: 'a.spec.ts', specs: [{ title: 'signs in', file: 'a.spec.ts', tests: [{ status: 'expected', results: [{ duration: 900 }] }] }] }], errors: [] });
 const SHOT = Buffer.alloc(50_000, 7);

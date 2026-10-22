@@ -6,7 +6,7 @@ import {
 } from '@koala/agent-engine/procedure';
 import { capabilitiesOf } from '@koala/engine-core';
 import { handleFor, ticketFor, type HostNodeServices } from './services.js';
-import { notesForRun, withLearned } from '../../lib/tool-notes.js';
+import { notesForRun, withLearned } from '../../engine/lib/tool-notes.js';
 
 const allowedFrom = (settings: Readonly<Record<string, unknown>>): 'granted' | 'none' | string[] => {
   if (settings.offer === 'none') return 'none';

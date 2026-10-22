@@ -3,13 +3,13 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 import axios, { type AxiosInstance } from 'axios';
-import { signJWT } from '../apps/backend/src/lib/auth.js';
-import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
-import { loadKeys } from '../apps/backend/src/lib/keys.js';
+import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
-import { DEFAULT_CONCLUDE_AFTER_MINUTES } from '../apps/backend/src/lib/conclusions.js';
+import { DEFAULT_CONCLUDE_AFTER_MINUTES } from '../apps/backend/src/memory/lib/conclusions.js';
 import { conversationConclusionId } from '../apps/backend/src/engine-host/temporal/contracts.js';
-import { getTemporalClient } from '../apps/backend/src/lib/temporal-client.js';
+import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
 
 const QUIET_MS = DEFAULT_CONCLUDE_AFTER_MINUTES * 60_000;
 

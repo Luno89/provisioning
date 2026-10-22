@@ -1,8 +1,8 @@
-import { createDatabase } from '../lib/db-interface.js';
-import { InfrastructureService } from '../services/InfrastructureService.js';
-import { ClusterService } from '../services/ClusterService.js';
-import { sanitizeNamespace } from '../lib/model-registry.js';
-import { assessWorkload, type WorkloadHealth } from '../lib/workload-health.js';
+import { createDatabase } from '../platform/lib/db-interface.js';
+import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
+import { ClusterService } from '../infrastructure/services/ClusterService.js';
+import { sanitizeNamespace } from '../models/lib/model-registry.js';
+import { assessWorkload, type WorkloadHealth } from '../infrastructure/lib/workload-health.js';
 
 export interface CheckWorkloadArgs {
   name: string;

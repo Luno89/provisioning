@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PersonaRecord } from '@koala/agent-engine';
-import { MemoryDB } from '../../lib/memory-db.js';
-import type { HiddenVocabulary } from '../../lib/extension-settings.js';
+import { MemoryDB } from '../../platform/lib/memory-db.js';
+import type { HiddenVocabulary } from '../../engine/lib/extension-settings.js';
 import { createAgentDirectory, grantStoreFrom } from './agent-directory.js';
 
 const record = (slug: string, ownerId?: string): PersonaRecord => ({ slug, ...(ownerId ? { ownerId } : {}), name: slug } as PersonaRecord);

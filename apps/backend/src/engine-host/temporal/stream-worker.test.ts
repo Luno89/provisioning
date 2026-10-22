@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createTurnLogBus, notifyTurnLog, TURN_LOG_CHANNEL, userRoom } from './stream-worker.js';
 import type { EngineEvent } from '@koala/agent-engine';
-import type { TurnLogEntry } from '../../lib/turn-log.js';
+import type { TurnLogEntry } from '../../engine/lib/turn-log.js';
 
 const at = '2026-10-05T00:00:00.000Z';
 

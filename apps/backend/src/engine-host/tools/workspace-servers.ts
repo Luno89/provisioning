@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { quoteArgument, type EnvironmentDriver, type ToolOutcome } from '@koala/engine-core';
-import { McpClient, type Fetcher } from '../../lib/mcp-client.js';
-import { slugify } from '../../lib/mcp-tools.js';
+import { McpClient, type Fetcher } from '../../engine/lib/mcp-client.js';
+import { slugify } from '../../engine/lib/mcp-tools.js';
 import type { EnvironmentHandleRef, RunTicket } from '../temporal/contracts.js';
 
 export const SERVER_LOGS = '/tmp/.koala-servers';

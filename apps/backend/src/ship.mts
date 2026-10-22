@@ -1,6 +1,6 @@
 import 'dotenv/config';
-import { createDatabase } from './lib/db-interface.js';
-import { shippingGaps, deploysItself } from './lib/project-shipping.js';
+import { createDatabase } from './platform/lib/db-interface.js';
+import { shippingGaps, deploysItself } from './projects/lib/project-shipping.js';
 const db = createDatabase(); await db.init();
 for (const p of await db.getProjects()) {
   const g = shippingGaps(p as any);

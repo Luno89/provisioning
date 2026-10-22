@@ -18,8 +18,8 @@ export interface McpServerSummary {
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `ServerRuns`, `McpServerRecord`, `McpServerTemplate` and `ServerState` in apps/backend/src/lib/mcp-servers.ts,
- * and `McpServerView` / `McpCatalogue` in apps/backend/src/services/McpServerService.ts.
+ * Authority: `ServerRuns`, `McpServerRecord`, `McpServerTemplate` and `ServerState` in apps/backend/src/engine/lib/mcp-servers.ts,
+ * and `McpServerView` / `McpCatalogue` in apps/backend/src/engine/services/McpServerService.ts.
  */
 export type McpServerRuns =
   | { where: 'hosted'; url: string }

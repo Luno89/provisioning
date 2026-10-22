@@ -56,7 +56,7 @@ export interface SourcedTool {
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `AgentUsage` in apps/backend/src/lib/agent-usage.ts.
+ * Authority: `AgentUsage` in apps/backend/src/engine/lib/agent-usage.ts.
  */
 export interface AgentUsage {
   kind: 'chat' | 'platform' | 'tree-type' | 'procedure' | 'hand-off'

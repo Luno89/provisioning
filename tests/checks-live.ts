@@ -3,9 +3,9 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 import axios from 'axios';
-import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
-import { signJWT } from '../apps/backend/src/lib/auth.js';
-import { loadKeys } from '../apps/backend/src/lib/keys.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
 const BASE = process.env.CHECKS_LIVE_URL ?? 'http://localhost:3001/api';
 const OWNER = process.env.CHECKS_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;

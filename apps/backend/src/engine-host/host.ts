@@ -6,7 +6,7 @@ import { createAgentDirectory, grantStoreFrom, type AgentRecordStore, type ToolG
 import { createStoredAgentRegistry, type AgentRegistry } from './registries/registry.js';
 import { stepNeedsReader } from './registries/procedure-store.js';
 import { createCheckNeeds, needsOfAccepted, type CheckNeeds } from './check-needs.js';
-import { treeTypeChoices } from '../lib/tree-types.js';
+import { treeTypeChoices } from '../projects/lib/tree-types.js';
 import { createStoredToolCatalogue, type StoredToolCatalogue } from './registries/tool-catalogue-store.js';
 import { createEndpointResolver, type ModelServiceLike } from './registries/endpoints.js';
 import { createRunEnvironments, type RunEnvironments } from './sandboxes/run-environments.js';
@@ -25,41 +25,41 @@ import { createMachineWorkspaces, type KnownMachine } from './sandboxes/machine-
 import { createMachineBackend } from './drivers/machine-backend.js';
 import { createToolRuntime } from './tools/tool-runtime.js';
 import { createEngineToolHandlers } from './tools/engine-tools.js';
-import { TreeTypeDescriptions } from '../services/TreeTypeDescriptions.js';
-import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
-import { WorkspaceFileService } from '../services/WorkspaceFileService.js';
-import type { ComposedWorkspace } from '../lib/workspace-composition.js';
+import { TreeTypeDescriptions } from '../projects/services/TreeTypeDescriptions.js';
+import { WorkspaceImageService } from '../engine/services/WorkspaceImageService.js';
+import { WorkspaceFileService } from '../engine/services/WorkspaceFileService.js';
+import type { ComposedWorkspace } from '../engine/lib/workspace-composition.js';
 import { WORKSPACE_BASES } from '../extensions/workspace-bases.js';
-import { planServerImage, type McpServerRecord, type ServerRuns, type WorkspaceRuns } from '../lib/mcp-servers.js';
+import { planServerImage, type McpServerRecord, type ServerRuns, type WorkspaceRuns } from '../engine/lib/mcp-servers.js';
 import { MCP_SERVER_TEMPLATES } from '../extensions/mcp/templates.js';
 import type { TaskStore } from './tools/task-tools.js';
 import type { MemoryItem } from './drivers/memory-store.js';
 import type { HostNodeServices } from './nodes/services.js';
 import { extensionRuntimes, operationHandlers, toolHandlers } from '../extensions/runtime.js';
-import { releaseAgentsOf, releaseProblemOf } from '../services/ReleaseSettings.js';
-import { restoringApp } from '../lib/release-run.js';
+import { releaseAgentsOf, releaseProblemOf } from '../releases/services/ReleaseSettings.js';
+import { restoringApp } from '../releases/lib/release-run.js';
 import type { RunTicket, ToolRuntime } from './temporal/contracts.js';
-import type { WebTools } from '../lib/web-tools.js';
-import type { Database } from '../lib/db-interface.js';
+import type { WebTools } from '../engine/lib/web-tools.js';
+import type { Database } from '../platform/lib/db-interface.js';
 import { createEffortTracker, type EffortTracker, type EffortTrackerOptions } from './registries/effort.js';
 import { createCodeRunner } from './nodes/code-runner.js';
 import { createWorkspaceServers } from './tools/workspace-servers.js';
-import { parkingFor, type Parking, type PublishedWorkspace } from '../lib/published-workspace.js';
-import { WORKSPACE_FILE, pendingChanges, type WorkspaceFile } from '../lib/workspace-file.js';
-import { groveAgentOf, resolveTreeType } from '../lib/tree-types.js';
+import { parkingFor, type Parking, type PublishedWorkspace } from '../engine/lib/published-workspace.js';
+import { WORKSPACE_FILE, pendingChanges, type WorkspaceFile } from '../engine/lib/workspace-file.js';
+import { groveAgentOf, resolveTreeType } from '../projects/lib/tree-types.js';
 import { agentsReachable } from '../extensions/grove/operations/handlers.js';
 import { createWorkspaceImages, type WorkspaceImages } from './sandboxes/warm-images.js';
 import { createImagePruner, type ImagePruner } from './sandboxes/prune-images.js';
 import { createRegistryPackages } from './sandboxes/registry-packages.js';
 import { createServerTools } from './tools/server-tools.js';
 import { hostedCaller } from './tools/hosted-servers.js';
-import { proxyUrlFor } from '../lib/egress-proxy.js';
-import { modelNames } from '../lib/model-registry.js';
+import { proxyUrlFor } from '../infrastructure/lib/egress-proxy.js';
+import { modelNames } from '../models/lib/model-registry.js';
 import type { GroveOperationDeps } from '../extensions/grove/operations/handlers.js';
 
 export interface EngineHostStores {
   actions?: { list(ownerId: string): Promise<import('@koala/harness-types').ActionProposal[]>; save(proposal: import('@koala/harness-types').ActionProposal): Promise<void> } | undefined;
-  projectRecords?: (() => Promise<import('../lib/types.js').ProjectMetadata[]>) | undefined;
+  projectRecords?: (() => Promise<import('../platform/lib/types.js').ProjectMetadata[]>) | undefined;
   machines?: { list(): Promise<readonly KnownMachine[]> } | undefined;
   agentRecords: AgentRecordStore;
   toolGrants: ToolGrantStore;
@@ -71,18 +71,18 @@ export interface EngineHostStores {
   tools: { list(ownerId?: string): Promise<ToolDefinition[]> };
   tasks: TaskStore;
   grove: {
-    trees: { list(): Promise<import('../lib/trees.js').Tree[]>; save(tree: import('../lib/trees.js').Tree): Promise<void> };
-    branches: { list(): Promise<import('../lib/leaves.js').Branch[]>; save(branch: import('../lib/leaves.js').Branch): Promise<void> };
-    leaves: { list(): Promise<import('../lib/leaves.js').Leaf[]>; save(leaf: import('../lib/leaves.js').Leaf): Promise<void> };
+    trees: { list(): Promise<import('../projects/lib/trees.js').Tree[]>; save(tree: import('../projects/lib/trees.js').Tree): Promise<void> };
+    branches: { list(): Promise<import('../projects/lib/leaves.js').Branch[]>; save(branch: import('../projects/lib/leaves.js').Branch): Promise<void> };
+    leaves: { list(): Promise<import('../projects/lib/leaves.js').Leaf[]>; save(leaf: import('../projects/lib/leaves.js').Leaf): Promise<void> };
     /** optional: when absent, no leaf has tasks (P0 planner world) */
     tasks?: { list(): Promise<import('./tools/tasks.js').Task[]> };
     plans?: {
-      save(proposal: import('../lib/plan-proposals.js').PlanProposal): Promise<void>;
-      list(ownerId: string, conversationId?: string): Promise<import('../lib/plan-proposals.js').PlanProposal[]>;
+      save(proposal: import('../projects/lib/plan-proposals.js').PlanProposal): Promise<void>;
+      list(ownerId: string, conversationId?: string): Promise<import('../projects/lib/plan-proposals.js').PlanProposal[]>;
     };
     treeTypes?: (ownerId: string) => Promise<import('../extensions/grove/tools/grove-tools.js').TreeTypeChoice[]>;
-    treeTypeSpecs?: (ownerId: string) => Promise<import('../lib/tree-types.js').TreeTypeSpec[]>;
-    workspaceImages?: (ownerId: string) => Promise<import('../lib/workspace-image-seeds.js').WorkspaceImageSpec[]>;
+    treeTypeSpecs?: (ownerId: string) => Promise<import('../projects/lib/tree-types.js').TreeTypeSpec[]>;
+    workspaceImages?: (ownerId: string) => Promise<import('../engine/lib/workspace-image-seeds.js').WorkspaceImageSpec[]>;
     binding?: (ownerId: string, conversationId: string) => Promise<{ treeId?: string | undefined; projectId?: string | undefined; leafId?: string | undefined; branchId?: string | undefined } | undefined>;
     growing?: import('../extensions/grove/tools/grove-tools.js').TreeGrowing | undefined;
   };
@@ -97,20 +97,20 @@ export interface EngineHostStores {
   runs?: import('./tools/run-tools.js').RunReader | undefined;
   proposals?: {
     scenarioIds(ownerId: string): Promise<string[]>;
-    list(ownerId: string): Promise<import('../lib/scenario-proposals.js').ScenarioProposal[]>;
-    save(proposal: import('../lib/scenario-proposals.js').ScenarioProposal): Promise<void>;
+    list(ownerId: string): Promise<import('../checks/lib/scenario-proposals.js').ScenarioProposal[]>;
+    save(proposal: import('../checks/lib/scenario-proposals.js').ScenarioProposal): Promise<void>;
   } | undefined;
   agentChanges?: {
-    list(ownerId: string): Promise<import('../lib/agent-changes.js').AgentChange[]>;
-    save(change: import('../lib/agent-changes.js').AgentChange): Promise<void>;
+    list(ownerId: string): Promise<import('../engine/lib/agent-changes.js').AgentChange[]>;
+    save(change: import('../engine/lib/agent-changes.js').AgentChange): Promise<void>;
   } | undefined;
 }
 
 export interface EngineHostOptions {
   dependencies?: ((ownerId: string) => Promise<readonly WorkspaceDependency[]>) | undefined;
-  accountDefault?: ((ownerId: string) => Promise<import('../lib/machine-runs.js').AccountDefault | undefined>) | undefined;
+  accountDefault?: ((ownerId: string) => Promise<import('../machines/lib/machine-runs.js').AccountDefault | undefined>) | undefined;
   treeModels?: import('../extensions/grove/tools/grove-tools.js').TreeModelChoices | undefined;
-  customizations?: Pick<import('../services/CustomizationsService.js').CustomizationsService, 'drift' | 'propose' | 'exportItems'> | undefined;
+  customizations?: Pick<import('../releases/services/CustomizationsService.js').CustomizationsService, 'drift' | 'propose' | 'exportItems'> | undefined;
   monitoring?: import('../extensions/monitoring/handlers.js').MonitoringReading | undefined;
   files?: import('../extensions/files/handlers.js').FilesToolDeps | undefined;
   publishedWorkspaces?: {
@@ -150,7 +150,7 @@ export interface EngineHostOptions {
   checks?: import('./tools/check-tools.js').CheckAccess | undefined;
   /** Everyone whose agents could run, so the image sweep asks what each of them wants. */
   owners?: (() => Promise<string[]>) | undefined;
-  hidden?: ((ownerId: string) => Promise<import('../lib/extension-settings.js').HiddenVocabulary>) | undefined;
+  hidden?: ((ownerId: string) => Promise<import('../engine/lib/extension-settings.js').HiddenVocabulary>) | undefined;
   published?: ((ownerId: string) => Promise<import('@koala/agent-engine/procedure').GroupDefinition[]>) | undefined;
   documents?: DocumentRepos | undefined;
   repoFor?: WorkspaceRepoResolver | undefined;

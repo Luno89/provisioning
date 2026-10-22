@@ -1,4 +1,4 @@
-import { leafWorktree, TREE_REPO } from '../../lib/plan-documents.js';
+import { leafWorktree, TREE_REPO } from '../../projects/lib/plan-documents.js';
 import type { WorkspaceDocuments } from './workspace-documents.js';
 import { treeWorkspaceRunId, type WorkspaceRepoResolver } from './workspace-repos.js';
 

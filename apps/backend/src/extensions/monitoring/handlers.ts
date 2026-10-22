@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
-import { sameAction, type ActionProposal } from '../../lib/action-proposals.js';
-import { alertSpec, isAlertKind } from '../../lib/monitoring-alerts.js';
-import type { MonitoringService, Viewer } from '../../services/MonitoringService.js';
+import { sameAction, type ActionProposal } from '../../engine/lib/action-proposals.js';
+import { alertSpec, isAlertKind } from '../../monitoring/lib/monitoring-alerts.js';
+import type { MonitoringService, Viewer } from '../../monitoring/services/MonitoringService.js';
 import { APP_HEALTH, CLUSTER_HEALTH, MONITORING_OVERVIEW, PROPOSE_ALERT } from './catalogue.js';
 
 export interface MonitoringReading {

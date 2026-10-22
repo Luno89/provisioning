@@ -1,1 +1,1 @@
-export * from '../../lib/tasks.js';
+export * from '../../projects/lib/tasks.js';

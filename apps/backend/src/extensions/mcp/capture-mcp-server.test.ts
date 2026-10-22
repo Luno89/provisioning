@@ -8,8 +8,8 @@ import {
   runProcedure,
 } from '@koala/agent-engine/procedure';
 import type { EnvironmentDriver } from '@koala/engine-core';
-import type { McpServerRecord } from '../../lib/mcp-servers.js';
-import { runsFingerprint } from '../../lib/mcp-servers.js';
+import type { McpServerRecord } from '../../engine/lib/mcp-servers.js';
+import { runsFingerprint } from '../../engine/lib/mcp-servers.js';
 import { platformCatalogue } from '../installed.js';
 import { createMcpOperations } from './operations/handlers.js';
 import { CAPTURE_MCP_SERVER } from './procedures.js';

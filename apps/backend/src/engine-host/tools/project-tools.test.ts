@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { ActionProposal } from '../../lib/action-proposals.js';
-import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../lib/types.js';
+import type { ActionProposal } from '../../engine/lib/action-proposals.js';
+import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
 import { createProjectTools } from './project-tools.js';
 
 const PROJECT: ProjectMetadata = { id: 'p1', name: 'billing', ownerId: 'u1', appType: 'gitapp', giteaOwner: 'koala-u1', giteaRepo: 'billing', targetClusterId: 'provisioning-lunorica', deployEnv: 'LOG_LEVEL=info', createdAt: 'x' };

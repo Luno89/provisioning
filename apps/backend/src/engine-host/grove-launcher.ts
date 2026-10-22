@@ -1,8 +1,8 @@
 import type { WorkflowClient } from '@temporalio/client';
 import { EngineUnavailableError, type StartRunRequest, type StartedRun } from './registries/run-starter.js';
 import { RUN_ID_MEMO, groveRunId, groveRunWorkflowId, runStamp, type AgentRunOutcome, type GroveRunResult } from './temporal/contracts.js';
-import { failureReason } from '../lib/temporal-failure.js';
-import type { GroveRunLauncher } from '../services/GroveRunService.js';
+import { failureReason } from '../platform/lib/temporal-failure.js';
+import type { GroveRunLauncher } from '../projects/services/GroveRunService.js';
 
 export interface GroveLauncherDeps {
   runs: { start(request: StartRunRequest): Promise<StartedRun> };

@@ -14,7 +14,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { createDisposableVm } from './lib/disposable-vm.js';
-import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
+import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
 
 const execFileAsync = promisify(execFile);
 const BASE = (process.env.BACKEND_URL || 'http://localhost:3001').replace(/\/$/, '');

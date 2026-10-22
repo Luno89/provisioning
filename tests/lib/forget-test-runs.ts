@@ -1,4 +1,4 @@
-import type { Database } from '../../apps/backend/src/lib/db-interface.js';
+import type { Database } from '../../apps/backend/src/platform/lib/db-interface.js';
 
 export async function forgetWhatRunsLeft(db: Database, ownerId: string, runIds: ReadonlySet<string>): Promise<number> {
   const at = new Date().toISOString();

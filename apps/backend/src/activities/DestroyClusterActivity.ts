@@ -1,8 +1,8 @@
 import fs from 'fs/promises';
 
-import { InfrastructureService } from '../services/InfrastructureService.js';
-import { hasCloudCredentials } from '../lib/credential-resolver.js';
-import { isMockCloudProvider } from '../lib/cluster-topology.js';
+import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
+import { hasCloudCredentials } from '../infrastructure/lib/credential-resolver.js';
+import { isMockCloudProvider } from '../infrastructure/lib/cluster-topology.js';
 import { DestroyRemoteHostActivity } from './ProvisionRemoteHostActivity.js';
 import { DestroyHetznerVmActivity } from './ProvisionHetznerVmActivity.js';
 import { DestroyDigitalOceanVmActivity } from './ProvisionDigitalOceanVmActivity.js';

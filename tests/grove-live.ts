@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
 import dotenv from 'dotenv';
-import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
-import { getTemporalClient } from '../apps/backend/src/lib/temporal-client.js';
+import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
 import { DEFAULT_ENGINE_TASK_QUEUE, groveRunWorkflowId, type AgentRunOutcome, type GroveRunResult } from '../apps/backend/src/engine-host/temporal/contracts.js';
-import { GiteaService } from '../apps/backend/src/services/GiteaService.js';
-import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
-import { loadKeys } from '../apps/backend/src/lib/keys.js';
+import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
+import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
+import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import axios from 'axios';
 import { treeRepoName, treeWorkspaceRunId } from '../apps/backend/src/engine-host/sandboxes/tree-workspaces.js';
 import { conversationRepoName } from '../apps/backend/src/engine-host/sandboxes/workspace-repos.js';
-import { signJWT } from '../apps/backend/src/lib/auth.js';
+import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { createKubeRunner } from '../apps/backend/src/engine-host/sandboxes/kube.js';
 import { workspaceName } from '../apps/backend/src/engine-host/sandboxes/workspace.js';
 

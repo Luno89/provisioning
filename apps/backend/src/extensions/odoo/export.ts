@@ -1,6 +1,6 @@
 import { literal } from '../releases/postgres-compare.js';
 import { ODOO_KINDS } from './inventory.js';
-import { ADOPT_FILE, type ExportResult } from '../../lib/customizations.js';
+import { ADOPT_FILE, type ExportResult } from '../../releases/lib/customizations.js';
 
 export interface FieldMeta {
   name: string;

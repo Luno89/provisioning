@@ -1,7 +1,7 @@
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import type { ToolDefinition } from '@koala/agent-engine';
 import { scenarioProblems } from '../../eval/level2/scenario.js';
-import { proposedScenario, type ScenarioProposal } from '../../lib/scenario-proposals.js';
+import { proposedScenario, type ScenarioProposal } from '../../checks/lib/scenario-proposals.js';
 
 export interface ScenarioProposalAccess {
   known(ownerId: string): Promise<{ agents: ReadonlySet<string>; procedures: ReadonlySet<string>; tools: readonly ToolDefinition[] }>;

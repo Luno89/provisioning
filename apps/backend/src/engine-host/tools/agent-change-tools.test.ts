@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { ToolHandlerContext } from '@koala/engine-core';
-import type { AgentChange } from '../../lib/agent-changes.js';
+import type { AgentChange } from '../../engine/lib/agent-changes.js';
 import { createAgentChangeTools } from './agent-change-tools.js';
 import { AGENT_CHANGE_TOOLS } from './agent-change-tools-catalogue.js';
 

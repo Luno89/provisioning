@@ -6,10 +6,10 @@ dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.
 
 import axios from 'axios';
 import { MongoClient } from 'mongodb';
-import { signJWT } from '../apps/backend/src/lib/auth.js';
-import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
-import type { PlanProposal } from '../apps/backend/src/lib/plan-proposals.js';
-import { loadKeys } from '../apps/backend/src/lib/keys.js';
+import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import type { PlanProposal } from '../apps/backend/src/projects/lib/plan-proposals.js';
+import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
 const BASE = process.env.CLAIM_LIVE_URL ?? 'http://localhost:3001/api';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

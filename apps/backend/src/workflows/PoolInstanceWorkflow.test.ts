@@ -5,7 +5,7 @@ import { ApplicationFailure } from '@temporalio/common';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { temporalTestEnvironment } from './temporal-test-env.js';
-import { startedFor } from '../lib/workflow-owner.js';
+import { startedFor } from '../platform/lib/workflow-owner.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

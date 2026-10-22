@@ -1,8 +1,8 @@
-import type { Database } from '../lib/db-interface.js';
-import { treeOutline } from '../lib/tree-outline.js';
-import { featureOutline, storyOutline } from '../lib/item-outline.js';
-import { projectOutline } from '../lib/project-outline.js';
-import { chatFraming, SOMEONE } from '../lib/conversations.js';
+import type { Database } from '../platform/lib/db-interface.js';
+import { treeOutline } from '../projects/lib/tree-outline.js';
+import { featureOutline, storyOutline } from '../projects/lib/item-outline.js';
+import { projectOutline } from '../projects/lib/project-outline.js';
+import { chatFraming, SOMEONE } from '../engine/lib/conversations.js';
 
 type BindingSources = Pick<Database, 'getConversation' | 'getTrees' | 'getBranches' | 'getLeaves' | 'getTasks' | 'getProjects' | 'getOdooReleases' | 'getPipelineRuns' | 'getUserById'>;
 

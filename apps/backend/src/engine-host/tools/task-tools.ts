@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
-import { leafContextLine } from '../../lib/plan-documents.js';
-import { e2eRequestOf } from '../../lib/e2e.js';
+import { leafContextLine } from '../../projects/lib/plan-documents.js';
+import { e2eRequestOf } from '../../engine/lib/e2e.js';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import {
   describeProblem,

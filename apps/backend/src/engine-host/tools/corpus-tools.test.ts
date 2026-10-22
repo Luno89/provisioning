@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createCorpusTools, ingestPrefix, type CorpusAccess } from './corpus-tools.js';
-import type { CorpusPage } from '../../lib/corpus.js';
+import type { CorpusPage } from '../../engine/lib/corpus.js';
 
 const page = (over: Partial<CorpusPage>): CorpusPage => ({ id: 'x', ownerId: 'u1', ingestId: 'i1', url: 'https://docs.example.com/a', host: 'docs.example.com', text: 'The retry budget is three attempts per job.', bytes: 40, fetchedAt: 't', ...over });
 

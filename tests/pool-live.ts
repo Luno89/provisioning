@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
-import { loadKeys } from '../apps/backend/src/lib/keys.js';
-import { signJWT } from '../apps/backend/src/lib/auth.js';
+import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
+import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env') });

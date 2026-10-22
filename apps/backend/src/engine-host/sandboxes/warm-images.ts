@@ -3,7 +3,7 @@ import type { ImageBuilder, ImageStanding } from './image-builder.js';
 import { mergeWorkspaceAgents } from './environments.js';
 import { GROVE_WORKSPACE_AGENTS } from './tree-workspaces.js';
 import { planWorkspace } from '../../extensions/workspace-bases.js';
-import type { McpServerRecord } from '../../lib/mcp-servers.js';
+import type { McpServerRecord } from '../../engine/lib/mcp-servers.js';
 
 export interface WorkspaceImage extends ImageStanding {
   agent: string;

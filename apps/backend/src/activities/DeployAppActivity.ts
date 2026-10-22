@@ -1,33 +1,33 @@
 import { randomBytes } from 'node:crypto';
-import { renderApp, specSecrets, visibleAppSpecs } from '../lib/app-spec.js';
-import { resolveBindings, bindingFiles } from '../lib/binding-resolve.js';
-import { bindingProjection, bindingSecretName, type ProjectedBinding } from '../lib/service-binding.js';
-import { readBindingCredentials } from '../lib/binding-project.js';
-import { createDatabase } from '../lib/db-interface.js';
+import { renderApp, specSecrets, visibleAppSpecs } from '../infrastructure/lib/app-spec.js';
+import { resolveBindings, bindingFiles } from '../infrastructure/lib/binding-resolve.js';
+import { bindingProjection, bindingSecretName, type ProjectedBinding } from '../infrastructure/lib/service-binding.js';
+import { readBindingCredentials } from '../projects/lib/binding-project.js';
+import { createDatabase } from '../platform/lib/db-interface.js';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 
-import { InfrastructureService } from '../services/InfrastructureService.js';
-import type { Database } from '../lib/db-interface.js';
-import { BuilderService } from '../services/BuilderService.js';
-import { StorageAdapter } from '../services/StorageAdapter.js';
-import { hasCloudCredentials } from '../lib/credential-resolver.js';
-import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topology.js';
+import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
+import type { Database } from '../platform/lib/db-interface.js';
+import { BuilderService } from '../infrastructure/services/BuilderService.js';
+import { StorageAdapter } from '../infrastructure/services/StorageAdapter.js';
+import { hasCloudCredentials } from '../infrastructure/lib/credential-resolver.js';
+import { isMockCloudProvider, isSelfManagedCluster } from '../infrastructure/lib/cluster-topology.js';
 import { clusterAccess } from './cluster-access.js';
-import { buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN } from '../lib/app-env.js';
+import { buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN } from '../infrastructure/lib/app-env.js';
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
-import { appServiceType, placedOnPool } from '../lib/cluster-monitoring.js';
-import { GiteaService } from '../services/GiteaService.js';
-import { planHostMemory, parseQuantity, type HostMemoryPlan } from '../lib/host-memory-plan.js';
-import { deploymentIdFor } from '../lib/deployment-id.js';
-import { isValidImageTag } from '../lib/registry-tags.js';
-import { sanitiseNamespaceName } from '../lib/projects.js';
-import { infisicalHostFor } from '../lib/infisical-sync.js';
-import { syncProjectSecrets } from '../services/ProjectSecretSync.js';
-import { InfisicalService } from '../services/InfisicalService.js';
-import { sharedClusterProxy } from '../services/ClusterProxyService.js';
-import { loadKeys } from '../lib/keys.js';
+import { appServiceType, placedOnPool } from '../monitoring/lib/cluster-monitoring.js';
+import { GiteaService } from '../projects/services/GiteaService.js';
+import { planHostMemory, parseQuantity, type HostMemoryPlan } from '../infrastructure/lib/host-memory-plan.js';
+import { deploymentIdFor } from '../infrastructure/lib/deployment-id.js';
+import { isValidImageTag } from '../infrastructure/lib/registry-tags.js';
+import { sanitiseNamespaceName } from '../projects/lib/projects.js';
+import { infisicalHostFor } from '../releases/lib/infisical-sync.js';
+import { syncProjectSecrets } from '../projects/services/ProjectSecretSync.js';
+import { InfisicalService } from '../infrastructure/services/InfisicalService.js';
+import { sharedClusterProxy } from '../infrastructure/services/ClusterProxyService.js';
+import { loadKeys } from '../platform/lib/keys.js';
 
 async function nodeAllocatableBytes(
   infra: InfrastructureService,
@@ -287,7 +287,7 @@ export async function DeployAppActivity(
   let tabbyModelSizeBytes: number | undefined;
   if (args.appType === 'tabbyapi' && args.tabbyModel) {
     try {
-      const { getHfModelSize } = await import('../lib/huggingface.js');
+      const { getHfModelSize } = await import('../infrastructure/lib/huggingface.js');
       const size = await getHfModelSize(args.tabbyModel, args.tabbyRevision, args.tabbyHfToken);
       tabbyModelSizeBytes = size.totalBytes;
     } catch (err: any) {

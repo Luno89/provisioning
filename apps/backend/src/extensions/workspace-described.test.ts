@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { WORKSPACE_IMAGE_SEEDS } from '../lib/workspace-image-seeds.js';
-import { builtLanguage } from '../lib/tree-types.js';
+import { WORKSPACE_IMAGE_SEEDS } from '../engine/lib/workspace-image-seeds.js';
+import { builtLanguage } from '../projects/lib/tree-types.js';
 import { WORKSPACE_BASES } from './workspace-bases.js';
 import { SHIPPED_DEPENDENCIES } from './workspace-dependencies.js';
 import { WORKSPACE_TOOLS, CHANGE_WORKSPACE } from './workspace/tools/catalogue.js';

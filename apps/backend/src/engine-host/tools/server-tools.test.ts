@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createServerTools } from './server-tools.js';
-import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../lib/mcp-servers.js';
+import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
 import type { RunTicket } from '../temporal/contracts.js';
 
 const ticket: RunTicket = { runId: 'run-1', depth: 0, ownerId: 'u1', agentSlug: 'executor', trigger: 'user', conversationId: 'c1' };

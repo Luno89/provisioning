@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ToolHandlerContext } from '@koala/engine-core';
-import type { StoredNodeTrace } from '../../lib/run-traces.js';
+import type { StoredNodeTrace } from '../../engine/lib/run-traces.js';
 import { createRunTools } from './run-tools.js';
 import { RUN_TOOLS } from './run-tools-catalogue.js';
 

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { baseFor, languagesFor, type AgentDefinition } from '@koala/agent-engine';
 import { mergeWorkspaceAgents, type EnvironmentResolver } from './environments.js';
 import { createTreeWorkspaces } from './tree-workspaces.js';
-import { treeLanguageFrom, type TreeTypeSpec } from '../../lib/tree-types.js';
+import { treeLanguageFrom, type TreeTypeSpec } from '../../projects/lib/tree-types.js';
 import { WORKSPACE_BASES } from '../../extensions/workspace-bases.js';
 
 const agent = (slug: string, over: Partial<AgentDefinition> = {}): AgentDefinition => ({

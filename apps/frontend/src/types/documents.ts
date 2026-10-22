@@ -1,6 +1,6 @@
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Mirrors `OpenedDocument` in apps/backend/src/services/DocumentService.ts, which wins.
+ * Mirrors `OpenedDocument` in apps/backend/src/engine/services/DocumentService.ts, which wins.
  */
 export interface OpenedDocument {
   workspace: string;

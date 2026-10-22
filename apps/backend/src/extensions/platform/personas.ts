@@ -1,5 +1,5 @@
 import type { GrantMap, PersonaRecord } from '@koala/agent-engine';
-import { renderCheckGuide } from '../../lib/check-guide.js';
+import { renderCheckGuide } from '../../checks/lib/check-guide.js';
 
 export const PLATFORM_PERSONAS: PersonaRecord[] = [
   {

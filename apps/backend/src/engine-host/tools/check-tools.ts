@@ -1,7 +1,7 @@
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import type { Scenario } from '../../eval/level2/scenario.js';
 import type { ScenarioResult } from '../../eval/level2/results.js';
-import { levelOf, scenarioSubjects, within, type Scope } from '../../lib/check-subjects.js';
+import { levelOf, scenarioSubjects, within, type Scope } from '../../checks/lib/check-subjects.js';
 import { definitionFor } from '@koala/agent-engine/procedure';
 import { platformCatalogue } from '../../extensions/installed.js';
 

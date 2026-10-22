@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
-import { signJWT } from '../apps/backend/src/lib/auth.js';
-import { loadKeys } from '../apps/backend/src/lib/keys.js';
+import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { ACP_STUB, chatsOnTheMachine } from './lib/machine-chat.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 

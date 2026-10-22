@@ -2,10 +2,10 @@ import { api } from './client'
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: apps/backend/src/services/MonitoringService.ts (Overview, AppHealthView, ClusterHealthView),
- * apps/backend/src/lib/monitoring-summary.ts (HealthState, AppNumbers, ClusterNumbers),
- * apps/backend/src/lib/monitoring-alerts.ts (VisibleAlert, AlertRuleRecord) and
- * apps/backend/src/lib/monitoring-records.ts (AlertEpisode).
+ * Authority: apps/backend/src/monitoring/services/MonitoringService.ts (Overview, AppHealthView, ClusterHealthView),
+ * apps/backend/src/monitoring/lib/monitoring-summary.ts (HealthState, AppNumbers, ClusterNumbers),
+ * apps/backend/src/monitoring/lib/monitoring-alerts.ts (VisibleAlert, AlertRuleRecord) and
+ * apps/backend/src/monitoring/lib/monitoring-records.ts (AlertEpisode).
  */
 export type HealthState = 'ok' | 'warning' | 'down' | 'unreachable' | 'installing'
 export type Range = '1h' | '24h' | '7d' | '30d'

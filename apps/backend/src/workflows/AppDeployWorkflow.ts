@@ -3,8 +3,8 @@ import type { DeployAppArgs, DeployAppResult } from '../activities/DeployAppActi
 import type { DownloadModelArgs } from '../activities/DownloadModelActivity.js';
 import type { VerifyGpuRuntimeArgs } from '../activities/VerifyGpuRuntimeActivity.js';
 import { awaitWorkload } from './await-workload.js';
-import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
-import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
+import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
+import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 
 const { DeployAppActivity } = proxyActivities<{ DeployAppActivity: (args: DeployAppArgs) => Promise<DeployAppResult> }>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
 const { DownloadModelActivity } = proxyActivities<{ DownloadModelActivity: (args: DownloadModelArgs) => Promise<unknown> }>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });

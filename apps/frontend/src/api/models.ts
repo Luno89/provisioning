@@ -24,7 +24,7 @@ export const modelKeys = {
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `TagPage` and `TAG_SORTS` in apps/backend/src/lib/registry-tags.ts.
+ * Authority: `TagPage` and `TAG_SORTS` in apps/backend/src/infrastructure/lib/registry-tags.ts.
  */
 export const TAG_SORTS = ['newest', 'oldest', 'version', 'name'] as const
 export type TagSort = typeof TAG_SORTS[number]
@@ -159,7 +159,7 @@ export interface ModelProvider {
   contextTokens?: number
   /**
    * ── DUPLICATED, KNOWINGLY ──
-   * Authority: `ModelProvider.pricing` in apps/backend/src/lib/model-registry.ts, written from
+   * Authority: `ModelProvider.pricing` in apps/backend/src/models/lib/model-registry.ts, written from
    * `ModelEndpointMetadata.pricing`. Dollars per million tokens, as the gateway quoted them.
    */
   pricing?: { promptPerMTok: number; completionPerMTok: number }

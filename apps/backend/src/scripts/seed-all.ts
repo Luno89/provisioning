@@ -1,20 +1,20 @@
 #!/usr/bin/env tsx
 
-import { createDatabase } from '../lib/db-interface.js';
-import { seedBindingTypes } from '../lib/binding-type-seeds.js';
-import { seedAppSpecs, seedConstructBackedTypes } from '../lib/app-spec.js';
-import { seedClusterProviders } from '../lib/cluster-providers.js';
-import { seedTreeTypes, stampTreeVersions } from '../lib/tree-types.js';
-import { seedWorkspaceImages } from '../lib/workspace-image-seeds.js';
-import { retireStoredBuiltInProcedures } from '../lib/built-in-procedures.js';
-import { retireStoredBuiltInPersonas } from '../lib/built-in-personas.js';
-import { seedEngineTools } from '../wiring/engine-tool-seeds.js';
-import { migrateAgentTools } from '../lib/tool-grant-migration.js';
-import { migrateMcpServers } from '../lib/mcp-server-migration.js';
-import { migrateToDependencies } from '../lib/dependency-migration.js';
+import { createDatabase } from '../platform/lib/db-interface.js';
+import { seedBindingTypes } from '../infrastructure/lib/binding-type-seeds.js';
+import { seedAppSpecs, seedConstructBackedTypes } from '../infrastructure/lib/app-spec.js';
+import { seedClusterProviders } from '../infrastructure/lib/cluster-providers.js';
+import { seedTreeTypes, stampTreeVersions } from '../projects/lib/tree-types.js';
+import { seedWorkspaceImages } from '../engine/lib/workspace-image-seeds.js';
+import { retireStoredBuiltInProcedures } from '../engine/lib/built-in-procedures.js';
+import { retireStoredBuiltInPersonas } from '../engine/lib/built-in-personas.js';
+import { seedEngineTools } from '../engine/wiring/engine-tool-seeds.js';
+import { migrateAgentTools } from '../engine/lib/tool-grant-migration.js';
+import { migrateMcpServers } from '../engine/lib/mcp-server-migration.js';
+import { migrateToDependencies } from '../engine/lib/dependency-migration.js';
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
-import { runOnce, type MigrationLedger } from '../lib/migrations.js';
+import { runOnce, type MigrationLedger } from '../platform/lib/migrations.js';
 
 export async function seedAll(db: Record<string, unknown>) {
   const counts: Record<string, number> = {};

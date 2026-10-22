@@ -2,14 +2,14 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { ApplicationFailure } from '@temporalio/common';
-import type { InfrastructureService } from '../../services/InfrastructureService.js';
-import { CHART_DIR, NOTHING_INSTALLED, slotStateFrom, type ReleaseVault, type SlotState } from '../../lib/odoo-release.js';
+import type { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
+import { CHART_DIR, NOTHING_INSTALLED, slotStateFrom, type ReleaseVault, type SlotState } from '../../releases/lib/odoo-release.js';
 import { reachCluster } from '../../activities/cluster-access.js';
-import type { ReleaseSource, ReleaseTarget } from '../../lib/release-run.js';
+import type { ReleaseSource, ReleaseTarget } from '../../releases/lib/release-run.js';
 import { inNamespace, runClusterJob, waitUntilRolledOut, type NamespacedCluster } from '../../activities/cluster-jobs.js';
 import { labelValue } from '../../engine-host/sandboxes/workspace.js';
-import { assessWorkload } from '../../lib/workload-health.js';
-import type { SecretTarget } from '../../lib/infisical-sync.js';
+import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
+import type { SecretTarget } from '../../releases/lib/infisical-sync.js';
 
 export interface VaultSyncArgs {
   projectId: string;

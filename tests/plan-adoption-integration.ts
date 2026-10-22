@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import dotenv from 'dotenv';
-import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { storesFromDatabase } from '../apps/backend/src/engine-host/host.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
 import { createGroveTools } from '../apps/backend/src/extensions/grove/tools/grove-tools.js';
 import { createPlanAdoption } from '../apps/backend/src/engine-host/plan-adoption.js';
-import type { PlanProposal } from '../apps/backend/src/lib/plan-proposals.js';
+import type { PlanProposal } from '../apps/backend/src/projects/lib/plan-proposals.js';
 
 dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname });
 

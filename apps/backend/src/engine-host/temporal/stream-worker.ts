@@ -2,12 +2,12 @@ import { Worker, NativeConnection } from '@temporalio/worker';
 import { createEventBus, type EngineEvent, type EventBus } from '@koala/agent-engine';
 import { createStreamActivities, type StreamServices } from './activities.js';
 import { DEFAULT_STREAM_TASK_QUEUE } from './contracts.js';
-import { buildDataConverter } from '../../lib/temporal-codec.js';
-import { sharedPayloadBlobs } from '../../lib/db-interface.js';
-import type { SecretKey } from '../../lib/crypto.js';
-import { loadKeys } from '../../lib/keys.js';
-import { TurnLogWriter } from '../../services/TurnLogWriter.js';
-import type { TurnLogEntry } from '../../lib/turn-log.js';
+import { buildDataConverter } from '../../platform/lib/temporal-codec.js';
+import { sharedPayloadBlobs } from '../../platform/lib/db-interface.js';
+import type { SecretKey } from '../../platform/lib/crypto.js';
+import { loadKeys } from '../../platform/lib/keys.js';
+import { TurnLogWriter } from '../../engine/services/TurnLogWriter.js';
+import type { TurnLogEntry } from '../../engine/lib/turn-log.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
 
 export interface SocketLike {

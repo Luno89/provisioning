@@ -1,5 +1,5 @@
 import type { HostOperation } from '@koala/agent-engine/procedure';
-import { E2E_DEFAULT_SPECS, E2E_RUNNER } from '../../../lib/e2e.js';
+import { E2E_DEFAULT_SPECS, E2E_RUNNER } from '../../../engine/lib/e2e.js';
 
 export const PLATFORM_OPERATIONS: readonly HostOperation[] = [
   {

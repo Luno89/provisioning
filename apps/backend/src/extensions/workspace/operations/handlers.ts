@@ -1,12 +1,12 @@
 import type { ImagePlan, PlanLine } from '@koala/agent-engine';
 import type { NodeRequest, StepResult } from '@koala/agent-engine/procedure';
-import type { Tree } from '../../../lib/trees.js';
-import type { Branch, Leaf } from '../../../lib/leaves.js';
+import type { Tree } from '../../../projects/lib/trees.js';
+import type { Branch, Leaf } from '../../../projects/lib/leaves.js';
 import type { Task } from '../../../engine-host/tools/tasks.js';
-import { readWorkspaceFile, type WorkspaceFile } from '../../../lib/workspace-file.js';
-import { describeLine, stageText, type NextStage, type NextWorkspace, type PublishedWorkspace } from '../../../lib/published-workspace.js';
-import { workspaceNotice, type WorkspaceNoticeKind } from '../../../lib/notices.js';
-import type { ComposedWorkspace } from '../../../lib/workspace-composition.js';
+import { readWorkspaceFile, type WorkspaceFile } from '../../../engine/lib/workspace-file.js';
+import { describeLine, stageText, type NextStage, type NextWorkspace, type PublishedWorkspace } from '../../../engine/lib/published-workspace.js';
+import { workspaceNotice, type WorkspaceNoticeKind } from '../../../platform/lib/notices.js';
+import type { ComposedWorkspace } from '../../../engine/lib/workspace-composition.js';
 import type { HostOperationRun } from '../../types.js';
 
 export interface WorkspaceOperationDeps {

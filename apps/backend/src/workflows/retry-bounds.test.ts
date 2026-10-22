@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { ACTIVITY_ATTEMPTS, DESTROY_ATTEMPTS } from '../lib/activity-retry.js';
+import { ACTIVITY_ATTEMPTS, DESTROY_ATTEMPTS } from '../platform/lib/activity-retry.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -33,7 +33,7 @@ describe('activity retry bounds', () => {
   });
 
   it('backs off rather than hammering the API server', async () => {
-    const { ACTIVITY_RETRY } = await import('../lib/activity-retry.js');
+    const { ACTIVITY_RETRY } = await import('../platform/lib/activity-retry.js');
     expect(ACTIVITY_RETRY.backoffCoefficient).toBeGreaterThan(1);
     expect(ACTIVITY_RETRY.initialInterval).not.toBe('1s');
   });

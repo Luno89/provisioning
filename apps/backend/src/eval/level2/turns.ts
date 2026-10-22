@@ -1,5 +1,5 @@
 import { EXAMPLE_PROCEDURE } from '@koala/agent-engine/procedure';
-import { TURN_PROCEDURE_ID, describeChoice, type TurnChoice } from '../../lib/turn-check.js';
+import { TURN_PROCEDURE_ID, describeChoice, type TurnChoice } from '../../checks/lib/turn-check.js';
 import type { Scenario } from './scenario.js';
 
 export const TURN_REPEATS = 5;

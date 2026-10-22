@@ -2,7 +2,7 @@ import { api } from './client'
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `ClientImport` in apps/backend/src/lib/client-import.ts, `ImportView` in apps/backend/src/services/ClientImportService.ts.
+ * Authority: `ClientImport` in apps/backend/src/releases/lib/client-import.ts, `ImportView` in apps/backend/src/releases/services/ClientImportService.ts.
  */
 export type ImportMode = 'copy' | 'live'
 

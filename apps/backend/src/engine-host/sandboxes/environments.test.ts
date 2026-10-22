@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   createEnvironmentResolver, NoMachineAvailableError, type WorkspaceSource,
 } from './environments.js';
-import type { PublishedWorkspace } from '../../lib/published-workspace.js';
+import type { PublishedWorkspace } from '../../engine/lib/published-workspace.js';
 import { createAgentRegistry } from '../registries/registry.js';
 import { createRunEnvironments, environmentIdFor, type ProvisionForRun } from './run-environments.js';
 import { createSandboxDriver } from '../drivers/sandbox.js';

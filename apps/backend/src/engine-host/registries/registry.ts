@@ -1,5 +1,5 @@
-import { SwitchedOffError, switchedOffProblems, type HiddenVocabulary } from '../../lib/extension-settings.js';
-import { referencedPublished } from '../../lib/authored-extensions.js';
+import { SwitchedOffError, switchedOffProblems, type HiddenVocabulary } from '../../engine/lib/extension-settings.js';
+import { referencedPublished } from '../../engine/lib/authored-extensions.js';
 import type { GroupDefinition } from '@koala/agent-engine/procedure';
 import {
   resolveAgent,
@@ -9,7 +9,7 @@ import {
   BUILDER_TOOLS,
 } from '@koala/agent-engine';
 import type { MachineChoice, Procedure } from '@koala/agent-engine/procedure';
-import { accountMachineFor, machineRunFor, type AccountDefault, type RunOn } from '../../lib/machine-runs.js';
+import { accountMachineFor, machineRunFor, type AccountDefault, type RunOn } from '../../machines/lib/machine-runs.js';
 import { createStoredToolCatalogue, type ToolReader } from './tool-catalogue-store.js';
 import { createProcedureStore, type OwnedProcedure, type ProcedureReader, type ProcedureStore } from './procedure-store.js';
 import type { ToolContract } from '@koala/engine-core';

@@ -5,10 +5,10 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 
 import axios, { type AxiosInstance } from 'axios';
-import { signJWT } from '../apps/backend/src/lib/auth.js';
-import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
-import type { ActionProposal } from '../apps/backend/src/lib/action-proposals.js';
-import { loadKeys } from '../apps/backend/src/lib/keys.js';
+import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import type { ActionProposal } from '../apps/backend/src/engine/lib/action-proposals.js';
+import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
 const BASE = process.env.APP_SPEC_LIVE_URL ?? 'http://localhost:3001/api';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

@@ -1,11 +1,11 @@
 import { Context } from '@temporalio/activity';
-import type { AccountIds } from '../lib/db-interface.js';
-import { memoryWatermarkKeys, ownedWorkflowIds, type AccountRelated } from '../lib/account-removal.js';
+import type { AccountIds } from '../platform/lib/db-interface.js';
+import { memoryWatermarkKeys, ownedWorkflowIds, type AccountRelated } from '../accounts/lib/account-removal.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { labelValue } from '../engine-host/sandboxes/workspace.js';
-import type { DeploymentMetadata } from '../lib/types.js';
+import type { DeploymentMetadata } from '../platform/lib/types.js';
 import { planAppDestroys, type AppTeardown, type AppToDestroy } from './RemoveProjectActivities.js';
-import { CLI_CEILING } from '../lib/activity-liveness.js';
+import { CLI_CEILING } from '../platform/lib/activity-liveness.js';
 
 export interface RemoveAccountArgs {
   ownerId: string;

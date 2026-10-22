@@ -2,8 +2,8 @@ import { ODOO_BASE_HAS } from '../workspace-dependencies.js';
 import type { BaseImage } from '@koala/agent-engine';
 import { ODOO_CHECK_SCRIPT } from './odoo-check.js';
 import { KOALA_E2E_SCRIPT, ODOO_E2E_HELPERS_AT, ODOO_E2E_SCRIPT } from './odoo-e2e.js';
-import { ODOO_E2E_HELPERS } from '../../lib/odoo-e2e-helpers.js';
-import { PLAYWRIGHT_VERSION } from '../../lib/e2e.js';
+import { ODOO_E2E_HELPERS } from '../../releases/lib/odoo-e2e-helpers.js';
+import { PLAYWRIGHT_VERSION } from '../../engine/lib/e2e.js';
 
 export const ODOO_CHECK = '/usr/local/bin/odoo-check';
 export const ODOO_E2E = '/usr/local/bin/odoo-e2e';

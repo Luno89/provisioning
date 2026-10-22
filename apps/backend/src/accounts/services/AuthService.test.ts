@@ -1,0 +1,70 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { AuthService } from './AuthService.js';
+import { MemoryDB } from '../../platform/lib/memory-db.js';
+import type { UserMetadata } from '../../platform/lib/types.js';
+
+describe('AuthService', () => {
+  let dbMock: MemoryDB;
+
+  beforeEach(() => {
+    dbMock = new MemoryDB();
+    dbMock.init();
+  });
+
+  it('should create and verify 2FA challenge successfully', () => {
+    const authService = new AuthService(dbMock);
+    const userId = 'user-1';
+
+    const code = authService.create2FAChallenge(userId);
+    expect(code).toHaveLength(6);
+
+    const isCorrect = authService.verify2FAChallenge(userId, code);
+    expect(isCorrect).toBe(true);
+
+    const isAgain = authService.verify2FAChallenge(userId, code);
+    expect(isAgain).toBe(false);
+  });
+
+  it('should reject incorrect code', () => {
+    const authService = new AuthService(dbMock);
+    const userId = 'user-2';
+
+    authService.create2FAChallenge(userId);
+    const isCorrect = authService.verify2FAChallenge(userId, '000000');
+    expect(isCorrect).toBe(false);
+  });
+
+  it('should reject expired code', () => {
+    const authService = new AuthService(dbMock);
+    const userId = 'user-3';
+
+    authService.create2FAChallenge(userId);
+
+    const originalNow = Date.now;
+    Date.now = () => originalNow() + 10 * 60 * 1000;
+
+    const isCorrect = authService.verify2FAChallenge(userId, '123456');
+    expect(isCorrect).toBe(false);
+
+    Date.now = originalNow;
+  });
+
+  it('should log 2FA code in developer warning logs', async () => {
+    const authService = new AuthService(dbMock);
+    const user: UserMetadata = {
+      id: 'user-4',
+      email: 'test@example.com',
+      twoFactorEnabled: true,
+      twoFactorPreferredMethod: 'email',
+      emailVerified: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    const spy = vi.spyOn(authService['logger'], 'warn');
+    await authService.send2FACode(user, '999999');
+
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('[DEVELOPER 2FA ALERT]'));
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('test@example.com'));
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('999999'));
+  });
+});

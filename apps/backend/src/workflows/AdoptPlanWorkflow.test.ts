@@ -12,13 +12,13 @@ import { createRunEnvironments, environmentIdFor } from '../engine-host/sandboxe
 import { createTreeWorkspaces } from '../engine-host/sandboxes/tree-workspaces.js';
 import { createSandboxDriver } from '../engine-host/drivers/sandbox.js';
 import { createPlanAdoption } from '../engine-host/plan-adoption.js';
-import type { TreeTypeSpec } from '../lib/tree-types.js';
+import type { TreeTypeSpec } from '../projects/lib/tree-types.js';
 import { createEngineActivities } from '../engine-host/temporal/activities.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import type { WorkspaceDocuments } from '../engine-host/sandboxes/workspace-documents.js';
-import type { PlanProposal } from '../lib/plan-proposals.js';
-import type { Branch, Leaf } from '../lib/leaves.js';
-import type { Tree } from '../lib/trees.js';
+import type { PlanProposal } from '../projects/lib/plan-proposals.js';
+import type { Branch, Leaf } from '../projects/lib/leaves.js';
+import type { Tree } from '../projects/lib/trees.js';
 import type { Task } from '../engine-host/tools/tasks.js';
 import type { AdoptPlanResult } from '../engine-host/temporal/contracts.js';
 import { seededProcedures } from '../extensions/seeds.js';

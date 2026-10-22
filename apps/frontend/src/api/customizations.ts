@@ -2,7 +2,7 @@ import { api } from './client'
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `Drift` in apps/backend/src/services/CustomizationsService.ts, `InventoryItem` in apps/backend/src/lib/release-compare.ts.
+ * Authority: `Drift` in apps/backend/src/releases/services/CustomizationsService.ts, `InventoryItem` in apps/backend/src/releases/lib/release-compare.ts.
  */
 export interface DriftItem {
   kind: string

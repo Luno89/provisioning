@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import type { AccessRequest } from '@koala/harness-types';
-import type { ClusterMetadata, DeploymentMetadata } from '../../lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import {
   LOG_TAIL, PLATFORM_NAMESPACES, eventsCommand, findDeployment, logsCommand, namespaceOf, namespacesProblem, planRead, trimOutput,
   type OwnedDeployment,
-} from '../../lib/kube-diagnostics.js';
+} from '../../infrastructure/lib/kube-diagnostics.js';
 
 export interface KubeAccess {
   clusters(ownerId: string): Promise<ClusterMetadata[]>;

@@ -3,9 +3,9 @@ import { fileURLToPath } from 'url';
 
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 
-import { getTemporalClient } from '../apps/backend/src/lib/temporal-client.js';
-import { PLATFORM_OWNER, startedFor } from '../apps/backend/src/lib/workflow-owner.js';
-import { MongoDB } from '../apps/backend/src/lib/mongo-db.js';
+import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
+import { PLATFORM_OWNER, startedFor } from '../apps/backend/src/platform/lib/workflow-owner.js';
+import { MongoDB } from '../apps/backend/src/platform/lib/mongo-db.js';
 import { v4 as uuidv4 } from 'uuid';
 
 async function run() {

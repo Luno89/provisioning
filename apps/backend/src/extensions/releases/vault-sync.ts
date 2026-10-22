@@ -1,10 +1,10 @@
 import { ApplicationFailure } from '@temporalio/common';
-import type { InfrastructureService } from '../../services/InfrastructureService.js';
-import { InfisicalService } from '../../services/InfisicalService.js';
-import { sharedClusterProxy } from '../../services/ClusterProxyService.js';
-import { syncProjectSecrets } from '../../services/ProjectSecretSync.js';
-import { createDatabase } from '../../lib/db-interface.js';
-import { loadKeys } from '../../lib/keys.js';
+import type { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
+import { InfisicalService } from '../../infrastructure/services/InfisicalService.js';
+import { sharedClusterProxy } from '../../infrastructure/services/ClusterProxyService.js';
+import { syncProjectSecrets } from '../../projects/services/ProjectSecretSync.js';
+import { createDatabase } from '../../platform/lib/db-interface.js';
+import { loadKeys } from '../../platform/lib/keys.js';
 import type { VaultSync } from './slot-cluster.js';
 
 export const syncVaultFromProject = (infra: InfrastructureService): VaultSync => async (args) => {

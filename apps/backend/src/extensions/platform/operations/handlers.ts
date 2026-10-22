@@ -2,7 +2,7 @@ import type { NodeRequest, StepResult } from '@koala/agent-engine/procedure';
 import type { EnvironmentDriver } from '@koala/engine-core';
 import type { HostOperationRun } from '../../types.js';
 import { handleFor, ticketFor, type EnvironmentHandleRef, type RunEnvironment, type RunTicket } from '../../../engine-host/temporal/contracts.js';
-import { keepFailureArtifacts, type KeepArtifacts } from '../../../lib/artifacts.js';
+import { keepFailureArtifacts, type KeepArtifacts } from '../../../files/lib/artifacts.js';
 import {
   E2E_REPORT,
   E2E_RUNNER_MISSING,
@@ -15,8 +15,8 @@ import {
   printedTail,
   readE2EReport,
   type E2EReport,
-} from '../../../lib/e2e.js';
-import { browserTestsMissing } from '../../../lib/browser-tests.js';
+} from '../../../engine/lib/e2e.js';
+import { browserTestsMissing } from '../../../engine/lib/browser-tests.js';
 
 export interface PlatformOperationDeps {
   environments: { forRun(request: { ticket: RunTicket; environment?: EnvironmentHandleRef | undefined }): Promise<EnvironmentDriver | undefined> };

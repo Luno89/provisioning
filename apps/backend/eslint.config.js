@@ -2,9 +2,9 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 const LAYERS = [
-  { files: ['src/lib/**/*.ts'], above: ['services', 'routes', 'wiring', 'middleware', 'activities', 'workflows', 'engine-host', 'extensions'], message: 'lib is pure: it imports nothing above it' },
-  { files: ['src/services/**/*.ts'], above: ['routes', 'wiring', 'middleware'], message: 'a service never imports a route, the wiring or middleware' },
-  { files: ['src/routes/**/*.ts'], above: ['wiring'], message: 'a route takes its deps from the wiring, never imports it' },
+  { files: ['src/*/lib/**/*.ts'], above: ['services', 'routes', 'wiring', 'middleware', 'activities', 'workflows', 'engine-host', 'extensions'], message: 'lib is pure: it imports nothing above it' },
+  { files: ['src/*/services/**/*.ts'], above: ['routes', 'wiring', 'middleware'], message: 'a service never imports a route, the wiring or middleware' },
+  { files: ['src/*/routes/**/*.ts'], above: ['wiring'], message: 'a route takes its deps from the wiring, never imports it' },
 ]
 
 const upward = (folders) => folders.flatMap((folder) => [`**/${folder}/*`, `**/${folder}/**`, `../${folder}`, `../../${folder}`])

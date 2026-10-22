@@ -48,7 +48,7 @@ export interface TreeTypeSecret {
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Mirrors `TreeTypeSpec` in `apps/backend/src/lib/tree-types.ts`, which is the authority. Kept in
+ * Mirrors `TreeTypeSpec` in `apps/backend/src/projects/lib/tree-types.ts`, which is the authority. Kept in
  * sync by hand — there is no shared package between the two halves for this shape.
  */
 export interface TreeType {

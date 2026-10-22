@@ -1,7 +1,7 @@
 import { condition, defineSignal, proxyActivities, setHandler } from '@temporalio/workflow';
 import { DEFAULT_STREAM_TASK_QUEUE, type BenchIdleOutcome } from '../engine-host/temporal/contracts.js';
-import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
-import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
+import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
+import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 
 export const benchActivitySignal = defineSignal<[{ idleMs: number }]>('benchActivity');
 

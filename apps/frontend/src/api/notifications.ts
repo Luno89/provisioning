@@ -2,8 +2,8 @@ import { api } from './client'
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `EmailChoice` in apps/backend/src/lib/mail.ts and `NotificationView` in
- * apps/backend/src/services/NotificationService.ts.
+ * Authority: `EmailChoice` in apps/backend/src/platform/lib/mail.ts and `NotificationView` in
+ * apps/backend/src/monitoring/services/NotificationService.ts.
  */
 export type EmailChoice = 'off' | 'all' | 'down'
 

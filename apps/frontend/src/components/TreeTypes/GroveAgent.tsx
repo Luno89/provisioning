@@ -5,7 +5,7 @@ import { field, label, type TreeType } from './shared.js';
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * `DEFAULT_GROVE_AGENT` in `apps/backend/src/lib/tree-types.ts` is the authority: a type that names no
+ * `DEFAULT_GROVE_AGENT` in `apps/backend/src/projects/lib/tree-types.ts` is the authority: a type that names no
  * agent is grown by it. This is only what the picker says an unnamed agent will turn out to be.
  */
 const DEFAULT_GROVE_AGENT = 'grove';

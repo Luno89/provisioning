@@ -1,0 +1,396 @@
+import { describe, it, expect } from 'vitest';
+import axios from 'axios';
+import { projectsRouter } from './projects.js';
+import { mountRouter, type Harness, TEST_USER } from '../../platform/routes/test-harness.js';
+import { ownsProject } from '../../platform/lib/ownership.js';
+import type { Database } from '../../platform/lib/db-interface.js';
+import { ProjectRepoService } from '../services/ProjectRepoService.js';
+import { DEFAULT_TARGET_CLUSTER } from '../lib/project-shipping.js';
+
+const project = {
+  id: 'proj-1',
+  name: 'demo',
+  giteaOwner: 'acme',
+  giteaRepo: 'demo',
+  ownerId: TEST_USER.id,
+  appType: 'gitapp',
+  createdAt: '2026-01-01T00:00:00Z',
+};
+
+function giteaServiceStub(commit: { message: string } | null) {
+  return {
+    getCommit: async (_owner: string, _repo: string, _sha: string) => commit,
+  };
+}
+
+async function mountWithGitea(gitea: { getCommit: (...args: any[]) => Promise<any> }): Promise<Harness> {
+  return mountRouter({
+    prefix: '/api/projects',
+    router: (db: Database) => projectsRouter({
+      db,
+      giteaService: gitea,
+      getOwnedProject: async (id: string, user: any) => {
+        const p = (await db.getProjects()).find((x: any) => x.id === id);
+        return p && ownsProject(p, user) ? p : undefined;
+      },
+    }),
+  });
+}
+
+async function mountForCreate(): Promise<Harness> {
+  return mountRouter({
+    prefix: '/api/projects',
+    router: (db: Database) => projectsRouter({
+      db,
+      giteaService: { adminUsername: 'koala-bot' },
+      projectRepoService: new ProjectRepoService(db, {
+        createUserAccount: async (username: string) => ({ username, password: 'pw' }),
+        getRepo: async () => ({}),
+        createRepoForUser: async () => ({}),
+        replaceWebhook: async () => undefined,
+        seedTemplate: async () => [],
+      } as never, 'a'.repeat(64) as never, async (id) => `http://10.0.0.5:3001/webhooks/gitea/${id}`),
+      getOwnedProject: async (id: string, user: any) => {
+        const p = (await db.getProjects()).find((x: any) => x.id === id);
+        return p && ownsProject(p, user) ? p : undefined;
+      },
+    }),
+  });
+}
+
+describe('GET /:id/runs commit-message enrichment', () => {
+  it('fetches the commit message from Gitea and persists it for next time', async () => {
+    const harness = await mountWithGitea(giteaServiceStub({ message: 'Fix the thing\n\nlonger body' }));
+    await harness.db.saveProjectInfo(project);
+    await harness.db.savePipelineRunInfo({
+      id: 'run-1', projectId: project.id, commitSha: 'abc123', ref: 'main',
+      status: 'succeeded', startedAt: '2026-01-01T00:00:00Z',
+    });
+
+    const res = await axios.get(harness.url(`/api/projects/${project.id}/runs`));
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0].commitMessage).toBe('Fix the thing\n\nlonger body');
+
+    const persisted = (await harness.db.getPipelineRuns()).find((r: any) => r.id === 'run-1');
+    expect(persisted?.commitMessage).toBe('Fix the thing\n\nlonger body');
+
+    await harness.close();
+  });
+
+  it('does not re-fetch a commit message the run already has', async () => {
+    let calls = 0;
+    const gitea = {
+      getCommit: async () => { calls += 1; return { message: 'should not be used' }; },
+    };
+    const harness = await mountWithGitea(gitea);
+    await harness.db.saveProjectInfo(project);
+    await harness.db.savePipelineRunInfo({
+      id: 'run-1', projectId: project.id, commitSha: 'abc123', ref: 'main',
+      status: 'succeeded', startedAt: '2026-01-01T00:00:00Z', commitMessage: 'Already known',
+    });
+
+    const res = await axios.get(harness.url(`/api/projects/${project.id}/runs`));
+    expect(res.data[0].commitMessage).toBe('Already known');
+    expect(calls).toBe(0);
+
+    await harness.close();
+  });
+
+  it('keeps the run in the list even if Gitea fails to answer', async () => {
+    const gitea = { getCommit: async () => { throw new Error('gitea unreachable'); } };
+    const harness = await mountWithGitea(gitea);
+    await harness.db.saveProjectInfo(project);
+    await harness.db.savePipelineRunInfo({
+      id: 'run-1', projectId: project.id, commitSha: 'abc123', ref: 'main',
+      status: 'succeeded', startedAt: '2026-01-01T00:00:00Z',
+    });
+
+    const res = await axios.get(harness.url(`/api/projects/${project.id}/runs`));
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0].commitMessage).toBeUndefined();
+
+    await harness.close();
+  });
+});
+
+describe('POST / — execution target', () => {
+  it('persists executionTarget when the device belongs to the requesting user', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+
+    const res = await axios.post(harness.url('/api/projects'), {
+      name: 'demo', giteaRepo: 'demo', executionTargetDeviceId: 'dev-1',
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.data.executionTarget).toEqual({ kind: 'local-device', deviceId: 'dev-1' });
+
+    await harness.close();
+  });
+
+  it('refuses a device that does not belong to the requesting user', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: 'someone-else', name: 'Not mine', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+
+    await expect(axios.post(harness.url('/api/projects'), {
+      name: 'demo', giteaRepo: 'demo', executionTargetDeviceId: 'dev-1',
+    })).rejects.toMatchObject({ response: { status: 400 } });
+
+    expect(await harness.db.getProjects()).toHaveLength(0);
+
+    await harness.close();
+  });
+
+  it('leaves executionTarget unset when no device is chosen — the K8s sandbox stays the default', async () => {
+    const harness = await mountForCreate();
+
+    const res = await axios.post(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo' });
+
+    expect(res.status).toBe(201);
+    expect(res.data.executionTarget).toBeUndefined();
+
+    await harness.close();
+  });
+
+  it('accepts and persists valid egress hints alongside a local device', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+
+    const res = await axios.post(harness.url('/api/projects'), {
+      name: 'demo', giteaRepo: 'demo', executionTargetDeviceId: 'dev-1',
+      executionTargetEgress: [{ host: 'registry.npmjs.org', ports: [443] }],
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.data.executionTarget).toEqual({
+      kind: 'local-device', deviceId: 'dev-1', egress: [{ host: 'registry.npmjs.org', ports: [443] }],
+    });
+
+    await harness.close();
+  });
+
+  it('refuses an egress rule that is not a valid hostname', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+
+    await expect(axios.post(harness.url('/api/projects'), {
+      name: 'demo', giteaRepo: 'demo', executionTargetDeviceId: 'dev-1',
+      executionTargetEgress: [{ host: 'not a host' }],
+    })).rejects.toMatchObject({ response: { status: 400 } });
+
+    expect(await harness.db.getProjects()).toHaveLength(0);
+
+    await harness.close();
+  });
+
+  it('ignores egress hints entirely when no local device is chosen', async () => {
+    const harness = await mountForCreate();
+
+    const res = await axios.post(harness.url('/api/projects'), {
+      name: 'demo', giteaRepo: 'demo', executionTargetEgress: [{ host: 'registry.npmjs.org' }],
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.data.executionTarget).toBeUndefined();
+
+    await harness.close();
+  });
+
+  it('refuses a device already claimed by another project', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+    await harness.db.saveProjectInfo({
+      ...project, id: 'proj-existing', executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
+    });
+
+    await expect(axios.post(harness.url('/api/projects'), {
+      name: 'demo2', giteaRepo: 'demo2', executionTargetDeviceId: 'dev-1',
+    })).rejects.toMatchObject({ response: { status: 409 } });
+
+    await harness.close();
+  });
+
+  it('allows a second project on the same device at a different subfolder', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+    await harness.db.saveProjectInfo({
+      ...project, id: 'proj-existing', executionTarget: { kind: 'local-device', deviceId: 'dev-1', path: 'apps/one' },
+    });
+
+    const res = await axios.post(harness.url('/api/projects'), {
+      name: 'demo2', giteaRepo: 'demo2', executionTargetDeviceId: 'dev-1', executionTargetPath: 'apps/two',
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.data.executionTarget).toEqual({ kind: 'local-device', deviceId: 'dev-1', path: 'apps/two' });
+
+    await harness.close();
+  });
+
+  it('still refuses the same device and the same subfolder', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+    await harness.db.saveProjectInfo({
+      ...project, id: 'proj-existing', executionTarget: { kind: 'local-device', deviceId: 'dev-1', path: 'apps/one' },
+    });
+
+    await expect(axios.post(harness.url('/api/projects'), {
+      name: 'demo2', giteaRepo: 'demo2', executionTargetDeviceId: 'dev-1', executionTargetPath: 'apps/one',
+    })).rejects.toMatchObject({ response: { status: 409 } });
+
+    await harness.close();
+  });
+
+  it('creates a project with no repo at all when running on a local device', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+
+    const res = await axios.post(harness.url('/api/projects'), {
+      name: 'local-only', executionTargetDeviceId: 'dev-1',
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.data.giteaRepo).toBe('');
+    expect(res.data.appType).toBe('local');
+    expect(res.data.executionTarget).toEqual({ kind: 'local-device', deviceId: 'dev-1' });
+
+    await harness.close();
+  });
+
+  it('refuses a project with neither a repo nor a device', async () => {
+    const harness = await mountForCreate();
+
+    await expect(axios.post(harness.url('/api/projects'), {
+      name: 'nothing',
+    })).rejects.toMatchObject({ response: { status: 400 } });
+
+    await harness.close();
+  });
+});
+
+describe('PATCH /:id — execution target', () => {
+  it('lets an existing project pick up a registered device', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveProjectInfo(project);
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+
+    const res = await axios.patch(harness.url(`/api/projects/${project.id}`), {
+      executionTargetDeviceId: 'dev-1',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.data.executionTarget).toEqual({ kind: 'local-device', deviceId: 'dev-1' });
+
+    await harness.close();
+  });
+
+  it('reverts to the sandboxed cluster when the device is cleared', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveProjectInfo({
+      ...project, executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
+    });
+
+    const res = await axios.patch(harness.url(`/api/projects/${project.id}`), {
+      executionTargetDeviceId: '',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.data.executionTarget).toEqual({ kind: 'k8s' });
+
+    await harness.close();
+  });
+
+  it('refuses a device already claimed by a different project', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveProjectInfo(project);
+    await harness.db.saveProjectInfo({
+      ...project, id: 'proj-other', executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
+    });
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+
+    await expect(axios.patch(harness.url(`/api/projects/${project.id}`), {
+      executionTargetDeviceId: 'dev-1',
+    })).rejects.toMatchObject({ response: { status: 409 } });
+
+    await harness.close();
+  });
+
+  it('lets a project keep the device it already has', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveProjectInfo({
+      ...project, executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
+    });
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+
+    const res = await axios.patch(harness.url(`/api/projects/${project.id}`), {
+      executionTargetDeviceId: 'dev-1', executionApproval: 'auto',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.data.executionTarget).toEqual({ kind: 'local-device', deviceId: 'dev-1' });
+    expect(res.data.executionApproval).toBe('auto');
+
+    await harness.close();
+  });
+
+  it('404s for a project that is not the requesting user\'s', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveProjectInfo({ ...project, ownerId: 'someone-else' });
+
+    await expect(axios.patch(harness.url(`/api/projects/${project.id}`), {
+      executionTargetDeviceId: 'dev-1',
+    })).rejects.toMatchObject({ response: { status: 404 } });
+
+    await harness.close();
+  });
+});
+
+describe('POST / — where it deploys', () => {
+  it('sends a project with a repository to its own cluster when none is picked', async () => {
+    const harness = await mountForCreate();
+    const res = await axios.post(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo' });
+    expect(res.status).toBe(201);
+    expect(res.data.targetClusterId).toBe(DEFAULT_TARGET_CLUSTER);
+    await harness.close();
+  });
+
+  it('keeps the cluster the person picked', async () => {
+    const harness = await mountForCreate();
+    const res = await axios.post(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo', targetClusterId: 'my-k3d' });
+    expect(res.data.targetClusterId).toBe('my-k3d');
+    await harness.close();
+  });
+});

@@ -1,9 +1,9 @@
 import { defineQuery, executeChild, proxyActivities, setHandler, sleep } from '@temporalio/workflow';
 import { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
-import { DESTROY_RETRY } from '../lib/activity-retry.js';
-import { ACTIVITY_STOP_GRACE_MS, REMOVAL_PROGRESS_QUERY, type RemovalStep } from '../lib/account-removal.js';
+import { DESTROY_RETRY } from '../platform/lib/activity-retry.js';
+import { ACTIVITY_STOP_GRACE_MS, REMOVAL_PROGRESS_QUERY, type RemovalStep } from '../accounts/lib/account-removal.js';
 import type { AccountRemovalActivities, RemoveAccountArgs } from '../activities/RemoveAccountActivities.js';
-import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
+import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 
 const steps = proxyActivities<AccountRemovalActivities>({
   retry: DESTROY_RETRY,

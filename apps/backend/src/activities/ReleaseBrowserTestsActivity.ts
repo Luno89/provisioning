@@ -1,12 +1,12 @@
-import { assessWorkload } from '../lib/workload-health.js';
+import { assessWorkload } from '../infrastructure/lib/workload-health.js';
 import { randomBytes } from 'crypto';
 import { Context } from '@temporalio/activity';
 import { CancelledFailure } from '@temporalio/common';
-import type { InfrastructureService } from '../services/InfrastructureService.js';
-import { readFailureArtifacts, readWhole, type KeepArtifacts, type WorkspaceExec } from '../lib/artifacts.js';
-import { E2E_REPORT, e2ePassed, plain, readE2EReport } from '../lib/e2e.js';
-import { databaseOf, databaseSecretFrom, releaseTargetOf, vaultDatabaseSecret, type Slot } from '../lib/odoo-release.js';
-import type { ClusterMetadata, ProjectMetadata } from '../lib/types.js';
+import type { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
+import { readFailureArtifacts, readWhole, type KeepArtifacts, type WorkspaceExec } from '../files/lib/artifacts.js';
+import { E2E_REPORT, e2ePassed, plain, readE2EReport } from '../engine/lib/e2e.js';
+import { databaseOf, databaseSecretFrom, releaseTargetOf, vaultDatabaseSecret, type Slot } from '../releases/lib/odoo-release.js';
+import type { ClusterMetadata, ProjectMetadata } from '../platform/lib/types.js';
 import {
   E2E_DONE,
   E2E_INSTALL_FAILED,
@@ -24,10 +24,10 @@ import {
   testLoginJob,
   withConfig,
   type ReleaseE2E,
-} from '../lib/release-e2e.js';
+} from '../releases/lib/release-e2e.js';
 import { reachCluster } from './cluster-access.js';
 import { inNamespace, runClusterJob, type NamespacedCluster } from './cluster-jobs.js';
-import type { ReleaseSource, ReleaseTarget } from '../lib/release-run.js';
+import type { ReleaseSource, ReleaseTarget } from '../releases/lib/release-run.js';
 
 const vaultKeys = (data: string): string[] => {
   try {

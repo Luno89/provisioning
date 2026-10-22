@@ -1,19 +1,19 @@
-import type { ReleaseWays } from '../../../lib/tree-type-description.js';
+import type { ReleaseWays } from '../../../projects/lib/tree-type-description.js';
 import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
-import { awaitingReview, settleClaim, type Branch, type Leaf } from '../../../lib/leaves.js';
-import type { Tree } from '../../../lib/trees.js';
+import { awaitingReview, settleClaim, type Branch, type Leaf } from '../../../projects/lib/leaves.js';
+import type { Tree } from '../../../projects/lib/trees.js';
 import { SETTLED, type Task, type TaskStatus } from '../../../engine-host/tools/tasks.js';
-import { parseLeafPlan, parsePlan, planSummary, type PlanProposal } from '../../../lib/plan-proposals.js';
-import { proposedPlanPath, renderProposedPlan } from '../../../lib/plan-documents.js';
+import { parseLeafPlan, parsePlan, planSummary, type PlanProposal } from '../../../projects/lib/plan-proposals.js';
+import { proposedPlanPath, renderProposedPlan } from '../../../projects/lib/plan-documents.js';
 import { worktreeHead } from '../../../engine-host/grove-worktrees.js';
-import { treeOutline } from '../../../lib/tree-outline.js';
-import { versionsLine, type VersionChoices } from '../../../lib/tree-types.js';
-import { nextLeafStep, taskItem } from '../../../lib/grove-leaf.js';
-import { workOrder } from '../../../lib/work-order.js';
-import { changeSummary, parseCancel, parseNewStories, parseStoryEdit, type ChangeWorld } from '../../../lib/item-changes.js';
-import type { ItemChange } from '../../../lib/plan-proposals.js';
-import { sameAction, type ActionProposal } from '../../../lib/action-proposals.js';
+import { treeOutline } from '../../../projects/lib/tree-outline.js';
+import { versionsLine, type VersionChoices } from '../../../projects/lib/tree-types.js';
+import { nextLeafStep, taskItem } from '../../../projects/lib/grove-leaf.js';
+import { workOrder } from '../../../projects/lib/work-order.js';
+import { changeSummary, parseCancel, parseNewStories, parseStoryEdit, type ChangeWorld } from '../../../projects/lib/item-changes.js';
+import type { ItemChange } from '../../../projects/lib/plan-proposals.js';
+import { sameAction, type ActionProposal } from '../../../engine/lib/action-proposals.js';
 
 export interface GroveStores {
   trees: { list(): Promise<Tree[]>; save(tree: Tree): Promise<void> };

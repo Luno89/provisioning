@@ -2,11 +2,11 @@ import type { WorkspaceDependency } from '@koala/agent-engine';
 import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import type { ActionProposal, McpRequest } from '@koala/harness-types';
-import { usable, type McpServerRecord, type McpServerTemplate } from '../../lib/mcp-servers.js';
-import { slugify } from '../../lib/mcp-tools.js';
-import { draftServerProposal, runsLines, stateLine } from '../../lib/mcp-proposals.js';
-import { sameAction } from '../../lib/action-proposals.js';
-import { sectionLines } from '../../lib/proposal-sections.js';
+import { usable, type McpServerRecord, type McpServerTemplate } from '../../engine/lib/mcp-servers.js';
+import { slugify } from '../../engine/lib/mcp-tools.js';
+import { draftServerProposal, runsLines, stateLine } from '../../engine/lib/mcp-proposals.js';
+import { sameAction } from '../../engine/lib/action-proposals.js';
+import { sectionLines } from '../../projects/lib/proposal-sections.js';
 
 export interface McpToolStores {
   enabled(ownerId: string, conversationId: string): Promise<string[]>;

@@ -1,12 +1,12 @@
 import type { RunEnvironment } from '../temporal/contracts.js';
-import type { WorkspaceFile } from '../../lib/workspace-file.js';
-import type { ComposedWorkspace } from '../../lib/workspace-composition.js';
+import type { WorkspaceFile } from '../../engine/lib/workspace-file.js';
+import type { ComposedWorkspace } from '../../engine/lib/workspace-composition.js';
 import type { EnvironmentResolver, WorkspaceExtras } from './environments.js';
 import { destroyWorkspace, retirePod, workspaceRunning, type KubeRunner } from './kube.js';
 import { POD, workspaceName } from './workspace.js';
 import type { BroughtDocuments, MergeOutcome, SavedDocuments, WorkspaceDocuments } from './workspace-documents.js';
 import { conversationRepoName, defaultRepoResolver, treeWorkspaceRunId, type WorkspaceRepoResolver } from './workspace-repos.js';
-import { leafBranch, TREE_REPO } from '../../lib/plan-documents.js';
+import { leafBranch, TREE_REPO } from '../../projects/lib/plan-documents.js';
 
 export { treeRepoName, treeWorkspaceRunId } from './workspace-repos.js';
 

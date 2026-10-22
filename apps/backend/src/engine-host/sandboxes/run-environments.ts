@@ -1,5 +1,5 @@
 import type { EnvironmentDriver, EnvironmentScope, EnvironmentSpec } from '@koala/engine-core';
-import { workspaceStamp } from '../../lib/published-workspace.js';
+import { workspaceStamp } from '../../engine/lib/published-workspace.js';
 import type { RunTicket } from '../temporal/contracts.js';
 import type { RunWorkspace } from './workspace.js';
 

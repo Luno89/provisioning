@@ -1,16 +1,16 @@
 import { CancellationScope, defineSignal, executeChild, isCancellation, proxyActivities, setHandler, uuid4, workflowInfo } from '@temporalio/workflow';
-import { DESTROY_RETRY } from '../lib/activity-retry.js';
-import { removeAccountWorkflowId } from '../lib/account-removal.js';
+import { DESTROY_RETRY } from '../platform/lib/activity-retry.js';
+import { removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
 import type { CheckProgressArgs, CheckRunActivities, CheckScenarioArgs } from '../activities/CheckRunActivities.js';
 import type { Scenario } from '../eval/level2/scenario.js';
 import type { ScenarioResult } from '../eval/level2/results.js';
 import type { Check } from '../eval/level2/score.js';
-import type { PromptChange } from '../lib/check-space.js';
+import type { PromptChange } from '../checks/lib/check-space.js';
 import type { ToolDefinition } from '@koala/agent-engine';
 import { RemoveAccountWorkflow } from './RemoveAccountWorkflow.js';
-import { combineAttempts } from '../lib/check-attempts.js';
-import { ownerIn, startedFor } from '../lib/workflow-owner.js';
-import { LIVE_ACTIVITY } from '../lib/activity-liveness.js';
+import { combineAttempts } from '../checks/lib/check-attempts.js';
+import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
+import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 
 const space = proxyActivities<Pick<CheckRunActivities, 'CheckCreateSpaceActivity' | 'CheckSpaceGoneActivity'>>({
   retry: DESTROY_RETRY,

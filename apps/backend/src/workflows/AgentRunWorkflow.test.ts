@@ -37,9 +37,9 @@ import { createHostNodes, hostNodesFor } from '../engine-host/nodes/index.js';
 import { inMemoryConversations } from '../engine-host/nodes/conversation-nodes.js';
 import { temporal } from '@temporalio/proto';
 import type { DataConverter } from '@temporalio/common';
-import { buildDataConverter } from '../lib/temporal-codec.js';
-import { inMemoryPayloadBlobs } from '../lib/payload-storage.js';
-import { loadKeys } from '../lib/keys.js';
+import { buildDataConverter } from '../platform/lib/temporal-codec.js';
+import { inMemoryPayloadBlobs } from '../platform/lib/payload-storage.js';
+import { loadKeys } from '../platform/lib/keys.js';
 import { PAPER_WRITING } from '../extensions/grove/procedures.js';
 import { timeSkippingTestEnvironment } from './temporal-test-env.js';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -56,7 +56,7 @@ import { LocalMcpServer } from '../../../local-agent/src/local-mcp.js';
 import type { AgentScript } from '../../../local-agent/src/acp-script-agent.js';
 import { EXTERNAL_AGENT_CHAT, EXTERNAL_AGENT_TASK } from '../extensions/external-agents/procedures.js';
 import { payloadRingOver, remoteBlobs, type AskingSocket } from '../../../local-agent/src/remote-blobs.js';
-import { machinePayloads } from '../lib/machine-payloads.js';
+import { machinePayloads } from '../machines/lib/machine-payloads.js';
 import {
   DEFAULT_STREAM_TASK_QUEUE,
   type ProcedureRunInput,

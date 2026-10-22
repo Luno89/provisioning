@@ -4,11 +4,11 @@ import type { RunningItem, RunningKind } from './running'
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: apps/backend/src/lib/cluster-workloads.ts (Workload and its parts),
- * apps/backend/src/lib/platform-services.ts (PlatformService, HelmReleaseJson),
- * apps/backend/src/lib/work-failures.ts (WorkFailure),
- * apps/backend/src/services/ClusterContentsService.ts (ClusterContents, ClusterNode, BrokenWorkload) and
- * apps/backend/src/services/InfrastructureViewService.ts (InfrastructureOverview).
+ * Authority: apps/backend/src/infrastructure/lib/cluster-workloads.ts (Workload and its parts),
+ * apps/backend/src/infrastructure/lib/platform-services.ts (PlatformService, HelmReleaseJson),
+ * apps/backend/src/infrastructure/lib/work-failures.ts (WorkFailure),
+ * apps/backend/src/infrastructure/services/ClusterContentsService.ts (ClusterContents, ClusterNode, BrokenWorkload) and
+ * apps/backend/src/infrastructure/services/InfrastructureViewService.ts (InfrastructureOverview).
  */
 export type WorkloadState = 'ok' | 'starting' | 'warning' | 'down'
 export type WorkloadKind = 'Deployment' | 'StatefulSet' | 'DaemonSet' | 'Job' | 'Pod'

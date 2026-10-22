@@ -4,9 +4,9 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 import axios, { type AxiosInstance, type AxiosResponse } from 'axios';
-import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
-import { signJWT } from '../apps/backend/src/lib/auth.js';
-import { loadKeys } from '../apps/backend/src/lib/keys.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
 const ROOT = process.env.ROUTES_LIVE_ROOT ?? 'http://localhost:3001';
 const ADMIN = process.env.MECHANICS_ADMIN ?? process.env.GROVE_LIVE_OWNER;

@@ -3,7 +3,7 @@ import type { Task } from '../../engine-host/tools/tasks.js';
 import { formatProcedureProblems, readAndCheckProcedure } from '@koala/agent-engine/procedure';
 import type { ExpectedBrowserTests, ProvokedFailure, ScenarioExpectations } from './scenario.js';
 import { platformCatalogue, platformGroups } from '../../extensions/installed.js';
-import { describeChoice, scoreTurn, type TurnReply } from '../../lib/turn-check.js';
+import { describeChoice, scoreTurn, type TurnReply } from '../../checks/lib/turn-check.js';
 
 export interface ToolCallLog {
   runId: string;

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { ToolOutcome } from '@koala/engine-core';
 import { createReleaseTools } from './handlers.js';
-import type { ActionProposal } from '../../../lib/action-proposals.js';
+import type { ActionProposal } from '../../../engine/lib/action-proposals.js';
 
 let saved: ActionProposal[];
 const tools = () => createReleaseTools({

@@ -1,5 +1,5 @@
-import type { McpServerTemplate } from '../../lib/mcp-servers.js';
-import { SHARED_BROWSERS } from '../../lib/browser-tests.js';
+import type { McpServerTemplate } from '../../engine/lib/mcp-servers.js';
+import { SHARED_BROWSERS } from '../../engine/lib/browser-tests.js';
 
 const PORT = 8931;
 

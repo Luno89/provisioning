@@ -39,7 +39,7 @@ export function stateFor(
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Mirrors `StoryDrop` in `apps/backend/src/lib/story-drops.ts`, which is the authority.
+ * Mirrors `StoryDrop` in `apps/backend/src/files/lib/story-drops.ts`, which is the authority.
  */
 export interface StoryDrop {
   id: string;
@@ -60,7 +60,7 @@ export interface LeafAttempt {
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Mirrors `Leaf` in `apps/backend/src/lib/leaves.ts`, which is the authority.
+ * Mirrors `Leaf` in `apps/backend/src/projects/lib/leaves.ts`, which is the authority.
  */
 export interface Leaf {
   id: string;

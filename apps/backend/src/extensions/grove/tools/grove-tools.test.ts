@@ -1,10 +1,10 @@
-import type { ActionProposal } from '../../../lib/action-proposals.js';
+import type { ActionProposal } from '../../../engine/lib/action-proposals.js';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createGroveTools } from './grove-tools.js';
-import type { Branch, Leaf, LeafStatus } from '../../../lib/leaves.js';
-import type { Tree } from '../../../lib/trees.js';
+import type { Branch, Leaf, LeafStatus } from '../../../projects/lib/leaves.js';
+import type { Tree } from '../../../projects/lib/trees.js';
 import { type Task, type TaskStatus } from '../../../engine-host/tools/tasks.js';
-import type { PlanProposal } from '../../../lib/plan-proposals.js';
+import type { PlanProposal } from '../../../projects/lib/plan-proposals.js';
 
 let trees: Tree[] = [];
 let branches: Branch[] = [];

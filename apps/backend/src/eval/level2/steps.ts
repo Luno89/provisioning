@@ -1,6 +1,6 @@
 import type { Scenario } from './scenario.js';
-import { stepProcedureId } from '../../lib/step-check.js';
-import { ODOO_E2E_EXAMPLE, ODOO_PLAYWRIGHT_CONFIG } from '../../lib/project-templates.js';
+import { stepProcedureId } from '../../checks/lib/step-check.js';
+import { ODOO_E2E_EXAMPLE, ODOO_PLAYWRIGHT_CONFIG } from '../../projects/lib/project-templates.js';
 import { MISSING_FIELD_SPEC, PROBE_FILES } from './mechanics.js';
 
 const step = (scenario: Omit<Scenario, 'procedure'>): Scenario => ({ ...scenario, procedure: { id: stepProcedureId(scenario.id) } });

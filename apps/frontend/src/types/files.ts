@@ -1,8 +1,8 @@
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `FileServer`, `FilePlace` and `FileEntry` in apps/backend/src/lib/file-places.ts,
- * `PlaceState` in apps/backend/src/services/FileService.ts, `MessageAttachment` in apps/backend/src/lib/attachments.ts,
- * `FileShare` and `SHARE_DAYS` in apps/backend/src/lib/file-shares.ts.
+ * Authority: `FileServer`, `FilePlace` and `FileEntry` in apps/backend/src/files/lib/file-places.ts,
+ * `PlaceState` in apps/backend/src/files/services/FileService.ts, `MessageAttachment` in apps/backend/src/engine/lib/attachments.ts,
+ * `FileShare` and `SHARE_DAYS` in apps/backend/src/files/lib/file-shares.ts.
  */
 export type FileServerKind = 'minio'
 

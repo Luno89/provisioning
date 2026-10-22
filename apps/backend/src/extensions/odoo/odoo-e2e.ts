@@ -1,5 +1,5 @@
-import { E2E_IGNORED } from '../../lib/e2e.js';
-import { E2E_LOGIN, LOGIN_SCRIPT } from '../../lib/release-e2e.js';
+import { E2E_IGNORED } from '../../engine/lib/e2e.js';
+import { E2E_LOGIN, LOGIN_SCRIPT } from '../../releases/lib/release-e2e.js';
 
 export const ODOO_E2E_HELPERS_AT = '/usr/local/share/koala/odoo.ts';
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MemoryDB } from '../lib/memory-db.js';
+import { MemoryDB } from '../platform/lib/memory-db.js';
 import { INSTALLED_EXTENSIONS } from '../extensions/installed.js';
 import { createEngineHost, storesFromDatabase } from './host.js';
 

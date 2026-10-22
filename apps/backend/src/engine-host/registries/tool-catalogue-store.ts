@@ -1,4 +1,4 @@
-import { withBuiltIns } from '../../lib/ownership.js';
+import { withBuiltIns } from '../../platform/lib/ownership.js';
 import { BUILDER_TOOLS, type ToolDefinition } from '@koala/agent-engine';
 
 export interface ToolReader {

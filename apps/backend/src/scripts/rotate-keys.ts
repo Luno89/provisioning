@@ -3,10 +3,10 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { MongoClient } from 'mongodb';
-import { KEY_NAMES, generateKey, loadKeys } from '../lib/keys.js';
-import { reencrypt } from '../lib/key-rotation.js';
-import { keyId } from '../lib/crypto.js';
-import { generateIdentityKey } from '../lib/identity-token.js';
+import { KEY_NAMES, generateKey, loadKeys } from '../platform/lib/keys.js';
+import { reencrypt } from '../platform/lib/key-rotation.js';
+import { keyId } from '../platform/lib/crypto.js';
+import { generateIdentityKey } from '../instances/lib/identity-token.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ENV_FILE = resolve(here, '../../.env');

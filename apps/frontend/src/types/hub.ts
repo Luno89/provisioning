@@ -1,7 +1,7 @@
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `HubRole`, `HubAction`, `SharedProject`, `HubMember` and `HubInvite` in apps/backend/src/lib/hub.ts,
- * `ProjectView` in apps/backend/src/services/HubService.ts.
+ * Authority: `HubRole`, `HubAction`, `SharedProject`, `HubMember` and `HubInvite` in apps/backend/src/hub/lib/hub.ts,
+ * `ProjectView` in apps/backend/src/hub/services/HubService.ts.
  */
 export type HubRole = 'owner' | 'collaborator' | 'client'
 
@@ -66,7 +66,7 @@ export interface RootInvitation {
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `SharingPreview` in apps/backend/src/services/ProjectSharingService.ts.
+ * Authority: `SharingPreview` in apps/backend/src/projects/services/ProjectSharingService.ts.
  */
 export interface SharingPreview {
   canShare: boolean
@@ -77,8 +77,8 @@ export interface SharingPreview {
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `HubStatus`, `HubRequest` and `HubRequestKind` in apps/backend/src/lib/hub-board.ts,
- * `BoardView`, `ChatSummary` and `Posted` in apps/backend/src/services/HubService.ts.
+ * Authority: `HubStatus`, `HubRequest` and `HubRequestKind` in apps/backend/src/hub/lib/hub-board.ts,
+ * `BoardView`, `ChatSummary` and `Posted` in apps/backend/src/hub/services/HubService.ts.
  */
 export interface HubStatus {
   at: string

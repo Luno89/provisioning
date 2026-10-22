@@ -1,0 +1,151 @@
+import { BaseService } from '../../platform/services/BaseService.js';
+import fs from 'fs/promises';
+import path from 'path';
+import { InfrastructureService } from './InfrastructureService.js';
+import { fileURLToPath } from 'url';
+import type { Database } from '../../platform/lib/db-interface.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = path.resolve(__dirname, '../../../../../');
+
+export class BuilderService extends BaseService {
+  private infra: InfrastructureService;
+  private buildContext = '/tmp/app-build';
+
+  constructor(db: Database, infra: InfrastructureService) {
+    super(db);
+    this.infra = infra;
+  }
+
+  async buildCustomImage(baseImage: string, modules: string[], appType: string = 'odoo', options: any = {}) {
+    const { io, resourceId } = options;
+    const buildId = Date.now();
+    const sanitizedAppType = appType ? appType.toLowerCase() : 'odoo';
+    const tag = `${sanitizedAppType}-custom:${resourceId.slice(0, 8)}-${buildId}`;
+    
+    const folderName = sanitizedAppType === 'odoo' ? 'odoo-custom-modules' : `${sanitizedAppType}-custom-plugins`;
+    const sourceRepo = path.join(PROJECT_ROOT, '..', folderName);
+
+    this.logger.info(`Building custom ${sanitizedAppType} image ${tag} from ${baseImage}`);
+    if (io && resourceId) io.to(resourceId).emit('log', `\n--- STARTING BUILD: ${tag} ---\n`);
+
+    let repoExists = false;
+    try {
+      await fs.access(sourceRepo);
+      repoExists = true;
+    } catch {
+      repoExists = false;
+    }
+
+    const validatorPath = path.join(sourceRepo, 'validate.py');
+    let hasValidator = false;
+    if (repoExists) {
+      try {
+        await fs.access(validatorPath);
+        hasValidator = true;
+      } catch {
+        hasValidator = false;
+      }
+    }
+
+    if (hasValidator) {
+      if (io && resourceId) io.to(resourceId).emit('log', `Running pre-flight validation on modules...\n`);
+      for (const modId of modules) {
+        try {
+          const modPath = path.join(sourceRepo, modId);
+          await this.infra.runCommand('python3', [validatorPath, modPath], 'validate', options);
+          if (io && resourceId) io.to(resourceId).emit('log', `✅ Module ${modId}: OK\n`);
+        } catch (err: any) {
+          const errorMsg = `\n🚨 VALIDATION FAILED for module "${modId}":\n${err.stdout || err.message}\n`;
+          if (io && resourceId) io.to(resourceId).emit('log', errorMsg);
+          throw new Error(`Module validation failed: ${modId}`);
+        }
+      }
+    } else {
+      if (io && resourceId) io.to(resourceId).emit('log', `Skipping validation (no validator script found)\n`);
+    }
+
+    await fs.mkdir(this.buildContext, { recursive: true });
+    
+    const addonsDir = path.join(this.buildContext, 'addons');
+    await fs.rm(addonsDir, { recursive: true, force: true });
+    await fs.mkdir(addonsDir, { recursive: true });
+    
+    if (repoExists) {
+      if (io && resourceId) io.to(resourceId).emit('log', `Copying custom extensions from repository...\n`);
+      for (const modId of modules) {
+        const src = path.join(sourceRepo, modId);
+        const dest = path.join(addonsDir, modId);
+        await this.infra.runCommand('cp', ['-r', src, dest], 'copy-mod', { ...options, env: { CD_DIR: this.buildContext } });
+      }
+    } else {
+      if (io && resourceId) io.to(resourceId).emit('log', `Writing mock extensions for clean installation...\n`);
+      for (const modId of modules) {
+        const destModDir = path.join(addonsDir, modId);
+        await fs.mkdir(destModDir, { recursive: true });
+
+        if (sanitizedAppType === 'odoo') {
+          const manifestContent = `{\n  'name': '${modId}',\n  'version': '1.0',\n  'summary': 'Mock module for testing',\n  'author': 'Local Test'\n}\n`;
+          await fs.writeFile(path.join(destModDir, '__manifest__.py'), manifestContent);
+        } else if (sanitizedAppType === 'wordpress') {
+          const pluginContent = `<?php\n/*\nPlugin Name: ${modId}\nVersion: 1.0\nAuthor: Local Test\n*/\n`;
+          await fs.writeFile(path.join(destModDir, `${modId}.php`), pluginContent);
+        } else if (sanitizedAppType === 'nextcloud') {
+          const infoContent = `<?xml version="1.0"?><info><id>${modId}</id><name>${modId}</name><author>Local Test</author><version>1.0</version></info>`;
+          const appinfoDir = path.join(destModDir, 'appinfo');
+          await fs.mkdir(appinfoDir, { recursive: true });
+          await fs.writeFile(path.join(appinfoDir, 'info.xml'), infoContent);
+        } else {
+          await fs.writeFile(path.join(destModDir, 'metadata.txt'), `Mock metadata for extension ${modId}`);
+        }
+      }
+    }
+
+    let destPaths: string[] = [];
+    if (sanitizedAppType === 'odoo') {
+      destPaths = ['/mnt/extra-addons'];
+    } else if (sanitizedAppType === 'wordpress') {
+      destPaths = ['/opt/bitnami/wordpress/wp-content/plugins', '/var/www/html/wp-content/plugins', '/usr/src/wordpress/wp-content/plugins'];
+    } else if (sanitizedAppType === 'nextcloud') {
+      destPaths = ['/opt/bitnami/nextcloud/custom_apps', '/var/www/html/custom_apps', '/var/www/html/apps'];
+    } else if (sanitizedAppType === 'audiobookshelf') {
+      destPaths = ['/metadata/plugins'];
+    } else if (sanitizedAppType === 'prometheus') {
+      destPaths = ['/etc/prometheus/plugins'];
+    } else if (sanitizedAppType === 'traefik') {
+      destPaths = ['/plugins-local'];
+    } else if (sanitizedAppType === 'jellyfin') {
+      destPaths = ['/config/plugins', '/usr/lib/jellyfin/plugins'];
+    } else if (sanitizedAppType === 'plex') {
+      destPaths = ['/config/Library/Application Support/Plex Media Server/Plug-ins'];
+    } else if (sanitizedAppType === 'navidrome') {
+      destPaths = ['/data/plugins'];
+    } else if (sanitizedAppType === 'kavita') {
+      destPaths = ['/kavita/config/plugins'];
+    } else if (sanitizedAppType === 'immich') {
+      destPaths = ['/usr/src/app/plugins'];
+    } else if (sanitizedAppType === 'papra') {
+      destPaths = ['/data/plugins'];
+    } else if (sanitizedAppType === 'homeassistant') {
+      destPaths = ['/config/custom_components'];
+    }
+
+    let copyInstructions = '';
+    for (const dest of destPaths) {
+      copyInstructions += `RUN mkdir -p ${dest}\nCOPY ./addons /tmp/addons\nRUN cp -r /tmp/addons/* ${dest}/ && rm -rf /tmp/addons\n`;
+    }
+
+    const dockerfile = `
+FROM ${baseImage}
+USER root
+${copyInstructions}
+`;
+
+    await this.infra.buildImage(tag, dockerfile, this.buildContext, options);
+
+    this.logger.info(`Successfully built custom image ${tag}`);
+    if (io && resourceId) io.to(resourceId).emit('log', `\n--- BUILD COMPLETE: ${tag} ---\n`);
+    return tag;
+  }
+}

@@ -4,8 +4,8 @@ import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { PROJECT_REMOVAL_PROGRESS_QUERY, REMOVE_PROJECT_WORKFLOW, removeProjectWorkflowId, type ProjectRemovalStep } from '../lib/project-removal.js';
-import { temporalRemovalWorkflows } from '../services/AccountRemovalService.js';
+import { PROJECT_REMOVAL_PROGRESS_QUERY, REMOVE_PROJECT_WORKFLOW, removeProjectWorkflowId, type ProjectRemovalStep } from '../projects/lib/project-removal.js';
+import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
 import type { ProjectRemovalActivities } from '../activities/RemoveProjectActivities.js';
 import { temporalTestEnvironment } from './temporal-test-env.js';
 

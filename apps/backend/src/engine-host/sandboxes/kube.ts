@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
-import { WORKSPACE_STAMP } from '../../lib/published-workspace.js';
-import { assessWorkload } from '../../lib/workload-health.js';
+import { WORKSPACE_STAMP } from '../../engine/lib/published-workspace.js';
+import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
 import { createReadStream, createWriteStream } from 'fs';
 import path from 'path';
 

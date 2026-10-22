@@ -11,8 +11,8 @@ import {
   type NodeRequest,
   type ToolResult,
 } from '@koala/agent-engine/procedure';
-import { closeTurn, heardAs, NOTICE_PREFIX, openTurn, peopleIn, titleFrom, type ChatKind } from '../../lib/conversations.js';
-import type { Conversation, ConversationMessage, ConversationToolCall } from '../../lib/conversations.js';
+import { closeTurn, heardAs, NOTICE_PREFIX, openTurn, peopleIn, titleFrom, type ChatKind } from '../../engine/lib/conversations.js';
+import type { Conversation, ConversationMessage, ConversationToolCall } from '../../engine/lib/conversations.js';
 
 export interface ConversationStore {
   get(ownerId: string, id: string): Promise<Conversation | undefined>;

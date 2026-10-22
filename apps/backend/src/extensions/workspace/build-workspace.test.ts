@@ -9,8 +9,8 @@ import {
   type NodeImplementation,
   type QuestionRequest,
 } from '@koala/agent-engine/procedure';
-import type { PublishedWorkspace } from '../../lib/published-workspace.js';
-import type { Leaf } from '../../lib/leaves.js';
+import type { PublishedWorkspace } from '../../engine/lib/published-workspace.js';
+import type { Leaf } from '../../projects/lib/leaves.js';
 import { platformCatalogue } from '../installed.js';
 import { createWorkspaceOperations } from './operations/handlers.js';
 import { BUILD_WORKSPACE, DO_NOT_INSTALL, INSTALL_IT } from './procedures.js';
