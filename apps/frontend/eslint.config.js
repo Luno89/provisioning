@@ -94,8 +94,8 @@ const LEGACY = [
   // Slice 4 (the App.tsx modal extraction) retires this one; it is a third of all debt.
   'src/App.tsx',
   // Slice 3.
-  'src/components/NginxView.tsx',
-  'src/components/ClusterWizard.tsx',
+  'src/features/infrastructure/components/NginxView.tsx',
+  'src/features/infrastructure/components/ClusterWizard.tsx',
   // Slice 5 (Grove) and slice 6 (Lab) — mostly `any` on records that want a real shared type.
   'src/components/Chat.tsx',
   // Not yet assigned to a slice: small, and each wants a domain type that does not exist yet.

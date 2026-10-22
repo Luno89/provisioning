@@ -8,14 +8,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, BellRing, Loader2, X } from 'lucide-react';
 import { releaseNotice, toastOf, type ToastKind } from '../features/platform';
 import Sidebar from './Sidebar';
-import { SIDEBAR_PAGES, ShellContextInstance, type ShellContext, type WizardPreset } from '../components/shell-context';
+import { SIDEBAR_PAGES, ShellContextInstance, type ShellContext, type WizardPreset } from '../features/infrastructure';
 import PendingApprovals from '../components/PendingApprovals';
 import Login from '../components/Login.js';
-import ClusterWizard from '../components/ClusterWizard.js';
-import AppDeployWizard from '../components/AppDeployWizard';
-import AppDashboard from '../components/AppDashboard';
-import PendingKeyModal from '../components/PendingKeyModal';
-import NginxWizard from '../components/NginxWizard';
+import { ClusterWizard } from '../features/infrastructure';
+import { AppDeployWizard } from '../features/infrastructure';
+import { AppDashboard } from '../features/infrastructure';
+import { PendingKeyModal } from '../features/infrastructure';
+import { NginxWizard } from '../features/infrastructure';
 import { errorMessage } from '../api/client';
 import { releaseKeys, type OdooRelease } from '../features/releases';
 import { useShellStore, startHistorySync } from '../features/platform';
@@ -29,18 +29,10 @@ import RemoveAccountPage from '../components/Account/RemoveAccountPage';
 import TrialBanner from '../components/TrialBanner';
 import { FirstModel } from '../components/FirstModel';
 import { MovingPage } from '../components/Move/InstanceMove';
-import {
-  listClusters, clusterKeys, type ClusterCreated,
-  provisionCluster as provisionClusterApi,
-  startAwaitingCluster as startAwaitingClusterApi,
-} from '../api/clusters';
-import {
-  listDeployments, deploymentKeys,
-  deployApp as deployAppApi,
-  destroyResource as destroyResourceApi,
-} from '../api/deployments';
-import { listProviders, credentialKeys } from '../api/credentials';
-import { getNginxConfig, saveNginxConfig, nginxKeys } from '../api/nginx';
+import { listClusters, clusterKeys, type ClusterCreated, provisionCluster as provisionClusterApi, startAwaitingCluster as startAwaitingClusterApi } from '../features/infrastructure';
+import { listDeployments, deploymentKeys, deployApp as deployAppApi, destroyResource as destroyResourceApi } from '../features/infrastructure';
+import { listProviders, credentialKeys } from '../features/infrastructure';
+import { getNginxConfig, saveNginxConfig, nginxKeys } from '../features/infrastructure';
 import { useGroveChanges } from '../features/projects';
 
 const TOAST_TONE: Record<ToastKind, { border: string; icon: string }> = {

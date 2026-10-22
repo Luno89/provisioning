@@ -2,7 +2,7 @@ import { getNotifications, notificationKeys, sendTestEmail, setEmailChoice, type
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { accountKeys, getPersonRemoval, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson } from '../../api/account'
 import { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '../../api/instance-addresses'
-import { deploymentKeys } from '../../api/deployments'
+import { deploymentKeys } from '../../features/infrastructure'
 import { accountRemovalPlace } from '../../features/platform'
 
 export { confirmMatches, refusalBlockers, removalText } from './removal-text'

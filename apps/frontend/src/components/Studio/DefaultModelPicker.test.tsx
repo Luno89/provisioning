@@ -3,8 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DefaultModelPicker } from './DefaultModelPicker';
 import * as modelsApi from '../../api/models';
-import * as credentialsApi from '../../api/credentials';
-import * as clustersApi from '../../api/clusters';
+import * as credentialsApi from '../../features/infrastructure/api/credentials';
+import * as clustersApi from '../../features/infrastructure/api/clusters';
 
 vi.mock('../../api/models', async (orig) => ({
   ...(await orig<typeof modelsApi>()),
@@ -13,11 +13,11 @@ vi.mock('../../api/models', async (orig) => ({
   setDefaultModel: vi.fn(),
   setGlobalModelOverride: vi.fn(),
 }));
-vi.mock('../../api/credentials', async (orig) => ({
+vi.mock('../../features/infrastructure/api/credentials', async (orig) => ({
   ...(await orig<typeof credentialsApi>()),
   listLlmProviders: vi.fn().mockResolvedValue([]),
 }));
-vi.mock('../../api/clusters', async (orig) => ({
+vi.mock('../../features/infrastructure/api/clusters', async (orig) => ({
   ...(await orig<typeof clustersApi>()),
   listClusters: vi.fn().mockResolvedValue([]),
 }));

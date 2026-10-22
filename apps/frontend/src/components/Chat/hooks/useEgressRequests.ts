@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query'
 import type { EgressRequest } from '@koala/harness-types'
-import { allowEgress, dismissEgress, egressKeys } from '../../../api/egress'
+import { allowEgress, dismissEgress, egressKeys } from '../../../features/infrastructure'
 import { errorMessage } from '../../../api/client'
 
 export function useEgressRequests(key: QueryKey, list: () => Promise<EgressRequest[]>, enabled: boolean, streaming = false) {

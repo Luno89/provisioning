@@ -11,13 +11,13 @@ vi.mock('../api/models', async (orig) => ({
   useDefaultModel: vi.fn(),
 }));
 
-vi.mock('../api/credentials', async (orig) => ({
-  ...(await orig<typeof import('../api/credentials')>()),
+vi.mock('../features/infrastructure/api/credentials', async (orig) => ({
+  ...(await orig<typeof import('../features/infrastructure/api/credentials')>()),
   listLlmProviders: vi.fn().mockResolvedValue([]),
 }));
 
-vi.mock('../api/clusters', async (orig) => ({
-  ...(await orig<typeof import('../api/clusters')>()),
+vi.mock('../features/infrastructure/api/clusters', async (orig) => ({
+  ...(await orig<typeof import('../features/infrastructure/api/clusters')>()),
   listClusters: vi.fn().mockResolvedValue([]),
 }));
 

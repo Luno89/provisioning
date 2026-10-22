@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Trash2, X } from 'lucide-react'
-import { deleteLlmCredentials, listLlmProviders, openRouterConnectUrl, saveLlmCredentials, type LlmProviderStatus } from '../../api/credentials'
+import { deleteLlmCredentials, listLlmProviders, openRouterConnectUrl, saveLlmCredentials, type LlmProviderStatus } from '../../features/infrastructure'
 import { errorMessage } from '../../api/client'
-import { LLM_PROVIDERS } from '../credential-providers'
+import { LLM_PROVIDERS } from '../../features/infrastructure'
 import { openRouterNoticeFrom, withoutOpenRouterNotice } from '../../lib/openrouter-notice'
 import { DefaultModelPicker } from './DefaultModelPicker'
 

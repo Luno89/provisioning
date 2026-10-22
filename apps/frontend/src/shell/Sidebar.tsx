@@ -14,7 +14,7 @@ import {
 import { listLeaves, listTrees, groveKeys } from '../features/projects';
 import { itemChatAddress } from '../features/projects';
 import { parseHash, formatHash } from '../features/platform';
-import { useRunning } from '../components/Infrastructure/useRunning';
+import { useRunning } from '../features/infrastructure';
 
 export interface SidebarPage {
   id: string;

@@ -3,17 +3,17 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from '../App';
-import * as clustersApi from '../api/clusters';
-import * as deploymentsApi from '../api/deployments';
-import * as nginxApi from '../api/nginx';
+import * as clustersApi from '../features/infrastructure/api/clusters';
+import * as deploymentsApi from '../features/infrastructure/api/deployments';
+import * as nginxApi from '../features/infrastructure/api/nginx';
 import * as authApi from '../features/platform/api';
-import * as credentialsApi from '../api/credentials';
+import * as credentialsApi from '../features/infrastructure/api/credentials';
 
-vi.mock('../api/clusters', async (o) => ({ ...(await o<typeof clustersApi>()), listClusters: vi.fn() }));
-vi.mock('../api/deployments', async (o) => ({ ...(await o<typeof deploymentsApi>()), listDeployments: vi.fn() }));
-vi.mock('../api/credentials', async (o) => ({ ...(await o<typeof credentialsApi>()), listProviders: vi.fn() }));
+vi.mock('../features/infrastructure/api/clusters', async (o) => ({ ...(await o<typeof clustersApi>()), listClusters: vi.fn() }));
+vi.mock('../features/infrastructure/api/deployments', async (o) => ({ ...(await o<typeof deploymentsApi>()), listDeployments: vi.fn() }));
+vi.mock('../features/infrastructure/api/credentials', async (o) => ({ ...(await o<typeof credentialsApi>()), listProviders: vi.fn() }));
 vi.mock('../features/platform/api', async (o) => ({ ...(await o<typeof authApi>()), getMe: vi.fn(), logout: vi.fn() }));
-vi.mock('../api/nginx', async (o) => ({
+vi.mock('../features/infrastructure/api/nginx', async (o) => ({
   ...(await o<typeof nginxApi>()), getNginxConfig: vi.fn(), saveNginxConfig: vi.fn(),
 }));
 

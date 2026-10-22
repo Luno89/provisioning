@@ -4,9 +4,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from '../App';
 import { router } from './router';
 import * as authApi from '../features/platform/api';
-import * as clustersApi from '../api/clusters';
-import * as deploymentsApi from '../api/deployments';
-import * as credentialsApi from '../api/credentials';
+import * as clustersApi from '../features/infrastructure/api/clusters';
+import * as deploymentsApi from '../features/infrastructure/api/deployments';
+import * as credentialsApi from '../features/infrastructure/api/credentials';
 import * as groveApi from '../features/projects/api/grove';
 
 vi.mock('../features/platform/api', async (importOriginal) => ({
@@ -14,15 +14,15 @@ vi.mock('../features/platform/api', async (importOriginal) => ({
   getMe: vi.fn(),
   logout: vi.fn(),
 }));
-vi.mock('../api/clusters', async (importOriginal) => ({
+vi.mock('../features/infrastructure/api/clusters', async (importOriginal) => ({
   ...(await importOriginal<typeof clustersApi>()),
   listClusters: vi.fn().mockResolvedValue([]),
 }));
-vi.mock('../api/deployments', async (importOriginal) => ({
+vi.mock('../features/infrastructure/api/deployments', async (importOriginal) => ({
   ...(await importOriginal<typeof deploymentsApi>()),
   listDeployments: vi.fn().mockResolvedValue([]),
 }));
-vi.mock('../api/credentials', async (importOriginal) => ({
+vi.mock('../features/infrastructure/api/credentials', async (importOriginal) => ({
   ...(await importOriginal<typeof credentialsApi>()),
   listProviders: vi.fn().mockResolvedValue([]),
 }));

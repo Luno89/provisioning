@@ -39,7 +39,7 @@ import { useActionProposals } from './Chat/hooks/useActionProposals.js';
 import { actionKeys, listConversationActions } from '../api/actions.js';
 import EgressRequestCard from './Chat/EgressRequestCard.js';
 import { useEgressRequests } from './Chat/hooks/useEgressRequests.js';
-import { egressKeys, listEgressRequests } from '../api/egress.js';
+import { egressKeys, listEgressRequests } from '../features/infrastructure';
 import AccessRequestCard from './Chat/AccessRequestCard.js';
 import { useAccessRequests } from './Chat/hooks/useAccessRequests.js';
 import { ChatHeader } from './Chat/ChatHeader.js';

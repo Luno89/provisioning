@@ -8,7 +8,7 @@ import { InstanceAddresses } from '../components/Account/InstanceAddresses';
 import { InstanceMove } from '../components/Move/InstanceMove';
 import { Notifications } from '../components/Account/Notifications';
 import { DefaultFileServer } from '../features/files'
-import GoogleDriveCard from '../components/GoogleDriveCard';
+import { GoogleDriveCard } from '../features/infrastructure';
 
 export default function SettingsView() {
   const user = useShellStore((s) => s.user);

@@ -29,7 +29,7 @@ import { canvasContextFor } from '../../lib/procedure-drafts'
 import type { CanvasContext } from '../../lib/procedure-canvas'
 import { agentKeys, deleteAgent, listAgents, listGrantableTools, saveAgent, type Agent } from '../../api/agents'
 import { addMcpServer, captureMcpServer, getMcpCatalogue, listMcpServers, mcpKeys, removeMcpServer, saveMcpServer, type McpServer, type McpServerChange } from '../../api/mcp'
-import { egressKeys, listEgressGrants, revokeEgress } from '../../api/egress'
+import { egressKeys, listEgressGrants, revokeEgress } from '../../features/infrastructure'
 import {
   deleteEngineTool,
   engineToolKeys,

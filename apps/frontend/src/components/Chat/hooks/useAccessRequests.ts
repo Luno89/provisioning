@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { AccessRequest } from '@koala/harness-types'
-import { accessKeys, dismissAccess, grantAccess, listAccessRequests } from '../../../api/cluster-access'
+import { accessKeys, dismissAccess, grantAccess, listAccessRequests } from '../../../features/infrastructure'
 import { errorMessage } from '../../../api/client'
 
 export function useAccessRequests(conversationId: string | null | undefined, streaming = false) {

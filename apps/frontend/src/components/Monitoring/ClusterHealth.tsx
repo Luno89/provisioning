@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { ExternalLink, Loader2 } from 'lucide-react'
 import type { Range } from '../../api/monitoring'
-import { clusterDashboardUrl } from '../../api/clusters'
+import { clusterDashboardUrl } from '../../features/infrastructure'
 import { errorMessage } from '../../api/client'
 import { Chart } from './Chart'
 import { Bar, EpisodeList, FiringList, HistorySetting, RangePicker, Section, StateBadge } from './Parts'

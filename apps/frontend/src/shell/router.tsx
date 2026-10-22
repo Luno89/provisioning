@@ -9,10 +9,10 @@ import {
 import { RootLayout } from './RootLayout';
 import { NginxRoute, ProjectsRoute, VpsCatalogRoute } from './ShellRoutes';
 import ChatPage from '../components/ChatPage';
-import TemporalPanel from '../components/TemporalPanel';
-import InfrastructureView from '../components/Infrastructure/InfrastructureView';
-import MonitoringDetailRedirect from '../components/Infrastructure/MonitoringDetailRedirect';
-import CloudAccounts from '../components/CloudAccounts.js';
+import { TemporalPanel } from '../features/infrastructure';
+import { InfrastructureView } from '../features/infrastructure';
+import { MonitoringDetailRedirect } from '../features/infrastructure';
+import { CloudAccounts } from '../features/infrastructure';
 import MyMachines from '../components/MyMachines.js';
 import { Cpu, Puzzle } from 'lucide-react';
 import ProcedureExplorer from '../components/Studio/ProcedureExplorer';

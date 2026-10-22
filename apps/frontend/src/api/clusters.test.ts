@@ -7,7 +7,7 @@ vi.mock('./client', () => ({
 }))
 
 import { api } from './client'
-import { getGpuStatus } from './clusters'
+import { getGpuStatus } from '../features/infrastructure/api/clusters'
 
 const mocked = vi.mocked(api)
 

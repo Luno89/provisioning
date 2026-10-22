@@ -4,8 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TreeModels } from './TreeModels'
 import * as groveApi from '../../api/grove'
 import * as modelsApi from '../../../../api/models'
-import * as credentialsApi from '../../../../api/credentials'
-import * as clustersApi from '../../../../api/clusters'
+import * as credentialsApi from '../../../infrastructure/api/credentials'
+import * as clustersApi from '../../../infrastructure/api/clusters'
 import * as localAgentsApi from '../../../../api/local-agents'
 import { machineChoiceLabel } from '../../../../lib/machine-rows'
 import type { ModelProvider } from '../../../../api/models'
@@ -19,11 +19,11 @@ vi.mock('../../../../api/models', async (orig) => ({
   ...(await orig<typeof modelsApi>()),
   listModels: vi.fn(),
 }))
-vi.mock('../../../../api/credentials', async (orig) => ({
+vi.mock('../../../infrastructure/api/credentials', async (orig) => ({
   ...(await orig<typeof credentialsApi>()),
   listLlmProviders: vi.fn(async () => []),
 }))
-vi.mock('../../../../api/clusters', async (orig) => ({
+vi.mock('../../../infrastructure/api/clusters', async (orig) => ({
   ...(await orig<typeof clustersApi>()),
   listClusters: vi.fn(async () => [{ id: 'c1', name: 'provisioning-lunorica' }]),
 }))

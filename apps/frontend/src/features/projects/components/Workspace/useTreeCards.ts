@@ -7,7 +7,7 @@ import { listTreeSecretRequests, secretRequestKeys } from '../../api/secret-requ
 import { useActionProposals } from '../../../../components/Chat/hooks/useActionProposals.js'
 import { actionKeys, listTreeActions } from '../../../../api/actions.js'
 import { useEgressRequests } from '../../../../components/Chat/hooks/useEgressRequests.js'
-import { egressKeys, listEgressRequests } from '../../../../api/egress.js'
+import { egressKeys, listEgressRequests } from '../../../infrastructure'
 
 const ADOPTING_POLL_MS = 3_000
 const SHOWN: PlanProposal['status'][] = ['proposed', 'adopting', 'failed']
