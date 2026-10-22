@@ -7,7 +7,7 @@ export interface AppEnvArgs {
   serviceType?: string | undefined;
   physicalName: string;
   strategy: string;
-  sanitizedName: string;
+  namespace: string;
   deploymentId: string;
   kubeconfigPath: string;
   provider: string;
@@ -194,7 +194,7 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     STACK_TYPE: 'app',
     CLUSTER_NAME: a.physicalName,
     DEPLOYMENT_STRATEGY: a.strategy,
-    DEPLOYMENT_NAME: a.sanitizedName,
+    DEPLOYMENT_NAME: a.namespace,
     DEPLOYMENT_ID: a.deploymentId,
     KUBECONFIG: a.kubeconfigPath,
     KUBECONFIG_CONTEXT: (a.provider === 'k3d' || a.isMock) ? `k3d-${a.physicalName}` : '',

@@ -51,7 +51,7 @@ describe('buildAppEnv provider handling', () => {
   const base = {
     physicalName: 'c1',
     strategy: 'native',
-    sanitizedName: 'app',
+    namespace: 'app',
     deploymentId: 'dep1',
     kubeconfigPath: '/tmp/kubeconfig-c1',
     appType: 'audiobookshelf',

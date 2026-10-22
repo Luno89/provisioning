@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import type { Database } from '../../platform/lib/db-interface.js';
-import { sanitizeNamespace } from '../../models/lib/model-registry.js';
 import {
   APP_CHARTS, APP_QUESTIONS, CLUSTER_CHARTS, CLUSTER_QUESTIONS, RANGE_SECONDS, stepFor,
   type AppChart, type AppSubject, type ClusterChart, type Range,
@@ -21,6 +20,7 @@ import {
 } from '../lib/monitoring-history.js';
 import type { AlertEpisode, MonitoringSetting } from '../lib/monitoring-records.js';
 import { K3S_TRAEFIK_CONFIG, k3sConfigState, ourTraefikArgs, servicesLabelled, traefikOf, type HelmRelease } from '../../platform/lib/request-metrics.js';
+import { namespaceOf } from '../../infrastructure/lib/app-namespace.js';
 
 export interface Sample {
   metric: Record<string, string>;
@@ -201,8 +201,6 @@ export class MonitoringError extends Error {
 const first = (samples: Sample[]): number | undefined => (samples[0] && Number.isFinite(samples[0].value) ? samples[0].value : undefined);
 
 const COUNTED: ReadonlySet<string> = new Set(['probed', 'podsRunning', 'podsBroken', 'nodesNotReady', 'podsPending']);
-
-export const namespaceOf = (dep: Pick<DeploymentMetadata, 'name' | 'namespace'>): string => dep.namespace || sanitizeNamespace(dep.name);
 
 export class MonitoringService {
   private readonly now: () => Date;

@@ -47,6 +47,7 @@ async function nodeAllocatableBytes(
 
 export interface DeployAppArgs {
   name: string;
+  namespace?: string | undefined;
   clusterId: string;
   clusterName: string;
   provider: string;
@@ -138,7 +139,7 @@ export async function DeployAppActivity(
   const infra = new InfrastructureService();
   const builder = new BuilderService({} as unknown as Database, infra);
   const logFile = args.logFile;
-  const sanitizedName = SANITIZE(args.name);
+  const namespace = args.namespace ?? SANITIZE(args.name);
 
   const DEFAULT_APP_REPOS: Record<string, { repo: string; tag: string }> = {
     odoo: { repo: 'library/odoo', tag: 'latest' },
@@ -335,7 +336,7 @@ export async function DeployAppActivity(
       }, (kind) => (kind === 'username' ? 'koala' : randomBytes(24).toString('hex')));
       renderedSpec = renderApp(stored.spec, {
         id: deploymentId,
-        namespace: sanitizedName,
+        namespace: namespace,
         serviceType: appServiceType(placedOnPool(process.env, physicalName), isSelfManagedCluster(args.provider, isMock)),
         secrets,
       });
@@ -377,11 +378,11 @@ export async function DeployAppActivity(
         const manifest = JSON.stringify({
           apiVersion: 'v1',
           kind: 'Secret',
-          metadata: { name: secretName, namespace: sanitizedName },
+          metadata: { name: secretName, namespace: namespace },
           type: 'Opaque',
           stringData: files,
         });
-        const manifestPath = path.join(os.tmpdir(), `binding-${sanitizedName}-${b.name}-${Date.now()}.json`);
+        const manifestPath = path.join(os.tmpdir(), `binding-${namespace}-${b.name}-${Date.now()}.json`);
         try {
           await fs.writeFile(manifestPath, manifest, { encoding: 'utf-8', mode: 0o600 });
           await infra.runKubectl(['apply', '-f', manifestPath], kubeconfigPath);
@@ -405,7 +406,7 @@ export async function DeployAppActivity(
     ...(bindingsJson ? { bindingsJson } : {}),
     physicalName,
     strategy: args.strategy,
-    sanitizedName,
+    namespace,
     deploymentId,
     kubeconfigPath,
     provider: args.provider,
@@ -493,7 +494,7 @@ export async function DeployAppActivity(
     const registryHost = await gitea.getRegistryHost();
     const deployToken = await gitea.createDeployToken();
     const secretYaml = await infra.runKubectl(
-      ['create', 'secret', 'docker-registry', 'gitea-registry', '-n', sanitizedName,
+      ['create', 'secret', 'docker-registry', 'gitea-registry', '-n', namespace,
         `--docker-server=${registryHost}`, `--docker-username=${gitea.adminUsername}`, `--docker-password=${deployToken.token}`,
         '--dry-run=client', '-o', 'yaml'],
       kubeconfigPath,
@@ -518,9 +519,9 @@ export async function DeployAppActivity(
           const infisical = new InfisicalService(infra, masterKey, '/tmp/kubeconfig-provisioning-lunorica', undefined, sharedClusterProxy());
           const synced = await syncProjectSecrets(
             { infra, vault: infisical, projects: secretDb.projects, masterKey },
-            { project, namespace: sanitizedName, kubeconfig: kubeconfigPath, target },
+            { project, namespace: namespace, kubeconfig: kubeconfigPath, target },
           );
-          console.log(`[DeployAppActivity] ${project.name}: vault syncs into ${sanitizedName}-secrets from ${synced.hostAPI} (operator ${synced.operator})`);
+          console.log(`[DeployAppActivity] ${project.name}: vault syncs into ${namespace}-secrets from ${synced.hostAPI} (operator ${synced.operator})`);
         }
       }
     } finally {
@@ -530,7 +531,7 @@ export async function DeployAppActivity(
 
   if (args.appType === 'palworld') {
     const exists = await infra
-      .runKubectl(['get', 'secret', 'palworld-secrets', '-n', sanitizedName], kubeconfigPath)
+      .runKubectl(['get', 'secret', 'palworld-secrets', '-n', namespace], kubeconfigPath)
       .then(() => true)
       .catch(() => false);
 
@@ -538,7 +539,7 @@ export async function DeployAppActivity(
       const { randomBytes } = await import('crypto');
       const gen = () => randomBytes(18).toString('base64url');
       const secretYaml = await infra.runKubectl(
-        ['create', 'secret', 'generic', 'palworld-secrets', '-n', sanitizedName,
+        ['create', 'secret', 'generic', 'palworld-secrets', '-n', namespace,
           `--from-literal=ADMIN_PASSWORD=${gen()}`,
           `--from-literal=SERVER_PASSWORD=${gen()}`,
           `--from-literal=RCON_PASSWORD=${gen()}`,
@@ -553,7 +554,7 @@ export async function DeployAppActivity(
         await fs.rm(tmpPath, { force: true }).catch(() => {});
       }
       await infra
-        .runKubectl(['rollout', 'restart', 'deployment/palworld', '-n', sanitizedName], kubeconfigPath)
+        .runKubectl(['rollout', 'restart', 'deployment/palworld', '-n', namespace], kubeconfigPath)
         .catch((err: any) => console.warn(`[DeployAppActivity] palworld restart after secret creation failed: ${err.message}`));
     }
   }

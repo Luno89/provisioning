@@ -2,6 +2,7 @@ import path from 'path';
 import { isCommitSha, type BuildPlan } from '../../releases/lib/build-plan.js'
 import { stopIfRunning } from '../../platform/lib/stop-workflow.js'
 import { looksLikeMcp, namespaceOfDeployment } from '../../engine/lib/mcp-registry.js'
+import { namespaceOf } from '../lib/app-namespace.js'
 import { cachedProbes } from '../../engine/lib/mcp-probe-url.js'
 import { healthFromProbe } from '../lib/service-health.js'
 import { fileURLToPath } from 'url';
@@ -31,7 +32,7 @@ import { sharedClusterProxy } from './ClusterProxyService.js'
 import { indexMemories, similarTo } from '../../memory/lib/memory-index.js'
 import { assessWorkload, reconciledStatus } from '../lib/workload-health.js'
 import { InfrastructureService } from './InfrastructureService.js'
-import { sanitizeNamespace, isModelKind } from '../../models/lib/model-registry.js'
+import { isModelKind } from '../../models/lib/model-registry.js'
 import type { Database } from '../../platform/lib/db-interface.js'
 import type { WaitingAsk } from '../../engine/lib/turn-log.js'
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata } from '../../platform/lib/types.js'
@@ -558,7 +559,7 @@ export class TemporalBridge {
           try {
             const kubeconfig = await resolveKubeconfig(dep.clusterId)
             if (!kubeconfig) continue
-            const namespace = dep.namespace || sanitizeNamespace(dep.name)
+            const namespace = namespaceOf(dep)
             const raw = await new InfrastructureService().runKubectl(['get', 'pods', '-n', namespace, '-o', 'json'], kubeconfig)
             const { health, reason } = assessWorkload(JSON.parse(raw))
 
@@ -1017,6 +1018,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
     const activityArgs = {
       name: dep.name,
+      namespace: dep.namespace,
       clusterId: dep.clusterId,
       clusterName: cluster?.name || 'unknown',
       provider: cluster?.provider || 'k3d',

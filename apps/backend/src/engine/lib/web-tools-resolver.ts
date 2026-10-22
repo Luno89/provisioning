@@ -1,6 +1,7 @@
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import { createWebTools, type WebTools } from './web-tools.js';
 import type { InfrastructureStore } from '../../infrastructure/store.js';
+import { namespaceOf } from '../../infrastructure/lib/app-namespace.js';
 
 export interface ProxyTarget {
   service: string;
@@ -8,7 +9,6 @@ export interface ProxyTarget {
   remotePort: number;
 }
 
-const sanitize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
 export interface WebToolsDeps {
   db: Pick<InfrastructureStore, 'getDeployments'>;
@@ -52,7 +52,7 @@ async function baseUrlFor(
       console.warn(`[web-tools] ${service} deployment "${dep.name}" has no resolvable kubeconfig for cluster ${dep.clusterId}`);
       return undefined;
     }
-    const ns = sanitize(dep.name);
+    const ns = namespaceOf(dep);
     const url = await deps.serviceUrl(dep.clusterId!, `${service}-${dep.id}`, kubeconfig, {
       service, namespace: ns, remotePort,
     });

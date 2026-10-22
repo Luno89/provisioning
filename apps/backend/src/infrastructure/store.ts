@@ -87,7 +87,8 @@ export class MongoInfrastructureStore implements InfrastructureStore {
   async ensureIndexes(): Promise<void> {
     await this.clusters.createIndex({ name: 1 }, { unique: true });
     await this.deployments.createIndex({ clusterId: 1 });
-    await this.deployments.createIndex({ name: 1 }, { unique: true });
+    await this.deployments.dropIndex('name_1').catch(() => undefined);
+    await this.deployments.createIndex({ ownerId: 1, name: 1 }, { unique: true });
   }
 
   async getClusters(): Promise<ClusterMetadata[]> {

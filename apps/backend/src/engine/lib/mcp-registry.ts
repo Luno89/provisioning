@@ -1,15 +1,15 @@
 import type { DeploymentMetadata } from '../../platform/lib/types.js';
 import { clusterUrl } from '../../infrastructure/lib/cluster-dns.js';
 import type { McpTool } from './mcp-client.js';
-import { sanitizeNamespace } from '../../models/lib/model-registry.js';
+import { namespaceOf } from '../../infrastructure/lib/app-namespace.js';
 
 export const GITAPP_SERVICE = 'gitapp';
 
-export function namespaceOfDeployment(dep: Pick<DeploymentMetadata, 'name'>): string {
-  return sanitizeNamespace(dep.name);
+export function namespaceOfDeployment(dep: Pick<DeploymentMetadata, 'name' | 'namespace'>): string {
+  return namespaceOf(dep);
 }
 
-export function mcpUrlFor(dep: Pick<DeploymentMetadata, 'name'>, namespace = namespaceOfDeployment(dep), port = 8080): string {
+export function mcpUrlFor(dep: Pick<DeploymentMetadata, 'name' | 'namespace'>, namespace = namespaceOfDeployment(dep), port = 8080): string {
   return clusterUrl({ service: GITAPP_SERVICE, namespace, port }, { path: '/mcp' });
 }
 

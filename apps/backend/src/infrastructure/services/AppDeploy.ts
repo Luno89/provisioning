@@ -1,6 +1,8 @@
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import type { Client } from '@temporalio/client';
 import { deploymentIdFor } from '../lib/deployment-id.js';
+import { newAppNamespace, sameOwner } from '../lib/app-namespace.js';
 import { resolveCloudCredentials } from '../lib/credential-resolver.js';
 import { decryptValue, type SecretKey } from '../../platform/lib/crypto.js';
 import type { Database } from '../../platform/lib/db-interface.js';
@@ -55,15 +57,17 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
 
     const unresolved = await deps.db.infrastructure.getDeployments()
     let [dep] = unresolved.filter((d: DeploymentMetadata) => {
-      if (config.name && d.name === config.name && d.clusterId === config.clusterId) return true
-      if (config.id && d.id === config.id) return true
+      if (config.name && d.name === config.name && d.clusterId === config.clusterId && sameOwner(d, userId)) return true
+      if (config.id && d.id === config.id && sameOwner(d, userId)) return true
       return false
     })
     if (!dep) {
+      const id = config.id || randomUUID()
       dep = {
         status: 'deploying',
-        id: config.id || config.name,
+        id,
         name: config.name,
+        namespace: config.namespace || newAppNamespace(config.name, id),
         clusterId: config.clusterId,
         strategy: config.strategy || 'helm',
         appType: config.appType || 'odoo',
@@ -180,6 +184,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
 
     const activityArgs = {
       name: dep.name,
+      namespace: dep.namespace,
       clusterId: dep.clusterId,
       clusterName: targetCluster?.name || 'unknown',
       provider: targetCluster?.provider || 'k3d',
@@ -261,7 +266,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
       appSettings: dep.appSettings,
     }
 
-    deps.db.infrastructure.saveDeploymentInfo({
+    await deps.db.infrastructure.saveDeploymentInfo({
       ...dep,
       id: dep.id || dep.name,
       status: 'deploying',

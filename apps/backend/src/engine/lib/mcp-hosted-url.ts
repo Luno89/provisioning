@@ -3,7 +3,7 @@ import type { ServerRuns } from './mcp-servers.js';
 import type { DeploymentMetadata } from '../../platform/lib/types.js';
 
 export function hostedMcpUrl(deps: {
-  deployments: () => Promise<readonly Pick<DeploymentMetadata, 'id' | 'name' | 'ownerId' | 'status'>[]>;
+  deployments: () => Promise<readonly Pick<DeploymentMetadata, 'id' | 'name' | 'namespace' | 'ownerId' | 'status'>[]>;
   probeUrl: (namespace: string) => Promise<string | undefined>;
 }): (ownerId: string, runs: Extract<ServerRuns, { where: 'hosted' }>) => Promise<string | undefined> {
   return async (ownerId, runs) => {

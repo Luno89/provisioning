@@ -44,7 +44,7 @@ export function providerFromDeployment(dep: DeploymentMetadata): ModelProvider |
   const spec = llmAppSpec(dep.appType) ?? (dep.llmApi ? specFromTag(dep.llmApi, dep.appType ?? 'custom') : undefined);
   if (!spec) return undefined;
 
-  const namespace = sanitizeNamespace(dep.name);
+  const namespace = dep.namespace || sanitizeNamespace(dep.name);
   if (!namespace) return undefined;
 
   const model = (llmAppSpec(dep.appType) ? dep[spec.modelField] : dep.llmApi?.model) ?? '';

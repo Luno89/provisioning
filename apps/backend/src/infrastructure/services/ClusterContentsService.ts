@@ -4,7 +4,8 @@ import {
   type NamespaceJson, type PodJson, type UsageSample, type Workload, type WorkloadScope,
 } from '../lib/cluster-workloads.js';
 import { platformServices, type HelmReleaseJson, type PlatformService } from '../lib/platform-services.js';
-import { MonitoringError, namespaceOf, type MetricsClient, type Sample, type Viewer } from '../../monitoring/services/MonitoringService.js';
+import { namespaceOf } from '../lib/app-namespace.js';
+import { MonitoringError, type MetricsClient, type Sample, type Viewer } from '../../monitoring/services/MonitoringService.js';
 
 export interface ClusterNode {
   name: string;

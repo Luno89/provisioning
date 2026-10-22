@@ -9,6 +9,7 @@ import { Context } from '@temporalio/activity';
 
 export interface SyncConfigArgs {
   name: string;
+  namespace?: string | undefined;
   clusterId: string;
   clusterName: string;
   provider: string;
@@ -74,7 +75,7 @@ export async function SyncConfigActivity(
 ): Promise<SyncConfigResult> {
   const infra = new InfrastructureService();
   const logFile = args.logFile;
-  const sanitizedName = SANITIZE(args.name);
+  const namespace = args.namespace ?? SANITIZE(args.name);
 
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
   const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
@@ -92,7 +93,7 @@ export async function SyncConfigActivity(
   const env = buildAppEnv({
     physicalName,
     strategy: args.strategy,
-    sanitizedName,
+    namespace,
     deploymentId,
     kubeconfigPath,
     provider: args.provider,
@@ -147,21 +148,21 @@ export async function SyncConfigActivity(
   await infra.deploy(`app-${physicalName}-${deploymentId}`, { logFile, env });
 
   try {
-    await infra.runKubectl(['rollout', 'restart', 'deployment', '-n', sanitizedName], kubeconfigPath);
+    await infra.runKubectl(['rollout', 'restart', 'deployment', '-n', namespace], kubeconfigPath);
   } catch (err: any) {
-    console.warn(`[SyncConfigActivity] rollout restart failed in namespace ${sanitizedName}: ${err.message}`);
+    console.warn(`[SyncConfigActivity] rollout restart failed in namespace ${namespace}: ${err.message}`);
   }
 
   if (args.appType === 'openwebui') {
     try {
       await waitUntilRolledOut({
-        kubectl: (kubectlArgs) => infra.runKubectl(['-n', sanitizedName, ...kubectlArgs], kubeconfigPath),
+        kubectl: (kubectlArgs) => infra.runKubectl(['-n', namespace, ...kubectlArgs], kubeconfigPath),
         apply: async () => undefined,
       }, 'deployment/open-webui', { beat: () => { try { Context.current().heartbeat(); } catch { return; } } });
     } catch (err: any) {
       console.warn(`[SyncConfigActivity] open-webui cannot become ready: ${err.message} — attempting the config push anyway`);
     }
-    await pushOpenWebUiWebSearchConfig(infra, kubeconfigPath, sanitizedName, {
+    await pushOpenWebUiWebSearchConfig(infra, kubeconfigPath, namespace, {
       ...(args.webuiEnableWebSearch !== undefined ? { enableWebSearch: args.webuiEnableWebSearch } : {}),
       ...(args.webuiWebSearchEngine !== undefined ? { webSearchEngine: args.webuiWebSearchEngine } : {}),
       ...(args.webuiWebSearchApiKey !== undefined ? { webSearchApiKey: args.webuiWebSearchApiKey } : {}),
