@@ -15,6 +15,20 @@ import { clustersRouter } from '../routes/clusters.js';
 import { credentialsRouter } from '../routes/credentials.js';
 import { deploymentsRouter } from '../routes/deployments.js';
 import { llmCredentialsRouter } from '../routes/llm-credentials.js';
+import type WorkerService from '../services/WorkerService.js';
+import type { GitModuleService } from '../services/GitModuleService.js';
+import type { RegistryService } from '../services/RegistryService.js';
+import type { VpsCatalogService } from '../services/VpsCatalogService.js';
+import { appSchemasRouter } from '../routes/app-schemas.js';
+import { clusterProvidersRouter } from '../routes/cluster-providers.js';
+import { logsRouter } from '../routes/logs.js';
+import { modulesRouter } from '../routes/modules.js';
+import { nginxRouter } from '../routes/nginx.js';
+import { pendingApprovalsRouter } from '../routes/pending-approvals.js';
+import { registryRouter } from '../routes/registry.js';
+import { temporalRouter } from '../routes/temporal.js';
+import { vpsCatalogRouter } from '../routes/vps-catalog.js';
+import { workerRouter } from '../routes/worker.js';
 import type { Mounts } from './hub.js';
 
 export interface InfrastructureWiringDeps {
@@ -34,6 +48,12 @@ export interface InfrastructureWiringDeps {
   gitea: GiteaService;
   infisical: InfisicalService;
   exposure: AppExposureService;
+  instanceOwner: string | undefined;
+  nginxConfPath: string;
+  vpsCatalog: VpsCatalogService;
+  worker: WorkerService;
+  registry: RegistryService;
+  gitModules: GitModuleService;
 }
 
 export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
@@ -48,4 +68,14 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   tenant.use('/api/deployments', deploymentsRouter({
     appService: deps.apps, clusterService: deps.clusters, appExposureService: deps.exposure, infraService: deps.infra, temporalBridge: deps.temporalBridge, db, io,
   }));
+  tenant.use('/api/pending-approvals', pendingApprovalsRouter({ db }));
+  tenant.use('/api/cluster-providers', clusterProvidersRouter({ db }));
+  tenant.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService: deps.vpsCatalog }));
+  tenant.use('/api/temporal', temporalRouter({ temporalBridge: deps.temporalBridge, instanceOwner: deps.instanceOwner }));
+  tenant.use('/api/worker', workerRouter({ workerService: deps.worker }));
+  tenant.use('/api/nginx', nginxRouter({ infraService: deps.infra, nginxConfPath: deps.nginxConfPath }));
+  tenant.use('/api/logs', logsRouter({ db, clusterService: deps.clusters, appService: deps.apps }));
+  tenant.use('/api/registry', registryRouter({ registryService: deps.registry }));
+  tenant.use('/api/modules', modulesRouter({ gitModuleService: deps.gitModules }));
+  tenant.use('/api/app-schemas', appSchemasRouter({}));
 }

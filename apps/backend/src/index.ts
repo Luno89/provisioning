@@ -84,7 +84,6 @@ import { AgentChangeService } from './services/AgentChangeService.js';
 import { fingerprintOf } from './lib/bench.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
-import { pendingApprovalsRouter } from './routes/pending-approvals.js';
 import { startedFor } from './lib/workflow-owner.js';
 import { poolSettingsFrom } from './lib/pool.js';
 import { keepTrying } from './lib/keep-trying.js';
@@ -100,16 +99,7 @@ import { askDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDev
 import { MachineService } from './services/MachineService.js';
 import { RootMeshKeys } from './services/RootMeshKeys.js';
 import { asyncRoute } from './middleware/async-route.js';
-import { clusterProvidersRouter } from './routes/cluster-providers.js';
-import { vpsCatalogRouter } from './routes/vps-catalog.js';
 import { modelsRouter } from './routes/models.js';
-import { temporalRouter } from './routes/temporal.js';
-import { workerRouter } from './routes/worker.js';
-import { nginxRouter } from './routes/nginx.js';
-import { logsRouter } from './routes/logs.js';
-import { registryRouter } from './routes/registry.js';
-import { modulesRouter } from './routes/modules.js';
-import { appSchemasRouter } from './routes/app-schemas.js';
 import { ownsProject, ownedBy } from './lib/ownership.js';
 import { createDatabase, sharedPayloadBlobs, type Database } from './lib/db-interface.js';
 import { migrateLegacyOwnership } from './lib/migrate-ownership.js';
@@ -961,10 +951,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     ? [role.instance.ownerId]
     : (await db.getUsers()).filter((user) => user.isAdmin).map((user) => user.id));
   const { monitoring } = wireMonitoring({ tenant, db, role, env: process.env, io, clusters: clusterService, infra: infraService, proxy: clusterProxyService, notices, notifications, mail, systemOwners });
+  const workerService = new WorkerService();
   wireInfrastructure({
     tenant, db, io, dataKey: keys.data, publicUrl: PUBLIC_URL, appUrl: APP_URL, repoRoot: path.join(__dirname, '../../..'),
     credentials: credentialService, clusters: clusterService, apps: appService, proxy: clusterProxyService, infra: infraService,
-    temporalBridge, gitea: giteaService, infisical: infisicalService, exposure: appExposureService,
+    temporalBridge, gitea: giteaService, infisical: infisicalService, exposure: appExposureService, instanceOwner: role.instance?.ownerId,
+    nginxConfPath: path.join(__dirname, '../data/nginx/nginx.conf'), vpsCatalog: vpsCatalogService, worker: workerService, registry: registryService, gitModules: gitModuleService,
   });
 
   const getOwnedProject = async (id: string, user: any): Promise<any | undefined> => {
@@ -1006,9 +998,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
 
 
-  const NGINX_CONF_PATH = path.join(__dirname, '../data/nginx/nginx.conf');
 
-  const workerService = new WorkerService();
 
   const projectRemoval = new ProjectRemovalService({
     store: db,
@@ -1036,19 +1026,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   setInterval(sweepArtifacts, 24 * 60 * 60 * 1000).unref();
   void sweepArtifacts();
   wireMachines({ tenant, db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, headscale: headscaleService, projectRepos: projectRepoService });
-  tenant.use('/api/pending-approvals', pendingApprovalsRouter({ db }));
-  tenant.use('/api/cluster-providers', clusterProvidersRouter({ db }));
-  tenant.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService }));
   tenant.use('/api/checks', checksRouter({ scripted: new ScriptedModelService({ store: db, dataKey: keys.data }) }));
   wireAccounts({ app, role, env: process.env, db, temporalBridge, hubPeople: hub.hubPeople, requireAdmin, clearSession: (res) => res.clearCookie('session', auth.sessionCookieOptions) });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
-  tenant.use('/api/temporal', temporalRouter({ temporalBridge, instanceOwner: role.instance?.ownerId }));
-  tenant.use('/api/worker', workerRouter({ workerService }));
-  tenant.use('/api/nginx', nginxRouter({ infraService, nginxConfPath: NGINX_CONF_PATH }));
-  tenant.use('/api/logs', logsRouter({ db, clusterService, appService }));
-  tenant.use('/api/registry', registryRouter({ registryService }));
-  tenant.use('/api/modules', modulesRouter({ gitModuleService }));
-  tenant.use('/api/app-schemas', appSchemasRouter({}));
 
   const ownedConversations = async (userId: string) =>
     (await db.getConversations()).filter((c) => c.ownerId === userId);
