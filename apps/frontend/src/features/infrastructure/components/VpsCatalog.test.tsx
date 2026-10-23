@@ -35,10 +35,10 @@ const cpuOnly = {
   label: 'Linode 4GB', ramGb: 4,
 };
 
-const renderWith = (offers: unknown[], onDeploy?: (o: any) => void) => {
+const renderWith = (offers: unknown[], onDeploy?: (o: any) => void, sources?: unknown[]) => {
   vi.mocked(vpsApi.getVpsCatalog).mockResolvedValue({
     offers,
-    sources: [{ provider: 'vultr', status: 'ok', offerCount: offers.length, requiresCredentials: false, cached: false }],
+    sources: sources ?? [{ provider: 'vultr', status: 'ok', offerCount: offers.length, requiresCredentials: false, cached: false }],
     fetchedAt: new Date().toISOString(),
   } as never);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -149,5 +149,53 @@ describe('Deploy button', () => {
     renderWith([deployable]);
     await waitFor(() => expect(screen.getByText('cx33')).toBeDefined());
     expect(deployBtn('cx33')).toBeNull();
+  });
+});
+
+describe('OVH prices for a subsidiary', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const auPlan = {
+    ...base, id: 'ovh:vps-2027-model2', provider: 'ovh', planId: 'vps-2027-model2', label: 'VPS-2 2027',
+    ramGb: 8, priceMonthly: 14.9, currency: 'AUD', hourlyBilling: false, locations: ['SYD', 'SGP'],
+    pricePerGbRam: 14.9 / 8,
+    priceParts: [
+      { label: 'plan', planCode: 'vps-2027-model2', amount: 14 },
+      { label: 'backup', planCode: 'option-auto-backup-2027-1-model2', amount: 0.9 },
+    ],
+  };
+  const auSource = {
+    provider: 'ovh', status: 'ok', offerCount: 1, requiresCredentials: false, cached: false,
+    market: { subsidiary: 'AU', currency: 'AUD', taxRate: 10 },
+  };
+
+  it('says which subsidiary and currency the prices were read for', async () => {
+    renderWith([auPlan], undefined, [auSource]);
+    await waitFor(() => expect(screen.getByText('vps-2027-model2')).toBeDefined());
+    expect(screen.getByText(/prices for AU in AUD/).textContent).toContain('prices for AU in AUD');
+  });
+
+  it('shows the price paid in AUD with its parts', async () => {
+    renderWith([auPlan], undefined, [auSource]);
+    await waitFor(() => expect(screen.getByText('vps-2027-model2')).toBeDefined());
+    const priceCell = screen.getByText('vps-2027-model2').closest('tr')!.querySelectorAll('td')[9]!;
+    expect(priceCell.textContent).toContain('A$14.90');
+    expect(priceCell.textContent).toContain('AUD · ex. tax');
+    expect(priceCell.textContent).toContain('plan A$14.00 + backup A$0.90');
+  });
+
+  it('shows no breakdown for a plan priced whole', async () => {
+    renderWith([cpuOnly]);
+    await waitFor(() => expect(screen.getByText('g6-standard-2')).toBeDefined());
+    const priceCell = screen.getByText('g6-standard-2').closest('tr')!.querySelectorAll('td')[9]!;
+    expect(priceCell.textContent).toBe('$20.00USD · ex. tax');
+  });
+
+  it('shows why a provider is unavailable, such as an unknown subsidiary', async () => {
+    renderWith([], undefined, [{
+      provider: 'ovh', status: 'error', offerCount: 0, requiresCredentials: false, cached: false,
+      message: 'OVH_SUBSIDIARY=NZ is not an OVHcloud subsidiary; known ones are ASIA, AU, CA',
+    }]);
+    await waitFor(() => expect(screen.getByText(/OVH_SUBSIDIARY=NZ/)).toBeDefined());
   });
 });

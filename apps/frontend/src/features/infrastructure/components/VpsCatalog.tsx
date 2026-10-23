@@ -7,7 +7,7 @@ import { errorMessage } from '../../../api/client';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { RefreshCw, Loader2, AlertTriangle, Check, Server, Info, ArrowUp, ArrowDown } from 'lucide-react';
 
-const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€' };
+const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€', AUD: 'A$', CAD: 'C$', GBP: '£' };
 
 const hasGpuOffer = (o: VpsOffer) => Boolean(o.gpuCount || o.gpuVramGb || o.gpuModel);
 
@@ -198,10 +198,15 @@ export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = '
                       {' '}· {s.skippedNoPrice} unpriced
                     </span>
                   ) : null}
+                  {s.market && (
+                    <span title={`Prices as ${s.provider} lists them for its ${s.market.subsidiary} subsidiary, in ${s.market.currency}${s.market.taxRate ? ` before ${s.market.taxRate}% tax` : ''}`}>
+                      {' '}· prices for {s.market.subsidiary} in {s.market.currency}
+                    </span>
+                  )}
                 </span>
               )}
               {s.status === 'no-credentials' && <span className="text-slate-600">add a token to include</span>}
-              {s.status === 'error' && <span className="text-slate-500">unavailable</span>}
+              {s.status === 'error' && <span className="text-slate-500">{s.message ?? 'unavailable'}</span>}
             </div>
           ))}
         </div>
@@ -289,6 +294,11 @@ export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = '
                   <div className="text-[10px] text-slate-600">
                     {o.currency}{!o.taxIncluded && ' · ex. tax'}
                   </div>
+                  {o.priceParts && (
+                    <div className="text-[10px] text-slate-500 whitespace-nowrap" title={o.priceParts.map((p) => `${p.label}: ${p.planCode}`).join('\n')}>
+                      {o.priceParts.map((p) => `${p.label} ${money(p.amount, o.currency)}`).join(' + ')}
+                    </div>
+                  )}
                 </td>
                 <td className="text-right pr-5 py-3">
                   {onDeploy && o.provisionable && (
