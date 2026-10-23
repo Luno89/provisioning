@@ -1412,8 +1412,14 @@ typechecking.
 ### One-time setup
 
 ```bash
-git config core.hooksPath .githooks   # pre-push typecheck
+git config core.hooksPath .githooks
 ```
+
+The pre-push hook typechecks before any push. **A push to `main` takes the whole first gate**: typecheck, lint, both unit
+suites, and `routes-live` when the dev stack answers on :3001 with `MECHANICS_ADMIN` set, about three minutes, the same
+set `.github/workflows/ci.yml` runs. It is pre-push and not pre-commit because a hook that costs a minute per commit gets
+bypassed within a day; `git push --no-verify` is there for when you mean it. The release gates beyond this one are in
+`~/.claude/plans/release-pipeline.md`.
 
 ## TypeScript quirks
 
