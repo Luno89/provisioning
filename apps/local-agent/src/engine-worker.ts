@@ -2,6 +2,7 @@ import { Context } from '@temporalio/activity';
 import { Worker, NativeConnection } from '@temporalio/worker';
 import { buildDataConverter, type BlobReach, type Keyring } from '@koala/engine-core/payloads';
 import { executeTool, heartbeatWhileRunning, type ExternalAgentStepArgs, type ExternalAgentStepResult, type MachineGitOp, type MachineGitResult, type ToolContract } from '@koala/engine-core';
+import { traceActivities } from '@koala/engine-core/telemetry';
 import { createLocalFsDriver } from './local-fs-driver.js';
 import type { ExternalAgentSessions } from './external-agents.js';
 
@@ -116,7 +117,7 @@ export async function startDeviceWorker(options: DeviceWorkerOptions): Promise<W
     connection,
     taskQueue,
     dataConverter: buildDataConverter(options.payloads.ring, options.payloads.blobs),
-    interceptors: { activity: [heartbeatWhileRunning()] },
+    interceptors: { activity: [heartbeatWhileRunning(), traceActivities()] },
     ...(options.namespace ? { namespace: options.namespace } : {}),
     activities: createDeviceActivities(options),
   });

@@ -18,6 +18,8 @@ import { ExternalAgentSessions } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
 import { payloadRingOver, remoteBlobs } from './remote-blobs.js';
 import { DeviceWorkerHost } from './device-worker-host.js';
+import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
+import { socketSink } from './telemetry-sink.js';
 
 const activeContainers = new Set<string>();
 
@@ -87,6 +89,7 @@ async function main() {
   const containerMode = docker.ok;
 
   const socket = io(`${backendUrl}/agent`, { auth: { token, containerMode }, reconnection: true });
+  startTelemetry({ service: 'koala-machine', ...(config.deviceId ? { machineId: config.deviceId } : {}), sink: socketSink(socket), log: (line) => console.warn(`[koala-local-agent] ${line}`) });
   const mcp = new LocalMcpServer({ log: (line) => console.log(`[koala-local-agent] ${line}`) });
   await mcp.start();
   const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp });
