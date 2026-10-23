@@ -175,7 +175,9 @@ Services live in their area's `services/` folder (`apps/backend/src/<area>/servi
 All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAuth` from `platform/middleware/auth.ts`'s `createAuth()`, mounted in `bootstrap()`, except `/auth/login`, `/auth/register`, `/auth/2fa/verify`, and the GitHub/Google OAuth routes. When `IS_E2E=true`, `requireAuth` short-circuits to a mock user so Playwright doesn't need to log in. GitHub/Google OAuth fall back to a zero-setup local mock flow when their client env vars are blank; 2FA SMS falls back to a logged warning when Twilio env vars are blank.
 
 **Limits and headers.** Sign-in, sign-up, 2FA, handoffs, invites, joins and share links are rate limited per address
-(`platform/lib/http-limits.ts`, mounted on `/api` before the guard), an account is locked for fifteen minutes after ten wrong
+(`platform/lib/http-limits.ts`, mounted on `/api` before the guard; sign-in and joining count only **failed** requests
+against the address, since a guess fails and a person succeeds, so a run of live suites signing up throwaway accounts
+never trips it, while every opening of a share link counts), an account is locked for fifteen minutes after ten wrong
 passwords (`lockedUntil`), every response carries `helmet`'s headers, and the proxy is trusted in production. **The SPA's
 content security policy** (`platform/lib/csp.ts`: same-origin scripts, sockets and frames, inline styles allowed, blob workers and
 media, nothing framed from elsewhere) is sent as `Content-Security-Policy-Report-Only` in production until `CSP=enforce`

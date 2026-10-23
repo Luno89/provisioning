@@ -255,6 +255,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     message: { error: rule.said },
+    skipSuccessfulRequests: rule.countsOnlyFailures,
     skip: (req) => ruleFor(req.path)?.name !== rule.name,
   })));
   const credentialService = new CredentialService(db, keys.data);

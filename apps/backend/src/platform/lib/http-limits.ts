@@ -5,6 +5,7 @@ export interface RateLimitRule {
   windowMs: number;
   max: number;
   said: string;
+  countsOnlyFailures: boolean;
 }
 
 const MINUTES = 60_000;
@@ -17,6 +18,7 @@ export const RATE_LIMITS: readonly RateLimitRule[] = [
     windowMs: 15 * MINUTES,
     max: 30,
     said: 'Too many sign-in attempts from this address; wait fifteen minutes and try again.',
+    countsOnlyFailures: true,
   },
   {
     name: 'joining',
@@ -25,6 +27,7 @@ export const RATE_LIMITS: readonly RateLimitRule[] = [
     windowMs: 15 * MINUTES,
     max: 60,
     said: 'Too many requests from this address; wait a few minutes and try again.',
+    countsOnlyFailures: true,
   },
   {
     name: 'share-links',
@@ -33,6 +36,7 @@ export const RATE_LIMITS: readonly RateLimitRule[] = [
     windowMs: 15 * MINUTES,
     max: 300,
     said: 'This link was opened too many times from this address; wait a few minutes and try again.',
+    countsOnlyFailures: false,
   },
 ];
 
