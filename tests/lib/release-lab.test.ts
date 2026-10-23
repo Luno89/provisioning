@@ -7,11 +7,11 @@ describe('the release lab', () => {
   });
 
   it('points the app and mesh names at root in a hosts line', () => {
-    expect(labHostsLine('koala.localhost', '10.77.0.1')).toBe('10.77.0.1 app.koala.localhost mesh.koala.localhost');
+    expect(labHostsLine('koala.internal', '10.77.0.1')).toBe('10.77.0.1 app.koala.internal mesh.koala.internal');
   });
 
   it('answers every name under the domain with root from dnsmasq on the lan and loopback only', () => {
-    expect(labDnsmasq('koala.localhost', '10.77.0.1')).toBe('bind-interfaces\nlisten-address=10.77.0.1,127.0.0.1\naddress=/koala.localhost/10.77.0.1\n');
+    expect(labDnsmasq('koala.internal', '10.77.0.1')).toBe('bind-interfaces\nlisten-address=10.77.0.1,127.0.0.1\naddress=/koala.internal/10.77.0.1\n');
   });
 
   it('keeps a trail of what root reported, without repeats', () => {

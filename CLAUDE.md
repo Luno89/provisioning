@@ -911,7 +911,10 @@ rehearsal: the app and mesh names are checked against this host's own resolver (
 wildcard is the tester's to resolve), Caddy signs with its own certificate authority, which the host then trusts
 (`/usr/local/share/ca-certificates/koala-lab.crt`), no Cloudflare token is needed, the mail records are printed rather than
 published, and `PUBLIC_URL` may be given (the rehearsal gives `http://app.<domain>:3001`, since the pods of an instance trust
-only public authorities). With `ROOT_TLS=cloudflare`, the default, nothing changes. `update.sh` also finds Temporal by its
+only public authorities). The lab's domain must be one Caddy keeps to its own authority without being told, since the app and
+mesh sites take automatic certificates: the rehearsal uses `koala.internal`, never a name under `.localhost`, which curl resolves
+to the asking machine itself whatever DNS says, so an instance's self-upgrade check-in could never reach root. With
+`ROOT_TLS=cloudflare`, the default, nothing changes. `update.sh` also finds Temporal by its
 compose label (the dev container name never existed on a root node, so the in-flight check never refused), publishes the image
 when run again on the commit it is on (a fresh root's first publish), skips a build its registry already holds, waits for the
 backend until it answers or its unit dies, and puts `INSTANCE_IMAGE_TAG` back when it rolls root back.

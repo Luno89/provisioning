@@ -10,7 +10,7 @@ import { endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, labDnsmasq
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PREVIOUS_REF = process.env.RELEASE_LIVE_PREVIOUS ?? 'v2026.10.23';
-const DOMAIN = 'koala.localhost';
+const DOMAIN = 'koala.internal';
 const ROOT_LAN = '10.77.0.1';
 const INSTANCE_LAN = '10.77.0.2';
 const ROOT_PORT = 3001;
