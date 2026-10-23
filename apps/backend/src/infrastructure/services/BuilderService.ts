@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { InfrastructureService } from './InfrastructureService.js';
 import { fileURLToPath } from 'url';
+import { elapsedSeconds, koalaMetrics } from '@koala/engine-core/telemetry';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -141,7 +142,14 @@ USER root
 ${copyInstructions}
 `;
 
-    await this.infra.buildImage(tag, dockerfile, this.buildContext, options);
+    const buildStartedAt = Date.now();
+    try {
+      await this.infra.buildImage(tag, dockerfile, this.buildContext, options);
+      koalaMetrics().imageBuildSeconds.record(elapsedSeconds(buildStartedAt), { kind: 'app', outcome: 'ok' });
+    } catch (err) {
+      koalaMetrics().imageBuildSeconds.record(elapsedSeconds(buildStartedAt), { kind: 'app', outcome: 'failed' });
+      throw err;
+    }
 
     this.logger.info(`Successfully built custom image ${tag}`);
     if (io && resourceId) io.to(resourceId).emit('log', `\n--- BUILD COMPLETE: ${tag} ---\n`);

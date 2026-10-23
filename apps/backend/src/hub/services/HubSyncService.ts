@@ -5,6 +5,7 @@ import type { HubMemberName } from '../lib/hub-sync.js';
 import type { HubRequest, HubStatus } from '../lib/hub-board.js';
 import type { HubInstanceWork, InstanceAnswer, InstanceCall } from './HubInstanceWork.js';
 import type { RelayAnswer, RelayCall } from './HubRelay.js';
+import { elapsedSeconds, koalaMetrics } from '@koala/engine-core/telemetry';
 
 export interface HubSyncTransport {
   push(link: HubLink, changes: RecordChange[]): Promise<{ through: number }>;
@@ -288,16 +289,25 @@ export class HubSyncService {
     await this.deps.transport.answer(link, call.id, answer).catch((err: Error) => this.deps.log?.(`hub sync: an answer to the hub was lost: ${err.message}`));
   }
 
+  private async timed<T>(step: string, run: () => Promise<T>): Promise<T> {
+    const startedAt = Date.now();
+    try {
+      return await run();
+    } finally {
+      koalaMetrics().hubSyncSeconds.record(elapsedSeconds(startedAt), { step });
+    }
+  }
+
   async once(): Promise<void> {
     if (this.busy) return;
     this.busy = true;
     try {
-      await this.pushOnce();
-      await this.pullOnce();
-      await this.syncRepos();
-      await this.carryOutRequests();
-      await this.sendStatus();
-      await this.followRelays();
+      koalaMetrics().hubChangesSent.add(await this.timed('push', () => this.pushOnce()));
+      await this.timed('pull', () => this.pullOnce());
+      await this.timed('repos', () => this.syncRepos());
+      await this.timed('requests', () => this.carryOutRequests());
+      await this.timed('status', () => this.sendStatus());
+      await this.timed('relays', () => this.followRelays());
     } finally {
       this.busy = false;
     }

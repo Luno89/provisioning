@@ -2,6 +2,7 @@ import type { EnvironmentDriver, EnvironmentScope, EnvironmentSpec } from '@koal
 import { workspaceStamp } from '../../engine/lib/published-workspace.js';
 import type { RunTicket } from '../temporal/contracts.js';
 import type { RunWorkspace } from './workspace.js';
+import { elapsedSeconds, koalaMetrics, withSpan } from '@koala/engine-core/telemetry';
 
 export interface ProvisionForRun {
   id: string;
@@ -73,18 +74,22 @@ export function createRunEnvironments(options: RunEnvironmentOptions): RunEnviro
       const inFlight = starting.get(key);
       if (inFlight) return inFlight;
 
-      const attempt = options.provision({
+      const askedAt = Date.now();
+      const measure = (outcome: string) => koalaMetrics().sandboxProvisionSeconds.record(elapsedSeconds(askedAt), { outcome, kind: spec.kind });
+      const attempt = withSpan('sandbox.provision', { 'koala.run.id': ticket.runId, 'koala.sandbox.kind': spec.kind, 'koala.sandbox.shared': base !== own }, () => options.provision({
         id: base,
         ticket,
         spec,
         ...(workspace ? { workspace } : {}),
         ...(scope ? { scope } : {}),
-      }).then((driver) => {
+      })).then((driver) => {
         live.set(key, { driver, startedAt: now(), owned: base === own, runId: ticket.runId, ...(stamp ? { stamp } : {}) });
         starting.delete(key);
+        measure('ok');
         return driver;
       }).catch((err: unknown) => {
         starting.delete(key);
+        measure('failed');
         throw err;
       });
 

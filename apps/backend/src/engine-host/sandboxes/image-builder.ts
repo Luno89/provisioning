@@ -3,6 +3,7 @@ import type { KubeRunner } from './kube.js';
 import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
 import { forPushing, kanikoRegistryArgs, type RegistryHosts } from '../../instances/lib/registry-hosts.js';
 import { dockerConfigJson } from '../../instances/lib/registry-pull.js';
+import { elapsedSeconds, koalaMetrics, withSpan } from '@koala/engine-core/telemetry';
 
 export const BUILD_NAMESPACE = 'pipeline-builds';
 
@@ -323,26 +324,35 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
       const reference = await target(plan);
       if (await exists(plan).catch(() => false)) return reference;
 
-      await apply(plan, reference);
+      const startedAt = Date.now();
+      const measure = (outcome: string) => koalaMetrics().imageBuildSeconds.record(elapsedSeconds(startedAt), { kind: 'workspace', outcome });
+      return withSpan('image.build', { 'koala.image.kind': 'workspace', 'koala.image.fingerprint': plan.fingerprint }, async () => {
+        await apply(plan, reference);
 
-      let restarted = 0;
+        let restarted = 0;
 
-      for (;;) {
-        const state = await standing(plan);
+        for (;;) {
+          const state = await standing(plan);
 
-        if (state.state === 'ready') return reference;
-        if (state.state === 'failed') {
-          throw new ImageBuildError(`The workspace image did not build: ${state.detail ?? 'no reason given'}`);
-        }
-        if (state.state === 'unbuilt') {
-          if (restarted >= BUILD_RESTARTS) {
-            throw new ImageBuildError('The workspace image build job disappeared, and starting it again did not stick');
+          if (state.state === 'ready') {
+            measure('ok');
+            return reference;
           }
-          restarted += 1;
-          await apply(plan, reference);
+          if (state.state === 'failed') {
+            measure('failed');
+            throw new ImageBuildError(`The workspace image did not build: ${state.detail ?? 'no reason given'}`);
+          }
+          if (state.state === 'unbuilt') {
+            if (restarted >= BUILD_RESTARTS) {
+              measure('failed');
+              throw new ImageBuildError('The workspace image build job disappeared, and starting it again did not stick');
+            }
+            restarted += 1;
+            await apply(plan, reference);
+          }
+          await sleep(pollMs);
         }
-        await sleep(pollMs);
-      }
+      });
     },
   };
 }
