@@ -1,5 +1,5 @@
 import { render, screen, within, fireEvent } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import ChatMessageRow from './ChatMessageRow.js';
 
 describe('ChatMessageRow — User and Assistant turn rendering', () => {
@@ -94,6 +94,29 @@ describe('ChatMessageRow — User and Assistant turn rendering', () => {
     expect(within(now).getByText('search_web')).toBeInTheDocument();
     expect(within(now).getByText(/running/i)).toBeInTheDocument();
     expect(screen.queryByText('one')).not.toBeInTheDocument();
+  });
+
+  it('folds calls that made files into the counts and gathers the files behind one toggle', () => {
+    const onOpenDocument = vi.fn();
+    render(
+      <ChatMessageRow
+        onOpenDocument={onOpenDocument}
+        message={{
+          role: 'assistant',
+          content: 'Saved the sources.',
+          toolCalls: [
+            { id: 'w1', name: 'write_file', ok: true, digest: 'ok', artifacts: [{ kind: 'file', workspace: 'ws', path: 'sources/a.md' }] },
+            { id: 'w2', name: 'write_file', ok: true, digest: 'ok', artifacts: [{ kind: 'file', workspace: 'ws', path: 'sources/b.md' }] },
+          ],
+        }}
+      />
+    );
+
+    expect(screen.getByText('×2')).toBeInTheDocument();
+    expect(screen.queryByText('sources/a.md')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('2 things made'));
+    fireEvent.click(screen.getByText('sources/b.md'));
+    expect(onOpenDocument).toHaveBeenCalledWith({ kind: 'file', workspace: 'ws', path: 'sources/b.md' });
   });
 
   it('shows only the counts once the turn has ended', () => {

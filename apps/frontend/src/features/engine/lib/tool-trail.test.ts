@@ -43,14 +43,22 @@ describe('a run\'s tool calls, counted by tool', () => {
     expect(toolTrail(calls, false).current).toEqual([])
   })
 
-  it('keeps a hand-off and a call that made files apart from the counts, since they hold what the person opens', () => {
+  it('keeps a hand-off apart from the counts, since it carries its own trail', () => {
     const handOff = { id: 'h', name: 'research', running: true, child: { steps: [] } }
-    const wrote = { id: 'w', name: 'write_file', ok: true, digest: 'ok', artifacts: [{ kind: 'file' }] }
-    const trail = toolTrail([done('1', 'search_web'), handOff, wrote], true)
+    const trail = toolTrail([done('1', 'search_web'), handOff], true)
 
-    expect(trail.apart.map((call) => call.id)).toEqual(['h', 'w'])
+    expect(trail.apart.map((call) => call.id)).toEqual(['h'])
     expect(trail.groups.map((group) => group.name)).toEqual(['search_web'])
     expect(trail.current.map((call) => call.id)).toEqual(['1'])
+  })
+
+  it('counts calls that made files like any other, and gathers what they made in the order it was made', () => {
+    const wrote = (id: string, path: string) => ({ id, name: 'write_file', ok: true, digest: 'ok', artifacts: [{ kind: 'file', path }] })
+    const trail = toolTrail([wrote('1', 'a.md'), done('2', 'search_web'), wrote('3', 'b.md')], false)
+
+    expect(trail.apart).toEqual([])
+    expect(trail.groups.map((group) => [group.name, group.calls.length])).toEqual([['write_file', 2], ['search_web', 1]])
+    expect(trail.made).toEqual([{ kind: 'file', path: 'a.md' }, { kind: 'file', path: 'b.md' }])
   })
 
   it('reads a call with no answer yet as running, and only a finished call that said no as failed', () => {

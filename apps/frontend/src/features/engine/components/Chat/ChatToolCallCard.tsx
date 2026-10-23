@@ -173,7 +173,9 @@ export function ChatToolCallCard({ tool, onOpenDocument }: { tool: ToolCallData;
 
 export function ToolCallTrail({ tools, live, onOpenDocument }: { tools: ToolCallData[]; live: boolean; onOpenDocument?: ((file: FileArtifact) => void) | undefined }) {
   const [opened, setOpened] = useState<string | undefined>(undefined);
+  const [showMade, setShowMade] = useState(false);
   const trail = toolTrail(tools, live);
+  const madeLabel = `${trail.made.length} ${trail.made.length === 1 ? 'thing' : 'things'} made`;
   const openedGroup = trail.groups.find((group) => group.name === opened);
   if (tools.length === 0) return null;
 
@@ -209,6 +211,27 @@ export function ToolCallTrail({ tools, live, onOpenDocument }: { tools: ToolCall
               {group.failed > 0 && <span className="text-red-400">{group.failed} failed</span>}
             </button>
           ))}
+          {trail.made.length > 0 && (
+            <button
+              type="button"
+              aria-expanded={showMade}
+              onClick={() => setShowMade(!showMade)}
+              className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-sans cursor-pointer transition-colors ${
+                showMade
+                  ? 'border-emerald-700/70 bg-emerald-950/40 text-slate-100'
+                  : 'border-[var(--bark-800,#1b2620)] bg-[var(--bark-900,#111814)]/60 text-emerald-300/90 hover:bg-[var(--bark-800,#1b2620)]/50'
+              }`}
+            >
+              <FileText size={11} className="shrink-0" />
+              <span>{madeLabel}</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {showMade && trail.made.length > 0 && (
+        <div className="pl-2 border-l border-[var(--bark-800,#1b2620)]">
+          <ArtifactList artifacts={trail.made} onOpenDocument={onOpenDocument} />
         </div>
       )}
 
