@@ -51,7 +51,7 @@ export class MetricsService {
         if (ended) return;
         ended = true;
         const seconds = Number(process.hrtime.bigint() - started) / 1e9;
-        const route = routeOf(req.path);
+        const route = routeOf(req.originalUrl.split('?')[0] ?? req.path);
         const status = String(res.statusCode);
         this.requests.observe({ method: req.method, route, status }, seconds);
         koalaMetrics().httpRequestSeconds.record(seconds, { method: req.method, route, status });

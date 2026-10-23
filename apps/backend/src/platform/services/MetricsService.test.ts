@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import express, { Router } from 'express';
 import { MetricsService, routeOf } from './MetricsService.js';
 
 describe('metrics about Koala itself', () => {
@@ -19,5 +20,27 @@ describe('metrics about Koala itself', () => {
     const text = await metrics.text();
     expect(text).toContain('koala_work_failures_total{kind="chat",role="combined"} 2');
     expect(text).toContain('process_cpu_user_seconds_total');
+  });
+
+  it('names a request by its whole path, even when a nested router answered it', async () => {
+    const metrics = new MetricsService({ token: 'secret', role: 'combined' });
+    const app = express();
+    app.use(metrics.middleware());
+    const inner = Router();
+    inner.post('/runs', async (_req, res) => { await Promise.resolve(); res.json({ ok: true }); });
+    app.use('/api/evals/level2', inner);
+    const server = app.listen(0, '127.0.0.1');
+    await new Promise<void>((listening) => server.once('listening', listening));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const answer = await fetch(`http://127.0.0.1:${port}/api/evals/level2/runs?x=1`, { method: 'POST' });
+      expect(answer.status).toBe(200);
+      await new Promise<void>((done) => setImmediate(done));
+      const text = await metrics.text();
+      expect(text).toContain('route="/api/evals/level2/runs"');
+      expect(text).not.toContain('route="/runs"');
+    } finally {
+      server.close();
+    }
   });
 });
