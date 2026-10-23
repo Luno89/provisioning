@@ -57,10 +57,10 @@ published() {
 
 ensure_cdktf_bindings() {
   local infra="$REPO_DIR/packages/cdktf-infra" missing=() provider name work
-  for provider in $(node -e 'for (const p of require(process.argv[1]).terraformProviders) console.log(p)' "$infra/cdktf.json"); do
+  while IFS= read -r provider; do
     name="${provider%@*}"; name="${name##*/}"
     [ -d "$infra/.gen/providers/$name" ] || missing+=("$provider")
-  done
+  done < <(node -e 'for (const p of require(process.argv[1]).terraformProviders) console.log(p)' "$infra/cdktf.json")
   [ "${#missing[@]}" -eq 0 ] && return 0
   warn "the checkout has no CDKTF bindings for ${missing[*]}; generating them"
   work="$(mktemp -d "$infra/.gen-missing-XXXXXX")"
