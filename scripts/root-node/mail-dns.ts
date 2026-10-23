@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { dkimValue, mailDnsActions, mailHost, type DnsRecord } from '../../apps/backend/src/lib/mail-dns.js';
+import { dkimValue, mailDnsActions, mailHost, type DnsRecord } from '../../apps/backend/src/platform/lib/mail-dns.js';
 
 const [domain, ip, selector = 'koala'] = process.argv.slice(2);
 const token = process.env.CLOUDFLARE_API_TOKEN;

@@ -19,6 +19,8 @@ set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/opt/nowrinkles}"
 SERVICE="${SERVICE:-nowrinkles}"
+REGISTRY="${REGISTRY:-127.0.0.1:5000}"
+IMAGE_REPO="nowrinkles/app"
 FORCE=0
 TARGET_REF=""
 
@@ -39,29 +41,89 @@ step() { echo -e "\n${GREEN}▶${NC} $1"; }
 [ "$(id -u)" -eq 0 ] || die "Run as root — this restarts a systemd unit."
 [ -d "$REPO_DIR/.git" ] || die "No repo at ${REPO_DIR}. Run bootstrap.sh first."
 cd "$REPO_DIR"
+BACKEND_ENV="apps/backend/.env"
+
+set_backend_env() {
+  if grep -q "^$1=" "$BACKEND_ENV"; then
+    sed -i "s|^$1=.*|$1=$2|" "$BACKEND_ENV"
+  else
+    echo "$1=$2" >> "$BACKEND_ENV"
+  fi
+}
+
+published() {
+  curl -fsS "http://${REGISTRY}/v2/${IMAGE_REPO}/tags/list" 2>/dev/null | grep -q "\"$1\""
+}
 
 # ── 1. Don't interrupt a tenant ────────────────────────────────────────────────────────────────
 # A restart mid-provision is survivable — Temporal keeps workflow state, so the activity resumes on
 # the new process rather than losing the cluster. But it does burn one of ProvisionClusterActivity's
 # three attempts, and a tenant watching a VM come up deserves better than a random extra retry.
 step "Checking for work in flight"
-RUNNING=""
-if docker ps --format '{{.Names}}' | grep -q provisioning-temporal-1; then
-  RUNNING="$(docker exec provisioning-temporal-1 temporal workflow list --address temporal:7233 2>/dev/null | grep -c ' Running ' || true)"
-fi
-if [ -n "$RUNNING" ] && [ "$RUNNING" -gt 0 ] 2>/dev/null; then
-  if [ "$FORCE" -eq 1 ]; then
-    warn "${RUNNING} workflow(s) running — continuing anyway (--force)"
-  else
-    die "${RUNNING} workflow(s) are running. Wait, or re-run with --force (costs them one retry attempt)."
-  fi
+TEMPORAL="$(docker ps --filter label=com.docker.compose.service=temporal --format '{{.Names}}' | head -1)"
+if [ -z "$TEMPORAL" ]; then
+  warn "No Temporal container is running, so nothing can be in flight"
 else
-  ok "Nothing in flight"
+  LISTED="$(docker exec "$TEMPORAL" temporal workflow list --address temporal:7233 --query 'ExecutionStatus="Running"' 2>&1)" || die "Could not list the workflows in flight: ${LISTED}"
+  RUNNING="$(printf '%s\n' "$LISTED" | grep -c ' Running ' || true)"
+  if [ "$RUNNING" -gt 0 ]; then
+    if [ "$FORCE" -eq 1 ]; then
+      warn "${RUNNING} workflow(s) running — continuing anyway (--force)"
+    else
+      die "${RUNNING} workflow(s) are running. Wait, or re-run with --force (costs them one retry attempt)."
+    fi
+  else
+    ok "Nothing in flight"
+  fi
 fi
 
 # ── 2. Remember where we were ──────────────────────────────────────────────────────────────────
 PREVIOUS_COMMIT="$(git rev-parse HEAD)"
-ok "Currently on ${PREVIOUS_COMMIT:0:12}"
+PREVIOUS_TAG="$(grep -E '^INSTANCE_IMAGE_TAG=' "$BACKEND_ENV" 2>/dev/null | cut -d= -f2- || true)"
+ok "Currently on ${PREVIOUS_COMMIT:0:12}${PREVIOUS_TAG:+, instances on ${PREVIOUS_TAG}}"
+
+publish_image() {
+  step "Publishing the instance image"
+  local tag="$1" image="${REGISTRY}/${IMAGE_REPO}:$1"
+  if published "$tag"; then
+    ok "the registry already holds ${image}"
+  else
+    local cache=()
+    if [ -n "$PREVIOUS_TAG" ] && published "$PREVIOUS_TAG"; then cache=(--cache-from "${REGISTRY}/${IMAGE_REPO}:${PREVIOUS_TAG}"); fi
+    DOCKER_BUILDKIT=1 docker build -q --build-arg BUILDKIT_INLINE_CACHE=1 "${cache[@]}" -t "$image" . >/dev/null || return 1
+    docker push -q "$image" >/dev/null || return 1
+    ok "built and pushed ${image}"
+  fi
+  set_backend_env INSTANCE_IMAGE_TAG "$tag"
+  ok "instances move to ${tag} the next time they check in (hourly)"
+}
+
+# A 401 counts as healthy: /api is session-gated, so anything other than a connection failure
+# proves the server is up and routing. Checking for 200 would fail on a perfectly good deploy.
+wait_for_backend() {
+  local restarts waited=0
+  restarts="$(systemctl show -p NRestarts --value "$SERVICE")"
+  while :; do
+    CODE="$(curl -s -o /dev/null -w '%{http_code}' -m 5 http://127.0.0.1:3001/api/clusters || echo 000)"
+    [ "$CODE" != "000" ] && return 0
+    systemctl is-active --quiet "$SERVICE" || return 1
+    [ "$(systemctl show -p NRestarts --value "$SERVICE")" = "$restarts" ] || return 1
+    waited=$((waited + 2))
+    [ $((waited % 30)) -eq 0 ] && echo "  still waiting for the backend (${waited}s)"
+    sleep 2
+  done
+}
+
+restart_and_check() {
+  step "Restarting ${SERVICE}"
+  systemctl restart "$SERVICE"
+  step "Waiting for it to come back"
+  if wait_for_backend; then
+    ok "Backend responding"
+    return 0
+  fi
+  return 1
+}
 
 # ── 3. Best-effort snapshot ────────────────────────────────────────────────────────────────────
 # Insurance against the machine itself breaking. NOT used for rollback — see the header.
@@ -95,8 +157,19 @@ REF="${TARGET_REF:-origin/main}"
 # Side effect: bootstrap.sh's `git pull --ff-only` no longer applies, which is why it only warns.
 git checkout --detach "$REF" || die "Could not check out '${REF}'"
 NEW_COMMIT="$(git rev-parse HEAD)"
+RELEASE_TAG="$(git rev-parse --short=12 HEAD)"
 if [ "$NEW_COMMIT" = "$PREVIOUS_COMMIT" ]; then
-  ok "Already on ${NEW_COMMIT:0:12} — nothing to do"
+  ok "Already on ${NEW_COMMIT:0:12}"
+  if published "$RELEASE_TAG" && [ "$PREVIOUS_TAG" = "$RELEASE_TAG" ]; then
+    ok "and its image is published — nothing to do"
+    exit 0
+  fi
+  publish_image "$RELEASE_TAG" || die "Could not build or push the instance image"
+  if systemctl is-active --quiet "$SERVICE"; then
+    restart_and_check || die "The backend did not come back after restarting with INSTANCE_IMAGE_TAG=${RELEASE_TAG}. Check: journalctl -u ${SERVICE} -n 100"
+  else
+    ok "${SERVICE} is not running; it serves ${RELEASE_TAG} once started"
+  fi
   exit 0
 fi
 ok "Now on ${NEW_COMMIT:0:12} ($(git log -1 --format=%s | cut -c1-60))"
@@ -129,23 +202,11 @@ if ! build_and_check; then
 fi
 ok "Build, typecheck and lint clean"
 
+publish_image "$RELEASE_TAG" || warn "could not build or push the instance image — instances stay on the version they run"
+
 # A release that adds a tool, persona or pack has to put it in the database, and nothing does that
 # at server start any more. Before the restart, so the new version never comes up against a
 # catalogue missing what it expects. Idempotent — writes nothing when the release changed none.
-step "Publishing the instance image"
-RELEASE_TAG="$(git rev-parse --short=12 HEAD)"
-BACKEND_ENV="apps/backend/.env"
-if docker build -q -t "127.0.0.1:5000/nowrinkles/app:${RELEASE_TAG}" . >/dev/null && docker push -q "127.0.0.1:5000/nowrinkles/app:${RELEASE_TAG}" >/dev/null; then
-  if grep -q '^INSTANCE_IMAGE_TAG=' "$BACKEND_ENV"; then
-    sed -i "s|^INSTANCE_IMAGE_TAG=.*|INSTANCE_IMAGE_TAG=${RELEASE_TAG}|" "$BACKEND_ENV"
-  else
-    echo "INSTANCE_IMAGE_TAG=${RELEASE_TAG}" >> "$BACKEND_ENV"
-  fi
-  ok "instances move to ${RELEASE_TAG} the next time they check in (hourly)"
-else
-  warn "could not build or push the instance image — instances stay on the version they run"
-fi
-
 step "Seeding catalogues"
 npx tsx apps/backend/src/scripts/seed-all.ts || warn "seed failed — the new version may be missing catalogue entries"
 
@@ -175,24 +236,16 @@ else
 fi
 
 # ── 7. Health check ────────────────────────────────────────────────────────────────────────────
-# A 401 counts as healthy: /api is session-gated, so anything other than a connection failure
-# proves the server is up and routing. Checking for 200 would fail on a perfectly good deploy.
 step "Waiting for it to come back"
-HEALTHY=0
-for _ in $(seq 1 30); do
-  CODE="$(curl -s -o /dev/null -w '%{http_code}' -m 5 http://127.0.0.1:3001/api/clusters || echo 000)"
-  if [ "$CODE" != "000" ]; then HEALTHY=1; break; fi
-  sleep 2
-done
-
-if [ "$HEALTHY" -eq 1 ]; then
+if wait_for_backend; then
   ok "Backend responding"
 else
   warn "Backend did not come back — rolling back to ${PREVIOUS_COMMIT:0:12}"
   git checkout --detach "$PREVIOUS_COMMIT"
   npm ci --silent && npm run build --silent
+  [ -n "$PREVIOUS_TAG" ] && set_backend_env INSTANCE_IMAGE_TAG "$PREVIOUS_TAG"
   systemctl restart "$SERVICE"
-  die "Rolled back. Check: journalctl -u ${SERVICE} -n 100"
+  die "Rolled back${PREVIOUS_TAG:+, instances stay on ${PREVIOUS_TAG}}. Check: journalctl -u ${SERVICE} -n 100"
 fi
 
 # Both workers must be up, not just the backend. `concurrently --kill-others` means one dying takes

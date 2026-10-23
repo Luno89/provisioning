@@ -29,9 +29,14 @@ kube() { if command -v kubectl >/dev/null 2>&1; then kubectl "$@"; else k3s kube
 
 [ "$(id -u)" = 0 ] || die "run this as root"
 [ "$(uname -m)" = x86_64 ] || die "the pinned gVisor build is for x86_64"
-[ -d "$CONTAINERD_DIR" ] || die "no k3s containerd here ($CONTAINERD_DIR)"
 UNIT=$(systemctl list-units --type=service --all --no-legend 'k3s*' | awk '{print $1}' | grep -E '^k3s(-.+)?\.service$' | grep -v agent | head -1)
 [ -n "$UNIT" ] || die "no k3s service found"
+EXEC_START=$(systemctl show -p ExecStart --value "$UNIT")
+DATA_DIR=$(printf '%s' "$EXEC_START" | sed -n 's/.*--data-dir[= ]\([^ ;]*\).*/\1/p')
+WRITTEN_KUBECONFIG=$(printf '%s' "$EXEC_START" | sed -n 's/.*--write-kubeconfig[= ]\([^ ;]*\).*/\1/p')
+[ -n "$DATA_DIR" ] && CONTAINERD_DIR="$DATA_DIR/agent/etc/containerd"
+[ -n "$WRITTEN_KUBECONFIG" ] && export KUBECONFIG="$WRITTEN_KUBECONFIG"
+[ -d "$CONTAINERD_DIR" ] || die "no k3s containerd here ($CONTAINERD_DIR)"
 
 say "gVisor $RELEASE"
 if [ -x /usr/local/bin/runsc ] && /usr/local/bin/runsc --version 2>/dev/null | grep -q "release-$RELEASE"; then

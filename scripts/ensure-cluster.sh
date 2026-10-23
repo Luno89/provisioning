@@ -12,7 +12,7 @@ set -euo pipefail
 # place real root is needed — starting the native k3s systemd service — is scoped internally
 # (cluster.sh's `sudo systemctl start ...`) and prompts on its own; it doesn't need this whole
 # script (or the rest of `npm run dev`) to already be root.
-if [ "$(id -u)" -eq 0 ]; then
+if [ "$(id -u)" -eq 0 ] && [ "${KOALA_ROOT_NODE:-}" != 1 ]; then
   echo "❌ Do not run 'npm run dev' (or this script) with sudo — it'll leave dev-server files"
   echo "   root-owned and break things like Vite. The native k3s start step prompts for sudo"
   echo "   on its own, only when actually needed."

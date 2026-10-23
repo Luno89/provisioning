@@ -12,6 +12,10 @@
 # Usage (on the root node, as root):
 #   DOMAIN=nowrinkles.dev ACME_EMAIL=you@example.com bash scripts/root-node/bootstrap.sh
 #
+# Lab mode (ROOT_TLS=internal): a root with no public DNS, for a rehearsal. The names are checked
+# against this host's own resolver, Caddy signs with its own certificate authority (which this host
+# then trusts), the mail records are printed rather than published, and PUBLIC_URL may be given.
+#
 # Idempotent: safe to re-run. Each step checks before acting.
 
 set -euo pipefail
@@ -21,6 +25,9 @@ APP_DOMAIN="${APP_DOMAIN:-app.${DOMAIN}}"
 MESH_DOMAIN="${MESH_DOMAIN:-mesh.${DOMAIN}}"
 ACME_EMAIL="${ACME_EMAIL:-admin@${DOMAIN}}"
 REPO_DIR="${REPO_DIR:-/opt/nowrinkles}"
+ROOT_TLS="${ROOT_TLS:-cloudflare}"
+PUBLIC_URL="${PUBLIC_URL:-https://${APP_DOMAIN}}"
+LAB_CA=/usr/local/share/ca-certificates/koala-lab.crt
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 ok()   { echo -e "  ${GREEN}✅${NC} $1"; }
@@ -29,8 +36,14 @@ die()  { echo -e "  ${RED}❌${NC} $1"; exit 1; }
 step() { echo -e "\n${GREEN}▶${NC} $1"; }
 
 [ "$(id -u)" -eq 0 ] || die "Run as root — this installs packages and writes systemd units."
+case "$ROOT_TLS" in
+  cloudflare) LAB=0 ;;
+  internal) LAB=1 ;;
+  *) die "ROOT_TLS is cloudflare (certificates from Let's Encrypt, proved over Cloudflare DNS) or internal (a lab: Caddy's own authority, no public DNS)" ;;
+esac
 
 echo "Bootstrapping the No Wrinkles root node"
+[ "$LAB" -eq 1 ] && echo "  lab:  ROOT_TLS=internal — no public DNS, Caddy's own certificate authority"
 echo "  app:  https://${APP_DOMAIN}"
 echo "  mesh: https://${MESH_DOMAIN}"
 echo "  repo: ${REPO_DIR}"
@@ -40,6 +53,19 @@ echo "  repo: ${REPO_DIR}"
 # these names; if they do not resolve here yet, certificate issuance fails and — worse — repeated
 # failures burn Let's Encrypt's rate limit of 5 issuances per name per week.
 step "Checking DNS"
+if [ "$LAB" -eq 1 ]; then
+  LOCAL_ADDRESSES=" $(hostname -I) "
+  for name in "$APP_DOMAIN" "$MESH_DOMAIN"; do
+    resolved="$(getent ahostsv4 "$name" | awk '{print $1}' | head -1)"
+    [ -n "$resolved" ] || die "${name} does not resolve on this host. A lab has no public DNS: point it at this machine in /etc/hosts and re-run."
+    case "$LOCAL_ADDRESSES" in
+      *" ${resolved} "*) ok "${name} → ${resolved} (this host)" ;;
+      *) die "${name} resolves to ${resolved}, which is not an address of this host (${LOCAL_ADDRESSES})." ;;
+    esac
+  done
+  PUBLIC_IP="$resolved"
+  warn "*.${DOMAIN} is not checked in a lab; whoever reaches this root resolves every name under it to this host themselves"
+else
 PUBLIC_IP="$(curl -s -m 10 https://api.ipify.org || true)"
 [ -n "$PUBLIC_IP" ] || die "Could not determine this host's public IP."
 ok "This host is ${PUBLIC_IP}"
@@ -62,6 +88,7 @@ for name in "$APP_DOMAIN" "$MESH_DOMAIN" "wildcard-probe.${DOMAIN}"; do
   fi
   ok "${name} → ${resolved}"
 done
+fi
 
 # ── 2. Packages ────────────────────────────────────────────────────────────────────────────────
 step "Installing base packages"
@@ -137,15 +164,19 @@ if ! grep -q '^MONGO_ROOT_PASSWORD=' "$COMPOSE_ENV"; then
 fi
 MONGO_ROOT_PASSWORD="$(grep '^MONGO_ROOT_PASSWORD=' "$COMPOSE_ENV" | cut -d= -f2-)"
 grep -q '^PLATFORM_BIND=' "$COMPOSE_ENV" || echo "PLATFORM_BIND=127.0.0.1" >> "$COMPOSE_ENV"
-if ! grep -q '^CLOUDFLARE_API_TOKEN=.' "$COMPOSE_ENV"; then
+if [ "$LAB" -eq 0 ] && ! grep -q '^CLOUDFLARE_API_TOKEN=.' "$COMPOSE_ENV"; then
   [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || die "Set CLOUDFLARE_API_TOKEN: a Cloudflare API token with Zone, DNS, Edit on ${DOMAIN} only. Caddy proves the domain with it for the wildcard certificate *.${DOMAIN}, which every person's address and app is under. It stays in ${COMPOSE_ENV}, never in the database."
   echo "CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}" >> "$COMPOSE_ENV"
 fi
-for pair in "DOMAIN=${DOMAIN}" "APP_DOMAIN=${APP_DOMAIN}" "MESH_DOMAIN=${MESH_DOMAIN}" "ACME_EMAIL=${ACME_EMAIL}" "ROOT_TLS=cloudflare"; do
+for pair in "DOMAIN=${DOMAIN}" "APP_DOMAIN=${APP_DOMAIN}" "MESH_DOMAIN=${MESH_DOMAIN}" "ACME_EMAIL=${ACME_EMAIL}" "ROOT_TLS=${ROOT_TLS}"; do
   key="${pair%%=*}"
   grep -q "^${key}=" "$COMPOSE_ENV" && sed -i "s|^${key}=.*|${pair}|" "$COMPOSE_ENV" || echo "$pair" >> "$COMPOSE_ENV"
 done
-ok "Caddy gets the wildcard certificate for *.${DOMAIN} over Cloudflare DNS"
+if [ "$LAB" -eq 1 ]; then
+  ok "Caddy signs *.${DOMAIN}, ${APP_DOMAIN} and ${MESH_DOMAIN} with its own certificate authority"
+else
+  ok "Caddy gets the wildcard certificate for *.${DOMAIN} over Cloudflare DNS"
+fi
 
 set_env MONGO_URI "mongodb://admin:${MONGO_ROOT_PASSWORD}@127.0.0.1:27017/provisioning?authSource=admin"
 set_env MESH_LOGIN_SERVER "https://${MESH_DOMAIN}"
@@ -159,10 +190,10 @@ set_env INGRESS_DOMAIN "$DOMAIN"
 # redirect is derived from it; unset, they fall back to localhost and social sign-in cannot work
 # (the provider redirects the user's own browser, so localhost means their machine, not this one).
 # It also decides whether the session cookie gets the Secure flag — https here, Secure there.
-set_env PUBLIC_URL "https://${APP_DOMAIN}"
+set_env PUBLIC_URL "$PUBLIC_URL"
 ok "MESH_LOGIN_SERVER=https://${MESH_DOMAIN} — this is what activates mesh join"
 ok "INGRESS_DOMAIN=${DOMAIN} — this is what activates public app URLs"
-ok "PUBLIC_URL=https://${APP_DOMAIN} — OAuth redirects and Secure cookies key off this"
+ok "PUBLIC_URL=${PUBLIC_URL} — OAuth redirects and Secure cookies key off this"
 set_env MAIL_SMTP_URL "smtp://127.0.0.1:2525"
 ok "MAIL_SMTP_URL — alerts are emailed from alerts@${DOMAIN} through this host's own mail server"
 
@@ -184,8 +215,10 @@ ufw default allow outgoing >/dev/null
 ufw allow OpenSSH >/dev/null
 ufw allow 80/tcp >/dev/null
 ufw allow 443/tcp >/dev/null
+ufw allow from 10.42.0.0/16 to any >/dev/null
+ufw allow from 10.43.0.0/16 to any >/dev/null
 ufw --force enable >/dev/null
-ok "ufw: only 22, 80 and 443 are reachable"
+ok "ufw: only 22, 80 and 443 are reachable from outside; the management cluster's pods and services reach this host"
 
 # ── 7. Services ────────────────────────────────────────────────────────────────────────────────
 step "Starting services"
@@ -195,6 +228,14 @@ docker compose -f docker-compose.headscale.yml up -d
 docker compose -f docker-compose.caddy.yml up -d --build
 docker compose -f docker-compose.mail.yml up -d --build
 ok "Mongo, Temporal, Headscale, Caddy and the mail server running"
+if [ "$LAB" -eq 1 ]; then
+  until docker cp nowrinkles-caddy:/data/caddy/pki/authorities/local/root.crt "$LAB_CA" 2>/dev/null; do
+    [ "$(docker inspect -f '{{.State.Running}}' nowrinkles-caddy 2>/dev/null)" = true ] || die "Caddy is not running: docker logs nowrinkles-caddy"
+    sleep 1
+  done
+  update-ca-certificates >/dev/null
+  ok "this host trusts Caddy's own certificate authority (${LAB_CA})"
+fi
 
 for port in 27017 7233 8233 8080 9090 50443 2525; do
   if ss -ltnH "( sport = :$port )" | awk '{print $4}' | grep -qv '^127\.0\.0\.1:'; then
@@ -205,9 +246,14 @@ ok "Mongo, Temporal and Headscale listen on 127.0.0.1 only"
 
 step "Setting up email"
 until docker exec nowrinkles-mail test -s /var/lib/dkim/koala.txt; do sleep 1; done
+if [ "$LAB" -eq 1 ]; then
+  warn "no public DNS in a lab, so the mail records are not published; the DKIM record would be:"
+  docker exec nowrinkles-mail cat /var/lib/dkim/koala.txt | sed 's/^/      /'
+else
 docker exec nowrinkles-mail cat /var/lib/dkim/koala.txt \
   | CLOUDFLARE_API_TOKEN="$(grep '^CLOUDFLARE_API_TOKEN=' "$COMPOSE_ENV" | cut -d= -f2-)" npx tsx scripts/root-node/mail-dns.ts "$DOMAIN" "$PUBLIC_IP" \
   || die "The mail DNS records could not be set; see above."
+fi
 if nc -z -w 5 gmail-smtp-in.l.google.com 25 2>/dev/null; then
   ok "Outbound port 25 is open, so mail goes straight to recipients"
 else
@@ -243,7 +289,7 @@ npx tsx apps/backend/src/scripts/seed-all.ts
 ok "Catalogues seeded"
 
 step "Creating the management cluster"
-bash scripts/ensure-cluster.sh || warn "ensure-cluster.sh reported a problem — check before provisioning"
+KOALA_ROOT_NODE=1 bash scripts/ensure-cluster.sh || warn "ensure-cluster.sh reported a problem — check before provisioning"
 
 step "Starting Koala's telemetry collector"
 OTEL_IP="$("$REPO_DIR/bin/kubectl" --context k3d-provisioning-lunorica -n monitoring get svc otel-collector -o 'jsonpath={.spec.clusterIP}' 2>/dev/null || true)"
@@ -310,14 +356,14 @@ echo
 echo "Next:"
 echo "  1. systemctl start nowrinkles"
 echo "  2. Publish the first instance image:  bash scripts/root-node/update.sh"
-echo "  3. Register the first account at https://${APP_DOMAIN} — the FIRST account ever created"
+echo "  3. Register the first account at ${PUBLIC_URL} — the FIRST account ever created"
 echo "     becomes admin and is the only one that can mint invite codes. Do this before sharing"
 echo "     the URL with anyone."
 echo
 echo "Optional — Google/GitHub sign-in (email+password works without it):"
 echo "  Register an OAuth app with these exact redirect URIs, then add the ids to"
 echo "  ${ENV_FILE} and restart:"
-echo "    Google : https://${APP_DOMAIN}/api/auth/google/callback"
-echo "    GitHub : https://${APP_DOMAIN}/api/auth/github/callback"
+echo "    Google : ${PUBLIC_URL}/api/auth/google/callback"
+echo "    GitHub : ${PUBLIC_URL}/api/auth/github/callback"
 echo "  Keys: GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET."
 echo "  Left unset, those buttons return 501 rather than falling back to the dev mock login."

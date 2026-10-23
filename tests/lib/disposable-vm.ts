@@ -19,6 +19,8 @@ import fssync from 'fs';
 import path from 'path';
 import net from 'net';
 import { calculateRequiredVmMemoryMB } from './memory-budget.js';
+import { lanNicArgument, macFor, netplanFor, type LanSocket } from './vm-network.js';
+import { randomBytes } from 'crypto';
 
 const execFileAsync = promisify(execFile);
 
@@ -83,7 +85,7 @@ async function ensureBaseImage(): Promise<string> {
   return BASE_IMAGE_PATH;
 }
 
-function findFreePort(): Promise<number> {
+export function findFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = net.createServer();
     srv.listen(0, '127.0.0.1', () => {
@@ -106,6 +108,7 @@ export interface DisposableVmOptions {
   forwards?: Array<{ host: number; guest: number }>;
   reboots?: boolean;
   network?: string;
+  lan?: LanSocket & { address: string; nameservers?: string[] };
 }
 
 export async function createDisposableVm(name: string, options: DisposableVmOptions = {}): Promise<DisposableVm> {
@@ -118,6 +121,7 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
   const seedPath = path.join(workDir, 'seed.iso');
   const userDataPath = path.join(workDir, 'user-data.yaml');
   const metaDataPath = path.join(workDir, 'meta-data.yaml');
+  const networkConfigPath = path.join(workDir, 'network-config.yaml');
   const keyPath = path.join(workDir, 'id_ed25519');
   const pidPath = path.join(workDir, 'qemu.pid');
   const serialLogPath = path.join(workDir, 'serial.log');
@@ -162,8 +166,12 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
     `local-hostname: ${name}`,
   ].join('\n'));
 
+  const macs = { uplink: macFor(randomBytes(3)), lan: macFor(randomBytes(3)) };
+  if (options.lan) {
+    await fs.writeFile(networkConfigPath, netplanFor({ uplinkMac: macs.uplink, lan: { mac: macs.lan, address: options.lan.address, ...(options.lan.nameservers ? { nameservers: options.lan.nameservers } : {}) } }));
+  }
   console.log(`  📀 Building cloud-init seed image for ${name}...`);
-  await execFileAsync('cloud-localds', [seedPath, userDataPath, metaDataPath]);
+  await execFileAsync('cloud-localds', [...(options.lan ? ['-N', networkConfigPath] : []), seedPath, userDataPath, metaDataPath]);
 
   const sshPort = await findFreePort();
   const k3sApiPort = await findFreePort();
@@ -192,7 +200,8 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
     ...(options.reboots ? [] : ['-no-reboot']),
     '-drive', `file=${overlayPath},if=virtio,format=qcow2`,
     '-drive', `file=${seedPath},if=virtio,format=raw,readonly=on`,
-    '-nic', `user,${options.network ? `net=${options.network},` : ''}hostfwd=tcp::${sshPort}-:22,hostfwd=tcp::${k3sApiPort}-:6443${(options.forwards ?? []).map((forward) => `,hostfwd=tcp::${forward.host}-:${forward.guest}`).join('')}`,
+    '-nic', `user,${options.network ? `net=${options.network},` : ''}${options.lan ? `mac=${macs.uplink},` : ''}hostfwd=tcp::${sshPort}-:22,hostfwd=tcp::${k3sApiPort}-:6443${(options.forwards ?? []).map((forward) => `,hostfwd=tcp::${forward.host}-:${forward.guest}`).join('')}`,
+    ...(options.lan ? ['-nic', lanNicArgument(options.lan, macs.lan)] : []),
     '-daemonize',
     '-pidfile', pidPath,
   ]);

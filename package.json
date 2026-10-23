@@ -96,6 +96,7 @@
     "test:files-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts files-live",
     "test:mail-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts mail-live",
     "test:pool-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts pool-live",
+    "test:release-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts release-live",
     "dev:steady": "bash scripts/dev.sh --steady"
   },
   "workspaces": [
