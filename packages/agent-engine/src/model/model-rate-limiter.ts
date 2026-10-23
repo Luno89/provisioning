@@ -1,3 +1,5 @@
+import { koalaMetrics, telemetryStarted } from '@koala/engine-core/telemetry';
+
 const MAX_CONCURRENT_PER_BUCKET = 1;
 const DEFAULT_COOLDOWN_MS = 20_000;
 const MIN_COOLDOWN_MS = 2_000;
@@ -31,7 +33,18 @@ export interface ModelRateLimitBucketSnapshot {
 
 const buckets = new Map<string, BucketState>();
 
+let queuesObserved = false;
+
+function observeQueues(): void {
+  if (queuesObserved || !telemetryStarted()) return;
+  queuesObserved = true;
+  koalaMetrics().modelQueued.addCallback((result) => {
+    for (const b of buckets.values()) result.observe(b.queue.length, { provider: b.label });
+  });
+}
+
 function bucketFor(key: string, ownerId: string, label: string): BucketState {
+  observeQueues();
   let b = buckets.get(key);
   if (!b) {
     b = { ownerId, label, inFlight: 0, queue: [], totalRequests: 0, total429: 0, totalErrors: 0 };
@@ -84,7 +97,9 @@ async function waitForSlot(b: BucketState, signal: AbortSignal | undefined): Pro
 
 export async function acquireModelSlot(key: string, ownerId: string, label: string, signal?: AbortSignal): Promise<() => void> {
   const b = bucketFor(key, ownerId, label);
+  const queuedAt = Date.now();
   await waitForSlot(b, signal);
+  koalaMetrics().modelQueueWaitSeconds.record((Date.now() - queuedAt) / 1000, { provider: b.label });
   let released = false;
   return () => {
     if (released) return;
@@ -113,6 +128,7 @@ export function recordModelResponse(key: string, status: number, headers?: Heade
   b.lastStatus = status;
   if (status === 429) {
     b.total429 += 1;
+    koalaMetrics().modelRateLimitPauses.add(1, { provider: b.label });
     const requested = parseRetryAfterMs(headers) ?? DEFAULT_COOLDOWN_MS;
     const clamped = Math.min(Math.max(requested, MIN_COOLDOWN_MS), MAX_COOLDOWN_MS);
     b.cooldownUntil = Date.now() + clamped;

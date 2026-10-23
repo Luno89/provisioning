@@ -3,6 +3,7 @@ import { buildModelRequest } from './model-request.js';
 import { pause, rateLimitedFetch } from './model-rate-limiter.js';
 import { patientFetch } from './patient-fetch.js';
 import { createStreamParser, type StreamEvent, type StreamToolCall } from '../runtime/stream.js';
+import { elapsedSeconds, errorType, koalaMetrics, withSpan } from '@koala/engine-core/telemetry';
 
 export interface EngineEndpoint {
   baseUrl: string;
@@ -74,7 +75,47 @@ async function* readChunks(body: unknown): AsyncGenerator<string> {
   }
 }
 
+const tokenCount = (usage: Record<string, unknown> | undefined, key: string): number => {
+  const value = usage?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+};
+
 export async function callModel(spec: ModelCallSpec, sink: StreamSink = () => undefined): Promise<ModelCallResult> {
+  const { endpoint } = spec;
+  const model = { provider: endpoint.label, model: endpoint.model ?? '' };
+  const startedAt = Date.now();
+  return withSpan('model.call', {
+    'koala.model.provider': endpoint.label,
+    'koala.model.name': endpoint.model ?? '',
+    'koala.model.turn': spec.tools ? 'tool-turn' : 'conversation',
+    ...(endpoint.kind ? { 'koala.model.kind': endpoint.kind } : {}),
+  }, async (span) => {
+    try {
+      const result = await askModel(spec, sink);
+      const outcome = result.interrupted ? 'interrupted' : 'ok';
+      const prompt = tokenCount(result.usage, 'prompt_tokens');
+      const completion = tokenCount(result.usage, 'completion_tokens');
+      span.setAttributes({
+        'koala.model.finish_reason': result.finishReason,
+        'koala.model.tool_calls': result.toolCalls.length,
+        'koala.model.prompt_tokens': prompt,
+        'koala.model.completion_tokens': completion,
+        'koala.model.outcome': outcome,
+      });
+      koalaMetrics().modelCallSeconds.record(elapsedSeconds(startedAt), { ...model, outcome });
+      if (prompt) koalaMetrics().modelTokens.add(prompt, { ...model, kind: 'prompt' });
+      if (completion) koalaMetrics().modelTokens.add(completion, { ...model, kind: 'completion' });
+      return result;
+    } catch (err) {
+      koalaMetrics().modelCallSeconds.record(elapsedSeconds(startedAt), { ...model, outcome: spec.signal?.aborted ? 'stopped' : 'failed' });
+      if (err instanceof ModelCallError) span.setAttribute('http.response.status_code', err.status);
+      span.setAttribute('koala.model.outcome', errorType(err));
+      throw err;
+    }
+  });
+}
+
+async function askModel(spec: ModelCallSpec, sink: StreamSink): Promise<ModelCallResult> {
   const { endpoint } = spec;
 
   const built = buildModelRequest({
@@ -109,6 +150,7 @@ export async function callModel(spec: ModelCallSpec, sink: StreamSink = () => un
       }));
     } catch (err) {
       if (spec.signal?.aborted || !connectionLost(err)) throw err;
+      koalaMetrics().modelConnectionLosses.add(1, { provider: endpoint.label });
       spec.onConnectionLost?.(describeLoss(err));
       await serverAnswers(endpoint, fetchImpl, headers, spec.signal);
     }

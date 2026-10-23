@@ -17,6 +17,7 @@ import { numberOf, textOf } from './read.js';
 import { effectiveMachineChoice, machineChoice, machineChoiceId, machineSessionKey, type MachineChoice } from '../machine-choice.js';
 import { DECIDE_INSTRUCTIONS, readDecision } from './model.js';
 import { RUN_IN_WORKSPACE_DESCRIPTION, RUN_IN_WORKSPACE_NAME, carriesWork } from '../../runtime/context.js';
+import { elapsedSeconds, koalaMetrics, withSpan } from '@koala/engine-core/telemetry';
 
 export interface ToolRunRequest {
   nodeId: string;
@@ -197,7 +198,24 @@ const childText = (agent: string, child: ChildOutcomeValue): string =>
   child.outcome === 'ok' ? JSON.stringify(child.outputs) : `${agent} did not finish: ${child.reason ?? child.outcome}`;
 
 export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImplementation[] {
-  const runOne = async (request: NodeRequest, call: ToolCallRequest, persona: AgentDefinition, environment: EnvironmentValue | undefined) => {
+  const runOne = (request: NodeRequest, call: ToolCallRequest, persona: AgentDefinition, environment: EnvironmentValue | undefined) => {
+    const delegated = (persona.agents ?? []).includes(call.name);
+    const startedAt = Date.now();
+    return withSpan('tool.call', {
+      'koala.tool.name': call.name,
+      'koala.tool.delegated': delegated,
+      'koala.run.id': request.run.identity.runId,
+      'koala.agent': request.run.identity.agentId,
+    }, async (span) => {
+      const ran = await runOneCall(request, call, persona, environment);
+      const outcome = ran.outcome.declined ? 'declined' : ran.outcome.ok ? 'ok' : 'failed';
+      span.setAttribute('koala.tool.outcome', outcome);
+      koalaMetrics().toolCallSeconds.record(elapsedSeconds(startedAt), { tool: call.name, outcome, delegated: String(delegated) });
+      return ran;
+    });
+  };
+
+  const runOneCall = async (request: NodeRequest, call: ToolCallRequest, persona: AgentDefinition, environment: EnvironmentValue | undefined) => {
     const { node, run } = request;
     run.emit({ type: 'tool.called', nodeId: node.id, callId: call.id, name: call.name, args: call.arguments } as never);
 
