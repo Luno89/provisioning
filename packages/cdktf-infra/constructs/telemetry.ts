@@ -37,8 +37,8 @@ export const COLLECTOR_VALUES = {
     receivers: {
       otlp: {
         protocols: {
-          grpc: { endpoint: `\${env:MY_POD_IP}:${COLLECTOR_OTLP_GRPC_PORT}` },
-          http: { endpoint: `\${env:MY_POD_IP}:${COLLECTOR_OTLP_HTTP_PORT}` },
+          grpc: { endpoint: `0.0.0.0:${COLLECTOR_OTLP_GRPC_PORT}` },
+          http: { endpoint: `0.0.0.0:${COLLECTOR_OTLP_HTTP_PORT}` },
         },
       },
     },
@@ -56,7 +56,7 @@ export const COLLECTOR_VALUES = {
       },
     },
     extensions: {
-      health_check: { endpoint: "${env:MY_POD_IP}:13133" },
+      health_check: { endpoint: "0.0.0.0:13133" },
     },
     service: {
       extensions: ["health_check"],

@@ -10,7 +10,7 @@ describe("the collector Koala reports to", () => {
     expect(COLLECTOR_VALUES.ports.otlp.hostPort).toBeNull();
     expect(COLLECTOR_VALUES.ports["otlp-http"].hostPort).toBeNull();
     for (const port of ["jaeger-compact", "jaeger-thrift", "jaeger-grpc", "zipkin"] as const) expect(COLLECTOR_VALUES.ports[port].enabled).toBe(false);
-    expect(COLLECTOR_VALUES.alternateConfig.receivers.otlp.protocols.http.endpoint).toBe("${env:MY_POD_IP}:4318");
+    expect(COLLECTOR_VALUES.alternateConfig.receivers.otlp.protocols.http.endpoint).toBe("0.0.0.0:4318");
   });
 
   it("sends traces to Tempo and serves metrics for Prometheus to scrape, with the service name as a label", () => {
