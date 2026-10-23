@@ -81,6 +81,7 @@
     "test:test:e2e:teardown": "bash scripts/test-e2e-teardown.sh",
     "test:hetzner-integration": "tsx tests/hetzner-integration.ts",
     "test:monitoring-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts monitoring-live",
+    "test:telemetry-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts telemetry-live",
     "test:infrastructure-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts infrastructure-live",
     "test:dev-split-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts dev-split-live",
     "test:hub-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts hub-live",
