@@ -48,6 +48,7 @@ npm run test:infra:integration    # full cluster provision → verify → destro
 npm run test:routing-live         # root's Caddy on the mesh (local CA, koala.localhost) → a named instance installs on a VM → <name>.<domain> answers through Caddy and sign-in lands there → an app on the instance at <app>-<name>.<domain> → a group the instance claims is routed by root to its edge (the edge's 404 names the instance in X-Koala-Edge) and freed again → nested addresses issued and shown, the flat ones still answering, ~30 min, cleans up
 npm run test:mail-live            # the send-only mail server is built and run beside a test mailbox → the backend's mailer sends an alert through it → it arrives DKIM-signed and the signature verifies against the key the DNS script publishes → a host it does not trust is refused, ~2 min
 npm run test:monitoring-live      # a throwaway app on the system cluster → Monitoring calls it healthy → Koala, on your model, proposes an alert for when it stops answering → the card sets it → the app is stopped until the alert fires and the conversation hears it, started until it resolves → the alert is removed and the app destroyed, ~10 min
+npm run test:telemetry-live       # against the running dev stack: the collector and Tempo are on the system cluster (the cluster worker applied them if they were missing) → a throwaway account signs up with an admin's invite → one scripted turn through the check runner → one trace in Tempo, found by the id the request answered with, spans the request, the check workflow's start, the engine run's request, its workflow start and the model call, with nothing said in it → koala_up, the request, workflow, activity and model-call metrics are in Prometheus by name, labelled with the process → the Koala section on GET /api/infrastructure carries them → the stack stays; removes the scenario and the account, ~3 min
 npm run test:infrastructure-live   # Infrastructure reads the system cluster → a workload that cannot pull its image, put there by hand, shows in Needs attention and on the cluster page as not deployed through Koala, then leaves once removed → a Koala chat turn on a model that does not exist shows as failed work, opens its chat and clears → whatever the memory keeper keeps from the run and the quiet conversation is retired, ~15 min
 npm run test:dev-split-live        # against a running `npm run dev:split`: the instance sends a signed-out person to root → root's Google sign-in (the dev mock) → root knows the instance and serves none of its routes → its one-time token signs you into the instance, and not twice → your work is there and the instance makes no accounts → the instance's credential is taken by root and a wrong one refused, ~10 s
 npm run test:hub-live              # against the running dev stack (combined): an admin's invite signs up an owner, who makes two shared projects and invites a collaborator and a client to one and someone else to the other → root shows each invite signed out and signs up only the address invited → the outsider reaches nothing of the first project by id, guess or another's invite → each role can do only what it may → roles change, an invite is taken back, people are removed and leave, the last owner cannot → the owner's removal refused while they alone own a project someone else is on, the outsider's removal taking them off it → one project deleted by name and the owner's removal deleting the other, their databases gone, ~1 min
@@ -181,7 +182,9 @@ media, nothing framed from elsewhere) is sent as `Content-Security-Policy-Report
 (`CSP=off|report|enforce` sets it anywhere); the browser's reports land on `POST /csp-report` and are logged as one line
 each, so a week of a quiet log on the host is what says to enforce it. **Koala reports on itself** at `GET /api/metrics` (`MetricsService`, prom-client: process metrics, request
 times by route and status, failed work by kind), read with `Authorization: Bearer <METRICS_TOKEN>`; unset, nothing is
-served. **Startup migrations run once**: `scripts/seed-all.ts` runs each by name through `platform/lib/migrations.ts` and records
+served. The same request times and failures, and everything else Koala measures, also leave every process as
+OpenTelemetry to the collector on the system cluster (**Koala's own telemetry**, below), and each response carries its
+trace id in `x-trace-id`. **Startup migrations run once**: `scripts/seed-all.ts` runs each by name through `platform/lib/migrations.ts` and records
 it in `migrations`; the shipped seeds (tree types, tools, providers) still upsert on every boot.
 
 The public-path allow-list lives in `platform/middleware/auth.ts`, **not** in `accounts/routes/auth.ts` — a router
@@ -705,6 +708,10 @@ scroll to the matching section:
 - **Your own hardware**: a machine joining the mesh (a single-use key and the join command), to become a cluster
   through Provision a cluster, and the machines on the mesh.
 - **Model traffic**: each model's queue, whether it is answering or paused because its server said it is busy, and its totals.
+- **Koala**: what Koala reports about itself (`KoalaSection`, `koala` on `GET /api/infrastructure`): its state, which of its
+  processes report, requests and the share failing, model calls, their failures and queue, workflows started, activities
+  and work that failed, read from the system cluster's Prometheus through the named questions in `koalaQuery`
+  (`monitoring-questions.ts`) and judged by `koalaVerdict` (`monitoring-summary.ts`); what is not measured is said so.
 - **Alerts set** and **Alert history**.
 
 An app's page (`#/infrastructure/app/<id>`) is its health; a cluster's (`#/infrastructure/cluster/<id>`) is its health
@@ -732,9 +739,12 @@ plain lines Koala reads, and `MonitoringService` serves both (`/api/monitoring`,
 `PUT /clusters/:id/history`, `DELETE /rules/:id`). What isn't measured (an app with no probe, requests where Traefik doesn't
 count them) is said to be unmeasured, never shown as fine.
 
-**Koala** holds `monitoring_overview`, `app_health`, `cluster_health` and `propose_alert` (extension `monitoring`).
+**Koala** holds `monitoring_overview` (which ends with a "Koala itself" line), `app_health`, `cluster_health` and `propose_alert` (extension `monitoring`).
 - An alert is a template (`down`, `slow`, `memory`, `restarts`, `volume`, `errors`; `monitoring/lib/monitoring-alerts.ts`) proposed
-  on a card (`set_alert`).
+  on a card (`set_alert`). Three more are about Koala itself (`koala_down`, `model_errors`, `workflow_failures`,
+  `KOALA_ALERT_KINDS`, expressions over Koala's own metrics in `koalaAlertExpression`): proposed with `app: "koala"`, only
+  by whoever owns the system cluster, and written as a PrometheusRule into `monitoring` there; their rule records carry
+  `deploymentId: 'koala'` and their alerts are `about: { kind: 'koala' }`.
 - Applying it writes a PrometheusRule into the app's namespace, labelled `koala_rule`, and records it
   (`monitoringAlertRules`).
 
@@ -794,6 +804,59 @@ type is listed by its type. Each opens where it lives and is cancelled its own w
 memory keeper** (`keeperSettings`): a paused keeper holds each conclusion in `deferredConclusions`, in order, and hands
 them all over when resumed (`MemoryKeeperService.setPaused`). API: `GET /api/running`, `POST /api/running/:id/cancel`,
 `PUT /api/running/bench|keeper`.
+
+## Koala's own telemetry
+
+Plan: `~/.claude/plans/koala-telemetry.md`. Every Koala process measures itself with OpenTelemetry and sends it to one
+place: the **OpenTelemetry collector on the system cluster** (`otel-collector` in `monitoring`, ClusterIP only), which
+exports traces to **Tempo** (`tempo`, a week on a volume) and serves metrics for the cluster's **Prometheus** to scrape
+(a ServiceMonitor; no change to the kube-prometheus-stack release). Both are part of the observability stack
+(`constructs/telemetry.ts`, `constructs/koala-dashboards.ts`): `monitoringPlan` applies that stack again when either
+service is missing, exactly as it does for a missing blackbox exporter, so a cluster from before gets them when its
+cluster worker starts or its next app is deployed. Grafana gets a Tempo datasource and three dashboards (Koala: the
+service, Koala: model calls, Koala: Temporal).
+
+- **Starting it.** `startTelemetry` in `@koala/engine-core/telemetry-sdk` is the first thing the backend
+  (`koala-backend`), the three workers (`koala-worker-host|cluster|engine`), the in-process stream worker's activities and
+  the machine agent (`koala-machine`) do. `platform/lib/telemetry.ts`'s `telemetrySettings` names the service, the role
+  and the instance. Without `OTEL_EXPORTER_OTLP_ENDPOINT` the SDK records but sends nothing; the backend and workers then
+  reach the collector the way they reach Prometheus (`collectorSink` in `monitoring/services/CollectorReach.ts`:
+  `ClusterProxyService.serviceUrl`, direct ClusterIP or a port-forward, asked again at most once a minute while it
+  fails), so `npm run dev` needs nothing set. On root, `bootstrap.sh` and `update.sh` start a host collector
+  (`docker-compose.otel.yml`, `docker/otel/config.yaml`: OTLP on 127.0.0.1:4318, Caddy's per-host request metrics scraped
+  from its admin port) that relays to the cluster's collector, and set `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`.
+  A machine never reaches a collector: its agent sends batches over its socket (`telemetry:export`, `telemetry-sink.ts`)
+  and the backend relays them (`machines/lib/machine-telemetry.ts`, at most 4 MB a batch) to the collector it reports to.
+- **No deadline, never in the way.** The SDK batches (`BatchSpanProcessor`, a metrics reader every 15 s), its sink
+  reports success at once and sends in the background with one send in flight per signal; a collector that is down costs a
+  request nothing: the batch is dropped and it is logged once (`logOnce`), once more when it answers again. Nothing waits
+  on telemetry, nothing is retried.
+- **What is measured** (`KoalaMetrics` in `@koala/engine-core/telemetry`, every name `koala_*`): `koala_up` from every
+  process; HTTP requests by route template and status (`koala_http_request_seconds`, the same series `/api/metrics` serves);
+  workflows started by type; activities by type and outcome, retries and late heartbeats; model calls by provider, model
+  and outcome, tokens, queue wait, 429 pauses, lost connections and the queue depth; tool calls by tool and outcome;
+  sandbox provisioning and image builds; each hub sync step; emails sent; failed work by kind; telemetry relayed from
+  machines. **Traces**: a span per request (`MetricsService.middleware`, named `METHOD /route/:id`, the trace id answered
+  in `x-trace-id` and taken from an incoming `traceparent`), `workflow.start <type>` (the Temporal client interceptor
+  `traceWorkflowStarts`, which puts `traceparent` in the start headers), `activity <type>` on every worker
+  (`traceActivities`, the trace read from the activity's headers), `model.call`, `tool.call`, `sandbox.provision` and
+  `image.build`. Inside a workflow the pure interceptors in `workflows/telemetry-interceptors.ts` copy the trace headers
+  onto every activity, child workflow and continue-as-new, so one trace follows a request into the worker and back out;
+  `carryingTrace` puts the active trace on an axios client (the check runner's), so a check's whole run is one trace.
+- **Nothing a person typed enters telemetry.** No prompt, message, reply, thinking, tool argument, tool output, file
+  content, secret or token goes in a span name or attribute, a metric label or a log line: ids, counts, durations, model
+  and tool names, route templates and status codes only. `telemetry-scrub.test.ts` feeds all of those through a model
+  call and a tool call and asserts none reaches the sink. A span records an error as its type, never its message.
+- **Adding a metric or a span.** Add the instrument to `instrumentsOn` in `packages/engine-core/src/telemetry.ts`
+  (counters without `_total`, which the collector adds; histograms of seconds take `SECONDS_BUCKETS`) and record it with
+  `koalaMetrics().<name>` where the thing happens; wrap work in `withSpan(name, attributes, run)`. Browser-safe code
+  (agent-engine, which the frontend bundles) imports only `@koala/engine-core/telemetry`, the API; a process imports
+  `./telemetry-sdk`. To show a new number on the Infrastructure page, add a question to `KOALA_QUESTIONS` and its PromQL
+  to `koalaQuery`, a line to `koalaLines`, and a figure to `koala-figures.ts`.
+- **Env**: `OTEL_EXPORTER_OTLP_ENDPOINT` (a collector to send to; unset, the cluster's is found), `KOALA_VERSION` (the
+  service version on every span and metric), `OTEL_CLUSTER_COLLECTOR` (root's compose only: the cluster collector's
+  address the host collector relays to).
+- `npm run test:telemetry-live` proves the whole path on the running dev stack.
 
 ## Platform keys
 
