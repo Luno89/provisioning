@@ -154,7 +154,7 @@ async function main(): Promise<void> {
 
   step('root: a disposable VM on a lab network, bootstrapped by the real bootstrap.sh in lab mode');
   const lanPort = await findFreePort();
-  root = await createDisposableVm('release-root', { memoryMB: 14336, cpus: 4, diskGB: 80, forwards: [{ host: TLS_PORT, guest: 443 }], lan: { listen: lanPort, address: `${ROOT_LAN}/24` } });
+  root = await createDisposableVm('release-root', { memoryMB: 12288, cpus: 4, diskGB: 80, forwards: [{ host: TLS_PORT, guest: 443 }], lan: { listen: lanPort, address: `${ROOT_LAN}/24` } });
   await sh(root, [
     `echo '${labHostsLine(DOMAIN, ROOT_LAN)}' | sudo tee -a /etc/hosts >/dev/null`,
     'sudo mkdir -p /etc/dnsmasq.d',

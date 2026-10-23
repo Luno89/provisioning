@@ -12,10 +12,6 @@
 # Usage (on the root node, as root):
 #   DOMAIN=nowrinkles.dev ACME_EMAIL=you@example.com bash scripts/root-node/bootstrap.sh
 #
-# Lab mode (ROOT_TLS=internal): a root with no public DNS, for a rehearsal. The names are checked
-# against this host's own resolver, Caddy signs with its own certificate authority (which this host
-# then trusts), the mail records are printed rather than published, and PUBLIC_URL may be given.
-#
 # Idempotent: safe to re-run. Each step checks before acting.
 
 set -euo pipefail
