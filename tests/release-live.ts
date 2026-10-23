@@ -184,12 +184,12 @@ async function main(): Promise<void> {
   const toPrevious = Date.now();
   await sh(root, `sudo bash ${UPDATE_SH} ${previous}`, true);
   note(`update.sh ${PREVIOUS_REF} took ${minutes(toPrevious)}`);
-  const rootHead = async () => (await sh(root!, `git -C ${REPO_DIR} rev-parse HEAD`)).trim();
-  const rootReleaseTag = async () => (await sh(root!, `grep '^INSTANCE_IMAGE_TAG=' ${REPO_DIR}/apps/backend/.env | cut -d= -f2-`)).trim();
+  const rootHead = async () => (await sh(root!, `sudo git -C ${REPO_DIR} rev-parse HEAD`)).trim();
+  const rootReleaseTag = async () => (await sh(root!, `sudo grep '^INSTANCE_IMAGE_TAG=' ${REPO_DIR}/apps/backend/.env | cut -d= -f2-`)).trim();
   assert.equal(await rootHead(), previous, 'root is not on the previous release');
   assert.equal(await rootReleaseTag(), previousTag, 'root does not offer instances the previous image');
   assert.equal((await sh(root, 'systemctl is-active nowrinkles')).trim(), 'active');
-  const rootAnswers = async () => https(`app.${DOMAIN}`, '/api/auth/sign-in').status === 200;
+  const rootAnswers = async () => https(`app.${DOMAIN}`, '/api/identity/keys').status === 200;
   await until('root answering through its Caddy', async () => ((await rootAnswers()) ? true : undefined));
   note(`https://app.${DOMAIN} answers through Caddy with a certificate from its own authority`);
 
