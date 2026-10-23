@@ -40,6 +40,8 @@ import { DashboardsStack } from "./constructs/dashboards.js";
 import { BlackboxExporterStack } from "./constructs/blackbox-exporter.js";
 import { AlertingStack } from "./constructs/alerting.js";
 import { LoggingStack } from "./constructs/logging.js";
+import { TelemetryStack } from "./constructs/telemetry.js";
+import { KoalaDashboardsStack } from "./constructs/koala-dashboards.js";
 import { HetznerVmStack } from "./constructs/hetzner-vm.js";
 import { K8sProviderService } from "./lib/k8s-provider-service.js";
 import { type VpnConfig } from "./lib/vpn-service.js";
@@ -119,6 +121,8 @@ class ObservabilityStack extends TerraformStack {
     new BlackboxExporterStack(this, "blackbox-exporter");
     new AlertingStack(this, "alerting");
     new LoggingStack(this, "logging", config.name);
+    new TelemetryStack(this, "telemetry", "monitoring");
+    new KoalaDashboardsStack(this, "koala-dashboards", "monitoring");
   }
 }
 
