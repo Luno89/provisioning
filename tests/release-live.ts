@@ -215,7 +215,7 @@ async function main(): Promise<void> {
     `echo '${labHostsLine(DOMAIN, ROOT_LAN)}' | sudo tee -a /etc/hosts >/dev/null`,
     `printf '%s' '${await sh(root, 'sudo cat /usr/local/share/ca-certificates/koala-lab.crt')}' | sudo tee /usr/local/share/ca-certificates/koala-lab.crt >/dev/null`,
     'sudo update-ca-certificates >/dev/null',
-    `curl -fsS -o /dev/null ${ROOT_URL}/api/auth/sign-in`,
+    `curl -fsS -o /dev/null ${ROOT_URL}/api/identity/keys`,
     `curl -fsS -o /dev/null https://mesh.${DOMAIN}/health`,
   ].join(' && '));
   note('the machine resolves the lab names through root, reaches root on the lan and trusts the lab authority');
