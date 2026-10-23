@@ -55,6 +55,23 @@ published() {
   curl -fsS "http://${REGISTRY}/v2/${IMAGE_REPO}/tags/list" 2>/dev/null | grep -q "\"$1\""
 }
 
+ensure_cdktf_bindings() {
+  local infra="$REPO_DIR/packages/cdktf-infra" missing=() provider name work
+  for provider in $(node -e 'for (const p of require(process.argv[1]).terraformProviders) console.log(p)' "$infra/cdktf.json"); do
+    name="${provider%@*}"; name="${name##*/}"
+    [ -d "$infra/.gen/providers/$name" ] || missing+=("$provider")
+  done
+  [ "${#missing[@]}" -eq 0 ] && return 0
+  warn "the checkout has no CDKTF bindings for ${missing[*]}; generating them"
+  work="$(mktemp -d "$infra/.gen-missing-XXXXXX")"
+  node -e 'console.log(JSON.stringify({ language: "typescript", app: "true", projectId: "cdktf-infra", sendCrashReports: "false", terraformProviders: process.argv.slice(1) }))' "${missing[@]}" > "$work/cdktf.json"
+  (cd "$work" && TERRAFORM_BINARY_NAME="$REPO_DIR/bin/terraform" npx cdktf get --output .gen >/dev/null) || { rm -rf "$work"; return 1; }
+  mkdir -p "$infra/.gen/providers"
+  cp -r "$work/.gen/providers/." "$infra/.gen/providers/"
+  rm -rf "$work"
+  ok "CDKTF bindings generated for ${missing[*]}"
+}
+
 # ── 1. Don't interrupt a tenant ────────────────────────────────────────────────────────────────
 # A restart mid-provision is survivable — Temporal keeps workflow state, so the activity resumes on
 # the new process rather than losing the cluster. But it does burn one of ProvisionClusterActivity's
@@ -155,7 +172,9 @@ REF="${TARGET_REF:-origin/main}"
 # Detached on purpose, so a deploy pins an exact commit rather than tracking whatever a branch
 # points at later — and so rolling back to a bare SHA works the same way as deploying a tag.
 # Side effect: bootstrap.sh's `git pull --ff-only` no longer applies, which is why it only warns.
+git clean -fdqX packages/cdktf-infra/.gen
 git checkout --detach "$REF" || die "Could not check out '${REF}'"
+ensure_cdktf_bindings || die "Could not generate the CDKTF bindings this commit needs"
 NEW_COMMIT="$(git rev-parse HEAD)"
 RELEASE_TAG="$(git rev-parse --short=12 HEAD)"
 if [ "$NEW_COMMIT" = "$PREVIOUS_COMMIT" ]; then
@@ -196,7 +215,9 @@ build_and_check() {
 }
 if ! build_and_check; then
   warn "Build, typecheck or lint failed — reverting to ${PREVIOUS_COMMIT:0:12}, service untouched"
+  git clean -fdqX packages/cdktf-infra/.gen
   git checkout --detach "$PREVIOUS_COMMIT"
+  ensure_cdktf_bindings
   npm ci --silent && npm run build --silent
   die "Update aborted before restart. The running version was never interrupted."
 fi
@@ -241,7 +262,9 @@ if wait_for_backend; then
   ok "Backend responding"
 else
   warn "Backend did not come back — rolling back to ${PREVIOUS_COMMIT:0:12}"
+  git clean -fdqX packages/cdktf-infra/.gen
   git checkout --detach "$PREVIOUS_COMMIT"
+  ensure_cdktf_bindings
   npm ci --silent && npm run build --silent
   [ -n "$PREVIOUS_TAG" ] && set_backend_env INSTANCE_IMAGE_TAG "$PREVIOUS_TAG"
   systemctl restart "$SERVICE"

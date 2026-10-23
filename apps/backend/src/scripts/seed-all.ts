@@ -1,5 +1,8 @@
 #!/usr/bin/env tsx
 
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
 import { createDatabase, type Database, runOnce, type MigrationLedger } from '../platform/index.js';
 import { seedBindingTypes, seedAppSpecs, seedConstructBackedTypes, seedClusterProviders } from '../infrastructure/index.js';
 import { seedTreeTypes, stampTreeVersions } from '../projects/index.js';
@@ -58,6 +61,7 @@ async function main() {
 }
 
 if (process.argv[1]?.endsWith('seed-all.ts')) {
+  dotenv.config({ path: resolve(fileURLToPath(import.meta.url), '../../../.env') });
   main().catch((err) => {
     console.error('[seed] failed:', err);
     process.exit(1);

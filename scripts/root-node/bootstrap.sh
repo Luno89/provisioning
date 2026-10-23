@@ -289,6 +289,8 @@ npx tsx apps/backend/src/scripts/seed-all.ts
 ok "Catalogues seeded"
 
 step "Creating the management cluster"
+bash scripts/cluster.sh install provisioning-lunorica || die "native k3s could not be installed"
+bash scripts/cluster.sh create provisioning-lunorica || die "the management cluster did not come up"
 KOALA_ROOT_NODE=1 bash scripts/ensure-cluster.sh || warn "ensure-cluster.sh reported a problem — check before provisioning"
 
 step "Starting Koala's telemetry collector"
