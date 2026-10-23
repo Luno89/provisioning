@@ -4,12 +4,17 @@ import { infrastructureRouter } from './infrastructure.js';
 import { mountRouter, type Harness } from '../../platform/routes/test-harness.js';
 import { InfrastructureViewService } from '../services/InfrastructureViewService.js';
 import type { BrokenWorkload } from '../services/ClusterContentsService.js';
-import type { Overview } from '../../monitoring/services/MonitoringService.js';
+import type { KoalaView, Overview } from '../../monitoring/services/MonitoringService.js';
 import type { WorkFailure } from '../lib/work-failures.js';
 
 const monitoring: Overview = {
   attention: [{ subject: { kind: 'app', id: 'd1', name: 'Shop' }, state: 'down', reasons: ['it does not answer'] }],
   apps: [], clusters: [], firing: [], checkedAt: '2026-10-17T12:00:00Z',
+};
+
+const koala: KoalaView = {
+  state: 'ok', reasons: [], numbers: { requestsPerSecond: 2.5, modelCallsPerMinute: 1 }, services: ['koala-backend', 'koala-worker-engine'],
+  lines: ['Koala is healthy.', '2 processes report: koala-backend, koala-worker-engine.'], telemetry: { collector: true, tempo: true }, checkedAt: '2026-10-17T12:00:00Z',
 };
 
 const broken = (name: string, about: BrokenWorkload['about']): BrokenWorkload => ({
@@ -25,7 +30,7 @@ afterEach(async () => { await harness.close(); });
 async function app() {
   const cleared: Array<readonly string[] | 'all'> = [];
   const infrastructure = new InfrastructureViewService({
-    monitoring: { overview: async () => monitoring },
+    monitoring: { overview: async () => monitoring, koala: async () => koala },
     contents: {
       broken: async () => [broken('shop-web', { kind: 'app', id: 'd1', name: 'Shop', mine: true }), broken('mystery', { kind: 'other' })],
       contents: async (_viewer, id) => ({ clusterId: id, readAt: 'now', reachable: true, ownsCluster: true, workloads: [], finishedJobs: 0, measured: true }),
@@ -54,6 +59,7 @@ describe('/api/infrastructure', () => {
     expect(res.data.running).toBe(2);
     expect(res.data.failures).toEqual([failure]);
     expect(res.data.monitoring.attention).toHaveLength(1);
+    expect(res.data.koala).toEqual(koala);
   });
 
   it('reads one cluster', async () => {

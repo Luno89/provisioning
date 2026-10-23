@@ -1,4 +1,4 @@
-export type { AppRow, ClusterRow, Overview } from './api/monitoring'
+export type { AppRow, ClusterRow, HealthState, Overview } from './api/monitoring'
 export { getNotifications, notificationKeys, sendTestEmail, setEmailChoice } from './api/notifications'
 export type { EmailChoice, NotificationView } from './api/notifications'
 export { AppHealth } from './components/AppHealth'

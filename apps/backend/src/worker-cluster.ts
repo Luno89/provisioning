@@ -16,7 +16,8 @@ import { RunPipelineActivity } from './activities/RunPipelineActivity.js';
 import { createWorkerLogger, buildDataConverter, sharedPayloadBlobs, loadKeys, roleFromEnv, SYSTEM_KUBECONFIG, telemetrySettings } from './platform/index.js';
 import { healthPort, serveHealth, InfrastructureService, sharedClusterProxy } from './infrastructure/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
-import { startTelemetry, traceActivities } from '@koala/engine-core/telemetry';
+import { traceActivities } from '@koala/engine-core/telemetry';
+import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { ensureClusterMonitoring } from './activities/cluster-monitoring.js';
 import { collectorSink, placedOnPool, SYSTEM_CLUSTER } from './monitoring/index.js';
 

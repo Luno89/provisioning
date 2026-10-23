@@ -60,7 +60,7 @@ export const koalaServiceDashboard = (): object => dashboard("Koala: the service
   { title: "Image builds, time p95 by kind", expr: "histogram_quantile(0.95, sum by (le, kind) (rate(koala_image_build_seconds_bucket[1h])))", legend: "{{kind}}", unit: "s" },
   { title: "Hub sync time, by step", expr: "sum by (step) (rate(koala_hub_sync_seconds_sum[5m])) / sum by (step) (rate(koala_hub_sync_seconds_count[5m]))", legend: "{{step}}", unit: "s" },
   { title: "Emails sent, by outcome", expr: "sum by (outcome) (increase(koala_mail_sent_total[1h]))", legend: "{{outcome}}" },
-  { title: "Processes reporting", expr: 'count by (service_name) (count by (service_name, service_instance_id) ({__name__=~"koala_.*", service_name!=""}))', legend: "{{service_name}}" },
+  { title: "Processes reporting", expr: "sum by (service_name) (koala_up)", legend: "{{service_name}}" },
   { title: "Telemetry relayed from machines", expr: "sum by (signal, outcome) (rate(koala_telemetry_relayed_total[5m]))", legend: "{{signal}} {{outcome}}" },
 ]);
 

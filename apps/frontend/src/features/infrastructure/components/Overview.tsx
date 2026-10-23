@@ -7,6 +7,7 @@ import { useAlerts } from '../../monitoring'
 import { hashFor } from '../lib/opens'
 import { AppsSection } from './AppsSection'
 import { ClustersSection } from './ClustersSection'
+import { KoalaSection } from './KoalaSection'
 import { ModelTrafficSection } from './ModelTrafficSection'
 import { OwnHardwareSection } from './OwnHardwareSection'
 import { QuietButton, WorkloadBadge } from './Parts'
@@ -103,6 +104,7 @@ export function Overview({ focus }: { focus?: SectionId }) {
       <OwnHardwareSection />
       <RunningSection />
       <ModelTrafficSection />
+      <KoalaSection />
 
       <Section title="Alerts set">
         {alerts.data ? <RuleList rules={alerts.data.rules} /> : <Loader2 size={12} className="animate-spin text-slate-500" />}

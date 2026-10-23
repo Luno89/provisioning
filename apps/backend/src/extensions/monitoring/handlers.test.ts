@@ -14,7 +14,7 @@ const reading: MonitoringReading = {
     describeCluster: async () => 'c is healthy.',
     proposeAlertProblem: async (_viewer, app, spec) => {
       asked.push(`${app}:${spec.kind}:${spec.threshold}:${spec.forMinutes}`);
-      return app === 'Books' ? { dep: { id: 'books' } as never, summary: 'Tell me when Books has not answered for 5 minutes' } : { error: 'no app called Nope; yours are: Books' };
+      return app === 'Books' ? { subject: { id: 'books', name: 'Books' }, summary: 'Tell me when Books has not answered for 5 minutes' } : { error: 'no app called Nope; yours are: Books' };
     },
   },
   rules: async () => [{ id: 'r1', summary: 'Books: down', deploymentId: 'books' }],

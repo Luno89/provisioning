@@ -52,6 +52,7 @@ export const COLLECTOR_VALUES = {
         endpoint: `0.0.0.0:${COLLECTOR_METRICS_PORT}`,
         resource_to_telemetry_conversion: { enabled: true },
         enable_open_metrics: false,
+        metric_expiration: "1m",
       },
     },
     extensions: {

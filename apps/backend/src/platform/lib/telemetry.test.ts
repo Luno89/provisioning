@@ -7,9 +7,8 @@ import { Worker } from '@temporalio/worker';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  currentTraceId, startTelemetry, traceActivities, traceWorkflowStarts, withSpan, type Telemetry, type TelemetrySignal, type TelemetrySink,
-} from '@koala/engine-core/telemetry';
+import { currentTraceId, traceActivities, traceWorkflowStarts, withSpan, type TelemetrySignal, type TelemetrySink } from '@koala/engine-core/telemetry';
+import { startTelemetry, type Telemetry } from '@koala/engine-core/telemetry-sdk';
 import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import { WorkspaceConclusionService } from '../../memory/services/WorkspaceConclusionService.js';
 import { MetricsService, TRACE_ID_HEADER } from '../services/MetricsService.js';

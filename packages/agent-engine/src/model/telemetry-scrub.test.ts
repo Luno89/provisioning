@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { startTelemetry, type Telemetry, type TelemetrySink, type TelemetrySignal } from '@koala/engine-core/telemetry';
+import { startTelemetry, type Telemetry, type TelemetrySink, type TelemetrySignal } from '@koala/engine-core/telemetry-sdk';
 import { callModel } from './model-call.js';
 import { createOrchestrationNodes } from '../procedure/nodes/orchestration.js';
 import { runToolCalls } from '../procedure/nodes/tools.js';

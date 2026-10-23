@@ -14,7 +14,8 @@ import { createWorkerLogger, buildDataConverter, sharedPayloadBlobs, loadKeys, S
 import { healthPort, serveHealth, sharedClusterProxy } from './infrastructure/index.js';
 import { collectorSink } from './monitoring/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
-import { startTelemetry, traceActivities } from '@koala/engine-core/telemetry';
+import { traceActivities } from '@koala/engine-core/telemetry';
+import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

@@ -74,7 +74,7 @@ export interface ClusterRow {
   isSystem: boolean
 }
 
-export type AlertAbout = { kind: 'app'; deploymentId: string } | { kind: 'cluster' }
+export type AlertAbout = { kind: 'app'; deploymentId: string } | { kind: 'cluster' } | { kind: 'koala' }
 
 export interface FiringAlert {
   key: string

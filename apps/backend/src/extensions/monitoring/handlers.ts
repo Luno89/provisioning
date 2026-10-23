@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import { sameAction, type ActionProposal } from '../../engine/lib/action-proposals.js';
-import { alertSpec, isAlertKind } from '../../monitoring/lib/monitoring-alerts.js';
+import { ALERT_KINDS, alertSpec, isAlertKind } from '../../monitoring/lib/monitoring-alerts.js';
 import type { MonitoringService, Viewer } from '../../monitoring/index.js';
 import { APP_HEALTH, CLUSTER_HEALTH, MONITORING_OVERVIEW, PROPOSE_ALERT } from './catalogue.js';
 
@@ -87,12 +87,12 @@ export function createMonitoringTools(deps: MonitoringToolDeps): Record<string, 
         summary = `Stop alerting: ${rule.summary}`;
       } else {
         const kind = text(args.kind);
-        if (!isAlertKind(kind)) return refuse(`kind is one of down, slow, memory, restarts, volume, errors`);
+        if (!isAlertKind(kind)) return refuse(`kind is one of ${ALERT_KINDS.join(', ')}`);
         const spec = alertSpec(kind, number(args.threshold), number(args.forMinutes));
         if ('error' in spec) return refuse(spec.error);
         const checked = await reading.monitoring.proposeAlertProblem(viewer, appName, spec);
         if ('error' in checked) return refuse(`${checked.error}; nothing was proposed`);
-        params = { deploymentId: checked.dep.id, kind: spec.kind, threshold: String(spec.threshold), forMinutes: String(spec.forMinutes) };
+        params = { deploymentId: checked.subject.id, kind: spec.kind, threshold: String(spec.threshold), forMinutes: String(spec.forMinutes) };
         summary = checked.summary;
       }
 

@@ -22,6 +22,10 @@
     "./telemetry": {
       "types": "./src/telemetry.ts",
       "default": "./src/telemetry.ts"
+    },
+    "./telemetry-sdk": {
+      "types": "./src/telemetry-sdk.ts",
+      "default": "./src/telemetry-sdk.ts"
     }
   },
   "dependencies": {

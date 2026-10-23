@@ -1,7 +1,7 @@
 export { appServiceType, COLLECTOR_OTLP_PORT, monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, SYSTEM_CLUSTER, TELEMETRY_SERVICES, telemetryPresent, TEMPO_PORT } from './lib/cluster-monitoring.js';
 export type { TelemetrySeen } from './lib/cluster-monitoring.js';
-export { alertSpec, isAlertKind, ruleResourceName } from './lib/monitoring-alerts.js';
-export type { AlertSpec, PromAlert } from './lib/monitoring-alerts.js';
+export { ALERT_KINDS, alertSpec, isAlertKind, isKoalaAlertKind, KOALA_ALERT_KINDS, KOALA_SUBJECT, ruleResourceName } from './lib/monitoring-alerts.js';
+export type { AlertAbout, AlertSpec, PromAlert } from './lib/monitoring-alerts.js';
 export { askQuery, parseAsk, parseRange } from './lib/monitoring-asks.js';
 export type { MonitoringAsk, RangeAsk } from './lib/monitoring-asks.js';
 export { VIRTUAL_NAMESPACE_LABEL } from './lib/monitoring-questions.js';
@@ -11,7 +11,7 @@ export { BLACKBOX_VALUES, hostProbeManifest, hostRuleManifest, parsePoolRule, pa
 export type { PoolProbe, PoolRule } from './lib/pool-monitoring.js';
 export { collectorEndpoint, collectorSink } from './services/CollectorReach.js';
 export { MonitoringError, MonitoringService, prometheusAt } from './services/MonitoringService.js';
-export type { MetricsClient, Overview, PrometheusClient, Sample, Viewer } from './services/MonitoringService.js';
+export type { KoalaView, MetricsClient, Overview, PrometheusClient, Sample, Viewer } from './services/MonitoringService.js';
 export { NotificationService } from './services/NotificationService.js';
 export { poolMonitor, poolMonitorFrom } from './services/PoolMonitor.js';
 export type { MonitoringStore } from './store.js';

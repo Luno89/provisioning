@@ -1,5 +1,5 @@
 import { api } from '../../../api/client'
-import type { Overview } from '../../monitoring'
+import type { HealthState, Overview } from '../../monitoring'
 import type { RunningItem, RunningKind } from './running'
 
 /**
@@ -8,7 +8,8 @@ import type { RunningItem, RunningKind } from './running'
  * apps/backend/src/infrastructure/lib/platform-services.ts (PlatformService, HelmReleaseJson),
  * apps/backend/src/infrastructure/lib/work-failures.ts (WorkFailure),
  * apps/backend/src/infrastructure/services/ClusterContentsService.ts (ClusterContents, ClusterNode, BrokenWorkload) and
- * apps/backend/src/infrastructure/services/InfrastructureViewService.ts (InfrastructureOverview).
+ * apps/backend/src/infrastructure/services/InfrastructureViewService.ts (InfrastructureOverview) and
+ * apps/backend/src/monitoring/services/MonitoringService.ts (KoalaView, with KoalaNumbers from monitoring-summary.ts).
  */
 export type WorkloadState = 'ok' | 'starting' | 'warning' | 'down'
 export type WorkloadKind = 'Deployment' | 'StatefulSet' | 'DaemonSet' | 'Job' | 'Pod'
@@ -102,8 +103,33 @@ export interface WorkFailure {
   failedAt: string
 }
 
+export interface KoalaNumbers {
+  reporting?: number
+  requestsPerSecond?: number
+  requestErrorShare?: number
+  requestSeconds?: number
+  modelCallsPerMinute?: number
+  modelErrorShare?: number
+  modelSeconds?: number
+  modelQueued?: number
+  workflowsStartedHour?: number
+  activityFailuresHour?: number
+  workFailuresDay?: number
+}
+
+export interface KoalaView {
+  state: HealthState
+  reasons: string[]
+  numbers: KoalaNumbers
+  services: string[]
+  lines: string[]
+  telemetry: { collector: boolean; tempo: boolean }
+  checkedAt: string
+}
+
 export interface InfrastructureOverview {
   monitoring: Overview
+  koala: KoalaView
   workloads: BrokenWorkload[]
   waiting: RunningItem[]
   running: number

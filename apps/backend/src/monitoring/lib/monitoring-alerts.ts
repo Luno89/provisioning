@@ -1,4 +1,4 @@
-import { appQuery, appWindowQuery, trafficSelector, type AppSubject, type PoolPlace } from './monitoring-questions.js';
+import { appQuery, appWindowQuery, KOALA_UP, trafficSelector, type AppSubject, type PoolPlace } from './monitoring-questions.js';
 
 export interface PromAlert {
   labels: Record<string, string>;
@@ -8,7 +8,11 @@ export interface PromAlert {
   value?: string | undefined;
 }
 
-export type AlertAbout = { kind: 'app'; deploymentId: string } | { kind: 'cluster' };
+export type AlertAbout = { kind: 'app'; deploymentId: string } | { kind: 'cluster' } | { kind: 'koala' };
+
+export const KOALA_SUBJECT = 'koala';
+export const KOALA_NAME = 'Koala';
+export const KOALA_ALERT_NAMESPACE = 'monitoring';
 
 export interface VisibleAlert {
   key: string;
@@ -23,6 +27,7 @@ export interface VisibleAlert {
 export interface AlertScope {
   appsByNamespace: ReadonlyMap<string, { deploymentId: string; name: string }>;
   ownRules: ReadonlySet<string>;
+  koalaRules?: ReadonlySet<string> | undefined;
   ownsCluster: boolean;
 }
 
@@ -62,7 +67,9 @@ export function visibleAlerts(alerts: readonly PromAlert[], scope: AlertScope): 
     const app = alert.labels.namespace ? scope.appsByNamespace.get(alert.labels.namespace) : undefined;
     const ruleId = alert.labels[RULE_LABEL];
     const base = { key: alertKey(alert.labels), name, severity: alert.labels.severity ?? 'warning', ...(alert.activeAt ? { since: alert.activeAt } : {}) };
-    if (ruleId) {
+    if (ruleId && scope.koalaRules?.has(ruleId)) {
+      seen.push({ ...base, ruleId, summary: alert.annotations?.summary ?? `${KOALA_NAME}: ${name}`, about: { kind: 'koala' } });
+    } else if (ruleId) {
       if (!scope.ownRules.has(ruleId) || !app) continue;
       seen.push({ ...base, ruleId, summary: alert.annotations?.summary ?? `${app.name}: ${name}`, about: { kind: 'app', deploymentId: app.deploymentId } });
     } else if (app && APP_ALERTS[name]) {
@@ -74,8 +81,14 @@ export function visibleAlerts(alerts: readonly PromAlert[], scope: AlertScope): 
   return seen;
 }
 
-export const ALERT_KINDS = ['down', 'slow', 'memory', 'restarts', 'volume', 'errors'] as const;
+export const APP_ALERT_KINDS = ['down', 'slow', 'memory', 'restarts', 'volume', 'errors'] as const;
+export const KOALA_ALERT_KINDS = ['koala_down', 'model_errors', 'workflow_failures'] as const;
+export const ALERT_KINDS = [...APP_ALERT_KINDS, ...KOALA_ALERT_KINDS] as const;
 export type AlertKind = typeof ALERT_KINDS[number];
+export type KoalaAlertKind = typeof KOALA_ALERT_KINDS[number];
+
+export const isKoalaAlertKind = (kind: AlertKind): kind is KoalaAlertKind => (KOALA_ALERT_KINDS as readonly string[]).includes(kind);
+export const isKoalaSubject = (nameOrId: string): boolean => nameOrId.trim().toLowerCase() === KOALA_SUBJECT;
 
 export interface AlertSpec {
   kind: AlertKind;
@@ -98,6 +111,9 @@ export const ALERT_RULES: Record<AlertKind, KindRule> = {
   restarts: { threshold: { default: 3, min: 1, max: 1000, unit: 'restarts in an hour' }, forMinutes: 0, describe: (app, s) => `${app} restarts more than ${s.threshold} times in an hour` },
   volume: { threshold: { default: 90, min: 10, max: 100, unit: '% full' }, forMinutes: 10, describe: (app, s) => `${app} has a volume over ${s.threshold}% full` },
   errors: { threshold: { default: 5, min: 0.1, max: 100, unit: '% of requests failing' }, forMinutes: 10, describe: (app, s) => `${app} fails over ${s.threshold}% of its requests for ${minutes(s.forMinutes)}` },
+  koala_down: { threshold: undefined, forMinutes: 2, describe: (_app, s) => `Koala's backend has stopped reporting for ${minutes(s.forMinutes)}` },
+  model_errors: { threshold: { default: 20, min: 1, max: 100, unit: '% of model calls failing' }, forMinutes: 10, describe: (_app, s) => `over ${s.threshold}% of Koala's model calls fail for ${minutes(s.forMinutes)}` },
+  workflow_failures: { threshold: { default: 3, min: 1, max: 1000, unit: 'pieces of work failing in an hour' }, forMinutes: 0, describe: (_app, s) => `more than ${s.threshold} pieces of Koala's work fail in an hour` },
 };
 
 export const alertSummary = (app: string, spec: AlertSpec): string => ALERT_RULES[spec.kind].describe(app, spec);
@@ -115,7 +131,17 @@ export function alertSpec(kind: AlertKind, threshold?: number, forMinutes?: numb
   return { kind, threshold: rule.threshold ? t : 0, forMinutes: minutes };
 }
 
+export function koalaAlertExpression(spec: AlertSpec): string | { error: string } {
+  switch (spec.kind) {
+    case 'koala_down': return `absent(${KOALA_UP}{service_name="koala-backend"})`;
+    case 'model_errors': return `(sum(rate(koala_model_call_seconds_count{outcome="failed"}[10m])) or vector(0)) / sum(rate(koala_model_call_seconds_count[10m])) > ${spec.threshold / 100}`;
+    case 'workflow_failures': return `sum(increase(koala_work_failures_total[1h])) > ${spec.threshold}`;
+    default: return { error: `${spec.kind} is an alert about an app, not about Koala itself` };
+  }
+}
+
 export function alertExpression(spec: AlertSpec, app: AppSubject, place?: PoolPlace): string | { error: string } {
+  if (isKoalaAlertKind(spec.kind)) return { error: `${spec.kind} is an alert about Koala itself; set it on "koala", not on an app` };
   switch (spec.kind) {
     case 'down': return `${appQuery('up', app, place)} < 1`;
     case 'slow': return `${appQuery('responseSeconds', app, place)} > ${spec.threshold}`;

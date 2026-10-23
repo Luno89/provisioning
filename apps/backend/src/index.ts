@@ -20,7 +20,7 @@ import {
   ownsProject, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, decryptValue, loadKeys,
   roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings,
 } from './platform/index.js';
-import { startTelemetry } from '@koala/engine-core/telemetry';
+import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { rateLimit } from 'express-rate-limit';
 import { wireReleases } from './releases/wiring/releases.js';
 import { storyDropsFor, wireFiles } from './files/wiring/files.js';

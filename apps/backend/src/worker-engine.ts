@@ -69,7 +69,8 @@ import { treeOfGroveRun, workflowOfRun } from './engine-host/temporal/contracts.
 import { TreeModelsService, treeAgentsFrom } from './models/index.js';
 import { platformGroups } from './extensions/installed.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
-import { startTelemetry, traceActivities } from '@koala/engine-core/telemetry';
+import { traceActivities } from '@koala/engine-core/telemetry';
+import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

@@ -1,11 +1,12 @@
 import type { RunningItem } from '../lib/running.js';
 import type { WorkFailure } from '../lib/work-failures.js';
 import type { BrokenWorkload, ClusterContents } from './ClusterContentsService.js';
-import type { Overview, Viewer } from '../../monitoring/index.js';
+import type { KoalaView, Overview, Viewer } from '../../monitoring/index.js';
 import type { RunningOutcome, RunningView } from './RunningService.js';
 
 export interface InfrastructureOverview {
   monitoring: Overview;
+  koala: KoalaView;
   workloads: BrokenWorkload[];
   waiting: RunningItem[];
   running: number;
@@ -14,7 +15,7 @@ export interface InfrastructureOverview {
 }
 
 export interface InfrastructureViewDeps {
-  monitoring: { overview(viewer: Viewer): Promise<Overview> };
+  monitoring: { overview(viewer: Viewer): Promise<Overview>; koala(viewer: Viewer): Promise<KoalaView> };
   contents: { broken(viewer: Viewer): Promise<BrokenWorkload[]>; contents(viewer: Viewer, clusterId: string): Promise<ClusterContents> };
   running: { view(ownerId: string): Promise<RunningOutcome<RunningView>> };
   failures: { shown(ownerId: string): Promise<WorkFailure[]>; clear(ownerId: string, ids: readonly string[] | 'all'): Promise<number> };
@@ -34,8 +35,9 @@ export class InfrastructureViewService {
   constructor(private readonly deps: InfrastructureViewDeps) {}
 
   async overview(viewer: Viewer): Promise<InfrastructureOverview> {
-    const [monitoring, broken, running, failures] = await Promise.all([
+    const [monitoring, koala, broken, running, failures] = await Promise.all([
       this.deps.monitoring.overview(viewer),
+      this.deps.monitoring.koala(viewer),
       this.deps.contents.broken(viewer).catch(() => []),
       this.deps.running.view(viewer.id),
       this.deps.failures.shown(viewer.id),
@@ -44,6 +46,7 @@ export class InfrastructureViewService {
     const workloads = broken.filter((workload) => !(workload.about.kind === 'app' && appsTold.has(workload.about.id)));
     return {
       monitoring,
+      koala,
       workloads,
       waiting: running.ok ? waitingOnPerson(running.value.items) : [],
       running: running.ok ? running.value.items.length : 0,

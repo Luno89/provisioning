@@ -3,8 +3,8 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import { clusterOwnership } from '../../platform/lib/ownership.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
-import { appQuery, appWindowQuery, clusterQuery, type AppSubject } from '../lib/monitoring-questions.js';
-import { RULE_LABEL, alertSpec, type AlertSpec, type PromAlert } from '../lib/monitoring-alerts.js';
+import { appQuery, appWindowQuery, clusterQuery, koalaQuery, koalaServicesQuery, type AppSubject } from '../lib/monitoring-questions.js';
+import { RULE_LABEL, alertSpec, koalaAlertExpression, type AlertSpec, type PromAlert } from '../lib/monitoring-alerts.js';
 import { MonitoringService, type MonitoringDeps, type PrometheusClient, type Sample } from './MonitoringService.js';
 import { AlertWatchService } from './AlertWatchService.js';
 
@@ -51,6 +51,7 @@ let prometheusResource: Record<string, unknown>;
 let releases: Array<Record<string, string>>;
 let traefikValues: Record<string, unknown>;
 let helmChartConfig: string;
+let telemetryInstalled: boolean;
 let monitoring: MonitoringService;
 let deps: () => MonitoringDeps;
 
@@ -65,6 +66,7 @@ beforeEach(async () => {
   releases = [{ name: 'kube-prometheus-stack', namespace: 'monitoring', chart: 'kube-prometheus-stack-79.1.0' }];
   traefikValues = {};
   helmChartConfig = '';
+  telemetryInstalled = true;
   deps = (): MonitoringDeps => ({
     store: db,
     systemCluster: async () => system,
@@ -77,7 +79,7 @@ beforeEach(async () => {
     kubectl: async (cluster, args) => {
       kubectl.push([cluster.id, ...args]);
       if (args[0] === 'get' && args[1] === 'prometheus') return JSON.stringify(prometheusResource);
-      if (args[0] === 'get' && args[1] === 'service') return cluster.id === remote.id ? '' : 'service/kube-prometheus-stack-prometheus';
+      if (args[0] === 'get' && args[1] === 'service') return cluster.id === remote.id || !telemetryInstalled && args[2] !== 'kube-prometheus-stack-prometheus' ? '' : `service/${args[2]}`;
       if (args[0] === 'get' && args[1] === 'helmchartconfig') return helmChartConfig;
       return '';
     },
@@ -380,5 +382,54 @@ describe('a cluster on Koala\'s servers', () => {
     const full = await monitoring.clusterHealth(ME, system.id, '1h');
     expect(full.cluster.reasons).toContain('95% of its place\'s storage is claimed');
     expect(full.lines).toContain('In use of its place on Koala\'s servers: storage claimed 95%.');
+  });
+});
+
+describe('Koala itself', () => {
+  const reporting = () => {
+    prom.answers.set(koalaServicesQuery(), [{ metric: { service_name: 'koala-worker-engine' }, value: 1 }, { metric: { service_name: 'koala-backend' }, value: 1 }]);
+    prom.set(koalaQuery('requestsPerSecond'), 1.5).set(koalaQuery('requestErrorShare'), 0).set(koalaQuery('requestSeconds'), 0.1)
+      .set(koalaQuery('modelCallsPerMinute'), 2).set(koalaQuery('modelErrorShare'), 0).set(koalaQuery('modelSeconds'), 8).set(koalaQuery('modelQueued'), 0)
+      .set(koalaQuery('workflowsStartedHour'), 4).set(koalaQuery('activityFailuresHour'), 0).set(koalaQuery('workFailuresDay'), 0).set(koalaQuery('reporting'), 2);
+  };
+
+  it('is read from the system cluster\'s Prometheus through the same named questions as an app, for anyone', async () => {
+    reporting();
+    const view = await monitoring.koala(SOMEONE);
+    expect(view).toMatchObject({ state: 'ok', reasons: [], services: ['koala-backend', 'koala-worker-engine'], telemetry: { collector: true, tempo: true } });
+    expect(view.numbers).toMatchObject({ requestsPerSecond: 1.5, modelCallsPerMinute: 2, workflowsStartedHour: 4 });
+    expect(view.lines[0]).toBe('Koala is healthy.');
+    expect(view.lines[1]).toBe('2 processes report: koala-backend, koala-worker-engine.');
+    expect(prom.asked).toContain(koalaQuery('modelQueued'));
+    expect((await monitoring.describeOverview(ME))).toContain('Koala itself: Koala is healthy. 2 processes report');
+  });
+
+  it('is down when nothing of Koala reports, and getting its monitoring while the collector or Tempo is missing', async () => {
+    expect(await monitoring.koala(ME)).toMatchObject({ state: 'down', reasons: ['no part of Koala is reporting'], services: [] });
+    telemetryInstalled = false;
+    expect(await monitoring.koala(ME)).toMatchObject({ state: 'installing', telemetry: { collector: false, tempo: false }, numbers: {} });
+  });
+
+  it('takes its own alerts, set on "koala" by whoever runs it, as a PrometheusRule in the monitoring namespace', async () => {
+    reporting();
+    const spec = alertSpec('model_errors') as AlertSpec;
+    expect(await monitoring.proposeAlertProblem(ME, 'koala', spec)).toEqual({ subject: { id: 'koala', name: 'Koala' }, summary: 'Tell me when over 20% of Koala\'s model calls fail for 10 minutes' });
+    expect(await monitoring.proposeAlertProblem(SOMEONE, 'koala', spec)).toEqual({ error: 'only whoever runs this Koala can set alerts on Koala itself' });
+    expect(await monitoring.proposeAlertProblem(ME, 'koala', alertSpec('down') as AlertSpec)).toEqual({ error: 'down is an alert about an app; on Koala itself the kinds are koala_down, model_errors and workflow_failures' });
+    expect(await monitoring.proposeAlertProblem(ME, 'books', spec)).toEqual({ error: 'model_errors is an alert about Koala itself; name "koala", not an app' });
+
+    const rule = await monitoring.addRule(ME, 'koala', spec, 'conv-1');
+    expect(rule).toMatchObject({ deploymentId: 'koala', namespace: 'monitoring', appName: 'Koala', clusterId: system.id, conversationId: 'conv-1' });
+    const manifest = JSON.parse(applied[0]!) as { metadata: { namespace: string }; spec: { groups: { rules: { expr: string }[] }[] } };
+    expect(manifest.metadata.namespace).toBe('monitoring');
+    expect(manifest.spec.groups[0]!.rules[0]!.expr).toBe(koalaAlertExpression(spec));
+    await expect(monitoring.addRule(ME, 'books', spec)).rejects.toMatchObject({ status: 400 });
+
+    prom.firing = [{ labels: { alertname: 'Koala_model_errors', [RULE_LABEL]: rule.id, namespace: 'monitoring' }, annotations: { summary: rule.summary }, state: 'firing' }];
+    expect(await monitoring.koala(ME)).toMatchObject({ state: 'warning', reasons: [rule.summary] });
+    expect((await monitoring.alerts(ME)).firing).toEqual([expect.objectContaining({ ruleId: rule.id, about: { kind: 'koala' } })]);
+
+    await monitoring.removeRule(ME, rule.id);
+    expect(kubectl.at(-1)).toEqual([system.id, 'delete', 'prometheusrule', `koala-alert-${rule.id}`, '-n', 'monitoring', '--ignore-not-found']);
   });
 });

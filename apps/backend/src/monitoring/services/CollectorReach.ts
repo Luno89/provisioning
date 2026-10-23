@@ -1,4 +1,4 @@
-import { envSink, otlpHttpSink, type TelemetrySink } from '@koala/engine-core/telemetry';
+import { envSink, otlpHttpSink, type TelemetrySink } from '@koala/engine-core/telemetry-sdk';
 import type { ClusterProxyService } from '../../infrastructure/index.js';
 import { TELEMETRY_SERVICES } from '../lib/cluster-monitoring.js';
 

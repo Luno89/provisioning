@@ -93,6 +93,10 @@ const monitoring: Overview = {
 
 const overview: InfrastructureOverview = {
   monitoring,
+  koala: {
+    state: 'ok', reasons: [], numbers: { requestsPerSecond: 2.5, requestErrorShare: 0.01, requestSeconds: 0.25, modelCallsPerMinute: 3, modelErrorShare: 0, modelSeconds: 12, modelQueued: 2, workflowsStartedHour: 5, activityFailuresHour: 0, workFailuresDay: 1 },
+    services: ['koala-backend', 'koala-worker-engine'], lines: ['Koala is healthy.', '2 processes report: koala-backend, koala-worker-engine.'], telemetry: { collector: true, tempo: true }, checkedAt: new Date().toISOString(),
+  },
   workloads: [{ namespace: 'searxng', kind: 'Deployment', name: 'searxng', group: 'other', about: { kind: 'other' }, pods: { total: 1, ready: 0 }, state: 'down', reasons: ['it keeps crashing'], restarts: 12, clusterId: cluster.id, clusterName: cluster.name }],
   waiting: [{ workflowId: 'release-p1', kind: 'release', title: 'Releasing Books: abc12345 waits for you on its card', since: 'then', opens: { kind: 'project', id: 'p1' }, cancel: { via: 'run' }, waitsFor: ['decide'] }],
   running: 3,
@@ -150,7 +154,7 @@ describe('the Infrastructure page', () => {
     show()
     expect(await screen.findByRole('list', { name: 'Needs attention' })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Running · 1' })).toBeInTheDocument()
-    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['Needs attention', 'Apps · 3', 'Clusters · 2', 'Your own hardware', 'Running · 1', 'Model traffic', 'Alerts set', 'Alert history'])
+    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['Needs attention', 'Apps · 3', 'Clusters · 2', 'Your own hardware', 'Running · 1', 'Model traffic', 'Koala', 'Alerts set', 'Alert history'])
     expect(screen.getAllByTestId('app-row')).toHaveLength(3)
     expect(screen.getAllByTestId('cluster-card')).toHaveLength(2)
     expect(await screen.findByRole('link', { name: 'Koala answering' })).toHaveAttribute('href', '#/chat/c1')

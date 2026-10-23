@@ -164,3 +164,31 @@ export const CLUSTER_CHARTS = ['cpuShare', 'memoryShare', 'diskShare'] as const;
 export type ClusterChart = typeof CLUSTER_CHARTS[number];
 
 export const clusterChartQuery = (chart: ClusterChart, place?: PoolPlace): string => clusterQuery(chart, place);
+
+export const KOALA_QUESTIONS = [
+  'reporting', 'requestsPerSecond', 'requestErrorShare', 'requestSeconds', 'modelCallsPerMinute', 'modelErrorShare', 'modelSeconds', 'modelQueued',
+  'workflowsStartedHour', 'activityFailuresHour', 'workFailuresDay',
+] as const;
+export type KoalaQuestion = typeof KOALA_QUESTIONS[number];
+
+export const KOALA_UP = 'koala_up';
+const KOALA_FAILED_SHARE = (metric: string, failing: string, window: string) =>
+  `(sum(rate(${metric}{${failing}}[${window}])) or vector(0)) / sum(rate(${metric}[${window}]))`;
+
+export function koalaQuery(question: KoalaQuestion): string {
+  switch (question) {
+    case 'reporting': return `count(sum by (service_name) (${KOALA_UP}))`;
+    case 'requestsPerSecond': return 'sum(rate(koala_http_request_seconds_count[5m]))';
+    case 'requestErrorShare': return KOALA_FAILED_SHARE('koala_http_request_seconds_count', 'status=~"5.."', '5m');
+    case 'requestSeconds': return 'histogram_quantile(0.95, sum by (le) (rate(koala_http_request_seconds_bucket[5m])))';
+    case 'modelCallsPerMinute': return 'sum(rate(koala_model_call_seconds_count[5m])) * 60';
+    case 'modelErrorShare': return KOALA_FAILED_SHARE('koala_model_call_seconds_count', 'outcome="failed"', '5m');
+    case 'modelSeconds': return 'histogram_quantile(0.95, sum by (le) (rate(koala_model_call_seconds_bucket[5m])))';
+    case 'modelQueued': return 'sum(koala_model_queued)';
+    case 'workflowsStartedHour': return 'sum(increase(koala_workflows_started_total[1h]))';
+    case 'activityFailuresHour': return 'sum(increase(koala_activity_seconds_count{outcome="failed"}[1h]))';
+    case 'workFailuresDay': return 'sum(increase(koala_work_failures_total[24h]))';
+  }
+}
+
+export const koalaServicesQuery = (): string => `sum by (service_name) (${KOALA_UP})`;

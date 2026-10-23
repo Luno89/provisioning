@@ -20,7 +20,7 @@ export const MONITORING_TOOLS: ToolDefinition[] = [
     effect: 'read',
     idempotent: true,
     openWorld: false,
-    returns: 'what needs attention (each app or cluster with its state and why), then every app and every cluster with its state',
+    returns: 'what needs attention (each app or cluster with its state and why), then every app and every cluster with its state, then Koala itself: which of its processes report, its requests, model calls and failed work',
     failures: [{ when: 'a cluster cannot be reached or is still getting its monitoring', says: 'so, as that cluster\'s state, with the rest read as usual' }],
     parameters: { type: 'object', properties: {} },
   },
@@ -61,8 +61,8 @@ export const MONITORING_TOOLS: ToolDefinition[] = [
   },
   {
     name: PROPOSE_ALERT,
-    summary: 'Propose an alert on one of the person\'s apps, or removing one, for the person to apply on a card',
-    guidance: `Use this when the person wants to be told when something happens to an app. Kinds: ${kindLines}. Pick the kind that matches what they said, and a threshold and minutes only when they gave them. A firing alert reaches them as a notice in the project's channel (or this conversation for an app with no project) and on the Monitoring page. To remove one, give remove with the id app_health lists. Nothing is set until the person applies the card.`,
+    summary: 'Propose an alert on one of the person\'s apps, or on Koala itself, or removing one, for the person to apply on a card',
+    guidance: `Use this when the person wants to be told when something happens to an app, or to Koala itself (app "koala", kinds koala_down, model_errors and workflow_failures, only for whoever runs this Koala). Kinds: ${kindLines}. Pick the kind that matches what they said, and a threshold and minutes only when they gave them. A firing alert reaches them as a notice in the project's channel (or this conversation for an app with no project) and on the Monitoring page. To remove one, give remove with the id app_health lists. Nothing is set until the person applies the card.`,
     binding: 'platform',
     effect: 'propose',
     idempotent: true,
@@ -75,8 +75,8 @@ export const MONITORING_TOOLS: ToolDefinition[] = [
     parameters: {
       type: 'object',
       properties: {
-        app: { type: 'string', description: 'The app\'s name or id.' },
-        kind: { type: 'string', enum: [...ALERT_KINDS], description: 'What to watch for.' },
+        app: { type: 'string', description: 'The app\'s name or id, or "koala" for Koala itself.' },
+        kind: { type: 'string', enum: [...ALERT_KINDS], description: 'What to watch for; koala_down, model_errors and workflow_failures are about Koala itself.' },
         threshold: { type: 'number', description: 'The level that fires it, in the kind\'s unit. Optional.' },
         forMinutes: { type: 'number', description: 'How long it must last before it fires. Optional.' },
         remove: { type: 'string', description: 'The id of an alert to remove instead, as app_health lists it.' },

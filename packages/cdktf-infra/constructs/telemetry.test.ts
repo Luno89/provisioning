@@ -20,6 +20,7 @@ describe("the collector Koala reports to", () => {
     expect(COLLECTOR_VALUES.alternateConfig.exporters["otlp/tempo"].endpoint).toBe("tempo.monitoring.svc.cluster.local:4317");
     expect(COLLECTOR_VALUES.alternateConfig.exporters.prometheus.endpoint).toBe(`0.0.0.0:${COLLECTOR_METRICS_PORT}`);
     expect(COLLECTOR_VALUES.alternateConfig.exporters.prometheus.resource_to_telemetry_conversion.enabled).toBe(true);
+    expect(COLLECTOR_VALUES.alternateConfig.exporters.prometheus.metric_expiration).toBe("1m");
     expect(COLLECTOR_VALUES.ports["prom-exporter"]).toMatchObject({ enabled: true, servicePort: COLLECTOR_METRICS_PORT });
   });
 

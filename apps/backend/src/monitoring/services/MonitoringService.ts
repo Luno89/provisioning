@@ -4,17 +4,19 @@ import {
 } from '../../platform/index.js';
 import { randomUUID } from 'node:crypto';
 import {
-  APP_CHARTS, APP_QUESTIONS, CLUSTER_CHARTS, CLUSTER_QUESTIONS, RANGE_SECONDS, stepFor,
+  APP_CHARTS, APP_QUESTIONS, CLUSTER_CHARTS, CLUSTER_QUESTIONS, KOALA_QUESTIONS, RANGE_SECONDS, stepFor,
   type AppChart, type AppSubject, type ClusterChart, type Range,
 } from '../lib/monitoring-questions.js';
+import { TELEMETRY_SERVICES, type TelemetrySeen } from '../lib/cluster-monitoring.js';
 import { askQuery, type MonitoringAsk, type RangeAsk } from '../lib/monitoring-asks.js';
 import { probesFromCluster, probesKey, type PoolProbe, type PoolRule } from '../lib/pool-monitoring.js';
 import {
-  appLines, appVerdict, clusterLines, clusterVerdict, share, worstFirst,
-  type AppNumbers, type ClusterNumbers, type HealthState,
+  appLines, appVerdict, clusterLines, clusterVerdict, koalaLines, koalaVerdict, share, worstFirst,
+  type AppNumbers, type ClusterNumbers, type HealthState, type KoalaNumbers,
 } from '../lib/monitoring-summary.js';
 import {
-  ALERT_RULES, alertExpression, alertSummary, alertRuleManifest, ruleResourceName, visibleAlerts,
+  ALERT_RULES, alertExpression, alertSummary, alertRuleManifest, isKoalaAlertKind, isKoalaSubject, KOALA_ALERT_NAMESPACE, KOALA_NAME, KOALA_SUBJECT,
+  koalaAlertExpression, ruleResourceName, visibleAlerts,
   type AlertRuleRecord, type AlertSpec, type PromAlert, type VisibleAlert,
 } from '../lib/monitoring-alerts.js';
 import {
@@ -176,6 +178,16 @@ export interface AppHealthView {
   history: HistoryState;
 }
 
+export interface KoalaView {
+  state: HealthState;
+  reasons: string[];
+  numbers: KoalaNumbers;
+  services: string[];
+  lines: string[];
+  telemetry: TelemetrySeen;
+  checkedAt: string;
+}
+
 export interface ClusterHealthView {
   cluster: ClusterRow;
   lines: string[];
@@ -321,9 +333,47 @@ export class MonitoringService {
     const rules = await this.deps.store.monitoring.getAlertRules(viewer.id);
     return {
       appsByNamespace: new Map(apps.filter((dep) => dep.clusterId === cluster.id).map((dep) => [namespaceOf(dep), { deploymentId: dep.id, name: dep.name }])),
-      ownRules: new Set(rules.map((rule) => rule.id)),
+      ownRules: new Set(rules.filter((rule) => rule.deploymentId !== KOALA_SUBJECT).map((rule) => rule.id)),
+      koalaRules: new Set(rules.filter((rule) => rule.deploymentId === KOALA_SUBJECT).map((rule) => rule.id)),
       ownsCluster: this.ownsCluster(viewer, cluster),
     };
+  }
+
+  private async telemetryOn(cluster: ClusterMetadata): Promise<TelemetrySeen> {
+    const present = async (name: string) => (await this.deps.kubectl(cluster, ['get', 'service', name, '-n', 'monitoring', '--ignore-not-found', '-o', 'name']).catch(() => '')).trim() !== '';
+    const [collector, tempo] = await Promise.all([present(TELEMETRY_SERVICES.collector), present(TELEMETRY_SERVICES.tempo)]);
+    return { collector, tempo };
+  }
+
+  async koalaNumbers(metrics: MetricsClient): Promise<KoalaNumbers> {
+    const numbers: KoalaNumbers = {};
+    await Promise.all(KOALA_QUESTIONS.map(async (question) => {
+      numbers[question] = first(await metrics.ask({ kind: 'koala', question }).catch(() => []));
+    }));
+    return numbers;
+  }
+
+  async koala(viewer: Viewer): Promise<KoalaView> {
+    const checkedAt = this.now().toISOString();
+    const system = await this.deps.systemCluster();
+    if (!system) return { state: 'unreachable', reasons: ['there is no system cluster'], numbers: {}, services: [], lines: ['Koala cannot be reached: there is no system cluster.'], telemetry: { collector: false, tempo: false }, checkedAt };
+    const reached = await this.reach(system);
+    const telemetry = await this.telemetryOn(system);
+    const unmeasured = (state: HealthState, reason: string): KoalaView =>
+      ({ state, reasons: [reason], numbers: {}, services: [], lines: koalaLines({ state, reasons: [reason] }, {}, []), telemetry, checkedAt });
+    if (!reached.metrics) return unmeasured(reached.state, `its cluster ${reached.reason ?? 'cannot be reached'}`);
+    if (this.isPool(system)) return unmeasured('unreachable', 'Koala\'s own telemetry is not kept on Koala\'s servers');
+    if (!telemetry.collector || !telemetry.tempo) return unmeasured('installing', 'its collector and Tempo are installed when the cluster worker starts or an app is deployed');
+    const [numbers, reporting] = await Promise.all([
+      this.koalaNumbers(reached.metrics),
+      reached.metrics.ask({ kind: 'koalaServices' }).catch(() => []),
+    ]);
+    const services = [...new Set(reporting.map((sample) => sample.metric.service_name).filter((name): name is string => Boolean(name)))].sort();
+    const verdict = koalaVerdict(numbers, services);
+    const firing = (await this.firingOn(viewer, reached, [])).filter((alert) => alert.about.kind === 'koala').map((alert) => alert.summary);
+    const reasons = [...verdict.reasons, ...firing.filter((summary) => !verdict.reasons.includes(summary))];
+    const state = verdict.state === 'ok' && firing.length ? 'warning' : verdict.state;
+    return { state, reasons, numbers, services, lines: koalaLines({ state, reasons }, numbers, services), telemetry, checkedAt };
   }
 
   async firingOn(viewer: Viewer, reached: Reached, apps: DeploymentMetadata[]): Promise<VisibleAlert[]> {
@@ -569,17 +619,36 @@ export class MonitoringService {
   }
 
   async describeOverview(viewer: Viewer): Promise<string> {
-    const overview = await this.overview(viewer);
+    const [overview, koala] = await Promise.all([this.overview(viewer), this.koala(viewer)]);
     const lines: string[] = [];
     lines.push(overview.attention.length
       ? `Needs attention:\n${overview.attention.map((item) => `- ${item.subject.kind} ${item.subject.name}: ${item.state}${item.reasons.length ? ` (${item.reasons.join('; ')})` : ''}`).join('\n')}`
       : 'Nothing needs attention.');
     lines.push(`Apps:\n${overview.apps.map((app) => `- ${app.name} on ${app.clusterName}: ${app.state}`).join('\n') || '- none'}`);
     lines.push(`Clusters:\n${overview.clusters.map((cluster) => `- ${cluster.name}: ${cluster.state}, ${cluster.apps} app${cluster.apps === 1 ? '' : 's'}`).join('\n') || '- none'}`);
+    lines.push(`Koala itself: ${koala.lines.join(' ')}`);
     return lines.join('\n\n');
   }
 
-  async proposeAlertProblem(viewer: Viewer, appNameOrId: string, spec: AlertSpec): Promise<{ dep: DeploymentMetadata; summary: string } | { error: string }> {
+  private async koalaAlertProblem(viewer: Viewer, spec: AlertSpec): Promise<{ cluster: ClusterMetadata; expression: string } | { error: string }> {
+    const system = await this.deps.systemCluster();
+    if (!system) return { error: 'there is no system cluster to watch Koala on' };
+    if (!this.ownsCluster(viewer, system)) return { error: 'only whoever runs this Koala can set alerts on Koala itself' };
+    if (this.isPool(system)) return { error: 'Koala\'s own telemetry is not kept on Koala\'s servers, so it cannot be watched there' };
+    const reached = await this.reach(system);
+    if (!reached.metrics) return { error: `its cluster ${reached.reason ?? 'cannot be reached'}, so an alert cannot be set there now` };
+    const expression = koalaAlertExpression(spec);
+    return typeof expression === 'string' ? { cluster: system, expression } : expression;
+  }
+
+  async proposeAlertProblem(viewer: Viewer, appNameOrId: string, spec: AlertSpec): Promise<{ subject: { id: string; name: string }; summary: string } | { error: string }> {
+    if (isKoalaAlertKind(spec.kind) || isKoalaSubject(appNameOrId)) {
+      if (!isKoalaAlertKind(spec.kind)) return { error: `${spec.kind} is an alert about an app; on Koala itself the kinds are koala_down, model_errors and workflow_failures` };
+      if (!isKoalaSubject(appNameOrId)) return { error: `${spec.kind} is an alert about Koala itself; name "koala", not an app` };
+      const checked = await this.koalaAlertProblem(viewer, spec);
+      if ('error' in checked) return checked;
+      return { subject: { id: KOALA_SUBJECT, name: KOALA_NAME }, summary: `Tell me when ${ALERT_RULES[spec.kind].describe(KOALA_NAME, spec)}` };
+    }
     const apps = await this.appsOf(viewer);
     const wanted = appNameOrId.trim().toLowerCase();
     const dep = apps.find((entry) => entry.id === appNameOrId) ?? apps.find((entry) => entry.name.toLowerCase() === wanted);
@@ -590,10 +659,34 @@ export class MonitoringService {
     if (!reached.metrics) return { error: `its cluster ${reached.reason ?? 'cannot be reached'}, so an alert cannot be set there now` };
     const expression = await this.expressionFor(cluster, reached.metrics, namespaceOf(dep), spec);
     if (typeof expression !== 'string') return expression;
-    return { dep, summary: `Tell me when ${ALERT_RULES[spec.kind].describe(dep.name, spec)}` };
+    return { subject: { id: dep.id, name: dep.name }, summary: `Tell me when ${ALERT_RULES[spec.kind].describe(dep.name, spec)}` };
+  }
+
+  private async addKoalaRule(viewer: Viewer, spec: AlertSpec, conversationId?: string): Promise<AlertRuleRecord> {
+    const checked = await this.koalaAlertProblem(viewer, spec);
+    if ('error' in checked) throw new MonitoringError(409, checked.error);
+    const rule: AlertRuleRecord = {
+      id: this.newId(),
+      ownerId: viewer.id,
+      deploymentId: KOALA_SUBJECT,
+      clusterId: checked.cluster.id,
+      namespace: KOALA_ALERT_NAMESPACE,
+      appName: KOALA_NAME,
+      spec,
+      summary: alertSummary(KOALA_NAME, spec),
+      ...(conversationId ? { conversationId } : {}),
+      createdAt: this.now().toISOString(),
+    };
+    await this.deps.apply(checked.cluster, JSON.stringify(alertRuleManifest(rule, checked.expression)));
+    await this.deps.store.monitoring.saveAlertRule(rule);
+    return rule;
   }
 
   async addRule(viewer: Viewer, deploymentId: string, spec: AlertSpec, conversationId?: string): Promise<AlertRuleRecord> {
+    if (isKoalaAlertKind(spec.kind) || isKoalaSubject(deploymentId)) {
+      if (!isKoalaAlertKind(spec.kind) || !isKoalaSubject(deploymentId)) throw new MonitoringError(400, `${spec.kind} and "${deploymentId}" do not go together; Koala's own alerts are koala_down, model_errors and workflow_failures on "koala"`);
+      return this.addKoalaRule(viewer, spec, conversationId);
+    }
     const dep = (await this.appsOf(viewer)).find((entry) => entry.id === deploymentId);
     if (!dep) throw new MonitoringError(404, 'no such app');
     const cluster = (await this.clustersOf(viewer)).find((entry) => entry.id === dep.clusterId);

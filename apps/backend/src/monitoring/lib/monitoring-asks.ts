@@ -1,7 +1,7 @@
 import {
-  APP_CHARTS, APP_QUESTIONS, CLUSTER_CHARTS, CLUSTER_QUESTIONS, USAGES, WINDOW_QUESTIONS, appChartQuery, appQuery, appWindowQuery,
-  clusterChartQuery, clusterQuery, usageQuery,
-  type AppChart, type AppQuestion, type AppSubject, type ClusterChart, type ClusterQuestion, type PoolPlace, type Usage, type WindowQuestion,
+  APP_CHARTS, APP_QUESTIONS, CLUSTER_CHARTS, CLUSTER_QUESTIONS, KOALA_QUESTIONS, USAGES, WINDOW_QUESTIONS, appChartQuery, appQuery, appWindowQuery,
+  clusterChartQuery, clusterQuery, koalaQuery, koalaServicesQuery, usageQuery,
+  type AppChart, type AppQuestion, type AppSubject, type ClusterChart, type ClusterQuestion, type KoalaQuestion, type PoolPlace, type Usage, type WindowQuestion,
 } from './monitoring-questions.js';
 
 export type MonitoringAsk =
@@ -11,7 +11,9 @@ export type MonitoringAsk =
   | { kind: 'appChart'; chart: AppChart; subject: AppSubject }
   | { kind: 'clusterChart'; chart: ClusterChart }
   | { kind: 'usage'; of: Usage }
-  | { kind: 'services'; namespace: string };
+  | { kind: 'services'; namespace: string }
+  | { kind: 'koala'; question: KoalaQuestion }
+  | { kind: 'koalaServices' };
 
 export interface RangeAsk {
   start: number;
@@ -28,6 +30,8 @@ export function askQuery(ask: MonitoringAsk, place?: PoolPlace): string | undefi
     case 'clusterChart': return clusterChartQuery(ask.chart, place);
     case 'usage': return usageQuery(ask.of, place);
     case 'services': return place ? undefined : `kube_service_info{namespace=${JSON.stringify(ask.namespace)}}`;
+    case 'koala': return place ? undefined : koalaQuery(ask.question);
+    case 'koalaServices': return place ? undefined : koalaServicesQuery();
   }
 }
 
@@ -68,6 +72,8 @@ export function parseAsk(value: unknown): MonitoringAsk | undefined {
     case 'clusterChart': return oneOf(CLUSTER_CHARTS, body.chart) ? { kind: 'clusterChart', chart: body.chart } : undefined;
     case 'usage': return oneOf(USAGES, body.of) ? { kind: 'usage', of: body.of } : undefined;
     case 'services': return typeof body.namespace === 'string' && NAME.test(body.namespace) ? { kind: 'services', namespace: body.namespace } : undefined;
+    case 'koala': return oneOf(KOALA_QUESTIONS, body.question) ? { kind: 'koala', question: body.question } : undefined;
+    case 'koalaServices': return { kind: 'koalaServices' };
     default: return undefined;
   }
 }

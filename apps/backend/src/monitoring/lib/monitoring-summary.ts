@@ -139,3 +139,58 @@ export function clusterLines(name: string, verdict: Verdict, n: ClusterNumbers, 
 
 export const worstFirst = <T extends { state: HealthState; name: string }>(items: T[]): T[] =>
   [...items].sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.name.localeCompare(b.name));
+
+export const MANY_MODEL_ERRORS = 0.2;
+
+export interface KoalaNumbers {
+  reporting?: number | undefined;
+  requestsPerSecond?: number | undefined;
+  requestErrorShare?: number | undefined;
+  requestSeconds?: number | undefined;
+  modelCallsPerMinute?: number | undefined;
+  modelErrorShare?: number | undefined;
+  modelSeconds?: number | undefined;
+  modelQueued?: number | undefined;
+  workflowsStartedHour?: number | undefined;
+  activityFailuresHour?: number | undefined;
+  workFailuresDay?: number | undefined;
+}
+
+const count = (value: number, one: string, many: string): string => `${Math.round(value)} ${Math.round(value) === 1 ? one : many}`;
+
+export function koalaVerdict(n: KoalaNumbers, services: readonly string[]): Verdict {
+  const reasons: string[] = [];
+  if (services.length === 0) reasons.push('no part of Koala is reporting');
+  if (n.requestErrorShare !== undefined && n.requestErrorShare >= MANY_ERRORS) reasons.push(`${percent(n.requestErrorShare)} of its requests fail`);
+  if (n.modelErrorShare !== undefined && n.modelErrorShare >= MANY_MODEL_ERRORS) reasons.push(`${percent(n.modelErrorShare)} of its model calls fail`);
+  if ((n.workFailuresDay ?? 0) >= 1) reasons.push(`${count(n.workFailuresDay!, 'piece', 'pieces')} of work failed in the last day`);
+  return { state: services.length === 0 ? 'down' : reasons.length > 0 ? 'warning' : 'ok', reasons };
+}
+
+export function koalaLines(verdict: Verdict, n: KoalaNumbers, services: readonly string[]): string[] {
+  const lines = [`Koala is ${STATE_WORDS[verdict.state]}${verdict.reasons.length ? `: ${verdict.reasons.join('; ')}` : ''}.`];
+  if (verdict.state === 'unreachable' || verdict.state === 'installing') return lines;
+  lines.push(services.length ? `${count(services.length, 'process reports', 'processes report')}: ${[...services].sort().join(', ')}.` : 'Nothing of Koala reports to its collector.');
+  if (n.requestsPerSecond !== undefined) {
+    const failing = n.requestErrorShare !== undefined ? `, ${percent(n.requestErrorShare)} of them failing` : '';
+    const taking = n.requestSeconds !== undefined ? `, answering within ${seconds(n.requestSeconds)}` : '';
+    lines.push(`It serves ${n.requestsPerSecond < 0.1 ? 'under 0.1' : n.requestsPerSecond.toFixed(1)} requests a second${failing}${taking}.`);
+  } else {
+    lines.push('No requests have been measured yet.');
+  }
+  if (n.modelCallsPerMinute !== undefined) {
+    const failing = n.modelErrorShare !== undefined ? `, ${percent(n.modelErrorShare)} failing` : '';
+    const taking = n.modelSeconds !== undefined ? `, answered within ${seconds(n.modelSeconds)}` : '';
+    const waiting = n.modelQueued ? `, ${count(n.modelQueued, 'call waits', 'calls wait')} for a turn` : '';
+    lines.push(`Models: ${n.modelCallsPerMinute < 0.1 ? 'under 0.1' : n.modelCallsPerMinute.toFixed(1)} calls a minute${failing}${taking}${waiting}.`);
+  } else {
+    lines.push('No model calls have been measured yet.');
+  }
+  const work = [
+    n.workflowsStartedHour !== undefined ? `${count(n.workflowsStartedHour, 'workflow', 'workflows')} started in the last hour` : undefined,
+    n.activityFailuresHour !== undefined ? `${count(n.activityFailuresHour, 'activity', 'activities')} failed in the last hour` : undefined,
+    n.workFailuresDay !== undefined ? `${count(n.workFailuresDay, 'piece', 'pieces')} of work failed in the last day` : undefined,
+  ].filter(Boolean);
+  if (work.length) lines.push(`Work: ${work.join(', ')}.`);
+  return lines;
+}

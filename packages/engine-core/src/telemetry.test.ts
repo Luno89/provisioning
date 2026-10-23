@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { context, trace } from '@opentelemetry/api';
 import {
-  contextFromHeaders, currentTraceId, envSink, headerPayload, koalaMetrics, logOnce, otlpHttpSink, startTelemetry, telemetryStarted, textOfHeader,
-  traceActivities, traceWorkflowStarts, tracingHeaders, withSpan, type Telemetry, type TelemetrySink, type TelemetrySignal,
+  contextFromHeaders, currentTraceId, headerPayload, koalaMetrics, telemetryStarted, textOfHeader,
+  traceActivities, traceWorkflowStarts, tracingHeaders, withSpan, type TelemetrySink, type TelemetrySignal,
 } from './telemetry.js';
+import { envSink, logOnce, otlpHttpSink, startTelemetry, type Telemetry } from './telemetry-sdk.js';
 
 interface SentBatch { signal: TelemetrySignal; body: unknown }
 
@@ -66,7 +67,7 @@ describe('Koala\'s telemetry', () => {
       { key: 'service.name', value: { stringValue: 'koala-test' } },
       { key: 'koala.role', value: { stringValue: 'combined' } },
     ]));
-    expect(metricNames(sink.sent)).toEqual(expect.arrayContaining(['koala_work_failures', 'koala_http_request_seconds']));
+    expect(metricNames(sink.sent)).toEqual(expect.arrayContaining(['koala_work_failures', 'koala_http_request_seconds', 'koala_up']));
   });
 
   it('switches where it exports to while running, and drops quietly while there is nowhere to send', async () => {
@@ -91,28 +92,31 @@ describe('Koala\'s telemetry', () => {
       await settle(40);
       await telemetry.flush();
     }
-    expect(lines.filter((line) => line.includes('not reaching'))).toHaveLength(1);
+    expect(lines.filter((line) => line.includes('traces are not reaching'))).toHaveLength(1);
+    expect(lines.filter((line) => line.includes('metrics are not reaching')).length).toBeLessThanOrEqual(1);
     down = false;
     await withSpan('recovered', {}, async () => undefined);
     await settle(40);
     await telemetry.flush();
-    expect(lines.filter((line) => line.includes('reach the collector again'))).toHaveLength(1);
+    expect(lines.filter((line) => line.includes('traces reach the collector again'))).toHaveLength(1);
   });
 
   it('keeps one send in flight per signal and drops the batch that would pile up behind it', async () => {
     const lines: string[] = [];
-    let release: () => void = () => undefined;
-    let sends = 0;
-    const sink: TelemetrySink = { send() { sends += 1; return new Promise<void>((resolve) => { release = resolve; }); } };
+    const held: (() => void)[] = [];
+    const sends: TelemetrySignal[] = [];
+    let holding = true;
+    const sink: TelemetrySink = { send(signal) { sends.push(signal); return holding ? new Promise<void>((resolve) => { held.push(resolve); }) : Promise.resolve(); } };
     const report = logOnce((line) => lines.push(line));
-    telemetry = startTelemetry({ service: 'koala-test', sink, spanDelayMs: 10, metricsEveryMs: 50, log: (line) => lines.push(line) });
+    telemetry = startTelemetry({ service: 'koala-test', sink, spanDelayMs: 10, metricsEveryMs: 5_000, log: (line) => lines.push(line) });
     await withSpan('first', {}, async () => undefined);
     await settle(40);
     await withSpan('second', {}, async () => undefined);
     await settle(40);
-    expect(sends).toBe(1);
-    expect(lines.filter((line) => line.includes('was dropped'))).toHaveLength(1);
-    release();
+    expect(sends.filter((signal) => signal === 'traces')).toHaveLength(1);
+    expect(lines.filter((line) => line.includes('batch of traces was dropped'))).toHaveLength(1);
+    holding = false;
+    for (const release of held) release();
     report.dropped('traces');
     report.dropped('traces');
     expect(lines.filter((line) => line.includes('was dropped'))).toHaveLength(2);
