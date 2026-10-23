@@ -1,6 +1,6 @@
 import type { Database, RoleConfig } from '../../platform/index.js';
 import { checkHandoff, issueHandoff, publicKeyPem, type HandoffCheck } from '../lib/identity-token.js';
-import { instanceProblem, type InstanceRecord } from '../lib/instances.js';
+import { inService, instanceProblem, type InstanceRecord } from '../lib/instances.js';
 import { HUB_AUDIENCE } from '../../hub/lib/hub.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
@@ -30,7 +30,7 @@ export class IdentityService {
   }
 
   async instanceOf(ownerId: string): Promise<InstanceRecord | undefined> {
-    return (await this.store.instances.getInstances(ownerId)).find((instance) => instance.url && (instance.status === undefined || instance.status === 'ready'));
+    return (await this.store.instances.getInstances(ownerId)).find((instance) => instance.url && inService(instance));
   }
 
   async handoffUrl(user: { id: string; email: string }, to?: { hub: true; next?: string | undefined }): Promise<string | undefined> {

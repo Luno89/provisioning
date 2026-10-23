@@ -75,6 +75,18 @@ describe('signing in at root and landing on your own instance', () => {
     expect(await root.handoffUrl({ id: 'u1', email: 'e' })).toMatch(/^http:\/\/100\.64\.0\.7:30320\/#\/handoff/);
   });
 
+  it('keeps sending its owner to an instance while it upgrades itself and after it rolls a failed upgrade back', async () => {
+    const root = new IdentityService(rootRole, rootDb, () => now);
+    await rootDb.instances.saveInstance({ id: 'inst-u1', ownerId: 'u1', url: 'http://100.64.0.7:30320', createdAt: 'x', updatedAt: '2026-10-23T01:00:00.000Z', status: 'ready' });
+    const stored = (await rootDb.instances.getInstances('u1'))[0]!;
+    expect(stored.servedAt).toBe('2026-10-23T01:00:00.000Z');
+    await rootDb.instances.saveInstance({ ...stored, status: 'installing', detail: 'Upgrading from a to b', updatedAt: '2026-10-24T01:00:00.000Z' });
+    expect(await root.handoffUrl({ id: 'u1', email: 'e' })).toMatch(/^http:\/\/100\.64\.0\.7:30320\/#\/handoff/);
+    await rootDb.instances.saveInstance({ ...stored, status: 'failed', detail: 'The upgrade to b failed, so it was rolled back to a', updatedAt: '2026-10-24T02:00:00.000Z' });
+    expect(await root.handoffUrl({ id: 'u1', email: 'e' })).toMatch(/^http:\/\/100\.64\.0\.7:30320\/#\/handoff/);
+    expect((await rootDb.instances.getInstances('u1'))[0]!.servedAt).toBe('2026-10-23T01:00:00.000Z');
+  });
+
   it('registers one instance per user, at an origin', async () => {
     const root = new IdentityService(rootRole, rootDb, () => now);
     expect(await root.register({ id: 'inst-u1', ownerId: 'u1', url: 'https://u1.example.com/app' })).toMatchObject({ ok: false, error: expect.stringMatching(/origin/) });

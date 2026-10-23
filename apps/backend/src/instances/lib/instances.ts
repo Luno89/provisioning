@@ -6,6 +6,19 @@ export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'fa
 
 export const INSTANCE_STATUSES: readonly InstanceStatus[] = ['waiting', 'joined', 'installing', 'ready', 'failed'];
 
+export interface ServiceState {
+  status?: InstanceStatus | string | undefined;
+  servedAt?: string | undefined;
+}
+
+export const inService = (instance: ServiceState): boolean =>
+  instance.status === undefined
+  || instance.status === 'ready'
+  || (Boolean(instance.servedAt) && (instance.status === 'installing' || instance.status === 'failed'));
+
+export const stampServed = <T extends ServiceState & { updatedAt: string }>(instance: T): T & { servedAt?: string | undefined } =>
+  instance.status === 'ready' && !instance.servedAt ? { ...instance, servedAt: instance.updatedAt } : instance;
+
 export interface InstanceRecord {
   id: string;
   ownerId: string;
@@ -14,6 +27,7 @@ export interface InstanceRecord {
   updatedAt: string;
   status?: InstanceStatus | undefined;
   detail?: string | undefined;
+  servedAt?: string | undefined;
   credentialHash?: string | undefined;
   machine?: string | undefined;
   name?: string | undefined;

@@ -1,4 +1,5 @@
 import { nameProblem } from './instance-names.js';
+import { inService } from './instances.js';
 
 export const INSTANCE_BACKEND_PORT = 30320;
 export const INSTANCE_EDGE_PORT = 30321;
@@ -66,6 +67,7 @@ export interface RoutableRecord {
   name?: string | undefined;
   meshIp?: string | undefined;
   status?: string | undefined;
+  servedAt?: string | undefined;
   addresses?: { nested: boolean } | undefined;
   pool?: { ports: { backend: number; edge: number } } | undefined;
   groups?: readonly { projectId: string; name: string }[] | undefined;
@@ -80,7 +82,7 @@ export function wantedRoutes(records: readonly RoutableRecord[], domain: string)
   const handles = new Map<string, string>();
   const sites = new Map<string, string>();
   for (const record of records) {
-    if (!record.name || !record.meshIp || record.status !== 'ready') continue;
+    if (!record.name || !record.meshIp || record.status === undefined || !inService(record)) continue;
     const instance = { name: record.name, meshIp: record.meshIp, nested: record.addresses?.nested ?? false, ...(record.pool ? { ports: record.pool.ports } : {}), ...(record.groups?.length ? { groups: record.groups.map((group) => group.name) } : {}) };
     if (routeProblem(instance)) continue;
     const files = instanceRouteFiles(instance, domain);

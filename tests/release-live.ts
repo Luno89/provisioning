@@ -344,6 +344,27 @@ async function main(): Promise<void> {
   assert.deepEqual(settled.trail[settled.trail.length - 1], { status: 'ready', detail: `Running ${candidateTag}` });
   note(`on ${candidateTag}: sign-in through root, the handoff, the app's address, the repository, a sandboxed run and the check-in work`);
 
+  step(`a release that does not exist, with root and the instance on ${candidateTag}: the instance tries it, fails, rolls itself back, tells root, and stays at its addresses`);
+  const nothing = `nothing-${STAMP}`;
+  await sh(root, `sudo sed -i 's|^INSTANCE_IMAGE_TAG=.*|INSTANCE_IMAGE_TAG=${nothing}|' ${REPO_DIR}/apps/backend/.env && sudo systemctl restart nowrinkles`);
+  await until('root answering with the missing release', async () => ((await rootAnswers()) ? true : undefined));
+  await sh(instance, `curl -fsSL ${ROOT_URL}/api/instances/chart.tgz -o /tmp/current-chart.tgz`);
+  await helm('upgrade instance /tmp/current-chart.tgz --reuse-values --set selfUpgrade.timeout=4m --wait --timeout 720h');
+  const broken = await checkIn('upgrade-to-nothing');
+  note(`root heard: ${broken.trail.map((report) => `${report.status} "${report.detail}"`).join(' → ')}`);
+  assert.ok(broken.ended.includes('Failed'), `the job for a missing release ended ${broken.ended}`);
+  assert.ok(endsWith(broken.trail, failedUpgradeReports(candidateTag, nothing)), 'root did not hear installing then failed');
+  await allOn(candidateTag);
+  assert.equal(https(instanceHost, '/api/auth/sign-in').status, 200, 'the instance stopped answering at its address after the failed upgrade');
+  assert.deepEqual({ status: mine().status, detail: mine().detail }, { status: 'failed', detail: `The upgrade to ${nothing} failed, so it was rolled back to ${candidateTag}` });
+  cookie = handoff();
+  await appAnswers();
+  note(`after the failed upgrade: root shows it failed and rolled back, and sign-in through root, the handoff and the app's address still work`);
+  const helmHistory = await helm('history instance');
+  note(helmHistory.trim().split('\n').slice(-4).join('\n  '));
+  await sh(root, `sudo sed -i 's|^INSTANCE_IMAGE_TAG=.*|INSTANCE_IMAGE_TAG=${candidateTag}|' ${REPO_DIR}/apps/backend/.env && sudo systemctl restart nowrinkles`);
+  await until('root answering with the candidate release again', async () => ((await rootAnswers()) ? true : undefined));
+
   step(`both roll back: update.sh ${PREVIOUS_REF} on root, helm rollback on the instance`);
   const back = Date.now();
   await sh(root, `sudo bash ${UPDATE_SH} ${previous}`, true);
@@ -367,22 +388,6 @@ async function main(): Promise<void> {
   repositoryWorks(`rolled back to ${previousTag}`);
   await sandboxedRun('release-live-rolled-back');
   note(`root shows the instance ${mine().status}: "${mine().detail}"; everything works on ${previousTag}`);
-
-  step('a release that does not exist: the instance tries it, fails, rolls itself back and tells root');
-  const nothing = `nothing-${STAMP}`;
-  await sh(root, `sudo sed -i 's|^INSTANCE_IMAGE_TAG=.*|INSTANCE_IMAGE_TAG=${nothing}|' ${REPO_DIR}/apps/backend/.env && sudo systemctl restart nowrinkles`);
-  await until('root answering with the missing release', async () => ((await rootAnswers()) ? true : undefined));
-  await helm('upgrade instance /tmp/instance-chart.tgz --reuse-values --set selfUpgrade.timeout=4m --wait --timeout 720h');
-  const broken = await checkIn('upgrade-to-nothing');
-  note(`root heard: ${broken.trail.map((report) => `${report.status} "${report.detail}"`).join(' → ')}`);
-  assert.ok(broken.ended.includes('Failed'), `the job for a missing release ended ${broken.ended}`);
-  assert.ok(endsWith(broken.trail, failedUpgradeReports(previousTag, nothing)), 'root did not hear installing then failed');
-  await allOn(previousTag);
-  assert.equal(https(instanceHost, '/api/auth/sign-in').status, 200, 'the instance stopped answering after the failed upgrade');
-  assert.deepEqual({ status: mine().status, detail: mine().detail }, { status: 'failed', detail: `The upgrade to ${nothing} failed, so it was rolled back to ${previousTag}` });
-  const helmHistory = await helm('history instance');
-  note(helmHistory.trim().split('\n').slice(-4).join('\n  '));
-  await sh(root, `sudo sed -i 's|^INSTANCE_IMAGE_TAG=.*|INSTANCE_IMAGE_TAG=${previousTag}|' ${REPO_DIR}/apps/backend/.env`);
 
   console.log(`\nrelease live — PASS in ${minutes(begun)} (instance ${instanceId})`);
 }

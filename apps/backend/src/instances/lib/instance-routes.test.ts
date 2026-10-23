@@ -57,6 +57,18 @@ describe('the routes root wants', () => {
     expect([...wanted.sites.keys()]).toEqual(['luno.caddy']);
   });
 
+  it('keeps routing an instance that was ready while it upgrades itself and after an upgrade it rolled back, but not one never set up or paused', () => {
+    const served = '2026-10-23T00:00:00.000Z';
+    const wanted = wantedRoutes([
+      { name: 'up', meshIp: '100.64.0.1', status: 'installing', servedAt: served },
+      { name: 'back', meshIp: '100.64.0.2', status: 'failed', servedAt: served },
+      { name: 'fresh', meshIp: '100.64.0.3', status: 'installing' },
+      { name: 'broken', meshIp: '100.64.0.4', status: 'failed' },
+      { name: 'stopped', meshIp: '100.64.0.5', status: 'paused', servedAt: served },
+    ], 'koala.dev');
+    expect([...wanted.handles.keys()]).toEqual(['up.caddy', 'back.caddy']);
+  });
+
   it('passes an instance\'s groups through to its routes', () => {
     const wanted = wantedRoutes([{ name: 'luno', meshIp: '100.64.0.7', status: 'ready', groups: [{ projectId: 'p1', name: 'acme' }] }], 'koala.dev');
     expect(wanted.handles.get('luno.caddy')).toContain('@apps_acme header_regexp Host ^[a-z0-9-]+-acme\\.koala\\.dev(:[0-9]+)?$');

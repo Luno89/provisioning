@@ -1,6 +1,6 @@
 import type { AreaStore } from '../platform/index.js';
 import type { Collection, Db } from 'mongodb';
-import type { InstanceRecord, JoinToken } from './lib/instances.js';
+import { stampServed, type InstanceRecord, type JoinToken } from './lib/instances.js';
 import type { PoolPolicy } from './lib/pool.js';
 
 export interface InstancesStore extends AreaStore {
@@ -62,7 +62,7 @@ export class MongoInstancesStore implements InstancesStore {
   }
 
   async saveInstance(instance: InstanceRecord): Promise<void> {
-    await this.instanceRegistry.replaceOne({ _id: instance.id as never }, instance, { upsert: true });
+    await this.instanceRegistry.replaceOne({ _id: instance.id as never }, stampServed(instance), { upsert: true });
   }
 
   async deleteInstance(id: string): Promise<void> {
