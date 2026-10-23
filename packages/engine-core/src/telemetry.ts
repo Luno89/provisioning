@@ -350,8 +350,8 @@ interface ActivityInfoLike {
   activityType: string;
   attempt: number;
   taskQueue: string;
-  workflowType: string;
-  workflowExecution: { workflowId: string; runId: string };
+  workflowType?: string | undefined;
+  workflowExecution?: { workflowId: string; runId: string } | undefined;
 }
 
 interface ActivityInputLike {
@@ -367,9 +367,8 @@ export function traceActivities() {
           'temporal.activity.type': info.activityType,
           'temporal.activity.attempt': info.attempt,
           'temporal.task_queue': info.taskQueue,
-          'temporal.workflow.type': info.workflowType,
-          'temporal.workflow.id': info.workflowExecution.workflowId,
-          'temporal.workflow.run_id': info.workflowExecution.runId,
+          ...(info.workflowType ? { 'temporal.workflow.type': info.workflowType } : {}),
+          ...(info.workflowExecution ? { 'temporal.workflow.id': info.workflowExecution.workflowId, 'temporal.workflow.run_id': info.workflowExecution.runId } : {}),
         };
         const startedAt = Date.now();
         const measure = (outcome: string) => koalaMetrics().activitySeconds.record(elapsedSeconds(startedAt), { 'activity.type': info.activityType, outcome });

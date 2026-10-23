@@ -56,6 +56,16 @@ const SERVICE_TARGETS: Record<string, ServiceTarget> = {
     namespace: 'monitoring',
     remotePort: 9093,
   },
+  'otel-collector': {
+    service: 'otel-collector',
+    namespace: 'monitoring',
+    remotePort: 4318,
+  },
+  tempo: {
+    service: 'tempo',
+    namespace: 'monitoring',
+    remotePort: 3200,
+  },
 };
 
 export const DIRECT_PROBE_MS = 1000;

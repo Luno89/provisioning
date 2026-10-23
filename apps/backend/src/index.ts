@@ -18,8 +18,9 @@ import {
   CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, MetricsService, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, keepTrying, mongoTarget, asyncRoute,
   ownsProject, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, decryptValue, loadKeys,
-  roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom,
+  roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings,
 } from './platform/index.js';
+import { startTelemetry } from '@koala/engine-core/telemetry';
 import { rateLimit } from 'express-rate-limit';
 import { wireReleases } from './releases/wiring/releases.js';
 import { storyDropsFor, wireFiles } from './files/wiring/files.js';
@@ -35,7 +36,7 @@ import { wireSockets } from './machines/wiring/sockets.js';
 import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js';
 import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
-import { askDevice, localAgentStatus, tellDevice, MachineService } from './machines/index.js';
+import { askDevice, localAgentStatus, tellDevice, MachineService, machineTelemetry } from './machines/index.js';
 import { RootMeshKeys, IdentityService } from './instances/index.js';
 import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index.js';
 
@@ -50,10 +51,12 @@ import { spawn } from 'child_process';
 import { GiteaService } from './projects/index.js';
 
 import { seedAll } from './scripts/seed-all.js';
-import { NotificationService } from './monitoring/index.js';
+import { collectorSink, NotificationService } from './monitoring/index.js';
 import { artifactsRouter, createArtifactService } from './files/index.js';
 
 dotenv.config();
+
+const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-backend'));
 
 function startHostTunnel(port = 8000) {
   const server = net.createServer((socket) => {
@@ -132,6 +135,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     groupOf: async (dep) => (dep.gitappProjectId ? (await db.hub.getHubLinks()).find((link) => link.projectId === dep.gitappProjectId)?.group : undefined),
   });
   const clusterProxyService = sharedClusterProxy();
+  const telemetrySink = collectorSink({
+    env: process.env,
+    proxy: clusterProxyService,
+    kubeconfigPath: async () => clusterService.getKubeconfigPath(await clusterService.getSystemClusterEntry()).catch(() => undefined),
+  });
+  telemetry.exportTo(telemetrySink);
   const giteaService = new GiteaService(infraService, keys.data, '/tmp/kubeconfig-provisioning-lunorica');
   await giteaService.ensureClusterSecret().catch((err: Error) =>
     console.warn(`[gitea] could not ensure cluster secret: ${err.message}`),
@@ -266,7 +275,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.type(metrics.contentType).send(await metrics.text());
   }));
 
-  wireSockets({ io, db, role, env: process.env, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService });
+  wireSockets({ io, db, role, env: process.env, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }) });
 
   app.use('/api/auth', authRouter({
     db, authService, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, accounts: holdsAccounts(role), hub: role.role === 'hub',

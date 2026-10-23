@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, SYSTEM_CLUSTER } from './cluster-monitoring.js';
+import { monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, SYSTEM_CLUSTER, telemetryPresent } from './cluster-monitoring.js';
 
 const operator = 'servicemonitors.monitoring.coreos.com\nprobes.monitoring.coreos.com\n';
+const telemetry = { collector: true, tempo: true };
 
 describe('monitoringPlan', () => {
-  it('does nothing on a cluster that already has monitoring', () => {
-    expect(monitoringPlan({ apiResources: operator, blackbox: true, ingressClasses: 'ingressclass.networking.k8s.io/traefik\n' }).stacks).toEqual([]);
+  it('does nothing on a cluster that already has monitoring and Koala\'s own telemetry', () => {
+    expect(monitoringPlan({ apiResources: operator, blackbox: true, ingressClasses: 'ingressclass.networking.k8s.io/traefik\n', telemetry }).stacks).toEqual([]);
+  });
+
+  it('applies the observability stack again when the collector or Tempo is missing, like a missing blackbox exporter', () => {
+    expect(monitoringPlan({ apiResources: operator, blackbox: true, ingressClasses: '', telemetry: { collector: false, tempo: true } }).stacks).toEqual(['observability']);
+    expect(monitoringPlan({ apiResources: operator, blackbox: true, ingressClasses: '', telemetry: { collector: true, tempo: false } }).stacks).toEqual(['observability']);
+    expect(monitoringPlan({ apiResources: operator, blackbox: true, ingressClasses: '' }).stacks).toEqual(['observability']);
+    expect(telemetryPresent(undefined)).toBe(false);
+    expect(telemetryPresent(telemetry)).toBe(true);
   });
 
   it('installs both halves on a bare cluster, keeping the ingress it already has', () => {
@@ -18,7 +27,7 @@ describe('monitoringPlan', () => {
   });
 
   it('installs only the probes and alerts when the operator is there without them', () => {
-    expect(monitoringPlan({ apiResources: operator, blackbox: false, ingressClasses: '' }).stacks).toEqual(['observability']);
+    expect(monitoringPlan({ apiResources: operator, blackbox: false, ingressClasses: '', telemetry }).stacks).toEqual(['observability']);
   });
 
   it('installs the operator again when only the exporter survived', () => {

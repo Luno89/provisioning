@@ -8,6 +8,7 @@ import {
 } from '../../platform/index.js';
 import { findDeviceByToken, registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
 import { machinePayloads, type GetAnswer, type PutAnswer, type RingAnswer } from '../lib/machine-payloads.js';
+import type { MachineTelemetry, TelemetryAnswer } from '../lib/machine-telemetry.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
 import type { MachineService } from '../services/MachineService.js';
 import type { ClusterService, AppService, InfrastructureService } from '../../infrastructure/index.js';
@@ -26,6 +27,7 @@ export interface SocketsWiringDeps {
   clusters: ClusterService;
   apps: AppService;
   infra: InfrastructureService;
+  telemetry: MachineTelemetry;
 }
 
 export function wireSockets(deps: SocketsWiringDeps): void {
@@ -74,6 +76,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     socket.on('machine:payloads', (_request: unknown, ack: (answer: RingAnswer) => void) => ack(forMachines.ring()));
     socket.on('payloads:put', (request: unknown, ack: (answer: PutAnswer) => void) => { void forMachines.put(request).then(ack); });
     socket.on('payloads:get', (request: unknown, ack: (answer: GetAnswer) => void) => { void forMachines.get(request).then(ack); });
+    socket.on('telemetry:export', (request: unknown, ack: (answer: TelemetryAnswer) => void) => { void deps.telemetry.relay(request).then(ack); });
   });
 
   async function authorizeRoom(user: UserMetadata | undefined, id: string): Promise<any | undefined> {

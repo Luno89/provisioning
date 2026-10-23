@@ -1,4 +1,5 @@
-export { appServiceType, monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, SYSTEM_CLUSTER } from './lib/cluster-monitoring.js';
+export { appServiceType, COLLECTOR_OTLP_PORT, monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, SYSTEM_CLUSTER, TELEMETRY_SERVICES, telemetryPresent, TEMPO_PORT } from './lib/cluster-monitoring.js';
+export type { TelemetrySeen } from './lib/cluster-monitoring.js';
 export { alertSpec, isAlertKind, ruleResourceName } from './lib/monitoring-alerts.js';
 export type { AlertSpec, PromAlert } from './lib/monitoring-alerts.js';
 export { askQuery, parseAsk, parseRange } from './lib/monitoring-asks.js';
@@ -8,6 +9,7 @@ export type { PoolPlace } from './lib/monitoring-questions.js';
 export type { AlertEpisode } from './lib/monitoring-records.js';
 export { BLACKBOX_VALUES, hostProbeManifest, hostRuleManifest, parsePoolRule, parseProbes, placeAlerts, POOL_MONITORING, POOL_PROBE_LABEL, poolAppAlerts, poolStackValues, probeIngressPolicy, probeResourceName } from './lib/pool-monitoring.js';
 export type { PoolProbe, PoolRule } from './lib/pool-monitoring.js';
+export { collectorEndpoint, collectorSink } from './services/CollectorReach.js';
 export { MonitoringError, MonitoringService, prometheusAt } from './services/MonitoringService.js';
 export type { MetricsClient, Overview, PrometheusClient, Sample, Viewer } from './services/MonitoringService.js';
 export { NotificationService } from './services/NotificationService.js';

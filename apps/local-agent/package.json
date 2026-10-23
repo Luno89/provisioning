@@ -16,10 +16,11 @@
     "@agentclientprotocol/sdk": "^1.8.0",
     "@koala/context-engine": "*",
     "@koala/engine-core": "*",
-    "@temporalio/common": "^1.23.0",
-    "protobufjs": "^8.7.1",
+    "@opentelemetry/api": "1.9.0",
     "@temporalio/activity": "^1.23.0",
+    "@temporalio/common": "^1.23.0",
     "@temporalio/worker": "^1.23.0",
+    "protobufjs": "^8.7.1",
     "socket.io-client": "^4.8.3",
     "tsx": "^4.19.2"
   },

@@ -13,15 +13,19 @@ import { SyncConfigActivity } from './activities/SyncConfigActivity.js';
 import { DownloadModelActivity } from './activities/DownloadModelActivity.js';
 import { VerifyGpuRuntimeActivity } from './activities/VerifyGpuRuntimeActivity.js';
 import { RunPipelineActivity } from './activities/RunPipelineActivity.js';
-import { createWorkerLogger, buildDataConverter, sharedPayloadBlobs, loadKeys, roleFromEnv } from './platform/index.js';
-import { healthPort, serveHealth, InfrastructureService } from './infrastructure/index.js';
+import { createWorkerLogger, buildDataConverter, sharedPayloadBlobs, loadKeys, roleFromEnv, SYSTEM_KUBECONFIG, telemetrySettings } from './platform/index.js';
+import { healthPort, serveHealth, InfrastructureService, sharedClusterProxy } from './infrastructure/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
+import { startTelemetry, traceActivities } from '@koala/engine-core/telemetry';
 import { ensureClusterMonitoring } from './activities/cluster-monitoring.js';
-import { placedOnPool, SYSTEM_CLUSTER } from './monitoring/index.js';
+import { collectorSink, placedOnPool, SYSTEM_CLUSTER } from './monitoring/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 dotenv.config({ path: resolve(__dirname, '../.env') });
+
+const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-worker-cluster'));
+telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(), kubeconfigPath: () => process.env.KUBECONFIG_PATH || SYSTEM_KUBECONFIG }));
 const SA_PATH = '/var/run/secrets/kubernetes.io/serviceaccount';
 
 const logger = createWorkerLogger('cluster-worker');
@@ -70,7 +74,7 @@ async function main() {
         ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
-        interceptors: { activity: [heartbeatWhileRunning()] },
+        interceptors: { activity: [heartbeatWhileRunning(), traceActivities()], workflowModules: [resolve(__dirname, 'workflows/telemetry-interceptors.ts')] },
         activities: {
           DeployAppActivity,
           CheckWorkloadActivity,
@@ -90,9 +94,11 @@ async function main() {
   }
 
   logger.info('[ClusterWorker] ✅ Listening for app deployment tasks');
-  if (roleFromEnv(process.env).role === 'instance' && process.env.KUBECONFIG_PATH) {
-    ensureClusterMonitoring(new InfrastructureService(), { physicalName: SYSTEM_CLUSTER, kubeconfigPath: process.env.KUBECONFIG_PATH, local: false, pool: placedOnPool(process.env, SYSTEM_CLUSTER) })
-      .then(() => logger.info('[ClusterWorker] this instance\'s cluster has monitoring'))
+  const instance = roleFromEnv(process.env).role === 'instance';
+  const systemKubeconfig = instance ? process.env.KUBECONFIG_PATH : (process.env.KUBECONFIG_PATH || SYSTEM_KUBECONFIG);
+  if (systemKubeconfig && await fs.access(systemKubeconfig).then(() => true, () => false)) {
+    ensureClusterMonitoring(new InfrastructureService(), { physicalName: SYSTEM_CLUSTER, kubeconfigPath: systemKubeconfig, local: !instance, pool: placedOnPool(process.env, SYSTEM_CLUSTER) })
+      .then(() => logger.info('[ClusterWorker] the system cluster has monitoring and Koala\'s own telemetry stack'))
       .catch((err: Error) => logger.warn(`[ClusterWorker] monitoring could not be installed yet; the next deploy tries again: ${err.message}`));
   }
   const port = healthPort(process.env);

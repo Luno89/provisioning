@@ -1,5 +1,6 @@
 import { Client, Connection, type WorkflowClientInterceptor } from '@temporalio/client'
 import protos from '@temporalio/proto'
+import { traceWorkflowStarts } from '@koala/engine-core/telemetry'
 import { buildDataConverter } from './temporal-codec.js'
 import { OWNER_ATTRIBUTE, UnownedWorkflowError, ownerIn, startedFor } from './workflow-owner.js'
 import { sharedPayloadBlobs } from './db-interface.js'
@@ -67,7 +68,7 @@ export async function getTemporalClient(options?: TemporalClientOptions): Promis
   shared = new Client({
     connection,
     namespace,
-    interceptors: { workflow: [requireOwner] },
+    interceptors: { workflow: [requireOwner, traceWorkflowStarts()] },
     ...(dataConverter ? { dataConverter } : {}),
   })
   return shared

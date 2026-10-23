@@ -1,10 +1,14 @@
 import { collectDefaultMetrics, Counter, Gauge, Histogram, Registry } from 'prom-client';
 import type { RequestHandler } from 'express';
+import { context, isValidTraceId, propagation, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
+import { koalaMetrics, koalaTracer } from '@koala/engine-core/telemetry';
 
 export interface MetricsSettings {
   token?: string | undefined;
   role: string;
 }
+
+export const TRACE_ID_HEADER = 'x-trace-id';
 
 const routeOf = (path: string): string => path
   .replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '/:id')
@@ -39,16 +43,32 @@ export class MetricsService {
   middleware(): RequestHandler {
     return (req, res, next) => {
       const started = process.hrtime.bigint();
-      res.on('finish', () => {
+      const span = koalaTracer().startSpan('http.request', { kind: SpanKind.SERVER, attributes: { 'http.request.method': req.method } }, propagation.extract(context.active(), req.headers));
+      const traceId = span.spanContext().traceId;
+      if (isValidTraceId(traceId)) res.setHeader(TRACE_ID_HEADER, traceId);
+      let ended = false;
+      const end = () => {
+        if (ended) return;
+        ended = true;
         const seconds = Number(process.hrtime.bigint() - started) / 1e9;
-        this.requests.observe({ method: req.method, route: routeOf(req.path), status: String(res.statusCode) }, seconds);
-      });
-      next();
+        const route = routeOf(req.path);
+        const status = String(res.statusCode);
+        this.requests.observe({ method: req.method, route, status }, seconds);
+        koalaMetrics().httpRequestSeconds.record(seconds, { method: req.method, route, status });
+        span.updateName(`${req.method} ${route}`);
+        span.setAttributes({ 'http.route': route, 'http.response.status_code': res.statusCode });
+        if (res.statusCode >= 500) span.setStatus({ code: SpanStatusCode.ERROR });
+        span.end();
+      };
+      res.once('finish', end);
+      res.once('close', end);
+      context.with(trace.setSpan(context.active(), span), next);
     };
   }
 
   failed(kind: string): void {
     this.failures.inc({ kind });
+    koalaMetrics().workFailures.add(1, { kind });
   }
 
   gauge(name: string, help: string, labelNames: string[] = []): Gauge<string> {

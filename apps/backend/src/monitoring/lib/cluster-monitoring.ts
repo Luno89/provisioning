@@ -6,7 +6,20 @@ export interface MonitoringSeen {
   apiResources: string;
   blackbox: boolean;
   ingressClasses: string;
+  telemetry?: TelemetrySeen | undefined;
 }
+
+export interface TelemetrySeen {
+  collector: boolean;
+  tempo: boolean;
+}
+
+export const TELEMETRY_SERVICES = { collector: 'otel-collector', tempo: 'tempo' } as const;
+export const COLLECTOR_OTLP_PORT = 4318;
+export const COLLECTOR_METRICS_PORT = 8889;
+export const TEMPO_PORT = 3200;
+
+export const telemetryPresent = (seen: TelemetrySeen | undefined): boolean => Boolean(seen?.collector && seen.tempo);
 
 export interface MonitoringPlan {
   stacks: MonitoringStackPart[];
@@ -28,7 +41,7 @@ export function monitoringPlan(seen: MonitoringSeen, pool = false): MonitoringPl
   if (pool) return { stacks: operator && keepIngress ? [] : ['cluster'], keepIngress };
   const stacks: MonitoringStackPart[] = [];
   if (!operator) stacks.push('cluster');
-  if (!operator || !seen.blackbox) stacks.push('observability');
+  if (!operator || !seen.blackbox || !telemetryPresent(seen.telemetry)) stacks.push('observability');
   return { stacks, keepIngress: lines(seen.ingressClasses).length > 0 };
 }
 

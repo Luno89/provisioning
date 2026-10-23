@@ -30,6 +30,7 @@ export { K3S_TRAEFIK_CONFIG, k3sConfigState, ourTraefikArgs, servicesLabelled, t
 export type { HelmRelease } from './lib/request-metrics.js';
 export { sameSeededRow } from './lib/seed-diff.js';
 export { stopIfRunning } from './lib/stop-workflow.js';
+export { carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings } from './lib/telemetry.js';
 export { getTemporalClient, pollWorkflowRun, resolveOwnersWith } from './lib/temporal-client.js';
 export { buildDataConverter } from './lib/temporal-codec.js';
 export { failureReason } from './lib/temporal-failure.js';

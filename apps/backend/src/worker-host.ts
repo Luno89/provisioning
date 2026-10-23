@@ -10,13 +10,18 @@ import { RootRemovalInstanceActivity, RootRemovalMeshActivity, RootRemovalRecord
 import { PoolMoveStartActivity, PoolMoveStopActivity, PoolMoveSwitchActivity } from './activities/PoolActivities.js';
 import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActivity, PoolReadyActivity, PoolRemoveActivity, PoolTrialNextActivity, PoolTrialStepActivity, PoolVclusterActivity } from './activities/PoolActivities.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
-import { createWorkerLogger, buildDataConverter, sharedPayloadBlobs, loadKeys } from './platform/index.js';
-import { healthPort, serveHealth } from './infrastructure/index.js';
+import { createWorkerLogger, buildDataConverter, sharedPayloadBlobs, loadKeys, SYSTEM_KUBECONFIG, telemetrySettings } from './platform/index.js';
+import { healthPort, serveHealth, sharedClusterProxy } from './infrastructure/index.js';
+import { collectorSink } from './monitoring/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
+import { startTelemetry, traceActivities } from '@koala/engine-core/telemetry';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 dotenv.config({ path: resolve(__dirname, '../.env') });
+
+const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-worker-host'));
+telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(), kubeconfigPath: () => process.env.KUBECONFIG_PATH || SYSTEM_KUBECONFIG }));
 
 const logger = createWorkerLogger('host-worker');
 
@@ -46,7 +51,7 @@ async function main() {
         ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
-        interceptors: { activity: [heartbeatWhileRunning()] },
+        interceptors: { activity: [heartbeatWhileRunning(), traceActivities()], workflowModules: [resolve(__dirname, 'workflows/telemetry-interceptors.ts')] },
         activities: {
           ProvisionClusterActivity,
           DestroyClusterActivity,

@@ -14,7 +14,7 @@ import {
 } from './projects/index.js';
 import {
   stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, failureReason,
-  signJWT, clusterOwnership, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor,
+  signJWT, clusterOwnership, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings,
 } from './platform/index.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
@@ -44,7 +44,7 @@ import { labelValue } from './engine-host/sandboxes/workspace.js';
 import { itSays, wasReported } from './eval/level2/reported.js';
 import { createProcedureExecutor } from './engine-host/nodes/index.js';
 import axios from 'axios';
-import { MonitoringService, prometheusAt, poolMonitor, poolMonitorFrom } from './monitoring/index.js';
+import { MonitoringService, prometheusAt, poolMonitor, poolMonitorFrom, collectorSink } from './monitoring/index.js';
 import { runCancelledVia, runEndedVia } from './engine-host/temporal/run-cancellation.js';
 import { createKubeRunner } from './engine-host/sandboxes/kube.js';
 
@@ -69,10 +69,14 @@ import { treeOfGroveRun, workflowOfRun } from './engine-host/temporal/contracts.
 import { TreeModelsService, treeAgentsFrom } from './models/index.js';
 import { platformGroups } from './extensions/installed.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
+import { startTelemetry, traceActivities } from '@koala/engine-core/telemetry';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 dotenv.config({ path: resolve(__dirname, '../.env') });
+
+const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-worker-engine'));
+telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(), kubeconfigPath: () => process.env.KUBECONFIG_PATH || SYSTEM_KUBECONFIG }));
 
 const keys = loadKeys(process.env);
 
@@ -135,7 +139,7 @@ async function buildActivities() {
   const checks = httpCheckAccess(async (ownerId) => {
     const person = await db.accounts.getUserById(ownerId);
     if (!person) throw new Error(`there is no account ${ownerId} to act for`);
-    return axios.create({ baseURL: checksApi, proxy: false, headers: { Cookie: `session=${signJWT({ userId: person.id, email: person.email }, keys.session, 60 * 60)}` } });
+    return carryingTrace(axios.create({ baseURL: checksApi, proxy: false, headers: { Cookie: `session=${signJWT({ userId: person.id, email: person.email }, keys.session, 60 * 60)}` } }));
   });
   const engineStores = storesFromDatabase(db);
   const growers: { launcher?: GroveRunLauncher } = {};
@@ -496,11 +500,11 @@ async function buildActivities() {
     ReleaseBrowserTestsActivity: releaseBrowser.ReleaseBrowserTestsActivity,
     ...createCheckRunActivities({
       store: db,
-      api: (space) => axios.create({
+      api: (space) => carryingTrace(axios.create({
         baseURL: process.env.CHECKS_API_URL || `http://localhost:${process.env.PORT || 3001}/api`,
         proxy: false,
         headers: { Cookie: `session=${signJWT({ userId: space.id, email: space.email }, keys.session, 24 * 60 * 60)}` },
-      }),
+      })),
       seedFiles: (ownerId, repo, files) => withSeedBundle(files, async (bundle) => {
         await projectRepos.pushDocuments({ ownerId, repo, describe: 'A check\'s conversation workspace', bundle });
       }),
@@ -544,7 +548,7 @@ async function main() {
         ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
-        interceptors: { activity: [heartbeatWhileRunning()] },
+        interceptors: { activity: [heartbeatWhileRunning(), traceActivities()], workflowModules: [resolve(__dirname, 'workflows/telemetry-interceptors.ts')] },
         activities,
       });
       current = worker;
