@@ -9,6 +9,9 @@
 {
 	# Where expiry/renewal warnings go. Let's Encrypt emails here before a cert lapses.
 	email {$ACME_EMAIL:admin@nowrinkles.dev}
+	metrics {
+		per_host
+	}
 }
 
 (koala_tls) {

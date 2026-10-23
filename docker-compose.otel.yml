@@ -1,0 +1,13 @@
+version: "3.9"
+
+services:
+  otel:
+    image: otel/opentelemetry-collector-contrib:0.163.2
+    container_name: nowrinkles-otel
+    restart: unless-stopped
+    network_mode: host
+    command: ["--config=/etc/otelcol/config.yaml"]
+    environment:
+      OTEL_CLUSTER_COLLECTOR: ${OTEL_CLUSTER_COLLECTOR:-127.0.0.1:4317}
+    volumes:
+      - ./docker/otel/config.yaml:/etc/otelcol/config.yaml:ro

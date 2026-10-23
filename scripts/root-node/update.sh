@@ -163,6 +163,17 @@ docker exec nowrinkles-caddy caddy reload --config /etc/caddy/Caddyfile --force 
 step "Updating the mail server"
 docker compose -f docker-compose.mail.yml up -d --build
 
+step "Updating Koala's telemetry collector"
+OTEL_IP="$("$REPO_DIR/bin/kubectl" --context k3d-provisioning-lunorica -n monitoring get svc otel-collector -o 'jsonpath={.spec.clusterIP}' 2>/dev/null || true)"
+if [ -n "$OTEL_IP" ] && [ "$OTEL_IP" != "None" ]; then
+  grep -q '^OTEL_CLUSTER_COLLECTOR=' .env && sed -i "s|^OTEL_CLUSTER_COLLECTOR=.*|OTEL_CLUSTER_COLLECTOR=${OTEL_IP}:4317|" .env || echo "OTEL_CLUSTER_COLLECTOR=${OTEL_IP}:4317" >> .env
+  docker compose -f docker-compose.otel.yml up -d
+  grep -q '^OTEL_EXPORTER_OTLP_ENDPOINT=' apps/backend/.env || echo "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318" >> apps/backend/.env
+  ok "the host collector relays to the cluster's collector at ${OTEL_IP}"
+else
+  warn "the cluster has no collector yet; the cluster worker installs it on start, and the next update.sh starts the host collector"
+fi
+
 # ── 7. Health check ────────────────────────────────────────────────────────────────────────────
 # A 401 counts as healthy: /api is session-gated, so anything other than a connection failure
 # proves the server is up and routing. Checking for 200 would fail on a perfectly good deploy.

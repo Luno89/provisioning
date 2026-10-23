@@ -245,6 +245,17 @@ ok "Catalogues seeded"
 step "Creating the management cluster"
 bash scripts/ensure-cluster.sh || warn "ensure-cluster.sh reported a problem — check before provisioning"
 
+step "Starting Koala's telemetry collector"
+OTEL_IP="$("$REPO_DIR/bin/kubectl" --context k3d-provisioning-lunorica -n monitoring get svc otel-collector -o 'jsonpath={.spec.clusterIP}' 2>/dev/null || true)"
+if [ -n "$OTEL_IP" ] && [ "$OTEL_IP" != "None" ]; then
+  grep -q '^OTEL_CLUSTER_COLLECTOR=' "$COMPOSE_ENV" && sed -i "s|^OTEL_CLUSTER_COLLECTOR=.*|OTEL_CLUSTER_COLLECTOR=${OTEL_IP}:4317|" "$COMPOSE_ENV" || echo "OTEL_CLUSTER_COLLECTOR=${OTEL_IP}:4317" >> "$COMPOSE_ENV"
+  docker compose -f docker-compose.otel.yml up -d
+  set_env OTEL_EXPORTER_OTLP_ENDPOINT "http://127.0.0.1:4318"
+  ok "Koala's processes and Caddy report through 127.0.0.1:4318 to the collector on the cluster at ${OTEL_IP}"
+else
+  warn "the cluster has no collector yet; Koala reaches it directly once the cluster worker has installed it, and the next update.sh starts the host collector"
+fi
+
 step "Making room for trials on Koala's servers"
 sh scripts/root-node/gvisor.sh --yes || die "gVisor could not be set up, and no trial instance may run without it"
 TOTAL_MIB=$(( $(awk '/^MemTotal:/ {print $2}' /proc/meminfo) / 1024 ))

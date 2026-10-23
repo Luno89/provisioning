@@ -14,7 +14,7 @@
  * from ensure-cluster.sh on every `npm run dev` with a cheap fast-path skip when already
  * installed, so it doesn't pay a full CDKTF-apply cost on every single dev-server start.
  */
-import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
+import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
 
 const CLUSTER_NAME = 'provisioning-lunorica';
 const CONTEXT = `k3d-${CLUSTER_NAME}`;
