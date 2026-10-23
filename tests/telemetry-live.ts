@@ -192,7 +192,7 @@ async function main(): Promise<void> {
         ['koala_http_request_seconds_count', 'koala-backend'],
         ['koala_workflows_started_total', 'koala-backend'],
         ['koala_activity_seconds_count', 'koala-worker-engine'],
-        ['koala_model_call_seconds_count', 'koala-worker-engine'],
+        ['koala_model_call_seconds_count', 'koala-backend'],
       ] as const) {
         const found = await until(`${metric} from ${service}`, async () => {
           const result = await query(`${metric}{service_name="${service}"}`);
