@@ -174,6 +174,8 @@ export type KoalaQuestion = typeof KOALA_QUESTIONS[number];
 export const KOALA_UP = 'koala_up';
 const KOALA_FAILED_SHARE = (metric: string, failing: string, window: string) =>
   `(sum(rate(${metric}{${failing}}[${window}])) or vector(0)) / sum(rate(${metric}[${window}]))`;
+const KOALA_BACKEND_UP = `sum(${KOALA_UP}{service_name="koala-backend"})`;
+const zeroWhile = (counted: string, measured: string) => `${counted} or (0 * ${measured})`;
 
 export function koalaQuery(question: KoalaQuestion): string {
   switch (question) {
@@ -185,9 +187,9 @@ export function koalaQuery(question: KoalaQuestion): string {
     case 'modelErrorShare': return KOALA_FAILED_SHARE('koala_model_call_seconds_count', 'outcome="failed"', '5m');
     case 'modelSeconds': return 'histogram_quantile(0.95, sum by (le) (rate(koala_model_call_seconds_bucket[5m])))';
     case 'modelQueued': return 'sum(koala_model_queued)';
-    case 'workflowsStartedHour': return 'sum(increase(koala_workflows_started_total[1h]))';
-    case 'activityFailuresHour': return 'sum(increase(koala_activity_seconds_count{outcome="failed"}[1h]))';
-    case 'workFailuresDay': return 'sum(increase(koala_work_failures_total[24h]))';
+    case 'workflowsStartedHour': return zeroWhile('sum(increase(koala_workflows_started_total[1h]))', KOALA_BACKEND_UP);
+    case 'activityFailuresHour': return zeroWhile('sum(increase(koala_activity_seconds_count{outcome="failed"}[1h]))', 'sum(increase(koala_activity_seconds_count[1h]))');
+    case 'workFailuresDay': return zeroWhile('sum(increase(koala_work_failures_total[24h]))', KOALA_BACKEND_UP);
   }
 }
 

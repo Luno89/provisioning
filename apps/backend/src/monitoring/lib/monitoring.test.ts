@@ -173,6 +173,9 @@ describe('the questions about Koala itself', () => {
     }
     expect(koalaQuery('requestErrorShare')).toMatch(/or vector\(0\)\) \/ sum/);
     expect(koalaQuery('reporting')).toBe('count(sum by (service_name) (koala_up))');
+    expect(koalaQuery('activityFailuresHour')).toBe('sum(increase(koala_activity_seconds_count{outcome="failed"}[1h])) or (0 * sum(increase(koala_activity_seconds_count[1h])))');
+    expect(koalaQuery('workFailuresDay')).toBe('sum(increase(koala_work_failures_total[24h])) or (0 * sum(koala_up{service_name="koala-backend"}))');
+    expect(koalaQuery('workflowsStartedHour')).toMatch(/ or \(0 \* sum\(koala_up\{service_name="koala-backend"\}\)\)$/);
     expect(askQuery({ kind: 'koalaServices' })).toBe(koalaServicesQuery());
     expect(parseAsk({ kind: 'koala', question: 'modelQueued' })).toEqual({ kind: 'koala', question: 'modelQueued' });
     expect(parseAsk({ kind: 'koala', question: 'secrets' })).toBeUndefined();
