@@ -55,21 +55,12 @@ published() {
   curl -fsS "http://${REGISTRY}/v2/${IMAGE_REPO}/tags/list" 2>/dev/null | grep -q "\"$1\""
 }
 
+BINDINGS="$(mktemp)"
+trap 'rm -f "$BINDINGS"' EXIT
+cp "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/cdktf-bindings.sh" "$BINDINGS" || die "cdktf-bindings.sh must sit beside update.sh"
+
 ensure_cdktf_bindings() {
-  local infra="$REPO_DIR/packages/cdktf-infra" missing=() provider name work
-  while IFS= read -r provider; do
-    name="${provider%@*}"; name="${name##*/}"
-    [ -d "$infra/.gen/providers/$name" ] || missing+=("$provider")
-  done < <(node -e 'for (const p of require(process.argv[1]).terraformProviders) console.log(p)' "$infra/cdktf.json")
-  [ "${#missing[@]}" -eq 0 ] && return 0
-  warn "the checkout has no CDKTF bindings for ${missing[*]}; generating them"
-  work="$(mktemp -d "$infra/.gen-missing-XXXXXX")"
-  node -e 'console.log(JSON.stringify({ language: "typescript", app: "true", projectId: "cdktf-infra", sendCrashReports: "false", terraformProviders: process.argv.slice(1) }))' "${missing[@]}" > "$work/cdktf.json"
-  (cd "$work" && TERRAFORM_BINARY_NAME="$REPO_DIR/bin/terraform" npx cdktf get --output .gen >/dev/null) || { rm -rf "$work"; return 1; }
-  mkdir -p "$infra/.gen/providers"
-  cp -r "$work/.gen/providers/." "$infra/.gen/providers/"
-  rm -rf "$work"
-  ok "CDKTF bindings generated for ${missing[*]}"
+  bash "$BINDINGS" "$REPO_DIR"
 }
 
 # ── 1. Don't interrupt a tenant ────────────────────────────────────────────────────────────────

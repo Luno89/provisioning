@@ -105,6 +105,10 @@ function buildImage(commit: string, label: string): string {
   const context = mkdtempSync(join(tmpdir(), `release-live-${tag}-`));
   try {
     execFileSync('sh', ['-c', `git -C "${REPO}" archive "${commit}" | tar -x -C "${context}"`], { stdio: ['ignore', 'ignore', 'pipe'] });
+    execFileSync('bash', [join(REPO, 'scripts/root-node/cdktf-bindings.sh'), context], {
+      stdio: ['ignore', 'inherit', 'inherit'],
+      env: { ...process.env, TERRAFORM: join(REPO, 'bin/terraform'), CDKTF: join(REPO, 'node_modules/.bin/cdktf') },
+    });
     execFileSync('docker', ['build', '-q', '--build-arg', 'BUILDKIT_INLINE_CACHE=1', '-t', image, context], { stdio: ['ignore', 'ignore', 'inherit'], env: { ...process.env, DOCKER_BUILDKIT: '1' } });
   } finally {
     rmSync(context, { recursive: true, force: true });
@@ -169,7 +173,7 @@ async function main(): Promise<void> {
   note(`lab DNS answers *.${DOMAIN} with ${ROOT_LAN}; root's API is reachable on the lan at ${ROOT_URL}`);
   run('git', ['push', '-q', '--force', `ssh://ubuntu@127.0.0.1:${root.port}${ORIGIN}`, `${previous}:refs/heads/previous`, `refs/tags/${PREVIOUS_REF}:refs/tags/${PREVIOUS_REF}`, `${candidate}:refs/heads/candidate`],
     { GIT_SSH_COMMAND: `ssh -i ${root.privateKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR` });
-  await sh(root, `sudo git clone -q ${ORIGIN} ${REPO_DIR} && sudo git -C ${REPO_DIR} checkout -q --detach ${candidate} && sudo mkdir -p $(dirname ${UPDATE_SH}) && sudo cp ${REPO_DIR}/scripts/root-node/update.sh ${UPDATE_SH}`);
+  await sh(root, `sudo git clone -q ${ORIGIN} ${REPO_DIR} && sudo git -C ${REPO_DIR} checkout -q --detach ${candidate} && sudo mkdir -p $(dirname ${UPDATE_SH}) && sudo cp ${REPO_DIR}/scripts/root-node/update.sh ${REPO_DIR}/scripts/root-node/cdktf-bindings.sh $(dirname ${UPDATE_SH})/`);
   note(`${REPO_DIR} is a clone of this repository with ${PREVIOUS_REF} and the candidate; the candidate's update.sh is kept at ${UPDATE_SH}`);
   const bootstrapped = Date.now();
   await sh(root, `sudo env ROOT_TLS=internal DOMAIN=${DOMAIN} PUBLIC_URL=${ROOT_URL} bash ${REPO_DIR}/scripts/root-node/bootstrap.sh`, true);
