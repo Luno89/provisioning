@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import ChatMessageRow from './ChatMessageRow.js';
 
@@ -60,8 +60,58 @@ describe('ChatMessageRow — User and Assistant turn rendering', () => {
 
     expect(screen.getByText('kubectl_get_pods')).toBeInTheDocument();
     expect(screen.getByText('read_logs')).toBeInTheDocument();
-    expect(screen.getByText('completed')).toBeInTheDocument();
-    expect(screen.getByText('failed')).toBeInTheDocument();
+    expect(screen.getByText('1 failed')).toBeInTheDocument();
+    expect(screen.queryByText('completed')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('read_logs'));
+    const every = screen.getByLabelText('Every read_logs call');
+    expect(within(every).getByText('failed')).toBeInTheDocument();
+    fireEvent.click(within(every).getByText('read_logs'));
+    expect(screen.getByText('Pod not ready')).toBeInTheDocument();
+  });
+
+  it('counts a turn\'s calls by tool and shows the step it is on now, even when that tool is already counted', () => {
+    render(
+      <ChatMessageRow
+        isStreaming
+        message={{
+          role: 'assistant',
+          content: '',
+          toolCalls: [
+            { id: 's1', name: 'search_web', args: '{"q":"a"}', ok: true, digest: 'one' },
+            { id: 'f1', name: 'fetch_web_page', args: '{"url":"x"}', ok: true, digest: 'two' },
+            { id: 's2', name: 'search_web', args: '{"q":"b"}', ok: true, digest: 'three' },
+            { id: 's3', name: 'search_web', args: '{"q":"c"}', running: true },
+          ],
+        }}
+      />
+    );
+
+    const used = screen.getByLabelText('Tools used');
+    expect(within(used).getByText('×3')).toBeInTheDocument();
+    expect(within(used).getByText('×1')).toBeInTheDocument();
+    const now = screen.getByLabelText('Working on now');
+    expect(within(now).getByText('search_web')).toBeInTheDocument();
+    expect(within(now).getByText(/running/i)).toBeInTheDocument();
+    expect(screen.queryByText('one')).not.toBeInTheDocument();
+  });
+
+  it('shows only the counts once the turn has ended', () => {
+    render(
+      <ChatMessageRow
+        message={{
+          role: 'assistant',
+          content: 'Done.',
+          toolCalls: [
+            { id: 's1', name: 'search_web', ok: true, digest: 'one' },
+            { id: 's2', name: 'search_web', ok: true, digest: 'two' },
+          ],
+        }}
+      />
+    );
+
+    expect(screen.getByText('×2')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Working on now')).not.toBeInTheDocument();
   });
 
   it('renders active thinking state while streaming', () => {

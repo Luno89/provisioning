@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import ChatToolCallCard from './ChatToolCallCard.js';
 
@@ -69,7 +69,8 @@ describe('a hand-off\'s card', () => {
     }} />);
 
     expect(screen.getByText('working — 1 step so far')).toBeInTheDocument();
-    expect(screen.getByText('search_web')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Tools used')).getByText('search_web')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Working on now')).getByText('search_web')).toBeInTheDocument();
     expect(screen.getByText('Postgres listens on 5432')).toBeInTheDocument();
   });
 

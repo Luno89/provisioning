@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Terminal, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight, FileText, ExternalLink, Bot } from 'lucide-react';
 import type { Artifact, ChildSteps } from '@koala/agent-engine/procedure';
 import { childView, type ChildRunView } from '../../lib/chat-unified-reducer.js';
+import { toolTrail } from '../../lib/tool-trail';
 
 export type FileArtifact = Extract<Artifact, { kind: 'file' }>;
 
@@ -42,9 +43,7 @@ function ChildRun({ child, onOpenDocument }: { child: ChildRunView; onOpenDocume
       </button>
       {open && (
         <div className="mt-1 ml-1.5 pl-2 border-l border-[var(--bark-800,#1b2620)]">
-          {child.tools.map((tool) => (
-            <ChatToolCallCard key={tool.id} tool={tool} onOpenDocument={onOpenDocument} />
-          ))}
+          <ToolCallTrail tools={child.tools} live={child.running} onOpenDocument={onOpenDocument} />
           {child.running && child.live && (
             <p className="mt-1 text-[11px] text-slate-400 whitespace-pre-wrap leading-relaxed">
               {child.live.length > LIVE_TAIL_CHARS ? `…${child.live.slice(-LIVE_TAIL_CHARS)}` : child.live}
@@ -166,6 +165,66 @@ export function ChatToolCallCard({ tool, onOpenDocument }: { tool: ToolCallData;
               </pre>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ToolCallTrail({ tools, live, onOpenDocument }: { tools: ToolCallData[]; live: boolean; onOpenDocument?: ((file: FileArtifact) => void) | undefined }) {
+  const [opened, setOpened] = useState<string | undefined>(undefined);
+  const trail = toolTrail(tools, live);
+  const openedGroup = trail.groups.find((group) => group.name === opened);
+  if (tools.length === 0) return null;
+
+  return (
+    <div className="space-y-1 my-2">
+      {trail.apart.map((tool) => (
+        <ChatToolCallCard key={tool.id} tool={tool} onOpenDocument={onOpenDocument} />
+      ))}
+
+      {trail.groups.length > 0 && (
+        <div className="flex flex-wrap gap-1.5" aria-label="Tools used">
+          {trail.groups.map((group) => (
+            <button
+              key={group.name}
+              type="button"
+              aria-expanded={opened === group.name}
+              onClick={() => setOpened(opened === group.name ? undefined : group.name)}
+              className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-sans cursor-pointer transition-colors ${
+                opened === group.name
+                  ? 'border-emerald-700/70 bg-emerald-950/40 text-slate-100'
+                  : 'border-[var(--bark-800,#1b2620)] bg-[var(--bark-900,#111814)]/60 text-slate-300 hover:bg-[var(--bark-800,#1b2620)]/50'
+              }`}
+            >
+              {group.running > 0 ? (
+                <Loader2 size={11} className="animate-spin text-emerald-400 shrink-0" />
+              ) : group.failed === group.calls.length ? (
+                <XCircle size={11} className="text-red-400 shrink-0" />
+              ) : (
+                <CheckCircle2 size={11} className="text-emerald-400 shrink-0" />
+              )}
+              <span className="font-mono text-[11.5px]">{group.name}</span>
+              <span className="text-slate-400">×{group.calls.length}</span>
+              {group.failed > 0 && <span className="text-red-400">{group.failed} failed</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {openedGroup && (
+        <div className="pl-2 border-l border-[var(--bark-800,#1b2620)]" aria-label={`Every ${openedGroup.name} call`}>
+          {openedGroup.calls.map((tool) => (
+            <ChatToolCallCard key={tool.id} tool={tool} onOpenDocument={onOpenDocument} />
+          ))}
+        </div>
+      )}
+
+      {trail.current.length > 0 && (
+        <div aria-label="Working on now">
+          {trail.current.map((tool) => (
+            <ChatToolCallCard key={`now-${tool.id}`} tool={tool} onOpenDocument={onOpenDocument} />
+          ))}
         </div>
       )}
     </div>

@@ -2,7 +2,7 @@ import { User, Sparkles, ChevronDown, ChevronRight, AlertTriangle, MessageSquare
 import { memo, useState } from 'react';
 import Markdown from '../../../../shared/components/Markdown.js';
 import { KoalaSpot, type KoalaMood } from '../../../../shared/components/Koala.js';
-import ChatToolCallCard, { type FileArtifact, type ToolCallData } from './ChatToolCallCard.js';
+import { ToolCallTrail, type FileArtifact, type ToolCallData } from './ChatToolCallCard.js';
 import { ChatParser } from '../../../../shared/chat-parser/chat-parser.js';
 import MessageAttachments from './MessageAttachments.js';
 import type { ChannelAddress } from '../../../projects';
@@ -168,13 +168,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
           />
         )}
 
-        {allToolCalls.length > 0 && (
-          <div className="space-y-1 my-2">
-            {allToolCalls.map((t) => (
-              <ChatToolCallCard key={t.id} tool={t} onOpenDocument={onOpenDocument} />
-            ))}
-          </div>
-        )}
+        <ToolCallTrail tools={allToolCalls} live={isStreaming} onOpenDocument={onOpenDocument} />
 
         {(parsed.cleanContent || !message.attachments?.length) && (
           <div className="text-[13.5px] leading-relaxed text-slate-200 prose prose-invert max-w-none">
