@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { OVH_SUBSIDIARIES, ovhCatalogUrl, ovhHostFor, ovhOffersFromCatalog } from './adapters.js';
+import { OVH_DEFAULT_SUBSIDIARY, OVH_SUBSIDIARIES, ovhCatalogUrl, ovhHostFor, ovhOffersFromCatalog, ovhSubsidiaryFrom } from './adapters.js';
 
 const auCatalog = JSON.parse(readFileSync(new URL('./ovh-au-catalog.json', import.meta.url), 'utf8'));
 
@@ -176,5 +176,12 @@ describe('the AU catalogue (ca.api.ovh.com, ovhSubsidiary=AU, fetched 2026-10-23
   it('lets a plan whose mandatory options are all free keep its own price', () => {
     expect(byId('vps-starter-1-2-20')).toMatchObject({ priceMonthly: 5.75 });
     expect(byId('vps-starter-1-2-20')?.priceParts).toBeUndefined();
+  });
+
+  it('reads the subsidiary from the env when the catalog is fetched, after dotenv has run, and falls back to FR', () => {
+    expect(ovhSubsidiaryFrom({})).toBe(OVH_DEFAULT_SUBSIDIARY);
+    expect(ovhSubsidiaryFrom({ OVH_SUBSIDIARY: '' })).toBe('FR');
+    expect(ovhSubsidiaryFrom({ OVH_SUBSIDIARY: ' AU ' })).toBe('AU');
+    expect(ovhCatalogUrl(ovhSubsidiaryFrom({ OVH_SUBSIDIARY: 'AU' }))).toContain('ca.api.ovh.com');
   });
 });

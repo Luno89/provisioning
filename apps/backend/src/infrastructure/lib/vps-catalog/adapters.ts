@@ -441,18 +441,23 @@ export function ovhOffersFromCatalog(data: any): AdapterResult {
   };
 }
 
-export function ovhAdapterFor(subsidiary: string): VpsCatalogAdapter {
+export const OVH_DEFAULT_SUBSIDIARY = 'FR';
+
+export function ovhAdapterFor(subsidiary: string | (() => string)): VpsCatalogAdapter {
+  const subsidiaryNow = typeof subsidiary === 'function' ? subsidiary : () => subsidiary;
   return {
     provider: 'ovh',
     requiresCredentials: false,
     provisionable: false,
     async fetch() {
-      return ovhOffersFromCatalog(await getJson(ovhCatalogUrl(subsidiary)));
+      return ovhOffersFromCatalog(await getJson(ovhCatalogUrl(subsidiaryNow())));
     },
   };
 }
 
-export const ovhAdapter: VpsCatalogAdapter = ovhAdapterFor(process.env.OVH_SUBSIDIARY || 'FR');
+export const ovhSubsidiaryFrom = (env: Readonly<Record<string, string | undefined>>): string => env.OVH_SUBSIDIARY?.trim() || OVH_DEFAULT_SUBSIDIARY;
+
+export const ovhAdapter: VpsCatalogAdapter = ovhAdapterFor(() => ovhSubsidiaryFrom(process.env));
 
 const INTERSERVER_ENDPOINT = 'https://my.interserver.net/api.php';
 
