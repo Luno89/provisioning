@@ -252,7 +252,7 @@ export default function TemporalPanel() {
             {workflows.map((wf) => {
               const isExpanded = expandedWf === wf.workflowId;
               return (
-                <div key={wf.workflowId}>
+                <div key={`${wf.workflowId}:${wf.runId ?? ''}`}>
                   <button
                     onClick={() => setExpandedWf(isExpanded ? null : wf.workflowId)}
                     className="w-full grid grid-cols-[1fr_2fr_120px_180px_180px_100px] gap-4 px-5 py-3 text-sm hover:bg-slate-700/30 transition-colors text-left items-center"
