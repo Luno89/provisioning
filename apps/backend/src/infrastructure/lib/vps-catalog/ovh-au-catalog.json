@@ -1,0 +1,1730 @@
+{
+  "catalogId": 9816,
+  "locale": {
+    "currencyCode": "AUD",
+    "subsidiary": "AU",
+    "taxRate": 10
+  },
+  "plans": [
+    {
+      "planCode": "vps-2027-model2",
+      "invoiceName": "VPS-2 2027",
+      "product": "vps-2027-model2",
+      "pricingType": "rental",
+      "family": "vps-2025",
+      "pricings": [
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 1400000000,
+          "tax": 140000000,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 12,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 1190000000,
+          "tax": 119000000,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 6,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 1330000000,
+          "tax": 133000000,
+          "capacities": [
+            "renew"
+          ]
+        }
+      ],
+      "configurations": [
+        {
+          "name": "infrastructure",
+          "isMandatory": false,
+          "values": [
+            "preproduction",
+            "production"
+          ]
+        },
+        {
+          "name": "region",
+          "isMandatory": false,
+          "values": [
+            "canada",
+            "europe"
+          ]
+        },
+        {
+          "name": "vps_datacenter",
+          "isMandatory": true,
+          "values": [
+            "BHS",
+            "DE",
+            "EU-SOUTH-MIL",
+            "EU-WEST-RBX",
+            "GRA",
+            "SBG",
+            "SGP",
+            "SYD",
+            "UK",
+            "WAW",
+            "YNM"
+          ]
+        },
+        {
+          "name": "vps_os",
+          "isMandatory": false,
+          "values": [
+            "AlmaLinux 10",
+            "AlmaLinux 8",
+            "AlmaLinux 8 - cPanel",
+            "AlmaLinux 9"
+          ]
+        }
+      ],
+      "addonFamilies": [
+        {
+          "name": "os",
+          "mandatory": true,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-linux",
+            "option-windows-2027-model2"
+          ]
+        },
+        {
+          "name": "cpanel",
+          "mandatory": false,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-cpanel-1",
+            "option-cpanel-100",
+            "option-cpanel-1000",
+            "option-cpanel-150",
+            "option-cpanel-50",
+            "option-cpanel-200",
+            "option-cpanel-250",
+            "option-cpanel-30",
+            "option-cpanel-300",
+            "option-cpanel-400",
+            "option-cpanel-5",
+            "option-cpanel-500",
+            "option-cpanel-600",
+            "option-cpanel-700",
+            "option-cpanel-800",
+            "option-cpanel-900"
+          ]
+        },
+        {
+          "name": "plesk",
+          "mandatory": false,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-plesk-webadmin",
+            "option-plesk-webhost",
+            "option-plesk-webpro"
+          ]
+        },
+        {
+          "name": "automatedBackup",
+          "mandatory": true,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-auto-backup-2027-1-model2",
+            "option-auto-backup-2027-7-model2"
+          ]
+        },
+        {
+          "name": "storage",
+          "mandatory": true,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-storage-local-2027-model2",
+            "option-storage-remote-2027"
+          ]
+        },
+        {
+          "name": "snapshot",
+          "mandatory": false,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-snapshot-2027-model2"
+          ]
+        },
+        {
+          "name": "additionalDisk",
+          "mandatory": false,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-additional-disk-2027-100g",
+            "option-additional-disk-2027-10000g",
+            "option-additional-disk-2027-1000g",
+            "option-additional-disk-2027-200g",
+            "option-additional-disk-2027-5000g",
+            "option-additional-disk-2027-500g",
+            "option-additional-disk-2027-50g"
+          ]
+        }
+      ]
+    },
+    {
+      "planCode": "vps-2027-model1",
+      "invoiceName": "VPS-1 2027",
+      "product": "vps-2027-model1",
+      "pricingType": "rental",
+      "family": "vps-2025",
+      "pricings": [
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 740000000,
+          "tax": 74000000,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 12,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 629000000,
+          "tax": 62900000,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 6,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 703000000,
+          "tax": 70300000,
+          "capacities": [
+            "renew"
+          ]
+        }
+      ],
+      "configurations": [
+        {
+          "name": "infrastructure",
+          "isMandatory": false,
+          "values": [
+            "preproduction",
+            "production"
+          ]
+        },
+        {
+          "name": "region",
+          "isMandatory": false,
+          "values": [
+            "canada",
+            "europe"
+          ]
+        },
+        {
+          "name": "vps_datacenter",
+          "isMandatory": true,
+          "values": [
+            "BHS",
+            "DE",
+            "EU-SOUTH-MIL",
+            "EU-WEST-RBX",
+            "GRA",
+            "SBG",
+            "SGP",
+            "SYD",
+            "UK",
+            "WAW",
+            "YNM"
+          ]
+        },
+        {
+          "name": "vps_os",
+          "isMandatory": false,
+          "values": [
+            "AlmaLinux 10",
+            "AlmaLinux 8",
+            "AlmaLinux 8 - cPanel",
+            "AlmaLinux 9"
+          ]
+        }
+      ],
+      "addonFamilies": [
+        {
+          "name": "os",
+          "mandatory": true,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-linux"
+          ]
+        },
+        {
+          "name": "cpanel",
+          "mandatory": false,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-cpanel-1",
+            "option-cpanel-100",
+            "option-cpanel-1000",
+            "option-cpanel-150",
+            "option-cpanel-200",
+            "option-cpanel-250",
+            "option-cpanel-30",
+            "option-cpanel-300",
+            "option-cpanel-400",
+            "option-cpanel-5",
+            "option-cpanel-50",
+            "option-cpanel-500",
+            "option-cpanel-600",
+            "option-cpanel-700",
+            "option-cpanel-800",
+            "option-cpanel-900"
+          ]
+        },
+        {
+          "name": "plesk",
+          "mandatory": false,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-plesk-webadmin",
+            "option-plesk-webhost",
+            "option-plesk-webpro"
+          ]
+        },
+        {
+          "name": "snapshot",
+          "mandatory": false,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-snapshot-2027-model1"
+          ]
+        },
+        {
+          "name": "automatedBackup",
+          "mandatory": true,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-auto-backup-2027-1-model1",
+            "option-auto-backup-2027-7-model1"
+          ]
+        },
+        {
+          "name": "storage",
+          "mandatory": true,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-storage-local-2027-model1"
+          ]
+        },
+        {
+          "name": "additionalDisk",
+          "mandatory": false,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-additional-disk-2027-100g",
+            "option-additional-disk-2027-10000g",
+            "option-additional-disk-2027-1000g",
+            "option-additional-disk-2027-200g",
+            "option-additional-disk-2027-5000g",
+            "option-additional-disk-2027-500g",
+            "option-additional-disk-2027-50g"
+          ]
+        }
+      ]
+    },
+    {
+      "planCode": "vps-starter-1-2-20",
+      "invoiceName": "VPS Starter 1-2-20",
+      "product": "vps-starter-1-2-20",
+      "pricingType": "rental",
+      "family": "vps",
+      "pricings": [
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 575000000,
+          "tax": 57500000,
+          "capacities": [
+            "renew"
+          ]
+        }
+      ],
+      "configurations": [
+        {
+          "name": "vps_datacenter",
+          "isMandatory": true,
+          "values": [
+            "GRA",
+            "SBG",
+            "BHS",
+            "WAW",
+            "DE",
+            "UK",
+            "SYD",
+            "SGP"
+          ]
+        },
+        {
+          "name": "vps_os",
+          "isMandatory": false,
+          "values": [
+            "AlmaLinux 8",
+            "Rocky Linux 8",
+            "Ubuntu 22.04",
+            "AlmaLinux 9"
+          ]
+        },
+        {
+          "name": "infrastructure",
+          "isMandatory": false,
+          "values": [
+            "production",
+            "preproduction"
+          ]
+        },
+        {
+          "name": "region",
+          "isMandatory": false,
+          "values": [
+            "europe",
+            "canada"
+          ]
+        },
+        {
+          "name": "vps_install_rtm",
+          "isMandatory": false,
+          "values": [
+            "no",
+            "if_available"
+          ]
+        }
+      ],
+      "addonFamilies": [
+        {
+          "name": "ftpbackup",
+          "mandatory": false,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "ftpbackup-200g"
+          ]
+        },
+        {
+          "name": "snapshot",
+          "mandatory": false,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-snapshot-20g"
+          ]
+        },
+        {
+          "name": "cpanel",
+          "mandatory": false,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-cpanel-100",
+            "option-cpanel-250",
+            "option-cpanel-30",
+            "option-cpanel-300",
+            "option-cpanel-400",
+            "option-cpanel-50",
+            "option-cpanel-500",
+            "option-cpanel-150",
+            "option-cpanel-1",
+            "option-cpanel-1000",
+            "option-cpanel-200",
+            "option-cpanel-5",
+            "option-cpanel-600",
+            "option-cpanel-700",
+            "option-cpanel-800",
+            "option-cpanel-900"
+          ]
+        },
+        {
+          "name": "plesk",
+          "mandatory": false,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-plesk-webadmin",
+            "option-plesk-webhost",
+            "option-plesk-webpro"
+          ]
+        },
+        {
+          "name": "os",
+          "mandatory": true,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-linux"
+          ]
+        },
+        {
+          "name": "additionalDisk",
+          "mandatory": false,
+          "exclusive": true,
+          "default": null,
+          "addons": [
+            "option-additional-disk-50g",
+            "option-additional-disk-200g",
+            "option-additional-disk-500g",
+            "option-additional-disk-100g"
+          ]
+        }
+      ]
+    }
+  ],
+  "products": [
+    {
+      "name": "vps-2027-model2",
+      "description": "VPS 4 vCPU 8 GB RAM 75 GB disk",
+      "blobs": {
+        "technical": {
+          "cpu": {
+            "type": "vCore",
+            "brand": " ",
+            "cores": 4,
+            "model": " "
+          },
+          "memory": {
+            "size": 8
+          },
+          "storage": {
+            "disks": [
+              {
+                "capacity": 75,
+                "interface": "NVMe",
+                "technology": "SSD"
+              }
+            ]
+          },
+          "bandwidth": {
+            "level": 1000,
+            "unlimited": true
+          },
+          "virtualization": {
+            "hypervisor": "KVM OpenStack"
+          }
+        }
+      }
+    },
+    {
+      "name": "vps-2027-model1",
+      "description": "VPS 2 vCPU 4 GB RAM 40 GB disk",
+      "blobs": {
+        "technical": {
+          "cpu": {
+            "type": "vCore",
+            "brand": " ",
+            "cores": 2,
+            "model": " "
+          },
+          "memory": {
+            "size": 4
+          },
+          "storage": {
+            "disks": [
+              {
+                "capacity": 40,
+                "interface": "NVMe",
+                "technology": "SSD"
+              }
+            ]
+          },
+          "bandwidth": {
+            "level": 500,
+            "unlimited": true
+          },
+          "virtualization": {
+            "hypervisor": "KVM OpenStack"
+          }
+        }
+      }
+    },
+    {
+      "name": "vps-starter-1-2-20",
+      "description": "VPS Starter 1 vCPU 2 GB RAM 20 GB disk",
+      "blobs": {
+        "technical": {
+          "cpu": {
+            "type": "vCore",
+            "brand": "Intel",
+            "cores": 1,
+            "model": "Xeon"
+          },
+          "memory": {
+            "size": 2
+          },
+          "storage": {
+            "disks": [
+              {
+                "capacity": 20,
+                "interface": "SATA",
+                "technology": "SSD"
+              }
+            ]
+          },
+          "bandwidth": {
+            "level": 100,
+            "unlimited": true
+          },
+          "virtualization": {
+            "hypervisor": "KVM OpenStack"
+          }
+        }
+      }
+    }
+  ],
+  "addons": [
+    {
+      "planCode": "option-linux",
+      "invoiceName": "Linux",
+      "product": "vps-option-linux",
+      "pricingType": "rental",
+      "family": "option-linux",
+      "pricings": [
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "degressivity12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "degressivity12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "degressivity12",
+          "commitment": 12,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "degressivity24",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "degressivity24",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "degressivity24",
+          "commitment": 24,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 12,
+          "interval": 12,
+          "intervalUnit": "month",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront24",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront24",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront24",
+          "commitment": 24,
+          "interval": 24,
+          "intervalUnit": "month",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 6,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "renew"
+          ]
+        }
+      ]
+    },
+    {
+      "planCode": "option-storage-remote-2027",
+      "invoiceName": "Remote Storage VPS 2027",
+      "product": "vps-option-storage-remote",
+      "pricingType": "rental",
+      "family": "option-storage",
+      "pricings": [
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 12,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 6,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "renew"
+          ]
+        }
+      ]
+    },
+    {
+      "planCode": "option-auto-backup-2027-1-model2",
+      "invoiceName": "Option Automated Backup Standard - VPS-2 2027",
+      "product": "vps-option-auto-backup-1",
+      "pricingType": "rental",
+      "family": "option-auto-backup-2025",
+      "pricings": [
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 90000000,
+          "tax": 9000000,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 12,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 90000000,
+          "tax": 9000000,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 6,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 90000000,
+          "tax": 9000000,
+          "capacities": [
+            "renew"
+          ]
+        }
+      ]
+    },
+    {
+      "planCode": "option-auto-backup-2027-7-model2",
+      "invoiceName": "Option Automated Backup Premium - VPS-2 2027",
+      "product": "vps-option-auto-backup-7",
+      "pricingType": "rental",
+      "family": "option-auto-backup-2025",
+      "pricings": [
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 310000000,
+          "tax": 31000000,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 12,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 310000000,
+          "tax": 31000000,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 6,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 310000000,
+          "tax": 31000000,
+          "capacities": [
+            "renew"
+          ]
+        }
+      ]
+    },
+    {
+      "planCode": "option-storage-local-2027-model1",
+      "invoiceName": "Option Local Storage - VPS-1 2027",
+      "product": "vps-option-storage-local",
+      "pricingType": "rental",
+      "family": "option-storage",
+      "pricings": [
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 12,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 6,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "renew"
+          ]
+        }
+      ]
+    },
+    {
+      "planCode": "option-storage-local-2027-model2",
+      "invoiceName": "Option Local Storage - VPS-2 2027",
+      "product": "vps-option-storage-local",
+      "pricingType": "rental",
+      "family": "option-storage",
+      "pricings": [
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 12,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 6,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "renew"
+          ]
+        }
+      ]
+    },
+    {
+      "planCode": "option-windows-2027-model2",
+      "invoiceName": "Option Windows - VPS-2 2027",
+      "product": "vps-option-windows",
+      "pricingType": "rental",
+      "family": "option-windows",
+      "pricings": [
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 1320000000,
+          "tax": 132000000,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 12,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 1320000000,
+          "tax": 132000000,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 6,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 1320000000,
+          "tax": 132000000,
+          "capacities": [
+            "renew"
+          ]
+        }
+      ]
+    },
+    {
+      "planCode": "option-auto-backup-2027-1-model1",
+      "invoiceName": "Option Automated Backup Standard - VPS-1 2027",
+      "product": "vps-option-auto-backup-1",
+      "pricingType": "rental",
+      "family": "option-auto-backup-2025",
+      "pricings": [
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "default",
+          "commitment": 0,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 60000000,
+          "tax": 6000000,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront12",
+          "commitment": 12,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 60000000,
+          "tax": 6000000,
+          "capacities": [
+            "renew"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "upgrade"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 0,
+          "interval": 0,
+          "intervalUnit": "none",
+          "price": 0,
+          "tax": 0,
+          "capacities": [
+            "installation"
+          ]
+        },
+        {
+          "mode": "upfront6",
+          "commitment": 6,
+          "interval": 1,
+          "intervalUnit": "month",
+          "price": 60000000,
+          "tax": 6000000,
+          "capacities": [
+            "renew"
+          ]
+        }
+      ]
+    }
+  ]
+}

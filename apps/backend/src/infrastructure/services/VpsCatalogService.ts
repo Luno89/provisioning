@@ -7,6 +7,7 @@ import type {
   VpsCatalogFilters,
   VpsCatalogResult,
   VpsCatalogSource,
+  VpsMarket,
   VpsOffer,
   VpsSortKey,
 } from '../lib/vps-catalog/types.js';
@@ -16,6 +17,7 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 interface CacheEntry {
   offers: VpsOffer[];
   skippedNoPrice: number;
+  market?: VpsMarket;
   fetchedAt: number;
 }
 
@@ -83,6 +85,7 @@ export class VpsCatalogService {
               requiresCredentials: adapter.requiresCredentials,
               cached: true,
               ...(hit.skippedNoPrice ? { skippedNoPrice: hit.skippedNoPrice } : {}),
+              ...(hit.market ? { market: hit.market } : {}),
             });
             return;
           }
@@ -91,8 +94,13 @@ export class VpsCatalogService {
           if (!result || !Array.isArray(result.offers)) {
             throw new Error(`${adapter.provider} adapter returned no offers array`);
           }
-          const { offers, skippedNoPrice } = result;
-          this.cache.set(key, { offers, skippedNoPrice: skippedNoPrice ?? 0, fetchedAt: Date.now() });
+          const { offers, skippedNoPrice, market } = result;
+          this.cache.set(key, {
+            offers,
+            skippedNoPrice: skippedNoPrice ?? 0,
+            ...(market ? { market } : {}),
+            fetchedAt: Date.now(),
+          });
           all.push(...offers);
           sources.push({
             provider: adapter.provider,
@@ -101,6 +109,7 @@ export class VpsCatalogService {
             requiresCredentials: adapter.requiresCredentials,
             cached: false,
             ...(skippedNoPrice ? { skippedNoPrice } : {}),
+            ...(market ? { market } : {}),
           });
         } catch (err: any) {
           if (hit && Array.isArray(hit.offers)) {
@@ -112,6 +121,7 @@ export class VpsCatalogService {
               requiresCredentials: adapter.requiresCredentials,
               cached: true,
               ...(hit.skippedNoPrice ? { skippedNoPrice: hit.skippedNoPrice } : {}),
+              ...(hit.market ? { market: hit.market } : {}),
               message: `Served from an expired cache — refresh failed: ${err.message}`,
             });
             return;

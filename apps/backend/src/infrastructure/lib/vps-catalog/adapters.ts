@@ -1,4 +1,4 @@
-import { withDerived, type AdapterResult, type VpsArch, type VpsCatalogAdapter, type VpsCpuType, type VpsOffer } from './types.js';
+import { withDerived, type AdapterResult, type VpsArch, type VpsCatalogAdapter, type VpsCpuType, type VpsOffer, type VpsPricePart } from './types.js';
 
 const TIMEOUT_MS = 15_000;
 
@@ -289,10 +289,52 @@ export const scalewayAdapter: VpsCatalogAdapter = {
   },
 };
 
-const OVH_SUBSIDIARY = process.env.OVH_SUBSIDIARY || 'FR';
+const OVH_HOSTS: readonly { host: string; subsidiaries: readonly string[] }[] = [
+  { host: 'https://ca.api.ovh.com/1.0', subsidiaries: ['ASIA', 'AU', 'CA', 'IN', 'QC', 'SG', 'WE', 'WS'] },
+  { host: 'https://eu.api.ovh.com/1.0', subsidiaries: ['CZ', 'DE', 'ES', 'EU', 'FI', 'FR', 'GB', 'IE', 'IT', 'LT', 'MA', 'NL', 'PL', 'PT', 'SN', 'TN'] },
+  { host: 'https://api.us.ovhcloud.com/1.0', subsidiaries: ['US'] },
+];
+
+export const OVH_SUBSIDIARIES: readonly string[] = OVH_HOSTS.flatMap((h) => h.subsidiaries);
+
+export function ovhHostFor(subsidiary: string): string {
+  const wanted = subsidiary.trim().toUpperCase();
+  const found = OVH_HOSTS.find((h) => h.subsidiaries.includes(wanted));
+  if (!found) {
+    throw new Error(
+      `OVH_SUBSIDIARY=${subsidiary} is not an OVHcloud subsidiary; known ones are ${OVH_SUBSIDIARIES.join(', ')}`,
+    );
+  }
+  return found.host;
+}
+
+export function ovhCatalogUrl(subsidiary: string): string {
+  return `${ovhHostFor(subsidiary)}/order/catalog/public/vps?ovhSubsidiary=${encodeURIComponent(subsidiary.trim().toUpperCase())}`;
+}
+
+const OVH_FAMILY_LABELS: Record<string, string> = {
+  automatedBackup: 'backup',
+  os: 'OS',
+  additionalDisk: 'extra disk',
+};
+
+function ovhMonthlyOf(pricings: unknown): number | undefined {
+  return (Array.isArray(pricings) ? pricings : [])
+    .filter((p: any) =>
+      Array.isArray(p?.capacities) && p.capacities.includes('renew') &&
+      p?.intervalUnit === 'month' && Number(p?.interval) === 1 &&
+      Number(p?.commitment ?? 0) === 0)
+    .map((p: any) => Number(p.price) / 1e8)
+    .filter((n: number) => Number.isFinite(n) && n >= 0)
+    .sort((a: number, b: number) => a - b)[0];
+}
+
+const cents = (n: number) => Math.round(n * 100) / 100;
 
 export function ovhOffersFromCatalog(data: any): AdapterResult {
-    const currency = String(data?.locale?.currencyCode ?? 'EUR');
+  const currency = data?.locale?.currencyCode === undefined ? undefined : String(data.locale.currencyCode);
+  const subsidiary = data?.locale?.subsidiary === undefined ? undefined : String(data.locale.subsidiary);
+  const taxRate = Number(data?.locale?.taxRate);
 
   const specs = new Map<string, { vcpu: number; ramGb: number; diskGb: number }>();
   for (const product of data?.products ?? []) {
@@ -304,7 +346,21 @@ export function ovhOffersFromCatalog(data: any): AdapterResult {
     specs.set(String(product.name), { vcpu, ramGb, diskGb: Number.isFinite(diskGb) ? diskGb : 0 });
   }
 
-  const best = new Map<string, { planCode: string; label: string; monthly: number; spec: { vcpu: number; ramGb: number; diskGb: number } }>();
+  const optionPrices = new Map<string, number>();
+  for (const addon of data?.addons ?? []) {
+    const monthly = ovhMonthlyOf(addon?.pricings);
+    if (addon?.planCode !== undefined && monthly !== undefined) optionPrices.set(String(addon.planCode), monthly);
+  }
+
+  interface Best {
+    planCode: string;
+    label: string;
+    monthly: number;
+    options: VpsPricePart[];
+    locations: string[];
+    spec: { vcpu: number; ramGb: number; diskGb: number };
+  }
+  const best = new Map<string, Best>();
   let skippedNoPrice = 0;
 
   for (const plan of data?.plans ?? []) {
@@ -313,27 +369,50 @@ export function ovhOffersFromCatalog(data: any): AdapterResult {
 
     if (/-vps-\d{4}-model\d+(-|$)/.test(String(plan.planCode))) continue;
 
-    const monthly = (plan?.pricings ?? [])
-      .filter((p: any) =>
-        Array.isArray(p?.capacities) && p.capacities.includes('renew') &&
-        p?.intervalUnit === 'month' && Number(p?.interval) === 1 &&
-        Number(p?.commitment ?? 0) === 0)
-      .map((p: any) => Number(p.price) / 1e8)
-      .filter((n: number) => Number.isFinite(n) && n > 0)
-      .sort((a: number, b: number) => a - b)[0];
-
-    if (monthly === undefined) { skippedNoPrice++; continue; }
+    const planMonthly = ovhMonthlyOf(plan?.pricings);
+    if (planMonthly === undefined || planMonthly <= 0) { skippedNoPrice++; continue; }
 
     const planCode = String(plan.planCode);
+    const options: VpsPricePart[] = [];
+    for (const family of plan?.addonFamilies ?? []) {
+      if (family?.mandatory !== true) continue;
+      const priced = (Array.isArray(family.addons) ? family.addons : [])
+        .map((code: unknown) => ({ code: String(code), amount: optionPrices.get(String(code)) }))
+        .filter((o: { amount: number | undefined }): o is { code: string; amount: number } => o.amount !== undefined)
+        .sort((a: { amount: number }, b: { amount: number }) => a.amount - b.amount);
+      const cheapest = priced[0];
+      if (!cheapest || cheapest.amount <= 0) continue;
+      const familyName = String(family.name ?? cheapest.code);
+      options.push({ label: OVH_FAMILY_LABELS[familyName] ?? familyName, planCode: cheapest.code, amount: cheapest.amount });
+    }
+
+    const locations = (plan?.configurations ?? [])
+      .filter((c: any) => c?.name === 'vps_datacenter' && Array.isArray(c.values))
+      .flatMap((c: any) => c.values.map(String))
+      .sort();
+
     const key = String(plan.product);
     const seen = best.get(key);
     if (!seen || planCode.length < seen.planCode.length) {
-      best.set(key, { planCode, label: String(plan.invoiceName ?? planCode), monthly, spec });
+      best.set(key, {
+        planCode,
+        label: String(plan.invoiceName ?? planCode),
+        monthly: planMonthly,
+        options,
+        locations,
+        spec,
+      });
     }
+  }
+
+  if (!currency) {
+    if (best.size > 0) throw new Error('the OVHcloud catalog names no currency (locale.currencyCode)');
+    return { offers: [], skippedNoPrice };
   }
 
   const offers: VpsOffer[] = [];
   for (const entry of best.values()) {
+    const planCode = entry.planCode;
     offers.push(withDerived({
       provider: 'ovh',
       planId: entry.planCode,
@@ -343,29 +422,37 @@ export function ovhOffersFromCatalog(data: any): AdapterResult {
       arch: 'x86' as VpsArch,
       ramGb: entry.spec.ramGb,
       diskGb: entry.spec.diskGb,
-      priceMonthly: entry.monthly,
+      priceMonthly: cents(entry.options.reduce((sum, part) => sum + part.amount, entry.monthly)),
+      ...(entry.options.length > 0
+        ? { priceParts: [{ label: 'plan', planCode, amount: entry.monthly }, ...entry.options] }
+        : {}),
       currency,
       taxIncluded: false,
       hourlyBilling: false,
-      locations: [],
+      locations: entry.locations,
       provisionable: false,
     }));
   }
-  return { offers, skippedNoPrice };
+
+  return {
+    offers,
+    skippedNoPrice,
+    ...(subsidiary ? { market: { subsidiary, currency, ...(Number.isFinite(taxRate) ? { taxRate } : {}) } } : {}),
+  };
 }
 
-export const ovhAdapter: VpsCatalogAdapter = {
-  provider: 'ovh',
-  requiresCredentials: false,
-  provisionable: false,
-  async fetch() {
-    return ovhOffersFromCatalog(
-      await getJson(
-        `https://api.ovh.com/v1/order/catalog/public/vps?ovhSubsidiary=${encodeURIComponent(OVH_SUBSIDIARY)}`,
-      ),
-    );
-  },
-};
+export function ovhAdapterFor(subsidiary: string): VpsCatalogAdapter {
+  return {
+    provider: 'ovh',
+    requiresCredentials: false,
+    provisionable: false,
+    async fetch() {
+      return ovhOffersFromCatalog(await getJson(ovhCatalogUrl(subsidiary)));
+    },
+  };
+}
+
+export const ovhAdapter: VpsCatalogAdapter = ovhAdapterFor(process.env.OVH_SUBSIDIARY || 'FR');
 
 const INTERSERVER_ENDPOINT = 'https://my.interserver.net/api.php';
 

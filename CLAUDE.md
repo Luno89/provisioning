@@ -688,7 +688,11 @@ possible), Infrastructure, My Machines (machines Koala works on),
 Cloud providers (cloud credentials) and Settings (account, 2FA, addresses, notifications, backups, people and invites).
 Three pages are off it and reached where they are used: the VPS catalog through Compare plans in Provision a cluster,
 Nginx through Local router on the system cluster's page, and Temporal through All workflows on Running. Each still
-answers at its old address.
+answers at its old address. The catalog reads OVH's prices for `OVH_SUBSIDIARY` (default `FR`) from the API host that
+serves that subsidiary (`ovhHostFor` in `infrastructure/lib/vps-catalog/adapters.ts`: an Australian account is on
+`ca.api.ovh.com`, and `AU` gives AUD ex GST with Sydney among the datacenters), adds the cheapest priced mandatory option
+of each family (the 2027 models' backup) to the monthly price with the parts kept as `priceParts`, and says which
+subsidiary and currency it read on the provider's status (`market`).
 
 ## Infrastructure (one page for clusters, apps, services, monitoring and running work)
 

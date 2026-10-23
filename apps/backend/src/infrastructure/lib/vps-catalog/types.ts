@@ -24,6 +24,7 @@ export interface VpsOffer {
   readonly bandwidthTb?: number;
 
   readonly priceMonthly: number;
+  readonly priceParts?: readonly VpsPricePart[];
   readonly priceHourly?: number;
   readonly currency: string;
   readonly taxIncluded: boolean;
@@ -36,6 +37,18 @@ export interface VpsOffer {
 
   readonly pricePerGbRam: number;
   readonly pricePerGbVram?: number;
+}
+
+export interface VpsPricePart {
+  readonly label: string;
+  readonly planCode: string;
+  readonly amount: number;
+}
+
+export interface VpsMarket {
+  readonly subsidiary: string;
+  readonly currency: string;
+  readonly taxRate?: number;
 }
 
 export function offerHasGpu(o: Pick<VpsOffer, 'gpuCount' | 'gpuVramGb' | 'gpuModel'>): boolean {
@@ -92,6 +105,7 @@ export interface VpsCatalogSource {
   requiresCredentials: boolean;
   cached: boolean;
   skippedNoPrice?: number;
+  market?: VpsMarket;
 }
 
 export interface VpsCatalogAdapter {
@@ -104,6 +118,7 @@ export interface VpsCatalogAdapter {
 export interface AdapterResult {
   offers: VpsOffer[];
   skippedNoPrice: number;
+  market?: VpsMarket;
 }
 
 export function withDerived(

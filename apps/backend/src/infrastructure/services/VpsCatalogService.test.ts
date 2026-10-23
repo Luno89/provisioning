@@ -242,6 +242,35 @@ describe('one bad provider must not empty the whole catalogue', () => {
   });
 });
 
+describe('the market a provider was read for', () => {
+  const stubDb = { accounts: { getUserById: async () => undefined } } as any;
+  const au: VpsCatalogAdapter = {
+    provider: 'ovh', requiresCredentials: false, provisionable: false,
+    fetch: async () => ({
+      offers: [offer({ provider: 'ovh', planId: 'vps-2027-model2', currency: 'AUD' })],
+      skippedNoPrice: 0,
+      market: { subsidiary: 'AU', currency: 'AUD', taxRate: 10 },
+    }),
+  };
+
+  it('is carried on the source, fresh and from the cache', async () => {
+    const s = new VpsCatalogService(stubDb, 'test-key', [au]);
+    const fresh = await s.search('u1', {});
+    expect(fresh.sources[0]).toMatchObject({ provider: 'ovh', cached: false, market: { subsidiary: 'AU', currency: 'AUD', taxRate: 10 } });
+    const cached = await s.search('u1', {});
+    expect(cached.sources[0]).toMatchObject({ cached: true, market: { subsidiary: 'AU', currency: 'AUD' } });
+  });
+
+  it('is left out for a provider that names none', async () => {
+    const plain: VpsCatalogAdapter = {
+      provider: 'vultr', requiresCredentials: false, provisionable: false,
+      fetch: async () => ({ offers: [offer({ provider: 'vultr' })], skippedNoPrice: 0 }),
+    };
+    const r = await new VpsCatalogService(stubDb, 'test-key', [plain]).search('u1', {});
+    expect(r.sources[0]).not.toHaveProperty('market');
+  });
+});
+
 describe('per-location pricing', () => {
   const eu = offer({
     planId: 'cpx11', idSuffix: 'fsn1', priceMonthly: 5.99, bandwidthTb: 20,
