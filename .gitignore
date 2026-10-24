@@ -110,3 +110,5 @@ apps/local-agent/dist/
 packages/cdktf-infra/*.js
 packages/cdktf-infra/constructs/*.js
 packages/cdktf-infra/lib/*.js
+
+.ci-tools/

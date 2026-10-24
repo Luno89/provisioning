@@ -22,7 +22,7 @@ jobs:
 
       - name: The tag was made by npm run release
         run: |
-          git fetch --force origin "refs/tags/${VERSION}:refs/tags/${VERSION}"
+          [ -n "${ACT:-}" ] || git fetch --force origin "refs/tags/${VERSION}:refs/tags/${VERSION}"
           [ "$(git cat-file -t "refs/tags/${VERSION}")" = tag ] || { echo "::error::${VERSION} is not an annotated tag; npm run release makes them"; exit 1; }
           git cat-file tag "refs/tags/${VERSION}" | grep -q '^Shipped and released from ' || { echo "::error::${VERSION} was not made by npm run release"; exit 1; }
           echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nowrinkles/app" >> "$GITHUB_ENV"
@@ -38,11 +38,13 @@ jobs:
           '
 
       - name: Room for the image
+        if: ${{ !env.ACT }}
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
 
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
+        if: ${{ !env.ACT }}
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -52,7 +54,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          push: ${{ !env.ACT }}
           tags: |
             ${{ env.IMAGE }}:${{ env.VERSION }}
             ${{ env.IMAGE }}:${{ env.COMMIT }}
@@ -75,7 +77,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          digest="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{json .Manifest}}' | jq -r .digest)"
+          if [ -n "${ACT:-}" ]; then digest="(not published under act)"; else
+            digest="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{json .Manifest}}' | jq -r .digest)"
+          fi
           {
             git cat-file tag "refs/tags/${VERSION}" | sed '1,/^$/d'
             echo
@@ -83,4 +87,9 @@ jobs:
             echo
             echo "Chart: \`instance-${VERSION}.tgz\`, below."
           } > notes.md
+          if [ -n "${ACT:-}" ]; then
+            echo "under act, nothing is released; it would post dist/instance-${VERSION}.tgz ($(du -h "dist/instance-${VERSION}.tgz" | cut -f1)) with these notes:"
+            cat notes.md
+            exit 0
+          fi
           gh release create "${VERSION}" "dist/instance-${VERSION}.tgz" --title "${VERSION}" --notes-file notes.md --verify-tag
