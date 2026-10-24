@@ -38,6 +38,8 @@ npm run dev          # ensure k3d+temporal+mongo → concurrently: backend, fron
 npm run dev:split    # the same stack as root and your instance: root at http://koala.localhost:5175 (sign in there), your instance at http://dev.localhost:5173
 npm run clean-dev    # kill all dev processes, delete k3d clusters, clean DBs (scripts/cleanup-all.sh)
 
+npm run ship         # G1 + G2 against the dev stack on this commit, then push main (Releases, below)
+npm run release      # G3 + G4 on a shipped commit, then tag it; GitHub builds and publishes the image (Releases, below)
 npm run test         # test:unit → test:e2e:sync (alive check → unit → tests/e2e.spec.ts via Playwright)
 npm run test:all     # test → test:infra:integration → test:remote-integration → test:unit:vpn
 npm run test:unit    # typecheck + test:unit:frontend + test:unit:backend (Vitest, ~80s total)
@@ -1428,13 +1430,37 @@ typechecking.
 git config core.hooksPath .githooks
 ```
 
-The pre-push hook typechecks before any push. **A push to `main` takes the whole first gate**: typecheck, lint, both unit
-suites, and `routes-live` when the dev stack answers on :3001 with `MECHANICS_ADMIN` set, about three minutes, the same
-set `.github/workflows/ci.yml` runs. It is pre-push and not pre-commit because a hook that costs a minute per commit gets
-bypassed within a day; `git push --no-verify` is there for when you mean it. The release gates beyond this one are in
-`~/.claude/plans/release-pipeline.md`.
+## Releases: every gate before what it protects
 
-## TypeScript quirks
+Plan: `~/.claude/plans/release-pipeline.md`. Nothing reaches `main` on GitHub, and no release reaches root or anyone's
+instance, without passing its gates first (owner, 2026-10-23: "all those checks need to run before it gets to main"):
+- **`npm run ship`** (`tests/ship.ts`, with `MECHANICS_ADMIN` set) is how `main` is pushed. It runs on `main` in the
+  checkout the dev stack runs from (it checks the backend on :3001 has its working directory there, and that nothing is
+  uncommitted), then **G1** (typecheck, the unit suites, lint) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
+  account removal, hub, project sharing, telemetry, app names, files, the Odoo release and every mechanics check, each
+  through its npm script against the dev stack), failing at the first that fails. After each step it checks the checkout
+  is still that commit, since the stack hot-reloads whatever is on disk: work in a worktree while it runs. A pass is
+  recorded in `<git common dir>/koala-gates/<commit>.json`, the live ledger is committed on top, and it pushes.
+  `-- --no-push` stops before the push.
+- **`npm run release [vYYYY.MM.DD[-n]]`** (`tests/release.ts`) makes a release from a shipped commit `origin/main` has: it
+  builds the image from that commit (`buildAppImage` in `tests/lib/gate-runs.ts`, also `nowrinkles/app:dev` for the VM
+  suites), runs **G3** and **G4** (`RELEASE_STEPS`: mail, infra and remote integration, instance, machine, byo, mesh,
+  routing, pool, then `test:release-live` from the previous tag), about three hours, then makes the annotated tag and
+  pushes it with the ledger.
+- **The pre-push hook** (`.githooks/pre-push` → `tests/gate-check.ts`, `pushRefusal`) refuses a push to `main` of a commit
+  without a ship record (a commit that changes only the ledger on top of one passes), and a `v*` tag whose commit was
+  not released under that name. A push of any other branch is typechecked. `git push --no-verify` is there for when you
+  mean it.
+- **On the tag**, `.github/workflows/release.yml` on GitHub's own runners refuses a tag `npm run release` did not make,
+  then builds the image once and publishes it as `ghcr.io/luno89/nowrinkles/app:<tag>` and `:<commit12>` (public), and
+  makes the GitHub release with the instance chart (`instance-<tag>.tgz`) and the image's digest. Nothing from GitHub
+  runs on this box. `.github/workflows/ci.yml` still runs G1 on every push and pull request there.
+- Left out of the gates: the Playwright suite (its setup recreates Temporal with its volumes and stops a k3d server,
+  so it cannot run beside the dev stack), `dev-split` and `openrouter-connect` (they need `npm run dev:split`), the
+  machine suites that need this computer's machine agent, and those that wait on the memory keeper or a model's own
+  judgement (memory, bench, proposals, practices, changes, monitoring, infrastructure, big-run).
+
+## TypeScript quirks## TypeScript quirks
 
 - `verbatimModuleSyntax: true` → all relative imports need a `.js` extension, even in `.ts` files
 - `exactOptionalPropertyTypes: true` → auto-generated `.gen/` CDKTF files have pre-existing type errors; skip them

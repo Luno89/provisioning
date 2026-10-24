@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
+import { buildAppImage } from './lib/gate-runs.js';
 import { endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, upgradeReports, type Report } from './lib/release-lab.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
@@ -94,27 +95,8 @@ function https(host: string, path: string, init: { method?: string; body?: unkno
 const json = <T>(answer: Answer): T => JSON.parse(answer.body) as T;
 
 function buildImage(commit: string, label: string): string {
-  const tag = imageTagOf(commit);
-  const image = `${IMAGE_REPO}:${tag}`;
-  try {
-    run('docker', ['image', 'inspect', image]);
-    note(`${label}: ${image} is already built`);
-    return tag;
-  } catch { /* not yet */ }
-  const started = Date.now();
-  const context = mkdtempSync(join(tmpdir(), `release-live-${tag}-`));
-  try {
-    execFileSync('sh', ['-c', `git -C "${REPO}" archive "${commit}" | tar -x -C "${context}"`], { stdio: ['ignore', 'ignore', 'pipe'] });
-    execFileSync('bash', [join(REPO, 'scripts/root-node/cdktf-bindings.sh'), context], {
-      stdio: ['ignore', 'inherit', 'inherit'],
-      env: { ...process.env, TERRAFORM: join(REPO, 'bin/terraform'), CDKTF: join(REPO, 'node_modules/.bin/cdktf') },
-    });
-    execFileSync('docker', ['build', '-q', '--build-arg', 'BUILDKIT_INLINE_CACHE=1', '-t', image, context], { stdio: ['ignore', 'ignore', 'inherit'], env: { ...process.env, DOCKER_BUILDKIT: '1' } });
-  } finally {
-    rmSync(context, { recursive: true, force: true });
-  }
-  note(`${label}: built ${image} in ${minutes(started)}`);
-  return tag;
+  buildAppImage(REPO, commit, (line) => note(`${label}: ${line}`));
+  return imageTagOf(commit);
 }
 
 const SANDBOX_PROCEDURE = (id: string) => ({ schema: 2, id, version: '1', name: 'Release rehearsal', describe: 'runs code in a sandbox', budget: {}, start: 'provision', cleanup: 'release',
