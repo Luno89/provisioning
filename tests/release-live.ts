@@ -365,7 +365,7 @@ async function main(): Promise<void> {
   assert.deepEqual(stayed.trail[stayed.trail.length - 1], { status: 'ready', detail: `Running ${candidateTag}` }, 'the instance moved with automatic updates off');
   const offered = updatesNow().releases.find((row) => row.imageTag === nothing);
   assert.ok(offered?.current && offered.choosable, `the instance is not offered ${nothing}: ${JSON.stringify(offered)}`);
-  const person = json<{ instance?: { name?: string; version?: string; autoUpdates?: boolean } }[]>(asOwner('/api/admin/people')).find((entry) => entry.instance?.name === NAME);
+  const person = json<{ people: { instance?: { name?: string; version?: string; autoUpdates?: boolean } }[] }>(asOwner('/api/admin/people')).people.find((entry) => entry.instance?.name === NAME);
   assert.deepEqual({ version: person?.instance?.version, autoUpdates: person?.instance?.autoUpdates }, { version: candidateTag, autoUpdates: false }, 'root\'s People does not show what the instance runs and how it updates');
   note(`root offers ${nothing}; with automatic updates off the instance checked in and stayed on ${candidateTag}, and root's People says so`);
 
