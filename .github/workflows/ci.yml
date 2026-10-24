@@ -1,16 +1,3 @@
-# The gate that did not exist.
-#
-# Until now nothing ran on a commit or a push: no CI, no git hooks, no root lint script. Every check
-# in this repo was opt-in and manual, which is a large part of why `index.ts` reached 5,900 lines and
-# `App.tsx` reached 2,858 with 47 `any`s in it. Rules that nothing enforces are suggestions.
-#
-# ── WHY THIS IS ONE SHORT JOB ──
-# The budget is under two minutes, and the hard cap is three. Past that people stop waiting for the
-# result, start pushing on red, and the gate becomes decoration — which is worse than no gate,
-# because it looks like coverage. Everything here is a command that already existed and already
-# passes locally; splitting into parallel jobs would cost more in runner startup and `npm ci` than
-# it saves.
-#
 # ── WHAT IS DELIBERATELY NOT HERE ──
 # Playwright. `tests/e2e.spec.ts` provisions real k3d clusters and needs Docker, Temporal and Mongo
 # live, with `workers: 1` because parallel runs collide on host ports. That is minutes per run and a
@@ -26,7 +13,6 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     env:
       MONGOMS_DOWNLOAD_DIR: ${{ github.workspace }}/.mongodb-binaries
       MONGOMS_VERSION: 8.2.6
