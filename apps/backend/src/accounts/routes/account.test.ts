@@ -142,7 +142,7 @@ describe('an admin on root', () => {
       },
     });
     const listed = (await call('get', '/api/admin/people')).data.people as Array<{ id: string; instance?: unknown }>;
-    expect(listed.find((person) => person.id === PERSON.id)?.instance).toEqual({ name: 'bob', where: 'pool', status: 'ready', url: 'https://bob.koala.dev', trialEndsAt: '2026-11-03T00:00:00.000Z' });
+    expect(listed.find((person) => person.id === PERSON.id)?.instance).toEqual({ name: 'bob', where: 'pool', status: 'ready', url: 'https://bob.koala.dev', trialEndsAt: '2026-11-03T00:00:00.000Z', autoUpdates: true });
     expect(listed.find((person) => person.id === ADMIN.id)?.instance).toBeUndefined();
     expect((await call('delete', `/api/admin/people/${PERSON.id}`, { confirm: 'wrong@example.com' })).status).toBe(400);
     expect((await call('delete', `/api/admin/people/${PERSON.id}`, { confirm: PERSON.email })).status).toBe(202);
@@ -173,7 +173,7 @@ describe('a person removing their own account on root', () => {
         return accountRouter({ removal, clearSession: () => { cleared += 1; } });
       },
     });
-    expect((await call('get', '/api/account/removal')).data).toEqual({ email: PERSON.email, blockers: [], instance: { name: 'bob', where: 'own', status: 'ready', url: 'https://bob.koala.dev' } });
+    expect((await call('get', '/api/account/removal')).data).toEqual({ email: PERSON.email, blockers: [], instance: { name: 'bob', where: 'own', status: 'ready', url: 'https://bob.koala.dev', autoUpdates: true } });
     expect((await call('delete', '/api/account', { confirm: 'wrong@example.com' })).status).toBe(400);
     expect(types).toEqual([]);
     expect((await call('delete', '/api/account', { confirm: PERSON.email })).status).toBe(202);
