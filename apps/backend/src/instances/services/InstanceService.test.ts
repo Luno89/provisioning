@@ -9,7 +9,6 @@ const settings = {
   meshLoginServer: 'https://mesh.example.com',
   registry: '100.64.0.1:5001',
   imageTag: 'abc123',
-  chartVersion: '0.1.0',
   domain: 'koala.dev',
   siteNames: ['app', 'mesh'],
 };
@@ -406,5 +405,59 @@ describe('moving a trial instance to the person\'s own machine', () => {
     expect(await service.startMove('nobody')).toMatchObject({ ok: false, status: 404 });
     expect(await service.stopMove('bo')).toEqual({ ok: true, value: { stopping: true } });
     expect(calls.at(-1)).toBe('stopped inst-bo: you stopped the move');
+  });
+});
+
+describe('which release an instance runs', () => {
+  const catalogue = (charts: string[]) => ({
+    releases: async () => [
+      { imageTag: 'old111', version: 'v2026.10.24', servedAt: '2026-10-24T00:00:00.000Z' },
+      { imageTag: 'mid222', version: 'v2026.10.25', servedAt: '2026-10-25T00:00:00.000Z', hotfix: true },
+      { imageTag: 'abc123', version: 'v2026.10.26', servedAt: '2026-10-26T00:00:00.000Z' },
+    ],
+    hasChart: (imageTag: string) => charts.includes(imageTag),
+  });
+
+  const joined = async () => {
+    service = new InstanceService(db, { ...settings, releases: catalogue(['old111', 'mid222', 'abc123']) }, mesh, () => now);
+    const { token } = await tokenFor('u1');
+    const made = await service.join(token, 'm');
+    if (!made.ok) throw new Error(made.error);
+    return { id: made.value.instanceId, credential: made.value.credential };
+  };
+
+  it('follows root on auto, from the release it reports running, with that release\'s own chart', async () => {
+    const { id, credential } = await joined();
+    expect(await service.report(id, credential, { status: 'ready', imageTag: 'old111' })).toMatchObject({ ok: true, value: { running: 'old111' } });
+    expect(await service.release(id, credential)).toEqual({ ok: true, value: { imageTag: 'abc123', chartUrl: 'https://app.example.com/api/instances/chart.tgz' } });
+    expect(await service.report(id, credential, { status: 'ready', imageTag: 'abc123' })).toMatchObject({ ok: true, value: { running: 'abc123', previous: 'old111' } });
+  });
+
+  it('stays where it is once automatic updates are off, and moves to the release picked', async () => {
+    const { id, credential } = await joined();
+    await service.report(id, credential, { status: 'ready', imageTag: 'old111' });
+    expect(await service.setUpdates(id, credential, { auto: false })).toMatchObject({ ok: true, value: { auto: false, picked: 'old111', target: 'old111' } });
+    expect(await service.release(id, credential)).toMatchObject({ ok: true, value: { imageTag: 'old111' } });
+    expect(await service.setUpdates(id, credential, { version: 'v2026.10.25' })).toMatchObject({ ok: true, value: { auto: false, picked: 'mid222', target: 'mid222' } });
+    expect(await service.release(id, credential)).toEqual({ ok: true, value: { imageTag: 'mid222', chartUrl: 'https://app.example.com/api/instances/chart/mid222.tgz' } });
+    expect(await service.setUpdates(id, credential, { auto: true })).toMatchObject({ ok: true, value: { auto: true, target: 'abc123' } });
+  });
+
+  it('lets it go back only to the release it ran just before', async () => {
+    const { id, credential } = await joined();
+    await service.report(id, credential, { status: 'ready', imageTag: 'mid222' });
+    await service.report(id, credential, { status: 'ready', imageTag: 'abc123' });
+    expect(await service.setUpdates(id, credential, { version: 'v2026.10.24' })).toMatchObject({ ok: false, status: 409, error: expect.stringContaining('back to v2026.10.25, the one it ran before') });
+    expect(await service.setUpdates(id, credential, { version: 'v2026.10.25' })).toMatchObject({ ok: true, value: { target: 'mid222' } });
+  });
+
+  it('does not count an upgrade that failed and rolled back as running, and refuses what it cannot read', async () => {
+    const { id, credential } = await joined();
+    await service.report(id, credential, { status: 'ready', imageTag: 'old111' });
+    expect(await service.report(id, credential, { status: 'failed', imageTag: 'abc123', detail: 'rolled back' })).toMatchObject({ ok: true, value: { running: 'old111' } });
+    expect(await service.report(id, credential, { status: 'ready', imageTag: 'a b' })).toMatchObject({ ok: false, status: 400 });
+    expect(await service.setUpdates(id, credential, { auto: true, version: 'v2026.10.25' })).toMatchObject({ ok: false, status: 400 });
+    expect(await service.setUpdates(id, credential, { version: 'v2027.01.01' })).toMatchObject({ ok: false, status: 409, error: 'there is no release v2027.01.01' });
+    expect(await service.updates(id, 'guess')).toMatchObject({ ok: false, status: 401 });
   });
 });

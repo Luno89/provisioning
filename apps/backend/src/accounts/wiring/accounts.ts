@@ -32,6 +32,7 @@ export function wireAccounts(deps: AccountsWiringDeps): { peopleRemoval: Account
     workflowType: ROOT_REMOVAL_WORKFLOW,
     steps: ROOT_REMOVAL_STEPS,
     instances: () => db.instances.getInstances(),
+    releases: () => db.instances.getReleases(),
     hub: deps.hubPeople,
   }) : undefined;
   const peopleRemoval = rootRemoval ?? accountRemoval;

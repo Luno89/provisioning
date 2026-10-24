@@ -70,6 +70,7 @@ async function sh(vm: DisposableVm, command: string, stream = false): Promise<st
 }
 
 interface Answer { status: number; body: string; headers: Record<string, string> }
+interface UpdatesSeen { auto: boolean; picked?: string; running?: string; target: string; checking?: string; releases: { imageTag: string; current: boolean; choosable: boolean }[] }
 
 let work = '';
 let root: DisposableVm | undefined;
@@ -162,14 +163,14 @@ async function main(): Promise<void> {
   note(`bootstrap.sh finished in ${minutes(bootstrapped)}`);
   writeFileSync(join(work, 'ca.crt'), await sh(root, 'sudo cat /usr/local/share/ca-certificates/koala-lab.crt'));
 
-  step(`root's registry is given the ${PREVIOUS_REF} image, and the real update.sh moves root onto ${PREVIOUS_REF}`);
+  step(`root's registry is given the ${PREVIOUS_REF} image, and release-watch.sh, as npm run release runs it over SSH, moves root onto ${PREVIOUS_REF} with the real update.sh`);
   const saved = spawn('docker', ['save', `${IMAGE_REPO}:${previousTag}`], { stdio: ['ignore', 'pipe', 'inherit'] });
   const loaded = await inVm(root, 'sudo docker load -q', false, saved.stdout);
   assert.equal(loaded.code, 0, `the image did not load on root: ${loaded.out.slice(-500)}`);
   await sh(root, `sudo docker tag ${IMAGE_REPO}:${previousTag} 127.0.0.1:5000/${IMAGE_REPO}:${previousTag} && sudo docker push -q 127.0.0.1:5000/${IMAGE_REPO}:${previousTag} >/dev/null`);
   const toPrevious = Date.now();
-  await sh(root, `sudo bash ${UPDATE_SH} ${previous}`, true);
-  note(`update.sh ${PREVIOUS_REF} took ${minutes(toPrevious)}`);
+  await sh(root, `sudo bash ${REPO_DIR}/scripts/root-node/release-watch.sh ${PREVIOUS_REF}`, true);
+  note(`release-watch.sh ${PREVIOUS_REF} took ${minutes(toPrevious)}`);
   const rootHead = async () => (await sh(root!, `sudo git -C ${REPO_DIR} rev-parse HEAD`)).trim();
   const rootReleaseTag = async () => (await sh(root!, `sudo grep '^INSTANCE_IMAGE_TAG=' ${REPO_DIR}/apps/backend/.env | cut -d= -f2-`)).trim();
   assert.equal(await rootHead(), previous, 'root is not on the previous release');
@@ -344,14 +345,37 @@ async function main(): Promise<void> {
   assert.deepEqual(settled.trail[settled.trail.length - 1], { status: 'ready', detail: `Running ${candidateTag}` });
   note(`on ${candidateTag}: sign-in through root, the handoff, the app's address, the repository, a sandboxed run and the check-in work`);
 
-  step(`a release that does not exist, with root and the instance on ${candidateTag}: the instance tries it, fails, rolls itself back, tells root, and stays at its addresses`);
+  step(`automatic updates off in the instance's Settings, with root and the instance on ${candidateTag}: root offers a newer release and the instance stays where it is`);
+  const updatesAnswer = (answer: Answer): UpdatesSeen => {
+    assert.equal(answer.status, 200, `the instance's updates answered ${answer.status}: ${answer.body}`);
+    return json<UpdatesSeen>(answer);
+  };
+  const updatesNow = () => updatesAnswer(onInstance('/api/instance-updates'));
+  const changeUpdates = (body: { auto: boolean } | { version: string }) => updatesAnswer(onInstance('/api/instance-updates', { method: 'PUT', body }));
+  const seen = updatesNow();
+  assert.deepEqual({ auto: seen.auto, running: seen.running, target: seen.target }, { auto: true, running: candidateTag, target: candidateTag }, `the instance's updates read ${JSON.stringify(seen)}`);
+  const held = changeUpdates({ auto: false });
+  assert.deepEqual({ auto: held.auto, picked: held.picked, checking: held.checking }, { auto: false, picked: candidateTag, checking: undefined });
   const nothing = `nothing-${STAMP}`;
   await sh(root, `sudo sed -i 's|^INSTANCE_IMAGE_TAG=.*|INSTANCE_IMAGE_TAG=${nothing}|' ${REPO_DIR}/apps/backend/.env && sudo systemctl restart nowrinkles`);
-  await until('root answering with the missing release', async () => ((await rootAnswers()) ? true : undefined));
+  await until('root answering with the newer release', async () => ((await rootAnswers()) ? true : undefined));
   await sh(instance, `curl -fsSL ${ROOT_URL}/api/instances/chart.tgz -o /tmp/current-chart.tgz`);
   await helm('upgrade instance /tmp/current-chart.tgz --reuse-values --set selfUpgrade.timeout=4m --wait --timeout 720h');
-  const broken = await checkIn('upgrade-to-nothing');
-  note(`root heard: ${broken.trail.map((report) => `${report.status} "${report.detail}"`).join(' → ')}`);
+  const stayed = await checkIn('check-in-held');
+  assert.deepEqual(stayed.trail[stayed.trail.length - 1], { status: 'ready', detail: `Running ${candidateTag}` }, 'the instance moved with automatic updates off');
+  const offered = updatesNow().releases.find((row) => row.imageTag === nothing);
+  assert.ok(offered?.current && offered.choosable, `the instance is not offered ${nothing}: ${JSON.stringify(offered)}`);
+  const person = json<{ instance?: { name?: string; version?: string; autoUpdates?: boolean } }[]>(asOwner('/api/admin/people')).find((entry) => entry.instance?.name === NAME);
+  assert.deepEqual({ version: person?.instance?.version, autoUpdates: person?.instance?.autoUpdates }, { version: candidateTag, autoUpdates: false }, 'root\'s People does not show what the instance runs and how it updates');
+  note(`root offers ${nothing}; with automatic updates off the instance checked in and stayed on ${candidateTag}, and root's People says so`);
+
+  step(`${nothing} picked in the instance's Settings: the instance starts its check-in at once, the release fails, it rolls itself back, tells root, and stays at its addresses`);
+  const stopWatching = watchReports();
+  const picked = changeUpdates({ version: nothing });
+  assert.equal(picked.target, nothing);
+  assert.match(picked.checking ?? '', /^instance-self-upgrade-/, `picking a release started no check-in: ${JSON.stringify(picked)}`);
+  const broken = { ended: await jobEnds(picked.checking!), trail: stopWatching() };
+  note(`the instance started ${picked.checking}; root heard: ${broken.trail.map((report) => `${report.status} "${report.detail}"`).join(' → ')}`);
   assert.ok(broken.ended.includes('Failed'), `the job for a missing release ended ${broken.ended}`);
   assert.ok(endsWith(broken.trail, failedUpgradeReports(candidateTag, nothing)), 'root did not hear installing then failed');
   await allOn(candidateTag);
@@ -364,6 +388,9 @@ async function main(): Promise<void> {
   note(helmHistory.trim().split('\n').slice(-4).join('\n  '));
   await sh(root, `sudo sed -i 's|^INSTANCE_IMAGE_TAG=.*|INSTANCE_IMAGE_TAG=${candidateTag}|' ${REPO_DIR}/apps/backend/.env && sudo systemctl restart nowrinkles`);
   await until('root answering with the candidate release again', async () => ((await rootAnswers()) ? true : undefined));
+  const following = changeUpdates({ auto: true });
+  assert.deepEqual({ auto: following.auto, target: following.target, checking: following.checking }, { auto: true, target: candidateTag, checking: undefined }, 'automatic updates back on moved the instance off the release root runs');
+  note(`automatic updates are back on, following root's ${candidateTag} without another check-in`);
 
   step(`both roll back: update.sh ${PREVIOUS_REF} on root, helm rollback on the instance`);
   const back = Date.now();

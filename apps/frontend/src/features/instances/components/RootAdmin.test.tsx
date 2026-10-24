@@ -12,7 +12,7 @@ vi.mock('../../../api/client', async (importOriginal) => {
 const PEOPLE = [
   { id: 'ana', email: 'ana@example.com', isAdmin: true, createdAt: '2026-09-01T00:00:00.000Z' },
   { id: 'bob', email: 'bob@example.com', isAdmin: false, createdAt: '2026-10-01T00:00:00.000Z', instance: { name: 'bob', where: 'pool', status: 'ready', url: 'https://bob.koala.dev', trialEndsAt: '2026-11-03T12:00:00.000Z' } },
-  { id: 'cy', email: 'cy@example.com', isAdmin: false, createdAt: '2026-10-02T00:00:00.000Z', instance: { name: 'cy', where: 'own', status: 'ready', url: 'https://cy.koala.dev' } },
+  { id: 'cy', email: 'cy@example.com', isAdmin: false, createdAt: '2026-10-02T00:00:00.000Z', instance: { name: 'cy', where: 'own', status: 'ready', url: 'https://cy.koala.dev', version: 'v2026.10.25', autoUpdates: false } },
   { id: 'di', email: 'di@example.com', isAdmin: false, createdAt: '2026-10-03T00:00:00.000Z', removal: { startedAt: 'now', requestedBy: 'ana', state: { state: 'running', done: ['instance'] }, steps: ['instance', 'mesh', 'records'] } },
 ]
 
@@ -38,7 +38,7 @@ describe('root\'s admin area', () => {
   it('lists every account with where its instance runs, root\'s removal progress, the invites and Koala\'s servers', async () => {
     renderPage()
     expect(await screen.findByTestId('instance-bob')).toHaveTextContent('bob on Koala\'s servers: running, trial ends')
-    expect(screen.getByTestId('instance-cy')).toHaveTextContent('cy on their own machine: running')
+    expect(screen.getByTestId('instance-cy')).toHaveTextContent('cy on their own machine: running v2026.10.25, updates by hand')
     expect(screen.getByText('removing its machines from the mesh (2 of 3)')).toBeInTheDocument()
     expect(await screen.findByText('abcd1234')).toBeInTheDocument()
     expect(await screen.findByText('0 of 4 places in use.')).toBeInTheDocument()

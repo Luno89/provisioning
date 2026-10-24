@@ -1469,6 +1469,21 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   then builds the image once and publishes it as `ghcr.io/luno89/nowrinkles/app:<tag>` and `:<commit12>` (public), and
   makes the GitHub release with the instance chart (`instance-<tag>.tgz`) and the image's digest. Nothing from GitHub
   runs on this box. `.github/workflows/ci.yml` still runs G1 on every push and pull request there.
+- **Root moves onto a release two ways**: `koala-release-watch.timer` (installed by `bootstrap.sh` outside a lab, started by
+  hand once root works) runs `scripts/root-node/release-watch.sh` hourly, which finds GitHub's newest published release
+  and runs a copy of `update.sh` with it when it is newer than root's; and `npm run release` with `ROOT_SSH=<user@host>`
+  waits for the published image and runs `release-watch.sh <tag>` there over SSH. `update.sh` pulls the image the Release
+  workflow published (`PUBLISHED_IMAGE`, by commit) into root's registry, and builds only when there is none (a lab).
+- **Each instance's updates are its owner's** (owner, 2026-10-24; rules in `instances/lib/instance-updates.ts`). Root keeps
+  every release it has run (`ReleaseCatalogue`: recorded at boot from its checkout's tag and message, `instanceReleases`,
+  with that release's chart in `data/instance-charts/`, served at `/api/instances/chart/<image tag>.tgz`). Each instance
+  record has `updates` (`auto`, on by default, or a `picked` release), `running` (the image tag its check-in reports) and
+  `previous`; `GET /api/instances/release` answers per instance (`updateTarget`): on auto, root's release when it is newer
+  than what the instance runs, never older; off, what was picked. A person may pick any newer release or the one it ran
+  just before (`pickProblem`). The instance's Settings → Updates (`InstanceUpdates`, `/api/instance-updates` →
+  root's `/api/instances/updates` with its credential) switches auto and picks, and a change that moves it starts the
+  check-in at once (`kubectl create job --from=cronjob/<release>-self-upgrade`, never beside one already running). Root's
+  People shows each instance's version and how it updates. Release channels (rc, LTS) are a later conversation.
 - Left out of the gates: the Playwright suite (its setup recreates Temporal with its volumes and stops a k3d server,
   so it cannot run beside the dev stack), `dev-split` and `openrouter-connect` (they need `npm run dev:split`), the
   machine suites that need this computer's machine agent, and those that wait on the memory keeper or a model's own

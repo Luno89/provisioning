@@ -8,6 +8,7 @@ export type { IdentityKeyPair } from './lib/identity-token.js';
 export { drained, GITEA_DATA, MOVE_STEP_WORDS, MOVED_POSTGRES, PG_RESTORE } from './lib/instance-move.js';
 export type { MovePart } from './lib/instance-move.js';
 export { nameProblem, suggestedGroup } from './lib/instance-names.js';
+export type { InstanceRelease } from './lib/instance-updates.js';
 export type { InstanceRecord, InstanceStatus } from './lib/instances.js';
 export { importLines } from './lib/mongo-move.js';
 export { afterStep, nextTrialStep, trialMessage } from './lib/pool-trial.js';

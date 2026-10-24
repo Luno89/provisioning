@@ -37,7 +37,7 @@ describe('trying Koala on its own servers', () => {
       user: TEST_USER,
       router: (db) => instancesRouter({
         instances: new InstanceService(db, {
-          rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', chartVersion: '1', domain: 'koala.dev',
+          rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', domain: 'koala.dev',
           pool: { slots: 1, trialDays: 14 },
         }, undefined, () => new Date('2026-10-20T00:00:00Z'), () => {}, { start: async (instanceId) => { started.push(instanceId); }, trialChanged: async () => {}, remove: async () => {} }),
         chart: async () => '',
@@ -61,7 +61,7 @@ describe('trying Koala on its own servers', () => {
       user: { ...TEST_USER },
       router: (db) => instancesRouter({
         instances: new InstanceService(db, {
-          rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', chartVersion: '1', domain: 'koala.dev',
+          rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', domain: 'koala.dev',
           pool: { slots: 1, trialDays: 14 },
         }, undefined, () => new Date('2026-10-20T00:00:00Z'), () => {}, { start: async () => {}, trialChanged: async () => {}, remove: async () => {} }),
         chart: async () => '',
@@ -94,7 +94,7 @@ describe('a pool instance asking root about its own apps', () => {
         } as never);
         return instancesRouter({
           instances: new InstanceService(db, {
-            rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', chartVersion: '1', domain: 'koala.dev',
+            rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', domain: 'koala.dev',
             pool: { slots: 1, trialDays: 14 },
           }, undefined),
           chart: async () => '',
@@ -135,7 +135,7 @@ describe('an instance keeping the groups its shared projects are addressed under
       router: (db) => {
         void db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret') });
         return instancesRouter({
-          instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', chartVersion: '1', domain: 'koala.dev' }, undefined),
+          instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', domain: 'koala.dev' }, undefined),
           chart: async () => '',
         });
       },
@@ -169,7 +169,7 @@ describe('the new machine reading a moving instance through root', () => {
           pool: { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: 'then', trialEndsAt: '2026-11-03T00:00:00.000Z' },
         });
         const instances = new InstanceService(db, {
-          rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh', registry: 'r', imageTag: 't', chartVersion: '1', domain: 'koala.dev',
+          rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh', registry: 'r', imageTag: 't', domain: 'koala.dev',
         }, { createPreAuthKey: async () => ({ key: 'k' }) }, () => new Date('2026-10-20T00:00:00Z'), () => {}, {
           start: async () => {}, trialChanged: async () => {}, remove: async () => {}, move: async () => {}, moveFinished: async () => {}, moveStopped: async () => {},
         });
@@ -205,5 +205,46 @@ describe('the new machine reading a moving instance through root', () => {
     expect((await read('everything', moveCredential)).status).toBe(404);
     await expect(read('gitea-db', moveCredential)).rejects.toThrow();
     expect(opened).toEqual(['alice/mongo', 'alice/gitea-db']);
+  });
+});
+
+describe('an instance\'s updates on root', () => {
+  let harness: Harness | undefined;
+  afterEach(async () => { await harness?.close(); });
+
+  it('answers the instance\'s check-in by its own setting, and serves each release\'s chart', async () => {
+    const charts = mkdtempSync(join(tmpdir(), 'release-charts-'));
+    writeFileSync(join(charts, 'old111.tgz'), 'old chart');
+    harness = await mountRouter({
+      prefix: '/api/instances',
+      user: TEST_USER,
+      router: (db) => {
+        void db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222', previous: 'old111' });
+        return instancesRouter({
+          instances: new InstanceService(db, {
+            rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'new222', domain: 'koala.dev',
+            releases: {
+              releases: async () => [
+                { imageTag: 'old111', version: 'v2026.10.24', servedAt: '2026-10-24T00:00:00.000Z' },
+                { imageTag: 'new222', version: 'v2026.10.25', servedAt: '2026-10-25T00:00:00.000Z' },
+              ],
+              hasChart: (imageTag) => imageTag === 'old111',
+            },
+          }, undefined),
+          chart: async () => '',
+          chartOf: (imageTag) => (imageTag === 'old111' ? join(charts, 'old111.tgz') : undefined),
+        });
+      },
+    });
+    const call = (method: 'get' | 'put', path: string, data?: unknown, credential = 'secret') =>
+      axios.request({ method, url: harness!.url(path), data, headers: { 'x-instance-id': 'inst-1', authorization: `Bearer ${credential}` }, validateStatus: () => true });
+
+    expect((await call('get', '/api/instances/updates')).data).toMatchObject({ auto: true, running: 'new222', target: 'new222' });
+    expect((await call('put', '/api/instances/updates', { version: 'v2026.10.24' })).data).toMatchObject({ auto: false, picked: 'old111', target: 'old111' });
+    expect((await call('get', '/api/instances/release')).data).toEqual({ imageTag: 'old111', chartUrl: 'https://app.koala.dev/api/instances/chart/old111.tgz' });
+    expect((await call('get', '/api/instances/chart/old111.tgz')).data).toBe('old chart');
+    expect((await call('get', '/api/instances/chart/nothing.tgz')).status).toBe(404);
+    expect((await call('get', '/api/instances/updates', undefined, 'wrong')).status).toBe(401);
+    expect((await call('put', '/api/instances/updates', { auto: 'yes' })).status).toBe(400);
   });
 });

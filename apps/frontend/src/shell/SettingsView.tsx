@@ -5,7 +5,7 @@ import { DeleteAccount } from '../features/accounts';
 import { People } from '../features/accounts';
 import { Invites } from '../features/accounts';
 import { InstanceAddresses } from '../features/accounts';
-import { InstanceMove } from '../features/instances';
+import { InstanceMove, InstanceUpdates } from '../features/instances';
 import { Notifications } from '../features/accounts';
 import { DefaultFileServer } from '../features/files'
 import { GoogleDriveCard } from '../features/infrastructure';
@@ -111,6 +111,7 @@ export default function SettingsView() {
       </div>
 
       <InstanceAddresses />
+      <InstanceUpdates />
       <InstanceMove />
       <Notifications />
       <DefaultFileServer />

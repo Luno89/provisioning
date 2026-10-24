@@ -103,3 +103,28 @@ export function buildAppImage(repo: string, commit: string, log: (line: string) 
   log(`built ${image} in ${minutesSince(started)} min`);
   return image;
 }
+
+export function publishedImageOf(repo: string): string {
+  const origin = git(repo, ['remote', 'get-url', 'origin']);
+  const owner = /github\.com[:/]([^/]+)\//.exec(origin)?.[1];
+  if (!owner) throw new Error(`origin (${origin}) is not on GitHub, so no image is published for it`);
+  return `ghcr.io/${owner.toLowerCase()}/nowrinkles/app`;
+}
+
+export function waitForPublished(image: string, log: (line: string) => void): void {
+  const started = Date.now();
+  let told = 0;
+  for (;;) {
+    if (spawnSync('docker', ['manifest', 'inspect', image], { stdio: 'ignore' }).status === 0) return;
+    const minutes = Math.floor((Date.now() - started) / 60_000);
+    if (minutes >= told + 5) {
+      told = minutes;
+      log(`${image} is not published yet after ${minutes} min; the Release workflow builds it (and the package must be public for root to pull it)`);
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30_000);
+  }
+}
+
+export function updateRoot(target: string, version: string, repoDir: string): boolean {
+  return spawnSync('ssh', ['-o', 'BatchMode=yes', target, 'sudo', 'bash', `${repoDir}/scripts/root-node/release-watch.sh`, version], { stdio: 'inherit', env: { ...process.env } }).status === 0;
+}

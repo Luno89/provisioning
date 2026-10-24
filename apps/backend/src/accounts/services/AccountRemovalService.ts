@@ -1,5 +1,5 @@
 import { type ClusterMetadata, type DeploymentMetadata, startedFor } from '../../platform/index.js';
-import type { InstanceRecord, InstanceStatus } from '../../instances/index.js';
+import type { InstanceRecord, InstanceRelease, InstanceStatus } from '../../instances/index.js';
 import type { Client } from '@temporalio/client';
 import type { AccountsStore } from '../store.js';
 import type { HubPeople } from '../../hub/index.js';
@@ -72,6 +72,7 @@ export interface AccountRemovalDeps {
   workflowType?: string | undefined;
   steps?: readonly RemovalStep[] | undefined;
   instances?: (() => Promise<InstanceRecord[]>) | undefined;
+  releases?: (() => Promise<InstanceRelease[]>) | undefined;
   hub?: HubPeople | undefined;
   now?: () => string;
 }
@@ -83,6 +84,8 @@ export interface PersonInstance {
   detail?: string | undefined;
   url: string;
   trialEndsAt?: string | undefined;
+  version?: string | undefined;
+  autoUpdates?: boolean | undefined;
 }
 
 export interface PersonEntry {
@@ -94,13 +97,15 @@ export interface PersonEntry {
   removal?: { startedAt: string; requestedBy: string; state: RemovalWorkflowState; steps?: readonly RemovalStep[] | undefined } | undefined;
 }
 
-const instanceOf = (instance: InstanceRecord): PersonInstance => ({
+const instanceOf = (instance: InstanceRecord, releases: readonly InstanceRelease[] = []): PersonInstance => ({
   ...(instance.name ? { name: instance.name } : {}),
   where: instance.pool ? 'pool' : 'own',
   status: instance.status ?? (instance.url ? 'ready' : 'waiting'),
   ...(instance.detail ? { detail: instance.detail } : {}),
   url: instance.url,
   ...(instance.pool ? { trialEndsAt: instance.pool.trialEndsAt } : {}),
+  ...(instance.running ? { version: releases.find((release) => release.imageTag === instance.running)?.version ?? instance.running } : {}),
+  ...(instance.status === 'waiting' ? {} : { autoUpdates: instance.updates?.auto ?? true }),
 });
 
 export class AccountRemovalService {
@@ -147,6 +152,7 @@ export class AccountRemovalService {
   async people(): Promise<PersonEntry[]> {
     const users = (await this.deps.store.accounts.getUsers()).filter((user) => !user.space);
     const instances = this.deps.instances ? await this.deps.instances() : [];
+    const releases = this.deps.releases ? await this.deps.releases() : [];
     const steps = this.deps.steps;
     return Promise.all(users.map(async (user) => {
       const instance = instances.find((entry) => entry.ownerId === user.id);
@@ -155,7 +161,7 @@ export class AccountRemovalService {
         email: user.email,
         isAdmin: user.isAdmin === true,
         createdAt: user.createdAt,
-        ...(instance ? { instance: instanceOf(instance) } : {}),
+        ...(instance ? { instance: instanceOf(instance, releases) } : {}),
         ...(user.removal ? { removal: { ...user.removal, state: await this.deps.workflows.state(removeAccountWorkflowId(user.id)), ...(steps ? { steps } : {}) } } : {}),
       };
     }));

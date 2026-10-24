@@ -71,6 +71,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
         '/instances/status',
         '/instances/machine-key',
         '/instances/addresses',
+        '/instances/updates',
         '/instances/groups',
         '/instances/trial',
         '/instances/mail',
@@ -83,7 +84,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
       '/machines/agent.tgz',
       '/metrics',
     ];
-    const publicPrefixes = role === 'instance' ? [...PUBLIC_PREFIXES, '/move/'] : role === 'hub' ? [...PUBLIC_PREFIXES, '/hub-root/', '/hub-instance/'] : [...PUBLIC_PREFIXES, '/instances/monitoring/', '/instances/move/parts/', '/instances/groups/'];
+    const publicPrefixes = role === 'instance' ? [...PUBLIC_PREFIXES, '/move/'] : role === 'hub' ? [...PUBLIC_PREFIXES, '/hub-root/', '/hub-instance/'] : [...PUBLIC_PREFIXES, '/instances/monitoring/', '/instances/move/parts/', '/instances/groups/', '/instances/chart/'];
     if (publicPaths.includes(req.path) || publicPrefixes.some((prefix) => req.path.startsWith(prefix))) {
       return next();
     }

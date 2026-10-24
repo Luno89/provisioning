@@ -2,6 +2,7 @@ import type { AreaStore } from '../platform/index.js';
 import type { Collection, Db } from 'mongodb';
 import { stampServed, type InstanceRecord, type JoinToken } from './lib/instances.js';
 import type { PoolPolicy } from './lib/pool.js';
+import type { InstanceRelease } from './lib/instance-updates.js';
 
 export interface InstancesStore extends AreaStore {
   claimHandoff(jti: string, expiresAt: string): Promise<boolean>;
@@ -12,6 +13,8 @@ export interface InstancesStore extends AreaStore {
   deleteInstance(id: string): Promise<void>;
   getPoolPolicy(): Promise<PoolPolicy | undefined>;
   savePoolPolicy(policy: PoolPolicy): Promise<void>;
+  getReleases(): Promise<InstanceRelease[]>;
+  recordRelease(release: InstanceRelease): Promise<InstanceRelease>;
 }
 
 export class MongoInstancesStore implements InstancesStore {
@@ -27,6 +30,10 @@ export class MongoInstancesStore implements InstancesStore {
 
   private get joinTokens(): Collection {
     return this.db().collection('instanceJoinTokens');
+  }
+
+  private get releases(): Collection {
+    return this.db().collection('instanceReleases');
   }
 
   async ensureIndexes(): Promise<void> {
@@ -78,5 +85,22 @@ export class MongoInstancesStore implements InstancesStore {
 
   async savePoolPolicy(policy: PoolPolicy): Promise<void> {
     await this.db().collection('poolSettings').replaceOne({ _id: 'pool' as never }, { ...policy }, { upsert: true });
+  }
+
+  async getReleases(): Promise<InstanceRelease[]> {
+    const docs = await this.releases.find({}).toArray();
+    return docs.map(({ _id, ...rest }) => ({ imageTag: _id as unknown as string, ...rest }) as InstanceRelease);
+  }
+
+  async recordRelease(release: InstanceRelease): Promise<InstanceRelease> {
+    const { imageTag, servedAt, ...rest } = release;
+    const unset = Object.fromEntries((['notes', 'hotfix'] as const).filter((field) => rest[field] === undefined).map((field) => [field, '']));
+    const doc = await this.releases.findOneAndUpdate(
+      { _id: imageTag as never },
+      { $set: rest, $setOnInsert: { servedAt }, ...(Object.keys(unset).length ? { $unset: unset } : {}) },
+      { upsert: true, returnDocument: 'after' },
+    );
+    const { _id, ...stored } = doc as Record<string, unknown>;
+    return { imageTag, ...stored } as InstanceRelease;
   }
 }

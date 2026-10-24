@@ -6,6 +6,7 @@ import { routeProblem } from '../lib/instance-routes.js';
 import { freePorts, poolNamespace, trialDaysProblem, type PoolPolicy } from '../lib/pool.js';
 import { extendedTrial } from '../lib/pool-trial.js';
 import { moveProblem, type MoveStateName } from '../lib/instance-move.js';
+import { DEFAULT_UPDATES, findRelease, pickProblem, updateTarget, updatesView, type InstanceRelease, type UpdatesView } from '../lib/instance-updates.js';
 
 export const JOIN_TOKEN_TTL_SECONDS = 3600;
 
@@ -44,10 +45,15 @@ export interface InstanceSettings {
   meshLoginServer?: string | undefined;
   registry: string;
   imageTag: string;
-  chartVersion: string;
   domain?: string | undefined;
   siteNames?: readonly string[] | undefined;
   pool?: { slots: number; trialDays: number } | { off: string } | undefined;
+  releases?: ReleaseSource | undefined;
+}
+
+export interface ReleaseSource {
+  releases(): Promise<InstanceRelease[]>;
+  hasChart(imageTag: string): boolean;
 }
 
 export interface PoolOffer {
@@ -402,9 +408,49 @@ export class InstanceService {
     return { ok: true, value: await this.save(instance, { move: { ...move, state: 'copying', detail, target } }) };
   }
 
-  async release(instanceId: unknown, credential: unknown): Promise<Outcome<{ imageTag: string; chartVersion: string; chartUrl: string }>> {
-    if (!await this.authenticated(instanceId, credential)) return { ok: false, status: 401, error: 'unknown instance or credential' };
-    return { ok: true, value: { imageTag: this.settings.imageTag, chartVersion: this.settings.chartVersion, chartUrl: `${this.settings.rootUrl}/api/instances/chart.tgz` } };
+  private chartUrlFor(imageTag: string): string {
+    return imageTag !== this.settings.imageTag && this.settings.releases?.hasChart(imageTag)
+      ? `${this.settings.rootUrl}/api/instances/chart/${encodeURIComponent(imageTag)}.tgz`
+      : `${this.settings.rootUrl}/api/instances/chart.tgz`;
+  }
+
+  private async knownReleases(): Promise<InstanceRelease[]> {
+    return (await this.settings.releases?.releases()) ?? [];
+  }
+
+  async release(instanceId: unknown, credential: unknown): Promise<Outcome<{ imageTag: string; chartUrl: string }>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    const imageTag = updateTarget(instance.updates ?? DEFAULT_UPDATES, instance.running, this.settings.imageTag, await this.knownReleases());
+    return { ok: true, value: { imageTag, chartUrl: this.chartUrlFor(imageTag) } };
+  }
+
+  private async viewOf(instance: InstanceRecord): Promise<UpdatesView> {
+    return updatesView(instance.updates ?? DEFAULT_UPDATES, instance.running, instance.previous, this.settings.imageTag, await this.knownReleases());
+  }
+
+  async updates(instanceId: unknown, credential: unknown): Promise<Outcome<UpdatesView>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    return { ok: true, value: await this.viewOf(instance) };
+  }
+
+  async setUpdates(instanceId: unknown, credential: unknown, change: { auto?: unknown; version?: unknown }): Promise<Outcome<UpdatesView>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    if (change.auto !== undefined && typeof change.auto !== 'boolean') return { ok: false, status: 400, error: 'send "auto" as true or false' };
+    if (change.version !== undefined && (typeof change.version !== 'string' || change.version === '')) return { ok: false, status: 400, error: 'send "version" as the release to move to' };
+    if (change.auto === true && change.version !== undefined) return { ok: false, status: 400, error: 'a picked version turns automatic updates off; send one or the other' };
+    if (typeof change.version === 'string') {
+      const releases = await this.knownReleases();
+      const problem = pickProblem(releases, instance.running, instance.previous, change.version);
+      if (problem) return { ok: false, status: 409, error: problem };
+      const saved = await this.save(instance, { updates: { auto: false, picked: findRelease(releases, change.version)!.imageTag } });
+      return { ok: true, value: await this.viewOf(saved) };
+    }
+    if (change.auto === undefined) return { ok: false, status: 400, error: 'send "auto", or "version" to move to' };
+    const saved = await this.save(instance, { updates: change.auto ? { auto: true } : { auto: false, ...(instance.running ? { picked: instance.running } : {}) } });
+    return { ok: true, value: await this.viewOf(saved) };
   }
 
   async machineKey(instanceId: unknown, credential: unknown): Promise<Outcome<{ preAuthKey: string; meshLoginServer: string }>> {
@@ -415,7 +461,7 @@ export class InstanceService {
     return { ok: true, value: { preAuthKey: key, meshLoginServer: this.settings.meshLoginServer } };
   }
 
-  async report(instanceId: unknown, credential: unknown, report: { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown }): Promise<Outcome<InstanceRecord>> {
+  async report(instanceId: unknown, credential: unknown, report: { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown; imageTag?: unknown }): Promise<Outcome<InstanceRecord>> {
     const moving = await this.mover(instanceId, credential);
     if (moving) return this.reportMove(moving, report);
     const instance = await this.authenticated(instanceId, credential);
@@ -437,7 +483,10 @@ export class InstanceService {
       if (typeof report.meshIp !== 'string' || routeProblem({ name: 'x', meshIp: report.meshIp, nested: false })) return { ok: false, status: 400, error: 'meshIp is the instance\'s address on the mesh' };
       meshIp = report.meshIp;
     }
-    const saved = await this.save(instance, { status: report.status as InstanceStatus, detail: typeof report.detail === 'string' ? report.detail.slice(0, 500) : undefined, url, meshIp });
+    if (report.imageTag !== undefined && (typeof report.imageTag !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(report.imageTag))) return { ok: false, status: 400, error: 'imageTag is the image tag the instance runs' };
+    const running = report.status === 'ready' && typeof report.imageTag === 'string' ? report.imageTag : instance.running;
+    const moved = running !== instance.running && instance.running ? { previous: instance.running } : {};
+    const saved = await this.save(instance, { status: report.status as InstanceStatus, detail: typeof report.detail === 'string' ? report.detail.slice(0, 500) : undefined, url, meshIp, running, ...moved });
     if (saved.status !== instance.status || saved.meshIp !== instance.meshIp) this.routesChanged();
     return { ok: true, value: saved };
   }

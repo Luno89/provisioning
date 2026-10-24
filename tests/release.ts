@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { HOTFIX, HOTFIX_STEPS, nextVersion, RELEASE_STEPS, shippedThrough, tagMessage } from './lib/gates.js';
-import { buildAppImage, changedNow, commitLedger, devStackProblem, git, minutesSince, pushedGates, readRecord, runSteps, writeRecord } from './lib/gate-runs.js';
+import { buildAppImage, changedNow, commitLedger, devStackProblem, git, minutesSince, publishedImageOf, pushedGates, readRecord, runSteps, updateRoot, waitForPublished, writeRecord } from './lib/gate-runs.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PUSH = !process.argv.includes('--no-push');
@@ -61,6 +61,17 @@ async function main(): Promise<void> {
   const pushed = spawnSync('git', ['push', 'origin', ...(ledger ? ['main'] : []), version], { cwd: REPO, stdio: 'inherit' });
   if (pushed.status !== 0) throw new Error('git push failed');
   console.log(`GitHub builds the image and chart for ${version} now (the Release workflow)`);
+
+  const root = process.env.ROOT_SSH;
+  if (!root) {
+    console.log('root moves onto it at its next hourly look (set ROOT_SSH=<user@host> to move it now)');
+    return;
+  }
+  const image = `${publishedImageOf(REPO)}:${version}`;
+  console.log(`waiting for ${image}, then updating root (${root})`);
+  waitForPublished(image, (line) => console.log(`  ${line}`));
+  if (!updateRoot(root, version, process.env.ROOT_REPO_DIR ?? '/opt/nowrinkles')) throw new Error(`root did not move onto ${version}; it tries again at its next hourly look, or run scripts/root-node/release-watch.sh ${version} there`);
+  console.log(`root runs ${version}; instances on automatic updates follow at their next check-in`);
 }
 
 main().catch((err: Error) => {

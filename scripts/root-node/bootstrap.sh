@@ -341,6 +341,37 @@ systemctl daemon-reload
 systemctl enable nowrinkles.service
 ok "nowrinkles.service enabled (start it once you have verified the build)"
 
+if [ "$LAB" -eq 1 ]; then
+  warn "a lab follows no published releases: update it with update.sh"
+else
+  step "Following published releases"
+  cat > /etc/systemd/system/koala-release-watch.service <<UNIT
+[Unit]
+Description=Move root onto a newer published release
+After=nowrinkles.service network-online.target
+
+[Service]
+Type=oneshot
+Environment=REPO_DIR=${REPO_DIR}
+ExecStart=/bin/bash ${REPO_DIR}/scripts/root-node/release-watch.sh
+UNIT
+  cat > /etc/systemd/system/koala-release-watch.timer <<UNIT
+[Unit]
+Description=Look for a newer published release every hour
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable koala-release-watch.timer
+  ok "koala-release-watch.timer looks for a newer release every hour (systemctl disable --now koala-release-watch.timer to stop)"
+fi
+
 # ── 9. Verify ──────────────────────────────────────────────────────────────────────────────────
 step "Verifying"
 sleep 5
@@ -357,6 +388,7 @@ echo "  2. Publish the first instance image:  bash scripts/root-node/update.sh"
 echo "  3. Register the first account at ${PUBLIC_URL} — the FIRST account ever created"
 echo "     becomes admin and is the only one that can mint invite codes. Do this before sharing"
 echo "     the URL with anyone."
+[ "$LAB" -eq 1 ] || echo "  4. Once it works, let root follow published releases:  systemctl start koala-release-watch.timer"
 echo
 echo "Optional — Google/GitHub sign-in (email+password works without it):"
 echo "  Register an OAuth app with these exact redirect URIs, then add the ids to"

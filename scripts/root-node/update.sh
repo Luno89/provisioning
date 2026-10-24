@@ -21,6 +21,7 @@ REPO_DIR="${REPO_DIR:-/opt/nowrinkles}"
 SERVICE="${SERVICE:-nowrinkles}"
 REGISTRY="${REGISTRY:-127.0.0.1:5000}"
 IMAGE_REPO="nowrinkles/app"
+PUBLISHED_IMAGE="${PUBLISHED_IMAGE-ghcr.io/luno89/nowrinkles/app}"
 FORCE=0
 TARGET_REF=""
 
@@ -95,12 +96,16 @@ publish_image() {
   local tag="$1" image="${REGISTRY}/${IMAGE_REPO}:$1"
   if published "$tag"; then
     ok "the registry already holds ${image}"
+  elif [ -n "$PUBLISHED_IMAGE" ] && docker pull -q "${PUBLISHED_IMAGE}:${tag}" >/dev/null 2>&1; then
+    docker tag "${PUBLISHED_IMAGE}:${tag}" "$image"
+    docker push -q "$image" >/dev/null || return 1
+    ok "pulled ${PUBLISHED_IMAGE}:${tag}, the image the Release workflow published, into ${image}"
   else
     local cache=()
     if [ -n "$PREVIOUS_TAG" ] && published "$PREVIOUS_TAG"; then cache=(--cache-from "${REGISTRY}/${IMAGE_REPO}:${PREVIOUS_TAG}"); fi
     DOCKER_BUILDKIT=1 docker build -q --build-arg BUILDKIT_INLINE_CACHE=1 "${cache[@]}" -t "$image" . >/dev/null || return 1
     docker push -q "$image" >/dev/null || return 1
-    ok "built and pushed ${image}"
+    ok "built and pushed ${image}${PUBLISHED_IMAGE:+ (${PUBLISHED_IMAGE} has no ${tag})}"
   fi
   set_backend_env INSTANCE_IMAGE_TAG "$tag"
   ok "instances move to ${tag} the next time they check in (hourly)"
@@ -153,7 +158,7 @@ if [ -n "$HCLOUD_TOKEN" ]; then
     warn "Not a Hetzner VM, or metadata unavailable — skipping snapshot"
   fi
 else
-  warn "No HCLOUD_TOKEN — skipping snapshot"
+  ok "No snapshot step for this provider; its own backups (OVH's backup option) keep the disaster copy"
 fi
 
 # ── 4. Fetch and check out ─────────────────────────────────────────────────────────────────────

@@ -19,6 +19,8 @@ export interface PersonInstance {
   detail?: string
   url: string
   trialEndsAt?: string
+  version?: string
+  autoUpdates?: boolean
 }
 
 export interface PersonEntry {

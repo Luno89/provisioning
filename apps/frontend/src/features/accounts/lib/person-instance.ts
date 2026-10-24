@@ -14,7 +14,9 @@ const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 
 export function instanceLine(instance: PersonInstance): string {
   const where = instance.where === 'pool' ? 'on Koala\'s servers' : 'on their own machine'
   const trial = instance.trialEndsAt ? `, trial ends ${day(instance.trialEndsAt)}` : ''
-  return `${instance.name ?? 'Instance'} ${where}: ${INSTANCE_STATE[instance.status]}${trial}`
+  const version = instance.version ? ` ${instance.version}` : ''
+  const updates = instance.autoUpdates === undefined ? '' : instance.autoUpdates ? ', updates automatically' : ', updates by hand'
+  return `${instance.name ?? 'Instance'} ${where}: ${INSTANCE_STATE[instance.status]}${version}${trial}${updates}`
 }
 
 export function yoursGoes(instance: PersonInstance | undefined): string[] {

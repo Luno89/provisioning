@@ -50,7 +50,7 @@ ok "this machine will be instance ${INSTANCE_ID}"
 
 report() {
   curl -fsS -X POST -H 'Content-Type: application/json' -H "X-Instance-Id: ${INSTANCE_ID}" -H "Authorization: Bearer ${INSTANCE_CREDENTIAL}" \
-    -d "{\"status\":\"$1\",\"detail\":\"$2\"$( [ -n "${3:-}" ] && printf ',"url":"%s"' "$3" )$( [ -n "${MESH_IP:-}" ] && printf ',"meshIp":"%s"' "$MESH_IP" )$( [ -n "${4:-}" ] && printf ',"moved":true' )}" "${ROOT_URL}/api/instances/status" >/dev/null 2>&1 || true
+    -d "{\"status\":\"$1\",\"detail\":\"$2\"$( [ -n "${3:-}" ] && printf ',"url":"%s"' "$3" )$( [ -n "${MESH_IP:-}" ] && printf ',"meshIp":"%s"' "$MESH_IP" )$( [ -n "${4:-}" ] && printf ',"moved":true' )$( [ "$1" = ready ] && [ -n "${INSTANCE_IMAGE_TAG:-}" ] && printf ',"imageTag":"%s"' "$INSTANCE_IMAGE_TAG" )}" "${ROOT_URL}/api/instances/status" >/dev/null 2>&1 || true
 }
 trap 'status=$?; rm -f "$JOIN_ENV"; [ $status -ne 0 ] && report failed "The install command stopped on this machine; run it again to retry"' EXIT
 

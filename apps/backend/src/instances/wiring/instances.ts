@@ -15,7 +15,9 @@ import { InstanceService } from '../services/InstanceService.js';
 import { InstanceRoutes, dockerCaddy } from '../services/InstanceRoutes.js';
 import { InstanceAddresses, adminEdge } from '../services/InstanceAddresses.js';
 import { InstanceTrial } from '../services/InstanceTrial.js';
+import { InstanceUpdates } from '../services/InstanceUpdates.js';
 import { InstanceChart } from '../services/InstanceChart.js';
+import { ReleaseCatalogue } from '../services/ReleaseCatalogue.js';
 import { MoveExport } from '../services/MoveExport.js';
 import { MoveRelay, kubeconfigFile } from '../services/MoveRelay.js';
 import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
@@ -25,6 +27,7 @@ import { handoffRouter } from '../routes/handoff.js';
 import { instancesRouter } from '../routes/instances.js';
 import { instanceTrialRouter } from '../routes/instance-trial.js';
 import { instanceAddressesRouter } from '../routes/instance-addresses.js';
+import { instanceUpdatesRouter } from '../routes/instance-updates.js';
 import { moveRouter } from '../routes/move.js';
 import type { Routes } from '../../machines/index.js';
 
@@ -123,9 +126,25 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
       : undefined,
   }));
 
+  tenant.use('/api/instance-updates', instanceUpdatesRouter({
+    updates: role.instance && env.INSTANCE_CREDENTIAL
+      ? new InstanceUpdates(
+        { rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: env.INSTANCE_CREDENTIAL, cronJob: env.SELF_UPGRADE_CRONJOB, namespace: env.INSTANCE_NAMESPACE },
+        async (args) => String(await deps.infra.runKubectl(args)),
+      )
+      : undefined,
+  }));
+
   if (!holdsAccounts(role)) return { instanceService: undefined };
 
   const instanceChart = new InstanceChart(deps.repoRoot);
+  const releaseCatalogue = new ReleaseCatalogue(db.instances, {
+    repoRoot: deps.repoRoot,
+    chartsDir: path.join(deps.dataDir, 'instance-charts'),
+    imageTag: env.INSTANCE_IMAGE_TAG || 'dev',
+    chart: () => instanceChart.path(),
+  });
+  releaseCatalogue.recordCurrent().catch((err: Error) => console.error(`[releases] could not record the release root runs: ${err.message}`));
   const routingDomain = env.INGRESS_DOMAIN || undefined;
   const instanceRoutes = routingDomain
     ? new InstanceRoutes(db.instances, routingDomain, path.join(deps.dataDir, 'caddy'), dockerCaddy(env.CADDY_CONTAINER || 'nowrinkles-caddy', env.CADDY_TLS_ADDRESS || '127.0.0.1:443'), (message) => console.error(message))
@@ -141,7 +160,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     meshLoginServer: env.MESH_LOGIN_SERVER,
     registry: env.INSTANCE_REGISTRY ?? '',
     imageTag: env.INSTANCE_IMAGE_TAG || 'dev',
-    chartVersion: await instanceChart.version(),
+    releases: releaseCatalogue,
     domain: routingDomain,
     siteNames,
     pool: 'off' in pool ? pool : { slots: pool.slots, trialDays: pool.trialDays },
@@ -200,7 +219,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
       return { token: issueMoveToken(role.signing!, HUB_AUDIENCE, hubInstancePart(instanceId, ownerId, owner.email)), hubUrl: role.hubLink!.url, personId: ownerId, email: owner.email, instanceId };
     }
     : undefined;
-  app.use('/api/instances', instancesRouter({ instances: instanceService, chart: () => instanceChart.path(), mail: deps.mail, requireAdmin: deps.auth.requireAdmin, poolMonitoring, moveRelay, hubAccess }));
+  app.use('/api/instances', instancesRouter({ instances: instanceService, chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, requireAdmin: deps.auth.requireAdmin, poolMonitoring, moveRelay, hubAccess }));
   const installer = (await fs.readFile(path.join(deps.repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', publicUrl);
   app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
   app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(deps.repoRoot, 'scripts/setup-gpu.sh')));

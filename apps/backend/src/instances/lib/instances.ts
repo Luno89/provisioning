@@ -1,4 +1,5 @@
 import type { PoolPorts } from './pool.js';
+import type { UpdateSetting } from './instance-updates.js';
 import type { TrialStep } from './pool-trial.js';
 import type { InstanceMove } from './instance-move.js';
 
@@ -36,6 +37,9 @@ export interface InstanceRecord {
   pool?: InstancePool | undefined;
   move?: InstanceMove | undefined;
   groups?: InstanceGroup[] | undefined;
+  updates?: UpdateSetting | undefined;
+  running?: string | undefined;
+  previous?: string | undefined;
 }
 
 export interface InstanceGroup {

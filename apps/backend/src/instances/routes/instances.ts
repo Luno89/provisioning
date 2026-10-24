@@ -39,8 +39,9 @@ export function bundleAsEnv(bundle: JoinBundle): string {
 }
 
 export function instancesRouter(deps: {
-  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'join' | 'release' | 'report' | 'mine' | 'machineKey' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource'>;
+  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'join' | 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'machineKey' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource'>;
   chart: () => Promise<string>;
+  chartOf?: ((imageTag: string) => string | undefined) | undefined;
   mail?: Pick<MailService, 'toOwner'> | undefined;
   poolMonitoring?: PoolMonitoringService | undefined;
   moveRelay?: MoveRelay | undefined;
@@ -110,6 +111,27 @@ export function instancesRouter(deps: {
 
   router.get('/chart.tgz', asyncRoute(async (_req: Request, res: Response) => {
     res.type('application/gzip').sendFile(await deps.chart());
+  }));
+
+  router.get('/chart/:file', asyncRoute(async (req: Request, res: Response) => {
+    const imageTag = /^(.+)\.tgz$/.exec(String(req.params.file ?? ''))?.[1];
+    const file = imageTag ? deps.chartOf?.(imageTag) : undefined;
+    if (!file) return res.status(404).json({ error: 'root keeps no chart for that release' });
+    return res.type('application/gzip').sendFile(file);
+  }));
+
+  router.get('/updates', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    const outcome = await deps.instances.updates(instanceId, credential);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value);
+  }));
+
+  router.put('/updates', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    const outcome = await deps.instances.setUpdates(instanceId, credential, (req.body ?? {}) as { auto?: unknown; version?: unknown });
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value);
   }));
 
   router.get('/release', asyncRoute(async (req: Request, res: Response) => {
@@ -318,7 +340,7 @@ export function instancesRouter(deps: {
 
   router.post('/status', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.report(instanceId, credential, (req.body ?? {}) as { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown });
+    const outcome = await deps.instances.report(instanceId, credential, (req.body ?? {}) as { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown; imageTag?: unknown });
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json({ status: outcome.value.status });
   }));
