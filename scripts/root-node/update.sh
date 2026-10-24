@@ -205,8 +205,8 @@ build_and_check() {
   #
   # The unit suites are deliberately NOT here. They take ~57s, and this gate auto-reverts to the
   # previous commit on failure: one flaky test would silently roll back a production deploy, which
-  # is a far worse outcome than a test failure nobody noticed. CI (.github/workflows/ci.yml) runs
-  # them on the push, which is the right place — it can be red without reverting anything.
+  # is a far worse outcome than a test failure nobody noticed. `npm run ship` runs
+  # them before the commit reaches main, which is the right place — it can fail without reverting anything.
   npm run lint --silent
 }
 if ! build_and_check; then

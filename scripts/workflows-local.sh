@@ -21,7 +21,6 @@ usage() {
   cat <<EOF
 npm run test:workflows                 actionlint every workflow, then run release.yml on a throwaway tag at HEAD
 npm run test:workflows -- <tag>        the same on a tag npm run release made, before you push it
-npm run test:workflows -- ci           actionlint, then run ci.yml as a push to main would
 npm run test:workflows -- lint         actionlint only
 
 act runs the jobs in Docker on this machine. It never publishes: under act the release
@@ -89,15 +88,8 @@ release() {
   echo "release.yml ran on ${tag} under act"
 }
 
-ci() {
-  ensure_runner_image
-  act_in_clone HEAD .github/workflows/ci.yml "$(jq -n '{ref: "refs/heads/main"}')"
-  echo "ci.yml ran on HEAD under act"
-}
-
 case "${1:-}" in
   -h|--help) usage ;;
   lint) lint ;;
-  ci) lint; ci ;;
   *) lint; release "${1:-}" ;;
 esac

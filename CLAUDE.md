@@ -1320,8 +1320,8 @@ k3s it binds the host's network stack directly; on k3d it is not published witho
 These are enforced, not aspirational: `npm run lint` is green and fails on a new violation (the frontend's rules, and
 the backend's rules in `apps/backend/eslint.config.js`: no unused import, variable or parameter, the layer rule — `lib`
 imports nothing above it, a service never imports a route or the wiring, a route never imports the wiring — and
-`boundaries/areas`, an area imported only through its `index.ts`), the frontend is `strict`, and CI (`.github/workflows/ci.yml`)
-runs typecheck + lint + both unit suites on every push. Each rule below is here because something in this repo broke without it.
+`boundaries/areas`, an area imported only through its `index.ts`), the frontend is `strict`, and `npm run ship` runs
+typecheck + lint + both unit suites before anything reaches `main`. Each rule below is here because something in this repo broke without it.
 
 ### Frontend
 
@@ -1462,13 +1462,14 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   without the gates", which the hook and the Release workflow accept (`TAG_SIGNATURE`, `tagMessage` in `tests/lib/gates.ts`).
 - **`npm run test:workflows`** (`scripts/workflows-local.sh`) checks the GitHub workflows here before they run there:
   actionlint on every workflow, then act runs `release.yml` in a clean clone on a throwaway tag, or on a tag `npm run release`
-  made before you push it (`-- <tag>`), or `ci.yml` (`-- ci`). Under act (`ACT` set) the release builds the image without
+  made before you push it (`-- <tag>`). Under act (`ACT` set) the release builds the image without
   pushing it, packages the chart and prints the notes it would post. act and actionlint are pinned by version and checksum
   in `.ci-tools/`.
 - **On the tag**, `.github/workflows/release.yml` on GitHub's own runners refuses a tag `npm run release` did not make,
   then builds the image once and publishes it as `ghcr.io/luno89/nowrinkles/app:<tag>` and `:<commit12>` (public), and
   makes the GitHub release with the instance chart (`instance-<tag>.tgz`) and the image's digest. Nothing from GitHub
-  runs on this box. `.github/workflows/ci.yml` still runs G1 on every push and pull request there.
+  runs on this box. Nothing runs on a push to `main` there: `ship` ran every check on that commit before it was pushed
+  (owner, 2026-10-24, removing the CI that repeated G1 afterwards).
 - **Root moves onto a release two ways**: `koala-release-watch.timer` (installed by `bootstrap.sh` outside a lab, started by
   hand once root works) runs `scripts/root-node/release-watch.sh` hourly, which finds GitHub's newest published release
   and runs a copy of `update.sh` with it when it is newer than root's; and `npm run release` with `ROOT_SSH=<user@host>`
