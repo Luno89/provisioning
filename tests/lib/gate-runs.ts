@@ -5,8 +5,10 @@ import { join, resolve } from 'node:path';
 import { changedBesidesLedger, LEDGER_FILES, onlyLedger, type GateRecord, type GateStep, type PushedGates, type StepPassed } from './gates.js';
 import { imageTagOf } from './release-lab.js';
 
-export const git = (repo: string, args: string[]): string =>
-  execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+const gitOut = (repo: string, args: string[]): string =>
+  execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+
+export const git = (repo: string, args: string[]): string => gitOut(repo, args).trim();
 
 const gatesDir = (repo: string): string => join(resolve(repo, git(repo, ['rev-parse', '--git-common-dir'])), 'koala-gates');
 
@@ -27,7 +29,7 @@ export function pushedGates(repo: string, commit: string): PushedGates {
   return { record: readRecord(repo, commit), parent: parent ? readRecord(repo, parent) : undefined, onlyLedgerSinceParent: onlyLedger(changed) };
 }
 
-export const changedNow = (repo: string): string[] => changedBesidesLedger(git(repo, ['status', '--porcelain']));
+export const changedNow = (repo: string): string[] => changedBesidesLedger(gitOut(repo, ['status', '--porcelain']));
 
 function servingFrom(): string | undefined {
   const listening = execFileSync('ss', ['-ltnpH', 'sport = :3001'], { encoding: 'utf8' });
