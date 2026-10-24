@@ -29,9 +29,15 @@ export const RELEASE_STEPS: GateStep[] = [
   { name: 'the release rehearsal', script: 'test:release-live' },
 ];
 
+export const HOTFIX_STEPS: GateStep[] = [
+  { name: 'typecheck', script: 'typecheck' },
+];
+
+export const HOTFIX = '--hotfix';
+
 export interface StepPassed { name: string; script: string; minutes: number }
 
-export interface Passed { at: string; steps: StepPassed[] }
+export interface Passed { at: string; steps: StepPassed[]; hotfix?: true | undefined }
 
 export interface GateRecord {
   commit: string;
@@ -59,6 +65,15 @@ export function pushRefusal(ref: string, gates: PushedGates): string | undefined
     return `the tag ${tag} names a commit that never passed \`npm run release\`, which runs the VM suites and the release rehearsal and makes the tag itself.`;
   }
   return undefined;
+}
+
+export const TAG_SIGNATURE = /^(Shipped and released|Hotfix released) from /m;
+
+export function tagMessage(version: string, commit: string, previous: string, steps: readonly StepPassed[], hotfix: boolean): string {
+  const ran = steps.map((step) => step.script.replace(/^test:/, '')).join(', ');
+  return hotfix
+    ? `${version}\n\nHotfix released from ${commit.slice(0, 12)} after ${previous} without the gates: ${ran} and the image build.`
+    : `${version}\n\nShipped and released from ${commit.slice(0, 12)} after ${previous}: ${ran}.`;
 }
 
 export function nextVersion(today: string, tags: readonly string[]): string {

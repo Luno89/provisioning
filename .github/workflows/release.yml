@@ -24,7 +24,7 @@ jobs:
         run: |
           [ -n "${ACT:-}" ] || git fetch --force origin "refs/tags/${VERSION}:refs/tags/${VERSION}"
           [ "$(git cat-file -t "refs/tags/${VERSION}")" = tag ] || { echo "::error::${VERSION} is not an annotated tag; npm run release makes them"; exit 1; }
-          git cat-file tag "refs/tags/${VERSION}" | grep -q '^Shipped and released from ' || { echo "::error::${VERSION} was not made by npm run release"; exit 1; }
+          git cat-file tag "refs/tags/${VERSION}" | grep -qE '^(Shipped and released|Hotfix released) from ' || { echo "::error::${VERSION} was not made by npm run release"; exit 1; }
           echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nowrinkles/app" >> "$GITHUB_ENV"
           echo "COMMIT=$(git rev-parse "refs/tags/${VERSION}^{commit}" | cut -c1-12)" >> "$GITHUB_ENV"
 

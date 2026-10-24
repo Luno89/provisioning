@@ -1,20 +1,21 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { MECHANICS_CHECKS } from '../apps/backend/src/eval/level2/mechanics.js';
-import { SHIP_STEPS, shippedThrough } from './lib/gates.js';
+import { HOTFIX, HOTFIX_STEPS, SHIP_STEPS, shippedThrough } from './lib/gates.js';
 import { changedNow, commitLedger, devStackProblem, git, minutesSince, pushedGates, readRecord, runSteps, writeRecord } from './lib/gate-runs.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PUSH = !process.argv.includes('--no-push');
+const HOTFIXING = process.argv.includes(HOTFIX);
 
 async function main(): Promise<void> {
   const admin = process.env.MECHANICS_ADMIN;
-  if (!admin) throw new Error('set MECHANICS_ADMIN to the admin whose invites, model and agents the suites use');
+  if (!admin && !HOTFIXING) throw new Error('set MECHANICS_ADMIN to the admin whose invites, model and agents the suites use');
   const branch = git(REPO, ['rev-parse', '--abbrev-ref', 'HEAD']);
   if (branch !== 'main') throw new Error(`ship runs on main, and this checkout is on ${branch}`);
   const changed = changedNow(REPO);
   if (changed.length > 0) throw new Error(`commit or set aside what is not committed first: ${changed.join(', ')}`);
-  const stack = await devStackProblem(REPO);
+  const stack = HOTFIXING ? undefined : await devStackProblem(REPO);
   if (stack) throw new Error(stack);
 
   const commit = git(REPO, ['rev-parse', 'HEAD']);
@@ -23,13 +24,19 @@ async function main(): Promise<void> {
   if (already) {
     console.log(`${commit.slice(0, 12)} already shipped at ${already.at}`);
     if (!record.shipped) writeRecord(REPO, { ...record, shipped: already });
+  } else if (HOTFIXING) {
+    console.log(`ship ${commit.slice(0, 12)} as a hotfix: the typecheck only, no suites`);
+    const started = Date.now();
+    const steps = runSteps(REPO, commit, HOTFIX_STEPS, {});
+    writeRecord(REPO, { ...record, shipped: { at: new Date().toISOString(), steps, hotfix: true } });
+    console.log(`\n✓ ${commit.slice(0, 12)} shipped as a hotfix in ${minutesSince(started)} min`);
   } else {
     console.log(`ship ${commit.slice(0, 12)}: the first two gates against the dev stack, which runs this checkout. Leave it as it is until this ends; work elsewhere.`);
     const started = Date.now();
     const steps = runSteps(REPO, commit, SHIP_STEPS, {
-      GROVE_LIVE_OWNER: admin,
-      CHECKS_LIVE_OWNER: admin,
-      INSTANCE_LIVE_OWNER: admin,
+      GROVE_LIVE_OWNER: admin ?? '',
+      CHECKS_LIVE_OWNER: admin ?? '',
+      INSTANCE_LIVE_OWNER: admin ?? '',
       CHECKS_LIVE_SCENARIOS: MECHANICS_CHECKS().map((scenario) => scenario.id).join(','),
     });
     writeRecord(REPO, { ...record, shipped: { at: new Date().toISOString(), steps } });

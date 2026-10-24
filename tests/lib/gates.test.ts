@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { changedBesidesLedger, nextVersion, onlyLedger, pushRefusal, RELEASE_STEPS, SHIP_STEPS } from './gates.js';
+import { changedBesidesLedger, HOTFIX_STEPS, nextVersion, onlyLedger, pushRefusal, RELEASE_STEPS, SHIP_STEPS, TAG_SIGNATURE, tagMessage } from './gates.js';
 
 const shipped = { at: '2026-10-24T01:00:00.000Z', steps: [] };
 const released = (version: string) => ({ ...shipped, version, previous: 'v2026.10.23' });
@@ -52,8 +52,29 @@ describe('the gates', () => {
   it('run every step through an npm script once, the rehearsal last', () => {
     const scripts = [...SHIP_STEPS, ...RELEASE_STEPS].map((step) => step.script);
     expect(new Set(scripts).size).toBe(scripts.length);
+    scripts.push(...HOTFIX_STEPS.map((step) => step.script));
     expect(RELEASE_STEPS.at(-1)?.script).toBe('test:release-live');
     const defined = Object.keys((JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { scripts: Record<string, string> }).scripts);
     expect(scripts.filter((script) => !defined.includes(script))).toEqual([]);
+  });
+});
+
+describe('a hotfix', () => {
+  const hotfix = { ...shipped, hotfix: true as const };
+
+  it('reaches main and is tagged like any release, on a record that says it skipped the gates', () => {
+    expect(pushRefusal('refs/heads/main', { record: { commit: 'a', shipped: hotfix }, onlyLedgerSinceParent: false })).toBeUndefined();
+    expect(pushRefusal('refs/tags/v2026.10.24-2', { record: { commit: 'a', shipped: hotfix, released: { ...released('v2026.10.24-2'), hotfix: true } }, onlyLedgerSinceParent: false })).toBeUndefined();
+  });
+
+  it('says so in its tag, which the Release workflow accepts as it accepts a gated one', () => {
+    const steps = [{ name: 'typecheck', script: 'typecheck', minutes: 0.4 }];
+    const fixed = tagMessage('v2026.10.24-2', 'abcdef0123456789', 'v2026.10.24', steps, true);
+    const gated = tagMessage('v2026.10.24', 'abcdef0123456789', 'v2026.10.23', [{ name: 'the release rehearsal', script: 'test:release-live', minutes: 60 }], false);
+    expect(fixed).toBe('v2026.10.24-2\n\nHotfix released from abcdef012345 after v2026.10.24 without the gates: typecheck and the image build.');
+    expect(gated).toBe('v2026.10.24\n\nShipped and released from abcdef012345 after v2026.10.23: release-live.');
+    expect([fixed, gated].every((message) => TAG_SIGNATURE.test(message))).toBe(true);
+    const workflow = readFileSync(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8');
+    expect(workflow).toContain(`grep -qE '${TAG_SIGNATURE.source}'`);
   });
 });
