@@ -40,6 +40,7 @@ npm run clean-dev    # kill all dev processes, delete k3d clusters, clean DBs (s
 
 npm run ship         # G1 + G2 against the dev stack on this commit, then push main (Releases, below)
 npm run release      # G3 + G4 on a shipped commit, then tag it; GitHub builds and publishes the image (Releases, below)
+npm run test:workflows # actionlint, then the Release workflow run here under act, publishing nothing
 npm run test         # test:unit → test:e2e:sync (alive check → unit → tests/e2e.spec.ts via Playwright)
 npm run test:all     # test → test:infra:integration → test:remote-integration → test:unit:vpn
 npm run test:unit    # typecheck + test:unit:frontend + test:unit:backend (Vitest, ~80s total)
@@ -1456,6 +1457,14 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   without a ship record (a commit that changes only the ledger on top of one passes), and a `v*` tag whose commit was
   not released under that name. A push of any other branch is typechecked. `git push --no-verify` is there for when you
   mean it.
+- **A hotfix** (`npm run ship -- --hotfix`, then `npm run release -- --hotfix`) skips every suite and keeps the typecheck
+  and the image build, about a minute each. Its gate record says `hotfix`, and its tag says "Hotfix released from <commit>
+  without the gates", which the hook and the Release workflow accept (`TAG_SIGNATURE`, `tagMessage` in `tests/lib/gates.ts`).
+- **`npm run test:workflows`** (`scripts/workflows-local.sh`) checks the GitHub workflows here before they run there:
+  actionlint on every workflow, then act runs `release.yml` in a clean clone on a throwaway tag, or on a tag `npm run release`
+  made before you push it (`-- <tag>`), or `ci.yml` (`-- ci`). Under act (`ACT` set) the release builds the image without
+  pushing it, packages the chart and prints the notes it would post. act and actionlint are pinned by version and checksum
+  in `.ci-tools/`.
 - **On the tag**, `.github/workflows/release.yml` on GitHub's own runners refuses a tag `npm run release` did not make,
   then builds the image once and publishes it as `ghcr.io/luno89/nowrinkles/app:<tag>` and `:<commit12>` (public), and
   makes the GitHub release with the instance chart (`instance-<tag>.tgz`) and the image's digest. Nothing from GitHub
