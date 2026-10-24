@@ -1444,7 +1444,8 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   checkout the dev stack runs from (it checks the backend on :3001 has its working directory there, and that nothing is
   uncommitted), then **G1** (typecheck, the unit suites, lint) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
   account removal, hub, project sharing, telemetry, app names, files, the Odoo release and every mechanics check, each
-  through its npm script against the dev stack), failing at the first that fails. After each step it checks the checkout
+  through its npm script against the dev stack), failing at the first that fails. Every mechanics check has to pass
+  (`CHECKS_LIVE_ALL_PASS`): on its own `test:checks-live` only proves the check runner, since checks on a model vary. After each step it checks the checkout
   is still that commit, since the stack hot-reloads whatever is on disk: work in a worktree while it runs. A pass is
   recorded in `<git common dir>/koala-gates/<commit>.json`, the live ledger is committed on top, and it pushes.
   `-- --no-push` stops before the push.

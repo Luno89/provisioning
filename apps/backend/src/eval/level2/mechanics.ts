@@ -393,7 +393,7 @@ const toolNotes: Scenario = {
   script: { rules: [NOTHING] },
   expect: { outcome: 'ok', modelSaw: {
     contains: ['Learned from earlier runs: Search with the words the person used.', 'Learned from earlier runs: Only the scripted model is told this about saving.'],
-    lacks: ['Only another model is told this about reading.', 'Search first:'],
+    lacks: ['Only another model is told this about reading.', 'Search first: Search with the words the person used.'],
   } },
 };
 

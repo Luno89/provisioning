@@ -38,6 +38,7 @@ async function main(): Promise<void> {
       CHECKS_LIVE_OWNER: admin ?? '',
       INSTANCE_LIVE_OWNER: admin ?? '',
       CHECKS_LIVE_SCENARIOS: MECHANICS_CHECKS().map((scenario) => scenario.id).join(','),
+      CHECKS_LIVE_ALL_PASS: 'true',
     });
     writeRecord(REPO, { ...record, shipped: { at: new Date().toISOString(), steps } });
     console.log(`\n✓ ${commit.slice(0, 12)} shipped: ${steps.length} steps in ${minutesSince(started)} min`);

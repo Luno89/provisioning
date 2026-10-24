@@ -10,6 +10,7 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 const BASE = process.env.CHECKS_LIVE_URL ?? 'http://localhost:3001/api';
 const OWNER = process.env.CHECKS_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
 const ONLY = (process.env.CHECKS_LIVE_SCENARIOS ?? 'executor-reads-what-is-there,executor-does-one-task,builder-reads-before-changing,research-writes-its-findings,koala-fans-research-out,judge-checks-then-records-its-verdict,delivery-plans-and-delivers').split(',');
+const EVERY_ONE = process.env.CHECKS_LIVE_ALL_PASS === 'true';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface Result { scenarioId: string; runId: string; passed: boolean; outcome: string; reason?: string; error?: string; checks: { what: string; passed: boolean; detail: string }[]; attempts?: { runId: string; passed: boolean }[] }
@@ -49,6 +50,7 @@ async function main(): Promise<void> {
     }
     assert.deepEqual(run.results.map((result) => result.scenarioId).sort(), [...ONLY].sort(), 'not every scenario has a result');
     assert.deepEqual(run.results.filter((result) => !result.runId).map((result) => `${result.scenarioId}: ${result.error}`), [], 'a scenario never got a real run');
+    if (EVERY_ONE) assert.deepEqual(run.results.filter((result) => !result.passed).map((result) => result.scenarioId), [], 'every check has to pass here (CHECKS_LIVE_ALL_PASS)');
 
     console.log('\n[3] the person can still open every run, and no space is left behind');
     for (const result of run.results) {
