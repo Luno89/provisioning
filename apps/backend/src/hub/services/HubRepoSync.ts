@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { unpromptedGit } from '../../platform/index.js';
 
 const run = promisify(execFile);
 
@@ -19,20 +20,11 @@ export type MainSync =
 const BOT = ['-c', 'user.name=Koala', '-c', 'user.email=koala@localhost'];
 
 function envFor(ends: readonly GitEnd[]): NodeJS.ProcessEnv {
-  const authed = ends.filter((end) => end.auth);
-  const config: Record<string, string> = {
-    GIT_TERMINAL_PROMPT: '0',
-    GIT_CONFIG_COUNT: String(authed.length + 2),
-    GIT_CONFIG_KEY_0: 'maintenance.auto',
-    GIT_CONFIG_VALUE_0: 'false',
-    GIT_CONFIG_KEY_1: 'gc.auto',
-    GIT_CONFIG_VALUE_1: '0',
-  };
-  authed.forEach((end, index) => {
-    config[`GIT_CONFIG_KEY_${index + 2}`] = `http.${end.url}.extraHeader`;
-    config[`GIT_CONFIG_VALUE_${index + 2}`] = `Authorization: Basic ${Buffer.from(`${end.auth!.username}:${end.auth!.token}`).toString('base64')}`;
+  return unpromptedGit(process.env, {
+    'maintenance.auto': 'false',
+    'gc.auto': '0',
+    ...Object.fromEntries(ends.filter((end) => end.auth).map((end) => [`http.${end.url}.extraHeader`, `Authorization: Basic ${Buffer.from(`${end.auth!.username}:${end.auth!.token}`).toString('base64')}`])),
   });
-  return { ...process.env, ...config };
 }
 
 const masked = (text: string, ends: readonly GitEnd[]): string => ends.reduce((said, end) => (end.auth ? said.replaceAll(end.auth.token, '***') : said), text);

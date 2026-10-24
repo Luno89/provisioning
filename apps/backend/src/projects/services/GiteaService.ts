@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
 import { promisify } from 'util';
-import { encryptValue, decryptValue, type SecretKey } from '../../platform/index.js';
+import { encryptValue, decryptValue, unpromptedGit, type SecretKey } from '../../platform/index.js';
 import type { InfrastructureService } from '../../infrastructure/index.js';
 import { registryHosts, type RegistryHosts, type RegistryLogin } from '../../instances/index.js';
 import { privatePatches, type GiteaListedUser } from '../lib/gitea-visibility.js';
@@ -492,17 +492,11 @@ export class GiteaService {
   }
 
   private gitAuthEnv(auth: { username: string; token: string }): NodeJS.ProcessEnv {
-    return {
-      ...process.env,
-      GIT_TERMINAL_PROMPT: '0',
-      GIT_CONFIG_COUNT: '3',
-      GIT_CONFIG_KEY_0: 'http.extraHeader',
-      GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(`${auth.username}:${auth.token}`).toString('base64')}`,
-      GIT_CONFIG_KEY_1: 'maintenance.auto',
-      GIT_CONFIG_VALUE_1: 'false',
-      GIT_CONFIG_KEY_2: 'gc.auto',
-      GIT_CONFIG_VALUE_2: '0',
-    };
+    return unpromptedGit(process.env, {
+      'http.extraHeader': `Authorization: Basic ${Buffer.from(`${auth.username}:${auth.token}`).toString('base64')}`,
+      'maintenance.auto': 'false',
+      'gc.auto': '0',
+    });
   }
 
   private async withBareRepo<T>(auth: { username: string; token: string }, owner: string, name: string, what: string, work: (bare: string, url: string, env: NodeJS.ProcessEnv) => Promise<T>): Promise<T> {

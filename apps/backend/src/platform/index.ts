@@ -10,6 +10,7 @@ export type { Database } from './lib/db-interface.js';
 export { emailWayFrom } from './lib/email-way.js';
 export { followsLinks, frontierRow } from './lib/frontier.js';
 export type { FrontierClaim, FrontierUrl } from './lib/frontier.js';
+export { unpromptedGit } from './lib/git-env.js';
 export { afterFailure, lockedSaid, lockedUntil, RATE_LIMITS, ruleFor } from './lib/http-limits.js';
 export type { SignInAttempts } from './lib/http-limits.js';
 export { keepTrying } from './lib/keep-trying.js';
