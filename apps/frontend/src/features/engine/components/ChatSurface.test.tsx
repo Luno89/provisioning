@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { type ReactNode } from 'react';
@@ -368,8 +368,9 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
       { type: 'run.finished', outcome: 'ok' },
     );
 
-    await waitFor(() => expect(screen.getByText('get_logs')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('get_logs'));
+    await waitFor(() => expect(within(screen.getByLabelText('Tools used')).getByText('get_logs')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /get_logs/ }));
+    fireEvent.click(within(screen.getByLabelText('Every get_logs call')).getByText('get_logs'));
     await waitFor(() => expect(screen.getByText('log lines...')).toBeInTheDocument());
   });
 
@@ -665,7 +666,8 @@ describe('a turn drawn from its log', () => {
     renderWithProviders(<ChatSurface conversationId="c1" />);
 
     await waitFor(() => expect(screen.getByText(/Halfway through/)).toBeInTheDocument());
-    expect(screen.getByText('get_logs')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Tools used')).getByText('get_logs')).toBeInTheDocument();
+    expect(screen.getAllByText('get_logs')).toHaveLength(2);
     expect(engineApi.startRun).not.toHaveBeenCalled();
 
     deliver('run-earlier', { runId: 'run-earlier', at: AT, type: 'content', nodeId: 'turn', delta: 'and done.' } as EngineEvent);
@@ -700,7 +702,7 @@ describe('a hand-off\'s run in the chat', () => {
     child({ type: 'run.started', agentId: 'planner', loopId: 'planning', parentRunId: RUN_ID, parentCallId: 'c1' });
     child({ type: 'tool.called', nodeId: 'tools', callId: 'p1', name: 'propose_plan', args: '{}' });
 
-    await waitFor(() => expect(screen.getByText('propose_plan')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText('propose_plan')).toHaveLength(2));
     expect(screen.getByText('working — 1 step so far')).toBeInTheDocument();
 
     invalidate.mockClear();
