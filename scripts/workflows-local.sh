@@ -55,7 +55,8 @@ act_in_clone() {
   local ref="$1" workflow="$2" event="$3"
   fetch_tool act "$ACT_VERSION" "$ACT_SHA256" \
     "https://github.com/nektos/act/releases/download/v${ACT_VERSION}/act_Linux_x86_64.tar.gz" act
-  WORK="$(mktemp -d)"
+  mkdir -p "$TOOLS"
+  WORK="$(mktemp -d "${TOOLS}/run.XXXXXX")"
   git clone -q --local "$REPO" "${WORK}/repo"
   git -C "${WORK}/repo" checkout -q "$ref"
   git -C "${WORK}/repo" remote set-url origin "$(git -C "$REPO" remote get-url origin)"
