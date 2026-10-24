@@ -20,6 +20,7 @@ export default defineConfig({
       },
     },
     environment: 'jsdom',
+    env: { VITE_API_BASE: 'http://127.0.0.1:9/api' },
     globals: true,
     setupFiles: './src/test/setup.ts',
     testTimeout: 30000,
