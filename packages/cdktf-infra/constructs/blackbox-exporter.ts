@@ -14,6 +14,7 @@ export class BlackboxExporterStack extends Construct {
       name: "blackbox-exporter",
       repository: "https://prometheus-community.github.io/helm-charts",
       chart: "prometheus-blackbox-exporter",
+      version: "11.18.0",
       namespace: "monitoring",
       timeout: 300,
       // Chart defaults to naming everything "<release>-prometheus-blackbox-exporter" (confirmed

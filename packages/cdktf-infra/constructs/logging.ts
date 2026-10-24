@@ -86,6 +86,7 @@ export class LoggingStack extends Construct {
       name: "loki",
       repository: "https://grafana.github.io/helm-charts",
       chart: "loki",
+      version: "7.3.0",
       namespace: "monitoring",
       timeout: 300,
       values: [JSON.stringify(LOKI_VALUES)],
@@ -95,6 +96,7 @@ export class LoggingStack extends Construct {
       name: "promtail",
       repository: "https://grafana.github.io/helm-charts",
       chart: "promtail",
+      version: "6.17.1",
       namespace: "monitoring",
       timeout: 300,
       values: [
