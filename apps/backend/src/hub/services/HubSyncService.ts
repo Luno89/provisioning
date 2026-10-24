@@ -52,7 +52,8 @@ type Pending = { entry: HubDirty; link: HubLink; change: RecordChange; after: Sy
 
 export class HubSyncService {
   private timer: ReturnType<typeof setInterval> | undefined;
-  private busy = false;
+  private running: Promise<void> | undefined;
+  private next: Promise<void> | undefined;
   private readonly sentStatus = new Map<string, HubStatus>();
   private readonly statusDue = new Map<string, number>();
   private moved = new Set<string>();
@@ -298,19 +299,25 @@ export class HubSyncService {
     }
   }
 
-  async once(): Promise<void> {
-    if (this.busy) return;
-    this.busy = true;
-    try {
-      koalaMetrics().hubChangesSent.add(await this.timed('push', () => this.pushOnce()));
-      await this.timed('pull', () => this.pullOnce());
-      await this.timed('repos', () => this.syncRepos());
-      await this.timed('requests', () => this.carryOutRequests());
-      await this.timed('status', () => this.sendStatus());
-      await this.timed('relays', () => this.followRelays());
-    } finally {
-      this.busy = false;
+  once(): Promise<void> {
+    if (!this.running) {
+      this.running = this.pass().finally(() => { this.running = undefined; });
+      return this.running;
     }
+    this.next ??= this.running.catch(() => {}).then(() => {
+      this.next = undefined;
+      return this.once();
+    });
+    return this.next;
+  }
+
+  private async pass(): Promise<void> {
+    koalaMetrics().hubChangesSent.add(await this.timed('push', () => this.pushOnce()));
+    await this.timed('pull', () => this.pullOnce());
+    await this.timed('repos', () => this.syncRepos());
+    await this.timed('requests', () => this.carryOutRequests());
+    await this.timed('status', () => this.sendStatus());
+    await this.timed('relays', () => this.followRelays());
   }
 
   start(everyMs: number): void {

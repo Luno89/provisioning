@@ -90,6 +90,25 @@ describe('keeping a shared project\'s board in step with the hub', () => {
     expect((await db.hub.getHubLinks())[0]!.pulledThrough).toBe((await onHub.changes(0, 10_000)).at(-1)!.seq);
   });
 
+  it('asked for a pass while one runs, answers only after a pass that began after it was asked', async () => {
+    const { db, onHub, hub, hubId } = await setUp();
+    const transport = localHubSync(hub, 'combined');
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let pulls = 0;
+    const sync = new HubSyncService({ store: db.hub, origin: 'instance:combined', transport: { ...transport, pull: async (...args) => { pulls += 1; if (pulls === 1) await held; return transport.pull(...args); } } });
+    await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
+    const first = sync.once();
+    await vi.waitFor(() => expect(pulls).toBe(1));
+    await db.projects.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
+    const asked = sync.once();
+    const alsoAsked = sync.once();
+    release();
+    await Promise.all([first, asked, alsoAsked]);
+    expect((await onHub.records('trees')).length).toBe(1);
+    expect(pulls).toBe(2);
+  });
+
   it('keeps a change waiting while the hub cannot be reached, and sends it once it can', async () => {
     const { db, onHub, hub, hubId } = await setUp();
     let down = true;
