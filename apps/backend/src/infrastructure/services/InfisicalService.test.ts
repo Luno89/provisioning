@@ -27,7 +27,8 @@ import path from 'path';
 import { InfisicalService } from './InfisicalService.js';
 
 const MASTER_KEY = 'test-jwt-secret-key-that-is-at-least-32-chars-long';
-const AUTH_SECRET_FILE = path.join(process.cwd(), 'data', '.infisical-auth-secret');
+const IDENTITY_FILE = path.join(process.cwd(), 'data', '.infisical-machine-identity');
+const SHARED_AUTH_SECRET_FILE = path.join(process.cwd(), 'data', '.infisical-auth-secret');
 const unreachable = () => Promise.reject(Object.assign(new Error('ECONNREFUSED'), { code: 'ECONNREFUSED' }));
 const status = (code: number) => Promise.reject(Object.assign(new Error(`status ${code}`), { response: { status: code } }));
 
@@ -38,7 +39,7 @@ describe('InfisicalService', () => {
 
   beforeEach(() => {
     files.clear();
-    files.set(AUTH_SECRET_FILE, JSON.stringify({ clientId: 'cid', clientSecret: 'cs', orgId: 'org' }));
+    files.set(IDENTITY_FILE, JSON.stringify({ clientId: 'cid', clientSecret: 'cs', orgId: 'org' }));
     for (const fn of [post, get, patch, del]) fn.mockReset();
     service = new InfisicalService({ runKubectl: vi.fn() }, MASTER_KEY, '/tmp/kc.yaml', 'http://vault:8080');
   });
@@ -121,14 +122,41 @@ describe('InfisicalService', () => {
     });
 
     expect(await service.authenticate()).toBe('fresh');
-    expect(JSON.parse(files.get(AUTH_SECRET_FILE)!)).toEqual({ clientId: 'cid2', clientSecret: 'cs2', orgId: 'org2' });
+    expect(JSON.parse(files.get(IDENTITY_FILE)!)).toEqual({ clientId: 'cid2', clientSecret: 'cs2', orgId: 'org2' });
+  });
+
+  it('keeps its identity apart from the auth secret Infisical signs with, which the setup script writes', async () => {
+    files.clear();
+    files.set(SHARED_AUTH_SECRET_FILE, 'c2lnbmluZy1zZWNyZXQtd3JpdHRlbi1ieS10aGUtc2NyaXB0');
+    post.mockImplementation(async (url: string) => {
+      if (url.endsWith('/universal-auth/login')) return { data: { accessToken: 'fresh' } };
+      if (url.endsWith('/admin/bootstrap')) return { data: { identity: { id: 'id2', credentials: { token: 'boot' } }, organization: { id: 'org2' } } };
+      if (url.endsWith('/client-secrets')) return { data: { clientSecret: 'cs2' } };
+      return { data: { identityUniversalAuth: { clientId: 'cid2' } } };
+    });
+
+    expect(await service.authenticate()).toBe('fresh');
+    expect(JSON.parse(files.get(IDENTITY_FILE)!)).toEqual({ clientId: 'cid2', clientSecret: 'cs2', orgId: 'org2' });
+    expect(files.get(SHARED_AUTH_SECRET_FILE)).toBe('c2lnbmluZy1zZWNyZXQtd3JpdHRlbi1ieS10aGUtc2NyaXB0');
+  });
+
+  it('carries an identity a box kept in the auth secret file into its own, leaving that file as Infisical has it', async () => {
+    files.clear();
+    const kept = JSON.stringify({ clientId: 'cid', clientSecret: 'cs', orgId: 'org' });
+    files.set(SHARED_AUTH_SECRET_FILE, kept);
+    post.mockResolvedValueOnce({ data: { accessToken: 'tok' } });
+
+    expect(await service.authenticate()).toBe('tok');
+    expect(post.mock.calls[0]?.[1]).toEqual({ clientId: 'cid', clientSecret: 'cs' });
+    expect(files.get(IDENTITY_FILE)).toBe(kept);
+    expect(files.get(SHARED_AUTH_SECRET_FILE)).toBe(kept);
   });
 
   it('says so when Infisical refuses the stored identity and is not new, keeping the file as it was', async () => {
     post.mockImplementation(async (url: string) => (url.endsWith('/admin/bootstrap') ? status(400) : status(401)));
 
     await expect(service.authenticate()).rejects.toThrow('refuses the machine identity');
-    expect(JSON.parse(files.get(AUTH_SECRET_FILE)!)).toEqual({ clientId: 'cid', clientSecret: 'cs', orgId: 'org' });
+    expect(JSON.parse(files.get(IDENTITY_FILE)!)).toEqual({ clientId: 'cid', clientSecret: 'cs', orgId: 'org' });
   });
 
   it('tells a reader Infisical refuses from one it cannot be asked about', async () => {

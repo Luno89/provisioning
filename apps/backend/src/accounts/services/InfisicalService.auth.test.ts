@@ -20,7 +20,7 @@ vi.mock('axios', () => ({
 import path from 'path';
 import { InfisicalService } from '../../infrastructure/services/InfisicalService.js';
 
-const AUTH_SECRET_FILE = path.join(process.cwd(), 'data', '.infisical-auth-secret');
+const IDENTITY_FILE = path.join(process.cwd(), 'data', '.infisical-machine-identity');
 
 /**
  * Regression for real bugs found live: /api/v1/auth/login 404s on this Infisical version, and
@@ -54,7 +54,7 @@ describe('InfisicalService auth + workspace resolution', () => {
 
     const token = await service.authenticate();
     expect(token).toBe('atok1');
-    expect(JSON.parse(files.get(AUTH_SECRET_FILE)!)).toEqual({ clientId: 'cid1', clientSecret: 'csecret1', orgId: 'org1' });
+    expect(JSON.parse(files.get(IDENTITY_FILE)!)).toEqual({ clientId: 'cid1', clientSecret: 'csecret1', orgId: 'org1' });
   });
 
   it('reuses persisted credentials instead of re-provisioning', async () => {

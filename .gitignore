@@ -22,26 +22,20 @@ cdktf.out/
 # Logs, wherever a process writes one
 *.log
 
-# Backend runtime data
-/apps/backend/data/*.json
-!/apps/backend/data/*.json.example
-/apps/backend/data/logs/
-/apps/backend/data/dev-split/
-/apps/backend/data/instance-charts/
+# Backend runtime data: everything the backend writes under data/, keys and tokens among them, is ignored
+# whatever its name; only the three config files below are source.
+/apps/backend/data/*
+!/apps/backend/data/nginx/
+/apps/backend/data/nginx/*
+!/apps/backend/data/nginx/nginx.conf
+!/apps/backend/data/nginx/conf.d/
 /apps/backend/data/nginx/conf.d/*
 !/apps/backend/data/nginx/conf.d/default.conf
-# Generated Caddy site blocks, one per exposed deployment — runtime state, not source.
+!/apps/backend/data/caddy/
+/apps/backend/data/caddy/*
+!/apps/backend/data/caddy/apps/
 /apps/backend/data/caddy/apps/*
 !/apps/backend/data/caddy/apps/.gitkeep
-/apps/backend/data/.gitea-admin-password
-/apps/backend/data/.gitea-admin-token
-/apps/backend/data/.gitea-pull-token
-/apps/backend/data/.headscale-api-key
-/apps/backend/data/.infisical-encryption-key
-/apps/backend/data/.infisical-auth-secret
-/apps/backend/data/.infisical-admin-password
-/apps/backend/data/.infisical-postgres-password
-/apps/backend/data/.infisical-redis-password
 
 # Anything running bootstrap() from the repo root (a probe script, a mis-cd'd command) writes the
 # same runtime data here instead of apps/backend/data — including a live Headscale API key. Every

@@ -7,7 +7,8 @@ import type { ClusterProxyService } from './ClusterProxyService.js';
 
 const NAMESPACE = 'infisical';
 const DATA_DIR = path.join(process.cwd(), 'data');
-const AUTH_SECRET_FILE = path.join(DATA_DIR, '.infisical-auth-secret');
+const IDENTITY_FILE = path.join(DATA_DIR, '.infisical-machine-identity');
+const SHARED_AUTH_SECRET_FILE = path.join(DATA_DIR, '.infisical-auth-secret');
 const ADMIN_PASSWORD_FILE = path.join(DATA_DIR, '.infisical-admin-password');
 
 export interface InfisicalSecretRecord {
@@ -15,6 +16,14 @@ export interface InfisicalSecretRecord {
   secretReference: string;
   version?: number | undefined;
   comment?: string | undefined;
+}
+
+async function readIdentity(file: string): Promise<{ clientId: string; clientSecret: string; orgId: string } | null> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(file, 'utf8'));
+    if (parsed?.clientId && parsed?.clientSecret && parsed?.orgId) return parsed;
+  } catch { /* ignored */ }
+  return null;
 }
 
 const workspaceGone = (err: any): boolean =>
@@ -94,17 +103,17 @@ export class InfisicalService {
   }
 
   private async loadAuthCreds(): Promise<{ clientId: string; clientSecret: string; orgId: string } | null> {
-    try {
-      const parsed = JSON.parse(await fs.readFile(AUTH_SECRET_FILE, 'utf8'));
-      if (parsed?.clientId && parsed?.clientSecret && parsed?.orgId) return parsed;
-    } catch { /* ignored */ }
-    return null;
+    const own = await readIdentity(IDENTITY_FILE);
+    if (own) return own;
+    const shared = await readIdentity(SHARED_AUTH_SECRET_FILE);
+    if (shared) await this.saveAuthCreds(shared);
+    return shared;
   }
 
   private async saveAuthCreds(creds: { clientId: string; clientSecret: string; orgId: string }): Promise<void> {
     try {
       await fs.mkdir(DATA_DIR, { recursive: true });
-      await fs.writeFile(AUTH_SECRET_FILE, JSON.stringify(creds), 'utf8');
+      await fs.writeFile(IDENTITY_FILE, JSON.stringify(creds), { encoding: 'utf8', mode: 0o600 });
     } catch (err: any) {
       console.warn(`[InfisicalService] could not persist auth credentials: ${err.message}`);
     }
@@ -169,7 +178,7 @@ export class InfisicalService {
       creds = await this.provisionMachineIdentity();
       if (!creds) {
         throw new Error(stored
-          ? 'Infisical refuses the machine identity in data/.infisical-auth-secret and is not new, so another cannot be made'
+          ? 'Infisical refuses the machine identity in data/.infisical-machine-identity and is not new, so another cannot be made'
           : 'Infisical has no machine identity and one could not be provisioned');
       }
       token = await this.login(creds);
