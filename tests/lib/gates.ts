@@ -85,6 +85,18 @@ export const leaksRefusal = (findings: string | undefined): string | undefined =
 
 export const TAG_SIGNATURE = /^(Shipped and released|Hotfix released) from /m;
 
+export const RELEASE_SIGNERS = 'scripts/root-node/release-signers';
+
+export const unsignedTagRefusal = (tag: string, problem: string | undefined): string | undefined =>
+  problem ? `root would refuse ${tag}: ${problem}. \`npm run release\` signs the tag with your release key.` : undefined;
+
+export function signingKeyProblem(keyPath: string, publicKey: string | undefined, signers: string | undefined): string | undefined {
+  if (!publicKey) return `there is no release key at ${keyPath} (no ${keyPath}.pub). Make one with \`ssh-keygen -t ed25519 -f ${keyPath}\`, or point KOALA_RELEASE_KEY at yours`;
+  const material = publicKey.trim().split(/\s+/).slice(0, 2).join(' ');
+  const trusted = (signers ?? '').split('\n').some((line) => !line.trimStart().startsWith('#') && line.includes(material));
+  return trusted ? undefined : `${keyPath} is not in ${RELEASE_SIGNERS}, so the Release workflow and root would refuse what it signs. Add its public half there and ship that first`;
+}
+
 export function tagMessage(version: string, commit: string, previous: string, steps: readonly StepPassed[], hotfix: boolean): string {
   const ran = steps.map((step) => step.script.replace(/^test:/, '')).join(', ');
   return hotfix

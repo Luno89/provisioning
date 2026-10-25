@@ -18,6 +18,7 @@ pin() {
     kubescape)  echo "4.0.15|6c9fd51bcdcd1093d19383ef20e1c58c2bf83c9026073f8dcc786680ed2a0093|${GH}/kubescape/kubescape/releases/download/v4.0.15/kubescape_4.0.15_linux_amd64.tar.gz|member:kubescape" ;;
     nuclei)     echo "3.11.1|ea63d4ae232808cd7c6bc00d0142428e231fab59dae01042246097d195835ab6|${GH}/projectdiscovery/nuclei/releases/download/v3.11.1/nuclei_3.11.1_linux_amd64.zip|zip:nuclei" ;;
     lynis)      echo "3.1.7|b5314a07fd85fa3ffc7da57b508f0108ec3280d84e4af823f805d95cbbc2428c|https://downloads.cisofy.com/lynis/lynis-3.1.7.tar.gz|tree:lynis/lynis" ;;
+    cosign)     echo "3.1.3|4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71|${GH}/sigstore/cosign/releases/download/v3.1.3/cosign-linux-amd64|binary" ;;
     codeql)     echo "2.27.2|f002864be6dd8d5d7bdb123aaf7291ec8e291012bd9f70b6d2362f730db52aeb|${GH}/github/codeql-action/releases/download/codeql-bundle-v2.27.2/codeql-bundle-linux64.tar.gz|tree:codeql/codeql" ;;
     *) return 1 ;;
   esac
@@ -26,7 +27,7 @@ pin() {
 usage() {
   cat <<EOF >&2
 bash scripts/ci-tools.sh <tool>   fetches the pinned tool into .ci-tools/ when it is missing, checks its sha256, and prints its path
-tools: act actionlint gitleaks trufflehog opengrep osv-scanner trivy zizmor kubescape nuclei lynis codeql
+tools: act actionlint gitleaks trufflehog opengrep osv-scanner trivy zizmor kubescape nuclei lynis cosign codeql
 EOF
   exit 2
 }

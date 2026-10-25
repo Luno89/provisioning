@@ -1,6 +1,7 @@
 image:
   repository: nowrinkles/app
   tag: dev
+  digest: ""
   pullPolicy: IfNotPresent
 
 instance:

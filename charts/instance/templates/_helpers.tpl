@@ -19,7 +19,7 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 {{- end -}}
 
-{{- define "instance.image" -}}{{ .Values.image.repository }}:{{ .Values.image.tag }}{{- end -}}
+{{- define "instance.image" -}}{{ .Values.image.repository }}:{{ .Values.image.tag }}{{ with .Values.image.digest }}@{{ . }}{{ end }}{{- end -}}
 
 {{- define "instance.resources" -}}
 {{- with index .root.Values.resources .component }}

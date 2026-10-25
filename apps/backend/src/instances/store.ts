@@ -94,7 +94,7 @@ export class MongoInstancesStore implements InstancesStore {
 
   async recordRelease(release: InstanceRelease): Promise<InstanceRelease> {
     const { imageTag, servedAt, ...rest } = release;
-    const unset = Object.fromEntries((['notes', 'hotfix'] as const).filter((field) => rest[field] === undefined).map((field) => [field, '']));
+    const unset = Object.fromEntries((['notes', 'hotfix', 'digest', 'chartSha256'] as const).filter((field) => rest[field] === undefined).map((field) => [field, '']));
     const doc = await this.releases.findOneAndUpdate(
       { _id: imageTag as never },
       { $set: rest, $setOnInsert: { servedAt }, ...(Object.keys(unset).length ? { $unset: unset } : {}) },

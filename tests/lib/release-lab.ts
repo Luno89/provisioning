@@ -29,6 +29,8 @@ export function endsWith(trail: Report[], wanted: Report[]): boolean {
   return wanted.every((report, index) => tail[index]?.status === report.status && tail[index]?.detail === report.detail);
 }
 
+export const unsignedRefusal = (tag: string, signers: string): string => `Refusing ${tag}: root moves only onto a release signed by a key in ${signers}`;
+
 export const inFlightRefusal = (running: number): string =>
   `${running} workflow(s) are running. Wait, or re-run with --force (costs them one retry attempt).`;
 

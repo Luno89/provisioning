@@ -1,8 +1,8 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { changedBesidesLedger, LEDGER_FILES, onlyLedger, type GateRecord, type GateStep, type PushedGates, type StepPassed } from './gates.js';
+import { changedBesidesLedger, LEDGER_FILES, onlyLedger, RELEASE_SIGNERS, type GateRecord, type GateStep, type PushedGates, type StepPassed } from './gates.js';
 import { imageTagOf } from './release-lab.js';
 
 const gitOut = (repo: string, args: string[]): string =>
@@ -37,11 +37,60 @@ export function ignoredIn(repo: string, commit: string): string[] {
 }
 
 export function leaksIn(repo: string, range: string): string | undefined {
-  const tool = execFileSync('bash', [new URL('../../scripts/ci-tools.sh', import.meta.url).pathname, 'gitleaks'], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim();
+  const tool = ciTool(repo, 'gitleaks');
   const scan = spawnSync(tool, ['git', `--log-opts=${range}`, '--redact', '--no-banner', '--verbose', '--no-color', '--exit-code', '3', '.'], { cwd: repo, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   if (scan.status === 0) return undefined;
   if (scan.status === 3) return scan.stdout.trim();
   throw new Error(`gitleaks could not scan ${range}: ${scan.stderr.trim()}`);
+}
+
+const VERIFY_RELEASE = new URL('../../scripts/root-node/verify-release.sh', import.meta.url).pathname;
+const ciTool = (repo: string, tool: string): string =>
+  execFileSync('bash', [new URL('../../scripts/ci-tools.sh', import.meta.url).pathname, tool], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim();
+
+export const releaseKey = (): string => process.env.KOALA_RELEASE_KEY ?? join(homedir(), '.ssh', 'koala-release');
+
+export const readIfThere = (file: string): string | undefined => (existsSync(file) ? readFileSync(file, 'utf8') : undefined);
+
+export function tagSignatureProblem(repo: string, tag: string): string | undefined {
+  const checked = spawnSync('bash', [VERIFY_RELEASE, 'tag', repo, tag], { encoding: 'utf8', env: { ...process.env, RELEASE_SIGNERS: join(repo, RELEASE_SIGNERS) } });
+  return checked.status === 0 ? undefined : checked.stderr.trim() || `verify-release.sh ended with ${checked.status}`;
+}
+
+export function signTag(repo: string, version: string, commit: string, message: string, key: string): void {
+  const signed = spawnSync('git', ['-c', 'gpg.format=ssh', '-c', `user.signingkey=${key}`, 'tag', '-s', version, commit, '-m', message], { cwd: repo, stdio: 'inherit' });
+  if (signed.status !== 0) throw new Error(`git could not sign ${version} with ${key}`);
+}
+
+export function githubSlug(repo: string): string {
+  const origin = git(repo, ['remote', 'get-url', 'origin']);
+  const slug = /github\.com[:/]([^/]+\/[^/]+?)(\.git)?$/.exec(origin)?.[1];
+  if (!slug) throw new Error(`origin (${origin}) is not on GitHub`);
+  return slug;
+}
+
+export function waitForRelease(slug: string, version: string, log: (line: string) => void): void {
+  const started = Date.now();
+  let told = 0;
+  for (;;) {
+    const answered = spawnSync('curl', ['-fsS', '-o', '/dev/null', `https://api.github.com/repos/${slug}/releases/tags/${version}`], { stdio: 'ignore' });
+    if (answered.status === 0) return;
+    const minutes = Math.floor((Date.now() - started) / 60_000);
+    if (minutes >= told + 10) {
+      told = minutes;
+      log(`GitHub has no release ${version} yet after ${minutes} min; the Release workflow makes it last, after the image and its attestation`);
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 120_000);
+  }
+}
+
+export function verifyPublished(repo: string, version: string, commit: string): string {
+  const checked = spawnSync('bash', [VERIFY_RELEASE, 'image', version, commit], {
+    encoding: 'utf8',
+    env: { ...process.env, COSIGN: ciTool(repo, 'cosign'), PUBLISHED_IMAGE: publishedImageOf(repo), RELEASE_REPO: githubSlug(repo) },
+  });
+  if (checked.status !== 0) throw new Error(checked.stderr.trim() || `verify-release.sh ended with ${checked.status}`);
+  return checked.stdout.trim();
 }
 
 export const changedNow = (repo: string): string[] => changedBesidesLedger(gitOut(repo, ['status', '--porcelain']));

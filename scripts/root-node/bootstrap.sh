@@ -24,6 +24,13 @@ REPO_DIR="${REPO_DIR:-/opt/nowrinkles}"
 ROOT_TLS="${ROOT_TLS:-cloudflare}"
 PUBLIC_URL="${PUBLIC_URL:-https://${APP_DOMAIN}}"
 LAB_CA=/usr/local/share/ca-certificates/koala-lab.crt
+SIGNERS=/etc/koala/release-signers
+COSIGN_VERSION=3.1.3
+COSIGN_SHA256=4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+DOCKER_FINGERPRINT=9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+NODESOURCE_FINGERPRINT=6F71F525282841EEDAF851B42F59B5F99B1BE0B4
+TAILSCALE_FINGERPRINT=2596A99EAAB33821893C0A79458CA832957F5868
+NODE_MAJOR=22
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 ok()   { echo -e "  ${GREEN}✅${NC} $1"; }
@@ -87,26 +94,57 @@ done
 fi
 
 # ── 2. Packages ────────────────────────────────────────────────────────────────────────────────
+# Nothing is piped from the internet into a shell: each repository's signing key is fetched once and
+# kept only when its fingerprint is the one pinned above, and apt checks every package against it.
 step "Installing base packages"
+for pkg in git curl dnsutils netcat-openbsd gnupg ca-certificates; do
+  dpkg -s "$pkg" &>/dev/null || apt-get install -y "$pkg" >/dev/null
+done
+ok "git, curl, dnsutils, netcat, gnupg present"
+
+apt_source() {
+  local name="$1" key_url="$2" fingerprint="$3" line="$4" keyring="/etc/apt/keyrings/$1.gpg" fetched
+  if [ ! -s "$keyring" ]; then
+    install -d -m 755 /etc/apt/keyrings
+    fetched="$(mktemp)"
+    curl -fsSL "$key_url" -o "$fetched"
+    gpg --dearmor < "$fetched" > "${fetched}.gpg" 2>/dev/null || cp "$fetched" "${fetched}.gpg"
+    gpg --show-keys --with-colons "${fetched}.gpg" 2>/dev/null | awk -F: '/^fpr/ {print $10}' | grep -qx "$fingerprint" \
+      || { rm -f "$fetched" "${fetched}.gpg"; die "the ${name} signing key at ${key_url} is not ${fingerprint}; refusing to trust it"; }
+    install -m 644 "${fetched}.gpg" "$keyring"
+    rm -f "$fetched" "${fetched}.gpg"
+  fi
+  echo "deb [arch=${ARCH} signed-by=${keyring}] ${line}" > "/etc/apt/sources.list.d/$1.list"
+}
+. /etc/os-release
+ARCH="$(dpkg --print-architecture)"
+apt_source docker https://download.docker.com/linux/ubuntu/gpg "$DOCKER_FINGERPRINT" "https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable"
+apt_source nodesource https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key "$NODESOURCE_FINGERPRINT" "https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main"
+apt_source tailscale "https://pkgs.tailscale.com/stable/ubuntu/${VERSION_CODENAME}.noarmor.gpg" "$TAILSCALE_FINGERPRINT" "https://pkgs.tailscale.com/stable/ubuntu ${VERSION_CODENAME} main"
+apt-get update -qq
 if ! command -v docker &>/dev/null; then
-  curl -fsSL https://get.docker.com | sh
-  ok "Docker installed"
+  apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
+  ok "Docker installed from Docker's signed repository"
 else
   ok "Docker already present"
 fi
-
-if ! command -v node &>/dev/null || [ "$(node -v | sed 's/v\([0-9]*\).*/\1/')" -lt 20 ]; then
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-  apt-get install -y nodejs
-  ok "Node $(node -v) installed"
+if ! command -v node &>/dev/null || [ "$(node -v | sed 's/v\([0-9]*\).*/\1/')" -lt "$NODE_MAJOR" ]; then
+  apt-get install -y nodejs >/dev/null
+  ok "Node $(node -v) installed from NodeSource's signed repository"
 else
   ok "Node $(node -v) already present"
 fi
+command -v tailscale >/dev/null || apt-get install -y tailscale >/dev/null
+ok "Tailscale $(tailscale version | head -1) present"
 
-for pkg in git curl dnsutils netcat-openbsd; do
-  dpkg -s "$pkg" &>/dev/null || apt-get install -y "$pkg"
-done
-ok "git, curl, dnsutils, netcat present"
+if [ "$(/usr/local/bin/cosign version 2>/dev/null | awk '/GitVersion/ {print $2}')" != "v${COSIGN_VERSION}" ]; then
+  fetched="$(mktemp)"
+  curl -fsSL "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-${ARCH}" -o "$fetched"
+  echo "${COSIGN_SHA256}  ${fetched}" | sha256sum -c --quiet - || { rm -f "$fetched"; die "cosign ${COSIGN_VERSION} does not match its pinned checksum"; }
+  install -m 755 "$fetched" /usr/local/bin/cosign
+  rm -f "$fetched"
+fi
+ok "cosign v${COSIGN_VERSION}, which checks that GitHub built each release's image"
 
 # ── 3. Repo ────────────────────────────────────────────────────────────────────────────────────
 step "Fetching the platform"
@@ -114,11 +152,28 @@ if [ ! -d "$REPO_DIR/.git" ]; then
   git clone https://github.com/Luno89/provisioning.git "$REPO_DIR"
   ok "Cloned to ${REPO_DIR}"
 else
-  git -C "$REPO_DIR" pull --ff-only || warn "Could not fast-forward — leaving the working tree alone"
-  ok "Repo up to date"
+  git -C "$REPO_DIR" fetch --tags --prune -q || warn "Could not fetch — leaving the working tree alone"
+  ok "Repo fetched"
 fi
 cd "$REPO_DIR"
-npm ci
+if [ ! -s "$SIGNERS" ] && [ "$LAB" -eq 1 ] && [ ! -s scripts/root-node/release-signers ]; then
+  warn "a lab without release signers checks no tag's signature until ${SIGNERS} is written"
+elif [ ! -s "$SIGNERS" ]; then
+  [ -s scripts/root-node/release-signers ] || die "the checkout has no scripts/root-node/release-signers, so root could trust no release"
+  install -d -m 755 /etc/koala
+  install -m 644 scripts/root-node/release-signers "$SIGNERS"
+  ok "root trusts releases signed by: $(ssh-keygen -lf "$SIGNERS" 2>/dev/null | awk '{print $2}' | paste -sd, -) — check that this is your release key"
+else
+  ok "root trusts the release signers in ${SIGNERS} (changed only by hand)"
+fi
+if [ "$LAB" -eq 0 ]; then
+  RELEASE="$(git tag --list 'v*' --sort=-v:refname | head -1)"
+  [ -n "$RELEASE" ] || die "there is no release tag yet; make one with npm run release"
+  bash scripts/root-node/verify-release.sh tag "$REPO_DIR" "$RELEASE" >/dev/null || die "${RELEASE} is not signed by a key in ${SIGNERS}"
+  git checkout -q --detach "$RELEASE"
+  ok "on ${RELEASE}, signed by a release key root trusts"
+fi
+npm ci --ignore-scripts && node scripts/fix-dnd-kit-hoisting.js
 # The backend serves this build in production, so Caddy has a single upstream and the browser
 # never makes a cross-origin request. Without it the API answers but every page 404s.
 npm run build
@@ -257,7 +312,6 @@ else
 fi
 
 step "Joining this node to its own mesh"
-command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh
 if ! tailscale ip -4 >/dev/null 2>&1; then
   for _ in $(seq 1 36); do curl -sf -m 5 "https://${MESH_DOMAIN}/health" >/dev/null 2>&1 && break; sleep 5; done
   curl -sf -m 5 "https://${MESH_DOMAIN}/health" >/dev/null 2>&1 || die "https://${MESH_DOMAIN} is not serving yet — Caddy may still be issuing its certificate; re-run bootstrap.sh in a minute"
@@ -285,7 +339,7 @@ npx tsx apps/backend/src/scripts/seed-all.ts
 ok "Catalogues seeded"
 
 step "Creating the management cluster"
-bash scripts/cluster.sh install provisioning-lunorica || die "native k3s could not be installed"
+K3S_KUBECONFIG_MODE=600 bash scripts/cluster.sh install provisioning-lunorica || die "native k3s could not be installed"
 bash scripts/cluster.sh create provisioning-lunorica || die "the management cluster did not come up"
 KOALA_ROOT_NODE=1 bash scripts/ensure-cluster.sh || warn "ensure-cluster.sh reported a problem — check before provisioning"
 
@@ -384,7 +438,8 @@ fi
 echo
 echo "Next:"
 echo "  1. systemctl start nowrinkles"
-echo "  2. Publish the first instance image:  bash scripts/root-node/update.sh"
+[ "$LAB" -eq 1 ] && echo "  2. Publish the first instance image:  bash scripts/root-node/update.sh"
+[ "$LAB" -eq 1 ] || echo "  2. Publish the first instance image:  bash scripts/root-node/release-watch.sh   (the newest signed release, its image checked with cosign)"
 echo "  3. Register the first account at ${PUBLIC_URL} — the FIRST account ever created"
 echo "     becomes admin and is the only one that can mint invite codes. Do this before sharing"
 echo "     the URL with anyone."

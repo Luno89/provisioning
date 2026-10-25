@@ -1456,11 +1456,14 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
 - **`npm run release [vYYYY.MM.DD[-n]]`** (`tests/release.ts`) makes a release from a shipped commit `origin/main` has: it
   builds the image from that commit (`buildAppImage` in `tests/lib/gate-runs.ts`, also `nowrinkles/app:dev` for the VM
   suites), runs **G3** and **G4** (`RELEASE_STEPS`: mail, infra and remote integration, instance, machine, byo, mesh,
-  routing, pool, then `test:release-live` from the previous tag), about three hours, then makes the annotated tag and
-  pushes it with the ledger.
+  routing, pool, then `test:release-live` from the previous tag), about three hours, then **signs** the tag with the
+  release key (an SSH ed25519 key, `~/.ssh/koala-release` or `KOALA_RELEASE_KEY`, whose public half must be in
+  `scripts/root-node/release-signers`, checked before the suites start), pushes it with the ledger, waits for the GitHub
+  release and checks the image with `scripts/root-node/verify-release.sh image`, the check root makes, so the first
+  release proves it.
 - **The pre-push hook** (`.githooks/pre-push` → `tests/gate-check.ts`, `pushRefusal`) refuses a push to `main` of a commit
   without a ship record (a commit that changes only the ledger on top of one passes), and a `v*` tag whose commit was
-  not released under that name. A push of any other branch is typechecked. `git push --no-verify` is there for when you
+  not released under that name or that is not signed by a key in `release-signers` (`unsignedTagRefusal`). A push of any other branch is typechecked. `git push --no-verify` is there for when you
   mean it.
 - **A hotfix** (`npm run ship -- --hotfix`, then `npm run release -- --hotfix`) skips every suite and keeps the typecheck
   and the image build, about a minute each. Its gate record says `hotfix`, and its tag says "Hotfix released from <commit>
@@ -1470,19 +1473,30 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   made before you push it (`-- <tag>`). Under act (`ACT` set) the release builds the image without
   pushing it, packages the chart and prints the notes it would post. act and actionlint are pinned by version and checksum
   in `.ci-tools/`.
-- **On the tag**, `.github/workflows/release.yml` on GitHub's own runners refuses a tag `npm run release` did not make,
-  then builds the image once and publishes it as `ghcr.io/luno89/nowrinkles/app:<tag>` and `:<commit12>` (public), and
-  makes the GitHub release with the instance chart (`instance-<tag>.tgz`) and the image's digest. Nothing from GitHub
+- **On the tag**, `.github/workflows/release.yml` on GitHub's own runners (every action pinned by commit, permissions on
+  the job only) refuses a tag `npm run release` did not make or did not sign,
+  then builds the image once and publishes it as `ghcr.io/luno89/nowrinkles/app:<tag>` and `:<commit12>` (public), attests
+  it (`actions/attest-build-provenance`, Sigstore, stored beside the image), and makes the GitHub release with the instance chart (`instance-<tag>.tgz`) and the image's digest. Nothing from GitHub
   runs on this box. Nothing runs on a push to `main` there: `ship` ran every check on that commit before it was pushed
   (owner, 2026-10-24, removing the CI that repeated G1 afterwards).
 - **Root moves onto a release two ways**: `koala-release-watch.timer` (installed by `bootstrap.sh` outside a lab, started by
   hand once root works) runs `scripts/root-node/release-watch.sh` hourly, which finds GitHub's newest published release
   and runs a copy of `update.sh` with it when it is newer than root's; and `npm run release` with `ROOT_SSH=<user@host>`
-  waits for the published image and runs `release-watch.sh <tag>` there over SSH. `update.sh` pulls the image the Release
-  workflow published (`PUBLISHED_IMAGE`, by commit) into root's registry, and builds only when there is none (a lab).
+  waits for the published image and runs `release-watch.sh <tag>` there over SSH. **Root moves only onto a signed release**
+  (W1, owner 2026-10-25): before checking anything out, `update.sh` checks the tag against `/etc/koala/release-signers`
+  (installed by `bootstrap.sh` from the checkout once, then changed only by hand; never the checkout's copy), and outside
+  a lab refuses any other ref. It never builds an image outside a lab: `verify-release.sh image` pulls the Release
+  workflow's image (`PUBLISHED_IMAGE`, by commit) and checks with cosign (pinned, `/usr/local/bin/cosign`) that
+  release.yml at that tag built it from that commit, then pushes that digest into root's registry and records it
+  (`INSTANCE_IMAGE_DIGEST`). Root's dependencies install with `npm ci --ignore-scripts`. A lab (`ROOT_TLS=internal`)
+  takes any ref, builds when nothing is published, and checks a tag's signature when it has signers; the rehearsal signs
+  its tags with a throwaway key and proves an unsigned one refused.
 - **Each instance's updates are its owner's** (owner, 2026-10-24; rules in `instances/lib/instance-updates.ts`). Root keeps
   every release it has run (`ReleaseCatalogue`: recorded at boot from its checkout's tag and message, `instanceReleases`,
-  with that release's chart in `data/instance-charts/`, served at `/api/instances/chart/<image tag>.tgz`). Each instance
+  with that release's chart in `data/instance-charts/`, served at `/api/instances/chart/<image tag>.tgz`, and the image
+  digest and chart sha256 it was released with, which `/api/instances/release` and the install bundle hand on; `install.sh`
+  and `self-upgrade.sh` refuse a chart whose sha256 differs and pull the image by digest, `image.digest` in the chart; a
+  release from before digests moves by its tag). Each instance
   record has `updates` (`auto`, on by default, or a `picked` release), `running` (the image tag its check-in reports) and
   `previous`; `GET /api/instances/release` answers per instance (`updateTarget`): on auto, root's release when it is newer
   than what the instance runs, never older; off, what was picked. A person may pick any newer release or the one it ran

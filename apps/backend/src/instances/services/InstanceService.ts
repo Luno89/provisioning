@@ -6,7 +6,7 @@ import { routeProblem } from '../lib/instance-routes.js';
 import { freePorts, poolNamespace, trialDaysProblem, type PoolPolicy } from '../lib/pool.js';
 import { extendedTrial } from '../lib/pool-trial.js';
 import { moveProblem, type MoveStateName } from '../lib/instance-move.js';
-import { DEFAULT_UPDATES, findRelease, pickProblem, updateTarget, updatesView, type InstanceRelease, type UpdatesView } from '../lib/instance-updates.js';
+import { DEFAULT_UPDATES, findRelease, pickProblem, pinned, updateTarget, updatesView, type InstanceRelease, type UpdatesView } from '../lib/instance-updates.js';
 
 export const JOIN_TOKEN_TTL_SECONDS = 3600;
 
@@ -72,7 +72,9 @@ export interface JoinBundle {
   registry: string;
   image: string;
   imageTag: string;
+  imageDigest?: string | undefined;
   chartUrl: string;
+  chartSha256?: string | undefined;
   credential: string;
   name: string;
   domain: string;
@@ -301,6 +303,7 @@ export class InstanceService {
         image: `${this.settings.registry}/nowrinkles/app`,
         imageTag: this.settings.imageTag,
         chartUrl: `${this.settings.rootUrl}/api/instances/chart.tgz`,
+        ...pinned(findRelease(await this.knownReleases(), this.settings.imageTag)),
         credential,
         name: instance?.name ?? '',
         domain: this.settings.domain ?? '',
@@ -418,11 +421,13 @@ export class InstanceService {
     return (await this.settings.releases?.releases()) ?? [];
   }
 
-  async release(instanceId: unknown, credential: unknown): Promise<Outcome<{ imageTag: string; chartUrl: string }>> {
+  async release(instanceId: unknown, credential: unknown): Promise<Outcome<{ imageTag: string; chartUrl: string; digest?: string; chartSha256?: string }>> {
     const instance = await this.authenticated(instanceId, credential);
     if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
-    const imageTag = updateTarget(instance.updates ?? DEFAULT_UPDATES, instance.running, this.settings.imageTag, await this.knownReleases());
-    return { ok: true, value: { imageTag, chartUrl: this.chartUrlFor(imageTag) } };
+    const releases = await this.knownReleases();
+    const imageTag = updateTarget(instance.updates ?? DEFAULT_UPDATES, instance.running, this.settings.imageTag, releases);
+    const { imageDigest, chartSha256 } = pinned(findRelease(releases, imageTag));
+    return { ok: true, value: { imageTag, chartUrl: this.chartUrlFor(imageTag), ...(imageDigest ? { digest: imageDigest } : {}), ...(chartSha256 ? { chartSha256 } : {}) } };
   }
 
   private async viewOf(instance: InstanceRecord): Promise<UpdatesView> {

@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
-import { HOTFIX, HOTFIX_STEPS, nextVersion, RELEASE_STEPS, shippedThrough, tagMessage } from './lib/gates.js';
-import { buildAppImage, changedNow, commitLedger, devStackProblem, git, minutesSince, publishedImageOf, pushedGates, readRecord, runSteps, updateRoot, waitForPublished, writeRecord } from './lib/gate-runs.js';
+import { join, resolve } from 'node:path';
+import { HOTFIX, HOTFIX_STEPS, nextVersion, RELEASE_SIGNERS, RELEASE_STEPS, shippedThrough, signingKeyProblem, tagMessage } from './lib/gates.js';
+import { buildAppImage, changedNow, commitLedger, devStackProblem, git, githubSlug, minutesSince, pushedGates, readIfThere, readRecord, releaseKey, runSteps, signTag, tagSignatureProblem, updateRoot, verifyPublished, waitForRelease, writeRecord } from './lib/gate-runs.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PUSH = !process.argv.includes('--no-push');
@@ -30,6 +30,10 @@ async function main(): Promise<void> {
   if (!/^v\d{4}\.\d{2}\.\d{2}(-\d+)?$/.test(version)) throw new Error(`${version} is not v<year>.<month>.<day>[-<n>]`);
   const previous = git(REPO, ['describe', '--tags', '--abbrev=0', '--match', 'v*', commit]);
 
+  const key = releaseKey();
+  const keyProblem = signingKeyProblem(key, readIfThere(`${key}.pub`), readIfThere(join(REPO, RELEASE_SIGNERS)));
+  if (keyProblem) throw new Error(keyProblem);
+
   const record = readRecord(REPO, commit) ?? { commit };
   if (record.released) throw new Error(`${commit.slice(0, 12)} was already released as ${record.released.version}`);
 
@@ -50,8 +54,11 @@ async function main(): Promise<void> {
     RELEASE_LIVE_PREVIOUS: previous,
   });
   writeRecord(REPO, { ...record, shipped, released: { at: new Date().toISOString(), steps, version, previous, ...(HOTFIXING ? { hotfix: true as const } : {}) } });
-  git(REPO, ['tag', '-a', version, commit, '-m', tagMessage(version, commit, previous, steps, HOTFIXING)]);
-  console.log(`\n✓ ${version} ${HOTFIXING ? 'tagged as a hotfix' : 'released'}: ${steps.length} steps in ${minutesSince(started)} min, tagged`);
+  console.log(`\nsigning ${version} with ${key}`);
+  signTag(REPO, version, commit, tagMessage(version, commit, previous, steps, HOTFIXING), key);
+  const unsigned = tagSignatureProblem(REPO, version);
+  if (unsigned) throw new Error(`${version} was tagged but does not verify: ${unsigned}`);
+  console.log(`✓ ${version} ${HOTFIXING ? 'tagged as a hotfix' : 'released'}: ${steps.length} steps in ${minutesSince(started)} min, tagged and signed`);
 
   const ledger = HOTFIXING ? false : commitLedger(REPO, `The live ledger records ${version} passing release`);
   if (!PUSH) {
@@ -60,16 +67,17 @@ async function main(): Promise<void> {
   }
   const pushed = spawnSync('git', ['push', 'origin', ...(ledger ? ['main'] : []), version], { cwd: REPO, stdio: 'inherit' });
   if (pushed.status !== 0) throw new Error('git push failed');
-  console.log(`GitHub builds the image and chart for ${version} now (the Release workflow)`);
+  console.log(`GitHub builds, attests and publishes the image and chart for ${version} now (the Release workflow); waiting for it`);
+  waitForRelease(githubSlug(REPO), version, (line) => console.log(`  ${line}`));
+  const digest = verifyPublished(REPO, version, commit);
+  console.log(`✓ ${digest} is attested as built by release.yml from ${commit.slice(0, 12)} at ${version}, the check root makes before it moves`);
 
   const root = process.env.ROOT_SSH;
   if (!root) {
     console.log('root moves onto it at its next hourly look (set ROOT_SSH=<user@host> to move it now)');
     return;
   }
-  const image = `${publishedImageOf(REPO)}:${version}`;
-  console.log(`waiting for ${image}, then updating root (${root})`);
-  waitForPublished(image, (line) => console.log(`  ${line}`));
+  console.log(`updating root (${root})`);
   if (!updateRoot(root, version, process.env.ROOT_REPO_DIR ?? '/opt/nowrinkles')) throw new Error(`root did not move onto ${version}; it tries again at its next hourly look, or run scripts/root-node/release-watch.sh ${version} there`);
   console.log(`root runs ${version}; instances on automatic updates follow at their next check-in`);
 }

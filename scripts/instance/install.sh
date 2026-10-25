@@ -139,6 +139,13 @@ report installing "Installing the instance" "$PUBLIC_URL"
 KEYS_FILE="$(mktemp)"
 printf '%s' "$ROOT_PUBLIC_KEYS_B64" | base64 -d > "$KEYS_FILE"
 curl -fsSL "$INSTANCE_CHART_URL" -o /tmp/instance-chart.tgz
+if [ -n "${INSTANCE_CHART_SHA256:-}" ]; then
+  printf '%s  %s\n' "$INSTANCE_CHART_SHA256" /tmp/instance-chart.tgz | sha256sum -c --quiet - >/dev/null 2>&1 \
+    || die "the chart Koala's servers sent is not the one they released (its sha256 differs); nothing was installed"
+fi
+if [ -n "${INSTANCE_IMAGE_DIGEST:-}" ] && ! printf '%s' "$INSTANCE_IMAGE_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+  die "Koala's servers named ${INSTANCE_IMAGE_DIGEST} as the image, which is not a digest; nothing was installed"
+fi
 MOVE_ARGS=""
 if [ "${INSTANCE_MOVE:-}" = yes ]; then
   say "Bringing your instance over from Koala's servers"
@@ -163,7 +170,7 @@ fi
 WAIT="--wait"
 [ -n "$MOVE_ARGS" ] && WAIT=
 helm upgrade --install "$RELEASE" /tmp/instance-chart.tgz --namespace "$NAMESPACE" --create-namespace \
-  --set image.repository="$INSTANCE_IMAGE" --set image.tag="$INSTANCE_IMAGE_TAG" \
+  --set image.repository="$INSTANCE_IMAGE" --set image.tag="$INSTANCE_IMAGE_TAG" --set-string image.digest="${INSTANCE_IMAGE_DIGEST:-}" \
   --set instance.id="$INSTANCE_ID" --set instance.ownerId="$INSTANCE_OWNER_ID" --set instance.rootUrl="$ROOT_URL" \
   --set-file instance.rootPublicKeys="$KEYS_FILE" --set instance.credential="$INSTANCE_CREDENTIAL" \
   --set publicUrl="$PUBLIC_URL" --set backend.nodePort="$NODE_PORT" --set hostDocker="$HOST_DOCKER" \

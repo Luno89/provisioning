@@ -4,6 +4,8 @@ export interface InstanceRelease {
   servedAt: string;
   notes?: string | undefined;
   hotfix?: boolean | undefined;
+  digest?: string | undefined;
+  chartSha256?: string | undefined;
 }
 
 export interface UpdateSetting {
@@ -88,3 +90,8 @@ export function updatesView(setting: UpdateSetting, running: string | undefined,
     })),
   };
 }
+
+export const pinned = (release: InstanceRelease | undefined): { imageDigest?: string; chartSha256?: string } => ({
+  ...(release?.digest ? { imageDigest: release.digest } : {}),
+  ...(release?.chartSha256 ? { chartSha256: release.chartSha256 } : {}),
+});

@@ -42,6 +42,9 @@ k3s_native_data_dir()      { echo "/var/lib/rancher/k3s-$(k3s_native_name "$1")"
 k3s_native_kubeconfig()    { echo "$(k3s_native_data_dir "$1")/kubeconfig.yaml"; }
 
 # Installed = the systemd unit file exists. Does NOT imply it's running.
+K3S_VERSION="v1.36.4+k3s1"
+K3S_INSTALLER_SHA256=46177d4c99440b4c0311b67233823a8e8a2fc09693f6c89af1a7161e152fbfad
+
 native_k3s_installed() {
   local unit; unit="$(k3s_native_unit "$1")"
   [ -f "/etc/systemd/system/${unit}" ]
@@ -59,18 +62,27 @@ native_k3s_install() {
     return 0
   fi
 
-  echo "  ▶  installing native k3s as systemd service (name=${name})..."
-  if curl -sfL https://get.k3s.io | \
+  echo "  ▶  installing native k3s ${K3S_VERSION} as systemd service (name=${name})..."
+  local installer; installer="$(mktemp)"
+  curl -fsSL "https://raw.githubusercontent.com/k3s-io/k3s/${K3S_VERSION//+/%2B}/install.sh" -o "$installer"
+  if ! echo "${K3S_INSTALLER_SHA256}  ${installer}" | sha256sum -c --quiet -; then
+    rm -f "$installer"
+    echo "  ❌ the k3s ${K3S_VERSION} installer does not match its pinned checksum — exiting"
+    return 1
+  fi
+  if INSTALL_K3S_VERSION="${K3S_VERSION}" \
       INSTALL_K3S_NAME="${name}" \
       INSTALL_K3S_SKIP_ENABLE=true \
       INSTALL_K3S_SKIP_START=true \
-      sh -s - server \
+      sh "$installer" server \
         --data-dir "${data_dir}" \
         --write-kubeconfig "${kubeconfig}" \
-        --write-kubeconfig-mode 644 \
+        --write-kubeconfig-mode "${K3S_KUBECONFIG_MODE:-644}" \
         --disable=traefik,servicelb; then
+    rm -f "$installer"
     echo "  ✅ native k3s installed (inactive — started on demand)"
   else
+    rm -f "$installer"
     echo "  ❌ native k3s install failed — exiting"
     return 1
   fi

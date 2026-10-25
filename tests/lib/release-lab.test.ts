@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, upgradeReports } from './release-lab.js';
+import { endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, upgradeReports } from './release-lab.js';
 
 describe('the release lab', () => {
   it('names an image by the first twelve characters of its commit', () => {
@@ -39,6 +40,8 @@ describe('the release lab', () => {
 
   it('says what update.sh refuses with', () => {
     expect(inFlightRefusal(1)).toBe('1 workflow(s) are running. Wait, or re-run with --force (costs them one retry attempt).');
+    const script = readFileSync(new URL('../../scripts/root-node/update.sh', import.meta.url), 'utf8');
+    expect(script).toContain(unsignedRefusal('${REF}', '${SIGNERS}'));
   });
 
   it('finds the last helm revision that ran a tag', () => {

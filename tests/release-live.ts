@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
 import { buildAppImage } from './lib/gate-runs.js';
-import { endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, upgradeReports, type Report } from './lib/release-lab.js';
+import { endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, upgradeReports, type Report } from './lib/release-lab.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PREVIOUS_REF = process.env.RELEASE_LIVE_PREVIOUS ?? 'v2026.10.23';
@@ -25,6 +25,11 @@ const STAMP = Date.now().toString(36);
 const NAME = `rl${STAMP}`;
 const EMAIL = `release-live-${STAMP}@example.com`;
 const PASSWORD = randomBytes(18).toString('base64url');
+const CANDIDATE_REF = 'v2099.12.31';
+const UNSIGNED_REF = 'v2099.12.30';
+const LAB_TAG = (name: string) => `release-lab-${STAMP}-${name}`;
+const SIGNERS = '/etc/koala/release-signers';
+const MANIFESTS = 'application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json';
 
 const run = (cmd: string, args: string[], env: Record<string, string> = {}) =>
   execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...env } });
@@ -122,6 +127,7 @@ async function teardown(): Promise<void> {
   await instance?.destroy();
   await root?.destroy();
   if (previousTag) try { run('docker', ['rmi', `${IMAGE_REPO}:${previousTag}`]); } catch { /* kept or gone */ }
+  for (const name of [PREVIOUS_REF, CANDIDATE_REF, UNSIGNED_REF]) try { run('git', ['tag', '-d', LAB_TAG(name)]); } catch { /* never made */ }
   if (work) rmSync(work, { recursive: true, force: true });
 }
 
@@ -154,10 +160,19 @@ async function main(): Promise<void> {
     `sudo git init -q --bare ${ORIGIN} && sudo chown -R ubuntu ${ORIGIN} && sudo git config --system --add safe.directory ${ORIGIN}`,
   ].join(' && '));
   note(`lab DNS answers *.${DOMAIN} with ${ROOT_LAN}; root's API is reachable on the lan at ${ROOT_URL}`);
-  run('git', ['push', '-q', '--force', `ssh://ubuntu@127.0.0.1:${root.port}${ORIGIN}`, `${previous}:refs/heads/previous`, `refs/tags/${PREVIOUS_REF}:refs/tags/${PREVIOUS_REF}`, `${candidate}:refs/heads/candidate`],
+  const labKey = join(work, 'release-key');
+  run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', 'the release rehearsal\'s throwaway key', '-f', labKey]);
+  const signing = ['-c', 'gpg.format=ssh', '-c', `user.signingkey=${labKey}`];
+  const previousMessage = run('git', ['tag', '--list', '--format=%(contents:subject)%0a%0a%(contents:body)', PREVIOUS_REF]).trim();
+  run('git', [...signing, 'tag', '-s', LAB_TAG(PREVIOUS_REF), previous, '-m', previousMessage]);
+  run('git', [...signing, 'tag', '-s', LAB_TAG(CANDIDATE_REF), candidate, '-m', `${CANDIDATE_REF}\n\nShipped and released from ${candidateTag} after ${PREVIOUS_REF}: the release rehearsal's own tag, signed by its throwaway key.`]);
+  run('git', ['tag', '-a', LAB_TAG(UNSIGNED_REF), candidate, '-m', `${UNSIGNED_REF}\n\nShipped and released from ${candidateTag} after ${PREVIOUS_REF}: signed by nobody.`]);
+  run('git', ['push', '-q', '--force', `ssh://ubuntu@127.0.0.1:${root.port}${ORIGIN}`, `${previous}:refs/heads/previous`, `${candidate}:refs/heads/candidate`,
+    ...[PREVIOUS_REF, CANDIDATE_REF, UNSIGNED_REF].map((name) => `refs/tags/${LAB_TAG(name)}:refs/tags/${name}`)],
     { GIT_SSH_COMMAND: `ssh -i ${root.privateKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR` });
-  await sh(root, `sudo git clone -q ${ORIGIN} ${REPO_DIR} && sudo git -C ${REPO_DIR} checkout -q --detach ${candidate} && sudo mkdir -p $(dirname ${UPDATE_SH}) && sudo cp ${REPO_DIR}/scripts/root-node/update.sh ${REPO_DIR}/scripts/root-node/cdktf-bindings.sh $(dirname ${UPDATE_SH})/`);
-  note(`${REPO_DIR} is a clone of this repository with ${PREVIOUS_REF} and the candidate; the candidate's update.sh is kept at ${UPDATE_SH}`);
+  await sh(root, `sudo git clone -q ${ORIGIN} ${REPO_DIR} && sudo git -C ${REPO_DIR} checkout -q --detach ${candidate} && sudo mkdir -p $(dirname ${UPDATE_SH}) && sudo cp ${REPO_DIR}/scripts/root-node/update.sh ${REPO_DIR}/scripts/root-node/cdktf-bindings.sh ${REPO_DIR}/scripts/root-node/verify-release.sh $(dirname ${UPDATE_SH})/`);
+  await sh(root, `sudo mkdir -p $(dirname ${SIGNERS}) && printf '%s\\n' 'koala-release namespaces="git" ${readFileSync(`${labKey}.pub`, 'utf8').trim()}' | sudo tee ${SIGNERS} >/dev/null`);
+  note(`${REPO_DIR} is a clone of this repository with ${PREVIOUS_REF}, the candidate as ${CANDIDATE_REF} and ${UNSIGNED_REF}; root trusts only the rehearsal's throwaway key, which signed all but ${UNSIGNED_REF}; the candidate's update.sh is kept at ${UPDATE_SH}`);
   const bootstrapped = Date.now();
   await sh(root, `sudo env ROOT_TLS=internal DOMAIN=${DOMAIN} PUBLIC_URL=${ROOT_URL} bash ${REPO_DIR}/scripts/root-node/bootstrap.sh`, true);
   note(`bootstrap.sh finished in ${minutes(bootstrapped)}`);
@@ -319,15 +334,30 @@ async function main(): Promise<void> {
   assert.equal(await rootHead(), previous, 'the refused update moved root');
   note(`refused: ${inFlightRefusal(1)}`);
   await sh(root, `sudo docker exec ${temporal} temporal workflow terminate --address temporal:7233 --workflow-id release-live-in-flight --reason rehearsal >/dev/null`);
+  const unsigned = await inVm(root, `sudo bash ${UPDATE_SH} ${UNSIGNED_REF}`);
+  assert.notEqual(unsigned.code, 0, `update.sh moved root onto ${UNSIGNED_REF}, which nobody signed`);
+  assert.ok(unsigned.out.includes(unsignedRefusal(UNSIGNED_REF, SIGNERS)), `update.sh did not refuse ${UNSIGNED_REF} with the expected words:\n${unsigned.out.slice(-800)}`);
+  assert.equal(await rootHead(), previous, 'the refused unsigned tag moved root');
+  note(`refused: ${unsignedRefusal(UNSIGNED_REF, SIGNERS)}`);
   const toCandidate = Date.now();
-  await sh(root, `sudo bash ${UPDATE_SH} ${candidate}`, true);
-  note(`update.sh ${candidateTag} took ${minutes(toCandidate)}`);
+  await sh(root, `sudo bash ${UPDATE_SH} ${CANDIDATE_REF}`, true);
+  note(`update.sh ${CANDIDATE_REF} (${candidateTag}) took ${minutes(toCandidate)}`);
   assert.equal(await rootHead(), candidate, 'root is not on the candidate');
   assert.equal(await rootReleaseTag(), candidateTag, 'root does not offer instances the candidate image');
   assert.equal((await sh(root, 'systemctl is-active nowrinkles')).trim(), 'active');
   await until('root answering on the candidate', async () => ((await rootAnswers()) ? true : undefined));
   const tags = JSON.parse(await sh(root, `curl -fsS http://127.0.0.1:5000/v2/${IMAGE_REPO}/tags/list`)) as { tags: string[] };
   assert.ok(tags.tags.includes(candidateTag), `root's registry holds ${tags.tags.join(', ')}, not ${candidateTag}`);
+  const registryDigest = (await sh(root, `curl -fsSI -H '${MANIFESTS}' http://127.0.0.1:5000/v2/${IMAGE_REPO}/manifests/${candidateTag} | tr -d '\\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest: *//p'`)).trim();
+  assert.match(registryDigest, /^sha256:[0-9a-f]{64}$/, `root's registry gives no digest for ${candidateTag}`);
+  assert.equal((await sh(root, `sudo grep '^INSTANCE_IMAGE_DIGEST=' ${REPO_DIR}/apps/backend/.env | cut -d= -f2-`)).trim(), registryDigest, 'update.sh did not record the digest it pushed');
+  const chartSha = (await sh(root, `sudo sha256sum ${REPO_DIR}/apps/backend/data/instance-charts/${candidateTag}.tgz | cut -d' ' -f1`)).trim();
+  const recorded = await until(`root recording ${candidateTag} with its digest and chart`, async () => {
+    const found = JSON.parse((await sh(root!, `sudo docker exec $(sudo docker ps --filter label=com.docker.compose.service=mongodb --format '{{.Names}}' | head -1) mongosh --quiet "mongodb://admin:$(sudo grep '^MONGO_ROOT_PASSWORD=' ${REPO_DIR}/.env | cut -d= -f2-)@127.0.0.1:27017/provisioning?authSource=admin" --eval 'JSON.stringify(db.instanceReleases.findOne({ _id: "${candidateTag}" }) ?? {})'`)).trim()) as { digest?: string; chartSha256?: string };
+    return found.chartSha256 ? found : undefined;
+  });
+  assert.deepEqual({ digest: recorded.digest, chartSha256: recorded.chartSha256 }, { digest: registryDigest, chartSha256: chartSha }, 'root does not hand instances the digest and chart sha256 it released');
+  note(`root offers ${candidateTag} as ${registryDigest}, its chart as sha256 ${chartSha.slice(0, 12)}…`);
   assert.equal(mine().status, 'ready', 'root lost sight of the instance across the update');
   note(`root runs ${candidateTag}, its registry holds ${tags.tags.join(', ')}`);
 

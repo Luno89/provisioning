@@ -6,10 +6,13 @@ TOOLS="${REPO}/.ci-tools"
 RUNNER_IMAGE=catthehacker/ubuntu:act-24.04
 WORK=""
 THROWAWAY=""
+KEYS=""
+TRUSTED=""
 
 cleanup() {
   [ -z "$WORK" ] || rm -rf "$WORK"
   [ -z "$THROWAWAY" ] || git -C "$REPO" tag -d "$THROWAWAY" >/dev/null 2>&1 || true
+  [ -z "$KEYS" ] || rm -rf "$KEYS"
 }
 trap cleanup EXIT
 
@@ -38,6 +41,7 @@ act_in_clone() {
   git clone -q --local "$REPO" "${WORK}/repo"
   git -C "${WORK}/repo" checkout -q "$ref"
   git -C "${WORK}/repo" remote set-url origin "$(git -C "$REPO" remote get-url origin)"
+  [ -z "$TRUSTED" ] || printf '%s\n' "$TRUSTED" > "${WORK}/repo/scripts/root-node/release-signers"
   printf '%s\n' "$event" > "${WORK}/event.json"
   (cd "${WORK}/repo" && "$act" push \
     -W "$workflow" \
@@ -58,7 +62,10 @@ release() {
   if [ -z "$tag" ]; then
     tag="v0000.00.00-act-$(date +%s)"
     THROWAWAY="$tag"
-    git -C "$REPO" tag -a "$tag" -m "${tag}" -m "Shipped and released from $(git -C "$REPO" rev-parse --short=12 HEAD) after nothing: a throwaway tag for npm run test:workflows, never pushed"
+    KEYS="$(mktemp -d)"
+    ssh-keygen -q -t ed25519 -N '' -C 'throwaway key for npm run test:workflows' -f "${KEYS}/key"
+    TRUSTED="koala-release namespaces=\"git\" $(cat "${KEYS}/key.pub")"
+    git -C "$REPO" -c gpg.format=ssh -c user.signingkey="${KEYS}/key" tag -s "$tag" -m "${tag}" -m "Shipped and released from $(git -C "$REPO" rev-parse --short=12 HEAD) after nothing: a throwaway tag for npm run test:workflows, signed by a throwaway key only the clone trusts, never pushed"
   fi
   [ "$(git -C "$REPO" cat-file -t "refs/tags/${tag}" 2>/dev/null)" = tag ] || { echo "${tag} is not an annotated tag here" >&2; exit 1; }
   ensure_runner_image

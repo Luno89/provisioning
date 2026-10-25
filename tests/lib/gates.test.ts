@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { changedBesidesLedger, HOTFIX_STEPS, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_STEPS, SHIP_STEPS, TAG_SIGNATURE, tagMessage } from './gates.js';
+import { changedBesidesLedger, HOTFIX_STEPS, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
 
 const shipped = { at: '2026-10-24T01:00:00.000Z', steps: [] };
 const released = (version: string) => ({ ...shipped, version, previous: 'v2026.10.23' });
@@ -94,5 +94,30 @@ describe('a hotfix', () => {
     expect([fixed, gated].every((message) => TAG_SIGNATURE.test(message))).toBe(true);
     const workflow = readFileSync(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8');
     expect(workflow).toContain(`grep -qE '${TAG_SIGNATURE.source}'`);
+  });
+});
+
+describe('the key a release is signed with', () => {
+  const key = '/home/someone/.ssh/koala-release';
+  const publicKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGs4bWFkZXVwLWtleS1mb3ItYS10ZXN0LW9ubHk= someone@box\n';
+
+  it('is one the signers file trusts, whatever its comment says', () => {
+    expect(signingKeyProblem(key, publicKey, '# who signs releases\nkoala-release namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGs4bWFkZXVwLWtleS1mb3ItYS10ZXN0LW9ubHk= release key\n')).toBeUndefined();
+  });
+
+  it('is refused before the suites run when it is missing or root would not trust it', () => {
+    expect(signingKeyProblem(key, undefined, 'koala-release ssh-ed25519 AAAA')).toContain(`there is no release key at ${key}`);
+    expect(signingKeyProblem(key, publicKey, undefined)).toContain(`is not in ${RELEASE_SIGNERS}`);
+    expect(signingKeyProblem(key, publicKey, '# koala-release namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGs4bWFkZXVwLWtleS1mb3ItYS10ZXN0LW9ubHk=\n')).toContain(`is not in ${RELEASE_SIGNERS}`);
+  });
+
+  it('refuses to push a tag that does not verify, and names why', () => {
+    expect(unsignedTagRefusal('v2026.10.25', undefined)).toBeUndefined();
+    expect(unsignedTagRefusal('v2026.10.25', 'v2026.10.25 is not signed by a key in scripts/root-node/release-signers')).toBe('root would refuse v2026.10.25: v2026.10.25 is not signed by a key in scripts/root-node/release-signers. `npm run release` signs the tag with your release key.');
+  });
+
+  it('is what the Release workflow checks the tag against', () => {
+    const workflow = readFileSync(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8');
+    expect(workflow).toContain(`gpg.ssh.allowedSignersFile=${RELEASE_SIGNERS} verify-tag`);
   });
 });

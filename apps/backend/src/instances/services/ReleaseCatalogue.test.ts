@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,14 +28,15 @@ beforeEach(async () => {
   git('commit', '-q', '-m', 'one');
 });
 
-const catalogue = (imageTag: string, at: string) => new ReleaseCatalogue(db.instances, { repoRoot: repo, chartsDir, imageTag, chart: async () => chart }, () => new Date(at));
+const catalogue = (imageTag: string, at: string, imageDigest?: string) => new ReleaseCatalogue(db.instances, { repoRoot: repo, chartsDir, imageTag, imageDigest, chart: async () => chart }, () => new Date(at));
+const chartSha256 = createHash('sha256').update('the chart').digest('hex');
 
 describe('the releases root has run', () => {
   it('records a tagged release with its notes, keeps when it was first served, and keeps its chart', async () => {
     git('tag', '-a', 'v2026.10.25', '-m', 'v2026.10.25\n\nHotfix released from aaaaaaaaaaaa after v2026.10.24 without the gates: typecheck and the image build.');
     expect(await catalogue('aaaaaaaaaaaa', '2026-10-25T00:00:00.000Z').recordCurrent()).toEqual({
       imageTag: 'aaaaaaaaaaaa', version: 'v2026.10.25', servedAt: '2026-10-25T00:00:00.000Z', hotfix: true,
-      notes: 'Hotfix released from aaaaaaaaaaaa after v2026.10.24 without the gates: typecheck and the image build.',
+      notes: 'Hotfix released from aaaaaaaaaaaa after v2026.10.24 without the gates: typecheck and the image build.', chartSha256,
     });
     const again = catalogue('aaaaaaaaaaaa', '2026-10-27T00:00:00.000Z');
     expect((await again.recordCurrent()).servedAt).toBe('2026-10-25T00:00:00.000Z');
@@ -53,5 +55,15 @@ describe('the releases root has run', () => {
       ['bbbbbbbbbbbb', 'v2026.10.26', false],
     ]);
     expect(existsSync(join(chartsDir, 'bbbbbbbbbbbb.tgz'))).toBe(true);
+  });
+
+  it('keeps the digest the image was released under and the chart\'s sha256, and answers only once they are recorded', async () => {
+    const digest = `sha256:${'b'.repeat(64)}`;
+    const now = catalogue('aaaaaaaaaaaa', '2026-10-25T00:00:00.000Z', digest);
+    void now.recordCurrent();
+    expect(await now.releases()).toEqual([expect.objectContaining({ imageTag: 'aaaaaaaaaaaa', digest, chartSha256 })]);
+    const unpinned = catalogue('aaaaaaaaaaaa', '2026-10-26T00:00:00.000Z', 'latest');
+    await unpinned.recordCurrent();
+    expect((await unpinned.releases())[0]?.digest).toBeUndefined();
   });
 });

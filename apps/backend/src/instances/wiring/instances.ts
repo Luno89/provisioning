@@ -142,6 +142,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     repoRoot: deps.repoRoot,
     chartsDir: path.join(deps.dataDir, 'instance-charts'),
     imageTag: env.INSTANCE_IMAGE_TAG || 'dev',
+    imageDigest: env.INSTANCE_IMAGE_DIGEST,
     chart: () => instanceChart.path(),
   });
   releaseCatalogue.recordCurrent().catch((err: Error) => console.error(`[releases] could not record the release root runs: ${err.message}`));

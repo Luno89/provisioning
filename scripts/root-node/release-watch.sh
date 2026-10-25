@@ -24,5 +24,5 @@ fi
 echo "moving root from ${current:-$(git -C "$REPO_DIR" rev-parse --short=12 HEAD)} to ${wanted}"
 copy="$(mktemp -d)"
 trap 'rm -rf "$copy"' EXIT
-cp "$REPO_DIR/scripts/root-node/update.sh" "$REPO_DIR/scripts/root-node/cdktf-bindings.sh" "$copy/"
+cp "$REPO_DIR/scripts/root-node/update.sh" "$REPO_DIR/scripts/root-node/cdktf-bindings.sh" "$REPO_DIR/scripts/root-node/verify-release.sh" "$copy/"
 bash "$copy/update.sh" "$wanted"

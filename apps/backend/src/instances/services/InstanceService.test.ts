@@ -413,7 +413,7 @@ describe('which release an instance runs', () => {
     releases: async () => [
       { imageTag: 'old111', version: 'v2026.10.24', servedAt: '2026-10-24T00:00:00.000Z' },
       { imageTag: 'mid222', version: 'v2026.10.25', servedAt: '2026-10-25T00:00:00.000Z', hotfix: true },
-      { imageTag: 'abc123', version: 'v2026.10.26', servedAt: '2026-10-26T00:00:00.000Z' },
+      { imageTag: 'abc123', version: 'v2026.10.26', servedAt: '2026-10-26T00:00:00.000Z', digest: `sha256:${'d'.repeat(64)}`, chartSha256: 'c'.repeat(64) },
     ],
     hasChart: (imageTag: string) => charts.includes(imageTag),
   });
@@ -429,8 +429,18 @@ describe('which release an instance runs', () => {
   it('follows root on auto, from the release it reports running, with that release\'s own chart', async () => {
     const { id, credential } = await joined();
     expect(await service.report(id, credential, { status: 'ready', imageTag: 'old111' })).toMatchObject({ ok: true, value: { running: 'old111' } });
-    expect(await service.release(id, credential)).toEqual({ ok: true, value: { imageTag: 'abc123', chartUrl: 'https://app.example.com/api/instances/chart.tgz' } });
+    expect(await service.release(id, credential)).toEqual({ ok: true, value: { imageTag: 'abc123', chartUrl: 'https://app.example.com/api/instances/chart.tgz', digest: `sha256:${'d'.repeat(64)}`, chartSha256: 'c'.repeat(64) } });
     expect(await service.report(id, credential, { status: 'ready', imageTag: 'abc123' })).toMatchObject({ ok: true, value: { running: 'abc123', previous: 'old111' } });
+  });
+
+  it('installs a new instance from the image and chart root released, by digest and checksum, and an older release without them as before', async () => {
+    service = new InstanceService(db, { ...settings, releases: catalogue(['old111', 'mid222', 'abc123']) }, mesh, () => now);
+    const { token } = await tokenFor('u1');
+    expect(await service.join(token, 'm')).toMatchObject({ ok: true, value: { imageTag: 'abc123', imageDigest: `sha256:${'d'.repeat(64)}`, chartSha256: 'c'.repeat(64) } });
+    const { id, credential } = await joined();
+    await service.setUpdates(id, credential, { version: 'v2026.10.24' });
+    const older = await service.release(id, credential);
+    expect(older).toEqual({ ok: true, value: { imageTag: 'old111', chartUrl: 'https://app.example.com/api/instances/chart/old111.tgz' } });
   });
 
   it('stays where it is once automatic updates are off, and moves to the release picked', async () => {

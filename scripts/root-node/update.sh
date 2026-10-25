@@ -2,9 +2,9 @@
 # update.sh — Deploy a new version of the platform onto the root node.
 #
 # Usage (on the root node, as root):
-#   bash scripts/root-node/update.sh                    # latest origin/main
-#   bash scripts/root-node/update.sh v1.2.0             # a tag, or any git ref
-#   bash scripts/root-node/update.sh --force            # update despite work in flight
+#   bash scripts/root-node/update.sh v2026.10.25        # a release tag signed by a key in /etc/koala/release-signers
+#   bash scripts/root-node/update.sh v2026.10.25 --force  # update despite work in flight
+#   (a lab, ROOT_TLS=internal, also takes any git ref, and origin/main when none is given)
 #
 # Rollback is git-based and automatic: if the health check fails, this returns to the commit that
 # was running before and restarts again.
@@ -22,6 +22,7 @@ SERVICE="${SERVICE:-nowrinkles}"
 REGISTRY="${REGISTRY:-127.0.0.1:5000}"
 IMAGE_REPO="nowrinkles/app"
 PUBLISHED_IMAGE="${PUBLISHED_IMAGE-ghcr.io/luno89/nowrinkles/app}"
+SIGNERS="${RELEASE_SIGNERS:-/etc/koala/release-signers}"
 FORCE=0
 TARGET_REF=""
 
@@ -43,6 +44,8 @@ step() { echo -e "\n${GREEN}▶${NC} $1"; }
 [ -d "$REPO_DIR/.git" ] || die "No repo at ${REPO_DIR}. Run bootstrap.sh first."
 cd "$REPO_DIR"
 BACKEND_ENV="apps/backend/.env"
+LAB=0
+grep -q '^ROOT_TLS=internal$' .env 2>/dev/null && LAB=1
 
 set_backend_env() {
   if grep -q "^$1=" "$BACKEND_ENV"; then
@@ -57,8 +60,20 @@ published() {
 }
 
 BINDINGS="$(mktemp)"
-trap 'rm -f "$BINDINGS"' EXIT
+VERIFY="$(mktemp)"
+trap 'rm -f "$BINDINGS" "$VERIFY"' EXIT
 cp "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/cdktf-bindings.sh" "$BINDINGS" || die "cdktf-bindings.sh must sit beside update.sh"
+cp "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/verify-release.sh" "$VERIFY" || die "verify-release.sh must sit beside update.sh"
+
+install_dependencies() {
+  npm ci --ignore-scripts --silent && node scripts/fix-dnd-kit-hoisting.js
+}
+
+registry_digest() {
+  curl -fsSI \
+    -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' \
+    "http://${REGISTRY}/v2/${IMAGE_REPO}/manifests/$1" | tr -d '\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest: *//p'
+}
 
 ensure_cdktf_bindings() {
   bash "$BINDINGS" "$REPO_DIR"
@@ -89,6 +104,8 @@ fi
 # ── 2. Remember where we were ──────────────────────────────────────────────────────────────────
 PREVIOUS_COMMIT="$(git rev-parse HEAD)"
 PREVIOUS_TAG="$(grep -E '^INSTANCE_IMAGE_TAG=' "$BACKEND_ENV" 2>/dev/null | cut -d= -f2- || true)"
+PREVIOUS_DIGEST="$(grep -E '^INSTANCE_IMAGE_DIGEST=' "$BACKEND_ENV" 2>/dev/null | cut -d= -f2- || true)"
+PREVIOUS_RELEASE="$(git describe --exact-match --tags --match 'v*' HEAD 2>/dev/null || true)"
 ok "Currently on ${PREVIOUS_COMMIT:0:12}${PREVIOUS_TAG:+, instances on ${PREVIOUS_TAG}}"
 
 publish_image() {
@@ -96,6 +113,13 @@ publish_image() {
   local tag="$1" image="${REGISTRY}/${IMAGE_REPO}:$1"
   if published "$tag"; then
     ok "the registry already holds ${image}"
+  elif [ "$LAB" -eq 0 ]; then
+    [ -n "$RELEASE_NAME" ] || { warn "only a signed release's image goes to instances, and ${REF} is not one"; return 1; }
+    local verified
+    verified="$(COSIGN="${COSIGN:-/usr/local/bin/cosign}" PUBLISHED_IMAGE="$PUBLISHED_IMAGE" bash "$VERIFY" image "$RELEASE_NAME" "$NEW_COMMIT")" || return 1
+    docker tag "$verified" "$image"
+    docker push -q "$image" >/dev/null || return 1
+    ok "${verified} is attested as built by release.yml from ${NEW_COMMIT:0:12} at ${RELEASE_NAME}; pushed as ${image}"
   elif [ -n "$PUBLISHED_IMAGE" ] && docker pull -q "${PUBLISHED_IMAGE}:${tag}" >/dev/null 2>&1; then
     docker tag "${PUBLISHED_IMAGE}:${tag}" "$image"
     docker push -q "$image" >/dev/null || return 1
@@ -107,8 +131,12 @@ publish_image() {
     docker push -q "$image" >/dev/null || return 1
     ok "built and pushed ${image}${PUBLISHED_IMAGE:+ (${PUBLISHED_IMAGE} has no ${tag})}"
   fi
+  local digest
+  digest="$(registry_digest "$tag")"
+  [ -n "$digest" ] || { warn "the registry gives no digest for ${image}"; return 1; }
   set_backend_env INSTANCE_IMAGE_TAG "$tag"
-  ok "instances move to ${tag} the next time they check in (hourly)"
+  set_backend_env INSTANCE_IMAGE_DIGEST "$digest"
+  ok "instances move to ${tag} (${digest}) the next time they check in (hourly), and refuse any other image under that name"
 }
 
 # A 401 counts as healthy: /api is session-gated, so anything other than a connection failure
@@ -165,6 +193,16 @@ fi
 step "Fetching"
 git fetch --all --tags --prune
 REF="${TARGET_REF:-origin/main}"
+RELEASE_NAME=""
+if git rev-parse -q --verify "refs/tags/${REF}" >/dev/null; then
+  if [ "$LAB" -eq 0 ] || [ -s "$SIGNERS" ]; then
+    bash "$VERIFY" tag "$REPO_DIR" "$REF" >/dev/null || die "Refusing ${REF}: root moves only onto a release signed by a key in ${SIGNERS}"
+    ok "${REF} is signed by a release key root trusts"
+  fi
+  RELEASE_NAME="$REF"
+elif [ "$LAB" -eq 0 ]; then
+  die "Refusing ${REF}: root moves only onto a signed release tag. Name one (bash scripts/root-node/release-watch.sh <tag>), or roll back with update.sh <the tag it ran before>."
+fi
 # Detached on purpose, so a deploy pins an exact commit rather than tracking whatever a branch
 # points at later — and so rolling back to a bare SHA works the same way as deploying a tag.
 # Side effect: bootstrap.sh's `git pull --ff-only` no longer applies, which is why it only warns.
@@ -195,7 +233,7 @@ ok "Now on ${NEW_COMMIT:0:12} ($(git log -1 --format=%s | cut -c1-60))"
 # could have caught while the old version was still happily serving.
 step "Building"
 build_and_check() {
-  npm ci --silent
+  install_dependencies
   # Rebuilt every time, not just when the frontend changed: the backend serves this as static
   # files, so a stale build means a new API behind an old UI.
   npm run build --silent
@@ -214,12 +252,22 @@ if ! build_and_check; then
   git clean -fdqX packages/cdktf-infra/.gen
   git checkout --detach "$PREVIOUS_COMMIT"
   ensure_cdktf_bindings
-  npm ci --silent && npm run build --silent
+  install_dependencies && npm run build --silent
   die "Update aborted before restart. The running version was never interrupted."
 fi
 ok "Build, typecheck and lint clean"
 
-publish_image "$RELEASE_TAG" || warn "could not build or push the instance image — instances stay on the version they run"
+if ! publish_image "$RELEASE_TAG"; then
+  if [ "$LAB" -eq 0 ]; then
+    warn "the release's image could not be verified — reverting to ${PREVIOUS_COMMIT:0:12}, service untouched"
+    git clean -fdqX packages/cdktf-infra/.gen
+    git checkout --detach "$PREVIOUS_COMMIT"
+    ensure_cdktf_bindings
+    install_dependencies && npm run build --silent
+    die "Update aborted before restart: root runs a release only with the image GitHub attested for it."
+  fi
+  warn "could not build or push the instance image — instances stay on the version they run"
+fi
 
 # A release that adds a tool, persona or pack has to put it in the database, and nothing does that
 # at server start any more. Before the restart, so the new version never comes up against a
@@ -261,8 +309,9 @@ else
   git clean -fdqX packages/cdktf-infra/.gen
   git checkout --detach "$PREVIOUS_COMMIT"
   ensure_cdktf_bindings
-  npm ci --silent && npm run build --silent
+  install_dependencies && npm run build --silent
   [ -n "$PREVIOUS_TAG" ] && set_backend_env INSTANCE_IMAGE_TAG "$PREVIOUS_TAG"
+  [ -n "$PREVIOUS_DIGEST" ] && set_backend_env INSTANCE_IMAGE_DIGEST "$PREVIOUS_DIGEST"
   systemctl restart "$SERVICE"
   die "Rolled back${PREVIOUS_TAG:+, instances stay on ${PREVIOUS_TAG}}. Check: journalctl -u ${SERVICE} -n 100"
 fi
@@ -276,5 +325,5 @@ done
 
 echo
 echo -e "${GREEN}Updated${NC} ${PREVIOUS_COMMIT:0:12} → ${NEW_COMMIT:0:12}"
-echo "  Roll back with:  bash scripts/root-node/update.sh ${PREVIOUS_COMMIT:0:12}"
+echo "  Roll back with:  bash scripts/root-node/update.sh ${PREVIOUS_RELEASE:-${PREVIOUS_COMMIT:0:12}}"
 echo "  Logs:            journalctl -u ${SERVICE} -f"

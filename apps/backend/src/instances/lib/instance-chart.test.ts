@@ -38,6 +38,18 @@ describe('the instance chart', () => {
     }
   });
 
+  it('pulls that image by the digest root released it under, whatever the tag points at now', () => {
+    const digest = `sha256:${'a'.repeat(64)}`;
+    const docs = render([`image.digest=${digest}`, 'instance.credential=c']);
+    const images = docs.flatMap((doc) => [
+      ...(doc.spec?.template?.spec?.containers ?? []),
+      ...(doc.spec?.template?.spec?.initContainers ?? []),
+      ...(doc.spec?.jobTemplate?.spec?.template?.spec?.containers ?? []),
+    ]).map((container: { image: string }) => container.image).filter((image: string) => image.startsWith('nowrinkles/app'));
+    expect(images.length).toBeGreaterThan(4);
+    expect(new Set(images)).toEqual(new Set([`nowrinkles/app:dev@${digest}`]));
+  });
+
   it('configures every process as this owner\'s instance, trusting root and keeping its own keys', () => {
     const docs = render();
     expect(find(docs, 'ConfigMap', 'luno-env').data).toMatchObject({
