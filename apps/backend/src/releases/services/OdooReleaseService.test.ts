@@ -140,6 +140,26 @@ describe('releasing a project\'s build', () => {
     expect((started[0]!.inputs as ReleaseRunInput).build.vault?.database).toEqual({ secret: 'shop-secrets', key: 'postgres-password' });
   });
 
+  it('carries what the app was last given into a vault that lost it, rather than making new passwords its database would refuse', async () => {
+    const seeded: Record<string, string | undefined> = {};
+    const name = newReleaseName(project);
+    const delivered: Record<string, string> = { POSTGRES_PASSWORD: 'db-last-given', ODOO_ADMIN_PASSWORD: 'admin-last-given' };
+    const svc = new OdooReleaseService({
+      store: db, runs, chartAt: async () => true, newId: () => 'r1', pollMs: 5,
+      secrets: {
+        ensure: async (_entry, options) => {
+          for (const key of ['POSTGRES_PASSWORD', 'ODOO_ADMIN_PASSWORD', 'NEVER_GIVEN']) seeded[key] = await options.seed?.(key);
+          return { declared: [{ key: 'POSTGRES_PASSWORD', source: 'generated', describe: 'd' }], waiting: [] };
+        },
+        keep: async () => { throw new Error('nothing to carry over'); },
+        chartKeepsOwnSecret: async () => false,
+        onCluster: async (_cluster, namespace, secret, key) => (namespace === name && secret === `${name}-vault` ? delivered[key] : undefined),
+      },
+    });
+    await svc.release(project, run('b1', 'abc'));
+    expect(seeded).toEqual({ POSTGRES_PASSWORD: 'db-last-given', ODOO_ADMIN_PASSWORD: 'admin-last-given', NEVER_GIVEN: undefined });
+  });
+
   it('does not release while a secret the type needs waits for the person, and says which', async () => {
     const svc = new OdooReleaseService({
       store: db, runs, chartAt: async () => true, newId: () => 'r1', pollMs: 5,

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import dotenv from 'dotenv';
@@ -10,6 +11,8 @@ import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
 import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
+import { InfisicalService } from '../apps/backend/src/infrastructure/services/InfisicalService.js';
+import { ClusterProxyService } from '../apps/backend/src/infrastructure/services/ClusterProxyService.js';
 import { ODOO_ADDONS_FILES } from '../apps/backend/src/projects/lib/project-templates.js';
 import { renderStarterFiles, versionVars } from '../apps/backend/src/projects/lib/tree-types.js';
 import { ODOO_TREE_TYPE, TREE_TYPE_SEEDS } from '../apps/backend/src/projects/lib/tree-type-seeds.js';
@@ -174,6 +177,19 @@ async function main(): Promise<void> {
     assert.equal(await psql('odoo_a', "select arch_updated from ir_ui_view where id = (select res_id from ir_model_data where module = 'koala_probe' and name = 'probe_form')"), 't', 'the edit did not mark the view edited in the app');
     console.log('    made through Odoo\'s own API, signed in with the project\'s sign-in');
 
+    console.log('[2b] the vault loses the project\'s workspace and its reader, as when Infisical is wiped: the app keeps what it was given, and the next release carries it back');
+    const vault = new InfisicalService(new InfrastructureService(), loadKeys(process.env).data, KUBECONFIG, undefined, new ClusterProxyService());
+    const fingerprint = (data: string) => createHash('sha256').update(data).digest('hex');
+    const vaultData = () => kubectl('get', 'secret', `${place.release}-vault`, '-o', 'jsonpath={.data}');
+    const given = fingerprint(await vaultData());
+    const readerBefore = (await db.projects.getProjects()).find((entry) => entry.id === projectId)?.infisicalReaderEnc;
+    assert.ok(readerBefore, 'the project has no reader for its vault');
+    assert.deepEqual(await vault.removeProject(projectId!), { workspace: true, readers: 1 });
+    assert.equal(await vault.hasSecret(projectId!, 'POSTGRES_PASSWORD'), false, 'the vault still holds the database password');
+    await sleep(75_000);
+    assert.equal(fingerprint(await vaultData()), given, 'the operator changed what the app was given once the vault refused its reader');
+    console.log('    the vault is empty and refuses the project\'s reader; a resync later the app still has what it was given');
+
     console.log('[3] a new module adds a field and the probe loses its note: the next build is prepared in slot b, compared with live, and waits in preview');
     await gitea.commitFiles(project.giteaOwner, project.giteaRepo, [...COLOUR, ...PROBE_WITHOUT_NOTE, ...SAVES], 'Add the colour module and a browser test that saves a contact, and the probe no longer keeps a note');
     const preview = await waitFor('preview', (all) => all.find((release) => release.state === 'preview'), 30);
@@ -184,6 +200,14 @@ async function main(): Promise<void> {
     assert.equal(await health(`${place.release}-odoo-b`), '200', 'the preview slot does not answer');
     assert.match(await kubectl('get', 'ingress', 'app', '-o', 'jsonpath={.spec.rules[*].host}'), new RegExp(place.previewHost.replace(/\./g, '\\.')));
     console.log('    preview on slot b: it has the colour field, the live slot does not');
+    assert.equal(fingerprint(await vaultData()), given, 'the release gave the app passwords other than the ones it had');
+    const keys = JSON.parse(await vaultData()) as Record<string, string>;
+    for (const key of ['POSTGRES_PASSWORD', 'ODOO_ADMIN_PASSWORD']) {
+      assert.equal(await vault.getSecret(projectId!, key), Buffer.from(keys[key]!, 'base64').toString('utf8'), `the vault did not get ${key} back from the app`);
+    }
+    assert.notEqual((await db.projects.getProjects()).find((entry) => entry.id === projectId)?.infisicalReaderEnc, readerBefore, 'the release kept the reader the vault refuses');
+    console.log('    the vault holds the passwords the app had, the release synced them through a new reader, and the preview runs on them');
+
 
     console.log('[3e] the preview says what cutting over would lose, and keeps what was made in the app');
     const compared = (await releases()).find((release) => release.id === preview.id)!;

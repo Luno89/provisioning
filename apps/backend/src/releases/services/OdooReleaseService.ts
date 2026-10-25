@@ -203,11 +203,12 @@ export class OdooReleaseService {
     const own = await secrets.chartKeepsOwnSecret(project.giteaOwner, project.giteaRepo, commit);
     const carried = own ? chartDatabaseSecret(release) : undefined;
     const running = carried ? await secrets.onCluster(cluster, release, carried.secret, carried.key) : undefined;
-    const { declared, waiting } = await secrets.ensure(project, { seed: async (key) => (key === ODOO_DATABASE_PASSWORD ? running : undefined), fallback: ODOO_RELEASE_SECRETS });
+    const secret = vaultSecretName(release);
+    const delivered = (key: string) => secrets.onCluster(cluster, release, secret, key);
+    const { declared, waiting } = await secrets.ensure(project, { seed: async (key) => (key === ODOO_DATABASE_PASSWORD && running ? running : delivered(key)), fallback: ODOO_RELEASE_SECRETS });
     if (declared.length === 0) return undefined;
     if (waiting.length > 0) throw new Error(`waiting for the person to enter ${waiting.join(', ')}`);
     if (running && declared.some((secret) => secret.key === ODOO_DATABASE_PASSWORD)) await secrets.keep(project.id, ODOO_DATABASE_PASSWORD, running);
-    const secret = vaultSecretName(release);
     const admin = declared.find((secret) => secret.signInAs);
     return {
       projectId: project.id,

@@ -15,6 +15,7 @@ export interface SecretSyncInfra {
 export interface SecretSyncVault {
   workspaceIdFor(projectId: string): Promise<string>;
   createProjectReader(projectId: string): Promise<{ clientId: string; clientSecret: string }>;
+  readerWorks(reader: { clientId: string; clientSecret: string }): Promise<boolean>;
 }
 
 export interface SecretSyncProjects {
@@ -51,6 +52,7 @@ export async function syncProjectSecrets(
       reader = undefined;
     }
   }
+  if (reader && !(await deps.vault.readerWorks(reader))) reader = undefined;
   if (!reader) {
     reader = await deps.vault.createProjectReader(args.project.id);
     await deps.projects.saveProject({ ...args.project, infisicalReaderEnc: encryptValue(JSON.stringify(reader), deps.masterKey) });

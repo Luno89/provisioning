@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { syncProjectSecrets } from './ProjectSecretSync.js';
-import { decryptValue } from '../../platform/lib/crypto.js';
+import { decryptValue, encryptValue } from '../../platform/lib/crypto.js';
 import type { ProjectMetadata } from '../../platform/lib/types.js';
 
 const MASTER = 'test-master-key-that-is-at-least-32-characters';
 
-function world(operatorInstalled: boolean) {
+function world(operatorInstalled: boolean, readerAlive = true) {
   const helm: string[][] = [];
   const applied: string[] = [];
   const kubectl: string[][] = [];
@@ -21,6 +21,7 @@ function world(operatorInstalled: boolean) {
   const vault = {
     workspaceIdFor: vi.fn(async () => 'ws-1'),
     createProjectReader: vi.fn(async () => ({ clientId: 'cid', clientSecret: 'reader-secret-sentinel' })),
+    readerWorks: vi.fn(async () => readerAlive),
   };
   const saved: ProjectMetadata[] = [];
   const projects = { saveProject: vi.fn(async (project: ProjectMetadata) => { saved.push(project); }) };
@@ -54,6 +55,18 @@ describe('syncProjectSecrets', () => {
     expect(out.operator).toBe('present');
     expect(again.vault.createProjectReader).not.toHaveBeenCalled();
     expect(again.applied[0]).toContain('reader-secret-sentinel');
+  });
+
+  it('mints a new reader when the vault refuses the stored one, and stores and applies that one', async () => {
+    const stale = { ...project, infisicalReaderEnc: encryptValue(JSON.stringify({ clientId: 'old', clientSecret: 'dead-reader' }), MASTER) };
+    const w = world(true, false);
+    await syncProjectSecrets({ ...w, masterKey: MASTER }, { project: stale, namespace: 'billing', kubeconfig: 'k', target });
+
+    expect(w.vault.readerWorks).toHaveBeenCalledWith({ clientId: 'old', clientSecret: 'dead-reader' });
+    expect(w.vault.createProjectReader).toHaveBeenCalledTimes(1);
+    expect(decryptValue(w.saved[0]!.infisicalReaderEnc!, MASTER)).toContain('reader-secret-sentinel');
+    expect(w.applied[0]).toContain('reader-secret-sentinel');
+    expect(w.applied.join('')).not.toContain('dead-reader');
   });
 
   it('refuses a cluster that cannot reach the vault before touching it', async () => {

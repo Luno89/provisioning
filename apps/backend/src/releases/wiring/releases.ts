@@ -1,5 +1,5 @@
 import type { Server as SocketServer } from 'socket.io';
-import { type Database, type ProjectMetadata, awaitedNotice, releaseNotice } from '../../platform/index.js';
+import { type ClusterMetadata, type Database, type ProjectMetadata, awaitedNotice, releaseNotice } from '../../platform/index.js';
 import {
   treeTypeOfProject, ODOO_TREE_TYPE, deploymentForProject, type projectSecretsFor, type ProjectChannelService,
   type ProjectRepoService, type GiteaService,
@@ -9,6 +9,7 @@ import { buildPlanAt } from '../lib/build-plan.js';
 import { changedPaths, releaseDecision, type ReleaseDecision } from '../lib/release-paths.js';
 import { releaseHowOf } from '../lib/release-run.js';
 import { CHART_FILE, ODOO_RELEASE_SECRETS, OWN_SECRET_FILE, releaseTargetOf } from '../lib/odoo-release.js';
+import { managedSecretName } from '../lib/infisical-sync.js';
 import { createSlotCluster } from '../../extensions/releases/slot-cluster.js';
 import { syncVaultFromProject } from '../../extensions/releases/vault-sync.js';
 import { ODOO_RELEASE_ADAPTER } from '../../extensions/odoo/release-adapter.js';
@@ -21,6 +22,7 @@ import { ReleaseSettings } from '../services/ReleaseSettings.js';
 import { CustomizationsService } from '../services/CustomizationsService.js';
 import { ClientImportService } from '../services/ClientImportService.js';
 import { ProjectAppService } from '../services/ProjectAppService.js';
+import { namespaceOf } from '../../infrastructure/index.js';
 import type { TemporalBridge, AppExposureService, ClusterService, InfrastructureService } from '../../infrastructure/index.js';
 import type { ConversationNoticeService } from '../../engine/index.js';
 import { releaseSettingsRouter } from '../routes/release-settings.js';
@@ -63,6 +65,18 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
   const { db, gitea, infra, clusters, temporalBridge, notices, postNotice, secrets, tenant } = deps;
   const treeOfProject = async (projectId: string) => (await db.projects.getTrees()).find((tree) => tree.projectIds?.[0] === projectId);
   const clusterById = async (id: string) => (id === 'provisioning-lunorica' ? clusters.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id));
+  const onCluster = async (cluster: ClusterMetadata, namespace: string, secret: string, key: string): Promise<string | undefined> => {
+    const data = await infra.runKubectl(['get', 'secret', secret, '-n', namespace, '-o', 'jsonpath={.data}'], await clusters.getKubeconfigPath(cluster)).catch(() => '');
+    const encoded = data ? (JSON.parse(data) as Record<string, string>)[key] : undefined;
+    return encoded ? Buffer.from(encoded, 'base64').toString('utf8') : undefined;
+  };
+  const ensureDeployedSecrets = async (project: ProjectMetadata) => {
+    const deployment = deploymentForProject(project, await db.infrastructure.getDeployments());
+    const cluster = deployment?.clusterId ? await clusterById(deployment.clusterId) : undefined;
+    if (!deployment || !cluster) return secrets.ensure(project, {});
+    const namespace = namespaceOf(deployment);
+    return secrets.ensure(project, { seed: (key) => onCluster(cluster, namespace, managedSecretName(namespace), key) });
+  };
   const slotCluster = () => createSlotCluster({ infra, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(infra) });
 
   const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
@@ -116,14 +130,10 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
       ensure: (project, options) => secrets.ensure(project, options),
       keep: (projectId, key, value) => secrets.keep(projectId, key, value),
       chartKeepsOwnSecret: async (owner, repo, commit) => (await gitea.getRawFile(owner, repo, OWN_SECRET_FILE, commit)) !== null,
-      onCluster: async (cluster, namespace, secret, key) => {
-        const data = await infra.runKubectl(['get', 'secret', secret, '-n', namespace, '-o', 'jsonpath={.data}'], await clusters.getKubeconfigPath(cluster)).catch(() => '');
-        const encoded = data ? (JSON.parse(data) as Record<string, string>)[key] : undefined;
-        return encoded ? Buffer.from(encoded, 'base64').toString('utf8') : undefined;
-      },
+      onCluster,
     },
   });
-  temporalBridge.ensureSecrets = (project) => secrets.ensure(project, {});
+  temporalBridge.ensureSecrets = ensureDeployedSecrets;
   temporalBridge.planBuild = (project, commitSha) => buildPlanAt((file) => gitea.getRawFile(project.giteaOwner!, project.giteaRepo!, file, commitSha).catch(() => null), commitSha);
 
   const releaseSettings = new ReleaseSettings({
@@ -142,7 +152,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
     runs: deps.runs,
     deployedTag: async (project) => deploymentForProject(project, await db.infrastructure.getDeployments())?.gitappImageTag?.split(':').pop(),
     decide: decideRelease,
-    ensureSecrets: (project) => secrets.ensure(project, {}),
+    ensureSecrets: ensureDeployedSecrets,
     noteOnBuild: (run) => db.releases.savePipelineRunInfo(run),
   });
   temporalBridge.onBuilt = async (project, run) => {

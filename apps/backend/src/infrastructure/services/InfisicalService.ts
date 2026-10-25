@@ -158,20 +158,44 @@ export class InfisicalService {
   async authenticate(): Promise<string> {
     if (this.tokenCache) return this.tokenCache;
 
-    const creds = (await this.loadAuthCreds()) ?? (await this.provisionMachineIdentity());
-    if (!creds) throw new Error('Infisical has no machine identity and one could not be provisioned');
-    this.orgId = creds.orgId;
-
-    const baseUrl = await this.resolveBaseUrl();
-    const res = await axios.post(
-      `${baseUrl}/api/v1/auth/universal-auth/login`,
-      { clientId: creds.clientId, clientSecret: creds.clientSecret },
-      { timeout: 5000, proxy: false },
-    );
-    const token = res.data?.accessToken;
-    if (!token) throw new Error('Infisical login returned no access token');
+    const stored = await this.loadAuthCreds();
+    let creds = stored;
+    let token = stored ? await this.login(stored) : undefined;
+    if (!token) {
+      this.workspaceCache.clear();
+      creds = await this.provisionMachineIdentity();
+      if (!creds) {
+        throw new Error(stored
+          ? 'Infisical refuses the machine identity in data/.infisical-auth-secret and is not new, so another cannot be made'
+          : 'Infisical has no machine identity and one could not be provisioned');
+      }
+      token = await this.login(creds);
+      if (!token) throw new Error('Infisical refused the machine identity it just made');
+    }
+    this.orgId = creds!.orgId;
     this.tokenCache = token;
     return token;
+  }
+
+  async readerWorks(reader: { clientId: string; clientSecret: string }): Promise<boolean> {
+    return (await this.login(reader)) !== undefined;
+  }
+
+  private async login(creds: { clientId: string; clientSecret: string }): Promise<string | undefined> {
+    const baseUrl = await this.resolveBaseUrl();
+    try {
+      const res = await axios.post(
+        `${baseUrl}/api/v1/auth/universal-auth/login`,
+        { clientId: creds.clientId, clientSecret: creds.clientSecret },
+        { timeout: 5000, proxy: false },
+      );
+      const token = res.data?.accessToken;
+      if (!token) throw new Error('Infisical login returned no access token');
+      return token as string;
+    } catch (err: any) {
+      if (err?.response?.status === 401) return undefined;
+      throw err;
+    }
   }
 
   private async authorized<T>(call: (token: string, baseUrl: string) => Promise<T>): Promise<T> {

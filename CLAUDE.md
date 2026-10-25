@@ -1198,7 +1198,11 @@ release. No value ever reaches a model, and leaf workspaces get none. Image depl
 (the app's `envFrom`); an Odoo release syncs it into `<release>-vault` (`OdooReleaseVaultActivity`, before Helm), the chart
 reads `POSTGRES_PASSWORD` from it, and the init and upgrade jobs set `admin`'s password from `ODOO_ADMIN_PASSWORD` every
 time. A chart from before this (its repo still has `deploy/chart/templates/secret.yaml`) keeps its own database password,
-which is copied into the vault on every release so the two never drift. An Odoo project no tree is the home of uses the
+which is copied into the vault on every release so the two never drift. **A vault that lost its values** (Infisical wiped or a workspace gone) gets them back from the app: a key the vault lacks is
+taken from what the cluster was last given (`<release>-vault` for an Odoo release, `<namespace>-secrets` for an image deploy)
+before one is generated, since a new database password would lock the app out of its own database; and a project's stored
+reader that Infisical refuses (`readerWorks`) is replaced by a new one, as is the backend's own machine identity when
+Infisical is new again. `test:odoo-release-live` removes its project's workspace and reader between two releases to prove it. An Odoo project no tree is the home of uses the
 release's own list (`ODOO_RELEASE_SECRETS`). The person sees a sign-in with "Show sign-in" on the project's card
 (`GET /api/projects/:id/sign-in`, uncached, read from the vault to their browser); the planner reads the list in
 `describe_tree_type`, and the Studio edits it under a type's Secrets.

@@ -112,6 +112,34 @@ describe('InfisicalService', () => {
     expect(del.mock.calls[0]?.[1]).toMatchObject({ data: { workspaceId: 'ws1', environment: 'dev' } });
   });
 
+  it('makes a new machine identity when Infisical refuses the stored one and is new, as after it was wiped', async () => {
+    post.mockImplementation(async (url: string, body: { clientId?: string }) => {
+      if (url.endsWith('/universal-auth/login')) return body.clientId === 'cid2' ? { data: { accessToken: 'fresh' } } : status(401);
+      if (url.endsWith('/admin/bootstrap')) return { data: { identity: { id: 'id2', credentials: { token: 'boot' } }, organization: { id: 'org2' } } };
+      if (url.endsWith('/client-secrets')) return { data: { clientSecret: 'cs2' } };
+      return { data: { identityUniversalAuth: { clientId: 'cid2' } } };
+    });
+
+    expect(await service.authenticate()).toBe('fresh');
+    expect(JSON.parse(files.get(AUTH_SECRET_FILE)!)).toEqual({ clientId: 'cid2', clientSecret: 'cs2', orgId: 'org2' });
+  });
+
+  it('says so when Infisical refuses the stored identity and is not new, keeping the file as it was', async () => {
+    post.mockImplementation(async (url: string) => (url.endsWith('/admin/bootstrap') ? status(400) : status(401)));
+
+    await expect(service.authenticate()).rejects.toThrow('refuses the machine identity');
+    expect(JSON.parse(files.get(AUTH_SECRET_FILE)!)).toEqual({ clientId: 'cid', clientSecret: 'cs', orgId: 'org' });
+  });
+
+  it('tells a reader Infisical refuses from one it cannot be asked about', async () => {
+    post.mockImplementationOnce(() => status(401));
+    expect(await service.readerWorks({ clientId: 'gone', clientSecret: 'x' })).toBe(false);
+    post.mockResolvedValueOnce({ data: { accessToken: 'tok' } });
+    expect(await service.readerWorks({ clientId: 'r', clientSecret: 'x' })).toBe(true);
+    post.mockImplementationOnce(unreachable);
+    await expect(service.readerWorks({ clientId: 'r', clientSecret: 'x' })).rejects.toThrow('ECONNREFUSED');
+  });
+
   it('refuses to authenticate with no machine identity instead of inventing a token', async () => {
     files.clear();
     post.mockImplementation(unreachable);
