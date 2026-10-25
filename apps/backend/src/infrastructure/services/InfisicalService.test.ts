@@ -127,7 +127,7 @@ describe('InfisicalService', () => {
 
   it('keeps its identity apart from the auth secret Infisical signs with, which the setup script writes', async () => {
     files.clear();
-    files.set(SHARED_AUTH_SECRET_FILE, 'c2lnbmluZy1zZWNyZXQtd3JpdHRlbi1ieS10aGUtc2NyaXB0');
+    files.set(SHARED_AUTH_SECRET_FILE, 'the signing secret the setup script wrote');
     post.mockImplementation(async (url: string) => {
       if (url.endsWith('/universal-auth/login')) return { data: { accessToken: 'fresh' } };
       if (url.endsWith('/admin/bootstrap')) return { data: { identity: { id: 'id2', credentials: { token: 'boot' } }, organization: { id: 'org2' } } };
@@ -137,7 +137,7 @@ describe('InfisicalService', () => {
 
     expect(await service.authenticate()).toBe('fresh');
     expect(JSON.parse(files.get(IDENTITY_FILE)!)).toEqual({ clientId: 'cid2', clientSecret: 'cs2', orgId: 'org2' });
-    expect(files.get(SHARED_AUTH_SECRET_FILE)).toBe('c2lnbmluZy1zZWNyZXQtd3JpdHRlbi1ieS10aGUtc2NyaXB0');
+    expect(files.get(SHARED_AUTH_SECRET_FILE)).toBe('the signing secret the setup script wrote');
   });
 
   it('carries an identity a box kept in the auth secret file into its own, leaving that file as Infisical has it', async () => {
