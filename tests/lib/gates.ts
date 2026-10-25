@@ -67,6 +67,14 @@ export function pushRefusal(ref: string, gates: PushedGates): string | undefined
   return undefined;
 }
 
+export function ignoredRefusal(ignored: readonly string[]): string | undefined {
+  if (ignored.length === 0) return undefined;
+  const shown = ignored.slice(0, 10).join(', ');
+  const more = ignored.length > 10 ? ` and ${ignored.length - 10} more` : '';
+  const what = ignored.length === 1 ? 'a file .gitignore lists' : `${ignored.length} files .gitignore lists`;
+  return `it carries ${what}, the way the dev box's Infisical keys were once published: ${shown}${more}. Untrack them with \`git rm --cached\`, or give one that belongs in git an exception in .gitignore.`;
+}
+
 export const TAG_SIGNATURE = /^(Shipped and released|Hotfix released) from /m;
 
 export function tagMessage(version: string, commit: string, previous: string, steps: readonly StepPassed[], hotfix: boolean): string {

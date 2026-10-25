@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { MECHANICS_CHECKS } from '../apps/backend/src/eval/level2/mechanics.js';
-import { HOTFIX, HOTFIX_STEPS, SHIP_STEPS, shippedThrough } from './lib/gates.js';
-import { changedNow, commitLedger, devStackProblem, git, minutesSince, pushedGates, readRecord, runSteps, writeRecord } from './lib/gate-runs.js';
+import { HOTFIX, HOTFIX_STEPS, SHIP_STEPS, ignoredRefusal, shippedThrough } from './lib/gates.js';
+import { changedNow, commitLedger, devStackProblem, git, ignoredIn, minutesSince, pushedGates, readRecord, runSteps, writeRecord } from './lib/gate-runs.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PUSH = !process.argv.includes('--no-push');
@@ -15,6 +15,8 @@ async function main(): Promise<void> {
   if (branch !== 'main') throw new Error(`ship runs on main, and this checkout is on ${branch}`);
   const changed = changedNow(REPO);
   if (changed.length > 0) throw new Error(`commit or set aside what is not committed first: ${changed.join(', ')}`);
+  const ignored = ignoredRefusal(ignoredIn(REPO, 'HEAD'));
+  if (ignored) throw new Error(`main ${ignored}`);
   const stack = HOTFIXING ? undefined : await devStackProblem(REPO);
   if (stack) throw new Error(stack);
 

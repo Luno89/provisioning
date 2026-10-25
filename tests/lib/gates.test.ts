@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { changedBesidesLedger, HOTFIX_STEPS, nextVersion, onlyLedger, pushRefusal, RELEASE_STEPS, SHIP_STEPS, TAG_SIGNATURE, tagMessage } from './gates.js';
+import { changedBesidesLedger, HOTFIX_STEPS, ignoredRefusal, nextVersion, onlyLedger, pushRefusal, RELEASE_STEPS, SHIP_STEPS, TAG_SIGNATURE, tagMessage } from './gates.js';
 
 const shipped = { at: '2026-10-24T01:00:00.000Z', steps: [] };
 const released = (version: string) => ({ ...shipped, version, previous: 'v2026.10.23' });
@@ -20,6 +20,13 @@ describe('what a push may carry', () => {
     expect(pushRefusal('refs/tags/v2026.10.24', { record: { commit: 'a', shipped, released: released('v2026.10.24') }, onlyLedgerSinceParent: false })).toBeUndefined();
     expect(pushRefusal('refs/tags/v2026.10.24', { record: { commit: 'a', shipped }, onlyLedgerSinceParent: false })).toMatch(/npm run release/);
     expect(pushRefusal('refs/tags/v2026.10.24', { record: { commit: 'a', shipped, released: released('v2026.10.25') }, onlyLedgerSinceParent: false })).toMatch(/npm run release/);
+  });
+
+  it('refuses anything that carries a file .gitignore lists, naming it', () => {
+    expect(ignoredRefusal([])).toBeUndefined();
+    expect(ignoredRefusal(['apps/backend/data/.infisical-encryption-key'])).toMatch(/a file \.gitignore lists.*apps\/backend\/data\/\.infisical-encryption-key\. Untrack/);
+    const many = Array.from({ length: 12 }, (_, n) => `node_modules/p${n}.js`);
+    expect(ignoredRefusal(many)).toMatch(/12 files .*node_modules\/p9\.js and 2 more\./);
   });
 
   it('leaves any other branch to the typecheck', () => {

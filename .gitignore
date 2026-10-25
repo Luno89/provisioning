@@ -17,6 +17,7 @@ node_modules/
 *.tfvars.json
 cdktf.out/
 .gen/
+!packages/cdktf-infra/.gen/
 
 # Backend runtime data
 /apps/backend/data/*.json
@@ -69,6 +70,7 @@ cdktf.out/
 # Local config & secrets
 .env
 .env.*
+!.env.example
 .env.local
 .env.development.local
 .env.test.local

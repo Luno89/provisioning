@@ -29,6 +29,13 @@ export function pushedGates(repo: string, commit: string): PushedGates {
   return { record: readRecord(repo, commit), parent: parent ? readRecord(repo, parent) : undefined, onlyLedgerSinceParent: onlyLedger(changed) };
 }
 
+export function ignoredIn(repo: string, commit: string): string[] {
+  const paths = execFileSync('git', ['ls-tree', '-r', '-z', '--name-only', commit], { cwd: repo, maxBuffer: 256 * 1024 * 1024 });
+  const checked = spawnSync('git', ['check-ignore', '--no-index', '--stdin', '-z'], { cwd: repo, input: paths, maxBuffer: 256 * 1024 * 1024 });
+  if (checked.status !== 0 && checked.status !== 1) throw new Error(`git check-ignore failed: ${checked.stderr.toString().trim()}`);
+  return checked.stdout.toString().split('\0').filter(Boolean);
+}
+
 export const changedNow = (repo: string): string[] => changedBesidesLedger(gitOut(repo, ['status', '--porcelain']));
 
 function servingFrom(): string | undefined {
