@@ -335,6 +335,32 @@ describe('what the run records', () => {
     expect(seen).toEqual(['r1 live']);
     expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ status: 'running', gitappImageTag: 'reg/bo/shop:aaa' });
   });
+
+  it('keeps what the run records while the change before it is told, and tells the release as it is now', async () => {
+    const seen: string[] = [];
+    let recordsMeanwhile = true;
+    const bound = <T extends object>(target: T, key: string | symbol) => {
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    };
+    const releases = new Proxy(db.releases, {
+      get: (target, key) => key !== 'markOdooReleaseTold' ? bound(target, key) : async (id: string, updatedAt: string) => {
+        if (recordsMeanwhile) {
+          recordsMeanwhile = false;
+          await engineMarks('r1', { state: 'preview', e2e: { state: 'passed', summary: '1 passed', startedAt: 't0', finishedAt: 't1' } });
+        }
+        return target.markOdooReleaseTold(id, updatedAt);
+      },
+    });
+    const store = new Proxy(db, { get: (target, key) => key === 'releases' ? releases : bound(target, key) });
+    const svc = new OdooReleaseService({ store, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`, pollMs: 5, notify: (_owner, release) => seen.push(`${release.id} ${release.state} ${release.e2e?.state}`) });
+    await svc.release(project, run('b1', 'aaa'));
+    await engineMarks('r1', { state: 'preview', slot: 'b', e2e: { state: 'running', startedAt: 't0' } });
+    for (let tries = 0; tries < 200 && seen.length === 0; tries += 1) await new Promise((done) => setTimeout(done, 5));
+    expect(seen).toEqual(['r1 preview passed']);
+    expect((await stateOf('r1'))?.e2e?.state).toBe('passed');
+    await runEnds(svc);
+  });
 });
 
 describe('rolling back', () => {

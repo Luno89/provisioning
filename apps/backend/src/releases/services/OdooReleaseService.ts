@@ -17,6 +17,7 @@ export interface OdooReleaseStore {
   releases: {
     getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]>;
     saveOdooRelease(release: OdooRelease): Promise<void>;
+    markOdooReleaseTold(id: string, updatedAt: string): Promise<boolean>;
     savePipelineRunInfo(run: Partial<PipelineRunMetadata> & { id: string }): Promise<PipelineRunMetadata>;
     getPipelineRuns(): Promise<PipelineRunMetadata[]>;
   };
@@ -425,6 +426,10 @@ export class OdooReleaseService {
 
   private async tell(release: OdooRelease): Promise<void> {
     await this.deps.store.releases.saveOdooRelease(release);
+    await this.told(release);
+  }
+
+  private async told(release: OdooRelease): Promise<void> {
     await this.settleImport(release);
     this.deps.notify?.(release.ownerId, release);
   }
@@ -435,7 +440,8 @@ export class OdooReleaseService {
       const releases = await this.deps.store.releases.getOdooReleases(ownerId, projectId);
       for (const release of releases) {
         if (!untold(release)) continue;
-        await this.tell({ ...release, toldAt: release.updatedAt });
+        if (!(await this.deps.store.releases.markOdooReleaseTold(release.id, release.updatedAt))) continue;
+        await this.told({ ...release, toldAt: release.updatedAt });
         if (release.state === 'live') await this.deploymentState(projectId, 'running', release.image);
         if (release.state === 'failed' && !releases.some((other) => other.state === 'live' || other.state === 'superseded')) await this.deploymentState(projectId, 'failed');
       }
