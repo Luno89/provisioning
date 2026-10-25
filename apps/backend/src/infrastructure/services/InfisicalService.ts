@@ -17,6 +17,9 @@ export interface InfisicalSecretRecord {
   comment?: string | undefined;
 }
 
+const workspaceGone = (err: any): boolean =>
+  err?.response?.status === 404 && /^Project with ID /.test(String(err.response?.data?.message ?? ''));
+
 export class InfisicalService {
   private baseUrlCache: string | null = null;
   private tokenCache: string | null = null;
@@ -231,18 +234,29 @@ export class InfisicalService {
     return id;
   }
 
-  async getSecret(projectId: string, key: string, environment = 'dev'): Promise<string | null> {
-    const workspaceId = await this.ensureWorkspace(projectId);
+  private async inWorkspace<T>(projectId: string, call: (workspaceId: string) => Promise<T>): Promise<T> {
     try {
-      const res = await this.authorized((token, baseUrl) => axios.get(
-        `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
-        { params: { workspaceId, environment }, headers: { Authorization: `Bearer ${token}` }, timeout: 4000, proxy: false },
-      ));
-      return res.data?.secret?.secretValue ?? null;
+      return await call(await this.ensureWorkspace(projectId));
     } catch (err: any) {
-      if (err?.response?.status === 404) return null;
-      throw err;
+      if (!workspaceGone(err)) throw err;
+      this.workspaceCache.delete(projectId);
+      return call(await this.ensureWorkspace(projectId));
     }
+  }
+
+  async getSecret(projectId: string, key: string, environment = 'dev'): Promise<string | null> {
+    return this.inWorkspace(projectId, async (workspaceId) => {
+      try {
+        const res = await this.authorized((token, baseUrl) => axios.get(
+          `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
+          { params: { workspaceId, environment }, headers: { Authorization: `Bearer ${token}` }, timeout: 4000, proxy: false },
+        ));
+        return res.data?.secret?.secretValue ?? null;
+      } catch (err: any) {
+        if (err?.response?.status === 404 && !workspaceGone(err)) return null;
+        throw err;
+      }
+    });
   }
 
   async hasSecret(projectId: string, key: string, environment = 'dev'): Promise<boolean> {
@@ -256,42 +270,43 @@ export class InfisicalService {
     comment?: string | undefined,
     environment = 'dev',
   ): Promise<{ secretReference: string }> {
-    const workspaceId = await this.ensureWorkspace(projectId);
-    const body = {
-      workspaceId,
-      environment,
-      secretValue: value,
-      secretComment: comment ?? 'Managed by provisioning platform',
-    };
-    await this.authorized(async (token, baseUrl) => {
-      const headers = { Authorization: `Bearer ${token}` };
-      const url = `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`;
-      await axios.post(url, body, { headers, timeout: 4000, proxy: false }).catch(async (err: any) => {
-        if (err.response?.status !== 400) throw err;
-        await axios.patch(url, body, { headers, timeout: 4000, proxy: false });
+    await this.inWorkspace(projectId, async (workspaceId) => {
+      const body = {
+        workspaceId,
+        environment,
+        secretValue: value,
+        secretComment: comment ?? 'Managed by provisioning platform',
+      };
+      await this.authorized(async (token, baseUrl) => {
+        const headers = { Authorization: `Bearer ${token}` };
+        const url = `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`;
+        await axios.post(url, body, { headers, timeout: 4000, proxy: false }).catch(async (err: any) => {
+          if (err.response?.status !== 400) throw err;
+          await axios.patch(url, body, { headers, timeout: 4000, proxy: false });
+        });
       });
     });
     return { secretReference: `secret://${projectId}/${key}` };
   }
 
   async deleteSecret(projectId: string, key: string, environment = 'dev'): Promise<void> {
-    const workspaceId = await this.ensureWorkspace(projectId);
-    try {
-      await this.authorized((token, baseUrl) => axios.delete(
-        `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
-        { data: { workspaceId, environment }, headers: { Authorization: `Bearer ${token}` }, timeout: 4000, proxy: false },
-      ));
-    } catch (err: any) {
-      if (err?.response?.status !== 404) throw err;
-    }
+    await this.inWorkspace(projectId, async (workspaceId) => {
+      try {
+        await this.authorized((token, baseUrl) => axios.delete(
+          `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
+          { data: { workspaceId, environment }, headers: { Authorization: `Bearer ${token}` }, timeout: 4000, proxy: false },
+        ));
+      } catch (err: any) {
+        if (err?.response?.status !== 404 || workspaceGone(err)) throw err;
+      }
+    });
   }
 
   async listSecrets(projectId: string, environment = 'dev'): Promise<InfisicalSecretRecord[]> {
-    const workspaceId = await this.ensureWorkspace(projectId);
-    const res = await this.authorized((token, baseUrl) => axios.get(
+    const res = await this.inWorkspace(projectId, (workspaceId) => this.authorized((token, baseUrl) => axios.get(
       `${baseUrl}/api/v3/secrets/raw`,
       { params: { workspaceId, environment }, headers: { Authorization: `Bearer ${token}` }, timeout: 4000, proxy: false },
-    ));
+    )));
     return (res.data?.secrets ?? []).map((s: any) => ({
       key: s.secretKey,
       secretReference: `secret://${projectId}/${s.secretKey}`,

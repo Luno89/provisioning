@@ -140,6 +140,26 @@ describe('InfisicalService', () => {
     await expect(service.readerWorks({ clientId: 'r', clientSecret: 'x' })).rejects.toThrow('ECONNREFUSED');
   });
 
+  it('finds the workspace again when the one it knew is gone, rather than reading a gone workspace as an empty one', async () => {
+    const gone = () => Promise.reject(Object.assign(new Error('status 404'), { response: { status: 404, data: { message: "Project with ID 'ws1' not found during bot lookup." } } }));
+    const missing = () => Promise.reject(Object.assign(new Error('status 404'), { response: { status: 404, data: { message: "Secret with name 'KEY' not found" } } }));
+    post.mockImplementation(async (url: string, body: { workspaceId?: string; projectName?: string }) => {
+      if (url.endsWith('/universal-auth/login')) return { data: { accessToken: 'tok' } };
+      if (url.endsWith('/api/v2/workspace')) return { data: { project: { id: 'ws2' } } };
+      return body.workspaceId === 'ws2' ? { data: {} } : gone();
+    });
+    get.mockImplementation(async (url: string, options: { params?: { workspaceId?: string } }) => {
+      if (url.endsWith('/api/v1/workspace')) return { data: { workspaces: [] } };
+      return options.params?.workspaceId === 'ws2' ? missing() : gone();
+    });
+    get.mockResolvedValueOnce({ data: { workspaces: [{ id: 'ws1', name: 'provisioning-p1' }] } });
+
+    expect(await service.getSecret('p1', 'KEY')).toBeNull();
+    expect(await service.workspaceIdFor('p1')).toBe('ws2');
+    await service.setSecret('p1', 'KEY', 'v');
+    expect(post.mock.calls.filter(([url]) => String(url).includes('/secrets/raw/')).map(([, body]) => (body as { workspaceId: string }).workspaceId)).toEqual(['ws2']);
+  });
+
   it('refuses to authenticate with no machine identity instead of inventing a token', async () => {
     files.clear();
     post.mockImplementation(unreachable);
