@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import axios from 'axios';
 import type { InfrastructureService } from './InfrastructureService.js';
 import type { ClusterProxyService } from './ClusterProxyService.js';
+import { readerNameFor, readerPrefixFor, workspaceNameFor } from '../lib/infisical-names.js';
 
 const NAMESPACE = 'infisical';
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -225,7 +226,7 @@ export class InfisicalService {
     const cached = this.workspaceCache.get(projectId);
     if (cached) return cached;
 
-    const projectName = `provisioning-${projectId}`;
+    const projectName = workspaceNameFor(projectId);
     const id = await this.authorized(async (token, baseUrl) => {
       const headers = { Authorization: `Bearer ${token}` };
       const list = await axios.get(`${baseUrl}/api/v1/workspace`, { headers, timeout: 4000, proxy: false });
@@ -328,14 +329,14 @@ export class InfisicalService {
     this.workspaceCache.delete(projectId);
     return this.authorized(async (token, baseUrl) => {
       const options = { headers: { Authorization: `Bearer ${token}` }, timeout: 8000, proxy: false as const };
-      const prefix = `reader-${projectId}-`;
+      const prefix = readerPrefixFor(projectId);
       const memberships = await axios.get(`${baseUrl}/api/v2/organizations/${this.orgId}/identity-memberships`, options);
       const readers = ((memberships.data?.identityMemberships ?? []) as { identity?: { id?: string; name?: string } }[])
         .map((membership) => membership.identity)
         .filter((identity): identity is { id: string; name: string } => typeof identity?.id === 'string' && (identity.name ?? '').startsWith(prefix));
       for (const reader of readers) await axios.delete(`${baseUrl}/api/v1/identities/${reader.id}`, options);
       const listed = await axios.get(`${baseUrl}/api/v1/workspace`, options);
-      const workspace = ((listed.data?.workspaces ?? []) as { id?: string; name?: string }[]).find((entry) => entry.name === `provisioning-${projectId}`);
+      const workspace = ((listed.data?.workspaces ?? []) as { id?: string; name?: string }[]).find((entry) => entry.name === workspaceNameFor(projectId));
       if (workspace?.id) await axios.delete(`${baseUrl}/api/v1/workspace/${workspace.id}`, options);
       return { workspace: Boolean(workspace?.id), readers: readers.length };
     });
@@ -352,7 +353,7 @@ export class InfisicalService {
       const options = { headers, timeout: 8000, proxy: false as const };
       const identity = await axios.post(
         `${baseUrl}/api/v1/identities`,
-        { name: `reader-${projectId}-${Date.now().toString(36)}`, organizationId: this.orgId, role: 'no-access' },
+        { name: readerNameFor(projectId, Date.now()), organizationId: this.orgId, role: 'no-access' },
         options,
       );
       const identityId = identity.data?.identity?.id;

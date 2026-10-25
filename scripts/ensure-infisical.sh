@@ -80,6 +80,9 @@ if [ ! -s "$REDIS_PASSWORD_FILE" ]; then
 fi
 INFISICAL_REDIS_PASSWORD="$(cat "$REDIS_PASSWORD_FILE" | tr -d '\n')"
 
+STANDALONE_CHART=1.11.1
+OPERATOR_CHART=v0.11.15
+
 echo "  ▶  Ensuring Infisical Helm charts are updated..."
 "$HELM" repo add infisical-helm-charts https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/ >/dev/null 2>&1 || true
 "$HELM" repo update infisical-helm-charts >/dev/null 2>&1 || true
@@ -119,7 +122,7 @@ echo "  ▶  Deploying Infisical Standalone (helm upgrade --install is a cheap n
 # No --wait: the chart's post-install hook job (ingress-nginx admission webhook patch) hangs
 # on slow environments, which makes Helm report "failed" even though every pod is healthy.
 # We verify the deployment by probing the actual pods below instead.
-"$HELM" upgrade --install "$RELEASE" infisical-helm-charts/infisical-standalone \
+"$HELM" upgrade --install "$RELEASE" infisical-helm-charts/infisical-standalone --version "$STANDALONE_CHART" \
   --kube-context "$CONTEXT" \
   -n "$NAMESPACE" --create-namespace \
   --set replicaCount=1 \
@@ -155,7 +158,7 @@ echo "  ▶  Verifying Infisical pods are running..."
 echo "  ✅  Infisical standalone pods Ready."
 
 echo "  ▶  Deploying Infisical Secrets Operator..."
-"$HELM" upgrade --install "$OPERATOR_RELEASE" infisical-helm-charts/secrets-operator \
+"$HELM" upgrade --install "$OPERATOR_RELEASE" infisical-helm-charts/secrets-operator --version "$OPERATOR_CHART" \
   --kube-context "$CONTEXT" \
   -n "$NAMESPACE" --create-namespace \
   --wait --timeout 720h || {
