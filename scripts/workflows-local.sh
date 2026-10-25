@@ -3,10 +3,6 @@ set -euo pipefail
 
 REPO="$(git -C "$(dirname "$0")/.." rev-parse --show-toplevel)"
 TOOLS="${REPO}/.ci-tools"
-ACT_VERSION=0.2.89
-ACT_SHA256=0191d6f1f3b716b5c55820032605d05fc3c1cdbf581ebeff655019e5dd1524c0
-ACTIONLINT_VERSION=1.7.12
-ACTIONLINT_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
 RUNNER_IMAGE=catthehacker/ubuntu:act-24.04
 WORK=""
 THROWAWAY=""
@@ -28,39 +24,22 @@ builds the image without pushing it, packages the chart and prints the notes it 
 EOF
 }
 
-fetch_tool() {
-  local name="$1" version="$2" sha="$3" url="$4" member="$5"
-  local marker="${TOOLS}/.${name}-${version}"
-  [ -x "${TOOLS}/${name}" ] && [ -f "$marker" ] && return 0
-  mkdir -p "$TOOLS"
-  local archive
-  archive="$(mktemp)"
-  echo "fetching ${name} ${version}"
-  curl -fsSL "$url" -o "$archive"
-  echo "${sha}  ${archive}" | sha256sum -c --quiet - || { rm -f "$archive"; echo "${name} ${version} does not match its pinned checksum" >&2; exit 1; }
-  tar -xzf "$archive" -C "$TOOLS" "$member"
-  rm -f "$archive" "${TOOLS}/.${name}-"*
-  touch "$marker"
-}
-
 lint() {
-  fetch_tool actionlint "$ACTIONLINT_VERSION" "$ACTIONLINT_SHA256" \
-    "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" actionlint
-  "${TOOLS}/actionlint" "${REPO}"/.github/workflows/*.yml
+  "$(bash "${REPO}/scripts/ci-tools.sh" actionlint)" "${REPO}"/.github/workflows/*.yml
   echo "actionlint: every workflow is valid"
 }
 
 act_in_clone() {
   local ref="$1" workflow="$2" event="$3"
-  fetch_tool act "$ACT_VERSION" "$ACT_SHA256" \
-    "https://github.com/nektos/act/releases/download/v${ACT_VERSION}/act_Linux_x86_64.tar.gz" act
+  local act
+  act="$(bash "${REPO}/scripts/ci-tools.sh" act)"
   mkdir -p "$TOOLS"
   WORK="$(mktemp -d "${TOOLS}/run.XXXXXX")"
   git clone -q --local "$REPO" "${WORK}/repo"
   git -C "${WORK}/repo" checkout -q "$ref"
   git -C "${WORK}/repo" remote set-url origin "$(git -C "$REPO" remote get-url origin)"
   printf '%s\n' "$event" > "${WORK}/event.json"
-  (cd "${WORK}/repo" && "${TOOLS}/act" push \
+  (cd "${WORK}/repo" && "$act" push \
     -W "$workflow" \
     -e "${WORK}/event.json" \
     -P "ubuntu-latest=${RUNNER_IMAGE}" \

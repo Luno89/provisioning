@@ -36,6 +36,14 @@ export function ignoredIn(repo: string, commit: string): string[] {
   return checked.stdout.toString().split('\0').filter(Boolean);
 }
 
+export function leaksIn(repo: string, range: string): string | undefined {
+  const tool = execFileSync('bash', [new URL('../../scripts/ci-tools.sh', import.meta.url).pathname, 'gitleaks'], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim();
+  const scan = spawnSync(tool, ['git', `--log-opts=${range}`, '--redact', '--no-banner', '--verbose', '--no-color', '--exit-code', '3', '.'], { cwd: repo, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (scan.status === 0) return undefined;
+  if (scan.status === 3) return scan.stdout.trim();
+  throw new Error(`gitleaks could not scan ${range}: ${scan.stderr.trim()}`);
+}
+
 export const changedNow = (repo: string): string[] => changedBesidesLedger(gitOut(repo, ['status', '--porcelain']));
 
 function servingFrom(): string | undefined {

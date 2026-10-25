@@ -75,6 +75,14 @@ export function ignoredRefusal(ignored: readonly string[]): string | undefined {
   return `it carries ${what}, the way the dev box's Infisical keys were once published: ${shown}${more}. Untrack them with \`git rm --cached\`, or give one that belongs in git an exception in .gitignore.`;
 }
 
+export const NO_COMMIT = '0000000000000000000000000000000000000000';
+
+export const pushedRange = (remoteSha: string | undefined, localSha: string): string =>
+  remoteSha && remoteSha !== NO_COMMIT ? `${remoteSha}..${localSha}` : `${localSha} --not --remotes=origin`;
+
+export const leaksRefusal = (findings: string | undefined): string | undefined =>
+  findings ? `Gitleaks finds what looks like a secret in the commits it carries (values redacted):\n${findings}\nTake it out of those commits, or, when it is a test's made-up value, add the finding's fingerprint to .gitleaksignore.` : undefined;
+
 export const TAG_SIGNATURE = /^(Shipped and released|Hotfix released) from /m;
 
 export function tagMessage(version: string, commit: string, previous: string, steps: readonly StepPassed[], hotfix: boolean): string {

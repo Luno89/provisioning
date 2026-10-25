@@ -13,7 +13,7 @@ fi
 other_branch=0
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "$NONE" ] && continue
-  "$TSX" "${TOP}/tests/gate-check.ts" "$remote_ref" "$local_sha" < /dev/null
+  "$TSX" "${TOP}/tests/gate-check.ts" "$remote_ref" "$local_sha" "$remote_sha" < /dev/null
   case "$remote_ref" in
     refs/heads/main | refs/tags/v*) ;;
     refs/heads/*) other_branch=1 ;;

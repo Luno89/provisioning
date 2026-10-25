@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { changedBesidesLedger, HOTFIX_STEPS, ignoredRefusal, nextVersion, onlyLedger, pushRefusal, RELEASE_STEPS, SHIP_STEPS, TAG_SIGNATURE, tagMessage } from './gates.js';
+import { changedBesidesLedger, HOTFIX_STEPS, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_STEPS, SHIP_STEPS, TAG_SIGNATURE, tagMessage } from './gates.js';
 
 const shipped = { at: '2026-10-24T01:00:00.000Z', steps: [] };
 const released = (version: string) => ({ ...shipped, version, previous: 'v2026.10.23' });
@@ -27,6 +27,17 @@ describe('what a push may carry', () => {
     expect(ignoredRefusal(['apps/backend/data/.infisical-encryption-key'])).toMatch(/a file \.gitignore lists.*apps\/backend\/data\/\.infisical-encryption-key\. Untrack/);
     const many = Array.from({ length: 12 }, (_, n) => `node_modules/p${n}.js`);
     expect(ignoredRefusal(many)).toMatch(/12 files .*node_modules\/p9\.js and 2 more\./);
+  });
+
+  it('scans only what a push adds: since what the remote has, or everything no remote branch has for a new one', () => {
+    expect(pushedRange('aaa', 'bbb')).toBe('aaa..bbb');
+    expect(pushedRange(NO_COMMIT, 'bbb')).toBe('bbb --not --remotes=origin');
+    expect(pushedRange(undefined, 'bbb')).toBe('bbb --not --remotes=origin');
+  });
+
+  it('refuses what Gitleaks finds, and says how to let a made-up test value through', () => {
+    expect(leaksRefusal(undefined)).toBeUndefined();
+    expect(leaksRefusal('Finding: password = "REDACTED"')).toMatch(/Finding: password = "REDACTED"[\s\S]*\.gitleaksignore/);
   });
 
   it('leaves any other branch to the typecheck', () => {

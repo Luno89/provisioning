@@ -19,6 +19,9 @@ cdktf.out/
 .gen/
 !packages/cdktf-infra/.gen/
 
+# Logs, wherever a process writes one
+*.log
+
 # Backend runtime data
 /apps/backend/data/*.json
 !/apps/backend/data/*.json.example

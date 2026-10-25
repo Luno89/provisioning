@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ignoredIn } from './gate-runs.js';
+import { ignoredIn, leaksIn } from './gate-runs.js';
 
 const repos: string[] = [];
 const run = (repo: string, ...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
@@ -41,5 +42,22 @@ describe('what a commit carries that .gitignore lists', () => {
   it('finds nothing in a commit that carries nothing ignored', () => {
     const repo = repoWith({ 'src/index.ts': 'x' }, 'node_modules/\n');
     expect(ignoredIn(repo, 'HEAD')).toEqual([]);
+  });
+});
+
+describe('what Gitleaks finds in the commits a push adds', () => {
+  const token = () => `ghp_${randomBytes(27).toString('base64url').replace(/[-_]/g, 'x').slice(0, 36)}`;
+
+  it('finds a token committed since what the remote has, never printing it, and nothing in the commits before', () => {
+    const value = token();
+    const repo = repoWith({ 'src/index.ts': 'x' }, '');
+    const before = run(repo, 'rev-parse', 'HEAD');
+    writeFileSync(join(repo, 'src/config.ts'), `export const githubToken = '${value}';\n`);
+    run(repo, 'add', '-A');
+    run(repo, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'a token');
+    const found = leaksIn(repo, `${before}..HEAD`);
+    expect(found).toMatch(/src\/config\.ts/);
+    expect(found).not.toContain(value);
+    expect(leaksIn(repo, `${before}~0..${before}`)).toBeUndefined();
   });
 });
