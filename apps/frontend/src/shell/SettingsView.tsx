@@ -7,6 +7,7 @@ import { Invites } from '../features/accounts';
 import { InstanceAddresses } from '../features/accounts';
 import { InstanceMove, InstanceUpdates } from '../features/instances';
 import { Notifications } from '../features/accounts';
+import { OtherSessions } from '../features/accounts';
 import { DefaultFileServer } from '../features/files'
 import { GoogleDriveCard } from '../features/infrastructure';
 
@@ -110,6 +111,7 @@ export default function SettingsView() {
         </div>
       </div>
 
+      <OtherSessions />
       <InstanceAddresses />
       <InstanceUpdates />
       <InstanceMove />

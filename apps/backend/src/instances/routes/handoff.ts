@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute, signJWT, type SecretKey, type Auth } from '../../platform/index.js';
+import { asyncRoute, sessionToken, type SecretKey, type Auth } from '../../platform/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
 
 export function handoffRouter(deps: {
@@ -20,7 +20,7 @@ export function handoffRouter(deps: {
   router.post('/handoff', asyncRoute(async (req: Request, res: Response) => {
     const outcome = await deps.identity.acceptHandoff((req.body ?? {}).token);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    deps.auth.setSessionCookie(res, signJWT({ userId: outcome.user.id, email: outcome.user.email }, deps.sessionKey, 24 * 60 * 60), req);
+    deps.auth.setSessionCookie(res, sessionToken(outcome.user, deps.sessionKey), req);
     return res.json({ user: outcome.user });
   }));
 

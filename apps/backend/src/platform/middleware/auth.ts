@@ -1,5 +1,5 @@
 import express from 'express';
-import { signsEveryoneIn, verifyJWT } from '../lib/auth.js';
+import { sessionEnded, signsEveryoneIn, verifyJWT } from '../lib/auth.js';
 import type { Database } from '../lib/db-interface.js';
 import type { UserMetadata } from '../lib/types.js';
 import type { SecretKey } from '../lib/crypto.js';
@@ -48,7 +48,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
     const decoded = verifyJWT(token, sessionKey);
     if (!decoded || !decoded.userId) return undefined;
     const user = await db.accounts.getUserById(decoded.userId);
-    return user?.removal ? undefined : user;
+    return !user || user.removal || sessionEnded(decoded, user) ? undefined : user;
   }
 
   const requireAuth: express.RequestHandler = async (req, res, next) => {

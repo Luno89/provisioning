@@ -1,6 +1,6 @@
 import { getNotifications, notificationKeys, sendTestEmail, setEmailChoice, type EmailChoice, type NotificationView } from '../monitoring'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { accountKeys, getPersonRemoval, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson } from './api'
+import { accountKeys, endOtherSessions, getPersonRemoval, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson } from './api'
 import { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '../instances'
 import { deploymentKeys } from '../infrastructure'
 import { accountRemovalPlace } from '../platform'
@@ -88,3 +88,6 @@ export function useSendTestEmail() {
   return useMutation({ mutationFn: () => sendTestEmail() })
 }
 
+export function useEndOtherSessions(onEnded: () => void) {
+  return useMutation({ mutationFn: endOtherSessions, onSuccess: onEnded })
+}

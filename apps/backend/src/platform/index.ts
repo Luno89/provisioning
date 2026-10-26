@@ -1,5 +1,5 @@
 export { CLI_CEILING } from './lib/activity-liveness.js';
-export { e2eProblem, generateOTP, hashPassword, signJWT, signsEveryoneIn, verifyJWT, verifyPassword } from './lib/auth.js';
+export { e2eProblem, generateOTP, hashPassword, SESSION_SECONDS, sessionEnded, sessionToken, signJWT, signsEveryoneIn, verifyJWT, verifyPassword } from './lib/auth.js';
 export type { AreaStore } from './lib/collection.js';
 export { CommandFailedError } from './lib/command-error.js';
 export { decryptValue, encryptValue, keyId, maskSecret } from './lib/crypto.js';

@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import {
   afterFailure, lockedSaid, lockedUntil, type SignInAttempts, signJWT, verifyJWT, hashPassword, verifyPassword, type Auth,
-  carriedByOAuthState, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS,
+  carriedByOAuthState, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, sessionToken,
   type Database, type SecretKey,
 } from '../../platform/index.js';
 import axios from 'axios';
@@ -105,7 +105,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
         return res.json({ twoFactorRequired: true, challenge: signJWT({ twoFactorFor: user.id }, sessionKey, 5 * 60) });
       }
 
-      const token = signJWT({ userId: user.id, email: user.email }, sessionKey, 24 * 60 * 60);
+      const token = sessionToken(user, sessionKey);
       setSessionCookie(res, token);
       res.json({
         success: true,
@@ -141,7 +141,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
         return res.status(400).json({ error: 'Invalid or expired 2FA code' });
       }
 
-      const token = signJWT({ userId: user.id, email: user.email }, sessionKey, 24 * 60 * 60);
+      const token = sessionToken(user, sessionKey);
       setSessionCookie(res, token);
       res.json({
         success: true,
@@ -181,6 +181,19 @@ export function authRouter(deps: AuthRouterDeps): Router {
     });
   });
 
+  accountRoutes.post('/sessions/end-others', async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user) return res.status(401).json({ error: 'Not authenticated' });
+      user.sessionsEndedAt = new Date().toISOString();
+      await db.accounts.saveUser(user);
+      setSessionCookie(res, sessionToken(user, sessionKey), req);
+      res.json({ ended: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   accountRoutes.post('/2fa/settings', async (req, res) => {
     try {
       const { enabled, phone, preferredMethod } = req.body;
@@ -193,11 +206,13 @@ export function authRouter(deps: AuthRouterDeps): Router {
       const cannot = enabled ? authService.sendingProblem(method) : undefined;
       if (cannot) return res.status(400).json({ error: `Two-factor sign-in stays off: ${cannot}.` });
 
+      user.sessionsEndedAt = new Date().toISOString();
       user.twoFactorEnabled = !!enabled;
       if (phone !== undefined) user.twoFactorPhone = phone;
       if (preferredMethod !== undefined) user.twoFactorPreferredMethod = preferredMethod;
 
       await db.accounts.saveUser(user);
+      setSessionCookie(res, sessionToken(user, sessionKey), req);
       res.json({
         id: user.id,
         email: user.email,
@@ -288,7 +303,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
         await db.accounts.saveUser(user);
       }
 
-      const token = signJWT({ userId: user.id, email: user.email }, sessionKey, 24 * 60 * 60);
+      const token = sessionToken(user, sessionKey);
       setSessionCookie(res, token);
       res.redirect(`${APP_URL}/`);
     } catch (err: any) {
@@ -371,7 +386,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
         await db.accounts.saveUser(user);
       }
 
-      const token = signJWT({ userId: user.id, email: user.email }, sessionKey, 24 * 60 * 60);
+      const token = sessionToken(user, sessionKey);
       setSessionCookie(res, token);
       res.redirect(`${APP_URL}/`);
     } catch (err: any) {

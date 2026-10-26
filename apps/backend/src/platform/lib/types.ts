@@ -453,6 +453,7 @@ export function isCloudProvider(value: unknown): value is CloudProvider {
 }
 
 export interface UserMetadata {
+  sessionsEndedAt?: string | undefined;
   id: string;
   email: string;
   passwordHash?: string;

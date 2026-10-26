@@ -91,3 +91,11 @@ export function e2eProblem(env: Record<string, string | undefined>): string | un
     ? 'IS_E2E signs every request in as the first account, so a production server refuses to start with it set'
     : undefined;
 }
+
+export const SESSION_SECONDS = 24 * 60 * 60;
+
+export const sessionToken = (user: { id: string; email: string }, key: SecretKey, now = Date.now()): string =>
+  signJWT({ userId: user.id, email: user.email, sessionAt: now }, key, SESSION_SECONDS);
+
+export const sessionEnded = (decoded: Record<string, unknown>, user: { sessionsEndedAt?: string | undefined }): boolean =>
+  typeof decoded.sessionAt === 'number' && user.sessionsEndedAt !== undefined && decoded.sessionAt < Date.parse(user.sessionsEndedAt);

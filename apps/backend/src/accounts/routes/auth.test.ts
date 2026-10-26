@@ -176,6 +176,23 @@ describe('auth router', () => {
     }
   });
 
+  it('ends every other session on request and when two-factor settings change, keeping the one that asked', async () => {
+    await registerAndLogin('many@example.com', 'hunter2hunter2');
+    const signIn = async () => ((await fetch(ctx.url('/api/auth/login'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'many@example.com', password: 'hunter2hunter2' }) })).headers.get('set-cookie') ?? '').split(';')[0]!;
+    const me = async (cookie: string) => (await fetch(ctx.url('/api/auth/me'), { headers: { cookie } })).status;
+    const laptop = await signIn();
+    const phone = await signIn();
+
+    const ended = await fetch(ctx.url('/api/auth/sessions/end-others'), { method: 'POST', headers: { cookie: laptop } });
+    const kept = (ended.headers.get('set-cookie') ?? '').split(';')[0]!;
+    expect([await me(phone), await me(laptop), await me(kept)]).toEqual([401, 401, 200]);
+
+    const tablet = await signIn();
+    const changed = await fetch(ctx.url('/api/auth/2fa/settings'), { method: 'POST', headers: { 'content-type': 'application/json', cookie: kept }, body: JSON.stringify({ enabled: false }) });
+    const after = (changed.headers.get('set-cookie') ?? '').split(';')[0]!;
+    expect([await me(tablet), await me(after)]).toEqual([401, 200]);
+  });
+
   it('normalises the email on registration so login can find it again', async () => {
     await fetch(ctx.url('/api/auth/register'), {
       method: 'POST',

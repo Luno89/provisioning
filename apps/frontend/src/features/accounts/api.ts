@@ -28,3 +28,6 @@ export const getPersonRemoval = (id: string): Promise<RemovalPreview> =>
 
 export const removePerson = (id: string, confirm: string): Promise<RemovalState> =>
   api.delete<{ state: RemovalState }>(`/admin/people/${encodeURIComponent(id)}`, { data: { confirm } }).then((r) => r.data.state)
+
+export const endOtherSessions = (): Promise<void> =>
+  api.post('/auth/sessions/end-others', {}).then(() => undefined)
