@@ -182,7 +182,7 @@ async function main(): Promise<void> {
   note(`bootstrap.sh finished in ${minutes(bootstrapped)}`);
   writeFileSync(join(work, 'ca.crt'), await sh(root, 'sudo cat /usr/local/share/ca-certificates/koala-lab.crt'));
   const hardened = await sh(root, [
-    'sysctl -n net.ipv4.conf.all.accept_redirects kernel.kptr_restrict kernel.dmesg_restrict fs.protected_symlinks',
+    'sudo sysctl -n net.ipv4.conf.all.accept_redirects kernel.kptr_restrict kernel.dmesg_restrict fs.protected_symlinks',
     'sudo sshd -T | grep -E "^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication|allowusers) "',
     'sudo docker info --format "{{.LoggingDriver}} {{.LiveRestoreEnabled}} {{json .SecurityOptions}}"',
     'apt-config dump | grep -E "^APT::Periodic::Unattended-Upgrade "',
