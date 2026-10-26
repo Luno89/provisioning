@@ -89,7 +89,7 @@ describe('requireAuth', () => {
     const c = fakeCall({ cookie: `session=${token}` });
     await auth.requireAuth(c.req, c.res, c.next);
     expect(c.result().statusCode).toBe(401);
-    expect(await auth.userFromSessionCookie(`session=${token}`)).toBeUndefined();
+    expect(await auth.userFromSessionCookie(`session=${token}`, false)).toBeUndefined();
   });
 
   it('resolves the same user the socket handshake would', async () => {
@@ -99,10 +99,10 @@ describe('requireAuth', () => {
 
     const c = fakeCall({ cookie: `session=${token}` });
     await auth.requireAuth(c.req, c.res, c.next);
-    const viaSocket = await auth.userFromSessionCookie(`session=${token}`);
+    const viaSocket = await auth.userFromSessionCookie(`session=${token}`, false);
 
     expect(viaSocket?.id).toBe((c.result().user as { id: string }).id);
-    expect(await auth.userFromSessionCookie('session=garbage')).toBeUndefined();
+    expect(await auth.userFromSessionCookie('session=garbage', false)).toBeUndefined();
   });
 });
 
@@ -205,13 +205,13 @@ describe('what is open without a session, by role', () => {
     const db = await testDatabase();
     await db.init();
     const auth = createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role: 'instance' });
-    const cookies: Array<{ secure: boolean }> = [];
-    const res = { cookie: (_name: string, _value: string, options: { secure: boolean }) => { cookies.push(options); } } as unknown as Response;
+    const cookies: Array<{ name: string; secure: boolean }> = [];
+    const res = { cookie: (name: string, _value: string, options: { secure: boolean }) => { cookies.push({ name, secure: options.secure }); } } as unknown as Response;
 
     auth.setSessionCookie(res, 't', { secure: false, headers: { 'x-forwarded-proto': 'https' } } as unknown as Request);
     auth.setSessionCookie(res, 't', { secure: false, headers: {} } as unknown as Request);
 
-    expect(cookies.map((cookie) => cookie.secure)).toEqual([true, false]);
+    expect(cookies).toEqual([{ name: '__Host-session', secure: true }, { name: 'session', secure: false }]);
   });
 });
 
@@ -235,5 +235,49 @@ describe('an invite to sign up', () => {
     const { auth } = await withInvite();
     expect(await auth.checkAndConsumeInvite('CODE', 'u9', false, 'eve@example.com')).toBeNull();
     expect(await auth.checkAndConsumeInvite('CODE', 'u10', false, 'dee@example.com')).toBe('This invite code has already been used');
+  });
+});
+
+describe('a session over https cannot be planted by a site next door', () => {
+  const signedIn = async (publicUrl: string, role: 'combined' | 'instance' = 'combined') => {
+    const db = await testDatabase();
+    await db.init();
+    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
+    return { auth: createAuth({ db, sessionKey: 'k', publicUrl, role }), token: signJWT({ userId: 'u1' }, 'k', 3600) };
+  };
+
+  it('names the cookie __Host-session over https, which a sibling subdomain cannot set, and takes no plain session there', async () => {
+    const { auth, token } = await signedIn('https://app.example.com');
+    const cookies: string[] = [];
+    auth.setSessionCookie({ cookie: (name: string) => { cookies.push(name); } } as unknown as Response, token, { secure: true, headers: {} } as unknown as Request);
+    expect(cookies).toEqual(['__Host-session']);
+
+    const planted = fakeCall({ cookie: `session=${token}` });
+    await auth.requireAuth(planted.req, planted.res, planted.next);
+    expect(planted.result().statusCode).toBe(401);
+    const real = fakeCall({ cookie: `__Host-session=${token}` });
+    await auth.requireAuth(real.req, real.res, real.next);
+    expect(real.result().nexted).toBe(true);
+    expect(await auth.userFromSessionCookie(`session=${token}`, auth.securedFor({ headers: {}, secure: false }))).toBeUndefined();
+  });
+
+  it('on an instance, reads the cookie the way the request arrived, as it was set', async () => {
+    const { auth, token } = await signedIn('https://luno.example.app', 'instance');
+    const overHttps = fakeCall({ cookie: `__Host-session=${token}`, 'x-forwarded-proto': 'https' });
+    await auth.requireAuth(overHttps.req, overHttps.res, overHttps.next);
+    expect(overHttps.result().nexted).toBe(true);
+    const plantedOverHttps = fakeCall({ cookie: `session=${token}`, 'x-forwarded-proto': 'https' });
+    await auth.requireAuth(plantedOverHttps.req, plantedOverHttps.res, plantedOverHttps.next);
+    expect(plantedOverHttps.result().statusCode).toBe(401);
+    const overMesh = fakeCall({ cookie: `session=${token}` });
+    await auth.requireAuth(overMesh.req, overMesh.res, overMesh.next);
+    expect(overMesh.result().nexted).toBe(true);
+  });
+
+  it('signs out of both names, the secure one with the flag a browser needs to drop it', async () => {
+    const { auth } = await signedIn('https://app.example.com');
+    const cleared: Array<{ name: string; secure: boolean }> = [];
+    auth.clearSession({ clearCookie: (name: string, options: { secure: boolean }) => { cleared.push({ name, secure: options.secure }); } } as unknown as Response);
+    expect(cleared).toEqual([{ name: '__Host-session', secure: true }, { name: 'session', secure: false }]);
   });
 });

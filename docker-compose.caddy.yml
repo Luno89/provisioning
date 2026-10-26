@@ -18,7 +18,7 @@ services:
       APP_DOMAIN: ${APP_DOMAIN:-app.nowrinkles.dev}
       MESH_DOMAIN: ${MESH_DOMAIN:-mesh.nowrinkles.dev}
       ACME_EMAIL: ${ACME_EMAIL:-admin@nowrinkles.dev}
-      DOMAIN: ${DOMAIN:-nowrinkles.dev}
+      INGRESS_DOMAIN: ${INGRESS_DOMAIN:-nowrinkles.app}
       ROOT_TLS: ${ROOT_TLS:-cloudflare}
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
     volumes:

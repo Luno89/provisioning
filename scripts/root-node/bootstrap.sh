@@ -10,7 +10,7 @@
 # laptop it was http://localhost:8080, which told every node to phone itself.
 #
 # Usage (on the root node, as root):
-#   DOMAIN=nowrinkles.dev ACME_EMAIL=you@example.com bash scripts/root-node/bootstrap.sh
+#   DOMAIN=nowrinkles.dev INGRESS_DOMAIN=nowrinkles.app ACME_EMAIL=you@example.com bash scripts/root-node/bootstrap.sh
 #
 # Idempotent: safe to re-run. Each step checks before acting.
 
@@ -44,11 +44,19 @@ case "$ROOT_TLS" in
   internal) LAB=1 ;;
   *) die "ROOT_TLS is cloudflare (certificates from Let's Encrypt, proved over Cloudflare DNS) or internal (a lab: Caddy's own authority, no public DNS)" ;;
 esac
+if [ -z "${INGRESS_DOMAIN:-}" ]; then
+  if [ "$LAB" -eq 1 ]; then INGRESS_DOMAIN="$DOMAIN"; else INGRESS_DOMAIN=nowrinkles.app; fi
+fi
+registered() { echo "$1" | awk -F. '{ print $(NF-1) "." $NF }'; }
+if [ "$LAB" -eq 0 ] && [ "$(registered "$INGRESS_DOMAIN")" = "$(registered "$DOMAIN")" ]; then
+  die "INGRESS_DOMAIN (${INGRESS_DOMAIN}) must be a different registered domain from DOMAIN (${DOMAIN}): people's instances and apps under root's own domain are the same site as root, so a page anyone deploys could send requests with a visitor's root session"
+fi
 
 echo "Bootstrapping the No Wrinkles root node"
 [ "$LAB" -eq 1 ] && echo "  lab:  ROOT_TLS=internal — no public DNS, Caddy's own certificate authority"
 echo "  app:  https://${APP_DOMAIN}"
 echo "  mesh: https://${MESH_DOMAIN}"
+echo "  people's instances and apps: https://*.${INGRESS_DOMAIN}"
 echo "  repo: ${REPO_DIR}"
 
 # ── 1. DNS ─────────────────────────────────────────────────────────────────────────────────────
@@ -67,20 +75,20 @@ if [ "$LAB" -eq 1 ]; then
     esac
   done
   PUBLIC_IP="$resolved"
-  warn "*.${DOMAIN} is not checked in a lab; whoever reaches this root resolves every name under it to this host themselves"
+  warn "*.${INGRESS_DOMAIN} is not checked in a lab; whoever reaches this root resolves every name under it to this host themselves"
 else
 PUBLIC_IP="$(curl -s -m 10 https://api.ipify.org || true)"
 [ -n "$PUBLIC_IP" ] || die "Could not determine this host's public IP."
 ok "This host is ${PUBLIC_IP}"
 
 # The wildcard is checked via a name that can only resolve through it. Tenant apps are served at
-# <app>-<id>.$DOMAIN, and those names are created on demand — there is no per-app DNS record, so
+# <app>-<name>.$INGRESS_DOMAIN, and those names are created on demand — there is no per-app DNS record, so
 # without the wildcard every app URL is NXDOMAIN and no certificate can ever be issued for one.
-for name in "$APP_DOMAIN" "$MESH_DOMAIN" "wildcard-probe.${DOMAIN}"; do
+for name in "$APP_DOMAIN" "$MESH_DOMAIN" "wildcard-probe.${INGRESS_DOMAIN}"; do
   resolved="$(dig +short A "$name" @1.1.1.1 | tail -1)"
   if [ -z "$resolved" ]; then
     case "$name" in
-      wildcard-probe.*) die "No wildcard record: *.${DOMAIN} must point at ${PUBLIC_IP} (DNS-only / grey cloud), or no tenant app URL will resolve." ;;
+      wildcard-probe.*) die "No wildcard record: *.${INGRESS_DOMAIN} must point at ${PUBLIC_IP} (DNS-only / grey cloud), or no tenant app URL will resolve." ;;
       *) die "${name} has no A record yet. Point it at ${PUBLIC_IP} (DNS-only / grey cloud) and re-run." ;;
     esac
   elif [ "$resolved" != "$PUBLIC_IP" ]; then
@@ -220,17 +228,17 @@ fi
 MONGO_ROOT_PASSWORD="$(grep '^MONGO_ROOT_PASSWORD=' "$COMPOSE_ENV" | cut -d= -f2-)"
 grep -q '^PLATFORM_BIND=' "$COMPOSE_ENV" || echo "PLATFORM_BIND=127.0.0.1" >> "$COMPOSE_ENV"
 if [ "$LAB" -eq 0 ] && ! grep -q '^CLOUDFLARE_API_TOKEN=.' "$COMPOSE_ENV"; then
-  [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || die "Set CLOUDFLARE_API_TOKEN: a Cloudflare API token with Zone, DNS, Edit on ${DOMAIN} only. Caddy proves the domain with it for the wildcard certificate *.${DOMAIN}, which every person's address and app is under. It stays in ${COMPOSE_ENV}, never in the database."
+  [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || die "Set CLOUDFLARE_API_TOKEN: a Cloudflare API token with Zone, DNS, Edit on ${DOMAIN} and ${INGRESS_DOMAIN} only. Caddy proves the domain with it for the wildcard certificate *.${INGRESS_DOMAIN}, which every person's address and app is under, and the mail records of ${DOMAIN} are made with it. It stays in ${COMPOSE_ENV}, never in the database."
   echo "CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}" >> "$COMPOSE_ENV"
 fi
-for pair in "DOMAIN=${DOMAIN}" "APP_DOMAIN=${APP_DOMAIN}" "MESH_DOMAIN=${MESH_DOMAIN}" "ACME_EMAIL=${ACME_EMAIL}" "ROOT_TLS=${ROOT_TLS}"; do
+for pair in "DOMAIN=${DOMAIN}" "INGRESS_DOMAIN=${INGRESS_DOMAIN}" "APP_DOMAIN=${APP_DOMAIN}" "MESH_DOMAIN=${MESH_DOMAIN}" "ACME_EMAIL=${ACME_EMAIL}" "ROOT_TLS=${ROOT_TLS}"; do
   key="${pair%%=*}"
   grep -q "^${key}=" "$COMPOSE_ENV" && sed -i "s|^${key}=.*|${pair}|" "$COMPOSE_ENV" || echo "$pair" >> "$COMPOSE_ENV"
 done
 if [ "$LAB" -eq 1 ]; then
-  ok "Caddy signs *.${DOMAIN}, ${APP_DOMAIN} and ${MESH_DOMAIN} with its own certificate authority"
+  ok "Caddy signs *.${INGRESS_DOMAIN}, ${APP_DOMAIN} and ${MESH_DOMAIN} with its own certificate authority"
 else
-  ok "Caddy gets the wildcard certificate for *.${DOMAIN} over Cloudflare DNS"
+  ok "Caddy gets the wildcard certificate for *.${INGRESS_DOMAIN} over Cloudflare DNS"
 fi
 
 set_env MONGO_URI "mongodb://admin:${MONGO_ROOT_PASSWORD}@127.0.0.1:27017/provisioning?authSource=admin"
@@ -238,18 +246,17 @@ set_env MESH_LOGIN_SERVER "https://${MESH_DOMAIN}"
 set_env APP_DOMAIN "$APP_DOMAIN"
 set_env MESH_DOMAIN "$MESH_DOMAIN"
 set_env ACME_EMAIL "$ACME_EMAIL"
-# Apps are served at <app>-<id>.$DOMAIN. Without this, exposePublic refuses outright rather than
-# handing out a URL that would not resolve.
-set_env INGRESS_DOMAIN "$DOMAIN"
+set_env INGRESS_DOMAIN "$INGRESS_DOMAIN"
 # The origin the browser reaches this host at. Every OAuth redirect_uri and every post-login
 # redirect is derived from it; unset, they fall back to localhost and social sign-in cannot work
 # (the provider redirects the user's own browser, so localhost means their machine, not this one).
 # It also decides whether the session cookie gets the Secure flag — https here, Secure there.
 set_env PUBLIC_URL "$PUBLIC_URL"
 ok "MESH_LOGIN_SERVER=https://${MESH_DOMAIN} — this is what activates mesh join"
-ok "INGRESS_DOMAIN=${DOMAIN} — this is what activates public app URLs"
+ok "INGRESS_DOMAIN=${INGRESS_DOMAIN} — people's instances at <name>.${INGRESS_DOMAIN}, their apps at <app>-<name>.${INGRESS_DOMAIN}"
 ok "PUBLIC_URL=${PUBLIC_URL} — OAuth redirects and Secure cookies key off this"
 set_env MAIL_SMTP_URL "smtp://127.0.0.1:2525"
+set_env MAIL_FROM "alerts@${DOMAIN}"
 ok "MAIL_SMTP_URL — alerts are emailed from alerts@${DOMAIN} through this host's own mail server"
 
 # ── 5. Headscale ───────────────────────────────────────────────────────────────────────────────

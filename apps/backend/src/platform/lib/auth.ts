@@ -94,6 +94,13 @@ export function e2eProblem(env: Record<string, string | undefined>): string | un
 
 export const SESSION_SECONDS = 24 * 60 * 60;
 
+export const SESSION_COOKIE = 'session';
+
+export const cookieNamed = (name: string, secure: boolean): string => (secure ? `__Host-${name}` : name);
+
+export const arrivedOverHttps = (forwardedProto: string | string[] | undefined, encrypted: boolean): boolean =>
+  encrypted || String(forwardedProto ?? '').split(',')[0]?.trim() === 'https';
+
 export const sessionToken = (user: { id: string; email: string }, key: SecretKey, now = Date.now()): string =>
   signJWT({ userId: user.id, email: user.email, sessionAt: now }, key, SESSION_SECONDS);
 

@@ -22,7 +22,7 @@ export interface SocketsWiringDeps {
   env: NodeJS.ProcessEnv;
   payloadKey: Keyring;
   dataKey: SecretKey;
-  auth: Pick<ReturnType<typeof createAuth>, 'userFromSessionCookie'>;
+  auth: Pick<ReturnType<typeof createAuth>, 'userFromSessionCookie' | 'securedFor'>;
   machines: Pick<MachineService, 'recordAgents' | 'manualAgents'>;
   clusters: ClusterService;
   apps: AppService;
@@ -39,7 +39,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
       return next();
     }
     try {
-      const user = await deps.auth.userFromSessionCookie(socket.handshake.headers.cookie);
+      const user = await deps.auth.userFromSessionCookie(socket.handshake.headers.cookie, deps.auth.securedFor(socket.handshake));
       if (!user) return next(new Error('Unauthorized'));
       socket.data.user = user;
       next();

@@ -22,7 +22,7 @@ export const SPA_POLICY: Readonly<Record<string, readonly string[]>> = {
 export function cspModeFrom(env: Readonly<Record<string, string | undefined>>): CspMode {
   const asked = env.CSP?.trim().toLowerCase();
   if (asked === 'enforce' || asked === 'report' || asked === 'off') return asked;
-  return env.NODE_ENV === 'production' ? 'report' : 'off';
+  return env.NODE_ENV === 'production' ? 'enforce' : 'off';
 }
 
 export function policyText(policy: Readonly<Record<string, readonly string[]>> = SPA_POLICY): string {

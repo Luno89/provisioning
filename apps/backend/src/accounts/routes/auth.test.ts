@@ -296,10 +296,13 @@ describe('auth router', () => {
       headers: { cookie: session },
     });
     expect(out.status).toBe(200);
-    const cleared = out.headers.get('set-cookie') ?? '';
-    expect(cleared).toMatch(/^session=;/);
-    expect(cleared).toMatch(/HttpOnly/i);
-    expect(cleared).toMatch(/SameSite=Lax/i);
+    const cleared = out.headers.getSetCookie();
+    expect(cleared.map((cookie) => cookie.split('=')[0])).toEqual(['__Host-session', 'session']);
+    for (const cookie of cleared) {
+      expect(cookie).toMatch(/HttpOnly/i);
+      expect(cookie).toMatch(/SameSite=Lax/i);
+    }
+    expect(cleared[0]).toMatch(/Secure/);
   });
 
   it('rejects a session signed with the wrong secret', async () => {

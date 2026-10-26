@@ -95,7 +95,7 @@ export interface InstancesWiringDeps {
   db: Database;
   mail: MailService;
   identity: IdentityService;
-  auth: Pick<ReturnType<typeof createAuth>, 'requireAdmin' | 'userFromSessionCookie' | 'setSessionCookie'>;
+  auth: Pick<ReturnType<typeof createAuth>, 'requireAdmin' | 'userFromSessionCookie' | 'securedFor' | 'setSessionCookie'>;
   sessionKey: SecretKey;
   publicUrl: string;
   repoRoot: string;
@@ -115,7 +115,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   deps.side.follow(deps.syncExposedApps);
 
   if (holdsAccounts(role)) {
-    app.use('/api/identity', identityRouter({ identity, servesTenants: servesTenants(role), signedIn: (req) => deps.auth.userFromSessionCookie(req.headers.cookie) }));
+    app.use('/api/identity', identityRouter({ identity, servesTenants: servesTenants(role), signedIn: (req) => deps.auth.userFromSessionCookie(req.headers.cookie, deps.auth.securedFor(req)) }));
   }
   if (signsInThroughRoot(role.role)) app.use('/api/auth', handoffRouter({ identity, auth: deps.auth, sessionKey: deps.sessionKey }));
 

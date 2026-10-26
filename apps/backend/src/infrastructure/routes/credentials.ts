@@ -1,7 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import axios from 'axios';
 import {
-  asyncRoute, carriedByOAuthState, isCloudProvider, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, parseCookie, type CloudProvider, type SecretKey,
+  asyncRoute, carriedByOAuthState, cookieNamed, isCloudProvider, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, parseCookie, type CloudProvider, type SecretKey,
 } from '../../platform/index.js';
 import type { CredentialService } from '../services/CredentialService.js';
 
@@ -69,6 +69,7 @@ export function credentialsRouter(deps: CredentialsRouterDeps): Router {
   }));
 
   const stateCookie = { httpOnly: true, secure: publicUrl.startsWith('https://'), sameSite: 'lax' as const };
+  const stateName = cookieNamed(OAUTH_STATE_COOKIE, stateCookie.secure);
 
   router.get('/googledrive/connect', (req, res) => {
     const googleId = process.env.GOOGLE_CLIENT_ID;
@@ -77,7 +78,7 @@ export function credentialsRouter(deps: CredentialsRouterDeps): Router {
     }
     const redirectUri = encodeURIComponent(`${publicUrl}/api/credentials/googledrive/callback`);
     const { state: started, cookie } = newOAuthState(userOf(req).id, deps.sessionKey);
-    res.cookie(OAUTH_STATE_COOKIE, cookie, { ...stateCookie, maxAge: OAUTH_STATE_SECONDS * 1000 });
+    res.cookie(stateName, cookie, { ...stateCookie, maxAge: OAUTH_STATE_SECONDS * 1000 });
     res.redirect(
       'https://accounts.google.com/o/oauth2/v2/auth'
       + `?client_id=${googleId}&redirect_uri=${redirectUri}&response_type=code`
@@ -90,8 +91,8 @@ export function credentialsRouter(deps: CredentialsRouterDeps): Router {
   router.get('/googledrive/callback', asyncRoute(async (req, res) => {
     try {
       const { code } = req.query;
-      const held = carriedByOAuthState(parseCookie(req.headers.cookie, OAUTH_STATE_COOKIE), req.query.state, deps.sessionKey);
-      res.clearCookie(OAUTH_STATE_COOKIE, stateCookie);
+      const held = carriedByOAuthState(parseCookie(req.headers.cookie, stateName), req.query.state, deps.sessionKey);
+      res.clearCookie(stateName, stateCookie);
       if (!held || held.carried !== userOf(req).id) return res.redirect(`${appUrl}/?driveError=not_started_here#/settings`);
       const googleId = process.env.GOOGLE_CLIENT_ID;
       const googleSecret = process.env.GOOGLE_CLIENT_SECRET;

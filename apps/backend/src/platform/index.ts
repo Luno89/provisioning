@@ -1,5 +1,5 @@
 export { CLI_CEILING } from './lib/activity-liveness.js';
-export { e2eProblem, generateOTP, hashPassword, SESSION_SECONDS, sessionEnded, sessionToken, signJWT, signsEveryoneIn, verifyJWT, verifyPassword } from './lib/auth.js';
+export { arrivedOverHttps, cookieNamed, e2eProblem, generateOTP, hashPassword, SESSION_COOKIE, SESSION_SECONDS, sessionEnded, sessionToken, signJWT, signsEveryoneIn, verifyJWT, verifyPassword } from './lib/auth.js';
 export type { AreaStore } from './lib/collection.js';
 export { CommandFailedError } from './lib/command-error.js';
 export { decryptValue, encryptValue, keyId, maskSecret } from './lib/crypto.js';
@@ -34,6 +34,8 @@ export type { RoleConfig } from './lib/platform-role.js';
 export { writePrivate } from './lib/private-file.js';
 export { K3S_TRAEFIK_CONFIG, k3sConfigState, ourTraefikArgs, servicesLabelled, traefikOf } from './lib/request-metrics.js';
 export type { HelmRelease } from './lib/request-metrics.js';
+export { crossSiteRefusal, foreignOrigin, ourOrigins } from './lib/same-site.js';
+export type { OurOrigins } from './lib/same-site.js';
 export { sameSeededRow } from './lib/seed-diff.js';
 export { stopIfRunning } from './lib/stop-workflow.js';
 export { carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings } from './lib/telemetry.js';

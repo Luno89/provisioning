@@ -58,10 +58,12 @@ describe('an instance\'s sign-in exchange', () => {
     const first = await axios.post(h.url('/api/auth/handoff'), { token }, { ...quiet, headers: { 'X-Forwarded-Proto': 'https' } });
     expect(first.status).toBe(200);
     const cookie = String(first.headers['set-cookie']?.[0]);
-    expect(cookie).toMatch(/^session=/);
+    expect(cookie).toMatch(/^__Host-session=/);
     expect(cookie).toMatch(/HttpOnly/);
     expect(cookie).toMatch(/Secure/);
-    expect(verifyJWT(cookie.split(';')[0]!.slice('session='.length), sessionKey)).toMatchObject({ userId: 'u1' });
+    expect(cookie).toMatch(/Path=\//);
+    expect(cookie).not.toMatch(/Domain=/i);
+    expect(verifyJWT(cookie.split(';')[0]!.slice('__Host-session='.length), sessionKey)).toMatchObject({ userId: 'u1' });
 
     expect((await axios.post(h.url('/api/auth/handoff'), { token }, quiet)).status).toBe(409);
     expect((await axios.post(h.url('/api/auth/handoff'), {}, quiet)).status).toBe(400);

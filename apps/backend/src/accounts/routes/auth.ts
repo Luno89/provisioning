@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import {
   afterFailure, lockedSaid, lockedUntil, type SignInAttempts, signJWT, verifyJWT, hashPassword, verifyPassword, type Auth,
-  carriedByOAuthState, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, sessionToken,
+  carriedByOAuthState, cookieNamed, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, sessionToken,
   type Database, type SecretKey,
 } from '../../platform/index.js';
 import axios from 'axios';
@@ -25,15 +25,16 @@ export function authRouter(deps: AuthRouterDeps): Router {
   const router = Router();
   const accountRoutes = deps.accounts === false ? Router() : router;
   const { db, authService, sessionKey, publicUrl, appUrl } = deps;
-  const { setSessionCookie, checkAndConsumeInvite, sessionCookieOptions, getCookie } = deps.auth;
+  const { setSessionCookie, clearSession, checkAndConsumeInvite, sessionCookieOptions, getCookie } = deps.auth;
+  const stateCookie = cookieNamed(OAUTH_STATE_COOKIE, sessionCookieOptions.secure);
   const startOAuth = (res: Response, invite: string): string => {
     const { state, cookie } = newOAuthState(invite, sessionKey);
-    res.cookie(OAUTH_STATE_COOKIE, cookie, { ...sessionCookieOptions, maxAge: OAUTH_STATE_SECONDS * 1000 });
+    res.cookie(stateCookie, cookie, { ...sessionCookieOptions, maxAge: OAUTH_STATE_SECONDS * 1000 });
     return encodeURIComponent(state);
   };
   const returnedOAuth = (req: Request, res: Response): { invite: string } | undefined => {
-    const held = carriedByOAuthState(getCookie(req, OAUTH_STATE_COOKIE), req.query.state, sessionKey);
-    res.clearCookie(OAUTH_STATE_COOKIE, sessionCookieOptions);
+    const held = carriedByOAuthState(getCookie(req, stateCookie), req.query.state, sessionKey);
+    res.clearCookie(stateCookie, sessionCookieOptions);
     if (!held) res.redirect(`${APP_URL}/?authError=${encodeURIComponent('This sign-in did not start here, or took longer than ten minutes; start it again')}`);
     return held && { invite: held.carried };
   };
@@ -159,7 +160,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
   });
 
   router.post('/logout', (req, res) => {
-    res.clearCookie('session', sessionCookieOptions);
+    clearSession(res);
     res.json({ success: true });
   });
 

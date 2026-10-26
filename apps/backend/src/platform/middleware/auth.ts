@@ -1,5 +1,6 @@
 import express from 'express';
-import { sessionEnded, signsEveryoneIn, verifyJWT } from '../lib/auth.js';
+import type { IncomingHttpHeaders } from 'node:http';
+import { arrivedOverHttps, cookieNamed, SESSION_COOKIE, sessionEnded, signsEveryoneIn, verifyJWT } from '../lib/auth.js';
 import { inviteExpired } from '../lib/invite-codes.js';
 import { setupCodeProblem } from '../lib/first-admin.js';
 import type { Database } from '../lib/db-interface.js';
@@ -27,10 +28,12 @@ export interface AuthDeps {
 
 export interface Auth {
   getCookie: (req: express.Request, name: string) => string | undefined;
-  userFromSessionCookie: (cookieHeader: string | undefined) => Promise<UserMetadata | undefined>;
+  userFromSessionCookie: (cookieHeader: string | undefined, secure: boolean) => Promise<UserMetadata | undefined>;
+  securedFor: (arrived: { headers: IncomingHttpHeaders; secure: boolean }) => boolean;
   requireAuth: express.RequestHandler;
   requireAdmin: express.RequestHandler;
   setSessionCookie: (res: express.Response, token: string, req?: express.Request) => void;
+  clearSession: (res: express.Response) => void;
   sessionCookieOptions: { httpOnly: boolean; secure: boolean; sameSite: 'lax' };
   checkAndConsumeInvite: (
     code: string | undefined,
@@ -45,8 +48,16 @@ export const PUBLIC_PREFIXES = ['/checks/scripted/', '/machines/git/', '/share/'
 export function createAuth({ db, sessionKey, publicUrl, role = 'combined', setupCode }: AuthDeps): Auth {
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
 
-  async function userFromSessionCookie(cookieHeader: string | undefined): Promise<UserMetadata | undefined> {
-    const token = parseCookie(cookieHeader, 'session');
+  const sessionCookieOptions = {
+    httpOnly: true,
+    secure: publicUrl.startsWith('https://'),
+    sameSite: 'lax' as const,
+  };
+  const securedFor = (arrived: { headers: IncomingHttpHeaders; secure: boolean }): boolean =>
+    signsInThroughRoot(role) ? arrivedOverHttps(arrived.headers['x-forwarded-proto'], arrived.secure) : sessionCookieOptions.secure;
+
+  async function userFromSessionCookie(cookieHeader: string | undefined, secure: boolean): Promise<UserMetadata | undefined> {
+    const token = parseCookie(cookieHeader, cookieNamed(SESSION_COOKIE, secure));
     if (!token) return undefined;
     const decoded = verifyJWT(token, sessionKey);
     if (!decoded || !decoded.userId) return undefined;
@@ -104,10 +115,11 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', setup
       return next();
     }
 
-    if (!getCookie(req, 'session')) {
+    const secure = securedFor(req);
+    if (!getCookie(req, cookieNamed(SESSION_COOKIE, secure))) {
       return res.status(401).json({ error: 'Unauthorized: Session missing' });
     }
-    const user = await userFromSessionCookie(req.headers.cookie);
+    const user = await userFromSessionCookie(req.headers.cookie, secure);
     if (!user) {
       return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
     }
@@ -122,16 +134,13 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', setup
     next();
   };
 
-  const sessionCookieOptions = {
-    httpOnly: true,
-    secure: publicUrl.startsWith('https://'),
-    sameSite: 'lax' as const,
-  };
-  const arrivedOverHttps = (req: express.Request): boolean =>
-    req.secure || String(req.headers['x-forwarded-proto'] ?? '').split(',')[0]?.trim() === 'https';
   const setSessionCookie = (res: express.Response, token: string, req?: express.Request) => {
-    const secure = signsInThroughRoot(role) && req ? arrivedOverHttps(req) : sessionCookieOptions.secure;
-    res.cookie('session', token, { ...sessionCookieOptions, secure, maxAge: 24 * 60 * 60 * 1000 });
+    const secure = req ? securedFor(req) : sessionCookieOptions.secure;
+    res.cookie(cookieNamed(SESSION_COOKIE, secure), token, { ...sessionCookieOptions, secure, maxAge: 24 * 60 * 60 * 1000 });
+  };
+  const clearSession = (res: express.Response) => {
+    res.clearCookie(cookieNamed(SESSION_COOKIE, true), { ...sessionCookieOptions, secure: true });
+    res.clearCookie(cookieNamed(SESSION_COOKIE, false), { ...sessionCookieOptions, secure: false });
   };
 
   async function checkAndConsumeInvite(code: string | undefined, newUserId: string, isFirstUser: boolean, email?: string): Promise<string | null> {
@@ -151,7 +160,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', setup
   }
 
   return {
-    getCookie, userFromSessionCookie, requireAuth, requireAdmin,
-    setSessionCookie, sessionCookieOptions, checkAndConsumeInvite,
+    getCookie, userFromSessionCookie, securedFor, requireAuth, requireAdmin,
+    setSessionCookie, clearSession, sessionCookieOptions, checkAndConsumeInvite,
   };
 }

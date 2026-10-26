@@ -15,7 +15,7 @@ import { Server as SocketServer } from 'socket.io';
 import { authRouter, AuthService } from './accounts/index.js';
 import helmet from 'helmet';
 import {
-  CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, MetricsService, RATE_LIMITS, ruleFor,
+  CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, keepTrying, mongoTarget, asyncRoute,
   ownsProject, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, decryptValue, loadKeys,
   roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup,
@@ -98,7 +98,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const originAllowed = (origin: string | undefined): boolean =>
     !origin || process.env.NODE_ENV !== 'production' || corsAllowed.has(origin.replace(/\/$/, ''));
 
+  const ours = ourOrigins(process.env);
   const io = new SocketServer(httpServer, {
+    allowRequest: (req, callback) => {
+      const refused = foreignOrigin({ host: req.headers.host, origin: req.headers.origin, fetchSite: req.headers['sec-fetch-site'] as string | undefined }, ours);
+      callback(refused ?? null, !refused);
+    },
     cors: {
       origin: (origin, cb) => cb(null, originAllowed(origin)),
       credentials: true,
@@ -264,6 +269,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     skipSuccessfulRequests: rule.countsOnlyFailures,
     skip: (req) => ruleFor(req.path)?.name !== rule.name,
   })));
+  app.use('/api', (req, res, next) => {
+    const refused = crossSiteRefusal(req.method, { host: req.headers.host, origin: req.headers.origin, fetchSite: req.get('sec-fetch-site') }, ours);
+    if (refused) return res.status(403).json({ error: `Refused: ${refused}` });
+    next();
+  });
   const credentialService = new CredentialService(db, keys.data);
   const vpsCatalogService = new VpsCatalogService(db, keys.data);
 
@@ -337,7 +347,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   setInterval(sweepArtifacts, 24 * 60 * 60 * 1000).unref();
   void sweepArtifacts();
   wireMachines({ tenant, db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, headscale: headscaleService, projectRepos: projectRepoService });
-  wireAccounts({ app, role, env: process.env, db, temporalBridge, hubPeople: hub.hubPeople, requireAdmin, clearSession: (res) => res.clearCookie('session', auth.sessionCookieOptions) });
+  wireAccounts({ app, role, env: process.env, db, temporalBridge, hubPeople: hub.hubPeople, requireAdmin, clearSession: auth.clearSession });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
 
   const { evalHost, level2Service, procedureService, mcpCatalogue } = await wireEngine({
