@@ -279,6 +279,9 @@ ufw allow from 10.43.0.0/16 to any >/dev/null
 ufw --force enable >/dev/null
 ok "ufw: only 22, 80 and 443 are reachable from outside; the management cluster's pods and services reach this host"
 
+step "Making the backend's account and folders"
+REPO_DIR="$REPO_DIR" bash scripts/root-node/units.sh
+
 # ── 7. Services ────────────────────────────────────────────────────────────────────────────────
 step "Starting services"
 docker compose -f docker-compose.mongo.yml up -d
@@ -289,7 +292,7 @@ docker compose -f docker-compose.mail.yml up -d --build
 ok "Mongo, Temporal, Headscale, Caddy and the mail server running"
 if [ "$LAB" -eq 1 ]; then
   until docker cp nowrinkles-caddy:/data/caddy/pki/authorities/local/root.crt "$LAB_CA" 2>/dev/null; do
-    [ "$(docker inspect -f '{{.State.Running}}' nowrinkles-caddy 2>/dev/null)" = true ] || die "Caddy is not running: docker logs nowrinkles-caddy"
+    [ "$(docker inspect -f '{{.State.Running}}' nowrinkles-caddy 2>/dev/null)" = true ] || die "Caddy is not running: docker logs nowrinkles-caddy, and /var/log/koala-caddy/caddy.log"
     sleep 1
   done
   update-ca-certificates >/dev/null
@@ -332,6 +335,10 @@ if ! tailscale ip -4 >/dev/null 2>&1; then
 fi
 ROOT_MESH_IP="$(tailscale ip -4 | head -n1)"
 [ -n "$ROOT_MESH_IP" ] || die "this node did not get a mesh address"
+if ! grep -qE '^HEADSCALE_API_KEY=.+$' "$ENV_FILE"; then
+  set_env HEADSCALE_API_KEY "$(docker exec provisioning-headscale headscale apikeys create --expiration 87600h)"
+fi
+ok "the backend reaches Headscale with its own API key, never through Docker"
 ok "on the mesh as ${ROOT_MESH_IP} (tag:platform)"
 
 step "Starting the image registry for instances"
@@ -384,26 +391,8 @@ fi
 # ── 8. systemd ─────────────────────────────────────────────────────────────────────────────────
 # Without this the platform dies on reboot and every tenant loses the ability to provision.
 step "Installing the systemd unit"
-cat > /etc/systemd/system/nowrinkles.service <<UNIT
-[Unit]
-Description=No Wrinkles platform
-After=docker.service network-online.target
-Requires=docker.service
-
-[Service]
-Type=simple
-WorkingDirectory=${REPO_DIR}
-ExecStart=/usr/bin/npm run start
-Restart=always
-RestartSec=10
-Environment=NODE_ENV=production
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-systemctl daemon-reload
-systemctl enable nowrinkles.service
-ok "nowrinkles.service enabled (start it once you have verified the build)"
+REPO_DIR="$REPO_DIR" bash scripts/root-node/units.sh
+ok "nowrinkles.service and nowrinkles-workers.service enabled (start them once you have verified the build)"
 
 if [ "$LAB" -eq 1 ]; then
   warn "a lab follows no published releases: update it with update.sh"
@@ -442,7 +431,7 @@ sleep 5
 if curl -sf -m 15 "https://${MESH_DOMAIN}/health" >/dev/null 2>&1; then
   ok "https://${MESH_DOMAIN} is serving with a valid certificate"
 else
-  warn "Headscale is not answering over TLS yet — Caddy may still be issuing. Check: docker logs nowrinkles-caddy"
+  warn "Headscale is not answering over TLS yet — Caddy may still be issuing. Check: /var/log/koala-caddy/caddy.log"
 fi
 
 echo

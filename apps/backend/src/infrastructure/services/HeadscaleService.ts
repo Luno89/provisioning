@@ -25,10 +25,12 @@ export class HeadscaleService {
   constructor(
     private readonly masterKey: SecretKey,
     private readonly baseUrl: string = 'http://localhost:8080',
+    private readonly givenApiKey: string | undefined = undefined,
   ) {}
 
   private async getApiKey(): Promise<string> {
     if (this.apiKeyCache) return this.apiKeyCache;
+    if (this.givenApiKey?.trim()) return (this.apiKeyCache = this.givenApiKey.trim());
 
     try {
       const encrypted = await fs.readFile(API_KEY_FILE, 'utf8');

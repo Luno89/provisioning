@@ -28,6 +28,8 @@ services:
       - ./apps/backend/data/caddy/apps:/etc/caddy/apps:ro
       - ./apps/backend/data/caddy/instances:/etc/caddy/instances:ro
       - ./apps/backend/data/caddy/instance-sites:/etc/caddy/instance-sites:ro
+      - /run/koala-caddy:/run/caddy-admin
+      - /var/log/koala-caddy:/var/log/caddy
       # Certificates and ACME account keys. Losing this volume means re-issuing on next start,
       # which is survivable but counts against Let's Encrypt rate limits (5 per name per week).
       - caddy-data:/data

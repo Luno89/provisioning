@@ -54,6 +54,18 @@ export function namespaceManifest(name: string, ownerId: string): Record<string,
   };
 }
 
+export const BACKEND_ACCOUNT = { namespace: 'kube-system', name: 'koala-backend', poolRole: 'koala-backend-pool' } as const;
+
+export function backendAccessManifest(name: string): Record<string, unknown> {
+  return {
+    apiVersion: 'rbac.authorization.k8s.io/v1',
+    kind: 'RoleBinding',
+    metadata: { name: BACKEND_ACCOUNT.name, namespace: poolNamespace(name) },
+    roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: 'ClusterRole', name: BACKEND_ACCOUNT.poolRole },
+    subjects: [{ kind: 'ServiceAccount', name: BACKEND_ACCOUNT.name, namespace: BACKEND_ACCOUNT.namespace }],
+  };
+}
+
 export function admissionManifests(): Record<string, unknown>[] {
   return [
     {

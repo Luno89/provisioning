@@ -25,7 +25,7 @@ export async function RootRemovalInstanceActivity({ ownerId }: { ownerId: string
 }
 
 export async function RootRemovalMeshActivity({ ownerId }: { ownerId: string }): Promise<{ devices: number; user: boolean }> {
-  return new HeadscaleService(loadKeys(process.env).data, process.env.HEADSCALE_URL || 'http://localhost:8080').removeUser(ownerId);
+  return new HeadscaleService(loadKeys(process.env).data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY).removeUser(ownerId);
 }
 
 export async function RootRemovalRecordsActivity({ ownerId }: { ownerId: string }): Promise<Record<string, number>> {

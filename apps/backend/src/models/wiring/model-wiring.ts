@@ -11,6 +11,6 @@ export function createModelService(db: Database, jwtSecret: SecretKey): ModelSer
   const clusters = new ClusterService(db, infra, jwtSecret);
   const apps = new AppService(db, infra, clusters, builder);
   const proxy = sharedClusterProxy();
-  const headscale = new HeadscaleService(jwtSecret, process.env.HEADSCALE_URL || 'http://localhost:8080');
+  const headscale = new HeadscaleService(jwtSecret, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY);
   return new ModelService(db, apps, clusters, proxy, headscale, jwtSecret, endpointRulesFromEnv(process.env));
 }

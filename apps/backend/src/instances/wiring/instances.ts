@@ -12,7 +12,7 @@ import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from '../lib
 import { HUB_AUDIENCE, hubInstancePart, type Mounts } from '../../hub/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
 import { InstanceService } from '../services/InstanceService.js';
-import { InstanceRoutes, dockerCaddy } from '../services/InstanceRoutes.js';
+import { InstanceRoutes, dockerCaddy, socketCaddy } from '../services/InstanceRoutes.js';
 import { InstanceAddresses, adminEdge } from '../services/InstanceAddresses.js';
 import { InstanceTrial } from '../services/InstanceTrial.js';
 import { InstanceUpdates } from '../services/InstanceUpdates.js';
@@ -148,7 +148,9 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   releaseCatalogue.recordCurrent().catch((err: Error) => console.error(`[releases] could not record the release root runs: ${err.message}`));
   const routingDomain = env.INGRESS_DOMAIN || undefined;
   const instanceRoutes = routingDomain
-    ? new InstanceRoutes(db.instances, routingDomain, path.join(deps.dataDir, 'caddy'), dockerCaddy(env.CADDY_CONTAINER || 'nowrinkles-caddy', env.CADDY_TLS_ADDRESS || '127.0.0.1:443'), (message) => console.error(message))
+    ? new InstanceRoutes(db.instances, routingDomain, path.join(deps.dataDir, 'caddy'), (env.CADDY_ADMIN_SOCKET
+      ? socketCaddy(env.CADDY_ADMIN_SOCKET, env.CADDY_CONFIG || path.join(deps.repoRoot, 'Caddyfile'), env.CADDY_LOG || '/var/log/koala-caddy/caddy.log', env.CADDY_TLS_ADDRESS || '127.0.0.1:443')
+      : dockerCaddy(env.CADDY_CONTAINER || 'nowrinkles-caddy', env.CADDY_TLS_ADDRESS || '127.0.0.1:443')), (message) => console.error(message))
     : undefined;
   const siteNames = [env.APP_DOMAIN, env.MESH_DOMAIN]
     .filter((site): site is string => Boolean(site && routingDomain && site.endsWith(`.${routingDomain}`)))

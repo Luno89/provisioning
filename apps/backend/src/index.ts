@@ -144,9 +144,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   telemetry.exportTo(telemetrySink);
   const giteaService = new GiteaService(infraService, keys.data, '/tmp/kubeconfig-provisioning-lunorica');
-  await giteaService.ensureClusterSecret().catch((err: Error) =>
-    console.warn(`[gitea] could not ensure cluster secret: ${err.message}`),
-  );
+  if (servesTenants(role)) {
+    await giteaService.ensureClusterSecret().catch((err: Error) =>
+      console.warn(`[gitea] could not ensure cluster secret: ${err.message}`),
+    );
+  }
   const infisicalService = new InfisicalService(
     infraService,
     keys.data,
@@ -156,7 +158,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   );
   const core = projectsCore({ db, io, env: process.env, dataKey: keys.data, gitea: giteaService, infra: infraService, infisical: infisicalService, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica' });
   const { projectRepoService, channels, itemChats, notices, postNotice, projectSecrets } = core;
-  const headscaleService = new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080');
+  const headscaleService = new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY);
   const machineService = new MachineService({
     store: db.machines,
     dataKey: keys.data,
@@ -174,9 +176,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, endpointRulesFromEnv(process.env));
 
-  clusterService.ensureSystemClusterGpuReady().catch((err: any) =>
-    console.warn(`[bootstrap] System cluster GPU readiness check failed: ${err.message}`)
-  );
+  if (servesTenants(role)) {
+    clusterService.ensureSystemClusterGpuReady().catch((err: any) =>
+      console.warn(`[bootstrap] System cluster GPU readiness check failed: ${err.message}`)
+    );
+  }
 
   const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, headscaleService);
   clusterService.setTemporalBridge(temporalBridge);
@@ -387,7 +391,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     treeModels, mcpCatalogue, workspaceDependencies, agentDirectory, agentsHolder, concluded, infra: infraService, infisical: infisicalService,
   });
 
-  if (process.env.NODE_ENV !== 'test') {
+  if (process.env.NODE_ENV !== 'test' && servesTenants(role)) {
     appExposureService.syncExposedApps().catch((e) => {
       const err = e instanceof Error ? e.message : String(e);
       console.error(`Failed to sync exposed apps to nginx: ${err}`);
@@ -407,7 +411,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   if (process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true') {
     const hostTunnelPort = process.env.IS_E2E === 'true' ? 8001 : 8000;
-    startHostTunnel(hostTunnelPort);
+    if (servesTenants(role)) startHostTunnel(hostTunnelPort);
     httpServer.on('error', (err: any) => {
       if (err.code === 'EADDRINUSE') {
         console.error(`❌ Port ${port} is already in use by another process. Run 'npm run clean-dev' or free port ${port}.`);

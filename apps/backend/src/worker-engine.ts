@@ -475,7 +475,7 @@ async function buildActivities() {
       workflows: removalWorkflows,
       kube: createKubeRunner(),
       repositories: gitea,
-      mesh: new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080'),
+      mesh: new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY),
       secrets: infisical,
     }),
     ...createProjectRemovalActivities({

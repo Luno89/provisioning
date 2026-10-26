@@ -400,6 +400,29 @@ async function main(): Promise<void> {
   assert.equal(mine().status, 'ready', 'root lost sight of the instance across the update');
   note(`root runs ${candidateTag}, its registry holds ${tags.tags.join(', ')}`);
 
+  const split = (await sh(root, [
+    'systemctl show -p User --value nowrinkles',
+    'systemctl is-active nowrinkles-workers',
+    "ps -o user= -p $(pgrep -f '[s]rc/index.ts' | head -1)",
+    "ps -o user= -p $(pgrep -f '[s]rc/worker-host.ts' | head -1)",
+    'sudo -u koala docker ps >/dev/null 2>&1 && echo koala-reaches-docker || echo koala-has-no-docker',
+    "curl -s http://127.0.0.1:2019/config/ | head -c 1 | grep -q '{' && echo admin-on-localhost || echo admin-off-localhost",
+    `sudo -u koala ${REPO_DIR}/bin/kubectl --kubeconfig /etc/koala/backend-kubeconfig auth can-i get secrets -n gitea || true`,
+    `sudo -u koala ${REPO_DIR}/bin/kubectl --kubeconfig /etc/koala/backend-kubeconfig auth can-i get services/kube-prometheus-stack-prometheus:9090 --subresource=proxy -n monitoring || true`,
+  ].join(' ; '))).trim().split('\n').map((line) => line.trim());
+  assert.deepEqual(split, ['koala', 'active', 'koala', 'root', 'koala-has-no-docker', 'admin-off-localhost', 'no', 'yes'], 'root does not run its backend apart from its workers as it should');
+  const routes = `${REPO_DIR}/apps/backend/data/caddy/instances`;
+  const routeFile = `${routes}/${(await sh(root, `sudo ls ${routes}`)).split('\n').map((name) => name.trim()).find((name) => name.includes(NAME))}`;
+  const since = Number((await sh(root, 'date +%s')).trim());
+  await sh(root, `sudo rm ${routeFile}`);
+  await until("the backend writing the instance's route again, as koala", async () => ((await sh(root!, `sudo stat -c %U ${routeFile} 2>/dev/null || true`)).trim() === 'koala' ? true : undefined));
+  await until("Caddy taking the backend's reload on its admin socket", async () => {
+    const loads = (await sh(root!, `sudo grep '"uri":"/load"' /var/log/koala-caddy/caddy.log || true`)).trim().split('\n').filter(Boolean);
+    return loads.some((line) => (JSON.parse(line) as { ts: number }).ts >= since) ? true : undefined;
+  });
+  await until(`https://${instanceHost} through root's Caddy again`, async () => (https(instanceHost, '/api/auth/sign-in').status === 200 ? true : undefined));
+  note('root runs its backend as koala, without Docker, beside its workers as root; Caddy\'s admin API is off localhost, the backend reloads it through its socket, and its cluster account reaches the pool\'s Prometheus but not Gitea\'s secrets');
+
   step(`the instance upgrades itself through the real check-in, from ${previousTag} to ${candidateTag}`);
   const upgraded = await checkIn('upgrade-to-candidate');
   note(`root heard: ${upgraded.trail.map((report) => `${report.status} "${report.detail}"`).join(' → ')}`);
@@ -468,6 +491,8 @@ async function main(): Promise<void> {
   assert.equal(await rootHead(), previous, 'root is not back on the previous release');
   assert.equal(await rootReleaseTag(), previousTag, 'root does not offer instances the previous image again');
   await until('root answering on the previous release', async () => ((await rootAnswers()) ? true : undefined));
+  assert.equal((await sh(root, 'test -f /etc/systemd/system/nowrinkles-workers.service && echo split || systemctl show -p User --value nowrinkles')).trim(), '', 'root kept the split units on a release from before them');
+  note('back on a release from before the split, root runs its single unit as root again');
   const revisions = (JSON.parse(await helm('history instance -o json')) as Array<{ revision: number }>).map((entry) => entry.revision);
   const history = [];
   for (const revision of revisions) history.push({ revision, values: JSON.parse(await helm(`get values instance --revision ${revision} -o json`)) as { image?: { tag?: string } } });

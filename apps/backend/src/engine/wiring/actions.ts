@@ -1,4 +1,4 @@
-import type { Database } from '../../platform/index.js';
+import { roleFromEnv, servesTenants, type Database } from '../../platform/index.js';
 import { ActionService } from '../services/ActionService.js';
 import {
   EgressService, EgressProxyService, AccessService, type TemporalBridge, type InfrastructureService,
@@ -64,7 +64,7 @@ export function wireActions(deps: ActionsWiringDeps): void {
   });
   tenant.use('/api/egress', egressRouter({ egress: egressService }));
   tenant.use('/api/cluster-access', clusterAccessRouter({ access: new AccessService({ store: db }) }));
-  if (env.NODE_ENV !== 'test') {
+  if (env.NODE_ENV !== 'test' && servesTenants(roleFromEnv(env))) {
     egressService.syncProxy().catch((err: Error) => console.warn(`[egress] could not sync the proxy's grants: ${err.message}`));
   }
 }

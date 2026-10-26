@@ -55,6 +55,34 @@ set_backend_env() {
   fi
 }
 
+install_units() {
+  if [ -f scripts/root-node/units.sh ]; then
+    REPO_DIR="$REPO_DIR" bash scripts/root-node/units.sh
+    return
+  fi
+  systemctl disable --now nowrinkles-workers.service >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/nowrinkles-workers.service
+  cat > /etc/systemd/system/nowrinkles.service <<UNIT
+[Unit]
+Description=No Wrinkles platform
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=${REPO_DIR}
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  systemctl daemon-reload
+  ok "this release runs the backend and its workers in one unit, as root"
+}
+
 published() {
   curl -fsS "http://${REGISTRY}/v2/${IMAGE_REPO}/tags/list" 2>/dev/null | grep -q "\"$1\""
 }
@@ -286,12 +314,15 @@ npx tsx apps/backend/src/scripts/seed-all.ts || warn "seed failed — the new ve
 # Restarts the backend AND both workers together, which is the entire point of doing it through
 # the unit: the workers run plain `tsx` and do not hot-reload, so a deploy that only bounced the
 # backend would leave them executing the previous release with nothing to warn you.
-step "Restarting ${SERVICE}"
-systemctl restart "$SERVICE"
+step "Installing this release's units"
+install_units
 
 step "Updating Caddy"
 docker compose -f docker-compose.caddy.yml up -d --build
-docker exec nowrinkles-caddy caddy reload --config /etc/caddy/Caddyfile --force || warn "Caddy did not take the new Caddyfile: docker logs nowrinkles-caddy"
+docker exec nowrinkles-caddy caddy reload --config /etc/caddy/Caddyfile --force || warn "Caddy did not take the new Caddyfile: /var/log/koala-caddy/caddy.log"
+
+step "Restarting ${SERVICE}"
+systemctl restart "$SERVICE"
 
 step "Updating the mail server"
 docker compose -f docker-compose.mail.yml up -d --build
@@ -317,6 +348,8 @@ else
   git checkout --detach "$PREVIOUS_COMMIT"
   ensure_cdktf_bindings
   install_dependencies && npm run build --silent
+  install_units
+  docker compose -f docker-compose.caddy.yml up -d --build
   [ -n "$PREVIOUS_TAG" ] && set_backend_env INSTANCE_IMAGE_TAG "$PREVIOUS_TAG"
   [ -n "$PREVIOUS_DIGEST" ] && set_backend_env INSTANCE_IMAGE_DIGEST "$PREVIOUS_DIGEST"
   systemctl restart "$SERVICE"
@@ -327,7 +360,7 @@ fi
 # the others with it, so a partial start shows up here rather than as activities that never run.
 sleep 3
 for w in worker-host worker-cluster; do
-  pgrep -f "$w" >/dev/null || warn "${w} is not running — check journalctl -u ${SERVICE}"
+  pgrep -f "$w" >/dev/null || warn "${w} is not running — check journalctl -u ${SERVICE}-workers -u ${SERVICE}"
 done
 
 echo

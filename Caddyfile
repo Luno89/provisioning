@@ -9,9 +9,23 @@
 {
 	# Where expiry/renewal warnings go. Let's Encrypt emails here before a cert lapses.
 	email {$ACME_EMAIL:admin@nowrinkles.dev}
+	admin unix//run/caddy-admin/admin.sock|0666
+	log {
+		output file /var/log/caddy/caddy.log {
+			mode 0644
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format json
+	}
 	metrics {
 		per_host
 	}
+}
+
+http://127.0.0.1:2019 {
+	bind 127.0.0.1
+	metrics
 }
 
 (koala_tls) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  admissionManifests, FIRST_PORT, freePorts, LAST_PORT, namespaceManifest, poolChartValues, poolSlots, proxyCaddyfile,
+  admissionManifests, backendAccessManifest, FIRST_PORT, freePorts, LAST_PORT, namespaceManifest, poolChartValues, poolSlots, proxyCaddyfile,
   proxyManifests, vclusterValues, type PoolPorts,
 } from './pool.js';
 
@@ -105,3 +105,16 @@ describe('the instance chart\'s values in the pool', () => {
     expect(values.resources).toEqual({ backend: { requests: { memory: '300Mi' } } });
   });
 });
+
+describe('root\'s backend in a pool namespace', () => {
+  it('is let in by binding its narrow account to the pool role there, and nowhere else', () => {
+    expect(backendAccessManifest('alice')).toEqual({
+      apiVersion: 'rbac.authorization.k8s.io/v1',
+      kind: 'RoleBinding',
+      metadata: { name: 'koala-backend', namespace: 'pool-alice' },
+      roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: 'ClusterRole', name: 'koala-backend-pool' },
+      subjects: [{ kind: 'ServiceAccount', name: 'koala-backend', namespace: 'kube-system' }],
+    });
+  });
+});
+

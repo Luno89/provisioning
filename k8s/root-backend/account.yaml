@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: koala-backend
+  namespace: kube-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: koala-backend-token
+  namespace: kube-system
+  annotations:
+    kubernetes.io/service-account.name: koala-backend
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: koala-backend-pool
+rules:
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [services/proxy]
+    verbs: [get, create]
+  - apiGroups: [monitoring.coreos.com]
+    resources: [probes, prometheusrules]
+    verbs: [get, list, create, update, patch, delete]
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: koala-backend-prometheus
+  namespace: monitoring
+rules:
+  - apiGroups: [""]
+    resources: [services/proxy]
+    resourceNames: [kube-prometheus-stack-prometheus, "kube-prometheus-stack-prometheus:9090"]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: koala-backend
+  namespace: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: koala-backend-prometheus
+subjects:
+  - kind: ServiceAccount
+    name: koala-backend
+    namespace: kube-system

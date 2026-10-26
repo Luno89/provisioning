@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import http from 'http';
 import tls from 'tls';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -14,22 +15,73 @@ export interface CaddyControl {
   recentLog(): Promise<string>;
 }
 
-export function dockerCaddy(container: string, tlsAddress: string): CaddyControl {
+function certificateAt(tlsAddress: string): CaddyControl['certificateFor'] {
   const [host, port] = tlsAddress.split(':') as [string, string];
+  return (serverName) => new Promise((resolve) => {
+    const socket = tls.connect({ host, port: Number(port), servername: serverName, rejectUnauthorized: false }, () => {
+      const san = socket.getPeerCertificate().subjectaltname;
+      socket.end();
+      resolve(san);
+    });
+    socket.on('error', () => resolve(undefined));
+  });
+}
+
+const LOG_TAIL_BYTES = 4 * 1024 * 1024;
+
+async function tailOf(file: string): Promise<string> {
+  const handle = await fs.open(file, 'r').catch(() => undefined);
+  if (!handle) return '';
+  try {
+    const { size } = await handle.stat();
+    const length = Math.min(size, LOG_TAIL_BYTES);
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, size - length);
+    return buffer.toString('utf8');
+  } finally {
+    await handle.close();
+  }
+}
+
+export const linesSince = (log: string, sinceSeconds: number): string =>
+  log.split('\n').filter((line) => {
+    try {
+      return (JSON.parse(line) as { ts?: number }).ts! >= sinceSeconds;
+    } catch {
+      return false;
+    }
+  }).join('\n');
+
+export function socketCaddy(socket: string, caddyfile: string, logFile: string, tlsAddress: string): CaddyControl {
+  return {
+    async reload() {
+      const body = await fs.readFile(caddyfile);
+      await new Promise<void>((resolve, reject) => {
+        const request = http.request({
+          socketPath: socket, method: 'POST', path: '/load',
+          headers: { host: 'caddy', 'content-type': 'text/caddyfile', 'cache-control': 'must-revalidate', 'content-length': body.length },
+        }, (response) => {
+          let said = '';
+          response.on('data', (chunk: Buffer) => { said += chunk.toString(); });
+          response.on('end', () => (response.statusCode === 200 ? resolve() : reject(new Error(`Caddy refused the routes (${response.statusCode}): ${said.trim()}`))));
+        });
+        request.on('error', reject);
+        request.end(body);
+      });
+    },
+    certificateFor: certificateAt(tlsAddress),
+    async recentLog() {
+      return linesSince(await tailOf(logFile), Date.now() / 1000 - 15 * 60);
+    },
+  };
+}
+
+export function dockerCaddy(container: string, tlsAddress: string): CaddyControl {
   return {
     async reload() {
       await execFileAsync('docker', ['exec', container, 'caddy', 'reload', '--config', '/etc/caddy/Caddyfile', '--force']);
     },
-    certificateFor(serverName) {
-      return new Promise((resolve) => {
-        const socket = tls.connect({ host, port: Number(port), servername: serverName, rejectUnauthorized: false }, () => {
-          const san = socket.getPeerCertificate().subjectaltname;
-          socket.end();
-          resolve(san);
-        });
-        socket.on('error', () => resolve(undefined));
-      });
-    },
+    certificateFor: certificateAt(tlsAddress),
     async recentLog() {
       const { stdout, stderr } = await execFileAsync('docker', ['logs', '--since', '15m', container], { maxBuffer: 32 * 1024 * 1024 });
       return `${stdout}\n${stderr}`;

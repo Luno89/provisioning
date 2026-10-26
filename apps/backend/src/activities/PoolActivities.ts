@@ -7,7 +7,7 @@ import { createDatabase, roleFromEnv, emailWayFrom, MailService } from '../platf
 import { InfrastructureService } from '../infrastructure/index.js';
 import {
   hashCredential, publicKeyPem, afterStep, nextTrialStep, trialMessage, type DueStep, type TrialStep, MoveRelay,
-  kubeconfigFile, issueMoveToken, type InstanceRecord, admissionManifests, COMPONENT_RESOURCES, INSTANCE_RELEASE,
+  kubeconfigFile, issueMoveToken, type InstanceRecord, admissionManifests, backendAccessManifest, COMPONENT_RESOURCES, INSTANCE_RELEASE,
   namespaceManifest, POOL_LABEL, poolChartValues, poolNamespace, poolSettingsFrom, PROXY, proxyCaddyfile,
   proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterAddress, vclusterValues, type PoolSettings,
 } from '../instances/index.js';
@@ -118,7 +118,7 @@ export async function PoolVclusterActivity(args: { instanceId: string }): Promis
     const name = instance.name!;
     const namespace = poolNamespace(name);
     await save({ status: 'installing', detail: 'Making your space on Koala\'s servers' });
-    await infra.applyManifest(yaml([namespaceManifest(name, instance.ownerId)]), pool.kubeconfig);
+    await infra.applyManifest(yaml([namespaceManifest(name, instance.ownerId), backendAccessManifest(name)]), pool.kubeconfig);
     await infra.applyManifest(yaml([probeIngressPolicy(name, { hostNamespace: namespace })]), pool.kubeconfig);
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pool-'));
     try {
