@@ -163,7 +163,7 @@ async function main(): Promise<void> {
   const signing = ['-c', 'gpg.format=ssh', '-c', `user.signingkey=${labKey}`];
   const previousMessage = run('git', ['tag', '--list', '--format=%(contents:subject)%0a%0a%(contents:body)', PREVIOUS_REF]).trim();
   const tagClone = join(work, 'tags.git');
-  run('git', ['clone', '-q', '--bare', '--local', REPO, tagClone]);
+  run('git', ['clone', '-q', '--bare', '--shared', REPO, tagClone]);
   const inTags = (args: string[], env: Record<string, string> = {}) => run('git', ['-C', tagClone, ...args], env);
   inTags(['tag', '-d', PREVIOUS_REF]);
   inTags([...signing, 'tag', '-s', PREVIOUS_REF, previous, '-m', previousMessage]);
