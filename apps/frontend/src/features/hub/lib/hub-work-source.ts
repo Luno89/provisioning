@@ -29,7 +29,7 @@ export function hubWorkSource(client: QueryClient, view: HubBoardView): WorkSour
     await client.invalidateQueries({ queryKey: hubKeys.board(id) })
   }
   const changes = view.can.includes('approve-changes')
-  const sees = view.can.includes('see-code')
+  const rearranges = view.can.includes('change-files')
   const owner = view.members.find((member) => member.personId === view.project.createdBy)
   return {
     key: ['hub', id],
@@ -41,7 +41,7 @@ export function hubWorkSource(client: QueryClient, view: HubBoardView): WorkSour
       ownerEmail: owner?.email,
     },
     pushed: false,
-    can: (power) => (power === 'change-work' ? changes : power === 'see-work' ? sees : false),
+    can: (power) => (power === 'change-work' ? changes : power === 'change-files' ? rearranges : false),
     listTrees: async () => (await board()).board.trees,
     listBranches: async () => {
       const fresh = await board()

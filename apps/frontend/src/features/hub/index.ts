@@ -1,4 +1,4 @@
-export { HUB_GO_URL, getSharing, sharingKeys } from './api'
+export { HUB_GO_URL } from './api'
 export { HubJoinRoute, SharedProjectRoute, SharedProjectsRoute } from './components/HubRoutes'
 export { default as HubShell } from './components/HubShell'
 export { default as RootJoinPage } from './components/RootJoinPage'

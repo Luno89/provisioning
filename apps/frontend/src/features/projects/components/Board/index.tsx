@@ -231,7 +231,7 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
             {source.can('run-work') && openBranch?.treeId && STARTABLE.has(openLeaf.status) && (
               <p className="mt-4 text-[11px] text-slate-500" data-testid="story-run-tree">Ready stories are worked in the order you set on the board, with Work them at the top of the page.</p>
             )}
-            {openBranch?.treeId && source.can('see-work') && (
+            {openBranch?.treeId && (
               <div className="mt-4">
                 <StoryFeed treeId={openBranch.treeId} leaf={openLeaf} />
               </div>
@@ -241,7 +241,7 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
             </div>
             {project && source.hub && (
               <div className="mt-4 rounded border border-[var(--bark-700)] p-2" data-testid="story-files">
-                <StoredFiles scope={source.fileScope(project.id)} dir={storyFolder(openLeaf.id)} title="Files for this story" clients={source.can('see-work') ? 'share' : 'client'} />
+                <StoredFiles scope={source.fileScope(project.id)} dir={storyFolder(openLeaf.id)} title="Files for this story" rearranges={source.can('change-files')} />
               </div>
             )}
             {project && !source.hub && (

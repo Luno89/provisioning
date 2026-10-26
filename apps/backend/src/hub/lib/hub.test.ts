@@ -4,10 +4,10 @@ import { can, inviteProblem, leavingProblem, projectDatabase, roleChangeProblem,
 const member = (personId: string, role: HubMember['role'], email = `${personId}@example.com`): HubMember => ({ personId, email, role, joinedAt: 't' });
 
 describe('what each role on a shared project may do', () => {
-  it('lets an owner do everything, a collaborator work and approve, and a client only look, pin and ask', () => {
-    expect(['invite', 'release', 'see-secrets', 'see-code'].map((action) => can('owner', action as never))).toEqual([true, true, true, true]);
-    expect(['approve-changes', 'work-stories', 'see-code', 'invite', 'release', 'see-secrets'].map((action) => can('collaborator', action as never))).toEqual([true, true, true, false, false, false]);
-    expect(['see-project', 'pin-and-comment', 'ask-koala', 'see-code', 'approve-changes', 'work-stories', 'change-settings'].map((action) => can('client', action as never))).toEqual([true, true, true, false, false, false, false]);
+  it('lets an owner do everything, a collaborator work, approve and change files, and a client look, pin and ask', () => {
+    expect(['invite', 'release', 'see-secrets', 'change-files'].map((action) => can('owner', action as never))).toEqual([true, true, true, true]);
+    expect(['approve-changes', 'work-stories', 'change-files', 'invite', 'release', 'see-secrets'].map((action) => can('collaborator', action as never))).toEqual([true, true, true, false, false, false]);
+    expect(['see-project', 'pin-and-comment', 'ask-koala', 'change-files', 'approve-changes', 'work-stories', 'change-settings'].map((action) => can('client', action as never))).toEqual([true, true, true, false, false, false, false]);
     expect(can(undefined, 'see-project')).toBe(false);
   });
 });

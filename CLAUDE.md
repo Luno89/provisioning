@@ -417,8 +417,10 @@ shared projects: a registry database (`HUB_DATABASE`, default `koala_hub`: `shar
 `shared_invites` token → project, `shared_people`, `shared_handoffs`) and **one database per project** (`hub_<id>`, its
 `members` and `invites`; `hub/lib/hub-store.ts`, `hub/lib/hub-mongo.ts`). `HubService` reads the person's membership from the
 project's own database before anything, and answers 404 to anyone not on it. Roles (`can` in `hub/lib/hub.ts`): **owner**
-(everything; several allowed, the last cannot leave or be demoted), **collaborator** (works stories, sees code, approves),
-**client** (sees, pins, comments, asks Koala; no code, secrets or settings). `/api/hub/*`: projects (made from a project's
+(everything; several allowed, the last cannot leave or be demoted), **collaborator** (works stories, approves, moves and
+removes files), **client** (pins, comments, asks Koala; its changes wait for an owner's or collaborator's approval). Every
+member sees everything in the project, the code and every file included (owner, 2026-10-26: "we can pare it down later").
+`/api/hub/*`: projects (made from a project's
 Settings → People, `origin` the project, opened again rather than made twice), invites, roles, remove/leave, delete (typing
 the name drops its database), invitations. **Inviting goes through root**: the hub posts to root's `/api/hub-link/invite`
 with its credential (root knows it by `HUB_URL` and `HUB_CREDENTIAL_HASH`; combined calls `ProjectInviteService` in
@@ -466,10 +468,9 @@ project on its instance takes it back first (the delete popup says so).
 
 **Members work a shared project on the hub** (step 2's second half). The hub's `/shared/:id` is Board · Files · People,
 the board the same screens as the instance's (`ProjectBoard` reads through a `WorkSource`, `features/projects/lib/work-source.ts`;
-the hub's is `features/hub/lib/hub-work-source.ts`, polling `GET /api/hub/projects/:id/board` every 3 s). What each role
-sees is cut on the hub (`recordFor`, `statusFor` in `hub/lib/hub-board.ts`): a client gets stories and tasks without claims,
-runs or checks, chats without reasoning or tool calls, what is live and a waiting preview but no builds; owners and
-collaborators see everything, the run feed included, relayed from the owner's instance (`HubRelay`: the instance
+the hub's is `features/hub/lib/hub-work-source.ts`, polling `GET /api/hub/projects/:id/board` every 3 s). Every member
+sees every record whole (`recordFor` in `hub/lib/hub-board.ts` drops only the owner's id), the status as the owner's
+instance sent it, and the run feed, relayed from the owner's instance (`HubRelay`: the instance
 long-polls `GET /api/hub-instance/projects/:id/relay`, answers `POST /api/hub-instance/relay/:callId[/stream]`; a call
 fails cleanly when the instance is offline). Members' writes are **requests** (`POST /api/hub/projects/:id/requests`:
 approve or reject a plan, order stories or features, accept or drop a task, open a story or feature chat, ask Koala)
@@ -479,10 +480,9 @@ that `HubSyncService` on the owner's instance carries out as the owner once the 
 messages the viewer did not write, in both UIs); Koala answers owners and clients on the owner's instance (an
 `ask-koala` request starting the turn), collaborators from their own instance in step 3. The owner's instance sends a
 **status** (`PUT .../status`: releases, builds, tree runs) every 15 s or when the project moved. **Files**: the hub
-relays the owner's MinIO (`FileScope` `{kind: 'hub'}`); an owner or collaborator marks a file or folder **Shared with
-clients** (`clientFiles` on the project, `hub/lib/client-files.ts`, `PUT .../files/for-clients`, also on the instance's
-Files page once shared), a client sees only those and may add files, which are then shared. The hub's repository is
-read-only to owners and collaborators (`GET .../repository`, `.../repository/file`). Where root has no hub,
+relays the owner's MinIO (`FileScope` `{kind: 'hub'}`): every member sees and adds every file, and only owners and
+collaborators move or remove one (`change-files`, `relayProblem`). The hub's repository is read-only to every member
+(`GET .../repository`, `.../repository/file`). Where root has no hub,
 Share says so. `npm run test:project-sharing-live` proves it combined.
 
 **Trial instances on Koala's servers (the pool, per-user instances step 5c; plan `~/.claude/plans/pool-instances.md`).**

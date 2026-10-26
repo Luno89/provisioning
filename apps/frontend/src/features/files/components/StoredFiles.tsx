@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
-import { ArrowDownUp, ChevronDown, ChevronRight, Download, File, Folder, FolderPlus, Loader2, Pencil, Search, Trash2, Upload, Users, X } from 'lucide-react'
+import { ArrowDownUp, ChevronDown, ChevronRight, Download, File, Folder, FolderPlus, Loader2, Pencil, Search, Trash2, Upload, X } from 'lucide-react'
 import { errorMessage } from '../../../api/client'
 import { storedFileUrl } from '../api/files'
 import { joinPath, pickedFiles, sizeText, type PickedFile } from '../lib/file-drop'
@@ -12,11 +12,9 @@ import { useStoredChanges, useStoredFiles, useStoredSearch, useStoredUpload } fr
 const row = 'group flex items-center gap-1 rounded px-1 py-0.5 text-[12px]'
 const tool = 'flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-slate-400 hover:bg-[var(--bark-700)] hover:text-slate-200 disabled:opacity-50'
 
-export type ClientFiles = 'share' | 'client'
-
 interface Browsing {
   scope: FileScope
-  clients?: ClientFiles | undefined
+  rearranges: boolean
   sort: { by: SortBy; descending: boolean }
   selected: ReadonlySet<string>
   toggle: (path: string) => void
@@ -54,11 +52,10 @@ function Entry({ entry, depth, browsing, flat = false }: { entry: StoredFile; de
   const [open, setOpen] = useState(false)
   const [renaming, setRenaming] = useState<string | undefined>()
   const [removing, setRemoving] = useState(false)
-  const { remove, move, forClients } = useStoredChanges(browsing.scope)
+  const { remove, move } = useStoredChanges(browsing.scope)
   const chosen = browsing.selected.has(entry.path)
-  const asClient = browsing.clients === 'client'
 
-  const dragging = asClient ? {} : {
+  const dragging = !browsing.rearranges ? {} : {
     draggable: true,
     onDragStart: (event: DragEvent) => {
       const paths = chosen ? [...browsing.selected] : [entry.path]
@@ -70,30 +67,12 @@ function Entry({ entry, depth, browsing, flat = false }: { entry: StoredFile; de
   const actions = (
     <span className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100">
       {entry.type === 'file' && <a href={storedFileUrl(browsing.scope, entry.path)} aria-label={`Download ${entry.name}`} title="Download" className="rounded p-0.5 text-slate-500 hover:text-slate-200"><Download size={11} /></a>}
-      {!asClient && <>
+      {browsing.rearranges && <>
       <button type="button" aria-label={`Rename ${entry.name}`} title="Rename" onClick={() => setRenaming(entry.name)} className="rounded p-0.5 text-slate-500 hover:text-slate-200"><Pencil size={11} /></button>
       <button type="button" aria-label={removing ? `Remove ${entry.name} for good` : `Remove ${entry.name}`} title={removing ? 'Click again to remove it for good' : 'Remove'} onClick={() => (removing ? remove.mutate(entry.path) : setRemoving(true))} onMouseLeave={() => setRemoving(false)} className={`rounded p-0.5 ${removing ? 'text-red-300' : 'text-slate-500 hover:text-red-300'}`}><Trash2 size={11} /></button>
       </>}
     </span>
   )
-
-  const shown = entry.forClients === 'folder'
-    ? <span className="shrink-0 text-sky-300/70" title="Clients see it with its folder"><Users size={11} aria-label={`${entry.name} is seen by clients with its folder`} /></span>
-    : browsing.clients === 'share'
-      ? (
-        <button
-          type="button"
-          aria-pressed={entry.forClients === 'itself'}
-          aria-label={entry.forClients === 'itself' ? `Stop sharing ${entry.name} with clients` : `Share ${entry.name} with clients`}
-          title={entry.forClients === 'itself' ? 'Shared with clients; click to stop' : 'Share with clients'}
-          disabled={forClients.isPending}
-          onClick={() => forClients.mutate({ path: entry.path, on: entry.forClients !== 'itself' })}
-          className={`shrink-0 rounded p-0.5 ${entry.forClients === 'itself' ? 'text-sky-300' : 'text-slate-600 opacity-0 group-hover:opacity-100 hover:text-sky-300'}`}
-        >
-          <Users size={11} />
-        </button>
-      )
-      : entry.forClients === 'itself' && !asClient ? <span className="shrink-0 text-sky-300" title="Shared with clients"><Users size={11} aria-label={`${entry.name} is shared with clients`} /></span> : null
 
   const label = renaming !== undefined ? (
     <input
@@ -112,7 +91,7 @@ function Entry({ entry, depth, browsing, flat = false }: { entry: StoredFile; de
     ? <button type="button" onClick={() => browsing.open(entry.path)} aria-label={`Open ${flat ? entry.path : entry.name}`} className="min-w-0 truncate text-left hover:underline">{flat ? entry.path : entry.name}</button>
     : <span className="truncate">{entry.name}</span>
 
-  const check = asClient ? null : <input type="checkbox" aria-label={`Select ${entry.name}`} checked={chosen} onChange={() => browsing.toggle(entry.path)} className="shrink-0 accent-[var(--leaf)] opacity-40 group-hover:opacity-100 checked:opacity-100" />
+  const check = !browsing.rearranges ? null : <input type="checkbox" aria-label={`Select ${entry.name}`} checked={chosen} onChange={() => browsing.toggle(entry.path)} className="shrink-0 accent-[var(--leaf)] opacity-40 group-hover:opacity-100 checked:opacity-100" />
 
   if (entry.type === 'file') {
     return (
@@ -121,7 +100,6 @@ function Entry({ entry, depth, browsing, flat = false }: { entry: StoredFile; de
         <File size={12} className="shrink-0 text-slate-500" />
         {label}
         <span className="shrink-0 text-[10px] text-slate-600">{sizeText(entry.size)}</span>
-        {shown}
         {actions}
       </div>
     )
@@ -135,7 +113,6 @@ function Entry({ entry, depth, browsing, flat = false }: { entry: StoredFile; de
         </button>
         <Folder size={12} className="shrink-0 text-amber-300" />
         {label}
-        {shown}
         {actions}
       </div>
       {open && <FolderList dir={entry.path} depth={depth + 1} browsing={browsing} />}
@@ -148,7 +125,7 @@ function FolderList({ dir, depth, browsing }: { dir: string; depth: number; brow
   const pad = { paddingLeft: depth * 12 + 14 }
   if (listed.isPending) return <p className="text-[11px] text-slate-500" style={pad}><Loader2 size={11} className="inline animate-spin" /> Loading…</p>
   if (listed.isError) return <p className="text-[11px] text-red-300" style={pad}>{errorMessage(listed.error)}</p>
-  if (!listed.data.length) return <p className="text-[11px] italic text-slate-600" style={pad}>{depth > 0 ? 'Empty' : browsing.clients === 'client' ? 'Nothing has been shared with you here yet. Files you add are seen by the whole project.' : 'Nothing here yet. Drop files here, or upload them.'}</p>
+  if (!listed.data.length) return <p className="text-[11px] italic text-slate-600" style={pad}>{depth > 0 ? 'Empty' : 'Nothing here yet. Drop files here, or upload them.'}</p>
   return <>{sortEntries(listed.data, browsing.sort.by, browsing.sort.descending).map((entry) => <Entry key={entry.path} entry={entry} depth={depth} browsing={browsing} />)}</>
 }
 
@@ -160,9 +137,9 @@ function Found({ query, browsing }: { query: string; browsing: Browsing }) {
   return <>{sortEntries(found.data, browsing.sort.by, browsing.sort.descending).map((entry) => <Entry key={entry.path} entry={entry} depth={0} browsing={browsing} flat />)}</>
 }
 
-export default function StoredFiles({ scope, dir = '', title = 'Files', waiting, onTaken, onOpen, clients }: {
+export default function StoredFiles({ scope, dir = '', title = 'Files', waiting, onTaken, onOpen, rearranges = true }: {
   scope: FileScope
-  clients?: ClientFiles | undefined
+  rearranges?: boolean | undefined
   dir?: string | undefined
   title?: string | undefined
   waiting?: { dir: string; picked: PickedFile[] } | undefined
@@ -197,7 +174,7 @@ export default function StoredFiles({ scope, dir = '', title = 'Files', waiting,
 
   const browsing: Browsing = {
     scope,
-    clients,
+    rearranges,
     sort,
     selected,
     toggle: (path) => setSelected((was) => { const next = new Set(was); if (next.has(path)) next.delete(path); else next.add(path); return next }),
@@ -205,7 +182,7 @@ export default function StoredFiles({ scope, dir = '', title = 'Files', waiting,
     add: (into, picked) => upload.mutate({ dir: into, picked }),
     moveTo,
   }
-  const failure = upload.error ?? changes.moveMany.error ?? changes.removeMany.error ?? changes.makeFolder.error ?? changes.forClients.error
+  const failure = upload.error ?? changes.moveMany.error ?? changes.removeMany.error ?? changes.makeFolder.error
 
   return (
     <DropTarget label={`Drop to add to ${title}`} onFiles={(picked) => browsing.add(dir, picked)} className="min-h-[60px]">

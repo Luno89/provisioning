@@ -159,7 +159,7 @@ async function main(): Promise<void> {
       assert.ok(board.can.includes('approve-changes'));
     });
 
-    await stage('a client is invited, signs up with the invite, accepts, and sees the board without what only workers need', async () => {
+    await stage('a client is invited, signs up with the invite, accepts, and sees the whole board the owner sees', async () => {
       const sent = await owner!.post(`/hub/projects/${hubId}/invites`, { email: memberEmail, role: 'client' });
       assert.equal(sent.status < 300, true, JSON.stringify(sent.data));
       const link = new URL((sent.data.link as string).replace('/#/', '/'));
@@ -178,15 +178,16 @@ async function main(): Promise<void> {
       assert.equal(board.data.online, true);
       assert.ok(!board.data.can.includes('approve-changes'));
       assert.ok((board.data.chats as { kind?: string }[]).some((chat) => chat.kind === 'channel'));
-      for (const leaf of board.data.board.leaves as Record<string, unknown>[]) {
-        assert.equal('claim' in leaf, false);
-        assert.equal('runId' in leaf, false);
-      }
+      assert.ok(!board.data.can.includes('change-files'));
+      await until('the client\'s board the same as the owner\'s', async () => {
+        const [theirs, owners] = await Promise.all([member!.get(`/hub/projects/${hubId}/board`), owner!.get(`/hub/projects/${hubId}/board`)]);
+        return JSON.stringify(theirs.data.board) === JSON.stringify(owners.data.board) ? true : undefined;
+      }, 30);
       const refused = await member.post(`/hub/projects/${hubId}/requests`, { kind: 'accept-task', taskId: 'nothing' });
       assert.equal(refused.status, 403, JSON.stringify(refused.data));
     });
 
-    await stage('the client posts in the channel without asking Koala, and the owner reads it with their name; the client may not read the code but the files relay answers', async () => {
+    await stage('the client posts in the channel without asking Koala, and the owner reads it with their name; the client reads the code and the files, and may not move or remove one', async () => {
       const posted = await member!.post(`/hub/projects/${hubId}/conversations/${project.channelId}/messages`, { content: 'from the client', askKoala: false });
       assert.equal(posted.status < 300, true, JSON.stringify(posted.data));
       assert.equal(posted.data.asked, undefined);
@@ -196,7 +197,13 @@ async function main(): Promise<void> {
         return messages.find((message) => message.content === 'from the client');
       }, 30);
       assert.equal(seen.authorName, memberEmail);
-      assert.equal((await member!.get(`/hub/projects/${hubId}/repository`)).status, 403);
+      const code = await member!.get(`/hub/projects/${hubId}/repository`);
+      assert.equal(code.status, 200, JSON.stringify(code.data));
+      assert.ok(Array.isArray(code.data.files), JSON.stringify(code.data));
+      const moved = await member!.post(`/hub/projects/${hubId}/files/move`, { from: 'anything.txt', to: 'elsewhere.txt' });
+      assert.equal(moved.status, 403, JSON.stringify(moved.data));
+      const removed = await member!.delete(`/hub/projects/${hubId}/files/content`, { params: { path: 'anything.txt' } });
+      assert.equal(removed.status, 403, JSON.stringify(removed.data));
       const files = await member!.get(`/hub/projects/${hubId}/files/list`, { params: { dir: '' } });
       assert.ok(files.status === 200 || (files.status === 409 && String(files.data.error).includes('no file server')), `the files relay answered ${files.status} ${JSON.stringify(files.data)}`);
       console.log(`    files relay answered through the owner's instance: ${files.status} ${files.data.error ?? 'with the listing'}`);

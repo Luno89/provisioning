@@ -1,5 +1,3 @@
-export { afterMove, afterRemove, marked, sharing } from './lib/client-files.js';
-export type { ClientMark } from './lib/client-files.js';
 export { HUB_AUDIENCE, hubInstancePart } from './lib/hub.js';
 export type { HubAccess } from './lib/hub.js';
 export type { HubPeople } from './services/HubPeople.js';

@@ -8,7 +8,7 @@ import { nameProblem } from '../../instances/index.js';
 import type { HubRepoAccess, HubRepos } from './HubRepos.js';
 import { applyPatch, isSyncedKind, SYNCED_KINDS, type HubChange, type RecordChange, type SyncedDoc, type SyncedKind } from '../lib/hub-sync.js';
 import {
-  isRequestKind, koalaAnswersOnOwners, recordFor, relayProblem, requestInput, requestProblem, statusFor,
+  isRequestKind, koalaAnswersOnOwners, recordFor, relayProblem, requestInput, requestProblem,
   type HubBoard, type HubRequest, type HubRequestKind, type HubStatus, type Plain, type RelayOp,
 } from '../lib/hub-board.js';
 import { mentionsKoala, personMessage, withAuthorNames, type ConversationMessage } from '../../engine/index.js';
@@ -79,7 +79,7 @@ interface Access {
   members: HubMember[];
 }
 
-const ACTIONS: readonly HubAction[] = ['see-project', 'see-people', 'invite', 'change-roles', 'remove-people', 'see-code', 'approve-changes', 'work-stories', 'release', 'see-secrets', 'change-settings', 'pin-and-comment', 'ask-koala'];
+const ACTIONS: readonly HubAction[] = ['see-project', 'see-people', 'invite', 'change-roles', 'remove-people', 'change-files', 'approve-changes', 'work-stories', 'release', 'see-secrets', 'change-settings', 'pin-and-comment', 'ask-koala'];
 const NOT_FOUND = { ok: false as const, status: 404 as const, why: 'There is no such project, or you are not on it.' };
 const refuse = (why: string) => ({ ok: false as const, status: 403 as const, why });
 const wrong = (why: string) => ({ ok: false as const, status: 400 as const, why });
@@ -186,9 +186,9 @@ export class HubService {
     const access = await this.access(personId, projectId);
     if (!access) return NOT_FOUND;
     const role = access.member.role;
-    const read = async (kind: SyncedKind) => (await access.store.records(kind)).map((doc) => recordFor(role, kind, doc));
+    const read = async (kind: SyncedKind) => (await access.store.records(kind)).map(recordFor);
     const [trees, branches, leaves, tasks, planProposals, conversations] = await Promise.all((['trees', 'branches', 'leaves', 'tasks', 'planProposals', 'conversations'] as const).map(read));
-    const status = statusFor(role, await access.store.status());
+    const status = await access.store.status();
     const requests = (await access.store.requests()).filter((request) => request.state === 'waiting' || request.by.personId === personId);
     return {
       ok: true,
@@ -210,7 +210,7 @@ export class HubService {
     if (!access) return NOT_FOUND;
     const doc = await access.store.record('conversations', conversationId);
     if (!doc) return { ok: false, status: 404, why: 'There is no such chat on this project.' };
-    const shown = recordFor(access.member.role, 'conversations', doc) as SyncedDoc & { messages: ConversationMessage[] };
+    const shown = recordFor(doc) as SyncedDoc & { messages: ConversationMessage[] };
     return { ok: true, value: withAuthorNames({ ...shown, messages: shown.messages ?? [] }, personId, new Map(access.members.map((member) => [member.personId, member.email]))) };
   }
 
@@ -252,7 +252,6 @@ export class HubService {
   async repository(personId: string, projectId: string): Promise<HubOutcome<{ files: string[] }>> {
     const access = await this.access(personId, projectId);
     if (!access) return NOT_FOUND;
-    if (!can(access.member.role, 'see-code')) return refuse('Only an owner or a collaborator sees the code.');
     if (!this.deps.repos) return { ok: false, status: 404, why: 'This hub keeps no repositories.' };
     return { ok: true, value: { files: (await this.deps.repos.files(projectId)).sort() } };
   }
@@ -260,7 +259,6 @@ export class HubService {
   async repositoryFile(personId: string, projectId: string, path: string): Promise<HubOutcome<{ path: string; content: string }>> {
     const access = await this.access(personId, projectId);
     if (!access) return NOT_FOUND;
-    if (!can(access.member.role, 'see-code')) return refuse('Only an owner or a collaborator sees the code.');
     if (!this.deps.repos) return { ok: false, status: 404, why: 'This hub keeps no repositories.' };
     const content = await this.deps.repos.read(projectId, path);
     return content === null ? { ok: false, status: 404, why: `There is no ${path} on main.` } : { ok: true, value: { path, content } };

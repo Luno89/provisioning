@@ -40,12 +40,10 @@ function BoardTab({ view, me }: { view: HubBoardView; me: string }) {
 }
 
 function FilesTab({ view }: { view: HubBoardView }) {
-  const sees = view.can.includes('see-code')
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-1">
-      {sees && <HubRepository projectId={view.project.id} />}
-      {!sees && <p className="text-[12px] text-slate-400">Files you add here are seen by everyone on the project.</p>}
-      <StoredFiles scope={{ kind: 'hub', projectId: view.project.id }} clients={sees ? 'share' : 'client'} />
+      <HubRepository projectId={view.project.id} />
+      <StoredFiles scope={{ kind: 'hub', projectId: view.project.id }} rearranges={view.can.includes('change-files')} />
     </div>
   )
 }

@@ -178,7 +178,7 @@ async function main(): Promise<void> {
     await stage('the collaborator and the client join Shop, each with what their role lets them do', async () => {
       const collaborator = await bo.hub!.post(`/hub/invitations/${links.bo!.project}/accept`);
       assert.equal(collaborator.status, 200, JSON.stringify(collaborator.data));
-      assert.ok(collaborator.data.can.includes('approve-changes') && collaborator.data.can.includes('see-code') && !collaborator.data.can.includes('invite'));
+      assert.ok(collaborator.data.can.includes('approve-changes') && collaborator.data.can.includes('change-files') && !collaborator.data.can.includes('invite'));
       const clientView = (await cy.hub!.post(`/hub/invitations/${links.cy!.project}/accept`)).data;
       assert.deepEqual(clientView.can, ['see-project', 'see-people', 'pin-and-comment', 'ask-koala']);
       assert.equal(clientView.invites, undefined, 'a client saw who is invited');
@@ -196,7 +196,7 @@ async function main(): Promise<void> {
     await stage('the owner changes a role, takes an invite back, and removes someone; the client leaves; the last owner cannot', async () => {
       const promoted = await ann.hub!.put(`/hub/projects/${shop.id}/members/${cy.id}`, { role: 'collaborator' });
       assert.equal(promoted.status, 200, JSON.stringify(promoted.data));
-      assert.ok((await cy.hub!.get(`/hub/projects/${shop.id}`)).data.can.includes('see-code'));
+      assert.ok((await cy.hub!.get(`/hub/projects/${shop.id}`)).data.can.includes('change-files'));
       await ann.hub!.put(`/hub/projects/${shop.id}/members/${cy.id}`, { role: 'client' });
       const dee = `hub-live-dee-${stamp}@nowrinkles.test`;
       const invited = await ann.hub!.post(`/hub/projects/${shop.id}/invites`, { email: dee, role: 'client' });

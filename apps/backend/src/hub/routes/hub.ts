@@ -132,10 +132,6 @@ export function hubRouter(deps: { hub: HubService }): Router {
     const to = pathIn(req, res, 'to');
     if (to !== undefined) await relayed(req, res, 'files.move', { from, to });
   }));
-  router.put('/projects/:id/files/for-clients', asyncRoute(async (req, res) => {
-    const path = pathIn(req, res, 'path', true);
-    if (path !== undefined) await relayed(req, res, 'files.for-clients', { path, on: req.body?.on === true });
-  }));
 
   router.get('/invitations/:token', asyncRoute(async (req, res) => {
     answer(res, await deps.hub.invitation(personOf(req), param(req, 'token')));

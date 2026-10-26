@@ -4,16 +4,15 @@ import type { PickedFile } from '../lib/file-drop'
 import DropTarget from './DropTarget'
 import FilePlacePicker from './FilePlacePicker'
 import StoredFiles from './StoredFiles'
-import { useFilePlace, useSharedWithHub } from '../shared'
+import { useFilePlace } from '../shared'
 
 export default function ProjectStoredFiles({ projectId, dir = '', title = 'Files', onOpen }: { projectId: string; dir?: string | undefined; title?: string | undefined; onOpen?: ((path: string) => void) | undefined }) {
   const place = useFilePlace(projectId)
   const scope = { kind: 'project' as const, projectId }
   const [held, setHeld] = useState<{ dir: string; picked: PickedFile[] } | undefined>()
   const ready = place.data?.state === 'ready'
-  const shared = useSharedWithHub(projectId)
 
-  if (ready) return <StoredFiles scope={scope} dir={dir} title={title} waiting={held} onTaken={() => setHeld(undefined)} onOpen={onOpen} clients={shared ? 'share' : undefined} />
+  if (ready) return <StoredFiles scope={scope} dir={dir} title={title} waiting={held} onTaken={() => setHeld(undefined)} onOpen={onOpen} />
 
   return (
     <DropTarget

@@ -1,9 +1,8 @@
-import { getSharing, sharingKeys } from '../hub'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import {
   chooseFileServer, fileKeys, getFilePlace, getFileServers, listFileShares, listStoredFiles, makeStoredFolder,
-  shareWithClients, moveStoredFile, removeStoredFile,
+  moveStoredFile, removeStoredFile,
   revokeFileShare, searchStoredFiles, setDefaultFileServer, shareStoredFile, startProjectMinio, uploadStoredFile,
 } from './api/files'
 import { dropIntoRepository, projectFileKeys } from '../projects'
@@ -91,8 +90,7 @@ export function useStoredChanges(scope: FileScope) {
     onSettled: refresh,
   })
   const makeFolder = useMutation({ mutationFn: (path: string) => makeStoredFolder(scope, path), onSuccess: refresh })
-  const forClients = useMutation({ mutationFn: ({ path, on }: { path: string; on: boolean }) => shareWithClients(scope, path, on), onSuccess: refresh })
-  return { remove, move, removeMany, moveMany, makeFolder, forClients }
+  return { remove, move, removeMany, moveMany, makeFolder }
 }
 
 export function useStoredSearch(scope: FileScope, query: string) {
@@ -146,7 +144,3 @@ export const placeText = (state: PlaceState | undefined): string => {
   return 'no file server yet'
 }
 
-export function useSharedWithHub(projectId: string) {
-  const preview = useQuery({ queryKey: sharingKeys.of(projectId), queryFn: () => getSharing(projectId), retry: false, staleTime: 30_000 })
-  return Boolean(preview.data?.shared)
-}

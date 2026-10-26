@@ -96,6 +96,17 @@ describe('a project\'s stored files', () => {
     await waitFor(() => expect(filesApi.uploadStoredFile).toHaveBeenCalledWith({ kind: 'project', projectId: 'p1' }, 'docs/spec.pdf', pdf, expect.any(Function)))
   })
 
+  it('shows and adds for someone who may not move or remove, offering no rename, remove or selection', async () => {
+    vi.mocked(filesApi.listStoredFiles).mockResolvedValue([{ name: 'a.txt', path: 'a.txt', type: 'file', size: 1 }])
+    show(<StoredFiles scope={{ kind: 'hub', projectId: 'h1' }} rearranges={false} />)
+    expect(await screen.findByRole('button', { name: 'Open a.txt' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Download a.txt' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Upload' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Remove a.txt' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Rename a.txt' })).toBeNull()
+    expect(screen.queryByRole('checkbox', { name: 'Select a.txt' })).toBeNull()
+  })
+
   it('removes only on a second click, and renames in place', async () => {
     vi.mocked(filesApi.listStoredFiles).mockResolvedValue([{ name: 'a.txt', path: 'a.txt', type: 'file', size: 1 }])
     show(<StoredFiles scope={{ kind: 'mine' }} />)

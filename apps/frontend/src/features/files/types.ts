@@ -25,7 +25,6 @@ export interface StoredFile {
   type: 'file' | 'dir'
   size?: number
   modified?: string
-  forClients?: 'itself' | 'folder'
 }
 
 export type PlaceState =

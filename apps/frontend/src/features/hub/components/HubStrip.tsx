@@ -18,8 +18,7 @@ const KIND_SAID: Record<string, string> = {
 export default function HubStrip({ view, me }: { view: HubBoardView; me: string }) {
   const status = view.board.status
   const shown = status ? projectStatus(status.releases, status.runs) : undefined
-  const sees = view.can.includes('see-code')
-  const working = sees ? workingOn(view.board.leaves) : []
+  const working = workingOn(view.board.leaves)
   const place = hubPlaceOf(view)
   const mine = view.requests.filter((request) => request.by.personId === me && request.state !== 'done')
   const live = status?.addresses?.live
@@ -34,9 +33,9 @@ export default function HubStrip({ view, me }: { view: HubBoardView; me: string 
           : <span className="text-slate-500">Nothing is live yet.</span>}
         {shown?.preview && <span>A preview is waiting for the owner{preview && <> · <a href={preview} target="_blank" rel="noreferrer" className="text-amber-200 underline">Open the preview</a></>}</span>}
         {shown?.preparing && <span>Releasing {shown.preparing.commit.slice(0, 7)}…</span>}
-        {sees && shown?.lastBuild && <span className="text-slate-400">Last build {shown.lastBuild.status} · {shown.lastBuild.commit.slice(0, 7)}</span>}
+        {shown?.lastBuild && <span className="text-slate-400">Last build {shown.lastBuild.status} · {shown.lastBuild.commit.slice(0, 7)}</span>}
       </div>
-      {sees && working.length > 0 && <p data-testid="hub-working">Being worked: {working.join(', ')}</p>}
+      {working.length > 0 && <p data-testid="hub-working">Being worked: {working.join(', ')}</p>}
       {mine.length > 0 && (
         <ul className="space-y-0.5 text-[11px]" data-testid="hub-my-requests">
           {mine.map((request) => (

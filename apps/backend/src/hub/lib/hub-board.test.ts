@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { recordFor, relayProblem, requestProblem, statusFor, type HubStatus } from './hub-board.js';
+import { recordFor, relayProblem, requestProblem } from './hub-board.js';
 
 const board = {
   trees: [{ id: 't1' }],
@@ -10,37 +10,14 @@ const board = {
   conversations: [{ id: 'channel-x' }],
 };
 
-describe('what each role sees of a shared project', () => {
-  it('shows a client a story and its tasks without how they were worked, and never the owner\'s id', () => {
+describe('what every member sees of a shared project', () => {
+  it('shows every record whole, how it was worked included, and never the owner\'s id', () => {
     const leaf = { id: 'l1', ownerId: 'ann', branchId: 'b1', title: 'Pay', status: 'claimed', runId: 'r', claim: { evidence: 'diff', at: 'x' }, attempts: [{}], review: {}, drops: [], createdAt: 'a', updatedAt: 'b' };
-    expect(recordFor('client', 'leaves', leaf)).toEqual({ id: 'l1', branchId: 'b1', title: 'Pay', status: 'claimed', createdAt: 'a', updatedAt: 'b' });
-    expect(recordFor('collaborator', 'leaves', leaf)).not.toHaveProperty('ownerId');
-    expect(recordFor('collaborator', 'leaves', leaf)).toHaveProperty('claim');
-    const task = { id: 'k1', ownerId: 'ann', title: 'Pay', doneMeans: 'paid', checks: { run: 'npm test' }, runs: ['r'], evidence: 'e', status: 'done', dependsOn: [] };
-    expect(recordFor('client', 'tasks', task)).toEqual({ id: 'k1', title: 'Pay', doneMeans: 'paid', status: 'done', dependsOn: [] });
-  });
-
-  it('shows a client a chat\'s words without Koala\'s reasoning or the chat\'s settings', () => {
-    const chat = { id: 'c', ownerId: 'ann', kind: 'channel', modelId: 'm', autoMode: true, allowedTools: ['x'], messages: [{ role: 'assistant', content: 'done', at: '1', reasoning: 'thinking', toolCalls: [{}] }] };
-    expect(recordFor('client', 'conversations', chat)).toEqual({ id: 'c', kind: 'channel', messages: [{ role: 'assistant', content: 'done', at: '1' }] });
-  });
-
-  it('tells a client what is live and what waits, but no builds, commits or how the trees run', () => {
-    const status: HubStatus = {
-      at: 'now',
-      releases: [{ id: 'r1', state: 'live', slot: 'a', commit: 'abc', startedAt: '1', liveAt: '2', changes: { dropped: [] } }],
-      addresses: { live: 'https://shop' },
-      runs: [{ id: 'b1', startedAt: '1', promotedAt: '2', commitSha: 'abc', status: 'success' }, { id: 'b2', startedAt: '3', status: 'failed', errorMessage: 'boom' }],
-      treeRuns: { t1: { state: 'running', asking: [] } },
-    };
-    expect(statusFor('client', status)).toEqual({
-      at: 'now',
-      releases: [{ id: 'r1', state: 'live', slot: 'a', startedAt: '1', liveAt: '2' }],
-      addresses: { live: 'https://shop' },
-      runs: [{ id: 'b1', startedAt: '1', promotedAt: '2' }],
-      treeRuns: {},
-    });
-    expect(statusFor('owner', status)).toBe(status);
+    const { ownerId: _ownerId, ...whole } = leaf;
+    expect(recordFor(leaf)).toEqual(whole);
+    const chat = { id: 'c', ownerId: 'ann', kind: 'channel', modelId: 'm', messages: [{ role: 'assistant', content: 'done', at: '1', reasoning: 'thinking', toolCalls: [{}] }] };
+    expect(recordFor(chat)).toMatchObject({ messages: [{ reasoning: 'thinking', toolCalls: [{}] }] });
+    expect(recordFor(chat)).not.toHaveProperty('ownerId');
   });
 });
 
@@ -67,10 +44,13 @@ describe('what each role may ask the owner\'s instance to do', () => {
     expect(requestProblem('ask-koala', { ...ask, conversationId: 'private' }, 'client', board)?.status).toBe(400);
   });
 
-  it('keeps how the work runs and changing files to owners and collaborators', () => {
-    expect(relayProblem('turns', 'client')).toBeDefined();
-    expect(relayProblem('files.remove', 'client')).toBeDefined();
+  it('shows every member how the work runs, and keeps moving and removing files to owners and collaborators', () => {
+    expect(relayProblem('turns', 'client')).toBeUndefined();
+    expect(relayProblem('files.read', 'client')).toBeUndefined();
     expect(relayProblem('files.upload', 'client')).toBeUndefined();
-    expect(relayProblem('turns', 'collaborator')).toBeUndefined();
+    expect(relayProblem('files.remove', 'client')).toBe('only an owner or a collaborator can move or remove files');
+    expect(relayProblem('files.move', 'client')).toBe('only an owner or a collaborator can move or remove files');
+    expect(relayProblem('files.move', 'collaborator')).toBeUndefined();
+    expect(relayProblem('files.remove', 'owner')).toBeUndefined();
   });
 });

@@ -10,8 +10,8 @@ describe('seed-all', () => {
   it('fills every catalogue the platform expects to find in the database', async () => {
     const db = await testDatabase();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, ...counts } = await seedAll(db);
-    expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, ...counts } = await seedAll(db);
+    expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(removedBuiltInProcedures).toBe(0);
     expect(removedBuiltInPersonas).toBe(0);
     expect(agentToolListsMoved).toBe(0);
@@ -77,6 +77,29 @@ describe('seed-all', () => {
       expect(looksEncrypted(String((await deployments.findOne({ _id: 'old' as never }))?.minioRootPassword))).toBe(true);
       expect((await db.infrastructure.getDeployments()).find((d) => d.id === 'old')?.minioRootPassword).toBe('from-before');
       expect(await seedAll(db)).toMatchObject({ deploymentSecretsSealed: 0 });
+    } finally {
+      await db.dropDatabase();
+      await db.close();
+      await client.close();
+    }
+  });
+
+  it('forgets which files a project shared with its clients, now that clients see every file, once', async () => {
+    const name = `t_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    const db = new MongoDB({ MONGO_URI: `${inject('mongoUri')}${name}` });
+    const client = await MongoClient.connect(inject('mongoUri'));
+    try {
+      await db.init();
+      const projects = client.db(name).collection('projects');
+      await projects.insertMany([
+        { _id: 'shared' as never, name: 'Shop', ownerId: 'bo', createdAt: '2026-10-01T00:00:00.000Z', clientFiles: ['designs'] },
+        { _id: 'plain' as never, name: 'Blog', ownerId: 'bo', createdAt: '2026-10-01T00:00:00.000Z' },
+      ]);
+
+      expect(await seedAll(db)).toMatchObject({ clientFilesForgotten: 1 });
+      expect(await projects.countDocuments({ clientFiles: { $exists: true } })).toBe(0);
+      expect(await projects.countDocuments({})).toBe(2);
+      expect(await seedAll(db)).toMatchObject({ clientFilesForgotten: 0 });
     } finally {
       await db.dropDatabase();
       await db.close();

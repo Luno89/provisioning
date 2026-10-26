@@ -19,7 +19,7 @@ import type { LinkedProject } from '../components/Workspace/BuildsDeploysPanel'
 import type { WorkTree } from '../hooks/useProjectWork'
 import type { Procedure } from '@koala/agent-engine/procedure'
 
-export type WorkPower = 'change-work' | 'see-work' | 'run-work' | 'delete-work' | 'threads' | 'story-code'
+export type WorkPower = 'change-work' | 'change-files' | 'run-work' | 'delete-work' | 'threads' | 'story-code'
 
 export interface HubPlace {
   projectId: string

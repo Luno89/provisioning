@@ -8,7 +8,7 @@ export type HubRole = 'owner' | 'collaborator' | 'client'
 export const HUB_ROLES: readonly HubRole[] = ['owner', 'collaborator', 'client']
 
 export type HubAction =
-  | 'see-project' | 'see-people' | 'invite' | 'change-roles' | 'remove-people' | 'see-code' | 'approve-changes'
+  | 'see-project' | 'see-people' | 'invite' | 'change-roles' | 'remove-people' | 'change-files' | 'approve-changes'
   | 'work-stories' | 'release' | 'see-secrets' | 'change-settings' | 'pin-and-comment' | 'ask-koala'
 
 export interface SharedProject {

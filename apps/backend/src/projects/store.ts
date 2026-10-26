@@ -16,6 +16,7 @@ export interface ProjectsStore extends AreaStore {
   getProjects(): Promise<ProjectMetadata[]>;
   saveProject(project: ProjectMetadata): Promise<void>;
   saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata>;
+  forgetClientFiles(): Promise<number>;
   getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
   saveTreeType(treeType: TreeTypeSpec): Promise<void>;
   deleteTreeType(id: string, ownerId: string): Promise<void>;
@@ -101,6 +102,10 @@ export class MongoProjectsStore implements ProjectsStore {
 
   async getProjects(): Promise<ProjectMetadata[]> {
     return (await this.projects.find({}).toArray()).map(doc => fromDoc<ProjectMetadata>(doc));
+  }
+
+  async forgetClientFiles(): Promise<number> {
+    return (await this.projects.updateMany({ clientFiles: { $exists: true } }, { $unset: { clientFiles: '' } })).modifiedCount;
   }
 
   async saveProject(project: ProjectMetadata): Promise<void> {

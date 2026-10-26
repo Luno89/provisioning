@@ -1,7 +1,6 @@
 import type { Readable } from 'node:stream';
 import { inScope, scopeOf, type HubLink, type ShareScope, type SyncedDoc } from '../lib/hub-sync.js';
 import { relayProblem, RELAY_OPS, type HubRequest, type HubStatus, type Plain, type RelayOp } from '../lib/hub-board.js';
-import { forClients, seenByClients, type ClientMark } from '../lib/client-files.js';
 import { cleanPath, type FileEntry, type FileScope, type FilesOutcome } from '../../files/index.js';
 import { treeOfGroveRun } from '../../engine-host/temporal/contracts.js';
 import type { HubRole } from '../lib/hub.js';
@@ -21,13 +20,9 @@ export type InstanceAnswer =
   | { kind: 'json'; status: number; body: unknown }
   | { kind: 'stream'; status: number; type: string; name?: string | undefined; size?: number | undefined; stream: Readable };
 
-type Marked = FileEntry & { forClients?: ClientMark };
-
 export interface InstanceFiles {
-  list(ownerId: string, scope: FileScope, dir: string): Promise<FilesOutcome<Marked[]>>;
-  search(ownerId: string, scope: FileScope, query: string): Promise<FilesOutcome<Marked[]>>;
-  clientFiles(scope: FileScope): Promise<string[]>;
-  forClients(scope: FileScope, path: string, on: boolean): Promise<FilesOutcome<{ clientFiles: string[] }>>;
+  list(ownerId: string, scope: FileScope, dir: string): Promise<FilesOutcome<FileEntry[]>>;
+  search(ownerId: string, scope: FileScope, query: string): Promise<FilesOutcome<FileEntry[]>>;
   download(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<{ stream: Readable; contentType: string; size?: number | undefined }>>;
   upload(ownerId: string, scope: FileScope, path: string, body: Readable, size: number | undefined, contentType: string): Promise<FilesOutcome<{ path: string }>>;
   makeFolder(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<{ path: string }>>;
@@ -59,8 +54,8 @@ export interface HubInstanceWorkDeps {
 
 const json = (status: number, body: unknown): InstanceAnswer => ({ kind: 'json', status, body });
 const refused = (status: number, why: string): InstanceAnswer => json(status, { error: why });
-const fromFiles = <T>(outcome: FilesOutcome<T>, shape: (value: T) => unknown = (value) => value): InstanceAnswer =>
-  outcome.ok ? json(200, shape(outcome.value)) : refused(outcome.status, outcome.why);
+const fromFiles = <T>(outcome: FilesOutcome<T>): InstanceAnswer =>
+  outcome.ok ? json(200, outcome.value) : refused(outcome.status, outcome.why);
 
 const str = (value: unknown): string => (typeof value === 'string' ? value : '');
 
@@ -162,36 +157,24 @@ export class HubInstanceWork {
     }
   }
 
-  private async exists(ownerId: string, scope: FileScope, path: string): Promise<boolean> {
-    const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
-    const listed = await this.deps.files.list(ownerId, scope, parent);
-    return listed.ok && listed.value.some((entry) => entry.path === path);
-  }
-
   private async file(link: HubLink, project: ProjectMetadata, call: InstanceCall): Promise<InstanceAnswer> {
     const owner = link.ownerId;
     const scope: FileScope = { kind: 'project', project };
-    const shared = await this.deps.files.clientFiles(scope);
-    const client = call.as.role === 'client';
     const path = (key: string, allowRoot = false) => {
       const cleaned = cleanPath(str(call.args[key]), { allowRoot });
       return cleaned.ok ? cleaned.path : undefined;
-    };
-    const theirs = async (at: string) => {
-      if (client && !seenByClients(at, shared)) await this.deps.files.forClients(scope, at, true);
     };
     switch (call.op) {
       case 'files.list': {
         const dir = path('dir', true);
         if (dir === undefined) return refused(400, 'that is not a folder in the project');
-        return fromFiles(await this.deps.files.list(owner, scope, dir), (entries) => (client ? forClients(entries, shared) : entries));
+        return fromFiles(await this.deps.files.list(owner, scope, dir));
       }
       case 'files.search':
-        return fromFiles(await this.deps.files.search(owner, scope, str(call.args.q)), (entries) => (client ? entries.filter((entry) => seenByClients(entry.path, shared)) : entries));
+        return fromFiles(await this.deps.files.search(owner, scope, str(call.args.q)));
       case 'files.read': {
         const at = path('path');
         if (at === undefined) return refused(400, 'that is not a file in the project');
-        if (client && !seenByClients(at, shared)) return refused(404, 'There is no such file.');
         const found = await this.deps.files.download(owner, scope, at);
         if (!found.ok) return refused(found.status, found.why);
         return { kind: 'stream', status: 200, type: found.value.contentType, name: at.split('/').pop() ?? at, ...(found.value.size !== undefined ? { size: found.value.size } : {}), stream: found.value.stream };
@@ -199,18 +182,13 @@ export class HubInstanceWork {
       case 'files.upload': {
         const at = path('path');
         if (at === undefined || !call.upload) return refused(400, 'say where the file goes, and send it');
-        if (client && !seenByClients(at, shared) && await this.exists(owner, scope, at)) return refused(409, 'A file you cannot see already has that name; choose another.');
         const body = await call.upload.open();
-        const stored = await this.deps.files.upload(owner, scope, at, body, call.upload.size, call.upload.type);
-        if (stored.ok) await theirs(at);
-        return fromFiles(stored);
+        return fromFiles(await this.deps.files.upload(owner, scope, at, body, call.upload.size, call.upload.type));
       }
       case 'files.folder': {
         const at = path('path');
         if (at === undefined) return refused(400, 'that is not a folder name');
-        const made = await this.deps.files.makeFolder(owner, scope, at);
-        if (made.ok) await theirs(at);
-        return fromFiles(made);
+        return fromFiles(await this.deps.files.makeFolder(owner, scope, at));
       }
       case 'files.move': {
         const from = path('from');
@@ -222,11 +200,6 @@ export class HubInstanceWork {
         const at = path('path');
         if (at === undefined) return refused(400, 'that is not a file in the project');
         return fromFiles(await this.deps.files.remove(owner, scope, at));
-      }
-      case 'files.for-clients': {
-        const at = path('path', true);
-        if (at === undefined) return refused(400, 'that is not a file or folder in the project');
-        return fromFiles(await this.deps.files.forClients(scope, at, call.args.on === true));
       }
       default:
         return refused(400, `${call.op} is not something the hub may ask`);

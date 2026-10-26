@@ -74,6 +74,3 @@ export const shareUrl = (id: string, origin: string): string => new URL(`${API_B
 
 export const readStoredText = (scope: FileScope, path: string): Promise<string> =>
   api.get<string>(`${base(scope)}/content`, { params: { path, inline: '1' }, responseType: 'text', transformResponse: (raw: unknown) => raw }).then((r) => String(r.data))
-
-export const shareWithClients = (scope: FileScope, path: string, on: boolean): Promise<{ clientFiles: string[] }> =>
-  api.put<{ clientFiles: string[] }>(`${base(scope)}/for-clients`, { path, on }).then((r) => r.data)

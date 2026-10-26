@@ -1,5 +1,5 @@
 import { can, type HubRole } from './hub.js';
-import type { SyncedDoc, SyncedKind } from './hub-sync.js';
+import type { SyncedDoc } from './hub-sync.js';
 
 export type Plain = Record<string, unknown>;
 
@@ -29,38 +29,9 @@ export interface HubBoard {
 const pick = (doc: Plain, fields: readonly string[]): Plain =>
   Object.fromEntries(fields.filter((field) => doc[field] !== undefined).map((field) => [field, doc[field]]));
 
-const CLIENT_FIELDS: Record<Exclude<SyncedKind, 'planProposals'>, readonly string[]> = {
-  trees: ['id', 'name', 'type', 'version', 'goal', 'projectIds', 'createdAt', 'updatedAt'],
-  branches: ['id', 'treeId', 'title', 'priority', 'createdAt', 'updatedAt'],
-  leaves: ['id', 'branchId', 'title', 'body', 'status', 'dependsOn', 'priority', 'tasks', 'verified', 'landed', 'waitingFor', 'createdAt', 'updatedAt'],
-  tasks: ['id', 'leafId', 'projectId', 'title', 'intent', 'description', 'role', 'doneMeans', 'dependsOn', 'status', 'createdAt', 'updatedAt'],
-  conversations: ['id', 'title', 'kind', 'treeId', 'projectId', 'leafId', 'branchId', 'liveTurn', 'messages', 'createdAt', 'updatedAt'],
-};
-
-const MESSAGE_FIELDS_FOR_CLIENTS = ['role', 'author', 'notice', 'content', 'at', 'attachments', 'runId'];
-
-export const seesWork = (role: HubRole): boolean => can(role, 'see-code');
-
-export function recordFor(role: HubRole, kind: SyncedKind, doc: SyncedDoc): SyncedDoc {
+export function recordFor(doc: SyncedDoc): SyncedDoc {
   const { ownerId: _ownerId, ...rest } = doc;
-  if (seesWork(role)) return rest as SyncedDoc;
-  if (kind === 'planProposals') return rest as SyncedDoc;
-  if (kind === 'conversations') {
-    const messages = ((rest.messages ?? []) as Plain[]).map((message) => pick(message, MESSAGE_FIELDS_FOR_CLIENTS));
-    return { ...pick(rest, CLIENT_FIELDS.conversations), id: doc.id, messages } as SyncedDoc;
-  }
-  return { ...pick(rest, CLIENT_FIELDS[kind]), id: doc.id } as SyncedDoc;
-}
-
-export function statusFor(role: HubRole, status: HubStatus | undefined): HubStatus | undefined {
-  if (!status || seesWork(role)) return status;
-  return {
-    at: status.at,
-    releases: status.releases.map((release) => pick(release, ['id', 'state', 'slot', 'startedAt', 'liveAt', 'updatedAt'])),
-    ...(status.addresses ? { addresses: status.addresses } : {}),
-    runs: status.runs.filter((run) => run.promotedAt !== undefined).map((run) => pick(run, ['id', 'startedAt', 'promotedAt'])),
-    treeRuns: {},
-  };
+  return rest as SyncedDoc;
 }
 
 export type HubRequestKind = 'approve-plan' | 'reject-plan' | 'order-stories' | 'order-features' | 'accept-task' | 'drop-task' | 'ask-koala' | 'open-chat';
@@ -141,14 +112,12 @@ export const requestInput = (kind: HubRequestKind, body: Plain): Plain => {
   return pick(body, fields[kind]);
 };
 
-export const RELAY_OPS = ['turns', 'procedure', 'extensions', 'files.list', 'files.search', 'files.read', 'files.upload', 'files.folder', 'files.move', 'files.remove', 'files.for-clients'] as const;
+export const RELAY_OPS = ['turns', 'procedure', 'extensions', 'files.list', 'files.search', 'files.read', 'files.upload', 'files.folder', 'files.move', 'files.remove'] as const;
 export type RelayOp = typeof RELAY_OPS[number];
 
-const WORK_OPS: ReadonlySet<RelayOp> = new Set(['turns', 'procedure', 'extensions']);
-const CHANGING_FILES: ReadonlySet<RelayOp> = new Set(['files.move', 'files.remove', 'files.for-clients']);
+const CHANGING_FILES: ReadonlySet<RelayOp> = new Set(['files.move', 'files.remove']);
 
 export function relayProblem(op: RelayOp, role: HubRole): string | undefined {
-  if (WORK_OPS.has(op) && !seesWork(role)) return 'only an owner or a collaborator sees how the work runs';
-  if (CHANGING_FILES.has(op) && !seesWork(role)) return 'only an owner or a collaborator can move, remove or share files';
+  if (CHANGING_FILES.has(op) && !can(role, 'change-files')) return 'only an owner or a collaborator can move or remove files';
   return undefined;
 }

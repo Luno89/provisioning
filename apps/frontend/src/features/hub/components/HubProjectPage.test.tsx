@@ -12,7 +12,7 @@ vi.mock('@tanstack/react-router', () => ({
   useRouter: () => undefined,
 }))
 
-vi.mock('../../files/components/StoredFiles', () => ({ default: ({ clients }: { clients?: string }) => <div data-testid="stored-files">{clients}</div> }))
+vi.mock('../../files/components/StoredFiles', () => ({ default: ({ rearranges }: { rearranges?: boolean }) => <div data-testid="stored-files">{rearranges ? 'rearranges' : 'adds only'}</div> }))
 vi.mock('../../projects/components/LeafDetail', () => ({ default: ({ leaf }: { leaf: { title: string } }) => <div data-testid="leaf-detail">{leaf.title}</div> }))
 vi.mock('./HubRepository', () => ({ default: () => <div data-testid="hub-repository" /> }))
 
@@ -46,7 +46,7 @@ const proposal = {
 const view = (over: Partial<HubBoardView> = {}): HubBoardView => ({
   project: { id: 'h1', name: 'Shop', createdAt: 't', createdBy: 'ann', origin: { projectId: 'p1' } },
   role: 'collaborator',
-  can: ['see-project', 'see-people', 'see-code', 'approve-changes', 'work-stories', 'pin-and-comment', 'ask-koala'],
+  can: ['see-project', 'see-people', 'change-files', 'approve-changes', 'work-stories', 'pin-and-comment', 'ask-koala'],
   online: true,
   members: [{ personId: 'ann', email: 'ann@example.com', role: 'owner' }, { personId: 'bo', email: 'bo@example.com', role: 'collaborator' }],
   board: {
@@ -73,7 +73,7 @@ beforeEach(() => {
 })
 
 describe('a shared project on the hub', () => {
-  it('shows a client the board and the plan card without a say, no live feed, no repository', async () => {
+  it('shows a client the board, the plan card without a say, the repository and every file, which they add to but do not move or remove', async () => {
     api.getHubBoard.mockResolvedValue(view({ role: 'client', can: ['see-project', 'see-people', 'pin-and-comment', 'ask-koala'] }))
     wrap(<HubProjectPage id="h1" me="cy" />)
     expect(await screen.findByText('Browser spec')).toBeTruthy()
@@ -82,11 +82,9 @@ describe('a shared project on the hub', () => {
     expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull()
     fireEvent.click(screen.getByText('Browser spec'))
     await screen.findByTestId('story-page')
-    expect(screen.queryByText('Watch it work')).toBeNull()
     fireEvent.click(screen.getByRole('tab', { name: 'Files' }))
-    expect(screen.queryByTestId('hub-repository')).toBeNull()
-    expect(screen.getByTestId('stored-files').textContent).toBe('client')
-    expect(screen.getByText(/seen by everyone on the project/)).toBeTruthy()
+    expect(screen.getByTestId('hub-repository')).toBeTruthy()
+    expect(screen.getByTestId('stored-files').textContent).toBe('adds only')
   })
 
   it('lets a collaborator approve a plan, which then reads as waiting on the owner\'s instance', async () => {
@@ -103,7 +101,7 @@ describe('a shared project on the hub', () => {
   })
 
   it('posts in the channel to Koala when Ask Koala is on', async () => {
-    api.getHubBoard.mockResolvedValue(view({ role: 'owner', can: ['see-project', 'see-people', 'see-code', 'approve-changes', 'invite'] }))
+    api.getHubBoard.mockResolvedValue(view({ role: 'owner', can: ['see-project', 'see-people', 'change-files', 'approve-changes', 'invite'] }))
     wrap(<HubProjectPage id="h1" me="ann" />)
     await screen.findByText('hello there')
     fireEvent.click(screen.getByRole('button', { name: /Ask Koala: off/ }))

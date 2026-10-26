@@ -168,8 +168,6 @@ describe('members working a shared project from the hub', () => {
       files: {
         list: async (_owner, _scope, dir) => ({ ok: true, value: Object.keys(files).filter((path) => (dir ? path.startsWith(`${dir}/`) : true)).map((path) => (dir ? { name: path.split('/').pop()!, path, type: 'file' as const } : { name: path.split('/')[0]!, path: path.split('/')[0]!, type: 'dir' as const })) }),
         search: async () => ({ ok: true, value: [] }),
-        clientFiles: async () => (await db.projects.getProjects()).find((project) => project.id === 'p1')?.clientFiles ?? [],
-        forClients: async (_scope, path, on) => { const project = (await db.projects.getProjects()).find((entry) => entry.id === 'p1')!; const next = on ? [...(project.clientFiles ?? []), path] : []; await db.projects.saveProjectInfo({ id: 'p1', clientFiles: next }); return { ok: true, value: { clientFiles: next } }; },
         download: async () => ({ ok: false, status: 404, why: 'none' }),
         upload: async () => ({ ok: true, value: { path: 'x' } }),
         makeFolder: async () => ({ ok: true, value: { path: 'x' } }),
@@ -231,30 +229,35 @@ describe('members working a shared project from the hub', () => {
     relay.stop();
   });
 
-  it('sends what is live once, shows a client only what is live, and nothing again until it changes', async () => {
+  it('sends what is live once, shows a client all of it, and nothing again until it changes', async () => {
     const { hub, hubId, sync, relay, store } = await shared();
     const first = await store.project(hubId).status();
     expect(first?.treeRuns).toEqual({ t1: { state: 'idle' } });
     await sync.once();
     expect((await store.project(hubId).status())?.at).toBe(first?.at);
     const seen = await hub.boardView('cy', hubId);
-    expect(seen.ok && seen.value.board.status).toEqual({ at: first!.at, releases: [{ id: 'r1', state: 'live', startedAt: '1' }], runs: [], treeRuns: {}, addresses: { owner: 'ann', project: 'p1' } });
+    expect(seen.ok && seen.value.board.status).toEqual({ at: first!.at, releases: [{ id: 'r1', state: 'live', commit: 'abc', startedAt: '1' }], runs: [], treeRuns: { t1: { state: 'idle' } }, addresses: { owner: 'ann', project: 'p1' } });
     sync.stop();
     relay.stop();
   });
 
-  it('answers a member\'s file listing through the relay, showing a client only what was shared with clients', async () => {
+  it('answers every member\'s file listing and the run feed through the relay, and lets only owners and collaborators move or remove files', async () => {
     const { hub, hubId, sync, relay } = await shared();
-    const asOwner = await hub.relay({ id: 'ann', email: 'ann@example.com' }, hubId, 'files.list', { dir: '' });
-    expect(asOwner.ok && asOwner.value.kind === 'json' && (asOwner.value.body as { path: string }[]).map((entry) => entry.path)).toEqual(['designs', 'contracts']);
-    const before = await hub.relay({ id: 'cy', email: 'cy@example.com' }, hubId, 'files.list', { dir: '' });
-    expect(before.ok && before.value.kind === 'json' && before.value.body).toEqual([]);
-    expect(await hub.relay({ id: 'cy', email: 'cy@example.com' }, hubId, 'files.for-clients', { path: 'designs', on: true })).toMatchObject({ ok: false, status: 403 });
-    const sharedOut = await hub.relay({ id: 'bo', email: 'bo@example.com' }, hubId, 'files.for-clients', { path: 'designs/logo.png', on: true });
-    expect(sharedOut.ok && sharedOut.value.kind === 'json' && sharedOut.value.status).toBe(200);
-    const after = await hub.relay({ id: 'cy', email: 'cy@example.com' }, hubId, 'files.list', { dir: 'designs' });
-    expect(after.ok && after.value.kind === 'json' && (after.value.body as { path: string }[]).map((entry) => entry.path)).toEqual(['designs/logo.png']);
-    expect(await hub.relay({ id: 'cy', email: 'cy@example.com' }, hubId, 'turns', { turnId: 'x' })).toMatchObject({ ok: false, status: 403 });
+    const cy = { id: 'cy', email: 'cy@example.com' };
+    for (const who of [{ id: 'ann', email: 'ann@example.com' }, cy]) {
+      const listed = await hub.relay(who, hubId, 'files.list', { dir: '' });
+      expect(listed.ok && listed.value.kind === 'json' && (listed.value.body as { path: string }[]).map((entry) => entry.path)).toEqual(['designs', 'contracts']);
+    }
+    const inside = await hub.relay(cy, hubId, 'files.list', { dir: 'contracts' });
+    expect(inside.ok && inside.value.kind === 'json' && (inside.value.body as { path: string }[]).map((entry) => entry.path)).toEqual(['contracts/nda.pdf']);
+    expect(await hub.relay(cy, hubId, 'files.remove', { path: 'contracts/nda.pdf' })).toMatchObject({ ok: false, status: 403, why: 'only an owner or a collaborator can move or remove files' });
+    expect(await hub.relay(cy, hubId, 'files.move', { from: 'contracts/nda.pdf', to: 'nda.pdf' })).toMatchObject({ ok: false, status: 403 });
+    const moved = await hub.relay({ id: 'bo', email: 'bo@example.com' }, hubId, 'files.move', { from: 'contracts/nda.pdf', to: 'nda.pdf' });
+    expect(moved.ok && moved.value.kind === 'json' && moved.value.status).toBe(200);
+    const uploaded = await hub.relay(cy, hubId, 'files.folder', { path: 'from-cy' });
+    expect(uploaded.ok && uploaded.value.kind === 'json' && uploaded.value.status).toBe(200);
+    const feed = await hub.relay(cy, hubId, 'turns', { turnId: 'grove-run-t1~1' });
+    expect(feed.ok && feed.value.kind === 'json' && feed.value.status).toBe(200);
     sync.stop();
     relay.stop();
   });

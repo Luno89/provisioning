@@ -8,7 +8,7 @@ export type HubAction =
   | 'invite'
   | 'change-roles'
   | 'remove-people'
-  | 'see-code'
+  | 'change-files'
   | 'approve-changes'
   | 'work-stories'
   | 'release'
@@ -18,8 +18,8 @@ export type HubAction =
   | 'ask-koala';
 
 const CAN: Record<HubRole, readonly HubAction[]> = {
-  owner: ['see-project', 'see-people', 'invite', 'change-roles', 'remove-people', 'see-code', 'approve-changes', 'work-stories', 'release', 'see-secrets', 'change-settings', 'pin-and-comment', 'ask-koala'],
-  collaborator: ['see-project', 'see-people', 'see-code', 'approve-changes', 'work-stories', 'pin-and-comment', 'ask-koala'],
+  owner: ['see-project', 'see-people', 'invite', 'change-roles', 'remove-people', 'change-files', 'approve-changes', 'work-stories', 'release', 'see-secrets', 'change-settings', 'pin-and-comment', 'ask-koala'],
+  collaborator: ['see-project', 'see-people', 'change-files', 'approve-changes', 'work-stories', 'pin-and-comment', 'ask-koala'],
   client: ['see-project', 'see-people', 'pin-and-comment', 'ask-koala'],
 };
 
