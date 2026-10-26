@@ -45,7 +45,8 @@ export class ReleaseCatalogue implements ReleaseSource {
 
   private async record(): Promise<InstanceRelease> {
     const { imageTag, imageDigest } = this.settings;
-    const tag = await this.git(['describe', '--exact-match', '--tags', '--match', 'v*', 'HEAD']);
+    const fromHead = (await this.git(['rev-parse', 'HEAD']))?.slice(0, 12) === imageTag;
+    const tag = fromHead ? await this.git(['describe', '--exact-match', '--tags', '--match', 'v*', 'HEAD']) : undefined;
     const message = tag ? await this.git(['tag', '--list', '--format=%(contents)', tag]) : undefined;
     let chartSha256: string | undefined;
     if (IMAGE_TAG.test(imageTag)) {
@@ -56,7 +57,7 @@ export class ReleaseCatalogue implements ReleaseSource {
     }
     return this.store.recordRelease({
       ...releaseFromTag(imageTag, tag, message, this.now().toISOString()),
-      ...(imageDigest && DIGEST.test(imageDigest) ? { digest: imageDigest } : {}),
+      ...(fromHead && imageDigest && DIGEST.test(imageDigest) ? { digest: imageDigest } : {}),
       ...(chartSha256 ? { chartSha256 } : {}),
     });
   }

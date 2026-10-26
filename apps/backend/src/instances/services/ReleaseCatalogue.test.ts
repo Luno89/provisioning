@@ -13,7 +13,14 @@ let repo: string;
 let chartsDir: string;
 let chart: string;
 
-const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: repo, stdio: 'pipe' });
+const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: repo, encoding: 'utf8', stdio: 'pipe' }).trim();
+const head = () => git('rev-parse', 'HEAD').slice(0, 12);
+const commit = (name: string) => {
+  writeFileSync(join(repo, `${name}.txt`), name);
+  git('add', '.');
+  git('commit', '-q', '-m', name);
+  return head();
+};
 
 beforeEach(async () => {
   db = await testDatabase();
@@ -23,9 +30,7 @@ beforeEach(async () => {
   chart = join(root, 'instance-0.1.0.tgz');
   writeFileSync(chart, 'the chart');
   execFileSync('git', ['init', '-q', repo]);
-  writeFileSync(join(repo, 'a.txt'), 'a');
-  git('add', '.');
-  git('commit', '-q', '-m', 'one');
+  commit('one');
 });
 
 const catalogue = (imageTag: string, at: string, imageDigest?: string) => new ReleaseCatalogue(db.instances, { repoRoot: repo, chartsDir, imageTag, imageDigest, chart: async () => chart }, () => new Date(at));
@@ -33,36 +38,47 @@ const chartSha256 = createHash('sha256').update('the chart').digest('hex');
 
 describe('the releases root has run', () => {
   it('records a tagged release with its notes, keeps when it was first served, and keeps its chart', async () => {
-    git('tag', '-a', 'v2026.10.25', '-m', 'v2026.10.25\n\nHotfix released from aaaaaaaaaaaa after v2026.10.24 without the gates: typecheck and the image build.');
-    expect(await catalogue('aaaaaaaaaaaa', '2026-10-25T00:00:00.000Z').recordCurrent()).toEqual({
-      imageTag: 'aaaaaaaaaaaa', version: 'v2026.10.25', servedAt: '2026-10-25T00:00:00.000Z', hotfix: true,
-      notes: 'Hotfix released from aaaaaaaaaaaa after v2026.10.24 without the gates: typecheck and the image build.', chartSha256,
+    const one = head();
+    git('tag', '-a', 'v2026.10.25', '-m', `v2026.10.25\n\nHotfix released from ${one} after v2026.10.24 without the gates: typecheck and the image build.`);
+    expect(await catalogue(one, '2026-10-25T00:00:00.000Z').recordCurrent()).toEqual({
+      imageTag: one, version: 'v2026.10.25', servedAt: '2026-10-25T00:00:00.000Z', hotfix: true,
+      notes: `Hotfix released from ${one} after v2026.10.24 without the gates: typecheck and the image build.`, chartSha256,
     });
-    const again = catalogue('aaaaaaaaaaaa', '2026-10-27T00:00:00.000Z');
+    const again = catalogue(one, '2026-10-27T00:00:00.000Z');
     expect((await again.recordCurrent()).servedAt).toBe('2026-10-25T00:00:00.000Z');
-    expect(readFileSync(again.chartFile('aaaaaaaaaaaa')!, 'utf8')).toBe('the chart');
+    expect(readFileSync(again.chartFile(one)!, 'utf8')).toBe('the chart');
     expect(again.hasChart('bbbbbbbbbbbb')).toBe(false);
     expect(again.chartFile('../../etc/passwd')).toBeUndefined();
   });
 
   it('records a build no tag names under its image tag, and lists every release', async () => {
-    await catalogue('aaaaaaaaaaaa', '2026-10-25T00:00:00.000Z').recordCurrent();
-    git('tag', '-a', 'v2026.10.26', '-m', 'v2026.10.26\n\nShipped and released from bbbbbbbbbbbb after v2026.10.25: release-live.');
-    const now = catalogue('bbbbbbbbbbbb', '2026-10-26T00:00:00.000Z');
+    const one = head();
+    await catalogue(one, '2026-10-25T00:00:00.000Z').recordCurrent();
+    const two = commit('two');
+    git('tag', '-a', 'v2026.10.26', '-m', `v2026.10.26\n\nShipped and released from ${two} after v2026.10.25: release-live.`);
+    const now = catalogue(two, '2026-10-26T00:00:00.000Z');
     await now.recordCurrent();
     expect((await now.releases()).map((release) => [release.imageTag, release.version, release.hotfix ?? false])).toEqual([
-      ['aaaaaaaaaaaa', 'aaaaaaaaaaaa', false],
-      ['bbbbbbbbbbbb', 'v2026.10.26', false],
+      [one, one, false],
+      [two, 'v2026.10.26', false],
     ]);
-    expect(existsSync(join(chartsDir, 'bbbbbbbbbbbb.tgz'))).toBe(true);
+    expect(existsSync(join(chartsDir, `${two}.tgz`))).toBe(true);
+  });
+
+  it('names an image built from another commit by its image tag, and vouches for no digest, whatever the checkout carries', async () => {
+    git('tag', '-a', 'v2026.10.26', '-m', `v2026.10.26\n\nShipped and released from ${head()} after v2026.10.25: release-live.`);
+    const elsewhere = catalogue('nothing-here', '2026-10-26T00:00:00.000Z', `sha256:${'c'.repeat(64)}`);
+    expect(await elsewhere.recordCurrent()).toEqual(expect.objectContaining({ imageTag: 'nothing-here', version: 'nothing-here' }));
+    expect((await elsewhere.releases())[0]?.digest).toBeUndefined();
   });
 
   it('keeps the digest the image was released under and the chart\'s sha256, and answers only once they are recorded', async () => {
     const digest = `sha256:${'b'.repeat(64)}`;
-    const now = catalogue('aaaaaaaaaaaa', '2026-10-25T00:00:00.000Z', digest);
+    const one = head();
+    const now = catalogue(one, '2026-10-25T00:00:00.000Z', digest);
     void now.recordCurrent();
-    expect(await now.releases()).toEqual([expect.objectContaining({ imageTag: 'aaaaaaaaaaaa', digest, chartSha256 })]);
-    const unpinned = catalogue('aaaaaaaaaaaa', '2026-10-26T00:00:00.000Z', 'latest');
+    expect(await now.releases()).toEqual([expect.objectContaining({ imageTag: one, digest, chartSha256 })]);
+    const unpinned = catalogue(one, '2026-10-26T00:00:00.000Z', 'latest');
     await unpinned.recordCurrent();
     expect((await unpinned.releases())[0]?.digest).toBeUndefined();
   });

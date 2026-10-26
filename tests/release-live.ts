@@ -166,7 +166,8 @@ async function main(): Promise<void> {
   const previousMessage = run('git', ['tag', '--list', '--format=%(contents:subject)%0a%0a%(contents:body)', PREVIOUS_REF]).trim();
   run('git', [...signing, 'tag', '-s', LAB_TAG(PREVIOUS_REF), previous, '-m', previousMessage]);
   run('git', [...signing, 'tag', '-s', LAB_TAG(CANDIDATE_REF), candidate, '-m', `${CANDIDATE_REF}\n\nShipped and released from ${candidateTag} after ${PREVIOUS_REF}: the release rehearsal's own tag, signed by its throwaway key.`]);
-  run('git', ['tag', '-a', LAB_TAG(UNSIGNED_REF), candidate, '-m', `${UNSIGNED_REF}\n\nShipped and released from ${candidateTag} after ${PREVIOUS_REF}: signed by nobody.`]);
+  run('git', ['tag', '-a', LAB_TAG(UNSIGNED_REF), candidate, '-m', `${UNSIGNED_REF}\n\nShipped and released from ${candidateTag} after ${PREVIOUS_REF}: signed by nobody.`],
+    { GIT_COMMITTER_DATE: new Date(Date.now() - 86_400_000).toISOString() });
   run('git', ['push', '-q', '--force', `ssh://ubuntu@127.0.0.1:${root.port}${ORIGIN}`, `${previous}:refs/heads/previous`, `${candidate}:refs/heads/candidate`,
     ...[PREVIOUS_REF, CANDIDATE_REF, UNSIGNED_REF].map((name) => `refs/tags/${LAB_TAG(name)}:refs/tags/${name}`)],
     { GIT_SSH_COMMAND: `ssh -i ${root.privateKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR` });
@@ -397,7 +398,7 @@ async function main(): Promise<void> {
   const offered = updatesNow().releases.find((row) => row.imageTag === nothing);
   assert.ok(offered?.current && offered.choosable, `the instance is not offered ${nothing}: ${JSON.stringify(offered)}`);
   const person = json<{ people: { instance?: { name?: string; version?: string; autoUpdates?: boolean } }[] }>(asOwner('/api/admin/people')).people.find((entry) => entry.instance?.name === NAME);
-  assert.deepEqual({ version: person?.instance?.version, autoUpdates: person?.instance?.autoUpdates }, { version: candidateTag, autoUpdates: false }, 'root\'s People does not show what the instance runs and how it updates');
+  assert.deepEqual({ version: person?.instance?.version, autoUpdates: person?.instance?.autoUpdates }, { version: CANDIDATE_REF, autoUpdates: false }, `root's People does not show what the instance runs and how it updates: ${JSON.stringify(person?.instance)}`);
   note(`root offers ${nothing}; with automatic updates off the instance checked in and stayed on ${candidateTag}, and root's People says so`);
 
   step(`${nothing} picked in the instance's Settings: the instance starts its check-in at once, the release fails, it rolls itself back, tells root, and stays at its addresses`);
