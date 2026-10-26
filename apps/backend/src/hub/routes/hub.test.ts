@@ -81,7 +81,7 @@ describe('/api/hub-link, on root', () => {
   const invite = { email: 'cy@example.com', inviterId: 'ann', inviterEmail: 'ann@example.com', projectName: 'Shop', role: 'client', join: 'J'.repeat(32) };
 
   it('sends an invite only for its own hub, and shows it to whoever holds its code', async () => {
-    const { site, invites } = await root();
+    const { site } = await root();
     expect((await axios.post(site.url('/api/hub-link/invite'), invite, ask)).status).toBe(401);
     expect((await axios.post(site.url('/api/hub-link/invite'), invite, { ...ask, headers: { authorization: 'Bearer someone-else' } })).status).toBe(401);
     const sent = await axios.post(site.url('/api/hub-link/invite'), invite, { headers: { authorization: 'Bearer the-hub' } });

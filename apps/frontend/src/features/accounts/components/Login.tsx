@@ -25,10 +25,18 @@ export default function Login({ onSuccess, invite }: LoginProps) {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const authError = params.get('authError');
+    const secondFactor = params.get('twoFactor');
     if (authError) {
       setError(authError);
       setIsRegister(true);
       params.delete('authError');
+    }
+    if (secondFactor) {
+      setChallenge(secondFactor);
+      setTwoFactorRequired(true);
+      params.delete('twoFactor');
+    }
+    if (authError || secondFactor) {
       const rest = params.toString();
       window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
     }

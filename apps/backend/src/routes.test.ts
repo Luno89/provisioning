@@ -9,9 +9,11 @@ describe('Auth Endpoints & Route Protection Integration', () => {
   let server: http.Server;
   let port: number;
   let session = '';
+  const SETUP_CODE = 'routes-test-setup-code';
 
   beforeAll(async () => {
     axios.defaults.proxy = false;
+    process.env.ADMIN_SETUP_CODE = SETUP_CODE;
     const res = await bootstrap();
     app = res.app;
 
@@ -52,7 +54,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     const email = `test-user-${Date.now()}@example.com`;
     const password = 'myPassword123';
 
-    const regRes = await axios.post(getUrl('/api/auth/register'), { email, password });
+    const regRes = await axios.post(getUrl('/api/auth/register'), { email, password, inviteCode: SETUP_CODE });
     expect(regRes.status).toBe(200);
     expect(regRes.data.success).toBe(true);
 

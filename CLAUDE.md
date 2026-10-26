@@ -178,6 +178,21 @@ Services live in their area's `services/` folder (`apps/backend/src/<area>/servi
 
 All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAuth` from `platform/middleware/auth.ts`'s `createAuth()`, mounted in `bootstrap()`, except `/auth/login`, `/auth/register`, `/auth/2fa/verify`, and the GitHub/Google OAuth routes. When `IS_E2E=true`, `requireAuth` short-circuits to a mock user so Playwright doesn't need to log in. GitHub/Google OAuth fall back to a zero-setup local mock flow when their client env vars are blank; 2FA SMS falls back to a logged warning when Twilio env vars are blank.
 
+**Who may sign in, and for how long** (security audit W2, owner 2026-10-26). The first account needs the setup code
+(`ADMIN_SETUP_CODE`, which `bootstrap.sh` writes and prints; a dev box without one makes a code at start and logs it while
+there is no account; production without one lets nobody sign up) in the invite field, and is claimed by inserting one
+record (`claimFirstAdmin`), so only one can be first. Every later sign-up needs an invite: 128 bits, shown once when made and
+stored only as `codeHash`, working for `INVITE_DAYS` (14), claimed in one conditional update (`platform/lib/invite-codes.ts`).
+Every session is signed by `sessionToken` with when it began; `sessionsEndedAt` on the user refuses older ones (Settings →
+Signed in elsewhere, `POST /api/auth/sessions/end-others`, and any two-factor change), and a token without an expiry is
+refused. 2FA answers a login with a signed five-minute challenge (`twoFactorFor`, never a session), ends a challenge after
+five wrong codes, emails codes through the platform's mail and logs one only outside production. Google and GitHub carry a
+random state bound to a signed ten-minute cookie (`platform/lib/oauth-state.ts`, the Drive connection too), link an existing
+account only when the provider says the email is verified (GitHub's primary address), match later sign-ins by the
+provider's id, refuse an email linked to another account there, and ask the account's second factor too
+(`accounts/lib/provider-sign-in.ts`, `AuthService.signInWithProvider`, `?twoFactor=` back to the sign-in page). `IS_E2E`
+signs nobody in under `NODE_ENV=production`, which refuses to start with it.
+
 **Limits and headers.** Sign-in, sign-up, 2FA, handoffs, invites, joins and share links are rate limited per address
 (`platform/lib/http-limits.ts`, mounted on `/api` before the guard; sign-in and joining count only **failed** requests
 against the address, since a guess fails and a person succeeds, so a run of live suites signing up throwaway accounts

@@ -14,6 +14,7 @@ export interface AccountsStore extends AreaStore {
   saveUser(user: UserMetadata): Promise<void>;
   saveUserList(users: UserMetadata[]): Promise<void>;
   getUserByEmail(email: string): Promise<UserMetadata | undefined>;
+  getUserByProvider(field: 'githubId' | 'googleId', id: string): Promise<UserMetadata | undefined>;
   getUserById(id: string): Promise<UserMetadata | undefined>;
   deleteUser(id: string): Promise<void>;
   getInvites(): Promise<InviteMetadata[]>;
@@ -166,6 +167,11 @@ export class MongoAccountsStore implements AccountsStore {
 
   async getUserByEmail(email: string): Promise<UserMetadata | undefined> {
     const doc = await this.users.findOne({ email: email.trim().toLowerCase() });
+    return doc ? fromDoc<UserMetadata>(doc) : undefined;
+  }
+
+  async getUserByProvider(field: 'githubId' | 'googleId', id: string): Promise<UserMetadata | undefined> {
+    const doc = await this.users.findOne({ [field]: id });
     return doc ? fromDoc<UserMetadata>(doc) : undefined;
   }
 

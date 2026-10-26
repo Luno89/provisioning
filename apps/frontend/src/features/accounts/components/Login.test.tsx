@@ -8,7 +8,7 @@ vi.mock('../../platform/api', async (importOriginal) => ({
 }));
 
 import Login from './Login.js';
-import { login } from '../../platform/api';
+import { login, verifyTwoFactor } from '../../platform/api';
 
 const mockedLogin = vi.mocked(login);
 
@@ -53,6 +53,21 @@ describe('Login Component', () => {
       { email: 'test@example.com', password: 'password123' },
       { register: false },
     );
+  });
+
+  it('asks for the code when Google or GitHub hands back a sign-in that needs it, and sends its challenge', async () => {
+    window.history.replaceState({}, '', '/?twoFactor=from-provider');
+    const user = { id: 'u1', email: 'test@example.com' };
+    vi.mocked(verifyTwoFactor).mockResolvedValue({ user });
+    const onSuccess = vi.fn();
+    render(<Login onSuccess={onSuccess} />);
+
+    expect(await screen.findByText('Two-Factor Authentication')).toBeInTheDocument();
+    expect(window.location.search).toBe('');
+    fireEvent.change(screen.getByPlaceholderText('e.g. 123456'), { target: { value: '424242' } });
+    fireEvent.click(screen.getByRole('button', { name: /verify/i }));
+    await waitFor(() => expect(verifyTwoFactor).toHaveBeenCalledWith({ challenge: 'from-provider', code: '424242' }));
+    expect(onSuccess).toHaveBeenCalledWith(user);
   });
 
   it('calls onSuccess with the user on a plain successful sign-in', async () => {

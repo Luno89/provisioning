@@ -1,6 +1,8 @@
 import { BaseService, generateOTP, type Database, type MailMessage, type UserMetadata } from '../../platform/index.js';
 import { timingSafeEqual } from 'node:crypto';
 import https from 'https';
+import { v4 as uuidv4 } from 'uuid';
+import { providerMatch, type ProviderPerson } from '../lib/provider-sign-in.js';
 
 interface Challenge {
   code: string;
@@ -60,6 +62,42 @@ export class AuthService extends BaseService {
   private shownToDeveloper(where: string, code: string): void {
     if (this.options.production) throw new Error(`a sign-in code cannot be sent ${where}`);
     this.logger.warn(`[DEVELOPER 2FA ALERT] ${where}: Code is ${code}`);
+  }
+
+  async signInWithProvider(
+    person: ProviderPerson,
+    invite: string | undefined,
+    consumeInvite: (code: string | undefined, userId: string, isFirstUser: boolean, email?: string) => Promise<string | null>,
+  ): Promise<{ kind: 'refused'; why: string } | { kind: 'signed-in'; user: UserMetadata } | { kind: 'second-factor'; user: UserMetadata }> {
+    const match = providerMatch(person, await this.db.accounts.getUserByProvider(person.field, person.id), await this.db.accounts.getUserByEmail(person.email));
+    if (match.kind === 'refused') return match;
+    let user: UserMetadata;
+    if (match.kind === 'new') {
+      const isFirstUser = (await this.db.accounts.getUsers()).length === 0;
+      const userId = uuidv4();
+      const refused = await consumeInvite(invite, userId, isFirstUser, person.email);
+      if (refused) return { kind: 'refused', why: refused };
+      user = {
+        id: userId,
+        email: person.email,
+        [person.field]: person.id,
+        twoFactorEnabled: false,
+        emailVerified: true,
+        createdAt: new Date().toISOString(),
+        ...(isFirstUser ? { isAdmin: true } : {}),
+      } as UserMetadata;
+      await this.db.accounts.saveUser(user);
+    } else {
+      user = match.user;
+      if (match.link) {
+        user = { ...user, [person.field]: person.id };
+        await this.db.accounts.saveUser(user);
+      }
+    }
+    if (user.removal) return { kind: 'refused', why: 'This account is being removed' };
+    if (!user.twoFactorEnabled) return { kind: 'signed-in', user };
+    await this.send2FACode(user, this.create2FAChallenge(user.id));
+    return { kind: 'second-factor', user };
   }
 
   sendingProblem(method: string | undefined): string | undefined {

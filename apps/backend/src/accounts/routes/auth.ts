@@ -8,6 +8,7 @@ import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { mockOAuthAllowed } from '../lib/oauth-gate.js';
 import type { AuthService } from '../services/AuthService.js';
+import { githubPrimaryEmail, type ProviderPerson } from '../lib/provider-sign-in.js';
 
 export interface AuthRouterDeps {
   db: Database;
@@ -225,6 +226,14 @@ export function authRouter(deps: AuthRouterDeps): Router {
     }
   });
 
+  const finishProviderSignIn = async (res: Response, person: ProviderPerson, invite: string): Promise<void> => {
+    const outcome = await authService.signInWithProvider(person, invite || undefined, checkAndConsumeInvite);
+    if (outcome.kind === 'refused') return res.redirect(`${APP_URL}/?authError=${encodeURIComponent(outcome.why)}`);
+    if (outcome.kind === 'second-factor') return res.redirect(`${APP_URL}/?twoFactor=${encodeURIComponent(signJWT({ twoFactorFor: outcome.user.id }, sessionKey, 5 * 60))}`);
+    setSessionCookie(res, sessionToken(outcome.user, sessionKey));
+    return res.redirect(`${APP_URL}/`);
+  };
+
   accountRoutes.get('/github', (req, res) => {
     const invite = typeof req.query.invite === 'string' ? req.query.invite : '';
     const githubId = process.env.GITHUB_CLIENT_ID;
@@ -245,6 +254,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (!returned) return;
       let email = 'mock-github-user@example.com';
       let idStr = 'github-mock-id';
+      let verified = true;
 
       const githubId = process.env.GITHUB_CLIENT_ID;
       const githubSecret = process.env.GITHUB_CLIENT_SECRET;
@@ -275,37 +285,14 @@ export function authRouter(deps: AuthRouterDeps): Router {
           headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'provisioning-platform' },
         });
 
-        const primaryEmailObj = emailRes.data.find((e: any) => e.primary) || emailRes.data[0];
-        email = primaryEmailObj?.email || `${userRes.data.login}@github.com`;
+        const primary = githubPrimaryEmail(emailRes.data);
+        if (!primary) return res.redirect(`${APP_URL}/?authError=${encodeURIComponent('GitHub gave no primary email address; add one there, or sign in with your password')}`);
+        email = primary.email;
+        verified = primary.verified;
         idStr = String(userRes.data.id);
       }
 
-      let user = await db.accounts.getUserByEmail(email);
-      if (!user) {
-        const isFirstUser = (await db.accounts.getUsers()).length === 0;
-        const userId = uuidv4();
-        const inviteError = await checkAndConsumeInvite(returned.invite || undefined, userId, isFirstUser, email);
-        if (inviteError) {
-          return res.redirect(`${APP_URL}/?authError=${encodeURIComponent(inviteError)}`);
-        }
-        user = {
-          id: userId,
-          email,
-          githubId: idStr,
-          twoFactorEnabled: false,
-          emailVerified: true,
-          createdAt: new Date().toISOString(),
-          ...(isFirstUser ? { isAdmin: true } : {}),
-        };
-        await db.accounts.saveUser(user);
-      } else if (!user.githubId) {
-        user.githubId = idStr;
-        await db.accounts.saveUser(user);
-      }
-
-      const token = sessionToken(user, sessionKey);
-      setSessionCookie(res, token);
-      res.redirect(`${APP_URL}/`);
+      await finishProviderSignIn(res, { provider: 'GitHub', field: 'githubId', id: idStr, email, verified }, returned.invite);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -331,6 +318,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (!returned) return;
       let email = 'mock-google-user@example.com';
       let idStr = 'google-mock-id';
+      let verified = true;
 
       const googleId = process.env.GOOGLE_CLIENT_ID;
       const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -359,36 +347,12 @@ export function authRouter(deps: AuthRouterDeps): Router {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
 
-        email = userRes.data.email;
+        email = String(userRes.data.email ?? '').trim().toLowerCase();
+        verified = userRes.data.verified_email === true;
         idStr = String(userRes.data.id);
       }
 
-      let user = await db.accounts.getUserByEmail(email);
-      if (!user) {
-        const isFirstUser = (await db.accounts.getUsers()).length === 0;
-        const userId = uuidv4();
-        const inviteError = await checkAndConsumeInvite(returned.invite || undefined, userId, isFirstUser, email);
-        if (inviteError) {
-          return res.redirect(`${APP_URL}/?authError=${encodeURIComponent(inviteError)}`);
-        }
-        user = {
-          id: userId,
-          email,
-          googleId: idStr,
-          twoFactorEnabled: false,
-          emailVerified: true,
-          createdAt: new Date().toISOString(),
-          ...(isFirstUser ? { isAdmin: true } : {}),
-        };
-        await db.accounts.saveUser(user);
-      } else if (!user.googleId) {
-        user.googleId = idStr;
-        await db.accounts.saveUser(user);
-      }
-
-      const token = sessionToken(user, sessionKey);
-      setSessionCookie(res, token);
-      res.redirect(`${APP_URL}/`);
+      await finishProviderSignIn(res, { provider: 'Google', field: 'googleId', id: idStr, email, verified }, returned.invite);
     } catch (err: any) {
       res.status(500).send(`Google OAuth callback failed: ${err.message}`);
     }
