@@ -349,7 +349,7 @@ async function main(): Promise<void> {
   await until('root answering on the candidate', async () => ((await rootAnswers()) ? true : undefined));
   const tags = JSON.parse(await sh(root, `curl -fsS http://127.0.0.1:5000/v2/${IMAGE_REPO}/tags/list`)) as { tags: string[] };
   assert.ok(tags.tags.includes(candidateTag), `root's registry holds ${tags.tags.join(', ')}, not ${candidateTag}`);
-  const registryDigest = (await sh(root, `curl -fsSI -H '${MANIFESTS}' http://127.0.0.1:5000/v2/${IMAGE_REPO}/manifests/${candidateTag} | tr -d '\\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest: *//p'`)).trim();
+  const registryDigest = (await sh(root, `curl -fsSI -H 'Accept: ${MANIFESTS}' http://127.0.0.1:5000/v2/${IMAGE_REPO}/manifests/${candidateTag} | tr -d '\\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest: *//p'`)).trim();
   assert.match(registryDigest, /^sha256:[0-9a-f]{64}$/, `root's registry gives no digest for ${candidateTag}`);
   assert.equal((await sh(root, `sudo grep '^INSTANCE_IMAGE_DIGEST=' ${REPO_DIR}/apps/backend/.env | cut -d= -f2-`)).trim(), registryDigest, 'update.sh did not record the digest it pushed');
   const chartSha = (await sh(root, `sudo sha256sum ${REPO_DIR}/apps/backend/data/instance-charts/${candidateTag}.tgz | cut -d' ' -f1`)).trim();
