@@ -64,6 +64,11 @@ else
   warn "there is no cluster yet, so the backend has no cluster account until this runs again"
 fi
 
+POOL_ELSEWHERE="$(grep '^POOL_KUBECONFIG=' "${REPO_DIR}/apps/backend/.env" 2>/dev/null | cut -d= -f2- || true)"
+if [ -n "$POOL_ELSEWHERE" ] && [ "$POOL_ELSEWHERE" != "/tmp/kubeconfig-provisioning-lunorica" ]; then
+  warn "the pool is a server of its own (${POOL_ELSEWHERE}); the backend reaches only root's own cluster, so trial monitoring and moves need that server to give it a narrow account too"
+fi
+
 cat > /etc/systemd/system/nowrinkles.service <<UNIT
 [Unit]
 Description=No Wrinkles platform: the backend
