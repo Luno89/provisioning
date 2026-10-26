@@ -10,8 +10,8 @@ describe('seed-all', () => {
   it('fills every catalogue the platform expects to find in the database', async () => {
     const db = await testDatabase();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, ...counts } = await seedAll(db);
-    expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, ...counts } = await seedAll(db);
+    expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(removedBuiltInProcedures).toBe(0);
     expect(removedBuiltInPersonas).toBe(0);
     expect(agentToolListsMoved).toBe(0);
@@ -20,6 +20,20 @@ describe('seed-all', () => {
     for (const [name, n] of Object.entries(counts)) {
       expect(n, `${name} seeded nothing`).toBeGreaterThan(0);
     }
+  });
+
+  it('keeps only a hash of every invite code already stored, and gives an unused one two weeks from now', async () => {
+    const db = await testDatabase();
+    await db.accounts.saveInvite({ id: 'old', code: 'OLDCODE', createdBy: 'ann', createdAt: '2026-01-01T00:00:00.000Z' });
+    await db.accounts.saveInvite({ id: 'spent', code: 'SPENT', createdBy: 'ann', createdAt: '2026-01-01T00:00:00.000Z', usedBy: 'bo', usedAt: '2026-01-02T00:00:00.000Z' });
+
+    expect(await seedAll(db)).toMatchObject({ inviteCodesHashed: 2 });
+    expect(await seedAll(db)).toMatchObject({ inviteCodesHashed: 0 });
+    const stored = await db.accounts.getInvites();
+    expect(stored.some((invite) => invite.code !== undefined)).toBe(false);
+    expect((await db.accounts.getInviteByCode('OLDCODE'))?.expiresAt).toBeDefined();
+    expect((await db.accounts.getInviteByCode('SPENT'))).toMatchObject({ usedBy: 'bo' });
+    expect((await db.accounts.getInviteByCode('SPENT'))?.expiresAt).toBeUndefined();
   });
 
   it('moves an agent stored with its own tool list onto grants, once', async () => {

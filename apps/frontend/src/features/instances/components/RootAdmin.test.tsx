@@ -27,11 +27,11 @@ describe('root\'s admin area', () => {
     vi.mocked(api.get).mockImplementation(async (url: string) => {
       if (url === '/admin/people') return { data: { people: PEOPLE } }
       if (url === '/admin/people/bob/removal') return { data: { email: 'bob@example.com', blockers: [] } }
-      if (url === '/admin/invites') return { data: [{ id: 'c1', code: 'abcd1234', createdBy: 'ana', createdAt: '2026-10-01T00:00:00.000Z' }] }
+      if (url === '/admin/invites') return { data: [{ id: 'c1', createdBy: 'ana', createdAt: '2026-10-01T00:00:00.000Z', expiresAt: '2026-10-15T00:00:00.000Z', expired: true }] }
       if (url === '/instances/pool/admin') return { data: { slots: 4, trialDays: 14, defaultTrialDays: 14, instances: [] } }
       throw new Error(`unexpected ${url}`)
     })
-    vi.mocked(api.post).mockResolvedValue({ data: { id: 'c2', code: 'efgh5678', createdBy: 'ana', createdAt: '2026-10-20T00:00:00.000Z' } })
+    vi.mocked(api.post).mockResolvedValue({ data: { id: 'c2', code: 'efgh5678', createdBy: 'ana', createdAt: '2026-10-20T00:00:00.000Z', expiresAt: '2026-11-03T00:00:00.000Z', expired: false } })
     vi.mocked(api.delete).mockResolvedValue({ data: { state: { state: 'running', done: [] } } })
   })
 
@@ -40,7 +40,8 @@ describe('root\'s admin area', () => {
     expect(await screen.findByTestId('instance-bob')).toHaveTextContent('bob on Koala\'s servers: running, trial ends')
     expect(screen.getByTestId('instance-cy')).toHaveTextContent('cy on their own machine: running v2026.10.25, updates by hand')
     expect(screen.getByText('removing its machines from the mesh (2 of 3)')).toBeInTheDocument()
-    expect(await screen.findByText('abcd1234')).toBeInTheDocument()
+    expect(await screen.findByText('Expired')).toBeInTheDocument()
+    expect(screen.queryByText('abcd1234')).toBeNull()
     expect(await screen.findByText('0 of 4 places in use.')).toBeInTheDocument()
   })
 
@@ -58,5 +59,7 @@ describe('root\'s admin area', () => {
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: 'Generate invite' }))
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/admin/invites', {}))
+    expect(await screen.findByTestId('new-invite')).toHaveTextContent('efgh5678')
+    expect(screen.getByTestId('new-invite')).toHaveTextContent('It will not be shown again.')
   })
 })

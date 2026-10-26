@@ -6,6 +6,7 @@ import { createAuth } from '../../platform/middleware/auth.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { AuthService } from '../services/AuthService.js';
+import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 
 const JWT_SECRET = 'test-secret';
 
@@ -98,7 +99,7 @@ describe('auth router', () => {
 
   it('consumes an invite exactly once', async () => {
     await registerAndLogin('first@example.com', 'hunter2hunter2');
-    await db.accounts.saveInvite({ id: 'inv-letmein', code: 'LETMEIN', createdAt: new Date().toISOString() } as never);
+    await db.accounts.saveInvite({ id: 'inv-letmein', codeHash: inviteCodeHash('LETMEIN'), createdBy: 'first', createdAt: new Date().toISOString() });
 
     const ok = await fetch(ctx.url('/api/auth/register'), {
       method: 'POST',
@@ -117,9 +118,17 @@ describe('auth router', () => {
     expect((await reuse.json() as { error: string }).error).toMatch(/already been used/i);
   });
 
+  it('refuses an invite past its two weeks', async () => {
+    await registerAndLogin('first@example.com', 'hunter2hunter2');
+    await db.accounts.saveInvite({ id: 'inv-old', codeHash: inviteCodeHash('OLD'), createdBy: 'first', createdAt: '2026-01-01T00:00:00.000Z', expiresAt: '2026-01-15T00:00:00.000Z' });
+    const late = await fetch(ctx.url('/api/auth/register'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'late@example.com', password: 'hunter2hunter2', inviteCode: 'OLD' }) });
+    expect(late.status).toBe(403);
+    expect(((await late.json()) as { error: string }).error).toBe('This invite has expired; ask whoever sent it for a new one');
+  });
+
   it('lets only one of two sign-ups at the same moment use an invite', async () => {
     await registerAndLogin('first@example.com', 'hunter2hunter2');
-    await db.accounts.saveInvite({ id: 'inv-once', code: 'ONCE', createdAt: new Date().toISOString() } as never);
+    await db.accounts.saveInvite({ id: 'inv-once', codeHash: inviteCodeHash('ONCE'), createdBy: 'first', createdAt: new Date().toISOString() });
     const signUp = (email: string) => fetch(ctx.url('/api/auth/register'), {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: 'hunter2hunter2', inviteCode: 'ONCE' }),
     });

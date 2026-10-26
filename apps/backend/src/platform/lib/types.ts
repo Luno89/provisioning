@@ -491,7 +491,9 @@ export interface UserMetadata {
 
 export interface InviteMetadata {
   id: string;
-  code: string;
+  code?: string | undefined;
+  codeHash?: string | undefined;
+  expiresAt?: string | undefined;
   createdBy: string;
   createdAt: string;
   usedBy?: string;

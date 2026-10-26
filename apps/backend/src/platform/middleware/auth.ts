@@ -1,5 +1,6 @@
 import express from 'express';
 import { sessionEnded, signsEveryoneIn, verifyJWT } from '../lib/auth.js';
+import { inviteExpired } from '../lib/invite-codes.js';
 import type { Database } from '../lib/db-interface.js';
 import type { UserMetadata } from '../lib/types.js';
 import type { SecretKey } from '../lib/crypto.js';
@@ -137,6 +138,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
     const invite = await db.accounts.getInviteByCode(code);
     if (!invite) return 'Invalid invite code';
     if (invite.usedBy) return 'This invite code has already been used';
+    if (inviteExpired(invite, new Date())) return 'This invite has expired; ask whoever sent it for a new one';
     if (invite.email && (!email || invite.email.trim().toLowerCase() !== email.trim().toLowerCase())) return `This invite is for ${invite.email}; sign up with that address`;
     if (!await db.accounts.claimInvite(code, newUserId, new Date().toISOString())) return 'This invite code has already been used';
     return null;

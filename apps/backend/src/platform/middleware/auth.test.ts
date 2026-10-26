@@ -3,6 +3,7 @@ import { parseCookie, createAuth } from './auth.js';
 import { testDatabase } from '../lib/test-database.js';
 import { signJWT } from '../lib/auth.js';
 import type { Request, Response } from 'express';
+import { inviteCodeHash } from '../lib/invite-codes.js';
 
 describe('parseCookie', () => {
   it('finds a cookie among others regardless of spacing', () => {
@@ -218,7 +219,7 @@ describe('an invite to sign up', () => {
   const withInvite = async (email?: string) => {
     const db = await testDatabase();
     await db.init();
-    await db.accounts.saveInvite({ id: 'i1', code: 'CODE', createdBy: 'ann', createdAt: 't', ...(email ? { email } : {}) });
+    await db.accounts.saveInvite({ id: 'i1', codeHash: inviteCodeHash('CODE'), createdBy: 'ann', createdAt: 't', ...(email ? { email } : {}) });
     return { db, auth: createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001' }) };
   };
 

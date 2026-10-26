@@ -12,6 +12,7 @@
  * `npm run test:remote-integration`, same tier as `npm run test:infra:integration`.
  */
 import { execFile } from 'child_process';
+import { createHash } from 'node:crypto';
 import { promisify } from 'util';
 import { createDisposableVm } from './lib/disposable-vm.js';
 import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
@@ -24,7 +25,7 @@ const BASE = (process.env.BACKEND_URL || 'http://localhost:3001').replace(/\/$/,
 // verification was cleaned up. Best-effort: a failure here leaves a harmless throwaway row behind,
 // not a reason to fail the whole test.
 async function cleanupTestUser(email: string, inviteCode: string): Promise<void> {
-  const script = `db.users.deleteOne({email: "${email}"}); db.invites.deleteOne({code: "${inviteCode}"});`;
+  const script = `db.users.deleteOne({email: "${email}"}); db.invites.deleteOne({codeHash: "${createHash('sha256').update(inviteCode).digest('hex')}"});`;
   await execFileAsync('docker', [
     'exec', 'provisioning-mongodb-1', 'mongosh', '--quiet',
     '-u', 'admin', '-p', 'admin', '--authenticationDatabase', 'admin', 'provisioning',

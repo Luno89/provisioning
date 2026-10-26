@@ -2,6 +2,7 @@ import { ACCOUNT_DATA, type AccountIds, type AccountRelated } from './lib/accoun
 import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
 import type { Collection, Db } from 'mongodb';
 import type { InviteMetadata, UserMetadata } from '../platform/index.js';
+import { inviteCodeHash } from '../platform/lib/invite-codes.js';
 
 export interface AccountsStore extends AreaStore {
   getUsers(): Promise<UserMetadata[]>;
@@ -16,6 +17,7 @@ export interface AccountsStore extends AreaStore {
   getInvites(): Promise<InviteMetadata[]>;
   getInviteByCode(code: string): Promise<InviteMetadata | undefined>;
   claimInvite(code: string, usedBy: string, usedAt: string): Promise<boolean>;
+  hashInviteCodes(expiresAt: string): Promise<number>;
   saveInvite(invite: InviteMetadata): Promise<void>;
 }
 
@@ -48,7 +50,7 @@ export class MongoAccountsStore implements AccountsStore {
 
   async ensureIndexes(): Promise<void> {
     await this.users.createIndex({ email: 1 }, { unique: true });
-    await this.invites.createIndex({ code: 1 });
+    await this.invites.createIndex({ codeHash: 1 });
   }
 
   async getInvites(): Promise<InviteMetadata[]> {
@@ -56,13 +58,26 @@ export class MongoAccountsStore implements AccountsStore {
   }
 
   async getInviteByCode(code: string): Promise<InviteMetadata | undefined> {
-    const doc = await this.invites.findOne({ code });
+    const doc = await this.invites.findOne({ codeHash: inviteCodeHash(code) });
     return doc ? fromDoc<InviteMetadata>(doc) : undefined;
   }
 
   async claimInvite(code: string, usedBy: string, usedAt: string): Promise<boolean> {
-    const claimed = await this.invites.updateOne({ code, usedBy: { $exists: false } }, { $set: { usedBy, usedAt } });
+    const claimed = await this.invites.updateOne({ codeHash: inviteCodeHash(code), usedBy: { $exists: false } }, { $set: { usedBy, usedAt } });
     return claimed.modifiedCount === 1;
+  }
+
+  async hashInviteCodes(expiresAt: string): Promise<number> {
+    let hashed = 0;
+    for (const doc of await this.invites.find({ code: { $type: 'string' } }).toArray()) {
+      const used = Boolean(doc.usedBy);
+      await this.invites.updateOne({ _id: doc._id }, {
+        $set: { codeHash: inviteCodeHash(String(doc.code)), ...(used || doc.expiresAt ? {} : { expiresAt }) },
+        $unset: { code: '' },
+      });
+      hashed += 1;
+    }
+    return hashed;
   }
 
   async saveInvite(invite: InviteMetadata): Promise<void> {

@@ -34,11 +34,16 @@ export interface PersonEntry {
 
 export interface Invite {
   id: string
-  code: string
   createdBy: string
   createdAt: string
+  expiresAt?: string
+  expired: boolean
   usedBy?: string
   usedAt?: string
+}
+
+export interface MintedInvite extends Invite {
+  code: string
 }
 
 export interface RemovalPreview {

@@ -3,7 +3,7 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { createDatabase, type Database, runOnce, type MigrationLedger } from '../platform/index.js';
+import { createDatabase, type Database, inviteExpiry, runOnce, type MigrationLedger } from '../platform/index.js';
 import { seedBindingTypes, seedAppSpecs, seedConstructBackedTypes, seedClusterProviders } from '../infrastructure/index.js';
 import { seedTreeTypes, stampTreeVersions } from '../projects/index.js';
 import {
@@ -24,6 +24,7 @@ export async function seedAll(db: Database) {
   counts.treeVersionsStamped = (await runOnce(ledger, 'tree-versions', now, async () => ({ stamped: await stampTreeVersions(db.projects) }))).stamped ?? 0;
   counts.releasesMarkedTold = (await runOnce(ledger, 'release-told-at', now, async () => ({ marked: await db.releases.markOdooReleasesTold() }))).marked ?? 0;
   counts.deploymentSecretsSealed = (await runOnce(ledger, 'deployment-secrets-sealed', now, async () => ({ sealed: await db.infrastructure.sealDeploymentSecrets() }))).sealed ?? 0;
+  counts.inviteCodesHashed = (await runOnce(ledger, 'invite-codes-hashed', now, async () => ({ hashed: await db.accounts.hashInviteCodes(inviteExpiry(new Date(now))) }))).hashed ?? 0;
   counts.appSpecs = await seedAppSpecs(db.infrastructure);
   counts.constructBackedTypes = await seedConstructBackedTypes(db.infrastructure);
   counts.clusterProviders = await seedClusterProviders(db.infrastructure);

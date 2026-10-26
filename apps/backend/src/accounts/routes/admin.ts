@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
-import { asyncRoute, type InviteMetadata } from '../../platform/index.js';
+import { asyncRoute, inviteCodeHash, inviteExpiry, inviteView, newInviteCode, type InviteMetadata } from '../../platform/index.js';
 import type { AccountRemovalService } from '../services/AccountRemovalService.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -12,20 +12,23 @@ export function adminRouter(deps: Record<string, any>): Router {
   const { db, requireAdmin } = deps;
   const router = Router();
 
-  router.get('/invites', requireAdmin, async (req, res) => {
-    res.json(await db.accounts.getInvites());
+  router.get('/invites', requireAdmin, async (_req, res) => {
+    const now = new Date();
+    res.json((await db.accounts.getInvites() as InviteMetadata[]).filter((invite) => !invite.project).map((invite) => inviteView(invite, now)));
   });
 
   router.post('/invites', requireAdmin, async (req, res) => {
-    const code = crypto.randomBytes(16).toString('base64url');
+    const now = new Date();
+    const code = newInviteCode();
     const invite: InviteMetadata = {
-      id: code,
-      code,
+      id: crypto.randomUUID(),
+      codeHash: inviteCodeHash(code),
       createdBy: userOf(req).id,
-      createdAt: new Date().toISOString(),
+      createdAt: now.toISOString(),
+      expiresAt: inviteExpiry(now),
     };
     await db.accounts.saveInvite(invite);
-    res.status(201).json(invite);
+    res.status(201).json({ ...inviteView(invite, now), code });
   });
 
   const removal = deps.removal as AccountRemovalService | undefined;

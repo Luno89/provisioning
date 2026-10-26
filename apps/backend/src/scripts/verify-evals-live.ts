@@ -19,14 +19,14 @@ async function main() {
 
   // 1. Authenticate / Register
   console.log(`[1/7] Authenticating against live backend at ${BASE_URL}...`);
-  const { createDatabase } = await import('../platform/index.js');
+  const { createDatabase, inviteCodeHash } = await import('../platform/index.js');
   const db = createDatabase();
   await db.init();
 
   const inviteCode = `invite-${Date.now()}`;
   await db.accounts.saveInvite({
     id: inviteCode,
-    code: inviteCode,
+    codeHash: inviteCodeHash(inviteCode),
     createdBy: 'system',
     createdAt: new Date().toISOString(),
   });

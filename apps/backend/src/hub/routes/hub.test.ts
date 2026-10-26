@@ -8,6 +8,7 @@ import { ProjectInviteService } from '../services/ProjectInviteService.js';
 import { memoryHubStore } from '../lib/hub-store.js';
 import { hashCredential } from '../../instances/services/InstanceService.js';
 import type { InviteMetadata } from '../../platform/lib/types.js';
+import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 
 const harnesses: Harness[] = [];
 afterEach(async () => { for (const harness of harnesses.splice(0)) await harness.close(); });
@@ -16,7 +17,7 @@ const ask = { validateStatus: () => true };
 
 async function hubFor(people: { id: string; email: string }[]) {
   const invites: InviteMetadata[] = [];
-  const projectInvites = new ProjectInviteService({ invites: { getInviteByCode: async (code) => invites.find((invite) => invite.code === code), saveInvite: async (invite) => { invites.push(invite); } }, rootUrl: 'http://root' });
+  const projectInvites = new ProjectInviteService({ invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); } }, rootUrl: 'http://root' });
   const hub = new HubService({ store: memoryHubStore(), invites: projectInvites });
   const sites = [];
   for (const person of people) {
@@ -39,7 +40,10 @@ describe('/api/hub', () => {
     expect(invited.status).toBe(201);
     expect(invited.data).toMatchObject({ email: 'cy@example.com', role: 'client', emailed: false, why: 'this root sends no email' });
     const join = invites[0]!.project!.join;
-    expect((invited.data as { link: string }).link).toBe(`http://root/#/join?code=${encodeURIComponent(invites[0]!.code)}&project=${join}`);
+    const link = (invited.data as { link: string }).link;
+    const code = new URLSearchParams(link.split('?')[1]).get('code')!;
+    expect(invites[0]!.codeHash).toBe(inviteCodeHash(code));
+    expect(link).toBe(`http://root/#/join?code=${encodeURIComponent(code)}&project=${join}`);
 
     expect((await axios.post(eve!.url(`/api/hub/invitations/${join}/accept`), {}, ask)).status).toBe(403);
     expect((await axios.get(cy!.url(`/api/hub/invitations/${join}`))).data).toEqual({ projectName: 'Shop', role: 'client', email: 'cy@example.com', forYou: true });
@@ -69,7 +73,7 @@ describe('/api/hub-link, on root', () => {
     const invites: InviteMetadata[] = [];
     const site = await mountRouter({
       prefix: '/api/hub-link',
-      router: async () => hubLinkRouter({ invites: new ProjectInviteService({ invites: { getInviteByCode: async (code) => invites.find((invite) => invite.code === code), saveInvite: async (invite) => { invites.push(invite); } }, rootUrl: 'http://root' }), credentialHash: hashCredential('the-hub'), hash: hashCredential }),
+      router: async () => hubLinkRouter({ invites: new ProjectInviteService({ invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); } }, rootUrl: 'http://root' }), credentialHash: hashCredential('the-hub'), hash: hashCredential }),
     });
     harnesses.push(site);
     return { site, invites };
@@ -82,7 +86,8 @@ describe('/api/hub-link, on root', () => {
     expect((await axios.post(site.url('/api/hub-link/invite'), invite, { ...ask, headers: { authorization: 'Bearer someone-else' } })).status).toBe(401);
     const sent = await axios.post(site.url('/api/hub-link/invite'), invite, { headers: { authorization: 'Bearer the-hub' } });
     expect(sent.status).toBe(201);
-    expect((await axios.get(site.url(`/api/hub-link/invitation?code=${encodeURIComponent(invites[0]!.code)}`))).data).toEqual({ email: 'cy@example.com', project: { name: 'Shop', role: 'client', join: 'J'.repeat(32) }, used: false });
+    const code = new URLSearchParams((sent.data as { link: string }).link.split('?')[1]).get('code')!;
+    expect((await axios.get(site.url(`/api/hub-link/invitation?code=${encodeURIComponent(code)}`))).data).toEqual({ email: 'cy@example.com', project: { name: 'Shop', role: 'client', join: 'J'.repeat(32) }, used: false });
     expect((await axios.get(site.url('/api/hub-link/invitation?code=nope'), ask)).status).toBe(404);
   });
 });

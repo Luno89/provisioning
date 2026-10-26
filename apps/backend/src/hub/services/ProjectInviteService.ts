@@ -1,5 +1,5 @@
-import { randomBytes, randomUUID } from 'node:crypto';
-import type { InviteMetadata, MailMessage } from '../../platform/index.js';
+import { randomUUID } from 'node:crypto';
+import { inviteCodeHash, inviteExpired, inviteExpiry, newInviteCode, type InviteMetadata, type MailMessage } from '../../platform/index.js';
 import { joinLink, projectInviteMail } from '../lib/project-invite-mail.js';
 
 export interface ProjectInviteDeps {
@@ -28,12 +28,14 @@ export class ProjectInviteService {
   constructor(private readonly deps: ProjectInviteDeps) {}
 
   async send(request: ProjectInviteRequest): Promise<ProjectInviteSent> {
-    const code = randomBytes(18).toString('base64url');
+    const code = newInviteCode();
+    const createdAt = this.deps.now?.() ?? new Date().toISOString();
     await this.deps.invites.saveInvite({
       id: randomUUID(),
-      code,
+      codeHash: inviteCodeHash(code),
       createdBy: request.inviterId,
-      createdAt: this.deps.now?.() ?? new Date().toISOString(),
+      createdAt,
+      expiresAt: inviteExpiry(new Date(createdAt)),
       email: request.email.trim().toLowerCase(),
       project: { name: request.projectName, role: request.role, join: request.join },
     });
@@ -50,6 +52,6 @@ export class ProjectInviteService {
 
   async invitation(code: string): Promise<{ email?: string | undefined; project?: InviteMetadata['project']; used: boolean } | undefined> {
     const invite = await this.deps.invites.getInviteByCode(code);
-    return invite?.project ? { ...(invite.email ? { email: invite.email } : {}), ...(invite.project ? { project: invite.project } : {}), used: Boolean(invite.usedBy) } : undefined;
+    return invite?.project && !inviteExpired(invite, new Date()) ? { ...(invite.email ? { email: invite.email } : {}), ...(invite.project ? { project: invite.project } : {}), used: Boolean(invite.usedBy) } : undefined;
   }
 }
