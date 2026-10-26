@@ -171,7 +171,8 @@ async function main(): Promise<void> {
     ...[PREVIOUS_REF, CANDIDATE_REF, UNSIGNED_REF].map((name) => `refs/tags/${LAB_TAG(name)}:refs/tags/${name}`)],
     { GIT_SSH_COMMAND: `ssh -i ${root.privateKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR` });
   await sh(root, `sudo git clone -q ${ORIGIN} ${REPO_DIR} && sudo git -C ${REPO_DIR} checkout -q --detach ${candidate} && sudo mkdir -p $(dirname ${UPDATE_SH}) && sudo cp ${REPO_DIR}/scripts/root-node/update.sh ${REPO_DIR}/scripts/root-node/cdktf-bindings.sh ${REPO_DIR}/scripts/root-node/verify-release.sh $(dirname ${UPDATE_SH})/`);
-  await sh(root, `sudo mkdir -p $(dirname ${SIGNERS}) && printf '%s\\n' 'koala-release namespaces="git" ${readFileSync(`${labKey}.pub`, 'utf8').trim()}' | sudo tee ${SIGNERS} >/dev/null`);
+  const signer = Buffer.from(`koala-release namespaces="git" ${readFileSync(`${labKey}.pub`, 'utf8').trim()}\n`).toString('base64');
+  await sh(root, `sudo mkdir -p $(dirname ${SIGNERS}) && echo ${signer} | base64 -d | sudo tee ${SIGNERS} >/dev/null`);
   note(`${REPO_DIR} is a clone of this repository with ${PREVIOUS_REF}, the candidate as ${CANDIDATE_REF} and ${UNSIGNED_REF}; root trusts only the rehearsal's throwaway key, which signed all but ${UNSIGNED_REF}; the candidate's update.sh is kept at ${UPDATE_SH}`);
   const bootstrapped = Date.now();
   await sh(root, `sudo env ROOT_TLS=internal DOMAIN=${DOMAIN} PUBLIC_URL=${ROOT_URL} bash ${REPO_DIR}/scripts/root-node/bootstrap.sh`, true);

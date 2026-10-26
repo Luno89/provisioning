@@ -285,7 +285,8 @@ if [ "$LAB" -eq 1 ]; then
     sleep 1
   done
   update-ca-certificates >/dev/null
-  ok "this host trusts Caddy's own certificate authority (${LAB_CA})"
+  systemctl restart tailscaled
+  ok "this host and its tailscaled trust Caddy's own certificate authority (${LAB_CA})"
 fi
 
 for port in 27017 7233 8233 8080 9090 50443 2525; do
