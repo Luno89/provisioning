@@ -1,4 +1,4 @@
-import { BaseService, type ClusterMetadata, type Database, encryptValue, type SecretKey } from '../../platform/index.js';
+import { BaseService, type ClusterMetadata, type Database, encryptValue, type SecretKey, writePrivate } from '../../platform/index.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider } from '../lib/cluster-topology.js';
@@ -115,7 +115,7 @@ export class ClusterService extends BaseService {
           const content = cluster.gpuEnabled
             ? await this.infra.getManagementClusterKubeconfig(physicalName)
             : await this.infra.getKubeconfig(physicalName);
-          await fs.writeFile(dynamicPath, content, 'utf-8');
+          await writePrivate(dynamicPath, content);
         } catch (err: any) {
           this.logger.error(`Failed to dynamically fetch kubeconfig for cluster ${physicalName}: ${err.message}`);
           return cluster.kubeconfigPath || DEFAULT_KUBECONFIG;
@@ -151,7 +151,7 @@ export class ClusterService extends BaseService {
       const content = await this.infra.getManagementClusterKubeconfig(SYSTEM_CLUSTER_ID);
       status = 'healthy';
       const kubeconfigPath = `/tmp/kubeconfig-${SYSTEM_CLUSTER_ID}`;
-      await fs.writeFile(kubeconfigPath, content, 'utf-8').catch(() => {});
+      await writePrivate(kubeconfigPath, content).catch(() => {});
       capacity = await this.readLiveCapacity(kubeconfigPath);
     } catch {
       status = 'failed';
@@ -190,7 +190,7 @@ export class ClusterService extends BaseService {
     try {
       const kubeconfigPath = `/tmp/kubeconfig-${SYSTEM_CLUSTER_ID}`;
       const content = await this.infra.getManagementClusterKubeconfig(SYSTEM_CLUSTER_ID);
-      await fs.writeFile(kubeconfigPath, content, 'utf-8');
+      await writePrivate(kubeconfigPath, content);
       await this.infra.checkGpuToolkit('nvidia');
       await this.infra.installGpuDevicePlugin('nvidia', kubeconfigPath);
       this.logger.info('GPU device plugin ready on the management cluster.');
@@ -321,7 +321,7 @@ export class ClusterService extends BaseService {
       let kubeconfigContent: string;
       try {
         kubeconfigContent = await this.infra.getKubeconfig(k3dName);
-        await fs.writeFile(kubeconfigPath, kubeconfigContent, 'utf-8');
+        await writePrivate(kubeconfigPath, kubeconfigContent);
       } catch (err: any) {
         this.logger.warn(`Cannot fetch kubeconfig for discovered cluster ${k3dName}: ${err.message}`);
         continue;
@@ -395,7 +395,7 @@ export class ClusterService extends BaseService {
 
           const kubeconfigContent = await this.infra.getKubeconfig(physicalName);
           kubeconfigPath = `/tmp/kubeconfig-${physicalName}`;
-          await fs.writeFile(kubeconfigPath, kubeconfigContent, 'utf-8');
+          await writePrivate(kubeconfigPath, kubeconfigContent);
 
           let ready = false;
           for (let i = 0; i < 45; i++) {

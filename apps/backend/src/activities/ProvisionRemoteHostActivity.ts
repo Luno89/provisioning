@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { writePrivate } from '../platform/index.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -78,7 +79,7 @@ export async function ProvisionRemoteHostActivity(
 
     const rawKubeconfig = await runSsh(args.host, port, args.username, keyPath, 'cat /etc/rancher/k3s/k3s.yaml');
     const rewritten = rawKubeconfig.replace(/https:\/\/127\.0\.0\.1:6443/g, `https://${args.host}:${args.k3sApiPort ?? 6443}`);
-    await fs.writeFile(kubeconfigPath, rewritten, 'utf-8');
+    await writePrivate(kubeconfigPath, rewritten);
 
     return { kubeconfigPath };
   } finally {

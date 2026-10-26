@@ -9,7 +9,7 @@ import { ProvisionDigitalOceanVmActivity } from './ProvisionDigitalOceanVmActivi
 import { JoinMeshActivity } from './JoinMeshActivity.js';
 import { infisicalHostFor } from '../releases/index.js';
 import { ensureInfisicalOperator } from '../projects/index.js';
-import { CLI_CEILING } from '../platform/index.js';
+import { CLI_CEILING, writePrivate } from '../platform/index.js';
 
 export interface ProvisionClusterArgs {
   name: string;
@@ -74,7 +74,7 @@ export async function ProvisionClusterActivity(
     await infra.createLocalCluster(physicalName, { logFile });
 
     const kubeconfigContent = await infra.getKubeconfig(physicalName);
-    await fs.writeFile(kubeconfigPath, kubeconfigContent, 'utf-8');
+    await writePrivate(kubeconfigPath, kubeconfigContent);
 
     let ready = false;
     for (let i = 0; i < 45; i++) {
