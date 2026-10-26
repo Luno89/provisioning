@@ -13,7 +13,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `mail-live` | 2026-10-24 14:09 | — |
 | `odoo-release-live` | 2026-10-26 00:11 | 2026-10-25 18:33 |
 | `project-sharing-live` | 2026-10-25 23:40 | 2026-10-22 13:53 |
-| `release-live` | 2026-10-24 18:17 | 2026-10-24 17:42 |
+| `release-live` | 2026-10-26 04:48 | 2026-10-26 04:15 |
 | `routes-live` | 2026-10-25 23:39 | 2026-10-24 05:15 |
 | `routing-live` | 2026-10-22 20:29 | 2026-10-22 20:20 |
 | `telemetry-live` | 2026-10-25 23:41 | — |
