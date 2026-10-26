@@ -81,4 +81,15 @@ describe('the egress proxy', () => {
     const access = conf.split('\n').map((line) => line.trim()).filter((line) => line.startsWith('http_access') || line.startsWith('include'));
     expect(access[0]).toBe('http_access deny internal');
   });
+
+  it('keeps the grants through every install and upgrade, and restarts onto new rules', () => {
+    const repo = join(import.meta.dirname, '../../../../..');
+    const applied = readFileSync(join(repo, 'k8s/koala-egress/egress-proxy.yaml'), 'utf8');
+    expect(applied).not.toContain('name: egress-grants\n  namespace');
+    expect(readFileSync(join(repo, 'k8s/koala-egress-seed/egress-grants.yaml'), 'utf8')).toContain('name: egress-grants');
+    const setup = readFileSync(join(repo, 'scripts/instance/platform-services.sh'), 'utf8');
+    expect(setup).toMatch(/get configmap egress-grants[^\n]*\n\s*\|\| "\$KUBECTL" --context "\$CONTEXT" apply -f "\$\{ROOT\}\/k8s\/koala-egress-seed\/"/);
+    expect(setup).toContain('sha256sum "${ROOT}/k8s/koala-egress/egress-proxy.yaml"');
+    expect(setup).toContain('koala.dev/egress-config');
+  });
 });

@@ -1,0 +1,9 @@
+# Written by the backend's EgressProxyService from the active grants; this is only the empty start.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: egress-grants
+  namespace: koala-egress
+data:
+  passwd: ""
+  acls.conf: ""
