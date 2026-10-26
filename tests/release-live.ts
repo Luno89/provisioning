@@ -27,7 +27,6 @@ const EMAIL = `release-live-${STAMP}@example.com`;
 const PASSWORD = randomBytes(18).toString('base64url');
 const CANDIDATE_REF = 'v2099.12.31';
 const UNSIGNED_REF = 'v2099.12.30';
-const LAB_TAG = (name: string) => `release-lab-${STAMP}-${name}`;
 const SIGNERS = '/etc/koala/release-signers';
 const MANIFESTS = 'application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json';
 
@@ -127,7 +126,6 @@ async function teardown(): Promise<void> {
   await instance?.destroy();
   await root?.destroy();
   if (previousTag) try { run('docker', ['rmi', `${IMAGE_REPO}:${previousTag}`]); } catch { /* kept or gone */ }
-  for (const name of [PREVIOUS_REF, CANDIDATE_REF, UNSIGNED_REF]) try { run('git', ['tag', '-d', LAB_TAG(name)]); } catch { /* never made */ }
   if (work) rmSync(work, { recursive: true, force: true });
 }
 
@@ -164,12 +162,16 @@ async function main(): Promise<void> {
   run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', 'the release rehearsal\'s throwaway key', '-f', labKey]);
   const signing = ['-c', 'gpg.format=ssh', '-c', `user.signingkey=${labKey}`];
   const previousMessage = run('git', ['tag', '--list', '--format=%(contents:subject)%0a%0a%(contents:body)', PREVIOUS_REF]).trim();
-  run('git', [...signing, 'tag', '-s', LAB_TAG(PREVIOUS_REF), previous, '-m', previousMessage]);
-  run('git', [...signing, 'tag', '-s', LAB_TAG(CANDIDATE_REF), candidate, '-m', `${CANDIDATE_REF}\n\nShipped and released from ${candidateTag} after ${PREVIOUS_REF}: the release rehearsal's own tag, signed by its throwaway key.`]);
-  run('git', ['tag', '-a', LAB_TAG(UNSIGNED_REF), candidate, '-m', `${UNSIGNED_REF}\n\nShipped and released from ${candidateTag} after ${PREVIOUS_REF}: signed by nobody.`],
+  const tags = join(work, 'tags.git');
+  run('git', ['clone', '-q', '--bare', '--local', REPO, tags]);
+  const inTags = (args: string[], env: Record<string, string> = {}) => run('git', ['-C', tags, ...args], env);
+  inTags(['tag', '-d', PREVIOUS_REF]);
+  inTags([...signing, 'tag', '-s', PREVIOUS_REF, previous, '-m', previousMessage]);
+  inTags([...signing, 'tag', '-s', CANDIDATE_REF, candidate, '-m', `${CANDIDATE_REF}\n\nShipped and released from ${candidateTag} after ${PREVIOUS_REF}: the release rehearsal's own tag, signed by its throwaway key.`]);
+  inTags(['tag', '-a', UNSIGNED_REF, candidate, '-m', `${UNSIGNED_REF}\n\nShipped and released from ${candidateTag} after ${PREVIOUS_REF}: signed by nobody.`],
     { GIT_COMMITTER_DATE: new Date(Date.now() - 86_400_000).toISOString() });
-  run('git', ['push', '-q', '--force', `ssh://ubuntu@127.0.0.1:${root.port}${ORIGIN}`, `${previous}:refs/heads/previous`, `${candidate}:refs/heads/candidate`,
-    ...[PREVIOUS_REF, CANDIDATE_REF, UNSIGNED_REF].map((name) => `refs/tags/${LAB_TAG(name)}:refs/tags/${name}`)],
+  inTags(['push', '-q', '--force', `ssh://ubuntu@127.0.0.1:${root.port}${ORIGIN}`, `${previous}:refs/heads/previous`, `${candidate}:refs/heads/candidate`,
+    ...[PREVIOUS_REF, CANDIDATE_REF, UNSIGNED_REF].map((name) => `refs/tags/${name}:refs/tags/${name}`)],
     { GIT_SSH_COMMAND: `ssh -i ${root.privateKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR` });
   await sh(root, `sudo git clone -q ${ORIGIN} ${REPO_DIR} && sudo git -C ${REPO_DIR} checkout -q --detach ${candidate} && sudo mkdir -p $(dirname ${UPDATE_SH}) && sudo cp ${REPO_DIR}/scripts/root-node/update.sh ${REPO_DIR}/scripts/root-node/cdktf-bindings.sh ${REPO_DIR}/scripts/root-node/verify-release.sh $(dirname ${UPDATE_SH})/`);
   const signer = Buffer.from(`koala-release namespaces="git" ${readFileSync(`${labKey}.pub`, 'utf8').trim()}\n`).toString('base64');
