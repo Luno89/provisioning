@@ -23,10 +23,10 @@ const renderPage = () => {
 describe('choosing a name before bringing a machine in', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(api.get).mockImplementation(async (url: string, config?: { params?: { name?: string } }) => {
+    vi.mocked(api.get).mockImplementation(async (url: string, config?: { params?: unknown }) => {
       if (url === '/instances/mine') return { data: { instance: null } }
       if (url === '/instances/pool') return { data: { available: false, reason: 'this root has no pool' } }
-      return { data: names[config?.params?.name ?? ''] ?? { ok: false } }
+      return { data: names[(config?.params as { name?: string } | undefined)?.name ?? ''] ?? { ok: false } }
     })
     vi.mocked(api.post).mockResolvedValue({ data: { token: 't', command: 'curl … | sudo sh -s -- t', expiresAt: new Date().toISOString() } })
   })
@@ -56,10 +56,10 @@ describe('trying Koala on its own servers', () => {
     vi.clearAllMocks()
     mine = null
     offer = { available: true, trialDays: 14 }
-    vi.mocked(api.get).mockImplementation(async (url: string, config?: { params?: { name?: string } }) => {
+    vi.mocked(api.get).mockImplementation(async (url: string, config?: { params?: unknown }) => {
       if (url === '/instances/mine') return { data: { instance: mine } }
       if (url === '/instances/pool') return { data: offer }
-      return { data: names[config?.params?.name ?? ''] ?? { ok: false } }
+      return { data: names[(config?.params as { name?: string } | undefined)?.name ?? ''] ?? { ok: false } }
     })
     vi.mocked(api.post).mockImplementation(async () => {
       mine = { id: 'inst-1', status: 'installing', url: '', name: 'luno', detail: 'Making your space on Koala\'s servers', trialEndsAt: '2026-11-03T00:00:00.000Z' }

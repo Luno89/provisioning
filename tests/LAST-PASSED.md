@@ -10,7 +10,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `files-live` | 2026-10-26 04:58 | — |
 | `hub-live` | 2026-10-26 04:53 | 2026-10-24 18:21 |
 | `infra-integration` | 2026-10-24 14:25 | 2026-10-24 14:12 |
-| `mail-live` | 2026-10-24 14:09 | — |
+| `mail-live` | 2026-10-26 14:08 | — |
 | `odoo-release-live` | 2026-10-26 05:20 | 2026-10-25 18:33 |
 | `project-sharing-live` | 2026-10-26 04:53 | 2026-10-22 13:53 |
 | `release-live` | 2026-10-26 04:48 | 2026-10-26 04:15 |
