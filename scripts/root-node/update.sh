@@ -319,7 +319,12 @@ install_units
 
 step "Updating Caddy"
 docker compose -f docker-compose.caddy.yml up -d --build
-docker exec nowrinkles-caddy caddy reload --config /etc/caddy/Caddyfile --force || warn "Caddy did not take the new Caddyfile: /var/log/koala-caddy/caddy.log"
+while ! said="$(docker exec nowrinkles-caddy caddy reload --config /etc/caddy/Caddyfile --force 2>&1)"; do
+  case "$said" in
+    *"connection refused"*|*"no such file or directory"*) sleep 1 ;;
+    *) warn "Caddy did not take the new Caddyfile: $(printf '%s' "$said" | tail -n1)"; break ;;
+  esac
+done
 
 step "Restarting ${SERVICE}"
 systemctl restart "$SERVICE"
