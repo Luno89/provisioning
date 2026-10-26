@@ -21,6 +21,7 @@
   "tagOwners": {
     "tag:platform": ["platform-root@"],
     "tag:pool": ["platform-root@"],
+    "tag:admin": ["platform-root@"],
   },
 
   "acls": [
@@ -57,6 +58,12 @@
       "action": "accept",
       "src": ["tag:pool"],
       "dst": ["tag:platform:5001"],
+    },
+
+    {
+      "action": "accept",
+      "src": ["tag:admin"],
+      "dst": ["tag:platform:22"],
     },
   ],
 }

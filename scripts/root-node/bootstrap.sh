@@ -267,7 +267,11 @@ step "Closing every port but SSH, HTTP and HTTPS"
 command -v ufw &>/dev/null || apt-get install -y ufw >/dev/null
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
-ufw allow OpenSSH >/dev/null
+if [ -f /etc/koala/ssh-over-mesh ]; then
+  ufw allow in on tailscale0 to any port 22 proto tcp >/dev/null
+else
+  ufw allow OpenSSH >/dev/null
+fi
 ufw allow 80/tcp >/dev/null
 ufw allow 443/tcp >/dev/null
 ufw allow from 10.42.0.0/16 to any >/dev/null
