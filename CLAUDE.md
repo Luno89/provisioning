@@ -199,9 +199,14 @@ against the address, since a guess fails and a person succeeds, so a run of live
 never trips it, while every opening of a share link counts), an account is locked for fifteen minutes after ten wrong
 passwords (`lockedUntil`), every response carries `helmet`'s headers, and the proxy is trusted in production. **The SPA's
 content security policy** (`platform/lib/csp.ts`: same-origin scripts, sockets and frames, inline styles allowed, blob workers and
-media, nothing framed from elsewhere) is sent as `Content-Security-Policy-Report-Only` in production until `CSP=enforce`
-(`CSP=off|report|enforce` sets it anywhere); the browser's reports land on `POST /csp-report` and are logged as one line
-each, so a week of a quiet log on the host is what says to enforce it. **Koala reports on itself** at `GET /api/metrics` (`MetricsService`, prom-client: process metrics, request
+media, nothing framed from elsewhere) is enforced in production (`CSP=report` sends it as `Content-Security-Policy-Report-Only`
+instead, `CSP=off|report|enforce` sets it anywhere); the browser's reports land on `POST /csp-report` and are logged as one
+line each. **Nothing next door can act as you** (W3/D1, owner 2026-10-25): people's instances and apps are under a registered
+domain of their own (`INGRESS_DOMAIN`, `nowrinkles.app`), never root's (`bootstrap.sh` refuses one sharing root's outside a lab);
+over https the session and OAuth state cookies are `__Host-` cookies (`cookieNamed`), which no other host can set, and the plain
+name is not read there (an instance decides by how the request arrived, `securedFor`); and a write to `/api` or a socket
+handshake whose `Origin` (or, without one, `Sec-Fetch-Site`) is neither this host nor `PUBLIC_URL`/`APP_URL` is refused
+(`platform/lib/same-site.ts`; any loopback page outside production), while a program, which sends neither, is not. **Koala reports on itself** at `GET /api/metrics` (`MetricsService`, prom-client: process metrics, request
 times by route and status, failed work by kind), read with `Authorization: Bearer <METRICS_TOKEN>`; unset, nothing is
 served. The same request times and failures, and everything else Koala measures, also leave every process as
 OpenTelemetry to the collector on the system cluster (**Koala's own telemetry**, below), and each response carries its
@@ -397,8 +402,8 @@ self-upgrade never takes a person's addresses or sign-in away) from its record (
 (`AppExposureService` in edge mode writes the same per-app blocks, plain http, and reloads it through its admin API; an app on
 the instance's own k3s is reached through that cluster's Traefik by service name). Root also routes `<app>-<group>.<domain>`
 to the edge of the instance holding that group (`groups` on the instance record, one `@apps_<group>` matcher each in
-`instanceRouteFiles`; a shared project's apps are addressed under its group, below). Root's Caddyfile holds one `*.<domain>`
-site with every instance's matchers (anything else is a 404) under a wildcard certificate over Cloudflare DNS-01
+`instanceRouteFiles`; a shared project's apps are addressed under its group, below). Root's Caddyfile holds one `*.<INGRESS_DOMAIN>`
+site (root's own `app.` and `mesh.` are under `DOMAIN`, a different registered domain) with every instance's matchers (anything else is a 404) under a wildcard certificate over Cloudflare DNS-01
 (`docker/caddy`, `CLOUDFLARE_API_TOKEN` in root's compose env only), or Caddy's local authority with `ROOT_TLS=internal`.
 A person can switch to nested addresses (instance Settings → Addresses, `PUT /api/instance-addresses` → root's
 `PUT /api/instances/addresses`): root adds a `*.<name>.<domain>` site with its own certificate and probes it until it is
