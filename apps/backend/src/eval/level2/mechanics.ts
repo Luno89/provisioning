@@ -268,7 +268,7 @@ const monitored: Scenario = {
   expect: {
     outcome: 'ok',
     toolsSucceeded: ['app_health', 'propose_alert'],
-    modelSaw: { anyRequest: true, contains: ['days of history.', 'Proposed on a card: Tell me when books-', 'has not answered for 5 minutes'] },
+    modelSaw: { anyRequest: true, contains: ['days of history.', 'Proposed on a card: Tell me when books', 'has not answered for 5 minutes'] },
   },
   then: [{
     name: 'the card is applied',
