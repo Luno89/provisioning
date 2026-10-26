@@ -130,6 +130,9 @@ async function main(): Promise<void> {
   work = mkdtempSync(join(tmpdir(), 'pool-live-'));
   const caddyDir = join(work, 'caddy');
   for (const folder of ['apps', 'instances', 'instance-sites']) mkdirSync(join(caddyDir, folder), { recursive: true });
+  const caddyAdmin = join(work, 'caddy-admin');
+  const caddyLog = join(work, 'caddy-log');
+  for (const folder of [caddyAdmin, caddyLog]) mkdirSync(folder, { recursive: true });
 
   step(`root's registry holds ${IMAGE}, and root's Caddy is built`);
   run('docker', ['tag', IMAGE, `127.0.0.1:5000/nowrinkles/app:${TAG}`]);
@@ -147,8 +150,12 @@ async function main(): Promise<void> {
     '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${ROOT_DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${ROOT_DOMAIN}`, '-e', 'ROOT_TLS=internal',
     '-v', `${join(REPO, 'Caddyfile')}:/etc/caddy/Caddyfile:ro`,
     '-v', `${join(caddyDir, 'apps')}:/etc/caddy/apps:ro`, '-v', `${join(caddyDir, 'instances')}:/etc/caddy/instances:ro`, '-v', `${join(caddyDir, 'instance-sites')}:/etc/caddy/instance-sites:ro`,
+    '-v', `${caddyAdmin}:/run/caddy-admin`, '-v', `${caddyLog}:/var/log/caddy`,
     CADDY_IMAGE]);
   await until('Caddy\'s local certificate authority', async () => {
+    if (run('docker', ['inspect', '-f', '{{.State.Running}}', CONTAINERS.caddy]).trim() !== 'true') {
+      throw new Hopeless(`root's Caddy stopped: ${run('sh', ['-c', `docker logs --tail 5 ${CONTAINERS.caddy} 2>&1`]).trim()}`);
+    }
     run('docker', ['cp', `${CONTAINERS.caddy}:/data/caddy/pki/authorities/local/root.crt`, join(work, 'ca.crt')]);
     return existsSync(join(work, 'ca.crt')) ? true : undefined;
   });
@@ -175,7 +182,8 @@ async function main(): Promise<void> {
     '-e', `MESH_LOGIN_SERVER=http://${HOST_FOR_GUEST}:8080`, '-e', `INSTANCE_REGISTRY=${HOST_FOR_GUEST}:5001`, '-e', `INSTANCE_IMAGE_TAG=${TAG}`, ...poolEnv];
   run('docker', ['run', '-d', '--name', CONTAINERS.root, ...rootEnv, '--group-add', String(statSync('/var/run/docker.sock').gid), '-v', `${caddyDir}:/app/apps/backend/data/caddy`,
     '-v', '/var/run/docker.sock:/var/run/docker.sock', '-e', `PORT=${ROOT_PORT}`,
-    '-e', `CADDY_CONTAINER=${CONTAINERS.caddy}`, '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`, IMAGE, 'backend']);
+    '-v', `${caddyAdmin}:/run/koala-caddy`, '-v', `${caddyLog}:/var/log/koala-caddy:ro`,
+    '-e', 'CADDY_ADMIN_SOCKET=/run/koala-caddy/admin.sock', '-e', 'CADDY_LOG=/var/log/koala-caddy/caddy.log', '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`, IMAGE, 'backend']);
   run('docker', ['run', '-d', '--name', CONTAINERS.worker, ...rootEnv, '-e', `TEMPORAL_TASK_QUEUE=${QUEUE}`, '-e', 'HEALTH_PORT=0', '-e', 'TEMPORAL_METRICS_PORT=9475', IMAGE, 'worker-host']);
   await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
   const session = signJWT({ userId: OWNER, email: 'live' }, loadKeys(process.env).session, 3600);
