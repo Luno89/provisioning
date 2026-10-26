@@ -17,7 +17,7 @@ export function adminRouter(deps: Record<string, any>): Router {
   });
 
   router.post('/invites', requireAdmin, async (req, res) => {
-    const code = crypto.randomBytes(4).toString('hex');
+    const code = crypto.randomBytes(16).toString('base64url');
     const invite: InviteMetadata = {
       id: code,
       code,

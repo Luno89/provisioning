@@ -35,6 +35,7 @@ export interface InfrastructureWiringDeps {
   db: Database;
   io: SocketServer;
   dataKey: SecretKey;
+  sessionKey: SecretKey;
   publicUrl: string;
   appUrl: string;
   repoRoot: string;
@@ -58,7 +59,7 @@ export interface InfrastructureWiringDeps {
 export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   const { tenant, db, io } = deps;
   tenant.use('/api/credentials', llmCredentialsRouter({ db, dataKey: deps.dataKey, credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl }));
-  tenant.use('/api/credentials', credentialsRouter({ credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl }));
+  tenant.use('/api/credentials', credentialsRouter({ credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl, sessionKey: deps.sessionKey }));
   tenant.use('/api/backup', backupRouter({ repoRoot: deps.repoRoot }));
   tenant.use('/api/clusters', clustersRouter({
     clusterService: deps.clusters, appService: deps.apps, clusterProxyService: deps.proxy, infraService: deps.infra,

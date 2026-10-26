@@ -1,5 +1,5 @@
 import express from 'express';
-import { verifyJWT } from '../lib/auth.js';
+import { signsEveryoneIn, verifyJWT } from '../lib/auth.js';
 import type { Database } from '../lib/db-interface.js';
 import type { UserMetadata } from '../lib/types.js';
 import type { SecretKey } from '../lib/crypto.js';
@@ -88,7 +88,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
     if (publicPaths.includes(req.path) || publicPrefixes.some((prefix) => req.path.startsWith(prefix))) {
       return next();
     }
-    if (process.env.IS_E2E === 'true') {
+    if (signsEveryoneIn(process.env)) {
       const users = await db.accounts.getUsers();
       const mockUser = users[0] || {
         id: 'test-user-id',
@@ -134,12 +134,11 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
   async function checkAndConsumeInvite(code: string | undefined, newUserId: string, isFirstUser: boolean, email?: string): Promise<string | null> {
     if (isFirstUser) return null;
     if (!code) return 'An invite code is required to create an account';
-    const invites = await db.accounts.getInvites();
-    const invite = invites.find((i) => i.code === code);
+    const invite = await db.accounts.getInviteByCode(code);
     if (!invite) return 'Invalid invite code';
     if (invite.usedBy) return 'This invite code has already been used';
     if (invite.email && (!email || invite.email.trim().toLowerCase() !== email.trim().toLowerCase())) return `This invite is for ${invite.email}; sign up with that address`;
-    await db.accounts.saveInvite({ ...invite, usedBy: newUserId, usedAt: new Date().toISOString() });
+    if (!await db.accounts.claimInvite(code, newUserId, new Date().toISOString())) return 'This invite code has already been used';
     return null;
   }
 

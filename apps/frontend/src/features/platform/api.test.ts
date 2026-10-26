@@ -74,7 +74,7 @@ describe('verifyTwoFactor', () => {
     const user = { id: 'u1', email: 'a@b.c' };
     mocked.post.mockResolvedValue({ data: { user } });
 
-    await expect(verifyTwoFactor({ userId: 'u1', code: '123456' })).resolves.toEqual({ user });
-    expect(mocked.post).toHaveBeenCalledWith('/auth/2fa/verify', { userId: 'u1', code: '123456' });
+    await expect(verifyTwoFactor({ challenge: 'signed', code: '123456' })).resolves.toEqual({ user });
+    expect(mocked.post).toHaveBeenCalledWith('/auth/2fa/verify', { challenge: 'signed', code: '123456' });
   });
 });

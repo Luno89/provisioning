@@ -1,6 +1,8 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import axios from 'axios';
-import { asyncRoute, isCloudProvider, type CloudProvider } from '../../platform/index.js';
+import {
+  asyncRoute, carriedByOAuthState, isCloudProvider, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, parseCookie, type CloudProvider, type SecretKey,
+} from '../../platform/index.js';
 import type { CredentialService } from '../services/CredentialService.js';
 
 export interface CredentialsRouterDeps {
@@ -11,6 +13,7 @@ export interface CredentialsRouterDeps {
   >;
   publicUrl: string;
   appUrl: string;
+  sessionKey: SecretKey;
 }
 
 const userOf = (req: Request): { id: string } =>
@@ -65,23 +68,31 @@ export function credentialsRouter(deps: CredentialsRouterDeps): Router {
     res.json({ success: true, provider });
   }));
 
-  router.get('/googledrive/connect', (_req, res) => {
+  const stateCookie = { httpOnly: true, secure: publicUrl.startsWith('https://'), sameSite: 'lax' as const };
+
+  router.get('/googledrive/connect', (req, res) => {
     const googleId = process.env.GOOGLE_CLIENT_ID;
     if (!googleId) {
       return res.redirect(`${appUrl}/?driveError=missing_client_id#/settings`);
     }
     const redirectUri = encodeURIComponent(`${publicUrl}/api/credentials/googledrive/callback`);
+    const { state: started, cookie } = newOAuthState(userOf(req).id, deps.sessionKey);
+    res.cookie(OAUTH_STATE_COOKIE, cookie, { ...stateCookie, maxAge: OAUTH_STATE_SECONDS * 1000 });
     res.redirect(
       'https://accounts.google.com/o/oauth2/v2/auth'
       + `?client_id=${googleId}&redirect_uri=${redirectUri}&response_type=code`
       + '&access_type=offline&prompt=consent'
-      + `&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file')}`,
+      + `&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file')}`
+      + `&state=${encodeURIComponent(started)}`,
     );
   });
 
   router.get('/googledrive/callback', asyncRoute(async (req, res) => {
     try {
       const { code } = req.query;
+      const held = carriedByOAuthState(parseCookie(req.headers.cookie, OAUTH_STATE_COOKIE), req.query.state, deps.sessionKey);
+      res.clearCookie(OAUTH_STATE_COOKIE, stateCookie);
+      if (!held || held.carried !== userOf(req).id) return res.redirect(`${appUrl}/?driveError=not_started_here#/settings`);
       const googleId = process.env.GOOGLE_CLIENT_ID;
       const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
       if (!googleId || !googleSecret) {

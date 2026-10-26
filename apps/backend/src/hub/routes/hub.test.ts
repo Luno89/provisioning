@@ -16,7 +16,7 @@ const ask = { validateStatus: () => true };
 
 async function hubFor(people: { id: string; email: string }[]) {
   const invites: InviteMetadata[] = [];
-  const projectInvites = new ProjectInviteService({ invites: { getInvites: async () => invites, saveInvite: async (invite) => { invites.push(invite); } }, rootUrl: 'http://root' });
+  const projectInvites = new ProjectInviteService({ invites: { getInviteByCode: async (code) => invites.find((invite) => invite.code === code), saveInvite: async (invite) => { invites.push(invite); } }, rootUrl: 'http://root' });
   const hub = new HubService({ store: memoryHubStore(), invites: projectInvites });
   const sites = [];
   for (const person of people) {
@@ -69,7 +69,7 @@ describe('/api/hub-link, on root', () => {
     const invites: InviteMetadata[] = [];
     const site = await mountRouter({
       prefix: '/api/hub-link',
-      router: async () => hubLinkRouter({ invites: new ProjectInviteService({ invites: { getInvites: async () => invites, saveInvite: async (invite) => { invites.push(invite); } }, rootUrl: 'http://root' }), credentialHash: hashCredential('the-hub'), hash: hashCredential }),
+      router: async () => hubLinkRouter({ invites: new ProjectInviteService({ invites: { getInviteByCode: async (code) => invites.find((invite) => invite.code === code), saveInvite: async (invite) => { invites.push(invite); } }, rootUrl: 'http://root' }), credentialHash: hashCredential('the-hub'), hash: hashCredential }),
     });
     harnesses.push(site);
     return { site, invites };

@@ -18,7 +18,7 @@ import {
   CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, MetricsService, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, keepTrying, mongoTarget, asyncRoute,
   ownsProject, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, decryptValue, loadKeys,
-  roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings,
+  roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem,
 } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { rateLimit } from 'express-rate-limit';
@@ -111,6 +111,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   await migrateLegacyOwnership(db);
   await seedAll(db);
 
+  const e2e = e2eProblem(process.env);
+  if (e2e) throw new Error(e2e);
   const keys = loadKeys(process.env);
   const role = roleFromEnv(process.env);
   const metrics = new MetricsService({ token: process.env.METRICS_TOKEN?.trim() || undefined, role: role.role });
@@ -195,7 +197,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   startEngineStream({ role, io, db, payloadKey: keys.payload, core: engine, models: modelService, notices, postNotice, workFailures });
 
-  const authService = new AuthService(db);
+  const authService = new AuthService(db, { mail, production: process.env.NODE_ENV === 'production' });
   app.set('trust proxy', process.env.NODE_ENV === 'production' ? 1 : false);
   app.use(cors({
     origin: (origin, callback) => callback(null, originAllowed(origin)),
@@ -306,7 +308,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const { monitoring } = wireMonitoring({ tenant, db, role, env: process.env, io, clusters: clusterService, infra: infraService, proxy: clusterProxyService, notices, notifications, mail, systemOwners });
   const workerService = new WorkerService();
   wireInfrastructure({
-    tenant, db, io, dataKey: keys.data, publicUrl: PUBLIC_URL, appUrl: APP_URL, repoRoot: path.join(__dirname, '../../..'),
+    tenant, db, io, dataKey: keys.data, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, repoRoot: path.join(__dirname, '../../..'),
     credentials: credentialService, clusters: clusterService, apps: appService, proxy: clusterProxyService, infra: infraService,
     temporalBridge, gitea: giteaService, infisical: infisicalService, exposure: appExposureService, instanceOwner: role.instance?.ownerId,
     nginxConfPath: path.join(__dirname, '../data/nginx/nginx.conf'), vpsCatalog: vpsCatalogService, worker: workerService, registry: registryService, gitModules: gitModuleService,

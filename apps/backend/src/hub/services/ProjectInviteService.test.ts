@@ -6,7 +6,7 @@ function setUp(mail: 'works' | 'off' | 'fails') {
   const invites: InviteMetadata[] = [];
   const toAddress = vi.fn(async () => { if (mail === 'fails') throw new Error('the mail server refused it'); });
   const service = new ProjectInviteService({
-    invites: { getInvites: async () => invites, saveInvite: async (invite) => { invites.push(invite); } },
+    invites: { getInviteByCode: async (code) => invites.find((invite) => invite.code === code), saveInvite: async (invite) => { invites.push(invite); } },
     mail: { available: () => (mail === 'off' ? { ok: false as const, why: 'MAIL_SMTP_URL is not set' } : { ok: true as const }), toAddress },
     rootUrl: 'http://koala.localhost:5175/',
     now: () => 'now',
@@ -28,6 +28,8 @@ describe('inviting someone to a project, on root', () => {
     expect(message.text).toContain(sent.link);
     expect(message.text).toContain('as a client, who sees how it is going and asks for changes');
     expect(await service.invitation(invites[0]!.code)).toEqual({ email: 'cy@example.com', project: { name: 'Shop', role: 'client', join: 'J'.repeat(32) }, used: false });
+    invites.push({ id: 'admin-made', code: 'ADMINCODE', createdBy: 'an-admin', createdAt: 'now' });
+    expect(await service.invitation('ADMINCODE')).toBeUndefined();
   });
 
   it('still gives the link to pass on by hand when email is off or fails, and says why', async () => {

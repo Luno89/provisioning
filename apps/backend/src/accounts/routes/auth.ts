@@ -1,6 +1,7 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import {
-  afterFailure, lockedSaid, lockedUntil, type SignInAttempts, signJWT, hashPassword, verifyPassword, type Auth,
+  afterFailure, lockedSaid, lockedUntil, type SignInAttempts, signJWT, verifyJWT, hashPassword, verifyPassword, type Auth,
+  carriedByOAuthState, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS,
   type Database, type SecretKey,
 } from '../../platform/index.js';
 import axios from 'axios';
@@ -23,7 +24,18 @@ export function authRouter(deps: AuthRouterDeps): Router {
   const router = Router();
   const accountRoutes = deps.accounts === false ? Router() : router;
   const { db, authService, sessionKey, publicUrl, appUrl } = deps;
-  const { setSessionCookie, checkAndConsumeInvite, sessionCookieOptions } = deps.auth;
+  const { setSessionCookie, checkAndConsumeInvite, sessionCookieOptions, getCookie } = deps.auth;
+  const startOAuth = (res: Response, invite: string): string => {
+    const { state, cookie } = newOAuthState(invite, sessionKey);
+    res.cookie(OAUTH_STATE_COOKIE, cookie, { ...sessionCookieOptions, maxAge: OAUTH_STATE_SECONDS * 1000 });
+    return encodeURIComponent(state);
+  };
+  const returnedOAuth = (req: Request, res: Response): { invite: string } | undefined => {
+    const held = carriedByOAuthState(getCookie(req, OAUTH_STATE_COOKIE), req.query.state, sessionKey);
+    res.clearCookie(OAUTH_STATE_COOKIE, sessionCookieOptions);
+    if (!held) res.redirect(`${APP_URL}/?authError=${encodeURIComponent('This sign-in did not start here, or took longer than ten minutes; start it again')}`);
+    return held && { invite: held.carried };
+  };
   const PUBLIC_URL = publicUrl;
   const APP_URL = appUrl;
 
@@ -90,7 +102,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (user.twoFactorEnabled) {
         const code = authService.create2FAChallenge(user.id);
         await authService.send2FACode(user, code);
-        return res.json({ twoFactorRequired: true, userId: user.id });
+        return res.json({ twoFactorRequired: true, challenge: signJWT({ twoFactorFor: user.id }, sessionKey, 5 * 60) });
       }
 
       const token = signJWT({ userId: user.id, email: user.email }, sessionKey, 24 * 60 * 60);
@@ -111,9 +123,13 @@ export function authRouter(deps: AuthRouterDeps): Router {
 
   accountRoutes.post('/2fa/verify', async (req, res) => {
     try {
-      const { userId, code } = req.body;
-      if (!userId || !code) {
-        return res.status(400).json({ error: 'User ID and OTP code are required' });
+      const { challenge, code } = req.body;
+      if (typeof challenge !== 'string' || typeof code !== 'string' || !code) {
+        return res.status(400).json({ error: 'The sign-in and its code are required' });
+      }
+      const userId = verifyJWT(challenge, sessionKey)?.twoFactorFor;
+      if (typeof userId !== 'string') {
+        return res.status(400).json({ error: 'This sign-in has expired; sign in again' });
       }
       const user = await db.accounts.getUserById(userId);
       if (!user) {
@@ -173,6 +189,10 @@ export function authRouter(deps: AuthRouterDeps): Router {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
+      const method = preferredMethod ?? user.twoFactorPreferredMethod ?? 'email';
+      const cannot = enabled ? authService.sendingProblem(method) : undefined;
+      if (cannot) return res.status(400).json({ error: `Two-factor sign-in stays off: ${cannot}.` });
+
       user.twoFactorEnabled = !!enabled;
       if (phone !== undefined) user.twoFactorPhone = phone;
       if (preferredMethod !== undefined) user.twoFactorPreferredMethod = preferredMethod;
@@ -197,15 +217,17 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (!mockOAuthAllowed()) {
         return res.status(501).json({ error: 'GitHub sign-in is not configured on this server.' });
       }
-      return res.redirect(`${PUBLIC_URL}/api/auth/github/callback?code=mock-github-code&state=${encodeURIComponent(invite)}`);
+      return res.redirect(`${PUBLIC_URL}/api/auth/github/callback?code=mock-github-code&state=${startOAuth(res, invite)}`);
     }
     const redirectUri = encodeURIComponent(`${PUBLIC_URL}/api/auth/github/callback`);
-    res.redirect(`https://github.com/login/oauth/authorize?client_id=${githubId}&redirect_uri=${redirectUri}&scope=user:email&state=${encodeURIComponent(invite)}`);
+    res.redirect(`https://github.com/login/oauth/authorize?client_id=${githubId}&redirect_uri=${redirectUri}&scope=user:email&state=${startOAuth(res, invite)}`);
   });
 
   accountRoutes.get('/github/callback', async (req, res) => {
     try {
-      const { code, state } = req.query;
+      const { code } = req.query;
+      const returned = returnedOAuth(req, res);
+      if (!returned) return;
       let email = 'mock-github-user@example.com';
       let idStr = 'github-mock-id';
 
@@ -247,7 +269,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (!user) {
         const isFirstUser = (await db.accounts.getUsers()).length === 0;
         const userId = uuidv4();
-        const inviteError = await checkAndConsumeInvite(typeof state === 'string' ? state : undefined, userId, isFirstUser, email);
+        const inviteError = await checkAndConsumeInvite(returned.invite || undefined, userId, isFirstUser, email);
         if (inviteError) {
           return res.redirect(`${APP_URL}/?authError=${encodeURIComponent(inviteError)}`);
         }
@@ -281,15 +303,17 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (!mockOAuthAllowed()) {
         return res.status(501).json({ error: 'Google sign-in is not configured on this server.' });
       }
-      return res.redirect(`${PUBLIC_URL}/api/auth/google/callback?code=mock-google-code&state=${encodeURIComponent(invite)}`);
+      return res.redirect(`${PUBLIC_URL}/api/auth/google/callback?code=mock-google-code&state=${startOAuth(res, invite)}`);
     }
     const redirectUri = encodeURIComponent(`${PUBLIC_URL}/api/auth/google/callback`);
-    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleId}&redirect_uri=${redirectUri}&response_type=code&scope=email%20profile&state=${encodeURIComponent(invite)}`);
+    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleId}&redirect_uri=${redirectUri}&response_type=code&scope=email%20profile&state=${startOAuth(res, invite)}`);
   });
 
   accountRoutes.get('/google/callback', async (req, res) => {
     try {
-      const { code, state } = req.query;
+      const { code } = req.query;
+      const returned = returnedOAuth(req, res);
+      if (!returned) return;
       let email = 'mock-google-user@example.com';
       let idStr = 'google-mock-id';
 
@@ -328,7 +352,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (!user) {
         const isFirstUser = (await db.accounts.getUsers()).length === 0;
         const userId = uuidv4();
-        const inviteError = await checkAndConsumeInvite(typeof state === 'string' ? state : undefined, userId, isFirstUser, email);
+        const inviteError = await checkAndConsumeInvite(returned.invite || undefined, userId, isFirstUser, email);
         if (inviteError) {
           return res.redirect(`${APP_URL}/?authError=${encodeURIComponent(inviteError)}`);
         }

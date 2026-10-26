@@ -3,7 +3,7 @@ import type { InviteMetadata, MailMessage } from '../../platform/index.js';
 import { joinLink, projectInviteMail } from '../lib/project-invite-mail.js';
 
 export interface ProjectInviteDeps {
-  invites: { getInvites(): Promise<InviteMetadata[]>; saveInvite(invite: InviteMetadata): Promise<void> };
+  invites: { getInviteByCode(code: string): Promise<InviteMetadata | undefined>; saveInvite(invite: InviteMetadata): Promise<void> };
   mail?: { available(): { ok: true } | { ok: false; why: string }; toAddress(to: string, message: MailMessage): Promise<void> } | undefined;
   rootUrl: string;
   now?: (() => string) | undefined;
@@ -49,7 +49,7 @@ export class ProjectInviteService {
   }
 
   async invitation(code: string): Promise<{ email?: string | undefined; project?: InviteMetadata['project']; used: boolean } | undefined> {
-    const invite = (await this.deps.invites.getInvites()).find((entry) => entry.code === code);
-    return invite ? { ...(invite.email ? { email: invite.email } : {}), ...(invite.project ? { project: invite.project } : {}), used: Boolean(invite.usedBy) } : undefined;
+    const invite = await this.deps.invites.getInviteByCode(code);
+    return invite?.project ? { ...(invite.email ? { email: invite.email } : {}), ...(invite.project ? { project: invite.project } : {}), used: Boolean(invite.usedBy) } : undefined;
   }
 }

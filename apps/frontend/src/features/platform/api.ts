@@ -35,7 +35,7 @@ export const logout = (): Promise<void> =>
 export interface LoginResult {
   user?: SessionUser
   twoFactorRequired?: boolean
-  userId?: string
+  challenge?: string
   error?: string
 }
 
@@ -47,7 +47,7 @@ export const login = (
     .post<LoginResult>(opts.register ? '/auth/register' : '/auth/login', credentials)
     .then((r) => r.data)
 
-export const verifyTwoFactor = (body: { userId: string; code: string }): Promise<LoginResult> =>
+export const verifyTwoFactor = (body: { challenge: string; code: string }): Promise<LoginResult> =>
   api.post<LoginResult>('/auth/2fa/verify', body).then((r) => r.data)
 
 export const signInElsewhere = (): Promise<string | null> =>

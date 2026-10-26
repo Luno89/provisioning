@@ -1,5 +1,5 @@
 export { CLI_CEILING } from './lib/activity-liveness.js';
-export { generateOTP, hashPassword, signJWT, verifyPassword } from './lib/auth.js';
+export { e2eProblem, generateOTP, hashPassword, signJWT, signsEveryoneIn, verifyJWT, verifyPassword } from './lib/auth.js';
 export type { AreaStore } from './lib/collection.js';
 export { CommandFailedError } from './lib/command-error.js';
 export { decryptValue, encryptValue, keyId, maskSecret } from './lib/crypto.js';
@@ -23,6 +23,7 @@ export { runOnce } from './lib/migrations.js';
 export type { MigrationLedger } from './lib/migrations.js';
 export { mongoTarget } from './lib/mongo-db.js';
 export { awaitedNotice, grovedTree, hubConflictNotice, postedNotice, releaseNotice, secretNotice, treeNotices } from './lib/notices.js';
+export { carriedByOAuthState, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS } from './lib/oauth-state.js';
 export { clusterOwnership, ownedBy, ownsProject, withBuiltIns } from './lib/ownership.js';
 export type { ClusterOwnership } from './lib/ownership.js';
 export { holdsAccounts, roleFromEnv, servesHub, servesTenants, signsInThroughRoot } from './lib/platform-role.js';

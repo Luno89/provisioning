@@ -37,7 +37,7 @@ describe('Login Component', () => {
   });
 
   it('displays 2FA OTP code panel when requested', async () => {
-    mockedLogin.mockResolvedValue({ twoFactorRequired: true, userId: 'user-123' });
+    mockedLogin.mockResolvedValue({ twoFactorRequired: true, challenge: 'signed-challenge' });
 
     render(<Login onSuccess={() => {}} />);
 

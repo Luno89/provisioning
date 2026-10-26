@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { collectDefaultMetrics, Counter, Gauge, Histogram, Registry } from 'prom-client';
 import type { RequestHandler } from 'express';
 import { context, isValidTraceId, propagation, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
@@ -82,7 +83,9 @@ export class MetricsService {
 
   allowed(authorization: string | undefined): boolean {
     if (!this.settings.token) return false;
-    return authorization === `Bearer ${this.settings.token}`;
+    const given = createHash('sha256').update(authorization ?? '').digest();
+    const wanted = createHash('sha256').update(`Bearer ${this.settings.token}`).digest();
+    return timingSafeEqual(given, wanted);
   }
 
   async text(): Promise<string> {

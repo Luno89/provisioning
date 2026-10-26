@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { hashPassword, verifyPassword, signJWT, verifyJWT, generateOTP } from './auth.js';
+import { createHmac } from 'node:crypto';
+import { hashPassword, verifyPassword, signJWT, verifyJWT, generateOTP, e2eProblem, signsEveryoneIn } from './auth.js';
 
 describe('Auth Utilities', () => {
   describe('Password Hashing', () => {
@@ -44,6 +45,26 @@ describe('Auth Utilities', () => {
 
       const verified = verifyJWT(token, secret);
       expect(verified).toBeNull();
+    });
+
+    it('refuses a correctly signed token that carries no expiry', () => {
+      const part = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
+      const token = (payload: object) => {
+        const signed = `${part({ alg: 'HS256', typ: 'JWT' })}.${part(payload)}`;
+        return `${signed}.${createHmac('sha256', secret).update(signed).digest('base64url')}`;
+      };
+      expect(verifyJWT(token({ userId: 'user-123', exp: Math.floor(Date.now() / 1000) + 60 }), secret)).toMatchObject({ userId: 'user-123' });
+      expect(verifyJWT(token({ userId: 'user-123' }), secret)).toBeNull();
+    });
+  });
+
+  describe('the e2e sign-in', () => {
+    it('signs everyone in only outside production, and production refuses to start with it', () => {
+      expect(signsEveryoneIn({ IS_E2E: 'true' })).toBe(true);
+      expect(signsEveryoneIn({ IS_E2E: 'true', NODE_ENV: 'production' })).toBe(false);
+      expect(e2eProblem({ IS_E2E: 'true', NODE_ENV: 'production' })).toContain('refuses to start');
+      expect(e2eProblem({ IS_E2E: 'true' })).toBeUndefined();
+      expect(e2eProblem({ NODE_ENV: 'production' })).toBeUndefined();
     });
   });
 

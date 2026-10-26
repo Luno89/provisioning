@@ -14,6 +14,8 @@ export interface AccountsStore extends AreaStore {
   getUserById(id: string): Promise<UserMetadata | undefined>;
   deleteUser(id: string): Promise<void>;
   getInvites(): Promise<InviteMetadata[]>;
+  getInviteByCode(code: string): Promise<InviteMetadata | undefined>;
+  claimInvite(code: string, usedBy: string, usedAt: string): Promise<boolean>;
   saveInvite(invite: InviteMetadata): Promise<void>;
 }
 
@@ -46,10 +48,21 @@ export class MongoAccountsStore implements AccountsStore {
 
   async ensureIndexes(): Promise<void> {
     await this.users.createIndex({ email: 1 }, { unique: true });
+    await this.invites.createIndex({ code: 1 });
   }
 
   async getInvites(): Promise<InviteMetadata[]> {
     return (await this.invites.find({}).toArray()).map(doc => fromDoc<InviteMetadata>(doc));
+  }
+
+  async getInviteByCode(code: string): Promise<InviteMetadata | undefined> {
+    const doc = await this.invites.findOne({ code });
+    return doc ? fromDoc<InviteMetadata>(doc) : undefined;
+  }
+
+  async claimInvite(code: string, usedBy: string, usedAt: string): Promise<boolean> {
+    const claimed = await this.invites.updateOne({ code, usedBy: { $exists: false } }, { $set: { usedBy, usedAt } });
+    return claimed.modifiedCount === 1;
   }
 
   async saveInvite(invite: InviteMetadata): Promise<void> {

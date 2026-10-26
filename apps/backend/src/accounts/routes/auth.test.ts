@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import http from 'http';
 import { authRouter } from './auth.js';
@@ -11,12 +11,13 @@ const JWT_SECRET = 'test-secret';
 
 async function serve(db: Database) {
   const auth = createAuth({ db, sessionKey: JWT_SECRET, publicUrl: 'http://localhost:3001' });
+  const authService = new AuthService(db);
   const app = express();
   app.use(express.json());
   app.use('/api', auth.requireAuth);
   app.use('/api/auth', authRouter({
     db,
-    authService: new AuthService(db),
+    authService,
     auth,
     sessionKey: JWT_SECRET,
     publicUrl: 'http://localhost:3001',
@@ -25,7 +26,7 @@ async function serve(db: Database) {
   const server = http.createServer(app);
   await new Promise<void>((r) => server.listen(0, r));
   const port = (server.address() as { port: number }).port;
-  return { server, url: (p: string) => `http://127.0.0.1:${port}${p}` };
+  return { server, authService, url: (p: string) => `http://127.0.0.1:${port}${p}` };
 }
 
 describe('auth router', () => {
@@ -114,6 +115,65 @@ describe('auth router', () => {
     });
     expect(reuse.status).toBe(403);
     expect((await reuse.json() as { error: string }).error).toMatch(/already been used/i);
+  });
+
+  it('lets only one of two sign-ups at the same moment use an invite', async () => {
+    await registerAndLogin('first@example.com', 'hunter2hunter2');
+    await db.accounts.saveInvite({ id: 'inv-once', code: 'ONCE', createdAt: new Date().toISOString() } as never);
+    const signUp = (email: string) => fetch(ctx.url('/api/auth/register'), {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: 'hunter2hunter2', inviteCode: 'ONCE' }),
+    });
+    const both = await Promise.all([signUp('a@example.com'), signUp('b@example.com'), signUp('c@example.com')]);
+    expect(both.map((response) => response.status).sort()).toEqual([200, 403, 403]);
+  });
+
+  it('asks for a code against a signed challenge, ends it after five wrong codes, and never takes the challenge as a session', async () => {
+    const { session } = await registerAndLogin('two@example.com', 'hunter2hunter2');
+    const on = await fetch(ctx.url('/api/auth/2fa/settings'), { method: 'POST', headers: { 'content-type': 'application/json', cookie: session }, body: JSON.stringify({ enabled: true, preferredMethod: 'email' }) });
+    expect(on.status).toBe(200);
+    vi.spyOn(ctx.authService, 'send2FACode').mockResolvedValue(undefined);
+    const issued = vi.spyOn(ctx.authService, 'create2FAChallenge');
+    const signIn = async () => {
+      const answer = await (await fetch(ctx.url('/api/auth/login'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'two@example.com', password: 'hunter2hunter2' }) })).json() as { twoFactorRequired: boolean; challenge: string; userId?: string };
+      return { ...answer, code: issued.mock.results.at(-1)!.value as string };
+    };
+    const verify = (challenge: string, code: string) => fetch(ctx.url('/api/auth/2fa/verify'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ challenge, code }) });
+
+    const first = await signIn();
+    expect(first.twoFactorRequired).toBe(true);
+    expect(first.userId).toBeUndefined();
+    expect((await fetch(ctx.url('/api/auth/me'), { headers: { cookie: `session=${first.challenge}` } })).status).toBe(401);
+    expect((await verify('not-a-challenge', first.code)).status).toBe(400);
+    const wrong = first.code === '000000' ? '111111' : '000000';
+    for (let n = 0; n < 5; n += 1) expect((await verify(first.challenge, wrong)).status).toBe(400);
+    expect((await verify(first.challenge, first.code)).status).toBe(400);
+
+    const second = await signIn();
+    const passed = await verify(second.challenge, second.code);
+    expect(passed.status).toBe(200);
+    expect(passed.headers.get('set-cookie')).toMatch(/^session=/);
+  });
+
+  it('takes a GitHub sign-in back only from the browser that started it', async () => {
+    const was = process.env.GITHUB_CLIENT_ID;
+    delete process.env.GITHUB_CLIENT_ID;
+    try {
+      const started = await fetch(ctx.url('/api/auth/github'), { redirect: 'manual' });
+      const back = new URL(started.headers.get('location')!);
+      const cookie = (started.headers.get('set-cookie') ?? '').split(';')[0]!;
+      expect(cookie).toMatch(/^oauth_state=/);
+      expect(back.searchParams.get('state')).toMatch(/^[\w-]{32}$/);
+
+      const elsewhere = await fetch(ctx.url(`${back.pathname}${back.search}`), { redirect: 'manual' });
+      expect(elsewhere.headers.get('location')).toContain('authError=');
+      expect(elsewhere.headers.get('set-cookie') ?? '').not.toMatch(/session=[^;]/);
+
+      const here = await fetch(ctx.url(`${back.pathname}${back.search}`), { redirect: 'manual', headers: { cookie } });
+      expect(here.headers.get('location')).toBe('http://localhost:5173/');
+      expect(here.headers.get('set-cookie')).toMatch(/session=[^;]/);
+    } finally {
+      if (was !== undefined) process.env.GITHUB_CLIENT_ID = was;
+    }
   });
 
   it('normalises the email on registration so login can find it again', async () => {

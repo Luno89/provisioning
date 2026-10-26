@@ -24,6 +24,7 @@ const mount = async (svc = service(), user: typeof TEST_USER | null = TEST_USER)
       credentialService: svc as never,
       publicUrl: 'https://api.example.com',
       appUrl: 'https://app.example.com',
+      sessionKey: 'test-session-key',
     }),
   });
   return { h: h!, svc };
@@ -82,6 +83,23 @@ describe('provider validation', () => {
       validateStatus: () => true,
     });
     expect(res.status).toBe(302);
+  });
+
+  it('connects Google Drive only to the person who started connecting it', async () => {
+    const was = process.env.GOOGLE_CLIENT_ID;
+    process.env.GOOGLE_CLIENT_ID = 'drive-client';
+    try {
+      const { h, svc } = await mount();
+      const started = await axios.get(h.url('/api/credentials/googledrive/connect'), { maxRedirects: 0, validateStatus: () => true });
+      const state = new URL(String(started.headers.location)).searchParams.get('state');
+      expect(state).toMatch(/^[\w-]{32}$/);
+      expect(String(started.headers['set-cookie'])).toContain('oauth_state=');
+      const forged = await axios.get(h.url(`/api/credentials/googledrive/callback?code=theirs&state=${state}`), { maxRedirects: 0, validateStatus: () => true });
+      expect(forged.headers.location).toBe('https://app.example.com/?driveError=not_started_here#/settings');
+      expect(svc.saveCredentials).not.toHaveBeenCalled();
+    } finally {
+      if (was === undefined) delete process.env.GOOGLE_CLIENT_ID; else process.env.GOOGLE_CLIENT_ID = was;
+    }
   });
 });
 

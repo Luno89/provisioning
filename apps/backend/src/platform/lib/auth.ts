@@ -68,7 +68,7 @@ export function verifyJWT(token: string, key: SecretKey): Record<string, any> | 
     if (![ring.current, ...(ring.previous ?? [])].some((secret) => signatureMatches(secret, signed, signature))) return null;
 
     const payload = base64urlDecode(encodedPayload);
-    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+    if (typeof payload.exp !== 'number' || payload.exp < Math.floor(Date.now() / 1000)) {
       return null;
     }
 
@@ -81,4 +81,13 @@ export function verifyJWT(token: string, key: SecretKey): Record<string, any> | 
 export function generateOTP(): string {
   const val = crypto.randomInt(100000, 1000000);
   return val.toString();
+}
+
+export const signsEveryoneIn = (env: Record<string, string | undefined>): boolean =>
+  env.IS_E2E === 'true' && env.NODE_ENV !== 'production';
+
+export function e2eProblem(env: Record<string, string | undefined>): string | undefined {
+  return env.IS_E2E === 'true' && env.NODE_ENV === 'production'
+    ? 'IS_E2E signs every request in as the first account, so a production server refuses to start with it set'
+    : undefined;
 }

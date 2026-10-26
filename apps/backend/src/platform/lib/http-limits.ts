@@ -40,8 +40,12 @@ export const RATE_LIMITS: readonly RateLimitRule[] = [
   },
 ];
 
-export const ruleFor = (path: string): RateLimitRule | undefined =>
-  RATE_LIMITS.find((rule) => rule.paths.includes(path) || rule.prefixes.some((prefix) => path.startsWith(prefix)));
+const asRouted = (path: string): string => path.toLowerCase().replace(/\/{2,}/g, '/').replace(/(.)\/+$/, '$1');
+
+export const ruleFor = (path: string): RateLimitRule | undefined => {
+  const routed = asRouted(path);
+  return RATE_LIMITS.find((rule) => rule.paths.includes(routed) || rule.prefixes.some((prefix) => routed.startsWith(prefix)));
+};
 
 export interface SignInAttempts {
   failures: number[];

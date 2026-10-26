@@ -1,19 +1,39 @@
-import { BaseService, generateOTP, type UserMetadata } from '../../platform/index.js';
+import { BaseService, generateOTP, type Database, type MailMessage, type UserMetadata } from '../../platform/index.js';
+import { timingSafeEqual } from 'node:crypto';
 import https from 'https';
 
 interface Challenge {
   code: string;
   expiresAt: number;
+  wrong: number;
 }
+
+export const WRONG_CODES_ALLOWED = 5;
+
+export interface CodeMail {
+  available(): { ok: true } | { ok: false; why: string };
+  toAddress(to: string, message: MailMessage): Promise<void>;
+}
+
+const sameCode = (expected: string, given: string): boolean => {
+  const a = Buffer.from(expected);
+  const b = Buffer.from(given);
+  return a.length === b.length && timingSafeEqual(a, b);
+};
 
 export class AuthService extends BaseService {
   private activeChallenges: Map<string, Challenge> = new Map();
+
+  constructor(db: Database, private readonly options: { mail?: CodeMail | undefined; production?: boolean | undefined } = {}) {
+    super(db);
+  }
 
   create2FAChallenge(userId: string): string {
     const code = generateOTP();
     this.activeChallenges.set(userId, {
       code,
       expiresAt: Date.now() + 5 * 60 * 1000,
+      wrong: 0,
     });
     return code;
   }
@@ -27,12 +47,30 @@ export class AuthService extends BaseService {
       return false;
     }
 
-    if (challenge.code !== code.trim()) {
+    if (!sameCode(challenge.code, code.trim())) {
+      challenge.wrong += 1;
+      if (challenge.wrong >= WRONG_CODES_ALLOWED) this.activeChallenges.delete(userId);
       return false;
     }
 
     this.activeChallenges.delete(userId);
     return true;
+  }
+
+  private shownToDeveloper(where: string, code: string): void {
+    if (this.options.production) throw new Error(`a sign-in code cannot be sent ${where}`);
+    this.logger.warn(`[DEVELOPER 2FA ALERT] ${where}: Code is ${code}`);
+  }
+
+  sendingProblem(method: string | undefined): string | undefined {
+    if (!this.options.production) return undefined;
+    if (method === 'sms') {
+      return process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER
+        ? undefined
+        : 'sign-in codes by SMS need Twilio, which this server does not have set up';
+    }
+    const sending = this.options.mail?.available();
+    return sending?.ok ? undefined : `sign-in codes by email need this server to send email, and ${sending ? (sending as { why: string }).why : 'it sends none'}`;
   }
 
   async send2FACode(user: UserMetadata, code: string): Promise<void> {
@@ -49,14 +87,21 @@ export class AuthService extends BaseService {
       const fromPhone = process.env.TWILIO_PHONE_NUMBER;
 
       if (accountSid && authToken && fromPhone) {
-        this.logger.info(`[AuthService] Sending Twilio SMS 2FA to ${phone}...`);
-        await this.sendTwilioSMS(accountSid, authToken, fromPhone, phone, `Your Provisioning Platform verification code is: ${code}`);
+        this.logger.info('[AuthService] Sending a 2FA code by Twilio SMS');
+        await this.sendTwilioSMS(accountSid, authToken, fromPhone, phone, `Your Koala sign-in code is: ${code}`);
       } else {
-        this.logger.warn(`[DEVELOPER 2FA ALERT] SMS 2FA to ${phone}: Code is ${code}`);
+        this.shownToDeveloper(`by SMS to ${phone}, since Twilio is not set up`, code);
       }
-    } else {
-      this.logger.warn(`[DEVELOPER 2FA ALERT] Email 2FA to ${user.email}: Code is ${code}`);
+      return;
     }
+
+    const mail = this.options.mail;
+    const sending = mail?.available();
+    if (mail && sending?.ok) {
+      await mail.toAddress(user.email, { subject: 'Your Koala sign-in code', text: `Your Koala sign-in code is ${code}. It works for five minutes.` });
+      return;
+    }
+    this.shownToDeveloper(`by email to ${user.email}, since ${sending && !sending.ok ? sending.why : 'this server sends no email'}`, code);
   }
 
   private sendTwilioSMS(

@@ -4,7 +4,7 @@ import { spawn } from 'child_process';
 import type { Server as SocketServer } from 'socket.io';
 import {
   sharedPayloadBlobs, type Database, type Keyring, type SecretKey, type UserMetadata, servesTenants,
-  type RoleConfig, ownsProject, type createAuth,
+  type RoleConfig, ownsProject, type createAuth, signsEveryoneIn,
 } from '../../platform/index.js';
 import { findDeviceByToken, registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
 import { machinePayloads, type GetAnswer, type PutAnswer, type RingAnswer } from '../lib/machine-payloads.js';
@@ -33,7 +33,7 @@ export interface SocketsWiringDeps {
 export function wireSockets(deps: SocketsWiringDeps): void {
   const { io, db, role, env, payloadKey, dataKey, clusters, apps, infra } = deps;
   io.use(async (socket, next) => {
-    if (env.IS_E2E === 'true') {
+    if (signsEveryoneIn(env)) {
       const users = await db.accounts.getUsers();
       socket.data.user = users[0] || { id: 'test-user-id', email: 'test@example.com' };
       return next();

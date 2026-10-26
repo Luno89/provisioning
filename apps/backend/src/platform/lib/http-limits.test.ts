@@ -8,6 +8,9 @@ describe('which public paths are rate limited', () => {
     expect(ruleFor('/machines/join')?.name).toBe('joining');
     expect(ruleFor('/hub/invitations/abc/accept')?.name).toBe('joining');
     expect(ruleFor('/share/tok')?.name).toBe('share-links');
+    expect(ruleFor('/AUTH/2fa/Verify/')?.name).toBe('sign-in');
+    expect(ruleFor('/auth//login')?.name).toBe('sign-in');
+    expect(ruleFor('/Share/Tok')?.name).toBe('share-links');
     expect(ruleFor('/projects')).toBeUndefined();
     expect(ruleFor('/conversations/x/messages')).toBeUndefined();
   });

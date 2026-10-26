@@ -15,7 +15,7 @@ export default function Login({ onSuccess, invite }: LoginProps) {
   const [inviteCode, setInviteCode] = useState(invite?.code ?? '');
   
   const [twoFactorRequired, setTwoFactorRequired] = useState(false);
-  const [userId, setUserId] = useState('');
+  const [challenge, setChallenge] = useState('');
   const [otpCode, setOtpCode] = useState('');
   
   const [error, setError] = useState('');
@@ -53,7 +53,7 @@ export default function Login({ onSuccess, invite }: LoginProps) {
       } else {
         if (data.twoFactorRequired) {
           setTwoFactorRequired(true);
-          setUserId(data.userId ?? '');
+          setChallenge(data.challenge ?? '');
         } else if (data.user) {
           onSuccess(data.user);
         }
@@ -71,7 +71,7 @@ export default function Login({ onSuccess, invite }: LoginProps) {
     setLoading(true);
 
     try {
-      const data: LoginResult = await verifyTwoFactor({ userId, code: otpCode });
+      const data: LoginResult = await verifyTwoFactor({ challenge, code: otpCode });
       if (data.user) {
         onSuccess(data.user);
       }
