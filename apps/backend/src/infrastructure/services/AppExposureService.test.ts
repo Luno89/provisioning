@@ -205,6 +205,17 @@ describe('buildUpstreamTarget', () => {
     expect(r.backendTarget).toBe('10.0.0.5:32080');
   });
 
+  it('reads a database word in the app\'s own name as the name, not as a database', async () => {
+    mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
+    mockRunKubectl.mockResolvedValueOnce(JSON.stringify({ items: [
+      { metadata: { name: 'shop-db650n-postgres' }, spec: { ports: [{ port: 5432 }] } },
+      { metadata: { name: 'shop-db650n-a' }, spec: { type: 'NodePort', ports: [{ port: 8069, nodePort: 31302 }] } },
+    ] })).mockResolvedValueOnce(traefikSvcJson);
+    mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
+    const r = await (createService() as any).buildUpstreamTarget({ ...dep, name: 'shop', namespace: 'shop-db650n' }, cluster);
+    expect(r.namespace).toBe('shop-db650n');
+  });
+
   it('throws when no web services', async () => {
     mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
     mockRunKubectl.mockResolvedValue(JSON.stringify({ items: [] }));

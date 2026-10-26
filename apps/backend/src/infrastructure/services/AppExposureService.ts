@@ -69,7 +69,9 @@ export class AppExposureService extends BaseService {
     const dbPorts = [5432, 3306, 6379, 27017, 11211, 8086, 9042, 9200];
 
     const candidateServices = services.filter((svc: any) => {
-      const name = svc.metadata?.name?.toLowerCase() || '';
+      const full = svc.metadata?.name?.toLowerCase() || '';
+      const owned = [namespace, dep.name.toLowerCase()].find((prefix) => full.startsWith(prefix));
+      const name = owned ? full.slice(owned.length) : full;
       if (dbKeywords.some(kw => name.includes(kw))) return false;
       const ports = svc.spec?.ports || [];
       if (ports.length === 0) return false;
