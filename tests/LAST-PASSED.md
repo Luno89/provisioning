@@ -4,16 +4,16 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 
 | Script | Last passed | Last failed |
 |---|---|---|
-| `account-removal-live` | 2026-10-25 01:03 | 2026-10-24 05:47 |
-| `app-names-live` | 2026-10-25 01:06 | 2026-10-22 21:33 |
-| `checks-live` | 2026-10-25 02:22 | — |
-| `files-live` | 2026-10-25 01:08 | — |
-| `hub-live` | 2026-10-25 01:03 | 2026-10-24 18:21 |
+| `account-removal-live` | 2026-10-25 23:39 | 2026-10-24 05:47 |
+| `app-names-live` | 2026-10-25 23:43 | 2026-10-22 21:33 |
+| `checks-live` | 2026-10-26 00:54 | 2026-10-25 20:28 |
+| `files-live` | 2026-10-25 23:45 | — |
+| `hub-live` | 2026-10-25 23:40 | 2026-10-24 18:21 |
 | `infra-integration` | 2026-10-24 14:25 | 2026-10-24 14:12 |
 | `mail-live` | 2026-10-24 14:09 | — |
-| `odoo-release-live` | 2026-10-25 01:38 | 2026-10-22 20:22 |
-| `project-sharing-live` | 2026-10-25 01:03 | 2026-10-22 13:53 |
+| `odoo-release-live` | 2026-10-26 00:11 | 2026-10-25 18:33 |
+| `project-sharing-live` | 2026-10-25 23:40 | 2026-10-22 13:53 |
 | `release-live` | 2026-10-24 18:17 | 2026-10-24 17:42 |
-| `routes-live` | 2026-10-25 01:03 | 2026-10-24 05:15 |
+| `routes-live` | 2026-10-25 23:39 | 2026-10-24 05:15 |
 | `routing-live` | 2026-10-22 20:29 | 2026-10-22 20:20 |
-| `telemetry-live` | 2026-10-25 01:04 | — |
+| `telemetry-live` | 2026-10-25 23:41 | — |
