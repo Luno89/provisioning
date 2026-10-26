@@ -181,6 +181,18 @@ async function main(): Promise<void> {
   await sh(root, `sudo env ROOT_TLS=internal DOMAIN=${DOMAIN} PUBLIC_URL=${ROOT_URL} bash ${REPO_DIR}/scripts/root-node/bootstrap.sh`, true);
   note(`bootstrap.sh finished in ${minutes(bootstrapped)}`);
   writeFileSync(join(work, 'ca.crt'), await sh(root, 'sudo cat /usr/local/share/ca-certificates/koala-lab.crt'));
+  const hardened = await sh(root, [
+    'sysctl -n net.ipv4.conf.all.accept_redirects kernel.kptr_restrict kernel.dmesg_restrict fs.protected_symlinks',
+    'sudo sshd -T | grep -E "^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication|allowusers) "',
+    'sudo docker info --format "{{.LoggingDriver}} {{.LiveRestoreEnabled}} {{json .SecurityOptions}}"',
+    'apt-config dump | grep -E "^APT::Periodic::Unattended-Upgrade "',
+    'sudo stat -c %a /var/lib/rancher/k3s-provisioning-lunorica/kubeconfig.yaml',
+    'test -d /var/log/journal && echo journal-kept',
+  ].join(' && '));
+  for (const line of ['0\n2\n1\n1', 'permitrootlogin no', 'passwordauthentication no', 'kbdinteractiveauthentication no', 'allowusers ubuntu', 'local true', 'no-new-privileges', 'APT::Periodic::Unattended-Upgrade "1";', '\n600\n', 'journal-kept']) {
+    assert.ok(hardened.includes(line), `root's hardening is missing ${JSON.stringify(line)}:\n${hardened}`);
+  }
+  note('root keeps its hardening: no redirects, kernel pointers and dmesg hidden, SSH by key for ubuntu only, Docker without new privileges and with rotating logs, daily security updates, a private kubeconfig and a kept journal');
 
   step(`root's registry is given the ${PREVIOUS_REF} image, and release-watch.sh, as npm run release runs it over SSH, moves root onto ${PREVIOUS_REF} with the real update.sh`);
   const saved = spawn('docker', ['save', `${IMAGE_REPO}:${previousTag}`], { stdio: ['ignore', 'pipe', 'inherit'] });
@@ -252,6 +264,27 @@ async function main(): Promise<void> {
   let cookie = handoff();
   const onInstance = (path: string, init: { method?: string; body?: unknown } = {}) => https(instanceHost, path, { ...init, cookie });
   note('signing in at root lands on the instance');
+
+  step('from the network, root answers only on SSH, HTTP, HTTPS and the two ports the lab opens itself');
+  const scanner = Buffer.from([
+    'import asyncio, sys',
+    'async def probe(port, gate):',
+    '    async with gate:',
+    '        try:',
+    '            _, writer = await asyncio.wait_for(asyncio.open_connection(sys.argv[1], port), 1.0)',
+    '            writer.close()',
+    '            return port',
+    '        except Exception:',
+    '            return None',
+    'async def scan():',
+    '    gate = asyncio.Semaphore(1000)',
+    '    found = await asyncio.gather(*(probe(port, gate) for port in range(1, 65536)))',
+    '    print(" ".join(str(port) for port in found if port))',
+    'asyncio.run(scan())',
+  ].join('\n')).toString('base64');
+  const answering = (await sh(instance, `echo ${scanner} | base64 -d > /tmp/scan.py && python3 /tmp/scan.py ${ROOT_LAN}`)).trim().split(/\s+/).map(Number);
+  assert.deepEqual(answering, [22, 53, 80, 443, ROOT_PORT].sort((a, b) => a - b), `root answers on ${answering.join(', ')}`);
+  note(`every TCP port of root scanned from the instance: only ${answering.join(', ')} answer, the cluster's NodePorts, Mongo, Temporal, Headscale and k3s among the closed`);
 
   step('the instance holds a project with a repository, a deployed app at its address through root, and runs code in a sandbox');
   const project = json<{ id: string }>(onInstance('/api/projects', { method: 'POST', body: { name: 'Rehearsal', giteaRepo: `rehearsal-${NAME}`, createRepo: true } }));

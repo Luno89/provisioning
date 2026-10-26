@@ -78,7 +78,7 @@ native_k3s_install() {
         --data-dir "${data_dir}" \
         --write-kubeconfig "${kubeconfig}" \
         --write-kubeconfig-mode "${K3S_KUBECONFIG_MODE:-644}" \
-        --disable=traefik,servicelb; then
+        --disable=traefik,servicelb ${K3S_SERVER_ARGS:-}; then
     rm -f "$installer"
     echo "  ✅ native k3s installed (inactive — started on demand)"
   else

@@ -227,6 +227,13 @@ if [ "$NEW_COMMIT" = "$PREVIOUS_COMMIT" ]; then
 fi
 ok "Now on ${NEW_COMMIT:0:12} ($(git log -1 --format=%s | cut -c1-60))"
 
+step "Keeping the host's settings"
+if [ -f scripts/root-node/harden-host.sh ]; then
+  LAB="$LAB" bash scripts/root-node/harden-host.sh
+else
+  warn "this release predates harden-host.sh, so the host keeps the settings it has"
+fi
+
 # ── 5. Build and verify BEFORE restarting ──────────────────────────────────────────────────────
 # The point of ordering it this way: a build or type error should leave the running service
 # untouched. Restarting first and discovering the problem afterwards means downtime for a fault we

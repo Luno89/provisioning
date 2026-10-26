@@ -179,6 +179,9 @@ npm ci --ignore-scripts && node scripts/fix-dnd-kit-hoisting.js
 npm run build
 ok "Frontend built"
 
+step "Hardening the host"
+LAB="$LAB" bash "$REPO_DIR/scripts/root-node/harden-host.sh" --fresh
+
 # ── 4. Secrets ─────────────────────────────────────────────────────────────────────────────────
 # The four platform keys are generated ONCE. DATA_KEY encrypts every stored credential, so losing or
 # regenerating it on a host that already has data makes them permanently undecryptable — copy the
@@ -342,7 +345,7 @@ npx tsx apps/backend/src/scripts/seed-all.ts
 ok "Catalogues seeded"
 
 step "Creating the management cluster"
-K3S_KUBECONFIG_MODE=600 bash scripts/cluster.sh install provisioning-lunorica || die "native k3s could not be installed"
+K3S_KUBECONFIG_MODE=600 K3S_SERVER_ARGS="--kube-proxy-arg=nodeport-addresses=127.0.0.1/32,${ROOT_MESH_IP}/32" bash scripts/cluster.sh install provisioning-lunorica || die "native k3s could not be installed"
 bash scripts/cluster.sh create provisioning-lunorica || die "the management cluster did not come up"
 KOALA_ROOT_NODE=1 bash scripts/ensure-cluster.sh || warn "ensure-cluster.sh reported a problem — check before provisioning"
 
