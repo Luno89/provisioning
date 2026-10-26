@@ -397,7 +397,7 @@ machine" with `GET /api/instances/name-check`). With `INGRESS_DOMAIN` set, root'
 instance in service (`inService` in `instances/lib/instances.ts`: ready, or ready once, which the store stamps as `servedAt`,
 and now upgrading itself or back from a failed upgrade it rolled back; sign-in through root follows the same rule, so a
 self-upgrade never takes a person's addresses or sign-in away) from its record (name, `meshIp` from the installer's reports) into `data/caddy/instances/` and
-`data/caddy/instance-sites/` and reloads Caddy: `<name>.<domain>` → the instance's backend over the mesh (`:30320`), and
+`data/caddy/instance-sites/` and reloads Caddy (a reload that fails is tried again on every pass until one succeeds, and the first pass after a start always reloads): `<name>.<domain>` → the instance's backend over the mesh (`:30320`), and
 `<app>-<name>.<domain>` → its **edge** (`:30321`), a Caddy beside the instance's backend that serves the apps it publishes
 (`AppExposureService` in edge mode writes the same per-app blocks, plain http, and reloads it through its admin API; an app on
 the instance's own k3s is reached through that cluster's Traefik by service name). Root also routes `<app>-<group>.<domain>`

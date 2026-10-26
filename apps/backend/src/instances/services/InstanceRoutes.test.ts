@@ -44,6 +44,25 @@ describe('root\'s routes to instances', () => {
     expect(reloads).toBe(2);
   });
 
+  it('reloads again on every pass after a reload fails, though the files no longer change, and once on starting', async () => {
+    await db.instances.saveInstance(record({}));
+    let refusing = true;
+    const attempts: boolean[] = [];
+    const flaky = new InstanceRoutes(db.instances, 'koala.dev', dir, {
+      reload: async () => { attempts.push(refusing); if (refusing) throw new Error('Caddy is restarting'); },
+      certificateFor: async () => undefined,
+      recentLog: async () => '',
+    });
+    await expect(flaky.sync()).rejects.toThrow('Caddy is restarting');
+    await expect(flaky.sync()).rejects.toThrow('Caddy is restarting');
+    refusing = false;
+    await flaky.sync();
+    await flaky.sync();
+    expect(attempts).toEqual([true, true, false]);
+    await routes.sync();
+    expect(reloads).toBe(1);
+  });
+
   it('marks nested addresses ready once Caddy serves their certificate, and says why while it does not', async () => {
     await db.instances.saveInstance(record({ addresses: { nested: true, state: 'issuing' } }));
     log = JSON.stringify({ level: 'error', identifier: '*.luno.koala.dev', error: 'rateLimited: too many certificates' });

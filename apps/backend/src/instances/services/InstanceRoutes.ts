@@ -95,6 +95,7 @@ export class InstanceRoutes {
   private timer: NodeJS.Timeout | undefined;
   private running: Promise<void> | undefined;
   private again = false;
+  private reloadOwed = true;
 
   constructor(
     private readonly store: Store,
@@ -157,7 +158,11 @@ export class InstanceRoutes {
     const wanted = wantedRoutes(records, this.domain);
     const handles = await this.write('instances', wanted.handles);
     const sites = await this.write('instance-sites', wanted.sites);
-    if (handles || sites) await this.caddy.reload();
+    if (handles || sites) this.reloadOwed = true;
+    if (this.reloadOwed) {
+      await this.caddy.reload();
+      this.reloadOwed = false;
+    }
 
     const issuing = records.filter((record) => record.name && record.addresses?.nested && record.addresses.state === 'issuing' && wanted.sites.has(`${record.name}.caddy`));
     if (issuing.length === 0) return;
