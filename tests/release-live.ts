@@ -162,9 +162,9 @@ async function main(): Promise<void> {
   run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', 'the release rehearsal\'s throwaway key', '-f', labKey]);
   const signing = ['-c', 'gpg.format=ssh', '-c', `user.signingkey=${labKey}`];
   const previousMessage = run('git', ['tag', '--list', '--format=%(contents:subject)%0a%0a%(contents:body)', PREVIOUS_REF]).trim();
-  const tags = join(work, 'tags.git');
-  run('git', ['clone', '-q', '--bare', '--local', REPO, tags]);
-  const inTags = (args: string[], env: Record<string, string> = {}) => run('git', ['-C', tags, ...args], env);
+  const tagClone = join(work, 'tags.git');
+  run('git', ['clone', '-q', '--bare', '--local', REPO, tagClone]);
+  const inTags = (args: string[], env: Record<string, string> = {}) => run('git', ['-C', tagClone, ...args], env);
   inTags(['tag', '-d', PREVIOUS_REF]);
   inTags([...signing, 'tag', '-s', PREVIOUS_REF, previous, '-m', previousMessage]);
   inTags([...signing, 'tag', '-s', CANDIDATE_REF, candidate, '-m', `${CANDIDATE_REF}\n\nShipped and released from ${candidateTag} after ${PREVIOUS_REF}: the release rehearsal's own tag, signed by its throwaway key.`]);
