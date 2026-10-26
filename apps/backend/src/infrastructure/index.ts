@@ -15,7 +15,7 @@ export { isMockCloudProvider, isSelfManagedCluster } from './lib/cluster-topolog
 export { hasCloudCredentials } from './lib/credential-resolver.js';
 export { declareDependency } from './lib/declare-dependency.js';
 export { deploymentIdFor } from './lib/deployment-id.js';
-export { validateLocalEgressRules } from './lib/egress-rules.js';
+export { egressReachProblem, validateLocalEgressRules } from './lib/egress-rules.js';
 export { parseQuantity, planHostMemory } from './lib/host-memory-plan.js';
 export type { HostMemoryPlan } from './lib/host-memory-plan.js';
 export { downloadHfFiles, getHfModelFiles, getHfModelSize } from './lib/huggingface.js';

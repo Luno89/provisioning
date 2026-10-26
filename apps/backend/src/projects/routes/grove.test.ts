@@ -27,7 +27,7 @@ describe('the tree-type catalogue', () => {
   it('serves the seeded catalogue to every user', async () => {
     h = await mountRouter({
       prefix: '/api/tree-types',
-      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
+      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS, ownNamespaces: async () => new Set(['shop-1a2b3c']) }),
     });
     // Setup seeds; the route no longer does it lazily on read.
     await seedTreeTypes(h.db.projects);
@@ -42,7 +42,7 @@ describe('the tree-type catalogue', () => {
     h = await mountRouter({
       prefix: '/api/tree-types',
       user: null,
-      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
+      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS, ownNamespaces: async () => new Set(['shop-1a2b3c']) }),
     });
     await expect(axios.get(h.url('/api/tree-types'))).rejects.toMatchObject({
       response: { status: 401 },
@@ -52,7 +52,7 @@ describe('the tree-type catalogue', () => {
   it('does not list a built-in type twice after the user edits it', async () => {
     h = await mountRouter({
       prefix: '/api/tree-types',
-      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
+      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS, ownNamespaces: async () => new Set(['shop-1a2b3c']) }),
     });
     await seedTreeTypes(h.db.projects);
     await seedWorkspaceImages(h.db.engine);
@@ -70,10 +70,25 @@ describe('the tree-type catalogue', () => {
     expect(matches[0]?.ownerId).toBe(TEST_USER.id);
   });
 
+  it('saves a network rule to one of the person\'s apps, and refuses one to Koala\'s own services or an internal address', async () => {
+    h = await mountRouter({
+      prefix: '/api/tree-types',
+      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS, ownNamespaces: async () => new Set(['shop-1a2b3c']) }),
+    });
+    await seedTreeTypes(h.db.projects);
+    await seedWorkspaceImages(h.db.engine);
+    const harness = h;
+    const target = ((await axios.get(harness.url('/api/tree-types'))).data as { id: string }[]).find((t) => t.id === 'mcp-server')!;
+    const put = (egress: unknown) => axios.put(harness.url(`/api/tree-types/${target.id}`), { ...target, egress }, { validateStatus: () => true });
+    expect((await put([{ namespace: 'shop-1a2b3c', ports: [80] }])).status).toBe(200);
+    expect((await put([{ namespace: 'gitea', ports: [3000] }])).data.error).toContain('"gitea" is not one of your apps\' namespaces');
+    expect((await put([{ cidr: '192.168.1.0/24' }])).data.error).toContain('inside 192.168.0.0/16, an internal range');
+  });
+
   it('keeps the agent a type names to grow its trees, and refuses one that is not an agent', async () => {
     h = await mountRouter({
       prefix: '/api/tree-types',
-      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
+      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS, ownNamespaces: async () => new Set(['shop-1a2b3c']) }),
     });
     await seedTreeTypes(h.db.projects);
     await seedWorkspaceImages(h.db.engine);
@@ -90,7 +105,7 @@ describe('the tree-type catalogue', () => {
   it('deletes a person\'s copy of a shipped type even while trees use it, since they fall back to the shipped one', async () => {
     h = await mountRouter({
       prefix: '/api/tree-types',
-      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
+      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS, ownNamespaces: async () => new Set(['shop-1a2b3c']) }),
     });
     await seedTreeTypes(h.db.projects);
     await seedWorkspaceImages(h.db.engine);
@@ -107,7 +122,7 @@ describe('the tree-type catalogue', () => {
   it('refuses to delete a type of a person\'s own that trees still use', async () => {
     h = await mountRouter({
       prefix: '/api/tree-types',
-      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
+      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS, ownNamespaces: async () => new Set(['shop-1a2b3c']) }),
     });
     await seedTreeTypes(h.db.projects);
     await seedWorkspaceImages(h.db.engine);
@@ -213,7 +228,7 @@ describe('a tree type\'s description', () => {
   it('is served for a person\'s type, and not for one they do not have', async () => {
     h = await mountRouter({
       prefix: '/api/tree-types',
-      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS, describe: async (_ownerId, typeId) => (typeId === 'odoo-addons' ? 'Odoo addons (odoo-addons): …' : undefined) }),
+      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS, ownNamespaces: async () => new Set(['shop-1a2b3c']), describe: async (_ownerId, typeId) => (typeId === 'odoo-addons' ? 'Odoo addons (odoo-addons): …' : undefined) }),
     });
     expect((await axios.get(h.url('/api/tree-types/odoo-addons/description'))).data).toEqual({ text: 'Odoo addons (odoo-addons): …' });
     expect((await axios.get(h.url('/api/tree-types/nope/description'), { validateStatus: () => true })).status).toBe(404);

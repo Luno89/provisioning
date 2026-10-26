@@ -696,10 +696,10 @@ export const PROBE_FILES: Record<string, string> = {
 const odooModule: Scenario = {
   id: 'mechanics-odoo-module',
   name: 'An Odoo module is built and checked in its own Odoo',
-  describe: 'Mechanics, on a script: a plan for an Odoo addons tree is approved; the tree starts from the Odoo scaffold in an Odoo 20 workspace with its own Postgres and a browser; a leaf writes a module, its task checks install it into a throwaway database and run its tests, lint the chart, run its browser tests against a throwaway Odoo in Chromium, and read its description, longer than one command\'s output, to its last line; the workspace also has the value and the network rule its tree type gives it; and it lands on main.',
+  describe: 'Mechanics, on a script: a plan for an Odoo addons tree is approved; the tree starts from the Odoo scaffold in an Odoo 20 workspace with its own Postgres and a browser; a leaf writes a module, its task checks install it into a throwaway database and run its tests, lint the chart, run its browser tests against a throwaway Odoo in Chromium, and read its description, longer than one command\'s output, to its last line; the workspace also has the value its tree type gives it, reaches the app the type depends on, and cannot reach Gitea; and it lands on main.',
   agent: 'planner',
   procedure: { id: 'planning' },
-  world: { treeTypes: { [ODOO_TREE_TYPE]: { env: [{ name: 'KOALA_TREE_CHECK', value: 'from the tree type' }], egress: [{ namespace: 'gitea', ports: [3000] }] } } },
+  world: { apps: [{ name: 'books', appType: 'audiobookshelf' }], treeTypes: { [ODOO_TREE_TYPE]: { env: [{ name: 'KOALA_TREE_CHECK', value: 'from the tree type' }], defaultBindings: ['books'] } } },
   input: { message: 'Plan the Odoo check tree.', inputs: { goal: 'odoo check' } },
   script: { rules: [
     { when: { offered: ['propose_plan'], notCalled: ['propose_plan'] }, reply: { call: [{ tool: 'propose_plan', arguments: {
@@ -711,7 +711,7 @@ const odooModule: Scenario = {
           { key: 'write', title: 'Write the koala_probe module', description: 'Write koala_probe under addons/ with a model and a test.', role: 'The leaf.', doneMeans: 'odoo-check says PASSED for koala_probe', checks: { command: `odoo-check ${PROBE} addons`, expects: ['odoo-check: PASSED'] } },
           { key: 'chart', title: 'Check the deployment chart', description: 'Lint deploy/chart.', role: 'The leaf.', doneMeans: 'the chart lints clean', dependsOn: ['write'], checks: { command: 'helm lint deploy/chart', expects: ['1 chart(s) linted, 0 chart(s) failed'] } },
           { key: 'browser', title: 'Check it in a browser', description: 'Run the browser tests against an Odoo with the module.', role: 'The leaf.', doneMeans: 'its browser tests pass', dependsOn: ['write'], checks: { e2e: { specs: ['e2e'] } } },
-          { key: 'type', title: 'Check what the tree type gives its workspace', description: 'Nothing to write: the checks read the workspace.', role: 'The leaf.', doneMeans: 'the type\'s value and network rule reach the workspace', dependsOn: ['write'], checks: { command: 'echo "value: $KOALA_TREE_CHECK"; curl -s -o /dev/null -w "gitea answers %{http_code}" --max-time 10 http://gitea-http.gitea.svc:3000/', expects: ['value: from the tree type', 'gitea answers 200'] } },
+          { key: 'type', title: 'Check what the tree type gives its workspace', description: 'Nothing to write: the checks read the workspace.', role: 'The leaf.', doneMeans: 'the type\'s value and network rule reach the workspace', dependsOn: ['write'], checks: { command: 'echo "value: $KOALA_TREE_CHECK"; curl -s -o /dev/null --max-time 10 http://audiobookshelf.{{world.namespaces.books}}.svc/ && echo "books answers"; curl -s -o /dev/null --max-time 5 http://gitea-http.gitea.svc:3000/ || echo "gitea stays closed"', expects: ['value: from the tree type', 'books answers', 'gitea stays closed'] } },
           { key: 'description', title: 'Describe the module', description: 'Give it a description page.', role: 'The leaf.', doneMeans: 'the description reads to its end', dependsOn: ['write'], checks: { contentPath: `addons/${PROBE}/static/description/index.html`, contentPattern: 'koala_probe ends here' } },
         ],
       }] }],

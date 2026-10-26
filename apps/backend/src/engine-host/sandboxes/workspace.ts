@@ -1,6 +1,7 @@
 import { BYPASS_ENV, type EgressMode } from '@koala/agent-engine';
 import { WORKSPACE_STAMP, workspaceStamp } from '../../engine/lib/published-workspace.js';
 import { POD_PULL_SECRETS, REGISTRY_PULL_SECRET, registryPullSecret, type RegistryLogin } from '../../instances/lib/registry-pull.js';
+import { publicIpBlock } from '../../infrastructure/lib/egress-rules.js';
 
 export type EgressRule =
   | { cidr: string; namespace?: undefined; ports?: number[] }
@@ -177,9 +178,9 @@ export function buildManifests(workspace: RunWorkspace, pull?: RegistryLogin | u
           { ports: [{ protocol: 'UDP', port: 53 }, { protocol: 'TCP', port: 53 }] },
           ...workspace.egress.map((rule) => ({
             to: [
-              rule.namespace
+              rule.cidr === undefined
                 ? { namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': rule.namespace } } }
-                : { ipBlock: { cidr: rule.cidr } },
+                : publicIpBlock(rule.cidr),
             ],
             ...(rule.ports?.length ? { ports: rule.ports.map((port) => ({ protocol: 'TCP', port })) } : {}),
           })),

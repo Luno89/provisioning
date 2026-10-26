@@ -26,6 +26,8 @@ data:
     auth_param basic realm koala-egress
     acl CONNECT method CONNECT
     acl https port 443
+    acl internal dst 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/4 240.0.0.0/4 ::1 fc00::/7 fe80::/10
+    http_access deny internal
     acl registries dstdomain .npmjs.org pypi.org files.pythonhosted.org proxy.golang.org sum.golang.org
     http_access allow CONNECT https registries
     include /etc/squid/grants/acls.conf

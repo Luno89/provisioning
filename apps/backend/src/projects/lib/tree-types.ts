@@ -4,7 +4,7 @@ import { DEFAULT_WORKSPACE_LANGUAGE, type WorkspaceImageSpec } from '../../engin
 import type { PersonaEgressRule } from '@koala/harness-types';
 import { TREE_TYPE_SEEDS as TREE_TYPE_SEEDS_VALUE } from './tree-type-seeds.js';
 import { sameSeededRow } from '../../platform/lib/seed-diff.js';
-import { validateEgressRules } from '../../infrastructure/lib/egress-rules.js';
+import { egressReachProblem, validateEgressRules } from '../../infrastructure/lib/egress-rules.js';
 import { releasePathsProblem } from '../../releases/lib/release-paths.js';
 import { releaseHowProblem, type ReleaseHow } from '../../releases/lib/release-run.js';
 import { DECLARED_SOURCES, descriptionProblem, keyProblem, type DeclaredSource } from './secret-requests.js';
@@ -266,17 +266,28 @@ export function dependencyNamespaceFrom(store: {
   };
 }
 
+export function ownNamespacesFrom(store: {
+  getDeployments(): Promise<{ ownerId?: string | undefined; name: string; namespace?: string | undefined }[]>;
+}): (ownerId: string) => Promise<ReadonlySet<string>> {
+  return async (ownerId) => new Set((await store.getDeployments())
+    .filter((entry) => entry.ownerId === ownerId)
+    .map((entry) => entry.namespace || sanitiseNamespaceName(entry.name)));
+}
+
 export function treeExtrasFrom(
   store: {
     getTrees(): Promise<{ id: string; ownerId?: string | undefined; type?: string | undefined }[]>;
     getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
   },
   namespaceOf: (ownerId: string, service: string) => Promise<string | undefined>,
+  ownNamespaces: (ownerId: string) => Promise<ReadonlySet<string>>,
 ): (ownerId: string, treeId: string) => Promise<TreeWorkspaceExtras | undefined> {
   return async (ownerId, treeId) => {
     const tree = (await store.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
     const type = await resolveTreeType(store, ownerId, tree?.type);
     if (!type) return undefined;
+    const refused = type.egress?.length ? egressReachProblem(type.egress, await ownNamespaces(ownerId)) : undefined;
+    if (refused) throw new Error(`the tree type ${type.id} opens a network rule its workspace may not have: ${refused}`);
     const ports = (rule: { ports?: number[] | undefined }) => (rule.ports?.length ? { ports: [...rule.ports] } : {});
     const own = (type.egress ?? []).flatMap((rule): TreeWorkspaceExtras['egress'] => (rule.cidr
       ? [{ cidr: rule.cidr, ...ports(rule) }]

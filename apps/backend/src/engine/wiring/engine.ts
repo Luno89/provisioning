@@ -18,7 +18,7 @@ import { restoringApp, type wireReleases } from '../../releases/index.js';
 import { hostedMcpUrl } from '../lib/mcp-hosted-url.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
 import {
-  treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, TreeTypeDescriptions,
+  treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, TreeTypeDescriptions,
   type GiteaService, type ProjectRepoService, treeTypesRouter,
 } from '../../projects/index.js';
 import { type RunningRecords, type WorkFailureService, type TemporalBridge, bindingTypesRouter } from '../../infrastructure/index.js';
@@ -295,7 +295,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     writeRepoFile: (ownerId, repo, path, content, message, branch) => projectRepos.putDocument(ownerId, repo, path, content, message, branch),
     workspaceBuild: (ownerId, treeId, commit) => workspaceBuilds.start(ownerId, treeId, commit),
     treeLanguage: treeLanguageFrom(db.projects),
-    treeExtras: treeExtrasFrom(db.projects, dependencyNamespaceFrom(db.infrastructure)),
+    treeExtras: treeExtrasFrom(db.projects, dependencyNamespaceFrom(db.infrastructure), ownNamespacesFrom(db.infrastructure)),
     artifacts: { keep: (ownerId, runId, files) => deps.artifacts.artifacts.put(ownerId, runId, files) },
     checks: httpCheckAccess(async (ownerId) => {
       const person = await db.accounts.getUserById(ownerId);
@@ -545,6 +545,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   tenant.use('/api/tree-types', treeTypesRouter({
     db,
     agents: async (ownerId: string) => (await engineRegistry.agents(ownerId)).map((agent) => agent.slug),
+    ownNamespaces: ownNamespacesFrom(db.infrastructure),
     describe: (ownerId, typeId) => treeTypeDescriptions.describe(ownerId, typeId),
     releaseProblem: (ownerId, how) => deps.releaseSettings.problem(ownerId, how),
   }));

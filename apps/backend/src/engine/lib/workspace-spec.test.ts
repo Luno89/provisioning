@@ -87,10 +87,10 @@ describe('the network policy', () => {
   });
 
   it('opens exactly what an allowlist asks for, and no more', () => {
-    const manifests = buildWorkspaceManifests(IMAGES, { ...spec, egress: [{ cidr: '10.0.0.5/32', ports: [443] }] });
+    const manifests = buildWorkspaceManifests(IMAGES, { ...spec, egress: [{ cidr: '203.0.113.5/32', ports: [443] }] });
     const egress = find('NetworkPolicy', manifests).spec.egress;
     expect(egress).toHaveLength(2);
-    expect(egress[1].to).toEqual([{ ipBlock: { cidr: '10.0.0.5/32' } }]);
+    expect(egress[1].to).toEqual([{ ipBlock: { cidr: '203.0.113.5/32' } }]);
     expect(egress[1].ports).toEqual([{ protocol: 'TCP', port: 443 }]);
   });
 

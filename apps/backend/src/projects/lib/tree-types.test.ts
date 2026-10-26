@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from '../../engine/lib/workspace-image-seeds.js';
-import { dependencyNamespaceFrom, treeExtrasFrom, treeTypeOfProject, TREE_TYPE_SEEDS, validateTreeType, resolveTreeType, renderStarterFiles, seedTreeTypes, treeTypeChoices, treeTypesFor, type TreeTypeSpec, agentProblem, groveAgentOf, treeLanguage, treeVersion, versionForNewTree, stampTreeVersions, versionVars } from './tree-types.js';
+import { dependencyNamespaceFrom, ownNamespacesFrom, treeExtrasFrom, treeTypeOfProject, TREE_TYPE_SEEDS, validateTreeType, resolveTreeType, renderStarterFiles, seedTreeTypes, treeTypeChoices, treeTypesFor, type TreeTypeSpec, agentProblem, groveAgentOf, treeLanguage, treeVersion, versionForNewTree, stampTreeVersions, versionVars } from './tree-types.js';
 
 const spec = (over: Partial<TreeTypeSpec> = {}): TreeTypeSpec => ({
   id: 'custom-thing',
@@ -239,17 +239,32 @@ describe('what a tree\'s type adds to its workspaces', () => {
   it('gives every leaf the type\'s plain values, its own network rules, and a way to the services the app depends on', async () => {
     const extras = await treeExtrasFrom(store({
       env: [{ name: 'SHOP_CURRENCY', value: 'EUR' }],
-      egress: [{ cidr: '10.1.0.0/16', ports: [5432] }, { namespace: 'mail' }, {} as never],
+      egress: [{ cidr: '203.0.113.0/24', ports: [5432] }, { namespace: 'mail-9f8e7d' }],
       defaultBindings: ['shop-db', 'missing'],
-    }), async (_owner, service) => (service === 'shop-db' ? 'shop-db-1a2b3c' : undefined))('u1', 't1');
+    }), async (_owner, service) => (service === 'shop-db' ? 'shop-db-1a2b3c' : undefined), async () => new Set(['mail-9f8e7d']))('u1', 't1');
     expect(extras).toEqual({
       env: [{ name: 'SHOP_CURRENCY', value: 'EUR' }],
-      egress: [{ cidr: '10.1.0.0/16', ports: [5432] }, { namespace: 'mail' }, { namespace: 'shop-db-1a2b3c' }],
+      egress: [{ cidr: '203.0.113.0/24', ports: [5432] }, { namespace: 'mail-9f8e7d' }, { namespace: 'shop-db-1a2b3c' }],
     });
   });
 
+  it('refuses to build a workspace whose type opens Koala\'s own services, someone else\'s app or an internal address', async () => {
+    const extras = (egress: TreeTypeSpec['egress']) => treeExtrasFrom(store({ egress }), async () => undefined, async () => new Set(['mail-9f8e7d']))('u1', 't1');
+    await expect(extras([{ namespace: 'infisical' }])).rejects.toThrow('the tree type custom-thing opens a network rule its workspace may not have: "infisical" is not one of your apps\' namespaces');
+    await expect(extras([{ cidr: '10.43.0.0/16' }])).rejects.toThrow('10.43.0.0/16 is inside 10.0.0.0/8, an internal range');
+  });
+
   it('adds nothing for a tree whose type is gone', async () => {
-    expect(await treeExtrasFrom({ getTrees: async () => [], getTreeTypes: async () => [] }, async () => undefined)('u1', 't1')).toBeUndefined();
+    expect(await treeExtrasFrom({ getTrees: async () => [], getTreeTypes: async () => [] }, async () => undefined, async () => new Set())('u1', 't1')).toBeUndefined();
+  });
+
+  it('counts as the person\'s own namespaces only those their apps run in', async () => {
+    const own = ownNamespacesFrom({ getDeployments: async () => [
+      { ownerId: 'u1', name: 'shop', namespace: 'shop-1a2b3c' },
+      { ownerId: 'u1', name: 'Old Blog' },
+      { ownerId: 'u2', name: 'theirs', namespace: 'theirs-4d5e6f' },
+    ] });
+    expect([...await own('u1')].sort()).toEqual(['old-blog', 'shop-1a2b3c']);
   });
 
   it('finds a service the app depends on among the person\'s own apps, by name, in the namespace it runs in', async () => {

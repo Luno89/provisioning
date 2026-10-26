@@ -9,7 +9,7 @@ import path from 'path';
 import {
   DEFAULT_TARGET_CLUSTER, GiteaService, projectSecretsFor, ProjectChannelService, ODOO_TREE_TYPE,
   treeTypeOfProject, giteaUsernameFor, ProjectRepoService, createSecretVault, treeTypeChoices, treeLanguageFrom,
-  treeExtrasFrom, dependencyNamespaceFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars,
+  treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars,
   TreeHomeService, webhookAddress, type GroveRunLauncher,
 } from './projects/index.js';
 import {
@@ -244,7 +244,7 @@ async function buildActivities() {
       return builders.service.start(ownerId, treeId, commit);
     },
     treeLanguage: treeLanguageFrom(db.projects),
-    treeExtras: treeExtrasFrom(db.projects, dependencyNamespaceFrom(db.infrastructure)),
+    treeExtras: treeExtrasFrom(db.projects, dependencyNamespaceFrom(db.infrastructure), ownNamespacesFrom(db.infrastructure)),
     artifacts: { keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files) },
     checks,
     documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request), pushBranch: (request) => projectRepos.pushBranch(request), pullBranch: (request) => projectRepos.pullBranch(request), deleteBranch: (request) => projectRepos.deleteBranch(request) },

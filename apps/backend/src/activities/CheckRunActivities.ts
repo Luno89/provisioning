@@ -18,6 +18,7 @@ import {
   turnProcedure, type TurnReply,
 } from '../checks/index.js';
 import { TREE_TYPE_SEEDS, type TreeTypeSpec, CONFLICT_TASK_TITLE, validateTreeType } from '../projects/index.js';
+import { egressReachProblem } from '../infrastructure/index.js';
 import { conversationRepoName, conversationWorkspaceRunId, treeWorkspaceRunId } from '../engine-host/sandboxes/workspace-repos.js';
 import { randomBytes } from 'node:crypto';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
@@ -272,7 +273,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         const base = (await store.projects.getTreeTypes(spaceId)).find((type) => type.id === id) ?? TREE_TYPE_SEEDS.find((type) => type.id === id);
         if (!base) throw new Error(`the check's world changes the tree type "${id}", and there is no such type`);
         const changed = { ...base, ...settings, id, ownerId: spaceId } as TreeTypeSpec;
-        const problem = validateTreeType(await store.engine.getWorkspaceImages(person), changed);
+        const problem = validateTreeType(await store.engine.getWorkspaceImages(person), changed) ?? egressReachProblem(changed.egress, new Set());
         if (problem) throw new Error(`the check's world changes the tree type "${id}" in a way the Studio would refuse: ${problem}`);
         await store.projects.saveTreeType(changed);
       }
@@ -353,20 +354,24 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         Object.assign(world, { projectId: project.id, projectName: project.name, projectRepo: `${project.giteaOwner}/${project.giteaRepo}` });
       }
       const worldApps: Record<string, string> = {};
+      const worldNamespaces: Record<string, string> = {};
       for (const app of scenario.world?.apps ?? []) {
-        const made = await http.post('/deployments', { name: `${app.name}-${spaceId.slice(-8).toLowerCase()}`, clusterId: 'provisioning-lunorica', appType: app.appType, strategy: 'native' }, { validateStatus: () => true });
+        const made = await http.post('/deployments', { name: app.name, clusterId: 'provisioning-lunorica', appType: app.appType, strategy: 'native' }, { validateStatus: () => true });
         if (made.status >= 300) return { result: failedResult(scenario, '', `the world's app ${app.name} could not be deployed: ${(made.data as { error?: string }).error ?? made.status}`, startedAt), runIds: [] };
         const id = (made.data as { id: string }).id;
         for (;;) {
           await stopIfCancelled();
-          const found = ((await http.get('/deployments')).data as { id: string; status: string }[]).find((entry) => entry.id === id);
+          const found = ((await http.get('/deployments')).data as { id: string; status: string; namespace?: string }[]).find((entry) => entry.id === id);
           if (!found || found.status === 'failed') return { result: failedResult(scenario, '', `the world's app ${app.name} did not deploy${found ? '' : ': it is gone'}`, startedAt), runIds: [] };
-          if (found.status === 'running') break;
+          if (found.status === 'running') {
+            if (found.namespace) worldNamespaces[app.name] = found.namespace;
+            break;
+          }
           await wait();
         }
         worldApps[app.name] = id;
       }
-      if (Object.keys(worldApps).length > 0) world.apps = worldApps;
+      if (Object.keys(worldApps).length > 0) Object.assign(world, { apps: worldApps, namespaces: worldNamespaces });
       const conversationId = ((await http.post('/conversations', typeof world.projectId === 'string' ? { projectId: world.projectId } : {})).data as { id: string }).id;
       world.conversationId = conversationId;
       const talkingIn = conversationId;

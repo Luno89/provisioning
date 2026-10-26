@@ -1,11 +1,13 @@
 import { Router, type Request } from 'express';
 import { asyncRoute, ownedBy, type Database } from '../../platform/index.js';
 import { agentProblem, validateTreeType } from '../lib/tree-types.js';
+import { egressReachProblem } from '../../infrastructure/index.js';
 
 export interface TreeTypesRouterDeps {
   releaseProblem?: ((ownerId: string, how: unknown) => Promise<string | null>) | undefined;
   db: Pick<Database, 'projects' | 'engine'>;
   agents: (ownerId: string) => Promise<string[]>;
+  ownNamespaces: (ownerId: string) => Promise<ReadonlySet<string>>;
   describe?: ((ownerId: string, typeId: string) => Promise<string | undefined>) | undefined;
 }
 
@@ -40,6 +42,7 @@ export function treeTypesRouter(deps: TreeTypesRouterDeps): Router {
 
     const invalid = validateTreeType(await db.engine.getWorkspaceImages(userId), candidate)
       ?? agentProblem(candidate.agent, await deps.agents(userId))
+      ?? egressReachProblem(candidate.egress, await deps.ownNamespaces(userId))
       ?? (candidate.release !== undefined && deps.releaseProblem ? await deps.releaseProblem(userId, candidate.release) : null);
     if (invalid) return res.status(400).json({ error: invalid });
 

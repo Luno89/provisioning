@@ -5,6 +5,7 @@ import {
   DEFAULT_WORKSPACE_LANGUAGE, EGRESS_PROXY_EGRESS, EGRESS_PROXY_HOST, WORKSPACE_MOUNT,
   type EgressRule, type WorkspaceImageSpec,
 } from './workspace-image-seeds.js';
+import { publicIpBlock } from '../../infrastructure/lib/egress-rules.js';
 
 export type { WorkspaceLanguage, EgressRule } from './workspace-image-seeds.js';
 export { DEFAULT_WORKSPACE_LANGUAGE, WORKSPACE_MOUNT, EGRESS_PROXY_HOST, EGRESS_PROXY_EGRESS };
@@ -101,9 +102,9 @@ export function buildWorkspaceManifests(
           },
           ...(spec.egress ?? []).map((rule) => ({
             to: [
-              rule.namespace
+              rule.cidr === undefined
                 ? { namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': rule.namespace } } }
-                : { ipBlock: { cidr: rule.cidr } },
+                : publicIpBlock(rule.cidr),
             ],
             ...(rule.ports?.length
               ? { ports: rule.ports.map((port) => ({ protocol: 'TCP', port })) }

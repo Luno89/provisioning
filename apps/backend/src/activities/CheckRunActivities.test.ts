@@ -109,8 +109,10 @@ describe('a check\'s space', () => {
     const odoo = (egress: unknown) => ({ ...SCENARIO, world: { treeTypes: { 'odoo-addons': { egress } } } }) as Scenario;
     await expect(activities().CheckCreateSpaceActivity({ spaceId: 'space-1', checkRunId: 'c1', person: 'bo', scenario: odoo([{ cidr: 'everything' }]) }))
       .rejects.toThrow('the check\'s world changes the tree type "odoo-addons" in a way the Studio would refuse: "everything" is not a valid CIDR');
-    await activities().CheckCreateSpaceActivity({ spaceId: 'space-2', checkRunId: 'c2', person: 'bo', scenario: odoo([{ namespace: 'gitea', ports: [3000] }]) });
-    expect((await db.projects.getTreeTypes('space-2')).find((type) => type.id === 'odoo-addons')?.egress).toEqual([{ namespace: 'gitea', ports: [3000] }]);
+    await expect(activities().CheckCreateSpaceActivity({ spaceId: 'space-2', checkRunId: 'c2', person: 'bo', scenario: odoo([{ namespace: 'gitea', ports: [3000] }]) }))
+      .rejects.toThrow('"gitea" is not one of your apps\' namespaces');
+    await activities().CheckCreateSpaceActivity({ spaceId: 'space-3', checkRunId: 'c3', person: 'bo', scenario: odoo([{ cidr: '203.0.113.0/24', ports: [443] }]) });
+    expect((await db.projects.getTreeTypes('space-3')).find((type) => type.id === 'odoo-addons')?.egress).toEqual([{ cidr: '203.0.113.0/24', ports: [443] }]);
   });
 
   it('is made once, however often the step is retried', async () => {
