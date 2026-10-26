@@ -196,6 +196,11 @@ async function main(): Promise<void> {
   const exchange = https(`${NAME}.${DOMAIN}`, '/api/auth/handoff', { method: 'POST', body: { token } });
   assert.equal(exchange.status, 200, `the instance refused the token: ${exchange.body}`);
   const cookie = (exchange.headers['set-cookie'] ?? '').split(';')[0]!;
+  const attributes = (exchange.headers['set-cookie'] ?? '').split(';').map((part) => part.trim().toLowerCase());
+  assert.ok(cookie.startsWith('__Host-session='), `over https the instance sets a __Host- cookie, not ${cookie.split('=')[0]}`);
+  assert.ok(attributes.includes('secure') && attributes.includes('path=/') && !attributes.some((part) => part.startsWith('domain=')), `the session cookie is Secure, for / and no Domain: ${attributes.join('; ')}`);
+  assert.equal(https(`${NAME}.${DOMAIN}`, '/api/auth/me', { cookie: cookie.replace('__Host-session=', 'session=') }).status, 401, 'a plain session cookie, which a site next door could plant, is not read over https');
+  console.log('  the session is a __Host- cookie, and the plain name is not read');
   const onInstance = (path: string, init: { method?: string; body?: unknown } = {}) => https(`${NAME}.${DOMAIN}`, path, { ...init, cookie });
 
   step('the instance emails its owner through root, which sends only to the owner\'s address');
