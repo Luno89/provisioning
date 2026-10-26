@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { Readable } from 'node:stream';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { memoryHubStore } from '../lib/hub-store.js';
 import { CHANGES_PAGE, HubService } from './HubService.js';
@@ -254,6 +255,12 @@ describe('members working a shared project from the hub', () => {
     expect(await hub.relay(cy, hubId, 'files.move', { from: 'contracts/nda.pdf', to: 'nda.pdf' })).toMatchObject({ ok: false, status: 403 });
     const moved = await hub.relay({ id: 'bo', email: 'bo@example.com' }, hubId, 'files.move', { from: 'contracts/nda.pdf', to: 'nda.pdf' });
     expect(moved.ok && moved.value.kind === 'json' && moved.value.status).toBe(200);
+    const upload = () => ({ stream: Readable.from(['new']), type: 'text/plain', size: 3 });
+    expect(await hub.relay(cy, hubId, 'files.upload', { path: 'contracts/nda.pdf' }, upload())).toMatchObject({ ok: true, value: { kind: 'json', status: 409 } });
+    const added = await hub.relay(cy, hubId, 'files.upload', { path: 'contracts/brief.pdf' }, upload());
+    expect(added.ok && added.value.kind === 'json' && added.value.status).toBe(200);
+    const replaced = await hub.relay({ id: 'bo', email: 'bo@example.com' }, hubId, 'files.upload', { path: 'contracts/nda.pdf' }, upload());
+    expect(replaced.ok && replaced.value.kind === 'json' && replaced.value.status).toBe(200);
     const uploaded = await hub.relay(cy, hubId, 'files.folder', { path: 'from-cy' });
     expect(uploaded.ok && uploaded.value.kind === 'json' && uploaded.value.status).toBe(200);
     const feed = await hub.relay(cy, hubId, 'turns', { turnId: 'grove-run-t1~1' });

@@ -481,7 +481,7 @@ messages the viewer did not write, in both UIs); Koala answers owners and client
 `ask-koala` request starting the turn), collaborators from their own instance in step 3. The owner's instance sends a
 **status** (`PUT .../status`: releases, builds, tree runs) every 15 s or when the project moved. **Files**: the hub
 relays the owner's MinIO (`FileScope` `{kind: 'hub'}`): every member sees and adds every file, and only owners and
-collaborators move or remove one (`change-files`, `relayProblem`). The hub's repository is read-only to every member
+collaborators move, remove or replace one (`change-files`, `relayProblem`; a client's upload onto a name already taken is refused). The hub's repository is read-only to every member
 (`GET .../repository`, `.../repository/file`). Where root has no hub,
 Share says so. `npm run test:project-sharing-live` proves it combined.
 

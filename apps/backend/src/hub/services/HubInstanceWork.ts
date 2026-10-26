@@ -3,7 +3,7 @@ import { inScope, scopeOf, type HubLink, type ShareScope, type SyncedDoc } from 
 import { relayProblem, RELAY_OPS, type HubRequest, type HubStatus, type Plain, type RelayOp } from '../lib/hub-board.js';
 import { cleanPath, type FileEntry, type FileScope, type FilesOutcome } from '../../files/index.js';
 import { treeOfGroveRun } from '../../engine-host/temporal/contracts.js';
-import type { HubRole } from '../lib/hub.js';
+import { can, type HubRole } from '../lib/hub.js';
 import type { Database, ProjectMetadata } from '../../platform/index.js';
 
 export type Done = { ok: true } | { ok: false; why: string };
@@ -157,6 +157,12 @@ export class HubInstanceWork {
     }
   }
 
+  private async exists(ownerId: string, scope: FileScope, path: string): Promise<boolean> {
+    const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    const listed = await this.deps.files.list(ownerId, scope, parent);
+    return listed.ok && listed.value.some((entry) => entry.path === path);
+  }
+
   private async file(link: HubLink, project: ProjectMetadata, call: InstanceCall): Promise<InstanceAnswer> {
     const owner = link.ownerId;
     const scope: FileScope = { kind: 'project', project };
@@ -182,6 +188,7 @@ export class HubInstanceWork {
       case 'files.upload': {
         const at = path('path');
         if (at === undefined || !call.upload) return refused(400, 'say where the file goes, and send it');
+        if (!can(call.as.role, 'change-files') && await this.exists(owner, scope, at)) return refused(409, 'A file already has that name, and only an owner or a collaborator can replace it; choose another name.');
         const body = await call.upload.open();
         return fromFiles(await this.deps.files.upload(owner, scope, at, body, call.upload.size, call.upload.type));
       }

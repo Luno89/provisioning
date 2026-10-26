@@ -183,6 +183,7 @@ async function main(): Promise<void> {
   run('docker', ['run', '-d', '--name', CONTAINERS.root, ...rootEnv, '--group-add', String(statSync('/var/run/docker.sock').gid), '-v', `${caddyDir}:/app/apps/backend/data/caddy`,
     '-v', '/var/run/docker.sock:/var/run/docker.sock', '-e', `PORT=${ROOT_PORT}`,
     '-v', `${caddyAdmin}:/run/koala-caddy`, '-v', `${caddyLog}:/var/log/koala-caddy:ro`,
+    '-v', `${join(REPO, 'Caddyfile')}:/etc/koala/Caddyfile:ro`, '-e', 'CADDY_CONFIG=/etc/koala/Caddyfile',
     '-e', 'CADDY_ADMIN_SOCKET=/run/koala-caddy/admin.sock', '-e', 'CADDY_LOG=/var/log/koala-caddy/caddy.log', '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`, IMAGE, 'backend']);
   run('docker', ['run', '-d', '--name', CONTAINERS.worker, ...rootEnv, '-e', `TEMPORAL_TASK_QUEUE=${QUEUE}`, '-e', 'HEALTH_PORT=0', '-e', 'TEMPORAL_METRICS_PORT=9475', IMAGE, 'worker-host']);
   await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
