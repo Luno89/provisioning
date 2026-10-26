@@ -202,6 +202,7 @@ else
   ok "ROOT_IDENTITY_KEY generated"
 fi
 grep -q '^ROLE=' "$ENV_FILE" || echo "ROLE=root" >> "$ENV_FILE"
+grep -qE '^ADMIN_SETUP_CODE=.+$' "$ENV_FILE" || echo "ADMIN_SETUP_CODE=$(openssl rand -hex 16)" >> "$ENV_FILE"
 
 # Idempotent upsert, so re-running does not append duplicates.
 set_env() {
@@ -442,9 +443,9 @@ echo "Next:"
 echo "  1. systemctl start nowrinkles"
 [ "$LAB" -eq 1 ] && echo "  2. Publish the first instance image:  bash scripts/root-node/update.sh"
 [ "$LAB" -eq 1 ] || echo "  2. Publish the first instance image:  bash scripts/root-node/release-watch.sh   (the newest signed release, its image checked with cosign)"
-echo "  3. Register the first account at ${PUBLIC_URL} — the FIRST account ever created"
-echo "     becomes admin and is the only one that can mint invite codes. Do this before sharing"
-echo "     the URL with anyone."
+echo "  3. Sign up the first account at ${PUBLIC_URL} with this setup code in the invite field:"
+echo "       $(grep '^ADMIN_SETUP_CODE=' "$ENV_FILE" | cut -d= -f2-)"
+echo "     It becomes the admin, the only one who can make invites; nobody can sign up without the code."
 [ "$LAB" -eq 1 ] || echo "  4. Once it works, let root follow published releases:  systemctl start koala-release-watch.timer"
 echo
 echo "Optional — Google/GitHub sign-in (email+password works without it):"

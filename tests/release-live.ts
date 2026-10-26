@@ -199,8 +199,10 @@ async function main(): Promise<void> {
   await until('root answering through its Caddy', async () => ((await rootAnswers()) ? true : undefined));
   note(`https://app.${DOMAIN} answers through Caddy with a certificate from its own authority`);
 
-  step('the first account signs up on root and becomes its admin');
-  const registered = https(`app.${DOMAIN}`, '/api/auth/register', { method: 'POST', body: { email: EMAIL, password: PASSWORD } });
+  step('the first account signs up on root with the setup code bootstrap made, and becomes its admin');
+  const setupCode = (await sh(root, `sudo grep '^ADMIN_SETUP_CODE=' ${REPO_DIR}/apps/backend/.env | cut -d= -f2-`)).trim();
+  assert.match(setupCode, /^[0-9a-f]{32}$/, 'bootstrap made no setup code');
+  const registered = https(`app.${DOMAIN}`, '/api/auth/register', { method: 'POST', body: { email: EMAIL, password: PASSWORD, inviteCode: setupCode } });
   assert.equal(registered.status, 200, registered.body);
   const signedIn = https(`app.${DOMAIN}`, '/api/auth/login', { method: 'POST', body: { email: EMAIL, password: PASSWORD } });
   assert.equal(signedIn.status, 200, signedIn.body);

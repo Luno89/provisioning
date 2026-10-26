@@ -9,9 +9,10 @@ import { AuthService } from '../services/AuthService.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 
 const JWT_SECRET = 'test-secret';
+const SETUP_CODE = 'the-setup-code';
 
 async function serve(db: Database) {
-  const auth = createAuth({ db, sessionKey: JWT_SECRET, publicUrl: 'http://localhost:3001' });
+  const auth = createAuth({ db, sessionKey: JWT_SECRET, publicUrl: 'http://localhost:3001', setupCode: SETUP_CODE });
   const authService = new AuthService(db);
   const app = express();
   app.use(express.json());
@@ -51,7 +52,7 @@ describe('auth router', () => {
     const reg = await fetch(ctx.url('/api/auth/register'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, inviteCode: SETUP_CODE }),
     });
     expect(reg.status).toBe(200);
     const login = await fetch(ctx.url('/api/auth/login'), {
@@ -81,6 +82,19 @@ describe('auth router', () => {
     const me = await fetch(ctx.url('/api/auth/me'), { headers: { cookie: session } });
     expect(me.status).toBe(200);
     expect((await me.json() as { email: string }).email).toBe('first@example.com');
+  });
+
+  it('makes only a sign-up with the setup code the first account, and only one of two at once', async () => {
+    const signUp = (email: string, inviteCode?: string) => fetch(ctx.url('/api/auth/register'), {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: 'hunter2hunter2', ...(inviteCode ? { inviteCode } : {}) }),
+    });
+    const stranger = await signUp('stranger@example.com');
+    expect(stranger.status).toBe(403);
+    expect(((await stranger.json()) as { error: string }).error).toBe('This Koala has no account yet: the first sign-up needs its setup code, which its installer printed');
+    expect((await signUp('guess@example.com', 'the-setup-cod')).status).toBe(403);
+    const both = await Promise.all([signUp('a@example.com', SETUP_CODE), signUp('b@example.com', SETUP_CODE)]);
+    expect(both.map((response) => response.status).sort()).toEqual([200, 403]);
+    expect((await db.accounts.getUsers()).filter((user) => user.isAdmin)).toHaveLength(1);
   });
 
   it('makes the first user an admin and nobody after them', async () => {
@@ -167,7 +181,7 @@ describe('auth router', () => {
     const was = process.env.GITHUB_CLIENT_ID;
     delete process.env.GITHUB_CLIENT_ID;
     try {
-      const started = await fetch(ctx.url('/api/auth/github'), { redirect: 'manual' });
+      const started = await fetch(ctx.url(`/api/auth/github?invite=${SETUP_CODE}`), { redirect: 'manual' });
       const back = new URL(started.headers.get('location')!);
       const cookie = (started.headers.get('set-cookie') ?? '').split(';')[0]!;
       expect(cookie).toMatch(/^oauth_state=/);
@@ -206,7 +220,7 @@ describe('auth router', () => {
     await fetch(ctx.url('/api/auth/register'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: '  MixedCase@Example.COM ', password: 'hunter2hunter2' }),
+      body: JSON.stringify({ email: '  MixedCase@Example.COM ', password: 'hunter2hunter2', inviteCode: SETUP_CODE }),
     });
     expect((await db.accounts.getUsers())[0]?.email).toBe('mixedcase@example.com');
 

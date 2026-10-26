@@ -4,6 +4,8 @@ import type { Collection, Db } from 'mongodb';
 import type { InviteMetadata, UserMetadata } from '../platform/index.js';
 import { inviteCodeHash } from '../platform/lib/invite-codes.js';
 
+export const FIRST_ADMIN_INVITE = 'first-admin';
+
 export interface AccountsStore extends AreaStore {
   getUsers(): Promise<UserMetadata[]>;
   accountIds(ownerId: string): Promise<AccountIds>;
@@ -18,6 +20,7 @@ export interface AccountsStore extends AreaStore {
   getInviteByCode(code: string): Promise<InviteMetadata | undefined>;
   claimInvite(code: string, usedBy: string, usedAt: string): Promise<boolean>;
   hashInviteCodes(expiresAt: string): Promise<number>;
+  claimFirstAdmin(userId: string, at: string): Promise<boolean>;
   saveInvite(invite: InviteMetadata): Promise<void>;
 }
 
@@ -65,6 +68,16 @@ export class MongoAccountsStore implements AccountsStore {
   async claimInvite(code: string, usedBy: string, usedAt: string): Promise<boolean> {
     const claimed = await this.invites.updateOne({ codeHash: inviteCodeHash(code), usedBy: { $exists: false } }, { $set: { usedBy, usedAt } });
     return claimed.modifiedCount === 1;
+  }
+
+  async claimFirstAdmin(userId: string, at: string): Promise<boolean> {
+    try {
+      await this.invites.insertOne({ _id: FIRST_ADMIN_INVITE as never, id: FIRST_ADMIN_INVITE, createdBy: 'setup', createdAt: at, usedBy: userId, usedAt: at });
+      return true;
+    } catch (err) {
+      if ((err as { code?: number }).code === 11000) return false;
+      throw err;
+    }
   }
 
   async hashInviteCodes(expiresAt: string): Promise<number> {

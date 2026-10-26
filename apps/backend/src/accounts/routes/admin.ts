@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import { asyncRoute, inviteCodeHash, inviteExpiry, inviteView, newInviteCode, type InviteMetadata } from '../../platform/index.js';
 import type { AccountRemovalService } from '../services/AccountRemovalService.js';
+import { FIRST_ADMIN_INVITE } from '../store.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
@@ -14,7 +15,7 @@ export function adminRouter(deps: Record<string, any>): Router {
 
   router.get('/invites', requireAdmin, async (_req, res) => {
     const now = new Date();
-    res.json((await db.accounts.getInvites() as InviteMetadata[]).filter((invite) => !invite.project).map((invite) => inviteView(invite, now)));
+    res.json((await db.accounts.getInvites() as InviteMetadata[]).filter((invite) => !invite.project && invite.id !== FIRST_ADMIN_INVITE).map((invite) => inviteView(invite, now)));
   });
 
   router.post('/invites', requireAdmin, async (req, res) => {

@@ -1,6 +1,7 @@
 import express from 'express';
 import { sessionEnded, signsEveryoneIn, verifyJWT } from '../lib/auth.js';
 import { inviteExpired } from '../lib/invite-codes.js';
+import { setupCodeProblem } from '../lib/first-admin.js';
 import type { Database } from '../lib/db-interface.js';
 import type { UserMetadata } from '../lib/types.js';
 import type { SecretKey } from '../lib/crypto.js';
@@ -21,6 +22,7 @@ export interface AuthDeps {
   sessionKey: SecretKey;
   publicUrl: string;
   role?: PlatformRole | undefined;
+  setupCode?: string | undefined;
 }
 
 export interface Auth {
@@ -40,7 +42,7 @@ export interface Auth {
 
 export const PUBLIC_PREFIXES = ['/checks/scripted/', '/machines/git/', '/share/'];
 
-export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: AuthDeps): Auth {
+export function createAuth({ db, sessionKey, publicUrl, role = 'combined', setupCode }: AuthDeps): Auth {
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
 
   async function userFromSessionCookie(cookieHeader: string | undefined): Promise<UserMetadata | undefined> {
@@ -133,7 +135,11 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined' }: Aut
   };
 
   async function checkAndConsumeInvite(code: string | undefined, newUserId: string, isFirstUser: boolean, email?: string): Promise<string | null> {
-    if (isFirstUser) return null;
+    if (isFirstUser) {
+      const refused = setupCodeProblem(setupCode, code);
+      if (refused) return refused;
+      return await db.accounts.claimFirstAdmin(newUserId, new Date().toISOString()) ? null : 'Someone has just become the first account here; ask them for an invite';
+    }
     if (!code) return 'An invite code is required to create an account';
     const invite = await db.accounts.getInviteByCode(code);
     if (!invite) return 'Invalid invite code';

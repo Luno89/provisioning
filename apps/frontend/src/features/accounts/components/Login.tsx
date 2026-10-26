@@ -217,7 +217,7 @@ export default function Login({ onSuccess, invite }: LoginProps) {
                     </div>
                     <input
                       type="text"
-                      placeholder="Provided by an admin (leave blank for the first-ever account)"
+                      placeholder="From an admin, or the setup code for the first account"
                       value={inviteCode}
                       onChange={(e) => setInviteCode(e.target.value)}
                       className="block w-full pl-12 pr-4 py-3.5 bg-[#1f2430]/50 border border-white/5 rounded-2xl text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"

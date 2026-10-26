@@ -8,6 +8,7 @@ export { CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine } from './lib/cs
 export { createDatabase, sharedPayloadBlobs } from './lib/db-interface.js';
 export type { Database } from './lib/db-interface.js';
 export { emailWayFrom } from './lib/email-way.js';
+export { firstAdminSetup } from './lib/first-admin.js';
 export { followsLinks, frontierRow } from './lib/frontier.js';
 export type { FrontierClaim, FrontierUrl } from './lib/frontier.js';
 export { unpromptedGit } from './lib/git-env.js';
