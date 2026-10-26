@@ -10,7 +10,7 @@ UP=""
 SEEN=""
 
 finish() {
-  [ -z "$UP" ] || kill "$UP" 2>/dev/null || true
+  [ -z "$UP" ] || { kill "$UP" 2>/dev/null; wait "$UP" 2>/dev/null; } || true
   rm -f "$OUT"
 }
 trap finish EXIT
