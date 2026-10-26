@@ -43,7 +43,7 @@ export const CHECK_TOOLS: ToolDefinition[] = [
     binding: 'platform',
     effect: 'write',
     idempotent: true,
-    destructive: false,
+    destructive: true,
     openWorld: false,
     returns: 'that the check was saved, with its id, or every problem that stopped it',
     failures: [
@@ -87,7 +87,7 @@ export const CHECK_TOOLS: ToolDefinition[] = [
     binding: 'platform',
     effect: 'write',
     idempotent: false,
-    destructive: false,
+    destructive: true,
     openWorld: false,
     returns: 'the id of the run to read with read_check_result',
     failures: [{ when: 'there is no check with that id', says: 'so, and runs nothing' }],

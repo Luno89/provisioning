@@ -3,7 +3,7 @@ import { DROP_TYPE } from '../files/index.js';
 import type { AxiosInstance } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { grantChanges, type GrantKind, type ToolDefinition, type ToolGrant, type WorkspaceDependency } from '@koala/agent-engine';
-import { type McpServerRecord, type ProcedureSource, type ExtensionSettings, type AuthoredExtension, modelsOf } from '../engine/index.js';
+import { type McpServerRecord, type ProcedureSource, type ExtensionSettings, type AuthoredExtension, modelsOf, type WorkspaceImageSpec } from '../engine/index.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { Scenario } from '../eval/level2/scenario.js';
 import { scoreScenario, type Check, type ObservedBrowserTests, type Observed, type ObservedFlow, type ObservedHandOff, type StoredProcedure, type ToolCallLog } from '../eval/level2/score.js';
@@ -17,7 +17,7 @@ import {
   worldServerId, type PromptChange, STEP_NODE, stepProcedure, stepProcedureId, TURN_CALL_KIND, TURN_PROCEDURE_ID,
   turnProcedure, type TurnReply,
 } from '../checks/index.js';
-import { TREE_TYPE_SEEDS, type TreeTypeSpec, CONFLICT_TASK_TITLE } from '../projects/index.js';
+import { TREE_TYPE_SEEDS, type TreeTypeSpec, CONFLICT_TASK_TITLE, validateTreeType } from '../projects/index.js';
 import { conversationRepoName, conversationWorkspaceRunId, treeWorkspaceRunId } from '../engine-host/sandboxes/workspace-repos.js';
 import { randomBytes } from 'node:crypto';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
@@ -50,6 +50,7 @@ interface ToolRecord { ownerId?: string | undefined }
 export interface CheckRunStore {
   engine: {
     getWorkspaceDependencies(ownerId: string): Promise<WorkspaceDependency[]>;
+    getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]>;
     saveWorkspaceDependency(dependency: WorkspaceDependency & { ownerId: string }): Promise<void>;
     getEnginePersonas(ownerId?: string): Promise<Persona[]>;
     saveEnginePersona(persona: never): Promise<void>;
@@ -270,7 +271,10 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       for (const [id, settings] of Object.entries(scenario.world?.treeTypes ?? {})) {
         const base = (await store.projects.getTreeTypes(spaceId)).find((type) => type.id === id) ?? TREE_TYPE_SEEDS.find((type) => type.id === id);
         if (!base) throw new Error(`the check's world changes the tree type "${id}", and there is no such type`);
-        await store.projects.saveTreeType({ ...base, ...settings, id, ownerId: spaceId } as TreeTypeSpec);
+        const changed = { ...base, ...settings, id, ownerId: spaceId } as TreeTypeSpec;
+        const problem = validateTreeType(await store.engine.getWorkspaceImages(person), changed);
+        if (problem) throw new Error(`the check's world changes the tree type "${id}" in a way the Studio would refuse: ${problem}`);
+        await store.projects.saveTreeType(changed);
       }
       const settings = await store.engine.getExtensionSettings(person);
       if (settings) await store.engine.saveExtensionSettings({ ...settings, ownerId: spaceId });

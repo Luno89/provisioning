@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createCheckTools, type CheckAccess, type CheckRunView } from './check-tools.js';
+import { CHECK_TOOLS } from './check-tools-catalogue.js';
 import type { Scenario } from '../../eval/level2/scenario.js';
 import type { ScenarioResult } from '../../eval/level2/results.js';
 
@@ -107,5 +108,12 @@ describe('waiting for a check run', () => {
       runs[1]!.results = [result('mine-writes', true)];
     }, 20);
     expect(String((await call(tools, 'read_check_result', { runId: 'r2' })).content)).toMatch(/^mine-writes: passed/);
+  });
+});
+
+describe('what a check tool asks before it runs', () => {
+  it('asks the person before an agent writes, changes, runs or deletes a check, since the runner answers every ask inside it', () => {
+    const asks = CHECK_TOOLS.filter((tool) => tool.destructive).map((tool) => tool.name).sort();
+    expect(asks).toEqual(['delete_check', 'run_check', 'update_check', 'write_check']);
   });
 });

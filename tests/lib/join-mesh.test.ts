@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -31,9 +31,8 @@ function joinMesh(up: string, journal: string[] = []) {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${stub}:${process.env.PATH}`, STUB: stub, MESH_AUTHKEY: 'hskey-test' },
   });
-  const pid = Number(readFileSync(join(stub, 'up.pid'), 'utf8'));
-  let upAlive = true;
-  try { process.kill(pid, 0); } catch { upAlive = false; }
+  let upAlive = existsSync(join(stub, 'up.pid'));
+  if (upAlive) try { process.kill(Number(readFileSync(join(stub, 'up.pid'), 'utf8')), 0); } catch { upAlive = false; }
   return { code: ran.status, out: ran.stdout.trim(), err: ran.stderr, upAlive };
 }
 

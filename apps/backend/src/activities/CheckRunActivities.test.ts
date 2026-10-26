@@ -5,6 +5,7 @@ import { toolsOf } from '@koala/agent-engine';
 import { seededAgents, seededGrants } from '../extensions/seeds.js';
 import { createCheckRunActivities, observedCalls, observedHandOffs, pendingCalls } from './CheckRunActivities.js';
 import type { Scenario } from '../eval/level2/scenario.js';
+import { WORKSPACE_IMAGE_SEEDS } from '../engine/lib/workspace-image-seeds.js';
 
 const SCENARIO: Scenario = {
   id: 'executor-does-one-task',
@@ -101,6 +102,15 @@ describe('a check\'s space', () => {
     expect(toolsOf('executor', seededGrants(), grants)).toEqual([...seededAgents().find((agent) => agent.slug === 'executor')!.tools, 'browser']);
     expect(toolsOf('judge', seededGrants(), grants)).toEqual(['read_file', 'browser']);
     expect((await db.engine.getEnginePersonas('space-1')).some((persona) => 'tools' in persona)).toBe(false);
+  });
+
+  it('takes a tree type its world changes only as the Studio would save it', async () => {
+    for (const image of WORKSPACE_IMAGE_SEEDS) await db.engine.saveWorkspaceImage(image);
+    const odoo = (egress: unknown) => ({ ...SCENARIO, world: { treeTypes: { 'odoo-addons': { egress } } } }) as Scenario;
+    await expect(activities().CheckCreateSpaceActivity({ spaceId: 'space-1', checkRunId: 'c1', person: 'bo', scenario: odoo([{ cidr: 'everything' }]) }))
+      .rejects.toThrow('the check\'s world changes the tree type "odoo-addons" in a way the Studio would refuse: "everything" is not a valid CIDR');
+    await activities().CheckCreateSpaceActivity({ spaceId: 'space-2', checkRunId: 'c2', person: 'bo', scenario: odoo([{ namespace: 'gitea', ports: [3000] }]) });
+    expect((await db.projects.getTreeTypes('space-2')).find((type) => type.id === 'odoo-addons')?.egress).toEqual([{ namespace: 'gitea', ports: [3000] }]);
   });
 
   it('is made once, however often the step is retried', async () => {
