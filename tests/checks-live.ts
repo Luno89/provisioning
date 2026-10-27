@@ -11,6 +11,7 @@ const BASE = process.env.CHECKS_LIVE_URL ?? 'http://localhost:3001/api';
 const OWNER = process.env.CHECKS_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
 const ONLY = (process.env.CHECKS_LIVE_SCENARIOS ?? 'executor-reads-what-is-there,executor-does-one-task,builder-reads-before-changing,research-writes-its-findings,koala-fans-research-out,judge-checks-then-records-its-verdict,delivery-plans-and-delivers').split(',');
 const EVERY_ONE = process.env.CHECKS_LIVE_ALL_PASS === 'true';
+const TOGETHER = Math.max(1, Math.min(ONLY.length, Number(process.env.CHECKS_LIVE_TOGETHER ?? 1) || 1));
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface Result { scenarioId: string; runId: string; passed: boolean; outcome: string; reason?: string; error?: string; checks: { what: string; passed: boolean; detail: string }[]; attempts?: { runId: string; passed: boolean }[] }
@@ -25,23 +26,30 @@ async function main(): Promise<void> {
   const spacesBefore = (await db.accounts.getUsers()).filter((entry) => entry.space).length;
 
   try {
-    console.log(`[1] a Level 2 run of ${ONLY.length} scenarios starts on the check runner`);
-    const started = await http.post('/evals/level2/runs', { only: ONLY });
-    assert.equal(started.status, 202, JSON.stringify(started.data));
-    const id = (started.data as { id: string }).id;
-    console.log(`    run ${id}`);
+    const shares = Array.from({ length: TOGETHER }, (_, share) => ONLY.filter((_, index) => index % TOGETHER === share));
+    console.log(`[1] a Level 2 run of ${ONLY.length} scenarios starts on the check runner${TOGETHER > 1 ? `, as ${TOGETHER} runs side by side` : ''}`);
+    const ids: string[] = [];
+    for (const share of shares) {
+      const started = await http.post('/evals/level2/runs', { only: share });
+      assert.equal(started.status, 202, JSON.stringify(started.data));
+      ids.push((started.data as { id: string }).id);
+      console.log(`    run ${ids.at(-1)} (${share.length} scenarios)`);
+    }
 
     console.log('[2] it runs each scenario in a space of its own, through the API, to the end');
-    let run: { state: string; running?: string; finished: number; results: Result[]; error?: string } = started.data;
+    type Run = { state: string; running?: string; finished: number; results: Result[]; error?: string };
+    const runs = new Map<string, Run>();
     let last = '';
     for (;;) {
       await sleep(10_000);
-      run = (await http.get(`/evals/level2/runs/${id}`)).data;
-      const now = `${run.state} ${run.finished}/${ONLY.length}${run.running ? ` — ${run.running}` : ''}`;
+      for (const id of ids) runs.set(id, (await http.get(`/evals/level2/runs/${id}`)).data as Run);
+      const all = [...runs.values()];
+      const now = `${all.every((entry) => entry.state !== 'running') ? 'done' : 'running'} ${all.reduce((total, entry) => total + entry.finished, 0)}/${ONLY.length}${all.some((entry) => entry.running) ? ` — ${all.flatMap((entry) => (entry.running ? [entry.running] : [])).join(', ')}` : ''}`;
       if (now !== last) { console.log(`    ${new Date().toISOString().slice(11, 19)} ${now}`); last = now; }
-      if (run.state !== 'running') break;
+      if (all.every((entry) => entry.state !== 'running')) break;
     }
-    assert.equal(run.state, 'done', `the run ended ${run.state}: ${run.error ?? ''}`);
+    for (const [id, entry] of runs) assert.equal(entry.state, 'done', `the run ${id} ended ${entry.state}: ${entry.error ?? ''}`);
+    const run = { results: [...runs.values()].flatMap((entry) => entry.results) };
     for (const result of run.results) {
       console.log(`\n    ${result.passed ? 'PASS' : 'FAIL'} ${result.scenarioId} (${result.outcome}${result.reason ? `: ${result.reason.slice(0, 160)}` : ''}) run ${result.runId}`);
       for (const check of result.checks) console.log(`      ${check.passed ? '✓' : '✗'} ${check.what} — ${check.detail.slice(0, 200)}`);
