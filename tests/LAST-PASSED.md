@@ -6,7 +6,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 |---|---|---|
 | `account-removal-live` | 2026-10-27 17:40 | 2026-10-24 05:47 |
 | `app-names-live` | 2026-10-27 17:43 | 2026-10-22 21:33 |
-| `byo-machine-live` | — | 2026-10-27 17:19 |
+| `byo-machine-live` | — | 2026-10-27 18:46 |
 | `checks-live` | 2026-10-27 18:30 | 2026-10-26 18:01 |
 | `files-live` | 2026-10-27 17:45 | — |
 | `hub-live` | 2026-10-27 17:40 | 2026-10-24 18:21 |
