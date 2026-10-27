@@ -426,7 +426,13 @@ Settings → People, `origin` the project, opened again rather than made twice),
 the name drops its database), invitations. **Inviting goes through root**: the hub posts to root's `/api/hub-link/invite`
 with its credential (root knows it by `HUB_URL` and `HUB_CREDENTIAL_HASH`; combined calls `ProjectInviteService` in
 process), root makes an invite code bound to that email (`checkAndConsumeInvite` refuses any other address), emails
-`<root>/#/join?code=…&project=<join token>` when it sends mail and otherwise hands the link back to show. Root's join page
+`<root>/#/join?code=…&project=<join token>` when it sends mail and otherwise hands the link back to show. **Project invites are limited**
+(security audit D4, owner 2026-10-26): root counts each person's invites that would make an account (`makesAccount`; inviting
+someone who already has one counts nothing) while used or unexpired, and refuses past their allowance (10 by default, or their
+own) or past 20 invites an hour (`projectInviteRefusal` in `accounts/lib/project-invite-limits.ts`); an admin sets both, and
+each person's allowance, under Project invites on root's admin page (`ProjectInviteLimitsService`, `/api/admin/project-invites`,
+`/api/admin/people/:id/project-invites`); admins are not limited. A refusal comes back as a 429 with its reason and the hub
+keeps no invite for it. Root's join page
 (`hub/components/RootJoinPage.tsx`) shows the invite signed out (`/api/hub-link/invitation`), signs them up, remembers the invite
 across sign-up (`hub/lib/pending-join.ts`) and sends them on: `/api/identity/go?to=hub&next=/hub/join/<token>` issues a token
 with audience `hub`, and the hub takes anyone root vouches for (never an admin there), going on to `next`. The hub's own
@@ -832,7 +838,9 @@ left to do by hand: PTR, and their own SPF. `update.sh` keeps the container curr
 **Who sends** (`emailWayFrom` in `platform/lib/email-way.ts`, `MailService`):
 - **Root or combined:** Nodemailer to `MAIL_SMTP_URL`, from `MAIL_FROM` or `alerts@<INGRESS_DOMAIN>`.
 - **An instance** never sends itself. It posts to root's `POST /api/instances/mail` with its credential, and root sends
-  only to the instance owner's address. Subjects are one line.
+  only to the instance owner's address. Subjects are one line. Root sends 60 an hour per instance (`InstanceMailLimit`,
+  `instances/lib/instance-mail-limit.ts`), then holds the rest back (429) and emails the owner once that it is; the alerts
+  still show as notices.
 - **Without either,** email is off and Settings says why.
 
 **Settings → Notifications** (`NotificationService`, `/api/notifications`, `notificationSettings`): every alert (the
