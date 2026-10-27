@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { LogOut } from 'lucide-react'
 import { People } from '../../accounts'
 import { Invites } from '../../accounts'
+import { ProjectInvites } from '../../accounts'
 import { PoolSection } from './PoolSection'
 
 export default function RootAdmin({ section, onLogout }: { section?: 'pool' | undefined; onLogout: () => void }) {
@@ -22,6 +23,7 @@ export default function RootAdmin({ section, onLogout }: { section?: 'pool' | un
         </div>
         <People />
         <Invites />
+        <ProjectInvites />
         <PoolSection />
       </div>
     </div>

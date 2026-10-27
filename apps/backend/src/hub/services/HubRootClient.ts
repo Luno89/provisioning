@@ -10,6 +10,7 @@ export class HubRootClient implements InviteSender {
       body: JSON.stringify(request),
     });
     const answer = await response.json().catch(() => ({})) as { link?: string; emailed?: boolean; why?: string; error?: string };
+    if (response.status === 429 && answer.error) return { refused: answer.error };
     if (!response.ok || !answer.link) throw new Error(`root would not send the invite (${response.status}): ${answer.error ?? 'no reason given'}`);
     return { link: answer.link, emailed: Boolean(answer.emailed), ...(answer.why ? { why: answer.why } : {}) };
   }

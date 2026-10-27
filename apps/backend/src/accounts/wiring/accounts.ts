@@ -3,6 +3,7 @@ import { type Database, type RoleConfig, getTemporalClient, holdsAccounts, serve
 import type { HubPeople, Mounts } from '../../hub/index.js';
 import type { TemporalBridge } from '../../infrastructure/index.js';
 import { AccountRemovalService, temporalRemovalWorkflows } from '../services/AccountRemovalService.js';
+import { ProjectInviteLimitsService } from '../services/ProjectInviteLimitsService.js';
 import { DEFAULT_ENGINE_TASK_QUEUE } from '../../engine-host/temporal/contracts.js';
 import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-removal.js';
 import { accountRouter } from '../routes/account.js';
@@ -37,6 +38,6 @@ export function wireAccounts(deps: AccountsWiringDeps): { peopleRemoval: Account
   }) : undefined;
   const peopleRemoval = rootRemoval ?? accountRemoval;
   if (holdsAccounts(role) && peopleRemoval) app.use('/api/account', accountRouter({ removal: peopleRemoval, clearSession: deps.clearSession }));
-  if (holdsAccounts(role)) app.use('/api/admin', adminRouter({ db, requireAdmin: deps.requireAdmin, ...(peopleRemoval ? { removal: peopleRemoval } : {}) }));
+  if (holdsAccounts(role)) app.use('/api/admin', adminRouter({ db, requireAdmin: deps.requireAdmin, inviteLimits: new ProjectInviteLimitsService({ store: db.accounts }), ...(peopleRemoval ? { removal: peopleRemoval } : {}) }));
   return { peopleRemoval };
 }

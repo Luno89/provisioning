@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import axios from 'axios';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { notificationsRouter } from './notifications.js';
+import { InstanceMailLimit } from '../../instances/services/InstanceMailLimit.js';
 import { instancesRouter } from '../../instances/routes/instances.js';
 import { MailService } from '../../platform/services/MailService.js';
 import { NotificationService } from '../services/NotificationService.js';
@@ -50,9 +51,9 @@ describe('root sending for an instance', () => {
     ownerOf: async (id: unknown, credential: unknown) => (id === 'i1' && credential === 'cred' ? { ok: true as const, value: { ownerId: 'owner-of-i1' } } : { ok: false as const, status: 401, error: 'unknown instance or credential' }),
   } as unknown as InstanceService;
 
-  const mount = async () => {
+  const mount = async (mailLimit?: InstanceMailLimit) => {
     sent = [];
-    harness = await mountRouter({ prefix: '/api/instances', router: () => instancesRouter({ instances, chart: async () => '', mail: mailWith({ kind: 'smtp', url: 'smtp://x', from: 'Koala <alerts@koala.dev>' }) }) });
+    harness = await mountRouter({ prefix: '/api/instances', router: () => instancesRouter({ instances, chart: async () => '', mail: mailWith({ kind: 'smtp', url: 'smtp://x', from: 'Koala <alerts@koala.dev>' }), ...(mailLimit ? { mailLimit } : {}) }) });
   };
   const as = (credential: string) => ({ headers: { 'x-instance-id': 'i1', authorization: `Bearer ${credential}` } });
 
@@ -67,5 +68,20 @@ describe('root sending for an instance', () => {
     await expect(axios.post(harness.url('/api/instances/mail'), { subject: 'x', text: 'y' }, as('nope'))).rejects.toMatchObject({ response: { status: 401 } });
     await expect(axios.post(harness.url('/api/instances/mail'), { subject: 'x\nBcc: a@b.c', text: 'y' }, as('cred'))).rejects.toMatchObject({ response: { status: 400 } });
     expect(sent).toEqual([]);
+  });
+
+  it('sends sixty an hour, then holds the rest back and tells the owner once', async () => {
+    let now = Date.parse('2026-10-26T12:00:00.000Z');
+    await mount(new InstanceMailLimit(() => now));
+    for (let index = 0; index < 60; index += 1) {
+      expect((await axios.post(harness.url('/api/instances/mail'), { subject: `Alert ${index}`, text: 'y' }, as('cred'))).data).toEqual({ sent: true });
+      now += 1000;
+    }
+    await expect(axios.post(harness.url('/api/instances/mail'), { subject: 'Alert 60', text: 'y' }, as('cred'))).rejects.toMatchObject({ response: { status: 429, data: { error: expect.stringMatching(/held back until 2026-10-26T13:00:00.000Z/) } } });
+    await expect(axios.post(harness.url('/api/instances/mail'), { subject: 'Alert 61', text: 'y' }, as('cred'))).rejects.toMatchObject({ response: { status: 429 } });
+    expect(sent.map((mail) => (mail as { subject: string }).subject).slice(-2)).toEqual(['Alert 59', 'Koala is holding back email from your instance']);
+    expect(sent).toHaveLength(61);
+    now = Date.parse('2026-10-26T13:00:00.500Z');
+    expect((await axios.post(harness.url('/api/instances/mail'), { subject: 'Alert 62', text: 'y' }, as('cred'))).data).toEqual({ sent: true });
   });
 });

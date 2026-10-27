@@ -53,7 +53,7 @@ export interface HubWiring {
 
 export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
   const { role, env, app, tenant, db } = deps;
-  const projectInvites = holdsAccounts(role) ? new ProjectInviteService({ invites: db.accounts, mail: deps.mail, rootUrl: deps.publicUrl }) : undefined;
+  const projectInvites = holdsAccounts(role) ? new ProjectInviteService({ invites: db.accounts, people: db.accounts, limits: () => db.accounts.getInviteLimits(), mail: deps.mail, rootUrl: deps.publicUrl }) : undefined;
   if (projectInvites) app.use('/api/hub-link', hubLinkRouter({ invites: projectInvites, credentialHash: role.hubLink?.credentialHash, hash: hashCredential }));
 
   let hubService: HubService | undefined;

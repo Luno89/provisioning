@@ -185,3 +185,14 @@ describe('a shared project and its people', () => {
     expect(valueOf(await hub.share(fromAnn, { name: 'Other', projectId: 'p2' })).view.project.group).toBeUndefined();
   });
 });
+
+describe('an invite root will not send', () => {
+  it('is refused with root\'s reason, and leaves no invite behind', async () => {
+    const store = memoryHubStore();
+    const hub = new HubService({ store, invites: { send: async () => ({ refused: 'You have sent 20 project invites in the last hour, the most an hour allows; try again in 5 minutes.' }) }, now: () => 'now' });
+    const id = valueOf(await hub.create(ann, { name: 'Shop' })).project.id;
+    expect(await hub.invite(ann, id, { email: 'cy@example.com', role: 'client' })).toEqual({ ok: false, status: 429, why: 'You have sent 20 project invites in the last hour, the most an hour allows; try again in 5 minutes.' });
+    expect(await store.project(id).invites()).toEqual([]);
+    expect(valueOf(await hub.view('ann', id)).invites).toEqual([]);
+  });
+});

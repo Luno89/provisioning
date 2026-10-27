@@ -2,6 +2,7 @@ import { ACCOUNT_DATA, type AccountIds, type AccountRelated } from './lib/accoun
 import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
 import type { Collection, Db } from 'mongodb';
 import type { InviteMetadata, UserMetadata } from '../platform/index.js';
+import type { InviteLimits } from './lib/project-invite-limits.js';
 import { inviteCodeHash } from '../platform/lib/invite-codes.js';
 
 export const FIRST_ADMIN_INVITE = 'first-admin';
@@ -23,6 +24,8 @@ export interface AccountsStore extends AreaStore {
   hashInviteCodes(expiresAt: string): Promise<number>;
   claimFirstAdmin(userId: string, at: string): Promise<boolean>;
   saveInvite(invite: InviteMetadata): Promise<void>;
+  getInviteLimits(): Promise<Partial<InviteLimits> | undefined>;
+  saveInviteLimits(limits: InviteLimits): Promise<void>;
 }
 
 export class MongoAccountsStore implements AccountsStore {
@@ -92,6 +95,17 @@ export class MongoAccountsStore implements AccountsStore {
       hashed += 1;
     }
     return hashed;
+  }
+
+  async getInviteLimits(): Promise<Partial<InviteLimits> | undefined> {
+    const doc = await this.db().collection('inviteLimits').findOne({ _id: 'limits' as never });
+    if (!doc) return undefined;
+    const { _id, ...limits } = doc;
+    return limits as Partial<InviteLimits>;
+  }
+
+  async saveInviteLimits(limits: InviteLimits): Promise<void> {
+    await this.db().collection('inviteLimits').replaceOne({ _id: 'limits' as never }, { accounts: limits.accounts, perHour: limits.perHour }, { upsert: true });
   }
 
   async saveInvite(invite: InviteMetadata): Promise<void> {

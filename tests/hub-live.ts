@@ -210,6 +210,26 @@ async function main(): Promise<void> {
       assert.equal(lastOwner.status, 400, JSON.stringify(lastOwner.data));
     });
 
+    await stage('an admin caps how many new people the owner\'s invites may bring: someone new is refused, someone with an account is not, and the default comes back', async () => {
+      const limits = await adminHttp.get('/admin/project-invites');
+      assert.equal(limits.status, 200, JSON.stringify(limits.data));
+      const made = (limits.data.people as { id: string; made: number }[]).find((person) => person.id === ann.id)?.made;
+      assert.ok(made !== undefined && made >= 3, `the owner's invites made ${made} accounts, and at least three were sent`);
+      assert.equal((await adminHttp.put(`/admin/people/${ann.id}/project-invites`, { accounts: made })).status, 200);
+      const newcomer = `hub-live-new-${stamp}@nowrinkles.test`;
+      const refused = await ann.hub!.post(`/hub/projects/${shop.id}/invites`, { email: newcomer, role: 'client' });
+      assert.equal(refused.status, 429, JSON.stringify(refused.data));
+      assert.match(String(refused.data.error), new RegExp(`as many as you may \\(${made}\\)`));
+      assert.equal((await ann.hub!.get(`/hub/projects/${shop.id}`)).data.invites.some((invite: { email: string }) => invite.email === newcomer), false, 'a refused invite was kept');
+      const known = await ann.hub!.post(`/hub/projects/${shop.id}/invites`, { email: bo.email, role: 'client' });
+      assert.ok(known.status < 300, `inviting someone with an account was refused: ${JSON.stringify(known.data)}`);
+      assert.equal((await ann.hub!.delete(`/hub/projects/${shop.id}/invites`, { params: { email: bo.email } })).status, 200);
+      assert.equal((await adminHttp.put(`/admin/people/${ann.id}/project-invites`, { accounts: null })).status, 200);
+      const allowed = await ann.hub!.post(`/hub/projects/${shop.id}/invites`, { email: newcomer, role: 'client' });
+      assert.ok(allowed.status < 300, `with the default back, the invite was refused: ${JSON.stringify(allowed.data)}`);
+      assert.equal((await ann.hub!.delete(`/hub/projects/${shop.id}/invites`, { params: { email: newcomer } })).status, 200);
+    });
+
     await stage('the owner cannot remove their account while they alone own a project someone else is on; the outsider removes theirs and is taken off it', async () => {
       const preview = (await ann.root!.get('/account/removal')).data as { blockers: string[] };
       assert.ok(preview.blockers.some((line) => line.includes(`"${other.name}"`)), JSON.stringify(preview));

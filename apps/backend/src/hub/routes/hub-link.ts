@@ -20,7 +20,9 @@ export function hubLinkRouter(deps: { invites: ProjectInviteService; credentialH
     const fields = ['email', 'inviterId', 'inviterEmail', 'projectName', 'role', 'join'] as const;
     if (fields.some((field) => typeof body[field] !== 'string' || !(body[field] as string).trim())) return res.status(400).json({ error: `an invite names ${fields.join(', ')}` });
     if (!HUB_ROLES.includes(body.role as never)) return res.status(400).json({ error: 'that is not a role on a project' });
-    res.status(201).json(await deps.invites.send(body as never));
+    const sent = await deps.invites.send(body as never);
+    if ('refused' in sent) return res.status(429).json({ error: sent.refused });
+    res.status(201).json(sent);
   }));
 
   router.get('/invitation', asyncRoute(async (req, res) => {

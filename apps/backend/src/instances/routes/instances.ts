@@ -7,6 +7,8 @@ import { parseAsk, parseRange, parsePoolRule, parseProbes } from '../../monitori
 import { isMovePart } from '../lib/instance-move.js';
 import { volumeOfPart } from '../lib/app-move.js';
 import type { MoveRelay } from '../services/MoveRelay.js';
+import type { InstanceMailLimit } from '../services/InstanceMailLimit.js';
+import { heldBackMail } from '../lib/instance-mail-limit.js';
 import type { HubAccess } from '../../hub/index.js';
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;
@@ -43,6 +45,7 @@ export function bundleAsEnv(bundle: JoinBundle): string {
 export function instancesRouter(deps: {
   instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'join' | 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'machineKey' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource'>;
   chart: () => Promise<string>;
+  mailLimit?: InstanceMailLimit | undefined;
   chartOf?: ((imageTag: string) => string | undefined) | undefined;
   mail?: Pick<MailService, 'toOwner'> | undefined;
   poolMonitoring?: PoolMonitoringService | undefined;
@@ -331,6 +334,11 @@ export function instancesRouter(deps: {
     const problem = mailProblem(body);
     if (problem) return res.status(400).json({ error: problem });
     if (!deps.mail) return res.status(503).json({ error: 'this root sends no email' });
+    const verdict = deps.mailLimit?.take(instanceId);
+    if (verdict && !verdict.send) {
+      if (verdict.tell) await deps.mail.toOwner(owner.value.ownerId, heldBackMail(verdict.until)).catch(() => undefined);
+      return res.status(429).json({ error: `this instance has sent as many emails as an hour allows; more are held back until ${new Date(verdict.until).toISOString()}` });
+    }
     try {
       await deps.mail.toOwner(owner.value.ownerId, { subject: body.subject as string, text: body.text as string });
       return res.json({ sent: true });

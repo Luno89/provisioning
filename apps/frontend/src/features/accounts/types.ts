@@ -42,6 +42,19 @@ export interface Invite {
   usedAt?: string
 }
 
+export interface ProjectInvitePerson {
+  id: string
+  email: string
+  made: number
+  own?: number
+}
+
+export interface ProjectInviteLimits {
+  accounts: number
+  perHour: number
+  people: ProjectInvitePerson[]
+}
+
 export interface MintedInvite extends Invite {
   code: string
 }

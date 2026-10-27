@@ -466,6 +466,7 @@ export interface UserMetadata {
   createdAt: string;
   credentials?: CloudCredentials;
   isAdmin?: boolean;
+  inviteAccounts?: number | undefined;
   extractionModelId?: string;
   /** The account's default engine: what a pack naming no endpoint of its own runs on. */
   defaultModelId?: string;
@@ -499,4 +500,5 @@ export interface InviteMetadata {
   usedAt?: string;
   email?: string | undefined;
   project?: { name: string; role: string; join: string } | undefined;
+  makesAccount?: boolean | undefined;
 }

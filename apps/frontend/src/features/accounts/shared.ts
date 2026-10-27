@@ -1,6 +1,6 @@
 import { getNotifications, notificationKeys, sendTestEmail, setEmailChoice, type EmailChoice, type NotificationView } from '../monitoring'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { accountKeys, endOtherSessions, getPersonRemoval, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson } from './api'
+import { accountKeys, endOtherSessions, getPersonRemoval, getProjectInviteLimits, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson, setOwnInviteAccounts, setProjectInviteLimits } from './api'
 import { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '../instances'
 import { deploymentKeys } from '../infrastructure'
 import { accountRemovalPlace } from '../platform'
@@ -39,6 +39,23 @@ export function useInvites() {
 export function useMintInvite() {
   const client = useQueryClient()
   return useMutation({ mutationFn: mintInvite, onSuccess: () => { void client.invalidateQueries({ queryKey: accountKeys.invites() }) } })
+}
+
+export function useProjectInviteLimits() {
+  return useQuery({ queryKey: accountKeys.projectInvites(), queryFn: getProjectInviteLimits })
+}
+
+export function useSetProjectInviteLimits() {
+  const client = useQueryClient()
+  return useMutation({ mutationFn: (limits: { accounts?: number; perHour?: number }) => setProjectInviteLimits(limits), onSuccess: () => { void client.invalidateQueries({ queryKey: accountKeys.projectInvites() }) } })
+}
+
+export function useSetOwnInviteAccounts() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, accounts }: { id: string; accounts: number | null }) => setOwnInviteAccounts(id, accounts),
+    onSuccess: () => { void client.invalidateQueries({ queryKey: accountKeys.projectInvites() }) },
+  })
 }
 
 export function usePersonRemoval(id: string, enabled: boolean) {

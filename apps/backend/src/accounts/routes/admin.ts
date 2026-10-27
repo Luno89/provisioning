@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import { asyncRoute, inviteCodeHash, inviteExpiry, inviteView, newInviteCode, type InviteMetadata } from '../../platform/index.js';
 import type { AccountRemovalService } from '../services/AccountRemovalService.js';
+import type { ProjectInviteLimitsService } from '../services/ProjectInviteLimitsService.js';
 import { FIRST_ADMIN_INVITE } from '../store.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -31,6 +32,14 @@ export function adminRouter(deps: Record<string, any>): Router {
     await db.accounts.saveInvite(invite);
     res.status(201).json({ ...inviteView(invite, now), code });
   });
+
+  const inviteLimits = deps.inviteLimits as ProjectInviteLimitsService;
+  const answered = <T>(res: import('express').Response, outcome: { ok: true; value: T } | { ok: false; status: number; why: string }) =>
+    (outcome.ok ? res.json(outcome.value) : res.status(outcome.status).json({ error: outcome.why }));
+
+  router.get('/project-invites', requireAdmin, asyncRoute(async (_req, res) => res.json(await inviteLimits.overview())));
+  router.put('/project-invites', requireAdmin, asyncRoute(async (req, res) => answered(res, await inviteLimits.setLimits({ accounts: req.body?.accounts, perHour: req.body?.perHour }))));
+  router.put('/people/:id/project-invites', requireAdmin, asyncRoute(async (req, res) => answered(res, await inviteLimits.setOwn(idOf(req), req.body?.accounts))));
 
   const removal = deps.removal as AccountRemovalService | undefined;
   const ELSEWHERE = 'Accounts cannot be removed here';

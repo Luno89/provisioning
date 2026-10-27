@@ -26,7 +26,7 @@ export interface Person {
 }
 
 export interface InviteSender {
-  send(request: { email: string; inviterId: string; inviterEmail: string; projectName: string; role: string; join: string }): Promise<{ link: string; emailed: boolean; why?: string | undefined }>;
+  send(request: { email: string; inviterId: string; inviterEmail: string; projectName: string; role: string; join: string }): Promise<{ link: string; emailed: boolean; why?: string | undefined } | { refused: string }>;
 }
 
 export interface HubServiceDeps {
@@ -62,7 +62,7 @@ export interface Posted {
   notAsked?: string | undefined;
 }
 
-export type HubOutcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 403 | 404 | 409; why: string };
+export type HubOutcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 403 | 404 | 409 | 429; why: string };
 
 export interface ProjectView {
   project: SharedProject;
@@ -365,6 +365,11 @@ export class HubService {
     await access.store.saveInvite(invite);
     await this.deps.store.indexInvite(invite.token, projectId);
     const sent = await this.deps.invites.send({ email: invite.email, inviterId: person.id, inviterEmail: person.email, projectName: access.project.name, role: invite.role, join: invite.token });
+    if ('refused' in sent) {
+      await access.store.deleteInvite(invite.token);
+      await this.deps.store.forgetInvite(invite.token);
+      return { ok: false, status: 429, why: sent.refused };
+    }
     return { ok: true, value: { email: invite.email, role: invite.role, ...sent } };
   }
 

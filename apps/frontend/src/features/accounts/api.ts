@@ -1,12 +1,22 @@
 import { api } from '../../api/client'
-import type { Invite, MintedInvite, PersonEntry, RemovalPreview, RemovalState } from './types'
+import type { Invite, MintedInvite, PersonEntry, ProjectInviteLimits, ProjectInvitePerson, RemovalPreview, RemovalState } from './types'
 
 export const accountKeys = {
   removal: () => ['account', 'removal'] as const,
   people: () => ['admin', 'people'] as const,
   personRemoval: (id: string) => ['admin', 'people', id, 'removal'] as const,
   invites: () => ['admin', 'invites'] as const,
+  projectInvites: () => ['admin', 'project-invites'] as const,
 }
+
+export const getProjectInviteLimits = (): Promise<ProjectInviteLimits> =>
+  api.get<ProjectInviteLimits>('/admin/project-invites').then((r) => r.data)
+
+export const setProjectInviteLimits = (limits: { accounts?: number; perHour?: number }): Promise<{ accounts: number; perHour: number }> =>
+  api.put<{ accounts: number; perHour: number }>('/admin/project-invites', limits).then((r) => r.data)
+
+export const setOwnInviteAccounts = (id: string, accounts: number | null): Promise<ProjectInvitePerson> =>
+  api.put<ProjectInvitePerson>(`/admin/people/${encodeURIComponent(id)}/project-invites`, { accounts }).then((r) => r.data)
 
 export const listInvites = (): Promise<Invite[]> =>
   api.get<Invite[]>('/admin/invites').then((r) => r.data)
