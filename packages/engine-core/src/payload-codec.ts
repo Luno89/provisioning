@@ -119,7 +119,9 @@ export class EncryptionCodec implements PayloadCodec {
   async decode(payloads: Payload[]): Promise<Payload[]> {
     return payloads.map((payload) => {
       const encoding = payload.metadata?.encoding;
-      if (!encoding || td.decode(encoding) !== ENCRYPTED || !payload.data) return payload;
+      if (!encoding || td.decode(encoding) !== ENCRYPTED || !payload.data) {
+        throw new Error(`a Temporal payload arrived unencrypted (${encoding ? td.decode(encoding) : 'no encoding'}); Koala reads only payloads its own processes sealed with PAYLOAD_KEY`);
+      }
       try {
         return deserialize(Buffer.from(decryptValue(td.decode(payload.data), this.masterKey), 'utf8'));
       } catch (err) {

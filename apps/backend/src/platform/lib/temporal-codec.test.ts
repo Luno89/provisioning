@@ -34,10 +34,10 @@ describe('EncryptionCodec', () => {
     expect(td.decode(encoded.metadata.encoding)).toBe('binary/encrypted-aes-256-gcm');
   });
 
-  it('passes through payloads it did not produce', async () => {
-    const original = plainPayload({ ordinary: true });
-    const [decoded] = await codec.decode([original]);
-    expect(decoded).toBe(original);
+  it('refuses a payload it did not seal, so nobody can hand a worker plaintext through Temporal', async () => {
+    await expect(codec.decode([plainPayload({ ordinary: true })])).rejects.toThrow(/arrived unencrypted \(json\/plain\)/);
+    await expect(codec.decode([{ metadata: {}, data: te.encode('{}') }])).rejects.toThrow(/arrived unencrypted \(no encoding\)/);
+    await expect(codec.decode([{ metadata: { encoding: te.encode('binary/encrypted-aes-256-gcm') } }])).rejects.toThrow(/arrived unencrypted/);
   });
 
   it('handles an empty payload list', async () => {

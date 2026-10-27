@@ -1414,7 +1414,8 @@ their server with `workflows/temporal-test-env.ts`, which registers the attribut
 
 **Large payloads are stored outside Temporal.** Every Temporal client and worker builds its
 converter with `buildDataConverter(key, sharedPayloadBlobs())`: payloads are compressed, then
-encrypted, and any still over 128 KB go to Mongo `temporal_payload_chunks`, leaving a claim in the
+encrypted (and a payload that arrives unencrypted is refused, `EncryptionCodec.decode`, so nobody with a way into Temporal can hand a
+worker plaintext; search attributes, headers and patch markers never pass through codecs), and any still over 128 KB go to Mongo `temporal_payload_chunks`, leaving a claim in the
 history (`platform/lib/payload-storage.ts`, Temporal's `externalStorage`). A new process that talks to
 Temporal must use it too, or it cannot read an offloaded payload. A daily sweep releases a
 workflow's payloads once Temporal no longer has it. `npm run test:big-run-live` proves it on a real
