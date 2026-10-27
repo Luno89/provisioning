@@ -3,6 +3,7 @@ import { asyncRoute, ownsProject } from '../../platform/index.js';
 import { isWorkspaceLanguage, WorkspaceImageService } from '../../engine/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { rollupProjectStatus, deploymentForProject } from '../lib/project-status.js';
+import { targetClusterProblem } from '../lib/project-shipping.js';
 import { validateLocalEgressRules } from '../../infrastructure/index.js';
 import type { ProjectRemovalService } from '../services/ProjectRemovalService.js';
 
@@ -67,6 +68,8 @@ export function projectsRouter(deps: Record<string, any>): Router {
         executionTargetDeviceId, executionTargetPath, executionApproval, executionTargetEgress,
       } = req.body;
       if (!name) return res.status(400).json({ error: 'name is required' });
+      const clusterProblem = targetClusterProblem(targetClusterId, await db.infrastructure.getClusters(), userOf(req).id);
+      if (clusterProblem) return res.status(400).json({ error: clusterProblem });
       const wantsRepo = Boolean(giteaRepo);
       if (!wantsRepo && !executionTargetDeviceId) {
         return res.status(400).json({ error: 'giteaRepo is required unless the project runs on a registered local machine' });
