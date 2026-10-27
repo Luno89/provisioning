@@ -6,12 +6,15 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 |---|---|---|
 | `account-removal-live` | 2026-10-27 15:38 | 2026-10-24 05:47 |
 | `app-names-live` | 2026-10-27 15:41 | 2026-10-22 21:33 |
+| `byo-machine-live` | — | 2026-10-27 17:19 |
 | `checks-live` | 2026-10-27 16:30 | 2026-10-26 18:01 |
 | `files-live` | 2026-10-27 15:43 | — |
 | `hub-live` | 2026-10-27 15:38 | 2026-10-24 18:21 |
 | `infra-integration` | 2026-10-24 14:25 | 2026-10-24 14:12 |
+| `instance-live` | 2026-10-27 16:46 | 2026-10-27 16:37 |
 | `machine-live` | 2026-10-27 15:34 | — |
 | `mail-live` | 2026-10-26 14:08 | — |
+| `mesh-live` | 2026-10-27 17:35 | 2026-10-27 17:07 |
 | `odoo-release-live` | 2026-10-27 16:09 | 2026-10-26 14:14 |
 | `project-sharing-live` | 2026-10-27 15:39 | 2026-10-22 13:53 |
 | `release-live` | 2026-10-26 18:43 | 2026-10-26 18:13 |
