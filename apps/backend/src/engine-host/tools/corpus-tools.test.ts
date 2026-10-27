@@ -8,6 +8,7 @@ function tools() {
   const started: { id: string; args: unknown }[] = [];
   const access: CorpusAccess = {
     crawlerReady: async (ownerId) => ownerId === 'u1',
+    addressProblem: async (url) => (url.includes('10.0.0.') ? '10.0.0.5 is a private, loopback, mesh or reserved address' : undefined),
     start: vi.fn(async (id, args) => { started.push({ id, args }); }),
     status: vi.fn(async (id) => (id.endsWith('done')
       ? { state: 'completed' as const, receipt: { ingestId: 'i1', seed: 's', pages: 12, bytes: 20480, failed: 1, hosts: ['docs.example.com'] } }
@@ -27,6 +28,12 @@ describe('corpus tools', () => {
     expect(started[0]).toEqual({ id: `${ingestPrefix('u1')}rs`, args: { ownerId: 'u1', url: 'https://docs.example.com', projectId: 'p1', maxDepth: 2, keywords: ['retry', 'budget'] } });
     expect((await call('start_ingest', { url: 'ftp://x' })).digest).toContain('http(s)');
     expect((await call('start_ingest', { url: 'https://x.com', maxDepth: 9 })).digest).toContain('0 to 5');
+  });
+
+  it('crawls only a site on the open internet', async () => {
+    const { call, started } = tools();
+    expect((await call('start_ingest', { url: 'http://10.0.0.5:8080/' })).digest).toBe('Koala crawls only sites on the open internet, and not this one: 10.0.0.5 is a private, loopback, mesh or reserved address');
+    expect(started).toEqual([]);
   });
 
   it('refuses to start without a crawler, and says how to get one', async () => {

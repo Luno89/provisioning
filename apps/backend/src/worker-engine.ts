@@ -15,6 +15,7 @@ import {
 import {
   stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, failureReason,
   signJWT, clusterOwnership, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings,
+  publicAddressProblem,
 } from './platform/index.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
@@ -256,6 +257,7 @@ async function buildActivities() {
     vault,
     egressSecret: keys.egress,
     corpus: {
+      addressProblem: publicAddressProblem,
       crawlerReady: async (ownerId) => (await db.infrastructure.getDeployments()).some((dep) => dep.appType === 'crawl4ai' && dep.status === 'running' && dep.ownerId === ownerId),
       start: async (workflowId, args) => {
         await (await getTemporalClient()).workflow.start('executeIngestWorkflow', { taskQueue: 'host-ops-queue', workflowId, args: [args], ...startedFor(args.ownerId) });

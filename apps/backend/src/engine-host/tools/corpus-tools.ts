@@ -4,6 +4,7 @@ import { search, type CorpusPage, type IngestReceipt } from '../../engine/lib/co
 
 export interface CorpusAccess {
   crawlerReady(ownerId: string): Promise<boolean>;
+  addressProblem?: ((url: string) => Promise<string | undefined>) | undefined;
   start(workflowId: string, args: { ownerId: string; projectId?: string | undefined; url: string; maxDepth?: number | undefined; maxPages?: number | undefined; domains?: string[] | undefined; keywords?: string[] | undefined }): Promise<void>;
   status(workflowId: string): Promise<{ state: 'running' | 'completed' | 'failed' | 'unknown'; receipt?: IngestReceipt | undefined; error?: string | undefined }>;
   pages(filter: { ownerId: string; ingestId?: string | undefined }): Promise<CorpusPage[]>;
@@ -44,6 +45,8 @@ export function createCorpusTools(options: { access: CorpusAccess; now?: (() => 
       const maxPages = whole(parsed.maxPages, 1, 10_000);
       if (Number.isNaN(maxDepth)) return refuse('maxDepth is a whole number from 0 to 5');
       if (Number.isNaN(maxPages)) return refuse('maxPages is a whole number from 1 to 10000');
+      const outside = await access.addressProblem?.(url);
+      if (outside) return refuse(`Koala crawls only sites on the open internet, and not this one: ${outside}`);
 
       if (!(await access.crawlerReady(caller.ownerId))) {
         return refuse('crawling needs a Crawl4AI of this person\'s running, and there is none — propose_deploy_app with appType crawl4ai first, then start the crawl once it runs');
