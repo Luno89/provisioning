@@ -1,3 +1,4 @@
+import { Router, type RequestHandler } from 'express';
 import type { Server as SocketServer } from 'socket.io';
 import { type Database, type SecretKey, clusterOwnership } from '../../platform/index.js';
 import type { sharedClusterProxy } from '../services/ClusterProxyService.js';
@@ -32,6 +33,7 @@ import type { Mounts } from '../../hub/index.js';
 
 export interface InfrastructureWiringDeps {
   tenant: Mounts;
+  requireAdmin: RequestHandler;
   db: Database;
   io: SocketServer;
   dataKey: SecretKey;
@@ -56,11 +58,13 @@ export interface InfrastructureWiringDeps {
   gitModules: GitModuleService;
 }
 
+const adminOnly = (requireAdmin: RequestHandler, router: Router): Router => Router().use(requireAdmin, router);
+
 export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   const { tenant, db, io } = deps;
   tenant.use('/api/credentials', llmCredentialsRouter({ db, dataKey: deps.dataKey, credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl }));
   tenant.use('/api/credentials', credentialsRouter({ credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl, sessionKey: deps.sessionKey }));
-  tenant.use('/api/backup', backupRouter({ repoRoot: deps.repoRoot }));
+  tenant.use('/api/backup', adminOnly(deps.requireAdmin, backupRouter({ repoRoot: deps.repoRoot })));
   tenant.use('/api/clusters', clustersRouter({
     clusterService: deps.clusters, appService: deps.apps, clusterProxyService: deps.proxy, infraService: deps.infra,
     temporalBridge: deps.temporalBridge, db: db.infrastructure, io, giteaService: deps.gitea, infisicalService: deps.infisical, dataKey: deps.dataKey,
@@ -74,7 +78,7 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   tenant.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService: deps.vpsCatalog }));
   tenant.use('/api/temporal', temporalRouter({ temporalBridge: deps.temporalBridge, instanceOwner: deps.instanceOwner }));
   tenant.use('/api/worker', workerRouter({ workerService: deps.worker }));
-  tenant.use('/api/nginx', nginxRouter({ infraService: deps.infra, nginxConfPath: deps.nginxConfPath }));
+  tenant.use('/api/nginx', adminOnly(deps.requireAdmin, nginxRouter({ infraService: deps.infra, nginxConfPath: deps.nginxConfPath })));
   tenant.use('/api/logs', logsRouter({ db, clusterService: deps.clusters, appService: deps.apps }));
   tenant.use('/api/registry', registryRouter({ registryService: deps.registry }));
   tenant.use('/api/modules', modulesRouter({ gitModuleService: deps.gitModules }));

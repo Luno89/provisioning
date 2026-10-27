@@ -324,7 +324,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const { monitoring } = wireMonitoring({ tenant, db, role, env: process.env, io, clusters: clusterService, infra: infraService, proxy: clusterProxyService, notices, notifications, mail, systemOwners });
   const workerService = new WorkerService();
   wireInfrastructure({
-    tenant, db, io, dataKey: keys.data, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, repoRoot: path.join(__dirname, '../../..'),
+    tenant, requireAdmin, db, io, dataKey: keys.data, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, repoRoot: path.join(__dirname, '../../..'),
     credentials: credentialService, clusters: clusterService, apps: appService, proxy: clusterProxyService, infra: infraService,
     temporalBridge, gitea: giteaService, infisical: infisicalService, exposure: appExposureService, instanceOwner: role.instance?.ownerId,
     nginxConfPath: path.join(__dirname, '../data/nginx/nginx.conf'), vpsCatalog: vpsCatalogService, worker: workerService, registry: registryService, gitModules: gitModuleService,
