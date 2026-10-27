@@ -99,6 +99,10 @@ export class ChatParser {
     return { toolCalls, cleanContent };
   }
 
+  static asWritten(text: string): ParsedChatMessage {
+    return { thoughts: [], isThinking: false, cleanContent: text, toolCalls: [] };
+  }
+
   static parse(rawMessage: string): ParsedChatMessage {
     if (!rawMessage) {
       return { thoughts: [], isThinking: false, cleanContent: '', toolCalls: [] };

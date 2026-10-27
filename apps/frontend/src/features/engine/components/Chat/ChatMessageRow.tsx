@@ -92,7 +92,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   const isUser = message.role === 'user';
   const mascotMood: KoalaMood = isStreaming ? 'thinking' : 'idle';
 
-  const parsed = ChatParser.parse(message.content ?? '');
+  const parsed = isUser ? ChatParser.asWritten(message.content ?? '') : ChatParser.parse(message.content ?? '');
   const allThoughts = [
     ...(message.reasoning ? [message.reasoning.trim()] : []),
     ...parsed.thoughts,
@@ -173,7 +173,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
         {(parsed.cleanContent || !message.attachments?.length) && (
           <div className="text-[13.5px] leading-relaxed text-slate-200 prose prose-invert max-w-none">
             {parsed.cleanContent ? (
-              <Markdown>{parsed.cleanContent}</Markdown>
+              <Markdown asWritten={isUser}>{parsed.cleanContent}</Markdown>
             ) : isThinkingNow || allThoughts.length > 0 ? null : (
               <span className="italic text-slate-500 text-xs">[No textual response]</span>
             )}

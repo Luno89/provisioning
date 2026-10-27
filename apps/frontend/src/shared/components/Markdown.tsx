@@ -4,14 +4,16 @@ export default function Markdown({
   children,
   reasoning,
   className = '',
+  asWritten = false,
 }: {
   children: string;
   reasoning?: string;
   className?: string;
+  asWritten?: boolean;
 }) {
   return (
     <div className={`kmd ${className}`}>
-      <ChatMessageRenderer content={children} reasoning={reasoning} />
+      <ChatMessageRenderer content={children} reasoning={reasoning} asWritten={asWritten} />
     </div>
   );
 }

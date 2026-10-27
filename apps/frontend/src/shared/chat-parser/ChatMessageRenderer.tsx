@@ -11,12 +11,14 @@ export default function ChatMessageRenderer({
   content,
   reasoning,
   className = '',
+  asWritten = false,
 }: {
   content: string;
   reasoning?: string | undefined;
   className?: string;
+  asWritten?: boolean;
 }) {
-  const parsed = ChatParser.parse(content);
+  const parsed = asWritten ? ChatParser.asWritten(content) : ChatParser.parse(content);
   const allThoughts = [...(reasoning ? [reasoning] : []), ...parsed.thoughts];
 
   return (
