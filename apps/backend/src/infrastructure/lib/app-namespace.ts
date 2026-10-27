@@ -1,4 +1,5 @@
 import { sanitizeNamespace } from '../../models/lib/model-registry.js';
+import { cacheFolderProblem } from '../../models/lib/tabby-cache-path.js';
 
 const NAMESPACE_MAX = 63;
 
@@ -20,6 +21,8 @@ export function deployRequestFrom(body: unknown): { request: Record<string, unkn
   if (typeof request.appType === 'string' && MADE_BY_KOALA_APP_TYPES.has(request.appType)) {
     return { problem: `a ${request.appType} app is made by Koala from its project, never deployed by hand` };
   }
+  const cache = cacheFolderProblem(request.tabbyCachePvc) ?? cacheFolderProblem(request.vllmCachePvc);
+  if (cache) return { problem: cache };
   return { request };
 }
 

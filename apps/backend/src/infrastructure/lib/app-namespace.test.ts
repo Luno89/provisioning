@@ -51,3 +51,11 @@ describe('destroying an app', () => {
     expect(platformNamespaceProblem('shop-1a2b3c', platform)).toBeUndefined();
   });
 });
+
+describe('a model server someone deploys', () => {
+  it('keeps its cache in a folder of its own, never a path on the host', () => {
+    expect(deployRequestFrom({ name: 'llm', appType: 'vllm', vllmCachePvc: '/' })).toMatchObject({ problem: expect.stringMatching(/folder name/) });
+    expect(deployRequestFrom({ name: 'llm', appType: 'tabbyapi', tabbyCachePvc: '/etc' })).toMatchObject({ problem: expect.stringMatching(/folder name/) });
+    expect(deployRequestFrom({ name: 'llm', appType: 'tabbyapi', tabbyCachePvc: 'my-models' })).toEqual({ request: { name: 'llm', appType: 'tabbyapi', tabbyCachePvc: 'my-models' } });
+  });
+});

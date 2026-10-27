@@ -2,7 +2,7 @@ export { endpointRulesFromEnv } from './lib/endpoint-url-safety.js';
 export { inClusterBaseUrl, llmAppSpec, specFromTag } from './lib/llm-apps.js';
 export { computeModelFolderName } from './lib/model-folder-name.js';
 export { isModelKind, providerServing, sanitizeNamespace } from './lib/model-registry.js';
-export { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from './lib/tabby-cache-path.js';
+export { cacheFolderProblem, resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from './lib/tabby-cache-path.js';
 export { llmCredentialsRouter } from './routes/llm-credentials.js';
 export { modelsRouter } from './routes/models.js';
 export { ModelService } from './services/ModelService.js';
