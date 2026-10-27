@@ -11,7 +11,7 @@ import { machinePayloads, type GetAnswer, type PutAnswer, type RingAnswer } from
 import type { MachineTelemetry, TelemetryAnswer } from '../lib/machine-telemetry.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
 import type { MachineService } from '../services/MachineService.js';
-import type { ClusterService, AppService, InfrastructureService } from '../../infrastructure/index.js';
+import { podLogTarget, type ClusterService, type AppService, type InfrastructureService } from '../../infrastructure/index.js';
 
 const LOG_TAIL_LINES = 200;
 
@@ -154,7 +154,8 @@ export function wireSockets(deps: SocketsWiringDeps): void {
       const user = socket.data.user as UserMetadata | undefined;
       if (!user) return;
       const dep = await apps.getById(resourceId, user.id);
-      if (!dep) {
+      const target = dep ? podLogTarget(dep, { podName, namespace }) : undefined;
+      if (!dep || !target) {
         socket.emit('room-denied', { id: resourceId });
         return;
       }
@@ -170,7 +171,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
       const physicalName = clusters.getPhysicalClusterName(cluster);
       if (cluster.provider === 'k3d' || isMock) context = `k3d-${physicalName}`;
       const kubeconfigPath = await clusters.getKubeconfigPath(cluster);
-      const args = ['logs', '-n', namespace || 'default', podName, '--all-containers=true', '--tail=100', '-f'];
+      const args = ['logs', '-n', target.namespace, target.podName, '--all-containers=true', '--tail=100', '-f'];
       if (context) args.push('--context', context);
       infra.streamLogs(resourceId, args, io, `${resourceId}-kube`, kubeconfigPath);
     });

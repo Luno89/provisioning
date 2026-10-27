@@ -31,3 +31,12 @@ export function platformNamespaceProblem(namespace: string, platform: ReadonlySe
     ? `${namespace} is the platform's own namespace, so this app is not destroyed there; nothing was deleted`
     : undefined;
 }
+
+const POD_NAME = /^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$/;
+
+export function podLogTarget(dep: { name: string; namespace?: string | undefined }, asked: { podName?: unknown; namespace?: unknown }): { namespace: string; podName: string } | undefined {
+  const namespace = namespaceOf(dep);
+  if (asked.namespace !== undefined && asked.namespace !== '' && asked.namespace !== namespace) return undefined;
+  if (typeof asked.podName !== 'string' || !POD_NAME.test(asked.podName)) return undefined;
+  return { namespace, podName: asked.podName };
+}
