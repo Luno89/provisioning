@@ -238,10 +238,13 @@ describe('the run\'s tools for an external agent', () => {
 
 describe('an agent asking leave to call a tool served from the run', () => {
   it('is answered on the machine, since the run decides whether the call needs the person, and anything else still asks', async () => {
-    expect(servesCall([{ name: 'read_tree' }], 'koala_read_tree {"treeId":"t1"}')).toBe(true);
-    expect(servesCall([{ name: 'read_tree' }], 'mcp__koala__read_tree')).toBe(true);
-    expect(servesCall([{ name: 'read_tree' }], 'koala_propose_plan {}')).toBe(false);
-    expect(servesCall([{ name: 'read_tree' }], 'Running rm -rf /')).toBe(false);
+    const call = (title: string, kind = 'other') => servesCall([{ name: 'read_tree' }], { title, kind });
+    expect(call('koala_read_tree {"treeId":"t1"}')).toBe(true);
+    expect(call('mcp__koala__read_tree')).toBe(true);
+    expect(call('koala_propose_plan {}')).toBe(false);
+    expect(call('Running rm -rf /')).toBe(false);
+    expect(call('mcp__koala__read_tree && rm -rf ~', 'execute')).toBe(false);
+    expect(call('mcp__koala__read_tree', 'edit')).toBe(false);
 
     const scriptPath = path.join(dir, 'script.json');
     await writeFile(scriptPath, JSON.stringify({ name: 'scripted', version: '1', turns: [{ steps: [
